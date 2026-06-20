@@ -11,5 +11,6 @@
   "scope_segments": {},
   "unescape_products": [
     "zcc_"
-  ]
+  ],
+  "vendor": "zscaler"
 }
