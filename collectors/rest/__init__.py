@@ -43,21 +43,8 @@ def manifest_entry(resource_type):
 
 
 def obfuscate_api_key(api_key, timestamp):
-    """Port of the ZIA legacy key-obfuscation algorithm (public SDK).
-
-    timestamp is milliseconds-since-epoch as a string. Raises ValueError
-    on inputs too short to index, matching the SDK guard.
-    """
-    if len(timestamp) < 6 or len(api_key) < 12:
-        raise ValueError("timestamp or api key below required length")
-    high = timestamp[-6:]
-    low = "%06d" % (int(high) >> 1)
-    obfuscated = ""
-    for ch in high:
-        obfuscated += api_key[int(ch)]
-    for ch in low:
-        obfuscated += api_key[int(ch) + 2]
-    return obfuscated
+    from packs.zia import collector
+    return collector.obfuscate_api_key(api_key, timestamp)
 
 
 from urllib.parse import quote as _quote, urlencode
@@ -217,133 +204,49 @@ def paginate_zcc_v2(opener, url, headers, query, per_page=100, max_pages=100000)
     return items
 
 
-# The OAuth audience is NOT a dialable host — api.zscaler.com serves no
-# valid cert and exists only as the token-request audience value. The real
-# OneAPI gateway is api.zsapi.net (api.<cloud>.zsapi.net off production).
-_ONEAPI_AUDIENCE = "https://api.zscaler.com"
-
-# ZPA legacy config base per ZPA_CLOUD (zscaler-sdk-go). The Terraform
-# provider derives the SAME base from ZPA_CLOUD via the SDK, so deriving it
-# here keeps fetch and provider on the same host; hardcoding the production
-# base ignored ZPA_CLOUD and broke every non-production tenant (the ZS2 ZPA
-# 401). PRODUCTION (and empty) and ZPATWO are confirmed; BETA/GOV/GOVUS use
-# Zscaler's documented public hosts — confirm against the SDK constants and
-# pin with ZPA_LEGACY_BASE_URL if any is wrong for your tenant.
-_ZPA_LEGACY_BASES = {
-    "": "https://config.private.zscaler.com",
-    "PRODUCTION": "https://config.private.zscaler.com",
-    "ZPATWO": "https://config.zpatwo.net",
-    "BETA": "https://config.zpabeta.net",
-    "GOV": "https://config.zpagov.net",
-    "GOVUS": "https://config.zpagov.us",
-}
-
-
 def _oneapi_gateway(cloud):
-    norm = (cloud or "").strip().lower()
-    if norm in ("", "production"):
-        return "https://api.zsapi.net"
-    return "https://api.%s.zsapi.net" % norm
+    from packs._shared.zscaler import collector
+    return collector._oneapi_gateway(cloud)
 
 
 def _zpa_legacy_base_or_none(cloud):
-    """Mapped ZPA legacy base for `cloud`, or None if the cloud is unlisted
-    (callers decide whether that is fatal — fetch fails, --diag shows a
-    placeholder)."""
-    return _ZPA_LEGACY_BASES.get((cloud or "").strip().upper())
+    from packs.zpa import collector
+    return collector._zpa_legacy_base_or_none(cloud)
 
 
 def _legacy_zpa_base(cloud):
-    """ZPA legacy config base for ZPA_CLOUD; raises if the cloud is unlisted.
-
-    For a private/unlisted cloud, set ZPA_LEGACY_BASE_URL to override.
-    """
-    base = _zpa_legacy_base_or_none(cloud)
-    if base is None:
-        raise SystemExit(
-            "unknown ZPA_CLOUD %r for the legacy config base — set "
-            "ZPA_LEGACY_BASE_URL to the correct https://config.<cloud> host "
-            "(known clouds: %s)"
-            % (cloud, ", ".join(k for k in _ZPA_LEGACY_BASES if k)))
-    return base
+    from packs.zpa import collector
+    return collector._legacy_zpa_base(cloud)
 
 
 def _legacy_zia_base(cloud):
-    """ZIA legacy base for ZIA_CLOUD: https://zsapi.<cloud>.net.
-
-    An empty cloud would build https://zsapi..net — a malformed host that
-    surfaces downstream as an opaque provider crash, so fail loud here.
-    """
-    if not cloud:
-        raise SystemExit(
-            "ZIA_CLOUD is required in legacy mode (e.g. zscalertwo) — it "
-            "selects the ZIA host https://zsapi.<cloud>.net")
-    return "https://zsapi.%s.net" % cloud
+    from packs.zia import collector
+    return collector._legacy_zia_base(cloud)
 
 
 def host_overrides(env):
-    """The host-override ctx keys resolved from the environment (empty value
-    == derive from the cloud). Shared by the fetcher and the audit attribution
-    flow so the two never drift on which overrides they honor — both compose
-    URLs and acquire tokens through the same helpers, which read these keys.
-    Overrides exist only for the legacy base hosts, whose per-cloud derivation
-    is irregular (and where the ZPA production-host bug lived); the OneAPI
-    gateway/token hosts derive regularly from cloud+vanity and are not
-    override-able. See tools/FETCH.md 'Host overrides'.
-    """
-    return {
-        "zpa_cloud": env.get("ZPA_CLOUD", ""),
-        "zia_legacy_base": env.get("ZIA_LEGACY_BASE_URL", ""),
-        "zpa_legacy_base": env.get("ZPA_LEGACY_BASE_URL", ""),
-    }
+    from packs._shared.zscaler import collector
+    return collector.host_overrides(env)
 
 
 def _gateway_for(ctx):
-    """OneAPI gateway base, derived from the cloud."""
-    return _oneapi_gateway(ctx.get("cloud", ""))
+    from packs._shared.zscaler import collector
+    return collector._gateway_for(ctx)
 
 
 def _zia_legacy_base_for(ctx):
-    """Legacy ZIA base: ZIA_LEGACY_BASE_URL override wins over derivation."""
-    return ctx.get("zia_legacy_base") or _legacy_zia_base(ctx.get("cloud", ""))
+    from packs.zia import collector
+    return collector._zia_legacy_base_for(ctx)
 
 
 def _zpa_legacy_base_for(ctx):
-    """Legacy ZPA base: ZPA_LEGACY_BASE_URL override wins over derivation."""
-    return ctx.get("zpa_legacy_base") or _legacy_zpa_base(ctx.get("zpa_cloud", ""))
+    from packs.zpa import collector
+    return collector._zpa_legacy_base_for(ctx)
 
 
 def compose_url(auth_mode, product, path, ctx):
-    """Compose the product base URL + resource path for the auth mode.
-
-    ctx carries cloud/customer_id and, optionally, the legacy base overrides
-    (zia_legacy_base / zpa_legacy_base) that win over cloud-derivation. All
-    Zscaler-specific URL shapes are SDK-derived; a wrong literal is a
-    one-line fix or (for the legacy bases) an env override.
-
-    ZCC is OneAPI-only (no legacy path). Its registry path carries the full
-    post-gateway prefix (zcc/papi/public/v1/...) and the OneAPI gateway
-    routes by the /zcc/ prefix, so the path is used verbatim.
-    """
-    if auth_mode == "oneapi":
-        gateway = _gateway_for(ctx)
-        if product == "zia":
-            return "%s/zia/api/v1/%s" % (gateway, path)
-        if product == "zpa":
-            return "%s/zpa/mgmtconfig/v1/admin/customers/%s/%s" % (
-                gateway, ctx["customer_id"], path
-            )
-        if product == "zcc":
-            return "%s/%s" % (gateway, path)
-    elif auth_mode == "legacy":
-        if product == "zia":
-            return "%s/api/v1/%s" % (_zia_legacy_base_for(ctx), path)
-        if product == "zpa":
-            return "%s/mgmtconfig/v1/admin/customers/%s/%s" % (
-                _zpa_legacy_base_for(ctx), ctx["customer_id"], path
-            )
-        # ZCC has no legacy path — OneAPI-only — falls through to the error.
-    raise ValueError("unknown auth_mode/product: %r/%r" % (auth_mode, product))
+    from engine import packs
+    return packs.collector_for(product).compose_url(auth_mode, path, ctx)
 
 
 def build_headers(token):
@@ -483,6 +386,8 @@ def expand_paths(entry):
 
 def _fetch_paths(entry, auth_mode, ctx, token, opener):
     product = entry["product"]
+    from engine import packs
+    collector = packs.collector_for(product)
     headers = build_headers(token)
     query = entry.get("query") or {}
     paginate = _PAGINATORS[entry.get("pagination", product)]
@@ -491,7 +396,7 @@ def _fetch_paths(entry, auth_mode, ctx, token, opener):
         kwargs["envelope"] = entry["envelope"]
     items = []
     for path in expand_paths(entry):
-        url = compose_url(auth_mode, product, path, ctx)
+        url = collector.compose_url(auth_mode, path, ctx)
         items.extend(paginate(opener, url, headers, query, **kwargs))
     return items
 
@@ -537,77 +442,14 @@ def auth_mode_from_env(env):
 
 
 def _zslogin_host(vanity, cloud):
-    """OneAPI token host. Production (empty/PRODUCTION cloud) has no suffix;
-    other clouds lowercase into the host, per the SDK."""
-    norm = (cloud or "").strip().lower()
-    suffix = "" if norm in ("", "production") else norm
-    return "https://%s.zslogin%s.net" % (vanity, suffix)
+    from packs._shared.zscaler import collector
+    return collector._zslogin_host(vanity, cloud)
 
 
 def acquire_token(auth_mode, product, env, ctx, opener, now_ms=None):
-    """Acquire auth for one product. Returns a bearer token string, or None
-    for legacy-ZIA (cookie-based; the cookie lives in the opener).
-
-    env is a dict (os.environ at the call site) so tests stay hermetic.
-    """
-    if auth_mode == "oneapi":
-        # The token host derives from the vanity + cloud, matching the gateway
-        # the data calls use.
-        token_url = _zslogin_host(
-            _require(env, "ZSCALER_VANITY_DOMAIN"), env.get("ZSCALER_CLOUD", "")
-        ) + "/oauth2/v1/token"
-        body = urlencode({
-            "grant_type": "client_credentials",
-            "client_id": _require(env, "ZSCALER_CLIENT_ID"),
-            "client_secret": _require(env, "ZSCALER_CLIENT_SECRET"),
-            "audience": _ONEAPI_AUDIENCE,
-        }).encode()
-        status, raw = opener(
-            "POST", token_url,
-            {"Content-Type": "application/x-www-form-urlencoded"}, body,
-        )
-        if status != 200:
-            raise SystemExit("OneAPI token request failed: HTTP %d" % status)
-        return _token_field(raw, "access_token", "OneAPI token")
-
-    if auth_mode == "legacy":
-        if product == "zpa":
-            # signin must hit the same config base as the data calls (ctx
-            # override wins over ZPA_CLOUD derivation).
-            url = "%s/signin" % _zpa_legacy_base_for(ctx)
-            body = urlencode({
-                "client_id": _require(env, "ZPA_CLIENT_ID"),
-                "client_secret": _require(env, "ZPA_CLIENT_SECRET"),
-            }).encode()
-            status, raw = opener(
-                "POST", url,
-                {"Content-Type": "application/x-www-form-urlencoded"}, body,
-            )
-            if status != 200:
-                raise SystemExit("ZPA signin failed: HTTP %d" % status)
-            return _token_field(raw, "access_token", "ZPA signin")
-        if product == "zia":
-            ts = str(now_ms if now_ms is not None else int(time.time() * 1000))
-            url = "%s/api/v1/authenticatedSession" % _zia_legacy_base_for(ctx)
-            payload = json.dumps({
-                "apiKey": obfuscate_api_key(_require(env, "ZIA_API_KEY"), ts),
-                "username": _require(env, "ZIA_USERNAME"),
-                "password": _require(env, "ZIA_PASSWORD"),
-                "timestamp": ts,
-            }).encode()
-            status, raw = opener(
-                "POST", url, {"Content-Type": "application/json"}, payload
-            )
-            if status != 200:
-                raise SystemExit("ZIA session auth failed: HTTP %d" % status)
-            return None
-        if product == "zcc":
-            # ZCC is OneAPI-only — there is no legacy mobile-portal path here.
-            # Caught per-product by fetch_all; the message names the fix.
-            raise SystemExit(
-                "ZCC has no legacy auth path — it is OneAPI-only. Use OneAPI, "
-                "or scope ZCC out of legacy runs with RESOURCE=\"zia zpa\".")
-    raise SystemExit("unknown auth mode %r" % auth_mode)
+    from engine import packs
+    return packs.collector_for(product).acquire(
+        auth_mode, env, ctx, opener, now_ms=now_ms)
 
 
 def products_in_manifest():
@@ -867,6 +709,12 @@ def expand_selectors(args):
     return out
 
 
+def _auth_identity(auth_mode, product):
+    if auth_mode == "oneapi":
+        return "oneapi"
+    return "%s:%s" % (auth_mode, product)
+
+
 def fetch_all(auth_mode, env, ctx, opener, out_dir, only=None):
     """Fetch every registered resource, completing what it can.
 
@@ -883,13 +731,24 @@ def fetch_all(auth_mode, env, ctx, opener, out_dir, only=None):
     wanted = sorted(only) if only else sorted(load_manifest())
     needed_products = set(manifest_entry(rt)["product"] for rt in wanted)
     tokens = {}
+    token_keys = {}
+    failed_auth = {}
     failed_products = {}
+    from engine import packs
     for product in products_in_manifest():
         if product not in needed_products:
             continue
+        token_key = _auth_identity(auth_mode, product)
+        token_keys[product] = token_key
+        if token_key in failed_auth:
+            failed_products[product] = failed_auth[token_key]
+            continue
         try:
-            tokens[product] = acquire_token(auth_mode, product, env, ctx, opener)
+            if token_key not in tokens:
+                tokens[token_key] = packs.collector_for(product).acquire(
+                    auth_mode, env, ctx, opener)
         except SystemExit as e:
+            failed_auth[token_key] = str(e)
             failed_products[product] = str(e)
     os.makedirs(out_dir, exist_ok=True)
     failures = {}
@@ -902,7 +761,7 @@ def fetch_all(auth_mode, env, ctx, opener, out_dir, only=None):
             continue
         try:
             items = fetch_resource(
-                resource_type, auth_mode, ctx, tokens[product], opener
+                resource_type, auth_mode, ctx, tokens[token_keys[product]], opener
             )
         except (RuntimeError, SystemExit, ValueError) as e:
             status = _http_status_from_error(str(e))

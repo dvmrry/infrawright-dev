@@ -8,6 +8,7 @@ the merged tables plus the active pack root the engine reads data from.
 
 Stdlib-only, Python 3.6-floor.
 """
+import importlib
 import json
 import os
 
@@ -117,6 +118,15 @@ def provider_of(resource_type):
         if resource_type.startswith(prefix):
             return prefixes[prefix]
     return resource_type.split("_", 1)[0]
+
+
+def collector_for(provider):
+    """Collector module for a provider pack.
+
+    Provider collectors live at packs/<provider>/collector.py and expose the
+    small auth/URL contract consumed by collectors.rest.
+    """
+    return importlib.import_module("packs.%s.collector" % provider)
 
 
 def _registry_packs():
