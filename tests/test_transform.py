@@ -1166,6 +1166,11 @@ class MovedBlocksTest(unittest.TestCase):
 class MovedBlocksEndToEndTest(unittest.TestCase):
     TENANT = "tmpmovestest"
 
+    def _imports_dir(self, resource_type):
+        from engine import deployment
+        from engine import packs
+        return deployment.imports_dir(self.TENANT, packs.provider_of(resource_type))
+
     def test_rename_between_transforms_stages_moves_file(self):
         import shutil
         import tempfile
@@ -1173,6 +1178,7 @@ class MovedBlocksEndToEndTest(unittest.TestCase):
 
         self.addCleanup(shutil.rmtree, os.path.join("config", self.TENANT), True)
         self.addCleanup(shutil.rmtree, os.path.join("imports", self.TENANT), True)
+        self.addCleanup(shutil.rmtree, self.TENANT, True)
         with tempfile.TemporaryDirectory() as td:
             src = os.path.join(td, "in.json")
             with open(src, "w", encoding="utf-8") as f:
@@ -1180,7 +1186,7 @@ class MovedBlocksEndToEndTest(unittest.TestCase):
             self.assertEqual(
                 transform_main(["zia_rule_labels", src, self.TENANT]), 0)
             moves_path = os.path.join(
-                "imports", self.TENANT, "zia_rule_labels_moves.tf")
+                self._imports_dir("zia_rule_labels"), "zia_rule_labels_moves.tf")
             self.assertFalse(os.path.exists(moves_path), "no rename yet")
             # the console rename: same id, new name -> new derived key
             with open(src, "w", encoding="utf-8") as f:
@@ -1203,8 +1209,9 @@ class MovedBlocksEndToEndTest(unittest.TestCase):
 
         self.addCleanup(shutil.rmtree, os.path.join("config", self.TENANT), True)
         self.addCleanup(shutil.rmtree, os.path.join("imports", self.TENANT), True)
+        self.addCleanup(shutil.rmtree, self.TENANT, True)
         moves_path = os.path.join(
-            "imports", self.TENANT, "zia_rule_labels_moves.tf")
+            self._imports_dir("zia_rule_labels"), "zia_rule_labels_moves.tf")
         with tempfile.TemporaryDirectory() as td:
             src = os.path.join(td, "in.json")
             # run 1: baseline
