@@ -1,0 +1,137 @@
+"""End-to-end pipeline test over demo data derived from Zscaler's own
+public SDK test cassettes (see fixtures/demo/README.md). Catches
+realistic-shape regressions the hand-built fixtures may miss."""
+import json
+import os
+import unittest
+
+from engine.registry import derive_entry, generated_types
+from engine.tfschema import classify_attributes, load_resource
+from engine.transform import (
+    derive_reorder,
+    load_override,
+    render_imports,
+    render_tfvars,
+    transform_items,
+)
+
+DEMO_DIR = os.path.join("tests", "fixtures", "demo")
+DEMO_EXPECTED_DIR = os.path.join("tests", "fixtures", "demo-expected")
+
+
+def _demo_types():
+    if not os.path.isdir(DEMO_DIR):
+        return []
+    return sorted(
+        f[:-len(".json")] for f in os.listdir(DEMO_DIR) if f.endswith(".json")
+    )
+
+
+class DemoPipelineTest(unittest.TestCase):
+    def test_demo_files_are_generated_types(self):
+        demo = _demo_types()
+        generated = set(generated_types())
+        extra = sorted(rt for rt in demo if rt not in generated)
+        self.assertEqual(extra, [], "demo fixtures for non-generated types: %r" % extra)
+        for rt in generated_types():
+            derive = derive_entry(rt)
+            if derive:
+                # A derived type has no fixture of its own — its demo coverage
+                # is the SOURCE fixture (+ the derive test below).
+                self.assertIn(
+                    derive["from"], demo,
+                    "%s derives from %s but there is no demo fixture for it"
+                    % (rt, derive["from"]),
+                )
+
+    def test_derived_demo_config_matches_source_order(self):
+        # The reorder config is derived from the access-rule demo fixture's
+        # ruleOrder; assert it round-trips deterministically and carries one
+        # {id, order} per source rule, keyed by policy_type, with no `id`.
+        for rt in generated_types():
+            derive = derive_entry(rt)
+            if not derive:
+                continue
+            with open(os.path.join(DEMO_DIR, derive["from"] + ".json"),
+                      encoding="utf-8") as f:
+                source = json.load(f)
+            items = derive_reorder(source, derive)
+            self.assertEqual(render_tfvars(items),
+                             render_tfvars(derive_reorder(source, derive)), rt)
+            self.assertEqual(list(items), [derive["policy_type"]], rt)
+            entry = items[derive["policy_type"]]
+            self.assertNotIn("id", entry)
+            self.assertEqual(len(entry["rules"]), len(source), rt)
+            for r in entry["rules"]:
+                self.assertEqual(set(r), {"id", "order"}, rt)
+
+    def test_pipeline_handles_demo_data(self):
+        for rt in _demo_types():
+            with open(os.path.join(DEMO_DIR, rt + ".json"), encoding="utf-8") as f:
+                raw = json.load(f)
+            self.assertTrue(raw, "%s demo file is empty" % rt)
+            override = load_override(rt)
+            items, originals, drops = transform_items(raw, rt, override)
+            if not items:
+                # Empty output is legitimate ONLY when every raw item
+                # matched a skip_if matcher (e.g. ssl_inspection demo data
+                # is entirely predefined one-click rules). Anything else
+                # empty means silent loss — still a failure.
+                from engine.transform import _skip_item, snake_keys
+
+                self.assertTrue(
+                    all(_skip_item(snake_keys(r), override) for r in raw),
+                    "%s produced no items and not all raw items were "
+                    "skip_if-matched — silent loss" % rt,
+                )
+            # determinism: byte-identical double run
+            again, _, _ = transform_items(raw, rt, override)
+            self.assertEqual(render_tfvars(items), render_tfvars(again), rt)
+            # every emitted key is a module input
+            block = load_resource(rt)["block"]
+            cls = classify_attributes(block)
+            allowed = set(cls["required"] + cls["optional"]) | set(
+                (block.get("block_types") or {})
+            )
+            for key, item in items.items():
+                unknown = set(item) - allowed
+                self.assertEqual(
+                    unknown, set(),
+                    "%s item %r emitted non-input keys %r" % (rt, key, unknown),
+                )
+            # imports render with the resource's template (an all-skipped
+            # resource legitimately has nothing to import)
+            text = render_imports(rt, originals, override)
+            if items:
+                self.assertIn('module.%s.%s.this[' % (rt, rt), text)
+            else:
+                self.assertEqual(text, "")
+
+    def test_demo_output_matches_blessed_goldens(self):
+        for rt in _demo_types():
+            with open(os.path.join(DEMO_DIR, rt + ".json"), encoding="utf-8") as f:
+                raw = json.load(f)
+            override = load_override(rt)
+            items, originals, _ = transform_items(raw, rt, override)
+
+            tfvars_path = os.path.join(DEMO_EXPECTED_DIR, rt + ".tfvars.json")
+            imports_path = os.path.join(DEMO_EXPECTED_DIR, rt + "_imports.tf")
+            with open(tfvars_path, encoding="utf-8") as f:
+                expected_tfvars = f.read()
+            with open(imports_path, encoding="utf-8") as f:
+                expected_imports = f.read()
+
+            self.assertEqual(
+                render_tfvars(items),
+                expected_tfvars,
+                "%s tfvars golden drifted — rebless via make update-demo-goldens after intentional changes" % rt,
+            )
+            self.assertEqual(
+                render_imports(rt, originals, override),
+                expected_imports,
+                "%s imports golden drifted — rebless via make update-demo-goldens after intentional changes" % rt,
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()
