@@ -304,7 +304,7 @@ def render_test(resource_type, resource_schema):
     )
 
 
-OVERRIDES_ROOT = os.path.join("packs", "zscaler", "overrides")
+OVERRIDES_ROOT = os.path.join(packs.pack_root(), "overrides")
 MODULES_ROOT = "modules"
 
 

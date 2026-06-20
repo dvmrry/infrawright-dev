@@ -828,7 +828,7 @@ def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     if len(argv) != 3:
         sys.stderr.write(
-            "usage: python -m tools.transform <resource_type> <input.json> <tenant>\n"
+            "usage: python -m engine.transform <resource_type> <input.json> <tenant>\n"
         )
         return 2
     resource_type, input_path, tenant = argv
