@@ -43,7 +43,7 @@ class RegistryTest(unittest.TestCase):
             self.assertIn(e["product"], ("zcc", "zia", "zpa"), rt)
 
     def test_generators_and_fetch_consume_registry(self):
-        import engine.fetch as fetch
+        import collectors.rest as fetch
         for rt in generated_types():
             self.assertIn(rt, load_registry())
         self.assertEqual(sorted(fetch.products_in_manifest()), ["zcc", "zia", "zpa"])
