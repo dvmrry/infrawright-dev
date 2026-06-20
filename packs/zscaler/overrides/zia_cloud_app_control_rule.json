@@ -1,0 +1,59 @@
+{
+  "acknowledged_drops": [
+    "access_control",
+    "cbi_profile[].default_profile",
+    "cbi_profile[].profile_seq",
+    "cbi_profile[].sandbox_mode",
+    "cloud_app_instances.name",
+    "cloud_app_instances.type",
+    "cloud_app_risk_profile[].name",
+    "departments.name",
+    "device_groups.name",
+    "devices.name",
+    "groups.name",
+    "id",
+    "labels.name",
+    "last_modified_by",
+    "last_modified_time",
+    "location_groups.name",
+    "locations.is_name_l10n_tag",
+    "locations.name",
+    "number_of_applications",
+    "predefined",
+    "prompt_capture_enabled",
+    "tenancy_profile_ids.name",
+    "time_windows.name",
+    "users.deleted",
+    "users.name"
+  ],
+  "divide": {
+    "size_quota": 1024
+  },
+  "drop_if_default": {
+    "size_quota": 0,
+    "time_quota": 0
+  },
+  "import_id": "{type}:{id}",
+  "key_field": [
+    "type",
+    "name"
+  ],
+  "ranges": {
+    "size_quota": [
+      10,
+      100000
+    ],
+    "time_quota": [
+      15,
+      600
+    ]
+  },
+  "skip_if": [
+    {
+      "default_rule": true
+    },
+    {
+      "predefined": true
+    }
+  ]
+}

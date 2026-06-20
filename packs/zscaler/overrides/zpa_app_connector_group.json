@@ -1,0 +1,43 @@
+{
+  "acknowledged_drops": [
+    "connector_group_type",
+    "connectors",
+    "creation_time",
+    "geo_location_id",
+    "id",
+    "microtenant_name",
+    "modified_by",
+    "modified_time",
+    "name_without_trim",
+    "np_assistant_group",
+    "read_only",
+    "restriction_type",
+    "selected_upgrade_priority",
+    "server_groups",
+    "site_id",
+    "site_name",
+    "upgrade_priorities",
+    "upgrade_priority",
+    "version",
+    "version_profile_visibility_scope",
+    "zscaler_managed"
+  ],
+  "drop_if_default": {
+    "microtenant_id": "0"
+  },
+  "import_id": "{id}",
+  "no_html_unescape": true,
+  "ranges": {
+    "latitude": [
+      -90,
+      90
+    ],
+    "longitude": [
+      -180,
+      180
+    ]
+  },
+  "renames": {
+    "signing_cert_id": "enrollment_cert_id"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "acknowledged_drops": [
+    "added_apps",
+    "application_names",
+    "config_space",
+    "creation_time",
+    "deleted_apps",
+    "id",
+    "microtenant_name",
+    "modified_by",
+    "modified_time",
+    "policy_migrated",
+    "read_only",
+    "tcp_keep_alive_enabled",
+    "zscaler_managed"
+  ],
+  "drop_if_default": {
+    "microtenant_id": "0"
+  },
+  "drops": [
+    "applications"
+  ],
+  "import_id": "{id}"
+}

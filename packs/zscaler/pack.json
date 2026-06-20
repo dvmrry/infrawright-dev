@@ -1,0 +1,6 @@
+{
+  "provider_prefixes": {"zia_": "zia", "zpa_": "zpa", "zcc_": "zcc"},
+  "provider_sources": {"zia": "zscaler/zia", "zpa": "zscaler/zpa", "zcc": "zscaler/zcc"},
+  "unescape_products": ["zpa_", "zcc_"],
+  "scope_segments": {"zpa": "ZPA_CUSTOMER_ID"}
+}

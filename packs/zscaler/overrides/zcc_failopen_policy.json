@@ -1,0 +1,17 @@
+{
+  "acknowledged_drops": [
+    "company_id",
+    "created_by",
+    "edited_by",
+    "id"
+  ],
+  "import_id": "{id}",
+  "invert_bool": [
+    "active",
+    "enable_web_sec_on_proxy_unreachable",
+    "enable_web_sec_on_tunnel_failure",
+    "enable_captive_portal_detection",
+    "enable_fail_open"
+  ],
+  "key_field": "id"
+}
