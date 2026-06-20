@@ -2,13 +2,31 @@
 
 **Driftless infrastructure management across providers.**
 
-infrawright turns a live provider's resources into modular Terraform / OpenTofu —
-typed `map(object)` variables, native `import {}` blocks, and **identity-keyed
-`moved {}` reconciliation** that survives console renames without destroy/recreate.
+infrawright reads a live provider's resources and emits modular Terraform / OpenTofu
+that **imports what already exists without recreating it** — typed `map(object)`
+variables, native `import {}` blocks, and **identity-keyed `moved {}` reconciliation**
+so console renames and key changes resolve as *moves*, never destroy/recreate. A clean
+`terraform plan` against your real state is the contract.
 
 The engine carries **zero vendor knowledge**. Each provider is a **pack** under
-`packs/<name>/` supplying its own collector, registry, overrides, and schema.
-Zscaler is the reference pack (zero-drift baseline); Cloudflare is next.
+`packs/<name>/` supplying its own collector, registry, overrides, and schema — the same
+engine drives any provider. Zscaler is the reference pack (byte-identical, zero-drift
+baseline); Cloudflare is next.
+
+## Why it's safe to point at production
+
+The fragile part of adopting IaC over live infrastructure is the Terraform **state** — a
+resource key that shifts between runs reads as *destroy + recreate*, which on a real
+tenant is an outage, not a diff. infrawright is built to keep the state stable:
+
+- **Stable identity-derived keys** — the same live resource maps to the same `["key"]`
+  every run, so its state address never moves.
+- **Automatic `moved {}` reconciliation** — when a key *does* change, it's emitted as a
+  move, not a recreate.
+- **Deterministic, verified output** — `make check` proves the generated config,
+  imports, and modules are byte-stable.
+
+The acceptance bar isn't "0 to change" — it's **0 to destroy, 0 to create** after import.
 
 ## Layout
 
@@ -16,15 +34,22 @@ Zscaler is the reference pack (zero-drift baseline); Cloudflare is next.
 |------|------|
 | `engine/` | vendor-agnostic: transform → modular TF + `import` + `moved` reconciliation |
 | `collectors/rest/` | shared token-REST fetch base (provider collectors lean on it) |
-| `packs/<name>/` | a provider bundle: `pack.json` manifest + `registry.json` + `overrides/` + `schemas/` + collector |
+| `packs/<name>/` | a provider bundle: `pack.json` + `registry.json` + `overrides/` + `schemas/` + collector |
+
+## Quickstart
+
+```
+make check      # full gate: unit tests + byte-identical demo + module reproduction
+make demo       # materialize the demo tenant (no credentials needed)
+```
 
 ## Status
 
-Phase 1 — Zscaler pack reproduces its demo tenant **byte-identically** through the
-agnosticized engine (`make demo`). Phase 2 — Cloudflare pack (`nested_type` / `map`
-nesting engine support + the CF collector).
+**0.1 — Zscaler** (`zia` · `zpa` · `zcc`): reproduces its demo tenant byte-identically
+through the agnosticized engine; provider-first packs; identity-keyed reconciliation.
+Cloudflare (tier-1 resources) is in progress on a branch.
 
 ## License
 
-[FSL-1.1-Apache-2.0](LICENSE) — source-available; converts to Apache 2.0 two years
-after each release.
+[FSL-1.1-Apache-2.0](LICENSE) — source-available; converts to Apache 2.0 two years after
+each release.
