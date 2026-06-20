@@ -105,6 +105,14 @@ def product_tokens():
     return sorted(set(provider_prefixes().values()))
 
 
+def auth_config(provider):
+    """Auth metadata declared by the pack that owns `provider`, if any."""
+    for m in _manifests():
+        if provider in m.get("provider_prefixes", {}).values():
+            return dict(m.get("auth") or {})
+    return {}
+
+
 def provider_of(resource_type):
     """Resolve a resource type to its provider short-name.
 
@@ -222,12 +230,18 @@ def adoption_status_paths():
     return sorted(out)
 
 
-def schema_extract_path():
-    """The sole schema-extract/main.tf under packs/ (the schema-dump pin source
-    for `make schemas`; vendor-shared in _shared/ today)."""
+def schema_extract_paths():
+    """Every schema-extract/main.tf under packs/."""
+    out = []
     root = packs_root()
     if os.path.isdir(root):
         for dirpath, _dirs, files in os.walk(root):
             if "main.tf" in files and os.path.basename(dirpath) == "schema-extract":
-                return os.path.join(dirpath, "main.tf")
-    return None
+                out.append(os.path.join(dirpath, "main.tf"))
+    return sorted(out)
+
+
+def schema_extract_path():
+    """First schema-extract/main.tf under packs/, for legacy callers."""
+    paths = schema_extract_paths()
+    return paths[0] if paths else None

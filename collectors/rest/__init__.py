@@ -204,6 +204,52 @@ def paginate_zcc_v2(opener, url, headers, query, per_page=100, max_pages=100000)
     return items
 
 
+def _cf_result_items(payload, url):
+    """Cloudflare v4 envelope -> result list."""
+    if not isinstance(payload, dict):
+        raise RuntimeError("Cloudflare %s did not return a JSON object" % url)
+    if payload.get("success") is False:
+        raise RuntimeError("Cloudflare %s returned success=false" % url)
+    items = payload.get("result") or []
+    if not isinstance(items, list):
+        raise RuntimeError("Cloudflare %s did not return a list page" % url)
+    return items
+
+
+def paginate_cf_page(opener, url, headers, query, per_page=100):
+    """Cloudflare v4 page pagination: {result, result_info:{page,total_pages}}."""
+    items = []
+    page = 1
+    while True:
+        q = dict(query)
+        q.update({"page": page, "per_page": per_page})
+        payload = _get_json(opener, url, headers, q)
+        items.extend(_cf_result_items(payload, url))
+        info = payload.get("result_info") or {}
+        current = int(info.get("page") or page)
+        total = int(info.get("total_pages") or current)
+        if current >= total:
+            return items
+        page = current + 1
+
+
+def paginate_cf_cursor(opener, url, headers, query):
+    """Cloudflare v4 cursor pagination using result_info.cursors.after."""
+    items = []
+    cursor = None
+    while True:
+        q = dict(query)
+        if cursor:
+            q["cursor"] = cursor
+        payload = _get_json(opener, url, headers, q)
+        items.extend(_cf_result_items(payload, url))
+        info = payload.get("result_info") or {}
+        cursors = info.get("cursors") or {}
+        cursor = cursors.get("after")
+        if not cursor:
+            return items
+
+
 def _oneapi_gateway(cloud):
     from packs._shared.zscaler import collector
     return collector._oneapi_gateway(cloud)
@@ -359,6 +405,8 @@ def real_opener(env=None):
 
 
 _PAGINATORS = {
+    "cf_cursor": paginate_cf_cursor,
+    "cf_page": paginate_cf_page,
     "zia": paginate_zia,
     "zpa": paginate_zpa,
     "single": paginate_single,
@@ -384,12 +432,23 @@ def expand_paths(entry):
     return [path.replace(token, _quote(value, safe="")) for value in expand[key]]
 
 
+def resolve_query(query, ctx):
+    """Resolve simple {ctx_key} placeholders in registry query values."""
+    out = {}
+    for key, value in (query or {}).items():
+        if isinstance(value, str):
+            out[key] = value.format(**ctx)
+        else:
+            out[key] = value
+    return out
+
+
 def _fetch_paths(entry, auth_mode, ctx, token, opener):
     product = entry["product"]
     from engine import packs
     collector = packs.collector_for(product)
     headers = build_headers(token)
-    query = entry.get("query") or {}
+    query = resolve_query(entry.get("query") or {}, ctx)
     paginate = _PAGINATORS[entry.get("pagination", product)]
     kwargs = {}
     if entry.get("envelope") and paginate is paginate_zia:
@@ -403,7 +462,13 @@ def _fetch_paths(entry, auth_mode, ctx, token, opener):
 
 def fetch_resource(resource_type, auth_mode, ctx, token, opener):
     """List one resource type into a list of detail-shaped dicts."""
-    return _fetch_paths(manifest_entry(resource_type), auth_mode, ctx, token, opener)
+    entry = manifest_entry(resource_type)
+    from engine import packs
+    collector = packs.collector_for(entry["product"])
+    hook = getattr(collector, "fetch_resource", None)
+    if hook is not None:
+        return hook(resource_type, entry, auth_mode, ctx, token, opener)
+    return _fetch_paths(entry, auth_mode, ctx, token, opener)
 
 
 def _require(env, name):
@@ -448,12 +513,22 @@ def _zslogin_host(vanity, cloud):
 
 def acquire_token(auth_mode, product, env, ctx, opener, now_ms=None):
     from engine import packs
+    auth_mode = auth_mode_for_product(auth_mode, product)
     return packs.collector_for(product).acquire(
         auth_mode, env, ctx, opener, now_ms=now_ms)
 
 
 def products_in_manifest():
     return sorted({e["product"] for e in load_manifest().values()})
+
+
+def auth_mode_for_product(auth_mode, product):
+    """Global Zscaler auth mode, unless a pack declares its own token auth."""
+    from engine import packs
+    auth = packs.auth_config(product)
+    if auth.get("mode") == "own" and auth.get("token_env"):
+        return "token"
+    return auth_mode
 
 
 def _host_of(url):
@@ -668,7 +743,12 @@ def main(argv=None):
         customer_id = _require(env, "ZPA_CUSTOMER_ID")
     else:
         customer_id = env.get("ZPA_CUSTOMER_ID", "")
+    if "cloudflare" in needed_products:
+        account_id = _require(env, "CLOUDFLARE_ACCOUNT_ID")
+    else:
+        account_id = env.get("CLOUDFLARE_ACCOUNT_ID", "")
     ctx = {
+        "account_id": account_id,
         "cloud": env.get("ZIA_CLOUD", "") or env.get("ZSCALER_CLOUD", ""),
         "customer_id": customer_id,
     }
@@ -732,13 +812,16 @@ def fetch_all(auth_mode, env, ctx, opener, out_dir, only=None):
     needed_products = set(manifest_entry(rt)["product"] for rt in wanted)
     tokens = {}
     token_keys = {}
+    product_auth_modes = {}
     failed_auth = {}
     failed_products = {}
     from engine import packs
     for product in products_in_manifest():
         if product not in needed_products:
             continue
-        token_key = _auth_identity(auth_mode, product)
+        product_auth_mode = auth_mode_for_product(auth_mode, product)
+        product_auth_modes[product] = product_auth_mode
+        token_key = _auth_identity(product_auth_mode, product)
         token_keys[product] = token_key
         if token_key in failed_auth:
             failed_products[product] = failed_auth[token_key]
@@ -746,7 +829,7 @@ def fetch_all(auth_mode, env, ctx, opener, out_dir, only=None):
         try:
             if token_key not in tokens:
                 tokens[token_key] = packs.collector_for(product).acquire(
-                    auth_mode, env, ctx, opener)
+                    product_auth_mode, env, ctx, opener)
         except SystemExit as e:
             failed_auth[token_key] = str(e)
             failed_products[product] = str(e)
@@ -761,7 +844,8 @@ def fetch_all(auth_mode, env, ctx, opener, out_dir, only=None):
             continue
         try:
             items = fetch_resource(
-                resource_type, auth_mode, ctx, tokens[token_keys[product]], opener
+                resource_type, product_auth_modes[product],
+                ctx, tokens[token_keys[product]], opener
             )
         except (RuntimeError, SystemExit, ValueError) as e:
             status = _http_status_from_error(str(e))

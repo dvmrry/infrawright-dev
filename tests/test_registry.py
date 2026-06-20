@@ -14,10 +14,11 @@ from engine.registry import (
 
 class RegistryTest(unittest.TestCase):
     def test_generated_types_sorted(self):
-        self.assertEqual(
-            generated_types(),
-            sorted(provider_resources()),
-        )
+        generated = generated_types()
+        schemas = provider_resources()
+        self.assertEqual(generated, sorted(generated))
+        for rt in generated:
+            self.assertIn(rt, schemas)
 
     def test_derived_resource_has_no_fetch(self):
         # a derived resource is generated from another's pull, never fetched
@@ -40,13 +41,16 @@ class RegistryTest(unittest.TestCase):
 
     def test_every_entry_has_product(self):
         for rt, e in load_registry().items():
-            self.assertIn(e["product"], ("zcc", "zia", "zpa"), rt)
+            self.assertIn(e["product"], ("cloudflare", "zcc", "zia", "zpa"), rt)
 
     def test_generators_and_fetch_consume_registry(self):
         import collectors.rest as fetch
         for rt in generated_types():
             self.assertIn(rt, load_registry())
-        self.assertEqual(sorted(fetch.products_in_manifest()), ["zcc", "zia", "zpa"])
+        self.assertEqual(
+            sorted(fetch.products_in_manifest()),
+            ["cloudflare", "zcc", "zia", "zpa"],
+        )
 
     def test_reload_registry(self):
         reg = reload_registry()

@@ -277,8 +277,12 @@ class RenderRestTest(unittest.TestCase):
         # can never silently diverge.
         from engine.gen_module import _load_provider_pins
         pins = _load_provider_pins()
+        self.assertEqual(pins.get("cloudflare"), "5.4.0")
         self.assertEqual(pins.get("zia"), "4.7.24")
         self.assertEqual(pins.get("zpa"), "4.4.4")
+        out_cloudflare = render_versions(
+            "cloudflare_dns_record", load_resource("cloudflare_dns_record"))
+        self.assertIn('version = "5.4.0"', out_cloudflare)
         out_zia = render_versions("zia_url_categories", load_resource("zia_url_categories"))
         self.assertIn('version = "4.7.24"', out_zia)
         out_zpa = render_versions("zpa_segment_group", load_resource("zpa_segment_group"))

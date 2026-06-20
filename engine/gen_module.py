@@ -43,35 +43,44 @@ _PROVIDER_SOURCES = packs.provider_sources()
 # one-line edit there + `make schemas` + `make generate`, never a second pin to
 # forget. See README provider-bump workflow.
 def _load_provider_pins(path=None):
-    """Parse {provider: version} from a required_providers main.tf.
+    """Parse {provider: version} from required_providers main.tf file(s).
 
     Matches the `xxx = { source = "...", version = "..." }` blocks in
-    tools/schema-extract/main.tf so the modules pin exactly the versions the
+    pack schema-extract main.tf files so the modules pin exactly the versions the
     schema dumps were extracted under. Fails loudly if the file is missing or
     advertises no versioned provider — a silent {} would regenerate modules
     with no constraint, reintroducing the unpinned-deploy bug.
     """
-    if path is None:
-        path = packs.schema_extract_path()
-    if not os.path.exists(path):
+    paths = packs.schema_extract_paths() if path is None else [path]
+    if not paths:
         raise ValueError(
-            "provider pins not found: %s is missing — generation reads the "
-            "pins from there (the file the schema dumps are extracted under). "
-            "Restore it or pass an explicit path." % path
+            "provider pins not found: no schema-extract/main.tf under packs/ "
+            "— generation reads the pins from the files the schema dumps are "
+            "extracted under. Restore them or pass an explicit path."
         )
-    with open(path, encoding="utf-8") as f:
-        text = f.read()
     pins = {}
     block_re = re.compile(
         r'(\w+)\s*=\s*\{[^}]*?version\s*=\s*"([^"]+)"', re.DOTALL
     )
-    for name, version in block_re.findall(text):
-        pins[name] = version
+    for path in paths:
+        if not os.path.exists(path):
+            raise ValueError(
+                "provider pins not found: %s is missing — generation reads "
+                "the pins from there (the file the schema dumps are extracted "
+                "under). Restore it or pass an explicit path." % path
+            )
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        for name, version in block_re.findall(text):
+            version = version.strip()
+            if version.startswith("="):
+                version = version[1:].strip()
+            pins[name] = version
     if not pins:
         raise ValueError(
             "no versioned providers found in %s — every required_providers "
             "entry needs a version line so generated modules can pin it. Add "
-            "version = \"x.y.z\" beside each source." % path
+            "version = \"x.y.z\" beside each source." % ", ".join(paths)
         )
     return pins
 
