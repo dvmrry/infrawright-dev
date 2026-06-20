@@ -83,6 +83,23 @@ def scope_segments():
     return merged
 
 
+def references():
+    """Merged reference graph: {referrer_type: {field: {referent, name_field}}}."""
+    merged = {}
+    for m in _manifests():
+        for rt, fields in m.get("references", {}).items():
+            merged.setdefault(rt, {}).update(fields)
+    return merged
+
+
+def lookup_sources():
+    """Merged {referent_type: {name_field}} — types that emit a .lookup.json sidecar."""
+    merged = {}
+    for m in _manifests():
+        merged.update(m.get("lookup_sources", {}))
+    return merged
+
+
 def product_tokens():
     return sorted(set(provider_prefixes().values()))
 

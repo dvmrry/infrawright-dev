@@ -20,20 +20,11 @@ UNKNOWN = "<unknown>"
 CONFIG_SUFFIX = ".auto.tfvars.json"
 LOOKUP_SUFFIX = ".lookup.json"
 
-REFERENCES = {
-    "zia_url_filtering_rules": {
-        "url_categories": {
-            "referent": "zia_url_categories",
-            "name_field": "configured_name",
-        },
-    },
-}
+# The reference graph + lookup sources are vendor data — they live in the
+# active pack's manifest (packs/<pack>/pack.json), not in the engine.
+REFERENCES = packs.references()
 
-LOOKUP_SOURCES = {
-    "zia_url_categories": {
-        "name_field": "configured_name",
-    },
-}
+LOOKUP_SOURCES = packs.lookup_sources()
 
 _VALID_TENANT = re.compile(r"^[A-Za-z0-9_.-]+$")
 

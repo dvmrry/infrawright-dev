@@ -2,5 +2,13 @@
   "provider_prefixes": {"zia_": "zia", "zpa_": "zpa", "zcc_": "zcc"},
   "provider_sources": {"zia": "zscaler/zia", "zpa": "zscaler/zpa", "zcc": "zscaler/zcc"},
   "unescape_products": ["zpa_", "zcc_"],
-  "scope_segments": {"zpa": "ZPA_CUSTOMER_ID"}
+  "scope_segments": {"zpa": "ZPA_CUSTOMER_ID"},
+  "references": {
+    "zia_url_filtering_rules": {
+      "url_categories": {"referent": "zia_url_categories", "name_field": "configured_name"}
+    }
+  },
+  "lookup_sources": {
+    "zia_url_categories": {"name_field": "configured_name"}
+  }
 }
