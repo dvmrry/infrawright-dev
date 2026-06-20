@@ -1,0 +1,316 @@
+{
+  "zpa_app_connector_assistant_schedule": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_app_connector_group": {
+    "fetch": {
+      "pagination": "zpa",
+      "path": "appConnectorGroup"
+    },
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_application_segment": {
+    "fetch": {
+      "pagination": "zpa",
+      "path": "application"
+    },
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_application_segment_browser_access": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_application_segment_inspection": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_application_segment_multimatch_bulk": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_application_segment_pra": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_application_segment_weightedlb_config": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_application_server": {
+    "fetch": {
+      "pagination": "zpa",
+      "path": "server"
+    },
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_ba_certificate": {
+    "fetch": {
+      "pagination": "zpa",
+      "path": "certificate"
+    },
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_browser_access": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_c2c_ip_ranges": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_cloud_browser_isolation_banner": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_cloud_browser_isolation_certificate": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_cloud_browser_isolation_external_profile": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_emergency_access_user": {
+    "fetch": {
+      "optional_http_statuses": [
+        401,
+        403
+      ],
+      "pagination": "zpa",
+      "path": "emergencyAccess/users"
+    },
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_inspection_custom_controls": {
+    "fetch": {
+      "optional_http_statuses": [
+        401,
+        403
+      ],
+      "pagination": "zpa",
+      "path": "inspectionControls/custom"
+    },
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_inspection_profile": {
+    "fetch": {
+      "optional_http_statuses": [
+        401,
+        403
+      ],
+      "pagination": "zpa",
+      "path": "inspectionProfile"
+    },
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_lss_config_controller": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_microtenant_controller": {
+    "fetch": {
+      "pagination": "zpa",
+      "path": "microtenants",
+      "query": {}
+    },
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_policy_access_rule": {
+    "fetch": {
+      "pagination": "zpa",
+      "path": "policySet/rules/policyType/ACCESS_POLICY"
+    },
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_policy_access_rule_reorder": {
+    "derive": {
+      "from": "zpa_policy_access_rule",
+      "policy_type": "ACCESS_POLICY"
+    },
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_policy_access_rule_v2": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_policy_browser_protection_rule": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_policy_capabilities_rule": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_policy_credential_rule": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_policy_forwarding_rule": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_policy_forwarding_rule_v2": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_policy_inspection_rule": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_policy_inspection_rule_v2": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_policy_isolation_rule": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_policy_isolation_rule_v2": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_policy_portal_access_rule": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_policy_redirection_rule": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_policy_timeout_rule": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_policy_timeout_rule_v2": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_pra_approval_controller": {
+    "fetch": {
+      "optional_http_statuses": [
+        400,
+        401,
+        403
+      ],
+      "pagination": "zpa",
+      "path": "approval"
+    },
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_pra_console_controller": {
+    "fetch": {
+      "optional_http_statuses": [
+        401,
+        403
+      ],
+      "pagination": "zpa",
+      "path": "praConsole"
+    },
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_pra_credential_controller": {
+    "fetch": {
+      "optional_http_statuses": [
+        401,
+        403
+      ],
+      "pagination": "zpa",
+      "path": "credential"
+    },
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_pra_credential_pool": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_pra_portal_controller": {
+    "fetch": {
+      "optional_http_statuses": [
+        401,
+        403
+      ],
+      "pagination": "zpa",
+      "path": "praPortal"
+    },
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_private_cloud_group": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_provisioning_key": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_segment_group": {
+    "fetch": {
+      "pagination": "zpa",
+      "path": "segmentGroup"
+    },
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_server_group": {
+    "fetch": {
+      "pagination": "zpa",
+      "path": "serverGroup"
+    },
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_service_edge_assistant_schedule": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_service_edge_group": {
+    "fetch": {
+      "pagination": "zpa",
+      "path": "serviceEdgeGroup"
+    },
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_tag_group": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_tag_key": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_tag_namespace": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_user_portal_aup": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_user_portal_controller": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_user_portal_link": {
+    "generate": true,
+    "product": "zpa"
+  },
+  "zpa_zia_cloud_config": {
+    "generate": true,
+    "product": "zpa"
+  }
+}

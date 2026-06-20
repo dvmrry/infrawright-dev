@@ -368,11 +368,14 @@ def _coerce_object_members(obj, members):
     return out
 
 
-OVERRIDES_DIR = os.path.join(packs.pack_root(), "overrides")
+# Test seam: tests monkey-patch this to a tmp dir. None (default) => each
+# resource resolves to its owning pack's overrides/ via the resolver.
+OVERRIDES_DIR = None
 
 
 def load_override(resource_type):
-    path = os.path.join(OVERRIDES_DIR, resource_type + ".json")
+    base = OVERRIDES_DIR if OVERRIDES_DIR is not None else packs.overrides_dir_for(resource_type)
+    path = os.path.join(base, resource_type + ".json")
     if not os.path.exists(path):
         return {}
     with open(path, encoding="utf-8") as f:

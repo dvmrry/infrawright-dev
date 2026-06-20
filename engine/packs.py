@@ -8,6 +8,7 @@ the merged tables plus the active pack root the engine reads data from.
 
 Stdlib-only, Python 3.6-floor.
 """
+import importlib
 import json
 import os
 
@@ -119,6 +120,15 @@ def provider_of(resource_type):
     return resource_type.split("_", 1)[0]
 
 
+def collector_for(provider):
+    """Collector module for a provider pack.
+
+    Provider collectors live at packs/<provider>/collector.py and expose the
+    small auth/URL contract consumed by collectors.rest.
+    """
+    return importlib.import_module("packs.%s.collector" % provider)
+
+
 def _registry_packs():
     roots = []
     root = packs_root()
@@ -148,3 +158,76 @@ def pack_root():
             "resolution is ambiguous. Per-resource resolution by the registry "
             "'product' field is required for multi-pack (Phase 2)." % names)
     return roots[0]
+
+
+# --- per-resource resolution (provider-first) -------------------------------
+# Each artifact resolves to the pack that OWNS the resource's provider, via the
+# manifest's provider_prefixes. Single-pack today (zia/zpa/zcc all -> the one
+# zscaler pack, so these are no-ops); per-provider after the split.
+
+def pack_dir_for_provider(provider):
+    """Directory of the pack whose manifest declares `provider`."""
+    for m in _manifests():
+        if provider in m.get("provider_prefixes", {}).values():
+            return os.path.join(packs_root(), m["_name"])
+    raise RuntimeError("no pack declares provider %r" % provider)
+
+
+def pack_dir_for_resource(resource_type):
+    return pack_dir_for_provider(provider_of(resource_type))
+
+
+def overrides_dir_for(resource_type):
+    return os.path.join(pack_dir_for_resource(resource_type), "overrides")
+
+
+def schema_path_for(provider):
+    return os.path.join(
+        pack_dir_for_provider(provider), "schemas", "provider", provider + ".json")
+
+
+def registry_paths():
+    """Every pack's registry.json, which load_registry() merges. One today;
+    one per provider after the split."""
+    out = []
+    root = packs_root()
+    if os.path.isdir(root):
+        for name in sorted(os.listdir(root)):
+            p = os.path.join(root, name, "registry.json")
+            if os.path.isfile(p):
+                out.append(p)
+    return out
+
+
+def provider_pins():
+    """{provider: terraform-provider-version} from each pack manifest's pin."""
+    out = {}
+    for m in _manifests():
+        pin = m.get("pin")
+        if pin:
+            for provider in m.get("provider_prefixes", {}).values():
+                out[provider] = pin
+    return out
+
+
+def adoption_status_paths():
+    """Every adoption_status.json under packs/ (vendor-shared in _shared/ today;
+    per-provider later). load_status merges them."""
+    out = []
+    root = packs_root()
+    if os.path.isdir(root):
+        for dirpath, _dirs, files in os.walk(root):
+            if "adoption_status.json" in files:
+                out.append(os.path.join(dirpath, "adoption_status.json"))
+    return sorted(out)
+
+
+def schema_extract_path():
+    """The sole schema-extract/main.tf under packs/ (the schema-dump pin source
+    for `make schemas`; vendor-shared in _shared/ today)."""
+    root = packs_root()
+    if os.path.isdir(root):
+        for dirpath, _dirs, files in os.walk(root):
+            if "main.tf" in files and os.path.basename(dirpath) == "schema-extract":
+                return os.path.join(dirpath, "main.tf")
+    return None

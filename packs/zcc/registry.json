@@ -1,0 +1,51 @@
+{
+  "zcc_device_cleanup": {
+    "fetch": {
+      "pagination": "single",
+      "path": "zcc/papi/public/v1/getDeviceCleanupInfo"
+    },
+    "generate": true,
+    "product": "zcc"
+  },
+  "zcc_failopen_policy": {
+    "fetch": {
+      "pagination": "zia",
+      "path": "zcc/papi/public/v1/webFailOpenPolicy/listByCompany"
+    },
+    "generate": true,
+    "product": "zcc"
+  },
+  "zcc_forwarding_profile": {
+    "fetch": {
+      "pagination": "zia",
+      "path": "zcc/papi/public/v1/webForwardingProfile/listByCompany"
+    },
+    "generate": true,
+    "product": "zcc"
+  },
+  "zcc_notification_template": {
+    "generate": true,
+    "product": "zcc"
+  },
+  "zcc_trusted_network": {
+    "fetch": {
+      "envelope": "trustedNetworkContracts",
+      "pagination": "zia",
+      "path": "zcc/papi/public/v1/webTrustedNetwork/listByCompany"
+    },
+    "generate": true,
+    "product": "zcc"
+  },
+  "zcc_web_privacy": {
+    "fetch": {
+      "pagination": "single",
+      "path": "zcc/papi/public/v1/getWebPrivacyInfo"
+    },
+    "generate": true,
+    "product": "zcc"
+  },
+  "zcc_zia_posture": {
+    "generate": true,
+    "product": "zcc"
+  }
+}

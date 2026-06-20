@@ -12,7 +12,6 @@ import os
 
 from engine import packs
 
-SCHEMA_DIR = os.path.join(packs.pack_root(), "schemas", "provider")
 PROVIDER_PREFIXES = packs.provider_prefixes()
 
 _cache = {}
@@ -27,8 +26,7 @@ def _provider_for(resource_type):
 
 def load_provider(provider):
     if provider not in _cache:
-        path = os.path.join(SCHEMA_DIR, provider + ".json")
-        with open(path, encoding="utf-8") as f:
+        with open(packs.schema_path_for(provider), encoding="utf-8") as f:
             _cache[provider] = json.load(f)
     return _cache[provider]
 

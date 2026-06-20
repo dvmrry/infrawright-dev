@@ -42,10 +42,7 @@ _PROVIDER_SOURCES = packs.provider_sources()
 # explicit constraint. Reading the pins from one place keeps a version bump a
 # one-line edit there + `make schemas` + `make generate`, never a second pin to
 # forget. See README provider-bump workflow.
-_SCHEMA_EXTRACT_MAIN_TF = os.path.join(packs.pack_root(), "schema-extract", "main.tf")
-
-
-def _load_provider_pins(path=_SCHEMA_EXTRACT_MAIN_TF):
+def _load_provider_pins(path=None):
     """Parse {provider: version} from a required_providers main.tf.
 
     Matches the `xxx = { source = "...", version = "..." }` blocks in
@@ -54,6 +51,8 @@ def _load_provider_pins(path=_SCHEMA_EXTRACT_MAIN_TF):
     advertises no versioned provider — a silent {} would regenerate modules
     with no constraint, reintroducing the unpinned-deploy bug.
     """
+    if path is None:
+        path = packs.schema_extract_path()
     if not os.path.exists(path):
         raise ValueError(
             "provider pins not found: %s is missing — generation reads the "
@@ -77,7 +76,7 @@ def _load_provider_pins(path=_SCHEMA_EXTRACT_MAIN_TF):
     return pins
 
 
-_PROVIDER_VERSION_CONSTRAINTS = _load_provider_pins()
+_PROVIDER_VERSION_CONSTRAINTS = packs.provider_pins()
 
 
 def _provider_of(resource_type):
@@ -304,7 +303,6 @@ def render_test(resource_type, resource_schema):
     )
 
 
-OVERRIDES_ROOT = os.path.join(packs.pack_root(), "overrides")
 MODULES_ROOT = "modules"
 
 
@@ -330,7 +328,9 @@ def _load_json_override(resource_type, overrides_root):
         return json.load(f)
 
 
-def generate_module(resource_type, out_root=MODULES_ROOT, overrides_root=OVERRIDES_ROOT, fmt=True):
+def generate_module(resource_type, out_root=MODULES_ROOT, overrides_root=None, fmt=True):
+    if overrides_root is None:
+        overrides_root = packs.overrides_dir_for(resource_type)
     rs = load_resource(resource_type)
     base = os.path.join(out_root, resource_type)
     os.makedirs(os.path.join(base, "tests"), exist_ok=True)

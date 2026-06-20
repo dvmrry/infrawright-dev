@@ -13,8 +13,6 @@ import os
 from engine import packs
 
 
-STATUS_PATH = os.path.join(packs.pack_root(), "adoption_status.json")
-
 VALID_DISPOSITIONS = frozenset((
     "action-not-resource",
     "entitlement-gated",
@@ -24,14 +22,23 @@ VALID_DISPOSITIONS = frozenset((
 ))
 
 
-def load_status(path=STATUS_PATH):
+def load_status(path=None):
+    if path is None:
+        merged = {"dispositions": {}, "known_holds": {}}
+        for p in packs.adoption_status_paths():
+            with open(p, encoding="utf-8") as f:
+                d = json.load(f)
+            merged["dispositions"].update(d.get("dispositions") or {})
+            merged["known_holds"].update(d.get("known_holds") or {})
+        validate_status(merged)
+        return merged
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
     validate_status(data, path)
     return data
 
 
-def validate_status(data, path=STATUS_PATH):
+def validate_status(data, path="adoption_status"):
     if not isinstance(data, dict):
         raise ValueError("%s must contain a JSON object" % path)
     dispositions = data.get("dispositions") or {}
