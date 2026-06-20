@@ -11,8 +11,7 @@ import unittest
 from engine import lookup
 from engine.transform import main as transform_main
 
-REPO_ROOT = os.path.dirname(os.path.dirname(
-    os.path.dirname(os.path.abspath(__file__))))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HAVE_MAKE = shutil.which("make") and shutil.which("python3")
 
 
