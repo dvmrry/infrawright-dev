@@ -1,0 +1,64 @@
+{
+  "cloudflare_dns_record": {
+    "fetch": {
+      "pagination": "cf_page",
+      "path": "zones/{zone_id}/dns_records",
+      "zone_scoped": true
+    },
+    "generate": true,
+    "product": "cloudflare"
+  },
+  "cloudflare_list": {
+    "fetch": {
+      "pagination": "cf_page",
+      "path": "accounts/{account_id}/rules/lists"
+    },
+    "generate": true,
+    "product": "cloudflare"
+  },
+  "cloudflare_list_item": {
+    "fetch": {
+      "pagination": "cf_cursor",
+      "parent": "cloudflare_list",
+      "path": "accounts/{account_id}/rules/lists/{list_id}/items"
+    },
+    "generate": true,
+    "product": "cloudflare"
+  },
+  "cloudflare_load_balancer": {
+    "fetch": {
+      "pagination": "cf_page",
+      "path": "zones/{zone_id}/load_balancers",
+      "zone_scoped": true
+    },
+    "generate": true,
+    "product": "cloudflare"
+  },
+  "cloudflare_load_balancer_monitor": {
+    "fetch": {
+      "pagination": "cf_page",
+      "path": "accounts/{account_id}/load_balancers/monitors"
+    },
+    "generate": true,
+    "product": "cloudflare"
+  },
+  "cloudflare_load_balancer_pool": {
+    "fetch": {
+      "pagination": "cf_page",
+      "path": "accounts/{account_id}/load_balancers/pools"
+    },
+    "generate": true,
+    "product": "cloudflare"
+  },
+  "cloudflare_zone": {
+    "fetch": {
+      "pagination": "cf_page",
+      "path": "zones",
+      "query": {
+        "account.id": "{account_id}"
+      }
+    },
+    "generate": true,
+    "product": "cloudflare"
+  }
+}
