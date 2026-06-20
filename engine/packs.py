@@ -148,3 +148,42 @@ def pack_root():
             "resolution is ambiguous. Per-resource resolution by the registry "
             "'product' field is required for multi-pack (Phase 2)." % names)
     return roots[0]
+
+
+# --- per-resource resolution (provider-first) -------------------------------
+# Each artifact resolves to the pack that OWNS the resource's provider, via the
+# manifest's provider_prefixes. Single-pack today (zia/zpa/zcc all -> the one
+# zscaler pack, so these are no-ops); per-provider after the split.
+
+def pack_dir_for_provider(provider):
+    """Directory of the pack whose manifest declares `provider`."""
+    for m in _manifests():
+        if provider in m.get("provider_prefixes", {}).values():
+            return os.path.join(packs_root(), m["_name"])
+    raise RuntimeError("no pack declares provider %r" % provider)
+
+
+def pack_dir_for_resource(resource_type):
+    return pack_dir_for_provider(provider_of(resource_type))
+
+
+def overrides_dir_for(resource_type):
+    return os.path.join(pack_dir_for_resource(resource_type), "overrides")
+
+
+def schema_path_for(provider):
+    return os.path.join(
+        pack_dir_for_provider(provider), "schemas", "provider", provider + ".json")
+
+
+def registry_paths():
+    """Every pack's registry.json, which load_registry() merges. One today;
+    one per provider after the split."""
+    out = []
+    root = packs_root()
+    if os.path.isdir(root):
+        for name in sorted(os.listdir(root)):
+            p = os.path.join(root, name, "registry.json")
+            if os.path.isfile(p):
+                out.append(p)
+    return out

@@ -10,15 +10,16 @@ import os
 
 from engine import packs
 
-REGISTRY_PATH = os.path.join(packs.pack_root(), "registry.json")
-
 _cache = {}
 
 
 def load_registry():
+    """Merge every pack's registry.json. One pack today; one per provider
+    after the split — provider 'product' fields keep entries disjoint."""
     if not _cache:
-        with open(REGISTRY_PATH, encoding="utf-8") as f:
-            _cache.update(json.load(f))
+        for path in packs.registry_paths():
+            with open(path, encoding="utf-8") as f:
+                _cache.update(json.load(f))
     return _cache
 
 

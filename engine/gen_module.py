@@ -304,7 +304,6 @@ def render_test(resource_type, resource_schema):
     )
 
 
-OVERRIDES_ROOT = os.path.join(packs.pack_root(), "overrides")
 MODULES_ROOT = "modules"
 
 
@@ -330,7 +329,9 @@ def _load_json_override(resource_type, overrides_root):
         return json.load(f)
 
 
-def generate_module(resource_type, out_root=MODULES_ROOT, overrides_root=OVERRIDES_ROOT, fmt=True):
+def generate_module(resource_type, out_root=MODULES_ROOT, overrides_root=None, fmt=True):
+    if overrides_root is None:
+        overrides_root = packs.overrides_dir_for(resource_type)
     rs = load_resource(resource_type)
     base = os.path.join(out_root, resource_type)
     os.makedirs(os.path.join(base, "tests"), exist_ok=True)
