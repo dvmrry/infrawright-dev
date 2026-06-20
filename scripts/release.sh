@@ -13,7 +13,7 @@ set -euo pipefail
 
 TAG="${1:?usage: scripts/release.sh <tag> <public-repo-url>}"
 PUBLIC_URL="${2:?need the public release repo URL (e.g. git@github.com:dvmrry/infrawright.git)}"
-DEV_ROOT="$(git rev-parse --show-toplevel)"
+DEV_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 STAGE="$(mktemp -d)/public"
 
 git -C "$DEV_ROOT" rev-parse "refs/tags/$TAG" >/dev/null 2>&1 \
