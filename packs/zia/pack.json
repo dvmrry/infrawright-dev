@@ -1,0 +1,24 @@
+{
+  "lookup_sources": {
+    "zia_url_categories": {
+      "name_field": "configured_name"
+    }
+  },
+  "pin": "4.7.24",
+  "provider_prefixes": {
+    "zia_": "zia"
+  },
+  "provider_sources": {
+    "zia": "zscaler/zia"
+  },
+  "references": {
+    "zia_url_filtering_rules": {
+      "url_categories": {
+        "name_field": "configured_name",
+        "referent": "zia_url_categories"
+      }
+    }
+  },
+  "scope_segments": {},
+  "unescape_products": []
+}

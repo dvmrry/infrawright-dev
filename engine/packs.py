@@ -187,3 +187,37 @@ def registry_paths():
             if os.path.isfile(p):
                 out.append(p)
     return out
+
+
+def provider_pins():
+    """{provider: terraform-provider-version} from each pack manifest's pin."""
+    out = {}
+    for m in _manifests():
+        pin = m.get("pin")
+        if pin:
+            for provider in m.get("provider_prefixes", {}).values():
+                out[provider] = pin
+    return out
+
+
+def adoption_status_paths():
+    """Every adoption_status.json under packs/ (vendor-shared in _shared/ today;
+    per-provider later). load_status merges them."""
+    out = []
+    root = packs_root()
+    if os.path.isdir(root):
+        for dirpath, _dirs, files in os.walk(root):
+            if "adoption_status.json" in files:
+                out.append(os.path.join(dirpath, "adoption_status.json"))
+    return sorted(out)
+
+
+def schema_extract_path():
+    """The sole schema-extract/main.tf under packs/ (the schema-dump pin source
+    for `make schemas`; vendor-shared in _shared/ today)."""
+    root = packs_root()
+    if os.path.isdir(root):
+        for dirpath, _dirs, files in os.walk(root):
+            if "main.tf" in files and os.path.basename(dirpath) == "schema-extract":
+                return os.path.join(dirpath, "main.tf")
+    return None

@@ -1,0 +1,15 @@
+{
+  "lookup_sources": {},
+  "pin": "0.1.0-beta.1",
+  "provider_prefixes": {
+    "zcc_": "zcc"
+  },
+  "provider_sources": {
+    "zcc": "zscaler/zcc"
+  },
+  "references": {},
+  "scope_segments": {},
+  "unescape_products": [
+    "zcc_"
+  ]
+}

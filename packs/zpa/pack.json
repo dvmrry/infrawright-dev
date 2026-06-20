@@ -1,0 +1,17 @@
+{
+  "lookup_sources": {},
+  "pin": "4.4.4",
+  "provider_prefixes": {
+    "zpa_": "zpa"
+  },
+  "provider_sources": {
+    "zpa": "zscaler/zpa"
+  },
+  "references": {},
+  "scope_segments": {
+    "zpa": "ZPA_CUSTOMER_ID"
+  },
+  "unescape_products": [
+    "zpa_"
+  ]
+}
