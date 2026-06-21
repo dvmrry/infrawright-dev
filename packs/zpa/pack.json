@@ -13,5 +13,6 @@
   },
   "unescape_products": [
     "zpa_"
-  ]
+  ],
+  "vendor": "zscaler"
 }

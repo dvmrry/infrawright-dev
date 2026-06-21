@@ -20,5 +20,6 @@
     }
   },
   "scope_segments": {},
-  "unescape_products": []
+  "unescape_products": [],
+  "vendor": "zscaler"
 }

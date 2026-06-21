@@ -3,7 +3,7 @@ TF ?= terraform
 
 .PHONY: demo check-demo check-modules check test transform
 
-demo: ## Materialize the demo tenant via the zscaler pack (config/demo + imports/demo)
+demo: ## Materialize the demo tenant via the zscaler pack (demo/zscaler/*)
 	@set -e; for rt in $$($(PYTHON) -c "from engine.registry import generated_types; print('\n'.join(generated_types()))"); do \
 		src=$$($(PYTHON) -c "from engine.registry import derive_entry; d=derive_entry('$$rt'); print(d['from'] if d else '$$rt')"); \
 		f="packs/_shared/zscaler/demo/$$src.json"; \
@@ -13,8 +13,8 @@ demo: ## Materialize the demo tenant via the zscaler pack (config/demo + imports
 
 check-demo: ## Fail if the committed demo tenant drifts from pipeline output
 	$(MAKE) demo > /dev/null 2>&1
-	@test -z "$$(git status --porcelain -- config/demo imports/demo)" || { \
-		echo "demo drift:"; git status --porcelain -- config/demo imports/demo; exit 1; }
+	@test -z "$$(git status --porcelain -- demo)" || { \
+		echo "demo drift:"; git status --porcelain -- demo; exit 1; }
 
 check-modules: ## Fail if generated modules drift from committed output
 	$(PYTHON) -m engine.gen_module > /dev/null 2>&1

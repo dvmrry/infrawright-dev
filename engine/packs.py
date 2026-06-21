@@ -173,6 +173,17 @@ def pack_dir_for_provider(provider):
     raise RuntimeError("no pack declares provider %r" % provider)
 
 
+def vendor_of(provider):
+    """Vendor namespace a provider belongs to (pack.json "vendor"), or None for
+    a standalone provider with its own top-level pack and no shared vendor lib
+    (e.g. a single-token provider like cloudflare). Consumed by the deployment
+    layout strategy to group artifacts under $COMPANY/<vendor>/<provider>/."""
+    for m in _manifests():
+        if provider in m.get("provider_prefixes", {}).values():
+            return m.get("vendor")
+    return None
+
+
 def pack_dir_for_resource(resource_type):
     return pack_dir_for_provider(provider_of(resource_type))
 

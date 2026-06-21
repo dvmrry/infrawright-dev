@@ -59,13 +59,19 @@ def check_tenant(tenant):
 
 def lookup_path(tenant, referent, config_root=None):
     if config_root is None:
-        return os.path.join(deployment.config_dir(tenant), referent + LOOKUP_SUFFIX)
+        return os.path.join(
+            deployment.config_dir(tenant, packs.provider_of(referent)),
+            referent + LOOKUP_SUFFIX,
+        )
     return os.path.join(config_root, tenant, referent + LOOKUP_SUFFIX)
 
 
 def config_path(tenant, resource_type, config_root=None):
     if config_root is None:
-        return os.path.join(deployment.config_dir(tenant), resource_type + CONFIG_SUFFIX)
+        return os.path.join(
+            deployment.config_dir(tenant, packs.provider_of(resource_type)),
+            resource_type + CONFIG_SUFFIX,
+        )
     return os.path.join(config_root, tenant, resource_type + CONFIG_SUFFIX)
 
 

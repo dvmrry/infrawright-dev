@@ -195,7 +195,10 @@ def generate_env(tenant, out_root=None, fmt=True, backend=None,
         # Config existence is evaluated against the repo's config dir regardless
         # of out_root — committed config drives committed tests.
         has_config = os.path.exists(
-            os.path.join(deployment.config_dir(tenant), resource_type + ".auto.tfvars.json")
+            os.path.join(
+                deployment.config_dir(tenant, packs.provider_of(resource_type)),
+                resource_type + ".auto.tfvars.json",
+            )
         )
         test_text = render_env_test(resource_type, tenant, has_config=has_config)
         if fmt:
