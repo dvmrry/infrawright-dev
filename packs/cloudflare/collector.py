@@ -22,7 +22,7 @@ def _resolve_path(path, ctx):
             "{account_id}", quote(ctx["account_id"], safe=""))
     if "{zone_id}" in resolved:
         resolved = resolved.replace(
-            "{zone_id}", quote(ctx.get("_current_zone_id"), safe=""))
+            "{zone_id}", quote(ctx["_current_zone_id"], safe=""))
     if "{list_id}" in resolved:
         resolved = resolved.replace(
             "{list_id}", quote(ctx["list_id"], safe=""))

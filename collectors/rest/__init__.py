@@ -216,21 +216,27 @@ def _cf_result_items(payload, url):
     return items
 
 
-def paginate_cf_page(opener, url, headers, query, per_page=100):
-    """Cloudflare v4 page pagination: {result, result_info:{page,total_pages}}."""
+def paginate_cf_page(opener, url, headers, query, per_page=100, max_pages=100000):
+    """Cloudflare v4 page pagination: {result, result_info:{page,total_pages}}.
+
+    Advances a LOCAL page counter (never the server-echoed page) and caps at
+    max_pages, matching paginate_zia/paginate_zcc_v2 — a stale/wrong/zero page in
+    a response can never spin the loop forever or silently truncate.
+    """
     items = []
     page = 1
     while True:
+        if page > max_pages:
+            raise RuntimeError("cf_page exceeded max_pages (%d) for %s" % (max_pages, url))
         q = dict(query)
         q.update({"page": page, "per_page": per_page})
         payload = _get_json(opener, url, headers, q)
         items.extend(_cf_result_items(payload, url))
         info = payload.get("result_info") or {}
-        current = int(info.get("page") or page)
-        total = int(info.get("total_pages") or current)
-        if current >= total:
+        total = int(info["total_pages"]) if info.get("total_pages") is not None else page
+        if page >= total:
             return items
-        page = current + 1
+        page += 1
 
 
 def paginate_cf_cursor(opener, url, headers, query):

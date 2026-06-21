@@ -19,6 +19,11 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(generated, sorted(generated))
         for rt in generated:
             self.assertIn(rt, schemas)
+        # Zscaler is the locked reference (133 types). The subset check above is
+        # vacuous in the schemas->generated direction, so guard against an
+        # accidental registry drop that would otherwise pass silently.
+        zscaler = [r for r in generated if r.startswith(("zia_", "zpa_", "zcc_"))]
+        self.assertEqual(len(zscaler), 133)
 
     def test_derived_resource_has_no_fetch(self):
         # a derived resource is generated from another's pull, never fetched
