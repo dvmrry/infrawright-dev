@@ -48,10 +48,11 @@ def tenant_root(tenant):
 def layout():
     """Output-layout strategy from deployment.json. 'flat' (default) is the
     historical kind/tenant tree, byte-identical to the original output;
-    'vendor-provider' groups config+imports under $COMPANY/<vendor>/<provider>/
-    with envs at the vendor level. Layout is an adopter choice, not an engine
-    mandate — the engine emits per-(tenant, provider, rt) artifacts and the
-    strategy maps them to paths."""
+    'vendor-provider' groups config+imports under
+    <company>/<vendor>/<instance>/<provider>/ (the instance is the tenant — a
+    Zscaler cloud, a Cloudflare account) with envs shared at the instance level.
+    Layout is an adopter choice, not an engine mandate — the engine emits
+    per-(tenant, provider, rt) artifacts and the strategy maps them to paths."""
     return _load().get("layout", "flat") or "flat"
 
 
@@ -61,12 +62,18 @@ def _flat(tenant, kind):
 
 
 def _vendor_provider(tenant, provider, leaf):
-    """$COMPANY/<vendor>/<leaf> under the tenant root (vendor level omitted for a
-    standalone provider). config+imports share the <provider> leaf (co-located);
-    envs uses the 'envs' leaf, shared across the vendor's providers."""
+    """<company>/<vendor>/<instance>/<leaf>: the vendor groups first, and the
+    tenant is that vendor's INSTANCE axis — a Zscaler cloud, a Cloudflare account,
+    ... — so it sits UNDER the vendor, not above it (a tenant named for its cloud
+    must not be redundantly stacked over `zscaler/`). The leaf is the <provider>
+    for co-located config+imports, or 'envs' shared across the instance's
+    providers. A standalone provider is its own vendor (vendor_of -> None), so the
+    redundant provider leaf collapses to <provider>/<instance>."""
     from engine import packs
     vendor = packs.vendor_of(provider)
-    rel = os.path.join(tenant, *([vendor, leaf] if vendor else [leaf]))
+    head = vendor or provider
+    parts = [head, tenant] + ([leaf] if leaf != head else [])
+    rel = os.path.join(*parts)
     root = tenant_root(tenant)
     return rel if root == "." else os.path.join(root, rel)
 

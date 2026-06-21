@@ -92,14 +92,14 @@ class DeploymentResolverTest(unittest.TestCase):
 
     def test_vendor_provider_colocates_config_and_imports(self):
         self._write({"layout": "vendor-provider"})
-        here = os.path.join("demo", "zscaler", "zia")
+        here = os.path.join("zscaler", "demo", "zia")
         self.assertEqual(deployment.config_dir("demo", "zia"), here)
         self.assertEqual(deployment.imports_dir("demo", "zia"), here)
 
-    def test_vendor_provider_envs_at_vendor_level(self):
+    def test_vendor_provider_envs_shared_at_instance_level(self):
         self._write({"layout": "vendor-provider"})
         self.assertEqual(
-            deployment.envs_dir("demo", "zpa"), os.path.join("demo", "zscaler", "envs"))
+            deployment.envs_dir("demo", "zpa"), os.path.join("zscaler", "demo", "envs"))
 
     def test_vendor_provider_without_provider_falls_back_flat(self):
         # the deployment CLI verbs call config_dir(tenant) with no provider
@@ -107,19 +107,31 @@ class DeploymentResolverTest(unittest.TestCase):
         self.assertEqual(
             deployment.config_dir("demo"), os.path.join("config", "demo"))
 
-    def test_vendor_provider_standalone_provider_omits_vendor(self):
-        # a provider with no shared vendor lib (vendor_of -> None) sits directly
-        # under the tenant: $COMPANY/<provider>/ (e.g. cloudflare, single-token)
+    def test_vendor_provider_standalone_provider_is_its_own_vendor(self):
+        # a provider with no shared vendor lib (vendor_of -> None) IS the vendor
+        # head, with the instance under it: <provider>/<instance>/ (e.g.
+        # cloudflare, single-token) — the redundant provider leaf collapses
         self._write({"layout": "vendor-provider"})
         self.assertEqual(
             deployment.config_dir("demo", "cloudflare"),
-            os.path.join("demo", "cloudflare"))
+            os.path.join("cloudflare", "demo"))
 
     def test_unknown_layout_is_not_grouped(self):
         # only the exact "vendor-provider" token activates grouping
         self._write({"layout": "nope"})
         self.assertEqual(
             deployment.config_dir("demo", "zia"), os.path.join("config", "demo"))
+
+    def test_vendor_provider_company_then_vendor_then_instance(self):
+        # the whole point of the strategy: company overlay on TOP, vendor next,
+        # the tenant (cloud/instance) UNDER the vendor — not stacked above it
+        self._write({"layout": "vendor-provider", "overlay": "acme"})
+        self.assertEqual(
+            deployment.config_dir("zs3", "zia"),
+            os.path.join("acme", "zscaler", "zs3", "zia"))
+        self.assertEqual(
+            deployment.envs_dir("zs3", "zpa"),
+            os.path.join("acme", "zscaler", "zs3", "envs"))
 
 
 if __name__ == "__main__":

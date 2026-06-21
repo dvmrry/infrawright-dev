@@ -6,8 +6,8 @@ This repository holds **two Terraform trees with opposite organizing principles,
 
 |                  | Generated tree                       | Authored tree                                  |
 | ---------------- | ------------------------------------ | ---------------------------------------------- |
-| Path             | `$COMPANY/zscaler/<provider>/`       | `$COMPANY/<cloud>/<account>/<region>/<vpc>/`   |
-| Pivot            | **vendor → provider**                | **cloud → account → locality → slice**         |
+| Path             | `$COMPANY/zscaler/<zscloud>/<provider>/` | `$COMPANY/<cloud>/<account>/<region>/<vpc>/` |
+| Pivot            | **vendor → cloud → provider**        | **cloud → account → locality → slice**         |
 | Source of truth  | Zscaler control plane (fetched)      | your cloud (the running instances *are* truth) |
 | Authored by      | the generator (driftless)            | you (hand-authored)                            |
 | Drift            | reconciled to Zscaler                | normal Terraform drift                         |
@@ -18,23 +18,24 @@ The generated tree is the Zscaler **configuration** (policy, connector groups, p
 ## The full shape
 
 ```
-$COMPANY/                                   # adopter repo root  ($COMPANY = the tenant)
+$COMPANY/                                   # adopter repo root  ($COMPANY = the company / overlay)
 ├── deployment.json                         # { "layout": "vendor-provider" }
 ├── _ownership_model.md                     # this file
 │
 ├─══ GENERATED — Zscaler control plane (driftless, vendor-first) ══─
-├── zscaler/
-│   ├── zia/                                # internet-access policy        …abbreviated…
-│   ├── zpa/                                # PRIVATE ACCESS → APP CONNECTOR control plane
-│   │   ├── zpa_app_connector_group.auto.tfvars.json     # logical groups — CLOUD-AGNOSTIC
-│   │   └── zpa_provisioning_key.auto.tfvars.json        # authored island (write-only secret; not fetched)
-│   ├── ztc/                                # CLOUD CONNECTOR control plane
-│   │   ├── ztc_provisioning_url.auto.tfvars.json        # carries cloud_provider_type = AWS|AZURE|GCP
-│   │   ├── ztc_location_template.auto.tfvars.json
-│   │   └── ztc_public_cloud_info.auto.tfvars.json       # links each cloud account/sub/project to Zscaler
-│   ├── zcc/                                # client-connector device mgmt (NOT cloud infra)
-│   ├── envs/                               # generated TF roots, one per rt
-│   └── pipelines/                          # Zscaler delivery + drift pipelines
+├── zscaler/                               # vendor
+│   └── <zscloud>/                         # ← your Zscaler cloud/tenant (zscalertwo, zscalerthree…); one subtree per cloud you run
+│       ├── zia/                           # internet-access policy        …abbreviated…
+│       ├── zpa/                           # PRIVATE ACCESS → APP CONNECTOR control plane
+│       │   ├── zpa_app_connector_group.auto.tfvars.json     # logical groups — CLOUD-AGNOSTIC
+│       │   └── zpa_provisioning_key.auto.tfvars.json        # authored island (write-only secret; not fetched)
+│       ├── ztc/                           # CLOUD CONNECTOR control plane
+│       │   ├── ztc_provisioning_url.auto.tfvars.json        # carries cloud_provider_type = AWS|AZURE|GCP
+│       │   ├── ztc_location_template.auto.tfvars.json
+│       │   └── ztc_public_cloud_info.auto.tfvars.json       # links each cloud account/sub/project to Zscaler
+│       ├── zcc/                           # client-connector device mgmt (NOT cloud infra)
+│       ├── envs/                          # generated TF roots, one per rt — shared across the cloud's providers
+│       └── pipelines/                     # Zscaler delivery + drift pipelines
 ├── modules/                                # generated flat module library (machine-referenced)
 │
 ├─══ AUTHORED — per-cloud connector INFRA (cloud-first; only the SLICES you operate) ══─
