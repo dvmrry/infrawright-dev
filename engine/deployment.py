@@ -20,7 +20,9 @@ def _deployment_path():
     so the test suite (and any alternate deployment) can pin/neutralize the
     overlay rather than depending on whatever deployment.json sits in the cwd —
     a committed adopter deployment.json must not redirect the template's own
-    tests."""
+    tests. An empty value is treated as unset (falls back to cwd deployment.json);
+    a set-but-missing path neutralizes to overlay "." rather than erroring — the
+    same absent-file branch os.devnull uses to pin the suite hermetic."""
     return os.environ.get("INFRAWRIGHT_DEPLOYMENT") or DEPLOYMENT_JSON
 
 
