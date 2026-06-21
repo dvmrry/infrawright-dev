@@ -5,7 +5,6 @@ import tempfile
 import unittest
 
 from engine import deployment
-from engine import packs
 from engine.gen_env import expand_resources, render_env_main, render_env_test
 
 
@@ -14,15 +13,14 @@ class RenderEnvMainTest(unittest.TestCase):
         return os.path.join(
             "envs",
             tenant,
-            packs.provider_of(resource_type),
-            packs.bare_name(resource_type),
+            resource_type,
         )
 
     def test_zpa_segment_group_root(self):
         out = render_env_main("zpa_segment_group", "zs2",
                               self._root_env_dir("zpa_segment_group", "zs2"))
         self.assertIn("# GENERATED", out)
-        self.assertIn('source = "../../../../modules/zpa_segment_group"', out)
+        self.assertIn('source = "../../../modules/zpa_segment_group"', out)
         self.assertIn("items = var.items", out)
         self.assertIn('variable "items"', out)
         self.assertIn("type = any", out)
@@ -64,7 +62,7 @@ class GenerateEnvTest(unittest.TestCase):
         from engine.gen_env import generate_env
         with tempfile.TemporaryDirectory() as td:
             generate_env("zs2", out_root=td, fmt=False)
-            base = os.path.join(td, "zs2", "zpa", "segment_group")
+            base = os.path.join(td, "zs2", "zpa_segment_group")
             self.assertTrue(os.path.exists(os.path.join(base, "main.tf")))
             self.assertTrue(os.path.exists(os.path.join(base, "README.md")))
 
@@ -75,27 +73,25 @@ class GenerateEnvTest(unittest.TestCase):
                 "zs2", out_root=td, fmt=False,
                 selectors=["zia_url_categories"])
             self.assertTrue(os.path.exists(os.path.join(
-                td, "zs2", "zia", "url_categories", "main.tf"
+                td, "zs2", "zia_url_categories", "main.tf"
             )))
             self.assertFalse(os.path.exists(os.path.join(
-                td, "zs2", "zpa", "segment_group", "main.tf"
+                td, "zs2", "zpa_segment_group", "main.tf"
             )))
 
     def test_config_plan_reference_resolves_to_committed_config(self):
         from engine.gen_env import generate_env
         tenant = "demo"
         resource_type = "zia_url_categories"
-        provider = packs.provider_of(resource_type)
-        bare = packs.bare_name(resource_type)
         config_path = os.path.join(
-            deployment.config_dir(tenant, provider),
-            bare + ".auto.tfvars.json",
+            deployment.config_dir(tenant),
+            resource_type + ".auto.tfvars.json",
         )
         self.assertTrue(os.path.exists(config_path), config_path)
         with tempfile.TemporaryDirectory() as td:
             generate_env(
                 tenant, out_root=td, fmt=False, selectors=[resource_type])
-            env_root_dir = os.path.join(td, tenant, provider, bare)
+            env_root_dir = os.path.join(td, tenant, resource_type)
             smoke_path = os.path.join(env_root_dir, "tests", "smoke.tftest.hcl")
             with open(smoke_path, encoding="utf-8") as f:
                 smoke = f.read()
@@ -144,14 +140,14 @@ class RenderEnvTestTest(unittest.TestCase):
     def test_config_plan_file_path_correct(self):
         out = render_env_test("zpa_segment_group", "zs2", has_config=True)
         self.assertIn(
-            'file("../../../../config/zs2/zpa/segment_group.auto.tfvars.json")',
+            'file("../../../config/zs2/zpa_segment_group.auto.tfvars.json")',
             out,
         )
 
     def test_config_plan_file_path_demo_tenant(self):
         out = render_env_test("zia_url_categories", "demo", has_config=True)
         self.assertIn(
-            'file("../../../../config/demo/zia/url_categories.auto.tfvars.json")',
+            'file("../../../config/demo/zia_url_categories.auto.tfvars.json")',
             out,
         )
 
@@ -198,7 +194,7 @@ class BackendMarkerTest(unittest.TestCase):
         from engine.gen_env import generate_env
         with tempfile.TemporaryDirectory() as td:
             generate_env("zs2", out_root=td, fmt=False, backend="azurerm")
-            main_path = os.path.join(td, "zs2", "zpa", "segment_group", "main.tf")
+            main_path = os.path.join(td, "zs2", "zpa_segment_group", "main.tf")
             with open(main_path, encoding="utf-8") as f:
                 first = f.read()
             self.assertIn('backend "azurerm"', first)
@@ -214,7 +210,7 @@ class BackendMarkerTest(unittest.TestCase):
             self.assertFalse(
                 os.path.exists(os.path.join(td, "zs2", ".backend"))
             )
-            with open(os.path.join(td, "zs2", "zpa", "segment_group", "main.tf"), encoding="utf-8") as f:
+            with open(os.path.join(td, "zs2", "zpa_segment_group", "main.tf"), encoding="utf-8") as f:
                 self.assertNotIn('backend "', f.read())
 
 
@@ -224,7 +220,7 @@ class GenerateEnvWritesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             generate_env("zs2", out_root=td, fmt=False)
             self.assertTrue(os.path.exists(os.path.join(
-                td, "zs2", "zpa", "segment_group", "tests", "smoke.tftest.hcl"
+                td, "zs2", "zpa_segment_group", "tests", "smoke.tftest.hcl"
             )))
 
 

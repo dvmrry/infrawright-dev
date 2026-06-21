@@ -6,15 +6,14 @@ of truth; do not infer references from Terraform schema shapes.
 
 Stdlib-only, Python 3.6-floor - see AGENTS.md rule 5.
 """
-import fnmatch
 import json
 import os
 import re
 import sys
 
 from engine import deployment
+from engine import ops
 from engine import packs
-from engine.registry import generated_types
 
 UNKNOWN = "<unknown>"
 CONFIG_SUFFIX = ".auto.tfvars.json"
@@ -58,25 +57,18 @@ def check_tenant(tenant):
 
 
 def lookup_path(tenant, referent, config_root=None):
-    provider = packs.provider_of(referent)
-    bare = packs.bare_name(referent)
     if config_root is None:
-        return os.path.join(
-            deployment.config_dir(tenant, provider),
-            bare + LOOKUP_SUFFIX,
-        )
-    return os.path.join(config_root, tenant, provider, bare + LOOKUP_SUFFIX)
+        return os.path.join(deployment.config_dir(tenant), referent + LOOKUP_SUFFIX)
+    return os.path.join(config_root, tenant, referent + LOOKUP_SUFFIX)
 
 
 def config_path(tenant, resource_type, config_root=None):
-    provider = packs.provider_of(resource_type)
-    bare = packs.bare_name(resource_type)
     if config_root is None:
         return os.path.join(
-            deployment.config_dir(tenant, provider),
-            bare + CONFIG_SUFFIX,
+            deployment.config_dir(tenant),
+            resource_type + CONFIG_SUFFIX,
         )
-    return os.path.join(config_root, tenant, provider, bare + CONFIG_SUFFIX)
+    return os.path.join(config_root, tenant, resource_type + CONFIG_SUFFIX)
 
 
 def _display_name(item, name_field):
@@ -138,28 +130,7 @@ def load_lookup(tenant, referent, config_root=None):
 
 
 def _expand_selectors(selectors):
-    generated = set(generated_types())
-    if not selectors:
-        return sorted(generated)
-    selected = set()
-    unknown = []
-    for selector in selectors:
-        if selector in generated:
-            selected.add(selector)
-            continue
-        if selector in packs.product_tokens():
-            matches = sorted(rt for rt in generated if rt.startswith(selector + "_"))
-        else:
-            matches = sorted(rt for rt in generated if fnmatch.fnmatch(rt, selector))
-        if matches:
-            selected.update(matches)
-        else:
-            unknown.append(selector)
-    if unknown:
-        raise ValueError(
-            "unknown resource selector(s): %s" % ", ".join(sorted(unknown))
-        )
-    return sorted(selected)
+    return ops.expand_resources(selectors)
 
 
 def _is_system_constant(value):

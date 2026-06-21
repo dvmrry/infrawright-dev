@@ -5,7 +5,6 @@ import json
 import os
 import unittest
 
-from engine import packs
 from engine.registry import derive_entry, generated_types
 from engine.tfschema import classify_attributes, load_resource
 from engine.transform import (
@@ -31,16 +30,14 @@ def _demo_types():
 def _expected_tfvars_path(resource_type):
     return os.path.join(
         DEMO_EXPECTED_DIR,
-        packs.provider_of(resource_type),
-        packs.bare_name(resource_type) + ".tfvars.json",
+        resource_type + ".tfvars.json",
     )
 
 
 def _expected_imports_path(resource_type):
     return os.path.join(
         DEMO_EXPECTED_DIR,
-        packs.provider_of(resource_type),
-        packs.bare_name(resource_type) + "_imports.tf",
+        resource_type + "_imports.tf",
     )
 
 
