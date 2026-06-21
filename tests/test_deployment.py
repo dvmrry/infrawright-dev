@@ -70,6 +70,17 @@ class DeploymentResolverTest(unittest.TestCase):
         self._write({"overlay": "_local"})
         self.assertEqual(deployment.config_prefix("acme"), os.path.join("_local", "config", "acme"))
 
+    def test_env_override_beats_cwd_file(self):
+        # The INFRAWRIGHT_DEPLOYMENT override must WIN over a deployment.json
+        # present in the cwd — the invariant the whole fix exists for, and the
+        # only test that proves env-beats-cwd (not just empty-file => root). A
+        # revert of _deployment_path() must fail HERE, not pass silently.
+        self._write({"overlay": "_cwd"})  # a conflicting cwd deployment.json
+        with open("env_deploy.json", "w", encoding="utf-8") as f:
+            f.write(json.dumps({"overlay": "_env"}))
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = os.path.abspath("env_deploy.json")
+        self.assertEqual(deployment.overlay(), "_env")
+
 
 if __name__ == "__main__":
     unittest.main()

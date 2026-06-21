@@ -95,7 +95,7 @@ def main(argv=None):
             sys.stderr.write("error: unknown verb %r\n" % verb)
             return 2
     except ValueError as exc:
-        sys.stderr.write("error: deployment.json is malformed: %s\n" % exc)
+        sys.stderr.write("error: %s is malformed: %s\n" % (_deployment_path(), exc))
         return 1
     return 0
 
