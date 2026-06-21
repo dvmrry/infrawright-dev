@@ -160,6 +160,35 @@ class RenderEnvTestTest(unittest.TestCase):
         self.assertIn('run "empty_plan"', out)
         self.assertIn("items = {}", out)
 
+    def test_config_ref_resolves_under_overlay(self):
+        # With an overlay set, the smoke-test file() ref must STILL resolve to the
+        # real (overlay-prefixed) config file — relpath has to cancel the prefix.
+        # Regression guard for the env path math under a non-root overlay.
+        import json
+        import re
+        import tempfile
+        from engine.gen_env import render_env_test, _env_root_dir, _config_file
+        rt, tenant = "zia_url_categories", "zs3"
+        with tempfile.TemporaryDirectory() as td:
+            dep = os.path.join(td, "deployment.json")
+            with open(dep, "w", encoding="utf-8") as f:
+                f.write(json.dumps({"overlay": "acme"}))
+            saved = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+            try:
+                env_dir = _env_root_dir(tenant, rt)
+                config_file = _config_file(tenant, rt)
+                self.assertTrue(config_file.startswith(os.path.join("acme", "config")))
+                out = render_env_test(rt, tenant, env_dir=env_dir, has_config=True)
+                ref = re.search(r'file\("([^"]+)"\)', out).group(1)
+                resolved = os.path.normpath(os.path.join(env_dir, ref))
+                self.assertEqual(resolved, os.path.normpath(config_file))
+            finally:
+                if saved is None:
+                    os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+                else:
+                    os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
+
 
 class BackendMarkerTest(unittest.TestCase):
     def test_backend_choice_survives_regeneration(self):

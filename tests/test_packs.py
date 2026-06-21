@@ -94,6 +94,8 @@ class PackContractTest(unittest.TestCase):
         packs.reset()
         self.assertEqual(packs.bare_name("foo_bar"), "bar")
         self.assertEqual(packs.bare_name("unknown_thing"), "unknown_thing")
+        # a type equal to a bare prefix strips to nothing -> fall back to full
+        self.assertEqual(packs.bare_name("foo"), "foo")
 
     def test_provider_of_falls_back_to_split_when_no_prefix(self):
         packs.reset()  # empty packs dir

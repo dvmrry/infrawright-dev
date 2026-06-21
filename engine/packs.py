@@ -121,11 +121,14 @@ def provider_of(resource_type):
 
 
 def bare_name(resource_type):
-    """Resource type with its provider prefix stripped for artifact leaf names."""
+    """Resource type with its provider prefix stripped for artifact leaf names.
+
+    Falls back to the full type if stripping would leave nothing (a type equal
+    to a bare prefix), so an artifact leaf name is never empty."""
     prefixes = provider_prefixes()
     for prefix in sorted(prefixes, key=len, reverse=True):
         if resource_type.startswith(prefix):
-            return resource_type[len(prefix):].lstrip("_")
+            return resource_type[len(prefix):].lstrip("_") or resource_type
     return resource_type
 
 
