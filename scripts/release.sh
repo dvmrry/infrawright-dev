@@ -7,8 +7,10 @@
 # Usage: scripts/release.sh <tag> <public-repo-url>
 #   scripts/release.sh 0.1 git@github.com:dvmrry/infrawright.git
 #
-# The public repo must already exist (create it empty on GitHub first).
-# The script STOPS before pushing — review the staged tree, then push yourself.
+# The tag is AUTO-CREATED on the latest origin/main if it doesn't exist yet, so
+# `release.sh <tag> <url>` is the whole release. The public repo must already
+# exist (create it empty on GitHub first). The script STOPS before pushing the
+# public tree — review it, then push yourself.
 set -euo pipefail
 
 TAG="${1:?usage: scripts/release.sh <tag> <public-repo-url>}"
@@ -16,8 +18,16 @@ PUBLIC_URL="${2:?need the public release repo URL (e.g. git@github.com:dvmrry/in
 DEV_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 STAGE="$(mktemp -d)/public"
 
-git -C "$DEV_ROOT" rev-parse "refs/tags/$TAG" >/dev/null 2>&1 \
-  || { echo "tag '$TAG' not found in the dev repo — create it first:  git tag $TAG"; exit 1; }
+# Auto-tag: a release IS a tag, so cutting one shouldn't need a separate manual
+# step. If the tag doesn't exist yet, create it on the latest merged main and
+# push it to the dev repo. Idempotent — an existing tag is reused untouched.
+if ! git -C "$DEV_ROOT" rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+  git -C "$DEV_ROOT" fetch --quiet origin main
+  echo "tag '$TAG' absent — creating on origin/main ($(git -C "$DEV_ROOT" rev-parse --short origin/main))"
+  git -C "$DEV_ROOT" tag -a "$TAG" origin/main -m "infrawright $TAG"
+  git -C "$DEV_ROOT" push --quiet origin "$TAG"
+  echo "tagged + pushed $TAG"
+fi
 
 # 1. Clone the existing public repo (to accumulate history), or init a fresh one.
 if git clone --quiet "$PUBLIC_URL" "$STAGE" 2>/dev/null \
