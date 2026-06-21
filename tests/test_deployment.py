@@ -81,6 +81,46 @@ class DeploymentResolverTest(unittest.TestCase):
         os.environ["INFRAWRIGHT_DEPLOYMENT"] = os.path.abspath("env_deploy.json")
         self.assertEqual(deployment.overlay(), "_env")
 
+    # --- layout strategy: flat (default) + vendor-provider ----------------
+    def test_layout_defaults_flat(self):
+        self.assertEqual(deployment.layout(), "flat")
+
+    def test_flat_ignores_provider(self):
+        self._write({"layout": "flat"})
+        self.assertEqual(
+            deployment.config_dir("demo", "zia"), os.path.join("config", "demo"))
+
+    def test_vendor_provider_colocates_config_and_imports(self):
+        self._write({"layout": "vendor-provider"})
+        here = os.path.join("demo", "zscaler", "zia")
+        self.assertEqual(deployment.config_dir("demo", "zia"), here)
+        self.assertEqual(deployment.imports_dir("demo", "zia"), here)
+
+    def test_vendor_provider_envs_at_vendor_level(self):
+        self._write({"layout": "vendor-provider"})
+        self.assertEqual(
+            deployment.envs_dir("demo", "zpa"), os.path.join("demo", "zscaler", "envs"))
+
+    def test_vendor_provider_without_provider_falls_back_flat(self):
+        # the deployment CLI verbs call config_dir(tenant) with no provider
+        self._write({"layout": "vendor-provider"})
+        self.assertEqual(
+            deployment.config_dir("demo"), os.path.join("config", "demo"))
+
+    def test_vendor_provider_standalone_provider_omits_vendor(self):
+        # a provider with no shared vendor lib (vendor_of -> None) sits directly
+        # under the tenant: $COMPANY/<provider>/ (e.g. cloudflare, single-token)
+        self._write({"layout": "vendor-provider"})
+        self.assertEqual(
+            deployment.config_dir("demo", "cloudflare"),
+            os.path.join("demo", "cloudflare"))
+
+    def test_unknown_layout_is_not_grouped(self):
+        # only the exact "vendor-provider" token activates grouping
+        self._write({"layout": "nope"})
+        self.assertEqual(
+            deployment.config_dir("demo", "zia"), os.path.join("config", "demo"))
+
 
 if __name__ == "__main__":
     unittest.main()

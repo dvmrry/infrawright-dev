@@ -45,21 +45,48 @@ def tenant_root(tenant):
     return "." if tenant in TEMPLATE_TENANTS else overlay()
 
 
-def _join(tenant, kind):
+def layout():
+    """Output-layout strategy from deployment.json. 'flat' (default) is the
+    historical kind/tenant tree, byte-identical to the original output;
+    'vendor-provider' groups config+imports under $COMPANY/<vendor>/<provider>/
+    with envs at the vendor level. Layout is an adopter choice, not an engine
+    mandate — the engine emits per-(tenant, provider, rt) artifacts and the
+    strategy maps them to paths."""
+    return _load().get("layout", "flat") or "flat"
+
+
+def _flat(tenant, kind):
     root = tenant_root(tenant)
     return os.path.join(kind, tenant) if root == "." else os.path.join(root, kind, tenant)
 
 
-def config_dir(tenant):
-    return _join(tenant, "config")
+def _vendor_provider(tenant, provider, leaf):
+    """$COMPANY/<vendor>/<leaf> under the tenant root (vendor level omitted for a
+    standalone provider). config+imports share the <provider> leaf (co-located);
+    envs uses the 'envs' leaf, shared across the vendor's providers."""
+    from engine import packs
+    vendor = packs.vendor_of(provider)
+    rel = os.path.join(tenant, *([vendor, leaf] if vendor else [leaf]))
+    root = tenant_root(tenant)
+    return rel if root == "." else os.path.join(root, rel)
 
 
-def imports_dir(tenant):
-    return _join(tenant, "imports")
+def config_dir(tenant, provider=None):
+    if layout() == "vendor-provider" and provider is not None:
+        return _vendor_provider(tenant, provider, provider)
+    return _flat(tenant, "config")
 
 
-def envs_dir(tenant):
-    return _join(tenant, "envs")
+def imports_dir(tenant, provider=None):
+    if layout() == "vendor-provider" and provider is not None:
+        return _vendor_provider(tenant, provider, provider)
+    return _flat(tenant, "imports")
+
+
+def envs_dir(tenant, provider=None):
+    if layout() == "vendor-provider" and provider is not None:
+        return _vendor_provider(tenant, provider, "envs")
+    return _flat(tenant, "envs")
 
 
 def pulls_dir(tenant):

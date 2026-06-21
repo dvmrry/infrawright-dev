@@ -8,7 +8,9 @@ import subprocess
 import tempfile
 import unittest
 
+from engine import deployment
 from engine import lookup
+from engine import packs
 from engine.transform import main as transform_main
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -22,6 +24,13 @@ def _write_json(path, data):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, sort_keys=True)
         f.write("\n")
+
+
+def _config_dir(tenant, resource_type):
+    return os.path.join(
+        REPO_ROOT,
+        deployment.config_dir(tenant, packs.provider_of(resource_type)),
+    )
 
 
 class LookupBuildTest(unittest.TestCase):
@@ -69,6 +78,7 @@ class LookupTransformTest(unittest.TestCase):
     def setUp(self):
         self.addCleanup(shutil.rmtree, os.path.join(REPO_ROOT, "config", self.TENANT), True)
         self.addCleanup(shutil.rmtree, os.path.join(REPO_ROOT, "imports", self.TENANT), True)
+        self.addCleanup(shutil.rmtree, os.path.join(REPO_ROOT, self.TENANT), True)
 
     def test_transform_writes_url_category_lookup(self):
         with tempfile.TemporaryDirectory() as td:
@@ -81,7 +91,8 @@ class LookupTransformTest(unittest.TestCase):
             self.assertEqual(transform_main(["zia_url_categories", src, self.TENANT]), 0)
 
             lookup_file = os.path.join(
-                REPO_ROOT, "config", self.TENANT, "zia_url_categories.lookup.json")
+                _config_dir(self.TENANT, "zia_url_categories"),
+                "zia_url_categories.lookup.json")
             with open(lookup_file, encoding="utf-8") as f:
                 self.assertEqual(
                     f.read(),
@@ -89,7 +100,7 @@ class LookupTransformTest(unittest.TestCase):
                 )
 
             config_file = os.path.join(
-                REPO_ROOT, "config", self.TENANT,
+                _config_dir(self.TENANT, "zia_url_categories"),
                 "zia_url_categories.auto.tfvars.json")
             with open(config_file, encoding="utf-8") as f:
                 data = json.load(f)
@@ -97,7 +108,7 @@ class LookupTransformTest(unittest.TestCase):
             self.assertNotIn("lookup", data)
 
     def test_transform_for_referrer_does_not_touch_referent_lookup(self):
-        lookup_dir = os.path.join(REPO_ROOT, "config", self.TENANT)
+        lookup_dir = _config_dir(self.TENANT, "zia_url_categories")
         os.makedirs(lookup_dir, exist_ok=True)
         lookup_file = os.path.join(lookup_dir, "zia_url_categories.lookup.json")
         original = '{"CUSTOM_01": "Alpha"}\n'
@@ -208,10 +219,11 @@ class LookupCliTest(unittest.TestCase):
 
     def setUp(self):
         self.addCleanup(shutil.rmtree, os.path.join(REPO_ROOT, "config", self.TENANT), True)
+        self.addCleanup(shutil.rmtree, os.path.join(REPO_ROOT, self.TENANT), True)
 
     def test_explain_warns_when_lookup_file_is_missing(self):
         _write_json(
-            os.path.join(REPO_ROOT, "config", self.TENANT,
+            os.path.join(_config_dir(self.TENANT, "zia_url_filtering_rules"),
                          "zia_url_filtering_rules.auto.tfvars.json"),
             {"items": {
                 "r": {"name": "R", "url_categories": ["CUSTOM_01"]},
@@ -240,6 +252,7 @@ class LookupMakeScopeTest(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.pull_dir, True)
         self.addCleanup(shutil.rmtree, os.path.join(REPO_ROOT, "config", self.TENANT), True)
         self.addCleanup(shutil.rmtree, os.path.join(REPO_ROOT, "imports", self.TENANT), True)
+        self.addCleanup(shutil.rmtree, os.path.join(REPO_ROOT, self.TENANT), True)
 
     def _make_transform(self, resource):
         cmd = [
@@ -261,7 +274,8 @@ class LookupMakeScopeTest(unittest.TestCase):
         code, out = self._make_transform("zia_url_categories")
         self.assertEqual(code, 0, out)
         lookup_file = os.path.join(
-            REPO_ROOT, "config", self.TENANT, "zia_url_categories.lookup.json")
+            _config_dir(self.TENANT, "zia_url_categories"),
+            "zia_url_categories.lookup.json")
         with open(lookup_file, encoding="utf-8") as f:
             original = f.read()
         self.assertIn('"CUSTOM_01": "Alpha"', original)
