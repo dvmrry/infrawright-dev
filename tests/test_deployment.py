@@ -82,30 +82,30 @@ class DeploymentResolverTest(unittest.TestCase):
         self.assertEqual(deployment.overlay(), "_env")
 
     # --- single output layout ---------------------------------------------
-    def test_provider_config_and_imports_sit_under_provider_dir(self):
+    def test_provider_argument_does_not_create_path_segment(self):
         self.assertEqual(
             deployment.config_dir("demo", "zia"),
-            os.path.join("config", "demo", "zia"),
+            os.path.join("config", "demo"),
         )
         self.assertEqual(
             deployment.imports_dir("demo", "zia"),
-            os.path.join("imports", "demo", "zia"),
+            os.path.join("imports", "demo"),
         )
 
-    def test_provider_envs_sit_under_provider_dir(self):
+    def test_provider_argument_ignored_for_envs(self):
         self.assertEqual(
             deployment.envs_dir("demo", "zpa"),
-            os.path.join("envs", "demo", "zpa"),
+            os.path.join("envs", "demo"),
         )
 
     def test_no_provider_returns_tenant_level_dir(self):
         self.assertEqual(deployment.config_dir("demo"), os.path.join("config", "demo"))
 
-    def test_overlay_prefixes_provider_layout_for_real_tenant(self):
+    def test_overlay_prefixes_flat_layout_for_real_tenant(self):
         self._write({"overlay": "acme"})
         self.assertEqual(
             deployment.config_dir("zs3", "zia"),
-            os.path.join("acme", "config", "zs3", "zia"),
+            os.path.join("acme", "config", "zs3"),
         )
 
 

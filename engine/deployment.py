@@ -46,15 +46,15 @@ def tenant_root(tenant):
 
 
 def _path(tenant, kind, provider=None):
-    """The one output layout: [<overlay>/]<kind>/<tenant>[/<provider>].
+    """The one output layout: [<overlay>/]<kind>/<tenant>.
 
     infrawright owns only this deterministic inner structure; everything above it
-    is the adopter's FREE-FORM overlay prefix — a company, a cloud, a repo name,
-    or nothing. The provider is a directory when given (a tenant's per-provider
-    config/imports/envs live under it); CLI/anchor callers omit it to get the
-    tenant-level prefix they match `git status --porcelain` against."""
+    is the adopter's FREE-FORM overlay prefix - a company, a cloud, a repo name,
+    or nothing. Provider/pack metadata affects behavior, not artifact paths:
+    Terraform resource type names are already globally namespaced. The provider
+    argument is accepted for older call sites but intentionally ignored."""
     root = tenant_root(tenant)
-    parts = [kind, tenant] + ([provider] if provider else [])
+    parts = [kind, tenant]
     rel = os.path.join(*parts)
     return rel if root == "." else os.path.join(root, rel)
 

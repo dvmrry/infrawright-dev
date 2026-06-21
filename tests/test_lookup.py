@@ -10,7 +10,6 @@ import unittest
 
 from engine import deployment
 from engine import lookup
-from engine import packs
 from engine.transform import main as transform_main
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -29,21 +28,21 @@ def _write_json(path, data):
 def _config_dir(tenant, resource_type):
     return os.path.join(
         REPO_ROOT,
-        deployment.config_dir(tenant, packs.provider_of(resource_type)),
+        deployment.config_dir(tenant),
     )
 
 
 def _config_file(tenant, resource_type):
     return os.path.join(
         _config_dir(tenant, resource_type),
-        packs.bare_name(resource_type) + lookup.CONFIG_SUFFIX,
+        resource_type + lookup.CONFIG_SUFFIX,
     )
 
 
 def _lookup_file(tenant, resource_type):
     return os.path.join(
         _config_dir(tenant, resource_type),
-        packs.bare_name(resource_type) + lookup.LOOKUP_SUFFIX,
+        resource_type + lookup.LOOKUP_SUFFIX,
     )
 
 
@@ -152,8 +151,7 @@ class LookupExplainTest(unittest.TestCase):
             os.path.join(
                 self.config_root,
                 tenant,
-                packs.provider_of(resource_type),
-                packs.bare_name(resource_type) + lookup.CONFIG_SUFFIX,
+                resource_type + lookup.CONFIG_SUFFIX,
             ),
             {"items": items},
         )
@@ -163,8 +161,7 @@ class LookupExplainTest(unittest.TestCase):
             os.path.join(
                 self.config_root,
                 tenant,
-                packs.provider_of(referent),
-                packs.bare_name(referent) + lookup.LOOKUP_SUFFIX,
+                referent + lookup.LOOKUP_SUFFIX,
             ),
             mapping,
         )

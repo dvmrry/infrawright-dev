@@ -12,6 +12,7 @@ import re
 import sys
 
 from engine import deployment
+from engine import ops
 from engine import lookup
 from engine import packs
 from engine.registry import derive_entry
@@ -848,9 +849,7 @@ def main(argv=None):
             "fetcher wrote an envelope instead of the item list\n"
             % (input_path, type(raw_items).__name__, tenant, resource_type))
         return 2
-    provider = packs.provider_of(resource_type)
-    bare = packs.bare_name(resource_type)
-    config_dir = deployment.config_dir(tenant, provider)
+    config_dir = deployment.config_dir(tenant)
     # Derived resource (no fetch, no import): build its config from the SOURCE
     # pull passed as input_path, write config only, and stop. It is created on
     # apply (the provider gives no way to import its state) — order-preserving
@@ -859,7 +858,7 @@ def main(argv=None):
     if derive is not None:
         items = derive_reorder(raw_items, derive)
         os.makedirs(config_dir, exist_ok=True)
-        tfvars_path = os.path.join(config_dir, bare + ".auto.tfvars.json")
+        tfvars_path = ops.config_file(tenant, resource_type)
         with open(tfvars_path, "w", encoding="utf-8") as f:
             f.write(render_tfvars(items))
         sys.stderr.write(
@@ -868,7 +867,7 @@ def main(argv=None):
         return 0
     _warn_if_slim(raw_items, load_resource(resource_type)["block"], resource_type)
     items, originals, drops = transform_items(raw_items, resource_type, override)
-    imports_dir = deployment.imports_dir(tenant, provider)
+    imports_dir = deployment.imports_dir(tenant)
     os.makedirs(config_dir, exist_ok=True)
     os.makedirs(imports_dir, exist_ok=True)
     if resource_type in lookup.lookup_sources():
@@ -876,9 +875,9 @@ def main(argv=None):
             tenant, resource_type, [snake_keys(raw) for raw in raw_items]
         )
         sys.stderr.write("wrote %s\n" % lookup_path)
-    tfvars_path = os.path.join(config_dir, bare + ".auto.tfvars.json")
-    imports_path = os.path.join(imports_dir, bare + "_imports.tf")
-    moves_path = os.path.join(imports_dir, bare + "_moves.tf")
+    tfvars_path = ops.config_file(tenant, resource_type)
+    imports_path = ops.imports_file(tenant, resource_type)
+    moves_path = ops.moves_file(tenant, resource_type)
     new_imports = render_imports(resource_type, originals, override)
     # Console renames: compare the previously committed imports (key->id)
     # with the fresh ones; same id under a new key becomes a moved block so

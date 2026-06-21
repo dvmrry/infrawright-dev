@@ -1,9 +1,9 @@
-"""Fetch detail-shaped Zscaler API JSON into pulls/<tenant>/<type>.json.
+"""Fetch detail-shaped REST API JSON into pulls/<tenant>/<type>.json.
 
 Runs with real credentials ONLY in trusted environments; here it is
 exercised against fictional canned responses via an injected opener.
 Stdlib-only, Python 3.6-floor. Per-resource knowledge lives in
-tools/registry.json (data); only auth/pagination patterns are code.
+pack registry.json files (data); auth and URL seams live in provider packs.
 See AGENTS.md rules 1-5.
 """
 import json
@@ -403,7 +403,13 @@ def _fetch_paths(entry, auth_mode, ctx, token, opener):
 
 def fetch_resource(resource_type, auth_mode, ctx, token, opener):
     """List one resource type into a list of detail-shaped dicts."""
-    return _fetch_paths(manifest_entry(resource_type), auth_mode, ctx, token, opener)
+    entry = manifest_entry(resource_type)
+    from engine import packs
+    collector = packs.collector_for(entry["product"])
+    hook = getattr(collector, "fetch_resource", None)
+    if hook is not None:
+        return hook(resource_type, entry, auth_mode, ctx, token, opener)
+    return _fetch_paths(entry, auth_mode, ctx, token, opener)
 
 
 def _require(env, name):
@@ -628,7 +634,7 @@ def main(argv=None):
         return run_diag(os.environ)
     if len(argv) < 1:
         sys.stderr.write(
-            "usage: python -m tools.fetch <tenant> "
+            "usage: python -m collectors.rest <tenant> "
             "[resource_type|product ...] | --diag\n"
         )
         return 2
@@ -660,8 +666,8 @@ def main(argv=None):
     auth_mode = auth_mode_from_env(env)
     opener = real_opener()
     # ZPA_CUSTOMER_ID is only used to compose ZPA URLs, so require it only
-    # when ZPA is actually in scope — a RESOURCE=zia_* / zcc_* scoped fetch
-    # must not demand ZPA credentials it never uses (only= scoping benefit).
+    # when ZPA is actually in scope. A provider-scoped fetch must not demand
+    # credentials for products it never uses (only= scoping benefit).
     wanted = sorted(only) if only else sorted(load_manifest())
     needed_products = set(manifest_entry(rt)["product"] for rt in wanted)
     if "zpa" in needed_products:
