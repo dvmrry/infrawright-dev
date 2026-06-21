@@ -11,9 +11,15 @@ class DeploymentResolverTest(unittest.TestCase):
         self._tmp = self.id().replace(".", "_") + ".tmpdir"
         os.makedirs(self._tmp, exist_ok=True)
         os.chdir(self._tmp)
+        # This suite exercises REAL deployment.json reading, so opt out of the
+        # hermetic INFRAWRIGHT_DEPLOYMENT pin set in tests/__init__.py and let
+        # _load() resolve deployment.json from this tmp cwd.
+        self._saved_dep = os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
 
     def tearDown(self):
         os.chdir(self._cwd)
+        if self._saved_dep is not None:
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = self._saved_dep
         import shutil
         shutil.rmtree(os.path.join(self._cwd, self._tmp), ignore_errors=True)
 

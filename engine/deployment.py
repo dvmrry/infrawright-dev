@@ -14,10 +14,21 @@ DEPLOYMENT_JSON = "deployment.json"
 TEMPLATE_TENANTS = frozenset({"demo"})
 
 
+def _deployment_path():
+    """The deployment.json to read: INFRAWRIGHT_DEPLOYMENT if set, else
+    deployment.json in the cwd. Mirrors engine.packs' INFRAWRIGHT_PACKS override
+    so the test suite (and any alternate deployment) can pin/neutralize the
+    overlay rather than depending on whatever deployment.json sits in the cwd —
+    a committed adopter deployment.json must not redirect the template's own
+    tests."""
+    return os.environ.get("INFRAWRIGHT_DEPLOYMENT") or DEPLOYMENT_JSON
+
+
 def _load():
-    if not os.path.exists(DEPLOYMENT_JSON):
+    path = _deployment_path()
+    if not os.path.exists(path):
         return {}
-    with open(DEPLOYMENT_JSON, encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         text = f.read()
     if not text.strip():
         return {}
