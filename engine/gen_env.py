@@ -1,6 +1,6 @@
 """Generate isolated per-resource Terraform env roots from the registry.
 
-One root per (tenant, resource): envs/<tenant>/<resource>/. Each calls a
+One root per (tenant, provider, resource): envs/<tenant>/<provider>/<bare>/. Each calls a
 single module, keeping state blast-radius per resource (user's choice). The
 tenant label is an opaque filesystem-safe identifier ([A-Za-z0-9_.-]+); the
 Makefile gates enforce this. API targeting comes from env vars at plan time,
@@ -20,6 +20,34 @@ ENVS_ROOT = "envs"
 
 def _provider_of(resource_type):
     return packs.provider_of(resource_type)
+
+
+def _config_file(tenant, resource_type):
+    provider = _provider_of(resource_type)
+    return os.path.join(
+        deployment.config_dir(tenant, provider),
+        packs.bare_name(resource_type) + ".auto.tfvars.json",
+    )
+
+
+def _tenant_env_dir(tenant, out_root=None):
+    if out_root is None:
+        return deployment.envs_dir(tenant)
+    return os.path.join(out_root, tenant)
+
+
+def _env_root_dir(tenant, resource_type, out_root=None):
+    provider = _provider_of(resource_type)
+    if out_root is None:
+        return os.path.join(
+            deployment.envs_dir(tenant, provider),
+            packs.bare_name(resource_type),
+        )
+    return os.path.join(out_root, tenant, provider, packs.bare_name(resource_type))
+
+
+def _config_ref(tenant, resource_type, env_dir):
+    return os.path.relpath(_config_file(tenant, resource_type), env_dir)
 
 
 def expand_resources(selectors):
@@ -102,24 +130,20 @@ def render_env_main(resource_type, tenant, env_dir, backend=None):
     )
 
 
-def render_env_readme(resource_type, tenant):
-    # The config path is phrased RELATIVE TO THIS ENV ROOT, not root-anchored:
-    # the root is <envs>/<tenant>/<resource>/ at a fixed depth of 3, so the
-    # config sits at ../../../config/<tenant>/<resource>.auto.tfvars.json whether
-    # <envs> is root envs/ (demo) or $(OVERLAY)/envs/ (a real tenant). One
-    # phrasing is correct at both depths — see render_env_test, which references
-    # the same relative path because Terraform reads it as a file path.
+def render_env_readme(resource_type, tenant, env_dir=None):
+    env_dir = env_dir or _env_root_dir(tenant, resource_type)
+    config_ref = _config_ref(tenant, resource_type, env_dir)
     return (
         "# %s / %s (generated env root)\n\n"
         "Isolated Terraform root for `%s` on tenant `%s`. GENERATED — do not\n"
         "edit (AGENTS.md rule 6); regenerate with `make gen-env TENANT=%s`.\n"
         "Config is loaded at plan time from the tenant's config dir, relative to\n"
-        "this root: `../../../config/%s/%s.auto.tfvars.json`.\n"
-        % (tenant, resource_type, resource_type, tenant, tenant, tenant, resource_type)
+        "this root: `%s`.\n"
+        % (tenant, resource_type, resource_type, tenant, tenant, config_ref)
     )
 
 
-def render_env_test(resource_type, tenant, has_config=False):
+def render_env_test(resource_type, tenant, env_dir=None, has_config=False):
     """Render the smoke test HCL for an env root.
 
     Always emits an empty_plan run block (mock provider, no credentials).
@@ -129,6 +153,7 @@ def render_env_test(resource_type, tenant, has_config=False):
     upgrades the smoke test automatically — check-envs keeps it honest.
     """
     provider = _provider_of(resource_type)
+    env_dir = env_dir or _env_root_dir(tenant, resource_type)
     base = (
         "# GENERATED smoke test — the root composes and plans against a\n"
         "# mocked provider; no credentials. Regenerate: make gen-env TENANT=%s\n"
@@ -142,13 +167,14 @@ def render_env_test(resource_type, tenant, has_config=False):
     )
     if not has_config:
         return base
+    config_ref = _config_ref(tenant, resource_type, env_dir)
     config_block = (
         '\nrun "config_plan" {\n'
         "  command = plan\n\n"
         "  variables {\n"
-        '    items = jsondecode(file("../../../config/%s/%s.auto.tfvars.json")).items\n'
+        '    items = jsondecode(file("%s")).items\n'
         "  }\n"
-        "}\n" % (tenant, resource_type)
+        "}\n" % config_ref
     )
     return base + config_block
 
@@ -169,18 +195,17 @@ def generate_env(tenant, out_root=None, fmt=True, backend=None,
     drift gate) reproduces the same roots instead of silently reverting
     to local state.
     """
-    if out_root is None:
-        out_root = os.path.join(deployment.tenant_root(tenant), "envs")
-    marker = os.path.join(out_root, tenant, ".backend")
+    tenant_env_dir = _tenant_env_dir(tenant, out_root=out_root)
+    marker = os.path.join(tenant_env_dir, ".backend")
     if backend is None and os.path.exists(marker):
         with open(marker, encoding="utf-8") as f:
             backend = f.read().strip() or None
-    os.makedirs(os.path.join(out_root, tenant), exist_ok=True)
+    os.makedirs(tenant_env_dir, exist_ok=True)
     if backend:
         with open(marker, "w", encoding="utf-8") as f:
             f.write(backend + "\n")
     for resource_type in expand_resources(selectors or []):
-        base = os.path.join(out_root, tenant, resource_type)
+        base = _env_root_dir(tenant, resource_type, out_root=out_root)
         os.makedirs(base, exist_ok=True)
         main_text = render_env_main(resource_type, tenant, base, backend=backend)
         if fmt:
@@ -189,18 +214,15 @@ def generate_env(tenant, out_root=None, fmt=True, backend=None,
             f.write(main_text)
         sys.stderr.write("wrote %s\n" % os.path.join(base, "main.tf"))
         with open(os.path.join(base, "README.md"), "w", encoding="utf-8") as f:
-            f.write(render_env_readme(resource_type, tenant))
+            f.write(render_env_readme(resource_type, tenant, env_dir=base))
         tests_dir = os.path.join(base, "tests")
         os.makedirs(tests_dir, exist_ok=True)
         # Config existence is evaluated against the repo's config dir regardless
         # of out_root — committed config drives committed tests.
-        has_config = os.path.exists(
-            os.path.join(
-                deployment.config_dir(tenant, packs.provider_of(resource_type)),
-                resource_type + ".auto.tfvars.json",
-            )
-        )
-        test_text = render_env_test(resource_type, tenant, has_config=has_config)
+        config_file = _config_file(tenant, resource_type)
+        has_config = os.path.exists(config_file)
+        test_text = render_env_test(
+            resource_type, tenant, env_dir=base, has_config=has_config)
         if fmt:
             test_text = _fmt(test_text)
         with open(os.path.join(tests_dir, "smoke.tftest.hcl"), "w", encoding="utf-8") as f:
@@ -208,10 +230,10 @@ def generate_env(tenant, out_root=None, fmt=True, backend=None,
         sys.stderr.write("wrote %s\n" % os.path.join(tests_dir, "smoke.tftest.hcl"))
         if not has_config:
             sys.stderr.write(
-                "NOTE %s: no config at config/%s/ — smoke test is STUB-only "
+                "NOTE %s: no config at %s — smoke test is STUB-only "
                 "(composes + plans an empty root; does NOT exercise config). "
                 "Materialize the config and re-run gen-env to upgrade it.\n"
-                % (resource_type, tenant))
+                % (resource_type, config_file))
 
 
 USAGE = (

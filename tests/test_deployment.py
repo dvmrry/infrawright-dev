@@ -81,45 +81,32 @@ class DeploymentResolverTest(unittest.TestCase):
         os.environ["INFRAWRIGHT_DEPLOYMENT"] = os.path.abspath("env_deploy.json")
         self.assertEqual(deployment.overlay(), "_env")
 
-    # --- layout strategy: flat (default) + vendor-provider ----------------
-    def test_layout_defaults_flat(self):
-        self.assertEqual(deployment.layout(), "flat")
-
-    def test_flat_ignores_provider(self):
-        self._write({"layout": "flat"})
+    # --- single output layout ---------------------------------------------
+    def test_provider_config_and_imports_sit_under_provider_dir(self):
         self.assertEqual(
-            deployment.config_dir("demo", "zia"), os.path.join("config", "demo"))
-
-    def test_vendor_provider_colocates_config_and_imports(self):
-        self._write({"layout": "vendor-provider"})
-        here = os.path.join("demo", "zscaler", "zia")
-        self.assertEqual(deployment.config_dir("demo", "zia"), here)
-        self.assertEqual(deployment.imports_dir("demo", "zia"), here)
-
-    def test_vendor_provider_envs_at_vendor_level(self):
-        self._write({"layout": "vendor-provider"})
+            deployment.config_dir("demo", "zia"),
+            os.path.join("config", "demo", "zia"),
+        )
         self.assertEqual(
-            deployment.envs_dir("demo", "zpa"), os.path.join("demo", "zscaler", "envs"))
+            deployment.imports_dir("demo", "zia"),
+            os.path.join("imports", "demo", "zia"),
+        )
 
-    def test_vendor_provider_without_provider_falls_back_flat(self):
-        # the deployment CLI verbs call config_dir(tenant) with no provider
-        self._write({"layout": "vendor-provider"})
+    def test_provider_envs_sit_under_provider_dir(self):
         self.assertEqual(
-            deployment.config_dir("demo"), os.path.join("config", "demo"))
+            deployment.envs_dir("demo", "zpa"),
+            os.path.join("envs", "demo", "zpa"),
+        )
 
-    def test_vendor_provider_standalone_provider_omits_vendor(self):
-        # a provider with no shared vendor lib (vendor_of -> None) sits directly
-        # under the tenant: $COMPANY/<provider>/ (e.g. cloudflare, single-token)
-        self._write({"layout": "vendor-provider"})
-        self.assertEqual(
-            deployment.config_dir("demo", "cloudflare"),
-            os.path.join("demo", "cloudflare"))
+    def test_no_provider_returns_tenant_level_dir(self):
+        self.assertEqual(deployment.config_dir("demo"), os.path.join("config", "demo"))
 
-    def test_unknown_layout_is_not_grouped(self):
-        # only the exact "vendor-provider" token activates grouping
-        self._write({"layout": "nope"})
+    def test_overlay_prefixes_provider_layout_for_real_tenant(self):
+        self._write({"overlay": "acme"})
         self.assertEqual(
-            deployment.config_dir("demo", "zia"), os.path.join("config", "demo"))
+            deployment.config_dir("zs3", "zia"),
+            os.path.join("acme", "config", "zs3", "zia"),
+        )
 
 
 if __name__ == "__main__":

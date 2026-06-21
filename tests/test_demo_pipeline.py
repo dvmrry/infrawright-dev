@@ -5,6 +5,7 @@ import json
 import os
 import unittest
 
+from engine import packs
 from engine.registry import derive_entry, generated_types
 from engine.tfschema import classify_attributes, load_resource
 from engine.transform import (
@@ -24,6 +25,22 @@ def _demo_types():
         return []
     return sorted(
         f[:-len(".json")] for f in os.listdir(DEMO_DIR) if f.endswith(".json")
+    )
+
+
+def _expected_tfvars_path(resource_type):
+    return os.path.join(
+        DEMO_EXPECTED_DIR,
+        packs.provider_of(resource_type),
+        packs.bare_name(resource_type) + ".tfvars.json",
+    )
+
+
+def _expected_imports_path(resource_type):
+    return os.path.join(
+        DEMO_EXPECTED_DIR,
+        packs.provider_of(resource_type),
+        packs.bare_name(resource_type) + "_imports.tf",
     )
 
 
@@ -114,11 +131,9 @@ class DemoPipelineTest(unittest.TestCase):
             override = load_override(rt)
             items, originals, _ = transform_items(raw, rt, override)
 
-            tfvars_path = os.path.join(DEMO_EXPECTED_DIR, rt + ".tfvars.json")
-            imports_path = os.path.join(DEMO_EXPECTED_DIR, rt + "_imports.tf")
-            with open(tfvars_path, encoding="utf-8") as f:
+            with open(_expected_tfvars_path(rt), encoding="utf-8") as f:
                 expected_tfvars = f.read()
-            with open(imports_path, encoding="utf-8") as f:
+            with open(_expected_imports_path(rt), encoding="utf-8") as f:
                 expected_imports = f.read()
 
             self.assertEqual(

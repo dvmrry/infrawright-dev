@@ -1186,7 +1186,7 @@ class MovedBlocksEndToEndTest(unittest.TestCase):
             self.assertEqual(
                 transform_main(["zia_rule_labels", src, self.TENANT]), 0)
             moves_path = os.path.join(
-                self._imports_dir("zia_rule_labels"), "zia_rule_labels_moves.tf")
+                self._imports_dir("zia_rule_labels"), "rule_labels_moves.tf")
             self.assertFalse(os.path.exists(moves_path), "no rename yet")
             # the console rename: same id, new name -> new derived key
             with open(src, "w", encoding="utf-8") as f:
@@ -1211,7 +1211,7 @@ class MovedBlocksEndToEndTest(unittest.TestCase):
         self.addCleanup(shutil.rmtree, os.path.join("imports", self.TENANT), True)
         self.addCleanup(shutil.rmtree, self.TENANT, True)
         moves_path = os.path.join(
-            self._imports_dir("zia_rule_labels"), "zia_rule_labels_moves.tf")
+            self._imports_dir("zia_rule_labels"), "rule_labels_moves.tf")
         with tempfile.TemporaryDirectory() as td:
             src = os.path.join(td, "in.json")
             # run 1: baseline

@@ -33,6 +33,20 @@ def _config_dir(tenant, resource_type):
     )
 
 
+def _config_file(tenant, resource_type):
+    return os.path.join(
+        _config_dir(tenant, resource_type),
+        packs.bare_name(resource_type) + lookup.CONFIG_SUFFIX,
+    )
+
+
+def _lookup_file(tenant, resource_type):
+    return os.path.join(
+        _config_dir(tenant, resource_type),
+        packs.bare_name(resource_type) + lookup.LOOKUP_SUFFIX,
+    )
+
+
 class LookupBuildTest(unittest.TestCase):
     def test_build_lookup_uses_configured_name(self):
         items = [
@@ -90,18 +104,14 @@ class LookupTransformTest(unittest.TestCase):
 
             self.assertEqual(transform_main(["zia_url_categories", src, self.TENANT]), 0)
 
-            lookup_file = os.path.join(
-                _config_dir(self.TENANT, "zia_url_categories"),
-                "zia_url_categories.lookup.json")
+            lookup_file = _lookup_file(self.TENANT, "zia_url_categories")
             with open(lookup_file, encoding="utf-8") as f:
                 self.assertEqual(
                     f.read(),
                     '{\n  "CUSTOM_01": "Alpha",\n  "CUSTOM_02": "Beta"\n}\n',
                 )
 
-            config_file = os.path.join(
-                _config_dir(self.TENANT, "zia_url_categories"),
-                "zia_url_categories.auto.tfvars.json")
+            config_file = _config_file(self.TENANT, "zia_url_categories")
             with open(config_file, encoding="utf-8") as f:
                 data = json.load(f)
             self.assertIn("items", data)
@@ -110,7 +120,7 @@ class LookupTransformTest(unittest.TestCase):
     def test_transform_for_referrer_does_not_touch_referent_lookup(self):
         lookup_dir = _config_dir(self.TENANT, "zia_url_categories")
         os.makedirs(lookup_dir, exist_ok=True)
-        lookup_file = os.path.join(lookup_dir, "zia_url_categories.lookup.json")
+        lookup_file = _lookup_file(self.TENANT, "zia_url_categories")
         original = '{"CUSTOM_01": "Alpha"}\n'
         with open(lookup_file, "w", encoding="utf-8") as f:
             f.write(original)
@@ -139,15 +149,23 @@ class LookupExplainTest(unittest.TestCase):
 
     def _write_config(self, tenant, resource_type, items):
         _write_json(
-            os.path.join(self.config_root, tenant,
-                         resource_type + lookup.CONFIG_SUFFIX),
+            os.path.join(
+                self.config_root,
+                tenant,
+                packs.provider_of(resource_type),
+                packs.bare_name(resource_type) + lookup.CONFIG_SUFFIX,
+            ),
             {"items": items},
         )
 
     def _write_lookup(self, tenant, referent, mapping):
         _write_json(
-            os.path.join(self.config_root, tenant,
-                         referent + lookup.LOOKUP_SUFFIX),
+            os.path.join(
+                self.config_root,
+                tenant,
+                packs.provider_of(referent),
+                packs.bare_name(referent) + lookup.LOOKUP_SUFFIX,
+            ),
             mapping,
         )
 
@@ -223,8 +241,7 @@ class LookupCliTest(unittest.TestCase):
 
     def test_explain_warns_when_lookup_file_is_missing(self):
         _write_json(
-            os.path.join(_config_dir(self.TENANT, "zia_url_filtering_rules"),
-                         "zia_url_filtering_rules.auto.tfvars.json"),
+            _config_file(self.TENANT, "zia_url_filtering_rules"),
             {"items": {
                 "r": {"name": "R", "url_categories": ["CUSTOM_01"]},
             }},
@@ -273,9 +290,7 @@ class LookupMakeScopeTest(unittest.TestCase):
 
         code, out = self._make_transform("zia_url_categories")
         self.assertEqual(code, 0, out)
-        lookup_file = os.path.join(
-            _config_dir(self.TENANT, "zia_url_categories"),
-            "zia_url_categories.lookup.json")
+        lookup_file = _lookup_file(self.TENANT, "zia_url_categories")
         with open(lookup_file, encoding="utf-8") as f:
             original = f.read()
         self.assertIn('"CUSTOM_01": "Alpha"', original)

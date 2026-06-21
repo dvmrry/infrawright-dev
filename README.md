@@ -35,6 +35,13 @@ The acceptance bar isn't "0 to change" — it's **0 to destroy, 0 to create** af
 | `engine/` | vendor-agnostic: transform → modular TF + `import` + `moved` reconciliation |
 | `collectors/rest/` | shared token-REST fetch base (provider collectors lean on it) |
 | `packs/<name>/` | a provider bundle: `pack.json` + `registry.json` + `overrides/` + `schemas/` + collector |
+| `[<overlay>/]config/<tenant>/<provider>/<bare>.auto.tfvars.json` | generated tenant config |
+| `[<overlay>/]imports/<tenant>/<provider>/<bare>_imports.tf` | generated import blocks |
+| `[<overlay>/]envs/<tenant>/<provider>/<bare>/` | generated per-resource Terraform roots |
+
+There is one generated output layout. `overlay` is an optional free-form prefix
+owned by the adopter; the demo tenant uses none, so `make demo` writes at repo
+root under `config/demo` and `imports/demo`.
 
 ## Quickstart
 

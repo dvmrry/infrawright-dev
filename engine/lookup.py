@@ -58,21 +58,25 @@ def check_tenant(tenant):
 
 
 def lookup_path(tenant, referent, config_root=None):
+    provider = packs.provider_of(referent)
+    bare = packs.bare_name(referent)
     if config_root is None:
         return os.path.join(
-            deployment.config_dir(tenant, packs.provider_of(referent)),
-            referent + LOOKUP_SUFFIX,
+            deployment.config_dir(tenant, provider),
+            bare + LOOKUP_SUFFIX,
         )
-    return os.path.join(config_root, tenant, referent + LOOKUP_SUFFIX)
+    return os.path.join(config_root, tenant, provider, bare + LOOKUP_SUFFIX)
 
 
 def config_path(tenant, resource_type, config_root=None):
+    provider = packs.provider_of(resource_type)
+    bare = packs.bare_name(resource_type)
     if config_root is None:
         return os.path.join(
-            deployment.config_dir(tenant, packs.provider_of(resource_type)),
-            resource_type + CONFIG_SUFFIX,
+            deployment.config_dir(tenant, provider),
+            bare + CONFIG_SUFFIX,
         )
-    return os.path.join(config_root, tenant, resource_type + CONFIG_SUFFIX)
+    return os.path.join(config_root, tenant, provider, bare + CONFIG_SUFFIX)
 
 
 def _display_name(item, name_field):

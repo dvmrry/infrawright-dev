@@ -1,102 +1,149 @@
-# `$COMPANY` ownership model — the Zscaler control plane and the cloud it runs on
+# Generated control-plane ownership model
 
-This repository holds **two Terraform trees with opposite organizing principles, joined by a single seam.** Understanding the split is the key to operating it — and to slicing it apart cleanly when more than one team is involved.
+This repository holds two Terraform surfaces with different ownership models:
+generated provider control-plane artifacts and hand-authored cloud infrastructure.
+The generated side has exactly one layout:
 
-## Two trees, two pivots
+`[<overlay>/]<kind>/<tenant>/<provider>/<bare resource>`
 
-|                  | Generated tree                       | Authored tree                                  |
-| ---------------- | ------------------------------------ | ---------------------------------------------- |
-| Path             | `$COMPANY/zscaler/<provider>/`       | `$COMPANY/<cloud>/<account>/<region>/<vpc>/`   |
-| Pivot            | **vendor → provider**                | **cloud → account → locality → slice**         |
-| Source of truth  | Zscaler control plane (fetched)      | your cloud (the running instances *are* truth) |
-| Authored by      | the generator (driftless)            | you (hand-authored)                            |
-| Drift            | reconciled to Zscaler                | normal Terraform drift                         |
-| Credentials      | Zscaler API token                    | per-cloud / per-account IAM                    |
+`kind` is one of `config`, `imports`, or `envs`. `overlay` is the adopter's
+free-form top-level prefix: a company name, cloud name, repo namespace, or
+nothing. infrawright has no opinion above the inner `kind/tenant/provider`
+structure. The demo tenant has no overlay, so it starts at repo root.
 
-The generated tree is the Zscaler **configuration** (policy, connector groups, provisioning keys/URLs). The authored tree is the **infrastructure** that physically runs the connectors — and you only ever model the *slices* of each cloud you actually deploy into.
+## Two Trees
 
-## The full shape
+|                  | Generated tree                                             | Authored tree                                  |
+| ---------------- | ---------------------------------------------------------- | ---------------------------------------------- |
+| Path             | `[<overlay>/]config|imports|envs/<tenant>/<provider>/`     | `[<overlay>/]<cloud>/<account>/<region>/<vpc>/` |
+| Pivot            | **artifact kind -> tenant -> provider**                    | **cloud -> account -> locality -> slice**      |
+| Source of truth  | provider control plane, fetched and transformed            | your cloud; running instances are truth        |
+| Authored by      | the generator                                              | you                                            |
+| Drift            | reconciled back to the provider control plane              | normal Terraform drift                         |
+| Credentials      | provider API token                                         | per-cloud / per-account IAM                    |
+
+The generated tree is provider configuration: policy, groups, import blocks,
+and isolated env roots. The authored tree is the infrastructure that physically
+runs connector workloads. You only model the cloud slices you actually deploy
+into.
+
+## Generated Shape
 
 ```
-$COMPANY/                                   # adopter repo root  ($COMPANY = the tenant)
-├── deployment.json                         # { "layout": "vendor-provider" }
+repo-root/
+├── deployment.json                         # demo: {}; adopters may set {"overlay": "acme"}
 ├── _ownership_model.md                     # this file
 │
-├─══ GENERATED — Zscaler control plane (driftless, vendor-first) ══─
-├── zscaler/
-│   ├── zia/                                # internet-access policy        …abbreviated…
-│   ├── zpa/                                # PRIVATE ACCESS → APP CONNECTOR control plane
-│   │   ├── zpa_app_connector_group.auto.tfvars.json     # logical groups — CLOUD-AGNOSTIC
-│   │   └── zpa_provisioning_key.auto.tfvars.json        # authored island (write-only secret; not fetched)
-│   ├── ztc/                                # CLOUD CONNECTOR control plane
-│   │   ├── ztc_provisioning_url.auto.tfvars.json        # carries cloud_provider_type = AWS|AZURE|GCP
-│   │   ├── ztc_location_template.auto.tfvars.json
-│   │   └── ztc_public_cloud_info.auto.tfvars.json       # links each cloud account/sub/project to Zscaler
-│   ├── zcc/                                # client-connector device mgmt (NOT cloud infra)
-│   ├── envs/                               # generated TF roots, one per rt
-│   └── pipelines/                          # Zscaler delivery + drift pipelines
-├── modules/                                # generated flat module library (machine-referenced)
+├── config/
+│   └── demo/
+│       ├── zia/
+│       │   ├── url_categories.auto.tfvars.json
+│       │   ├── url_categories.lookup.json
+│       │   └── url_filtering_rules.auto.tfvars.json
+│       ├── zpa/
+│       │   ├── app_connector_group.auto.tfvars.json
+│       │   └── segment_group.auto.tfvars.json
+│       └── zcc/
+│           └── forwarding_profile.auto.tfvars.json
 │
-├─══ AUTHORED — per-cloud connector INFRA (cloud-first; only the SLICES you operate) ══─
-│      every leaf = its own TF root + state + creds;  byo_*=true → brownfield into networks you don't own
+├── imports/
+│   └── demo/
+│       ├── zia/
+│       │   └── url_categories_imports.tf
+│       └── zpa/
+│           └── app_connector_group_imports.tf
+│
+├── envs/
+│   └── demo/
+│       └── zpa/
+│           └── app_connector_group/
+│               ├── main.tf
+│               └── tests/smoke.tftest.hcl
+│
+└── modules/                                # generated module library, keyed by full resource type
+    └── zpa_app_connector_group/
+```
+
+Provider prefixes are directories. File leaves use the bare resource name:
+`config/demo/zia/url_categories.auto.tfvars.json`, not
+`config/demo/zia/zia_url_categories.auto.tfvars.json`. Terraform module names
+and resource addresses still use the full resource type because modules are
+keyed by full type.
+
+With an overlay, the same inner tree is simply prefixed:
+
+```
+acme/config/zs3/zia/url_categories.auto.tfvars.json
+acme/imports/zs3/zia/url_categories_imports.tf
+acme/envs/zs3/zia/url_categories/
+```
+
+## Authored Cloud Shape
+
+```
+repo-root/
 ├── aws/
-│   ├── acct-security/                      # ← ONE account you operate in  (NOT all accounts)
-│   │   └── us-east-1/                      # ← ONE region                  (NOT all regions)
-│   │       └── vpc-transit-prod/           # ← THE SLICE: an existing shared VPC (byo_vpc_id)
-│   │           ├── ztc/                    #   Cloud Connectors (GWLB + ASG)
-│   │           │   ├── main.tf             #     module {source=".../aws" byo_vpc=true byo_subnets=true byo_ngw=true}
-│   │           │   ├── terraform.tfvars    #     cc_vm_prov_url=<ztc URL>  secret_name=zscaler/cc/.../prov
-│   │           │   ├── outputs.tf          #     gwlb endpoint_service_name → consumed by spoke VPCs
-│   │           │   └── backend.tf          #     state: aws/acct-security/us-east-1/vpc-transit-prod/ztc
-│   │           └── zpa-ac/                 #   App Connectors (ASG) into the SAME slice
-│   │               ├── main.tf             #     module {source="zscaler/zpa-app-connector-modules/aws" byo_vpc=true}
+│   ├── acct-security/
+│   │   └── us-east-1/
+│   │       └── vpc-transit-prod/
+│   │           ├── ztc/
+│   │           │   ├── main.tf
+│   │           │   ├── terraform.tfvars
+│   │           │   ├── outputs.tf
+│   │           │   └── backend.tf
+│   │           └── zpa-ac/
+│   │               ├── main.tf
 │   │               └── backend.tf
-│   └── acct-bu-east/                       # ← a SECOND account (different team/owner)
-│       └── us-east-1/vpc-bu-workload/zpa-ac/   #   this BU runs ONLY app connectors; separate state + creds
+│   └── acct-bu-east/
+│       └── us-east-1/vpc-bu-workload/zpa-ac/
 │
 ├── azure/
-│   └── sub-corp-prod/                      # ← one subscription
-│       └── rg-ztc-westeurope/              # ← the CC team's resource group (where VMs land)
-│           └── vnet-hub-prod/              #   (VNet may live in a DIFFERENT rg → byo_vnet_subnets_rg_name)
-│               ├── ztc/                    #   ILB + VMSS;  cc_vm_prov_url + azure_vault_url (Key Vault)
+│   └── sub-corp-prod/
+│       └── rg-ztc-westeurope/
+│           └── vnet-hub-prod/
+│               ├── ztc/
 │               └── zpa-ac/
 │
 ├── gcp/
-│   └── proj-network-prod/                  # ← one project = the IAM/billing boundary
-│       └── us-central1/vpc-shared-prod/    #   (Shared-VPC host project → variables.tf, not the path)
-│           └── ztc/                        #   MIG + ILB, mgmt+service VPCs;  cc_vm_prov_url + gcp secret
+│   └── proj-network-prod/
+│       └── us-central1/vpc-shared-prod/
+│           └── ztc/
 │
 └── onprem/
-    └── dc-ashburn-01/ztc/                  #   OVA/VM connectors — no public cloud module, no byo_*
+    └── dc-ashburn-01/ztc/
 ```
 
-## The seam — one secret, one direction
+## Boundary
 
-```
-zscaler/ztc/ztc_provisioning_url    ──(central team mints)──►   cloud-native secret
-   (or zpa/zpa_provisioning_key)         SSM / Key Vault          zscaler/cc/<acct>/<region>/<vpc>/prov
-                                                                         │
-                                            cloud slice reads it ───────┘  →  cc_vm_prov_url in VM userdata
-                                            (the slice never calls the Zscaler API)
-```
-
-The two trees share **no Terraform state**. The only thing that crosses the boundary is the provisioning key/URL, handed over through a cloud-native secret. The slice reads it at boot; it needs no Zscaler credentials of its own.
+The generated and authored trees share no Terraform state. The only thing that
+crosses the boundary is operational data such as a provisioning key or URL,
+handed over through a cloud-native secret. A cloud slice reads that secret at
+boot and does not need provider API credentials.
 
 ## Invariants
 
-- **Slice = one VPC/VNet directory = one state file = one pipeline scope = one Zscaler connector group.** Two teams in one account are *sibling directories*, never shared state.
-- **`byo_*=true` everywhere** in the authored tree: you deploy into a slice of a cloud you don't fully own; the Zscaler module builds only the connector tier and `data`-looks-up everything else (VPC, subnets, NAT, IAM).
-- **No uniform region segment** — AWS `<region>`, Azure `<subscription>/<rg>/<vnet>`, GCP `<project>/<region>/<vpc>`. Each cloud is native; the `<cloud>/` grouping is a naming + routing convention, *not* a shared module or variable schema.
+- Slice = one VPC/VNet directory = one state file = one pipeline scope = one connector group.
+- Two teams in one account are sibling directories, never shared state.
+- `byo_* = true` belongs in authored connector infrastructure when deploying into a cloud slice you do not fully own.
+- Cloud paths stay cloud-native: AWS region, Azure subscription/resource-group/VNet, and GCP project/region/VPC do not need a forced common schema.
+- Generated output is always `config`, `imports`, and `envs` under tenant/provider. There is no second generated shape.
 
-## It fits any shop
+## Team Splits
 
-- **Small shop → monorepo.** Check out all of `$COMPANY/`. One repo, the generated config and every cloud slice together. This is the default; nothing special is required.
-- **Larger / multi-team → slice out.** Because every slice is a self-contained Terraform root joined only by a **secret-path convention — never shared state** — any team takes only the directories it owns: the platform team takes `zscaler/`; a business unit takes just `aws/<its-account>/…`. Nobody pulls in the rest.
+- Small shop: keep generated provider config and authored cloud slices in one repo.
+- Larger or multi-team shop: split by ownership. The platform team owns
+  generated `config/`, `imports/`, `envs/`, and `modules/`; business units own
+  only their cloud slice directories.
 
-The secret-path convention is the decoupling contract — it lets you cleave the monorepo along any slice boundary without breaking the seam. The one move that needs a setting is putting the generated `modules/` in their own repo (a `module-source` prefix); everything else is just *which directories you check out*.
+The split works because every cloud slice is a self-contained Terraform root
+joined to generated control-plane data only by secret naming and operational
+handoff, never by shared state.
 
-## Honest caveats
+## Caveats
 
-- **The cross-account secret write is governance, not layout.** The central team must write the provisioning URL+key into the *slice owner's* account. Use a named, time-scoped cross-account role agreed up front (e.g. `ZscalerProvisioningWriter`) — never a standing write permission. No directory convention solves this; it's the first thing a new slice hits.
-- **Don't hard-code subnet IDs in `terraform.tfvars`.** If the VPC owner recreates a subnet, a stale ID silently breaks the next ASG scale-out. Have the VPC owner publish subnet IDs to SSM/Parameter Store; the slice reads them at plan time.
-- **The drift loop covers `zscaler/` only.** Changes under `aws/`·`azure/`·`gcp/` are your team's normal Terraform responsibility — the reconcile loop does not watch them.
+- Cross-account secret writes are governance, not layout. Use a named,
+  time-scoped role agreed up front rather than standing write permission.
+- Do not hard-code subnet IDs in `terraform.tfvars`. Have the VPC owner publish
+  subnet IDs through the local cloud's parameter or secret store.
+- The reconcile loop covers generated provider artifacts only. Cloud slice
+  drift remains the owning team's normal Terraform responsibility.
