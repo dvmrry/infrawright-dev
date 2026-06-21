@@ -11,9 +11,15 @@ class DeploymentResolverTest(unittest.TestCase):
         self._tmp = self.id().replace(".", "_") + ".tmpdir"
         os.makedirs(self._tmp, exist_ok=True)
         os.chdir(self._tmp)
+        # This suite exercises REAL deployment.json reading, so opt out of the
+        # hermetic INFRAWRIGHT_DEPLOYMENT pin set in tests/__init__.py and let
+        # _load() resolve deployment.json from this tmp cwd.
+        self._saved_dep = os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
 
     def tearDown(self):
         os.chdir(self._cwd)
+        if self._saved_dep is not None:
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = self._saved_dep
         import shutil
         shutil.rmtree(os.path.join(self._cwd, self._tmp), ignore_errors=True)
 
@@ -63,6 +69,17 @@ class DeploymentResolverTest(unittest.TestCase):
     def test_prefix_is_repo_relative_string(self):
         self._write({"overlay": "_local"})
         self.assertEqual(deployment.config_prefix("acme"), os.path.join("_local", "config", "acme"))
+
+    def test_env_override_beats_cwd_file(self):
+        # The INFRAWRIGHT_DEPLOYMENT override must WIN over a deployment.json
+        # present in the cwd — the invariant the whole fix exists for, and the
+        # only test that proves env-beats-cwd (not just empty-file => root). A
+        # revert of _deployment_path() must fail HERE, not pass silently.
+        self._write({"overlay": "_cwd"})  # a conflicting cwd deployment.json
+        with open("env_deploy.json", "w", encoding="utf-8") as f:
+            f.write(json.dumps({"overlay": "_env"}))
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = os.path.abspath("env_deploy.json")
+        self.assertEqual(deployment.overlay(), "_env")
 
 
 if __name__ == "__main__":

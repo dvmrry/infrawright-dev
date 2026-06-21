@@ -14,10 +14,23 @@ DEPLOYMENT_JSON = "deployment.json"
 TEMPLATE_TENANTS = frozenset({"demo"})
 
 
+def _deployment_path():
+    """The deployment.json to read: INFRAWRIGHT_DEPLOYMENT if set, else
+    deployment.json in the cwd. Mirrors engine.packs' INFRAWRIGHT_PACKS override
+    so the test suite (and any alternate deployment) can pin/neutralize the
+    overlay rather than depending on whatever deployment.json sits in the cwd —
+    a committed adopter deployment.json must not redirect the template's own
+    tests. An empty value is treated as unset (falls back to cwd deployment.json);
+    a set-but-missing path neutralizes to overlay "." rather than erroring — the
+    same absent-file branch os.devnull uses to pin the suite hermetic."""
+    return os.environ.get("INFRAWRIGHT_DEPLOYMENT") or DEPLOYMENT_JSON
+
+
 def _load():
-    if not os.path.exists(DEPLOYMENT_JSON):
+    path = _deployment_path()
+    if not os.path.exists(path):
         return {}
-    with open(DEPLOYMENT_JSON, encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         text = f.read()
     if not text.strip():
         return {}
@@ -84,7 +97,7 @@ def main(argv=None):
             sys.stderr.write("error: unknown verb %r\n" % verb)
             return 2
     except ValueError as exc:
-        sys.stderr.write("error: deployment.json is malformed: %s\n" % exc)
+        sys.stderr.write("error: %s is malformed: %s\n" % (_deployment_path(), exc))
         return 1
     return 0
 
