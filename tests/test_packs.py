@@ -82,6 +82,21 @@ class PackContractTest(unittest.TestCase):
         self.assertEqual(packs.provider_of("x_long_thing"), "long")
         self.assertEqual(packs.provider_of("x_other"), "short")
 
+    def test_bare_name_strips_longest_matching_provider_prefix(self):
+        _write_pack(self.tmp, "a", {"provider_prefixes": {"x_": "short",
+                                                          "x_long_": "long"}})
+        packs.reset()
+        self.assertEqual(packs.bare_name("x_long_thing"), "thing")
+        self.assertEqual(packs.bare_name("x_other"), "other")
+
+    def test_bare_name_lstrips_separator_and_falls_back_to_full_type(self):
+        _write_pack(self.tmp, "a", {"provider_prefixes": {"foo": "foo"}})
+        packs.reset()
+        self.assertEqual(packs.bare_name("foo_bar"), "bar")
+        self.assertEqual(packs.bare_name("unknown_thing"), "unknown_thing")
+        # a type equal to a bare prefix strips to nothing -> fall back to full
+        self.assertEqual(packs.bare_name("foo"), "foo")
+
     def test_provider_of_falls_back_to_split_when_no_prefix(self):
         packs.reset()  # empty packs dir
         self.assertEqual(packs.provider_of("unknown_thing"), "unknown")

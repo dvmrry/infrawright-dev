@@ -1,22 +1,28 @@
 """Tests for tools/gen_env.py."""
 import os
+import re
 import tempfile
 import unittest
 
+from engine import deployment
+from engine import packs
 from engine.gen_env import expand_resources, render_env_main, render_env_test
 
 
 class RenderEnvMainTest(unittest.TestCase):
     def _root_env_dir(self, resource_type, tenant):
-        # Historical root depth (envs/<tenant>/<rt>/): relpath to modules/
-        # is ../../../modules/<rt>, the byte-identical pre-overlay string.
-        return os.path.join("envs", tenant, resource_type)
+        return os.path.join(
+            "envs",
+            tenant,
+            packs.provider_of(resource_type),
+            packs.bare_name(resource_type),
+        )
 
     def test_zpa_segment_group_root(self):
         out = render_env_main("zpa_segment_group", "zs2",
                               self._root_env_dir("zpa_segment_group", "zs2"))
         self.assertIn("# GENERATED", out)
-        self.assertIn('source = "../../../modules/zpa_segment_group"', out)
+        self.assertIn('source = "../../../../modules/zpa_segment_group"', out)
         self.assertIn("items = var.items", out)
         self.assertIn('variable "items"', out)
         self.assertIn("type = any", out)
@@ -58,7 +64,7 @@ class GenerateEnvTest(unittest.TestCase):
         from engine.gen_env import generate_env
         with tempfile.TemporaryDirectory() as td:
             generate_env("zs2", out_root=td, fmt=False)
-            base = os.path.join(td, "zs2", "zpa_segment_group")
+            base = os.path.join(td, "zs2", "zpa", "segment_group")
             self.assertTrue(os.path.exists(os.path.join(base, "main.tf")))
             self.assertTrue(os.path.exists(os.path.join(base, "README.md")))
 
@@ -69,11 +75,34 @@ class GenerateEnvTest(unittest.TestCase):
                 "zs2", out_root=td, fmt=False,
                 selectors=["zia_url_categories"])
             self.assertTrue(os.path.exists(os.path.join(
-                td, "zs2", "zia_url_categories", "main.tf"
+                td, "zs2", "zia", "url_categories", "main.tf"
             )))
             self.assertFalse(os.path.exists(os.path.join(
-                td, "zs2", "zpa_segment_group", "main.tf"
+                td, "zs2", "zpa", "segment_group", "main.tf"
             )))
+
+    def test_config_plan_reference_resolves_to_committed_config(self):
+        from engine.gen_env import generate_env
+        tenant = "demo"
+        resource_type = "zia_url_categories"
+        provider = packs.provider_of(resource_type)
+        bare = packs.bare_name(resource_type)
+        config_path = os.path.join(
+            deployment.config_dir(tenant, provider),
+            bare + ".auto.tfvars.json",
+        )
+        self.assertTrue(os.path.exists(config_path), config_path)
+        with tempfile.TemporaryDirectory() as td:
+            generate_env(
+                tenant, out_root=td, fmt=False, selectors=[resource_type])
+            env_root_dir = os.path.join(td, tenant, provider, bare)
+            smoke_path = os.path.join(env_root_dir, "tests", "smoke.tftest.hcl")
+            with open(smoke_path, encoding="utf-8") as f:
+                smoke = f.read()
+            match = re.search(r'jsondecode\(file\("([^"]+)"\)\)', smoke)
+            self.assertIsNotNone(match, smoke)
+            resolved = os.path.normpath(os.path.join(env_root_dir, match.group(1)))
+            self.assertEqual(resolved, os.path.normpath(os.path.abspath(config_path)))
 
 
 class ExpandResourcesTest(unittest.TestCase):
@@ -113,17 +142,16 @@ class RenderEnvTestTest(unittest.TestCase):
         self.assertIn("command = plan", out)
 
     def test_config_plan_file_path_correct(self):
-        # path uses tenant + resource_type
         out = render_env_test("zpa_segment_group", "zs2", has_config=True)
         self.assertIn(
-            'file("../../../config/zs2/zpa_segment_group.auto.tfvars.json")',
+            'file("../../../../config/zs2/zpa/segment_group.auto.tfvars.json")',
             out,
         )
 
     def test_config_plan_file_path_demo_tenant(self):
         out = render_env_test("zia_url_categories", "demo", has_config=True)
         self.assertIn(
-            'file("../../../config/demo/zia_url_categories.auto.tfvars.json")',
+            'file("../../../../config/demo/zia/url_categories.auto.tfvars.json")',
             out,
         )
 
@@ -131,6 +159,35 @@ class RenderEnvTestTest(unittest.TestCase):
         out = render_env_test("zpa_segment_group", "zs2", has_config=True)
         self.assertIn('run "empty_plan"', out)
         self.assertIn("items = {}", out)
+
+    def test_config_ref_resolves_under_overlay(self):
+        # With an overlay set, the smoke-test file() ref must STILL resolve to the
+        # real (overlay-prefixed) config file — relpath has to cancel the prefix.
+        # Regression guard for the env path math under a non-root overlay.
+        import json
+        import re
+        import tempfile
+        from engine.gen_env import render_env_test, _env_root_dir, _config_file
+        rt, tenant = "zia_url_categories", "zs3"
+        with tempfile.TemporaryDirectory() as td:
+            dep = os.path.join(td, "deployment.json")
+            with open(dep, "w", encoding="utf-8") as f:
+                f.write(json.dumps({"overlay": "acme"}))
+            saved = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+            try:
+                env_dir = _env_root_dir(tenant, rt)
+                config_file = _config_file(tenant, rt)
+                self.assertTrue(config_file.startswith(os.path.join("acme", "config")))
+                out = render_env_test(rt, tenant, env_dir=env_dir, has_config=True)
+                ref = re.search(r'file\("([^"]+)"\)', out).group(1)
+                resolved = os.path.normpath(os.path.join(env_dir, ref))
+                self.assertEqual(resolved, os.path.normpath(config_file))
+            finally:
+                if saved is None:
+                    os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+                else:
+                    os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
 
 
 class BackendMarkerTest(unittest.TestCase):
@@ -141,7 +198,7 @@ class BackendMarkerTest(unittest.TestCase):
         from engine.gen_env import generate_env
         with tempfile.TemporaryDirectory() as td:
             generate_env("zs2", out_root=td, fmt=False, backend="azurerm")
-            main_path = os.path.join(td, "zs2", "zpa_segment_group", "main.tf")
+            main_path = os.path.join(td, "zs2", "zpa", "segment_group", "main.tf")
             with open(main_path, encoding="utf-8") as f:
                 first = f.read()
             self.assertIn('backend "azurerm"', first)
@@ -157,7 +214,7 @@ class BackendMarkerTest(unittest.TestCase):
             self.assertFalse(
                 os.path.exists(os.path.join(td, "zs2", ".backend"))
             )
-            with open(os.path.join(td, "zs2", "zpa_segment_group", "main.tf"), encoding="utf-8") as f:
+            with open(os.path.join(td, "zs2", "zpa", "segment_group", "main.tf"), encoding="utf-8") as f:
                 self.assertNotIn('backend "', f.read())
 
 
@@ -167,7 +224,7 @@ class GenerateEnvWritesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             generate_env("zs2", out_root=td, fmt=False)
             self.assertTrue(os.path.exists(os.path.join(
-                td, "zs2", "zpa_segment_group", "tests", "smoke.tftest.hcl"
+                td, "zs2", "zpa", "segment_group", "tests", "smoke.tftest.hcl"
             )))
 
 
@@ -175,7 +232,7 @@ class GenerateEnvWritesTest(unittest.TestCase):
 class ReadmeContentTest(unittest.TestCase):
     def test_readme_names_tenant_resource_and_regen_command(self):
         from engine.gen_env import render_env_readme
-        text = render_env_readme("acme", "zpa_segment_group")
+        text = render_env_readme("zpa_segment_group", "acme")
         self.assertIn("acme", text)
         self.assertIn("zpa_segment_group", text)
         self.assertIn("make gen-env", text)
