@@ -50,6 +50,75 @@ make check      # full gate: unit tests + byte-identical demo + module reproduct
 make demo       # materialize the demo tenant (no credentials needed)
 ```
 
+## Provider Readiness
+
+Before a new pack graduates, compare raw API readback against the Terraform
+provider schema and make every observed field explainable. Start with the
+surface map, because one Terraform provider can span multiple API products:
+
+```
+make openapi-map \
+  SCHEMA=tmp/netbox-provider-schema.json \
+  OPENAPI=tmp/netbox-openapi.json \
+  PROVIDER_SOURCE=registry.terraform.io/e-breuninger/netbox \
+  RESOURCE_PREFIX=netbox \
+  OUT=reports/readiness/netbox-openapi-map.json
+
+make source-operation-map \
+  SCHEMA=tmp/grafana-core-schema.json \
+  OPENAPI=tmp/grafana-api-merged.json \
+  SOURCE_ROOT=tmp/terraform-provider-grafana \
+  PROVIDER_SOURCE=registry.terraform.io/grafana/grafana \
+  RESOURCE_PREFIX=grafana \
+  OUT=reports/readiness/grafana-core-read-registry.json
+
+make reconcile \
+  RESOURCE=netbox_site \
+  IN=pulls/netbox/netbox_site.json \
+  SCHEMA=tmp/netbox-provider-schema.json \
+  OPENAPI=tmp/netbox-openapi.json \
+  OPENAPI_READ='GET:/api/dcim/sites/{id}/' \
+  OPENAPI_WRITE='POST:/api/dcim/sites/ PUT:/api/dcim/sites/{id}/' \
+  OUT=reports/reconcile/netbox_site.json \
+  STRICT=1
+```
+
+`openapi-map` gives the denominator first: every Terraform resource is
+classified as `matched`, `special`, `ambiguous`, or `unmatched` against
+published API endpoints, with static write-field gap candidates and coverage
+warnings for wrong or partial API surfaces. When a pack registry exists, also
+read `registry_fetch_coverage`: it checks the pack's actual `fetch.path` values
+against OpenAPI GET paths and is the stronger signal for the currently
+fetch-backed surface. For providers that do not have a pack yet,
+`source-operation-map` can derive a temporary read registry from Go provider
+source files that call generated OpenAPI clients. Read `registry_read_coverage`
+for that source-backed evidence; read `registry_fetch_coverage` only for real
+pack enumeration paths. `special` covers non-CRUD
+resources such as parent-scoped allocation actions and parent-field
+relationship assignments.
+`reconcile` then classifies observed API paths as Terraform inputs,
+override-driven renames/drops, computed-only provider state, API
+response-only/read-only fields, or unknown API surface. Published
+OpenAPI/Swagger specs should be the first metadata source; NetBox/DRF-style
+`API_OPTIONS` files are also supported when available. See
+[Provider Readiness](docs/provider-readiness.md) for the surface-router workflow
+and the Grafana/Zscaler lessons.
+
+Writable API fields missing from the Terraform schema are highlighted under
+`suggestions.provider_gaps`. `STRICT=1` fails while unknown or shape-mismatched
+paths remain, so pack authors only adjudicate the small unresolved set instead
+of manually sifting whole API bodies. Live import/plan evidence comes after the
+published API pass, mainly to prove provider semantics or produce actionable
+upstream evidence when the published contract is wrong.
+
+Provider readiness should also grow a generated surface-coverage index: resource
+inventories come from provider schema, surfaces are classified by small
+declarative rules, and live/static evidence files determine whether each
+resource is `static_mapped`, `read_observed`, `write_sampled`,
+`import_verified`, `not_tested_paid`, `not_tested_risky`, or `not_applicable`.
+Humans classify surfaces; tools classify resources and evidence so the index
+does not drift by hand.
+
 ## Status
 
 **0.1 — Zscaler** (`zia` · `zpa` · `zcc`): reproduces its demo tenant byte-identically
