@@ -24,6 +24,7 @@ SDK_READ_METHODS = set(("Get", "Read", "Fetch"))
 SDK_LIST_METHODS = set(("List", "Search"))
 SDK_CALL_SCORE_FLOOR = 35
 PACKAGE_CALL_SCORE_FLOOR = 35
+RAW_REST_CALL_SCORE_FLOOR = 70
 SDK_RECEIVER_NAMES = set(("api", "client"))
 
 
@@ -537,6 +538,80 @@ def _sdk_package_calls(text, source_root=None):
     return [calls[key] for key in sorted(calls)]
 
 
+def _go_string_literal(pattern):
+    return (
+        r"(?:(?P<%s_double>\"(?:\\.|[^\"\\])*\")|"
+        r"(?P<%s_raw>`[^`]*`))"
+    ) % (pattern, pattern)
+
+
+def _decode_go_string_literal(value):
+    if not value:
+        return ""
+    if value.startswith("`") and value.endswith("`"):
+        return value[1:-1]
+    if value.startswith('"') and value.endswith('"'):
+        value = value[1:-1]
+    return bytes(value, "utf-8").decode("unicode_escape")
+
+
+def _normalize_raw_rest_path(path):
+    path = path.strip()
+    path = re.sub(
+        r"%[#0 +\-]*[0-9]*(?:\.[0-9]+)?[bcdefgosqxXUvT]",
+        "{arg}",
+        path,
+    )
+    if not path.startswith("/"):
+        path = "/" + path
+    path = re.sub(r"/+", "/", path)
+    return path
+
+
+def _raw_rest_calls(text):
+    """Return direct REST requests such as client.NewRequest("GET", "...")."""
+    code = _go_code_without_comments(text)
+    path_literal = _go_string_literal("path")
+    patterns = [
+        re.compile(
+            r"\b(?P<symbol>(?:[A-Za-z_][A-Za-z0-9_]*\.)+NewRequest)"
+            r"\s*\(\s*(?:\"GET\"|http\.MethodGet)\s*,\s*"
+            r"fmt\.Sprintf\s*\(\s*" + path_literal,
+            re.S,
+        ),
+        re.compile(
+            r"\b(?P<symbol>(?:[A-Za-z_][A-Za-z0-9_]*\.)+NewRequest)"
+            r"\s*\(\s*(?:\"GET\"|http\.MethodGet)\s*,\s*"
+            + path_literal,
+            re.S,
+        ),
+    ]
+    calls = {}
+    for pattern in patterns:
+        for match in pattern.finditer(code):
+            literal = match.group("path_double") or match.group("path_raw")
+            path = _normalize_raw_rest_path(
+                _decode_go_string_literal(literal))
+            symbol = match.group("symbol")
+            key = (symbol, path)
+            calls[key] = {
+                "client_symbol": "%s GET %s" % (symbol, path),
+                "method": "GET",
+                "path": path,
+                "source_role": "read",
+            }
+    return [calls[key] for key in sorted(calls)]
+
+
+def _is_graphql_source(text):
+    code = _go_code_without_comments(text)
+    return bool(
+        re.search(r"\bgithubv4\b", code)
+        or re.search(r"\bgraphql\s*:", code)
+        or "github.com/shurcooL/githubv4" in code
+    )
+
+
 def _base_tokens(resource_type, resource_prefix):
     tokens = openapi_resource_map._base_tokens(resource_type, resource_prefix)
     drop = set(("cloud", "apps", "asserts", "k6", "machine", "learning",
@@ -915,6 +990,44 @@ def _package_call_score(resource_type, resource_prefix, operation, call,
     return score if score >= PACKAGE_CALL_SCORE_FLOOR else None
 
 
+def _path_word_sequence_matches(haystack, needle):
+    if not needle or len(needle) > len(haystack):
+        return False
+    for start in range(0, len(haystack) - len(needle) + 1):
+        if all(
+                _word_matches_token(haystack[start + offset], token)
+                for offset, token in enumerate(needle)):
+            return True
+    return False
+
+
+def _raw_rest_call_score(resource_type, resource_prefix, operation, call,
+                         resource_schema):
+    if operation["method"] != call["method"]:
+        return None
+    call_words = _path_words(call["path"])
+    operation_words = _path_words(operation["path"])
+    if not call_words or not operation_words:
+        return None
+    if not (
+            _path_word_sequence_matches(operation_words, call_words)
+            or _path_word_sequence_matches(call_words, operation_words)):
+        return None
+    score = 120 + len(call_words) * 12
+    if len(call_words) == len(operation_words):
+        score += 50
+    score += _resource_path_sequence_score(
+        resource_type, resource_prefix, operation)
+    score += _resource_terminal_score(resource_type, resource_prefix, operation)
+    score += _resource_prefix_score(resource_type, resource_prefix, operation)
+    score += _scope_score(operation, _scope_hints(resource_schema))
+    if _path_kind(operation) == "detail":
+        score += 20
+    if _action_shaped_path(operation["path"]):
+        score -= 10
+    return score if score >= RAW_REST_CALL_SCORE_FLOOR else None
+
+
 def _candidate_score(resource_type, resource_prefix, operation):
     path = operation["path"]
     operation_id = operation["operation_id"]
@@ -976,6 +1089,8 @@ def _operation_entry(hit, evidence_kind, source_files):
         provider_call["sdk_package"] = hit["sdk_package"]
     if hit.get("sdk_package_path"):
         provider_call["sdk_package_path"] = hit["sdk_package_path"]
+    if hit.get("raw_rest_path"):
+        provider_call["raw_rest_path"] = hit["raw_rest_path"]
     if hit.get("source_role"):
         provider_call["source_role"] = hit["source_role"]
     if hit.get("alternate_client_symbols"):
@@ -1051,7 +1166,6 @@ def _dedupe_hits(hits):
                 symbols.add(item)
         if symbols:
             existing["alternate_client_symbols"] = sorted(symbols)
-            existing["client_symbol"] = sorted(symbols)[0]
     return list(grouped.values())
 
 
@@ -1093,6 +1207,43 @@ def _select_hit(hits, role):
     return best, []
 
 
+def _relationship_resource(resource_type, resource_prefix):
+    tokens = _base_tokens(resource_type, resource_prefix)
+    if len(tokens) < 2:
+        return False
+    joined = "_".join(tokens)
+    phrases = (
+        "secret_repositories",
+        "variable_repositories",
+        "role_team",
+        "role_user",
+        "team_assignment",
+        "user_assignment",
+        "repository_topics",
+        "repository_collaborator",
+        "sync_group_mapping",
+    )
+    if any(phrase in joined for phrase in phrases):
+        return True
+    relationship_tokens = set((
+        "assignment",
+        "collaborator",
+        "collaborators",
+        "mapping",
+        "members",
+        "membership",
+        "repositories",
+        "topics",
+    ))
+    return bool(relationship_tokens.intersection(tokens))
+
+
+def _select_relationship_list_hit(hits, resource_type, resource_prefix):
+    if not _relationship_resource(resource_type, resource_prefix):
+        return None, []
+    return _select_hit(hits, "list")
+
+
 def _load_resource_schemas(schema_path, provider_source=None):
     provider = openapi_resource_map._provider_from_schema(
         _read_json(schema_path), provider_source=provider_source)
@@ -1124,8 +1275,11 @@ def derive_registry(schema_path, openapi_path, source_root,
             with open(path, encoding="utf-8") as f:
                 source_text.append(f.read())
         source_identifiers = _go_identifier_tokens("\n".join(source_text))
-        sdk_calls = _sdk_client_calls("\n".join(source_text))
-        package_calls = _sdk_package_calls("\n".join(source_text), source_root)
+        joined_source_text = "\n".join(source_text)
+        sdk_calls = _sdk_client_calls(joined_source_text)
+        package_calls = _sdk_package_calls(joined_source_text, source_root)
+        raw_rest_calls = _raw_rest_calls(joined_source_text)
+        graphql_source = _is_graphql_source(joined_source_text)
 
         hits = []
         for operation in operations:
@@ -1183,6 +1337,25 @@ def derive_registry(schema_path, openapi_path, source_root,
                 hit["sdk_package_path"] = call["package_path"]
                 hit["source_role"] = call["source_role"]
                 hits.append(hit)
+            for call in raw_rest_calls:
+                raw_score = _raw_rest_call_score(
+                    resource, resource_prefix, operation, call,
+                    resource_schemas[resource])
+                if raw_score is None:
+                    continue
+                hit = dict(operation)
+                hit["client_symbol"] = call["client_symbol"]
+                hit["matched_aliases"] = [call["path"]]
+                hit["path_kind"] = _path_kind(operation)
+                hit["read_score"] = (
+                    _candidate_score(resource, resource_prefix, operation)
+                    + raw_score)
+                hit["list_score"] = (
+                    _list_candidate_score(resource, resource_prefix, operation)
+                    + raw_score)
+                hit["raw_rest_path"] = call["path"]
+                hit["source_role"] = call["source_role"]
+                hits.append(hit)
 
         hits.sort(key=lambda hit: (
             -hit["read_score"],
@@ -1198,6 +1371,8 @@ def derive_registry(schema_path, openapi_path, source_root,
 
         read_hit, read_ambiguous = _select_hit(hits, "read")
         list_hit, list_ambiguous = _select_hit(hits, "list")
+        relationship_read_hit, relationship_read_ambiguous = (
+            _select_relationship_list_hit(hits, resource, resource_prefix))
         status = "unmapped"
         reason = None
         entry = {
@@ -1220,6 +1395,13 @@ def derive_registry(schema_path, openapi_path, source_root,
             entry["source"]["package_calls"] = [
                 call["client_symbol"] for call in package_calls[:20]
             ]
+        if raw_rest_calls:
+            entry["source"]["raw_rest_call_count"] = len(raw_rest_calls)
+            entry["source"]["raw_rest_calls"] = [
+                call["client_symbol"] for call in raw_rest_calls[:20]
+            ]
+        if graphql_source:
+            entry["source"]["graphql"] = True
         if read_ambiguous:
             status = "ambiguous_source_operation"
             reason = "ambiguous_source_operation"
@@ -1240,6 +1422,27 @@ def derive_registry(schema_path, openapi_path, source_root,
                 entry["source"]["list_ambiguous"] = [
                     _candidate_entry(hit) for hit in list_ambiguous
                 ]
+        elif relationship_read_ambiguous:
+            status = "ambiguous_source_operation"
+            reason = "ambiguous_source_operation"
+            entry["status"] = status
+            entry["reason"] = reason
+            entry["candidates"] = [
+                _candidate_operation_entry(
+                    hit, "relationship_list_read", source_files)
+                for hit in relationship_read_ambiguous
+            ]
+        elif relationship_read_hit:
+            status = "mapped"
+            entry["status"] = status
+            entry["read"] = _operation_entry(
+                relationship_read_hit, "relationship_list_read", source_files)
+            entry["source"]["relationship_list_read"] = True
+        elif graphql_source:
+            status = "graphql_source"
+            reason = "graphql_source"
+            entry["status"] = status
+            entry["reason"] = reason
         else:
             reason = (
                 "resource_file_not_found"
@@ -1265,6 +1468,9 @@ def derive_registry(schema_path, openapi_path, source_root,
     ambiguous = sum(
         1 for item in diagnostics
         if item["status"] == "ambiguous_source_operation")
+    graphql_source = sum(
+        1 for item in diagnostics
+        if item["status"] == "graphql_source")
     mapped = sum(
         1 for item in registry.values()
         if item["status"] == "mapped")
@@ -1276,7 +1482,9 @@ def derive_registry(schema_path, openapi_path, source_root,
                 len(resource_names) - resources_with_source_files),
             "mapped": mapped,
             "ambiguous": ambiguous,
-            "unmapped": len(resource_names) - mapped - ambiguous,
+            "graphql_source": graphql_source,
+            "unmapped": (
+                len(resource_names) - mapped - ambiguous - graphql_source),
         },
         "registry": registry,
         "diagnostics": diagnostics,

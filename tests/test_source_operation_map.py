@@ -1677,6 +1677,257 @@ func read() {
             "ambiguous_source_operation")
         self.assertEqual(len(report["diagnostics"][0]["ambiguous"]), 2)
 
+    def test_maps_raw_rest_new_request_calls(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/integrations/github": {
+                    "resource_schemas": {
+                        "github_actions_hosted_runner": {
+                            "block": {
+                                "attributes": {
+                                    "runner_id": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/orgs/{org}/actions/hosted-runners/{hosted_runner_id}": {
+                    "get": {
+                        "operationId": (
+                            "actions/get-hosted-runner-for-org"),
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write(
+            "provider/github/resource_github_actions_hosted_runner.go",
+            """
+package github
+
+func readRunner() {
+    req, err := client.NewRequest(
+        "GET",
+        fmt.Sprintf("orgs/%s/actions/hosted-runners/%s", orgName, runnerID),
+        nil,
+    )
+    err = client.Do(ctx, req, &runner)
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/integrations/github",
+            resource_prefix="github",
+        )
+
+        entry = report["registry"]["github_actions_hosted_runner"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(
+            entry["read"]["path"],
+            "/orgs/{org}/actions/hosted-runners/{hosted_runner_id}")
+        self.assertEqual(
+            entry["read"]["hops"][0]["client_symbol"],
+            "client.NewRequest GET /orgs/{arg}/actions/hosted-runners/{arg}")
+        self.assertEqual(
+            entry["read"]["hops"][0]["raw_rest_path"],
+            "/orgs/{arg}/actions/hosted-runners/{arg}")
+
+    def test_marks_graphql_resource_as_non_rest_source(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/integrations/github": {
+                    "resource_schemas": {
+                        "github_branch_protection": {
+                            "block": {
+                                "attributes": {
+                                    "repository_id": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/repos/{owner}/{repo}/branches/{branch}/protection": {
+                    "get": {
+                        "operationId": "repos/get-branch-protection",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/github/resource_github_branch_protection.go", """
+package github
+
+import "github.com/shurcooL/githubv4"
+
+type branchProtectionQuery struct {
+    Node struct {
+        ID githubv4.ID `graphql:"id"`
+    } `graphql:"node(id: $id)"`
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/integrations/github",
+            resource_prefix="github",
+        )
+
+        entry = report["registry"]["github_branch_protection"]
+        self.assertEqual(entry["status"], "graphql_source")
+        self.assertEqual(entry["reason"], "graphql_source")
+        self.assertTrue(entry["source"]["graphql"])
+        self.assertEqual(report["summary"]["graphql_source"], 1)
+        self.assertEqual(report["summary"]["unmapped"], 0)
+
+    def test_uses_relationship_list_operation_as_read_evidence(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/integrations/github": {
+                    "resource_schemas": {
+                        "github_repository_topics": {
+                            "block": {
+                                "attributes": {
+                                    "repository": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/repos/{owner}/{repo}/topics": {
+                    "get": {
+                        "operationId": "repos/get-all-topics",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/github/resource_github_repository_topics.go", """
+package github
+
+func readTopics() {
+    topics, _, err := client.Repositories.ListAllTopics(ctx, owner, repo, nil)
+    _ = topics
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/integrations/github",
+            resource_prefix="github",
+        )
+
+        entry = report["registry"]["github_repository_topics"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertTrue(entry["source"]["relationship_list_read"])
+        self.assertEqual(entry["read"]["evidence_kind"],
+                         "relationship_list_read")
+        self.assertEqual(entry["read"]["path"], "/repos/{owner}/{repo}/topics")
+
+    def test_keeps_selected_client_symbol_when_merging_alternates(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/integrations/github": {
+                    "resource_schemas": {
+                        "github_actions_organization_secret": {
+                            "block": {
+                                "attributes": {
+                                    "secret_name": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/orgs/{org}/actions/secrets/public-key": {
+                    "get": {
+                        "operationId": "actions/get-org-public-key",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+                "/orgs/{org}/actions/secrets/{secret_name}": {
+                    "get": {
+                        "operationId": "actions/get-org-secret",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write(
+            "provider/github/resource_github_actions_organization_secret.go",
+            """
+package github
+
+func readSecret() {
+    key, _, err := client.Actions.GetOrgPublicKey(ctx, org)
+    secret, _, err := client.Actions.GetOrgSecret(ctx, org, name)
+    _ = key
+    _ = secret
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/integrations/github",
+            resource_prefix="github",
+        )
+
+        provider_call = (
+            report["registry"]["github_actions_organization_secret"]
+            ["read"]["hops"][0])
+        self.assertEqual(
+            provider_call["client_symbol"],
+            "Actions.GetOrgSecret")
+        self.assertIn(
+            "Actions.GetOrgPublicKey",
+            provider_call["alternate_client_symbols"])
+
     def test_playlist_name_does_not_make_operation_list_shaped(self):
         operation = {
             "operation_id": "getPlaylist",

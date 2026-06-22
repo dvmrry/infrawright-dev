@@ -28,6 +28,7 @@
           "enum": [
             "mapped",
             "ambiguous_source_operation",
+            "graphql_source",
             "unmapped"
           ]
         },
@@ -90,6 +91,7 @@
           "enum": [
             "fetch",
             "read",
+            "relationship_list_read",
             "list",
             "write",
             "action"

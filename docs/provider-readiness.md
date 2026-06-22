@@ -66,6 +66,12 @@ The source evidence contract is documented at
 Each operation can carry a `hops` chain, such as provider call ->
 OpenAPI operation, and later analyzers can add SDK-operation hops for providers
 where the Terraform provider calls an SDK that constructs paths internally.
+The source pass also keeps non-OpenAPI evidence explicit. Direct
+`client.NewRequest("GET", ...)` calls can map to OpenAPI paths through raw REST
+path evidence, relationship resources can use list endpoints as
+`relationship_list_read` evidence when that is the provider's read check, and
+GraphQL-backed resources are reported as `graphql_source` instead of being
+buried as ordinary unmapped REST misses.
 
 ## Surface Warnings
 
