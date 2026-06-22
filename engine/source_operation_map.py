@@ -19,6 +19,9 @@ from engine import openapi_resource_map
 
 GO_FILE_SUFFIX = ".go"
 AMBIGUITY_SCORE_DELTA = 5
+SDK_READ_METHODS = set(("Get", "Read", "Fetch"))
+SDK_LIST_METHODS = set(("List", "Search"))
+SDK_CALL_SCORE_FLOOR = 35
 
 
 def _read_json(path):
@@ -83,7 +86,21 @@ def _source_files(source_root):
             yield os.path.join(root, filename)
 
 
-def _resource_files(source_root, resource_names):
+def _service_dir_files(source_root, resource, resource_prefix):
+    if not resource_prefix:
+        return []
+    prefix = resource_prefix + "_"
+    if not resource.startswith(prefix):
+        return []
+    service_name = resource[len(prefix):]
+    service_dir = os.path.join(
+        source_root, "internal", "services", service_name)
+    if not os.path.isdir(service_dir):
+        return []
+    return sorted(_source_files(service_dir))
+
+
+def _resource_files(source_root, resource_names, resource_prefix=""):
     resources = dict((name, []) for name in resource_names)
     for path in _source_files(source_root):
         try:
@@ -94,8 +111,9 @@ def _resource_files(source_root, resource_names):
         for resource in resource_names:
             if '"%s"' % resource in text:
                 resources[resource].append(path)
-    for paths in resources.values():
-        paths.sort()
+    for resource, paths in resources.items():
+        paths.extend(_service_dir_files(source_root, resource, resource_prefix))
+        resources[resource] = sorted(set(paths))
     return resources
 
 
@@ -150,10 +168,80 @@ def _go_identifier_tokens(text):
     return tokens
 
 
+def _go_code_without_comments_and_strings(text):
+    """Return Go code with comments and string/rune literals replaced."""
+    parts = []
+    index = 0
+    while index < len(text):
+        char = text[index]
+        nxt = text[index + 1] if index + 1 < len(text) else ""
+        if char == "/" and nxt == "/":
+            end = text.find("\n", index + 2)
+            if end == -1:
+                break
+            parts.append("\n")
+            index = end + 1
+            continue
+        if char == "/" and nxt == "*":
+            end = text.find("*/", index + 2)
+            removed = text[index:] if end == -1 else text[index:end + 2]
+            parts.append("\n" * removed.count("\n"))
+            index = len(text) if end == -1 else end + 2
+            continue
+        if char in ('"', "'", "`"):
+            end = _skip_quoted(text, index, char)
+            removed = text[index:end]
+            parts.append("\n" * removed.count("\n"))
+            index = end
+            continue
+        parts.append(char)
+        index += 1
+    return "".join(parts)
+
+
+def _sdk_method_role(method):
+    if method in SDK_READ_METHODS:
+        return "read"
+    if method in SDK_LIST_METHODS:
+        return "list"
+    return None
+
+
+def _sdk_client_calls(text):
+    """Return generated SDK client calls such as client.DNS.Records.Get."""
+    code = _go_code_without_comments_and_strings(text)
+    calls = {}
+    pattern = re.compile(
+        r"\b((?:[A-Za-z_][A-Za-z0-9_]*\.)*client"
+        r"(?:\.[A-Za-z_][A-Za-z0-9_]*){2,})\s*\(")
+    for match in pattern.finditer(code):
+        parts = match.group(1).split(".")
+        try:
+            client_index = parts.index("client")
+        except ValueError:
+            continue
+        suffix = parts[client_index + 1:]
+        if len(suffix) < 2:
+            continue
+        method = suffix[-1]
+        role = _sdk_method_role(method)
+        if not role:
+            continue
+        chain = suffix[:-1]
+        symbol = ".".join(chain + [method])
+        calls[symbol] = {
+            "client_symbol": symbol,
+            "chain": chain,
+            "method": method,
+            "source_role": role,
+        }
+    return [calls[key] for key in sorted(calls)]
+
+
 def _base_tokens(resource_type, resource_prefix):
     tokens = openapi_resource_map._base_tokens(resource_type, resource_prefix)
     drop = set(("cloud", "apps", "asserts", "k6", "machine", "learning",
-                "oncall", "synthetic", "monitoring"))
+                "monitoring", "oncall", "synthetic", "trust", "zero"))
     return [token for token in tokens if token not in drop]
 
 
@@ -179,6 +267,162 @@ def _is_list_operation(operation_id):
     return "get" in words and "all" in words
 
 
+def _operation_mentions_token(operation, token):
+    token = _canonical(token)
+    return (
+        token
+        and (token in _canonical(operation["path"])
+             or token in _canonical(operation["operation_id"]))
+    )
+
+
+def _sdk_chain_tokens(call):
+    drop = set(("cloudflare", "zerotrust"))
+    tokens = [
+        token for token in call["chain"]
+        if _canonical(token) not in drop
+    ]
+    return tokens or call["chain"]
+
+
+def _static_path_parts(path):
+    return [
+        part for part in _path_parts(path)
+        if not _is_path_parameter(part)
+    ]
+
+
+def _path_words(path):
+    words = []
+    for part in _static_path_parts(path):
+        words.extend(
+            word.lower() for word in re.split(r"[^A-Za-z0-9]+", part)
+            if word)
+    return words
+
+
+def _word_matches_token(word, token):
+    word = _canonical(word)
+    token = _canonical(token)
+    aliases = set((token,))
+    if token.endswith("y"):
+        aliases.add(token[:-1] + "ies")
+    aliases.add(token + "s")
+    if token.endswith("s"):
+        aliases.add(token[:-1])
+    aliases.update({
+        "app" if token == "application" else token,
+        "apps" if token == "application" else token,
+        "application" if token in ("app", "apps") else token,
+        "applications" if token in ("app", "apps") else token,
+    })
+    return word in aliases
+
+
+def _resource_path_sequence_score(resource_type, resource_prefix, operation):
+    tokens = _base_tokens(resource_type, resource_prefix)
+    words = _path_words(operation["path"])
+    if not tokens or len(tokens) > len(words):
+        return 0
+    best = 0
+    for start in range(0, len(words) - len(tokens) + 1):
+        if not all(
+                _word_matches_token(words[start + offset], token)
+                for offset, token in enumerate(tokens)):
+            continue
+        ends_at_terminal = start + len(tokens) == len(words)
+        if len(tokens) == 1 and not ends_at_terminal:
+            continue
+        best = max(best, 60 if ends_at_terminal else 40)
+    return best
+
+
+def _resource_terminal_score(resource_type, resource_prefix, operation):
+    tokens = _base_tokens(resource_type, resource_prefix)
+    if not tokens:
+        return 0
+    parts = _static_path_parts(operation["path"])
+    if not parts:
+        return 0
+    terminal = _canonical(parts[-1])
+    last_token = _canonical(tokens[-1])
+    if last_token and last_token in terminal:
+        return 35
+    return 0
+
+
+def _scope_hints(resource_schema):
+    attrs = (resource_schema.get("block") or {}).get("attributes") or {}
+    scopes = {}
+    scope_fields = {
+        "account": ("account_id", "account_identifier", "account_tag"),
+        "user": ("user_id",),
+        "zone": ("zone_id", "zone_identifier", "zone_tag"),
+    }
+    for scope, names in scope_fields.items():
+        present = [
+            attrs[name] for name in names
+            if name in attrs
+        ]
+        if not present:
+            continue
+        if any(item.get("required") for item in present):
+            scopes[scope] = "required"
+        else:
+            scopes[scope] = "optional"
+    return scopes
+
+
+def _operation_scopes(operation):
+    scopes = set()
+    for part in _path_parts(operation["path"]):
+        cleaned = part.strip("{}").lower()
+        if cleaned in ("account_id", "account_identifier", "account_tag"):
+            scopes.add("account")
+        elif cleaned in ("zone_id", "zone_identifier", "zone_tag"):
+            scopes.add("zone")
+        elif cleaned == "user_id":
+            scopes.add("user")
+        elif cleaned == "accounts":
+            scopes.add("account")
+        elif cleaned == "zones":
+            scopes.add("zone")
+        elif cleaned == "user":
+            scopes.add("user")
+    return scopes
+
+
+def _scope_score(operation, scopes):
+    if not scopes:
+        return 0
+    operation_scopes = _operation_scopes(operation)
+    required = set(
+        scope for scope, state in scopes.items()
+        if state == "required")
+    if required:
+        if operation_scopes.intersection(required):
+            return 80
+        if operation_scopes:
+            return -80
+    if len(scopes) == 1:
+        only_scope = next(iter(scopes))
+        if only_scope in operation_scopes:
+            return 40
+        if operation_scopes:
+            return -40
+    if operation_scopes and not operation_scopes.intersection(scopes):
+        return -40
+    return 0
+
+
+def _action_shaped_path(path):
+    action_parts = set((
+        "batch", "bulk", "export", "import", "preview", "review", "scan",
+        "search", "trigger", "usage",
+    ))
+    return bool(action_parts.intersection(_path_parts(path)))
+
+
 def _path_kind(operation):
     if _is_list_operation(operation["operation_id"]):
         return "list"
@@ -186,6 +430,52 @@ def _path_kind(operation):
     if parts and _is_path_parameter(parts[-1]):
         return "detail"
     return "list"
+
+
+def _sdk_call_score(resource_type, resource_prefix, operation, call,
+                    resource_schema):
+    if operation["method"] != "GET":
+        return None
+    score = 0
+    matched_chain_tokens = 0
+    chain_tokens = _sdk_chain_tokens(call)
+    for token in chain_tokens:
+        if _operation_mentions_token(operation, token):
+            matched_chain_tokens += 1
+            score += 30
+    if not matched_chain_tokens:
+        return None
+    score -= (len(chain_tokens) - matched_chain_tokens) * 35
+    for token in _base_tokens(resource_type, resource_prefix):
+        if _operation_mentions_token(operation, token):
+            score += 8
+    score += _resource_path_sequence_score(
+        resource_type, resource_prefix, operation)
+    score += _resource_terminal_score(resource_type, resource_prefix, operation)
+    score += _scope_score(operation, _scope_hints(resource_schema))
+    path_kind = _path_kind(operation)
+    words = _operation_words(operation["operation_id"])
+    if call["source_role"] == "read":
+        if path_kind == "detail":
+            score += 30
+        else:
+            score += 5
+        if "detail" in words or "details" in words or "get" in words:
+            score += 10
+        if _is_list_operation(operation["operation_id"]):
+            score -= 20
+        if _action_shaped_path(operation["path"]):
+            score -= 25
+    elif call["source_role"] == "list":
+        if path_kind == "list":
+            score += 30
+        else:
+            score -= 20
+        if _is_list_operation(operation["operation_id"]):
+            score += 15
+        if _action_shaped_path(operation["path"]):
+            score -= 20
+    return score if score >= SDK_CALL_SCORE_FLOOR else None
 
 
 def _candidate_score(resource_type, resource_prefix, operation):
@@ -228,6 +518,16 @@ def _list_candidate_score(resource_type, resource_prefix, operation):
 
 
 def _operation_entry(hit, evidence_kind, source_files):
+    provider_call = {
+        "kind": "provider_call",
+        "client_symbol": hit.get("client_symbol", hit["operation_id"]),
+        "matched_aliases": hit.get("matched_aliases", []),
+        "source_files": source_files,
+    }
+    if hit.get("sdk_method"):
+        provider_call["sdk_method"] = hit["sdk_method"]
+    if hit.get("source_role"):
+        provider_call["source_role"] = hit["source_role"]
     return {
         "evidence_kind": evidence_kind,
         "confidence": "high",
@@ -236,12 +536,7 @@ def _operation_entry(hit, evidence_kind, source_files):
         "path": hit["path"],
         "path_kind": hit["path_kind"],
         "hops": [
-            {
-                "kind": "provider_call",
-                "client_symbol": hit["operation_id"],
-                "matched_aliases": hit.get("matched_aliases", []),
-                "source_files": source_files,
-            },
+            provider_call,
             {
                 "kind": "openapi_operation",
                 "operation_id": hit["operation_id"],
@@ -253,7 +548,7 @@ def _operation_entry(hit, evidence_kind, source_files):
 
 
 def _candidate_entry(hit):
-    return {
+    entry = {
         "method": hit["method"],
         "path": hit["path"],
         "operation_id": hit["operation_id"],
@@ -261,6 +556,11 @@ def _candidate_entry(hit):
         "read_score": hit["read_score"],
         "list_score": hit["list_score"],
     }
+    if hit.get("client_symbol"):
+        entry["client_symbol"] = hit["client_symbol"]
+    if hit.get("source_role"):
+        entry["source_role"] = hit["source_role"]
+    return entry
 
 
 def _candidate_operation_entry(hit, evidence_kind, source_files):
@@ -272,11 +572,15 @@ def _candidate_operation_entry(hit, evidence_kind, source_files):
 
 
 def _select_hit(hits, role):
+    role_hits = [
+        hit for hit in hits
+        if hit.get("source_role") in (None, role)
+    ]
     if role == "list":
-        candidates = [hit for hit in hits if hit["path_kind"] == "list"]
+        candidates = [hit for hit in role_hits if hit["path_kind"] == "list"]
         score_key = "list_score"
     else:
-        candidates = list(hits)
+        candidates = list(role_hits)
         score_key = "read_score"
     candidates.sort(key=lambda hit: (
         -hit[score_key],
@@ -307,7 +611,8 @@ def derive_registry(schema_path, openapi_path, source_root,
     resource_schemas = _load_resource_schemas(
         schema_path, provider_source=provider_source)
     resource_names = sorted(resource_schemas)
-    files_by_resource = _resource_files(source_root, resource_names)
+    files_by_resource = _resource_files(
+        source_root, resource_names, resource_prefix)
     operations = _operation_index(_read_json(openapi_path))
 
     registry = {}
@@ -326,6 +631,7 @@ def derive_registry(schema_path, openapi_path, source_root,
             with open(path, encoding="utf-8") as f:
                 source_text.append(f.read())
         source_identifiers = _go_identifier_tokens("\n".join(source_text))
+        sdk_calls = _sdk_client_calls("\n".join(source_text))
 
         hits = []
         for operation in operations:
@@ -342,6 +648,25 @@ def derive_registry(schema_path, openapi_path, source_root,
                     resource, resource_prefix, operation)
                 hit["list_score"] = _list_candidate_score(
                     resource, resource_prefix, operation)
+                hits.append(hit)
+            for call in sdk_calls:
+                sdk_score = _sdk_call_score(
+                    resource, resource_prefix, operation, call,
+                    resource_schemas[resource])
+                if sdk_score is None:
+                    continue
+                hit = dict(operation)
+                hit["client_symbol"] = call["client_symbol"]
+                hit["matched_aliases"] = [call["client_symbol"]]
+                hit["path_kind"] = _path_kind(operation)
+                hit["read_score"] = (
+                    _candidate_score(resource, resource_prefix, operation)
+                    + sdk_score)
+                hit["list_score"] = (
+                    _list_candidate_score(resource, resource_prefix, operation)
+                    + sdk_score)
+                hit["sdk_method"] = call["method"]
+                hit["source_role"] = call["source_role"]
                 hits.append(hit)
 
         hits.sort(key=lambda hit: (
@@ -364,6 +689,11 @@ def derive_registry(schema_path, openapi_path, source_root,
             },
             "reason": None,
         }
+        if sdk_calls:
+            entry["source"]["client_call_count"] = len(sdk_calls)
+            entry["source"]["client_calls"] = [
+                call["client_symbol"] for call in sdk_calls[:20]
+            ]
         if read_ambiguous:
             status = "ambiguous_source_operation"
             reason = "ambiguous_source_operation"
