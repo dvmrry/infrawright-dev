@@ -67,6 +67,67 @@ Each operation can carry a `hops` chain, such as provider call ->
 OpenAPI operation, and later analyzers can add SDK-operation hops for providers
 where the Terraform provider calls an SDK that constructs paths internally.
 
+## SDK Path Evidence
+
+For providers whose SDK builds request paths internally (DigitalOcean `godo`,
+AWS/GCP-style SDKs, and many generated clients), name-based fuzzy scoring is
+weak because the provider call (`client.Domains.Get`) shares no identifier with
+the OpenAPI operation. The missing middle layer is the SDK source itself:
+
+```text
+provider call        client.Domains.Get(...)
+SDK source           const domainsBasePath = "v2/domains"
+                     path := fmt.Sprintf("%s/%s", domainsBasePath, name)
+OpenAPI              GET /v2/domains/{domain_name}
+```
+
+`source-operation-map` accepts an optional `--sdk-root` pointing at a vendored
+Go SDK source tree. When provided, `engine.sdk_path_evidence` recovers
+`(client_symbol, method, path_template)` triples from the simple, common
+shapes:
+
+- `const <name>BasePath = "v2/foo"`
+- `path := <baseVar>` and `path := fmt.Sprintf("%s/%s", <baseVar>, <arg>)`
+- `s.client.NewRequest(ctx, http.MethodGet, path, nil)` for method detection
+
+Resolved GET paths win over fuzzy name scoring and emit an `sdk_path` hop
+between `provider_call` and `openapi_operation`:
+
+```json
+{
+  "kind": "sdk_path",
+  "method": "GET",
+  "path_template": "v2/domains/{domain}",
+  "sdk_file": "domains.go"
+}
+```
+
+Failures are reported per call, never silently dropped:
+
+- `source.sdk_path_unresolved`: the SDK call was found in provider source but
+  its path could not be resolved to a single OpenAPI operation. `reason` is one
+  of `sdk_symbol_not_found`, `path_template_not_found`, `method_not_detected`,
+  `openapi_path_not_found`, or `openapi_path_ambiguous`.
+- `source.sdk_action_paths`: non-GET (write/action) paths extracted from SDK
+  source, surfaced so action-shaped resources are visible without being
+  confused with read paths.
+
+When `--sdk-root` is omitted, behavior is unchanged: only fuzzy name scoring
+runs. No downloaded provider repos or SDK source trees are committed; the
+extractor runs against a local checkout supplied at runtime.
+
+```bash
+make source-operation-map \
+  SCHEMA=tmp/provider-schema.json \
+  OPENAPI=tmp/openapi.json \
+  SOURCE_ROOT=tmp/terraform-provider-digitalocean \
+  SDK_ROOT=tmp/terraform-provider-digitalocean/vendor/github.com/digitalocean/godo \
+  PROVIDER_SOURCE=registry.terraform.io/digitalocean/digitalocean \
+  RESOURCE_PREFIX=digitalocean \
+  OUT=reports/readiness/digitalocean-read-registry.json \
+  DIAGNOSTICS=reports/readiness/digitalocean-source-diagnostics.json
+```
+
 ## Surface Warnings
 
 `make openapi-map` emits `coverage.warnings` when the generic CRUD candidate

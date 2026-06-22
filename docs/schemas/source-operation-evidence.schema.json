@@ -60,6 +60,71 @@
               "items": {
                 "type": "string"
               }
+            },
+            "sdk_path_unresolved": {
+              "type": "array",
+              "description": "SDK calls whose path template could not be resolved to an OpenAPI operation. Reported per-call so failures are visible rather than silently falling back to fuzzy scoring.",
+              "items": {
+                "type": "object",
+                "additionalProperties": true,
+                "required": [
+                  "client_symbol",
+                  "reason"
+                ],
+                "properties": {
+                  "client_symbol": {
+                    "type": "string"
+                  },
+                  "sdk_file": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "enum": [
+                      "sdk_symbol_not_found",
+                      "path_template_not_found",
+                      "method_not_detected",
+                      "openapi_path_not_found",
+                      "openapi_path_ambiguous"
+                    ]
+                  },
+                  "ambiguous_openapi_paths": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "sdk_action_paths": {
+              "type": "array",
+              "description": "Non-GET SDK paths extracted from SDK source. Surfaced as action evidence so callers can see write/action shapes without confusing them with read paths.",
+              "items": {
+                "type": "object",
+                "additionalProperties": true,
+                "required": [
+                  "client_symbol",
+                  "method",
+                  "path_template"
+                ],
+                "properties": {
+                  "client_symbol": {
+                    "type": "string"
+                  },
+                  "method": {
+                    "type": "string"
+                  },
+                  "path_template": {
+                    "type": "string"
+                  },
+                  "sdk_file": {
+                    "type": "string"
+                  }
+                }
+              }
             }
           }
         },
@@ -139,6 +204,7 @@
           "enum": [
             "provider_call",
             "sdk_operation",
+            "sdk_path",
             "openapi_operation",
             "manual_inference"
           ]
@@ -157,6 +223,20 @@
         },
         "path": {
           "type": "string"
+        },
+        "path_template": {
+          "type": "string",
+          "description": "Path template recovered from SDK source, e.g. v2/domains/{domain}."
+        },
+        "sdk_file": {
+          "type": "string",
+          "description": "SDK source file (relative to sdk-root) the path template was extracted from."
+        },
+        "ambiguous_openapi_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "source_files": {
           "type": "array",
