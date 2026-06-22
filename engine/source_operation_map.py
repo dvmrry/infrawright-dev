@@ -227,12 +227,28 @@ def _list_candidate_score(resource_type, resource_prefix, operation):
     return score
 
 
-def _operation_entry(hit):
+def _operation_entry(hit, evidence_kind, source_files):
     return {
+        "evidence_kind": evidence_kind,
+        "confidence": "high",
         "method": hit["method"],
         "operation_id": hit["operation_id"],
         "path": hit["path"],
         "path_kind": hit["path_kind"],
+        "hops": [
+            {
+                "kind": "provider_call",
+                "client_symbol": hit["operation_id"],
+                "matched_aliases": hit.get("matched_aliases", []),
+                "source_files": source_files,
+            },
+            {
+                "kind": "openapi_operation",
+                "operation_id": hit["operation_id"],
+                "method": hit["method"],
+                "path": hit["path"],
+            },
+        ],
     }
 
 
@@ -303,9 +319,12 @@ def derive_registry(schema_path, openapi_path, source_root,
         for operation in operations:
             if operation["method"] != "GET":
                 continue
-            if any(alias in source_identifiers
-                   for alias in operation["aliases"]):
+            matched_aliases = sorted(
+                alias for alias in operation["aliases"]
+                if alias in source_identifiers)
+            if matched_aliases:
                 hit = dict(operation)
+                hit["matched_aliases"] = matched_aliases
                 hit["path_kind"] = _path_kind(operation)
                 hit["read_score"] = _candidate_score(
                     resource, resource_prefix, operation)
@@ -326,20 +345,23 @@ def derive_registry(schema_path, openapi_path, source_root,
             status = "ambiguous_source_operation"
         elif read_hit:
             status = "mapped"
+            source_files = [
+                os.path.relpath(path, source_root)
+                for path in source_paths
+            ]
             registry[resource] = {
                 "product": resource_prefix,
+                "surface": resource_prefix,
                 "status": "mapped",
-                "read": _operation_entry(read_hit),
+                "read": _operation_entry(read_hit, "read", source_files),
                 "source": {
                     "candidate_count": len(hits),
-                    "files": [
-                        os.path.relpath(path, source_root)
-                        for path in source_paths
-                    ],
+                    "files": source_files,
                 },
             }
             if list_hit and list_hit["path"] != read_hit["path"]:
-                registry[resource]["list"] = _operation_entry(list_hit)
+                registry[resource]["list"] = _operation_entry(
+                    list_hit, "list", source_files)
             if list_ambiguous:
                 registry[resource]["source"]["list_ambiguous"] = [
                     _candidate_entry(hit) for hit in list_ambiguous

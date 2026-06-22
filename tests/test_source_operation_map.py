@@ -26,6 +26,16 @@ class SourceOperationMapTest(unittest.TestCase):
     def _write_json(self, name, data):
         return self._write(name, json.dumps(data))
 
+    def _fixture_json(self, name):
+        path = os.path.join(
+            os.path.dirname(__file__),
+            "fixtures",
+            "source_operation_map",
+            name,
+        )
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+
     def test_derives_registry_from_go_operation_ids(self):
         schema_path = self._write_json("schema.json", {
             "provider_schemas": {
@@ -89,6 +99,24 @@ func resourceFolder() {
         self.assertEqual(entry["read"]["path_kind"], "detail")
         self.assertEqual(entry["list"]["path"], "/api/folders")
         self.assertEqual(entry["list"]["operation_id"], "RouteGetFolders")
+        self.assertEqual(entry, self._fixture_json("example_registry.json")[
+            "example_folder"])
+        self.assertEqual(
+            entry["read"]["hops"],
+            [
+                {
+                    "kind": "provider_call",
+                    "client_symbol": "RouteGetFolder",
+                    "matched_aliases": ["getfolder"],
+                    "source_files": ["internal/resource_folder.go"],
+                },
+                {
+                    "kind": "openapi_operation",
+                    "operation_id": "RouteGetFolder",
+                    "method": "GET",
+                    "path": "/api/folders/{uid}",
+                },
+            ])
 
     def test_cli_writes_registry_and_diagnostics(self):
         schema_path = self._write_json("schema.json", {
