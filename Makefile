@@ -1,7 +1,7 @@
 PYTHON ?= python3
 TF ?= terraform
 
-.PHONY: demo check-demo check-modules check test fetch fetch-diag gen-env transform reconcile openapi-map source-operation-map stage-imports unstage-imports plan clean-plans assert-clean apply
+.PHONY: demo check-demo check-modules check test fetch fetch-diag gen-env transform reconcile openapi-map source-operation-map source-evidence-eval stage-imports unstage-imports plan clean-plans assert-clean apply
 
 demo: ## Materialize the demo tenant under config/demo and imports/demo
 	@set -e; for rt in $$($(PYTHON) -c "from engine.registry import generated_types; print('\n'.join(generated_types()))"); do \
@@ -63,6 +63,10 @@ openapi-map: ## Map provider resources to OpenAPI CRUD endpoints (SCHEMA=<schema
 source-operation-map: ## Derive read registry from provider source OpenAPI operation calls (SCHEMA=<schema.json> OPENAPI=<spec.json> SOURCE_ROOT=<dir> [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [OUT=<registry.json>] [DIAGNOSTICS=<report.json>])
 	@test -n "$(SCHEMA)" -a -n "$(OPENAPI)" -a -n "$(SOURCE_ROOT)" || { echo "usage: make source-operation-map SCHEMA=<schema.json> OPENAPI=<spec.json> SOURCE_ROOT=<dir> [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [OUT=<registry.json>] [DIAGNOSTICS=<report.json>]"; exit 2; }
 	$(PYTHON) -m engine.source_operation_map --schema "$(SCHEMA)" --openapi "$(OPENAPI)" --source-root "$(SOURCE_ROOT)" $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(OUT),--out "$(OUT)") $(if $(DIAGNOSTICS),--diagnostics "$(DIAGNOSTICS)")
+
+source-evidence-eval: ## A/B evaluate text source scanning vs AST facts (SCHEMA=<schema.json> OPENAPI=<spec.json> SOURCE_ROOT=<dir> OUT_DIR=<dir> [SOURCE_FACTS=<facts.json>] [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [FAIL_ON_REGRESSION=1])
+	@test -n "$(SCHEMA)" -a -n "$(OPENAPI)" -a -n "$(SOURCE_ROOT)" -a -n "$(OUT_DIR)" || { echo "usage: make source-evidence-eval SCHEMA=<schema.json> OPENAPI=<spec.json> SOURCE_ROOT=<dir> OUT_DIR=<dir> [SOURCE_FACTS=<facts.json>] [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [FAIL_ON_REGRESSION=1]"; exit 2; }
+	$(PYTHON) -m engine.source_evidence_eval --schema "$(SCHEMA)" --openapi "$(OPENAPI)" --source-root "$(SOURCE_ROOT)" --out-dir "$(OUT_DIR)" $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(SOURCE_FACTS),--source-facts "$(SOURCE_FACTS)") $(if $(AST_TOOL_DIR),--ast-tool-dir "$(AST_TOOL_DIR)") $(if $(FAIL_ON_REGRESSION),--fail-on-regression)
 
 stage-imports: ## Copy import/moved blocks into env roots (TENANT=<label> [RESOURCE=<type|provider>] [STATE_AWARE=1] [BACKEND_CONFIG=<file>])
 	$(PYTHON) -m engine.ops stage-imports --tenant "$(TENANT)" $(if $(STATE_AWARE),--state-aware) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(RESOURCE)
