@@ -224,3 +224,37 @@ When a provider shows low OpenAPI coverage:
 
 This keeps the human review set small and prevents us from treating "wrong API
 document" as hundreds of field-level drift questions.
+
+## Future Direction: Provider Recipes
+
+This is an early design note, not an implemented engine contract.
+
+Provider readiness needs version-locked evidence, but the repository should not
+store rendered schemas, provider source trees, SDK source trees, and OpenAPI
+artifacts for every provider version. Instead, store small provider recipes and
+render the evidence bundle on the consumer or CI side for the requested provider
+version.
+
+The committed recipe should describe how to resolve inputs:
+
+- Terraform provider address and version/ref formula.
+- Provider source location and ref template.
+- Terraform schema strategy, usually `terraform providers schema -json`.
+- SDK strategy, usually the provider source's pinned `go.mod` module versions.
+- Published API contract location and ref/path strategy.
+- Source evidence adapters and contract resolvers to try.
+- Coverage thresholds and whether ambiguity is allowed.
+
+The rendered local bundle should contain the resolved, hash-locked facts for one
+provider/version tuple:
+
+- Terraform provider version and source commit.
+- Terraform schema hash.
+- SDK module versions and sums from that provider version.
+- OpenAPI/spec resolved ref and hash.
+- Source evidence registry and OpenAPI map report hashes.
+
+Nix flakes may be useful as an optional development harness for reproducible
+tooling, but they should not be required as the product interface. The durable
+contract is the recipe plus rendered lock/report JSON; flakes, dev shells, or CI
+jobs can be different ways to produce and verify that contract.
