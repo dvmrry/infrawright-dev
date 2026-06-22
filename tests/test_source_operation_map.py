@@ -2181,6 +2181,28 @@ func readSecret() {
 
         self.assertEqual(source_operation_map._path_kind(operation), "detail")
 
+    def test_product_search_word_does_not_make_detail_path_list_shaped(self):
+        operation = {
+            "operation_id": "ai-search-fetch-instance",
+            "path": "/accounts/{account_id}/ai-search/instances/{id}",
+        }
+
+        self.assertFalse(
+            source_operation_map._is_list_operation(
+                operation["operation_id"]))
+        self.assertEqual(source_operation_map._path_kind(operation), "detail")
+
+    def test_product_list_word_does_not_make_detail_path_list_shaped(self):
+        operation = {
+            "operation_id": "zero-trust-lists-zero-trust-list-details",
+            "path": "/accounts/{account_id}/gateway/lists/{list_id}",
+        }
+
+        self.assertFalse(
+            source_operation_map._is_list_operation(
+                operation["operation_id"]))
+        self.assertEqual(source_operation_map._path_kind(operation), "detail")
+
 
 if __name__ == "__main__":
     unittest.main()

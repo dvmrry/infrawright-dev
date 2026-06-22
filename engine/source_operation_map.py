@@ -211,6 +211,72 @@ def _function_definition_index(source_root):
     return functions
 
 
+def _source_file_entries(source_root):
+    entries = []
+    for path in sorted(_source_files(source_root)):
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        except UnicodeDecodeError:
+            continue
+        entries.append({
+            "path": path,
+            "basename": os.path.basename(path),
+            "text": text,
+        })
+    return entries
+
+
+def _entry_code_without_comments(entry):
+    code = entry.get("code_without_comments")
+    if code is None:
+        code = _go_code_without_comments(entry["text"])
+        entry["code_without_comments"] = code
+    return code
+
+
+def _entry_code_without_comments_and_strings(entry):
+    code = entry.get("code_without_comments_and_strings")
+    if code is None:
+        code = _go_code_without_comments_and_strings(entry["text"])
+        entry["code_without_comments_and_strings"] = code
+    return code
+
+
+def _entry_import_aliases(entry):
+    aliases = entry.get("import_aliases")
+    if aliases is None:
+        aliases = _go_import_aliases(entry["text"])
+        entry["import_aliases"] = aliases
+    return aliases
+
+
+def _function_definition_index_from_entries(entries):
+    functions = {}
+    for entry in entries:
+        code = _entry_code_without_comments_and_strings(entry)
+        for match in re.finditer(
+                r"\bfunc\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", code):
+            functions.setdefault(match.group(1), set()).add(entry["path"])
+    return functions
+
+
+def _exact_resource_files_from_indexes(
+        source_root, resource, resource_prefix, basename_index):
+    paths = []
+    paths.extend(_convention_resource_files(source_root, resource))
+    filenames = set([
+        "resource_%s.go" % resource,
+        "resource_%s.go" % _bare_resource_name(resource, resource_prefix),
+    ])
+    for filename in filenames:
+        paths.extend(basename_index.get(filename, []))
+    paths.extend(_service_dir_files(source_root, resource, resource_prefix))
+    paths.extend(_framework_resource_files(source_root, resource,
+                                           resource_prefix))
+    return sorted(set(paths))
+
+
 def _registration_resource_files(source_root, resource, function_definitions):
     paths = set()
     function_pattern = re.compile(
@@ -302,28 +368,64 @@ def _is_loose_resource_match_file(path):
 
 def _resource_files(source_root, resource_names, resource_prefix=""):
     resources = dict((name, []) for name in resource_names)
-    function_definitions = _function_definition_index(source_root)
-    for path in _source_files(source_root):
-        try:
-            with open(path, encoding="utf-8") as f:
-                text = f.read()
-        except UnicodeDecodeError:
-            continue
-        for resource in resource_names:
-            if '"%s"' % resource in text:
+    resource_set = set(resource_names)
+    entries = _source_file_entries(source_root)
+    basename_index = {}
+    for entry in entries:
+        basename_index.setdefault(entry["basename"], []).append(entry["path"])
+    function_definitions = _function_definition_index_from_entries(entries)
+    registration_paths = dict((name, set()) for name in resource_names)
+    function_pattern = re.compile(
+        r'"([^"]+)"\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(')
+    package_pattern = re.compile(
+        r'"([^"]+)"\s*:\s*([A-Za-z_][A-Za-z0-9_]*)'
+        r"\.([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+    quoted_pattern = re.compile(r'"([^"]+)"')
+    for entry in entries:
+        path = entry["path"]
+        text = entry["text"]
+        for match in quoted_pattern.finditer(text):
+            resource = match.group(1)
+            if resource in resource_set:
                 resources[resource].append(path)
+        code = _entry_code_without_comments(entry)
+        for match in function_pattern.finditer(code):
+            resource, function_name = match.groups()
+            if resource not in resource_set:
+                continue
+            if _canonical(function_name).startswith("datasource"):
+                continue
+            for function_path in function_definitions.get(function_name, []):
+                registration_paths[resource].add(function_path)
+        if "." not in code:
+            continue
+        package_matches = list(package_pattern.finditer(code))
+        if not package_matches:
+            continue
+        import_aliases = _entry_import_aliases(entry)
+        for match in package_matches:
+            resource, package_name, function_name = match.groups()
+            if resource not in resource_set:
+                continue
+            if _canonical(function_name).startswith("datasource"):
+                continue
+            import_path = import_aliases.get(package_name)
+            package_dir = _local_import_dir(source_root, import_path)
+            if not package_dir:
+                continue
+            for package_path in _package_resource_files(package_dir):
+                registration_paths[resource].add(package_path)
     for resource, paths in resources.items():
-        exact_paths = _exact_resource_files(
-            source_root, resource, resource_prefix)
-        registration_paths = _registration_resource_files(
-            source_root, resource, function_definitions)
-        if exact_paths or registration_paths:
+        exact_paths = _exact_resource_files_from_indexes(
+            source_root, resource, resource_prefix, basename_index)
+        resource_registration_paths = sorted(registration_paths[resource])
+        if exact_paths or resource_registration_paths:
             paths = [
                 path for path in paths
                 if not _is_loose_resource_match_file(path)
             ]
         paths.extend(exact_paths)
-        paths.extend(registration_paths)
+        paths.extend(resource_registration_paths)
         paths.extend(_read_callback_files(paths, function_definitions))
         resources[resource] = sorted(set(paths))
     return resources
@@ -658,9 +760,9 @@ def _identifier_words(value):
 
 def _is_list_operation(operation_id):
     words = _operation_words(operation_id)
-    if "list" in words or "search" in words:
+    if words[:1] in (["list"], ["search"]):
         return True
-    return "get" in words and "all" in words
+    return len(words) >= 2 and words[0] == "get" and words[1] == "all"
 
 
 def _operation_mentions_token(operation, token):
@@ -889,11 +991,11 @@ def _action_shaped_path(path):
 
 
 def _path_kind(operation):
-    if _is_list_operation(operation["operation_id"]):
-        return "list"
     parts = _path_parts(operation["path"])
     if parts and _is_path_parameter(parts[-1]):
         return "detail"
+    if _is_list_operation(operation["operation_id"]):
+        return "list"
     return "list"
 
 
