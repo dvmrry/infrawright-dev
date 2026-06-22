@@ -19,6 +19,8 @@ type Report struct {
 	Files                 []FileFact             `json:"files"`
 	Functions             []FunctionFact         `json:"functions"`
 	ResourceRegistrations []ResourceRegistration `json:"resource_registrations"`
+	ResourceReferences    []ResourceReference    `json:"resource_references"`
+	IdentifierReferences  []IdentifierReference  `json:"identifier_references"`
 	ReadCallbacks         []ReadCallback         `json:"read_callbacks"`
 	SelectorCalls         []SelectorCall         `json:"selector_calls"`
 	PackageCalls          []PackageCall          `json:"package_calls"`
@@ -58,6 +60,16 @@ type ResourceRegistration struct {
 	File        string `json:"file"`
 	Constructor string `json:"constructor"`
 	Package     string `json:"package,omitempty"`
+}
+
+type ResourceReference struct {
+	Resource string `json:"resource"`
+	File     string `json:"file"`
+}
+
+type IdentifierReference struct {
+	Name string `json:"name"`
+	File string `json:"file"`
 }
 
 type ReadCallback struct {
@@ -104,6 +116,8 @@ func Collect(sourceRoot string) (*Report, error) {
 		Files:                 []FileFact{},
 		Functions:             []FunctionFact{},
 		ResourceRegistrations: []ResourceRegistration{},
+		ResourceReferences:    []ResourceReference{},
+		IdentifierReferences:  []IdentifierReference{},
 		ReadCallbacks:         []ReadCallback{},
 		SelectorCalls:         []SelectorCall{},
 		PackageCalls:          []PackageCall{},
@@ -159,7 +173,17 @@ func collectFile(root, path string, file *ast.File, report *Report) error {
 		Imports: imports,
 	})
 
+	resourceReferences := map[string]struct{}{}
+	identifierReferences := map[string]struct{}{}
 	ast.Inspect(file, func(node ast.Node) bool {
+		if ident, ok := node.(*ast.Ident); ok && ident.Name != "_" {
+			identifierReferences[ident.Name] = struct{}{}
+		}
+		if lit, ok := node.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+			if resource, ok := stringLiteral(lit); ok && resourceNamePattern.MatchString(resource) {
+				resourceReferences[resource] = struct{}{}
+			}
+		}
 		kv, ok := node.(*ast.KeyValueExpr)
 		if !ok {
 			return true
@@ -176,6 +200,18 @@ func collectFile(root, path string, file *ast.File, report *Report) error {
 		}
 		return true
 	})
+	for resource := range resourceReferences {
+		report.ResourceReferences = append(report.ResourceReferences, ResourceReference{
+			Resource: resource,
+			File:     rel,
+		})
+	}
+	for name := range identifierReferences {
+		report.IdentifierReferences = append(report.IdentifierReferences, IdentifierReference{
+			Name: name,
+			File: rel,
+		})
+	}
 
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
@@ -496,6 +532,16 @@ func sortReport(report *Report) {
 		left := report.ResourceRegistrations[i]
 		right := report.ResourceRegistrations[j]
 		return left.Resource+left.File+left.Constructor < right.Resource+right.File+right.Constructor
+	})
+	sort.Slice(report.ResourceReferences, func(i, j int) bool {
+		left := report.ResourceReferences[i]
+		right := report.ResourceReferences[j]
+		return left.Resource+left.File < right.Resource+right.File
+	})
+	sort.Slice(report.IdentifierReferences, func(i, j int) bool {
+		left := report.IdentifierReferences[i]
+		right := report.IdentifierReferences[j]
+		return left.File+left.Name < right.File+right.Name
 	})
 	sort.Slice(report.ReadCallbacks, func(i, j int) bool {
 		left := report.ReadCallbacks[i]

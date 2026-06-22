@@ -28,6 +28,8 @@ Current facts:
 
 - Go files, packages, imports, and functions
 - Terraform-style resource registrations
+- Terraform resource type string references
+- Go identifier references
 - read callback fields such as `ReadContext`
 - selector calls such as `client.Repositories.Get`
 - imported package calls such as `locationmanagement.Get`

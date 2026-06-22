@@ -92,6 +92,14 @@ func Ignored() {
 		Constructor: "ResourceTeam",
 		Package:     "teams",
 	})
+	assertResourceReference(t, report, ResourceReference{
+		Resource: "github_repository",
+		File:     "provider.go",
+	})
+	assertIdentifierReference(t, report, IdentifierReference{
+		Name: "resourceGithubRepository",
+		File: "provider.go",
+	})
 	assertReadCallback(t, report, ReadCallback{
 		Field:    "ReadContext",
 		File:     "resource_github_repository.go",
@@ -146,6 +154,26 @@ func assertRegistration(t *testing.T, report *Report, want ResourceRegistration)
 		}
 	}
 	t.Fatalf("Collect(%q).ResourceRegistrations missing %#v; got %#v", report.SourceRoot, want, report.ResourceRegistrations)
+}
+
+func assertResourceReference(t *testing.T, report *Report, want ResourceReference) {
+	t.Helper()
+	for _, got := range report.ResourceReferences {
+		if reflect.DeepEqual(got, want) {
+			return
+		}
+	}
+	t.Fatalf("Collect(%q).ResourceReferences missing %#v; got %#v", report.SourceRoot, want, report.ResourceReferences)
+}
+
+func assertIdentifierReference(t *testing.T, report *Report, want IdentifierReference) {
+	t.Helper()
+	for _, got := range report.IdentifierReferences {
+		if reflect.DeepEqual(got, want) {
+			return
+		}
+	}
+	t.Fatalf("Collect(%q).IdentifierReferences missing %#v; got %#v", report.SourceRoot, want, report.IdentifierReferences)
 }
 
 func assertReadCallback(t *testing.T, report *Report, want ReadCallback) {

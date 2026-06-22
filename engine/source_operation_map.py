@@ -510,6 +510,15 @@ def _resource_files_from_facts(source_root, resource_names, resource_prefix,
         source_root, source_facts)
     imports_by_file = _source_facts_file_imports(source_facts)
     registration_paths = dict((name, set()) for name in resource_names)
+    reference_paths = dict((name, set()) for name in resource_names)
+
+    for reference in source_facts.get("resource_references") or []:
+        resource = reference.get("resource")
+        if resource not in resource_set:
+            continue
+        path = _fact_abs_path(source_root, reference.get("file"))
+        if path:
+            reference_paths[resource].add(path)
 
     for registration in source_facts.get("resource_registrations") or []:
         resource = registration.get("resource")
@@ -533,8 +542,14 @@ def _resource_files_from_facts(source_root, resource_names, resource_prefix,
     for resource, paths in resources.items():
         exact_paths = _exact_resource_files_from_indexes(
             source_root, resource, resource_prefix, basename_index)
+        paths.extend(sorted(reference_paths[resource]))
         paths.extend(exact_paths)
         paths.extend(sorted(registration_paths[resource]))
+        if exact_paths or registration_paths[resource]:
+            paths = [
+                path for path in paths
+                if not _is_loose_resource_match_file(path)
+            ]
         paths.extend(_read_callback_files_from_facts(
             source_root, paths, function_definitions, source_facts))
         resources[resource] = sorted(set(paths))
@@ -545,6 +560,9 @@ def _identifier_tokens_from_facts(source_files, source_facts):
     source_file_set = set(_fact_rel_path(path) for path in source_files)
     tokens = set()
     for item in source_facts.get("functions") or []:
+        if _fact_rel_path(item.get("file")) in source_file_set:
+            tokens.add(_canonical(item.get("name") or ""))
+    for item in source_facts.get("identifier_references") or []:
         if _fact_rel_path(item.get("file")) in source_file_set:
             tokens.add(_canonical(item.get("name") or ""))
     for item in source_facts.get("selector_calls") or []:

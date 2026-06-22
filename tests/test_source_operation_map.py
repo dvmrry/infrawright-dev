@@ -42,6 +42,8 @@ class SourceOperationMapTest(unittest.TestCase):
             "files": [],
             "functions": [],
             "resource_registrations": [],
+            "resource_references": [],
+            "identifier_references": [],
             "read_callbacks": [],
             "selector_calls": [],
             "package_calls": [],
@@ -512,6 +514,92 @@ func (d *DNSRecordsDataSource) Read() {
         self.assertEqual(entry["list"]["path"], "/zones/{zone_id}/dns_records")
         self.assertEqual(comparison["summary"]["status_changes"], 1)
         self.assertEqual(comparison["summary"]["read_path_changes"], 1)
+
+    def test_ast_facts_backend_uses_resource_reference_files(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/example/example": {
+                    "resource_schemas": {
+                        "example_widget": {
+                            "block": {
+                                "attributes": {
+                                    "id": {
+                                        "type": "string",
+                                        "computed": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/widgets": {
+                    "get": {
+                        "operationId": "ListWidgets",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+                "/widgets/{id}": {
+                    "get": {
+                        "operationId": "GetWidget",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        os.makedirs(source_root)
+        source_facts = self._source_facts(
+            source_root,
+            files=[
+                {
+                    "path": "internal/widgets/framework_resource.go",
+                    "package": "widgets",
+                    "imports": [],
+                },
+            ],
+            resource_references=[
+                {
+                    "resource": "example_widget",
+                    "file": "internal/widgets/framework_resource.go",
+                },
+            ],
+            identifier_references=[
+                {
+                    "name": "listWidgets",
+                    "file": "internal/widgets/framework_resource.go",
+                },
+            ],
+            selector_calls=[
+                {
+                    "file": "internal/widgets/framework_resource.go",
+                    "function": "Read",
+                    "symbol": "client.GetWidget",
+                    "parts": ["client", "GetWidget"],
+                },
+            ],
+        )
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/example/example",
+            resource_prefix="example",
+            source_facts=source_facts,
+        )
+
+        entry = report["registry"]["example_widget"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(
+            entry["source"]["files"],
+            ["internal/widgets/framework_resource.go"])
+        self.assertEqual(entry["read"]["path"], "/widgets/{id}")
+        self.assertEqual(entry["list"]["path"], "/widgets")
 
     def test_maps_go_swagger_api_receiver_read_calls_to_retrieve_operations(self):
         schema_path = self._write_json("schema.json", {
