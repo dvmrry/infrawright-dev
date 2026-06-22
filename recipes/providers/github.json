@@ -1,0 +1,19 @@
+{
+  "name": "github",
+  "provider_source": "registry.terraform.io/integrations/github",
+  "provider_version": "6.12.1",
+  "resource_prefix": "github",
+  "api_prefix": "/",
+  "terraform_provider": {
+    "source": "integrations/github",
+    "version": "6.12.1"
+  },
+  "source": {
+    "git": "https://github.com/integrations/terraform-provider-github.git",
+    "ref": "v6.12.1"
+  },
+  "openapi": {
+    "url": "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json",
+    "format": "json"
+  }
+}

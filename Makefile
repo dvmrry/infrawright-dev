@@ -1,7 +1,7 @@
 PYTHON ?= python3
 TF ?= terraform
 
-.PHONY: demo check-demo check-modules check test fetch fetch-diag gen-env transform reconcile openapi-map source-operation-map stage-imports unstage-imports plan clean-plans assert-clean apply
+.PHONY: demo check-demo check-modules check test fetch fetch-diag gen-env transform reconcile openapi-map source-operation-map provider-probe stage-imports unstage-imports plan clean-plans assert-clean apply
 
 demo: ## Materialize the demo tenant under config/demo and imports/demo
 	@set -e; for rt in $$($(PYTHON) -c "from engine.registry import generated_types; print('\n'.join(generated_types()))"); do \
@@ -63,6 +63,10 @@ openapi-map: ## Map provider resources to OpenAPI CRUD endpoints (SCHEMA=<schema
 source-operation-map: ## Derive read registry from provider source OpenAPI operation calls (SCHEMA=<schema.json> OPENAPI=<spec.json> SOURCE_ROOT=<dir> [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [OUT=<registry.json>] [DIAGNOSTICS=<report.json>])
 	@test -n "$(SCHEMA)" -a -n "$(OPENAPI)" -a -n "$(SOURCE_ROOT)" || { echo "usage: make source-operation-map SCHEMA=<schema.json> OPENAPI=<spec.json> SOURCE_ROOT=<dir> [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [OUT=<registry.json>] [DIAGNOSTICS=<report.json>]"; exit 2; }
 	$(PYTHON) -m engine.source_operation_map --schema "$(SCHEMA)" --openapi "$(OPENAPI)" --source-root "$(SOURCE_ROOT)" $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(OUT),--out "$(OUT)") $(if $(DIAGNOSTICS),--diagnostics "$(DIAGNOSTICS)")
+
+provider-probe: ## Run provider readiness probe (RECIPE=<recipe.json> [WORK_DIR=<dir>] [OUT=<summary.json>] [MARKDOWN=<summary.md>])
+	@test -n "$(RECIPE)" || { echo "usage: make provider-probe RECIPE=<recipe.json> [WORK_DIR=<dir>] [OUT=<summary.json>] [MARKDOWN=<summary.md>]"; exit 2; }
+	$(PYTHON) -m engine.provider_probe "$(RECIPE)" $(if $(WORK_DIR),--work-dir "$(WORK_DIR)") $(if $(OUT),--out "$(OUT)") $(if $(MARKDOWN),--markdown "$(MARKDOWN)")
 
 stage-imports: ## Copy import/moved blocks into env roots (TENANT=<label> [RESOURCE=<type|provider>] [STATE_AWARE=1] [BACKEND_CONFIG=<file>])
 	$(PYTHON) -m engine.ops stage-imports --tenant "$(TENANT)" $(if $(STATE_AWARE),--state-aware) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(RESOURCE)
