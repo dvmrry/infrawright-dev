@@ -364,6 +364,500 @@ func (r *FirewallRuleResource) Read() {
             entry["read"]["hops"][0]["client_symbol"],
             "Firewall.Rules.Get")
 
+    def test_maps_zscaler_package_function_calls_to_openapi_paths(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/zscaler/zia": {
+                    "resource_schemas": {
+                        "zia_location_management": {
+                            "block": {
+                                "attributes": {
+                                    "name": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "info": {"title": "Zscaler Internet Access API"},
+            "paths": {
+                "/locations": {
+                    "get": {
+                        "operationId": "Get Top Locations",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+                "/locations/{locationId}": {
+                    "get": {
+                        "operationId": "Get Location",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+                "/locations/{locationId}/sublocations": {
+                    "get": {
+                        "operationId": "Get Sub Locations",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/zia/resource_zia_location_management.go", """
+package zia
+
+import (
+    "context"
+    "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zia/services/location/locationmanagement"
+)
+
+func resourceLocationManagementRead(ctx context.Context) {
+    // locationmanagement.GetTopLocations(ctx, service) should not count.
+    _ = "locationmanagement.GetLocations(ctx, service) should not count"
+    byName, byNameErr := locationmanagement.GetLocationOrSublocationByName(ctx, service, name)
+    resp, err := locationmanagement.GetLocationOrSublocationByID(ctx, service, id)
+    _ = byName
+    _ = byNameErr
+    _ = resp
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/zscaler/zia",
+            resource_prefix="zia",
+        )
+
+        self.assertEqual(report["summary"]["mapped"], 1)
+        entry = report["registry"]["zia_location_management"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(
+            entry["source"]["files"],
+            ["zia/resource_zia_location_management.go"])
+        self.assertEqual(entry["source"]["package_call_count"], 2)
+        self.assertEqual(
+            entry["read"]["path"],
+            "/locations/{locationId}")
+        self.assertEqual(
+            entry["read"]["operation_id"],
+            "Get Location")
+        self.assertEqual(
+            entry["read"]["hops"][0]["client_symbol"],
+            "locationmanagement.GetLocationOrSublocationByID")
+        self.assertEqual(
+            entry["read"]["hops"][0]["alternate_client_symbols"],
+            [
+                "locationmanagement.GetLocationOrSublocationByID",
+                "locationmanagement.GetLocationOrSublocationByName",
+            ])
+        self.assertEqual(
+            entry["read"]["hops"][0]["sdk_package"],
+            "locationmanagement")
+
+    def test_maps_framework_resource_package_calls(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/zscaler/zcc": {
+                    "resource_schemas": {
+                        "zcc_forwarding_profile": {
+                            "block": {
+                                "attributes": {
+                                    "name": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/papi/public/v1/webForwardingProfile/listByCompany": {
+                    "get": {
+                        "operationId": "List Forwarding Profiles By Company",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/internal/framework/resources/forwarding_profile.go", """
+package resources
+
+import (
+    "context"
+    "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zcc/services/forwarding_profile"
+)
+
+func (r *ForwardingProfileResource) Read(ctx context.Context) {
+    profiles, err := forwarding_profile.GetForwardingProfileByCompanyID(ctx, service, "", nil, nil)
+    _ = profiles
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/zscaler/zcc",
+            resource_prefix="zcc",
+        )
+
+        self.assertEqual(report["summary"]["mapped"], 1)
+        entry = report["registry"]["zcc_forwarding_profile"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(
+            entry["source"]["files"],
+            ["internal/framework/resources/forwarding_profile.go"])
+        self.assertEqual(
+            entry["read"]["path"],
+            "/papi/public/v1/webForwardingProfile/listByCompany")
+        self.assertEqual(
+            entry["read"]["hops"][0]["client_symbol"],
+            "forwarding_profile.GetForwardingProfileByCompanyID")
+
+    def test_ignores_stdlib_package_get_calls(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/integrations/github": {
+                    "resource_schemas": {
+                        "github_repository": {
+                            "block": {
+                                "attributes": {
+                                    "name": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/repos/{owner}/{repo}": {
+                    "get": {
+                        "operationId": "repos/get",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/github/resource_github_repository.go", """
+package github
+
+import "os"
+
+func readRepository() {
+    _ = os.Getenv("GITHUB_OWNER")
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/integrations/github",
+            resource_prefix="github",
+        )
+
+        entry = report["registry"]["github_repository"]
+        self.assertEqual(entry["status"], "unmapped")
+        self.assertEqual(entry["reason"], "no_source_operation_match")
+        self.assertNotIn("package_call_count", entry["source"])
+
+    def test_exact_resource_file_excludes_broad_provider_registration(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/integrations/github": {
+                    "resource_schemas": {
+                        "github_issue": {
+                            "block": {
+                                "attributes": {
+                                    "repository": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/repos/{owner}/{repo}/issues/{issue_number}": {
+                    "get": {
+                        "operationId": "issues/get",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/github/provider.go", """
+package github
+
+import "os"
+
+var resourceType = "github_issue"
+
+func configure() {
+    _ = os.Getenv("GITHUB_OWNER")
+}
+""")
+        self._write("provider/github/sweep.go", """
+package github
+
+var sweepResourceType = "github_issue"
+
+func sweepIssues() {
+    _, _, err := client.Repositories.Get(ctx, owner, repo)
+    _ = err
+}
+""")
+        self._write("provider/github/resource_github_issue.go", """
+package github
+
+func readIssue() {
+    _, _, err := client.Issues.Get(ctx, owner, repo, number)
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/integrations/github",
+            resource_prefix="github",
+        )
+
+        entry = report["registry"]["github_issue"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(
+            entry["source"]["files"],
+            ["github/resource_github_issue.go"])
+        self.assertEqual(entry["read"]["path"],
+                         "/repos/{owner}/{repo}/issues/{issue_number}")
+        self.assertNotIn("package_call_count", entry["source"])
+
+    def test_maps_prefixed_sdk_client_methods(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/integrations/github": {
+                    "resource_schemas": {
+                        "github_release": {
+                            "block": {
+                                "attributes": {
+                                    "repository": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/orgs/{org}/settings/immutable-releases/repositories": {
+                    "get": {
+                        "operationId": (
+                            "orgs/get-immutable-releases-settings-repositories"),
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+                "/repos/{owner}/{repo}/releases/{release_id}": {
+                    "get": {
+                        "operationId": "repos/get-release",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/github/resource_github_release.go", """
+package github
+
+func readRelease() {
+    release, _, err := client.Repositories.GetRelease(ctx, owner, repo, releaseID)
+    _ = release
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/integrations/github",
+            resource_prefix="github",
+        )
+
+        entry = report["registry"]["github_release"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(entry["read"]["path"],
+                         "/repos/{owner}/{repo}/releases/{release_id}")
+        self.assertEqual(entry["read"]["hops"][0]["client_symbol"],
+                         "Repositories.GetRelease")
+
+    def test_marks_list_read_winner_with_close_detail_as_ambiguous(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/integrations/github": {
+                    "resource_schemas": {
+                        "github_repository": {
+                            "block": {
+                                "attributes": {
+                                    "name": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/orgs/{org}/actions/cache/usage-by-repository": {
+                    "get": {
+                        "operationId": (
+                            "actions/get-actions-cache-usage-by-repo-for-org"),
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+                "/repos/{owner}/{repo}": {
+                    "get": {
+                        "operationId": "repos/get",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/github/resource_github_repository.go", """
+package github
+
+func readRepository() {
+    repo, _, err := client.Repositories.Get(ctx, owner, name)
+    _ = repo
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/integrations/github",
+            resource_prefix="github",
+        )
+
+        entry = report["registry"]["github_repository"]
+        self.assertEqual(entry["status"], "ambiguous_source_operation")
+        self.assertEqual(entry["reason"], "ambiguous_source_operation")
+        self.assertEqual(
+            [candidate["path"] for candidate in entry["candidates"]],
+            [
+                "/orgs/{org}/actions/cache/usage-by-repository",
+                "/repos/{owner}/{repo}",
+            ])
+
+    def test_maps_openapi_paths_without_operation_ids(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/digitalocean/digitalocean": {
+                    "resource_schemas": {
+                        "digitalocean_domain": {
+                            "block": {
+                                "attributes": {
+                                    "name": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/v2/domains": {
+                    "get": {
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+                "/v2/domains/{domain_name}": {
+                    "get": {
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/digitalocean/domain/resource_domain.go", """
+package domain
+
+func readDomain() {
+    domain, resp, err := client.Domains.Get(ctx, name)
+    _ = domain
+    _ = resp
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/digitalocean/digitalocean",
+            resource_prefix="digitalocean",
+        )
+
+        entry = report["registry"]["digitalocean_domain"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(
+            entry["source"]["files"],
+            ["digitalocean/domain/resource_domain.go"])
+        self.assertEqual(entry["read"]["path"], "/v2/domains/{domain_name}")
+        self.assertEqual(entry["read"]["operation_id"],
+                         "GET /v2/domains/{domain_name}")
+        self.assertEqual(entry["read"]["operation_id_source"],
+                         "synthetic_path")
+        self.assertEqual(
+            entry["read"]["hops"][1]["operation_id_source"],
+            "synthetic_path")
+
     def test_ignores_operation_ids_in_comments_and_strings(self):
         schema_path = self._write_json("schema.json", {
             "provider_schemas": {

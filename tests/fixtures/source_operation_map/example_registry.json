@@ -56,6 +56,11 @@
     },
     "source": {
       "candidate_count": 2,
+      "client_call_count": 2,
+      "client_calls": [
+        "Provisioning.GetFolder",
+        "Provisioning.GetFolders"
+      ],
       "files": [
         "internal/resource_folder.go"
       ]
