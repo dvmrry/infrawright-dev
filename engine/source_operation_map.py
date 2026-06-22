@@ -1048,13 +1048,13 @@ def _operation_mentions_token(operation, token):
     token = _canonical(token)
     if not token:
         return False
-    if (token in _canonical(operation["path"])
-            or token in _canonical(operation["operation_id"])):
+    if (token in _operation_canonical_path(operation)
+            or token in _operation_canonical_id(operation)):
         return True
-    for word in _path_words(operation["path"]):
+    for word in _operation_path_words(operation):
         if _word_matches_token(word, token):
             return True
-    for word in _operation_words(operation["operation_id"]):
+    for word in _operation_id_words(operation):
         if _word_matches_token(word, token):
             return True
     return False
@@ -1102,6 +1102,65 @@ def _path_words(path):
     return words
 
 
+def _operation_cached(operation, key, compute):
+    if key not in operation:
+        operation[key] = compute()
+    return operation[key]
+
+
+def _operation_canonical_path(operation):
+    return _operation_cached(
+        operation, "_canonical_path", lambda: _canonical(operation["path"]))
+
+
+def _operation_canonical_id(operation):
+    return _operation_cached(
+        operation,
+        "_canonical_operation_id",
+        lambda: _canonical(operation["operation_id"]))
+
+
+def _operation_path_parts(operation):
+    return _operation_cached(
+        operation, "_path_parts", lambda: _path_parts(operation["path"]))
+
+
+def _operation_static_path_parts(operation):
+    return _operation_cached(
+        operation,
+        "_static_path_parts",
+        lambda: [
+            part for part in _operation_path_parts(operation)
+            if not _is_path_parameter(part)
+        ])
+
+
+def _operation_path_words(operation):
+    return _operation_cached(
+        operation, "_path_words", lambda: _path_words(operation["path"]))
+
+
+def _operation_id_words(operation):
+    return _operation_cached(
+        operation,
+        "_operation_words",
+        lambda: _operation_words(operation["operation_id"]))
+
+
+def _operation_is_list(operation):
+    return _operation_cached(
+        operation,
+        "_is_list_operation",
+        lambda: _is_list_operation(operation["operation_id"]))
+
+
+def _operation_action_shaped(operation):
+    return _operation_cached(
+        operation,
+        "_action_shaped_path",
+        lambda: _action_shaped_path(operation["path"]))
+
+
 def _word_matches_token(word, token):
     word = _canonical(word)
     token = _canonical(token)
@@ -1126,7 +1185,7 @@ def _word_matches_token(word, token):
 
 def _resource_path_sequence_score(resource_type, resource_prefix, operation):
     tokens = _base_tokens(resource_type, resource_prefix)
-    words = _path_words(operation["path"])
+    words = _operation_path_words(operation)
     if not tokens or len(tokens) > len(words):
         return 0
     best = 0
@@ -1146,7 +1205,7 @@ def _resource_terminal_score(resource_type, resource_prefix, operation):
     tokens = _base_tokens(resource_type, resource_prefix)
     if not tokens:
         return 0
-    parts = _static_path_parts(operation["path"])
+    parts = _operation_static_path_parts(operation)
     if not parts:
         return 0
     terminal = _canonical(parts[-1])
@@ -1162,7 +1221,7 @@ def _resource_prefix_score(resource_type, resource_prefix, operation):
     tokens = _base_tokens(resource_type, resource_prefix)
     if not tokens:
         return 0
-    parts = _static_path_parts(operation["path"])
+    parts = _operation_static_path_parts(operation)
     if len(parts) < 2:
         return 0
     if not _word_matches_token(parts[0], resource_prefix):
@@ -1195,8 +1254,10 @@ def _scope_hints(resource_schema):
 
 
 def _operation_scopes(operation):
+    if "_operation_scopes" in operation:
+        return operation["_operation_scopes"]
     scopes = set()
-    for part in _path_parts(operation["path"]):
+    for part in _operation_path_parts(operation):
         cleaned = part.strip("{}").lower()
         if cleaned in ("account_id", "account_identifier", "account_tag"):
             scopes.add("account")
@@ -1210,6 +1271,7 @@ def _operation_scopes(operation):
             scopes.add("zone")
         elif cleaned == "user":
             scopes.add("user")
+    operation["_operation_scopes"] = scopes
     return scopes
 
 
@@ -1270,12 +1332,14 @@ def _action_shaped_path(path):
 
 
 def _path_kind(operation):
-    parts = _path_parts(operation["path"])
-    if parts and _is_path_parameter(parts[-1]):
-        return "detail"
-    if _is_list_operation(operation["operation_id"]):
+    def compute():
+        parts = _operation_path_parts(operation)
+        if parts and _is_path_parameter(parts[-1]):
+            return "detail"
+        if _operation_is_list(operation):
+            return "list"
         return "list"
-    return "list"
+    return _operation_cached(operation, "_path_kind", compute)
 
 
 def _sdk_call_score(resource_type, resource_prefix, operation, call,
@@ -1330,7 +1394,7 @@ def _sdk_call_score(resource_type, resource_prefix, operation, call,
     score += _resource_prefix_score(resource_type, resource_prefix, operation)
     score += _scope_score(operation, _scope_hints(resource_schema))
     path_kind = _path_kind(operation)
-    words = _operation_words(operation["operation_id"])
+    words = _operation_id_words(operation)
     if call["source_role"] == "read":
         if path_kind == "detail":
             score += 30
@@ -1338,18 +1402,18 @@ def _sdk_call_score(resource_type, resource_prefix, operation, call,
             score += 5
         if "detail" in words or "details" in words or "get" in words:
             score += 10
-        if _is_list_operation(operation["operation_id"]):
+        if _operation_is_list(operation):
             score -= 20
-        if _action_shaped_path(operation["path"]):
+        if _operation_action_shaped(operation):
             score -= 25
     elif call["source_role"] == "list":
         if path_kind == "list":
             score += 30
         else:
             score -= 20
-        if _is_list_operation(operation["operation_id"]):
+        if _operation_is_list(operation):
             score += 15
-        if _action_shaped_path(operation["path"]):
+        if _operation_action_shaped(operation):
             score -= 20
     return score if score >= SDK_CALL_SCORE_FLOOR else None
 
@@ -1383,16 +1447,16 @@ def _package_call_score(resource_type, resource_prefix, operation, call,
             score += 30
         elif path_kind == "detail":
             score += 20
-        if _is_list_operation(operation["operation_id"]):
+        if _operation_is_list(operation):
             score -= 20
-        if _action_shaped_path(operation["path"]):
+        if _operation_action_shaped(operation):
             score -= 20
     elif call["source_role"] == "list":
         if path_kind == "list":
             score += 35
         else:
             score -= 25
-        if _is_list_operation(operation["operation_id"]):
+        if _operation_is_list(operation):
             score += 10
     return score if score >= PACKAGE_CALL_SCORE_FLOOR else None
 
@@ -1440,12 +1504,12 @@ def _candidate_score(resource_type, resource_prefix, operation):
     operation_id = operation["operation_id"]
     score = 0
     for token in _base_tokens(resource_type, resource_prefix):
-        if _canonical(token) in _canonical(path):
+        if _canonical(token) in _operation_canonical_path(operation):
             score += 5
     if "{" in path:
         score += 30
     lowered = operation_id.lower()
-    if _is_list_operation(operation_id):
+    if _operation_is_list(operation):
         score -= 10
     if lowered.startswith(("get", "retrieve", "read", "routeget")):
         score += 10
@@ -1459,12 +1523,12 @@ def _list_candidate_score(resource_type, resource_prefix, operation):
     operation_id = operation["operation_id"]
     score = 0
     for token in _base_tokens(resource_type, resource_prefix):
-        if _canonical(token) in _canonical(path):
+        if _canonical(token) in _operation_canonical_path(operation):
             score += 5
     lowered = operation_id.lower()
-    if _is_list_operation(operation_id):
+    if _operation_is_list(operation):
         score += 20
-    parts = _path_parts(path)
+    parts = _operation_path_parts(operation)
     if parts and _is_path_parameter(parts[-1]):
         score -= 20
     else:
@@ -1683,11 +1747,38 @@ def _load_resource_schemas(schema_path, provider_source=None):
     return provider.get("resource_schemas") or {}
 
 
+def _parse_resource_filter(value):
+    if not value:
+        return None
+    resources = []
+    for item in value.split(","):
+        item = item.strip()
+        if item:
+            resources.append(item)
+    return resources or None
+
+
+def _filter_resource_schemas(resource_schemas, resource_filter):
+    if not resource_filter:
+        return resource_schemas
+    wanted = set(resource_filter)
+    missing = sorted(wanted.difference(resource_schemas))
+    if missing:
+        raise ValueError(
+            "resources not found in provider schema: %s" %
+            ", ".join(missing))
+    return dict(
+        (resource, resource_schemas[resource])
+        for resource in sorted(wanted))
+
+
 def derive_registry(schema_path, openapi_path, source_root,
                     provider_source=None, resource_prefix="",
-                    source_facts=None):
+                    source_facts=None, resource_filter=None):
     resource_schemas = _load_resource_schemas(
         schema_path, provider_source=provider_source)
+    resource_schemas = _filter_resource_schemas(
+        resource_schemas, resource_filter)
     resource_names = sorted(resource_schemas)
     if source_facts:
         files_by_resource = _resource_files_from_facts(
@@ -2003,6 +2094,9 @@ def main(argv=None):
     parser.add_argument("--provider-source", help="Provider source address")
     parser.add_argument("--resource-prefix", default="", help="Resource name prefix/product")
     parser.add_argument(
+        "--resources",
+        help="Comma-separated Terraform resource names to evaluate")
+    parser.add_argument(
         "--source-facts",
         help="Experimental source-evidence-ast JSON facts to use instead of text scanning")
     parser.add_argument(
@@ -2020,6 +2114,7 @@ def main(argv=None):
             provider_source=args.provider_source,
             resource_prefix=args.resource_prefix,
             source_facts=source_facts,
+            resource_filter=_parse_resource_filter(args.resources),
         )
         if args.source_facts_compare:
             if not source_facts:
@@ -2031,6 +2126,7 @@ def main(argv=None):
                 args.source_root,
                 provider_source=args.provider_source,
                 resource_prefix=args.resource_prefix,
+                resource_filter=_parse_resource_filter(args.resources),
             )
             _write_json(compare_registry_reports(
                 control_report, report), path=args.source_facts_compare)

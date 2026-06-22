@@ -299,6 +299,79 @@ func read() {
         self.assertIn("rclientiamusergroupsmemberslist", tokens)
         self.assertNotIn("memberslist", tokens)
 
+    def test_derives_registry_for_filtered_resources(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/example/example": {
+                    "resource_schemas": {
+                        "example_folder": {"block": {"attributes": {}}},
+                        "example_dashboard": {"block": {"attributes": {}}},
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/api/folders/{uid}": {
+                    "get": {
+                        "operationId": "RouteGetFolder",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+                "/api/dashboards/{uid}": {
+                    "get": {
+                        "operationId": "RouteGetDashboard",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/resource_example_folder.go", """
+package provider
+
+func readFolder() {
+    name := "example_folder"
+    _ = name
+    client.Provisioning.GetFolder("abc")
+}
+""")
+        self._write("provider/resource_example_dashboard.go", """
+package provider
+
+func readDashboard() {
+    name := "example_dashboard"
+    _ = name
+    client.Provisioning.GetDashboard("abc")
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/example/example",
+            resource_prefix="example",
+            resource_filter=["example_folder"],
+        )
+
+        self.assertEqual(report["summary"]["resources"], 1)
+        self.assertEqual(sorted(report["registry"]), ["example_folder"])
+        self.assertEqual(
+            report["registry"]["example_folder"]["read"]["path"],
+            "/api/folders/{uid}")
+
+        with self.assertRaises(ValueError):
+            source_operation_map.derive_registry(
+                schema_path,
+                openapi_path,
+                source_root,
+                provider_source="registry.terraform.io/example/example",
+                resource_prefix="example",
+                resource_filter=["example_missing"],
+            )
+
     def test_maps_cloudflare_service_dir_sdk_calls_to_openapi_paths(self):
         schema_path = self._write_json("schema.json", {
             "provider_schemas": {

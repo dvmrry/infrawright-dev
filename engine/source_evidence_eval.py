@@ -192,6 +192,170 @@ def classify_comparison(compare_report):
     }
 
 
+_SHORTCOMING_SEVERITY = {
+    "regression": "gap",
+    "resource_file_not_found": "gap",
+    "source_files_without_operation_calls": "gap",
+    "calls_without_openapi_match": "gap",
+    "unmapped_without_reason": "gap",
+    "ambiguous_source_operation": "review",
+    "graphql_source": "notice",
+    "mapped_read_without_list": "notice",
+}
+
+_SEVERITY_ORDER = {
+    "gap": 0,
+    "review": 1,
+    "notice": 2,
+}
+
+_CHANGE_CLASS_ORDER = {
+    "regression": 0,
+    "review": 1,
+    "acceptable": 2,
+}
+
+MAX_MARKDOWN_CHANGE_ROWS = 100
+
+
+def _operation_call_count(detail):
+    return sum(
+        detail.get(key, 0) or 0
+        for key in [
+            "client_call_count",
+            "package_call_count",
+            "raw_rest_call_count",
+        ])
+
+
+def _unmapped_bucket(reason, detail):
+    if reason == "no_source_operation_match":
+        if _operation_call_count(detail) or detail.get("candidate_count", 0):
+            return "calls_without_openapi_match"
+        return "source_files_without_operation_calls"
+    return reason or "unmapped_without_reason"
+
+
+def _candidate_samples(candidates, limit=5):
+    samples = []
+    for candidate in (candidates or [])[:limit]:
+        sample = {}
+        for key in [
+                "client_symbol",
+                "operation_id",
+                "method",
+                "path",
+                "path_kind",
+                "source_role",
+                "read_score",
+                "list_score"]:
+            if key in candidate:
+                sample[key] = candidate[key]
+        samples.append(sample)
+    return samples
+
+
+def _shortcoming_bucket(shortcomings, bucket, resource, detail):
+    severity = _SHORTCOMING_SEVERITY.get(bucket, "review")
+    entry = shortcomings.setdefault(bucket, {
+        "severity": severity,
+        "count": 0,
+        "resources": [],
+    })
+    entry["count"] += 1
+    item = {"resource": resource}
+    item.update(detail)
+    entry["resources"].append(item)
+
+
+def summarize_shortcomings(ast_report, evaluation):
+    """Summarize candidate-side gaps independent of text-vs-AST deltas."""
+    shortcomings = {}
+    registry = ast_report.get("registry") or {}
+    diagnostics_by_resource = dict(
+        (item.get("resource"), item)
+        for item in ast_report.get("diagnostics") or [])
+
+    for change in evaluation.get("changes") or []:
+        if change.get("classification") != "regression":
+            continue
+        _shortcoming_bucket(shortcomings, "regression", change.get("resource"), {
+            "reason": change.get("classification_reason"),
+            "before": change.get("before") or {},
+            "after": change.get("after") or {},
+        })
+
+    for resource, entry in sorted(registry.items()):
+        status = entry.get("status")
+        reason = entry.get("reason")
+        diagnostic = diagnostics_by_resource.get(resource) or {}
+        source = entry.get("source") or {}
+        detail = {
+            "status": status,
+            "reason": reason,
+            "files": source.get("files") or diagnostic.get("files") or [],
+            "candidate_count": source.get("candidate_count", 0),
+            "client_call_count": source.get("client_call_count", 0),
+            "package_call_count": source.get("package_call_count", 0),
+            "raw_rest_call_count": source.get("raw_rest_call_count", 0),
+        }
+        if source.get("client_calls"):
+            detail["client_calls"] = source.get("client_calls")[:10]
+        if source.get("package_calls"):
+            detail["package_calls"] = source.get("package_calls")[:10]
+        if source.get("raw_rest_calls"):
+            detail["raw_rest_calls"] = source.get("raw_rest_calls")[:10]
+        candidates = (
+            entry.get("candidates") or
+            diagnostic.get("ambiguous") or
+            diagnostic.get("hits") or [])
+        if candidates:
+            detail["candidate_samples"] = _candidate_samples(candidates)
+        if status == "ambiguous_source_operation":
+            _shortcoming_bucket(
+                shortcomings, "ambiguous_source_operation", resource, detail)
+            continue
+        if status == "graphql_source":
+            _shortcoming_bucket(shortcomings, "graphql_source", resource, detail)
+            continue
+        if status != "mapped":
+            bucket = _unmapped_bucket(reason, detail)
+            _shortcoming_bucket(shortcomings, bucket, resource, detail)
+            continue
+
+        read_entry = entry.get("read") or {}
+        list_entry = entry.get("list") or {}
+        if read_entry and not list_entry:
+            detail = dict(detail)
+            detail["read_path"] = read_entry.get("path")
+            detail["read_operation_id"] = read_entry.get("operation_id")
+            _shortcoming_bucket(shortcomings, "mapped_read_without_list",
+                                resource, detail)
+
+    buckets = {}
+    for bucket, detail in sorted(shortcomings.items()):
+        resources = sorted(
+            detail["resources"],
+            key=lambda item: item.get("resource") or "")
+        buckets[bucket] = {
+            "severity": detail["severity"],
+            "count": detail["count"],
+            "resources": resources,
+        }
+    severity_summary = {}
+    for detail in buckets.values():
+        severity = detail.get("severity", "review")
+        severity_summary[severity] = (
+            severity_summary.get(severity, 0) + detail.get("count", 0))
+    return {
+        "summary": dict(
+            (bucket, detail["count"])
+            for bucket, detail in buckets.items()),
+        "severity_summary": dict(sorted(severity_summary.items())),
+        "buckets": buckets,
+    }
+
+
 def _status_table(summary):
     control = summary.get("control") or {}
     candidate = summary.get("candidate") or {}
@@ -246,13 +410,20 @@ def render_markdown(evaluation, title="Source Evidence A/B Evaluation"):
 
     changes = evaluation.get("changes") or []
     if changes:
+        changes = sorted(
+            changes,
+            key=lambda change: (
+                _CHANGE_CLASS_ORDER.get(change.get("classification"), 99),
+                change.get("resource") or "",
+            ))
+        shown_changes = changes[:MAX_MARKDOWN_CHANGE_ROWS]
         lines.extend([
             "## Changes",
             "",
             "| Resource | Class | Reason | Before | After |",
             "|---|---|---|---|---|",
         ])
-        for change in changes:
+        for change in shown_changes:
             before = change.get("before") or {}
             after = change.get("after") or {}
             before_value = "%s `%s`" % (
@@ -266,6 +437,42 @@ def render_markdown(evaluation, title="Source Evidence A/B Evaluation"):
                 before_value,
                 after_value,
             ))
+        if len(changes) > len(shown_changes):
+            lines.extend([
+                "",
+                "Showing `%s` of `%s` changes; full detail is in JSON." % (
+                    len(shown_changes), len(changes)),
+            ])
+        lines.append("")
+
+    shortcomings = evaluation.get("shortcomings") or {}
+    shortcoming_buckets = shortcomings.get("buckets") or {}
+    if shortcoming_buckets:
+        lines.extend([
+            "## Shortcomings",
+            "",
+            "| Bucket | Severity | Count | Sample Resources |",
+            "|---|---|---:|---|",
+        ])
+        def sort_key(item):
+            bucket, detail = item
+            return (
+                _SEVERITY_ORDER.get(detail.get("severity"), 99),
+                bucket,
+            )
+        for bucket, detail in sorted(shortcoming_buckets.items(), key=sort_key):
+            resources = [
+                "`%s`" % item.get("resource")
+                for item in (detail.get("resources") or [])[:8]
+            ]
+            if detail.get("count", 0) > len(resources):
+                resources.append("...")
+            lines.append("| `%s` | `%s` | `%s` | %s |" % (
+                bucket,
+                detail.get("severity", "review"),
+                detail.get("count", 0),
+                ", ".join(resources),
+            ))
         lines.append("")
 
     return "\n".join(lines)
@@ -273,7 +480,7 @@ def render_markdown(evaluation, title="Source Evidence A/B Evaluation"):
 
 def run_eval(schema_path, openapi_path, source_root, out_dir,
              provider_source=None, resource_prefix="", source_facts_path=None,
-             ast_tool_dir=None):
+             ast_tool_dir=None, resource_filter=None):
     paths = _artifact_paths(out_dir)
     os.makedirs(out_dir, exist_ok=True)
     if source_facts_path:
@@ -289,6 +496,7 @@ def run_eval(schema_path, openapi_path, source_root, out_dir,
         source_root,
         provider_source=provider_source,
         resource_prefix=resource_prefix,
+        resource_filter=resource_filter,
     )
     ast_report = source_operation_map.derive_registry(
         schema_path,
@@ -297,10 +505,12 @@ def run_eval(schema_path, openapi_path, source_root, out_dir,
         provider_source=provider_source,
         resource_prefix=resource_prefix,
         source_facts=source_facts,
+        resource_filter=resource_filter,
     )
     compare_report = source_operation_map.compare_registry_reports(
         control_report, ast_report)
     evaluation = classify_comparison(compare_report)
+    evaluation["shortcomings"] = summarize_shortcomings(ast_report, evaluation)
     evaluation["artifacts"] = {
         "source_facts": facts_path,
         "control_report": paths["control_report"],
@@ -326,6 +536,9 @@ def main(argv=None):
     parser.add_argument("--source-root", required=True, help="Provider source root")
     parser.add_argument("--provider-source", help="Provider source address")
     parser.add_argument("--resource-prefix", default="", help="Resource name prefix/product")
+    parser.add_argument(
+        "--resources",
+        help="Comma-separated Terraform resource names to evaluate")
     parser.add_argument("--source-facts", help="Existing source-evidence-ast facts JSON")
     parser.add_argument(
         "--ast-tool-dir",
@@ -347,6 +560,8 @@ def main(argv=None):
             resource_prefix=args.resource_prefix,
             source_facts_path=args.source_facts,
             ast_tool_dir=args.ast_tool_dir,
+            resource_filter=source_operation_map._parse_resource_filter(
+                args.resources),
         )
     except Exception as exc:
         sys.stderr.write("error: %s\n" % exc)
