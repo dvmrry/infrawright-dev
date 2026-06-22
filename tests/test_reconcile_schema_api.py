@@ -335,6 +335,79 @@ class ReconcileSchemaApiTest(unittest.TestCase):
             report.as_dict()["suggestions"]["provider_gaps"],
             ["settings.mode", "status"])
 
+    def test_openapi_refs_can_index_allof_array_members(self):
+        spec = {
+            "openapi": "3.0.3",
+            "paths": {
+                "/widgets/{id}": {
+                    "get": {
+                        "responses": {
+                            "200": {
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "$ref": (
+                                                "#/components/schemas/"
+                                                "WidgetEnvelope/allOf/0")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "/widgets": {
+                    "post": {
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "$ref": (
+                                            "#/components/schemas/"
+                                            "WidgetEnvelope/allOf/1")
+                                    }
+                                }
+                            }
+                        },
+                        "responses": {"200": {"description": "ok"}},
+                    }
+                },
+            },
+            "components": {
+                "schemas": {
+                    "WidgetEnvelope": {
+                        "allOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "id": {"type": "string"},
+                                    "name": {"type": "string"},
+                                    "display": {
+                                        "type": "string",
+                                        "readOnly": True,
+                                    },
+                                },
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                },
+                            },
+                        ],
+                    },
+                },
+            },
+        }
+        metadata = reconcile.api_metadata_from_openapi(
+            spec,
+            read_operations=["GET:/widgets/{id}"],
+            write_operations=["POST:/widgets"])
+
+        self.assertEqual(metadata["name"]["writable"], True)
+        self.assertEqual(metadata["id"]["response_only"], True)
+        self.assertEqual(metadata["display"]["read_only"], True)
+
     def test_loads_raw_terraform_provider_schema_shape(self):
         path = self._write_json("schema.json", {
             "provider_schemas": {

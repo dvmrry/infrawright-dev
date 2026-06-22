@@ -285,6 +285,590 @@ func (d *DNSRecordsDataSource) Read() {
             entry["list"]["hops"][0]["client_symbol"],
             "DNS.Records.List")
 
+    def test_maps_go_swagger_api_receiver_read_calls_to_retrieve_operations(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/example/netbox": {
+                    "resource_schemas": {
+                        "netbox_ip_range": {
+                            "block": {
+                                "attributes": {
+                                    "prefix": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/api/ipam/ip-ranges/": {
+                    "get": {
+                        "operationId": "ipam_ip_ranges_list",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+                "/api/ipam/ip-ranges/{id}/": {
+                    "get": {
+                        "operationId": "ipam_ip_ranges_retrieve",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/resource_netbox_ip_range.go", """
+package provider
+
+func resourceIPRange() {
+    resourceName := "netbox_ip_range"
+    _ = resourceName
+    params := ipam.NewIpamIPRangesReadParams()
+    item, err := api.Ipam.IpamIPRangesRead(params, nil)
+    _ = item
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/example/netbox",
+            resource_prefix="netbox",
+        )
+
+        entry = report["registry"]["netbox_ip_range"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(entry["read"]["path"], "/api/ipam/ip-ranges/{id}/")
+        self.assertEqual(entry["read"]["operation_id"],
+                         "ipam_ip_ranges_retrieve")
+        self.assertEqual(entry["read"]["hops"][0]["client_symbol"],
+                         "Ipam.IpamIPRangesRead")
+
+    def test_prefers_exact_go_swagger_operation_alias_over_similar_paths(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/example/netbox": {
+                    "resource_schemas": {
+                        "netbox_device_console_port": {
+                            "block": {
+                                "attributes": {
+                                    "device_id": {
+                                        "type": "number",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/api/dcim/console-port-templates/{id}/": {
+                    "get": {
+                        "operationId": (
+                            "dcim_console_port_templates_retrieve"),
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+                "/api/dcim/console-ports/{id}/": {
+                    "get": {
+                        "operationId": "dcim_console_ports_retrieve",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+                "/api/dcim/console-server-ports/{id}/": {
+                    "get": {
+                        "operationId": "dcim_console_server_ports_retrieve",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/resource_netbox_device_console_port.go", """
+package provider
+
+func resourceConsolePort() {
+    resourceName := "netbox_device_console_port"
+    _ = resourceName
+    item, err := api.Dcim.DcimConsolePortsRead(params, nil)
+    _ = item
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/example/netbox",
+            resource_prefix="netbox",
+        )
+
+        entry = report["registry"]["netbox_device_console_port"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(entry["read"]["path"], "/api/dcim/console-ports/{id}/")
+        self.assertEqual(entry["read"]["hops"][0]["client_symbol"],
+                         "Dcim.DcimConsolePortsRead")
+
+    def test_follows_provider_registration_to_resource_constructor(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/example/netbox": {
+                    "resource_schemas": {
+                        "netbox_power_feed": {
+                            "block": {
+                                "attributes": {
+                                    "name": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/api/dcim/power-feeds/{id}/": {
+                    "get": {
+                        "operationId": "dcim_power_feeds_retrieve",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/netbox/provider.go", """
+package netbox
+
+func resources() {
+    _ = map[string]interface{}{
+        "netbox_power_feed": resourceNetboxPowerFeed(),
+    }
+    _ = map[string]interface{}{
+        "netbox_power_feed": dataSourceNetboxPowerFeed(),
+    }
+}
+""")
+        self._write("provider/netbox/resource_netbox_device_power_feed.go", """
+package netbox
+
+func resourceNetboxPowerFeed() {
+    Read: resourceNetboxPowerFeedRead
+}
+
+func resourceNetboxPowerFeedRead() {
+    item, err := api.Dcim.DcimPowerFeedsRead(params, nil)
+    _ = item
+    _ = err
+}
+""")
+        self._write("provider/netbox/data_source_netbox_power_feed.go", """
+package netbox
+
+func dataSourceNetboxPowerFeed() {
+    _, err := api.Dcim.DcimPowerFeedsList(params, nil)
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/example/netbox",
+            resource_prefix="netbox",
+        )
+
+        entry = report["registry"]["netbox_power_feed"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(
+            entry["source"]["files"],
+            ["netbox/resource_netbox_device_power_feed.go"])
+        self.assertEqual(entry["read"]["path"], "/api/dcim/power-feeds/{id}/")
+        self.assertEqual(entry["read"]["hops"][0]["client_symbol"],
+                         "Dcim.DcimPowerFeedsRead")
+
+    def test_follows_package_qualified_resource_registration(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/linode/linode": {
+                    "resource_schemas": {
+                        "linode_domain": {
+                            "block": {
+                                "attributes": {
+                                    "domain": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/{apiVersion}/domains/{domainId}": {
+                    "get": {
+                        "operationId": "get-domain",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/linode/provider.go", """
+package linode
+
+import "github.com/example/terraform-provider-linode/linode/domain"
+
+func resources() {
+    _ = map[string]interface{}{
+        "linode_domain": domain.Resource(),
+    }
+}
+""")
+        self._write("provider/linode/domain/resource.go", """
+package domain
+
+func Resource() {
+    ReadContext: readResource
+}
+
+func readResource() {
+    domain, err := client.GetDomain(ctx, id)
+    _ = domain
+    _ = err
+}
+""")
+        self._write("provider/linode/domain/datasource.go", """
+package domain
+
+func DataSource() {}
+
+func readDataSource() {
+    domains, err := client.ListDomains(ctx, nil)
+    _ = domains
+    _ = err
+}
+""")
+        self._write("provider/linode/instance/resource.go", """
+package instance
+
+func readResource() {
+    instance, err := client.GetInstance(ctx, id)
+    _ = instance
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/linode/linode",
+            resource_prefix="linode",
+        )
+
+        entry = report["registry"]["linode_domain"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(entry["source"]["files"], ["linode/domain/resource.go"])
+        self.assertEqual(entry["read"]["path"], "/{apiVersion}/domains/{domainId}")
+        self.assertEqual(entry["read"]["hops"][0]["client_symbol"],
+                         "GetDomain")
+
+    def test_follows_shared_resource_read_callback_file(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/example/netbox": {
+                    "resource_schemas": {
+                        "netbox_available_prefix": {
+                            "block": {
+                                "attributes": {
+                                    "parent_prefix_id": {
+                                        "type": "number",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/api/ipam/prefixes/{id}/": {
+                    "get": {
+                        "operationId": "ipam_prefixes_retrieve",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/netbox/resource_netbox_available_prefix.go", """
+package netbox
+
+func resourceNetboxAvailablePrefix() {
+    resourceName := "netbox_available_prefix"
+    _ = resourceName
+    Read: resourceNetboxPrefixRead
+}
+""")
+        self._write("provider/netbox/resource_netbox_prefix.go", """
+package netbox
+
+func resourceNetboxPrefixRead() {
+    item, err := api.Ipam.IpamPrefixesRead(params, nil)
+    _ = item
+    _ = err
+}
+""")
+        self._write("provider/netbox/data_source_netbox_available_prefix.go", """
+package netbox
+
+func dataSourceNetboxAvailablePrefix() {
+    resourceName := "netbox_available_prefix"
+    _ = resourceName
+    _, err := api.Ipam.IpamPrefixesAvailablePrefixesList(params, nil)
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/example/netbox",
+            resource_prefix="netbox",
+        )
+
+        entry = report["registry"]["netbox_available_prefix"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(
+            entry["source"]["files"],
+            [
+                "netbox/resource_netbox_available_prefix.go",
+                "netbox/resource_netbox_prefix.go",
+            ])
+        self.assertEqual(entry["read"]["path"], "/api/ipam/prefixes/{id}/")
+        self.assertEqual(entry["read"]["hops"][0]["client_symbol"],
+                         "Ipam.IpamPrefixesRead")
+
+    def test_maps_flat_client_methods_to_openapi_operations(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/linode/linode": {
+                    "resource_schemas": {
+                        "linode_domain": {
+                            "block": {
+                                "attributes": {
+                                    "domain": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/{apiVersion}/domains": {
+                    "get": {
+                        "operationId": "get-domains",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+                "/{apiVersion}/domains/{domainId}": {
+                    "get": {
+                        "operationId": "get-domain",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/resource_linode_domain.go", """
+package provider
+
+func resourceDomainRead() {
+    resourceName := "linode_domain"
+    _ = resourceName
+    domain, err := client.GetDomain(ctx, id)
+    _ = domain
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/linode/linode",
+            resource_prefix="linode",
+        )
+
+        entry = report["registry"]["linode_domain"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(entry["read"]["path"],
+                         "/{apiVersion}/domains/{domainId}")
+        self.assertEqual(entry["read"]["hops"][0]["client_symbol"],
+                         "GetDomain")
+
+    def test_maps_flat_client_method_with_provider_word_in_operation_id(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/linode/linode": {
+                    "resource_schemas": {
+                        "linode_instance": {
+                            "block": {
+                                "attributes": {
+                                    "label": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/{apiVersion}/linode/instances/{linodeId}": {
+                    "get": {
+                        "operationId": "get-linode-instance",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+                "/{apiVersion}/volumes/{volumeId}": {
+                    "get": {
+                        "operationId": "get-volume",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/linode/instance/resource_linode_instance.go", """
+package instance
+
+func readResource() {
+    instance, err := client.GetInstance(ctx, id)
+    _ = instance
+    _ = err
+    volume, volumeErr := client.GetVolume(ctx, volumeID)
+    _ = volume
+    _ = volumeErr
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/linode/linode",
+            resource_prefix="linode",
+        )
+
+        entry = report["registry"]["linode_instance"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(entry["read"]["operation_id"], "get-linode-instance")
+        self.assertEqual(entry["read"]["path"],
+                         "/{apiVersion}/linode/instances/{linodeId}")
+        self.assertEqual(entry["read"]["hops"][0]["client_symbol"],
+                         "GetInstance")
+
+    def test_prefers_exact_flat_client_child_resource_method(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/linode/linode": {
+                    "resource_schemas": {
+                        "linode_nodebalancer_node": {
+                            "block": {
+                                "attributes": {
+                                    "label": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/{apiVersion}/nodebalancers/{nodeBalancerId}": {
+                    "get": {
+                        "operationId": "get-node-balancer",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+                "/{apiVersion}/nodebalancers/{nodeBalancerId}/configs/{configId}/nodes/{nodeId}": {
+                    "get": {
+                        "operationId": "get-node-balancer-node",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/linode/nbnode/resource_linode_nodebalancer_node.go", """
+package nbnode
+
+func readResource() {
+    node, err := client.GetNodeBalancerNode(ctx, nbID, cfgID, id)
+    _ = node
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/linode/linode",
+            resource_prefix="linode",
+        )
+
+        entry = report["registry"]["linode_nodebalancer_node"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(entry["read"]["operation_id"],
+                         "get-node-balancer-node")
+        self.assertEqual(
+            entry["read"]["path"],
+            "/{apiVersion}/nodebalancers/{nodeBalancerId}/configs/{configId}/nodes/{nodeId}")
+        self.assertEqual(entry["read"]["hops"][0]["client_symbol"],
+                         "GetNodeBalancerNode")
+
     def test_prefers_direct_cloudflare_path_sequence(self):
         schema_path = self._write_json("schema.json", {
             "provider_schemas": {
@@ -579,6 +1163,66 @@ func readRepository() {
         )
 
         entry = report["registry"]["github_repository"]
+        self.assertEqual(entry["status"], "unmapped")
+        self.assertEqual(entry["reason"], "no_source_operation_match")
+        self.assertNotIn("package_call_count", entry["source"])
+
+    def test_ignores_local_provider_package_get_calls(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/linode/linode": {
+                    "resource_schemas": {
+                        "linode_instance": {
+                            "block": {
+                                "attributes": {
+                                    "label": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/{apiVersion}/linode/instances/{linodeId}": {
+                    "get": {
+                        "operationId": "get-linode-instance",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/linode/instance/resource_linode_instance.go", """
+package instance
+
+import "github.com/example/terraform-provider-linode/linode/helper"
+
+func readResource() {
+    seconds := helper.GetDeadlineSeconds(ctx)
+    _ = seconds
+}
+""")
+        self._write("provider/linode/helper/deadline.go", """
+package helper
+
+func GetDeadlineSeconds() {}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/linode/linode",
+            resource_prefix="linode",
+        )
+
+        entry = report["registry"]["linode_instance"]
         self.assertEqual(entry["status"], "unmapped")
         self.assertEqual(entry["reason"], "no_source_operation_match")
         self.assertNotIn("package_call_count", entry["source"])

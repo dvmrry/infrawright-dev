@@ -24,6 +24,7 @@ SDK_READ_METHODS = set(("Get", "Read", "Fetch"))
 SDK_LIST_METHODS = set(("List", "Search"))
 SDK_CALL_SCORE_FLOOR = 35
 PACKAGE_CALL_SCORE_FLOOR = 35
+SDK_RECEIVER_NAMES = set(("api", "client"))
 
 
 def _read_json(path):
@@ -48,9 +49,19 @@ def _canonical(value):
 
 
 def _operation_aliases(operation_id):
-    aliases = set([_canonical(operation_id)])
-    if operation_id.lower().startswith("route"):
-        aliases.add(_canonical(operation_id[5:]))
+    raw_aliases = set([operation_id])
+    for pattern, replacement in (
+            ("retrieve", "read"),
+            ("retrieve", "get"),
+            ("read", "retrieve"),
+            ("get", "retrieve"),
+    ):
+        raw_aliases.add(re.sub(
+            pattern, replacement, operation_id, flags=re.I))
+    for alias in list(raw_aliases):
+        if alias.lower().startswith("route"):
+            raw_aliases.add(alias[5:])
+    aliases = set(_canonical(alias) for alias in raw_aliases)
     for alias in list(aliases):
         aliases.add(alias + "withresponse")
     return sorted(a for a in aliases if a)
@@ -169,12 +180,113 @@ def _exact_resource_files(source_root, resource, resource_prefix):
     return sorted(set(paths))
 
 
+def _function_definition_index(source_root):
+    functions = {}
+    for path in _source_files(source_root):
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        except UnicodeDecodeError:
+            continue
+        code = _go_code_without_comments_and_strings(text)
+        for match in re.finditer(
+                r"\bfunc\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", code):
+            functions.setdefault(match.group(1), set()).add(path)
+    return functions
+
+
+def _registration_resource_files(source_root, resource, function_definitions):
+    paths = set()
+    function_pattern = re.compile(
+        r'"%s"\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(' %
+        re.escape(resource))
+    package_pattern = re.compile(
+        r'"%s"\s*:\s*([A-Za-z_][A-Za-z0-9_]*)'
+        r"\.([A-Za-z_][A-Za-z0-9_]*)\s*\(" % re.escape(resource))
+    for path in _source_files(source_root):
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        except UnicodeDecodeError:
+            continue
+        code = _go_code_without_comments(text)
+        for match in function_pattern.finditer(code):
+            function_name = match.group(1)
+            if _canonical(function_name).startswith("datasource"):
+                continue
+            for function_path in function_definitions.get(function_name, []):
+                paths.add(function_path)
+        import_aliases = _go_import_aliases(text)
+        for match in package_pattern.finditer(code):
+            package_name, function_name = match.groups()
+            if _canonical(function_name).startswith("datasource"):
+                continue
+            import_path = import_aliases.get(package_name)
+            package_dir = _local_import_dir(source_root, import_path)
+            if not package_dir:
+                continue
+            for package_path in _package_resource_files(package_dir):
+                paths.add(package_path)
+    return sorted(paths)
+
+
+def _local_import_dir(source_root, import_path):
+    if not import_path:
+        return None
+    parts = import_path.split("/")
+    for index in range(len(parts)):
+        candidate = os.path.join(source_root, *parts[index:])
+        if os.path.isdir(candidate):
+            return candidate
+    return None
+
+
+def _package_resource_files(package_dir):
+    paths = []
+    for filename in sorted(os.listdir(package_dir)):
+        if not filename.endswith(GO_FILE_SUFFIX):
+            continue
+        if filename.endswith("_test.go") or filename == "sweep.go":
+            continue
+        if "datasource" in filename or filename.startswith("data_source_"):
+            continue
+        paths.append(os.path.join(package_dir, filename))
+    return paths
+
+
+def _read_callback_files(paths, function_definitions):
+    callback_paths = set()
+    pattern = re.compile(
+        r"\bRead(?:Context|WithoutTimeout)?\s*:\s*"
+        r"([A-Za-z_][A-Za-z0-9_]*)")
+    for path in paths:
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        except UnicodeDecodeError:
+            continue
+        for match in pattern.finditer(_go_code_without_comments_and_strings(
+                text)):
+            for function_path in function_definitions.get(match.group(1), []):
+                if os.path.dirname(function_path) != os.path.dirname(path):
+                    continue
+                callback_paths.add(function_path)
+    return sorted(callback_paths)
+
+
 def _is_broad_registration_file(path):
     return os.path.basename(path) in ("provider.go", "main.go")
 
 
+def _is_loose_resource_match_file(path):
+    basename = os.path.basename(path)
+    return _is_broad_registration_file(path) or basename.startswith(
+        "data_source_")
+
+
 def _resource_files(source_root, resource_names, resource_prefix=""):
     resources = dict((name, []) for name in resource_names)
+    function_definitions = _function_definition_index(source_root)
     for path in _source_files(source_root):
         try:
             with open(path, encoding="utf-8") as f:
@@ -187,12 +299,16 @@ def _resource_files(source_root, resource_names, resource_prefix=""):
     for resource, paths in resources.items():
         exact_paths = _exact_resource_files(
             source_root, resource, resource_prefix)
-        if exact_paths:
+        registration_paths = _registration_resource_files(
+            source_root, resource, function_definitions)
+        if exact_paths or registration_paths:
             paths = [
                 path for path in paths
-                if not _is_broad_registration_file(path)
+                if not _is_loose_resource_match_file(path)
             ]
         paths.extend(exact_paths)
+        paths.extend(registration_paths)
+        paths.extend(_read_callback_files(paths, function_definitions))
         resources[resource] = sorted(set(paths))
     return resources
 
@@ -306,28 +422,34 @@ def _go_code_without_comments(text):
 def _sdk_method_role(method):
     lowered = method.lower()
     if method in SDK_READ_METHODS or lowered.startswith(
-            ("get", "read", "fetch")):
+            ("get", "read", "fetch")) or lowered.endswith(
+                ("get", "read", "retrieve")):
         return "read"
     if method in SDK_LIST_METHODS or lowered.startswith(("list", "search")):
+        return "list"
+    if lowered.endswith(("list", "search")):
         return "list"
     return None
 
 
 def _sdk_client_calls(text):
-    """Return generated SDK client calls such as client.DNS.Records.Get."""
+    """Return SDK calls such as client.DNS.Records.Get or api.Ipam.FooRead."""
     code = _go_code_without_comments_and_strings(text)
     calls = {}
     pattern = re.compile(
-        r"\b((?:[A-Za-z_][A-Za-z0-9_]*\.)*client"
-        r"(?:\.[A-Za-z_][A-Za-z0-9_]*){2,})\s*\(")
+        r"\b((?:[A-Za-z_][A-Za-z0-9_]*\.)*(?:api|client)"
+        r"(?:\.[A-Za-z_][A-Za-z0-9_]*){1,})\s*\(")
     for match in pattern.finditer(code):
         parts = match.group(1).split(".")
-        try:
-            client_index = parts.index("client")
-        except ValueError:
+        receiver_indexes = [
+            index for index, part in enumerate(parts)
+            if part in SDK_RECEIVER_NAMES
+        ]
+        if not receiver_indexes:
             continue
+        client_index = receiver_indexes[-1]
         suffix = parts[client_index + 1:]
-        if len(suffix) < 2:
+        if not suffix:
             continue
         method = suffix[-1]
         role = _sdk_method_role(method)
@@ -383,7 +505,7 @@ def _is_external_import_path(import_path):
     return "." in first
 
 
-def _sdk_package_calls(text):
+def _sdk_package_calls(text, source_root=None):
     """Return package-level SDK calls such as locationmanagement.Get."""
     code = _go_code_without_comments_and_strings(text)
     import_aliases = _go_import_aliases(text)
@@ -398,6 +520,8 @@ def _sdk_package_calls(text):
         if not import_path:
             continue
         if not _is_external_import_path(import_path):
+            continue
+        if source_root and _local_import_dir(source_root, import_path):
             continue
         role = _package_method_role(method)
         if not role:
@@ -552,6 +676,22 @@ def _resource_terminal_score(resource_type, resource_prefix, operation):
     return 0
 
 
+def _resource_prefix_score(resource_type, resource_prefix, operation):
+    if not resource_prefix:
+        return 0
+    tokens = _base_tokens(resource_type, resource_prefix)
+    if not tokens:
+        return 0
+    parts = _static_path_parts(operation["path"])
+    if len(parts) < 2:
+        return 0
+    if not _word_matches_token(parts[0], resource_prefix):
+        return 0
+    if _word_matches_token(parts[1], tokens[0]):
+        return 30
+    return 0
+
+
 def _scope_hints(resource_schema):
     attrs = (resource_schema.get("block") or {}).get("attributes") or {}
     scopes = {}
@@ -664,23 +804,48 @@ def _sdk_call_score(resource_type, resource_prefix, operation, call,
         return None
     score = 0
     matched_chain_tokens = 0
+    base_tokens = _base_tokens(resource_type, resource_prefix)
+    matched_method_tokens = 0
+    resource_token_hits = 0
     chain_tokens = _sdk_chain_tokens(call)
     for token in chain_tokens:
         if _operation_mentions_token(operation, token):
             matched_chain_tokens += 1
             score += 30
-    for token in _sdk_method_tokens(call):
+    method_tokens = _sdk_method_tokens(call)
+    for token in method_tokens:
         if _operation_mentions_token(operation, token):
+            matched_method_tokens += 1
             score += 22
-    if not matched_chain_tokens:
+    if chain_tokens and not matched_chain_tokens:
         return None
-    score -= (len(chain_tokens) - matched_chain_tokens) * 35
-    for token in _base_tokens(resource_type, resource_prefix):
-        if _operation_mentions_token(operation, token):
-            score += 8
-    score += _resource_path_sequence_score(
+    path_sequence_score = _resource_path_sequence_score(
         resource_type, resource_prefix, operation)
-    score += _resource_terminal_score(resource_type, resource_prefix, operation)
+    terminal_score = _resource_terminal_score(
+        resource_type, resource_prefix, operation)
+    for token in base_tokens:
+        if _operation_mentions_token(operation, token):
+            resource_token_hits += 1
+    has_resource_evidence = bool(
+        resource_token_hits or path_sequence_score or terminal_score)
+    method_exact = _canonical(call["method"]) in operation["aliases"]
+    if not chain_tokens:
+        if not method_exact and not matched_method_tokens:
+            return None
+        if base_tokens and not has_resource_evidence:
+            return None
+        if method_exact:
+            score += 110
+        else:
+            score += 35 + matched_method_tokens * 18
+            score -= (len(method_tokens) - matched_method_tokens) * 20
+    elif method_exact:
+        score += 80
+    score -= (len(chain_tokens) - matched_chain_tokens) * 35
+    score += resource_token_hits * 8
+    score += path_sequence_score
+    score += terminal_score
+    score += _resource_prefix_score(resource_type, resource_prefix, operation)
     score += _scope_score(operation, _scope_hints(resource_schema))
     path_kind = _path_kind(operation)
     words = _operation_words(operation["operation_id"])
@@ -725,6 +890,7 @@ def _package_call_score(resource_type, resource_prefix, operation, call,
     score += _resource_path_sequence_score(
         resource_type, resource_prefix, operation)
     score += _resource_terminal_score(resource_type, resource_prefix, operation)
+    score += _resource_prefix_score(resource_type, resource_prefix, operation)
     score += _scope_score(operation, _scope_hints(resource_schema))
     path_kind = _path_kind(operation)
     hint = _method_path_kind_hint(call["method"])
@@ -959,7 +1125,7 @@ def derive_registry(schema_path, openapi_path, source_root,
                 source_text.append(f.read())
         source_identifiers = _go_identifier_tokens("\n".join(source_text))
         sdk_calls = _sdk_client_calls("\n".join(source_text))
-        package_calls = _sdk_package_calls("\n".join(source_text))
+        package_calls = _sdk_package_calls("\n".join(source_text), source_root)
 
         hits = []
         for operation in operations:
