@@ -1078,15 +1078,33 @@ def _registry_path_coverage(spec, api_prefix, resource_prefix, registry_data,
                 "were suppressed."),
             "detected_products": sorted(_detected_openapi_products(spec)),
         })
-    if total and matched < total:
+    non_mapped = [
+        item for item in resources
+        if item["status"] not in ("matched", "unmatched")
+    ]
+    missing_paths = [
+        item for item in resources
+        if item["status"] == "unmatched"
+    ]
+    if entry_key == "read" and non_mapped:
+        warnings.append({
+            "code": warning_prefix + "_entries_not_mapped",
+            "message": (
+                "At least one source evidence entry did not produce a "
+                "selected read path; inspect the source diagnostics before "
+                "OpenAPI path matching."),
+            "resources": [
+                item["resource"] for item in non_mapped
+            ][:50],
+        })
+    if missing_paths:
         warnings.append({
             "code": warning_prefix + "_paths_missing_from_openapi",
             "message": (
                 "At least one registry path was not present as an "
                 "OpenAPI GET path."),
             "resources": [
-                item["resource"] for item in resources
-                if item["status"] != "matched"
+                item["resource"] for item in missing_paths
             ][:50],
         })
     return {

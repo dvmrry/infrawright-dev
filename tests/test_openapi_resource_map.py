@@ -1156,6 +1156,12 @@ class OpenApiResourceMapTest(unittest.TestCase):
             by_resource["example_thing"]["status"],
             "ambiguous_source_operation")
         self.assertEqual(
+            [w["code"] for w in report["registry_read_coverage"]["warnings"]],
+            ["registry_read_entries_not_mapped"])
+        self.assertEqual(
+            report["registry_read_coverage"]["warnings"][0]["resources"],
+            ["example_thing"])
+        self.assertEqual(
             report["registry_fetch_coverage"]["summary"],
             {
                 "coverage_ratio": None,
