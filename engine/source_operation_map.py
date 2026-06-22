@@ -826,6 +826,11 @@ def _sdk_method_role(method):
         return "list"
     if lowered.endswith(("list", "search")):
         return "list"
+    words = _identifier_words(method)
+    if any(word in ("list", "search") for word in words):
+        return "list"
+    if any(word in ("fetch", "get", "read", "retrieve") for word in words):
+        return "read"
     return None
 
 
@@ -894,6 +899,11 @@ def _package_method_role(method):
         return "read"
     if lowered.startswith(("list", "search")):
         return "list"
+    words = _identifier_words(method)
+    if any(word in ("list", "search") for word in words):
+        return "list"
+    if any(word in ("fetch", "get", "read", "retrieve") for word in words):
+        return "read"
     return None
 
 
@@ -1080,8 +1090,13 @@ def _sdk_chain_tokens(call):
 
 def _sdk_method_tokens(call):
     drop = set(("by", "fetch", "get", "list", "read", "search", "with"))
+    words = _identifier_words(call["method"])
+    extra_tokens = []
+    for index, word in enumerate(words[:-1]):
+        if word == "ip" and words[index + 1] in ("address", "addresses"):
+            extra_tokens.append("ips")
     return [
-        token for token in _identifier_words(call["method"])
+        token for token in words + extra_tokens
         if token not in drop and len(_canonical(token)) >= 3
     ]
 

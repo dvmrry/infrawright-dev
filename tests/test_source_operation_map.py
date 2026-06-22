@@ -372,6 +372,67 @@ func readDashboard() {
                 resource_filter=["example_missing"],
             )
 
+    def test_embedded_sdk_read_verb_maps_operation(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/example/example": {
+                    "resource_schemas": {
+                        "example_image_share_group_token": {
+                            "block": {"attributes": {}},
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/images/sharegroups/tokens/{tokenUuid}": {
+                    "get": {
+                        "operationId": "get-sharegroup-token",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/resource_example_image_share_group_token.go", """
+package provider
+
+func readToken() {
+    name := "example_image_share_group_token"
+    _ = name
+    client.ImageShareGroupGetToken(ctx, tokenID)
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/example/example",
+            resource_prefix="example",
+        )
+
+        entry = report["registry"]["example_image_share_group_token"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(
+            entry["read"]["path"],
+            "/images/sharegroups/tokens/{tokenUuid}")
+
+    def test_sdk_method_tokens_expand_ip_address_alias(self):
+        self.assertEqual(
+            source_operation_map._sdk_method_role("ImageShareGroupGetMember"),
+            "read")
+        self.assertEqual(
+            source_operation_map._sdk_method_role("ImageShareGroupListMembers"),
+            "list")
+        self.assertIn(
+            "ips",
+            source_operation_map._sdk_method_tokens({
+                "method": "ListIPAddresses",
+            }))
+
     def test_maps_cloudflare_service_dir_sdk_calls_to_openapi_paths(self):
         schema_path = self._write_json("schema.json", {
             "provider_schemas": {
