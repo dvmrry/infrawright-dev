@@ -36,6 +36,20 @@ class SourceOperationMapTest(unittest.TestCase):
         with open(path, encoding="utf-8") as f:
             return json.load(f)
 
+    def _source_facts(self, source_root, **overrides):
+        facts = {
+            "source_root": source_root,
+            "files": [],
+            "functions": [],
+            "resource_registrations": [],
+            "read_callbacks": [],
+            "selector_calls": [],
+            "package_calls": [],
+            "raw_rest_calls": [],
+        }
+        facts.update(overrides)
+        return facts
+
     def test_derives_registry_from_go_operation_ids(self):
         schema_path = self._write_json("schema.json", {
             "provider_schemas": {
@@ -179,6 +193,110 @@ func read() {
         self.assertEqual(registry["example_project"]["read"]["path"], "/projects/{id}")
         self.assertEqual(diagnostics["summary"]["mapped"], 1)
 
+    def test_cli_can_use_ast_facts_and_write_comparison(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/example/example": {
+                    "resource_schemas": {
+                        "example_project": {
+                            "block": {
+                                "attributes": {
+                                    "name": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/projects/{id}": {
+                    "get": {
+                        "operationId": "ProjectsRetrieve",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write("provider/resource_project.go", "package provider\n")
+        facts_path = self._write_json("facts.json", self._source_facts(
+            source_root,
+            files=[
+                {
+                    "path": "resource_project.go",
+                    "package": "provider",
+                    "imports": [],
+                },
+            ],
+            selector_calls=[
+                {
+                    "file": "resource_project.go",
+                    "function": "read",
+                    "symbol": "client.ProjectsAPI.ProjectsRetrieve",
+                    "parts": ["client", "ProjectsAPI", "ProjectsRetrieve"],
+                },
+            ],
+        ))
+        out_path = os.path.join(self.tmp, "registry.json")
+        compare_path = os.path.join(self.tmp, "compare.json")
+
+        rc = source_operation_map.main([
+            "--schema", schema_path,
+            "--openapi", openapi_path,
+            "--source-root", source_root,
+            "--provider-source", "registry.terraform.io/example/example",
+            "--resource-prefix", "example",
+            "--source-facts", facts_path,
+            "--source-facts-compare", compare_path,
+            "--out", out_path,
+        ])
+
+        self.assertEqual(rc, 0)
+        with open(out_path, encoding="utf-8") as f:
+            registry = json.load(f)
+        with open(compare_path, encoding="utf-8") as f:
+            comparison = json.load(f)
+        self.assertEqual(registry["example_project"]["status"], "mapped")
+        self.assertEqual(
+            registry["example_project"]["source"]["evidence_backend"],
+            "ast_facts")
+        self.assertEqual(
+            registry["example_project"]["read"]["path"], "/projects/{id}")
+        self.assertEqual(comparison["summary"]["status_changes"], 1)
+
+    def test_ast_identifier_tokens_do_not_synthesize_selector_suffixes(self):
+        source_facts = self._source_facts(
+            self.tmp,
+            selector_calls=[
+                {
+                    "file": "resource.go",
+                    "function": "Read",
+                    "symbol": "r.client.IAM.UserGroups.Members.List",
+                    "parts": [
+                        "r",
+                        "client",
+                        "IAM",
+                        "UserGroups",
+                        "Members",
+                        "List",
+                    ],
+                },
+            ],
+        )
+
+        tokens = source_operation_map._identifier_tokens_from_facts(
+            ["resource.go"], source_facts)
+
+        self.assertIn("list", tokens)
+        self.assertIn("rclientiamusergroupsmemberslist", tokens)
+        self.assertNotIn("memberslist", tokens)
+
     def test_maps_cloudflare_service_dir_sdk_calls_to_openapi_paths(self):
         schema_path = self._write_json("schema.json", {
             "provider_schemas": {
@@ -284,6 +402,116 @@ func (d *DNSRecordsDataSource) Read() {
         self.assertEqual(
             entry["list"]["hops"][0]["client_symbol"],
             "DNS.Records.List")
+
+    def test_ast_facts_backend_maps_cloudflare_service_calls(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/cloudflare/cloudflare": {
+                    "resource_schemas": {
+                        "cloudflare_dns_record": {
+                            "block": {
+                                "attributes": {
+                                    "zone_id": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "info": {"title": "Cloudflare API"},
+            "paths": {
+                "/zones/{zone_id}/dns_records": {
+                    "get": {
+                        "operationId": (
+                            "dns-records-for-a-zone-list-dns-records"),
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+                "/zones/{zone_id}/dns_records/{dns_record_id}": {
+                    "get": {
+                        "operationId": (
+                            "dns-records-for-a-zone-dns-record-details"),
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write(
+            "provider/internal/services/dns_record/resource.go",
+            "package dns_record\n")
+        self._write(
+            "provider/internal/services/dns_record/list_data_source.go",
+            "package dns_record\n")
+        source_facts = self._source_facts(
+            source_root,
+            files=[
+                {
+                    "path": "internal/services/dns_record/resource.go",
+                    "package": "dns_record",
+                    "imports": [],
+                },
+                {
+                    "path": (
+                        "internal/services/dns_record/list_data_source.go"),
+                    "package": "dns_record",
+                    "imports": [],
+                },
+            ],
+            selector_calls=[
+                {
+                    "file": "internal/services/dns_record/resource.go",
+                    "function": "Read",
+                    "symbol": "r.client.DNS.Records.Get",
+                    "parts": ["r", "client", "DNS", "Records", "Get"],
+                },
+                {
+                    "file": (
+                        "internal/services/dns_record/list_data_source.go"),
+                    "function": "Read",
+                    "symbol": "d.client.DNS.Records.List",
+                    "parts": ["d", "client", "DNS", "Records", "List"],
+                },
+            ],
+        )
+
+        control = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/cloudflare/cloudflare",
+            resource_prefix="cloudflare",
+        )
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/cloudflare/cloudflare",
+            resource_prefix="cloudflare",
+            source_facts=source_facts,
+        )
+        comparison = source_operation_map.compare_registry_reports(
+            control, report)
+
+        self.assertEqual(
+            control["registry"]["cloudflare_dns_record"]["status"],
+            "unmapped")
+        entry = report["registry"]["cloudflare_dns_record"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(entry["source"]["evidence_backend"], "ast_facts")
+        self.assertEqual(entry["source"]["client_call_count"], 2)
+        self.assertEqual(
+            entry["read"]["path"],
+            "/zones/{zone_id}/dns_records/{dns_record_id}")
+        self.assertEqual(entry["list"]["path"], "/zones/{zone_id}/dns_records")
+        self.assertEqual(comparison["summary"]["status_changes"], 1)
+        self.assertEqual(comparison["summary"]["read_path_changes"], 1)
 
     def test_maps_go_swagger_api_receiver_read_calls_to_retrieve_operations(self):
         schema_path = self._write_json("schema.json", {
@@ -1744,6 +1972,82 @@ func readRunner() {
         self.assertEqual(
             entry["read"]["hops"][0]["raw_rest_path"],
             "/orgs/{arg}/actions/hosted-runners/{arg}")
+
+    def test_ast_facts_backend_maps_raw_rest_calls(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/integrations/github": {
+                    "resource_schemas": {
+                        "github_actions_hosted_runner": {
+                            "block": {
+                                "attributes": {
+                                    "runner_id": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/orgs/{org}/actions/hosted-runners/{hosted_runner_id}": {
+                    "get": {
+                        "operationId": (
+                            "actions/get-hosted-runner-for-org"),
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write(
+            "provider/github/resource_github_actions_hosted_runner.go",
+            "package github\n")
+        source_facts = self._source_facts(
+            source_root,
+            files=[
+                {
+                    "path": (
+                        "github/resource_github_actions_hosted_runner.go"),
+                    "package": "github",
+                    "imports": [],
+                },
+            ],
+            raw_rest_calls=[
+                {
+                    "file": (
+                        "github/resource_github_actions_hosted_runner.go"),
+                    "function": "resourceGithubActionsHostedRunnerRead",
+                    "symbol": "client.NewRequest",
+                    "method": "GET",
+                    "path": "orgs/%s/actions/hosted-runners/%s",
+                },
+            ],
+        )
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/integrations/github",
+            resource_prefix="github",
+            source_facts=source_facts,
+        )
+
+        entry = report["registry"]["github_actions_hosted_runner"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(entry["source"]["raw_rest_call_count"], 1)
+        self.assertEqual(
+            entry["read"]["hops"][0]["client_symbol"],
+            "client.NewRequest GET /orgs/{arg}/actions/hosted-runners/{arg}")
+        self.assertEqual(
+            entry["read"]["path"],
+            "/orgs/{org}/actions/hosted-runners/{hosted_runner_id}")
 
     def test_marks_graphql_resource_as_non_rest_source(self):
         schema_path = self._write_json("schema.json", {

@@ -10,6 +10,20 @@ settles.
 go run . --source-root /path/to/terraform-provider-example --out facts.json
 ```
 
+The Python mapper can consume the facts as an experimental B-test path:
+
+```bash
+python3 -m engine.source_operation_map \
+  --schema provider-schema.json \
+  --openapi openapi.json \
+  --source-root /path/to/terraform-provider-example \
+  --provider-source registry.terraform.io/example/example \
+  --resource-prefix example \
+  --source-facts facts.json \
+  --source-facts-compare source-facts-compare.json \
+  --out source-facts-registry.json
+```
+
 Current facts:
 
 - Go files, packages, imports, and functions

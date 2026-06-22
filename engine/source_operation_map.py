@@ -431,6 +431,267 @@ def _resource_files(source_root, resource_names, resource_prefix=""):
     return resources
 
 
+def _fact_rel_path(path):
+    return (path or "").replace("\\", "/")
+
+
+def _fact_abs_path(source_root, path):
+    if not path:
+        return None
+    if os.path.isabs(path):
+        return os.path.normpath(path)
+    return os.path.normpath(os.path.join(source_root, path.replace("/", os.sep)))
+
+
+def _source_facts_file_imports(source_facts):
+    imports = {}
+    for file_fact in source_facts.get("files") or []:
+        rel = _fact_rel_path(file_fact.get("path"))
+        aliases = {}
+        for item in file_fact.get("imports") or []:
+            name = item.get("name")
+            path = item.get("path")
+            if name and path:
+                aliases[name] = path
+        imports[rel] = aliases
+    return imports
+
+
+def _source_facts_function_index(source_root, source_facts):
+    functions = {}
+    for item in source_facts.get("functions") or []:
+        name = item.get("name")
+        path = _fact_abs_path(source_root, item.get("file"))
+        if name and path:
+            functions.setdefault(name, set()).add(path)
+    return functions
+
+
+def _source_facts_basename_index(source_root, source_facts):
+    basenames = {}
+    for item in source_facts.get("files") or []:
+        path = _fact_abs_path(source_root, item.get("path"))
+        if path:
+            basenames.setdefault(os.path.basename(path), []).append(path)
+    return basenames
+
+
+def _package_from_registration(registration):
+    package = registration.get("package") or ""
+    return package.split(".", 1)[0]
+
+
+def _read_callback_files_from_facts(source_root, paths, function_definitions,
+                                    source_facts):
+    callback_paths = set()
+    path_set = set(os.path.normpath(path) for path in paths)
+    for callback in source_facts.get("read_callbacks") or []:
+        callback_file = _fact_abs_path(source_root, callback.get("file"))
+        if not callback_file:
+            continue
+        callback_file = os.path.normpath(callback_file)
+        if callback_file not in path_set:
+            continue
+        for function_path in function_definitions.get(
+                callback.get("function"), []):
+            if os.path.dirname(function_path) != os.path.dirname(
+                    callback_file):
+                continue
+            callback_paths.add(function_path)
+    return sorted(callback_paths)
+
+
+def _resource_files_from_facts(source_root, resource_names, resource_prefix,
+                               source_facts):
+    resources = dict((name, []) for name in resource_names)
+    resource_set = set(resource_names)
+    basename_index = _source_facts_basename_index(source_root, source_facts)
+    function_definitions = _source_facts_function_index(
+        source_root, source_facts)
+    imports_by_file = _source_facts_file_imports(source_facts)
+    registration_paths = dict((name, set()) for name in resource_names)
+
+    for registration in source_facts.get("resource_registrations") or []:
+        resource = registration.get("resource")
+        if resource not in resource_set:
+            continue
+        constructor = registration.get("constructor")
+        if _canonical(constructor or "").startswith("datasource"):
+            continue
+        package_name = _package_from_registration(registration)
+        if package_name:
+            import_path = imports_by_file.get(
+                _fact_rel_path(registration.get("file")), {}).get(package_name)
+            package_dir = _local_import_dir(source_root, import_path)
+            if package_dir:
+                for package_path in _package_resource_files(package_dir):
+                    registration_paths[resource].add(package_path)
+                continue
+        for function_path in function_definitions.get(constructor, []):
+            registration_paths[resource].add(function_path)
+
+    for resource, paths in resources.items():
+        exact_paths = _exact_resource_files_from_indexes(
+            source_root, resource, resource_prefix, basename_index)
+        paths.extend(exact_paths)
+        paths.extend(sorted(registration_paths[resource]))
+        paths.extend(_read_callback_files_from_facts(
+            source_root, paths, function_definitions, source_facts))
+        resources[resource] = sorted(set(paths))
+    return resources
+
+
+def _identifier_tokens_from_facts(source_files, source_facts):
+    source_file_set = set(_fact_rel_path(path) for path in source_files)
+    tokens = set()
+    for item in source_facts.get("functions") or []:
+        if _fact_rel_path(item.get("file")) in source_file_set:
+            tokens.add(_canonical(item.get("name") or ""))
+    for item in source_facts.get("selector_calls") or []:
+        if _fact_rel_path(item.get("file")) not in source_file_set:
+            continue
+        parts = item.get("parts") or (item.get("symbol") or "").split(".")
+        tokens.add(_canonical(item.get("symbol") or ""))
+        for part in parts:
+            tokens.add(_canonical(part))
+    for item in source_facts.get("package_calls") or []:
+        if _fact_rel_path(item.get("file")) not in source_file_set:
+            continue
+        tokens.add(_canonical(item.get("method") or ""))
+        tokens.add(_canonical(item.get("symbol") or ""))
+    return set(token for token in tokens if token)
+
+
+def _sdk_client_calls_from_facts(source_files, source_facts):
+    source_file_set = set(_fact_rel_path(path) for path in source_files)
+    calls = {}
+    for item in source_facts.get("selector_calls") or []:
+        if _fact_rel_path(item.get("file")) not in source_file_set:
+            continue
+        parts = item.get("parts") or (item.get("symbol") or "").split(".")
+        receiver_indexes = [
+            index for index, part in enumerate(parts)
+            if part in SDK_RECEIVER_NAMES
+        ]
+        if not receiver_indexes:
+            continue
+        receiver_index = receiver_indexes[-1]
+        suffix = parts[receiver_index + 1:]
+        if not suffix:
+            continue
+        method = suffix[-1]
+        role = _sdk_method_role(method)
+        if not role:
+            continue
+        chain = suffix[:-1]
+        symbol = ".".join(chain + [method])
+        calls[symbol] = {
+            "client_symbol": symbol,
+            "chain": chain,
+            "method": method,
+            "source_role": role,
+        }
+    return [calls[key] for key in sorted(calls)]
+
+
+def _sdk_package_calls_from_facts(source_root, source_files, source_facts):
+    source_file_set = set(_fact_rel_path(path) for path in source_files)
+    calls = {}
+    for item in source_facts.get("package_calls") or []:
+        if _fact_rel_path(item.get("file")) not in source_file_set:
+            continue
+        package = item.get("package")
+        import_path = item.get("import_path")
+        method = item.get("method")
+        if not package or not import_path or not method:
+            continue
+        if not _is_external_import_path(import_path):
+            continue
+        if _local_import_dir(source_root, import_path):
+            continue
+        role = _package_method_role(method)
+        if not role:
+            continue
+        symbol = item.get("symbol") or "%s.%s" % (package, method)
+        calls[symbol] = {
+            "client_symbol": symbol,
+            "package": package,
+            "package_path": import_path,
+            "method": method,
+            "source_role": role,
+        }
+    return [calls[key] for key in sorted(calls)]
+
+
+def _raw_rest_calls_from_facts(source_files, source_facts):
+    source_file_set = set(_fact_rel_path(path) for path in source_files)
+    calls = {}
+    for item in source_facts.get("raw_rest_calls") or []:
+        if _fact_rel_path(item.get("file")) not in source_file_set:
+            continue
+        method = (item.get("method") or "").upper()
+        path = item.get("path") or ""
+        if not method or not path:
+            continue
+        path = _normalize_raw_rest_path(path)
+        symbol = item.get("symbol") or "NewRequest"
+        key = (symbol, method, path)
+        calls[key] = {
+            "client_symbol": "%s %s %s" % (symbol, method, path),
+            "method": method,
+            "path": path,
+            "source_role": "read",
+        }
+    return [calls[key] for key in sorted(calls)]
+
+
+def _is_graphql_source_from_facts(source_files, source_facts):
+    source_file_set = set(_fact_rel_path(path) for path in source_files)
+    for item in source_facts.get("files") or []:
+        if _fact_rel_path(item.get("path")) not in source_file_set:
+            continue
+        for import_fact in item.get("imports") or []:
+            if "githubv4" in (import_fact.get("path") or ""):
+                return True
+    for item in source_facts.get("selector_calls") or []:
+        if _fact_rel_path(item.get("file")) not in source_file_set:
+            continue
+        if "githubv4" in (item.get("symbol") or "").lower():
+            return True
+    return False
+
+
+def _source_evidence_from_text(source_root, source_paths):
+    source_text = []
+    for path in source_paths:
+        with open(path, encoding="utf-8") as f:
+            source_text.append(f.read())
+    joined_source_text = "\n".join(source_text)
+    return {
+        "backend": "text_scan",
+        "identifiers": _go_identifier_tokens(joined_source_text),
+        "sdk_calls": _sdk_client_calls(joined_source_text),
+        "package_calls": _sdk_package_calls(joined_source_text, source_root),
+        "raw_rest_calls": _raw_rest_calls(joined_source_text),
+        "graphql_source": _is_graphql_source(joined_source_text),
+    }
+
+
+def _source_evidence_from_facts(source_root, source_files, source_facts):
+    return {
+        "backend": "ast_facts",
+        "identifiers": _identifier_tokens_from_facts(
+            source_files, source_facts),
+        "sdk_calls": _sdk_client_calls_from_facts(source_files, source_facts),
+        "package_calls": _sdk_package_calls_from_facts(
+            source_root, source_files, source_facts),
+        "raw_rest_calls": _raw_rest_calls_from_facts(
+            source_files, source_facts),
+        "graphql_source": _is_graphql_source_from_facts(
+            source_files, source_facts),
+    }
+
+
 def _is_identifier_start(char):
     return char == "_" or char.isalpha()
 
@@ -1405,12 +1666,17 @@ def _load_resource_schemas(schema_path, provider_source=None):
 
 
 def derive_registry(schema_path, openapi_path, source_root,
-                    provider_source=None, resource_prefix=""):
+                    provider_source=None, resource_prefix="",
+                    source_facts=None):
     resource_schemas = _load_resource_schemas(
         schema_path, provider_source=provider_source)
     resource_names = sorted(resource_schemas)
-    files_by_resource = _resource_files(
-        source_root, resource_names, resource_prefix)
+    if source_facts:
+        files_by_resource = _resource_files_from_facts(
+            source_root, resource_names, resource_prefix, source_facts)
+    else:
+        files_by_resource = _resource_files(
+            source_root, resource_names, resource_prefix)
     operations = _operation_index(_read_json(openapi_path))
 
     registry = {}
@@ -1424,16 +1690,16 @@ def derive_registry(schema_path, openapi_path, source_root,
         ]
         if source_paths:
             resources_with_source_files += 1
-        source_text = []
-        for path in source_paths:
-            with open(path, encoding="utf-8") as f:
-                source_text.append(f.read())
-        source_identifiers = _go_identifier_tokens("\n".join(source_text))
-        joined_source_text = "\n".join(source_text)
-        sdk_calls = _sdk_client_calls(joined_source_text)
-        package_calls = _sdk_package_calls(joined_source_text, source_root)
-        raw_rest_calls = _raw_rest_calls(joined_source_text)
-        graphql_source = _is_graphql_source(joined_source_text)
+        if source_facts:
+            evidence = _source_evidence_from_facts(
+                source_root, source_files, source_facts)
+        else:
+            evidence = _source_evidence_from_text(source_root, source_paths)
+        source_identifiers = evidence["identifiers"]
+        sdk_calls = evidence["sdk_calls"]
+        package_calls = evidence["package_calls"]
+        raw_rest_calls = evidence["raw_rest_calls"]
+        graphql_source = evidence["graphql_source"]
 
         hits = []
         for operation in operations:
@@ -1539,6 +1805,8 @@ def derive_registry(schema_path, openapi_path, source_root,
             },
             "reason": None,
         }
+        if evidence["backend"] != "text_scan":
+            entry["source"]["evidence_backend"] = evidence["backend"]
         if sdk_calls:
             entry["source"]["client_call_count"] = len(sdk_calls)
             entry["source"]["client_calls"] = [
@@ -1645,6 +1913,69 @@ def derive_registry(schema_path, openapi_path, source_root,
     }
 
 
+def _registry_signature(entry):
+    read = entry.get("read") or {}
+    list_entry = entry.get("list") or {}
+    source = entry.get("source") or {}
+    return {
+        "status": entry.get("status"),
+        "reason": entry.get("reason"),
+        "read_path": read.get("path"),
+        "read_operation_id": read.get("operation_id"),
+        "read_evidence_kind": read.get("evidence_kind"),
+        "list_path": list_entry.get("path"),
+        "list_operation_id": list_entry.get("operation_id"),
+        "candidate_count": source.get("candidate_count", 0),
+        "client_call_count": source.get("client_call_count", 0),
+        "package_call_count": source.get("package_call_count", 0),
+        "raw_rest_call_count": source.get("raw_rest_call_count", 0),
+        "graphql": bool(source.get("graphql")),
+        "files": source.get("files", []),
+    }
+
+
+def compare_registry_reports(control_report, candidate_report):
+    control_registry = control_report.get("registry") or {}
+    candidate_registry = candidate_report.get("registry") or {}
+    resources = sorted(
+        set(control_registry).union(set(candidate_registry)))
+    changes = []
+    unchanged = 0
+    status_changes = 0
+    read_path_changes = 0
+    file_changes = 0
+    for resource in resources:
+        before = _registry_signature(control_registry.get(resource) or {})
+        after = _registry_signature(candidate_registry.get(resource) or {})
+        if before == after:
+            unchanged += 1
+            continue
+        if before["status"] != after["status"]:
+            status_changes += 1
+        if before["read_path"] != after["read_path"]:
+            read_path_changes += 1
+        if before["files"] != after["files"]:
+            file_changes += 1
+        changes.append({
+            "resource": resource,
+            "before": before,
+            "after": after,
+        })
+    return {
+        "summary": {
+            "resources": len(resources),
+            "unchanged": unchanged,
+            "changed": len(changes),
+            "status_changes": status_changes,
+            "read_path_changes": read_path_changes,
+            "file_changes": file_changes,
+            "control": control_report.get("summary") or {},
+            "candidate": candidate_report.get("summary") or {},
+        },
+        "changes": changes,
+    }
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Derive read registry from provider source operations")
@@ -1653,17 +1984,38 @@ def main(argv=None):
     parser.add_argument("--source-root", required=True, help="Provider source root")
     parser.add_argument("--provider-source", help="Provider source address")
     parser.add_argument("--resource-prefix", default="", help="Resource name prefix/product")
+    parser.add_argument(
+        "--source-facts",
+        help="Experimental source-evidence-ast JSON facts to use instead of text scanning")
+    parser.add_argument(
+        "--source-facts-compare",
+        help="Write old-scanner vs --source-facts comparison JSON")
     parser.add_argument("--out", help="Write source/read registry JSON to this file")
     parser.add_argument("--diagnostics", help="Write diagnostics JSON to this file")
     args = parser.parse_args(argv)
     try:
+        source_facts = _read_json(args.source_facts) if args.source_facts else None
         report = derive_registry(
             args.schema,
             args.openapi,
             args.source_root,
             provider_source=args.provider_source,
             resource_prefix=args.resource_prefix,
+            source_facts=source_facts,
         )
+        if args.source_facts_compare:
+            if not source_facts:
+                raise ValueError(
+                    "--source-facts-compare requires --source-facts")
+            control_report = derive_registry(
+                args.schema,
+                args.openapi,
+                args.source_root,
+                provider_source=args.provider_source,
+                resource_prefix=args.resource_prefix,
+            )
+            _write_json(compare_registry_reports(
+                control_report, report), path=args.source_facts_compare)
     except Exception as exc:
         sys.stderr.write("error: %s\n" % exc)
         return 2
