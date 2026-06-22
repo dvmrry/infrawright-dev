@@ -230,6 +230,12 @@ var docs = `ProjectsRetrieve should not count from docs`
         self.assertEqual(report["summary"]["mapped"], 0)
         self.assertEqual(report["summary"]["unmapped"], 1)
         self.assertEqual(report["diagnostics"][0]["status"], "unmapped")
+        self.assertEqual(
+            report["registry"]["example_project"]["status"],
+            "unmapped")
+        self.assertEqual(
+            report["registry"]["example_project"]["reason"],
+            "no_source_operation_match")
 
     def test_reports_when_resource_source_file_is_not_found(self):
         schema_path = self._write_json("schema.json", {
@@ -275,6 +281,9 @@ var docs = `ProjectsRetrieve should not count from docs`
         self.assertEqual(report["summary"]["resources_with_source_files"], 0)
         self.assertEqual(report["summary"]["resources_without_source_files"], 1)
         self.assertEqual(report["diagnostics"][0]["reason"], "resource_file_not_found")
+        self.assertEqual(
+            report["registry"]["example_missing"]["reason"],
+            "resource_file_not_found")
 
     def test_marks_close_source_operation_matches_as_ambiguous(self):
         schema_path = self._write_json("schema.json", {
@@ -334,7 +343,12 @@ func read() {
 
         self.assertEqual(report["summary"]["mapped"], 0)
         self.assertEqual(report["summary"]["ambiguous"], 1)
-        self.assertNotIn("example_thing", report["registry"])
+        self.assertIn("example_thing", report["registry"])
+        self.assertEqual(
+            report["registry"]["example_thing"]["status"],
+            "ambiguous_source_operation")
+        self.assertEqual(
+            len(report["registry"]["example_thing"]["candidates"]), 2)
         self.assertEqual(
             report["diagnostics"][0]["status"],
             "ambiguous_source_operation")

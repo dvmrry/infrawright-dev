@@ -1065,6 +1065,105 @@ class OpenApiResourceMapTest(unittest.TestCase):
         self.assertEqual(resource["operation_id"], "ProjectsRetrieve")
         self.assertEqual(resource["path_kind"], "detail")
 
+    def test_registry_read_coverage_counts_ambiguous_source_entries(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/example/example": {
+                    "resource_schemas": {
+                        "example_project": {
+                            "block": {
+                                "attributes": {
+                                    "name": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                        "example_thing": {
+                            "block": {
+                                "attributes": {
+                                    "name": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.1.0",
+            "paths": {
+                "/api/v1/projects/{id}": {
+                    "get": {"responses": {"200": {"description": "ok"}}},
+                },
+            },
+        })
+
+        report = openapi_resource_map.build_report(
+            schema_path,
+            openapi_path,
+            provider_source="registry.terraform.io/example/example",
+            resource_prefix="example",
+            api_prefix="/api/v1/",
+            registry_data={
+                "example_project": {
+                    "product": "example",
+                    "surface": "example",
+                    "status": "mapped",
+                    "read": {
+                        "method": "GET",
+                        "operation_id": "ProjectsRetrieve",
+                        "path": "/api/v1/projects/{id}",
+                        "path_kind": "detail",
+                    },
+                    "source": {
+                        "candidate_count": 1,
+                        "files": ["resource_project.go"],
+                    },
+                },
+                "example_thing": {
+                    "product": "example",
+                    "surface": "example",
+                    "status": "ambiguous_source_operation",
+                    "reason": "ambiguous_source_operation",
+                    "source": {
+                        "candidate_count": 2,
+                        "files": ["resource_thing.go"],
+                    },
+                    "candidates": [],
+                },
+            },
+        )
+
+        self.assertEqual(
+            report["registry_read_coverage"]["summary"],
+            {
+                "coverage_ratio": 0.5,
+                "read_resources": 2,
+                "matched": 1,
+                "ambiguous": 1,
+                "unmatched": 0,
+            })
+        by_resource = {
+            item["resource"]: item
+            for item in report["registry_read_coverage"]["resources"]
+        }
+        self.assertEqual(
+            by_resource["example_thing"]["status"],
+            "ambiguous_source_operation")
+        self.assertEqual(
+            report["registry_fetch_coverage"]["summary"],
+            {
+                "coverage_ratio": None,
+                "fetch_resources": 0,
+                "matched": 0,
+                "unmatched": 0,
+            })
+
     def test_registry_fetch_coverage_rejects_wrong_known_product_spec(self):
         schema_path = self._write_json("ztc-schema.json", {
             "provider_schemas": {

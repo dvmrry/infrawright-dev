@@ -27,6 +27,7 @@
       "path_kind": "list"
     },
     "product": "example",
+    "reason": null,
     "read": {
       "confidence": "high",
       "evidence_kind": "read",

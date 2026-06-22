@@ -58,6 +58,9 @@ This does not replace a real pack registry, but it turns "provider source calls
 OpenAPI operation X" into deterministic read-path evidence. The derived JSON
 uses `read` and, when discoverable, `list` paths so a detail read endpoint is
 not confused with a pack `fetch.path` that enumerates live resources.
+`--out` is a full resource-keyed evidence registry: mapped resources include
+selected operation evidence, while ambiguous and unmapped resources stay present
+with `status` and `reason` so downstream coverage cannot silently drop them.
 The source evidence contract is documented at
 [`docs/schemas/source-operation-evidence.schema.json`](schemas/source-operation-evidence.schema.json).
 Each operation can carry a `hops` chain, such as provider call ->

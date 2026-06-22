@@ -263,6 +263,14 @@ def _candidate_entry(hit):
     }
 
 
+def _candidate_operation_entry(hit, evidence_kind, source_files):
+    entry = _operation_entry(hit, evidence_kind, source_files)
+    entry["confidence"] = "low"
+    entry["read_score"] = hit["read_score"]
+    entry["list_score"] = hit["list_score"]
+    return entry
+
+
 def _select_hit(hits, role):
     if role == "list":
         candidates = [hit for hit in hits if hit["path_kind"] == "list"]
@@ -307,6 +315,10 @@ def derive_registry(schema_path, openapi_path, source_root,
     resources_with_source_files = 0
     for resource in resource_names:
         source_paths = files_by_resource.get(resource) or []
+        source_files = [
+            os.path.relpath(path, source_root)
+            for path in source_paths
+        ]
         if source_paths:
             resources_with_source_files += 1
         source_text = []
@@ -341,43 +353,50 @@ def derive_registry(schema_path, openapi_path, source_root,
         read_hit, read_ambiguous = _select_hit(hits, "read")
         list_hit, list_ambiguous = _select_hit(hits, "list")
         status = "unmapped"
+        reason = None
+        entry = {
+            "product": resource_prefix,
+            "surface": resource_prefix,
+            "status": status,
+            "source": {
+                "candidate_count": len(hits),
+                "files": source_files,
+            },
+            "reason": None,
+        }
         if read_ambiguous:
             status = "ambiguous_source_operation"
+            reason = "ambiguous_source_operation"
+            entry["status"] = status
+            entry["reason"] = reason
+            entry["candidates"] = [
+                _candidate_operation_entry(hit, "read", source_files)
+                for hit in read_ambiguous
+            ]
         elif read_hit:
             status = "mapped"
-            source_files = [
-                os.path.relpath(path, source_root)
-                for path in source_paths
-            ]
-            registry[resource] = {
-                "product": resource_prefix,
-                "surface": resource_prefix,
-                "status": "mapped",
-                "read": _operation_entry(read_hit, "read", source_files),
-                "source": {
-                    "candidate_count": len(hits),
-                    "files": source_files,
-                },
-            }
+            entry["status"] = status
+            entry["read"] = _operation_entry(read_hit, "read", source_files)
             if list_hit and list_hit["path"] != read_hit["path"]:
-                registry[resource]["list"] = _operation_entry(
+                entry["list"] = _operation_entry(
                     list_hit, "list", source_files)
             if list_ambiguous:
-                registry[resource]["source"]["list_ambiguous"] = [
+                entry["source"]["list_ambiguous"] = [
                     _candidate_entry(hit) for hit in list_ambiguous
                 ]
+        else:
+            reason = (
+                "resource_file_not_found"
+                if not source_paths else "no_source_operation_match"
+            )
+            entry["reason"] = reason
+        registry[resource] = entry
 
         diagnostics.append({
             "resource": resource,
             "status": status,
-            "reason": (
-                "resource_file_not_found"
-                if not source_paths else None
-            ),
-            "files": [
-                os.path.relpath(path, source_root)
-                for path in source_paths
-            ],
+            "reason": reason,
+            "files": source_files,
             "ambiguous": [
                 _candidate_entry(hit) for hit in read_ambiguous
             ],
@@ -390,15 +409,18 @@ def derive_registry(schema_path, openapi_path, source_root,
     ambiguous = sum(
         1 for item in diagnostics
         if item["status"] == "ambiguous_source_operation")
+    mapped = sum(
+        1 for item in registry.values()
+        if item["status"] == "mapped")
     return {
         "summary": {
             "resources": len(resource_names),
             "resources_with_source_files": resources_with_source_files,
             "resources_without_source_files": (
                 len(resource_names) - resources_with_source_files),
-            "mapped": len(registry),
+            "mapped": mapped,
             "ambiguous": ambiguous,
-            "unmapped": len(resource_names) - len(registry) - ambiguous,
+            "unmapped": len(resource_names) - mapped - ambiguous,
         },
         "registry": registry,
         "diagnostics": diagnostics,

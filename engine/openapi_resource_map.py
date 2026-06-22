@@ -1015,18 +1015,20 @@ def _registry_path_coverage(spec, api_prefix, resource_prefix, registry_data,
     for resource_type, entry in sorted((registry_data or {}).items()):
         if entry.get("product") != resource_prefix:
             continue
+        if (entry_key == "read"
+                and entry.get("status")
+                and entry.get("status") != "mapped"):
+            resources.append({
+                "resource": resource_type,
+                "status": entry.get("status"),
+                "reason": entry.get("reason") or entry.get("status"),
+            })
+            continue
         path_entry = entry.get(entry_key)
         if not path_entry:
             continue
         registry_path = path_entry.get("path")
         if not registry_path:
-            continue
-        if entry.get("status") and entry.get("status") != "mapped":
-            resources.append({
-                "resource": resource_type,
-                "status": entry.get("status"),
-                "reason": entry.get("status"),
-            })
             continue
         match = None
         if product_match:
