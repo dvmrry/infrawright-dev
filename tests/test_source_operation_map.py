@@ -1859,6 +1859,251 @@ func readTopics() {
                          "relationship_list_read")
         self.assertEqual(entry["read"]["path"], "/repos/{owner}/{repo}/topics")
 
+    def test_splits_camel_case_sdk_chain_tokens_for_path_matching(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/pagerduty/pagerduty": {
+                    "resource_schemas": {
+                        "pagerduty_event_orchestration_global": {
+                            "block": {
+                                "attributes": {
+                                    "event_orchestration": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/event_orchestrations/{id}/global": {
+                    "get": {
+                        "operationId": "getOrchPathGlobal",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write(
+            "provider/pagerduty/resource_pagerduty_event_orchestration_global.go",
+            """
+package pagerduty
+
+func readGlobal() {
+    _, _, err := client.EventOrchestrationPaths.GetContext(ctx, id, "global")
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/pagerduty/pagerduty",
+            resource_prefix="pagerduty",
+        )
+
+        entry = report["registry"]["pagerduty_event_orchestration_global"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(entry["read"]["operation_id"], "getOrchPathGlobal")
+        self.assertEqual(
+            entry["read"]["hops"][0]["client_symbol"],
+            "EventOrchestrationPaths.GetContext")
+
+    def test_uses_subscriber_list_operation_as_relationship_read_evidence(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/pagerduty/pagerduty": {
+                    "resource_schemas": {
+                        "pagerduty_business_service_subscriber": {
+                            "block": {
+                                "attributes": {
+                                    "subscriber_id": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/business_services/{id}/subscribers": {
+                    "get": {
+                        "operationId": "getBusinessServiceSubscribers",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write(
+            "provider/pagerduty/resource_pagerduty_business_service_subscriber.go",
+            """
+package pagerduty
+
+func readSubscriber() {
+    subscribers, _, err := client.BusinessServiceSubscribers.List(ctx, id)
+    _ = subscribers
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/pagerduty/pagerduty",
+            resource_prefix="pagerduty",
+        )
+
+        entry = report["registry"]["pagerduty_business_service_subscriber"]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(entry["read"]["evidence_kind"],
+                         "relationship_list_read")
+        self.assertEqual(entry["read"]["path"],
+                         "/business_services/{id}/subscribers")
+
+    def test_relationship_list_read_rejects_broad_collection_path(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/pagerduty/pagerduty": {
+                    "resource_schemas": {
+                        "pagerduty_service_dependency": {
+                            "block": {
+                                "attributes": {
+                                    "dependent_service": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/business_services": {
+                    "get": {
+                        "operationId": "listBusinessServices",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+                "/service_dependencies/business_services/{id}": {
+                    "get": {
+                        "operationId": "getBusinessServiceServiceDependencies",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+                "/service_dependencies/technical_services/{id}": {
+                    "get": {
+                        "operationId": (
+                            "getTechnicalServiceServiceDependencies"),
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write(
+            "provider/pagerdutyplugin/resource_pagerduty_service_dependency.go",
+            """
+package pagerdutyplugin
+
+func readDependency() {
+    business, _, err := client.ListBusinessServiceDependenciesWithContext(ctx, id)
+    technical, _, err := client.ListTechnicalServiceDependenciesWithContext(ctx, id)
+    _ = business
+    _ = technical
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/pagerduty/pagerduty",
+            resource_prefix="pagerduty",
+        )
+
+        entry = report["registry"]["pagerduty_service_dependency"]
+        self.assertEqual(entry["status"], "ambiguous_source_operation")
+        self.assertEqual(
+            sorted(candidate["path"] for candidate in entry["candidates"]),
+            [
+                "/service_dependencies/business_services/{id}",
+                "/service_dependencies/technical_services/{id}",
+            ])
+
+    def test_sdk_chain_requires_more_than_generic_terminal_match(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/pagerduty/pagerduty": {
+                    "resource_schemas": {
+                        "pagerduty_slack_connection": {
+                            "block": {
+                                "attributes": {
+                                    "connection_id": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/workflows/integrations/{integration_id}/connections/{id}": {
+                    "get": {
+                        "operationId": "getWorkflowIntegrationConnection",
+                        "responses": {"200": {"description": "ok"}},
+                    },
+                },
+            },
+        })
+        source_root = os.path.join(self.tmp, "provider")
+        self._write(
+            "provider/pagerduty/resource_pagerduty_slack_connection.go",
+            """
+package pagerduty
+
+func readSlackConnection() {
+    connection, _, err := client.SlackConnections.Get(ctx, id)
+    _ = connection
+    _ = err
+}
+""")
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            source_root,
+            provider_source="registry.terraform.io/pagerduty/pagerduty",
+            resource_prefix="pagerduty",
+        )
+
+        entry = report["registry"]["pagerduty_slack_connection"]
+        self.assertEqual(entry["status"], "unmapped")
+        self.assertEqual(entry["reason"], "no_source_operation_match")
+
     def test_keeps_selected_client_symbol_when_merging_alternates(self):
         schema_path = self._write_json("schema.json", {
             "provider_schemas": {

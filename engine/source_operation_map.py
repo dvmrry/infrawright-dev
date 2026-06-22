@@ -19,6 +19,7 @@ from engine import openapi_resource_map
 
 GO_FILE_SUFFIX = ".go"
 AMBIGUITY_SCORE_DELTA = 5
+SOURCE_CALL_AMBIGUITY_DELTA = 15
 READ_DETAIL_AMBIGUITY_DELTA = 25
 SDK_READ_METHODS = set(("Get", "Read", "Fetch"))
 SDK_LIST_METHODS = set(("List", "Search"))
@@ -26,6 +27,20 @@ SDK_CALL_SCORE_FLOOR = 35
 PACKAGE_CALL_SCORE_FLOOR = 35
 RAW_REST_CALL_SCORE_FLOOR = 70
 SDK_RECEIVER_NAMES = set(("api", "client"))
+RELATIONSHIP_TOKENS = set((
+    "assignment",
+    "collaborator",
+    "collaborators",
+    "dependency",
+    "dependencies",
+    "mapping",
+    "members",
+    "membership",
+    "repositories",
+    "subscriber",
+    "subscribers",
+    "topics",
+))
 
 
 def _read_json(path):
@@ -423,7 +438,7 @@ def _go_code_without_comments(text):
 def _sdk_method_role(method):
     lowered = method.lower()
     if method in SDK_READ_METHODS or lowered.startswith(
-            ("get", "read", "fetch")) or lowered.endswith(
+            ("get", "read", "fetch", "retrieve")) or lowered.endswith(
                 ("get", "read", "retrieve")):
         return "read"
     if method in SDK_LIST_METHODS or lowered.startswith(("list", "search")):
@@ -492,7 +507,7 @@ def _go_import_aliases(text):
 
 def _package_method_role(method):
     lowered = method.lower()
-    if lowered.startswith(("get", "read", "fetch")):
+    if lowered.startswith(("get", "read", "fetch", "retrieve")):
         if "all" in lowered or "list" in lowered:
             return "list"
         return "read"
@@ -665,11 +680,20 @@ def _operation_mentions_token(operation, token):
 
 
 def _sdk_chain_tokens(call):
-    drop = set(("cloudflare", "zerotrust"))
-    tokens = [
-        token for token in call["chain"]
-        if _canonical(token) not in drop
-    ]
+    drop = set((
+        "api",
+        "client",
+        "cloudflare",
+        "path",
+        "paths",
+        "zerotrust",
+    ))
+    tokens = []
+    for part in call["chain"]:
+        for token in _identifier_words(part):
+            if _canonical(token) in drop:
+                continue
+            tokens.append(token)
     return tokens or call["chain"]
 
 
@@ -887,6 +911,8 @@ def _sdk_call_score(resource_type, resource_prefix, operation, call,
         if _operation_mentions_token(operation, token):
             matched_chain_tokens += 1
             score += 30
+    if chain_tokens and matched_chain_tokens < min(2, len(chain_tokens)):
+        return None
     method_tokens = _sdk_method_tokens(call)
     for token in method_tokens:
         if _operation_mentions_token(operation, token):
@@ -1197,11 +1223,15 @@ def _select_hit(hits, role):
         ]
         if detail_close:
             return None, [best] + detail_close[:4]
-    ambiguous = [
-        hit for hit in candidates[1:]
-        if (hit["path_kind"] == best["path_kind"]
-            and best[score_key] - hit[score_key] <= AMBIGUITY_SCORE_DELTA)
-    ]
+    ambiguous = []
+    for hit in candidates[1:]:
+        if hit["path_kind"] != best["path_kind"]:
+            continue
+        delta = AMBIGUITY_SCORE_DELTA
+        if best.get("client_symbol") and hit.get("client_symbol"):
+            delta = max(delta, SOURCE_CALL_AMBIGUITY_DELTA)
+        if best[score_key] - hit[score_key] <= delta:
+            ambiguous.append(hit)
     if ambiguous:
         return None, [best] + ambiguous[:4]
     return best, []
@@ -1225,23 +1255,45 @@ def _relationship_resource(resource_type, resource_prefix):
     )
     if any(phrase in joined for phrase in phrases):
         return True
-    relationship_tokens = set((
-        "assignment",
-        "collaborator",
-        "collaborators",
-        "mapping",
-        "members",
-        "membership",
-        "repositories",
-        "topics",
-    ))
-    return bool(relationship_tokens.intersection(tokens))
+    return bool(RELATIONSHIP_TOKENS.intersection(tokens))
 
 
 def _select_relationship_list_hit(hits, resource_type, resource_prefix):
     if not _relationship_resource(resource_type, resource_prefix):
         return None, []
-    return _select_hit(hits, "list")
+    tokens = _base_tokens(resource_type, resource_prefix)
+    relationship_tokens = [
+        token for token in tokens
+        if token in RELATIONSHIP_TOKENS
+    ]
+    role_hits = [
+        hit for hit in hits
+        if hit.get("source_role") == "list"
+    ]
+    if relationship_tokens:
+        token_hits = [
+            hit for hit in role_hits
+            if any(
+                _operation_mentions_token(hit, token)
+                for token in relationship_tokens)
+        ]
+        if token_hits:
+            role_hits = token_hits
+    role_hits.sort(key=lambda hit: (
+        -hit["read_score"],
+        hit["path"],
+        hit["operation_id"],
+    ))
+    if not role_hits:
+        return None, []
+    best = role_hits[0]
+    ambiguous = []
+    for hit in role_hits[1:]:
+        if best["read_score"] - hit["read_score"] <= AMBIGUITY_SCORE_DELTA:
+            ambiguous.append(hit)
+    if ambiguous:
+        return None, [best] + ambiguous[:4]
+    return best, []
 
 
 def _load_resource_schemas(schema_path, provider_source=None):
