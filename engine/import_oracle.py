@@ -6,7 +6,9 @@ state values Terraform/OpenTofu reports via ``show -json``.
 import hashlib
 import json
 import os
+import re
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -17,6 +19,9 @@ from engine import packs
 
 class OracleError(RuntimeError):
     pass
+
+
+_MAX_SUBPROCESS_OUTPUT = 1200
 
 
 def _instance_name(key):
@@ -76,7 +81,63 @@ def render_root(resource_type, keys=None):
     return text
 
 
-def _run(args, cwd, env):
+def _assert_local_scratch_root(text):
+    if 'backend "' in text:
+        raise OracleError(
+            "oracle scratch root must not declare a Terraform backend; "
+            "oracle state is intentionally ephemeral and local"
+        )
+
+
+def _display_args(args):
+    shown = list(args)
+    if len(shown) >= 2 and shown[1] == "import" and len(shown) >= 3:
+        shown[-1] = "<redacted-import-id>"
+    return " ".join(shlex.quote(str(arg)) for arg in shown)
+
+
+def _sensitive_command_tokens(args):
+    if len(args) >= 2 and args[1] == "import" and len(args) >= 3:
+        return [str(args[-1])]
+    return []
+
+
+def _redact(text, tokens):
+    out = text
+    for token in tokens:
+        if token:
+            out = out.replace(token, "<redacted-import-id>")
+    return out
+
+
+def _summarize_output(raw, tokens):
+    text = raw.decode("utf-8", "replace")
+    text = _redact(text, tokens)
+    if len(text) <= _MAX_SUBPROCESS_OUTPUT:
+        return text
+    return (
+        text[:_MAX_SUBPROCESS_OUTPUT]
+        + "\n[truncated %d chars]"
+        % (len(text) - _MAX_SUBPROCESS_OUTPUT)
+    )
+
+
+def _write_debug_output(debug_dir, debug_name, stdout, stderr):
+    if not debug_dir:
+        return None, None
+    out_dir = os.path.join(debug_dir, "oracle-subprocess")
+    os.makedirs(out_dir, exist_ok=True)
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", debug_name or "command")
+    stdout_path = os.path.join(out_dir, safe_name + ".stdout")
+    stderr_path = os.path.join(out_dir, safe_name + ".stderr")
+    with open(stdout_path, "wb") as f:
+        f.write(stdout)
+    with open(stderr_path, "wb") as f:
+        f.write(stderr)
+    return stdout_path, stderr_path
+
+
+def _run(args, cwd, env, debug_dir=None, debug_name=None):
     proc = subprocess.run(
         args,
         cwd=cwd,
@@ -86,13 +147,23 @@ def _run(args, cwd, env):
         check=False,
     )
     if proc.returncode != 0:
+        stdout_path, stderr_path = _write_debug_output(
+            debug_dir, debug_name, proc.stdout, proc.stderr)
+        debug_hint = ""
+        if stdout_path or stderr_path:
+            debug_hint = (
+                "\nfull stdout: %s\nfull stderr: %s"
+                % (stdout_path, stderr_path)
+            )
+        tokens = _sensitive_command_tokens(args)
         raise OracleError(
-            "%s failed with exit %d\nstdout:\n%s\nstderr:\n%s"
+            "%s failed with exit %d\nstdout:\n%s\nstderr:\n%s%s"
             % (
-                " ".join(args),
+                _display_args(args),
                 proc.returncode,
-                proc.stdout.decode("utf-8", "replace"),
-                proc.stderr.decode("utf-8", "replace"),
+                _summarize_output(proc.stdout, tokens),
+                _summarize_output(proc.stderr, tokens),
+                debug_hint,
             )
         )
     return proc.stdout.decode("utf-8", "replace")
@@ -114,14 +185,24 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False):
 
     _check_instance_name_collisions(resource_type, key_to_import_id)
 
+    keep = keep_workdir or os.environ.get("INFRAWRIGHT_KEEP_ORACLE")
     temp = tempfile.mkdtemp(prefix="infrawright-oracle-")
     try:
+        root = render_root(resource_type, key_to_import_id)
+        _assert_local_scratch_root(root)
         with open(os.path.join(temp, "main.tf"), "w", encoding="utf-8") as f:
-            f.write(render_root(resource_type, key_to_import_id))
+            f.write(root)
         env = os.environ.copy()
         env["TF_DATA_DIR"] = os.path.join(temp, ".terraform")
         tf = ops.terraform()
-        _run([tf, "init", "-input=false", "-no-color"], cwd=temp, env=env)
+        debug_dir = temp if keep else None
+        _run(
+            [tf, "init", "-input=false", "-no-color"],
+            cwd=temp,
+            env=env,
+            debug_dir=debug_dir,
+            debug_name="init",
+        )
         address_to_key = {}
         for key, import_id in sorted(key_to_import_id.items()):
             addr = _address(resource_type, key)
@@ -133,8 +214,16 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False):
                 ],
                 cwd=temp,
                 env=env,
+                debug_dir=debug_dir,
+                debug_name="import-%s" % _instance_name(key),
             )
-        raw = _run([tf, "show", "-json", "terraform.tfstate"], cwd=temp, env=env)
+        raw = _run(
+            [tf, "show", "-json", "terraform.tfstate"],
+            cwd=temp,
+            env=env,
+            debug_dir=debug_dir,
+            debug_name="show",
+        )
         state = json.loads(raw)
         out = {}
         for res in _iter_state_resources(state):
@@ -156,8 +245,13 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False):
             )
         return out
     finally:
-        if keep_workdir or os.environ.get("INFRAWRIGHT_KEEP_ORACLE"):
-            sys.stderr.write("kept oracle workdir %s\n" % temp)
+        if keep:
+            sys.stderr.write(
+                "WARNING: kept oracle workdir %s; it may contain "
+                "unencrypted provider state, credentials, import IDs, and "
+                "provider diagnostics. Remove it when debugging is complete.\n"
+                % temp
+            )
         else:
             shutil.rmtree(temp)
 

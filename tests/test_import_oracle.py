@@ -1,5 +1,8 @@
+import contextlib
+import io
 import json
 import os
+import re
 import shutil
 import stat
 import tempfile
@@ -46,6 +49,12 @@ class ImportOracleTest(unittest.TestCase):
                     if args[0] == "import":
                         address = args[-2]
                         import_id = args[-1]
+                        if os.environ.get("FAKE_TF_FAIL_IMPORT") == "1":
+                            print(("stdout import id=%s " % import_id) + ("x" * 1600))
+                            sys.stderr.write(
+                                ("stderr import id=%s " % import_id) + ("y" * 1600)
+                            )
+                            return 17
                         with open(os.path.join(os.getcwd(), "main.tf"), encoding="utf-8") as f:
                             main_tf = f.read()
                         declared = set(
@@ -106,6 +115,7 @@ class ImportOracleTest(unittest.TestCase):
             os.environ.pop("TF", None)
         else:
             os.environ["TF"] = self.prev_tf
+        os.environ.pop("FAKE_TF_FAIL_IMPORT", None)
         packs.reset()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
@@ -144,6 +154,65 @@ class ImportOracleTest(unittest.TestCase):
         self.assertIn("'a'", msg)
         self.assertIn("'b'", msg)
         self.assertIn("iw_collision", msg)
+
+    def test_subprocess_failure_redacts_import_id_and_truncates_output(self):
+        secret_import_id = "tenant-url-token-secret-import-id"
+        os.environ["FAKE_TF_FAIL_IMPORT"] = "1"
+
+        with self.assertRaises(OracleError) as ctx:
+            import_state("sample_resource", {"prod_app": secret_import_id})
+
+        msg = str(ctx.exception)
+        self.assertIn("<redacted-import-id>", msg)
+        self.assertNotIn(secret_import_id, msg)
+        self.assertIn("[truncated", msg)
+        self.assertIn("failed with exit 17", msg)
+
+    def test_keep_workdir_warns_about_unencrypted_provider_state(self):
+        kept = None
+        stderr = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(stderr):
+                out = import_state(
+                    "sample_resource",
+                    {"prod_app": "123"},
+                    keep_workdir=True,
+                )
+            self.assertEqual(out["prod_app"]["values"]["id"], "123")
+            msg = stderr.getvalue()
+            self.assertIn("WARNING: kept oracle workdir", msg)
+            self.assertIn("unencrypted provider state", msg)
+            self.assertIn("import IDs", msg)
+            match = re.search(r"workdir ([^;]+);", msg)
+            self.assertIsNotNone(match, msg)
+            kept = match.group(1)
+            self.assertTrue(os.path.isdir(kept))
+            self.assertTrue(os.path.exists(os.path.join(kept, "terraform.tfstate")))
+        finally:
+            if kept:
+                shutil.rmtree(kept, ignore_errors=True)
+
+    def test_backend_blocks_are_rejected_before_terraform_init(self):
+        os.makedirs(os.path.join(self.tmp, "sample", "oracle"), exist_ok=True)
+        with open(
+                os.path.join(self.tmp, "sample", "oracle", "sample.tf"),
+                "w",
+                encoding="utf-8") as f:
+            f.write(textwrap.dedent("""\
+                provider "sample" {}
+
+                terraform {
+                  backend "local" {}
+                }
+            """))
+        os.environ["TF"] = os.path.join(self.tmp, "missing-fake-tf")
+
+        with self.assertRaises(OracleError) as ctx:
+            import_state("sample_resource", {"prod_app": "123"})
+
+        msg = str(ctx.exception)
+        self.assertIn("oracle scratch root must not declare", msg)
+        self.assertIn("ephemeral and local", msg)
 
 
 if __name__ == "__main__":

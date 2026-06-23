@@ -26,6 +26,7 @@ raw API fetch
 - It does not use OpenAPI to decide field coverage.
 - It does not use generated HCL as the source of truth.
 - It does not store oracle state artifacts by default.
+- It does not allow remote backend blocks in the oracle scratch root.
 - It does not generate `lifecycle.ignore_changes`.
 - It does not fix provider read/write bugs.
 
@@ -118,4 +119,10 @@ The oracle path fails closed for unsafe or ambiguous adoption:
   changes.
 
 For troubleshooting scratch roots, set `INFRAWRIGHT_KEEP_ORACLE=1` before
-running `make adopt`.
+running `make adopt`. Infrawright will print a warning with the kept directory.
+That directory may contain unencrypted provider state, import IDs, credentials,
+and provider diagnostics; remove it when debugging is complete.
+
+Terraform/OpenTofu subprocess errors are redacted and truncated by default.
+Full failing stdout/stderr is written only when the oracle workdir is explicitly
+kept for debugging.
