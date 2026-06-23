@@ -1,4 +1,4 @@
-"""Fixture-driven adoption certification advisory CLI."""
+"""Fixture-driven static adoption certification advisory CLI."""
 
 import argparse
 import json
@@ -13,6 +13,17 @@ from engine.adoption_meta import (
 )
 from engine.advisory_report import build_report
 from engine.drift_policy import DriftPolicy
+
+
+_STATIC_REPORT_METADATA = {
+    "mode": "static_advisory_diff",
+    "oracle_import": "not_run_by_cli",
+    "projection": "not_run_by_cli",
+    "terraform_plan": "not_run_by_cli",
+    "plan_cleanliness": "not_computed_by_cli_use_assert_adoptable",
+    "required_missing": "caller_supplied_not_computed_by_cli",
+    "sensitive_blocked": "caller_supplied_not_computed_by_cli",
+}
 
 
 def _read_json(path):
@@ -83,7 +94,12 @@ def _require_same_keys(raw_items, oracle_state, projected_items):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Build a fixture-driven adoption advisory report.")
+        description=(
+            "Build a fixture-driven static adoption advisory diff. "
+            "This CLI does not run oracle import, projection, or Terraform "
+            "plan; required_missing and sensitive_blocked are caller-supplied "
+            "diagnostics and default empty."
+        ))
     parser.add_argument("--resource-type", required=True)
     parser.add_argument("--raw", required=True)
     parser.add_argument("--oracle-state", required=True)
@@ -104,6 +120,7 @@ def main(argv=None):
             projected_items,
             policy,
         )
+        report["metadata"] = dict(_STATIC_REPORT_METADATA)
     except Exception as exc:
         sys.stderr.write("error: %s\n" % exc)
         return 1

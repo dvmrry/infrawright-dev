@@ -9,7 +9,8 @@ key/import_id -> Terraform/OpenTofu import -> provider state projection
 That is the normal adoption path. It avoids treating raw API response bodies as
 Terraform configuration truth.
 
-Certification mode is separate. It requires raw detail JSON and compares the
+Certification mode is separate. The CLI is a static advisory diff. It requires
+raw detail JSON and precomputed oracle/projected fixtures, then compares the
 raw API shape against provider-imported state and projected tfvars:
 
 ```text
@@ -37,7 +38,8 @@ python -m engine.adopt_certify \
   --policy policy.json
 ```
 
-The command is fixture-driven. It does not run Terraform or OpenTofu.
+The command is fixture-driven. It does not run oracle import, projection, or Terraform plan.
+Plan cleanliness comes from `assert-adoptable`, not from the advisory report.
 
 ## Inputs
 
@@ -81,6 +83,15 @@ The report is pretty JSON on stdout:
 ```json
 {
   "resource_type": "sample_resource",
+  "metadata": {
+    "mode": "static_advisory_diff",
+    "oracle_import": "not_run_by_cli",
+    "projection": "not_run_by_cli",
+    "terraform_plan": "not_run_by_cli",
+    "plan_cleanliness": "not_computed_by_cli_use_assert_adoptable",
+    "required_missing": "caller_supplied_not_computed_by_cli",
+    "sensitive_blocked": "caller_supplied_not_computed_by_cli"
+  },
   "summary": {
     "items": 1,
     "raw_only_paths": 2,
@@ -117,6 +128,11 @@ The report is pretty JSON on stdout:
 `raw_only_paths` are advisory by default. They may be API-only metadata,
 provider-invisible security surface, or fields intentionally outside Terraform
 control. They should be reviewed before production provider adoption.
+
+`required_missing` and `sensitive_blocked` are not computed by this CLI. They
+are retained in the report contract for future in-process callers that can
+supply projection diagnostics. In CLI-generated reports they default to empty
+unless a future caller supplies those diagnostics before report construction.
 
 ## Scope Boundary
 
