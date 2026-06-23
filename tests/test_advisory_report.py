@@ -98,6 +98,75 @@ class AdvisoryReportTest(unittest.TestCase):
         self.assertEqual(report["summary"]["required_missing"], 1)
         self.assertEqual(report["summary"]["sensitive_blocked"], 1)
 
+    def test_projection_omit_does_not_suppress_raw_only_path(self):
+        policy = DriftPolicy({
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "projection_omit": [
+                        {
+                            "path": "cbi_profile.id",
+                            "reason": "provider cannot observe this field",
+                            "approved_by": "unit",
+                        }
+                    ]
+                }
+            },
+        })
+
+        report = build_report(
+            "sample_resource",
+            {"prod_app": {"name": "Prod", "cbi_profile": {"id": "cbi-1"}}},
+            {"prod_app": {"values": {"name": "Prod"}}},
+            {"prod_app": {"name": "Prod"}},
+            policy,
+        )
+
+        item = report["items"]["prod_app"]
+        self.assertEqual(item["raw_only_paths"], ["cbi_profile.id"])
+        self.assertEqual(item["omitted_by_policy"], [])
+
+    def test_projection_omit_classifies_provider_observed_unprojected_path(self):
+        policy = DriftPolicy({
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "projection_omit": [
+                        {
+                            "path": "metadata.generate_name",
+                            "reason": "provider-generated value",
+                            "approved_by": "unit",
+                        }
+                    ]
+                }
+            },
+        })
+
+        report = build_report(
+            "sample_resource",
+            {
+                "prod_app": {
+                    "name": "Prod",
+                    "metadata": {"generate_name": "prod-generated"},
+                }
+            },
+            {
+                "prod_app": {
+                    "values": {
+                        "name": "Prod",
+                        "metadata": {"generate_name": "prod-generated"},
+                    }
+                }
+            },
+            {"prod_app": {"name": "Prod"}},
+            policy,
+        )
+
+        item = report["items"]["prod_app"]
+        self.assertEqual(item["raw_only_paths"], [])
+        self.assertEqual(item["provider_only_paths"], [])
+        self.assertEqual(item["omitted_by_policy"], ["metadata.generate_name"])
+
 
 if __name__ == "__main__":
     unittest.main()

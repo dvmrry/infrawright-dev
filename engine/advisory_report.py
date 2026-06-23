@@ -36,11 +36,10 @@ def build_report(
         projected_paths = set(path_inventory.leaf_paths(
             (projected_items_by_key or {}).get(key, {})))
 
-        observed_paths = raw_paths | provider_paths | projected_paths
-        omitted_by_policy = sorted(policy_paths & observed_paths)
-        omitted = set(omitted_by_policy)
+        omitted = (policy_paths & provider_paths) - projected_paths
+        omitted_by_policy = sorted(omitted)
 
-        raw_only = sorted(raw_paths - provider_paths - projected_paths - omitted)
+        raw_only = sorted(raw_paths - provider_paths - projected_paths)
         provider_only = sorted(
             provider_paths - raw_paths - projected_paths - omitted)
 
