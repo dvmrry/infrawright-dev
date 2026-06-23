@@ -121,5 +121,107 @@ class OpsStageImportsTest(unittest.TestCase):
         self.assertTrue(os.path.exists(staged))
 
 
+class OpsPlanSafetyTest(unittest.TestCase):
+    def test_non_import_change_count_ignores_noops_and_import_creates(self):
+        plan = {
+            "resource_changes": [
+                {"change": {"actions": ["no-op"]}},
+                {"change": {"actions": ["create"], "importing": {"id": "1"}}},
+                {"change": {"actions": ["update"]}},
+            ],
+            "resource_drift": [
+                {"change": {"actions": ["update"]}},
+            ],
+        }
+        self.assertEqual(ops._non_import_change_count(plan), 2)
+
+    def test_destroy_count_includes_resource_drift(self):
+        plan = {
+            "resource_changes": [{"change": {"actions": ["delete", "create"]}}],
+            "resource_drift": [{"change": {"actions": ["delete"]}}],
+        }
+        self.assertEqual(ops._destroy_count(plan), 2)
+
+    def test_apply_refuses_non_import_changes_by_default(self):
+        tmp = tempfile.mkdtemp(prefix="ops-apply-")
+        old_pairs = ops.selected_env_pairs
+        old_check_backend = ops._check_backend
+        old_check_call = ops._check_call
+        old_show = ops._show_plan_json
+        old_branch = ops._current_branch
+        try:
+            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
+                ("tenant", "sample_resource", tmp)
+            ]
+            ops._check_backend = lambda env_dir, resource_type, backend_config: None
+            ops._check_call = lambda args, stdout=None: 0
+            ops._current_branch = lambda: "main"
+            ops._show_plan_json = lambda env_dir: {
+                "format_version": "1.0",
+                "resource_changes": [{"change": {"actions": ["update"]}}],
+            }
+            with self.assertRaises(RuntimeError):
+                ops.cmd_apply({
+                    "tenant": "tenant",
+                    "selectors": [],
+                    "backend_config": None,
+                    "allow_destroy": False,
+                    "allow_non_main": False,
+                    "allow_plan_changes": False,
+                    "main_branch": "main",
+                })
+        finally:
+            ops.selected_env_pairs = old_pairs
+            ops._check_backend = old_check_backend
+            ops._check_call = old_check_call
+            ops._show_plan_json = old_show
+            ops._current_branch = old_branch
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_apply_allows_import_only_without_plan_change_override(self):
+        tmp = tempfile.mkdtemp(prefix="ops-apply-")
+        os.makedirs(tmp, exist_ok=True)
+        with open(os.path.join(tmp, "tfplan"), "w", encoding="utf-8") as f:
+            f.write("fake")
+        old_pairs = ops.selected_env_pairs
+        old_check_backend = ops._check_backend
+        old_check_call = ops._check_call
+        old_show = ops._show_plan_json
+        old_branch = ops._current_branch
+        try:
+            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
+                ("tenant", "sample_resource", tmp)
+            ]
+            ops._check_backend = lambda env_dir, resource_type, backend_config: None
+            ops._check_call = lambda args, stdout=None: 0
+            ops._current_branch = lambda: "main"
+            ops._show_plan_json = lambda env_dir: {
+                "format_version": "1.0",
+                "resource_changes": [{
+                    "change": {
+                        "actions": ["create"],
+                        "importing": {"id": "123"},
+                    }
+                }],
+            }
+            self.assertEqual(ops.cmd_apply({
+                "tenant": "tenant",
+                "selectors": [],
+                "backend_config": None,
+                "allow_destroy": False,
+                "allow_non_main": False,
+                "allow_plan_changes": False,
+                "main_branch": "main",
+            }), 0)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "tfplan")))
+        finally:
+            ops.selected_env_pairs = old_pairs
+            ops._check_backend = old_check_backend
+            ops._check_call = old_check_call
+            ops._show_plan_json = old_show
+            ops._current_branch = old_branch
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()
