@@ -93,7 +93,7 @@ def _project_block(values, sens, block, path, resource_top, resource_type, polic
             if single is not None:
                 out[name] = _project_block(
                     single,
-                    sens_child if isinstance(sens_child, dict) else {},
+                    _single_sens(sens_child, child_path),
                     inner,
                     child_path,
                     resource_top=False,
@@ -136,6 +136,23 @@ def _single_value(value):
     raise ProjectionError("single nested block had unsupported state shape")
 
 
+def _single_sens(sens_child, path):
+    if sens_child is True:
+        return True
+    if isinstance(sens_child, dict):
+        return sens_child
+    if isinstance(sens_child, list):
+        if not sens_child:
+            return {}
+        if len(sens_child) == 1:
+            return sens_child[0] or {}
+        raise ProjectionError(
+            "single nested block had unsupported sensitive shape at %s"
+            % _fmt_path(path)
+        )
+    return {}
+
+
 def _list_sens(sens_child, idx):
     if isinstance(sens_child, list) and idx < len(sens_child):
         return sens_child[idx] or {}
@@ -144,10 +161,20 @@ def _list_sens(sens_child, idx):
     return {}
 
 
+def _any_sensitive(value):
+    if value is True:
+        return True
+    if isinstance(value, dict):
+        return any(_any_sensitive(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_any_sensitive(v) for v in value)
+    return False
+
+
 def _is_sensitive_attr(sens, name):
     if not isinstance(sens, dict):
         return False
-    return bool(sens.get(name))
+    return _any_sensitive(sens.get(name))
 
 
 def _fmt_path(path):

@@ -13,6 +13,7 @@ FAKE_SCHEMA = {
             "description": {"type": "string", "optional": True},
             "enabled": {"type": "bool", "optional": True},
             "count": {"type": "number", "optional": True},
+            "labels": {"type": ["map", "string"], "optional": True},
             "optional_null": {"type": "string", "optional": True},
             "computed_only": {"type": "string", "computed": True},
         },
@@ -149,6 +150,14 @@ class StateProjectTest(unittest.TestCase):
                 sensitive_values={"settings": {"mode": True}},
             )
 
+    def test_single_block_list_shaped_sensitive_input_fails_closed(self):
+        with self.assertRaises(ProjectionError):
+            project_item(
+                "sample_resource",
+                {"name": "Prod", "settings": [{"mode": "secret"}]},
+                sensitive_values={"settings": [{"mode": True}]},
+            )
+
     def test_sensitive_list_element_fails_closed(self):
         with self.assertRaises(ProjectionError):
             project_item(
@@ -156,6 +165,19 @@ class StateProjectTest(unittest.TestCase):
                 {"name": "Prod", "rules": [{"name": "secret"}]},
                 sensitive_values={"rules": [True]},
             )
+
+    def test_all_false_sensitive_map_does_not_false_positive(self):
+        out = project_item(
+            "sample_resource",
+            {
+                "name": "Prod",
+                "labels": {"app": "grafana"},
+            },
+            sensitive_values={
+                "labels": {"app": False},
+            },
+        )
+        self.assertEqual(out["labels"], {"app": "grafana"})
 
 
 if __name__ == "__main__":
