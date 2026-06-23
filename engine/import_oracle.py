@@ -28,6 +28,18 @@ def _address(resource_type, key):
     return "%s.%s" % (resource_type, _instance_name(key))
 
 
+def _check_instance_name_collisions(resource_type, keys):
+    seen = {}
+    for key in sorted(keys):
+        name = _instance_name(key)
+        if name in seen:
+            raise OracleError(
+                "%s oracle instance name collision: %r and %r both map to %s"
+                % (resource_type, seen[name], key, name)
+            )
+        seen[name] = key
+
+
 def _provider_block(provider):
     path = packs.oracle_provider_config_path(provider)
     if path:
@@ -99,6 +111,8 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False):
                 % (resource_type, import_id, seen[import_id], key)
             )
         seen[import_id] = key
+
+    _check_instance_name_collisions(resource_type, key_to_import_id)
 
     temp = tempfile.mkdtemp(prefix="infrawright-oracle-")
     try:

@@ -7,6 +7,7 @@ import textwrap
 import unittest
 
 from engine import packs
+from engine import import_oracle
 from engine.import_oracle import OracleError, import_state, render_root
 
 
@@ -128,6 +129,21 @@ class ImportOracleTest(unittest.TestCase):
     def test_duplicate_import_ids_fail_before_terraform(self):
         with self.assertRaises(OracleError):
             import_state("sample_resource", {"a": "same", "b": "same"})
+
+    def test_duplicate_instance_names_fail_before_terraform(self):
+        original = import_oracle._instance_name
+        import_oracle._instance_name = lambda key: "iw_collision"
+        os.environ["TF"] = os.path.join(self.tmp, "missing-fake-tf")
+        try:
+            with self.assertRaises(OracleError) as ctx:
+                import_state("sample_resource", {"a": "123", "b": "456"})
+        finally:
+            import_oracle._instance_name = original
+        msg = str(ctx.exception)
+        self.assertIn("sample_resource oracle instance name collision", msg)
+        self.assertIn("'a'", msg)
+        self.assertIn("'b'", msg)
+        self.assertIn("iw_collision", msg)
 
 
 if __name__ == "__main__":
