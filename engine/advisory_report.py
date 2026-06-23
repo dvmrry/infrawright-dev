@@ -5,9 +5,10 @@ projected tfvars shape. It is advisory by design: raw-only paths can indicate
 provider-invisible surface, API-only metadata, or fields intentionally outside
 Terraform control.
 
-``required_missing`` and ``sensitive_blocked`` are caller-supplied side inputs.
-This module records and summarizes them when provided, but does not run state
-projection or Terraform validation itself.
+``required_missing`` is a caller-supplied side input. ``sensitive_blocked`` can
+be supplied by callers and is also derived from Terraform's ``sensitive_values``
+mirror in oracle state. This module does not run state projection or Terraform
+validation itself.
 """
 
 from engine import path_inventory
@@ -33,12 +34,21 @@ def build_report(
         | set(projected_items_by_key or {})
     )
     for key in keys:
+        oracle_entry = ((oracle_state_by_key or {}).get(key, {}) or {})
+        provider_values = oracle_entry.get("values") or {}
+        projected_value = (projected_items_by_key or {}).get(key, {})
+
         raw_paths = set(path_inventory.leaf_paths(
             (raw_items_by_key or {}).get(key, {})))
-        provider_paths = set(path_inventory.leaf_paths(
-            ((oracle_state_by_key or {}).get(key, {}) or {}).get("values") or {}))
-        projected_paths = set(path_inventory.leaf_paths(
-            (projected_items_by_key or {}).get(key, {})))
+        provider_paths = set(path_inventory.leaf_paths(provider_values))
+        projected_paths = set(path_inventory.leaf_paths(projected_value))
+        projected_present_paths = (
+            projected_paths | _container_paths(projected_value)
+        )
+        derived_sensitive_blocked = (
+            _sensitive_paths(oracle_entry.get("sensitive_values") or {})
+            - projected_present_paths
+        )
 
         omitted = (policy_paths & provider_paths) - projected_paths
         omitted_by_policy = sorted(omitted)
@@ -46,6 +56,10 @@ def build_report(
         raw_only = sorted(raw_paths - provider_paths - projected_paths)
         provider_only = sorted(
             provider_paths - raw_paths - projected_paths - omitted)
+        item_sensitive_blocked = (
+            set(_paths_for_key(sensitive_blocked, key))
+            | derived_sensitive_blocked
+        )
 
         items[key] = {
             "raw_only_paths": raw_only,
@@ -53,7 +67,7 @@ def build_report(
             "projected_paths": sorted(projected_paths),
             "omitted_by_policy": omitted_by_policy,
             "required_missing": sorted(_paths_for_key(required_missing, key)),
-            "sensitive_blocked": sorted(_paths_for_key(sensitive_blocked, key)),
+            "sensitive_blocked": sorted(item_sensitive_blocked),
         }
 
     return {
@@ -109,6 +123,53 @@ def _format_policy_path(path):
         else:
             parts.append(str(segment))
     return ".".join(parts) if parts else "<root>"
+
+
+def _sensitive_paths(value):
+    out = set()
+    _walk_sensitive(value, (), out)
+    return out
+
+
+def _walk_sensitive(value, path, out):
+    if isinstance(value, dict):
+        for key in sorted(value, key=lambda item: str(item)):
+            _walk_sensitive(value[key], path + (str(key),), out)
+        return
+    if isinstance(value, list):
+        for child in value:
+            _walk_sensitive(
+                child,
+                path + (path_inventory.LIST_MARKER,),
+                out,
+            )
+        return
+    if value:
+        out.add(path_inventory.format_path(path))
+
+
+def _container_paths(value):
+    out = set()
+    _walk_containers(value, (), out)
+    return out
+
+
+def _walk_containers(value, path, out):
+    if isinstance(value, dict):
+        if path:
+            out.add(path_inventory.format_path(path))
+        for key in sorted(value, key=lambda item: str(item)):
+            _walk_containers(value[key], path + (str(key),), out)
+        return
+    if isinstance(value, list):
+        if path:
+            out.add(path_inventory.format_path(path))
+        for child in value:
+            _walk_containers(
+                child,
+                path + (path_inventory.LIST_MARKER,),
+                out,
+            )
 
 
 def _paths_for_key(value, key):
