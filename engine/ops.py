@@ -330,7 +330,8 @@ def cmd_stage_imports(opts):
             staged += 1
     if sources == 0:
         raise RuntimeError(
-            "nothing to stage for TENANT=%s (run make transform first)" % tenant
+            "nothing to stage for TENANT=%s "
+            "(run make transform or make adopt first)" % tenant
         )
     if staged == 0:
         sys.stderr.write(
@@ -439,6 +440,11 @@ def cmd_assert_adoptable(opts):
             _print_findings(result["findings"])
     if checked == 0:
         raise RuntimeError("no saved plans to check - run make plan SAVE=1 first")
+    for rt, mode, path in policy.stale_entries():
+        sys.stderr.write(
+            "STALE DRIFT POLICY: %s %s %s matched no path\n"
+            % (rt, mode, path)
+        )
     if blocked:
         raise RuntimeError("%d saved plan(s) blocked by untolerated changes" % blocked)
     if tolerated:

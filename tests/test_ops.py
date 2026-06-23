@@ -1,6 +1,8 @@
 import json
+import io
 import os
 import shutil
+import sys
 import tempfile
 import unittest
 
@@ -120,6 +122,16 @@ class OpsStageImportsTest(unittest.TestCase):
         )
         self.assertTrue(os.path.exists(staged))
 
+    def test_stage_imports_mentions_transform_or_adopt_when_sources_missing(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            ops.cmd_stage_imports({
+                "tenant": "tenant",
+                "selectors": ["zia_rule_labels"],
+                "state_aware": False,
+                "backend_config": None,
+            })
+        self.assertIn("run make transform or make adopt first", str(ctx.exception))
+
 
 class OpsPlanSafetyTest(unittest.TestCase):
     def test_non_import_change_count_ignores_noops_and_import_creates(self):
@@ -220,6 +232,52 @@ class OpsPlanSafetyTest(unittest.TestCase):
             ops._check_call = old_check_call
             ops._show_plan_json = old_show
             ops._current_branch = old_branch
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_assert_adoptable_warns_on_stale_policy(self):
+        tmp = tempfile.mkdtemp(prefix="ops-adoptable-")
+        policy_path = os.path.join(tmp, "policy.json")
+        with open(policy_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "version": 1,
+                "resource_types": {
+                    "sample_resource": {
+                        "plan_tolerate": [
+                            {
+                                "path": "status",
+                                "reason": "test",
+                                "approved_by": "unit",
+                            }
+                        ]
+                    }
+                },
+            }, f)
+        old_pairs = ops.selected_env_pairs
+        old_show = ops._show_plan_json
+        old_stderr = sys.stderr
+        stderr = io.StringIO()
+        try:
+            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
+                ("tenant", "sample_resource", tmp)
+            ]
+            ops._show_plan_json = lambda env_dir: {
+                "format_version": "1.0",
+                "resource_changes": [],
+            }
+            sys.stderr = stderr
+            self.assertEqual(ops.cmd_assert_adoptable({
+                "tenant": "tenant",
+                "selectors": [],
+                "policy": policy_path,
+            }), 0)
+            self.assertIn(
+                "STALE DRIFT POLICY: sample_resource plan_tolerate status",
+                stderr.getvalue(),
+            )
+        finally:
+            ops.selected_env_pairs = old_pairs
+            ops._show_plan_json = old_show
+            sys.stderr = old_stderr
             shutil.rmtree(tmp, ignore_errors=True)
 
 

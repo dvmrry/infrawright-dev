@@ -40,14 +40,14 @@ def _provider_block(provider):
     )
 
 
-def render_root(resource_type):
+def render_root(resource_type, keys=None):
     provider = packs.provider_of(resource_type)
     source = packs.provider_sources()[provider]
     pins = packs.provider_pins()
     version_line = ""
     if provider in pins:
         version_line = '      version = "%s"\n' % pins[provider]
-    return (
+    text = (
         "terraform {\n"
         '  required_version = ">= 1.5"\n'
         "  required_providers {\n"
@@ -59,6 +59,9 @@ def render_root(resource_type):
         + "}\n\n"
         + _provider_block(provider)
     )
+    for key in sorted(keys or []):
+        text += '\nresource "%s" "%s" {}\n' % (resource_type, _instance_name(key))
+    return text
 
 
 def _run(args, cwd, env):
@@ -100,7 +103,7 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False):
     temp = tempfile.mkdtemp(prefix="infrawright-oracle-")
     try:
         with open(os.path.join(temp, "main.tf"), "w", encoding="utf-8") as f:
-            f.write(render_root(resource_type))
+            f.write(render_root(resource_type, key_to_import_id))
         env = os.environ.copy()
         env["TF_DATA_DIR"] = os.path.join(temp, ".terraform")
         tf = ops.terraform()

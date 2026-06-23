@@ -35,6 +35,7 @@ class ImportOracleTest(unittest.TestCase):
                 #!/usr/bin/env python3
                 import json
                 import os
+                import re
                 import sys
 
                 def main():
@@ -44,6 +45,15 @@ class ImportOracleTest(unittest.TestCase):
                     if args[0] == "import":
                         address = args[-2]
                         import_id = args[-1]
+                        with open(os.path.join(os.getcwd(), "main.tf"), encoding="utf-8") as f:
+                            main_tf = f.read()
+                        declared = set(
+                            "%s.%s" % (m.group(1), m.group(2))
+                            for m in re.finditer(r'resource\\s+"([^"]+)"\\s+"([^"]+)"', main_tf)
+                        )
+                        if address not in declared:
+                            sys.stderr.write("undeclared import address %s\\n" % address)
+                            return 42
                         path = os.path.join(os.getcwd(), "fake-imports.json")
                         data = {}
                         if os.path.exists(path):
@@ -99,10 +109,11 @@ class ImportOracleTest(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_render_root_uses_pack_source_pin_and_provider_block(self):
-        root = render_root("sample_resource")
+        root = render_root("sample_resource", {"prod_app": "123"})
         self.assertIn('source = "example/sample"', root)
         self.assertIn('version = "1.2.3"', root)
         self.assertIn('provider "sample"', root)
+        self.assertIn('resource "sample_resource" "iw_', root)
 
     def test_import_state_uses_fake_terraform_and_returns_values(self):
         out = import_state("sample_resource", {"a": "123", "b": "456"})
