@@ -26,6 +26,9 @@ registry entries and the provider schema from `terraform providers schema
 -json`. Provider credentials were supplied by environment variables. No remote
 backend was used.
 
+The `iw-pr23` run prefix was the disposable Grafana object prefix chosen before
+the report PR number was assigned; it is recorded here as factual lab metadata.
+
 ## Matrix
 
 | Resource | Seeded | Oracle adopt | Initial plan | Policy omissions | Final plan |
