@@ -1,7 +1,7 @@
 PYTHON ?= python3
 TF ?= terraform
 
-.PHONY: demo check-demo check-modules check test fetch fetch-diag gen-env transform stage-imports unstage-imports plan clean-plans assert-clean apply
+.PHONY: demo check-demo check-modules check test fetch fetch-diag gen-env transform adopt stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 demo: ## Materialize the demo tenant under config/demo and imports/demo
 	@set -e; for rt in $$($(PYTHON) -c "from engine.registry import generated_types; print('\n'.join(generated_types()))"); do \
@@ -52,6 +52,19 @@ transform: ## Transform pulled JSON for a tenant (IN=<dir> TENANT=<name> [RESOUR
 	done; \
 	test -z "$$failed" || { echo ""; echo "transform FAILED for:$$failed"; exit 1; }
 
+adopt: ## Transform pulled JSON using Terraform/OpenTofu import oracle (IN=<dir> TENANT=<name> [RESOURCE="<type|provider> ..."] [POLICY=<file>])
+	@test -n "$(IN)" -a -n "$(TENANT)" || { echo "usage: make adopt IN=pulls/<tenant> TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"] [POLICY=<file>]"; exit 2; }
+	@set -e; resources="$$($(PYTHON) -m engine.ops resources $(RESOURCE))"; failed=""; for rt in $$resources; do \
+		src=$$($(PYTHON) -c "from engine.registry import derive_entry; d=derive_entry('$$rt'); print(d['from'] if d else '$$rt')"); \
+		f="$(IN)/$$src.json"; \
+		if [ -f "$$f" ]; then \
+			$(PYTHON) -m engine.adopt "$$rt" "$$f" "$(TENANT)" $(if $(POLICY),--policy "$(POLICY)") || failed="$$failed $$rt"; \
+		else \
+			echo "skip $$rt (no $$f)"; \
+		fi; \
+	done; \
+	test -z "$$failed" || { echo ""; echo "adopt FAILED for:$$failed"; exit 1; }
+
 stage-imports: ## Copy import/moved blocks into env roots (TENANT=<label> [RESOURCE=<type|provider>] [STATE_AWARE=1] [BACKEND_CONFIG=<file>])
 	$(PYTHON) -m engine.ops stage-imports --tenant "$(TENANT)" $(if $(STATE_AWARE),--state-aware) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(RESOURCE)
 
@@ -67,5 +80,8 @@ clean-plans: ## Delete saved tfplan artifacts ([TENANT=<label>] [RESOURCE=<type|
 assert-clean: ## Exit 0 only when every saved plan is no-op/import-only ([TENANT=<label>] [RESOURCE=<type|provider>])
 	$(PYTHON) -m engine.ops assert-clean $(if $(TENANT),--tenant "$(TENANT)") $(RESOURCE)
 
-apply: ## Apply saved plans ([TENANT=<label>] [RESOURCE=<type|provider>] [BACKEND_CONFIG=<file>] [ALLOW_DESTROY=1] [ALLOW_NON_MAIN=1])
-	$(PYTHON) -m engine.ops apply $(if $(TENANT),--tenant "$(TENANT)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(ALLOW_DESTROY),--allow-destroy) $(if $(ALLOW_NON_MAIN),--allow-non-main) $(if $(MAIN_BRANCH),--main-branch "$(MAIN_BRANCH)") $(RESOURCE)
+assert-adoptable: ## Classify saved plans with optional consumer drift policy ([TENANT=<label>] [RESOURCE=<type|provider>] [POLICY=<file>])
+	$(PYTHON) -m engine.ops assert-adoptable $(if $(TENANT),--tenant "$(TENANT)") $(if $(POLICY),--policy "$(POLICY)") $(RESOURCE)
+
+apply: ## Apply saved plans ([TENANT=<label>] [RESOURCE=<type|provider>] [BACKEND_CONFIG=<file>] [ALLOW_DESTROY=1] [ALLOW_NON_MAIN=1] [ALLOW_PLAN_CHANGES=1])
+	$(PYTHON) -m engine.ops apply $(if $(TENANT),--tenant "$(TENANT)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(ALLOW_DESTROY),--allow-destroy) $(if $(ALLOW_NON_MAIN),--allow-non-main) $(if $(ALLOW_PLAN_CHANGES),--allow-plan-changes) $(if $(MAIN_BRANCH),--main-branch "$(MAIN_BRANCH)") $(RESOURCE)

@@ -208,6 +208,17 @@ def schema_path_for(provider):
         pack_dir_for_provider(provider), "schemas", "provider", provider + ".json")
 
 
+def oracle_provider_config_path(provider):
+    """Optional provider config override for oracle scratch roots.
+
+    Default adoption roots use an empty provider block with credentials from
+    provider environment variables. Packs that need explicit config can ship:
+      packs/<pack>/oracle/<provider>.tf
+    """
+    path = os.path.join(pack_dir_for_provider(provider), "oracle", provider + ".tf")
+    return path if os.path.exists(path) else None
+
+
 def registry_paths():
     """Every pack's registry.json, which load_registry() merges. One today;
     one per provider after the split."""

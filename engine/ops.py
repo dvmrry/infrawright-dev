@@ -211,21 +211,61 @@ def _show_plan_json(env_dir):
 
 
 def _plan_change_count(plan):
-    total = 0
+    return _non_import_change_count(plan)
+
+
+def _is_import_only_change(resource_change):
+    change = resource_change.get("change") or {}
+    actions = set(change.get("actions") or [])
+    return (change.get("importing") or resource_change.get("importing")) and (
+        actions <= {"create"}
+    )
+
+
+def _iter_plan_change_records(plan):
     for resource_change in plan.get("resource_changes") or []:
+        yield resource_change
+    for resource_drift in plan.get("resource_drift") or []:
+        yield resource_drift
+
+
+def _non_import_change_count(plan):
+    total = 0
+    for resource_change in _iter_plan_change_records(plan):
         actions = set((resource_change.get("change") or {}).get("actions") or [])
-        if actions - {"no-op"}:
-            total += 1
+        if actions <= {"no-op"}:
+            continue
+        if _is_import_only_change(resource_change):
+            continue
+        total += 1
     return total
 
 
 def _destroy_count(plan):
     total = 0
-    for resource_change in plan.get("resource_changes") or []:
+    for resource_change in _iter_plan_change_records(plan):
         actions = set((resource_change.get("change") or {}).get("actions") or [])
         if "delete" in actions:
             total += 1
     return total
+
+
+def _print_findings(findings):
+    from engine.plan_eval import BLOCKED, TOLERATED, format_path
+
+    for finding in findings:
+        if finding.get("status") not in (BLOCKED, TOLERATED):
+            continue
+        sys.stderr.write(
+            "  %s %s %s\n"
+            % (
+                finding.get("address"),
+                ",".join(finding.get("actions") or []),
+                finding.get("status"),
+            )
+        )
+        for path in finding.get("paths") or []:
+            sys.stderr.write("    - %s\n" % format_path(path))
 
 
 def cmd_stage_imports(opts):
@@ -290,7 +330,8 @@ def cmd_stage_imports(opts):
             staged += 1
     if sources == 0:
         raise RuntimeError(
-            "nothing to stage for TENANT=%s (run make transform first)" % tenant
+            "nothing to stage for TENANT=%s "
+            "(run make transform or make adopt first)" % tenant
         )
     if staged == 0:
         sys.stderr.write(
@@ -376,6 +417,48 @@ def cmd_assert_clean(opts):
     return 0
 
 
+def cmd_assert_adoptable(opts):
+    from engine.drift_policy import DriftPolicy
+    from engine.plan_eval import BLOCKED, TOLERATED, classify_plan
+
+    policy = DriftPolicy.load(opts.get("policy"))
+    checked = 0
+    blocked = 0
+    tolerated = 0
+    checked_types = set()
+    for tenant, resource_type, path in selected_env_pairs(
+            opts.get("tenant"), opts["selectors"], require_plan=True):
+        plan = _show_plan_json(path)
+        result = classify_plan(plan, policy=policy)
+        checked += 1
+        checked_types.add(resource_type)
+        if result["status"] == BLOCKED:
+            blocked += 1
+            sys.stderr.write("BLOCKED: %s/%s\n" % (tenant, resource_type))
+            _print_findings(result["findings"])
+        elif result["status"] == TOLERATED:
+            tolerated += 1
+            sys.stderr.write("TOLERATED: %s/%s\n" % (tenant, resource_type))
+            _print_findings(result["findings"])
+    if checked == 0:
+        raise RuntimeError("no saved plans to check - run make plan SAVE=1 first")
+    for rt, mode, path in policy.stale_entries(
+            resource_types=checked_types, modes=("plan_tolerate",)):
+        sys.stderr.write(
+            "STALE DRIFT POLICY: %s %s %s matched no path\n"
+            % (rt, mode, path)
+        )
+    if blocked:
+        raise RuntimeError("%d saved plan(s) blocked by untolerated changes" % blocked)
+    if tolerated:
+        sys.stderr.write(
+            "%d saved plan(s) adoptable with consumer-tolerated drift\n" % tolerated
+        )
+    else:
+        sys.stderr.write("all %d saved plan(s) clean\n" % checked)
+    return 0
+
+
 def cmd_clean_plans(opts):
     removed = 0
     for _tenant, _resource_type, path in selected_env_pairs(opts.get("tenant"), opts["selectors"]):
@@ -428,6 +511,14 @@ def cmd_apply(opts):
             stdout=subprocess.DEVNULL,
         )
         plan = _show_plan_json(path)
+        changes = _non_import_change_count(plan)
+        if changes and not opts["allow_plan_changes"]:
+            raise RuntimeError(
+                "%s/%s saved plan contains %d non-import change(s); refused. "
+                "Run assert-adoptable for review, or pass --allow-plan-changes "
+                "for an intentional apply."
+                % (tenant, resource_type, changes)
+            )
         destroys = _destroy_count(plan)
         if destroys and not opts["allow_destroy"]:
             raise RuntimeError(
@@ -452,7 +543,9 @@ def _parse(argv, allow_optional_tenant=False):
         "imports_only": False,
         "allow_destroy": False,
         "allow_non_main": False,
+        "allow_plan_changes": False,
         "main_branch": None,
+        "policy": None,
     }
     i = 0
     while i < len(argv):
@@ -477,11 +570,18 @@ def _parse(argv, allow_optional_tenant=False):
             opts["allow_destroy"] = True
         elif arg == "--allow-non-main":
             opts["allow_non_main"] = True
+        elif arg == "--allow-plan-changes":
+            opts["allow_plan_changes"] = True
         elif arg == "--main-branch":
             i += 1
             if i >= len(argv):
                 raise ValueError("--main-branch requires a value")
             opts["main_branch"] = argv[i]
+        elif arg == "--policy":
+            i += 1
+            if i >= len(argv):
+                raise ValueError("--policy requires a value")
+            opts["policy"] = argv[i]
         elif arg.startswith("-"):
             raise ValueError("unknown option %s" % arg)
         else:
@@ -497,7 +597,8 @@ def _parse(argv, allow_optional_tenant=False):
 def _usage():
     return (
         "usage: python -m engine.ops <resources|stage-imports|unstage-imports|plan|"
-        "assert-clean|clean-plans|apply> [options] [resource|provider ...]\n"
+        "assert-clean|assert-adoptable|clean-plans|apply> [options] "
+        "[resource|provider ...]\n"
     )
 
 
@@ -521,6 +622,8 @@ def main(argv=None):
             return cmd_plan(_parse(rest))
         if command == "assert-clean":
             return cmd_assert_clean(_parse(rest, allow_optional_tenant=True))
+        if command == "assert-adoptable":
+            return cmd_assert_adoptable(_parse(rest, allow_optional_tenant=True))
         if command == "clean-plans":
             return cmd_clean_plans(_parse(rest, allow_optional_tenant=True))
         if command == "apply":
