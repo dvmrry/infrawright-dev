@@ -242,6 +242,22 @@ class OpsPlanSafetyTest(unittest.TestCase):
                 "version": 1,
                 "resource_types": {
                     "sample_resource": {
+                        "projection_omit": [
+                            {
+                                "path": "description",
+                                "reason": "test",
+                                "approved_by": "unit",
+                            }
+                        ],
+                        "plan_tolerate": [
+                            {
+                                "path": "status",
+                                "reason": "test",
+                                "approved_by": "unit",
+                            }
+                        ]
+                    },
+                    "other_resource": {
                         "plan_tolerate": [
                             {
                                 "path": "status",
@@ -274,6 +290,8 @@ class OpsPlanSafetyTest(unittest.TestCase):
                 "STALE DRIFT POLICY: sample_resource plan_tolerate status",
                 stderr.getvalue(),
             )
+            self.assertNotIn("projection_omit", stderr.getvalue())
+            self.assertNotIn("other_resource", stderr.getvalue())
         finally:
             ops.selected_env_pairs = old_pairs
             ops._show_plan_json = old_show

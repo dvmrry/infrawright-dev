@@ -49,10 +49,14 @@ class DriftPolicy(object):
                 return True
         return False
 
-    def stale_entries(self):
+    def stale_entries(self, resource_types=None, modes=None):
+        resource_types = set(resource_types or [])
+        modes = tuple(modes or ("projection_omit", "plan_tolerate"))
         stale = []
         for rt, cfg in sorted((self.data.get("resource_types") or {}).items()):
-            for mode in ("projection_omit", "plan_tolerate"):
+            if resource_types and rt not in resource_types:
+                continue
+            for mode in modes:
                 for entry in cfg.get(mode) or []:
                     if not entry.get("_matched"):
                         stale.append((rt, mode, entry["path"]))

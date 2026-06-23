@@ -425,11 +425,13 @@ def cmd_assert_adoptable(opts):
     checked = 0
     blocked = 0
     tolerated = 0
+    checked_types = set()
     for tenant, resource_type, path in selected_env_pairs(
             opts.get("tenant"), opts["selectors"], require_plan=True):
         plan = _show_plan_json(path)
         result = classify_plan(plan, policy=policy)
         checked += 1
+        checked_types.add(resource_type)
         if result["status"] == BLOCKED:
             blocked += 1
             sys.stderr.write("BLOCKED: %s/%s\n" % (tenant, resource_type))
@@ -440,7 +442,8 @@ def cmd_assert_adoptable(opts):
             _print_findings(result["findings"])
     if checked == 0:
         raise RuntimeError("no saved plans to check - run make plan SAVE=1 first")
-    for rt, mode, path in policy.stale_entries():
+    for rt, mode, path in policy.stale_entries(
+            resource_types=checked_types, modes=("plan_tolerate",)):
         sys.stderr.write(
             "STALE DRIFT POLICY: %s %s %s matched no path\n"
             % (rt, mode, path)

@@ -67,9 +67,25 @@ class DriftPolicyTest(unittest.TestCase):
             "version": 1,
             "resource_types": {
                 "sample_resource": {
+                    "projection_omit": [
+                        {
+                            "path": "description",
+                            "reason": "test",
+                            "approved_by": "unit",
+                        }
+                    ],
                     "plan_tolerate": [
                         {
                             "path": "rules[*].status",
+                            "reason": "test",
+                            "approved_by": "unit",
+                        }
+                    ]
+                },
+                "other_resource": {
+                    "plan_tolerate": [
+                        {
+                            "path": "status",
                             "reason": "test",
                             "approved_by": "unit",
                         }
@@ -79,6 +95,16 @@ class DriftPolicyTest(unittest.TestCase):
         })
         self.assertEqual(
             policy.stale_entries(),
+            [
+                ("other_resource", "plan_tolerate", "status"),
+                ("sample_resource", "projection_omit", "description"),
+                ("sample_resource", "plan_tolerate", "rules[*].status"),
+            ],
+        )
+        self.assertEqual(
+            policy.stale_entries(
+                resource_types={"sample_resource"}, modes=("plan_tolerate",)
+            ),
             [("sample_resource", "plan_tolerate", "rules[*].status")],
         )
 
