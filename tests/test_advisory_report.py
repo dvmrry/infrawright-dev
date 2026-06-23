@@ -98,6 +98,124 @@ class AdvisoryReportTest(unittest.TestCase):
         self.assertEqual(report["summary"]["required_missing"], 1)
         self.assertEqual(report["summary"]["sensitive_blocked"], 1)
 
+    def test_derives_sensitive_block_marker_missing_from_projected(self):
+        report = build_report(
+            "sample_resource",
+            {"prod_app": {"name": "Prod"}},
+            {
+                "prod_app": {
+                    "values": {
+                        "name": "Prod",
+                        "webhook": [{"url": "https://example.test/hook"}],
+                    },
+                    "sensitive_values": {"webhook": True},
+                }
+            },
+            {"prod_app": {"name": "Prod"}},
+        )
+
+        item = report["items"]["prod_app"]
+        self.assertEqual(item["sensitive_blocked"], ["webhook"])
+        self.assertEqual(report["summary"]["sensitive_blocked"], 1)
+
+    def test_derives_sensitive_leaf_marker_missing_from_projected(self):
+        report = build_report(
+            "sample_resource",
+            {"prod_app": {"name": "Prod"}},
+            {
+                "prod_app": {
+                    "values": {
+                        "name": "Prod",
+                        "secure_json_data_encoded": "secret",
+                    },
+                    "sensitive_values": {
+                        "secure_json_data_encoded": True,
+                    },
+                }
+            },
+            {"prod_app": {"name": "Prod"}},
+        )
+
+        item = report["items"]["prod_app"]
+        self.assertEqual(
+            item["sensitive_blocked"],
+            ["secure_json_data_encoded"],
+        )
+
+    def test_derives_sensitive_list_leaf_with_normalized_path(self):
+        report = build_report(
+            "sample_resource",
+            {"prod_app": {"name": "Prod"}},
+            {
+                "prod_app": {
+                    "values": {
+                        "name": "Prod",
+                        "webhook": [{"url": "https://example.test/hook"}],
+                    },
+                    "sensitive_values": {
+                        "webhook": [{"url": True}],
+                    },
+                }
+            },
+            {"prod_app": {"name": "Prod"}},
+        )
+
+        item = report["items"]["prod_app"]
+        self.assertEqual(item["sensitive_blocked"], ["webhook[].url"])
+
+    def test_projected_sensitive_path_is_not_reported_blocked(self):
+        report = build_report(
+            "sample_resource",
+            {"prod_app": {"name": "Prod"}},
+            {
+                "prod_app": {
+                    "values": {
+                        "name": "Prod",
+                        "secure_json_data_encoded": "secret",
+                    },
+                    "sensitive_values": {
+                        "secure_json_data_encoded": True,
+                    },
+                }
+            },
+            {
+                "prod_app": {
+                    "name": "Prod",
+                    "secure_json_data_encoded": "managed",
+                }
+            },
+        )
+
+        item = report["items"]["prod_app"]
+        self.assertEqual(item["sensitive_blocked"], [])
+
+    def test_caller_supplied_sensitive_blocked_is_unioned(self):
+        report = build_report(
+            "sample_resource",
+            {"prod_app": {"name": "Prod"}},
+            {
+                "prod_app": {
+                    "values": {
+                        "name": "Prod",
+                        "secure_json_data_encoded": "secret",
+                    },
+                    "sensitive_values": {
+                        "secure_json_data_encoded": True,
+                    },
+                }
+            },
+            {"prod_app": {"name": "Prod"}},
+            sensitive_blocked={
+                "prod_app": ["manual.secret", "secure_json_data_encoded"],
+            },
+        )
+
+        item = report["items"]["prod_app"]
+        self.assertEqual(
+            item["sensitive_blocked"],
+            ["manual.secret", "secure_json_data_encoded"],
+        )
+
     def test_projection_omit_does_not_suppress_raw_only_path(self):
         policy = DriftPolicy({
             "version": 1,

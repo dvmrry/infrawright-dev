@@ -40,6 +40,8 @@ python -m engine.adopt_certify \
 
 The command is fixture-driven. It does not run oracle import, projection, or Terraform plan.
 Plan cleanliness comes from `assert-adoptable`, not from the advisory report.
+It does not compute `required_missing`.
+It can derive `sensitive_blocked` from oracle-state `sensitive_values`.
 
 ## Inputs
 
@@ -90,7 +92,7 @@ The report is pretty JSON on stdout:
     "terraform_plan": "not_run_by_cli",
     "plan_cleanliness": "not_computed_by_cli_use_assert_adoptable",
     "required_missing": "caller_supplied_not_computed_by_cli",
-    "sensitive_blocked": "caller_supplied_not_computed_by_cli"
+    "sensitive_blocked": "derived_from_oracle_sensitive_values_or_caller_supplied"
   },
   "summary": {
     "items": 1,
@@ -129,10 +131,14 @@ The report is pretty JSON on stdout:
 provider-invisible security surface, or fields intentionally outside Terraform
 control. They should be reviewed before production provider adoption.
 
-`required_missing` and `sensitive_blocked` are not computed by this CLI. They
-are retained in the report contract for future in-process callers that can
-supply projection diagnostics. In CLI-generated reports they default to empty
-unless a future caller supplies those diagnostics before report construction.
+`required_missing` is not computed by this CLI. It is retained in the report
+contract for future in-process callers that can supply projection diagnostics.
+In CLI-generated reports it defaults to empty.
+
+`sensitive_blocked` can be derived by this CLI from oracle-state `sensitive_values`.
+Caller-supplied sensitive blocked diagnostics are unioned with derived paths.
+This is still static evidence: the command does not decide whether a sensitive
+block is structurally required for a valid Terraform plan.
 
 ## Scope Boundary
 

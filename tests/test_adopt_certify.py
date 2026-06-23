@@ -119,7 +119,9 @@ class AdoptCertifyCliTest(unittest.TestCase):
             "terraform_plan": "not_run_by_cli",
             "plan_cleanliness": "not_computed_by_cli_use_assert_adoptable",
             "required_missing": "caller_supplied_not_computed_by_cli",
-            "sensitive_blocked": "caller_supplied_not_computed_by_cli",
+            "sensitive_blocked": (
+                "derived_from_oracle_sensitive_values_or_caller_supplied"
+            ),
         })
         self.assertEqual(report["summary"]["items"], 1)
         self.assertEqual(report["summary"]["required_missing"], 0)
@@ -131,6 +133,46 @@ class AdoptCertifyCliTest(unittest.TestCase):
         self.assertEqual(
             report["items"]["prod_app"]["omitted_by_policy"],
             ["provider_default.mode"],
+        )
+
+    def test_cli_derives_sensitive_blocked_from_oracle_state(self):
+        raw = self._path("raw.json", {
+            "prod_app": {
+                "name": "Prod App",
+            }
+        })
+        oracle = self._path("oracle.json", {
+            "prod_app": {
+                "values": {
+                    "name": "Prod App",
+                    "webhook": [{"url": "https://example.test/hook"}],
+                },
+                "sensitive_values": {
+                    "webhook": True,
+                },
+            }
+        })
+        projected = self._path("projected.json", {
+            "items": {
+                "prod_app": {
+                    "name": "Prod App",
+                }
+            }
+        })
+
+        code, out, err = self._run([
+            "--resource-type", "sample_resource",
+            "--raw", raw,
+            "--oracle-state", oracle,
+            "--projected", projected,
+        ])
+
+        self.assertEqual(code, 0, err)
+        report = json.loads(out)
+        self.assertGreaterEqual(report["summary"]["sensitive_blocked"], 1)
+        self.assertEqual(
+            report["items"]["prod_app"]["sensitive_blocked"],
+            ["webhook"],
         )
 
     def test_cli_rejects_duplicate_raw_list_keys(self):
@@ -171,7 +213,7 @@ class AdoptCertifyCliTest(unittest.TestCase):
         self.assertIn("projected key mismatch", err)
         self.assertIn("missing keys: prod_app", err)
 
-    def test_docs_state_cli_is_static_and_projection_diagnostics_are_not_computed(self):
+    def test_docs_state_cli_is_static_and_projection_diagnostics_are_limited(self):
         docs_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
             "docs",
@@ -190,8 +232,12 @@ class AdoptCertifyCliTest(unittest.TestCase):
             text.lower(),
         )
         self.assertIn(
-            "`required_missing` and `sensitive_blocked` are not computed by "
-            "this CLI",
+            "`required_missing` is not computed by this CLI",
+            text,
+        )
+        self.assertIn(
+            "`sensitive_blocked` can be derived by this CLI from oracle-state "
+            "`sensitive_values`",
             text,
         )
 

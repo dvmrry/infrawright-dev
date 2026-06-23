@@ -69,15 +69,15 @@ oracle-imported provider state, projected tfvars, and policy omissions.
 |---|---:|---:|---:|---:|---:|---:|
 | `grafana_folder` | 10 | 1 | 4 | 0 | 0 | 0 |
 | `grafana_dashboard` | 43 | 7 | 3 | 0 | 0 | 0 |
-| `grafana_data_source` | 10 | 1 | 12 | 2 | 0 | 0 |
+| `grafana_data_source` | 10 | 1 | 12 | 2 | 0 | 2 |
 | `grafana_annotation` | 7 | 1 | 6 | 0 | 0 | 0 |
 | `grafana_playlist` | 3 | 2 | 6 | 0 | 0 | 0 |
 | `grafana_library_panel` | 19 | 4 | 5 | 0 | 0 | 0 |
 | `grafana_team` | 7 | 2 | 4 | 0 | 0 | 0 |
 | `grafana_service_account` | 6 | 0 | 4 | 0 | 0 | 0 |
-| `grafana_contact_point` | 5 | 12 | 3 | 0 | 0 | 0 |
+| `grafana_contact_point` | 5 | 12 | 3 | 0 | 0 | 1 |
 | `grafana_mute_timing` | 5 | 2 | 6 | 0 | 0 | 0 |
-| **Total** | **115** | **32** | **53** | **2** | **0** | **0** |
+| **Total** | **115** | **32** | **53** | **2** | **0** | **3** |
 
 Raw-only paths were lower than NetBox, but the mismatch was more about API
 surface shape than rich relationship metadata. Representative examples:
@@ -125,12 +125,19 @@ adoption engine needs a future diagnostic for sensitive required blocks, or a
 provider-specific way to classify which sensitive block fields can be safely
 represented, redacted, or intentionally left for a human.
 
+With static sensitive marker derivation, the advisory report should flag the
+sensitive provider-observed paths that were absent from projected tfvars. That
+does not remediate `grafana_contact_point`: issue #25 remains the adoption
+engine work for sensitive blocks that are also required for Terraform
+validation.
+
 The PR20 advisory report also exposed a report-semantics gap: a block-level
 policy omission such as `webhook` did not appear in `omitted_by_policy` because
 the path inventory reports leaf paths such as `webhook[].url`. The projection
 policy did take effect, but the advisory report did not count that block-level
 omission. Future advisory output should either expand block omissions to
-observed leaves or report container-level omissions separately.
+observed leaves or report container-level omissions separately. Issue #26
+remains the report work for block/container-level `projection_omit` entries.
 
 ## Lab Friction
 
