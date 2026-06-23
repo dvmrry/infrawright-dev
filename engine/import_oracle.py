@@ -22,6 +22,8 @@ class OracleError(RuntimeError):
 
 
 _MAX_SUBPROCESS_OUTPUT = 1200
+_BACKEND_BLOCK_RE = re.compile(r'\bbackend\s+"[^"]+"\s*\{')
+_CLOUD_BLOCK_RE = re.compile(r'\bcloud\s*\{')
 
 
 def _instance_name(key):
@@ -82,9 +84,14 @@ def render_root(resource_type, keys=None):
 
 
 def _assert_local_scratch_root(text):
-    if 'backend "' in text:
+    if _BACKEND_BLOCK_RE.search(text):
         raise OracleError(
             "oracle scratch root must not declare a Terraform backend; "
+            "oracle state is intentionally ephemeral and local"
+        )
+    if _CLOUD_BLOCK_RE.search(text):
+        raise OracleError(
+            "oracle scratch root must not declare Terraform cloud; "
             "oracle state is intentionally ephemeral and local"
         )
 

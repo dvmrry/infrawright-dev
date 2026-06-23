@@ -112,7 +112,18 @@ class AdoptCertifyCliTest(unittest.TestCase):
 
         self.assertEqual(code, 0, err)
         report = json.loads(out)
+        self.assertEqual(report["metadata"], {
+            "mode": "static_advisory_diff",
+            "oracle_import": "not_run_by_cli",
+            "projection": "not_run_by_cli",
+            "terraform_plan": "not_run_by_cli",
+            "plan_cleanliness": "not_computed_by_cli_use_assert_adoptable",
+            "required_missing": "caller_supplied_not_computed_by_cli",
+            "sensitive_blocked": "caller_supplied_not_computed_by_cli",
+        })
         self.assertEqual(report["summary"]["items"], 1)
+        self.assertEqual(report["summary"]["required_missing"], 0)
+        self.assertEqual(report["summary"]["sensitive_blocked"], 0)
         self.assertEqual(
             report["items"]["prod_app"]["raw_only_paths"],
             ["api_only.mode", "id"],
@@ -159,6 +170,30 @@ class AdoptCertifyCliTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("projected key mismatch", err)
         self.assertIn("missing keys: prod_app", err)
+
+    def test_docs_state_cli_is_static_and_projection_diagnostics_are_not_computed(self):
+        docs_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "docs",
+            "adopt-certification.md",
+        )
+        with open(docs_path, encoding="utf-8") as f:
+            text = f.read()
+
+        self.assertIn("static advisory diff", text)
+        self.assertIn(
+            "does not run oracle import, projection, or Terraform plan",
+            text,
+        )
+        self.assertIn(
+            "plan cleanliness comes from `assert-adoptable`",
+            text.lower(),
+        )
+        self.assertIn(
+            "`required_missing` and `sensitive_blocked` are not computed by "
+            "this CLI",
+            text,
+        )
 
 
 if __name__ == "__main__":

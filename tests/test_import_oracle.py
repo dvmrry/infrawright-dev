@@ -193,18 +193,50 @@ class ImportOracleTest(unittest.TestCase):
                 shutil.rmtree(kept, ignore_errors=True)
 
     def test_backend_blocks_are_rejected_before_terraform_init(self):
+        self._assert_oracle_override_rejected(textwrap.dedent("""\
+            provider "sample" {}
+
+            terraform {
+              backend "local" {}
+            }
+        """))
+
+    def test_backend_block_with_multiple_spaces_is_rejected(self):
+        self._assert_oracle_override_rejected(textwrap.dedent("""\
+            provider "sample" {}
+
+            terraform {
+              backend  "s3" {}
+            }
+        """))
+
+    def test_backend_block_with_tab_is_rejected(self):
+        self._assert_oracle_override_rejected(
+            'provider "sample" {}\nterraform {\n  backend\t"s3" {}\n}\n')
+
+    def test_cloud_block_is_rejected_before_terraform_init(self):
+        self._assert_oracle_override_rejected(textwrap.dedent("""\
+            provider "sample" {}
+
+            terraform {
+              cloud {}
+            }
+        """))
+
+    def test_provider_only_oracle_override_is_allowed(self):
+        import_oracle._assert_local_scratch_root(textwrap.dedent("""\
+            provider "sample" {
+              # credentials via environment
+            }
+        """))
+
+    def _assert_oracle_override_rejected(self, text):
         os.makedirs(os.path.join(self.tmp, "sample", "oracle"), exist_ok=True)
         with open(
                 os.path.join(self.tmp, "sample", "oracle", "sample.tf"),
                 "w",
                 encoding="utf-8") as f:
-            f.write(textwrap.dedent("""\
-                provider "sample" {}
-
-                terraform {
-                  backend "local" {}
-                }
-            """))
+            f.write(text)
         os.environ["TF"] = os.path.join(self.tmp, "missing-fake-tf")
 
         with self.assertRaises(OracleError) as ctx:

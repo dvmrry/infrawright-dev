@@ -4,6 +4,10 @@ This report compares raw API detail shape, oracle-imported provider state, and
 projected tfvars shape. It is advisory by design: raw-only paths can indicate
 provider-invisible surface, API-only metadata, or fields intentionally outside
 Terraform control.
+
+``required_missing`` and ``sensitive_blocked`` are caller-supplied side inputs.
+This module records and summarizes them when provided, but does not run state
+projection or Terraform validation itself.
 """
 
 from engine import path_inventory
