@@ -225,4 +225,5 @@ git diff --check
   such as BigQuery no-billing expiration values before deciding whether any
   normalization belongs in a future Google pack.
 - `lab-harness`: consider a small REST helper for providers where a CLI such as
-  `gcloud` is unavailable but raw API detail is still needed for certification.
+  `gcloud` is unavailable but raw API detail is still needed for advisory
+  reports.

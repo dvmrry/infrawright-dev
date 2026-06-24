@@ -159,3 +159,7 @@ and provider diagnostics; remove it when debugging is complete.
 Terraform/OpenTofu subprocess errors are redacted and truncated by default.
 Full failing stdout/stderr is written only when the oracle workdir is explicitly
 kept for debugging.
+
+Each Terraform/OpenTofu subprocess has a timeout. Override the default with
+`INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS=<seconds>` when a provider import/read is
+legitimately slow.

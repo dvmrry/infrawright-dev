@@ -3,8 +3,8 @@
 ## Scope
 
 This lab exercised the PR15 import-oracle adoption path, the PR20 static
-certification/advisory report, and the PR21 oracle safety hardening against a
-disposable Grafana OSS target.
+advisory report, and the PR21 oracle safety hardening against a disposable
+Grafana OSS target.
 
 This is a provider lab report, not a committed Grafana pack. The temporary
 pack, schema dump, raw API details, oracle state, projected tfvars, Terraform
@@ -62,7 +62,7 @@ threema,victorops,webex,webhook,wecom` must be specified
 
 ## Advisory Summary
 
-The static certification report compared raw Grafana detail JSON,
+The static advisory report compared raw Grafana detail JSON,
 oracle-imported provider state, projected tfvars, and policy omissions.
 
 | Resource | Raw-only | Provider-only | Projected | Omitted by policy | Required missing | Sensitive blocked |
