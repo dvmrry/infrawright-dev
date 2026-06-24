@@ -1,0 +1,124 @@
+{
+  "pin": "5.6.2",
+  "provider_prefixes": {
+    "netbox_": "netbox"
+  },
+  "provider_sources": {
+    "netbox": "e-breuninger/netbox"
+  },
+  "vendor": "netbox",
+  "absent_defaults": {
+    "rules": [
+      {
+        "id": "netbox_device_empty_rack_face_placeholder",
+        "provider": "netbox",
+        "resource_type": "netbox_device",
+        "path": "rack_face",
+        "kind": "provider_absent_placeholder",
+        "observed_value": "",
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/netbox-pr22.md",
+        "reason": "Provider reports an empty string placeholder for an absent optional rack face in the NetBox lab. Any future omit must route through projection_omit and require a runtime discriminator."
+      },
+      {
+        "id": "netbox_prefix_zero_location_id_placeholder",
+        "provider": "netbox",
+        "resource_type": "netbox_prefix",
+        "path": "location_id",
+        "kind": "provider_absent_placeholder",
+        "observed_value": 0,
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/netbox-pr22.md",
+        "reason": "Provider reports a zero placeholder for an absent optional location scope. Zero-valued mutually exclusive scope IDs conflict during projection."
+      },
+      {
+        "id": "netbox_prefix_zero_region_id_placeholder",
+        "provider": "netbox",
+        "resource_type": "netbox_prefix",
+        "path": "region_id",
+        "kind": "provider_absent_placeholder",
+        "observed_value": 0,
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/netbox-pr22.md",
+        "reason": "Provider reports a zero placeholder for an absent optional region scope. Zero-valued mutually exclusive scope IDs conflict during projection."
+      },
+      {
+        "id": "netbox_prefix_zero_site_group_id_placeholder",
+        "provider": "netbox",
+        "resource_type": "netbox_prefix",
+        "path": "site_group_id",
+        "kind": "provider_absent_placeholder",
+        "observed_value": 0,
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/netbox-pr22.md",
+        "reason": "Provider reports a zero placeholder for an absent optional site group scope. Zero-valued mutually exclusive scope IDs conflict during projection."
+      },
+      {
+        "id": "netbox_prefix_zero_site_id_placeholder",
+        "provider": "netbox",
+        "resource_type": "netbox_prefix",
+        "path": "site_id",
+        "kind": "provider_absent_placeholder",
+        "observed_value": 0,
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/netbox-pr22.md",
+        "reason": "Provider reports a zero placeholder for an absent optional site scope. Zero-valued mutually exclusive scope IDs conflict during projection."
+      },
+      {
+        "id": "netbox_ip_address_zero_device_interface_id_placeholder",
+        "provider": "netbox",
+        "resource_type": "netbox_ip_address",
+        "path": "device_interface_id",
+        "kind": "provider_absent_placeholder",
+        "observed_value": 0,
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/netbox-pr22.md",
+        "reason": "Provider reports a zero placeholder for an absent optional device interface binding. Mutually exclusive interface target IDs conflict during projection."
+      },
+      {
+        "id": "netbox_ip_address_zero_interface_id_placeholder",
+        "provider": "netbox",
+        "resource_type": "netbox_ip_address",
+        "path": "interface_id",
+        "kind": "provider_absent_placeholder",
+        "observed_value": 0,
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/netbox-pr22.md",
+        "reason": "Provider reports a zero placeholder for an absent optional interface binding. Mutually exclusive interface target IDs conflict during projection."
+      },
+      {
+        "id": "netbox_ip_address_zero_virtual_machine_interface_id_placeholder",
+        "provider": "netbox",
+        "resource_type": "netbox_ip_address",
+        "path": "virtual_machine_interface_id",
+        "kind": "provider_absent_placeholder",
+        "observed_value": 0,
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/netbox-pr22.md",
+        "reason": "Provider reports a zero placeholder for an absent optional virtual machine interface binding. Mutually exclusive interface target IDs conflict during projection."
+      },
+      {
+        "id": "netbox_ip_address_empty_object_type_placeholder",
+        "provider": "netbox",
+        "resource_type": "netbox_ip_address",
+        "path": "object_type",
+        "kind": "provider_absent_placeholder",
+        "observed_value": "",
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/netbox-pr22.md",
+        "reason": "Provider reports an empty string placeholder for an absent optional object_type used with interface bindings."
+      },
+      {
+        "id": "netbox_ip_address_empty_role_placeholder",
+        "provider": "netbox",
+        "resource_type": "netbox_ip_address",
+        "path": "role",
+        "kind": "provider_absent_placeholder",
+        "observed_value": "",
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/netbox-pr22.md",
+        "reason": "Provider reports an empty string placeholder for an absent optional role."
+      }
+    ]
+  }
+}

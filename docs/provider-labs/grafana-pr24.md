@@ -161,3 +161,10 @@ provider import IDs that differ from API numeric IDs.
   overlays, sets shared Terraform data/plugin-cache paths, captures oracle
   state, and emits the standard matrix.
 - Continue with Cloudflare as the next broad provider surface after Grafana.
+
+## Metadata Classification
+
+The `grafana_contact_point` sensitive-but-structurally-required `webhook` block is
+not classified as absent/default or dynamic-schema metadata. It belongs to a
+future sensitive-required remediation design (issue #25). It is deliberately left
+unclassified in pack metadata until that design is ready.

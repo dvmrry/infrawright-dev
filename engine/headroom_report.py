@@ -12,8 +12,10 @@ needs fetch/import/live classification.
 Stdlib-only, Python 3.6-floor; see AGENTS.md rule 5.
 """
 import fnmatch
+import os
 import sys
 
+from engine import packs
 from engine.adoption_status import known_holds_for, load_status
 from engine.registry import load_registry
 from engine.tfschema import PROVIDER_PREFIXES, load_provider
@@ -22,6 +24,9 @@ from engine.tfschema import PROVIDER_PREFIXES, load_provider
 def provider_resources():
     out = {}
     for provider in sorted(set(PROVIDER_PREFIXES.values())):
+        schema_path = packs.schema_path_for(provider)
+        if not os.path.isfile(schema_path):
+            continue
         data = load_provider(provider)
         for rt in sorted(data.get("resource_schemas") or {}):
             out[rt] = provider

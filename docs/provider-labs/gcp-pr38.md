@@ -217,6 +217,13 @@ git diff --check
   label drift against explicit pack metadata.
 - `provider-boundary:paid-or-disabled`: repeat the lab with billing enabled to
   cover Compute, Secret Manager, Cloud Storage, and other billable APIs.
+
+## Metadata Classification
+
+The `add_terraform_attribution_label = false` provider-config requirement is now
+recorded in `packs/google/pack.json` under `provider_config.requirements` with
+`required_external` mode. It cites this lab report and targets the three
+resources that drifted on `terraform_labels.goog-terraform-provisioned`.
 - `pack:identity-alias`: keep explicit identity/import metadata for Google
   resources where REST, import ID, and Terraform state names diverge, starting
   with BigQuery dataset `datasetReference.datasetId` to

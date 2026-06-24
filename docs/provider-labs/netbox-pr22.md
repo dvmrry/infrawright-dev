@@ -127,3 +127,11 @@ repository.
 - Consider reporting raw-only path categories in the advisory output so
   relationship/display metadata is easier to distinguish from security-relevant
   provider-blind fields.
+
+## Metadata Classification
+
+The NetBox placeholder drift is now classified as `provider_absent_placeholder`
+in `packs/netbox/pack.json` under `absent_defaults.rules`. Each rule is
+`manual_review_required` and cites this lab report. No omit action is used; any
+future projection behavior must route through the existing `projection_omit` path
+and prove a checkable runtime discriminator.

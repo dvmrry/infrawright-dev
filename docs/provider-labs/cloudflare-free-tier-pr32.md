@@ -134,3 +134,18 @@ The recurring engine gaps are now clearer:
   plan drift before choosing normalization, omission, or tolerance behavior.
 - Consider nested deprecated-field output projection so clean plans do not emit
   noisy deprecation warnings.
+
+## Metadata Classification
+
+The `cloudflare_zone_hold` singleton default drift is classified as
+`provider_server_side_singleton_default` in `packs/cloudflare/pack.json` under
+`absent_defaults.rules` with `manual_review_required` action.
+
+The dynamic schema prunes for `cloudflare_dns_record.data.flags` and
+`cloudflare_workers_script.assets.config.run_worker_first` are classified as
+`provider_observed_projection_unsafe` under `dynamic_schema.rules` with
+`manual_review_required` action and a `provider_version_constraint` from this lab.
+
+The D1 identity alias (`uuid`/`database_id`/`id`) remains unclassified in pack
+metadata pending an explicit identity-alias metadata design beyond the current
+roadmap note.

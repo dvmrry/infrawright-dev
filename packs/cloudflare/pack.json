@@ -1,0 +1,72 @@
+{
+  "pin": "5.21.1",
+  "provider_prefixes": {
+    "cloudflare_": "cloudflare"
+  },
+  "provider_sources": {
+    "cloudflare": "cloudflare/cloudflare"
+  },
+  "vendor": "cloudflare",
+  "absent_defaults": {
+    "rules": [
+      {
+        "id": "cloudflare_zone_hold_singleton_default",
+        "provider": "cloudflare",
+        "resource_type": "cloudflare_zone_hold",
+        "path": "hold",
+        "kind": "provider_server_side_singleton_default",
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/cloudflare-free-tier-pr32.md",
+        "reason": "Provider imports a disabled singleton zone hold, but projected config wants to update hold. This is a server-owned singleton default, not an absent optional value."
+      },
+      {
+        "id": "cloudflare_zone_hold_singleton_default_hold_after",
+        "provider": "cloudflare",
+        "resource_type": "cloudflare_zone_hold",
+        "path": "hold_after",
+        "kind": "provider_server_side_singleton_default",
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/cloudflare-free-tier-pr32.md",
+        "reason": "Provider imports a disabled singleton zone hold, but projected config wants to update hold_after. This is a server-owned singleton default, not an absent optional value."
+      },
+      {
+        "id": "cloudflare_zone_hold_singleton_default_include_subdomains",
+        "provider": "cloudflare",
+        "resource_type": "cloudflare_zone_hold",
+        "path": "include_subdomains",
+        "kind": "provider_server_side_singleton_default",
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/cloudflare-free-tier-pr32.md",
+        "reason": "Provider imports a disabled singleton zone hold, but projected config wants to update include_subdomains. This is a server-owned singleton default, not an absent optional value."
+      }
+    ]
+  },
+  "dynamic_schema": {
+    "rules": [
+      {
+        "id": "cloudflare_dns_record_data_flags_dynamic",
+        "provider": "cloudflare",
+        "provider_version_constraint": "5.21.1",
+        "resource_type": "cloudflare_dns_record",
+        "path": "data.flags",
+        "kind": "provider_observed_projection_unsafe",
+        "ownership": "unknown",
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/cloudflare-free-tier-pr32.md",
+        "reason": "Provider exposes a dynamic schema attribute under data.flags that required a temporary schema prune in the lab. Path semantics are not yet stable enough for projection."
+      },
+      {
+        "id": "cloudflare_workers_script_assets_run_worker_first_dynamic",
+        "provider": "cloudflare",
+        "provider_version_constraint": "5.21.1",
+        "resource_type": "cloudflare_workers_script",
+        "path": "assets.config.run_worker_first",
+        "kind": "provider_observed_projection_unsafe",
+        "ownership": "unknown",
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/cloudflare-free-tier-pr32.md",
+        "reason": "Provider exposes a dynamic nested attribute under assets.config.run_worker_first that required a temporary schema prune in the lab. Path semantics are not yet stable enough for projection."
+      }
+    ]
+  }
+}
