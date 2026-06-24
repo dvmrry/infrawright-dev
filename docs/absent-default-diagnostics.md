@@ -48,3 +48,6 @@ Important statuses:
 These statuses are evidence, not remediation. `false`, empty collections, and
 `null` are especially context-sensitive, so low-confidence candidates still need
 provider/resource review before they become pack-owned behavior.
+
+For the conservative design boundary around future behavior, see
+[Absent/Default Normalization Design](absent-default-normalization.md).
