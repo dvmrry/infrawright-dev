@@ -129,6 +129,37 @@ class AdoptCommandTest(unittest.TestCase):
         ) as f:
             self.assertEqual(f.read(), "")
 
+    def test_duplicate_alias_derived_import_ids_fail_before_oracle(self):
+        _write_json(os.path.join(self.tmp, "packs", "sample", "registry.json"), {
+            "sample_resource": {
+                "generate": True,
+                "product": "sample",
+                "adopt": {
+                    "key_field": "name",
+                    "identity_fields": {"import_id": "uuid"},
+                },
+            }
+        })
+        registry.reload_registry()
+        called = []
+
+        def fail_import_state(resource_type, key_to_import_id):
+            called.append((resource_type, key_to_import_id))
+            raise AssertionError("duplicate import IDs should fail before oracle")
+
+        adopt.import_state = fail_import_state
+        with self.assertRaises(ValueError) as ctx:
+            adopt.adopt_items([
+                {"name": "One", "uuid": "same-id"},
+                {"name": "Two", "uuid": "same-id"},
+            ], "sample_resource")
+
+        self.assertEqual(called, [])
+        msg = str(ctx.exception)
+        self.assertIn("sample_resource import_id 'same-id'", msg)
+        self.assertIn("one", msg)
+        self.assertIn("two", msg)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -131,6 +131,89 @@ class AdoptionMetaTest(unittest.TestCase):
         )
         self.assertEqual(derive_key_from_identity(item, meta), "prod_app")
 
+    def test_identity_field_alias_derives_import_id_without_renaming_source(self):
+        self._registry({
+            "sample_resource": {
+                "generate": True,
+                "product": "sample",
+                "adopt": {
+                    "key_field": "name",
+                    "identity_fields": {
+                        "raw_id": "uuid",
+                        "import_id": "uuid",
+                    },
+                },
+            }
+        })
+        meta = adoption_entry("sample_resource")
+        item = identity_item(
+            {"name": "D1 Database", "uuid": "db-123"},
+            "sample_resource",
+        )
+
+        self.assertEqual(meta["import_id"], "{import_id}")
+        self.assertEqual(item["uuid"], "db-123")
+        self.assertEqual(item["raw_id"], "db-123")
+        self.assertEqual(item["import_id"], "db-123")
+        self.assertEqual(derive_key_from_identity(item, meta), "d1_database")
+        self.assertEqual(
+            derive_import_id_from_identity(
+                item, meta, "sample_resource", "d1_database"
+            ),
+            "db-123",
+        )
+
+    def test_missing_identity_field_alias_fails_loudly(self):
+        self._registry({
+            "sample_resource": {
+                "generate": True,
+                "product": "sample",
+                "adopt": {
+                    "key_field": "name",
+                    "identity_fields": {"import_id": "uuid"},
+                },
+            }
+        })
+
+        with self.assertRaises(KeyError) as ctx:
+            identity_item({"name": "D1 Database"}, "sample_resource")
+
+        msg = str(ctx.exception)
+        self.assertIn("sample_resource", msg)
+        self.assertIn("import_id", msg)
+        self.assertIn("uuid", msg)
+
+    def test_identity_field_alias_does_not_override_explicit_import_id(self):
+        self._registry({
+            "sample_resource": {
+                "generate": True,
+                "product": "sample",
+                "adopt": {
+                    "key_field": "name",
+                    "identity_fields": {"import_id": "uuid"},
+                    "import_id": "{legacy_id}",
+                },
+            }
+        })
+        meta = adoption_entry("sample_resource")
+        item = identity_item(
+            {
+                "name": "D1 Database",
+                "uuid": "db-123",
+                "legacyId": "legacy-999",
+            },
+            "sample_resource",
+        )
+
+        self.assertEqual(meta["import_id"], "{legacy_id}")
+        self.assertEqual(item["import_id"], "db-123")
+        self.assertEqual(
+            derive_import_id_from_identity(
+                item, meta, "sample_resource", "d1_database"
+            ),
+            "legacy-999",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,6 +24,7 @@ def adopt_items(raw_items, resource_type, policy=None):
     meta = adoption_entry(resource_type)
     key_to_identity = {}
     key_to_import_id = {}
+    import_id_to_key = {}
     for raw in raw_items:
         ident = identity_item(raw, resource_type)
         if skip_identity_item(ident, meta):
@@ -36,6 +37,12 @@ def adopt_items(raw_items, resource_type, policy=None):
         if key in key_to_identity:
             raise ValueError("duplicate derived key %r for %s" % (key, resource_type))
         import_id = derive_import_id_from_identity(ident, meta, resource_type, key)
+        if import_id in import_id_to_key:
+            raise ValueError(
+                "%s import_id %r is used by both %r and %r"
+                % (resource_type, import_id, import_id_to_key[import_id], key)
+            )
+        import_id_to_key[import_id] = key
         key_to_identity[key] = ident
         key_to_import_id[key] = import_id
 
