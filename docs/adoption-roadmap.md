@@ -120,6 +120,11 @@ The V1 validator contracts for all three adoption metadata lanes are now documen
 
 These contract sections are documentation-only. No validator behavior changed.
 
+The sensitive-required error-category contract wording now matches the sibling
+validator contracts: categories are logical/documentation/test categories, and
+the runtime raises prose `ValueError` messages rather than structured error
+objects.
+
 ## Adoption Metadata Inventory
 
 A read-only cross-class inventory report now aggregates committed metadata:
