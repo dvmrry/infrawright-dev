@@ -316,6 +316,47 @@ def absent_default_rules(provider=None):
     )
 
 
+def dynamic_schema_rules(provider=None):
+    """Dynamic-schema rule metadata declared by pack manifests.
+
+    Shape:
+      "dynamic_schema": {
+        "rules": [
+          {
+            "id": "cloudflare_ruleset_action_parameters_dynamic_map",
+            "provider": "cloudflare",
+            "provider_version_constraint": ">= 4.0.0, < 5.0.0",
+            "resource_type": "cloudflare_ruleset",
+            "path": "rules[].action_parameters",
+            "kind": "provider_observed_projection_unsafe",
+            "ownership": "server_owned",
+            "action": "diagnostic_only",
+            "evidence": "docs/provider-labs/cloudflare-free-tier-pr32.md",
+            "reason": "Provider exposes a dynamic nested map; schema cannot prove stable projection semantics."
+          }
+        ]
+      }
+
+    This only exposes validated metadata. It does not project paths, omit paths,
+    change projection, or change drift policy.
+    """
+    out = []
+    for m in _manifests():
+        cfg = m.get("dynamic_schema") or {}
+        providers = sorted(set((m.get("provider_prefixes") or {}).values()))
+        for rule in cfg.get("rules") or []:
+            item = dict(rule)
+            if "provider" not in item and len(providers) == 1:
+                item["provider"] = providers[0]
+            if provider is None or item.get("provider") == provider:
+                out.append(item)
+    from engine import dynamic_schema_validator
+    return dynamic_schema_validator.validate_dynamic_schema_rules(
+        out,
+        provider_prefixes=provider_prefixes(),
+    )
+
+
 def adoption_status_paths():
     """Every adoption_status.json under packs/ (vendor-shared in _shared/ today;
     per-provider later). load_status merges them."""
