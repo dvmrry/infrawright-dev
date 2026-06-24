@@ -50,7 +50,10 @@ def build_report(
             - projected_present_paths
         )
 
-        omitted = (policy_paths & provider_paths) - projected_paths
+        omitted = (
+            _paths_covered_by_policy(policy_paths, provider_paths)
+            - projected_paths
+        )
         omitted_by_policy = sorted(omitted)
 
         raw_only = sorted(raw_paths - provider_paths - projected_paths)
@@ -105,6 +108,25 @@ def _projection_omit_paths(resource_type, drift_policy):
     for entry in entries:
         out.add(_format_policy_path(parse_path(entry["path"])))
     return out
+
+
+def _paths_covered_by_policy(policy_paths, observed_paths):
+    covered = set()
+    for observed_path in observed_paths:
+        if any(
+                _policy_path_covers_observed(policy_path, observed_path)
+                for policy_path in policy_paths):
+            covered.add(observed_path)
+    return covered
+
+
+def _policy_path_covers_observed(policy_path, observed_path):
+    if policy_path == observed_path:
+        return True
+    return (
+        observed_path.startswith(policy_path + ".")
+        or observed_path.startswith(policy_path + "[]")
+    )
 
 
 def _format_policy_path(path):

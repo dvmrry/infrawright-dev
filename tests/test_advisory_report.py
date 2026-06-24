@@ -268,6 +268,34 @@ class AdvisoryReportTest(unittest.TestCase):
         self.assertEqual(item["raw_only_paths"], ["cbi_profile.id"])
         self.assertEqual(item["omitted_by_policy"], [])
 
+    def test_container_projection_omit_does_not_suppress_raw_only_path(self):
+        policy = DriftPolicy({
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "projection_omit": [
+                        {
+                            "path": "cbi_profile",
+                            "reason": "provider cannot observe this block",
+                            "approved_by": "unit",
+                        }
+                    ]
+                }
+            },
+        })
+
+        report = build_report(
+            "sample_resource",
+            {"prod_app": {"name": "Prod", "cbi_profile": {"id": "cbi-1"}}},
+            {"prod_app": {"values": {"name": "Prod"}}},
+            {"prod_app": {"name": "Prod"}},
+            policy,
+        )
+
+        item = report["items"]["prod_app"]
+        self.assertEqual(item["raw_only_paths"], ["cbi_profile.id"])
+        self.assertEqual(item["omitted_by_policy"], [])
+
     def test_projection_omit_classifies_provider_observed_unprojected_path(self):
         policy = DriftPolicy({
             "version": 1,
@@ -308,6 +336,61 @@ class AdvisoryReportTest(unittest.TestCase):
         self.assertEqual(item["raw_only_paths"], [])
         self.assertEqual(item["provider_only_paths"], [])
         self.assertEqual(item["omitted_by_policy"], ["metadata.generate_name"])
+
+    def test_container_projection_omit_classifies_provider_observed_leaves(self):
+        policy = DriftPolicy({
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "projection_omit": [
+                        {
+                            "path": "webhook",
+                            "reason": "provider marks notifier block sensitive",
+                            "approved_by": "unit",
+                        }
+                    ]
+                }
+            },
+        })
+
+        report = build_report(
+            "sample_resource",
+            {
+                "prod_app": {
+                    "name": "Prod",
+                    "webhook": [
+                        {
+                            "url": "https://example.test/hook",
+                            "vendor_only": "raw",
+                        }
+                    ],
+                }
+            },
+            {
+                "prod_app": {
+                    "values": {
+                        "name": "Prod",
+                        "webhook": [
+                            {
+                                "uid": "notifier-1",
+                                "url": "https://example.test/hook",
+                            }
+                        ],
+                    }
+                }
+            },
+            {"prod_app": {"name": "Prod"}},
+            policy,
+        )
+
+        item = report["items"]["prod_app"]
+        self.assertEqual(item["raw_only_paths"], ["webhook[].vendor_only"])
+        self.assertEqual(item["provider_only_paths"], [])
+        self.assertEqual(
+            item["omitted_by_policy"],
+            ["webhook[].uid", "webhook[].url"],
+        )
+        self.assertEqual(report["summary"]["omitted_by_policy"], 2)
 
 
 if __name__ == "__main__":
