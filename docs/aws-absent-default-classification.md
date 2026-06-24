@@ -1,8 +1,8 @@
 # AWS Absent/Default Placeholder Classification
 
 This is a design note, not implemented behavior. It classifies the AWS
-absent/default findings from the AWS free/core provider lab before any AWS pack
-metadata is committed.
+absent/default findings from the AWS free/core provider lab and documents the
+manual-review-only metadata boundary for the first AWS pack rules.
 
 Evidence: [AWS Free/Core Provider Lab](provider-labs/aws-free-core-pr77.md)
 
@@ -32,7 +32,6 @@ rewrite a path only because its value is `""`.
 
 This design does not authorize:
 
-- AWS absent/default pack metadata.
 - Validator changes.
 - Projection changes.
 - Omission behavior.
@@ -194,8 +193,18 @@ The same metadata could instead use `provider_absent_placeholder` if the
 contract chooses to represent prefix conflicts as a documented variant of that
 existing kind.
 
+## Metadata Decision
+
+The first AWS absent/default metadata uses the existing
+`provider_absent_placeholder` kind for compatibility with the current validator.
+The mutually-exclusive prefix-conflict semantics are carried in per-rule reason
+text and this classification doc. A future contract PR may introduce
+`provider_absent_conflicting_placeholder`, but the initial AWS metadata does not
+extend the validator and does not authorize omit behavior.
+
 ## Recommended Next Step
 
-Settle the kind/contract choice before adding AWS metadata. The next safe PR is
-metadata-only and manual-review-only after the contract can represent the AWS
-prefix-conflict shape without implying omit behavior.
+The next safe behavior step is not omission. It is a future runtime
+discriminator design that can prove concrete identity ownership for prefix
+conflicts and prove non-empty real references remain visible for `kms_key_id`.
+Until then, AWS metadata remains manual-review-only.

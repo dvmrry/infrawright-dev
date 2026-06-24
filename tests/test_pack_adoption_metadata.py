@@ -64,6 +64,38 @@ class PackAdoptionMetadataTest(unittest.TestCase):
         self.assertEqual(hold["kind"], "provider_server_side_singleton_default")
         self.assertEqual(hold["action"], "manual_review_required")
 
+    def test_aws_absent_default_metadata_validates(self):
+        rules = packs.absent_default_rules("aws")
+        self.assertTrue(rules)
+        expected = {
+            ("aws_cloudwatch_log_group_empty_name_prefix",
+             "aws_cloudwatch_log_group", "name_prefix"),
+            ("aws_s3_bucket_empty_bucket_prefix",
+             "aws_s3_bucket", "bucket_prefix"),
+            ("aws_iam_role_empty_name_prefix",
+             "aws_iam_role", "name_prefix"),
+            ("aws_iam_policy_empty_name_prefix",
+             "aws_iam_policy", "name_prefix"),
+            ("aws_security_group_empty_name_prefix",
+             "aws_security_group", "name_prefix"),
+            ("aws_cloudwatch_log_group_empty_kms_key_id",
+             "aws_cloudwatch_log_group", "kms_key_id"),
+        }
+        actual = {
+            (r["id"], r["resource_type"], r["path"])
+            for r in rules
+        }
+        self.assertEqual(actual, expected)
+        for rule in rules:
+            self.assertEqual(rule["provider"], "aws")
+            self.assertEqual(rule["action"], "manual_review_required")
+            self.assertEqual(rule["kind"], "provider_absent_placeholder")
+            self.assertEqual(rule["observed_value"], "")
+            self.assertEqual(
+                rule["evidence"],
+                "docs/provider-labs/aws-free-core-pr77.md",
+            )
+
     def test_cloudflare_dynamic_schema_metadata_validates(self):
         rules = packs.dynamic_schema_rules("cloudflare")
         self.assertTrue(rules)

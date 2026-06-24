@@ -1,0 +1,80 @@
+{
+  "pin": "6.52.0",
+  "provider_prefixes": {
+    "aws_": "aws"
+  },
+  "provider_sources": {
+    "aws": "hashicorp/aws"
+  },
+  "vendor": "aws",
+  "absent_defaults": {
+    "rules": [
+      {
+        "id": "aws_cloudwatch_log_group_empty_name_prefix",
+        "provider": "aws",
+        "resource_type": "aws_cloudwatch_log_group",
+        "path": "name_prefix",
+        "kind": "provider_absent_placeholder",
+        "observed_value": "",
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/aws-free-core-pr77.md",
+        "reason": "AWS provider imported empty name_prefix alongside concrete name for aws_cloudwatch_log_group. Rendering both creates a mutually-exclusive field conflict. Manual review required; no omit behavior is authorized."
+      },
+      {
+        "id": "aws_s3_bucket_empty_bucket_prefix",
+        "provider": "aws",
+        "resource_type": "aws_s3_bucket",
+        "path": "bucket_prefix",
+        "kind": "provider_absent_placeholder",
+        "observed_value": "",
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/aws-free-core-pr77.md",
+        "reason": "AWS provider imported empty bucket_prefix alongside concrete bucket for aws_s3_bucket. Rendering both creates a mutually-exclusive field conflict. Manual review required; no omit behavior is authorized."
+      },
+      {
+        "id": "aws_iam_role_empty_name_prefix",
+        "provider": "aws",
+        "resource_type": "aws_iam_role",
+        "path": "name_prefix",
+        "kind": "provider_absent_placeholder",
+        "observed_value": "",
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/aws-free-core-pr77.md",
+        "reason": "AWS provider imported empty name_prefix alongside concrete name for aws_iam_role. Rendering both creates a mutually-exclusive field conflict. Manual review required; no omit behavior is authorized."
+      },
+      {
+        "id": "aws_iam_policy_empty_name_prefix",
+        "provider": "aws",
+        "resource_type": "aws_iam_policy",
+        "path": "name_prefix",
+        "kind": "provider_absent_placeholder",
+        "observed_value": "",
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/aws-free-core-pr77.md",
+        "reason": "AWS provider imported empty name_prefix alongside concrete name for aws_iam_policy. Rendering both creates a mutually-exclusive field conflict. Manual review required; no omit behavior is authorized."
+      },
+      {
+        "id": "aws_security_group_empty_name_prefix",
+        "provider": "aws",
+        "resource_type": "aws_security_group",
+        "path": "name_prefix",
+        "kind": "provider_absent_placeholder",
+        "observed_value": "",
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/aws-free-core-pr77.md",
+        "reason": "AWS provider imported empty name_prefix alongside concrete name for aws_security_group. Rendering both creates a mutually-exclusive field conflict. Manual review required; no omit behavior is authorized."
+      },
+      {
+        "id": "aws_cloudwatch_log_group_empty_kms_key_id",
+        "provider": "aws",
+        "resource_type": "aws_cloudwatch_log_group",
+        "path": "kms_key_id",
+        "kind": "provider_absent_placeholder",
+        "observed_value": "",
+        "action": "manual_review_required",
+        "evidence": "docs/provider-labs/aws-free-core-pr77.md",
+        "reason": "AWS provider imported empty kms_key_id for an unencrypted CloudWatch log group. This is an absent optional reference placeholder candidate. Manual review required; no omit behavior is authorized. Future behavior must prove a real KMS key appears as a non-empty value and remains visible as drift."
+      }
+    ]
+  }
+}

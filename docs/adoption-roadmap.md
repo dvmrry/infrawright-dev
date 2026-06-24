@@ -70,9 +70,10 @@ behavior:
   kind/action constraints are proven.
 - AWS absent/default classification; design proposed in
   [AWS Absent/Default Placeholder Classification](aws-absent-default-classification.md),
-  not implemented. AWS `name_prefix` and `bucket_prefix` findings require a
-  distinct mutually-exclusive conflict classification from NetBox-style empty
-  enum/default placeholders. No omit behavior is authorized.
+  with manual-review-only metadata committed under `provider_absent_placeholder`.
+  AWS `name_prefix` and `bucket_prefix` findings are represented
+  conservatively as mutually-exclusive prefix-conflict variants in rule reason
+  text. No omit behavior is authorized without a future runtime discriminator.
 - Dynamic schema remediation strategy for opaque maps, open objects, and
   dynamic attributes.
 - Sensitive-required remediation, manual override, or explicit cannot-adopt
@@ -99,10 +100,9 @@ preserve the existing fail-loud behavior outside its narrow class.
 1. Re-review absent/default normalization semantics after the `projection_omit`
    relationship, runtime discriminator requirement, kind/action matrix, and V1
    path namespace are explicit.
-2. Settle the AWS absent/default kind/contract choice before committing any AWS
-   metadata. The next safe AWS step is metadata-only, manual-review rules, and
-   only after the prefix-conflict shape can be represented without implying
-   omission behavior.
+2. Design a runtime discriminator for AWS absent/default prefix conflicts and
+   optional reference placeholders before proposing any omit behavior. Committed
+   AWS metadata is manual-review-only and does not imply projection or omission.
 3. Propose dynamic schema remediation semantics.
 4. Run a billing-enabled Google Cloud lab or another focused AWS/Azure lab.
 
@@ -119,7 +119,7 @@ Lab-derived adoption metadata is now committed in pack manifests:
 | NetBox | `absent_defaults.rules` | `docs/provider-labs/netbox-pr22.md` | Validated, manual-review only. |
 | Cloudflare | `absent_defaults.rules` + `dynamic_schema.rules` | `docs/provider-labs/cloudflare-free-tier-pr32.md` | Validated, manual-review only. `cloudflare_zone_hold` is intentionally classified as `provider_server_side_singleton_default`, distinct from NetBox-style `provider_absent_placeholder`. |
 | Grafana | unclassified | `docs/provider-labs/grafana-pr24.md` | Sensitive-required design, contract, and validator landed; pack metadata still pending. |
-| AWS | unclassified | `docs/provider-labs/aws-free-core-pr77.md` | AWS absent/default classification design landed separately. No AWS pack metadata is committed. |
+| AWS | `absent_defaults.rules` | `docs/provider-labs/aws-free-core-pr77.md` | Validated, manual-review only. Prefix placeholders are conservatively represented under `provider_absent_placeholder` as mutually-exclusive prefix-conflict variants. No omit behavior is authorized; a runtime discriminator is still required before any omit action. |
 
 ## Validator Contract Documentation
 

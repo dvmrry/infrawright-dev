@@ -65,6 +65,22 @@ class RealPackInventoryTest(unittest.TestCase):
         self.assertEqual(item["kind"], "provider_server_side_singleton_default")
         self.assertEqual(item["action"], "manual_review_required")
 
+    def test_aggregates_aws_absent_default_metadata(self):
+        report = adoption_inventory_report.build_report()
+        items = self._find(report, provider="aws", cls="absent_default")
+        self.assertEqual(len(items), 6)
+        item = self._find(report, provider="aws", cls="absent_default",
+                          resource_type="aws_cloudwatch_log_group",
+                          path="name_prefix")[0]
+        self.assertEqual(item["kind"], "provider_absent_placeholder")
+        self.assertEqual(item["action"], "manual_review_required")
+        self.assertEqual(item["behavior_effect"], "validation_only")
+        self.assertEqual(item["observed_value"], "")
+        self.assertEqual(
+            item["evidence"],
+            "docs/provider-labs/aws-free-core-pr77.md",
+        )
+
     def test_aggregates_cloudflare_dynamic_schema_metadata(self):
         report = adoption_inventory_report.build_report()
         item = self._find(report, provider="cloudflare", cls="dynamic_schema",
