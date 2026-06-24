@@ -72,6 +72,10 @@ This remains diagnostic-only. `engine.provider_config` reads saved plan JSON and
 reports whether plan changes are explained by declared requirements. It does not
 render provider configuration.
 
+Requirements with no `remediation` block remain valid diagnostic-only metadata.
+They do not need `remediation.evidence`; absent remediation is equivalent to
+`diagnostic_only`.
+
 ## Proposed Remediation Metadata
 
 Remediation should be an explicit extension of the diagnostic requirement, not a
@@ -111,6 +115,10 @@ write. `plan_paths` remains the evidence link between provider drift and the
 setting. `remediation` declares that the requirement is eligible for future
 rendering or validation.
 
+When `remediation` is present, `kind` is required. V1 allows only
+`provider_argument`; unknown `kind` values must be rejected by the future
+validator.
+
 ### Remediation Modes
 
 `mode` should be intentionally small at first:
@@ -123,7 +131,9 @@ rendering or validation.
 - `required_external`: the requirement is known, but the value must come from a
   consumer-owned file or environment-specific provider config. It never
   renders. A future `assert-adoptable` path may use it to emit remediation
-  guidance when matching drift is detected.
+  guidance when matching drift is detected. It may carry `value` as advisory
+  context only, but that value is never rendered and is not subject to the V1
+  boolean/number rendering restriction.
 
 No other modes should be added until a provider lab proves the need.
 
@@ -178,9 +188,11 @@ clean result proves only that the oracle scratch root converged with the
 provider settings it used. It does not imply the committed generated env root
 will converge unless equivalent provider settings are also applied there.
 
-Any future renderer or validator must compare the requirement's intended
-provider setting across oracle scratch configuration and generated env-root
-configuration before claiming the requirement is remediated.
+Any future renderer or renderer preflight must compare the requirement's
+intended provider setting across oracle scratch configuration and generated
+env-root configuration before claiming the requirement is remediated.
+Validator-only V1 must not inspect or compare oracle scratch HCL and generated
+env-root provider config.
 
 ### V1 Value Encoding
 
@@ -196,7 +208,8 @@ like interpolation. Those need a separate design before they can be rendered.
 
 The safety metadata is necessary but not sufficient. For `renderable_default`,
 `safety.non_sensitive`, `safety.not_tenant_specific`, and
-`safety.not_destructive` must all be present and exactly `true`, but those
+`safety.not_destructive` must all be present, boolean, and exactly `true`.
+Missing values, `false`, and non-boolean values must be rejected. These
 attestations do not override the V1 type restrictions.
 
 ### Rendering Granularity
@@ -206,6 +219,10 @@ Provider configuration is provider-block-wide. `resource_types` and
 applies to only some resource roots is not eligible for V1
 `renderable_default`, because rendering it into the provider block would affect
 every resource using that provider configuration.
+
+A `renderable_default` requirement must not include `resource_types` or
+`resource_prefixes`. If a requirement only applies to some resource roots, it
+must remain `diagnostic_only` or `required_external` in V1.
 
 ## Precedence
 
@@ -232,17 +249,42 @@ metadata only. It must not render provider blocks.
 The validator should reject:
 
 - Unknown remediation modes.
+- Unknown remediation kinds.
 - Unknown remediation keys.
 - Malformed remediation objects.
-- Missing lab evidence.
+- Missing `remediation.evidence` for `renderable_default`.
 - Missing `safety.non_sensitive`, `safety.not_tenant_specific`, or
   `safety.not_destructive` for `renderable_default`.
+- Non-boolean safety values, or any safety value other than exactly `true`, for
+  `renderable_default`.
 - Any renderable value that is not a JSON boolean or number.
 - Duplicate provider and setting requirements with conflicting values.
+- Duplicate provider and setting requirements with conflicting remediation
+  modes.
+- Duplicate provider and setting entries even when otherwise identical, unless
+  a future design defines a merge rule.
+- `renderable_default` requirements with `resource_types` or
+  `resource_prefixes`.
 - Missing `plan_paths` or `reason`.
 
 Unknown remediation keys should be rejected, not silently ignored. This keeps
 the metadata contract small enough to review.
+
+Validator-only V1 is explicitly forbidden from:
+
+- Rendering provider blocks.
+- Emitting HCL.
+- Mutating oracle scratch config.
+- Mutating generated env-root provider config.
+- Comparing oracle scratch config with generated env-root provider config.
+- Changing drift-policy tolerance.
+- Downgrading `assert-adoptable` results.
+- Inferring provider settings from plan paths.
+
+`required_external` validation is intentionally lighter than
+`renderable_default` validation. It requires `kind`, `mode`, `reason`, and
+`plan_paths`, but it never renders and does not need V1 bool/number value
+restrictions. If `value` is present, it is advisory only.
 
 ## Conflict Handling
 
@@ -250,9 +292,14 @@ The engine should fail before rendering when pack metadata produces ambiguous
 provider configuration:
 
 - Two requirements for the same provider and setting specify different values.
+- Two requirements for the same provider and setting specify conflicting
+  remediation modes.
+- Duplicate requirements for the same provider and setting appear, even if they
+  are otherwise identical.
 - A requirement marked `renderable_default` is missing safety evidence.
 - A `renderable_default` value is not a JSON boolean or number.
-- A requirement has no `plan_paths`, `reason`, or lab evidence.
+- A requirement has no `plan_paths` or `reason`.
+- A `renderable_default` requirement has no `remediation.evidence`.
 
 Conflicts should be reported as provider-config metadata errors, not as
 adoption drift.
