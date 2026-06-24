@@ -164,6 +164,14 @@ Those paths are candidates for the absent/default design track, not
 provider-config metadata. They must not be globally normalized based only on
 falsey value shape.
 
+## Follow-Up Metadata
+
+AWS absent/default pack metadata has been added as manual-review-only rules
+citing this lab evidence. The rules make the observed placeholder findings
+inventory-visible and validator-backed, but they do not change projection,
+omission, drift policy, `assert-adoptable`, provider configuration, or
+Terraform/OpenTofu execution.
+
 ## Cleanup
 
 Cleanup completed successfully:
@@ -184,8 +192,8 @@ directory was removed after extracting this sanitized report.
 - Do not mark provider-config guidance annotations as live-lab validated.
 - Track AWS empty-prefix placeholder behavior under the absent/default
   normalization design, with per-resource evidence and runtime discriminators.
-- Use the AWS absent/default classification design to keep mutually-exclusive
-  prefix conflicts separate from absent optional reference placeholders before
-  committing any AWS metadata.
+- Use the AWS absent/default classification design to keep the committed
+  manual-review prefix-conflict metadata separate from absent optional reference
+  placeholders before proposing any behavior.
 - Consider provider-readiness metadata for deprecated inline AWS surfaces before
   attempting broad AWS pack support.
