@@ -150,10 +150,32 @@ The sensitive-required failure class is now documented in `docs/sensitive-requir
 
 ## Next Phase
 
-- Evaluate behavior candidates only after hardening: any future projection, omission, or tolerance PR must cite a provider lab and preserve fail-loud behavior outside its narrow class.
-- Plan provider-config guidance integration for blocked drift paths; this remains guidance-only and does not change drift policy or `assert-adoptable`.
-- Commit sensitive-required pack metadata for a concrete provider lab finding once the class is narrowly defined and safe.
-- Run another provider lab that proves a narrow, safe sensitive-required class before any behavior PR.
+- Implement provider-config assert-adoptable guidance annotations as the first
+  behavior candidate, following the design in
+  `docs/provider-config-assert-guidance.md`. The implementation must remain
+  additive, annotation-only, and fail-closed; it must not change plan status,
+  render provider config, or modify any files.
+- Validate the implementation against a GCP lab re-run showing the annotation
+  for the known attribution-label drift.
+- Commit sensitive-required pack metadata for a concrete provider lab finding
+  once the class is narrowly defined and safe.
+- Run another provider lab that proves a narrow, safe sensitive-required class
+  before any behavior PR.
 
 No projection, omission, drift tolerance, or `assert-adoptable` behavior has been
-implemented in this PR.
+implemented in this PR. The current PR is design-only.
+
+## Provider-Config Assert-Adoptable Guidance Design
+
+The first behavior candidate is documented in
+`docs/provider-config-assert-guidance.md`:
+
+- Additive guidance annotations for blocked `assert-adoptable` output when a
+  blocked drift path matches a `provider_config.requirements` entry.
+- Exact plan-path matching in V1, no provider rendering, no mutation, no plan
+  status change.
+- Required evidence: GCP lab re-run; second provider-config lab (AWS/Azure) before
+  generalizing the class.
+- Future test list and rollback plan are specified.
+
+This design PR is documentation-only. No behavior has been implemented.
