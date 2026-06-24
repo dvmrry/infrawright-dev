@@ -38,9 +38,11 @@ smallest engine or pack follow-ups needed to productize adoption.
    `python -m engine.dynamic_schema`.
 10. Classify absent/default placeholder drift with
    `python -m engine.absent_defaults`.
-11. Destroy live resources and run a separate cleanup verification pass.
-12. Run validation and artifact checks.
-13. Commit only the report.
+11. Classify sensitive required candidates with
+   `python -m engine.sensitive_required`.
+12. Destroy live resources and run a separate cleanup verification pass.
+13. Run validation and artifact checks.
+14. Commit only the report.
 
 ## Credential Safety Checklist
 
@@ -189,7 +191,8 @@ Use these buckets so provider findings stay comparable:
   classify projected placeholders and saved-plan diffs before choosing a
   remediation.
 - `engine:sensitive-required` for sensitive state that is structurally required
-  by Terraform config.
+  by Terraform config. Use [sensitive-required-diagnostics.md](../sensitive-required-diagnostics.md)
+  to classify schema-required and validation-required evidence separately.
 - `engine:advisory-containers` for block/container omission reporting.
 - `engine:deprecated-output` for warnings caused by generated outputs reading
   deprecated provider fields.
