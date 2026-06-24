@@ -7,8 +7,10 @@ placeholders and Cloudflare singleton defaults such as `hold`,
 `hold_after`, and `include_subdomains`.
 
 Use the absent/default diagnostic command to classify these shapes before
-deciding whether they should become provider-pack omission guidance, explicit
-normalization rules, plan-tolerance policy, or hard adoption blockers.
+deciding whether they should remain diagnostic/manual-review findings, feed the
+existing `projection_omit` path with explicit evidence, or stay hard adoption
+blockers. These diagnostics must not become a second omission system or drift
+tolerance policy.
 
 Classify projected tfvars:
 
@@ -48,6 +50,10 @@ Important statuses:
 These statuses are evidence, not remediation. `false`, empty collections, and
 `null` are especially context-sensitive, so low-confidence candidates still need
 provider/resource review before they become pack-owned behavior.
+
+Any future omit behavior must preserve the existing projection/advisory
+accounting described in the normalization design. A placeholder-shaped value by
+itself is not enough to omit.
 
 For the conservative design boundary around future behavior, see
 [Absent/Default Normalization Design](absent-default-normalization.md).
