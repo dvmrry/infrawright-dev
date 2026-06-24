@@ -119,3 +119,18 @@ A read-only cross-class inventory report now aggregates committed metadata:
 - The report is read-only: it does not project, omit, change drift policy, alter `assert-adoptable`, render provider configuration, or run Terraform/OpenTofu.
 - It includes cross-class overlap diagnostics (warnings and info), but it is not an adoption decision engine and does not enforce cross-design rules.
 - Sensitive-required remediation remains future work.
+
+## Sensitive-Required Design Checkpoint
+
+The sensitive-required failure class is now documented in `docs/sensitive-required-remediation.md`.
+
+- It is distinct from `provider_config`, `absent_defaults`, `dynamic_schema`, `raw_api_only_provider_blind`, `projection_omit`, and `assert-adoptable` downgrade.
+- The design preserves the absolute safety invariant: never synthesize, guess, echo, persist, or project sensitive values.
+- V1 is design-only; no validator, no behavior, no placeholder rendering, no omission, no drift tolerance.
+- `grafana_contact_point.webhook` remains manual-review/unclassified in pack metadata until the design survives review and a validator-only implementation PR is planned.
+
+## Next Phase
+
+- Close sensitive-required design review.
+- Implement sensitive-required validator only after the design contract is accepted.
+- Run another provider lab that proves a narrow, safe sensitive-required class before any behavior PR.
