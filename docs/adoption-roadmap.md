@@ -126,14 +126,12 @@ The sensitive-required failure class is now documented in `docs/sensitive-requir
 
 - It is distinct from `provider_config`, `absent_defaults`, `dynamic_schema`, `raw_api_only_provider_blind`, `projection_omit`, and `assert-adoptable` downgrade.
 - The design preserves the absolute safety invariant: never synthesize, guess, echo, persist, or project sensitive values.
-- The V1 validator contract is now tightened: accepted keys, required fields, value-carrying field rejection, closed enums for `kind`, `sensitivity`, and `structural_requirement`, a kind/sensitivity/structural matrix with kind specificity rules, canonical path identity, deterministic provider-version strings, rule identity/conflict rules, sensitive-path handling, and action rejection semantics are all defined.
-- The Grafana illustrative example now uses `one_of_block_required` to match the lab error.
+- The V1 validator contract is now frozen in `docs/sensitive-required-remediation.md`: accepted keys, required fields, value-carrying field rejection, closed enums, kind/sensitivity/structural matrix with kind specificity rules, canonical path identity, deterministic provider-version strings, rule identity/conflict rules, sensitive-path static matching, provider/resource checking, cross-class deferral, error categories, and a test matrix are all specified.
+- The Grafana illustrative example uses `one_of_block_required` to match the lab error.
 - V1 is design-only; no validator, no behavior, no placeholder rendering, no omission, no drift tolerance.
-- `grafana_contact_point.webhook` remains manual-review/unclassified in pack metadata until the validator contract survives review and a validator-only implementation PR is planned.
+- `grafana_contact_point.webhook` remains manual-review/unclassified in pack metadata until the validator-only implementation PR is reviewed and accepted.
 
 ## Next Phase
 
-- Close sensitive-required design review.
-- Open a V1 validator-contract PR that specifies message text, error categories, and exact rejection behavior.
-- Implement sensitive-required validator only after the contract PR is accepted.
+- Implement the sensitive-required V1 validator following the frozen contract.
 - Run another provider lab that proves a narrow, safe sensitive-required class before any behavior PR.

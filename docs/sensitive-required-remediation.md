@@ -343,9 +343,8 @@ A future validator must reject:
 - same identity with different evidence-only path fields if those fields are accepted.
 
 `reason` is required but is not part of the conflict-field set in V1. Same
-identity with only `reason` differing is still rejected as a duplicate or
-same-identity ambiguity, not accepted as a merge. A future contract PR must
-specify the exact error category.
+identity with only `reason` differing is still rejected as `duplicate_rule`;
+it is never accepted as a merge. No merge rule exists in V1.
 
 Overlapping scope: reject exact `resource_type` and matching `resource_prefix`
 overlap when provider, stripped version string, and canonical path are equal. Do
@@ -498,17 +497,396 @@ This design is not:
 - A second `projection_omit` path.
 - A dynamic-schema extension.
 
+# V1 Validator Contract
+
+This section freezes the exact V1 static validator contract for
+`sensitive_required.rules`. The design is contract-ready; the next PR should
+implement the validator mechanically without making new design decisions.
+
+## V1 Validator Scope
+
+The future V1 validator:
+
+- Validates metadata shape only.
+- Returns normalized metadata only if/when implemented.
+- Renders nothing.
+- Projects nothing.
+- Omits nothing.
+- Changes no drift policy behavior.
+- Changes no `assert-adoptable` status.
+- Does not execute Terraform/OpenTofu.
+- Does not inspect secret values.
+- Does not parse free-text evidence.
+- Does not enforce cross-class duplicates.
+
+## Pack Metadata Key
+
+The future pack metadata key is:
+
+- Top-level: `sensitive_required`
+- Rule list: `sensitive_required.rules`
+- Future accessor: `packs.sensitive_required_rules(provider=None)`
+
+No accessor exists in this PR.
+
+## Accepted Keys
+
+The closed V1 accepted key set for each rule is:
+
+- `id`
+- `provider`
+- `provider_version_constraint`
+- `resource_type`
+- `resource_prefix`
+- `path`
+- `kind`
+- `sensitivity`
+- `structural_requirement`
+- `action`
+- `evidence`
+- `reason`
+- `raw_api_path`
+- `projected_path`
+- `plan_path`
+
+Any key outside this set is rejected as `unknown_key`, except the explicit
+value-carrying keys below, which are rejected as `forbidden_value_carrying_key`.
+
+## Required Fields
+
+A V1 validator must require:
+
+- `id`
+- `provider`
+- `provider_version_constraint`
+- exactly one resource scope: `resource_type` or `resource_prefix`
+- `path`
+- `kind`
+- `sensitivity`
+- `structural_requirement`
+- `action`
+- `evidence`
+- `reason`
+
+All required string fields must be strings and non-empty after `str.strip()`.
+Normalized metadata should strip these fields where appropriate.
+
+## Forbidden Value-Carrying Keys
+
+The following keys are rejected as `forbidden_value_carrying_key`:
+
+- `value`
+- `observed_value`
+- `placeholder_value`
+- `secret`
+- `secret_value`
+- `sensitive_value`
+
+Any other unaccepted key is `unknown_key`. The validator cannot prove whether
+`reason` or `evidence` text contains secrets; reviewers must reject that during
+lab/design review. Metadata must never carry the secret itself.
+
+## Enum Constants
+
+V1 `kind` enum:
+
+- `sensitive_required_block`
+- `sensitive_required_attribute`
+- `sensitive_write_only_attribute`
+- `sensitive_nested_secret`
+- `sensitive_structural_placeholder_required`
+
+V1 `sensitivity` enum:
+
+- `sensitive_attribute`
+- `sensitive_block`
+- `contains_sensitive_fields`
+- `write_only_sensitive`
+
+V1 `structural_requirement` enum:
+
+- `block_required_for_valid_config`
+- `attribute_required_for_valid_config`
+- `one_of_block_required`
+- `parent_block_required`
+- `operator_input_required_for_valid_config`
+
+V1 allowed actions:
+
+- `diagnostic_only`
+- `manual_review_required`
+
+V1 reserved actions (rejected with `rejected_in_v1_action`):
+
+- `render_placeholder_block`
+- `render_placeholder_attribute`
+- `preserve_structure_without_secret_candidate`
+- `operator_input_required_candidate`
+
+V1 forbidden actions (rejected with `forbidden_action`):
+
+- `project_sensitive`
+- `copy_sensitive_from_state`
+- `guess_secret`
+- `suppress_sensitive_drift`
+- `omit_sensitive_block`
+- `accept_sensitive_unknown`
+- `downgrade_assert_adoptable`
+- `render_fake_secret`
+
+Any other action is `unknown_action`.
+
+## Matrix
+
+All V1 kinds allow only `diagnostic_only` and `manual_review_required`.
+
+| Kind | Allowed sensitivity | Allowed structural_requirement |
+|---|---|---|
+| `sensitive_required_block` | `sensitive_block`, `contains_sensitive_fields` | `block_required_for_valid_config`, `one_of_block_required`, `parent_block_required` |
+| `sensitive_required_attribute` | `sensitive_attribute` | `attribute_required_for_valid_config` |
+| `sensitive_write_only_attribute` | `write_only_sensitive` | `attribute_required_for_valid_config`, `operator_input_required_for_valid_config` |
+| `sensitive_nested_secret` | `contains_sensitive_fields` | `parent_block_required`, `block_required_for_valid_config` |
+| `sensitive_structural_placeholder_required` | `sensitive_block`, `contains_sensitive_fields`, `write_only_sensitive` | `block_required_for_valid_config`, `parent_block_required`, `operator_input_required_for_valid_config` |
+
+A V1 validator rejects:
+
+- out-of-matrix `kind` + `sensitivity` as `out_of_matrix_sensitivity`
+- out-of-matrix `kind` + `structural_requirement` as `out_of_matrix_structural_requirement`
+
+Matrix membership is mechanical only. Kind specificity is lab/design-review
+enforced unless a future validator adds deterministic precedence.
+
+## Path Namespace And Canonicalization
+
+V1 `path` is the provider-state path. `raw_api_path`, `projected_path`, and
+`plan_path` are evidence-only fields and cannot replace `path`. The validator
+canonicalizes `path` using `schema_paths.parse_report_path(path)` then
+`schema_paths.format_path(parsed)`. Accepted `[0]` and `[*]` normalize to `[]`.
+Bare wildcard path segments and unsupported syntax are rejected. V1 adds no new
+path syntax. Rule identity uses the canonicalized path.
+
+Validation ordering:
+
+1. Required-field and type checks.
+2. Path canonicalization after required field checks.
+3. Enum, matrix, and sensitive-path checks after canonicalization.
+
+## Provider Version Rule
+
+`provider_version_constraint` is required, must be a string, and must be
+non-empty after `str.strip()`. The normalized value is the stripped string. V1
+does not parse or semantically evaluate version constraints. Rule identity uses
+exact stripped string equality. Semantically equivalent but string-different
+ranges are distinct identities.
+
+## Rule Identity And Conflicts
+
+Rule identity is the tuple:
+
+```
+(provider, stripped_provider_version_constraint, resource_scope, canonical_path)
+```
+
+where `resource_scope` is either `("type", resource_type)` or
+`("prefix", resource_prefix)`.
+
+A V1 validator rejects:
+
+- duplicate identical identity as `duplicate_rule`
+- same identity with different `kind` as `conflicting_kind`
+- same identity with different `sensitivity` as `conflicting_sensitivity`
+- same identity with different `structural_requirement` as `conflicting_structural_requirement`
+- same identity with different `action` as `conflicting_action`
+- same identity with different `evidence` as `conflicting_evidence`
+- same identity with different `raw_api_path` as `conflicting_raw_api_path`
+- same identity with different `projected_path` as `conflicting_projected_path`
+- same identity with different `plan_path` as `conflicting_plan_path`
+
+`reason` is required but is not a conflict field in V1. Same identity with only
+`reason` differing is still rejected as `duplicate_rule`; it is never accepted as
+a merge. No merge rule exists in V1.
+
+Overlapping scope:
+
+- Exact `resource_type` and matching `resource_prefix` overlap with the same
+  provider, stripped version string, and canonical path is rejected as
+  `overlapping_scope`.
+- Version strings must be exactly equal after stripping; no semantic version
+  overlap is computed.
+- Prefix-prefix overlap is deferred unless a future contract explicitly specifies
+  it.
+
+## Provider / Resource Prefix Checking
+
+If `provider_prefixes` is supplied:
+
+- `resource_type` resolves to provider using longest-prefix match; mismatch is
+  `provider_resource_mismatch`.
+- `resource_prefix` must exist in the map and map to the rule provider; mismatch
+  is `provider_resource_mismatch`, unknown prefix is `provider_resource_unknown`.
+
+If `provider_prefixes` is not supplied, the validator skips the provider/resource
+consistency check.
+
+Scope errors:
+
+- both `resource_type` and `resource_prefix`: `both_resource_scopes`
+- neither: `missing_resource_scope`
+
+## Sensitive Path Static Matching
+
+If `sensitive_paths` is supplied:
+
+- Canonicalize every sensitive path using the same path canonicalization as the
+  rule path.
+- Canonicalize the rule `path`.
+- Accept the rule only if the canonicalized rule path is present in the
+  canonical sensitive-path set.
+- Reject an absent match as `path_not_in_sensitive_set`.
+
+If `sensitive_paths` is not supplied, the validator skips this check.
+
+Exact canonical match only. No ancestor/descendant matching in V1. No new
+sensitivity resolver. No downgrade based on metadata.
+
+## Cross-Class Duplicate Deferral
+
+There is no V1 cross-class duplicate enforcement against `provider_config`,
+`absent_defaults`, `dynamic_schema`, raw-only advisory, or `projection_omit`.
+Cross-class overlap is handled by human review and inventory/reporting only.
+Machine enforcement waits for a cross-design identity rule.
+
+## Error Categories And Message Contract
+
+The following V1 error categories are frozen. Future messages must include the
+rule index and rule `id` when present, the offending field, and the identity
+tuple when relevant.
+
+| Category | Trigger | Scope |
+|---|---|---|
+| `rules_not_list` | `rules` is not a list | rule set |
+| `rule_not_object` | a rule is not an object | rule |
+| `unknown_key` | key outside accepted set | rule |
+| `forbidden_value_carrying_key` | value-carrying key present | rule |
+| `missing_id` | no `id` | rule |
+| `missing_provider` | no `provider` | rule |
+| `missing_provider_version_constraint` | no `provider_version_constraint` | rule |
+| `missing_path` | no `path` | rule |
+| `missing_kind` | no `kind` | rule |
+| `missing_sensitivity` | no `sensitivity` | rule |
+| `missing_structural_requirement` | no `structural_requirement` | rule |
+| `missing_action` | no `action` | rule |
+| `missing_evidence` | no `evidence` | rule |
+| `missing_reason` | no `reason` | rule |
+| `missing_resource_scope` | neither `resource_type` nor `resource_prefix` | rule |
+| `both_resource_scopes` | both `resource_type` and `resource_prefix` | rule |
+| `field_must_be_string` | required string field is not a string or is empty after strip | rule |
+| `unknown_kind` | `kind` not in enum | rule |
+| `unknown_sensitivity` | `sensitivity` not in enum | rule |
+| `unknown_structural_requirement` | `structural_requirement` not in enum | rule |
+| `unknown_action` | `action` not in allowed/reserved/forbidden | rule |
+| `rejected_in_v1_action` | reserved action | rule |
+| `forbidden_action` | forbidden action | rule |
+| `out_of_matrix_sensitivity` | `kind` + `sensitivity` not in matrix | rule |
+| `out_of_matrix_structural_requirement` | `kind` + `structural_requirement` not in matrix | rule |
+| `invalid_path_syntax` | path cannot be parsed/canonicalized | rule |
+| `evidence_path_cannot_replace_path` | `raw_api_path`/`projected_path`/`plan_path` present without `path` | rule |
+| `provider_resource_mismatch` | resource scope maps to a different provider | rule |
+| `provider_resource_unknown` | resource scope has no known prefix | rule |
+| `duplicate_rule` | identical identity tuple | rule set |
+| `conflicting_kind` | same identity, different `kind` | rule set |
+| `conflicting_sensitivity` | same identity, different `sensitivity` | rule set |
+| `conflicting_structural_requirement` | same identity, different `structural_requirement` | rule set |
+| `conflicting_action` | same identity, different `action` | rule set |
+| `conflicting_evidence` | same identity, different `evidence` | rule set |
+| `conflicting_raw_api_path` | same identity, different `raw_api_path` | rule set |
+| `conflicting_projected_path` | same identity, different `projected_path` | rule set |
+| `conflicting_plan_path` | same identity, different `plan_path` | rule set |
+| `overlapping_scope` | same type and matching prefix for same provider/version/path | rule set |
+| `path_not_in_sensitive_set` | static sensitive path set supplied but rule path missing | rule |
+
+## Test Matrix For Future Validator PR
+
+The following matrix must be covered by tests in the validator-only
+implementation PR. This contract PR does not implement or test them.
+
+### Positive tests
+
+- `None` rules -> empty normalized list.
+- Empty rules -> empty normalized list.
+- Valid Grafana-like `sensitive_required_block` + `contains_sensitive_fields` + `one_of_block_required`.
+- Valid `sensitive_required_attribute` + `sensitive_attribute` + `attribute_required_for_valid_config`.
+- Valid `sensitive_write_only_attribute` + `write_only_sensitive` + `operator_input_required_for_valid_config`.
+- Valid `sensitive_nested_secret` + `contains_sensitive_fields` + `parent_block_required`.
+- Valid `sensitive_structural_placeholder_required` + `sensitive_block` + `block_required_for_valid_config`.
+- `provider_version_constraint` stripped and preserved as stripped string.
+- Path canonicalization `[0]` -> `[]`.
+- Path canonicalization `[*]` -> `[]`.
+- Optional `raw_api_path`, `projected_path`, `plan_path` accepted.
+- `resource_prefix` scope accepted.
+- Provider/resource match accepted when `provider_prefixes` is supplied.
+- Static sensitive-path exact canonical match accepted.
+- Validator skips sensitive-path check when `sensitive_paths` is `None`.
+
+### Negative tests
+
+- `rules` not a list.
+- rule not an object.
+- unknown key.
+- each forbidden value-carrying key.
+- missing each required field.
+- non-string required string field.
+- empty/whitespace required string field.
+- both `resource_type` and `resource_prefix`.
+- neither `resource_type` nor `resource_prefix`.
+- unknown `kind`.
+- unknown `sensitivity`.
+- unknown `structural_requirement`.
+- unknown `action`.
+- each reserved action rejected in V1.
+- each forbidden action rejected.
+- out-of-matrix `sensitivity`.
+- out-of-matrix `structural_requirement`.
+- unsupported path syntax.
+- bare wildcard path segment.
+- `raw_api_path`/`projected_path`/`plan_path` without `path`.
+- provider/resource mismatch.
+- unknown provider/resource prefix.
+- duplicate identical rule.
+- same identity conflicting every conflict field.
+- same identity differing only `reason` is rejected as `duplicate_rule` (not merged).
+- overlapping `resource_type`/`resource_prefix` same version/path rejected.
+- overlapping `resource_type`/`resource_prefix` different version accepted.
+- `sensitive_paths` supplied but rule path not present rejected.
+- sensitive descendant does not satisfy ancestor path in V1.
+- sensitive ancestor does not satisfy descendant path in V1.
+- no cross-class duplicate checks run.
+
+## Out Of Scope
+
+This contract PR explicitly does not implement:
+
+- A validator module.
+- A pack accessor (`packs.sensitive_required_rules`).
+- Pack metadata.
+- Inventory integration.
+- Advisory integration.
+- `assert-adoptable` integration.
+- Projection behavior.
+- Omission behavior.
+- Placeholder rendering.
+- Terraform/OpenTofu execution.
+- Any runtime behavior.
+
 ## Recommended Next Step
 
-After this correction, run external review. If the design survives review, the
-next PR is a V1 validator-contract PR that specifies message text, error
-categories, and the exact rejection behavior. Do not implement the validator or
-any behavior in this correction PR.
+After this contract PR is accepted, the next PR is a validator-only
+implementation that follows this contract exactly. Do not implement the
+validator or any behavior in this contract PR.
 
 No sensitive-required behavior should be implemented until the metadata contract,
 evidence requirements, and safety invariant are accepted and at least one
 provider lab proves a narrow, safe class.
 
-Until the validator contract and validator-only implementation exist,
-`grafana_contact_point.webhook` remains manual-review/unclassified in pack
-metadata.
+Until the validator-only implementation exists, `grafana_contact_point.webhook`
+remains manual-review/unclassified in pack metadata.
