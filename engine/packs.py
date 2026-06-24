@@ -243,6 +243,38 @@ def provider_pins():
     return out
 
 
+def provider_config_requirements(provider=None):
+    """Provider-config diagnostic metadata declared by pack manifests.
+
+    Shape:
+      "provider_config": {
+        "requirements": [
+          {
+            "id": "google_disable_attribution_label",
+            "provider": "google",
+            "setting": "add_terraform_attribution_label",
+            "value": false,
+            "plan_paths": ["terraform_labels.goog-terraform-provisioned"]
+          }
+        ]
+      }
+
+    This only exposes metadata for diagnostics. It does not render provider
+    configuration or change adoption behavior.
+    """
+    out = []
+    for m in _manifests():
+        cfg = m.get("provider_config") or {}
+        providers = sorted(set((m.get("provider_prefixes") or {}).values()))
+        for req in cfg.get("requirements") or []:
+            item = dict(req)
+            if "provider" not in item and len(providers) == 1:
+                item["provider"] = providers[0]
+            if provider is None or item.get("provider") == provider:
+                out.append(item)
+    return out
+
+
 def adoption_status_paths():
     """Every adoption_status.json under packs/ (vendor-shared in _shared/ today;
     per-provider later). load_status merges them."""

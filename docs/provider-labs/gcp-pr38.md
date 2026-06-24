@@ -212,9 +212,9 @@ git diff --check
 
 ## Follow-Ups
 
-- `pack:provider-config`: Google adoption should set or require
-  `add_terraform_attribution_label = false`, or otherwise classify provider
-  attribution-label drift explicitly.
+- `pack:provider-config`: use provider-config diagnostics for
+  `add_terraform_attribution_label = false` and classify Google attribution
+  label drift against explicit pack metadata.
 - `provider-boundary:paid-or-disabled`: repeat the lab with billing enabled to
   cover Compute, Secret Manager, Cloud Storage, and other billable APIs.
 - `pack:identity-alias`: keep explicit identity/import metadata for Google
