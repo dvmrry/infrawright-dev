@@ -29,7 +29,7 @@ surfaces:
 | NetBox | Absent/default placeholder drift | Provider-specific empty, zero, and null semantics need diagnostics before normalization. |
 | Grafana | Sensitive-but-required nested blocks | Sensitive provider state can also be structurally required for valid config. |
 | Cloudflare | Dynamic schema attrs, identity aliases, singleton/default drift | Pack metadata must represent identity aliases, and dynamic schema paths need deliberate strategy. |
-| Google Cloud | Provider-config attribution drift, billing/API boundaries, API/provider shape drift | Provider config requirements are a distinct pack concern, not drift tolerance. |
+| Google Cloud | Historical provider-config attribution drift, billing/API boundaries, API/provider shape drift | Provider config requirements are a distinct pack concern, not drift tolerance. A later retest did not reproduce the old attribution-label drift, so it is not current live validation for guidance annotations. |
 
 The evidence set is enough to stop asking whether the oracle approach can work.
 The next phase is deciding which diagnosed classes become pack metadata,
@@ -105,7 +105,7 @@ Lab-derived adoption metadata is now committed in pack manifests:
 
 | Provider | Metadata class | Evidence | Status |
 |---|---|---|---|
-| Google Cloud | `provider_config.requirements` | `docs/provider-labs/gcp-pr38.md` | Validated, guidance-only. |
+| Google Cloud | `provider_config.requirements` | `docs/provider-labs/gcp-pr38.md` | Historical lab evidence, guidance-only. Current retest did not reproduce the old drift. |
 | NetBox | `absent_defaults.rules` | `docs/provider-labs/netbox-pr22.md` | Validated, manual-review only. |
 | Cloudflare | `absent_defaults.rules` + `dynamic_schema.rules` | `docs/provider-labs/cloudflare-free-tier-pr32.md` | Validated, manual-review only. `cloudflare_zone_hold` is intentionally classified as `provider_server_side_singleton_default`, distinct from NetBox-style `provider_absent_placeholder`. |
 | Grafana | unclassified | `docs/provider-labs/grafana-pr24.md` | Sensitive-required design, contract, and validator landed; pack metadata still pending. |
@@ -150,10 +150,12 @@ The sensitive-required failure class is now documented in `docs/sensitive-requir
 
 ## Next Phase
 
-- The provider-config assert-adoptable guidance annotation implementation is in
-  progress. It must be validated by a GCP lab re-run showing the annotation for
-  the known attribution-label drift before broadening to other provider-config
-  classes.
+- The provider-config assert-adoptable guidance annotation implementation remains
+  the first behavior candidate. A current GCP attribution-label retest did not
+  reproduce the old drift, so a current live provider-config blocked-path lab is
+  still required before broadening or generalizing the behavior.
+- The next provider-config lab target should be a provider/config setting that
+  reliably produces provider-driven drift on an existing blocked plan path.
 - Commit sensitive-required pack metadata for a concrete provider lab finding
   once the class is narrowly defined and safe.
 - Run another provider lab that proves a narrow, safe sensitive-required class
@@ -171,8 +173,10 @@ The first behavior candidate is documented in
   blocked drift path matches a `provider_config.requirements` entry.
 - Exact plan-path matching in V1, no provider rendering, no mutation, no plan
   status change.
-- Required evidence: GCP lab re-run; second provider-config lab (AWS/Azure) before
-  generalizing the class.
+- Required evidence before live-validation claims or generalization: a current
+  provider-config lab that produces a blocked plan path matching committed
+  metadata and shows the annotation while the plan remains blocked. The
+  historical GCP attribution-label case no longer satisfies this by itself.
 - Future test list and rollback plan are specified.
 
 This design PR is documentation-only. No behavior has been implemented.
