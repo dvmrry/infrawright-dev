@@ -172,6 +172,18 @@ class AbsentDefaultsValidatorPositiveTest(unittest.TestCase):
                 ])
                 self.assertEqual(rules[0][key], "valid.path")
 
+    def test_path_canonicalizes_numeric_index(self):
+        rules = absent_defaults_validator.validate_absent_default_rules([
+            _base_rule(path="foo[0].bar"),
+        ])
+        self.assertEqual(rules[0]["path"], "foo[].bar")
+
+    def test_path_canonicalizes_wildcard_index(self):
+        rules = absent_defaults_validator.validate_absent_default_rules([
+            _base_rule(path="foo[*].bar"),
+        ])
+        self.assertEqual(rules[0]["path"], "foo[].bar")
+
 
 class AbsentDefaultsValidatorNegativeTest(unittest.TestCase):
     def _assert_invalid(self, rule, text, rules=None, sensitive_paths=None,
@@ -388,6 +400,62 @@ class AbsentDefaultsValidatorNegativeTest(unittest.TestCase):
             "targets a known sensitive path",
             sensitive_paths={"password"},
         )
+
+    def test_sensitive_path_canonical_match_rejects_rule_canonical(self):
+        self._assert_invalid(
+            _base_rule(path="foo[].bar"),
+            "targets a known sensitive path",
+            sensitive_paths={"foo[0].bar"},
+        )
+
+    def test_sensitive_path_canonical_match_rejects_sensitive_canonical(self):
+        self._assert_invalid(
+            _base_rule(path="foo[0].bar"),
+            "targets a known sensitive path",
+            sensitive_paths={"foo[].bar"},
+        )
+
+    def test_bare_wildcard_segment_rejected(self):
+        self._assert_invalid(
+            _base_rule(path="*.bar"),
+            "bare wildcard segment",
+        )
+
+    def test_unsupported_path_syntax_rejected(self):
+        self._assert_invalid(
+            _base_rule(path="foo..bar"),
+            "unsupported syntax",
+        )
+
+    def test_duplicate_canonical_equivalent_paths_rejected(self):
+        self._assert_invalid(
+            None,
+            "duplicate rule",
+            rules=[
+                _base_rule(path="foo[0].bar"),
+                _base_rule(path="foo[].bar"),
+            ],
+        )
+
+    def test_conflict_canonical_equivalent_paths_rejected(self):
+        self._assert_invalid(
+            None,
+            "conflicting observed_value",
+            rules=[
+                _base_rule(path="foo[0].bar", observed_value=""),
+                _base_rule(path="foo[].bar", observed_value="0"),
+            ],
+        )
+
+    def test_rejects_if_sensitive_not_inverted_accept_if_sensitive(self):
+        # Regression: absent/default must reject known sensitive paths, not accept
+        # them like sensitive-required does.
+        with self.assertRaises(ValueError) as ctx:
+            absent_defaults_validator.validate_absent_default_rules(
+                [_base_rule(path="password")],
+                sensitive_paths={"password"},
+            )
+        self.assertIn("targets a known sensitive path", str(ctx.exception))
 
     def test_resource_type_mismatch_rejected_with_prefixes(self):
         self._assert_invalid(
