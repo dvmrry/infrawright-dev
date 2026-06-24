@@ -85,6 +85,10 @@ Result: no provider-config guidance validation case.
 
 ## Observed AWS Quirks
 
+See [AWS Absent/Default Placeholder Classification](../aws-absent-default-classification.md)
+for the design split between mutually-exclusive prefix conflicts and absent
+optional reference placeholders.
+
 ### Empty Prefix Placeholders
 
 Several AWS resources import empty string prefix fields even when the explicit
@@ -101,10 +105,15 @@ fields conflict:
 
 The lab used temporary consumer-owned `projection_omit` entries to remove only
 those placeholder paths so deeper provider behavior could be evaluated. This is
-an absent/default placeholder class, not provider-config guidance.
+an absent/default placeholder class, not provider-config guidance. These prefix
+fields are specifically mutually-exclusive field conflict candidates: rendering
+both a concrete identity field such as `name` or `bucket` and an empty prefix
+field creates invalid config.
 
 `aws_cloudwatch_log_group` also imported `kms_key_id = ""` for an unencrypted
-log group; that path was omitted in the lab for the same reason.
+log group; that path was omitted in the lab for the same reason. Unlike the
+prefix fields, `kms_key_id` is an absent optional reference candidate, not a
+mutually-exclusive identity-prefix conflict.
 
 ### Deprecated AWS Surfaces
 
@@ -175,5 +184,8 @@ directory was removed after extracting this sanitized report.
 - Do not mark provider-config guidance annotations as live-lab validated.
 - Track AWS empty-prefix placeholder behavior under the absent/default
   normalization design, with per-resource evidence and runtime discriminators.
+- Use the AWS absent/default classification design to keep mutually-exclusive
+  prefix conflicts separate from absent optional reference placeholders before
+  committing any AWS metadata.
 - Consider provider-readiness metadata for deprecated inline AWS surfaces before
   attempting broad AWS pack support.

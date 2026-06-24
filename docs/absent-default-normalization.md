@@ -35,6 +35,12 @@ Provider labs have already exposed absent/default drift:
 - Cloudflare showed default and singleton drift for resources such as
   `cloudflare_zone_hold`, including fields like `hold`, `hold_after`, and
   `include_subdomains`.
+- AWS showed empty-string placeholder paths in
+  [AWS Absent/Default Placeholder Classification](aws-absent-default-classification.md).
+  Its `name_prefix` and `bucket_prefix` findings are mutually-exclusive field
+  conflict candidates, not the same shape as NetBox-style empty enum/default
+  placeholders. `aws_cloudwatch_log_group.kms_key_id = ""` is an absent optional
+  reference candidate with a different safety argument again.
 
 `cloudflare_zone_hold` is not the same class as NetBox projection-time
 placeholder omission. It is better classified as
