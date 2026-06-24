@@ -62,7 +62,9 @@ behavior:
 - Provider-config guidance for blocked drift; validator metadata is implemented
   in [Provider Config Requirement Guidance](provider-config-remediation.md), but
   provider-config rendering and mutation are out of scope.
-- Provider-specific absent/default normalization rules.
+- Provider-specific absent/default normalization rules; design proposed in
+  [Absent/Default Normalization Design](absent-default-normalization.md), not
+  implemented.
 - Dynamic schema remediation strategy for opaque maps, open objects, and
   dynamic attributes.
 - Sensitive-required remediation, manual override, or explicit cannot-adopt
