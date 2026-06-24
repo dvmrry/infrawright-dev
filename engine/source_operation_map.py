@@ -15,6 +15,7 @@ import re
 import sys
 
 from engine import openapi_resource_map
+from engine import sdk_path_evidence
 
 
 GO_FILE_SUFFIX = ".go"
@@ -26,6 +27,7 @@ SDK_LIST_METHODS = set(("List", "Search"))
 SDK_CALL_SCORE_FLOOR = 35
 PACKAGE_CALL_SCORE_FLOOR = 35
 RAW_REST_CALL_SCORE_FLOOR = 70
+SDK_PATH_RESOLVED_SCORE = 1000
 SDK_RECEIVER_NAMES = set(("api", "client"))
 RELATIONSHIP_TOKENS = set((
     "assignment",
@@ -580,7 +582,7 @@ def _identifier_tokens_from_facts(source_files, source_facts):
     return set(token for token in tokens if token)
 
 
-def _sdk_client_calls_from_facts(source_files, source_facts):
+def _sdk_client_calls_from_facts(source_files, source_facts, require_role=True):
     source_file_set = set(_fact_rel_path(path) for path in source_files)
     calls = {}
     for item in source_facts.get("selector_calls") or []:
@@ -599,7 +601,7 @@ def _sdk_client_calls_from_facts(source_files, source_facts):
             continue
         method = suffix[-1]
         role = _sdk_method_role(method)
-        if not role:
+        if not role and require_role:
             continue
         chain = suffix[:-1]
         symbol = ".".join(chain + [method])
@@ -677,6 +679,18 @@ def _is_graphql_source_from_facts(source_files, source_facts):
         if "githubv4" in (item.get("symbol") or "").lower():
             return True
     return False
+
+
+def _sdk_client_calls_from_paths(source_paths, require_role=True):
+    source_text = []
+    for path in source_paths:
+        try:
+            with open(path, encoding="utf-8") as f:
+                source_text.append(f.read())
+        except UnicodeDecodeError:
+            continue
+    return _sdk_client_calls(
+        "\n".join(source_text), require_role=require_role)
 
 
 def _source_evidence_from_text(source_root, source_paths):
@@ -834,8 +848,13 @@ def _sdk_method_role(method):
     return None
 
 
-def _sdk_client_calls(text):
-    """Return SDK calls such as client.DNS.Records.Get or api.Ipam.FooRead."""
+def _sdk_client_calls(text, require_role=True):
+    """Return SDK calls such as client.DNS.Records.Get or api.Ipam.FooRead.
+
+    When require_role is False, calls whose method name does not classify
+    as read/list are still returned, with source_role set to None, so
+    SDK path evidence can surface write/action calls.
+    """
     code = _go_code_without_comments_and_strings(text)
     calls = {}
     pattern = re.compile(
@@ -855,7 +874,7 @@ def _sdk_client_calls(text):
             continue
         method = suffix[-1]
         role = _sdk_method_role(method)
-        if not role:
+        if not role and require_role:
             continue
         chain = suffix[:-1]
         symbol = ".".join(chain + [method])
@@ -1514,6 +1533,20 @@ def _raw_rest_call_score(resource_type, resource_prefix, operation, call,
     return score if score >= RAW_REST_CALL_SCORE_FLOOR else None
 
 
+def _sdk_path_matches_resource(resource_type, resource_prefix, operation,
+                               resource_schema):
+    if _resource_path_sequence_score(resource_type, resource_prefix, operation):
+        return True
+    if _resource_terminal_score(resource_type, resource_prefix, operation):
+        return True
+    if _resource_prefix_score(resource_type, resource_prefix, operation):
+        return True
+    for token in _base_tokens(resource_type, resource_prefix):
+        if _operation_mentions_token(operation, token):
+            return True
+    return bool(_scope_score(operation, _scope_hints(resource_schema)) > 0)
+
+
 def _candidate_score(resource_type, resource_prefix, operation):
     path = operation["path"]
     operation_id = operation["operation_id"]
@@ -1582,6 +1615,18 @@ def _operation_entry(hit, evidence_kind, source_files):
     if hit.get("alternate_client_symbols"):
         provider_call["alternate_client_symbols"] = (
             hit["alternate_client_symbols"])
+    hops = [provider_call]
+    if hit.get("sdk_path_template"):
+        sdk_path_hop = {
+            "kind": "sdk_path",
+            "method": hit.get("sdk_path_method", hit["method"]),
+            "path_template": hit["sdk_path_template"],
+            "sdk_file": hit.get("sdk_path_file"),
+        }
+        if hit.get("sdk_path_ambiguous"):
+            sdk_path_hop["ambiguous_openapi_paths"] = hit["sdk_path_ambiguous"]
+        hops.append(sdk_path_hop)
+    hops.append(openapi_operation)
     entry = {
         "evidence_kind": evidence_kind,
         "confidence": "high",
@@ -1589,10 +1634,7 @@ def _operation_entry(hit, evidence_kind, source_files):
         "operation_id": hit["operation_id"],
         "path": hit["path"],
         "path_kind": hit["path_kind"],
-        "hops": [
-            provider_call,
-            openapi_operation,
-        ],
+        "hops": hops,
     }
     if hit.get("operation_id_source") != "openapi":
         entry["operation_id_source"] = hit.get("operation_id_source")
@@ -1789,7 +1831,8 @@ def _filter_resource_schemas(resource_schemas, resource_filter):
 
 def derive_registry(schema_path, openapi_path, source_root,
                     provider_source=None, resource_prefix="",
-                    source_facts=None, resource_filter=None):
+                    source_facts=None, resource_filter=None,
+                    sdk_root=None):
     resource_schemas = _load_resource_schemas(
         schema_path, provider_source=provider_source)
     resource_schemas = _filter_resource_schemas(
@@ -1802,6 +1845,8 @@ def derive_registry(schema_path, openapi_path, source_root,
         files_by_resource = _resource_files(
             source_root, resource_names, resource_prefix)
     operations = _operation_index(_read_json(openapi_path))
+    sdk_path_evidence_map, sdk_path_unresolved_map = (
+        sdk_path_evidence.extract_sdk_paths(sdk_root))
 
     registry = {}
     diagnostics = []
@@ -1825,7 +1870,74 @@ def derive_registry(schema_path, openapi_path, source_root,
         raw_rest_calls = evidence["raw_rest_calls"]
         graphql_source = evidence["graphql_source"]
 
+        sdk_path_unresolved_calls = []
+        sdk_action_paths = []
         hits = []
+        if sdk_root:
+            if source_facts:
+                sdk_call_symbols = _sdk_client_calls_from_facts(
+                    source_files, source_facts, require_role=False)
+            else:
+                sdk_call_symbols = _sdk_client_calls_from_paths(
+                    source_paths, require_role=False)
+            for call in sdk_call_symbols:
+                symbol = call["client_symbol"]
+                path_ev = sdk_path_evidence_map.get(symbol)
+                if path_ev is None:
+                    unres = sdk_path_unresolved_map.get(symbol)
+                    sdk_path_unresolved_calls.append({
+                        "client_symbol": symbol,
+                        "sdk_file": unres["sdk_file"] if unres else None,
+                        "reason": (unres["reason"] if unres
+                                   else "sdk_symbol_not_found"),
+                    })
+                    continue
+                if path_ev["method"] != "GET":
+                    sdk_action_paths.append({
+                        "client_symbol": symbol,
+                        "method": path_ev["method"],
+                        "path_template": path_ev["path_template"],
+                        "sdk_file": path_ev["sdk_file"],
+                    })
+                    continue
+                op, ambiguous = sdk_path_evidence.match_openapi_by_path(
+                    operations, path_ev["path_template"], method="GET")
+                if op is None and ambiguous:
+                    sdk_path_unresolved_calls.append({
+                        "client_symbol": symbol,
+                        "sdk_file": path_ev["sdk_file"],
+                        "reason": "openapi_path_ambiguous",
+                        "ambiguous_openapi_paths": [
+                            a["path"] for a in ambiguous],
+                    })
+                    continue
+                if op is None:
+                    sdk_path_unresolved_calls.append({
+                        "client_symbol": symbol,
+                        "sdk_file": path_ev["sdk_file"],
+                        "reason": "openapi_path_not_found",
+                    })
+                    continue
+                if not _sdk_path_matches_resource(
+                        resource, resource_prefix, op,
+                        resource_schemas[resource]):
+                    continue
+                hit = dict(op)
+                hit["client_symbol"] = symbol
+                hit["matched_aliases"] = [symbol]
+                hit["path_kind"] = _path_kind(op)
+                hit["read_score"] = (
+                    SDK_PATH_RESOLVED_SCORE
+                    + _candidate_score(resource, resource_prefix, op))
+                hit["list_score"] = (
+                    SDK_PATH_RESOLVED_SCORE
+                    + _list_candidate_score(resource, resource_prefix, op))
+                hit["sdk_method"] = call["method"]
+                hit["source_role"] = path_ev["source_role"] or call["source_role"]
+                hit["sdk_path_template"] = path_ev["path_template"]
+                hit["sdk_path_method"] = path_ev["method"]
+                hit["sdk_path_file"] = path_ev["sdk_file"]
+                hits.append(hit)
         for operation in operations:
             if operation["method"] != "GET":
                 continue
@@ -1948,6 +2060,10 @@ def derive_registry(schema_path, openapi_path, source_root,
             ]
         if graphql_source:
             entry["source"]["graphql"] = True
+        if sdk_path_unresolved_calls:
+            entry["source"]["sdk_path_unresolved"] = sdk_path_unresolved_calls
+        if sdk_action_paths:
+            entry["source"]["sdk_action_paths"] = sdk_action_paths
         if read_ambiguous:
             status = "ambiguous_source_operation"
             reason = "ambiguous_source_operation"
@@ -2117,6 +2233,7 @@ def main(argv=None):
     parser.add_argument(
         "--source-facts-compare",
         help="Write old-scanner vs --source-facts comparison JSON")
+    parser.add_argument("--sdk-root", help="Vendored Go SDK source root for path-template extraction")
     parser.add_argument("--out", help="Write source/read registry JSON to this file")
     parser.add_argument("--diagnostics", help="Write diagnostics JSON to this file")
     args = parser.parse_args(argv)
@@ -2130,6 +2247,7 @@ def main(argv=None):
             resource_prefix=args.resource_prefix,
             source_facts=source_facts,
             resource_filter=_parse_resource_filter(args.resources),
+            sdk_root=args.sdk_root,
         )
         if args.source_facts_compare:
             if not source_facts:
@@ -2142,6 +2260,7 @@ def main(argv=None):
                 provider_source=args.provider_source,
                 resource_prefix=args.resource_prefix,
                 resource_filter=_parse_resource_filter(args.resources),
+                sdk_root=args.sdk_root,
             )
             _write_json(compare_registry_reports(
                 control_report, report), path=args.source_facts_compare)

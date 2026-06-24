@@ -1,8 +1,8 @@
 # <Provider> Provider Lab
 
-Date: `<YYYY-MM-DD>`  
-Provider: `<source>` `<version>`  
-Terraform/OpenTofu: `<version>`  
+Date: `<YYYY-MM-DD>`
+Provider: `<source>` `<version>`
+Terraform/OpenTofu: `<version>`
 Target: `<disposable target summary>`
 
 This lab exercised the import-oracle adoption path and static advisory report

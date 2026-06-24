@@ -1,8 +1,8 @@
 # Cloudflare Free-Tier Lab
 
-Date: 2026-06-24  
-Provider: `cloudflare/cloudflare` `v5.21.1`  
-Terraform: `v1.15.4`  
+Date: 2026-06-24
+Provider: `cloudflare/cloudflare` `v5.21.1`
+Terraform: `v1.15.4`
 Target: disposable Cloudflare account with active free-plan zone `iw-cf-lab.xyz`
 
 This lab expanded the Cloudflare coverage beyond the first account/zone passes by
