@@ -208,6 +208,17 @@ def schema_path_for(provider):
         pack_dir_for_provider(provider), "schemas", "provider", provider + ".json")
 
 
+def oracle_provider_config_path(provider):
+    """Optional provider config override for oracle scratch roots.
+
+    Default adoption roots use an empty provider block with credentials from
+    provider environment variables. Packs that need explicit config can ship:
+      packs/<pack>/oracle/<provider>.tf
+    """
+    path = os.path.join(pack_dir_for_provider(provider), "oracle", provider + ".tf")
+    return path if os.path.exists(path) else None
+
+
 def registry_paths():
     """Every pack's registry.json, which load_registry() merges. One today;
     one per provider after the split."""
@@ -229,6 +240,38 @@ def provider_pins():
         if pin:
             for provider in m.get("provider_prefixes", {}).values():
                 out[provider] = pin
+    return out
+
+
+def provider_config_requirements(provider=None):
+    """Provider-config diagnostic metadata declared by pack manifests.
+
+    Shape:
+      "provider_config": {
+        "requirements": [
+          {
+            "id": "google_disable_attribution_label",
+            "provider": "google",
+            "setting": "add_terraform_attribution_label",
+            "value": false,
+            "plan_paths": ["terraform_labels.goog-terraform-provisioned"]
+          }
+        ]
+      }
+
+    This only exposes metadata for diagnostics. It does not render provider
+    configuration or change adoption behavior.
+    """
+    out = []
+    for m in _manifests():
+        cfg = m.get("provider_config") or {}
+        providers = sorted(set((m.get("provider_prefixes") or {}).values()))
+        for req in cfg.get("requirements") or []:
+            item = dict(req)
+            if "provider" not in item and len(providers) == 1:
+                item["provider"] = providers[0]
+            if provider is None or item.get("provider") == provider:
+                out.append(item)
     return out
 
 
