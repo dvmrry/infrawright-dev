@@ -37,6 +37,7 @@ provider-level adoption precondition.
 - Do not render credentials, tokens, tenant IDs, endpoints, account IDs, or
   other environment-specific provider arguments from pack metadata.
 - Do not mutate user-authored provider configuration.
+- Do not treat provider-config matching as drift tolerance or plan cleanliness.
 - Do not implement provider-config remediation in this design PR.
 
 ## Current Diagnostic Metadata
@@ -117,15 +118,27 @@ rendering or validation.
 - `diagnostic_only`: explain drift, but never render or enforce. This is the
   current effective behavior and the safe default when `remediation` is absent.
 - `renderable_default`: future generated roots may render the provider argument
-  when the consumer has not supplied an override. The value must be
-  non-sensitive, provider-wide, and lab-proven.
+  when all rendering preconditions are satisfied. Until then it must behave
+  exactly like `diagnostic_only`.
 - `required_external`: the requirement is known, but the value must come from a
-  consumer-owned file or environment-specific provider config. The engine may
-  eventually fail with a clear message, but should not render the value.
+  consumer-owned file or environment-specific provider config. It never
+  renders. A future `assert-adoptable` path may use it to emit remediation
+  guidance when matching drift is detected.
 
 No other modes should be added until a provider lab proves the need.
 
 ## Rendering Boundary
+
+Rendering is forbidden until all of these preconditions exist:
+
+- A consumer-owned provider-config path exists.
+- Generated roots can detect whether that consumer config is active for the
+  provider/root being generated.
+- Oracle scratch config and generated env-root config derive equivalent
+  provider settings for the same requirement.
+
+Until those preconditions are implemented, `renderable_default` is metadata for
+validation and review only. It must not change generated provider blocks.
 
 Generated env roots currently render a minimal provider block:
 
@@ -150,6 +163,50 @@ should handle primitive provider arguments from `renderable_default`
 requirements only. Complex nested provider blocks, aliases, credentials,
 endpoints, and per-tenant values should remain out of scope.
 
+V1 rendering, if accepted later, is restricted to the default unaliased provider
+block. Provider aliases are out of scope.
+
+### Oracle And Env-Root Equivalence
+
+There are two provider-config mechanisms today or proposed:
+
+- Existing oracle scratch overrides under `packs/<pack>/oracle/<provider>.tf`.
+- Future generated env-root provider arguments.
+
+These must not diverge for the same provider-config requirement. A lab/oracle
+clean result proves only that the oracle scratch root converged with the
+provider settings it used. It does not imply the committed generated env root
+will converge unless equivalent provider settings are also applied there.
+
+Any future renderer or validator must compare the requirement's intended
+provider setting across oracle scratch configuration and generated env-root
+configuration before claiming the requirement is remediated.
+
+### V1 Value Encoding
+
+V1 `renderable_default` accepts only JSON booleans and numbers.
+
+- JSON boolean values render as HCL `true` or `false`.
+- JSON numbers render as canonical numeric literals.
+- Strings, `null`, arrays, and objects are rejected for V1 rendering.
+
+String-valued defaults are deliberately deferred. They can contain regions,
+endpoints, project IDs, account IDs, tenant values, aliases, or text that looks
+like interpolation. Those need a separate design before they can be rendered.
+
+The safety metadata is necessary but not sufficient. For `renderable_default`,
+`safety.non_sensitive`, `safety.not_tenant_specific`, and
+`safety.not_destructive` must all be present and exactly `true`, but those
+attestations do not override the V1 type restrictions.
+
+### Rendering Granularity
+
+Provider configuration is provider-block-wide. `resource_types` and
+`resource_prefixes` remain diagnostic scoping fields only. A requirement that
+applies to only some resource roots is not eligible for V1
+`renderable_default`, because rendering it into the provider block would affect
+every resource using that provider configuration.
+
 ## Precedence
 
 Provider config has a wider blast radius than resource config, so precedence
@@ -167,6 +224,26 @@ The exact consumer override path is intentionally not chosen here. A future PR
 should design it alongside implementation. Until then, provider-config
 remediation should stay a design/diagnostic concept.
 
+## Validator-Only First Stage
+
+The first behavior PR after this design should parse and validate remediation
+metadata only. It must not render provider blocks.
+
+The validator should reject:
+
+- Unknown remediation modes.
+- Unknown remediation keys.
+- Malformed remediation objects.
+- Missing lab evidence.
+- Missing `safety.non_sensitive`, `safety.not_tenant_specific`, or
+  `safety.not_destructive` for `renderable_default`.
+- Any renderable value that is not a JSON boolean or number.
+- Duplicate provider and setting requirements with conflicting values.
+- Missing `plan_paths` or `reason`.
+
+Unknown remediation keys should be rejected, not silently ignored. This keeps
+the metadata contract small enough to review.
+
 ## Conflict Handling
 
 The engine should fail before rendering when pack metadata produces ambiguous
@@ -174,11 +251,8 @@ provider configuration:
 
 - Two requirements for the same provider and setting specify different values.
 - A requirement marked `renderable_default` is missing safety evidence.
-- A `renderable_default` value is shaped like an object, list, or unknown
-  expression rather than a primitive JSON value.
+- A `renderable_default` value is not a JSON boolean or number.
 - A requirement has no `plan_paths`, `reason`, or lab evidence.
-- A provider root would need multiple incompatible provider aliases to satisfy
-  the requirement.
 
 Conflicts should be reported as provider-config metadata errors, not as
 adoption drift.
@@ -199,8 +273,18 @@ provider lab proves:
   credentials, logs, and temp roots.
 
 The GCP attribution-label finding satisfies the shape of this evidence, but the
-remediation behavior still needs an implementation PR and focused tests before
-any pack renders it.
+finding is valid for diagnostic and validator work only. It is not valid for
+rendering until the rendering preconditions above are implemented.
+
+## Future Assert-Adoptable Behavior
+
+Future `assert-adoptable` behavior may annotate blocked plan changes with the
+provider-config requirement id, setting, and reason when a matching requirement
+explains the drift.
+
+That annotation must keep the plan blocked. Matching a provider-config
+requirement is guidance, not tolerance. It must not downgrade a blocked plan to
+tolerated or clean.
 
 ## Expected Workflow
 
@@ -209,9 +293,11 @@ any pack renders it.
 3. The pack adds a `provider_config.requirements` entry with `plan_paths`,
    `setting`, `value`, and `reason`.
 4. The diagnostic reports the drift as a provider-config requirement.
-5. A later design-reviewed implementation may allow selected requirements to
-   become `renderable_default`.
-6. The original lab is rerun to prove the generated or required provider config
+5. A validator-only PR accepts or rejects remediation metadata without rendering
+   provider blocks.
+6. A later design-reviewed implementation may allow selected requirements to
+   become `renderable_default` after rendering preconditions are implemented.
+7. The original lab is rerun to prove the generated or required provider config
    produces import-only/adoptable plans.
 
 ## Open Questions
@@ -221,8 +307,8 @@ any pack renders it.
   remediation text when matching drift is detected?
 - Should generated provider config be per resource root, per tenant, or shared
   through a common generated file?
-- How should provider aliases be represented without expanding state blast
-  radius or hiding user intent?
+- How should a future design represent provider aliases without expanding state
+  blast radius or hiding user intent?
 - Should provider-config metadata live only in pack manifests, or should tenant
   overlays be able to disable a pack default?
 
