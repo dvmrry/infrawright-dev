@@ -17,6 +17,7 @@ Use labs to answer three questions:
 | NetBox | [netbox-pr22.md](netbox-pr22.md) | Absent/default placeholder drift |
 | Grafana | [grafana-pr24.md](grafana-pr24.md) | Sensitive-but-required nested blocks |
 | Cloudflare | [cloudflare-free-tier-pr32.md](cloudflare-free-tier-pr32.md) | Dynamic schema attrs, identity aliases, singleton/default drift |
+| Google Cloud | [gcp-pr38.md](gcp-pr38.md) | Provider attribution-label drift, billing/API gates |
 
 These labs are enough to treat the import-oracle approach as viable. Future
 labs should focus on repeatability, provider-specific failure classes, and the
