@@ -18,6 +18,9 @@ def _update(resource_type, before, after):
     }
 
 
+_DELETE = object()
+
+
 class ProviderConfigDiagnosticsTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="provider-config-")
@@ -65,6 +68,47 @@ class ProviderConfigDiagnosticsTest(unittest.TestCase):
             with contextlib.redirect_stderr(stderr):
                 code = provider_config.main(argv)
         return code, stdout.getvalue(), stderr.getvalue()
+
+    def _base_requirement(self, **overrides):
+        req = {
+            "id": "google_disable_attribution_label",
+            "provider": "google",
+            "setting": "add_terraform_attribution_label",
+            "value": False,
+            "reason": "Google provider adds attribution labels by default.",
+            "plan_paths": ["terraform_labels.goog-terraform-provisioned"],
+        }
+        for key, value in overrides.items():
+            if value is _DELETE:
+                req.pop(key, None)
+            else:
+                req[key] = value
+        return req
+
+    def _renderable_remediation(self, **overrides):
+        remediation = {
+            "kind": "provider_argument",
+            "mode": "renderable_default",
+            "evidence": "docs/provider-labs/gcp-pr38.md",
+            "safety": {
+                "non_sensitive": True,
+                "not_tenant_specific": True,
+                "not_destructive": True,
+            },
+        }
+        for key, value in overrides.items():
+            if value is _DELETE:
+                remediation.pop(key, None)
+            else:
+                remediation[key] = value
+        return remediation
+
+    def _assert_invalid_requirement(self, req, text):
+        with self.assertRaises(ValueError) as ctx:
+            provider_config.validate_requirements([req])
+        err = str(ctx.exception)
+        self.assertIn("provider_config requirement 0", err)
+        self.assertIn(text, err)
 
     def test_pack_requirement_matches_plan_drift(self):
         plan = {
@@ -183,6 +227,291 @@ class ProviderConfigDiagnosticsTest(unittest.TestCase):
 
         self.assertEqual(report["summary"]["plan_changes"], 0)
         self.assertEqual(report["plan_changes"], [])
+
+    def test_requirement_without_remediation_remains_valid(self):
+        reqs = provider_config.validate_requirements([
+            self._base_requirement(),
+        ])
+
+        self.assertEqual(len(reqs), 1)
+        self.assertEqual(reqs[0]["setting"], "add_terraform_attribution_label")
+
+    def test_valid_renderable_default_remediation_is_accepted(self):
+        reqs = provider_config.validate_requirements([
+            self._base_requirement(
+                remediation=self._renderable_remediation(),
+            ),
+        ])
+
+        self.assertEqual(len(reqs), 1)
+
+    def test_valid_required_external_remediation_accepts_advisory_string_value(self):
+        reqs = provider_config.validate_requirements([
+            self._base_requirement(
+                value="use-consumer-provider-config",
+                remediation={
+                    "kind": "provider_argument",
+                    "mode": "required_external",
+                },
+            ),
+        ])
+
+        self.assertEqual(reqs[0]["value"], "use-consumer-provider-config")
+
+    def test_valid_required_external_remediation_accepts_missing_value(self):
+        reqs = provider_config.validate_requirements([
+            self._base_requirement(
+                value=_DELETE,
+                remediation={
+                    "kind": "provider_argument",
+                    "mode": "required_external",
+                },
+            ),
+        ])
+
+        self.assertIsNone(reqs[0]["value"])
+
+    def test_valid_diagnostic_only_remediation_is_accepted(self):
+        reqs = provider_config.validate_requirements([
+            self._base_requirement(
+                value="diagnostic context only",
+                remediation={
+                    "kind": "provider_argument",
+                    "mode": "diagnostic_only",
+                },
+            ),
+        ])
+
+        self.assertEqual(reqs[0]["value"], "diagnostic context only")
+
+    def test_remediation_metadata_validation_failures(self):
+        bad_safety = dict(self._renderable_remediation()["safety"])
+        bad_safety.pop("non_sensitive")
+        cases = [
+            (
+                "remediation_not_object",
+                self._base_requirement(remediation=True),
+                "remediation must be an object",
+            ),
+            (
+                "missing_kind",
+                self._base_requirement(
+                    remediation=self._renderable_remediation(kind=_DELETE),
+                ),
+                "remediation.kind is required",
+            ),
+            (
+                "unknown_kind",
+                self._base_requirement(
+                    remediation=self._renderable_remediation(kind="other"),
+                ),
+                "unknown remediation kind other",
+            ),
+            (
+                "missing_mode",
+                self._base_requirement(
+                    remediation=self._renderable_remediation(mode=_DELETE),
+                ),
+                "remediation.mode is required",
+            ),
+            (
+                "unknown_mode",
+                self._base_requirement(
+                    remediation=self._renderable_remediation(mode="auto"),
+                ),
+                "unknown remediation mode auto",
+            ),
+            (
+                "unknown_remediation_key",
+                self._base_requirement(
+                    remediation=self._renderable_remediation(extra=True),
+                ),
+                "unknown remediation key extra",
+            ),
+            (
+                "missing_evidence",
+                self._base_requirement(
+                    remediation=self._renderable_remediation(evidence=_DELETE),
+                ),
+                "remediation.evidence is required",
+            ),
+            (
+                "missing_safety_object",
+                self._base_requirement(
+                    remediation=self._renderable_remediation(safety=_DELETE),
+                ),
+                "remediation.safety must be an object",
+            ),
+            (
+                "missing_safety_boolean",
+                self._base_requirement(
+                    remediation=self._renderable_remediation(safety=bad_safety),
+                ),
+                "remediation.safety.non_sensitive is required",
+            ),
+            (
+                "safety_false",
+                self._base_requirement(
+                    remediation=self._renderable_remediation(safety={
+                        "non_sensitive": False,
+                        "not_tenant_specific": True,
+                        "not_destructive": True,
+                    }),
+                ),
+                "remediation.safety.non_sensitive must be true",
+            ),
+            (
+                "safety_non_boolean",
+                self._base_requirement(
+                    remediation=self._renderable_remediation(safety={
+                        "non_sensitive": "true",
+                        "not_tenant_specific": True,
+                        "not_destructive": True,
+                    }),
+                ),
+                "remediation.safety.non_sensitive must be boolean true",
+            ),
+            (
+                "missing_diagnostic_value",
+                self._base_requirement(value=_DELETE),
+                "missing value",
+            ),
+            (
+                "string_renderable_value",
+                self._base_requirement(
+                    value="false",
+                    remediation=self._renderable_remediation(),
+                ),
+                "renderable_default value must be a JSON boolean or number",
+            ),
+            (
+                "null_renderable_value",
+                self._base_requirement(
+                    value=None,
+                    remediation=self._renderable_remediation(),
+                ),
+                "renderable_default value must be a JSON boolean or number",
+            ),
+            (
+                "array_renderable_value",
+                self._base_requirement(
+                    value=[False],
+                    remediation=self._renderable_remediation(),
+                ),
+                "renderable_default value must be a JSON boolean or number",
+            ),
+            (
+                "object_renderable_value",
+                self._base_requirement(
+                    value={"enabled": False},
+                    remediation=self._renderable_remediation(),
+                ),
+                "renderable_default value must be a JSON boolean or number",
+            ),
+            (
+                "renderable_with_resource_types",
+                self._base_requirement(
+                    resource_types=["google_pubsub_topic"],
+                    remediation=self._renderable_remediation(),
+                ),
+                "renderable_default must not include resource_types",
+            ),
+            (
+                "renderable_with_resource_prefixes",
+                self._base_requirement(
+                    resource_prefixes=["google_"],
+                    remediation=self._renderable_remediation(),
+                ),
+                "renderable_default must not include resource_prefixes",
+            ),
+            (
+                "missing_plan_paths",
+                self._base_requirement(
+                    plan_paths=_DELETE,
+                    remediation=self._renderable_remediation(),
+                ),
+                "plan_paths must be a non-empty list",
+            ),
+            (
+                "empty_plan_paths",
+                self._base_requirement(
+                    plan_paths=[],
+                    remediation=self._renderable_remediation(),
+                ),
+                "plan_paths must be a non-empty list",
+            ),
+            (
+                "missing_reason",
+                self._base_requirement(
+                    reason=_DELETE,
+                    remediation=self._renderable_remediation(),
+                ),
+                "missing reason",
+            ),
+            (
+                "empty_reason",
+                self._base_requirement(
+                    reason="",
+                    remediation=self._renderable_remediation(),
+                ),
+                "missing reason",
+            ),
+        ]
+
+        for name, req, text in cases:
+            with self.subTest(name=name):
+                self._assert_invalid_requirement(req, text)
+
+    def test_each_renderable_safety_boolean_is_required(self):
+        for key in (
+                "non_sensitive",
+                "not_tenant_specific",
+                "not_destructive"):
+            with self.subTest(key=key):
+                safety = dict(self._renderable_remediation()["safety"])
+                safety.pop(key)
+                self._assert_invalid_requirement(
+                    self._base_requirement(
+                        remediation=self._renderable_remediation(safety=safety),
+                    ),
+                    "remediation.safety.%s is required" % key,
+                )
+
+    def test_duplicate_provider_setting_requirements_are_rejected(self):
+        first = self._base_requirement()
+        second = self._base_requirement(id="google_disable_attribution_label_2")
+
+        with self.assertRaises(ValueError) as ctx:
+            provider_config.validate_requirements([first, second])
+
+        err = str(ctx.exception)
+        self.assertIn("provider_config requirement 1", err)
+        self.assertIn("google.add_terraform_attribution_label", err)
+        self.assertIn("duplicate metadata", err)
+
+    def test_duplicate_provider_setting_conflicting_value_is_rejected(self):
+        first = self._base_requirement()
+        second = self._base_requirement(
+            id="google_disable_attribution_label_2",
+            value=True,
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            provider_config.validate_requirements([first, second])
+
+        self.assertIn("conflicting values", str(ctx.exception))
+
+    def test_duplicate_provider_setting_conflicting_mode_is_rejected(self):
+        first = self._base_requirement()
+        second = self._base_requirement(
+            id="google_disable_attribution_label_2",
+            remediation=self._renderable_remediation(),
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            provider_config.validate_requirements([first, second])
+
+        self.assertIn("conflicting remediation modes", str(ctx.exception))
 
     def test_bad_metadata_fails_loudly(self):
         self._write_pack(requirements=[{
