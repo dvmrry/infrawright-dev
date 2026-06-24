@@ -1,7 +1,7 @@
 PYTHON ?= python3
 TF ?= terraform
 
-.PHONY: demo check-demo check-modules check test fetch fetch-diag gen-env transform reconcile openapi-map source-operation-map provider-probe stage-imports unstage-imports plan clean-plans assert-clean apply
+.PHONY: demo check-demo check-modules check test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 demo: ## Materialize the demo tenant under config/demo and imports/demo
 	@set -e; for rt in $$($(PYTHON) -c "from engine.registry import generated_types; print('\n'.join(generated_types()))"); do \
@@ -60,9 +60,26 @@ openapi-map: ## Map provider resources to OpenAPI CRUD endpoints (SCHEMA=<schema
 	@test -n "$(SCHEMA)" -a -n "$(OPENAPI)" || { echo "usage: make openapi-map SCHEMA=<schema.json> OPENAPI=<spec.json> [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [API_PREFIX=/api/] [REGISTRY=<registry.json>] [OUT=<report.json>]"; exit 2; }
 	$(PYTHON) -m engine.openapi_resource_map --schema "$(SCHEMA)" --openapi "$(OPENAPI)" $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(API_PREFIX),--api-prefix "$(API_PREFIX)") $(if $(REGISTRY),--registry "$(REGISTRY)") $(if $(OUT),--out "$(OUT)")
 
-source-operation-map: ## Derive read registry from provider source OpenAPI operation calls (SCHEMA=<schema.json> OPENAPI=<spec.json> SOURCE_ROOT=<dir> [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [OUT=<registry.json>] [DIAGNOSTICS=<report.json>])
-	@test -n "$(SCHEMA)" -a -n "$(OPENAPI)" -a -n "$(SOURCE_ROOT)" || { echo "usage: make source-operation-map SCHEMA=<schema.json> OPENAPI=<spec.json> SOURCE_ROOT=<dir> [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [OUT=<registry.json>] [DIAGNOSTICS=<report.json>]"; exit 2; }
-	$(PYTHON) -m engine.source_operation_map --schema "$(SCHEMA)" --openapi "$(OPENAPI)" --source-root "$(SOURCE_ROOT)" $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(OUT),--out "$(OUT)") $(if $(DIAGNOSTICS),--diagnostics "$(DIAGNOSTICS)")
+source-operation-map: ## Derive read registry from provider source OpenAPI operation calls (SCHEMA=<schema.json> OPENAPI=<spec.json> SOURCE_ROOT=<dir> [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [RESOURCES=a,b] [OUT=<registry.json>] [DIAGNOSTICS=<report.json>])
+	@test -n "$(SCHEMA)" -a -n "$(OPENAPI)" -a -n "$(SOURCE_ROOT)" || { echo "usage: make source-operation-map SCHEMA=<schema.json> OPENAPI=<spec.json> SOURCE_ROOT=<dir> [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [RESOURCES=a,b] [OUT=<registry.json>] [DIAGNOSTICS=<report.json>]"; exit 2; }
+	$(PYTHON) -m engine.source_operation_map --schema "$(SCHEMA)" --openapi "$(OPENAPI)" --source-root "$(SOURCE_ROOT)" $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(RESOURCES),--resources "$(RESOURCES)") $(if $(OUT),--out "$(OUT)") $(if $(DIAGNOSTICS),--diagnostics "$(DIAGNOSTICS)")
+
+source-evidence-eval: ## A/B evaluate text source scanning vs AST facts (SCHEMA=<schema.json> OPENAPI=<spec.json> SOURCE_ROOT=<dir> OUT_DIR=<dir> [SOURCE_FACTS=<facts.json>] [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [RESOURCES=a,b] [FAIL_ON_REGRESSION=1])
+	@test -n "$(SCHEMA)" -a -n "$(OPENAPI)" -a -n "$(SOURCE_ROOT)" -a -n "$(OUT_DIR)" || { echo "usage: make source-evidence-eval SCHEMA=<schema.json> OPENAPI=<spec.json> SOURCE_ROOT=<dir> OUT_DIR=<dir> [SOURCE_FACTS=<facts.json>] [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [RESOURCES=a,b] [FAIL_ON_REGRESSION=1]"; exit 2; }
+	$(PYTHON) -m engine.source_evidence_eval --schema "$(SCHEMA)" --openapi "$(OPENAPI)" --source-root "$(SOURCE_ROOT)" --out-dir "$(OUT_DIR)" $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(RESOURCES),--resources "$(RESOURCES)") $(if $(SOURCE_FACTS),--source-facts "$(SOURCE_FACTS)") $(if $(AST_TOOL_DIR),--ast-tool-dir "$(AST_TOOL_DIR)") $(if $(FAIL_ON_REGRESSION),--fail-on-regression)
+
+adopt: ## Transform pulled JSON using Terraform/OpenTofu import oracle (IN=<dir> TENANT=<name> [RESOURCE="<type|provider> ..."] [POLICY=<file>])
+	@test -n "$(IN)" -a -n "$(TENANT)" || { echo "usage: make adopt IN=pulls/<tenant> TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"] [POLICY=<file>]"; exit 2; }
+	@set -e; resources="$$($(PYTHON) -m engine.ops resources $(RESOURCE))"; failed=""; for rt in $$resources; do \
+		src=$$($(PYTHON) -c "from engine.registry import derive_entry; d=derive_entry('$$rt'); print(d['from'] if d else '$$rt')"); \
+		f="$(IN)/$$src.json"; \
+		if [ -f "$$f" ]; then \
+			$(PYTHON) -m engine.adopt "$$rt" "$$f" "$(TENANT)" $(if $(POLICY),--policy "$(POLICY)") || failed="$$failed $$rt"; \
+		else \
+			echo "skip $$rt (no $$f)"; \
+		fi; \
+	done; \
+	test -z "$$failed" || { echo ""; echo "adopt FAILED for:$$failed"; exit 1; }
 
 provider-probe: ## Run provider readiness probe (RECIPE=<recipe.json> [WORK_DIR=<dir>] [OUT=<summary.json>] [MARKDOWN=<summary.md>])
 	@test -n "$(RECIPE)" || { echo "usage: make provider-probe RECIPE=<recipe.json> [WORK_DIR=<dir>] [OUT=<summary.json>] [MARKDOWN=<summary.md>]"; exit 2; }
@@ -83,5 +100,8 @@ clean-plans: ## Delete saved tfplan artifacts ([TENANT=<label>] [RESOURCE=<type|
 assert-clean: ## Exit 0 only when every saved plan is no-op/import-only ([TENANT=<label>] [RESOURCE=<type|provider>])
 	$(PYTHON) -m engine.ops assert-clean $(if $(TENANT),--tenant "$(TENANT)") $(RESOURCE)
 
-apply: ## Apply saved plans ([TENANT=<label>] [RESOURCE=<type|provider>] [BACKEND_CONFIG=<file>] [ALLOW_DESTROY=1] [ALLOW_NON_MAIN=1])
-	$(PYTHON) -m engine.ops apply $(if $(TENANT),--tenant "$(TENANT)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(ALLOW_DESTROY),--allow-destroy) $(if $(ALLOW_NON_MAIN),--allow-non-main) $(if $(MAIN_BRANCH),--main-branch "$(MAIN_BRANCH)") $(RESOURCE)
+assert-adoptable: ## Classify saved plans with optional consumer drift policy ([TENANT=<label>] [RESOURCE=<type|provider>] [POLICY=<file>])
+	$(PYTHON) -m engine.ops assert-adoptable $(if $(TENANT),--tenant "$(TENANT)") $(if $(POLICY),--policy "$(POLICY)") $(RESOURCE)
+
+apply: ## Apply saved plans ([TENANT=<label>] [RESOURCE=<type|provider>] [BACKEND_CONFIG=<file>] [ALLOW_DESTROY=1] [ALLOW_NON_MAIN=1] [ALLOW_PLAN_CHANGES=1])
+	$(PYTHON) -m engine.ops apply $(if $(TENANT),--tenant "$(TENANT)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(ALLOW_DESTROY),--allow-destroy) $(if $(ALLOW_NON_MAIN),--allow-non-main) $(if $(ALLOW_PLAN_CHANGES),--allow-plan-changes) $(if $(MAIN_BRANCH),--main-branch "$(MAIN_BRANCH)") $(RESOURCE)

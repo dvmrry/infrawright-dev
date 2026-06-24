@@ -13,7 +13,7 @@
     "ref": "v2.91.0"
   },
   "openapi": {
-    "url": "https://raw.githubusercontent.com/digitalocean/openapi/main/specification/DigitalOcean-public.v2.yaml",
+    "url": "https://raw.githubusercontent.com/digitalocean/openapi/52a2d77047cfd8fe1e0702962f6a96e7b9543049/specification/DigitalOcean-public.v2.yaml",
     "format": "yaml"
   }
 }

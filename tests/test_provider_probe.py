@@ -155,3 +155,14 @@ func resourceFolder() {
         self.assertIn('source = "example/example"', hcl)
         self.assertIn('version = "1.2.3"', hcl)
         self.assertNotIn("'example/example'", hcl)
+
+    def test_committed_recipes_pin_remote_openapi_urls(self):
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for name in ("digitalocean", "github"):
+            with self.subTest(name=name):
+                path = os.path.join(repo, "recipes", "providers", name + ".json")
+                with open(path, encoding="utf-8") as f:
+                    recipe = json.load(f)
+                url = recipe["openapi"]["url"]
+                self.assertNotIn("/main/", url)
+                self.assertNotIn("/master/", url)

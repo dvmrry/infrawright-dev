@@ -128,6 +128,44 @@ class PackContractTest(unittest.TestCase):
         self.assertIn("r1", packs.references())
         self.assertIn("t1", packs.lookup_sources())
 
+    def test_provider_config_requirements_merge_and_infer_single_provider(self):
+        _write_pack(self.tmp, "a", {
+            "provider_prefixes": {"a_": "a"},
+            "provider_config": {
+                "requirements": [{
+                    "id": "disable_label",
+                    "setting": "add_label",
+                    "value": False,
+                    "plan_paths": ["labels.managed"],
+                }]
+            },
+        })
+        _write_pack(self.tmp, "b", {
+            "provider_prefixes": {"b_": "b"},
+            "provider_config": {
+                "requirements": [{
+                    "id": "other",
+                    "provider": "b",
+                    "setting": "other_setting",
+                    "value": True,
+                    "plan_paths": ["settings.enabled"],
+                }]
+            },
+        })
+        packs.reset()
+
+        self.assertEqual(
+            [req["id"] for req in packs.provider_config_requirements()],
+            ["disable_label", "other"],
+        )
+        a_req = packs.provider_config_requirements("a")[0]
+        self.assertEqual(a_req["provider"], "a")
+        self.assertEqual(a_req["setting"], "add_label")
+        self.assertEqual(
+            [req["id"] for req in packs.provider_config_requirements("b")],
+            ["other"],
+        )
+
     def test_reset_rediscovers_after_change(self):
         self.assertEqual(packs.provider_prefixes(), {})
         _write_pack(self.tmp, "a", {"provider_prefixes": {"a_": "a"}})

@@ -17,6 +17,11 @@ Recipes live under `recipes/providers/` and pin:
 - `openapi`: the published OpenAPI document, or a local OpenAPI path.
 - `resource_prefix` and `api_prefix`: provider-specific matching hints.
 
+Remote OpenAPI URLs should point at immutable commits or released artifacts, not
+floating branches. The provider schema and source tree are version-pinned, so
+the API contract input should be pinned as well or probe results can drift
+without a recipe change.
+
 If `terraform_schema.path` is omitted, the probe renders a temporary Terraform
 configuration and runs:
 

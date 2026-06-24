@@ -13,7 +13,7 @@
     "ref": "v6.12.1"
   },
   "openapi": {
-    "url": "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json",
+    "url": "https://raw.githubusercontent.com/github/rest-api-description/3e08e45a052d4b8fe77fb5838c28652af9e89ecf/descriptions/api.github.com/api.github.com.json",
     "format": "json"
   }
 }
