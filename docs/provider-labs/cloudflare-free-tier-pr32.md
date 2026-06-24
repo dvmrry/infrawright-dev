@@ -129,6 +129,7 @@ The recurring engine gaps are now clearer:
   schema prunes before choosing a keep/drop/remediate strategy.
 - Track provider/API identity aliases in pack metadata, starting with D1
   `uuid`/`database_id`/`id`.
-- Extend absent-value normalization or diagnostics to cover `cloudflare_zone_hold`.
+- Use the absent/default diagnostics command to classify `cloudflare_zone_hold`
+  plan drift before choosing normalization, omission, or tolerance behavior.
 - Consider nested deprecated-field output projection so clean plans do not emit
   noisy deprecation warnings.
