@@ -7,11 +7,37 @@ alter projection, or run Terraform/OpenTofu.
 """
 import argparse
 import json
+import math
 import sys
 
 from engine import packs
 from engine import schema_paths
 from engine.plan_eval import diff_paths, truthy_paths
+
+
+REMEDIATION_KINDS = set(["provider_argument"])
+REMEDIATION_MODES = set([
+    "diagnostic_only",
+    "required_external",
+    "renderable_default",
+])
+REMEDIATION_KEYS = set(["kind", "mode", "evidence", "safety"])
+RENDERABLE_SAFETY_KEYS = [
+    "non_sensitive",
+    "not_tenant_specific",
+    "not_destructive",
+]
+_NO_VALUE = object()
+
+
+def validate_requirements(requirements):
+    """Validate provider-config requirement metadata.
+
+    This is intentionally validator-only. It returns the normalized
+    diagnostics requirements used by this module, but does not render provider
+    configuration or change any adoption behavior.
+    """
+    return _normalize_requirements(requirements)
 
 
 def build_report(provider=None, resource_type=None, plan=None, requirements=None):
@@ -108,34 +134,53 @@ def _matches_requirement(req, provider, resource_type, path):
 
 def _normalize_requirements(requirements):
     out = []
+    seen_settings = {}
     for idx, req in enumerate(requirements or []):
         if not isinstance(req, dict):
             raise ValueError("provider_config requirement %d must be an object" % idx)
         item = dict(req)
         ident = str(item.get("id") or "").strip()
+        label = _req_label(idx, ident)
         provider = str(item.get("provider") or "").strip()
         setting = str(item.get("setting") or "").strip()
         reason = str(item.get("reason") or "").strip()
         if not ident:
             raise ValueError("provider_config requirement %d missing id" % idx)
         if not provider:
-            raise ValueError("%s missing provider" % ident)
+            raise ValueError("%s: %s missing provider" % (label, ident))
         if not setting:
-            raise ValueError("%s missing setting" % ident)
-        if "value" not in item:
-            raise ValueError("%s missing value" % ident)
+            raise ValueError("%s: %s missing setting" % (label, ident))
         if not reason:
-            raise ValueError("%s missing reason" % ident)
-        plan_paths = _normalize_paths(item.get("plan_paths"), ident)
+            raise ValueError("%s: %s missing reason" % (label, ident))
+        plan_paths = _normalize_paths(item.get("plan_paths"), ident, label)
         resource_types = _string_list(item.get("resource_types"), "resource_types")
         resource_prefixes = _string_list(
             item.get("resource_prefixes"), "resource_prefixes"
         )
+        remediation_mode = _validate_remediation(item, label)
+        if "value" not in item and remediation_mode != "required_external":
+            raise ValueError("%s: %s missing value" % (label, ident))
+        value = item.get("value")
+        key = (provider, setting)
+        if key in seen_settings:
+            _raise_duplicate_setting(
+                label,
+                seen_settings[key],
+                provider,
+                setting,
+                item.get("value", _NO_VALUE),
+                remediation_mode,
+            )
+        seen_settings[key] = {
+            "label": label,
+            "value": item.get("value", _NO_VALUE),
+            "mode": remediation_mode,
+        }
         out.append({
             "id": ident,
             "provider": provider,
             "setting": setting,
-            "value": item["value"],
+            "value": value,
             "reason": reason,
             "plan_paths": set(plan_paths),
             "resource_types": set(resource_types),
@@ -144,9 +189,11 @@ def _normalize_requirements(requirements):
     return sorted(out, key=lambda req: (req["provider"], req["id"]))
 
 
-def _normalize_paths(paths, ident):
+def _normalize_paths(paths, ident, label):
     if not isinstance(paths, list) or not paths:
-        raise ValueError("%s plan_paths must be a non-empty list" % ident)
+        raise ValueError(
+            "%s: %s plan_paths must be a non-empty list" % (label, ident)
+        )
     return sorted(set(
         schema_paths.format_path(schema_paths.parse_report_path(path))
         for path in paths
@@ -165,6 +212,115 @@ def _string_list(value, name):
             raise ValueError("provider_config %s contains an empty value" % name)
         out.append(text)
     return sorted(set(out))
+
+
+def _validate_remediation(item, label):
+    remediation = item.get("remediation")
+    if remediation is None:
+        return "diagnostic_only"
+    if not isinstance(remediation, dict):
+        raise ValueError("%s: remediation must be an object" % label)
+    unknown = sorted(set(remediation) - REMEDIATION_KEYS)
+    if unknown:
+        raise ValueError(
+            "%s: unknown remediation key %s" % (label, unknown[0])
+        )
+    kind = str(remediation.get("kind") or "").strip()
+    if not kind:
+        raise ValueError("%s: remediation.kind is required" % label)
+    if kind not in REMEDIATION_KINDS:
+        raise ValueError(
+            "%s: unknown remediation kind %s" % (label, kind)
+        )
+    mode = str(remediation.get("mode") or "").strip()
+    if not mode:
+        raise ValueError("%s: remediation.mode is required" % label)
+    if mode not in REMEDIATION_MODES:
+        raise ValueError(
+            "%s: unknown remediation mode %s" % (label, mode)
+        )
+    if mode == "renderable_default":
+        _validate_renderable_default(item, remediation, label)
+    return mode
+
+
+def _validate_renderable_default(item, remediation, label):
+    if "value" not in item:
+        raise ValueError("%s: renderable_default missing value" % label)
+    evidence = str(remediation.get("evidence") or "").strip()
+    if not evidence:
+        raise ValueError(
+            "%s: remediation.evidence is required for renderable_default"
+            % label
+        )
+    safety = remediation.get("safety")
+    if not isinstance(safety, dict):
+        raise ValueError(
+            "%s: remediation.safety must be an object for renderable_default"
+            % label
+        )
+    for key in RENDERABLE_SAFETY_KEYS:
+        if key not in safety:
+            raise ValueError(
+                "%s: remediation.safety.%s is required" % (label, key)
+            )
+        value = safety[key]
+        if not isinstance(value, bool):
+            raise ValueError(
+                "%s: remediation.safety.%s must be boolean true" % (label, key)
+            )
+        if value is not True:
+            raise ValueError(
+                "%s: remediation.safety.%s must be true" % (label, key)
+            )
+    if not _is_json_bool_or_number(item.get("value")):
+        raise ValueError(
+            "%s: renderable_default value must be a JSON boolean or number"
+            % label
+        )
+    if "resource_types" in item:
+        raise ValueError(
+            "%s: renderable_default must not include resource_types" % label
+        )
+    if "resource_prefixes" in item:
+        raise ValueError(
+            "%s: renderable_default must not include resource_prefixes" % label
+        )
+
+
+def _is_json_bool_or_number(value):
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, int) and not isinstance(value, bool):
+        return True
+    if isinstance(value, float):
+        return math.isfinite(value)
+    return False
+
+
+def _raise_duplicate_setting(label, first, provider, setting, value, mode):
+    if first["value"] != value:
+        reason = "conflicting values"
+    elif first["mode"] != mode:
+        reason = "conflicting remediation modes"
+    else:
+        reason = "duplicate metadata"
+    raise ValueError(
+        "%s: duplicate provider_config requirement for %s.%s "
+        "(previous %s; %s)" % (
+            label,
+            provider,
+            setting,
+            first["label"],
+            reason,
+        )
+    )
+
+
+def _req_label(idx, ident=None):
+    if ident:
+        return "provider_config requirement %d (%s)" % (idx, ident)
+    return "provider_config requirement %d" % idx
 
 
 def _public_requirement(req):
