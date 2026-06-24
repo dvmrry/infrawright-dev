@@ -30,6 +30,7 @@ surfaces:
 | Grafana | Sensitive-but-required nested blocks | Sensitive provider state can also be structurally required for valid config. |
 | Cloudflare | Dynamic schema attrs, identity aliases, singleton/default drift | Pack metadata must represent identity aliases, and dynamic schema paths need deliberate strategy. |
 | Google Cloud | Historical provider-config attribution drift, billing/API boundaries, API/provider shape drift | Provider config requirements are a distinct pack concern, not drift tolerance. A later retest did not reproduce the old attribution-label drift, so it is not current live validation for guidance annotations. |
+| AWS | Core adoption loop across CloudWatch Logs, S3, IAM role, IAM policy, and security group; no provider-config blocked path from `default_tags` or `ignore_tags` | Empty prefix/reference placeholders need absent/default classification before metadata. Prefix fields are mutually-exclusive conflict candidates, distinct from NetBox-style empty enum/default placeholders. |
 
 The evidence set is enough to stop asking whether the oracle approach can work.
 The next phase is deciding which diagnosed classes become pack metadata,
@@ -67,6 +68,11 @@ behavior:
   implemented. Any future omit behavior must reuse the existing
   `projection_omit` path and remain blocked until runtime discriminator and
   kind/action constraints are proven.
+- AWS absent/default classification; design proposed in
+  [AWS Absent/Default Placeholder Classification](aws-absent-default-classification.md),
+  not implemented. AWS `name_prefix` and `bucket_prefix` findings require a
+  distinct mutually-exclusive conflict classification from NetBox-style empty
+  enum/default placeholders. No omit behavior is authorized.
 - Dynamic schema remediation strategy for opaque maps, open objects, and
   dynamic attributes.
 - Sensitive-required remediation, manual override, or explicit cannot-adopt
@@ -93,8 +99,12 @@ preserve the existing fail-loud behavior outside its narrow class.
 1. Re-review absent/default normalization semantics after the `projection_omit`
    relationship, runtime discriminator requirement, kind/action matrix, and V1
    path namespace are explicit.
-2. Propose dynamic schema remediation semantics.
-3. Run a billing-enabled Google Cloud lab or a focused AWS/Azure lab.
+2. Settle the AWS absent/default kind/contract choice before committing any AWS
+   metadata. The next safe AWS step is metadata-only, manual-review rules, and
+   only after the prefix-conflict shape can be represented without implying
+   omission behavior.
+3. Propose dynamic schema remediation semantics.
+4. Run a billing-enabled Google Cloud lab or another focused AWS/Azure lab.
 
 After each behavior proposal, run at least one provider lab that originally
 exposed the failure class before generalizing the behavior.
@@ -109,6 +119,7 @@ Lab-derived adoption metadata is now committed in pack manifests:
 | NetBox | `absent_defaults.rules` | `docs/provider-labs/netbox-pr22.md` | Validated, manual-review only. |
 | Cloudflare | `absent_defaults.rules` + `dynamic_schema.rules` | `docs/provider-labs/cloudflare-free-tier-pr32.md` | Validated, manual-review only. `cloudflare_zone_hold` is intentionally classified as `provider_server_side_singleton_default`, distinct from NetBox-style `provider_absent_placeholder`. |
 | Grafana | unclassified | `docs/provider-labs/grafana-pr24.md` | Sensitive-required design, contract, and validator landed; pack metadata still pending. |
+| AWS | unclassified | `docs/provider-labs/aws-free-core-pr77.md` | AWS absent/default classification design landed separately. No AWS pack metadata is committed. |
 
 ## Validator Contract Documentation
 
