@@ -153,8 +153,8 @@ provider import IDs that differ from API numeric IDs.
 
 ## Follow-Ups
 
-- Add diagnostics for sensitive provider-observed blocks that are also required
-  for Terraform validation.
+- Use the sensitive-required diagnostics command to classify sensitive
+  provider-observed blocks that are also required for Terraform validation.
 - Teach the advisory report to represent block/container-level
   `projection_omit` entries instead of only leaf-path intersections.
 - Consider a provider-lab helper that creates realpath-normalized temporary
