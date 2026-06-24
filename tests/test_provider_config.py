@@ -162,6 +162,28 @@ class ProviderConfigDiagnosticsTest(unittest.TestCase):
         self.assertEqual(report["summary"]["provider_config_matches"], 1)
         self.assertEqual(report["summary"]["unmatched_plan_changes"], 1)
 
+    def test_unchanged_sensitive_marker_is_not_plan_change(self):
+        plan = {
+            "resource_changes": [
+                {
+                    "address": "module.sample_topic.sample_topic.this[\"item\"]",
+                    "type": "sample_topic",
+                    "change": {
+                        "actions": ["update"],
+                        "before": {"name": "same", "secret": "redacted"},
+                        "after": {"name": "same", "secret": "redacted"},
+                        "before_sensitive": {"secret": True},
+                        "after_sensitive": {"secret": True},
+                    },
+                }
+            ]
+        }
+
+        report = provider_config.build_report(provider="sample", plan=plan)
+
+        self.assertEqual(report["summary"]["plan_changes"], 0)
+        self.assertEqual(report["plan_changes"], [])
+
     def test_bad_metadata_fails_loudly(self):
         self._write_pack(requirements=[{
             "id": "sample_bad",

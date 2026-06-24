@@ -144,7 +144,7 @@ def _walk_sensitive(value, path, out):
                 out,
             )
         return
-    if value:
+    if value is True:
         out.add(path_inventory.format_path(path))
 
 

@@ -7,8 +7,13 @@ class DriftPolicyTest(unittest.TestCase):
     def test_parse_supported_paths(self):
         self.assertEqual(parse_path("foo.bar"), ("foo", "bar"))
         self.assertEqual(parse_path("foo[*].bar"), ("foo", "*", "bar"))
+        self.assertEqual(parse_path("foo[].bar"), ("foo", "*", "bar"))
         self.assertEqual(parse_path("foo[0].bar"), ("foo", 0, "bar"))
         self.assertEqual(parse_path('tags["Name"]'), ("tags", "Name"))
+        self.assertEqual(
+            parse_path('terraform_labels["goog-terraform-provisioned"]'),
+            ("terraform_labels", "goog-terraform-provisioned"),
+        )
 
     def test_validation_requires_reason_and_approver(self):
         with self.assertRaises(DriftPolicyError):
@@ -61,6 +66,44 @@ class DriftPolicyTest(unittest.TestCase):
             policy.tolerates_plan_path("sample_resource", ("rules", "0", "status"), "update")
         )
         self.assertEqual(policy.stale_entries(), [])
+
+    def test_diagnostic_list_path_can_be_copied_into_policy(self):
+        policy = DriftPolicy({
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "plan_tolerate": [
+                        {
+                            "path": "rules[].status",
+                            "actions": ["update"],
+                            "reason": "copied from diagnostic output",
+                            "approved_by": "unit",
+                        }
+                    ],
+                    "projection_omit": [
+                        {
+                            "path": 'terraform_labels["goog-terraform-provisioned"]',
+                            "reason": "quoted map selector",
+                            "approved_by": "unit",
+                        }
+                    ],
+                }
+            },
+        })
+
+        self.assertTrue(
+            policy.tolerates_plan_path(
+                "sample_resource",
+                ("rules", 0, "status"),
+                "update",
+            )
+        )
+        self.assertTrue(
+            policy.projection_omits(
+                "sample_resource",
+                ("terraform_labels", "goog-terraform-provisioned"),
+            )
+        )
 
     def test_stale_entries_reports_unmatched_policy(self):
         policy = DriftPolicy({

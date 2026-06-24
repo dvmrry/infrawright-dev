@@ -61,6 +61,38 @@ class SchemaPathsTest(unittest.TestCase):
             "foo[].bar",
         )
 
+    def test_adjacent_collection_selectors_normalize(self):
+        self.assertEqual(
+            schema_paths.parse_report_path("foo[][]"),
+            ("foo", schema_paths.LIST_MARKER, schema_paths.LIST_MARKER),
+        )
+        self.assertEqual(
+            schema_paths.parse_report_path("foo[0][1]"),
+            ("foo", schema_paths.LIST_MARKER, schema_paths.LIST_MARKER),
+        )
+        self.assertEqual(
+            schema_paths.parse_report_path("foo[*][0]"),
+            ("foo", schema_paths.LIST_MARKER, schema_paths.LIST_MARKER),
+        )
+        self.assertEqual(
+            schema_paths.format_path(schema_paths.parse_report_path("foo[0][1]")),
+            "foo[][]",
+        )
+
+    def test_quoted_map_selectors_format_to_dotted_diagnostics(self):
+        self.assertEqual(
+            schema_paths.parse_report_path('tags["env"]'),
+            ("tags", "env"),
+        )
+        self.assertEqual(
+            schema_paths.format_path(
+                schema_paths.parse_report_path(
+                    'terraform_labels["goog-terraform-provisioned"]'
+                )
+            ),
+            "terraform_labels.goog-terraform-provisioned",
+        )
+
     def test_numeric_path_tuple_formats_with_list_marker(self):
         self.assertEqual(schema_paths.format_path(("foo", 0, "bar")), "foo[].bar")
 

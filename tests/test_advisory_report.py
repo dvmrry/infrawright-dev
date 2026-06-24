@@ -142,6 +142,30 @@ class AdvisoryReportTest(unittest.TestCase):
             ["secure_json_data_encoded"],
         )
 
+    def test_truthy_non_boolean_sensitive_markers_are_ignored(self):
+        report = build_report(
+            "sample_resource",
+            {"prod_app": {"name": "Prod"}},
+            {
+                "prod_app": {
+                    "values": {
+                        "name": "Prod",
+                        "one_marker": "secret",
+                        "string_marker": "secret",
+                    },
+                    "sensitive_values": {
+                        "one_marker": 1,
+                        "string_marker": "true",
+                    },
+                }
+            },
+            {"prod_app": {"name": "Prod"}},
+        )
+
+        item = report["items"]["prod_app"]
+        self.assertEqual(item["sensitive_blocked"], [])
+        self.assertEqual(report["summary"]["sensitive_blocked"], 0)
+
     def test_derives_sensitive_list_leaf_with_normalized_path(self):
         report = build_report(
             "sample_resource",
