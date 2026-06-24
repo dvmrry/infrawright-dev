@@ -1,8 +1,8 @@
 # Google Cloud Provider Lab PR38
 
-Date: 2026-06-24  
-Provider: `hashicorp/google` `v7.38.0`  
-Terraform: `v1.15.4`  
+Date: 2026-06-24
+Provider: `hashicorp/google` `v7.38.0`
+Terraform: `v1.15.4`
 Target: disposable Google Cloud project `<disposable-gcp-project>`
 
 This lab exercised the import-oracle adoption path and static advisory report
