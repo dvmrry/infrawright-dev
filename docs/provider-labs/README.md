@@ -199,6 +199,10 @@ Use these buckets so provider findings stay comparable:
   deprecated provider fields.
 - `pack:identity-alias` for raw/API/provider/state naming differences used in
   keys or import IDs.
+- `pack:provider-config` for provider-level settings needed to prevent
+  adoption drift. Use
+  [provider-config-diagnostics.md](../provider-config-diagnostics.md) to
+  classify saved-plan diffs against explicit pack metadata.
 - `provider-boundary:paid-or-disabled` for plan, product, or feature gates.
 - `provider-boundary:deprecated-api` for provider resources backed by deprecated
   or maintenance-mode APIs.

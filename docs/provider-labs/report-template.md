@@ -97,6 +97,7 @@ Use standard follow-up categories where possible:
 - `engine:advisory-containers`
 - `engine:deprecated-output`
 - `pack:identity-alias`
+- `pack:provider-config`
 - `provider-boundary:paid-or-disabled`
 - `provider-boundary:deprecated-api`
 - `lab-harness`
