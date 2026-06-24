@@ -57,3 +57,16 @@ itself is not enough to omit.
 
 For the conservative design boundary around future behavior, see
 [Absent/Default Normalization Design](absent-default-normalization.md).
+
+## Assert-Adoptable Guidance
+
+`make assert-adoptable` uses committed `absent_defaults.rules` as additive
+guidance for blocked saved plans. When a blocked plan path exactly matches a
+manual-review absent/default rule for the same provider and resource type, the
+blocked output includes the rule id, kind, observed value, matched plan path,
+reason, and evidence.
+
+This is guidance only. The plan remains blocked. Matching absent/default
+metadata is not drift tolerance, does not omit or normalize the value, and does
+not change projection, generated config, provider configuration, or
+Terraform/OpenTofu execution.

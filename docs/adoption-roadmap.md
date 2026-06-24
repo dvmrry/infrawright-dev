@@ -47,6 +47,7 @@ provider-specific policy, or explicit non-automatable boundaries.
 | Identity alias metadata | Implemented | Map raw, import, and state identity fields explicitly without name inference. |
 | Dynamic schema diagnostics | Implemented | Classify map keys, dynamic values, open object members, computed-only fields, and unknown schema paths. |
 | Absent/default diagnostics | Implemented | Classify placeholder-shaped projected values and saved-plan absent/default drift candidates. |
+| Absent/default assert-adoptable guidance | Implemented | Annotate blocked plan paths that match manual-review absent/default metadata while keeping plans blocked. |
 | Sensitive-required diagnostics | Implemented | Separate schema-required sensitive paths, validation-required paths, optional sensitive candidates, and projected sensitive paths. |
 | Provider-config diagnostics | Implemented | Map saved-plan drift paths to explicit `provider_config.requirements` metadata. |
 | Provider-config assert-adoptable guidance | Implemented | Annotate matching blocked plan paths while keeping plans blocked. |
@@ -146,6 +147,14 @@ A read-only cross-class inventory report now aggregates committed metadata:
 - It includes cross-class overlap diagnostics (warnings and info), but it is not an adoption decision engine and does not enforce cross-design rules.
 - Sensitive-required rules are now integrated into the inventory as a read-only visibility lane, with warning-level overlap diagnostics against `absent_default` and `dynamic_schema` paths.
 - Sensitive-required pack metadata remains pending; no sensitive-required rules have been committed to pack manifests yet.
+
+## Absent/Default Assert-Adoptable Guidance
+
+`assert-adoptable` now annotates blocked saved-plan paths that exactly match
+committed manual-review `absent_defaults.rules` for the same provider and
+resource type. The annotation is informational only: the plan remains blocked,
+and no omission, normalization, projection mutation, drift tolerance,
+provider-config behavior, or Terraform/OpenTofu execution is authorized.
 
 ## Sensitive-Required Design Checkpoint
 
