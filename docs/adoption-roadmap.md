@@ -126,7 +126,8 @@ The sensitive-required failure class is now documented in `docs/sensitive-requir
 
 - It is distinct from `provider_config`, `absent_defaults`, `dynamic_schema`, `raw_api_only_provider_blind`, `projection_omit`, and `assert-adoptable` downgrade.
 - The design preserves the absolute safety invariant: never synthesize, guess, echo, persist, or project sensitive values.
-- The V1 validator contract is now tightened: accepted keys, required fields, value-carrying field rejection, closed enums for `kind`, `sensitivity`, and `structural_requirement`, a kind/sensitivity/structural matrix, canonical path identity, deterministic provider-version strings, rule identity/conflict rules, and action rejection semantics are all defined.
+- The V1 validator contract is now tightened: accepted keys, required fields, value-carrying field rejection, closed enums for `kind`, `sensitivity`, and `structural_requirement`, a kind/sensitivity/structural matrix with kind specificity rules, canonical path identity, deterministic provider-version strings, rule identity/conflict rules, sensitive-path handling, and action rejection semantics are all defined.
+- The Grafana illustrative example now uses `one_of_block_required` to match the lab error.
 - V1 is design-only; no validator, no behavior, no placeholder rendering, no omission, no drift tolerance.
 - `grafana_contact_point.webhook` remains manual-review/unclassified in pack metadata until the validator contract survives review and a validator-only implementation PR is planned.
 

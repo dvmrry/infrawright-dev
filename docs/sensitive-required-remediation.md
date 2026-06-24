@@ -93,10 +93,10 @@ This is illustrative only. It is not loaded by the engine today.
         "path": "webhook",
         "kind": "sensitive_required_block",
         "sensitivity": "contains_sensitive_fields",
-        "structural_requirement": "block_required_for_valid_config",
+        "structural_requirement": "one_of_block_required",
         "action": "manual_review_required",
         "evidence": "docs/provider-labs/grafana-pr24.md",
-        "reason": "The provider requires a webhook block shape for contact-point adoption, but sensitive fields cannot be projected from state."
+        "reason": "One of the contact-point notifier blocks must be present for valid config. The webhook block is the lab-proven sensitive-required example: the provider marks it sensitive, but omitting it leaves the configuration structurally invalid. Sensitive fields cannot be projected from state."
       }
     ]
   }
@@ -132,6 +132,10 @@ and `plan_path` are evidence-only fields and cannot replace `path`. They may be
 used to show the mapping between raw API, projected, and plan namespaces, but
 identity is always based on the provider-state `path`.
 
+The future pack metadata key is `sensitive_required.rules`. A future accessor
+would be `packs.sensitive_required_rules(provider=None)`. No accessor is
+implemented in this PR.
+
 ## Required V1 Fields
 
 A future validator must require:
@@ -151,8 +155,8 @@ A future validator must require:
 ## Forbid Value-Carrying Fields
 
 Sensitive-required metadata must never contain sensitive values or placeholder
-values. A future validator must reject any value-carrying key, including but not
-limited to:
+values. A future validator rejects the following value-carrying keys with a
+distinct `forbidden_value_carrying_key` error:
 
 - `value`
 - `observed_value`
@@ -160,6 +164,10 @@ limited to:
 - `secret`
 - `secret_value`
 - `sensitive_value`
+
+Any other unaccepted key is rejected as `unknown_key`. Reviewers should still
+reject attempts to smuggle sensitive values through accepted text fields such as
+`reason` or `evidence`.
 
 Sensitive values must never be copied from provider state, raw API responses,
 saved plans, logs, fixtures, or generated config. This rule is absolute and is
@@ -230,6 +238,28 @@ downgrade.
 
 A future validator rejects any out-of-matrix combination.
 
+### Kind specificity
+
+If more than one kind permits the same `sensitivity` + `structural_requirement`
+pair, rule authors must choose the most specific kind proven by lab evidence.
+`sensitive_structural_placeholder_required` is a fallback classification and is
+valid only when no more specific kind fits the evidence. A future validator does
+not infer kind precedence from the matrix alone; it only validates that the chosen
+kind is in-matrix. Specificity is enforced during lab/design review unless a
+future contract adds deterministic precedence. Do not use multiple rules with
+different kinds for the same provider/version/scope/path; rule identity conflict
+handling rejects that.
+
+### Provisional enum scope
+
+The enum values beyond the Grafana-proven `sensitive_required_block` /
+`one_of_block_required` case are reserved classifications for the validator
+contract, not behavior permissions. A rule using any kind or structural
+requirement must cite lab evidence proving that exact class. The validator can
+only check shape and matrix membership; reviewers must reject rules whose
+evidence does not prove the chosen class. No behavior is authorized by the
+presence of a kind.
+
 ## Possible Future Actions
 
 V1 allowed actions are guidance-only:
@@ -276,9 +306,9 @@ unless a very narrow, provider-proven alternative is reviewed separately.
 
 V1 `path` is the provider-state path. It uses the engine normalized path syntax.
 A future validator canonicalizes `path` using `schema_paths.parse_report_path` then
-`schema_paths.format_path`. Accepted `[0]` and `[*]` normalize to `[]` if the
-parser supports it. Bare wildcard path segments and unsupported syntax are
-rejected.
+`schema_paths.format_path`. Accepted `[0]` and `[*]` normalize to `[]` through
+`schema_paths.parse_report_path` / `format_path`. Bare wildcard path segments and
+unsupported syntax are rejected.
 
 Rule identity uses the canonicalized provider-state path. V1 adds no new path
 syntax. `raw_api_path`, `projected_path`, and `plan_path` are evidence-only and
@@ -312,6 +342,11 @@ A future validator must reject:
 - same identity with different `evidence`,
 - same identity with different evidence-only path fields if those fields are accepted.
 
+`reason` is required but is not part of the conflict-field set in V1. Same
+identity with only `reason` differing is still rejected as a duplicate or
+same-identity ambiguity, not accepted as a merge. A future contract PR must
+specify the exact error category.
+
 Overlapping scope: reject exact `resource_type` and matching `resource_prefix`
 overlap when provider, stripped version string, and canonical path are equal. Do
 not reject overlap when version strings differ. Do not semantically compare
@@ -319,24 +354,39 @@ version ranges. No merge or precedence rule exists in V1.
 
 ## Action Rejection
 
-Allowed V1 actions are `diagnostic_only` and `manual_review_required`. Reserved
-actions (`render_placeholder_block`, `render_placeholder_attribute`,
-`preserve_structure_without_secret_candidate`, `operator_input_required_candidate`)
-receive a distinct "rejected in V1" error in a future validator. Any action that
-is not allowed and not reserved receives an unknown or forbidden error. All
-reserved, unknown, and forbidden actions are invalid in V1.
+A future validator splits actions into four categories and rejects everything
+outside the allowed set:
+
+- **Allowed V1 actions** (`diagnostic_only`, `manual_review_required`) are the
+  only valid actions.
+- **Reserved actions** are rejected in V1 with a distinct `rejected_in_v1_action`
+  error:
+  - `render_placeholder_block`
+  - `render_placeholder_attribute`
+  - `preserve_structure_without_secret_candidate`
+  - `operator_input_required_candidate`
+- **Forbidden actions** are rejected with a `forbidden_action` error:
+  - `project_sensitive`
+  - `copy_sensitive_from_state`
+  - `guess_secret`
+  - `suppress_sensitive_drift`
+  - `omit_sensitive_block`
+  - `accept_sensitive_unknown`
+  - `downgrade_assert_adoptable`
+  - `render_fake_secret`
+- **Unknown actions** are rejected with an `unknown_action` error.
+
+All reserved, forbidden, and unknown actions are invalid in V1.
 
 ## Sensitive Path Handling
 
-If a future validator is supplied a static sensitive-path set, it checks exact
-canonicalized match only. A sensitive-required rule should match a known
-sensitive path when static sensitivity metadata is available. If the static set
-is unavailable, the validator skips the check. Ancestor/descendant matching is
-future engine-integrated behavior. Do not invent a new sensitivity resolver and
-do not downgrade failures based on metadata.
-
-If `sensitive_paths` is supplied and the canonicalized path is not present, the
-validator rejects the rule as not statically sensitive in V1. Exact match only.
+If a static `sensitive_paths` set is supplied, a future validator canonicalizes
+each entry with `schema_paths.parse_report_path` then `schema_paths.format_path`.
+The rule `path` is canonicalized with the same process. The validator rejects the
+rule if the canonicalized rule path is not present in the canonicalized sensitive
+path set. If no static set is supplied, the validator skips this check. Exact
+canonical match only. Ancestor/descendant matching is future engine-integrated
+behavior. Do not invent a new sensitivity resolver.
 
 ## Cross-Class Overlap Deferral
 
