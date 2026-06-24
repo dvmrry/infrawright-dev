@@ -109,6 +109,26 @@ invalid and must be reduced to `diagnostic_only` or `manual_review_required`.
 Value shape alone is never a discriminator. A rule must not behave as "path
 equals empty string, zero, false, null, empty list, or empty object, so omit."
 
+### V1 Omit Actions Are Invalid
+
+No structured runtime discriminator mechanism exists yet. There is no
+`runtime_discriminator` field in the metadata shape, and no engine path that
+checks per-object absence at projection time. Because the V1 validator cannot
+confirm that an omit action has a checkable runtime discriminator, it must not
+accept one.
+
+Therefore, in V1 validator-only metadata:
+
+- `omit_when_absent_in_api` is always rejected.
+- `omit_when_provider_placeholder` is always rejected.
+
+These two actions remain documented only as future reserved actions. They become
+valid candidates only after a later design adds a checkable
+`runtime_discriminator` field and routes the resulting omission through
+`projection_omit`. Until then, omit actions are invalid regardless of evidence,
+which resolves the earlier ambiguity around "only if runtime absence is
+checkable": V1 never treats runtime absence as checkable.
+
 ## Required Evidence
 
 A future rule must cite lab evidence showing all relevant sides of the drift:
@@ -176,35 +196,83 @@ Multi-namespace matching is future design.
 Future actions should be deliberately narrow:
 
 - `diagnostic_only`: classify and explain, but do not change projection.
-- `omit_when_absent_in_api`: omit only when runtime evidence proves the API
-  field is absent for the current object.
-- `omit_when_provider_placeholder`: omit only when runtime evidence proves the
-  provider emitted a placeholder for an absent backend field for the current
-  object.
 - `preserve_explicit_falsey`: document that a falsey value is real
   configuration and must not be normalized.
 - `manual_review_required`: block automation and require a human decision.
+
+The following two actions are **reserved for a future design only** and are
+invalid in V1 (see "V1 Omit Actions Are Invalid" above):
+
+- `omit_when_absent_in_api`: reserved. Would omit only when a checkable runtime
+  discriminator proves the API field is absent for the current object.
+- `omit_when_provider_placeholder`: reserved. Would omit only when a checkable
+  runtime discriminator proves the provider emitted a placeholder for an absent
+  backend field for the current object, and the omission routes through
+  `projection_omit`.
 
 Avoid broad actions such as `drop_empty_values`, `drop_falsey`, or
 `normalize_defaults`. They are too coarse for this failure class.
 
 ## Kind/Action Legality
 
-Validator-only work must reject out-of-matrix kind/action pairings.
+Validator-only work must reject out-of-matrix kind/action pairings. Because V1
+omit actions are always invalid, the V1 matrix contains no omit actions at all.
 
-| Kind | Allowed actions |
+| Kind | Allowed V1 actions |
 |---|---|
-| `api_absent` | `diagnostic_only`, `manual_review_required`; `omit_when_absent_in_api` only if runtime API absence is checkable. |
-| `provider_absent_placeholder` | `diagnostic_only`, `manual_review_required`; `omit_when_provider_placeholder` only if runtime provider/backend absence is checkable and the omission routes through `projection_omit`. |
-| `real_configured_falsey` | `preserve_explicit_falsey`, `diagnostic_only`, `manual_review_required` only. |
-| `paid_disabled_or_api_boundary_default` | `diagnostic_only`, `manual_review_required` only. |
-| `provider_server_side_singleton_default` | `diagnostic_only`, `manual_review_required` unless a later lab proves a narrow projection-time transform. |
-| `api_explicit_default` | `diagnostic_only`, `manual_review_required` by default. |
-| `terraform_schema_optional_default` | `diagnostic_only`, `manual_review_required` by default. |
+| `api_absent` | `diagnostic_only`, `manual_review_required` |
+| `provider_absent_placeholder` | `diagnostic_only`, `manual_review_required` |
+| `real_configured_falsey` | `preserve_explicit_falsey`, `diagnostic_only`, optionally `manual_review_required` |
+| `paid_disabled_or_api_boundary_default` | `diagnostic_only`, `manual_review_required` |
+| `provider_server_side_singleton_default` | `diagnostic_only`, `manual_review_required` |
+| `api_explicit_default` | `diagnostic_only`, `manual_review_required` |
+| `terraform_schema_optional_default` | `diagnostic_only`, `manual_review_required` |
+
+`omit_when_absent_in_api` and `omit_when_provider_placeholder` are reserved for a
+later design with runtime discriminator support. They are not allowed for any
+kind in V1, so the V1 validator rejects them regardless of the declared kind.
 
 This matrix is intentionally conservative. It prevents a rule from treating a
 real configured falsey value or server-owned singleton default as an omission
 candidate merely because the value shape looks empty.
+
+## Rule Identity And Conflicts
+
+A V1 validator needs a deterministic identity so it can reject duplicate and
+conflicting rules. Rule identity is:
+
+```text
+provider + resource scope + path
+```
+
+- Resource scope is either an exact `resource_type` or a `resource_prefix`.
+- Identical identity with identical `kind` and `action` (and `observed_value`,
+  when present) is a **duplicate** and is rejected.
+- Identical identity with a different `kind`, `action`, or `observed_value` is a
+  **conflict** and is rejected.
+- An exact `resource_type` and a `resource_prefix` that match the same provider
+  and `path` are treated as **overlapping scope** and are rejected unless a
+  future precedence rule exists.
+- There is no merge rule in V1. The validator never combines two rules; it
+  rejects the ambiguity instead.
+
+## Observed Value Requirements And Matching
+
+`observed_value` records the concrete placeholder/default value a rule depends
+on. Its presence is required or optional depending on the claim:
+
+- Required for `provider_absent_placeholder`, `api_explicit_default`, and
+  `terraform_schema_optional_default` when the claim depends on a concrete
+  observed placeholder/default value.
+- Required for `preserve_explicit_falsey`, because the rule documents a specific
+  real configured falsey value.
+- Optional for `diagnostic_only` and `manual_review_required` only when the rule
+  is class-level guidance and is not tied to a concrete value.
+
+Matching is type-strict. The validator must not coerce between `false`, `0`,
+`"0"`, `""`, `null`, `[]`, and `{}`; each is a distinct observed value. If the
+absent/default diagnostic taxonomy exposes a `value_kind`, future validators
+should preserve that distinction rather than collapsing falsey shapes together.
 
 ## Safety Constraints
 
@@ -235,15 +303,24 @@ The first behavior PR, if any, should be validator-only:
 - Reject unknown `kind`.
 - Reject unknown `action`.
 - Reject out-of-matrix kind/action pairings.
-- Reject omit actions that lack a concrete runtime discriminator.
+- Reject every omit action. `omit_when_absent_in_api` and
+  `omit_when_provider_placeholder` are reserved for a future design and are
+  always invalid in V1, because no checkable runtime discriminator mechanism
+  exists yet.
 - Reject missing `id`, scope, `path`, `kind`, `action`, `evidence`, or
   `reason`.
-- Reject missing `observed_value` for actions or kinds that require matching a
-  concrete placeholder/default value.
+- Reject missing `observed_value` per the "Observed Value Requirements And
+  Matching" rules, and reject coercion between distinct falsey shapes.
 - Reject provider/resource-type mismatch.
-- Reject ambiguous path namespace.
+- Reject rules that omit `path`.
+- Reject rules that use `raw_api_path`, `provider_state_path`, or `plan_path` as
+  the primary rule key; those are evidence fields only. The V1 `path` is always
+  the projected/provider-state path. Where projected/provider-state path
+  validation is available, validate `path` against that namespace. Multi-namespace
+  matching is future design.
 - Reject sensitive path targets when statically known.
-- Reject duplicate or conflicting rules.
+- Reject duplicate or conflicting rules per "Rule Identity And Conflicts",
+  including overlapping exact-`resource_type` and `resource_prefix` scope.
 - Reject rules that scope globally across providers or resource types.
 - Reject rules that infer absence from value shape alone.
 - Reject any broad `drop_empty_values`, `drop_falsey`, or
@@ -271,6 +348,8 @@ Absent/default diagnostics must not become drift tolerance.
   plans, logs, or tenant identifiers?
 - How should future multi-namespace matching relate raw API paths,
   provider-state paths, projected paths, and saved-plan paths?
+- What checkable `runtime_discriminator` field and `projection_omit` routing
+  would a later design add before omit actions can become valid?
 - How should map and list element paths be represented?
 - How should set hashing and order-insensitive collections be handled?
 - How should absent/default rules compose with provider-config guidance?
@@ -279,11 +358,13 @@ Absent/default diagnostics must not become drift tolerance.
 
 ## Recommended Next Step
 
-After this patched design, run external review again. Do not proceed to
-validator-only metadata validation until the relationship to `projection_omit`,
-runtime discriminator requirement, kind/action matrix, and V1 path namespace
-survive review.
+With the V1 validator contract now deterministic, external review can proceed,
+followed by validator-only implementation planning. The contract is intended to
+be directly implementable: V1 omit actions are invalid, the kind/action matrix
+has no conditional cells, rule identity and conflict handling are defined,
+`observed_value` requirements and type-strict matching are defined, and the V1
+`path` namespace is fixed.
 
-Do not implement normalization behavior until the metadata contract and evidence
-requirements survive validator-only review and at least one provider lab proves
-the narrow class being promoted.
+Still do not implement normalization behavior. Do not implement it until the
+metadata contract and evidence requirements survive validator-only review and at
+least one provider lab proves the narrow class being promoted.
