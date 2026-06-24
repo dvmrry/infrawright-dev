@@ -7,11 +7,10 @@ alter projection, or run Terraform/OpenTofu.
 """
 import argparse
 import json
-import re
 import sys
 
 from engine import packs
-from engine import path_inventory
+from engine import schema_paths
 from engine.plan_eval import diff_paths, truthy_paths
 
 
@@ -53,7 +52,7 @@ def _plan_changes(plan, requirements, provider, resource_type):
                 | set(truthy_paths(change.get("after_sensitive")))
             )
             for path in paths:
-                formatted = _fmt(path)
+                formatted = schema_paths.format_path(path)
                 matched = [
                     req for req in requirements
                     if _matches_requirement(req, rc_provider, rc_type, formatted)
@@ -150,27 +149,10 @@ def _normalize_requirements(requirements):
 def _normalize_paths(paths, ident):
     if not isinstance(paths, list) or not paths:
         raise ValueError("%s plan_paths must be a non-empty list" % ident)
-    return sorted(set(_fmt(_parse_report_path(path)) for path in paths))
-
-
-def _parse_report_path(path):
-    out = []
-    for raw in str(path).split("."):
-        if raw == "":
-            raise ValueError("empty path segment in %r" % path)
-        match = re.match(r"^(.*)\[(\*|\d*)\]$", raw)
-        if match:
-            name, index = match.groups()
-            if not name:
-                raise ValueError("empty collection path segment in %r" % path)
-            out.append(name)
-            out.append(
-                path_inventory.LIST_MARKER
-                if index in ("", "*") else int(index)
-            )
-        else:
-            out.append(raw)
-    return tuple(out)
+    return sorted(set(
+        schema_paths.format_path(schema_paths.parse_report_path(path))
+        for path in paths
+    ))
 
 
 def _string_list(value, name):
@@ -227,14 +209,6 @@ def _resource_provider(resource_type):
         return packs.provider_of(resource_type)
     except Exception:
         return resource_type.split("_", 1)[0]
-
-
-def _fmt(path):
-    normalized = tuple(
-        path_inventory.LIST_MARKER if isinstance(segment, int) else segment
-        for segment in path
-    )
-    return path_inventory.format_path(normalized)
 
 
 def _read_json(path):

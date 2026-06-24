@@ -8,8 +8,8 @@ import argparse
 import json
 import sys
 
-from engine import path_inventory
-from engine.drift_policy import DriftPolicy, parse_path
+from engine import schema_paths
+from engine.drift_policy import DriftPolicy
 from engine.tfschema import (
     attr_type,
     block_is_single,
@@ -35,7 +35,7 @@ def build_report(resource_type, paths=None, drift_policy=None):
 
 
 def classify_path(resource_type, path):
-    parsed = parse_path(path)
+    parsed = schema_paths.parse_report_path(path)
     block = load_resource(resource_type)["block"]
     out = _classify_block(block, parsed, (), resource_top=True)
     out["path"] = path
@@ -61,10 +61,10 @@ def _classify_block(block, parts, schema_path, resource_top):
         return _classify_encoding(enc, parts[1:], schema_path + (segment,))
     if segment in block_types:
         bt = block_types[segment]
-        remaining = _strip_collection_selector(parts[1:])
+        remaining = schema_paths.strip_collection_selector(parts[1:])
         child_schema_path = schema_path + (segment,)
         if not block_is_single(bt):
-            child_schema_path = child_schema_path + (path_inventory.LIST_MARKER,)
+            child_schema_path = child_schema_path + (schema_paths.LIST_MARKER,)
         return _classify_block(
             bt["block"], remaining, child_schema_path, resource_top=False
         )
@@ -101,14 +101,14 @@ def _classify_encoding(enc, parts, schema_path):
 
     kind, inner = enc
     if kind in ("list", "set"):
-        remaining = _strip_collection_selector(parts)
+        remaining = schema_paths.strip_collection_selector(parts)
         if not remaining:
             return _result(
                 "schema_known", kind, schema_path,
                 "path resolves to Terraform %s attribute %s" % (kind, _fmt(schema_path))
             )
         return _classify_encoding(
-            inner, remaining, schema_path + (path_inventory.LIST_MARKER,)
+            inner, remaining, schema_path + (schema_paths.LIST_MARKER,)
         )
     if kind == "map":
         return _gap(
@@ -124,7 +124,7 @@ def _classify_encoding(enc, parts, schema_path):
                 "members" % _fmt(schema_path)
             )
         child = parts[0]
-        if not isinstance(child, str) or child == "*":
+        if not isinstance(child, str) or child == schema_paths.LIST_MARKER:
             return _unknown(schema_path, child)
         if child not in inner:
             return _gap(
@@ -137,12 +137,6 @@ def _classify_encoding(enc, parts, schema_path):
         "unknown_schema_path", "unsupported_encoding", schema_path,
         "path reaches unsupported Terraform type encoding at %s" % _fmt(schema_path)
     )
-
-
-def _strip_collection_selector(parts):
-    if parts and (parts[0] == "*" or isinstance(parts[0], int)):
-        return parts[1:]
-    return parts
 
 
 def _gap(classification, schema_path, reason):
@@ -193,7 +187,7 @@ def _projection_omit_paths(resource_type, drift_policy):
 
 
 def _fmt(path):
-    return path_inventory.format_path(path)
+    return schema_paths.format_path(path)
 
 
 def _read_paths_json(path, resource_type):

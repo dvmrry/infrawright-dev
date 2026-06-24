@@ -9,7 +9,7 @@ import argparse
 import json
 import sys
 
-from engine import path_inventory
+from engine import schema_paths
 from engine.plan_eval import diff_paths
 from engine.tfschema import (
     attr_type,
@@ -88,7 +88,7 @@ def _walk_projected_block(value, block, path, resource_top, out):
                 _walk_projected_block(
                     element,
                     bt["block"],
-                    child_path + (path_inventory.LIST_MARKER,),
+                    child_path + (schema_paths.LIST_MARKER,),
                     resource_top=False,
                     out=out,
                 )
@@ -99,7 +99,7 @@ def _walk_typed_value(value, encoding, path, required, out):
         kind, inner = encoding
         if kind in ("list", "set") and isinstance(value, list):
             for element in value:
-                child_path = path + (path_inventory.LIST_MARKER,)
+                child_path = path + (schema_paths.LIST_MARKER,)
                 child_kind = absent_kind(element)
                 if child_kind is not None:
                     out.append(_projected_result(child_path, child_kind, required))
@@ -155,7 +155,11 @@ def _plan_candidates(resource_type, plan):
                 after_value = _path_value(after, path)
                 before_kind = absent_kind(before_value)
                 after_kind = absent_kind(after_value)
-                schema = _schema_status(resource_type, path)
+                schema = schema_paths.schema_status_for_block(
+                    load_resource(resource_type)["block"],
+                    path,
+                    block_mode="block",
+                )
                 if before_kind is not None or after_kind is not None:
                     status = (
                         "absent_default_drift_candidate"
@@ -215,59 +219,6 @@ def _plan_confidence(before_kind, after_kind, schema):
     return "low"
 
 
-def _schema_status(resource_type, path):
-    block = load_resource(resource_type)["block"]
-    return _schema_status_block(block, path, resource_top=True)
-
-
-def _schema_status_block(block, path, resource_top):
-    if not path:
-        return "block"
-    segment = path[0]
-    if not isinstance(segment, str) or segment == path_inventory.LIST_MARKER:
-        return "unknown"
-    cls = resource_input_attrs(block) if resource_top else classify_attributes(block)
-    attrs = block.get("attributes") or {}
-    blocks = input_block_types(block)
-    if segment in cls["required"] or segment in cls["optional"]:
-        base = "required" if segment in cls["required"] else "optional"
-        if len(path) == 1:
-            return base
-        return _schema_status_encoding(attr_type(attrs[segment]), path[1:], base)
-    if segment in blocks:
-        remaining = _strip_collection_selector(path[1:])
-        return _schema_status_block(
-            blocks[segment]["block"], remaining, resource_top=False
-        )
-    if segment in attrs or segment in (block.get("block_types") or {}):
-        return "computed_only"
-    return "unknown"
-
-
-def _schema_status_encoding(encoding, path, base):
-    if not path:
-        return base
-    if isinstance(encoding, list) and len(encoding) == 2:
-        kind, inner = encoding
-        if kind in ("list", "set"):
-            return _schema_status_encoding(
-                inner, _strip_collection_selector(path), base
-            )
-        if kind == "map":
-            return base
-        if kind == "object" and isinstance(inner, dict):
-            child = path[0]
-            if isinstance(child, str) and child in inner:
-                return _schema_status_encoding(inner[child], path[1:], base)
-    return "unknown"
-
-
-def _strip_collection_selector(path):
-    if path and (path[0] == path_inventory.LIST_MARKER or isinstance(path[0], int)):
-        return path[1:]
-    return path
-
-
 _MISSING = object()
 
 
@@ -286,11 +237,7 @@ def _path_value(value, path):
 
 
 def _fmt(path):
-    normalized = tuple(
-        path_inventory.LIST_MARKER if isinstance(segment, int) else segment
-        for segment in path
-    )
-    return path_inventory.format_path(normalized)
+    return schema_paths.format_path(path)
 
 
 def _summary(projected, plan_changes):
