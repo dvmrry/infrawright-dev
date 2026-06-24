@@ -343,9 +343,8 @@ A future validator must reject:
 - same identity with different evidence-only path fields if those fields are accepted.
 
 `reason` is required but is not part of the conflict-field set in V1. Same
-identity with only `reason` differing is still rejected as a duplicate or
-same-identity ambiguity, not accepted as a merge. A future contract PR must
-specify the exact error category.
+identity with only `reason` differing is still rejected as `duplicate_rule`;
+it is never accepted as a merge. No merge rule exists in V1.
 
 Overlapping scope: reject exact `resource_type` and matching `resource_prefix`
 overlap when provider, stripped version string, and canonical path are equal. Do
@@ -704,9 +703,8 @@ A V1 validator rejects:
 - same identity with different `plan_path` as `conflicting_plan_path`
 
 `reason` is required but is not a conflict field in V1. Same identity with only
-`reason` differing is still rejected as `duplicate_rule` (or
-`same_identity_ambiguous_reason` if the contract PR prefers that exact category);
-it is never accepted as a merge. No merge rule exists in V1.
+`reason` differing is still rejected as `duplicate_rule`; it is never accepted as
+a merge. No merge rule exists in V1.
 
 Overlapping scope:
 
@@ -856,7 +854,7 @@ implementation PR. This contract PR does not implement or test them.
 - unknown provider/resource prefix.
 - duplicate identical rule.
 - same identity conflicting every conflict field.
-- same identity differing only `reason` follows documented behavior (rejected, not merged).
+- same identity differing only `reason` is rejected as `duplicate_rule` (not merged).
 - overlapping `resource_type`/`resource_prefix` same version/path rejected.
 - overlapping `resource_type`/`resource_prefix` different version accepted.
 - `sensitive_paths` supplied but rule path not present rejected.
