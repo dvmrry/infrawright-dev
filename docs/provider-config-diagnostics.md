@@ -16,8 +16,8 @@ metadata, then reports whether changed paths match a declared provider-config
 requirement. It does not render provider config, modify drift policy, change
 projection, update `assert-adoptable`, or run Terraform/OpenTofu.
 
-For the proposed path from diagnostics to future remediation, see
-[Provider Config Remediation Design](provider-config-remediation.md).
+For the guidance metadata and validator contract, see
+[Provider Config Requirement Guidance](provider-config-remediation.md).
 
 ## Pack Metadata
 

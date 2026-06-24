@@ -51,16 +51,16 @@ provider-specific policy, or explicit non-automatable boundaries.
 | Shared schema/path helpers | Implemented | Normalize `[]` selectors, quoted map selectors, container paths, and Terraform schema status lookups. |
 
 These tools are diagnostic-only unless a future PR explicitly promotes one class
-into remediation behavior.
+into narrow, reviewed behavior.
 
-## Known Remediation And Reporting Classes
+## Known Guidance, Behavior, And Reporting Classes
 
 Open classes should remain separate until lab evidence proves the smallest safe
 behavior:
 
-- Provider-config remediation or provider-config rendering from pack metadata;
-  proposed in [Provider Config Remediation Design](provider-config-remediation.md),
-  not implemented.
+- Provider-config guidance for blocked drift; validator metadata is implemented
+  in [Provider Config Requirement Guidance](provider-config-remediation.md), but
+  provider-config rendering and mutation are out of scope.
 - Provider-specific absent/default normalization rules.
 - Dynamic schema remediation strategy for opaque maps, open objects, and
   dynamic attributes.
@@ -76,21 +76,20 @@ The current evidence argues against global automation for these cases:
 - Do not auto-generate secret placeholders for sensitive required blocks.
 - Do not normalize empty, zero, false, null, list, or map values globally.
 - Do not keep or drop dynamic schema paths without pack-owned intent.
-- Do not render provider config from diagnostics until the metadata and
-  precedence rules are designed.
+- Do not render or mutate provider config from diagnostics.
 - Do not treat provider labs or static advisory reports as production
   certification.
 
-Each remediation PR should cite provider-lab evidence, add focused fixtures, and
+Each behavior PR should cite provider-lab evidence, add focused fixtures, and
 preserve the existing fail-loud behavior outside its narrow class.
 
 ## Recommended Next Implementation Order
 
-1. Review the provider-config remediation design, then implement a narrow
-   renderer/validator only if the design is accepted.
+1. Propose provider-config `assert-adoptable` guidance annotations, keeping
+   matched plans blocked.
 2. Propose absent/default normalization semantics.
 3. Propose dynamic schema remediation semantics.
 4. Run a billing-enabled Google Cloud lab or a focused AWS/Azure lab.
 
-After each remediation proposal, run at least one provider lab that originally
+After each behavior proposal, run at least one provider lab that originally
 exposed the failure class before generalizing the behavior.
