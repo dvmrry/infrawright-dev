@@ -77,9 +77,12 @@ BLOCKED: cf-free/cloudflare_zone_hold
     - include_subdomains
 ```
 
-This is another absent/default-value case. The provider imports the disabled
-zone hold, but the projected config is not neutral: Terraform wants to update
-`hold`, `hold_after`, and `include_subdomains` after import.
+This is a server-side singleton default drift case, distinct from NetBox-style
+provider absent placeholders. The provider imports the disabled zone hold, but
+the projected config is not neutral: Terraform wants to update `hold`,
+`hold_after`, and `include_subdomains` after import. See
+`docs/absent-default-normalization.md` for the intentional classification as
+`provider_server_side_singleton_default`.
 
 ## Free-Tier And Provider Boundaries
 
@@ -116,8 +119,10 @@ The recurring engine gaps are now clearer:
   needed a temporary `assets.config.run_worker_first` prune.
 - Identity aliases need pack metadata. D1’s raw API uses `uuid`, provider docs call
   it `database_id`, and Terraform state exposes it as `id`.
-- Absent/default semantics are provider-specific. `cloudflare_zone_hold` is the
-  Cloudflare version of the NetBox-style absent optional value problem.
+- Absent/default semantics are provider-specific. `cloudflare_zone_hold` is a
+  server-side singleton default drift case, not a NetBox-style provider absent
+  placeholder. The classification as `provider_server_side_singleton_default` is
+  intentional and distinct from `provider_absent_placeholder`.
 - Generated outputs can still read deprecated nested fields. `cloudflare_pages_project`
   planned cleanly, but output projection triggered provider deprecation warnings
   for nested `deployment_configs.*.usage_model`.

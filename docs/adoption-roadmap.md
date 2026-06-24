@@ -107,8 +107,18 @@ Lab-derived adoption metadata is now committed in pack manifests:
 |---|---|---|---|
 | Google Cloud | `provider_config.requirements` | `docs/provider-labs/gcp-pr38.md` | Validated, guidance-only. |
 | NetBox | `absent_defaults.rules` | `docs/provider-labs/netbox-pr22.md` | Validated, manual-review only. |
-| Cloudflare | `absent_defaults.rules` + `dynamic_schema.rules` | `docs/provider-labs/cloudflare-free-tier-pr32.md` | Validated, manual-review only. |
+| Cloudflare | `absent_defaults.rules` + `dynamic_schema.rules` | `docs/provider-labs/cloudflare-free-tier-pr32.md` | Validated, manual-review only. `cloudflare_zone_hold` is intentionally classified as `provider_server_side_singleton_default`, distinct from NetBox-style `provider_absent_placeholder`. |
 | Grafana | unclassified | `docs/provider-labs/grafana-pr24.md` | Sensitive-required design, contract, and validator landed; pack metadata still pending. |
+
+## Validator Contract Documentation
+
+The V1 validator contracts for all three adoption metadata lanes are now documented with the same rigor:
+
+- `docs/sensitive-required-remediation.md` — frozen V1 validator contract (already complete).
+- `docs/absent-default-normalization.md` — V1 validator contract backfilled: accepted keys, required fields, conditional `observed_value`, kind/action enum, matrix, path canonicalization, identity/conflict rules, provider/resource checking, error categories, and test matrix.
+- `docs/dynamic-schema-remediation.md` — V1 validator contract backfilled: accepted keys, required fields, kind/ownership enum and matrix, path canonicalization, provider-version rule, identity/conflict rules, provider/resource checking, error categories, and test matrix.
+
+These contract sections are documentation-only. No validator behavior changed.
 
 ## Adoption Metadata Inventory
 
@@ -135,7 +145,10 @@ The sensitive-required failure class is now documented in `docs/sensitive-requir
 
 ## Next Phase
 
-- Backfill contract documentation for absent/default and dynamic-schema validators to match the frozen sensitive-required style.
-- Clean up Cloudflare lab wording and any stale unclassified references now that sensitive-required inventory visibility is in place.
+- Evaluate behavior candidates only after hardening: any future projection, omission, or tolerance PR must cite a provider lab and preserve fail-loud behavior outside its narrow class.
+- Plan provider-config guidance integration for blocked drift paths; this remains guidance-only and does not change drift policy or `assert-adoptable`.
 - Commit sensitive-required pack metadata for a concrete provider lab finding once the class is narrowly defined and safe.
 - Run another provider lab that proves a narrow, safe sensitive-required class before any behavior PR.
+
+No projection, omission, drift tolerance, or `assert-adoptable` behavior has been
+implemented in this PR.
