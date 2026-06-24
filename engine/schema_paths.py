@@ -16,6 +16,7 @@ from engine.tfschema import (
 
 
 LIST_MARKER = path_inventory.LIST_MARKER
+_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def parse_report_path(path):
@@ -28,22 +29,86 @@ def parse_report_path(path):
     if path == "<root>":
         return ()
     out = []
-    for raw in str(path).split("."):
+    for raw in _split_dotted(str(path)):
         if raw == "":
             raise ValueError("empty path segment in %r" % path)
-        if raw == "*":
-            out.append(LIST_MARKER)
-            continue
-        match = re.match(r"^(.*)\[(\*|\d*)\]$", raw)
-        if match:
-            name, _index = match.groups()
-            if not name:
-                raise ValueError("empty collection path segment in %r" % path)
-            out.append(name)
-            out.append(LIST_MARKER)
-        else:
-            out.append(raw)
+        out.extend(_parse_segment(raw, path))
     return tuple(out)
+
+
+def _split_dotted(text):
+    parts = []
+    buf = []
+    in_quote = False
+    escaped = False
+    for char in text:
+        if escaped:
+            buf.append(char)
+            escaped = False
+            continue
+        if char == "\\" and in_quote:
+            buf.append(char)
+            escaped = True
+            continue
+        if char == '"':
+            in_quote = not in_quote
+            buf.append(char)
+            continue
+        if char == "." and not in_quote:
+            parts.append("".join(buf))
+            buf = []
+            continue
+        buf.append(char)
+    if in_quote:
+        raise ValueError("unterminated quoted path selector in %r" % text)
+    parts.append("".join(buf))
+    return parts
+
+
+def _parse_segment(raw, full_path):
+    if "[" not in raw and "]" not in raw:
+        return [raw]
+    match = _NAME_RE.match(raw)
+    if not match:
+        raise ValueError("invalid path segment %r in %r" % (raw, full_path))
+    out = [match.group(0)]
+    pos = match.end()
+    while pos < len(raw):
+        if raw[pos] != "[":
+            raise ValueError("invalid path segment %r in %r" % (raw, full_path))
+        end = _selector_end(raw, pos, full_path)
+        selector = raw[pos + 1:end]
+        if selector in ("", "*") or selector.isdigit():
+            out.append(LIST_MARKER)
+        elif len(selector) >= 2 and selector[0] == '"' and selector[-1] == '"':
+            out.append(_unquote_selector(selector[1:-1]))
+        else:
+            raise ValueError("invalid path selector %r in %r" % (selector, full_path))
+        pos = end + 1
+    return out
+
+
+def _selector_end(raw, start, full_path):
+    in_quote = False
+    escaped = False
+    for idx in range(start + 1, len(raw)):
+        char = raw[idx]
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\" and in_quote:
+            escaped = True
+            continue
+        if char == '"':
+            in_quote = not in_quote
+            continue
+        if char == "]" and not in_quote:
+            return idx
+    raise ValueError("unterminated path selector in %r" % full_path)
+
+
+def _unquote_selector(text):
+    return text.replace(r'\"', '"').replace(r"\\", "\\")
 
 
 def normalize_path(path):

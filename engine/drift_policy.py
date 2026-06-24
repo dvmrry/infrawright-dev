@@ -7,21 +7,7 @@ class DriftPolicyError(ValueError):
     pass
 
 
-_SEG_RE = re.compile(
-    r"""
-    (?P<name>[A-Za-z_][A-Za-z0-9_]*)
-    (?:
-      \[
-        (?:
-          (?P<wild>\*) |
-          (?P<idx>\d+) |
-          "(?P<key>[^"]+)"
-        )
-      \]
-    )?
-    """,
-    re.VERBOSE,
-)
+_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 class DriftPolicy(object):
@@ -103,20 +89,90 @@ class DriftPolicy(object):
 
 def parse_path(text):
     parts = []
-    for raw in text.split("."):
-        m = _SEG_RE.fullmatch(raw)
-        if not m:
-            raise DriftPolicyError(
-                "invalid policy path segment %r in %r" % (raw, text)
-            )
-        parts.append(m.group("name"))
-        if m.group("wild"):
-            parts.append("*")
-        elif m.group("idx") is not None:
-            parts.append(int(m.group("idx")))
-        elif m.group("key") is not None:
-            parts.append(m.group("key"))
+    for raw in _split_dotted(text):
+        parts.extend(_parse_segment(raw, text))
     return tuple(parts)
+
+
+def _split_dotted(text):
+    parts = []
+    buf = []
+    in_quote = False
+    escaped = False
+    for char in text:
+        if escaped:
+            buf.append(char)
+            escaped = False
+            continue
+        if char == "\\" and in_quote:
+            buf.append(char)
+            escaped = True
+            continue
+        if char == '"':
+            in_quote = not in_quote
+            buf.append(char)
+            continue
+        if char == "." and not in_quote:
+            parts.append("".join(buf))
+            buf = []
+            continue
+        buf.append(char)
+    if in_quote:
+        raise DriftPolicyError("unterminated quoted selector in %r" % text)
+    parts.append("".join(buf))
+    return parts
+
+
+def _parse_segment(raw, full_path):
+    m = _NAME_RE.match(raw)
+    if not m:
+        raise DriftPolicyError(
+            "invalid policy path segment %r in %r" % (raw, full_path)
+        )
+    out = [m.group(0)]
+    pos = m.end()
+    while pos < len(raw):
+        if raw[pos] != "[":
+            raise DriftPolicyError(
+                "invalid policy path segment %r in %r" % (raw, full_path)
+            )
+        end = _selector_end(raw, pos, full_path)
+        selector = raw[pos + 1:end]
+        if selector in ("", "*"):
+            out.append("*")
+        elif selector.isdigit():
+            out.append(int(selector))
+        elif len(selector) >= 2 and selector[0] == '"' and selector[-1] == '"':
+            out.append(_unquote_selector(selector[1:-1]))
+        else:
+            raise DriftPolicyError(
+                "invalid policy path selector %r in %r" % (selector, full_path)
+            )
+        pos = end + 1
+    return out
+
+
+def _selector_end(raw, start, full_path):
+    in_quote = False
+    escaped = False
+    for idx in range(start + 1, len(raw)):
+        char = raw[idx]
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\" and in_quote:
+            escaped = True
+            continue
+        if char == '"':
+            in_quote = not in_quote
+            continue
+        if char == "]" and not in_quote:
+            return idx
+    raise DriftPolicyError("unterminated policy path selector in %r" % full_path)
+
+
+def _unquote_selector(text):
+    return text.replace(r'\"', '"').replace(r"\\", "\\")
 
 
 def _selector_matches(selector, actual):

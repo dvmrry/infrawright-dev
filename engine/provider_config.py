@@ -48,8 +48,6 @@ def _plan_changes(plan, requirements, provider, resource_type):
             paths = sorted(
                 set(diff_paths(change.get("before"), change.get("after")))
                 | set(truthy_paths(change.get("after_unknown")))
-                | set(truthy_paths(change.get("before_sensitive")))
-                | set(truthy_paths(change.get("after_sensitive")))
             )
             for path in paths:
                 formatted = schema_paths.format_path(path)

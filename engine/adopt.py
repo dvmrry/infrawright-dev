@@ -39,8 +39,8 @@ def adopt_items(raw_items, resource_type, policy=None):
         import_id = derive_import_id_from_identity(ident, meta, resource_type, key)
         if import_id in import_id_to_key:
             raise ValueError(
-                "%s import_id %r is used by both %r and %r"
-                % (resource_type, import_id, import_id_to_key[import_id], key)
+                "%s duplicate import_id for keys %r and %r"
+                % (resource_type, import_id_to_key[import_id], key)
             )
         import_id_to_key[import_id] = key
         key_to_identity[key] = ident
@@ -118,8 +118,12 @@ def main(argv=None):
         return 2
     resource_type, input_path, tenant = argv
     policy = DriftPolicy.load(policy_path)
-    with open(input_path, encoding="utf-8") as f:
-        raw_items = json.load(f)
+    try:
+        with open(input_path, encoding="utf-8") as f:
+            raw_items = json.load(f)
+    except ValueError as exc:
+        sys.stderr.write("error: failed to parse %s: %s\n" % (input_path, exc))
+        return 1
     if not isinstance(raw_items, list):
         sys.stderr.write("error: %s must be a JSON LIST of items\n" % input_path)
         return 2

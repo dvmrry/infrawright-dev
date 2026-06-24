@@ -77,6 +77,9 @@ class ImportOracleTest(unittest.TestCase):
                             f.write("{}")
                         return 0
                     if args[0] == "show":
+                        if os.environ.get("FAKE_TF_BAD_SHOW_JSON_SECRET") == "1":
+                            print('{"secret": "PLAINTEXT", bad')
+                            return 0
                         if os.environ.get("FAKE_TF_BAD_SHOW_JSON") == "1":
                             print("{not valid json")
                             return 0
@@ -121,7 +124,9 @@ class ImportOracleTest(unittest.TestCase):
             os.environ["TF"] = self.prev_tf
         os.environ.pop("FAKE_TF_FAIL_IMPORT", None)
         os.environ.pop("FAKE_TF_BAD_SHOW_JSON", None)
+        os.environ.pop("FAKE_TF_BAD_SHOW_JSON_SECRET", None)
         os.environ.pop("INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS", None)
+        os.environ.pop("INFRAWRIGHT_KEEP_ORACLE", None)
         packs.reset()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
@@ -143,8 +148,16 @@ class ImportOracleTest(unittest.TestCase):
         self.assertEqual(import_state("sample_resource", {}), {})
 
     def test_duplicate_import_ids_fail_before_terraform(self):
-        with self.assertRaises(OracleError):
-            import_state("sample_resource", {"a": "same", "b": "same"})
+        with self.assertRaises(OracleError) as ctx:
+            import_state(
+                "sample_resource",
+                {"a": "SECRET-IMPORT-ID", "b": "SECRET-IMPORT-ID"},
+            )
+        msg = str(ctx.exception)
+        self.assertIn("sample_resource duplicate import_id", msg)
+        self.assertIn("'a'", msg)
+        self.assertIn("'b'", msg)
+        self.assertNotIn("SECRET-IMPORT-ID", msg)
 
     def test_duplicate_instance_names_fail_before_terraform(self):
         original = import_oracle._instance_name
@@ -206,7 +219,17 @@ class ImportOracleTest(unittest.TestCase):
 
         msg = str(ctx.exception)
         self.assertIn("sample_resource terraform show -json returned invalid JSON", msg)
-        self.assertIn("{not valid json", msg)
+        self.assertNotIn("{not valid json", msg)
+
+    def test_invalid_show_json_does_not_include_secret_stdout(self):
+        os.environ["FAKE_TF_BAD_SHOW_JSON_SECRET"] = "1"
+
+        with self.assertRaises(OracleError) as ctx:
+            import_state("sample_resource", {"prod_app": "123"})
+
+        msg = str(ctx.exception)
+        self.assertIn("sample_resource terraform show -json returned invalid JSON", msg)
+        self.assertNotIn("PLAINTEXT", msg)
 
     def test_cleanup_failure_does_not_mask_primary_error(self):
         secret_import_id = "tenant-url-token-secret-import-id"
@@ -264,6 +287,15 @@ class ImportOracleTest(unittest.TestCase):
         finally:
             if kept:
                 shutil.rmtree(kept, ignore_errors=True)
+
+    def test_keep_oracle_zero_and_false_do_not_keep_workdir(self):
+        for value in ("0", "false"):
+            os.environ["INFRAWRIGHT_KEEP_ORACLE"] = value
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                out = import_state("sample_resource", {"prod_app": "123"})
+            self.assertEqual(out["prod_app"]["values"]["id"], "123")
+            self.assertNotIn("WARNING: kept oracle workdir", stderr.getvalue())
 
     def test_backend_blocks_are_rejected_before_terraform_init(self):
         self._assert_oracle_override_rejected(textwrap.dedent("""\

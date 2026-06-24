@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -150,15 +152,31 @@ class AdoptCommandTest(unittest.TestCase):
         adopt.import_state = fail_import_state
         with self.assertRaises(ValueError) as ctx:
             adopt.adopt_items([
-                {"name": "One", "uuid": "same-id"},
-                {"name": "Two", "uuid": "same-id"},
+                {"name": "One", "uuid": "SECRET-IMPORT-ID"},
+                {"name": "Two", "uuid": "SECRET-IMPORT-ID"},
             ], "sample_resource")
 
         self.assertEqual(called, [])
         msg = str(ctx.exception)
-        self.assertIn("sample_resource import_id 'same-id'", msg)
+        self.assertIn("sample_resource duplicate import_id", msg)
         self.assertIn("one", msg)
         self.assertIn("two", msg)
+        self.assertNotIn("SECRET-IMPORT-ID", msg)
+
+    def test_malformed_json_input_reports_clean_error(self):
+        input_path = os.path.join(self.tmp, "bad.json")
+        with open(input_path, "w", encoding="utf-8") as f:
+            f.write('{"bad": ')
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr):
+            code = adopt.main(["sample_resource", input_path, "tenant"])
+
+        self.assertEqual(code, 1)
+        msg = stderr.getvalue()
+        self.assertIn("error: failed to parse", msg)
+        self.assertIn("bad.json", msg)
+        self.assertIn("line", msg)
 
 
 if __name__ == "__main__":

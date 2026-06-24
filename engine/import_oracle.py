@@ -138,8 +138,11 @@ def _output_bytes(value):
     return str(value).encode("utf-8", "replace")
 
 
-def _summarize_text(text, tokens):
-    return _summarize_output(text.encode("utf-8", "replace"), tokens)
+def _env_truthy(name):
+    value = os.environ.get(name)
+    if value is None:
+        return False
+    return value.strip().lower() in ("1", "true", "yes", "on")
 
 
 def _subprocess_timeout():
@@ -239,14 +242,14 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False):
     for key, import_id in sorted(key_to_import_id.items()):
         if import_id in seen:
             raise OracleError(
-                "%s import_id %r is used by both %r and %r"
-                % (resource_type, import_id, seen[import_id], key)
+                "%s duplicate import_id for keys %r and %r"
+                % (resource_type, seen[import_id], key)
             )
         seen[import_id] = key
 
     _check_instance_name_collisions(resource_type, key_to_import_id)
 
-    keep = keep_workdir or os.environ.get("INFRAWRIGHT_KEEP_ORACLE")
+    keep = bool(keep_workdir) or _env_truthy("INFRAWRIGHT_KEEP_ORACLE")
     temp = tempfile.mkdtemp(prefix="infrawright-oracle-")
     try:
         root = render_root(resource_type, key_to_import_id)
@@ -289,8 +292,8 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False):
             state = json.loads(raw)
         except ValueError as exc:
             raise OracleError(
-                "%s terraform show -json returned invalid JSON: %s\noutput:\n%s"
-                % (resource_type, exc, _summarize_text(raw, []))
+                "%s terraform show -json returned invalid JSON: %s"
+                % (resource_type, exc)
             )
         out = {}
         for res in _iter_state_resources(state):
