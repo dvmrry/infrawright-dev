@@ -240,11 +240,11 @@ proves:
 The GCP attribution-label finding satisfies the shape of this evidence for
 diagnostic and validator work. It does not authorize provider config rendering.
 
-## Future Assert-Adoptable Guidance
+## Assert-Adoptable Guidance
 
-Future `assert-adoptable` behavior may annotate blocked plan changes with the
-provider-config requirement id, setting, and reason when a matching requirement
-explains the drift.
+`assert-adoptable` may annotate blocked plan changes with the provider-config
+requirement id, setting, value when present, and reason when a matching
+requirement explains the drift.
 
 That annotation must keep the plan blocked. Matching a provider-config
 requirement is guidance, not tolerance. It must not downgrade a blocked plan to
@@ -258,8 +258,8 @@ tolerated or clean.
    `setting`, `value` when appropriate, and `reason`.
 4. The diagnostic reports the drift as a provider-config requirement.
 5. The validator accepts or rejects optional `remediation` guidance metadata.
-6. Future `assert-adoptable` may explain matching blocked drift, while keeping
-   the plan blocked.
+6. `assert-adoptable` can explain matching blocked drift, while keeping the
+   plan blocked.
 7. The operator applies any needed provider configuration through the
    consumer-owned provider config path.
 

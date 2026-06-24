@@ -250,9 +250,24 @@ def _destroy_count(plan):
     return total
 
 
-def _print_findings(findings):
-    from engine.plan_eval import BLOCKED, TOLERATED, format_path
+def _provider_config_guidance(plan, resource_type):
+    from engine import provider_config
 
+    report = provider_config.build_report(resource_type=resource_type, plan=plan)
+    guidance = {}
+    for item in report.get("plan_changes") or []:
+        if item.get("status") != "provider_config_requirement":
+            continue
+        key = (item.get("source"), item.get("address"), item.get("path"))
+        guidance.setdefault(key, []).append(item)
+    return guidance
+
+
+def _print_findings(findings, provider_config_guidance=None):
+    from engine.plan_eval import BLOCKED, TOLERATED, format_path
+    from engine import schema_paths
+
+    provider_config_guidance = provider_config_guidance or {}
     for finding in findings:
         if finding.get("status") not in (BLOCKED, TOLERATED):
             continue
@@ -265,7 +280,29 @@ def _print_findings(findings):
             )
         )
         for path in finding.get("paths") or []:
-            sys.stderr.write("    - %s\n" % format_path(path))
+            rendered = format_path(path)
+            sys.stderr.write("    - %s\n" % rendered)
+            guidance_key = (
+                finding.get("source"),
+                finding.get("address"),
+                schema_paths.format_path(path),
+            )
+            for item in provider_config_guidance.get(guidance_key, []):
+                sys.stderr.write(
+                    "      provider-config guidance: %s\n"
+                    % item.get("requirement")
+                )
+                sys.stderr.write(
+                    "        setting: %s\n" % item.get("setting")
+                )
+                if item.get("value") is not None:
+                    sys.stderr.write(
+                        "        value: %s\n"
+                        % json.dumps(item.get("value"), sort_keys=True)
+                    )
+                sys.stderr.write(
+                    "        reason: %s\n" % item.get("reason")
+                )
 
 
 def cmd_stage_imports(opts):
@@ -435,7 +472,12 @@ def cmd_assert_adoptable(opts):
         if result["status"] == BLOCKED:
             blocked += 1
             sys.stderr.write("BLOCKED: %s/%s\n" % (tenant, resource_type))
-            _print_findings(result["findings"])
+            _print_findings(
+                result["findings"],
+                provider_config_guidance=_provider_config_guidance(
+                    plan, resource_type
+                ),
+            )
         elif result["status"] == TOLERATED:
             tolerated += 1
             sys.stderr.write("TOLERATED: %s/%s\n" % (tenant, resource_type))
