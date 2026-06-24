@@ -1,8 +1,11 @@
 import json
+import io
 import os
 import shutil
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 
 from engine import provider_probe
 
@@ -166,3 +169,209 @@ func resourceFolder() {
                 url = recipe["openapi"]["url"]
                 self.assertNotIn("/main/", url)
                 self.assertNotIn("/master/", url)
+
+    def test_schema_materialization_requires_pinned_provider_version(self):
+        recipe_path = self._write_json("recipe.json", {
+            "name": "example",
+            "provider_source": "registry.terraform.io/example/example",
+            "source": {
+                "path": "provider",
+            },
+            "openapi": {
+                "path": "openapi.json",
+            },
+        })
+
+        with self.assertRaisesRegex(
+                ValueError,
+                "provider_version or terraform_provider.version"):
+            provider_probe.run_probe(
+                recipe_path,
+                work_dir=os.path.join(self.tmp, "work"),
+            )
+
+    def test_git_source_requires_pinned_ref(self):
+        recipe_path = self._write_json("recipe.json", {
+            "name": "example",
+            "provider_source": "registry.terraform.io/example/example",
+            "provider_version": "1.2.3",
+            "terraform_schema": {
+                "path": "schema.json",
+            },
+            "source": {
+                "git": "https://example.test/provider.git",
+            },
+            "openapi": {
+                "path": "openapi.json",
+            },
+        })
+
+        with self.assertRaisesRegex(ValueError, "source.ref"):
+            provider_probe.run_probe(
+                recipe_path,
+                work_dir=os.path.join(self.tmp, "work"),
+            )
+
+    def test_recipe_top_level_must_be_object(self):
+        recipe_path = self._write("recipe.json", "[]")
+
+        with self.assertRaisesRegex(ValueError, "root must be an object"):
+            provider_probe.run_probe(
+                recipe_path,
+                work_dir=os.path.join(self.tmp, "work"),
+            )
+
+    def test_recipe_sections_must_be_objects(self):
+        recipe_path = self._write_json("recipe.json", {
+            "name": "example",
+            "provider_source": "registry.terraform.io/example/example",
+            "provider_version": "1.2.3",
+            "terraform_schema": {
+                "path": "schema.json",
+            },
+            "source": {
+                "path": "provider",
+            },
+            "openapi": "openapi.json",
+        })
+
+        with self.assertRaisesRegex(ValueError, "openapi must be an object"):
+            provider_probe.run_probe(
+                recipe_path,
+                work_dir=os.path.join(self.tmp, "work"),
+            )
+
+    def test_recipe_required_strings_must_be_strings(self):
+        recipe_path = self._write_json("recipe.json", {
+            "name": "example",
+            "provider_source": "registry.terraform.io/example/example",
+            "provider_version": "1.2.3",
+            "terraform_schema": {
+                "path": "schema.json",
+            },
+            "source": {
+                "path": "provider",
+            },
+            "openapi": {
+                "path": ["openapi.json"],
+            },
+        })
+
+        with self.assertRaisesRegex(ValueError, "openapi.path must be a string"):
+            provider_probe.run_probe(
+                recipe_path,
+                work_dir=os.path.join(self.tmp, "work"),
+            )
+
+    def test_existing_non_probe_source_directory_is_not_deleted(self):
+        work_dir = os.path.join(self.tmp, "work")
+        source_dir = os.path.join(work_dir, "source")
+        os.makedirs(source_dir)
+        keep_path = os.path.join(source_dir, "keep.txt")
+        with open(keep_path, "w", encoding="utf-8") as f:
+            f.write("do not delete\n")
+        recipe_path = self._write_json("recipe.json", {})
+
+        with self.assertRaisesRegex(
+                ValueError,
+                "refusing to replace existing provider source directory"):
+            provider_probe._prepare_source(
+                {
+                    "source": {
+                        "git": "https://example.test/provider.git",
+                        "ref": "v1.2.3",
+                    }
+                },
+                recipe_path,
+                work_dir,
+            )
+
+        self.assertTrue(os.path.exists(keep_path))
+
+    def test_run_failure_reports_bounded_stdout_and_stderr(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            provider_probe._run([
+                sys.executable,
+                "-c",
+                (
+                    "import sys; "
+                    "print('STDOUT-SIGNAL'); "
+                    "print('STDERR-SIGNAL', file=sys.stderr); "
+                    "sys.exit(7)"
+                ),
+            ])
+
+        message = str(ctx.exception)
+        self.assertIn("STDOUT-SIGNAL", message)
+        self.assertIn("STDERR-SIGNAL", message)
+
+    def test_run_failure_reports_stdout_file_summary(self):
+        stdout_path = os.path.join(self.tmp, "command.out")
+
+        with self.assertRaises(RuntimeError) as ctx:
+            provider_probe._run([
+                sys.executable,
+                "-c",
+                "print('FILE-STDOUT-SIGNAL'); raise SystemExit(9)",
+            ], stdout_path=stdout_path)
+
+        self.assertIn("FILE-STDOUT-SIGNAL", str(ctx.exception))
+
+    def test_openapi_yaml_without_format_has_clear_json_error(self):
+        openapi_path = self._write(
+            "openapi.txt",
+            "openapi: 3.0.3\npaths: {}\n",
+        )
+        recipe_path = self._write_json("recipe.json", {
+            "openapi": {
+                "path": "openapi.txt",
+            }
+        })
+
+        with self.assertRaisesRegex(
+                ValueError,
+                "failed to parse OpenAPI as JSON.*openapi.format"):
+            provider_probe._prepare_openapi(
+                {
+                    "openapi": {
+                        "path": os.path.basename(openapi_path),
+                    }
+                },
+                recipe_path,
+                os.path.join(self.tmp, "work"),
+            )
+
+    def test_remote_fetch_error_names_url_and_destination(self):
+        dest_path = os.path.join(self.tmp, "download.raw")
+
+        with self.assertRaisesRegex(
+                RuntimeError,
+                "failed to fetch OpenAPI URL .*download.raw"):
+            provider_probe._download_url(
+                "file:///definitely/missing/openapi.json",
+                dest_path,
+            )
+
+    def test_cli_errors_are_concise_without_debug_traceback(self):
+        recipe_path = self._write("recipe.json", "{not-json")
+        stderr = io.StringIO()
+        stdout = io.StringIO()
+
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            rc = provider_probe.main([recipe_path])
+
+        self.assertEqual(rc, 2)
+        self.assertIn("error:", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_cli_debug_traceback_is_opt_in(self):
+        recipe_path = self._write("recipe.json", "{not-json")
+        stderr = io.StringIO()
+        stdout = io.StringIO()
+
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            rc = provider_probe.main([recipe_path, "--debug-traceback"])
+
+        self.assertEqual(rc, 2)
+        self.assertIn("Traceback", stderr.getvalue())
+        self.assertIn("error:", stderr.getvalue())

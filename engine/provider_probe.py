@@ -15,11 +15,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import traceback
 
 try:
-    from urllib.request import urlretrieve
+    from urllib.request import urlopen
 except ImportError:  # pragma: no cover - Python 2 guard for clarity only.
-    from urllib import urlretrieve
+    from urllib2 import urlopen
 
 from engine import openapi_resource_map
 from engine import source_operation_map
@@ -28,6 +29,10 @@ from engine import source_operation_map
 DEFAULT_WORK_ROOT = os.path.join(
     tempfile.gettempdir(), "infrawright-provider-probes")
 HTTP_METHODS = set(("get", "post", "put", "patch", "delete"))
+PROBE_SOURCE_MARKER = ".infrawright-provider-probe-source"
+MAX_COMMAND_OUTPUT = 4000
+FETCH_TIMEOUT_SECONDS = 60
+TRUTHY_VALUES = set(("1", "true", "yes", "on"))
 
 
 def _read_json(path):
@@ -50,6 +55,25 @@ def _write_text(text, path):
         os.makedirs(parent, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
+
+
+def _truthy(value):
+    return str(value or "").strip().lower() in TRUTHY_VALUES
+
+
+def _bounded_text(text, limit=MAX_COMMAND_OUTPUT):
+    text = text or ""
+    if len(text) <= limit:
+        return text
+    omitted = len(text) - limit
+    return "... <truncated %d chars>\n%s" % (omitted, text[-limit:])
+
+
+def _output_section(label, text):
+    text = _bounded_text((text or "").strip())
+    if not text:
+        text = "<empty>"
+    return "%s:\n%s" % (label, text)
 
 
 def _recipe_dir(recipe_path):
@@ -84,10 +108,45 @@ def _run(args, cwd=None, stdout_path=None):
         if stdout_file:
             stdout_file.close()
     if proc.returncode != 0:
+        stdout_text = proc.stdout or ""
+        if stdout_path:
+            try:
+                with open(stdout_path, encoding="utf-8") as f:
+                    stdout_text = f.read()
+            except OSError as exc:
+                stdout_text = "<failed to read stdout file %s: %s>" % (
+                    stdout_path, exc)
         raise RuntimeError(
-            "command failed (%s): %s\n%s"
-            % (proc.returncode, " ".join(args), proc.stderr.strip()))
+            "command failed (%s): %s\n%s\n%s"
+            % (
+                proc.returncode,
+                " ".join(args),
+                _output_section("stdout", stdout_text),
+                _output_section("stderr", proc.stderr),
+            ))
     return proc.stdout or ""
+
+
+def _download_url(url, dest_path):
+    parent = os.path.dirname(dest_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    tmp_path = dest_path + ".tmp"
+    try:
+        with urlopen(url, timeout=FETCH_TIMEOUT_SECONDS) as response:
+            with open(tmp_path, "wb") as f:
+                shutil.copyfileobj(response, f)
+        os.replace(tmp_path, dest_path)
+    except Exception as exc:
+        try:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise RuntimeError(
+            "failed to fetch OpenAPI URL %s to %s: %s"
+            % (url, dest_path, exc))
+    return dest_path
 
 
 def _is_yaml_path(path, explicit_format=None):
@@ -101,6 +160,15 @@ def _copy_json_input(source_path, dest_path):
     data = _read_json(source_path)
     _write_json(data, dest_path)
     return dest_path
+
+
+def _copy_openapi_json_input(source_path, dest_path):
+    try:
+        return _copy_json_input(source_path, dest_path)
+    except Exception as exc:
+        raise ValueError(
+            "failed to parse OpenAPI as JSON from %s; set openapi.format to "
+            "\"yaml\" if this input is YAML: %s" % (source_path, exc))
 
 
 def _convert_yaml_to_json(yaml_path, dest_path):
@@ -119,6 +187,88 @@ def _convert_yaml_to_json(yaml_path, dest_path):
     return dest_path
 
 
+def _convert_openapi_yaml_to_json(yaml_path, dest_path):
+    try:
+        return _convert_yaml_to_json(yaml_path, dest_path)
+    except Exception as exc:
+        raise ValueError(
+            "failed to parse OpenAPI as YAML from %s; set openapi.format to "
+            "\"json\" if this input is JSON: %s" % (yaml_path, exc))
+
+
+def _validate_object(value, name):
+    if not isinstance(value, dict):
+        raise ValueError("recipe %s must be an object" % name)
+    return value
+
+
+def _section(recipe, name):
+    value = recipe.get(name)
+    if value is None:
+        return {}
+    return _validate_object(value, name)
+
+
+def _string_field(obj, label, required=False):
+    value = obj.get(label.split(".")[-1])
+    if value is None:
+        if required:
+            raise ValueError("recipe %s is required" % label)
+        return None
+    if not isinstance(value, str):
+        raise ValueError("recipe %s must be a string" % label)
+    return value
+
+
+def _validate_recipe(recipe):
+    _validate_object(recipe, "root")
+
+    for field in (
+            "name",
+            "provider_source",
+            "provider_version",
+            "resource_prefix",
+            "api_prefix"):
+        _string_field(recipe, field)
+
+    openapi = _section(recipe, "openapi")
+    source = _section(recipe, "source")
+    terraform_schema = _section(recipe, "terraform_schema")
+    terraform_provider = _section(recipe, "terraform_provider")
+    tools = _section(recipe, "tools")
+
+    for field in ("path", "url", "format"):
+        _string_field(openapi, "openapi.%s" % field)
+    if not openapi.get("path") and not openapi.get("url"):
+        raise ValueError("recipe openapi must include path or url")
+
+    for field in ("path", "git", "ref", "subdir"):
+        _string_field(source, "source.%s" % field)
+    if not source.get("path") and not source.get("git"):
+        raise ValueError("recipe source must include path or git")
+    if source.get("git") and not source.get("ref"):
+        raise ValueError("recipe source.ref is required when source.git is used")
+
+    _string_field(terraform_schema, "terraform_schema.path")
+    for field in ("source", "version", "local_name"):
+        _string_field(terraform_provider, "terraform_provider.%s" % field)
+    _string_field(tools, "tools.terraform")
+
+    if not terraform_schema.get("path"):
+        if not recipe.get("provider_source"):
+            raise ValueError(
+                "recipe provider_source is required when terraform_schema.path "
+                "is omitted")
+        if not (
+                recipe.get("provider_version")
+                or terraform_provider.get("version")):
+            raise ValueError(
+                "recipe provider_version or terraform_provider.version is "
+                "required when terraform_schema.path is omitted")
+
+    return recipe
+
+
 def _prepare_openapi(recipe, recipe_path, work_dir):
     spec = recipe.get("openapi") or {}
     inputs_dir = os.path.join(work_dir, "inputs")
@@ -129,14 +279,41 @@ def _prepare_openapi(recipe, recipe_path, work_dir):
     if spec.get("path"):
         source = _recipe_path(_recipe_dir(recipe_path), spec["path"])
         if _is_yaml_path(source, fmt):
-            return _convert_yaml_to_json(source, json_path)
-        return _copy_json_input(source, json_path)
+            return _convert_openapi_yaml_to_json(source, json_path)
+        return _copy_openapi_json_input(source, json_path)
     if not spec.get("url"):
         raise ValueError("recipe openapi must include path or url")
-    urlretrieve(spec["url"], raw_path)
+    _download_url(spec["url"], raw_path)
     if _is_yaml_path(spec.get("url", ""), fmt):
-        return _convert_yaml_to_json(raw_path, json_path)
-    return _copy_json_input(raw_path, json_path)
+        return _convert_openapi_yaml_to_json(raw_path, json_path)
+    return _copy_openapi_json_input(raw_path, json_path)
+
+
+def _replaceable_probe_source(root):
+    if not os.path.exists(root):
+        return True
+    if not os.path.isdir(root):
+        return False
+    if not os.listdir(root):
+        return True
+    return os.path.exists(os.path.join(root, PROBE_SOURCE_MARKER))
+
+
+def _remove_existing_probe_source(root):
+    if not os.path.exists(root):
+        return
+    if not _replaceable_probe_source(root):
+        raise ValueError(
+            "refusing to replace existing provider source directory without "
+            "probe marker: %s" % root)
+    shutil.rmtree(root)
+
+
+def _mark_probe_source(root):
+    _write_text(
+        "owned by engine.provider_probe; safe to replace on next probe run\n",
+        os.path.join(root, PROBE_SOURCE_MARKER),
+    )
 
 
 def _prepare_source(recipe, recipe_path, work_dir):
@@ -145,13 +322,13 @@ def _prepare_source(recipe, recipe_path, work_dir):
         root = _recipe_path(_recipe_dir(recipe_path), source["path"])
     elif source.get("git"):
         root = os.path.join(work_dir, "source")
-        if os.path.exists(root):
-            shutil.rmtree(root)
+        _remove_existing_probe_source(root)
         clone = ["git", "clone", "--depth", "1"]
         if source.get("ref"):
             clone.extend(["--branch", source["ref"]])
         clone.extend([source["git"], root])
         _run(clone)
+        _mark_probe_source(root)
     else:
         raise ValueError("recipe source must include path or git")
     if source.get("subdir"):
@@ -303,6 +480,7 @@ def _artifact_paths(work_dir):
 
 def run_probe(recipe_path, work_dir=None):
     recipe = _read_json(recipe_path)
+    _validate_recipe(recipe)
     name = recipe.get("name") or os.path.splitext(
         os.path.basename(recipe_path))[0]
     work_dir = work_dir or os.path.join(DEFAULT_WORK_ROOT, name)
@@ -443,6 +621,13 @@ def main(argv=None):
             % DEFAULT_WORK_ROOT))
     parser.add_argument("--out", help="Copy summary JSON to this path")
     parser.add_argument("--markdown", help="Copy summary Markdown to this path")
+    parser.add_argument(
+        "--debug-traceback",
+        action="store_true",
+        help=(
+            "Print a Python traceback for probe engine debugging. Normal CLI "
+            "errors stay concise. Also enabled by "
+            "INFRAWRIGHT_DEBUG_TRACEBACK=1."))
     args = parser.parse_args(argv)
     try:
         result = run_probe(args.recipe, work_dir=args.work_dir)
@@ -451,6 +636,9 @@ def main(argv=None):
         if args.markdown:
             _write_text(render_markdown(result["summary"]), args.markdown)
     except Exception as exc:
+        if args.debug_traceback or _truthy(
+                os.environ.get("INFRAWRIGHT_DEBUG_TRACEBACK")):
+            traceback.print_exc(file=sys.stderr)
         sys.stderr.write("error: %s\n" % exc)
         return 2
     sys.stdout.write("wrote %s\n" % result["artifacts"]["summary"])
