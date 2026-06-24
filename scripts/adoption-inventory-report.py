@@ -29,7 +29,7 @@ def main(argv=None):
     parser.add_argument(
         "--class",
         dest="metadata_class",
-        choices=["provider_config", "absent_default", "dynamic_schema"],
+        choices=["provider_config", "absent_default", "dynamic_schema", "sensitive_required"],
         help="Filter to one metadata class.",
     )
     parser.add_argument(

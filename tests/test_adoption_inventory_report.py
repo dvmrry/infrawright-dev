@@ -283,6 +283,331 @@ class SyntheticDiagnosticTest(unittest.TestCase):
         ))
 
 
+class SensitiveRequiredInventoryTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.prev_packs = os.environ.get("INFRAWRIGHT_PACKS")
+        os.environ["INFRAWRIGHT_PACKS"] = self.tmp
+        packs.reset()
+
+    def tearDown(self):
+        if self.prev_packs is None:
+            os.environ.pop("INFRAWRIGHT_PACKS", None)
+        else:
+            os.environ["INFRAWRIGHT_PACKS"] = self.prev_packs
+        packs.reset()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write_pack(self, name, manifest):
+        d = os.path.join(self.tmp, name)
+        os.makedirs(d)
+        with open(os.path.join(d, "pack.json"), "w", encoding="utf-8") as f:
+            json.dump(manifest, f)
+        packs.reset()
+
+    def _find(self, report, cls=None, **kwargs):
+        if cls is not None:
+            kwargs["class"] = cls
+        matches = []
+        for item in report.get("inventory", []):
+            if all(item.get(k) == v for k, v in kwargs.items()):
+                matches.append(item)
+        return matches
+
+    def _sensitive_required_rule(self, **overrides):
+        rule = {
+            "id": "test_sensitive",
+            "provider": "test",
+            "provider_version_constraint": "1.0.0",
+            "resource_type": "test_resource",
+            "path": "secret_path",
+            "kind": "sensitive_required_block",
+            "sensitivity": "contains_sensitive_fields",
+            "structural_requirement": "one_of_block_required",
+            "action": "manual_review_required",
+            "evidence": "docs/lab.md",
+            "reason": "sensitive required",
+        }
+        rule.update(overrides)
+        return rule
+
+    def test_empty_sensitive_required_metadata_produces_zero_items(self):
+        self._write_pack("empty", {
+            "provider_prefixes": {"test_": "test"},
+            "provider_sources": {"test": "example/test"},
+        })
+        report = adoption_inventory_report.build_report()
+        items = self._find(report, cls="sensitive_required")
+        self.assertEqual(items, [])
+        warnings = [d for d in report["diagnostics"] if d["severity"] == "warning"]
+        self.assertFalse(
+            any("sensitive_required" in d.get("classes", []) for d in warnings),
+        )
+
+    def test_one_sensitive_required_rule_appears_as_item(self):
+        self._write_pack("sr", {
+            "provider_prefixes": {"test_": "test"},
+            "provider_sources": {"test": "example/test"},
+            "sensitive_required": {
+                "rules": [self._sensitive_required_rule()]
+            },
+        })
+        report = adoption_inventory_report.build_report()
+        items = self._find(report, cls="sensitive_required")
+        self.assertEqual(len(items), 1)
+        item = items[0]
+        self.assertEqual(item["provider"], "test")
+        self.assertEqual(item["class"], "sensitive_required")
+        self.assertEqual(item["kind"], "sensitive_required_block")
+        self.assertEqual(item["action"], "manual_review_required")
+        self.assertEqual(item["behavior_effect"], "validation_only")
+        self.assertEqual(item["path"], "secret_path")
+        self.assertEqual(item["sensitivity"], "contains_sensitive_fields")
+        self.assertEqual(item["structural_requirement"], "one_of_block_required")
+        self.assertEqual(item["resource_type"], "test_resource")
+        self.assertEqual(item["id"], "test_sensitive")
+        self.assertEqual(item["evidence"], "docs/lab.md")
+        self.assertEqual(item["reason"], "sensitive required")
+
+    def test_provider_filter_includes_and_excludes_sensitive_required(self):
+        self._write_pack("sr", {
+            "provider_prefixes": {"test_": "test"},
+            "provider_sources": {"test": "example/test"},
+            "sensitive_required": {
+                "rules": [self._sensitive_required_rule(provider="test")]
+            },
+        })
+        report = adoption_inventory_report.build_report(provider="test")
+        self.assertTrue(self._find(report, cls="sensitive_required"))
+        report = adoption_inventory_report.build_report(provider="other")
+        self.assertFalse(self._find(report, cls="sensitive_required"))
+
+    def test_resource_type_filter_includes_and_excludes_sensitive_required(self):
+        self._write_pack("sr", {
+            "provider_prefixes": {"test_": "test"},
+            "provider_sources": {"test": "example/test"},
+            "sensitive_required": {
+                "rules": [self._sensitive_required_rule(resource_type="test_resource")]
+            },
+        })
+        report = adoption_inventory_report.build_report(resource_type="test_resource")
+        self.assertTrue(self._find(report, cls="sensitive_required"))
+        report = adoption_inventory_report.build_report(resource_type="other_resource")
+        self.assertFalse(self._find(report, cls="sensitive_required"))
+
+    def test_class_filter_includes_only_sensitive_required(self):
+        self._write_pack("sr", {
+            "provider_prefixes": {"test_": "test"},
+            "provider_sources": {"test": "example/test"},
+            "sensitive_required": {
+                "rules": [self._sensitive_required_rule()]
+            },
+        })
+        report = adoption_inventory_report.build_report(metadata_class="sensitive_required")
+        self.assertTrue(report["inventory"])
+        for item in report["inventory"]:
+            self.assertEqual(item["class"], "sensitive_required")
+
+    def test_optional_evidence_paths_preserved(self):
+        self._write_pack("sr", {
+            "provider_prefixes": {"test_": "test"},
+            "provider_sources": {"test": "example/test"},
+            "sensitive_required": {
+                "rules": [self._sensitive_required_rule(
+                    raw_api_path="api.secret_path",
+                    projected_path="projected.secret_path",
+                    plan_path="planned.secret_path",
+                )]
+            },
+        })
+        report = adoption_inventory_report.build_report()
+        item = self._find(report, cls="sensitive_required")[0]
+        self.assertEqual(item["raw_api_path"], "api.secret_path")
+        self.assertEqual(item["projected_path"], "projected.secret_path")
+        self.assertEqual(item["plan_path"], "planned.secret_path")
+
+    def test_behavior_effect_is_validation_only(self):
+        self._write_pack("sr", {
+            "provider_prefixes": {"test_": "test"},
+            "provider_sources": {"test": "example/test"},
+            "sensitive_required": {
+                "rules": [self._sensitive_required_rule()]
+            },
+        })
+        report = adoption_inventory_report.build_report()
+        item = self._find(report, cls="sensitive_required")[0]
+        self.assertEqual(item["behavior_effect"], "validation_only")
+
+    def test_warning_for_sensitive_required_and_absent_default_same_path(self):
+        self._write_pack("overlap", {
+            "provider_prefixes": {"test_": "test"},
+            "provider_sources": {"test": "example/test"},
+            "absent_defaults": {
+                "rules": [{
+                    "id": "test_absent",
+                    "provider": "test",
+                    "resource_type": "test_resource",
+                    "path": "overlap_path",
+                    "kind": "provider_absent_placeholder",
+                    "observed_value": "",
+                    "action": "manual_review_required",
+                    "evidence": "docs/lab.md",
+                    "reason": "absent overlap",
+                }]
+            },
+            "sensitive_required": {
+                "rules": [self._sensitive_required_rule(
+                    id="test_sensitive",
+                    path="overlap_path",
+                    reason="sensitive overlap",
+                )]
+            },
+        })
+        report = adoption_inventory_report.build_report()
+        warnings = [d for d in report["diagnostics"] if d["severity"] == "warning"]
+        self.assertTrue(any(
+            "sensitive_required" in d.get("classes", []) and
+            "absent_default" in d.get("classes", [])
+            for d in warnings
+        ))
+        self.assertTrue(self._find(report, cls="sensitive_required"))
+        self.assertTrue(self._find(report, cls="absent_default"))
+
+    def test_warning_for_sensitive_required_and_dynamic_schema_same_path(self):
+        self._write_pack("overlap", {
+            "provider_prefixes": {"test_": "test"},
+            "provider_sources": {"test": "example/test"},
+            "dynamic_schema": {
+                "rules": [{
+                    "id": "test_dynamic",
+                    "provider": "test",
+                    "provider_version_constraint": "1.0.0",
+                    "resource_type": "test_resource",
+                    "path": "overlap_path",
+                    "kind": "provider_observed_projection_unsafe",
+                    "ownership": "unknown",
+                    "action": "manual_review_required",
+                    "evidence": "docs/lab.md",
+                    "reason": "dynamic overlap",
+                }]
+            },
+            "sensitive_required": {
+                "rules": [self._sensitive_required_rule(
+                    id="test_sensitive",
+                    path="overlap_path",
+                    reason="sensitive overlap",
+                )]
+            },
+        })
+        report = adoption_inventory_report.build_report()
+        warnings = [d for d in report["diagnostics"] if d["severity"] == "warning"]
+        self.assertTrue(any(
+            "sensitive_required" in d.get("classes", []) and
+            "dynamic_schema" in d.get("classes", [])
+            for d in warnings
+        ))
+        self.assertTrue(self._find(report, cls="sensitive_required"))
+        self.assertTrue(self._find(report, cls="dynamic_schema"))
+
+    def test_no_warning_when_provider_differs(self):
+        self._write_pack("overlap", {
+            "provider_prefixes": {"test_": "test", "other_": "other"},
+            "provider_sources": {"test": "example/test", "other": "example/other"},
+            "absent_defaults": {
+                "rules": [{
+                    "id": "test_absent",
+                    "provider": "test",
+                    "resource_type": "test_resource",
+                    "path": "overlap_path",
+                    "kind": "provider_absent_placeholder",
+                    "observed_value": "",
+                    "action": "manual_review_required",
+                    "evidence": "docs/lab.md",
+                    "reason": "absent overlap",
+                }]
+            },
+            "sensitive_required": {
+                "rules": [self._sensitive_required_rule(
+                    id="test_sensitive",
+                    provider="other",
+                    resource_type="other_resource",
+                    path="overlap_path",
+                    reason="sensitive overlap",
+                )]
+            },
+        })
+        report = adoption_inventory_report.build_report()
+        warnings = [d for d in report["diagnostics"] if d["severity"] == "warning"]
+        self.assertFalse(any(
+            "sensitive_required" in d.get("classes", [])
+            for d in warnings
+        ))
+
+    def test_no_warning_when_path_differs(self):
+        self._write_pack("overlap", {
+            "provider_prefixes": {"test_": "test"},
+            "provider_sources": {"test": "example/test"},
+            "absent_defaults": {
+                "rules": [{
+                    "id": "test_absent",
+                    "provider": "test",
+                    "resource_type": "test_resource",
+                    "path": "absent_path",
+                    "kind": "provider_absent_placeholder",
+                    "observed_value": "",
+                    "action": "manual_review_required",
+                    "evidence": "docs/lab.md",
+                    "reason": "absent overlap",
+                }]
+            },
+            "sensitive_required": {
+                "rules": [self._sensitive_required_rule(
+                    id="test_sensitive",
+                    path="sensitive_path",
+                    reason="sensitive overlap",
+                )]
+            },
+        })
+        report = adoption_inventory_report.build_report()
+        warnings = [d for d in report["diagnostics"] if d["severity"] == "warning"]
+        self.assertFalse(any(
+            "sensitive_required" in d.get("classes", [])
+            for d in warnings
+        ))
+
+    def test_no_warning_when_resource_scope_differs(self):
+        self._write_pack("overlap", {
+            "provider_prefixes": {"test_": "test"},
+            "provider_sources": {"test": "example/test"},
+            "absent_defaults": {
+                "rules": [{
+                    "id": "test_absent",
+                    "provider": "test",
+                    "resource_type": "test_other_resource",
+                    "path": "overlap_path",
+                    "kind": "provider_absent_placeholder",
+                    "observed_value": "",
+                    "action": "manual_review_required",
+                    "evidence": "docs/lab.md",
+                    "reason": "absent overlap",
+                }]
+            },
+            "sensitive_required": {
+                "rules": [self._sensitive_required_rule(
+                    id="test_sensitive",
+                    path="overlap_path",
+                    reason="sensitive overlap",
+                )]
+            },
+        })
+        report = adoption_inventory_report.build_report()
+        warnings = [d for d in report["diagnostics"] if d["severity"] == "warning"]
+        self.assertFalse(any(
+            "sensitive_required" in d.get("classes", [])
+            for d in warnings
+        ))
+
+
 class CLISmokeTest(unittest.TestCase):
     def setUp(self):
         self._prev = os.environ.get("INFRAWRIGHT_PACKS")
@@ -319,6 +644,16 @@ class CLISmokeTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("google", result.stdout)
         self.assertIn("|", result.stdout)
+
+    def test_cli_class_filter_accepts_sensitive_required(self):
+        # Only validates that the CLI accepts the new class choice and produces
+        # valid output. Real packs have no sensitive_required metadata, so the
+        # report will be empty but still valid.
+        result = self._run_cli(["--format", "json", "--class", "sensitive_required"])
+        self.assertEqual(result.returncode, 0)
+        data = json.loads(result.stdout)
+        self.assertIn("inventory", data)
+        self.assertIn("diagnostics", data)
 
 
 if __name__ == "__main__":

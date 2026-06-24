@@ -1,16 +1,17 @@
 """Cross-class inventory report over validated adoption metadata.
 
-This module is read-only. It aggregates provider-config, absent/default, and
-dynamic-schema metadata from pack manifests and presents it in a single report.
-It does not project, omit, change drift policy, alter assert-adoptable, render
-provider configuration, run Terraform/OpenTofu, or enforce cross-design rules.
+This module is read-only. It aggregates provider-config, absent/default,
+dynamic-schema, and sensitive-required metadata from pack manifests and presents
+it in a single report. It does not project, omit, change drift policy, alter
+assert-adoptable, render provider configuration, render placeholder values or
+blocks, run Terraform/OpenTofu, or enforce cross-design rules.
 """
 import json
 
 from engine import packs
 
 
-_CLASSES = set(["provider_config", "absent_default", "dynamic_schema"])
+_CLASSES = set(["provider_config", "absent_default", "dynamic_schema", "sensitive_required"])
 
 
 def build_report(provider=None, resource_type=None, metadata_class=None):
@@ -45,6 +46,7 @@ def build_inventory(provider=None, resource_type=None, metadata_class=None):
     items.extend(_provider_config_items())
     items.extend(_absent_default_items())
     items.extend(_dynamic_schema_items())
+    items.extend(_sensitive_required_items())
 
     if provider:
         items = [i for i in items if i.get("provider") == provider]
@@ -129,6 +131,35 @@ def _dynamic_schema_items():
     return out
 
 
+def _sensitive_required_items():
+    out = []
+    for rule in packs.sensitive_required_rules():
+        item = {
+            "provider": rule["provider"],
+            "class": "sensitive_required",
+            "kind": rule["kind"],
+            "action": rule["action"],
+            "behavior_effect": "validation_only",
+            "evidence": rule["evidence"],
+            "reason": rule["reason"],
+            "source": rule,
+            "id": rule["id"],
+            "provider_version_constraint": rule.get("provider_version_constraint"),
+            "path": rule.get("path"),
+            "sensitivity": rule.get("sensitivity"),
+            "structural_requirement": rule.get("structural_requirement"),
+        }
+        if "resource_type" in rule:
+            item["resource_type"] = rule["resource_type"]
+        if "resource_prefix" in rule:
+            item["resource_prefix"] = rule["resource_prefix"]
+        for key in ("raw_api_path", "projected_path", "plan_path"):
+            if key in rule:
+                item[key] = rule[key]
+        out.append(item)
+    return out
+
+
 def _matches_resource_type(item, resource_type):
     if item.get("resource_type") == resource_type:
         return True
@@ -161,6 +192,7 @@ def _sort_inventory(items):
 def _diagnostics(inventory):
     out = []
     out.extend(_absent_dynamic_overlap_warnings(inventory))
+    out.extend(_sensitive_required_overlap_warnings(inventory))
     out.extend(_provider_config_path_warnings(inventory))
     out.extend(_shared_evidence_info(inventory))
     return _sort_diagnostics(out)
@@ -183,6 +215,27 @@ def _absent_dynamic_overlap_warnings(inventory):
                 "absent_default and dynamic_schema"
             ),
         })
+    return out
+
+
+def _sensitive_required_overlap_warnings(inventory):
+    out = []
+    sensitive = _resource_path_keys(inventory, "sensitive_required")
+    for other_class in ("absent_default", "dynamic_schema"):
+        other = _resource_path_keys(inventory, other_class)
+        for key in sorted(sensitive & other):
+            provider, scope_type, scope_value, path = key
+            out.append({
+                "severity": "warning",
+                "provider": provider,
+                scope_type: scope_value,
+                "path": path,
+                "classes": ["sensitive_required", other_class],
+                "message": (
+                    "same provider/resource scope/path appears in sensitive_required "
+                    "and %s; review class boundary" % other_class
+                ),
+            })
     return out
 
 

@@ -114,11 +114,12 @@ Lab-derived adoption metadata is now committed in pack manifests:
 
 A read-only cross-class inventory report now aggregates committed metadata:
 
-- `engine/adoption_inventory_report.py` normalizes `provider_config.requirements`, `absent_defaults.rules`, and `dynamic_schema.rules` into a single inventory.
-- `scripts/adoption-inventory-report.py` emits JSON or markdown for humans/operators.
-- The report is read-only: it does not project, omit, change drift policy, alter `assert-adoptable`, render provider configuration, or run Terraform/OpenTofu.
+- `engine/adoption_inventory_report.py` normalizes `provider_config.requirements`, `absent_defaults.rules`, `dynamic_schema.rules`, and `sensitive_required.rules` into a single inventory.
+- `scripts/adoption-inventory-report.py` emits JSON or markdown for humans/operators and supports `--class sensitive_required`.
+- The report is read-only: it does not project, omit, change drift policy, alter `assert-adoptable`, render provider configuration, render placeholder values or blocks, run Terraform/OpenTofu, or enforce cross-class rules.
 - It includes cross-class overlap diagnostics (warnings and info), but it is not an adoption decision engine and does not enforce cross-design rules.
-- The sensitive-required V1 validator and `packs.sensitive_required_rules(provider=None)` accessor are implemented, but sensitive-required rules are not yet integrated into the inventory report or pack metadata.
+- Sensitive-required rules are now integrated into the inventory as a read-only visibility lane, with warning-level overlap diagnostics against `absent_default` and `dynamic_schema` paths.
+- Sensitive-required pack metadata remains pending; no sensitive-required rules have been committed to pack manifests yet.
 
 ## Sensitive-Required Design Checkpoint
 
@@ -134,6 +135,7 @@ The sensitive-required failure class is now documented in `docs/sensitive-requir
 
 ## Next Phase
 
-- Harden cross-class visibility and reporting across `provider_config`, `absent_defaults`, `dynamic_schema`, and `sensitive_required` validators; this is diagnostic/reporting only, not behavior.
+- Backfill contract documentation for absent/default and dynamic-schema validators to match the frozen sensitive-required style.
+- Clean up Cloudflare lab wording and any stale unclassified references now that sensitive-required inventory visibility is in place.
 - Commit sensitive-required pack metadata for a concrete provider lab finding once the class is narrowly defined and safe.
 - Run another provider lab that proves a narrow, safe sensitive-required class before any behavior PR.
