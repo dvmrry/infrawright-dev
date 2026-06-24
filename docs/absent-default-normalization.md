@@ -365,6 +365,293 @@ has no conditional cells, rule identity and conflict handling are defined,
 `observed_value` requirements and type-strict matching are defined, and the V1
 `path` namespace is fixed.
 
+# V1 Validator Contract
+
+This section freezes the exact V1 static validator contract for
+`absent_defaults.rules`. The contract is directly implementable from the existing
+validator code; no new design decisions should be made in the validator-only
+implementation PR.
+
+## V1 Validator Scope
+
+The V1 absent/default validator:
+
+- Validates metadata shape only.
+- Returns normalized metadata (shallow copies with canonicalized `path`).
+- Does not project.
+- Does not omit.
+- Does not change drift policy.
+- Does not change `assert-adoptable` status.
+- Does not execute Terraform/OpenTofu.
+- Does not enforce cross-class duplicates.
+- Does not authorize behavior.
+- Does not create a second omission path parallel to `projection_omit`.
+
+## Pack Metadata Key
+
+- Top-level: `absent_defaults`
+- Rule list: `absent_defaults.rules`
+- Accessor: `packs.absent_default_rules(provider=None)`
+
+## Accepted Keys
+
+The closed V1 accepted key set for each rule is:
+
+- `id`
+- `provider`
+- `resource_type`
+- `resource_prefix`
+- `path`
+- `kind`
+- `observed_value`
+- `action`
+- `evidence`
+- `reason`
+- `plan_path`
+- `raw_api_path`
+- `provider_state_path`
+
+Any key outside this set is rejected as `unknown_key`.
+
+## Required Fields
+
+A V1 validator must require:
+
+- `id`
+- `provider`
+- `path`
+- `kind`
+- `action`
+- `evidence`
+- `reason`
+
+It must also require exactly one resource scope:
+
+- `resource_type` or `resource_prefix`
+
+All required string fields must be strings and non-empty after `str.strip()`.
+Normalized metadata should strip these fields where appropriate.
+
+### Conditional `observed_value` Requirement
+
+`observed_value` is required when:
+
+- `kind` is `api_explicit_default`, `provider_absent_placeholder`, or
+  `terraform_schema_optional_default`; or
+- `action` is `preserve_explicit_falsey`.
+
+`observed_value` is type-strict: the validator preserves the exact Python value
+and rejects coercion between distinct falsey shapes (e.g., `0`, `"0"`, `false`,
+`""`, `null`, `[]`, `{}`).
+
+## Enum Constants
+
+V1 `kind` enum:
+
+- `api_absent`
+- `api_explicit_default`
+- `provider_absent_placeholder`
+- `terraform_schema_optional_default`
+- `real_configured_falsey`
+- `provider_server_side_singleton_default`
+- `paid_disabled_or_api_boundary_default`
+
+V1 allowed actions:
+
+- `diagnostic_only`
+- `manual_review_required`
+- `preserve_explicit_falsey`
+
+V1 rejected actions (rejected with `rejected_in_v1_action`):
+
+- `omit_when_absent_in_api`
+- `omit_when_provider_placeholder`
+- `drop_empty_values`
+- `drop_falsey`
+- `normalize_defaults`
+
+Any other action is `unknown_action`.
+
+### Kind/Action Matrix
+
+| Kind | Allowed actions |
+|---|---|
+| `api_absent` | `diagnostic_only`, `manual_review_required` |
+| `provider_absent_placeholder` | `diagnostic_only`, `manual_review_required` |
+| `api_explicit_default` | `diagnostic_only`, `manual_review_required` |
+| `terraform_schema_optional_default` | `diagnostic_only`, `manual_review_required` |
+| `real_configured_falsey` | `diagnostic_only`, `manual_review_required`, `preserve_explicit_falsey` |
+| `provider_server_side_singleton_default` | `diagnostic_only`, `manual_review_required` |
+| `paid_disabled_or_api_boundary_default` | `diagnostic_only`, `manual_review_required` |
+
+A V1 validator rejects out-of-matrix `kind` + `action` combinations.
+
+## Path Namespace And Canonicalization
+
+V1 `path` is the projected/provider-state path. `plan_path`, `raw_api_path`, and
+`provider_state_path` are evidence-only fields and cannot replace `path`. The
+validator canonicalizes `path` using `schema_paths.parse_report_path(path)` then
+`schema_paths.format_path(parsed)`. Accepted `[0]` and `[*]` normalize to `[]`.
+Bare wildcard path segments and unsupported syntax are rejected. V1 adds no new
+path syntax. Rule identity uses the canonicalized path.
+
+### Sensitive Path Static Matching
+
+Absent/default uses the **non-inverted** sensitive-path rule:
+
+- If `sensitive_paths` is supplied, canonicalize each entry with the same path
+  canonicalization flow.
+- If the canonicalized rule `path` is present in the canonicalized sensitive-path
+  set, reject the rule as `sensitive_path_target`.
+- If no static set is supplied, skip this check.
+
+Exact canonical match only. Ancestor/descendant matching is future
+engine-integrated behavior. This is the opposite of the sensitive-required lane,
+which accepts only paths that are in the sensitive set.
+
+## Rule Identity And Conflicts
+
+Rule identity is the tuple:
+
+```
+(provider, resource_scope, canonical_path)
+```
+
+where `resource_scope` is either `("type", resource_type)` or
+`("prefix", resource_prefix)`.
+
+Absent/default rules do not carry a `provider_version_constraint` field, so
+identity does not include a version string. Different versions of the same rule
+must be resolved by human review unless a future contract adds version tracking.
+
+A V1 validator rejects:
+
+- duplicate identical identity as `duplicate_rule`
+- same identity with different `kind` as `conflicting_kind`
+- same identity with different `action` as `conflicting_action`
+- same identity with different `observed_value` as `conflicting_observed_value`
+
+`evidence` and `reason` are required but are not conflict fields in V1. Same
+identity with only `reason` or only `evidence` differing is still rejected as
+`duplicate_rule`; it is never accepted as a merge. No merge rule exists in V1.
+
+Overlapping scope:
+
+- Exact `resource_type` and matching `resource_prefix` overlap with the same
+  provider and canonical path is rejected as `overlapping_scope`.
+- Prefix-prefix overlap is deferred unless a future contract explicitly
+  specifies it.
+
+## Provider / Resource Prefix Checking
+
+If `provider_prefixes` is supplied:
+
+- `resource_type` resolves to provider using longest-prefix match; mismatch is
+  `provider_resource_mismatch`, unknown prefix is `provider_resource_unknown`.
+- `resource_prefix` must exist in the map and map to the rule provider; mismatch
+  is `provider_resource_mismatch`, unknown prefix is `provider_resource_unknown`.
+
+If `provider_prefixes` is not supplied, the validator skips the provider/resource
+consistency check.
+
+Scope errors:
+
+- both `resource_type` and `resource_prefix`: `both_resource_scopes`
+- neither: `missing_resource_scope`
+
+## Error Categories And Message Contract
+
+The current implementation raises `ValueError` with stable message fragments
+rather than structured error objects. The following logical categories are
+documentation/test categories, not a structured runtime error type.
+
+| Category | Trigger | Message fragment |
+|---|---|---|
+| `rules_not_list` | `rules` is not a list | `absent_defaults.rules must be a list` |
+| `rule_not_object` | a rule is not an object | `must be an object` |
+| `unknown_key` | key outside accepted set | `unknown rule key` |
+| `missing_id` | no `id` | `missing id` |
+| `missing_provider` | no `provider` | `missing provider` |
+| `missing_path` | no `path` | `missing path` |
+| `missing_kind` | no `kind` | `missing kind` |
+| `missing_action` | no `action` | `missing action` |
+| `missing_evidence` | no `evidence` | `missing evidence` |
+| `missing_reason` | no `reason` | `missing reason` |
+| `missing_resource_scope` | neither `resource_type` nor `resource_prefix` | `missing resource scope` |
+| `both_resource_scopes` | both `resource_type` and `resource_prefix` | `cannot specify both resource_type and resource_prefix` |
+| `field_must_be_string` | required string field is not a string or empty after strip | `missing <field>` |
+| `missing_observed_value` | `kind` or `action` requires `observed_value` | `kind <kind> requires observed_value` / `action <action> requires observed_value` |
+| `unknown_kind` | `kind` not in enum | `unknown kind` |
+| `unknown_action` | `action` not in allowed/rejected | `unknown action` |
+| `rejected_in_v1_action` | rejected action | `action <action> is rejected in V1` |
+| `out_of_matrix_action` | `kind` + `action` not in matrix | `kind <kind> does not allow action <action>` |
+| `invalid_path_syntax` | path cannot be parsed/canonicalized | `unsupported syntax` |
+| `bare_wildcard_segment` | path segment is bare `*` | `bare wildcard segment` |
+| `evidence_path_cannot_replace_path` | evidence path present without `path` | `<field> cannot replace path` |
+| `sensitive_path_target` | rule path is in supplied sensitive set | `targets a known sensitive path` |
+| `provider_resource_mismatch` | resource scope maps to a different provider | `resource_type <x> resolves to provider <actual>, not <expected>` / `resource_prefix <x> is declared for provider <actual>, not <expected>` |
+| `provider_resource_unknown` | resource scope has no known prefix | `resource_type <x> is not declared in provider_prefixes` / `resource_prefix <x> is not declared in provider_prefixes` |
+| `duplicate_rule` | identical identity tuple | `duplicate rule` |
+| `conflicting_kind` | same identity, different `kind` | `conflicting kind` |
+| `conflicting_action` | same identity, different `action` | `conflicting action` |
+| `conflicting_observed_value` | same identity, different `observed_value` | `conflicting observed_value` |
+| `overlapping_scope` | same type and matching prefix for same provider/path | `overlaps resource_prefix` |
+
+## Test Matrix For V1 Validator
+
+### Positive tests
+
+- `None` rules -> empty normalized list.
+- Empty rules -> empty normalized list.
+- Valid `provider_absent_placeholder` + `manual_review_required` + empty `observed_value`.
+- Valid `provider_server_side_singleton_default` + `diagnostic_only`.
+- Valid `real_configured_falsey` + `preserve_explicit_falsey` + `False` observed value.
+- `api_absent` without `observed_value`.
+- `resource_prefix` scope accepted.
+- Path canonicalization `[0]` -> `[]`.
+- Path canonicalization `[*]` -> `[]`.
+- Optional `plan_path`, `raw_api_path`, `provider_state_path` accepted.
+- Provider/resource match accepted when `provider_prefixes` is supplied.
+- Static sensitive-path rejection with canonicalized paths.
+- Validator skips provider/resource check when `provider_prefixes` is `None`.
+
+### Negative tests
+
+- `rules` not a list.
+- rule not an object.
+- unknown key.
+- missing each required field.
+- non-string required string field.
+- empty/whitespace required string field.
+- both `resource_type` and `resource_prefix`.
+- neither `resource_type` nor `resource_prefix`.
+- missing `observed_value` for kinds/actions that require it.
+- unknown `kind`.
+- unknown `action`.
+- each rejected action.
+- out-of-matrix `kind` + `action`.
+- unsupported path syntax.
+- bare wildcard path segment.
+- evidence path without `path`.
+- provider/resource mismatch.
+- unknown provider/resource prefix.
+- duplicate identical rule.
+- same identity conflicting `kind`, `action`, or `observed_value`.
+- same identity differing only `reason` rejected as `duplicate_rule` (not merged).
+- overlapping `resource_type`/`resource_prefix` same provider/path rejected.
+- `sensitive_paths` supplied but rule path present rejected.
+- no cross-class duplicate checks run.
+- no behavior authorized.
+
+## Recommended Next Step
+
+With the V1 validator contract now frozen, the next step is external review of
+the contract, followed by any validator-only hardening if needed. The contract
+is intended to be directly implementable: V1 omit actions are invalid, the
+kind/action matrix has no conditional cells, rule identity and conflict handling
+are defined, `observed_value` requirements and type-strict matching are defined,
+and the V1 `path` namespace is fixed.
+
 Still do not implement normalization behavior. Do not implement it until the
 metadata contract and evidence requirements survive validator-only review and at
-least one provider lab proves the narrow class being promoted.
+least one provider lab proves a narrow, safe class.

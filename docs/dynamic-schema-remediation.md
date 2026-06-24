@@ -403,8 +403,305 @@ This design is not:
 - Generalized JSON blob support.
 - A second omission engine parallel to `projection_omit`.
 
+# V1 Validator Contract
+
+This section freezes the exact V1 static validator contract for
+`dynamic_schema.rules`. The contract is directly implementable from the existing
+validator code; no new design decisions should be made in the validator-only
+implementation PR.
+
+## V1 Validator Scope
+
+The V1 dynamic-schema validator:
+
+- Validates metadata shape only.
+- Returns normalized metadata (shallow copies with canonicalized `path` and stripped
+  `provider_version_constraint`).
+- Does not project dynamic-schema paths.
+- Does not omit paths.
+- Does not change projection behavior.
+- Does not change drift policy.
+- Does not change advisory behavior.
+- Does not change `assert-adoptable` status.
+- Does not execute Terraform/OpenTofu.
+- Does not enforce cross-class duplicates.
+- Does not authorize behavior.
+- Does not create a second omission path parallel to `projection_omit`.
+
+## Pack Metadata Key
+
+- Top-level: `dynamic_schema`
+- Rule list: `dynamic_schema.rules`
+- Accessor: `packs.dynamic_schema_rules(provider=None)`
+
+## Accepted Keys
+
+The closed V1 accepted key set for each rule is:
+
+- `id`
+- `provider`
+- `provider_version_constraint`
+- `resource_type`
+- `resource_prefix`
+- `path`
+- `kind`
+- `ownership`
+- `action`
+- `evidence`
+- `reason`
+- `raw_api_path`
+- `projected_path`
+- `plan_path`
+
+Any key outside this set is rejected as `unknown_key`.
+
+## Required Fields
+
+A V1 validator must require:
+
+- `id`
+- `provider`
+- `provider_version_constraint`
+- `path`
+- `kind`
+- `ownership`
+- `action`
+- `evidence`
+- `reason`
+
+It must also require exactly one resource scope:
+
+- `resource_type` or `resource_prefix`
+
+All required string fields must be strings and non-empty after `str.strip()`.
+Normalized metadata should strip these fields where appropriate.
+
+## Enum Constants
+
+V1 `kind` enum:
+
+- `provider_state_only`
+- `provider_computed_map`
+- `freeform_object`
+- `opaque_json_blob`
+- `map_key_discovered_after_import`
+- `unstable_collection_identity`
+- `schema_unknown_but_provider_observed`
+- `raw_api_only_provider_blind`
+- `provider_observed_projection_unsafe`
+
+V1 `ownership` enum:
+
+- `user_owned`
+- `provider_computed`
+- `server_owned`
+- `unknown`
+
+V1 allowed actions:
+
+- `diagnostic_only`
+- `manual_review_required`
+
+V1 reserved actions (rejected with `rejected_in_v1_action`):
+
+- `preserve_observed_scalar`
+- `projection_omit_candidate`
+
+Any other action is `unknown_action`.
+
+### Kind/Ownership Matrix
+
+| Kind | Allowed ownership |
+|---|---|
+| `provider_state_only` | `provider_computed`, `server_owned`, `unknown` |
+| `provider_computed_map` | `provider_computed`, `server_owned`, `unknown` |
+| `freeform_object` | `user_owned`, `provider_computed`, `server_owned`, `unknown` |
+| `opaque_json_blob` | `provider_computed`, `server_owned`, `unknown` |
+| `map_key_discovered_after_import` | `provider_computed`, `server_owned`, `unknown` |
+| `unstable_collection_identity` | `provider_computed`, `server_owned`, `unknown` |
+| `schema_unknown_but_provider_observed` | `user_owned`, `provider_computed`, `server_owned`, `unknown` |
+| `raw_api_only_provider_blind` | `unknown` |
+| `provider_observed_projection_unsafe` | `provider_computed`, `server_owned`, `unknown` |
+
+A V1 validator rejects out-of-matrix `kind` + `ownership` combinations.
+
+## Path Namespace And Canonicalization
+
+V1 `path` is the provider-state path. `raw_api_path`, `projected_path`, and
+`plan_path` are evidence-only fields and cannot replace `path`. The validator
+canonicalizes `path` using `schema_paths.parse_report_path(path)` then
+`schema_paths.format_path(parsed)`. Accepted `[0]` and `[*]` normalize to `[]`.
+Bare wildcard path segments and unsupported syntax are rejected. V1 adds no new
+path syntax. Rule identity uses the canonicalized path.
+
+### Sensitive Path Static Matching
+
+Dynamic-schema uses the **non-inverted** sensitive-path rule:
+
+- If `sensitive_paths` is supplied, canonicalize each entry with the same path
+  canonicalization flow.
+- If the canonicalized rule `path` is present in the canonicalized sensitive-path
+  set, reject the rule as `sensitive_path_target`.
+- If no static set is supplied, skip this check.
+
+Exact canonical match only. Ancestor/descendant matching is future
+engine-integrated behavior. Do not invent a new sensitivity resolver in V1.
+
+## Provider Version Rule
+
+`provider_version_constraint` is required, must be a string, and must be
+non-empty after `str.strip()`. The normalized value is the stripped string. V1
+does not parse or semantically evaluate version constraints. Rule identity uses
+exact stripped string equality. Semantically equivalent but string-different
+ranges are distinct identities.
+
+## Rule Identity And Conflicts
+
+Rule identity is the tuple:
+
+```
+(provider, stripped_provider_version_constraint, resource_scope, canonical_path)
+```
+
+where `resource_scope` is either `("type", resource_type)` or
+`("prefix", resource_prefix)`.
+
+A V1 validator rejects:
+
+- duplicate identical identity as `duplicate_rule`
+- same identity with different `kind` as `conflicting_kind`
+- same identity with different `ownership` as `conflicting_ownership`
+- same identity with different `action` as `conflicting_action`
+- same identity with different `evidence` as `conflicting_evidence`
+- same identity with different `raw_api_path` as `conflicting_raw_api_path`
+- same identity with different `projected_path` as `conflicting_projected_path`
+- same identity with different `plan_path` as `conflicting_plan_path`
+
+`reason` is required but is not a conflict field in V1. Same identity with only
+`reason` differing is still rejected as `duplicate_rule`; it is never accepted as
+a merge. No merge rule exists in V1.
+
+Overlapping scope:
+
+- Exact `resource_type` and matching `resource_prefix` overlap with the same
+  provider, stripped version string, and canonical path is rejected as
+  `overlapping_scope`.
+- Version strings must be exactly equal after stripping; no semantic version
+  overlap is computed.
+- Prefix-prefix overlap is deferred unless a future contract explicitly
+  specifies it.
+
+## Provider / Resource Prefix Checking
+
+If `provider_prefixes` is supplied:
+
+- `resource_type` resolves to provider using longest-prefix match; mismatch is
+  `provider_resource_mismatch`, unknown prefix is `provider_resource_unknown`.
+- `resource_prefix` must exist in the map and map to the rule provider; mismatch
+  is `provider_resource_mismatch`, unknown prefix is `provider_resource_unknown`.
+
+If `provider_prefixes` is not supplied, the validator skips the provider/resource
+consistency check.
+
+Scope errors:
+
+- both `resource_type` and `resource_prefix`: `both_resource_scopes`
+- neither: `missing_resource_scope`
+
+## Error Categories And Message Contract
+
+The current implementation raises `ValueError` with stable message fragments
+rather than structured error objects. The following logical categories are
+documentation/test categories, not a structured runtime error type.
+
+| Category | Trigger | Message fragment |
+|---|---|---|
+| `rules_not_list` | `rules` is not a list | `dynamic_schema.rules must be a list` |
+| `rule_not_object` | a rule is not an object | `must be an object` |
+| `unknown_key` | key outside accepted set | `unknown rule key` |
+| `missing_id` | no `id` | `missing id` |
+| `missing_provider` | no `provider` | `missing provider` |
+| `missing_provider_version_constraint` | no `provider_version_constraint` | `missing provider_version_constraint` |
+| `missing_path` | no `path` | `missing path` |
+| `missing_kind` | no `kind` | `missing kind` |
+| `missing_ownership` | no `ownership` | `missing ownership` |
+| `missing_action` | no `action` | `missing action` |
+| `missing_evidence` | no `evidence` | `missing evidence` |
+| `missing_reason` | no `reason` | `missing reason` |
+| `missing_resource_scope` | neither `resource_type` nor `resource_prefix` | `missing resource scope` |
+| `both_resource_scopes` | both `resource_type` and `resource_prefix` | `cannot specify both resource_type and resource_prefix` |
+| `field_must_be_string` | required string field is not a string or empty after strip | `missing <field>` or `<field> must be a string` |
+| `unknown_kind` | `kind` not in enum | `unknown kind` |
+| `unknown_ownership` | `ownership` not in enum | `unknown ownership` |
+| `unknown_action` | `action` not in allowed/reserved | `unknown action` |
+| `rejected_in_v1_action` | reserved action | `action <action> is rejected in V1` |
+| `out_of_matrix_ownership` | `kind` + `ownership` not in matrix | `kind <kind> does not allow ownership <ownership>` |
+| `invalid_path_syntax` | path cannot be parsed/canonicalized | `unsupported syntax` |
+| `bare_wildcard_segment` | path segment is bare `*` | `bare wildcard segment` |
+| `evidence_path_cannot_replace_path` | evidence path present without `path` | `<field> cannot replace path` |
+| `sensitive_path_target` | rule path is in supplied sensitive set | `targets a known sensitive path` |
+| `provider_resource_mismatch` | resource scope maps to a different provider | `resource_type <x> resolves to provider <actual>, not <expected>` / `resource_prefix <x> is declared for provider <actual>, not <expected>` |
+| `provider_resource_unknown` | resource scope has no known prefix | `resource_type <x> is not declared in provider_prefixes` / `resource_prefix <x> is not declared in provider_prefixes` |
+| `duplicate_rule` | identical identity tuple | `duplicate rule` |
+| `conflicting_kind` | same identity, different `kind` | `conflicting kind` |
+| `conflicting_ownership` | same identity, different `ownership` | `conflicting ownership` |
+| `conflicting_action` | same identity, different `action` | `conflicting action` |
+| `conflicting_evidence` | same identity, different `evidence` | `conflicting evidence` |
+| `conflicting_raw_api_path` | same identity, different `raw_api_path` | `conflicting raw_api_path` |
+| `conflicting_projected_path` | same identity, different `projected_path` | `conflicting projected_path` |
+| `conflicting_plan_path` | same identity, different `plan_path` | `conflicting plan_path` |
+| `overlapping_scope` | same type and matching prefix for same provider/version/path | `overlaps resource_prefix` |
+
+## Test Matrix For V1 Validator
+
+### Positive tests
+
+- `None` rules -> empty normalized list.
+- Empty rules -> empty normalized list.
+- Valid `provider_observed_projection_unsafe` + `unknown` + `manual_review_required`.
+- Valid `raw_api_only_provider_blind` + `unknown` + `diagnostic_only`.
+- Accepted `ownership` values for each `kind` in the matrix.
+- `provider_version_constraint` stripped and preserved as stripped string.
+- Path canonicalization `[0]` -> `[]`.
+- Path canonicalization `[*]` -> `[]`.
+- Optional `raw_api_path`, `projected_path`, `plan_path` accepted.
+- `resource_prefix` scope accepted.
+- Provider/resource match accepted when `provider_prefixes` is supplied.
+- Static sensitive-path rejection with canonicalized paths.
+- Validator skips sensitive-path check when `sensitive_paths` is `None`.
+- Validator skips provider/resource check when `provider_prefixes` is `None`.
+
+### Negative tests
+
+- `rules` not a list.
+- rule not an object.
+- unknown key.
+- missing each required field.
+- non-string required string field.
+- empty/whitespace required string field.
+- both `resource_type` and `resource_prefix`.
+- neither `resource_type` nor `resource_prefix`.
+- unknown `kind`.
+- unknown `ownership`.
+- unknown `action`.
+- each reserved action.
+- out-of-matrix `kind` + `ownership`.
+- unsupported path syntax.
+- bare wildcard path segment.
+- evidence path without `path`.
+- provider/resource mismatch.
+- unknown provider/resource prefix.
+- duplicate identical rule.
+- same identity conflicting `kind`, `ownership`, `action`, `evidence`, or evidence paths.
+- same identity differing only `reason` rejected as `duplicate_rule` (not merged).
+- overlapping `resource_type`/`resource_prefix` same version/path rejected.
+- overlapping `resource_type`/`resource_prefix` different version accepted.
+- `sensitive_paths` supplied but rule path present rejected.
+- no cross-class duplicate checks run.
+- no projection/omission behavior authorized.
+
 ## Recommended Next Step
 
-After this determinism patch, run a final light external review if desired. Then
-proceed to validator-only implementation planning. Do not implement projection
-behavior.
+With the V1 validator contract now frozen, the next step is external review of
+the contract, followed by any validator-only hardening if needed. Do not
+implement projection behavior.
