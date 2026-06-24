@@ -758,52 +758,58 @@ Machine enforcement waits for a cross-design identity rule.
 
 ## Error Categories And Message Contract
 
-The following V1 error categories are frozen. Future messages must include the
-rule index and rule `id` when present, the offending field, and the identity
-tuple when relevant.
+The current implementation raises `ValueError` with stable message fragments
+rather than structured error objects. The following logical categories are
+documentation/test categories, not a structured runtime error type. This matches
+the absent/default and dynamic-schema validators; no runtime error shape is
+changed by this contract.
 
-| Category | Trigger | Scope |
-|---|---|---|
-| `rules_not_list` | `rules` is not a list | rule set |
-| `rule_not_object` | a rule is not an object | rule |
-| `unknown_key` | key outside accepted set | rule |
-| `forbidden_value_carrying_key` | value-carrying key present | rule |
-| `missing_id` | no `id` | rule |
-| `missing_provider` | no `provider` | rule |
-| `missing_provider_version_constraint` | no `provider_version_constraint` | rule |
-| `missing_path` | no `path` | rule |
-| `missing_kind` | no `kind` | rule |
-| `missing_sensitivity` | no `sensitivity` | rule |
-| `missing_structural_requirement` | no `structural_requirement` | rule |
-| `missing_action` | no `action` | rule |
-| `missing_evidence` | no `evidence` | rule |
-| `missing_reason` | no `reason` | rule |
-| `missing_resource_scope` | neither `resource_type` nor `resource_prefix` | rule |
-| `both_resource_scopes` | both `resource_type` and `resource_prefix` | rule |
-| `field_must_be_string` | required string field is not a string or is empty after strip | rule |
-| `unknown_kind` | `kind` not in enum | rule |
-| `unknown_sensitivity` | `sensitivity` not in enum | rule |
-| `unknown_structural_requirement` | `structural_requirement` not in enum | rule |
-| `unknown_action` | `action` not in allowed/reserved/forbidden | rule |
-| `rejected_in_v1_action` | reserved action | rule |
-| `forbidden_action` | forbidden action | rule |
-| `out_of_matrix_sensitivity` | `kind` + `sensitivity` not in matrix | rule |
-| `out_of_matrix_structural_requirement` | `kind` + `structural_requirement` not in matrix | rule |
-| `invalid_path_syntax` | path cannot be parsed/canonicalized | rule |
-| `evidence_path_cannot_replace_path` | `raw_api_path`/`projected_path`/`plan_path` present without `path` | rule |
-| `provider_resource_mismatch` | resource scope maps to a different provider | rule |
-| `provider_resource_unknown` | resource scope has no known prefix | rule |
-| `duplicate_rule` | identical identity tuple | rule set |
-| `conflicting_kind` | same identity, different `kind` | rule set |
-| `conflicting_sensitivity` | same identity, different `sensitivity` | rule set |
-| `conflicting_structural_requirement` | same identity, different `structural_requirement` | rule set |
-| `conflicting_action` | same identity, different `action` | rule set |
-| `conflicting_evidence` | same identity, different `evidence` | rule set |
-| `conflicting_raw_api_path` | same identity, different `raw_api_path` | rule set |
-| `conflicting_projected_path` | same identity, different `projected_path` | rule set |
-| `conflicting_plan_path` | same identity, different `plan_path` | rule set |
-| `overlapping_scope` | same type and matching prefix for same provider/version/path | rule set |
-| `path_not_in_sensitive_set` | static sensitive path set supplied but rule path missing | rule |
+Future messages should include the rule index and rule `id` when present, the
+offending field, and the identity tuple when relevant.
+
+| Category | Trigger | Scope | Message fragment |
+|---|---|---|---|
+| `rules_not_list` | `rules` is not a list | rule set | `sensitive_required.rules must be a list` |
+| `rule_not_object` | a rule is not an object | rule | `must be an object` |
+| `unknown_key` | key outside accepted set | rule | `unknown rule key` |
+| `forbidden_value_carrying_key` | value-carrying key present | rule | `forbidden value-carrying key` |
+| `missing_id` | no `id` | rule | `missing id` |
+| `missing_provider` | no `provider` | rule | `missing provider` |
+| `missing_provider_version_constraint` | no `provider_version_constraint` | rule | `missing provider_version_constraint` |
+| `missing_path` | no `path` | rule | `missing path` |
+| `missing_kind` | no `kind` | rule | `missing kind` |
+| `missing_sensitivity` | no `sensitivity` | rule | `missing sensitivity` |
+| `missing_structural_requirement` | no `structural_requirement` | rule | `missing structural_requirement` |
+| `missing_action` | no `action` | rule | `missing action` |
+| `missing_evidence` | no `evidence` | rule | `missing evidence` |
+| `missing_reason` | no `reason` | rule | `missing reason` |
+| `missing_resource_scope` | neither `resource_type` nor `resource_prefix` | rule | `missing resource scope` |
+| `both_resource_scopes` | both `resource_type` and `resource_prefix` | rule | `cannot specify both resource_type and resource_prefix` |
+| `field_must_be_string` | required string field is not a string or is empty after strip | rule | `<field> must be a string` |
+| `unknown_kind` | `kind` not in enum | rule | `unknown kind` |
+| `unknown_sensitivity` | `sensitivity` not in enum | rule | `unknown sensitivity` |
+| `unknown_structural_requirement` | `structural_requirement` not in enum | rule | `unknown structural_requirement` |
+| `unknown_action` | `action` not in allowed/reserved/forbidden | rule | `unknown action` |
+| `rejected_in_v1_action` | reserved action | rule | `action <action> is rejected in V1` |
+| `forbidden_action` | forbidden action | rule | `action <action> is forbidden` |
+| `out_of_matrix_sensitivity` | `kind` + `sensitivity` not in matrix | rule | `does not allow sensitivity` |
+| `out_of_matrix_structural_requirement` | `kind` + `structural_requirement` not in matrix | rule | `does not allow structural_requirement` |
+| `invalid_path_syntax` | path cannot be parsed/canonicalized | rule | `unsupported syntax` |
+| `bare_wildcard_segment` | path segment is bare `*` | rule | `bare wildcard segment` |
+| `evidence_path_cannot_replace_path` | `raw_api_path`/`projected_path`/`plan_path` present without `path` | rule | `<field> cannot replace path` |
+| `provider_resource_mismatch` | resource scope maps to a different provider | rule | `resource_type <x> resolves to provider <actual>, not <expected>` / `resource_prefix <x> is declared for provider <actual>, not <expected>` |
+| `provider_resource_unknown` | resource scope has no known prefix | rule | `resource_type <x> is not declared in provider_prefixes` / `resource_prefix <x> is not declared in provider_prefixes` |
+| `duplicate_rule` | identical identity tuple | rule set | `duplicate rule` |
+| `conflicting_kind` | same identity, different `kind` | rule set | `conflicting kind` |
+| `conflicting_sensitivity` | same identity, different `sensitivity` | rule set | `conflicting sensitivity` |
+| `conflicting_structural_requirement` | same identity, different `structural_requirement` | rule set | `conflicting structural_requirement` |
+| `conflicting_action` | same identity, different `action` | rule set | `conflicting action` |
+| `conflicting_evidence` | same identity, different `evidence` | rule set | `conflicting evidence` |
+| `conflicting_raw_api_path` | same identity, different `raw_api_path` | rule set | `conflicting raw_api_path` |
+| `conflicting_projected_path` | same identity, different `projected_path` | rule set | `conflicting projected_path` |
+| `conflicting_plan_path` | same identity, different `plan_path` | rule set | `conflicting plan_path` |
+| `overlapping_scope` | same type and matching prefix for same provider/version/path | rule set | `overlaps resource_prefix` |
+| `path_not_in_sensitive_set` | static sensitive path set supplied but rule path missing | rule | `path <x> is not in supplied sensitive_paths` |
 
 ## Test Matrix For Future Validator PR
 
