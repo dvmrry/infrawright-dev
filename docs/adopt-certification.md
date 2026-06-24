@@ -1,4 +1,4 @@
-# Adopt Certification Advisory
+# Adopt Static Advisory
 
 The import-oracle adoption path can intentionally run from key-only inventory:
 
@@ -9,9 +9,9 @@ key/import_id -> Terraform/OpenTofu import -> provider state projection
 That is the normal adoption path. It avoids treating raw API response bodies as
 Terraform configuration truth.
 
-Certification mode is separate. The CLI is a static advisory diff. It requires
-raw detail JSON and precomputed oracle/projected fixtures, then compares the
-raw API shape against provider-imported state and projected tfvars:
+Static advisory mode is separate. The CLI is a static advisory diff. It
+requires raw detail JSON and precomputed oracle/projected fixtures, then
+compares the raw API shape against provider-imported state and projected tfvars:
 
 ```text
 raw detail JSON
@@ -142,6 +142,6 @@ block is structurally required for a valid Terraform plan.
 
 ## Scope Boundary
 
-This PR adds the static advisory harness only. Provider proof runs belong in
-later PRs. NetBox, Grafana, Cloudflare, and Zscaler certification should use
-this harness after the report contract is stable.
+This command is only a static advisory harness. Provider proof runs belong in
+provider-lab PRs. NetBox, Grafana, Cloudflare, GCP, and Zscaler labs should use
+this harness as one evidence source, not as standalone proof.

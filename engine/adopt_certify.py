@@ -1,4 +1,4 @@
-"""Fixture-driven static adoption certification advisory CLI."""
+"""Fixture-driven static adoption advisory CLI."""
 
 import argparse
 import json

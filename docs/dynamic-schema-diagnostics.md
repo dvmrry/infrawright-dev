@@ -33,9 +33,27 @@ python -m engine.dynamic_schema \
 
 Or classify `projection_omit` paths from a drift policy:
 
+```json
+{
+  "version": 1,
+  "resource_types": {
+    "cloudflare_workers_script": {
+      "projection_omit": [
+        {
+          "path": "assets.config.run_worker_first",
+          "reason": "Provider dynamic value observed during lab.",
+          "approved_by": "provider-lab",
+          "ticket": "LAB-1"
+        }
+      ]
+    }
+  }
+}
+```
+
 ```sh
 python -m engine.dynamic_schema \
-  --resource-type cloudflare_dns_record \
+  --resource-type cloudflare_workers_script \
   --policy policy/lab/drift-policy.json
 ```
 

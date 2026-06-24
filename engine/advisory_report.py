@@ -1,4 +1,4 @@
-"""Adoption certification advisory report.
+"""Adoption advisory report.
 
 This report compares raw API detail shape, oracle-imported provider state, and
 projected tfvars shape. It is advisory by design: raw-only paths can indicate

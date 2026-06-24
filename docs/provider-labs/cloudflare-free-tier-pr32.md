@@ -45,7 +45,7 @@ During setup, a non-lab Cloudflare token was detected in the shell environment.
 No live writes were performed with that token. The lab switched back to the
 disposable Cloudflare lab token before creating resources.
 
-## Certified Resources
+## Import-Only Resources
 
 These resources imported, projected, staged imports, and planned as import-only:
 
@@ -83,8 +83,9 @@ zone hold, but the projected config is not neutral: Terraform wants to update
 
 ## Free-Tier And Provider Boundaries
 
-The following candidates did not reach certification because Cloudflare or the
-provider rejected them before Infrawright projection could be evaluated:
+The following candidates did not reach the import-oracle/advisory path because
+Cloudflare or the provider rejected them before Infrawright projection could be
+evaluated:
 
 | Resource | Result |
 |---|---|

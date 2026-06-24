@@ -22,6 +22,7 @@ class OracleError(RuntimeError):
 
 
 _MAX_SUBPROCESS_OUTPUT = 1200
+_DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 300
 _BACKEND_BLOCK_RE = re.compile(r'\bbackend\s+"[^"]+"\s*\{')
 _CLOUD_BLOCK_RE = re.compile(r'\bcloud\s*\{')
 
@@ -129,6 +130,35 @@ def _summarize_output(raw, tokens):
     )
 
 
+def _output_bytes(value):
+    if value is None:
+        return b""
+    if isinstance(value, bytes):
+        return value
+    return str(value).encode("utf-8", "replace")
+
+
+def _summarize_text(text, tokens):
+    return _summarize_output(text.encode("utf-8", "replace"), tokens)
+
+
+def _subprocess_timeout():
+    raw = os.environ.get("INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS")
+    if not raw:
+        return _DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+    try:
+        timeout = float(raw)
+    except ValueError:
+        raise OracleError(
+            "INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS must be a positive number"
+        )
+    if timeout <= 0:
+        raise OracleError(
+            "INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS must be a positive number"
+        )
+    return timeout
+
+
 def _write_debug_output(debug_dir, debug_name, stdout, stderr):
     if not debug_dir:
         return None, None
@@ -145,14 +175,38 @@ def _write_debug_output(debug_dir, debug_name, stdout, stderr):
 
 
 def _run(args, cwd, env, debug_dir=None, debug_name=None):
-    proc = subprocess.run(
-        args,
-        cwd=cwd,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            args,
+            cwd=cwd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=_subprocess_timeout(),
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = _output_bytes(exc.stdout)
+        stderr = _output_bytes(exc.stderr)
+        stdout_path, stderr_path = _write_debug_output(
+            debug_dir, debug_name, stdout, stderr)
+        debug_hint = ""
+        if stdout_path or stderr_path:
+            debug_hint = (
+                "\nfull stdout: %s\nfull stderr: %s"
+                % (stdout_path, stderr_path)
+            )
+        tokens = _sensitive_command_tokens(args)
+        raise OracleError(
+            "%s timed out after %s seconds\nstdout:\n%s\nstderr:\n%s%s"
+            % (
+                _display_args(args),
+                exc.timeout,
+                _summarize_output(stdout, tokens),
+                _summarize_output(stderr, tokens),
+                debug_hint,
+            )
+        )
     if proc.returncode != 0:
         stdout_path, stderr_path = _write_debug_output(
             debug_dir, debug_name, proc.stdout, proc.stderr)
@@ -231,7 +285,13 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False):
             debug_dir=debug_dir,
             debug_name="show",
         )
-        state = json.loads(raw)
+        try:
+            state = json.loads(raw)
+        except ValueError as exc:
+            raise OracleError(
+                "%s terraform show -json returned invalid JSON: %s\noutput:\n%s"
+                % (resource_type, exc, _summarize_text(raw, []))
+            )
         out = {}
         for res in _iter_state_resources(state):
             if res.get("type") != resource_type:
@@ -251,6 +311,9 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False):
                 % (resource_type, ", ".join(missing))
             )
         return out
+    except BaseException:
+        primary_error = sys.exc_info()[1]
+        raise
     finally:
         if keep:
             sys.stderr.write(
@@ -260,7 +323,19 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False):
                 % temp
             )
         else:
-            shutil.rmtree(temp)
+            try:
+                shutil.rmtree(temp)
+            except OSError as exc:
+                if "primary_error" in locals():
+                    sys.stderr.write(
+                        "WARNING: failed to remove oracle workdir %s "
+                        "after error %s: %s\n"
+                        % (temp, primary_error, exc)
+                    )
+                else:
+                    raise OracleError(
+                        "failed to remove oracle workdir %s: %s" % (temp, exc)
+                    )
 
 
 def _iter_state_resources(state):

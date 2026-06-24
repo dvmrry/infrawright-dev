@@ -8,6 +8,7 @@ import stat
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 
 from engine import packs
 from engine import import_oracle
@@ -76,6 +77,9 @@ class ImportOracleTest(unittest.TestCase):
                             f.write("{}")
                         return 0
                     if args[0] == "show":
+                        if os.environ.get("FAKE_TF_BAD_SHOW_JSON") == "1":
+                            print("{not valid json")
+                            return 0
                         with open(os.path.join(os.getcwd(), "fake-imports.json"), encoding="utf-8") as f:
                             imports = json.load(f)
                         resources = []
@@ -116,6 +120,8 @@ class ImportOracleTest(unittest.TestCase):
         else:
             os.environ["TF"] = self.prev_tf
         os.environ.pop("FAKE_TF_FAIL_IMPORT", None)
+        os.environ.pop("FAKE_TF_BAD_SHOW_JSON", None)
+        os.environ.pop("INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS", None)
         packs.reset()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
@@ -167,6 +173,73 @@ class ImportOracleTest(unittest.TestCase):
         self.assertNotIn(secret_import_id, msg)
         self.assertIn("[truncated", msg)
         self.assertIn("failed with exit 17", msg)
+
+    def test_subprocess_timeout_raises_oracle_error(self):
+        secret_import_id = "tenant-url-token-secret-import-id"
+
+        def timeout(*_args, **_kwargs):
+            raise import_oracle.subprocess.TimeoutExpired(
+                ["terraform", "import"],
+                12,
+                output=("stdout import id=%s" % secret_import_id).encode(),
+                stderr=("stderr import id=%s" % secret_import_id).encode(),
+            )
+
+        with mock.patch.object(import_oracle.subprocess, "run", timeout):
+            with self.assertRaises(OracleError) as ctx:
+                import_oracle._run(
+                    ["terraform", "import", "addr", secret_import_id],
+                    cwd=self.tmp,
+                    env=os.environ.copy(),
+                )
+
+        msg = str(ctx.exception)
+        self.assertIn("timed out after 12 seconds", msg)
+        self.assertIn("<redacted-import-id>", msg)
+        self.assertNotIn(secret_import_id, msg)
+
+    def test_invalid_show_json_is_wrapped_as_oracle_error(self):
+        os.environ["FAKE_TF_BAD_SHOW_JSON"] = "1"
+
+        with self.assertRaises(OracleError) as ctx:
+            import_state("sample_resource", {"prod_app": "123"})
+
+        msg = str(ctx.exception)
+        self.assertIn("sample_resource terraform show -json returned invalid JSON", msg)
+        self.assertIn("{not valid json", msg)
+
+    def test_cleanup_failure_does_not_mask_primary_error(self):
+        secret_import_id = "tenant-url-token-secret-import-id"
+        os.environ["FAKE_TF_FAIL_IMPORT"] = "1"
+        oracle_temp = os.path.join(self.tmp, "oracle-temp")
+        os.makedirs(oracle_temp)
+        stderr = io.StringIO()
+
+        with mock.patch.object(import_oracle.tempfile, "mkdtemp", return_value=oracle_temp):
+            with mock.patch.object(import_oracle.shutil, "rmtree", side_effect=OSError("busy")):
+                with contextlib.redirect_stderr(stderr):
+                    with self.assertRaises(OracleError) as ctx:
+                        import_state("sample_resource", {"prod_app": secret_import_id})
+
+        msg = str(ctx.exception)
+        self.assertIn("failed with exit 17", msg)
+        self.assertNotIn("failed to remove oracle workdir", msg)
+        warning = stderr.getvalue()
+        self.assertIn("WARNING: failed to remove oracle workdir", warning)
+        self.assertIn("busy", warning)
+
+    def test_cleanup_failure_after_success_is_oracle_error(self):
+        oracle_temp = os.path.join(self.tmp, "oracle-temp")
+        os.makedirs(oracle_temp)
+
+        with mock.patch.object(import_oracle.tempfile, "mkdtemp", return_value=oracle_temp):
+            with mock.patch.object(import_oracle.shutil, "rmtree", side_effect=OSError("busy")):
+                with self.assertRaises(OracleError) as ctx:
+                    import_state("sample_resource", {"prod_app": "123"})
+
+        msg = str(ctx.exception)
+        self.assertIn("failed to remove oracle workdir", msg)
+        self.assertIn("busy", msg)
 
     def test_keep_workdir_warns_about_unencrypted_provider_state(self):
         kept = None

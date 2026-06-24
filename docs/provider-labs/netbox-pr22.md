@@ -3,8 +3,8 @@
 ## Scope
 
 This lab exercised the PR15 import-oracle adoption path, the PR20 static
-certification/advisory report, and the PR21 oracle safety hardening against a
-disposable NetBox target.
+advisory report, and the PR21 oracle safety hardening against a disposable
+NetBox target.
 
 This is a provider lab report, not a committed NetBox pack. The temporary pack,
 schema dump, raw API details, oracle state, projected tfvars, Terraform roots,
@@ -49,7 +49,7 @@ all 10 saved plan(s) clean
 
 ## Advisory Summary
 
-The static certification report compared raw NetBox detail JSON, oracle-imported
+The static advisory report compared raw NetBox detail JSON, oracle-imported
 provider state, projected tfvars, and policy omissions.
 
 | Resource | Raw-only | Provider-only | Projected | Omitted by policy | Required missing | Sensitive blocked |
@@ -124,6 +124,6 @@ repository.
   projected values before turning any zero/empty omission into pack behavior.
 - Consider a provider-lab helper that creates realpath-normalized temporary
   overlays and avoids broad API list requests by default.
-- Consider reporting raw-only path categories in the certification output so
+- Consider reporting raw-only path categories in the advisory output so
   relationship/display metadata is easier to distinguish from security-relevant
   provider-blind fields.
