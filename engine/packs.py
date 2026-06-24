@@ -357,6 +357,48 @@ def dynamic_schema_rules(provider=None):
     )
 
 
+def sensitive_required_rules(provider=None):
+    """Sensitive-required rule metadata declared by pack manifests.
+
+    Shape:
+      "sensitive_required": {
+        "rules": [
+          {
+            "id": "grafana_contact_point_webhook_required_sensitive",
+            "provider": "grafana",
+            "provider_version_constraint": ">= 3.0.0",
+            "resource_type": "grafana_contact_point",
+            "path": "webhook",
+            "kind": "sensitive_required_block",
+            "sensitivity": "contains_sensitive_fields",
+            "structural_requirement": "one_of_block_required",
+            "action": "manual_review_required",
+            "evidence": "docs/provider-labs/grafana-pr24.md",
+            "reason": "One of the contact-point notifier blocks must be present..."
+          }
+        ]
+      }
+
+    This only exposes validated metadata. It does not project sensitive values,
+    render placeholders, omit paths, or change adoption behavior.
+    """
+    from engine import sensitive_required_validator
+    out = []
+    for m in _manifests():
+        cfg = m.get("sensitive_required") or {}
+        providers = sorted(set((m.get("provider_prefixes") or {}).values()))
+        for rule in cfg.get("rules") or []:
+            item = dict(rule)
+            if "provider" not in item and len(providers) == 1:
+                item["provider"] = providers[0]
+            if provider is None or item.get("provider") == provider:
+                out.append(item)
+    return sensitive_required_validator.validate_sensitive_required_rules(
+        out,
+        provider_prefixes=provider_prefixes(),
+    )
+
+
 def adoption_status_paths():
     """Every adoption_status.json under packs/ (vendor-shared in _shared/ today;
     per-provider later). load_status merges them."""
