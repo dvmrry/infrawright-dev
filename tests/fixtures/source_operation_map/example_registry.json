@@ -1,0 +1,71 @@
+{
+  "example_folder": {
+    "list": {
+      "confidence": "high",
+      "evidence_kind": "list",
+      "hops": [
+        {
+          "client_symbol": "RouteGetFolders",
+          "kind": "provider_call",
+          "matched_aliases": [
+            "getfolders"
+          ],
+          "source_files": [
+            "internal/resource_folder.go"
+          ]
+        },
+        {
+          "kind": "openapi_operation",
+          "method": "GET",
+          "operation_id": "RouteGetFolders",
+          "path": "/api/folders"
+        }
+      ],
+      "method": "GET",
+      "operation_id": "RouteGetFolders",
+      "path": "/api/folders",
+      "path_kind": "list"
+    },
+    "product": "example",
+    "reason": null,
+    "read": {
+      "confidence": "high",
+      "evidence_kind": "read",
+      "hops": [
+        {
+          "client_symbol": "RouteGetFolder",
+          "kind": "provider_call",
+          "matched_aliases": [
+            "getfolder"
+          ],
+          "source_files": [
+            "internal/resource_folder.go"
+          ]
+        },
+        {
+          "kind": "openapi_operation",
+          "method": "GET",
+          "operation_id": "RouteGetFolder",
+          "path": "/api/folders/{uid}"
+        }
+      ],
+      "method": "GET",
+      "operation_id": "RouteGetFolder",
+      "path": "/api/folders/{uid}",
+      "path_kind": "detail"
+    },
+    "source": {
+      "candidate_count": 2,
+      "client_call_count": 2,
+      "client_calls": [
+        "Provisioning.GetFolder",
+        "Provisioning.GetFolders"
+      ],
+      "files": [
+        "internal/resource_folder.go"
+      ]
+    },
+    "status": "mapped",
+    "surface": "example"
+  }
+}

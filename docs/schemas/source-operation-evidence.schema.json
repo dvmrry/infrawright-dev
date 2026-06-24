@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infrawright.local/schemas/source-operation-evidence.schema.json",
+  "title": "Source Operation Evidence Registry",
+  "description": "Resource-keyed evidence emitted by source-operation-map and future source analyzers.",
+  "type": "object",
+  "additionalProperties": {
+    "$ref": "#/$defs/resourceEvidence"
+  },
+  "$defs": {
+    "resourceEvidence": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "product",
+        "surface",
+        "status",
+        "source"
+      ],
+      "properties": {
+        "product": {
+          "type": "string"
+        },
+        "surface": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "mapped",
+            "ambiguous_source_operation",
+            "graphql_source",
+            "unmapped"
+          ]
+        },
+        "read": {
+          "$ref": "#/$defs/operationEvidence"
+        },
+        "list": {
+          "$ref": "#/$defs/operationEvidence"
+        },
+        "write": {
+          "$ref": "#/$defs/operationEvidence"
+        },
+        "action": {
+          "$ref": "#/$defs/operationEvidence"
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "candidate_count",
+            "files"
+          ],
+          "properties": {
+            "candidate_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/operationEvidence"
+          }
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "operationEvidence": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "evidence_kind",
+        "confidence",
+        "hops"
+      ],
+      "properties": {
+        "evidence_kind": {
+          "enum": [
+            "fetch",
+            "read",
+            "relationship_list_read",
+            "list",
+            "write",
+            "action"
+          ]
+        },
+        "confidence": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "path_kind": {
+          "enum": [
+            "detail",
+            "list",
+            "action",
+            "unknown"
+          ]
+        },
+        "hops": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/evidenceHop"
+          }
+        }
+      }
+    },
+    "evidenceHop": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "provider_call",
+            "sdk_operation",
+            "openapi_operation",
+            "manual_inference"
+          ]
+        },
+        "client_package": {
+          "type": "string"
+        },
+        "client_symbol": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "source_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "matched_aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
