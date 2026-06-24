@@ -224,6 +224,10 @@ The `add_terraform_attribution_label = false` provider-config requirement is now
 recorded in `packs/google/pack.json` under `provider_config.requirements` with
 `required_external` mode. It cites this lab report and targets the three
 resources that drifted on `terraform_labels.goog-terraform-provisioned`.
+
+The future assert-adoptable guidance annotation for this requirement is designed
+in `docs/provider-config-assert-guidance.md`. The design is additive and
+annotation-only; it does not render or mutate provider configuration.
 - `pack:identity-alias`: keep explicit identity/import metadata for Google
   resources where REST, import ID, and Terraform state names diverge, starting
   with BigQuery dataset `datasetReference.datasetId` to
