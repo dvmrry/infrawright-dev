@@ -101,13 +101,15 @@ def validate_absent_default_rules(rules, sensitive_paths=None,
     if not isinstance(rules, list):
         raise ValueError("absent_defaults.rules must be a list")
 
+    canonical_sensitive = _canonicalize_sensitive_paths(sensitive_paths)
+
     validated = []
     seen = {}
     for idx, rule in enumerate(rules):
         validated_rule = validate_absent_default_rule(
             rule,
             idx=idx,
-            sensitive_paths=sensitive_paths,
+            sensitive_paths=canonical_sensitive,
             provider_prefixes=provider_prefixes,
         )
         identity = _rule_identity(validated_rule)
@@ -166,6 +168,8 @@ def validate_absent_default_rule(rule, idx=None, sensitive_paths=None,
         raise ValueError("%s: missing evidence" % label)
     if not isinstance(item.get("reason"), str) or not item["reason"].strip():
         raise ValueError("%s: missing reason" % label)
+
+    item["path"] = _canonicalize_path(item["path"], label, "path")
 
     kind = item["kind"].strip()
     if kind not in ALLOWED_KINDS:
@@ -303,6 +307,38 @@ def _validate_sensitive_path(item, label, sensitive_paths):
             "%s: path %s targets a known sensitive path" % (label, path)
         )
 
+
+
+def _canonicalize_path(value, label, field):
+    from engine import schema_paths
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("%s: missing %s" % (label, field))
+    try:
+        parsed = schema_paths.parse_report_path(value.strip())
+    except Exception as exc:
+        raise ValueError(
+            "%s: %s has unsupported syntax %r (%s)" % (label, field, value, exc)
+        )
+    if any(segment == "*" for segment in parsed):
+        raise ValueError(
+            "%s: %s has unsupported syntax %r (bare wildcard segment)" % (
+                label, field, value
+            )
+        )
+    return schema_paths.format_path(parsed)
+
+
+def _canonicalize_sensitive_paths(sensitive_paths):
+    from engine import schema_paths
+    if sensitive_paths is None:
+        return None
+    out = set()
+    for path in sensitive_paths:
+        try:
+            out.add(schema_paths.format_path(schema_paths.parse_report_path(path)))
+        except Exception:
+            out.add(path)
+    return out
 
 
 def _check_scope_overlaps(rules):

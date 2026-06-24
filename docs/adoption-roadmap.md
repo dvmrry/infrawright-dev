@@ -49,7 +49,7 @@ provider-specific policy, or explicit non-automatable boundaries.
 | Sensitive-required diagnostics | Implemented | Separate schema-required sensitive paths, validation-required paths, optional sensitive candidates, and projected sensitive paths. |
 | Provider-config diagnostics | Implemented | Map saved-plan drift paths to explicit `provider_config.requirements` metadata. |
 | Provider-config assert-adoptable guidance | Implemented | Annotate matching blocked plan paths while keeping plans blocked. |
-| Shared schema/path helpers | Implemented | Normalize `[]` selectors, quoted map selectors, container paths, and Terraform schema status lookups. |
+| Shared schema/path helpers | Implemented | Normalize `[]` selectors, quoted map selectors, container paths, and Terraform schema status lookups. Used consistently by absent/default, dynamic-schema, and sensitive-required validators for rule identity and sensitive-path checks. |
 
 These tools are diagnostic-only unless a future PR explicitly promotes one class
 into narrow, reviewed behavior.
@@ -108,7 +108,7 @@ Lab-derived adoption metadata is now committed in pack manifests:
 | Google Cloud | `provider_config.requirements` | `docs/provider-labs/gcp-pr38.md` | Validated, guidance-only. |
 | NetBox | `absent_defaults.rules` | `docs/provider-labs/netbox-pr22.md` | Validated, manual-review only. |
 | Cloudflare | `absent_defaults.rules` + `dynamic_schema.rules` | `docs/provider-labs/cloudflare-free-tier-pr32.md` | Validated, manual-review only. |
-| Grafana | unclassified | `docs/provider-labs/grafana-pr24.md` | Pending sensitive-required design. |
+| Grafana | unclassified | `docs/provider-labs/grafana-pr24.md` | Sensitive-required design, contract, and validator landed; pack metadata still pending. |
 
 ## Adoption Metadata Inventory
 
@@ -118,7 +118,7 @@ A read-only cross-class inventory report now aggregates committed metadata:
 - `scripts/adoption-inventory-report.py` emits JSON or markdown for humans/operators.
 - The report is read-only: it does not project, omit, change drift policy, alter `assert-adoptable`, render provider configuration, or run Terraform/OpenTofu.
 - It includes cross-class overlap diagnostics (warnings and info), but it is not an adoption decision engine and does not enforce cross-design rules.
-- Sensitive-required remediation remains future work.
+- The sensitive-required V1 validator and `packs.sensitive_required_rules(provider=None)` accessor are implemented, but sensitive-required rules are not yet integrated into the inventory report or pack metadata.
 
 ## Sensitive-Required Design Checkpoint
 
@@ -127,11 +127,13 @@ The sensitive-required failure class is now documented in `docs/sensitive-requir
 - It is distinct from `provider_config`, `absent_defaults`, `dynamic_schema`, `raw_api_only_provider_blind`, `projection_omit`, and `assert-adoptable` downgrade.
 - The design preserves the absolute safety invariant: never synthesize, guess, echo, persist, or project sensitive values.
 - The V1 validator contract is now frozen in `docs/sensitive-required-remediation.md`: accepted keys, required fields, value-carrying field rejection, closed enums, kind/sensitivity/structural matrix with kind specificity rules, canonical path identity, deterministic provider-version strings, rule identity/conflict rules, sensitive-path static matching, provider/resource checking, cross-class deferral, error categories, and a test matrix are all specified.
+- The V1 validator is implemented in `engine/sensitive_required_validator.py` and exposed through `packs.sensitive_required_rules(provider=None)` in `engine/packs.py`.
+- The validator only validates metadata; it does not project, render, omit, or change any behavior.
 - The Grafana illustrative example uses `one_of_block_required` to match the lab error.
-- V1 is design-only; no validator, no behavior, no placeholder rendering, no omission, no drift tolerance.
-- `grafana_contact_point.webhook` remains manual-review/unclassified in pack metadata until the validator-only implementation PR is reviewed and accepted.
+- `grafana_contact_point.webhook` remains manual-review/unclassified in pack metadata; no sensitive-required pack metadata has been committed yet.
 
 ## Next Phase
 
-- Implement the sensitive-required V1 validator following the frozen contract.
+- Harden cross-class visibility and reporting across `provider_config`, `absent_defaults`, `dynamic_schema`, and `sensitive_required` validators; this is diagnostic/reporting only, not behavior.
+- Commit sensitive-required pack metadata for a concrete provider lab finding once the class is narrowly defined and safe.
 - Run another provider lab that proves a narrow, safe sensitive-required class before any behavior PR.
