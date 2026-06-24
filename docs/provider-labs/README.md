@@ -34,9 +34,11 @@ smallest engine or pack follow-ups needed to productize adoption.
 7. Run `make adopt`, `make stage-imports`, `make plan SAVE=1`, and
    `make assert-adoptable` against the temporary overlay.
 8. Run static advisory reports with `python -m engine.adopt_certify`.
-9. Destroy live resources and run a separate cleanup verification pass.
-10. Run validation and artifact checks.
-11. Commit only the report.
+9. Classify temporary dynamic/schema prunes with
+   `python -m engine.dynamic_schema`.
+10. Destroy live resources and run a separate cleanup verification pass.
+11. Run validation and artifact checks.
+12. Commit only the report.
 
 ## Credential Safety Checklist
 
@@ -178,7 +180,8 @@ to the lab.
 Use these buckets so provider findings stay comparable:
 
 - `engine:dynamic-schema` for Terraform `dynamic` attributes or normalized
-  dynamic values.
+  dynamic values. Use [dynamic-schema-diagnostics.md](../dynamic-schema-diagnostics.md)
+  to classify lab paths before choosing a remediation.
 - `engine:absent-defaults` for provider-specific null/empty/zero/default drift.
 - `engine:sensitive-required` for sensitive state that is structurally required
   by Terraform config.

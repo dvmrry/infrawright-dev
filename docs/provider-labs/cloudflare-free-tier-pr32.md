@@ -125,8 +125,8 @@ The recurring engine gaps are now clearer:
 
 ## Follow-Ups
 
-- Add a proper dynamic-schema strategy instead of temporary per-resource schema
-  pruning.
+- Use the dynamic schema diagnostics command to classify temporary per-resource
+  schema prunes before choosing a keep/drop/remediate strategy.
 - Track provider/API identity aliases in pack metadata, starting with D1
   `uuid`/`database_id`/`id`.
 - Extend absent-value normalization or diagnostics to cover `cloudflare_zone_hold`.
