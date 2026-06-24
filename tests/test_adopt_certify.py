@@ -175,6 +175,72 @@ class AdoptCertifyCliTest(unittest.TestCase):
             ["webhook"],
         )
 
+    def test_cli_reports_container_projection_omit_descendant_paths(self):
+        raw = self._path("raw.json", {
+            "prod_app": {
+                "name": "Prod App",
+                "webhook": [
+                    {
+                        "url": "https://example.test/hook",
+                        "vendorOnly": "raw",
+                    }
+                ],
+            }
+        })
+        oracle = self._path("oracle.json", {
+            "prod_app": {
+                "values": {
+                    "name": "Prod App",
+                    "webhook": [
+                        {
+                            "uid": "notifier-1",
+                            "url": "https://example.test/hook",
+                        }
+                    ],
+                },
+                "sensitive_values": {},
+            }
+        })
+        projected = self._path("projected.json", {
+            "items": {
+                "prod_app": {
+                    "name": "Prod App",
+                }
+            }
+        })
+        policy = self._path("policy.json", {
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "projection_omit": [
+                        {
+                            "path": "webhook",
+                            "reason": "provider-observed notifier block",
+                            "approved_by": "unit",
+                        }
+                    ]
+                }
+            },
+        })
+
+        code, out, err = self._run([
+            "--resource-type", "sample_resource",
+            "--raw", raw,
+            "--oracle-state", oracle,
+            "--projected", projected,
+            "--policy", policy,
+        ])
+
+        self.assertEqual(code, 0, err)
+        report = json.loads(out)
+        item = report["items"]["prod_app"]
+        self.assertEqual(item["raw_only_paths"], ["webhook[].vendor_only"])
+        self.assertEqual(
+            item["omitted_by_policy"],
+            ["webhook[].uid", "webhook[].url"],
+        )
+        self.assertEqual(report["summary"]["omitted_by_policy"], 2)
+
     def test_cli_rejects_duplicate_raw_list_keys(self):
         raw = self._path("raw.json", [
             {"id": "1", "name": "Prod App"},
@@ -238,6 +304,15 @@ class AdoptCertifyCliTest(unittest.TestCase):
         self.assertIn(
             "`sensitive_blocked` can be derived by this CLI from oracle-state "
             "`sensitive_values`",
+            text,
+        )
+        self.assertIn(
+            "Container/block-level `projection_omit` paths classify "
+            "provider-observed",
+            text,
+        )
+        self.assertIn(
+            "they do not hide\nraw-only paths",
             text,
         )
 

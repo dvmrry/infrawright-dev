@@ -131,6 +131,12 @@ The report is pretty JSON on stdout:
 provider-invisible security surface, or fields intentionally outside Terraform
 control. They should be reviewed before production provider adoption.
 
+`omitted_by_policy` is limited to provider-observed paths that are absent from
+projected config. Leaf `projection_omit` paths classify matching provider
+leaves. Container/block-level `projection_omit` paths classify provider-observed
+descendant paths, such as `webhook` covering `webhook[].url`; they do not hide
+raw-only paths that Terraform/provider state never observed.
+
 `required_missing` is not computed by this CLI. It is retained in the report
 contract for future in-process callers that can supply projection diagnostics.
 In CLI-generated reports it defaults to empty.
