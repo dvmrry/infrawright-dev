@@ -188,7 +188,14 @@ def _resolve_ref(spec, ref):
         raise ValueError("only local OpenAPI refs are supported: %s" % ref)
     node = spec
     for token in ref[2:].split("/"):
-        node = node[_decode_ref_token(token)]
+        token = _decode_ref_token(token)
+        if isinstance(node, list):
+            if not token.isdigit():
+                raise KeyError("OpenAPI ref %s indexes list with %r" % (
+                    ref, token))
+            node = node[int(token)]
+        else:
+            node = node[token]
     return node
 
 

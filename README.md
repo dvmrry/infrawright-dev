@@ -121,6 +121,18 @@ resource is `static_mapped`, `read_observed`, `write_sampled`,
 Humans classify surfaces; tools classify resources and evidence so the index
 does not drift by hand.
 
+## Experimental Import Oracle Adoption
+
+The default transform path is unchanged. An experimental adoption path can use
+Terraform/OpenTofu import as a provider-state oracle:
+
+```
+make adopt IN=pulls/<tenant> TENANT=<tenant> RESOURCE=<type>
+```
+
+See [docs/import-oracle.md](docs/import-oracle.md) for the workflow, OpenTofu
+usage, and consumer drift policy format.
+
 ## Status
 
 **0.1 — Zscaler** (`zia` · `zpa` · `zcc`): reproduces its demo tenant byte-identically

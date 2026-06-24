@@ -20,12 +20,29 @@ from engine import sdk_path_evidence
 
 GO_FILE_SUFFIX = ".go"
 AMBIGUITY_SCORE_DELTA = 5
+SOURCE_CALL_AMBIGUITY_DELTA = 15
 READ_DETAIL_AMBIGUITY_DELTA = 25
 SDK_READ_METHODS = set(("Get", "Read", "Fetch"))
 SDK_LIST_METHODS = set(("List", "Search"))
 SDK_CALL_SCORE_FLOOR = 35
 PACKAGE_CALL_SCORE_FLOOR = 35
+RAW_REST_CALL_SCORE_FLOOR = 70
 SDK_PATH_RESOLVED_SCORE = 1000
+SDK_RECEIVER_NAMES = set(("api", "client"))
+RELATIONSHIP_TOKENS = set((
+    "assignment",
+    "collaborator",
+    "collaborators",
+    "dependency",
+    "dependencies",
+    "mapping",
+    "members",
+    "membership",
+    "repositories",
+    "subscriber",
+    "subscribers",
+    "topics",
+))
 
 
 def _read_json(path):
@@ -50,9 +67,19 @@ def _canonical(value):
 
 
 def _operation_aliases(operation_id):
-    aliases = set([_canonical(operation_id)])
-    if operation_id.lower().startswith("route"):
-        aliases.add(_canonical(operation_id[5:]))
+    raw_aliases = set([operation_id])
+    for pattern, replacement in (
+            ("retrieve", "read"),
+            ("retrieve", "get"),
+            ("read", "retrieve"),
+            ("get", "retrieve"),
+    ):
+        raw_aliases.add(re.sub(
+            pattern, replacement, operation_id, flags=re.I))
+    for alias in list(raw_aliases):
+        if alias.lower().startswith("route"):
+            raw_aliases.add(alias[5:])
+    aliases = set(_canonical(alias) for alias in raw_aliases)
     for alias in list(aliases):
         aliases.add(alias + "withresponse")
     return sorted(a for a in aliases if a)
@@ -171,32 +198,530 @@ def _exact_resource_files(source_root, resource, resource_prefix):
     return sorted(set(paths))
 
 
-def _is_broad_registration_file(path):
-    return os.path.basename(path) in ("provider.go", "main.go")
-
-
-def _resource_files(source_root, resource_names, resource_prefix=""):
-    resources = dict((name, []) for name in resource_names)
+def _function_definition_index(source_root):
+    functions = {}
     for path in _source_files(source_root):
         try:
             with open(path, encoding="utf-8") as f:
                 text = f.read()
         except UnicodeDecodeError:
             continue
-        for resource in resource_names:
-            if '"%s"' % resource in text:
+        code = _go_code_without_comments_and_strings(text)
+        for match in re.finditer(
+                r"\bfunc\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", code):
+            functions.setdefault(match.group(1), set()).add(path)
+    return functions
+
+
+def _source_file_entries(source_root):
+    entries = []
+    for path in sorted(_source_files(source_root)):
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        except UnicodeDecodeError:
+            continue
+        entries.append({
+            "path": path,
+            "basename": os.path.basename(path),
+            "text": text,
+        })
+    return entries
+
+
+def _entry_code_without_comments(entry):
+    code = entry.get("code_without_comments")
+    if code is None:
+        code = _go_code_without_comments(entry["text"])
+        entry["code_without_comments"] = code
+    return code
+
+
+def _entry_code_without_comments_and_strings(entry):
+    code = entry.get("code_without_comments_and_strings")
+    if code is None:
+        code = _go_code_without_comments_and_strings(entry["text"])
+        entry["code_without_comments_and_strings"] = code
+    return code
+
+
+def _entry_import_aliases(entry):
+    aliases = entry.get("import_aliases")
+    if aliases is None:
+        aliases = _go_import_aliases(entry["text"])
+        entry["import_aliases"] = aliases
+    return aliases
+
+
+def _function_definition_index_from_entries(entries):
+    functions = {}
+    for entry in entries:
+        code = _entry_code_without_comments_and_strings(entry)
+        for match in re.finditer(
+                r"\bfunc\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", code):
+            functions.setdefault(match.group(1), set()).add(entry["path"])
+    return functions
+
+
+def _exact_resource_files_from_indexes(
+        source_root, resource, resource_prefix, basename_index):
+    paths = []
+    paths.extend(_convention_resource_files(source_root, resource))
+    filenames = set([
+        "resource_%s.go" % resource,
+        "resource_%s.go" % _bare_resource_name(resource, resource_prefix),
+    ])
+    for filename in filenames:
+        paths.extend(basename_index.get(filename, []))
+    paths.extend(_service_dir_files(source_root, resource, resource_prefix))
+    paths.extend(_framework_resource_files(source_root, resource,
+                                           resource_prefix))
+    return sorted(set(paths))
+
+
+def _registration_resource_files(source_root, resource, function_definitions):
+    paths = set()
+    function_pattern = re.compile(
+        r'"%s"\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(' %
+        re.escape(resource))
+    package_pattern = re.compile(
+        r'"%s"\s*:\s*([A-Za-z_][A-Za-z0-9_]*)'
+        r"\.([A-Za-z_][A-Za-z0-9_]*)\s*\(" % re.escape(resource))
+    for path in _source_files(source_root):
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        except UnicodeDecodeError:
+            continue
+        code = _go_code_without_comments(text)
+        for match in function_pattern.finditer(code):
+            function_name = match.group(1)
+            if _canonical(function_name).startswith("datasource"):
+                continue
+            for function_path in function_definitions.get(function_name, []):
+                paths.add(function_path)
+        import_aliases = _go_import_aliases(text)
+        for match in package_pattern.finditer(code):
+            package_name, function_name = match.groups()
+            if _canonical(function_name).startswith("datasource"):
+                continue
+            import_path = import_aliases.get(package_name)
+            package_dir = _local_import_dir(source_root, import_path)
+            if not package_dir:
+                continue
+            for package_path in _package_resource_files(package_dir):
+                paths.add(package_path)
+    return sorted(paths)
+
+
+def _local_import_dir(source_root, import_path):
+    if not import_path:
+        return None
+    parts = import_path.split("/")
+    for index in range(len(parts)):
+        candidate = os.path.join(source_root, *parts[index:])
+        if os.path.isdir(candidate):
+            return candidate
+    return None
+
+
+def _package_resource_files(package_dir):
+    paths = []
+    for filename in sorted(os.listdir(package_dir)):
+        if not filename.endswith(GO_FILE_SUFFIX):
+            continue
+        if filename.endswith("_test.go") or filename == "sweep.go":
+            continue
+        if "datasource" in filename or filename.startswith("data_source_"):
+            continue
+        paths.append(os.path.join(package_dir, filename))
+    return paths
+
+
+def _read_callback_files(paths, function_definitions):
+    callback_paths = set()
+    pattern = re.compile(
+        r"\bRead(?:Context|WithoutTimeout)?\s*:\s*"
+        r"([A-Za-z_][A-Za-z0-9_]*)")
+    for path in paths:
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        except UnicodeDecodeError:
+            continue
+        for match in pattern.finditer(_go_code_without_comments_and_strings(
+                text)):
+            for function_path in function_definitions.get(match.group(1), []):
+                if os.path.dirname(function_path) != os.path.dirname(path):
+                    continue
+                callback_paths.add(function_path)
+    return sorted(callback_paths)
+
+
+def _is_broad_registration_file(path):
+    return os.path.basename(path) in ("provider.go", "main.go")
+
+
+def _is_loose_resource_match_file(path):
+    basename = os.path.basename(path)
+    return _is_broad_registration_file(path) or basename.startswith(
+        "data_source_")
+
+
+def _resource_files(source_root, resource_names, resource_prefix=""):
+    resources = dict((name, []) for name in resource_names)
+    resource_set = set(resource_names)
+    entries = _source_file_entries(source_root)
+    basename_index = {}
+    for entry in entries:
+        basename_index.setdefault(entry["basename"], []).append(entry["path"])
+    function_definitions = _function_definition_index_from_entries(entries)
+    registration_paths = dict((name, set()) for name in resource_names)
+    function_pattern = re.compile(
+        r'"([^"]+)"\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(')
+    package_pattern = re.compile(
+        r'"([^"]+)"\s*:\s*([A-Za-z_][A-Za-z0-9_]*)'
+        r"\.([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+    quoted_pattern = re.compile(r'"([^"]+)"')
+    for entry in entries:
+        path = entry["path"]
+        text = entry["text"]
+        for match in quoted_pattern.finditer(text):
+            resource = match.group(1)
+            if resource in resource_set:
                 resources[resource].append(path)
+        code = _entry_code_without_comments(entry)
+        for match in function_pattern.finditer(code):
+            resource, function_name = match.groups()
+            if resource not in resource_set:
+                continue
+            if _canonical(function_name).startswith("datasource"):
+                continue
+            for function_path in function_definitions.get(function_name, []):
+                registration_paths[resource].add(function_path)
+        if "." not in code:
+            continue
+        package_matches = list(package_pattern.finditer(code))
+        if not package_matches:
+            continue
+        import_aliases = _entry_import_aliases(entry)
+        for match in package_matches:
+            resource, package_name, function_name = match.groups()
+            if resource not in resource_set:
+                continue
+            if _canonical(function_name).startswith("datasource"):
+                continue
+            import_path = import_aliases.get(package_name)
+            package_dir = _local_import_dir(source_root, import_path)
+            if not package_dir:
+                continue
+            for package_path in _package_resource_files(package_dir):
+                registration_paths[resource].add(package_path)
     for resource, paths in resources.items():
-        exact_paths = _exact_resource_files(
-            source_root, resource, resource_prefix)
-        if exact_paths:
+        exact_paths = _exact_resource_files_from_indexes(
+            source_root, resource, resource_prefix, basename_index)
+        resource_registration_paths = sorted(registration_paths[resource])
+        if exact_paths or resource_registration_paths:
             paths = [
                 path for path in paths
-                if not _is_broad_registration_file(path)
+                if not _is_loose_resource_match_file(path)
             ]
         paths.extend(exact_paths)
+        paths.extend(resource_registration_paths)
+        paths.extend(_read_callback_files(paths, function_definitions))
         resources[resource] = sorted(set(paths))
     return resources
+
+
+def _fact_rel_path(path):
+    return (path or "").replace("\\", "/")
+
+
+def _fact_abs_path(source_root, path):
+    if not path:
+        return None
+    if os.path.isabs(path):
+        return os.path.normpath(path)
+    return os.path.normpath(os.path.join(source_root, path.replace("/", os.sep)))
+
+
+def _source_facts_file_imports(source_facts):
+    imports = {}
+    for file_fact in source_facts.get("files") or []:
+        rel = _fact_rel_path(file_fact.get("path"))
+        aliases = {}
+        for item in file_fact.get("imports") or []:
+            name = item.get("name")
+            path = item.get("path")
+            if name and path:
+                aliases[name] = path
+        imports[rel] = aliases
+    return imports
+
+
+def _source_facts_function_index(source_root, source_facts):
+    functions = {}
+    for item in source_facts.get("functions") or []:
+        name = item.get("name")
+        path = _fact_abs_path(source_root, item.get("file"))
+        if name and path:
+            functions.setdefault(name, set()).add(path)
+    return functions
+
+
+def _source_facts_basename_index(source_root, source_facts):
+    basenames = {}
+    for item in source_facts.get("files") or []:
+        path = _fact_abs_path(source_root, item.get("path"))
+        if path:
+            basenames.setdefault(os.path.basename(path), []).append(path)
+    return basenames
+
+
+def _package_from_registration(registration):
+    package = registration.get("package") or ""
+    return package.split(".", 1)[0]
+
+
+def _read_callback_files_from_facts(source_root, paths, function_definitions,
+                                    source_facts):
+    callback_paths = set()
+    path_set = set(os.path.normpath(path) for path in paths)
+    for callback in source_facts.get("read_callbacks") or []:
+        callback_file = _fact_abs_path(source_root, callback.get("file"))
+        if not callback_file:
+            continue
+        callback_file = os.path.normpath(callback_file)
+        if callback_file not in path_set:
+            continue
+        for function_path in function_definitions.get(
+                callback.get("function"), []):
+            if os.path.dirname(function_path) != os.path.dirname(
+                    callback_file):
+                continue
+            callback_paths.add(function_path)
+    return sorted(callback_paths)
+
+
+def _resource_files_from_facts(source_root, resource_names, resource_prefix,
+                               source_facts):
+    resources = dict((name, []) for name in resource_names)
+    resource_set = set(resource_names)
+    basename_index = _source_facts_basename_index(source_root, source_facts)
+    function_definitions = _source_facts_function_index(
+        source_root, source_facts)
+    imports_by_file = _source_facts_file_imports(source_facts)
+    registration_paths = dict((name, set()) for name in resource_names)
+    reference_paths = dict((name, set()) for name in resource_names)
+
+    for reference in source_facts.get("resource_references") or []:
+        resource = reference.get("resource")
+        if resource not in resource_set:
+            continue
+        path = _fact_abs_path(source_root, reference.get("file"))
+        if path:
+            reference_paths[resource].add(path)
+
+    for registration in source_facts.get("resource_registrations") or []:
+        resource = registration.get("resource")
+        if resource not in resource_set:
+            continue
+        constructor = registration.get("constructor")
+        if _canonical(constructor or "").startswith("datasource"):
+            continue
+        package_name = _package_from_registration(registration)
+        if package_name:
+            import_path = imports_by_file.get(
+                _fact_rel_path(registration.get("file")), {}).get(package_name)
+            package_dir = _local_import_dir(source_root, import_path)
+            if package_dir:
+                for package_path in _package_resource_files(package_dir):
+                    registration_paths[resource].add(package_path)
+                continue
+        for function_path in function_definitions.get(constructor, []):
+            registration_paths[resource].add(function_path)
+
+    for resource, paths in resources.items():
+        exact_paths = _exact_resource_files_from_indexes(
+            source_root, resource, resource_prefix, basename_index)
+        paths.extend(sorted(reference_paths[resource]))
+        paths.extend(exact_paths)
+        paths.extend(sorted(registration_paths[resource]))
+        if exact_paths or registration_paths[resource]:
+            paths = [
+                path for path in paths
+                if not _is_loose_resource_match_file(path)
+            ]
+        paths.extend(_read_callback_files_from_facts(
+            source_root, paths, function_definitions, source_facts))
+        resources[resource] = sorted(set(paths))
+    return resources
+
+
+def _identifier_tokens_from_facts(source_files, source_facts):
+    source_file_set = set(_fact_rel_path(path) for path in source_files)
+    tokens = set()
+    for item in source_facts.get("functions") or []:
+        if _fact_rel_path(item.get("file")) in source_file_set:
+            tokens.add(_canonical(item.get("name") or ""))
+    for item in source_facts.get("identifier_references") or []:
+        if _fact_rel_path(item.get("file")) in source_file_set:
+            tokens.add(_canonical(item.get("name") or ""))
+    for item in source_facts.get("selector_calls") or []:
+        if _fact_rel_path(item.get("file")) not in source_file_set:
+            continue
+        parts = item.get("parts") or (item.get("symbol") or "").split(".")
+        tokens.add(_canonical(item.get("symbol") or ""))
+        for part in parts:
+            tokens.add(_canonical(part))
+    for item in source_facts.get("package_calls") or []:
+        if _fact_rel_path(item.get("file")) not in source_file_set:
+            continue
+        tokens.add(_canonical(item.get("method") or ""))
+        tokens.add(_canonical(item.get("symbol") or ""))
+    return set(token for token in tokens if token)
+
+
+def _sdk_client_calls_from_facts(source_files, source_facts, require_role=True):
+    source_file_set = set(_fact_rel_path(path) for path in source_files)
+    calls = {}
+    for item in source_facts.get("selector_calls") or []:
+        if _fact_rel_path(item.get("file")) not in source_file_set:
+            continue
+        parts = item.get("parts") or (item.get("symbol") or "").split(".")
+        receiver_indexes = [
+            index for index, part in enumerate(parts)
+            if part in SDK_RECEIVER_NAMES
+        ]
+        if not receiver_indexes:
+            continue
+        receiver_index = receiver_indexes[-1]
+        suffix = parts[receiver_index + 1:]
+        if not suffix:
+            continue
+        method = suffix[-1]
+        role = _sdk_method_role(method)
+        if not role and require_role:
+            continue
+        chain = suffix[:-1]
+        symbol = ".".join(chain + [method])
+        calls[symbol] = {
+            "client_symbol": symbol,
+            "chain": chain,
+            "method": method,
+            "source_role": role,
+        }
+    return [calls[key] for key in sorted(calls)]
+
+
+def _sdk_package_calls_from_facts(source_root, source_files, source_facts):
+    source_file_set = set(_fact_rel_path(path) for path in source_files)
+    calls = {}
+    for item in source_facts.get("package_calls") or []:
+        if _fact_rel_path(item.get("file")) not in source_file_set:
+            continue
+        package = item.get("package")
+        import_path = item.get("import_path")
+        method = item.get("method")
+        if not package or not import_path or not method:
+            continue
+        if not _is_external_import_path(import_path):
+            continue
+        if _local_import_dir(source_root, import_path):
+            continue
+        role = _package_method_role(method)
+        if not role:
+            continue
+        symbol = item.get("symbol") or "%s.%s" % (package, method)
+        calls[symbol] = {
+            "client_symbol": symbol,
+            "package": package,
+            "package_path": import_path,
+            "method": method,
+            "source_role": role,
+        }
+    return [calls[key] for key in sorted(calls)]
+
+
+def _raw_rest_calls_from_facts(source_files, source_facts):
+    source_file_set = set(_fact_rel_path(path) for path in source_files)
+    calls = {}
+    for item in source_facts.get("raw_rest_calls") or []:
+        if _fact_rel_path(item.get("file")) not in source_file_set:
+            continue
+        method = (item.get("method") or "").upper()
+        path = item.get("path") or ""
+        if not method or not path:
+            continue
+        path = _normalize_raw_rest_path(path)
+        symbol = item.get("symbol") or "NewRequest"
+        key = (symbol, method, path)
+        calls[key] = {
+            "client_symbol": "%s %s %s" % (symbol, method, path),
+            "method": method,
+            "path": path,
+            "source_role": "read",
+        }
+    return [calls[key] for key in sorted(calls)]
+
+
+def _is_graphql_source_from_facts(source_files, source_facts):
+    source_file_set = set(_fact_rel_path(path) for path in source_files)
+    for item in source_facts.get("files") or []:
+        if _fact_rel_path(item.get("path")) not in source_file_set:
+            continue
+        for import_fact in item.get("imports") or []:
+            if "githubv4" in (import_fact.get("path") or ""):
+                return True
+    for item in source_facts.get("selector_calls") or []:
+        if _fact_rel_path(item.get("file")) not in source_file_set:
+            continue
+        if "githubv4" in (item.get("symbol") or "").lower():
+            return True
+    return False
+
+
+def _sdk_client_calls_from_paths(source_paths, require_role=True):
+    source_text = []
+    for path in source_paths:
+        try:
+            with open(path, encoding="utf-8") as f:
+                source_text.append(f.read())
+        except UnicodeDecodeError:
+            continue
+    return _sdk_client_calls(
+        "\n".join(source_text), require_role=require_role)
+
+
+def _source_evidence_from_text(source_root, source_paths):
+    source_text = []
+    for path in source_paths:
+        with open(path, encoding="utf-8") as f:
+            source_text.append(f.read())
+    joined_source_text = "\n".join(source_text)
+    return {
+        "backend": "text_scan",
+        "identifiers": _go_identifier_tokens(joined_source_text),
+        "sdk_calls": _sdk_client_calls(joined_source_text),
+        "package_calls": _sdk_package_calls(joined_source_text, source_root),
+        "raw_rest_calls": _raw_rest_calls(joined_source_text),
+        "graphql_source": _is_graphql_source(joined_source_text),
+    }
+
+
+def _source_evidence_from_facts(source_root, source_files, source_facts):
+    return {
+        "backend": "ast_facts",
+        "identifiers": _identifier_tokens_from_facts(
+            source_files, source_facts),
+        "sdk_calls": _sdk_client_calls_from_facts(source_files, source_facts),
+        "package_calls": _sdk_package_calls_from_facts(
+            source_root, source_files, source_facts),
+        "raw_rest_calls": _raw_rest_calls_from_facts(
+            source_files, source_facts),
+        "graphql_source": _is_graphql_source_from_facts(
+            source_files, source_facts),
+    }
 
 
 def _is_identifier_start(char):
@@ -308,33 +833,44 @@ def _go_code_without_comments(text):
 def _sdk_method_role(method):
     lowered = method.lower()
     if method in SDK_READ_METHODS or lowered.startswith(
-            ("get", "read", "fetch")):
+            ("get", "read", "fetch", "retrieve")) or lowered.endswith(
+                ("get", "read", "retrieve")):
         return "read"
     if method in SDK_LIST_METHODS or lowered.startswith(("list", "search")):
         return "list"
+    if lowered.endswith(("list", "search")):
+        return "list"
+    words = _identifier_words(method)
+    if any(word in ("list", "search") for word in words):
+        return "list"
+    if any(word in ("fetch", "get", "read", "retrieve") for word in words):
+        return "read"
     return None
 
 
 def _sdk_client_calls(text, require_role=True):
-    """Return generated SDK client calls such as client.DNS.Records.Get.
+    """Return SDK calls such as client.DNS.Records.Get or api.Ipam.FooRead.
 
-    When ``require_role`` is False, calls whose method name does not classify
-    as read/list are still returned (with ``source_role`` set to ``None``) so
+    When require_role is False, calls whose method name does not classify
+    as read/list are still returned, with source_role set to None, so
     SDK path evidence can surface write/action calls.
     """
     code = _go_code_without_comments_and_strings(text)
     calls = {}
     pattern = re.compile(
-        r"\b((?:[A-Za-z_][A-Za-z0-9_]*\.)*client"
-        r"(?:\.[A-Za-z_][A-Za-z0-9_]*){2,})\s*\(")
+        r"\b((?:[A-Za-z_][A-Za-z0-9_]*\.)*(?:api|client)"
+        r"(?:\.[A-Za-z_][A-Za-z0-9_]*){1,})\s*\(")
     for match in pattern.finditer(code):
         parts = match.group(1).split(".")
-        try:
-            client_index = parts.index("client")
-        except ValueError:
+        receiver_indexes = [
+            index for index, part in enumerate(parts)
+            if part in SDK_RECEIVER_NAMES
+        ]
+        if not receiver_indexes:
             continue
+        client_index = receiver_indexes[-1]
         suffix = parts[client_index + 1:]
-        if len(suffix) < 2:
+        if not suffix:
             continue
         method = suffix[-1]
         role = _sdk_method_role(method)
@@ -376,12 +912,17 @@ def _go_import_aliases(text):
 
 def _package_method_role(method):
     lowered = method.lower()
-    if lowered.startswith(("get", "read", "fetch")):
+    if lowered.startswith(("get", "read", "fetch", "retrieve")):
         if "all" in lowered or "list" in lowered:
             return "list"
         return "read"
     if lowered.startswith(("list", "search")):
         return "list"
+    words = _identifier_words(method)
+    if any(word in ("list", "search") for word in words):
+        return "list"
+    if any(word in ("fetch", "get", "read", "retrieve") for word in words):
+        return "read"
     return None
 
 
@@ -390,7 +931,7 @@ def _is_external_import_path(import_path):
     return "." in first
 
 
-def _sdk_package_calls(text):
+def _sdk_package_calls(text, source_root=None):
     """Return package-level SDK calls such as locationmanagement.Get."""
     code = _go_code_without_comments_and_strings(text)
     import_aliases = _go_import_aliases(text)
@@ -406,6 +947,8 @@ def _sdk_package_calls(text):
             continue
         if not _is_external_import_path(import_path):
             continue
+        if source_root and _local_import_dir(source_root, import_path):
+            continue
         role = _package_method_role(method)
         if not role:
             continue
@@ -418,6 +961,80 @@ def _sdk_package_calls(text):
             "source_role": role,
         }
     return [calls[key] for key in sorted(calls)]
+
+
+def _go_string_literal(pattern):
+    return (
+        r"(?:(?P<%s_double>\"(?:\\.|[^\"\\])*\")|"
+        r"(?P<%s_raw>`[^`]*`))"
+    ) % (pattern, pattern)
+
+
+def _decode_go_string_literal(value):
+    if not value:
+        return ""
+    if value.startswith("`") and value.endswith("`"):
+        return value[1:-1]
+    if value.startswith('"') and value.endswith('"'):
+        value = value[1:-1]
+    return bytes(value, "utf-8").decode("unicode_escape")
+
+
+def _normalize_raw_rest_path(path):
+    path = path.strip()
+    path = re.sub(
+        r"%[#0 +\-]*[0-9]*(?:\.[0-9]+)?[bcdefgosqxXUvT]",
+        "{arg}",
+        path,
+    )
+    if not path.startswith("/"):
+        path = "/" + path
+    path = re.sub(r"/+", "/", path)
+    return path
+
+
+def _raw_rest_calls(text):
+    """Return direct REST requests such as client.NewRequest("GET", "...")."""
+    code = _go_code_without_comments(text)
+    path_literal = _go_string_literal("path")
+    patterns = [
+        re.compile(
+            r"\b(?P<symbol>(?:[A-Za-z_][A-Za-z0-9_]*\.)+NewRequest)"
+            r"\s*\(\s*(?:\"GET\"|http\.MethodGet)\s*,\s*"
+            r"fmt\.Sprintf\s*\(\s*" + path_literal,
+            re.S,
+        ),
+        re.compile(
+            r"\b(?P<symbol>(?:[A-Za-z_][A-Za-z0-9_]*\.)+NewRequest)"
+            r"\s*\(\s*(?:\"GET\"|http\.MethodGet)\s*,\s*"
+            + path_literal,
+            re.S,
+        ),
+    ]
+    calls = {}
+    for pattern in patterns:
+        for match in pattern.finditer(code):
+            literal = match.group("path_double") or match.group("path_raw")
+            path = _normalize_raw_rest_path(
+                _decode_go_string_literal(literal))
+            symbol = match.group("symbol")
+            key = (symbol, path)
+            calls[key] = {
+                "client_symbol": "%s GET %s" % (symbol, path),
+                "method": "GET",
+                "path": path,
+                "source_role": "read",
+            }
+    return [calls[key] for key in sorted(calls)]
+
+
+def _is_graphql_source(text):
+    code = _go_code_without_comments(text)
+    return bool(
+        re.search(r"\bgithubv4\b", code)
+        or re.search(r"\bgraphql\s*:", code)
+        or "github.com/shurcooL/githubv4" in code
+    )
 
 
 def _base_tokens(resource_type, resource_prefix):
@@ -451,40 +1068,54 @@ def _identifier_words(value):
 
 def _is_list_operation(operation_id):
     words = _operation_words(operation_id)
-    if "list" in words or "search" in words:
+    if words[:1] in (["list"], ["search"]):
         return True
-    return "get" in words and "all" in words
+    return len(words) >= 2 and words[0] == "get" and words[1] == "all"
 
 
 def _operation_mentions_token(operation, token):
     token = _canonical(token)
     if not token:
         return False
-    if (token in _canonical(operation["path"])
-            or token in _canonical(operation["operation_id"])):
+    if (token in _operation_canonical_path(operation)
+            or token in _operation_canonical_id(operation)):
         return True
-    for word in _path_words(operation["path"]):
+    for word in _operation_path_words(operation):
         if _word_matches_token(word, token):
             return True
-    for word in _operation_words(operation["operation_id"]):
+    for word in _operation_id_words(operation):
         if _word_matches_token(word, token):
             return True
     return False
 
 
 def _sdk_chain_tokens(call):
-    drop = set(("cloudflare", "zerotrust"))
-    tokens = [
-        token for token in call["chain"]
-        if _canonical(token) not in drop
-    ]
+    drop = set((
+        "api",
+        "client",
+        "cloudflare",
+        "path",
+        "paths",
+        "zerotrust",
+    ))
+    tokens = []
+    for part in call["chain"]:
+        for token in _identifier_words(part):
+            if _canonical(token) in drop:
+                continue
+            tokens.append(token)
     return tokens or call["chain"]
 
 
 def _sdk_method_tokens(call):
     drop = set(("by", "fetch", "get", "list", "read", "search", "with"))
+    words = _identifier_words(call["method"])
+    extra_tokens = []
+    for index, word in enumerate(words[:-1]):
+        if word == "ip" and words[index + 1] in ("address", "addresses"):
+            extra_tokens.append("ips")
     return [
-        token for token in _identifier_words(call["method"])
+        token for token in words + extra_tokens
         if token not in drop and len(_canonical(token)) >= 3
     ]
 
@@ -503,6 +1134,65 @@ def _path_words(path):
             word.lower() for word in re.split(r"[^A-Za-z0-9]+", part)
             if word)
     return words
+
+
+def _operation_cached(operation, key, compute):
+    if key not in operation:
+        operation[key] = compute()
+    return operation[key]
+
+
+def _operation_canonical_path(operation):
+    return _operation_cached(
+        operation, "_canonical_path", lambda: _canonical(operation["path"]))
+
+
+def _operation_canonical_id(operation):
+    return _operation_cached(
+        operation,
+        "_canonical_operation_id",
+        lambda: _canonical(operation["operation_id"]))
+
+
+def _operation_path_parts(operation):
+    return _operation_cached(
+        operation, "_path_parts", lambda: _path_parts(operation["path"]))
+
+
+def _operation_static_path_parts(operation):
+    return _operation_cached(
+        operation,
+        "_static_path_parts",
+        lambda: [
+            part for part in _operation_path_parts(operation)
+            if not _is_path_parameter(part)
+        ])
+
+
+def _operation_path_words(operation):
+    return _operation_cached(
+        operation, "_path_words", lambda: _path_words(operation["path"]))
+
+
+def _operation_id_words(operation):
+    return _operation_cached(
+        operation,
+        "_operation_words",
+        lambda: _operation_words(operation["operation_id"]))
+
+
+def _operation_is_list(operation):
+    return _operation_cached(
+        operation,
+        "_is_list_operation",
+        lambda: _is_list_operation(operation["operation_id"]))
+
+
+def _operation_action_shaped(operation):
+    return _operation_cached(
+        operation,
+        "_action_shaped_path",
+        lambda: _action_shaped_path(operation["path"]))
 
 
 def _word_matches_token(word, token):
@@ -529,7 +1219,7 @@ def _word_matches_token(word, token):
 
 def _resource_path_sequence_score(resource_type, resource_prefix, operation):
     tokens = _base_tokens(resource_type, resource_prefix)
-    words = _path_words(operation["path"])
+    words = _operation_path_words(operation)
     if not tokens or len(tokens) > len(words):
         return 0
     best = 0
@@ -549,13 +1239,29 @@ def _resource_terminal_score(resource_type, resource_prefix, operation):
     tokens = _base_tokens(resource_type, resource_prefix)
     if not tokens:
         return 0
-    parts = _static_path_parts(operation["path"])
+    parts = _operation_static_path_parts(operation)
     if not parts:
         return 0
     terminal = _canonical(parts[-1])
     last_token = _canonical(tokens[-1])
     if last_token and last_token in terminal:
         return 35
+    return 0
+
+
+def _resource_prefix_score(resource_type, resource_prefix, operation):
+    if not resource_prefix:
+        return 0
+    tokens = _base_tokens(resource_type, resource_prefix)
+    if not tokens:
+        return 0
+    parts = _operation_static_path_parts(operation)
+    if len(parts) < 2:
+        return 0
+    if not _word_matches_token(parts[0], resource_prefix):
+        return 0
+    if _word_matches_token(parts[1], tokens[0]):
+        return 30
     return 0
 
 
@@ -582,8 +1288,10 @@ def _scope_hints(resource_schema):
 
 
 def _operation_scopes(operation):
+    if "_operation_scopes" in operation:
+        return operation["_operation_scopes"]
     scopes = set()
-    for part in _path_parts(operation["path"]):
+    for part in _operation_path_parts(operation):
         cleaned = part.strip("{}").lower()
         if cleaned in ("account_id", "account_identifier", "account_tag"):
             scopes.add("account")
@@ -597,6 +1305,7 @@ def _operation_scopes(operation):
             scopes.add("zone")
         elif cleaned == "user":
             scopes.add("user")
+    operation["_operation_scopes"] = scopes
     return scopes
 
 
@@ -657,12 +1366,14 @@ def _action_shaped_path(path):
 
 
 def _path_kind(operation):
-    if _is_list_operation(operation["operation_id"]):
+    def compute():
+        parts = _operation_path_parts(operation)
+        if parts and _is_path_parameter(parts[-1]):
+            return "detail"
+        if _operation_is_list(operation):
+            return "list"
         return "list"
-    parts = _path_parts(operation["path"])
-    if parts and _is_path_parameter(parts[-1]):
-        return "detail"
-    return "list"
+    return _operation_cached(operation, "_path_kind", compute)
 
 
 def _sdk_call_score(resource_type, resource_prefix, operation, call,
@@ -671,26 +1382,53 @@ def _sdk_call_score(resource_type, resource_prefix, operation, call,
         return None
     score = 0
     matched_chain_tokens = 0
+    base_tokens = _base_tokens(resource_type, resource_prefix)
+    matched_method_tokens = 0
+    resource_token_hits = 0
     chain_tokens = _sdk_chain_tokens(call)
     for token in chain_tokens:
         if _operation_mentions_token(operation, token):
             matched_chain_tokens += 1
             score += 30
-    for token in _sdk_method_tokens(call):
-        if _operation_mentions_token(operation, token):
-            score += 22
-    if not matched_chain_tokens:
+    if chain_tokens and matched_chain_tokens < min(2, len(chain_tokens)):
         return None
-    score -= (len(chain_tokens) - matched_chain_tokens) * 35
-    for token in _base_tokens(resource_type, resource_prefix):
+    method_tokens = _sdk_method_tokens(call)
+    for token in method_tokens:
         if _operation_mentions_token(operation, token):
-            score += 8
-    score += _resource_path_sequence_score(
+            matched_method_tokens += 1
+            score += 22
+    if chain_tokens and not matched_chain_tokens:
+        return None
+    path_sequence_score = _resource_path_sequence_score(
         resource_type, resource_prefix, operation)
-    score += _resource_terminal_score(resource_type, resource_prefix, operation)
+    terminal_score = _resource_terminal_score(
+        resource_type, resource_prefix, operation)
+    for token in base_tokens:
+        if _operation_mentions_token(operation, token):
+            resource_token_hits += 1
+    has_resource_evidence = bool(
+        resource_token_hits or path_sequence_score or terminal_score)
+    method_exact = _canonical(call["method"]) in operation["aliases"]
+    if not chain_tokens:
+        if not method_exact and not matched_method_tokens:
+            return None
+        if base_tokens and not has_resource_evidence:
+            return None
+        if method_exact:
+            score += 110
+        else:
+            score += 35 + matched_method_tokens * 18
+            score -= (len(method_tokens) - matched_method_tokens) * 20
+    elif method_exact:
+        score += 80
+    score -= (len(chain_tokens) - matched_chain_tokens) * 35
+    score += resource_token_hits * 8
+    score += path_sequence_score
+    score += terminal_score
+    score += _resource_prefix_score(resource_type, resource_prefix, operation)
     score += _scope_score(operation, _scope_hints(resource_schema))
     path_kind = _path_kind(operation)
-    words = _operation_words(operation["operation_id"])
+    words = _operation_id_words(operation)
     if call["source_role"] == "read":
         if path_kind == "detail":
             score += 30
@@ -698,18 +1436,18 @@ def _sdk_call_score(resource_type, resource_prefix, operation, call,
             score += 5
         if "detail" in words or "details" in words or "get" in words:
             score += 10
-        if _is_list_operation(operation["operation_id"]):
+        if _operation_is_list(operation):
             score -= 20
-        if _action_shaped_path(operation["path"]):
+        if _operation_action_shaped(operation):
             score -= 25
     elif call["source_role"] == "list":
         if path_kind == "list":
             score += 30
         else:
             score -= 20
-        if _is_list_operation(operation["operation_id"]):
+        if _operation_is_list(operation):
             score += 15
-        if _action_shaped_path(operation["path"]):
+        if _operation_action_shaped(operation):
             score -= 20
     return score if score >= SDK_CALL_SCORE_FLOOR else None
 
@@ -732,6 +1470,7 @@ def _package_call_score(resource_type, resource_prefix, operation, call,
     score += _resource_path_sequence_score(
         resource_type, resource_prefix, operation)
     score += _resource_terminal_score(resource_type, resource_prefix, operation)
+    score += _resource_prefix_score(resource_type, resource_prefix, operation)
     score += _scope_score(operation, _scope_hints(resource_schema))
     path_kind = _path_kind(operation)
     hint = _method_path_kind_hint(call["method"])
@@ -742,18 +1481,70 @@ def _package_call_score(resource_type, resource_prefix, operation, call,
             score += 30
         elif path_kind == "detail":
             score += 20
-        if _is_list_operation(operation["operation_id"]):
+        if _operation_is_list(operation):
             score -= 20
-        if _action_shaped_path(operation["path"]):
+        if _operation_action_shaped(operation):
             score -= 20
     elif call["source_role"] == "list":
         if path_kind == "list":
             score += 35
         else:
             score -= 25
-        if _is_list_operation(operation["operation_id"]):
+        if _operation_is_list(operation):
             score += 10
     return score if score >= PACKAGE_CALL_SCORE_FLOOR else None
+
+
+def _path_word_sequence_matches(haystack, needle):
+    if not needle or len(needle) > len(haystack):
+        return False
+    for start in range(0, len(haystack) - len(needle) + 1):
+        if all(
+                _word_matches_token(haystack[start + offset], token)
+                for offset, token in enumerate(needle)):
+            return True
+    return False
+
+
+def _raw_rest_call_score(resource_type, resource_prefix, operation, call,
+                         resource_schema):
+    if operation["method"] != call["method"]:
+        return None
+    call_words = _path_words(call["path"])
+    operation_words = _path_words(operation["path"])
+    if not call_words or not operation_words:
+        return None
+    if not (
+            _path_word_sequence_matches(operation_words, call_words)
+            or _path_word_sequence_matches(call_words, operation_words)):
+        return None
+    score = 120 + len(call_words) * 12
+    if len(call_words) == len(operation_words):
+        score += 50
+    score += _resource_path_sequence_score(
+        resource_type, resource_prefix, operation)
+    score += _resource_terminal_score(resource_type, resource_prefix, operation)
+    score += _resource_prefix_score(resource_type, resource_prefix, operation)
+    score += _scope_score(operation, _scope_hints(resource_schema))
+    if _path_kind(operation) == "detail":
+        score += 20
+    if _action_shaped_path(operation["path"]):
+        score -= 10
+    return score if score >= RAW_REST_CALL_SCORE_FLOOR else None
+
+
+def _sdk_path_matches_resource(resource_type, resource_prefix, operation,
+                               resource_schema):
+    if _resource_path_sequence_score(resource_type, resource_prefix, operation):
+        return True
+    if _resource_terminal_score(resource_type, resource_prefix, operation):
+        return True
+    if _resource_prefix_score(resource_type, resource_prefix, operation):
+        return True
+    for token in _base_tokens(resource_type, resource_prefix):
+        if _operation_mentions_token(operation, token):
+            return True
+    return bool(_scope_score(operation, _scope_hints(resource_schema)) > 0)
 
 
 def _candidate_score(resource_type, resource_prefix, operation):
@@ -761,12 +1552,12 @@ def _candidate_score(resource_type, resource_prefix, operation):
     operation_id = operation["operation_id"]
     score = 0
     for token in _base_tokens(resource_type, resource_prefix):
-        if _canonical(token) in _canonical(path):
+        if _canonical(token) in _operation_canonical_path(operation):
             score += 5
     if "{" in path:
         score += 30
     lowered = operation_id.lower()
-    if _is_list_operation(operation_id):
+    if _operation_is_list(operation):
         score -= 10
     if lowered.startswith(("get", "retrieve", "read", "routeget")):
         score += 10
@@ -780,12 +1571,12 @@ def _list_candidate_score(resource_type, resource_prefix, operation):
     operation_id = operation["operation_id"]
     score = 0
     for token in _base_tokens(resource_type, resource_prefix):
-        if _canonical(token) in _canonical(path):
+        if _canonical(token) in _operation_canonical_path(operation):
             score += 5
     lowered = operation_id.lower()
-    if _is_list_operation(operation_id):
+    if _operation_is_list(operation):
         score += 20
-    parts = _path_parts(path)
+    parts = _operation_path_parts(operation)
     if parts and _is_path_parameter(parts[-1]):
         score -= 20
     else:
@@ -817,6 +1608,8 @@ def _operation_entry(hit, evidence_kind, source_files):
         provider_call["sdk_package"] = hit["sdk_package"]
     if hit.get("sdk_package_path"):
         provider_call["sdk_package_path"] = hit["sdk_package_path"]
+    if hit.get("raw_rest_path"):
+        provider_call["raw_rest_path"] = hit["raw_rest_path"]
     if hit.get("source_role"):
         provider_call["source_role"] = hit["source_role"]
     if hit.get("alternate_client_symbols"):
@@ -901,7 +1694,6 @@ def _dedupe_hits(hits):
                 symbols.add(item)
         if symbols:
             existing["alternate_client_symbols"] = sorted(symbols)
-            existing["client_symbol"] = sorted(symbols)[0]
     return list(grouped.values())
 
 
@@ -933,11 +1725,74 @@ def _select_hit(hits, role):
         ]
         if detail_close:
             return None, [best] + detail_close[:4]
-    ambiguous = [
-        hit for hit in candidates[1:]
-        if (hit["path_kind"] == best["path_kind"]
-            and best[score_key] - hit[score_key] <= AMBIGUITY_SCORE_DELTA)
+    ambiguous = []
+    for hit in candidates[1:]:
+        if hit["path_kind"] != best["path_kind"]:
+            continue
+        delta = AMBIGUITY_SCORE_DELTA
+        if best.get("client_symbol") and hit.get("client_symbol"):
+            delta = max(delta, SOURCE_CALL_AMBIGUITY_DELTA)
+        if best[score_key] - hit[score_key] <= delta:
+            ambiguous.append(hit)
+    if ambiguous:
+        return None, [best] + ambiguous[:4]
+    return best, []
+
+
+def _relationship_resource(resource_type, resource_prefix):
+    tokens = _base_tokens(resource_type, resource_prefix)
+    if len(tokens) < 2:
+        return False
+    joined = "_".join(tokens)
+    phrases = (
+        "secret_repositories",
+        "variable_repositories",
+        "role_team",
+        "role_user",
+        "team_assignment",
+        "user_assignment",
+        "repository_topics",
+        "repository_collaborator",
+        "sync_group_mapping",
+    )
+    if any(phrase in joined for phrase in phrases):
+        return True
+    return bool(RELATIONSHIP_TOKENS.intersection(tokens))
+
+
+def _select_relationship_list_hit(hits, resource_type, resource_prefix):
+    if not _relationship_resource(resource_type, resource_prefix):
+        return None, []
+    tokens = _base_tokens(resource_type, resource_prefix)
+    relationship_tokens = [
+        token for token in tokens
+        if token in RELATIONSHIP_TOKENS
     ]
+    role_hits = [
+        hit for hit in hits
+        if hit.get("source_role") == "list"
+    ]
+    if relationship_tokens:
+        token_hits = [
+            hit for hit in role_hits
+            if any(
+                _operation_mentions_token(hit, token)
+                for token in relationship_tokens)
+        ]
+        if token_hits:
+            role_hits = token_hits
+    role_hits.sort(key=lambda hit: (
+        -hit["read_score"],
+        hit["path"],
+        hit["operation_id"],
+    ))
+    if not role_hits:
+        return None, []
+    best = role_hits[0]
+    ambiguous = []
+    for hit in role_hits[1:]:
+        if best["read_score"] - hit["read_score"] <= AMBIGUITY_SCORE_DELTA:
+            ambiguous.append(hit)
     if ambiguous:
         return None, [best] + ambiguous[:4]
     return best, []
@@ -949,13 +1804,46 @@ def _load_resource_schemas(schema_path, provider_source=None):
     return provider.get("resource_schemas") or {}
 
 
+def _parse_resource_filter(value):
+    if not value:
+        return None
+    resources = []
+    for item in value.split(","):
+        item = item.strip()
+        if item:
+            resources.append(item)
+    return resources or None
+
+
+def _filter_resource_schemas(resource_schemas, resource_filter):
+    if not resource_filter:
+        return resource_schemas
+    wanted = set(resource_filter)
+    missing = sorted(wanted.difference(resource_schemas))
+    if missing:
+        raise ValueError(
+            "resources not found in provider schema: %s" %
+            ", ".join(missing))
+    return dict(
+        (resource, resource_schemas[resource])
+        for resource in sorted(wanted))
+
+
 def derive_registry(schema_path, openapi_path, source_root,
-                    provider_source=None, resource_prefix="", sdk_root=None):
+                    provider_source=None, resource_prefix="",
+                    source_facts=None, resource_filter=None,
+                    sdk_root=None):
     resource_schemas = _load_resource_schemas(
         schema_path, provider_source=provider_source)
+    resource_schemas = _filter_resource_schemas(
+        resource_schemas, resource_filter)
     resource_names = sorted(resource_schemas)
-    files_by_resource = _resource_files(
-        source_root, resource_names, resource_prefix)
+    if source_facts:
+        files_by_resource = _resource_files_from_facts(
+            source_root, resource_names, resource_prefix, source_facts)
+    else:
+        files_by_resource = _resource_files(
+            source_root, resource_names, resource_prefix)
     operations = _operation_index(_read_json(openapi_path))
     sdk_path_evidence_map, sdk_path_unresolved_map = (
         sdk_path_evidence.extract_sdk_paths(sdk_root))
@@ -971,20 +1859,27 @@ def derive_registry(schema_path, openapi_path, source_root,
         ]
         if source_paths:
             resources_with_source_files += 1
-        source_text = []
-        for path in source_paths:
-            with open(path, encoding="utf-8") as f:
-                source_text.append(f.read())
-        source_identifiers = _go_identifier_tokens("\n".join(source_text))
-        sdk_calls = _sdk_client_calls("\n".join(source_text))
-        package_calls = _sdk_package_calls("\n".join(source_text))
+        if source_facts:
+            evidence = _source_evidence_from_facts(
+                source_root, source_files, source_facts)
+        else:
+            evidence = _source_evidence_from_text(source_root, source_paths)
+        source_identifiers = evidence["identifiers"]
+        sdk_calls = evidence["sdk_calls"]
+        package_calls = evidence["package_calls"]
+        raw_rest_calls = evidence["raw_rest_calls"]
+        graphql_source = evidence["graphql_source"]
 
         sdk_path_unresolved_calls = []
         sdk_action_paths = []
         hits = []
         if sdk_root:
-            sdk_call_symbols = _sdk_client_calls(
-                "\n".join(source_text), require_role=False)
+            if source_facts:
+                sdk_call_symbols = _sdk_client_calls_from_facts(
+                    source_files, source_facts, require_role=False)
+            else:
+                sdk_call_symbols = _sdk_client_calls_from_paths(
+                    source_paths, require_role=False)
             for call in sdk_call_symbols:
                 symbol = call["client_symbol"]
                 path_ev = sdk_path_evidence_map.get(symbol)
@@ -1022,6 +1917,10 @@ def derive_registry(schema_path, openapi_path, source_root,
                         "sdk_file": path_ev["sdk_file"],
                         "reason": "openapi_path_not_found",
                     })
+                    continue
+                if not _sdk_path_matches_resource(
+                        resource, resource_prefix, op,
+                        resource_schemas[resource]):
                     continue
                 hit = dict(op)
                 hit["client_symbol"] = symbol
@@ -1094,6 +1993,25 @@ def derive_registry(schema_path, openapi_path, source_root,
                 hit["sdk_package_path"] = call["package_path"]
                 hit["source_role"] = call["source_role"]
                 hits.append(hit)
+            for call in raw_rest_calls:
+                raw_score = _raw_rest_call_score(
+                    resource, resource_prefix, operation, call,
+                    resource_schemas[resource])
+                if raw_score is None:
+                    continue
+                hit = dict(operation)
+                hit["client_symbol"] = call["client_symbol"]
+                hit["matched_aliases"] = [call["path"]]
+                hit["path_kind"] = _path_kind(operation)
+                hit["read_score"] = (
+                    _candidate_score(resource, resource_prefix, operation)
+                    + raw_score)
+                hit["list_score"] = (
+                    _list_candidate_score(resource, resource_prefix, operation)
+                    + raw_score)
+                hit["raw_rest_path"] = call["path"]
+                hit["source_role"] = call["source_role"]
+                hits.append(hit)
 
         hits.sort(key=lambda hit: (
             -hit["read_score"],
@@ -1109,6 +2027,8 @@ def derive_registry(schema_path, openapi_path, source_root,
 
         read_hit, read_ambiguous = _select_hit(hits, "read")
         list_hit, list_ambiguous = _select_hit(hits, "list")
+        relationship_read_hit, relationship_read_ambiguous = (
+            _select_relationship_list_hit(hits, resource, resource_prefix))
         status = "unmapped"
         reason = None
         entry = {
@@ -1121,6 +2041,8 @@ def derive_registry(schema_path, openapi_path, source_root,
             },
             "reason": None,
         }
+        if evidence["backend"] != "text_scan":
+            entry["source"]["evidence_backend"] = evidence["backend"]
         if sdk_calls:
             entry["source"]["client_call_count"] = len(sdk_calls)
             entry["source"]["client_calls"] = [
@@ -1131,6 +2053,13 @@ def derive_registry(schema_path, openapi_path, source_root,
             entry["source"]["package_calls"] = [
                 call["client_symbol"] for call in package_calls[:20]
             ]
+        if raw_rest_calls:
+            entry["source"]["raw_rest_call_count"] = len(raw_rest_calls)
+            entry["source"]["raw_rest_calls"] = [
+                call["client_symbol"] for call in raw_rest_calls[:20]
+            ]
+        if graphql_source:
+            entry["source"]["graphql"] = True
         if sdk_path_unresolved_calls:
             entry["source"]["sdk_path_unresolved"] = sdk_path_unresolved_calls
         if sdk_action_paths:
@@ -1155,6 +2084,27 @@ def derive_registry(schema_path, openapi_path, source_root,
                 entry["source"]["list_ambiguous"] = [
                     _candidate_entry(hit) for hit in list_ambiguous
                 ]
+        elif relationship_read_ambiguous:
+            status = "ambiguous_source_operation"
+            reason = "ambiguous_source_operation"
+            entry["status"] = status
+            entry["reason"] = reason
+            entry["candidates"] = [
+                _candidate_operation_entry(
+                    hit, "relationship_list_read", source_files)
+                for hit in relationship_read_ambiguous
+            ]
+        elif relationship_read_hit:
+            status = "mapped"
+            entry["status"] = status
+            entry["read"] = _operation_entry(
+                relationship_read_hit, "relationship_list_read", source_files)
+            entry["source"]["relationship_list_read"] = True
+        elif graphql_source:
+            status = "graphql_source"
+            reason = "graphql_source"
+            entry["status"] = status
+            entry["reason"] = reason
         else:
             reason = (
                 "resource_file_not_found"
@@ -1180,6 +2130,9 @@ def derive_registry(schema_path, openapi_path, source_root,
     ambiguous = sum(
         1 for item in diagnostics
         if item["status"] == "ambiguous_source_operation")
+    graphql_source = sum(
+        1 for item in diagnostics
+        if item["status"] == "graphql_source")
     mapped = sum(
         1 for item in registry.values()
         if item["status"] == "mapped")
@@ -1191,10 +2144,75 @@ def derive_registry(schema_path, openapi_path, source_root,
                 len(resource_names) - resources_with_source_files),
             "mapped": mapped,
             "ambiguous": ambiguous,
-            "unmapped": len(resource_names) - mapped - ambiguous,
+            "graphql_source": graphql_source,
+            "unmapped": (
+                len(resource_names) - mapped - ambiguous - graphql_source),
         },
         "registry": registry,
         "diagnostics": diagnostics,
+    }
+
+
+def _registry_signature(entry):
+    read = entry.get("read") or {}
+    list_entry = entry.get("list") or {}
+    source = entry.get("source") or {}
+    return {
+        "status": entry.get("status"),
+        "reason": entry.get("reason"),
+        "read_path": read.get("path"),
+        "read_operation_id": read.get("operation_id"),
+        "read_evidence_kind": read.get("evidence_kind"),
+        "list_path": list_entry.get("path"),
+        "list_operation_id": list_entry.get("operation_id"),
+        "candidate_count": source.get("candidate_count", 0),
+        "client_call_count": source.get("client_call_count", 0),
+        "package_call_count": source.get("package_call_count", 0),
+        "raw_rest_call_count": source.get("raw_rest_call_count", 0),
+        "graphql": bool(source.get("graphql")),
+        "files": source.get("files", []),
+    }
+
+
+def compare_registry_reports(control_report, candidate_report):
+    control_registry = control_report.get("registry") or {}
+    candidate_registry = candidate_report.get("registry") or {}
+    resources = sorted(
+        set(control_registry).union(set(candidate_registry)))
+    changes = []
+    unchanged = 0
+    status_changes = 0
+    read_path_changes = 0
+    file_changes = 0
+    for resource in resources:
+        before = _registry_signature(control_registry.get(resource) or {})
+        after = _registry_signature(candidate_registry.get(resource) or {})
+        if before == after:
+            unchanged += 1
+            continue
+        if before["status"] != after["status"]:
+            status_changes += 1
+        if before["read_path"] != after["read_path"]:
+            read_path_changes += 1
+        if before["files"] != after["files"]:
+            file_changes += 1
+        changes.append({
+            "resource": resource,
+            "before": before,
+            "after": after,
+        })
+    return {
+        "summary": {
+            "resources": len(resources),
+            "unchanged": unchanged,
+            "changed": len(changes),
+            "status_changes": status_changes,
+            "read_path_changes": read_path_changes,
+            "file_changes": file_changes,
+            "control": control_report.get("summary") or {},
+            "candidate": candidate_report.get("summary") or {},
+        },
+        "changes": changes,
     }
 
 
@@ -1206,19 +2224,46 @@ def main(argv=None):
     parser.add_argument("--source-root", required=True, help="Provider source root")
     parser.add_argument("--provider-source", help="Provider source address")
     parser.add_argument("--resource-prefix", default="", help="Resource name prefix/product")
+    parser.add_argument(
+        "--resources",
+        help="Comma-separated Terraform resource names to evaluate")
+    parser.add_argument(
+        "--source-facts",
+        help="Experimental source-evidence-ast JSON facts to use instead of text scanning")
+    parser.add_argument(
+        "--source-facts-compare",
+        help="Write old-scanner vs --source-facts comparison JSON")
     parser.add_argument("--sdk-root", help="Vendored Go SDK source root for path-template extraction")
     parser.add_argument("--out", help="Write source/read registry JSON to this file")
     parser.add_argument("--diagnostics", help="Write diagnostics JSON to this file")
     args = parser.parse_args(argv)
     try:
+        source_facts = _read_json(args.source_facts) if args.source_facts else None
         report = derive_registry(
             args.schema,
             args.openapi,
             args.source_root,
             provider_source=args.provider_source,
             resource_prefix=args.resource_prefix,
+            source_facts=source_facts,
+            resource_filter=_parse_resource_filter(args.resources),
             sdk_root=args.sdk_root,
         )
+        if args.source_facts_compare:
+            if not source_facts:
+                raise ValueError(
+                    "--source-facts-compare requires --source-facts")
+            control_report = derive_registry(
+                args.schema,
+                args.openapi,
+                args.source_root,
+                provider_source=args.provider_source,
+                resource_prefix=args.resource_prefix,
+                resource_filter=_parse_resource_filter(args.resources),
+                sdk_root=args.sdk_root,
+            )
+            _write_json(compare_registry_reports(
+                control_report, report), path=args.source_facts_compare)
     except Exception as exc:
         sys.stderr.write("error: %s\n" % exc)
         return 2

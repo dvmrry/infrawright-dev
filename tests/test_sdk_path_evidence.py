@@ -408,6 +408,74 @@ class SdkPathEvidenceTest(unittest.TestCase):
         # No unresolved entries: both calls were accounted for.
         self.assertNotIn("sdk_path_unresolved", entry["source"])
 
+    def test_sdk_path_uses_ast_facts_for_read_and_action_calls(self):
+        resource = "digitalocean_reserved_ip"
+        schema_path = self._write_json("schema.json", _schema(resource))
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.0.3",
+            "paths": {
+                "/v2/reserved_ips/{ip}": {
+                    "get": {"responses": {"200": {"description": "ok"}}},
+                },
+                "/v2/reserved_ips/{ip}/actions": {
+                    "post": {"responses": {"201": {"description": "ok"}}},
+                },
+            },
+        })
+        provider_root = os.path.join(self.tmp, "provider")
+        rel_file = os.path.join(
+            "reserved_ip", "resource_digitalocean_reserved_ip.go")
+        self._write(os.path.join("provider", rel_file), "package reserved_ip\n")
+        sdk_root = self._godo_root(("reserved_ips.go", GODO_RESERVED_IPS))
+        source_facts = {
+            "source_root": provider_root,
+            "files": [{"path": rel_file, "package": "reserved_ip"}],
+            "functions": [],
+            "resource_registrations": [],
+            "resource_references": [
+                {"file": rel_file, "resource": resource},
+            ],
+            "identifier_references": [],
+            "read_callbacks": [],
+            "selector_calls": [
+                {
+                    "file": rel_file,
+                    "function": "read",
+                    "symbol": "client.ReservedIPs.Get",
+                    "parts": ["client", "ReservedIPs", "Get"],
+                },
+                {
+                    "file": rel_file,
+                    "function": "read",
+                    "symbol": "client.ReservedIPs.Assign",
+                    "parts": ["client", "ReservedIPs", "Assign"],
+                },
+            ],
+            "package_calls": [],
+            "raw_rest_calls": [],
+        }
+
+        report = source_operation_map.derive_registry(
+            schema_path,
+            openapi_path,
+            provider_root,
+            provider_source="registry.terraform.io/digitalocean/digitalocean",
+            resource_prefix="digitalocean",
+            source_facts=source_facts,
+            sdk_root=sdk_root,
+        )
+
+        entry = report["registry"][resource]
+        self.assertEqual(entry["status"], "mapped")
+        self.assertEqual(entry["source"]["evidence_backend"], "ast_facts")
+        self.assertEqual(entry["read"]["path"], "/v2/reserved_ips/{ip}")
+        self.assertEqual([hop["kind"] for hop in entry["read"]["hops"]],
+                         ["provider_call", "sdk_path", "openapi_operation"])
+        actions = entry["source"]["sdk_action_paths"]
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0]["client_symbol"], "ReservedIPs.Assign")
+        self.assertEqual(actions[0]["method"], "POST")
+
     def test_sdk_path_helper_action_get_does_not_ambiguous_resource_read(self):
         report = self._derive(
             "digitalocean_reserved_ipv6",
