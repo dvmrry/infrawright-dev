@@ -109,3 +109,13 @@ Lab-derived adoption metadata is now committed in pack manifests:
 | NetBox | `absent_defaults.rules` | `docs/provider-labs/netbox-pr22.md` | Validated, manual-review only. |
 | Cloudflare | `absent_defaults.rules` + `dynamic_schema.rules` | `docs/provider-labs/cloudflare-free-tier-pr32.md` | Validated, manual-review only. |
 | Grafana | unclassified | `docs/provider-labs/grafana-pr24.md` | Pending sensitive-required design. |
+
+## Adoption Metadata Inventory
+
+A read-only cross-class inventory report now aggregates committed metadata:
+
+- `engine/adoption_inventory_report.py` normalizes `provider_config.requirements`, `absent_defaults.rules`, and `dynamic_schema.rules` into a single inventory.
+- `scripts/adoption-inventory-report.py` emits JSON or markdown for humans/operators.
+- The report is read-only: it does not project, omit, change drift policy, alter `assert-adoptable`, render provider configuration, or run Terraform/OpenTofu.
+- It includes cross-class overlap diagnostics (warnings and info), but it is not an adoption decision engine and does not enforce cross-design rules.
+- Sensitive-required remediation remains future work.
