@@ -26,8 +26,7 @@
         "remediation": {
           "kind": "provider_argument",
           "mode": "required_external",
-          "evidence": "docs/provider-labs/gcp-pr38.md",
-          "reason": "Lab proved the drift disappears when consumer-owned provider configuration sets add_terraform_attribution_label=false."
+          "evidence": "docs/provider-labs/gcp-pr38.md"
         }
       }
     ]

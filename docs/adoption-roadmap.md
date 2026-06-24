@@ -161,12 +161,15 @@ The sensitive-required failure class is now documented in `docs/sensitive-requir
 - Run another provider lab that proves a narrow, safe sensitive-required class
   before any behavior PR.
 
-No projection, omission, drift tolerance, or `assert-adoptable` behavior has been
-implemented in this PR. The current PR is design-only.
+No projection, omission, drift tolerance, provider-config rendering, provider
+config mutation, or status-changing `assert-adoptable` behavior is authorized.
+Provider-config `assert-adoptable` guidance annotations are implemented as
+unit-tested, fail-closed, annotation-only output; they are not currently
+live-lab validated.
 
-## Provider-Config Assert-Adoptable Guidance Design
+## Provider-Config Assert-Adoptable Guidance
 
-The first behavior candidate is documented in
+The first provider-config behavior candidate is documented in
 `docs/provider-config-assert-guidance.md`:
 
 - Additive guidance annotations for blocked `assert-adoptable` output when a
@@ -177,6 +180,8 @@ The first behavior candidate is documented in
   provider-config lab that produces a blocked plan path matching committed
   metadata and shows the annotation while the plan remains blocked. The
   historical GCP attribution-label case no longer satisfies this by itself.
-- Future test list and rollback plan are specified.
+- Synthetic/unit test coverage and rollback plan are specified.
 
-This design PR is documentation-only. No behavior has been implemented.
+The annotation behavior is implemented, but provider-config guidance must not be
+described as live-lab validated until a current provider-config lab proves it on
+a real blocked matching path.
