@@ -120,6 +120,8 @@ repository.
 - Keep testing more providers before adding generic zero/empty omission logic.
   NetBox proves the pattern exists, but Grafana/Cloudflare should shape whether
   this becomes policy guidance, diagnostics, or engine behavior.
+- Use the absent/default diagnostics command to classify placeholder-shaped
+  projected values before turning any zero/empty omission into pack behavior.
 - Consider a provider-lab helper that creates realpath-normalized temporary
   overlays and avoids broad API list requests by default.
 - Consider reporting raw-only path categories in the certification output so
