@@ -107,9 +107,67 @@ This is illustrative only. It is not loaded by the engine today.
 `structural_requirement` describe the two sides of the failure class. `action` is
 guidance-only in V1. No behavior is authorized by this shape.
 
+## Accepted Keys
+
+The future V1 accepted key set for `sensitive_required.rules` is:
+
+- `id`
+- `provider`
+- `provider_version_constraint`
+- `resource_type`
+- `resource_prefix`
+- `path`
+- `kind`
+- `sensitivity`
+- `structural_requirement`
+- `action`
+- `evidence`
+- `reason`
+- `raw_api_path`
+- `projected_path`
+- `plan_path`
+
+A future validator rejects any unknown key. `raw_api_path`, `projected_path`,
+and `plan_path` are evidence-only fields and cannot replace `path`. They may be
+used to show the mapping between raw API, projected, and plan namespaces, but
+identity is always based on the provider-state `path`.
+
+## Required V1 Fields
+
+A future validator must require:
+
+- `id`
+- `provider`
+- `provider_version_constraint`
+- exactly one resource scope: `resource_type` or `resource_prefix`
+- `path`
+- `kind`
+- `sensitivity`
+- `structural_requirement`
+- `action`
+- `evidence`
+- `reason`
+
+## Forbid Value-Carrying Fields
+
+Sensitive-required metadata must never contain sensitive values or placeholder
+values. A future validator must reject any value-carrying key, including but not
+limited to:
+
+- `value`
+- `observed_value`
+- `placeholder_value`
+- `secret`
+- `secret_value`
+- `sensitive_value`
+
+Sensitive values must never be copied from provider state, raw API responses,
+saved plans, logs, fixtures, or generated config. This rule is absolute and is
+not relaxed by any future V1 action.
+
 ## Possible Future Kinds
 
-Use conservative, descriptive names:
+The V1 `kind` enum is closed and conservative:
 
 - `sensitive_required_block`: a nested block is sensitive and structurally
   required (e.g. `grafana_contact_point.webhook`).
@@ -123,7 +181,54 @@ Use conservative, descriptive names:
   present in configuration but the actual sensitive value must be supplied by the
   operator after adoption.
 
-Keep the set small. Do not add a kind until a provider lab proves the case.
+Keep the set small. A future validator rejects any unknown `kind`. Do not add a
+kind until a provider lab proves the case.
+
+## Possible Future Sensitivity
+
+The V1 `sensitivity` enum is closed:
+
+- `sensitive_attribute`: the Terraform schema marks the attribute sensitive.
+- `sensitive_block`: the Terraform schema or provider state treats the whole block
+  as sensitive.
+- `contains_sensitive_fields`: the block is not necessarily wholly sensitive, but
+  one or more children are sensitive.
+- `write_only_sensitive`: the value is required in config but not recoverable from
+  provider state.
+
+A future validator rejects any unknown `sensitivity` value.
+
+## Possible Future Structural Requirement
+
+The V1 `structural_requirement` enum is closed:
+
+- `block_required_for_valid_config`: the block shape must be present for valid
+  provider/Terraform config.
+- `attribute_required_for_valid_config`: the attribute must be present for valid
+  config.
+- `one_of_block_required`: one block among a provider-defined set must be present.
+- `parent_block_required`: the parent structure is required even when sensitive
+  leaves cannot be projected.
+- `operator_input_required_for_valid_config`: valid config requires an
+  operator-supplied value that cannot be recovered safely from state.
+
+A future validator rejects any unknown `structural_requirement` value.
+
+## Kind / Sensitivity / Structural Requirement Matrix
+
+All V1 kinds allow only `diagnostic_only` and `manual_review_required`. No kind
+allows projection, omission, rendering, drift tolerance, or `assert-adoptable`
+downgrade.
+
+| Kind | Allowed sensitivity | Allowed structural_requirement |
+|---|---|---|
+| `sensitive_required_block` | `sensitive_block`, `contains_sensitive_fields` | `block_required_for_valid_config`, `one_of_block_required`, `parent_block_required` |
+| `sensitive_required_attribute` | `sensitive_attribute` | `attribute_required_for_valid_config` |
+| `sensitive_write_only_attribute` | `write_only_sensitive` | `attribute_required_for_valid_config`, `operator_input_required_for_valid_config` |
+| `sensitive_nested_secret` | `contains_sensitive_fields` | `parent_block_required`, `block_required_for_valid_config` |
+| `sensitive_structural_placeholder_required` | `sensitive_block`, `contains_sensitive_fields`, `write_only_sensitive` | `block_required_for_valid_config`, `parent_block_required`, `operator_input_required_for_valid_config` |
+
+A future validator rejects any out-of-matrix combination.
 
 ## Possible Future Actions
 
@@ -133,18 +238,23 @@ V1 allowed actions are guidance-only:
   assert-adoptable.
 - `manual_review_required`: block automation and require a human decision.
 
-The following actions are reserved for a future design only and are invalid in
-V1:
+The following actions are reserved for a future design only and are rejected in
+V1 with a distinct "rejected in V1" error:
 
 - `render_placeholder_block`: reserved for a future design that proves a safe,
   non-secret, structural placeholder block shape.
 - `render_placeholder_attribute`: reserved for a future design that proves a safe,
   non-secret placeholder attribute.
-- `preserve_structure_without_secret`: reserved for a future design that keeps
-  the required block structure while redacting or omitting only the secret
-  leaves.
-- `operator_supplied_value_required`: reserved for a future design that marks
-  the field as explicitly requiring operator-supplied input after adoption.
+- `preserve_structure_without_secret_candidate`: reserved for a future design
+  that keeps the required block structure while redacting or omitting only the
+  secret leaves.
+- `operator_input_required_candidate`: reserved for a future design that marks
+  a field as explicitly requiring operator-supplied input after adoption.
+
+Operator input is modeled as the structural requirement
+`operator_input_required_for_valid_config`, not as a V1 action. The action
+`operator_input_required_candidate` is only a reserved placeholder for future
+behavior discussion.
 
 ## Forbidden Actions
 
@@ -161,6 +271,79 @@ Reject broad/unsafe behavior explicitly:
 
 These are never valid in V1 and should remain forbidden in any future design
 unless a very narrow, provider-proven alternative is reviewed separately.
+
+## Path Namespace
+
+V1 `path` is the provider-state path. It uses the engine normalized path syntax.
+A future validator canonicalizes `path` using `schema_paths.parse_report_path` then
+`schema_paths.format_path`. Accepted `[0]` and `[*]` normalize to `[]` if the
+parser supports it. Bare wildcard path segments and unsupported syntax are
+rejected.
+
+Rule identity uses the canonicalized provider-state path. V1 adds no new path
+syntax. `raw_api_path`, `projected_path`, and `plan_path` are evidence-only and
+are not identity keys unless a future contract says so.
+
+## Provider Version Determinism
+
+`provider_version_constraint` is required. V1 validates it only as a non-empty
+string after `str.strip()`. V1 does not parse or semantically evaluate version
+constraints. Identity comparison uses exact stripped string equality.
+Semantically equivalent but string-different ranges are distinct in V1. Version
+parsing and evaluation are future engine-integrated behavior.
+
+## Rule Identity And Conflicts
+
+Rule identity is:
+
+```
+provider + stripped provider_version_constraint + resource scope + canonical path
+```
+
+Resource scope is either `("type", resource_type)` or `("prefix", resource_prefix)`.
+
+A future validator must reject:
+
+- duplicate identical identity,
+- same identity with different `kind`,
+- same identity with different `sensitivity`,
+- same identity with different `structural_requirement`,
+- same identity with different `action`,
+- same identity with different `evidence`,
+- same identity with different evidence-only path fields if those fields are accepted.
+
+Overlapping scope: reject exact `resource_type` and matching `resource_prefix`
+overlap when provider, stripped version string, and canonical path are equal. Do
+not reject overlap when version strings differ. Do not semantically compare
+version ranges. No merge or precedence rule exists in V1.
+
+## Action Rejection
+
+Allowed V1 actions are `diagnostic_only` and `manual_review_required`. Reserved
+actions (`render_placeholder_block`, `render_placeholder_attribute`,
+`preserve_structure_without_secret_candidate`, `operator_input_required_candidate`)
+receive a distinct "rejected in V1" error in a future validator. Any action that
+is not allowed and not reserved receives an unknown or forbidden error. All
+reserved, unknown, and forbidden actions are invalid in V1.
+
+## Sensitive Path Handling
+
+If a future validator is supplied a static sensitive-path set, it checks exact
+canonicalized match only. A sensitive-required rule should match a known
+sensitive path when static sensitivity metadata is available. If the static set
+is unavailable, the validator skips the check. Ancestor/descendant matching is
+future engine-integrated behavior. Do not invent a new sensitivity resolver and
+do not downgrade failures based on metadata.
+
+If `sensitive_paths` is supplied and the canonicalized path is not present, the
+validator rejects the rule as not statically sensitive in V1. Exact match only.
+
+## Cross-Class Overlap Deferral
+
+Cross-class overlap with `dynamic_schema`, `absent_defaults`, or `provider_config`
+is not machine-enforced in V1. It is deferred until a cross-design identity rule
+exists. Human reviewers should avoid filing the same provider/resource/path
+under multiple classes unless the boundary is explicit.
 
 ## Required Evidence
 
@@ -179,6 +362,11 @@ A future rule must cite evidence showing both sides of the failure class:
 - Why no existing class (`provider_config`, `absent_defaults`, `dynamic_schema`,
   `raw_api_only_provider_blind`) applies.
 - Cleanup and safety notes from the lab.
+
+The evidence checklist is enforced during lab/design review, not by the static
+validator. A future validator only checks that `evidence` is a non-empty string
+and that `reason` is present; it does not semantically validate the checklist
+unless future structured evidence fields are added.
 
 Evidence must not include raw secrets, state files with secrets, provider logs
 with secrets, tenant identifiers, raw plans with secrets, or temporary roots.
@@ -262,11 +450,15 @@ This design is not:
 
 ## Recommended Next Step
 
-External review of this design, followed by correction PRs if needed. Only after
-the design survives review should a validator-only implementation PR be
-planned. No sensitive-required behavior should be implemented until the metadata
-contract, evidence requirements, and safety invariant are accepted and at least
-one provider lab proves a narrow, safe class.
+After this correction, run external review. If the design survives review, the
+next PR is a V1 validator-contract PR that specifies message text, error
+categories, and the exact rejection behavior. Do not implement the validator or
+any behavior in this correction PR.
 
-Until then, `grafana_contact_point.webhook` remains manual-review/unclassified in
-pack metadata.
+No sensitive-required behavior should be implemented until the metadata contract,
+evidence requirements, and safety invariant are accepted and at least one
+provider lab proves a narrow, safe class.
+
+Until the validator contract and validator-only implementation exist,
+`grafana_contact_point.webhook` remains manual-review/unclassified in pack
+metadata.
