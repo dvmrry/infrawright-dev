@@ -1,16 +1,16 @@
 # Provider-Config Assert-Adoptable Guidance Annotations
 
-This is a design-only document. It specifies the exact future behavior for
-additive provider-config guidance annotations in blocked `assert-adoptable`
-output. No behavior is implemented by this PR.
+This document describes the implemented additive provider-config guidance
+annotations in blocked `assert-adoptable` output. The behavior is unit-tested
+and synthetic-fixture validated, but it is not currently live-lab validated.
 
 The adoption metadata framework is now intentionally boxed: validators,
 guidance, and reporting exist for `provider_config.requirements`,
 `absent_defaults.rules`, `dynamic_schema.rules`, and `sensitive_required.rules`,
 but committed pack metadata must not authorize projection, omission, drift
 tolerance, provider rendering, assert-adoptable downgrade, secret handling, or
-placeholder rendering. This design is the first behavior candidate for a narrow,
-additive annotation only.
+placeholder rendering. Provider-config guidance is deliberately limited to
+narrow, additive annotation only.
 
 ## Problem Statement
 
@@ -18,8 +18,7 @@ Some provider-level settings affect planned resource drift after import. The
 adoption oracle detects blocked drift paths in the saved plan. Pack metadata can
 declare provider-level settings known from lab evidence. When a blocked drift
 path matches a declared provider-config requirement, `assert-adoptable` should be
-able to annotate the blocked output with operator guidance. The plan remains
-blocked.
+annotated with operator guidance. The plan remains blocked.
 
 Concrete example from the Google Cloud lab
 (`docs/provider-labs/gcp-pr38.md`):
@@ -55,7 +54,7 @@ Provider-config guidance annotations must never:
 The annotation is informational only. A blocked plan remains blocked; a dirty
 plan remains dirty.
 
-## Allowed Future Behavior
+## Implemented Behavior
 
 When `assert-adoptable` has already identified blocked drift and one or more
 blocked plan paths match a `provider_config.requirements` entry's `plan_paths`,
@@ -75,7 +74,7 @@ Allowed modes for annotation:
 - `required_external`
 - `renderable_default`
 
-`renderable_default` is still guidance-only in this design. No provider block
+`renderable_default` is still guidance-only in this implementation. No provider block
 rendering is authorized.
 
 ## Matching Semantics
@@ -113,9 +112,10 @@ to every resource for that provider.
 
 ## Output Shape
 
-The output is additive. There is no existing formal `assert-adoptable` output
-schema in this design, so the following shapes are illustrative and must be
-aligned with whatever schema the implementation PR uses.
+The output is additive. There is no formal machine-readable `assert-adoptable`
+output schema today, so the following text shape is the supported human-facing
+format and the JSON-ish shape remains illustrative for any future structured
+output.
 
 ### Human-readable text example
 
@@ -183,19 +183,19 @@ the historical attribution-label drift on current main/provider flow, so that
 case is not current live validation for the `assert-adoptable` guidance
 annotation.
 
-The first implementation may remain unit-tested/synthetic until a current live
+The current implementation may remain unit-tested/synthetic until a current live
 provider-config failure is found. It should not be described as live-lab
 validated unless a current lab produces a blocked provider-config path, the
 annotation appears, and the plan remains blocked.
 
 Before expanding beyond this narrow provider-config guidance class, a second
-provider-config lab is required, preferably AWS or Azure. This design does not
-require the second lab before being accepted; it only requires the second lab
-before the behavior is generalized.
+provider-config lab is required, preferably AWS or Azure. The current
+implementation does not require the second lab to remain merged; it requires the
+second lab before the behavior is generalized.
 
-## Required Tests For Future Implementation
+## Implemented Test Coverage
 
-The future implementation PR must include tests covering:
+The implementation is covered by tests for:
 
 - No matching provider-config metadata -> existing blocked output unchanged.
 - Matching `required_external` requirement -> guidance annotation appears.
@@ -214,11 +214,12 @@ The future implementation PR must include tests covering:
 - Existing `assert-adoptable` tests remain unchanged except for additive
   annotation checks.
 
-These tests are not added by this design PR.
+These tests are synthetic/unit coverage. A current live provider-config lab is
+still required before describing the behavior as live-lab validated.
 
 ## Explicit Non-Goals
 
-This design does not authorize:
+This guidance behavior does not authorize:
 
 - provider config rendering
 - provider config mutation
@@ -253,18 +254,6 @@ provider config, or generated config migration is needed.
   `assert-adoptable` output.
 - `docs/provider-labs/gcp-pr38.md` contains the lab evidence that justifies the
   first annotation.
-
-## Out Of Scope For This PR
-
-This PR does not implement:
-
-- The annotation code.
-- Any change to `assert-adoptable` output.
-- Any change to `engine.provider_config`.
-- Any change to the provider-config validator.
-- Any pack metadata change.
-- Any test addition.
-- Any projection, omission, drift tolerance, or rendering behavior.
 
 ## Recommended Next Step
 

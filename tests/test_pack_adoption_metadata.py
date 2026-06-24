@@ -7,6 +7,7 @@ import os
 import unittest
 
 from engine import packs
+from engine import provider_config
 
 
 class PackAdoptionMetadataTest(unittest.TestCase):
@@ -26,11 +27,23 @@ class PackAdoptionMetadataTest(unittest.TestCase):
     def test_google_provider_config_metadata_validates(self):
         reqs = packs.provider_config_requirements("google")
         self.assertTrue(reqs)
-        req = next(r for r in reqs if r["id"] == "google_disable_attribution_label")
+        normalized = provider_config.validate_requirements(reqs)
+        req = next(
+            r for r in normalized
+            if r["id"] == "google_disable_attribution_label"
+        )
         self.assertEqual(req["provider"], "google")
         self.assertEqual(req["setting"], "add_terraform_attribution_label")
         self.assertEqual(req["value"], False)
+        self.assertEqual(req["mode"], "required_external")
+        self.assertEqual(req["evidence"], "docs/provider-labs/gcp-pr38.md")
         self.assertIn("terraform_labels.goog-terraform-provisioned", req["plan_paths"])
+
+    def test_committed_provider_config_requirements_validate(self):
+        reqs = packs.provider_config_requirements()
+        self.assertTrue(reqs)
+        normalized = provider_config.validate_requirements(reqs)
+        self.assertEqual(len(normalized), len(reqs))
 
     def test_netbox_absent_default_metadata_validates(self):
         rules = packs.absent_default_rules("netbox")
