@@ -63,6 +63,7 @@ class AdvisoryReportTest(unittest.TestCase):
             "projected_paths": 3,
             "omitted_by_policy": 1,
             "required_missing": 0,
+            "sensitive_present": 0,
             "sensitive_blocked": 0,
         })
         self.assertEqual(
@@ -94,8 +95,10 @@ class AdvisoryReportTest(unittest.TestCase):
 
         item = report["items"]["prod_app"]
         self.assertEqual(item["required_missing"], ["settings.mode"])
+        self.assertEqual(item["sensitive_present"], [])
         self.assertEqual(item["sensitive_blocked"], ["secret"])
         self.assertEqual(report["summary"]["required_missing"], 1)
+        self.assertEqual(report["summary"]["sensitive_present"], 0)
         self.assertEqual(report["summary"]["sensitive_blocked"], 1)
 
     def test_derives_sensitive_block_marker_missing_from_projected(self):
@@ -115,6 +118,7 @@ class AdvisoryReportTest(unittest.TestCase):
         )
 
         item = report["items"]["prod_app"]
+        self.assertEqual(item["sensitive_present"], [])
         self.assertEqual(item["sensitive_blocked"], ["webhook"])
         self.assertEqual(report["summary"]["sensitive_blocked"], 1)
 
@@ -137,6 +141,7 @@ class AdvisoryReportTest(unittest.TestCase):
         )
 
         item = report["items"]["prod_app"]
+        self.assertEqual(item["sensitive_present"], [])
         self.assertEqual(
             item["sensitive_blocked"],
             ["secure_json_data_encoded"],
@@ -163,7 +168,9 @@ class AdvisoryReportTest(unittest.TestCase):
         )
 
         item = report["items"]["prod_app"]
+        self.assertEqual(item["sensitive_present"], [])
         self.assertEqual(item["sensitive_blocked"], [])
+        self.assertEqual(report["summary"]["sensitive_present"], 0)
         self.assertEqual(report["summary"]["sensitive_blocked"], 0)
 
     def test_derives_sensitive_list_leaf_with_normalized_path(self):
@@ -185,9 +192,10 @@ class AdvisoryReportTest(unittest.TestCase):
         )
 
         item = report["items"]["prod_app"]
+        self.assertEqual(item["sensitive_present"], [])
         self.assertEqual(item["sensitive_blocked"], ["webhook[].url"])
 
-    def test_projected_sensitive_path_is_not_reported_blocked(self):
+    def test_projected_sensitive_leaf_is_reported_present_not_blocked(self):
         report = build_report(
             "sample_resource",
             {"prod_app": {"name": "Prod"}},
@@ -211,6 +219,64 @@ class AdvisoryReportTest(unittest.TestCase):
         )
 
         item = report["items"]["prod_app"]
+        self.assertEqual(
+            item["sensitive_present"],
+            ["secure_json_data_encoded"],
+        )
+        self.assertEqual(item["sensitive_blocked"], [])
+        self.assertEqual(report["summary"]["sensitive_present"], 1)
+        self.assertEqual(report["summary"]["sensitive_blocked"], 0)
+
+    def test_projected_sensitive_block_is_reported_present_not_blocked(self):
+        report = build_report(
+            "sample_resource",
+            {"prod_app": {"name": "Prod"}},
+            {
+                "prod_app": {
+                    "values": {
+                        "name": "Prod",
+                        "webhook": [{"url": "https://example.test/hook"}],
+                    },
+                    "sensitive_values": {"webhook": True},
+                }
+            },
+            {
+                "prod_app": {
+                    "name": "Prod",
+                    "webhook": [{"url": "managed"}],
+                }
+            },
+        )
+
+        item = report["items"]["prod_app"]
+        self.assertEqual(item["sensitive_present"], ["webhook"])
+        self.assertEqual(item["sensitive_blocked"], [])
+
+    def test_projected_sensitive_list_leaf_is_reported_present(self):
+        report = build_report(
+            "sample_resource",
+            {"prod_app": {"name": "Prod"}},
+            {
+                "prod_app": {
+                    "values": {
+                        "name": "Prod",
+                        "webhook": [{"url": "https://example.test/hook"}],
+                    },
+                    "sensitive_values": {
+                        "webhook": [{"url": True}],
+                    },
+                }
+            },
+            {
+                "prod_app": {
+                    "name": "Prod",
+                    "webhook": [{"url": "managed"}],
+                }
+            },
+        )
+
+        item = report["items"]["prod_app"]
+        self.assertEqual(item["sensitive_present"], ["webhook[].url"])
         self.assertEqual(item["sensitive_blocked"], [])
 
     def test_caller_supplied_sensitive_blocked_is_unioned(self):
@@ -235,6 +301,7 @@ class AdvisoryReportTest(unittest.TestCase):
         )
 
         item = report["items"]["prod_app"]
+        self.assertEqual(item["sensitive_present"], [])
         self.assertEqual(
             item["sensitive_blocked"],
             ["manual.secret", "secure_json_data_encoded"],

@@ -119,12 +119,14 @@ class AdoptCertifyCliTest(unittest.TestCase):
             "terraform_plan": "not_run_by_cli",
             "plan_cleanliness": "not_computed_by_cli_use_assert_adoptable",
             "required_missing": "caller_supplied_not_computed_by_cli",
+            "sensitive_present": "derived_from_oracle_sensitive_values",
             "sensitive_blocked": (
                 "derived_from_oracle_sensitive_values_or_caller_supplied"
             ),
         })
         self.assertEqual(report["summary"]["items"], 1)
         self.assertEqual(report["summary"]["required_missing"], 0)
+        self.assertEqual(report["summary"]["sensitive_present"], 0)
         self.assertEqual(report["summary"]["sensitive_blocked"], 0)
         self.assertEqual(
             report["items"]["prod_app"]["raw_only_paths"],
@@ -169,10 +171,57 @@ class AdoptCertifyCliTest(unittest.TestCase):
 
         self.assertEqual(code, 0, err)
         report = json.loads(out)
+        self.assertEqual(report["summary"]["sensitive_present"], 0)
         self.assertGreaterEqual(report["summary"]["sensitive_blocked"], 1)
         self.assertEqual(
             report["items"]["prod_app"]["sensitive_blocked"],
             ["webhook"],
+        )
+
+    def test_cli_derives_sensitive_present_from_projected_path(self):
+        raw = self._path("raw.json", {
+            "prod_app": {
+                "name": "Prod App",
+            }
+        })
+        oracle = self._path("oracle.json", {
+            "prod_app": {
+                "values": {
+                    "name": "Prod App",
+                    "secure_json_data_encoded": "secret",
+                },
+                "sensitive_values": {
+                    "secure_json_data_encoded": True,
+                },
+            }
+        })
+        projected = self._path("projected.json", {
+            "items": {
+                "prod_app": {
+                    "name": "Prod App",
+                    "secure_json_data_encoded": "managed",
+                }
+            }
+        })
+
+        code, out, err = self._run([
+            "--resource-type", "sample_resource",
+            "--raw", raw,
+            "--oracle-state", oracle,
+            "--projected", projected,
+        ])
+
+        self.assertEqual(code, 0, err)
+        report = json.loads(out)
+        self.assertEqual(report["summary"]["sensitive_present"], 1)
+        self.assertEqual(report["summary"]["sensitive_blocked"], 0)
+        self.assertEqual(
+            report["items"]["prod_app"]["sensitive_present"],
+            ["secure_json_data_encoded"],
+        )
+        self.assertEqual(
+            report["items"]["prod_app"]["sensitive_blocked"],
+            [],
         )
 
     def test_cli_reports_container_projection_omit_descendant_paths(self):
@@ -302,7 +351,11 @@ class AdoptCertifyCliTest(unittest.TestCase):
             text,
         )
         self.assertIn(
-            "`sensitive_blocked` can be derived by this CLI from oracle-state "
+            "`sensitive_blocked` can be derived by this CLI from oracle-state",
+            text,
+        )
+        self.assertIn(
+            "`sensitive_present` is derived by this CLI from oracle-state "
             "`sensitive_values`",
             text,
         )

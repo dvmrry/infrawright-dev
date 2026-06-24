@@ -41,7 +41,8 @@ python -m engine.adopt_certify \
 The command is fixture-driven. It does not run oracle import, projection, or Terraform plan.
 Plan cleanliness comes from `assert-adoptable`, not from the advisory report.
 It does not compute `required_missing`.
-It can derive `sensitive_blocked` from oracle-state `sensitive_values`.
+It can derive `sensitive_present` and `sensitive_blocked` from oracle-state
+`sensitive_values`.
 
 ## Inputs
 
@@ -92,6 +93,7 @@ The report is pretty JSON on stdout:
     "terraform_plan": "not_run_by_cli",
     "plan_cleanliness": "not_computed_by_cli_use_assert_adoptable",
     "required_missing": "caller_supplied_not_computed_by_cli",
+    "sensitive_present": "derived_from_oracle_sensitive_values",
     "sensitive_blocked": "derived_from_oracle_sensitive_values_or_caller_supplied"
   },
   "summary": {
@@ -101,6 +103,7 @@ The report is pretty JSON on stdout:
     "projected_paths": 3,
     "omitted_by_policy": 1,
     "required_missing": 0,
+    "sensitive_present": 0,
     "sensitive_blocked": 0
   },
   "items": {
@@ -121,6 +124,7 @@ The report is pretty JSON on stdout:
         "metadata.generate_name"
       ],
       "required_missing": [],
+      "sensitive_present": [],
       "sensitive_blocked": []
     }
   }
@@ -141,10 +145,14 @@ raw-only paths that Terraform/provider state never observed.
 contract for future in-process callers that can supply projection diagnostics.
 In CLI-generated reports it defaults to empty.
 
-`sensitive_blocked` can be derived by this CLI from oracle-state `sensitive_values`.
-Caller-supplied sensitive blocked diagnostics are unioned with derived paths.
-This is still static evidence: the command does not decide whether a sensitive
-block is structurally required for a valid Terraform plan.
+`sensitive_present` is derived by this CLI from oracle-state `sensitive_values`
+when a sensitive path is already present in projected config.
+
+`sensitive_blocked` can be derived by this CLI from oracle-state
+`sensitive_values` when a sensitive path is absent from projected config.
+Caller-supplied sensitive blocked diagnostics are unioned with derived blocked
+paths. This is still static evidence: the command does not decide whether a
+sensitive block is structurally required for a valid Terraform plan.
 
 ## Scope Boundary
 

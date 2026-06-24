@@ -7,8 +7,9 @@ Terraform control.
 
 ``required_missing`` is a caller-supplied side input. ``sensitive_blocked`` can
 be supplied by callers and is also derived from Terraform's ``sensitive_values``
-mirror in oracle state. This module does not run state projection or Terraform
-validation itself.
+mirror in oracle state. ``sensitive_present`` is derived from sensitive paths
+that are already present in projected config. This module does not run state
+projection or Terraform validation itself.
 """
 
 from engine import path_inventory
@@ -45,9 +46,13 @@ def build_report(
         projected_present_paths = (
             projected_paths | _container_paths(projected_value)
         )
+        sensitive_paths = _sensitive_paths(
+            oracle_entry.get("sensitive_values") or {})
+        derived_sensitive_present = (
+            sensitive_paths & projected_present_paths
+        )
         derived_sensitive_blocked = (
-            _sensitive_paths(oracle_entry.get("sensitive_values") or {})
-            - projected_present_paths
+            sensitive_paths - projected_present_paths
         )
 
         omitted = (
@@ -70,6 +75,7 @@ def build_report(
             "projected_paths": sorted(projected_paths),
             "omitted_by_policy": omitted_by_policy,
             "required_missing": sorted(_paths_for_key(required_missing, key)),
+            "sensitive_present": sorted(derived_sensitive_present),
             "sensitive_blocked": sorted(item_sensitive_blocked),
         }
 
@@ -88,6 +94,7 @@ def _summary(items):
         "projected_paths": 0,
         "omitted_by_policy": 0,
         "required_missing": 0,
+        "sensitive_present": 0,
         "sensitive_blocked": 0,
     }
     for item in items.values():
