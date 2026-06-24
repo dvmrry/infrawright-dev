@@ -12,6 +12,8 @@ import importlib
 import json
 import os
 
+from engine import absent_defaults_validator
+
 # The packs/ dir is anchored to the install (engine/.. == repo root), NOT the
 # current working directory: importing the engine from any cwd must neither
 # crash nor silently resolve to a different packs/. Override with the
@@ -273,6 +275,45 @@ def provider_config_requirements(provider=None):
             if provider is None or item.get("provider") == provider:
                 out.append(item)
     return out
+
+
+def absent_default_rules(provider=None):
+    """Absent/default rule metadata declared by pack manifests.
+
+    Shape:
+      "absent_defaults": {
+        "rules": [
+          {
+            "id": "netbox_device_empty_rack_face_placeholder",
+            "provider": "netbox",
+            "resource_type": "netbox_device",
+            "path": "rack_face",
+            "kind": "provider_absent_placeholder",
+            "observed_value": "",
+            "action": "manual_review_required",
+            "evidence": "docs/provider-labs/netbox-pr22.md",
+            "reason": "Provider reported an empty string placeholder for an absent optional rack face."
+          }
+        ]
+      }
+
+    This only exposes validated metadata. It does not normalize values, omit
+    values, change projection, or change drift policy.
+    """
+    out = []
+    for m in _manifests():
+        cfg = m.get("absent_defaults") or {}
+        providers = sorted(set((m.get("provider_prefixes") or {}).values()))
+        for rule in cfg.get("rules") or []:
+            item = dict(rule)
+            if "provider" not in item and len(providers) == 1:
+                item["provider"] = providers[0]
+            if provider is None or item.get("provider") == provider:
+                out.append(item)
+    return absent_defaults_validator.validate_absent_default_rules(
+        out,
+        provider_prefixes=provider_prefixes(),
+    )
 
 
 def adoption_status_paths():
