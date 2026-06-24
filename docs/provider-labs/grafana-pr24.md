@@ -167,5 +167,7 @@ provider import IDs that differ from API numeric IDs.
 The `grafana_contact_point` sensitive-but-structurally-required `webhook` block is
 not classified as absent/default or dynamic-schema metadata. It belongs to the
 sensitive-required remediation design documented in `docs/sensitive-required-remediation.md`.
-It is deliberately left unclassified in pack metadata until that design survives
-review and a validator-only implementation is planned.
+The V1 validator contract in that document is now tightened; the next step is
+external review, followed by a validator-contract PR. It is deliberately left
+unclassified in pack metadata until the validator contract survives review and a
+validator-only implementation is planned.
