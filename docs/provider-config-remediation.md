@@ -1,0 +1,229 @@
+# Provider Config Remediation Design
+
+This is a design note, not implemented behavior. Provider-config diagnostics
+already classify saved-plan drift against explicit pack metadata. Remediation
+would be the next step: letting a pack say which provider-level setting must be
+present for adoption to converge.
+
+The motivating case is the Google Cloud lab. With the default Google provider
+configuration, several imported resources planned an update under:
+
+```text
+terraform_labels.goog-terraform-provisioned
+```
+
+Setting `add_terraform_attribution_label = false` in provider configuration
+removed that drift. That is not a resource projection issue, not an
+absent/default normalization rule, and not a drift-policy tolerance. It is a
+provider-level adoption precondition.
+
+## Goals
+
+- Preserve provider-config drift as a distinct class from resource tfvars
+  projection.
+- Let packs document and eventually apply provider-level settings needed for
+  clean adoption.
+- Keep all provider-config behavior explicit, auditable, and backed by lab
+  evidence.
+- Fail loudly on conflicts, missing requirements, or unsafe metadata.
+- Keep consumer-owned credentials, endpoints, regions, tenants, and aliases out
+  of generated defaults unless a future design explicitly handles them.
+
+## Non-Goals
+
+- Do not infer provider settings from changed plan paths.
+- Do not use drift policy to suppress provider-config drift.
+- Do not normalize resource values to compensate for provider defaults.
+- Do not render credentials, tokens, tenant IDs, endpoints, account IDs, or
+  other environment-specific provider arguments from pack metadata.
+- Do not mutate user-authored provider configuration.
+- Do not implement provider-config remediation in this design PR.
+
+## Current Diagnostic Metadata
+
+Packs can already declare diagnostic requirements:
+
+```json
+{
+  "provider_config": {
+    "requirements": [
+      {
+        "id": "google_disable_attribution_label",
+        "provider": "google",
+        "setting": "add_terraform_attribution_label",
+        "value": false,
+        "reason": "Google provider adds terraform attribution labels by default.",
+        "resource_types": [
+          "google_bigquery_dataset",
+          "google_pubsub_subscription",
+          "google_pubsub_topic"
+        ],
+        "plan_paths": [
+          "terraform_labels.goog-terraform-provisioned"
+        ]
+      }
+    ]
+  }
+}
+```
+
+This remains diagnostic-only. `engine.provider_config` reads saved plan JSON and
+reports whether plan changes are explained by declared requirements. It does not
+render provider configuration.
+
+## Proposed Remediation Metadata
+
+Remediation should be an explicit extension of the diagnostic requirement, not a
+new inference path:
+
+```json
+{
+  "provider_config": {
+    "requirements": [
+      {
+        "id": "google_disable_attribution_label",
+        "provider": "google",
+        "setting": "add_terraform_attribution_label",
+        "value": false,
+        "reason": "Google provider adds terraform attribution labels by default.",
+        "plan_paths": [
+          "terraform_labels.goog-terraform-provisioned"
+        ],
+        "remediation": {
+          "kind": "provider_argument",
+          "mode": "renderable_default",
+          "evidence": "docs/provider-labs/gcp-pr38.md",
+          "safety": {
+            "non_sensitive": true,
+            "not_tenant_specific": true,
+            "not_destructive": true
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+The existing `setting` and `value` fields identify the provider argument to
+write. `plan_paths` remains the evidence link between provider drift and the
+setting. `remediation` declares that the requirement is eligible for future
+rendering or validation.
+
+### Remediation Modes
+
+`mode` should be intentionally small at first:
+
+- `diagnostic_only`: explain drift, but never render or enforce. This is the
+  current effective behavior and the safe default when `remediation` is absent.
+- `renderable_default`: future generated roots may render the provider argument
+  when the consumer has not supplied an override. The value must be
+  non-sensitive, provider-wide, and lab-proven.
+- `required_external`: the requirement is known, but the value must come from a
+  consumer-owned file or environment-specific provider config. The engine may
+  eventually fail with a clear message, but should not render the value.
+
+No other modes should be added until a provider lab proves the need.
+
+## Rendering Boundary
+
+Generated env roots currently render a minimal provider block:
+
+```hcl
+provider "google" {
+  # credentials via provider environment variables
+}
+```
+
+Future rendering, if accepted, should only add pack-approved provider arguments
+to generated provider blocks:
+
+```hcl
+provider "google" {
+  # credentials via provider environment variables
+  add_terraform_attribution_label = false
+}
+```
+
+The first implementation should not invent a general HCL merge engine. It
+should handle primitive provider arguments from `renderable_default`
+requirements only. Complex nested provider blocks, aliases, credentials,
+endpoints, and per-tenant values should remain out of scope.
+
+## Precedence
+
+Provider config has a wider blast radius than resource config, so precedence
+must be conservative:
+
+1. Consumer-owned provider configuration is authoritative.
+2. Pack `renderable_default` values may be generated only when no consumer
+   provider config path is active for that provider/root.
+3. If consumer config exists, generated roots should not attempt to merge pack
+   defaults into it.
+4. If a required setting is absent or conflicts, diagnostics should report the
+   missing or conflicting requirement instead of silently accepting drift.
+
+The exact consumer override path is intentionally not chosen here. A future PR
+should design it alongside implementation. Until then, provider-config
+remediation should stay a design/diagnostic concept.
+
+## Conflict Handling
+
+The engine should fail before rendering when pack metadata produces ambiguous
+provider configuration:
+
+- Two requirements for the same provider and setting specify different values.
+- A requirement marked `renderable_default` is missing safety evidence.
+- A `renderable_default` value is shaped like an object, list, or unknown
+  expression rather than a primitive JSON value.
+- A requirement has no `plan_paths`, `reason`, or lab evidence.
+- A provider root would need multiple incompatible provider aliases to satisfy
+  the requirement.
+
+Conflicts should be reported as provider-config metadata errors, not as
+adoption drift.
+
+## Promotion Criteria
+
+A provider-config requirement should not become `renderable_default` until a
+provider lab proves:
+
+- The default provider configuration creates saved-plan drift.
+- The proposed provider setting removes that drift.
+- The setting does not alter the remote object outside Terraform's attribution,
+  bookkeeping, or provider-owned metadata behavior.
+- The value is not secret and not environment-specific.
+- At least one resource that previously drifted becomes import-only/adoptable
+  after the setting is applied.
+- The lab report records cleanup and avoids committed state, plans, raw dumps,
+  credentials, logs, and temp roots.
+
+The GCP attribution-label finding satisfies the shape of this evidence, but the
+remediation behavior still needs an implementation PR and focused tests before
+any pack renders it.
+
+## Expected Workflow
+
+1. A lab finds provider-level drift in saved plan JSON.
+2. `engine.provider_config` reports the drift as unmatched.
+3. The pack adds a `provider_config.requirements` entry with `plan_paths`,
+   `setting`, `value`, and `reason`.
+4. The diagnostic reports the drift as a provider-config requirement.
+5. A later design-reviewed implementation may allow selected requirements to
+   become `renderable_default`.
+6. The original lab is rerun to prove the generated or required provider config
+   produces import-only/adoptable plans.
+
+## Open Questions
+
+- What consumer-owned provider config path should generated env roots respect?
+- Should `assert-adoptable` eventually fail with provider-config-specific
+  remediation text when matching drift is detected?
+- Should generated provider config be per resource root, per tenant, or shared
+  through a common generated file?
+- How should provider aliases be represented without expanding state blast
+  radius or hiding user intent?
+- Should provider-config metadata live only in pack manifests, or should tenant
+  overlays be able to disable a pack default?
+
+These should be answered before writing remediation code.

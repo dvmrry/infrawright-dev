@@ -58,7 +58,9 @@ into remediation behavior.
 Open classes should remain separate until lab evidence proves the smallest safe
 behavior:
 
-- Provider-config remediation or provider-config rendering from pack metadata.
+- Provider-config remediation or provider-config rendering from pack metadata;
+  proposed in [Provider Config Remediation Design](provider-config-remediation.md),
+  not implemented.
 - Provider-specific absent/default normalization rules.
 - Dynamic schema remediation strategy for opaque maps, open objects, and
   dynamic attributes.
@@ -84,7 +86,8 @@ preserve the existing fail-loud behavior outside its narrow class.
 
 ## Recommended Next Implementation Order
 
-1. Propose provider-config remediation and pack rendering semantics.
+1. Review the provider-config remediation design, then implement a narrow
+   renderer/validator only if the design is accepted.
 2. Propose absent/default normalization semantics.
 3. Propose dynamic schema remediation semantics.
 4. Run a billing-enabled Google Cloud lab or a focused AWS/Azure lab.
