@@ -337,12 +337,13 @@ The first behavior PR, if any, should be validator-only:
 - Change no drift policy behavior.
 - Do not alter `assert-adoptable` status.
 
-## Future Assert-Adoptable Guidance
+## Assert-Adoptable Guidance
 
-Matching an absent/default candidate may eventually annotate blocked drift with
-guidance. That annotation must keep the plan blocked until a future explicit
-projection rule exists and has transformed the projected config before plan
-generation.
+Matching an absent/default candidate can annotate blocked drift with guidance
+when committed pack metadata declares a manual-review rule for the same
+provider, resource scope, and plan path. That annotation keeps the plan blocked
+until a future explicit projection rule exists and has transformed the projected
+config before plan generation.
 
 Absent/default diagnostics must not become drift tolerance.
 
@@ -392,6 +393,8 @@ The V1 absent/default validator:
 - Does not enforce cross-class duplicates.
 - Does not authorize behavior.
 - Does not create a second omission path parallel to `projection_omit`.
+- May be used by `assert-adoptable` for additive manual-review guidance while
+  preserving blocked plan status.
 
 ## Pack Metadata Key
 

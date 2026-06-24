@@ -266,12 +266,139 @@ def _provider_config_guidance(plan, resource_type):
     return guidance
 
 
-def _print_findings(findings, provider_config_guidance=None):
+def _absent_default_guidance(plan, resource_type):
+    try:
+        return _absent_default_guidance_impl(plan, resource_type)
+    except Exception:
+        return {}
+
+
+def _absent_default_guidance_impl(plan, resource_type):
+    from engine import schema_paths
+    from engine.plan_eval import diff_paths, truthy_paths
+
+    provider = packs.provider_of(resource_type)
+    rules = packs.absent_default_rules(provider)
+    by_path = {}
+    for rule in rules:
+        if rule.get("action") != "manual_review_required":
+            continue
+        if not _absent_default_rule_matches(rule, provider, resource_type):
+            continue
+        path = _absent_default_plan_path(rule)
+        by_path.setdefault(path, []).append(rule)
+    if not by_path:
+        return {}
+
+    guidance = {}
+    for source in ("resource_changes", "resource_drift"):
+        for rc in plan.get(source) or []:
+            if rc.get("type") != resource_type:
+                continue
+            change = rc.get("change") or {}
+            if "update" not in set(change.get("actions") or []):
+                continue
+            before = change.get("before")
+            paths = sorted(
+                set(diff_paths(before, change.get("after")))
+                | set(truthy_paths(change.get("after_unknown")))
+                | set(truthy_paths(change.get("before_sensitive")))
+                | set(truthy_paths(change.get("after_sensitive")))
+            )
+            for path in paths:
+                formatted = schema_paths.format_path(path)
+                for rule in by_path.get(formatted, []):
+                    if not _absent_default_observed_value_matches(rule, before, path):
+                        continue
+                    key = (source, rc.get("address"), formatted)
+                    guidance.setdefault(key, []).append(
+                        _absent_default_guidance_item(source, rc, formatted, rule)
+                    )
+    return guidance
+
+
+def _absent_default_rule_matches(rule, provider, resource_type):
+    if rule.get("provider") != provider:
+        return False
+    if "resource_type" in rule:
+        return rule["resource_type"] == resource_type
+    prefix = rule.get("resource_prefix")
+    return bool(prefix and resource_type.startswith(prefix))
+
+
+def _absent_default_plan_path(rule):
+    from engine import schema_paths
+
+    path = rule.get("plan_path") or rule.get("path")
+    try:
+        return schema_paths.format_path(schema_paths.parse_report_path(path))
+    except Exception:
+        return path
+
+
+_MISSING_ABSENT_DEFAULT_VALUE = object()
+
+
+def _absent_default_observed_value_matches(rule, before, path):
+    if "observed_value" not in rule:
+        return True
+    actual = _absent_default_path_value(before, path)
+    if actual is _MISSING_ABSENT_DEFAULT_VALUE:
+        return False
+    return _same_json_value(actual, rule.get("observed_value"))
+
+
+def _absent_default_path_value(value, path):
+    cur = value
+    for segment in path:
+        if isinstance(segment, int):
+            if not isinstance(cur, list):
+                return _MISSING_ABSENT_DEFAULT_VALUE
+            if segment < 0 or segment >= len(cur):
+                return _MISSING_ABSENT_DEFAULT_VALUE
+            cur = cur[segment]
+        elif isinstance(cur, dict) and segment in cur:
+            cur = cur[segment]
+        else:
+            return _MISSING_ABSENT_DEFAULT_VALUE
+    return cur
+
+
+def _same_json_value(actual, expected):
+    if isinstance(actual, bool) or isinstance(expected, bool):
+        return actual is expected
+    if isinstance(actual, (int, float)) and isinstance(expected, (int, float)):
+        return actual == expected
+    return type(actual) is type(expected) and actual == expected
+
+
+def _absent_default_guidance_item(source, rc, path, rule):
+    return {
+        "source": source,
+        "address": rc.get("address"),
+        "resource_type": rc.get("type"),
+        "provider": rule["provider"],
+        "path": path,
+        "rule": rule["id"],
+        "kind": rule["kind"],
+        "action": rule["action"],
+        "observed_value": rule.get("observed_value"),
+        "evidence": rule.get("evidence"),
+        "reason": rule.get("reason"),
+    }
+
+
+def _print_findings(
+        findings,
+        provider_config_guidance=None,
+        absent_default_guidance=None):
     from engine.plan_eval import BLOCKED, TOLERATED, format_path
     from engine import schema_paths
 
     provider_config_guidance = provider_config_guidance or {}
-    all_annotations = []
+    absent_default_guidance = absent_default_guidance or {}
+    all_provider_config_annotations = []
+    all_absent_default_annotations = []
     for finding in findings:
         if finding.get("status") not in (BLOCKED, TOLERATED):
             continue
@@ -283,7 +410,8 @@ def _print_findings(findings, provider_config_guidance=None):
                 finding.get("status"),
             )
         )
-        annotations = []
+        provider_config_annotations = []
+        absent_default_annotations = []
         for path in finding.get("paths") or []:
             rendered = format_path(path)
             sys.stderr.write("    - %s\n" % rendered)
@@ -304,13 +432,27 @@ def _print_findings(findings, provider_config_guidance=None):
             ):
                 if item.get("mode") not in ("required_external", "renderable_default"):
                     continue
-                annotations.append(item)
-        if annotations:
-            all_annotations.extend(annotations)
-    if all_annotations:
+                provider_config_annotations.append(item)
+            for item in sorted(
+                absent_default_guidance.get(guidance_key, []),
+                key=lambda i: (
+                    i.get("provider", ""),
+                    i.get("resource_type", ""),
+                    i.get("path", ""),
+                    i.get("rule", ""),
+                ),
+            ):
+                if item.get("action") != "manual_review_required":
+                    continue
+                absent_default_annotations.append(item)
+        if provider_config_annotations:
+            all_provider_config_annotations.extend(provider_config_annotations)
+        if absent_default_annotations:
+            all_absent_default_annotations.extend(absent_default_annotations)
+    if all_provider_config_annotations:
         sys.stderr.write("  Provider configuration guidance:\n")
         for item in sorted(
-            all_annotations,
+            all_provider_config_annotations,
             key=lambda i: (
                 i.get("provider", ""),
                 i.get("setting", ""),
@@ -328,6 +470,34 @@ def _print_findings(findings, provider_config_guidance=None):
             sys.stderr.write(
                 "      matched plan path: %s\n" % item.get("path")
             )
+            sys.stderr.write("      reason: %s\n" % item.get("reason"))
+            if item.get("evidence"):
+                sys.stderr.write("      evidence: %s\n" % item.get("evidence"))
+            sys.stderr.write(
+                "      status: informational only; plan remains blocked\n"
+            )
+    if all_absent_default_annotations:
+        sys.stderr.write("  Absent/default guidance:\n")
+        for item in sorted(
+            all_absent_default_annotations,
+            key=lambda i: (
+                i.get("provider", ""),
+                i.get("resource_type", ""),
+                i.get("path", ""),
+                i.get("rule", ""),
+            ),
+        ):
+            sys.stderr.write("    - rule: %s\n" % item.get("rule"))
+            sys.stderr.write("      provider: %s\n" % item.get("provider"))
+            sys.stderr.write("      resource type: %s\n" % item.get("resource_type"))
+            sys.stderr.write("      kind: %s\n" % item.get("kind"))
+            sys.stderr.write("      action: %s\n" % item.get("action"))
+            if "observed_value" in item:
+                sys.stderr.write(
+                    "      observed value: %s\n"
+                    % json.dumps(item.get("observed_value"), sort_keys=True)
+                )
+            sys.stderr.write("      matched plan path: %s\n" % item.get("path"))
             sys.stderr.write("      reason: %s\n" % item.get("reason"))
             if item.get("evidence"):
                 sys.stderr.write("      evidence: %s\n" % item.get("evidence"))
@@ -506,6 +676,9 @@ def cmd_assert_adoptable(opts):
             _print_findings(
                 result["findings"],
                 provider_config_guidance=_provider_config_guidance(
+                    plan, resource_type
+                ),
+                absent_default_guidance=_absent_default_guidance(
                     plan, resource_type
                 ),
             )
