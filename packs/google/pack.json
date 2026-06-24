@@ -1,0 +1,35 @@
+{
+  "pin": "7.38.0",
+  "provider_prefixes": {
+    "google_": "google"
+  },
+  "provider_sources": {
+    "google": "hashicorp/google"
+  },
+  "vendor": "google",
+  "provider_config": {
+    "requirements": [
+      {
+        "id": "google_disable_attribution_label",
+        "provider": "google",
+        "setting": "add_terraform_attribution_label",
+        "value": false,
+        "reason": "Google provider adds terraform attribution labels by default, which causes saved-plan drift on importable resources. The consumer must set this provider argument to false for clean adoption.",
+        "resource_types": [
+          "google_bigquery_dataset",
+          "google_pubsub_subscription",
+          "google_pubsub_topic"
+        ],
+        "plan_paths": [
+          "terraform_labels.goog-terraform-provisioned"
+        ],
+        "remediation": {
+          "kind": "provider_argument",
+          "mode": "required_external",
+          "evidence": "docs/provider-labs/gcp-pr38.md",
+          "reason": "Lab proved the drift disappears when consumer-owned provider configuration sets add_terraform_attribution_label=false."
+        }
+      }
+    ]
+  }
+}

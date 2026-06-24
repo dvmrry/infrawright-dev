@@ -98,3 +98,14 @@ preserve the existing fail-loud behavior outside its narrow class.
 
 After each behavior proposal, run at least one provider lab that originally
 exposed the failure class before generalizing the behavior.
+
+## Pack Metadata Checkpoint
+
+Lab-derived adoption metadata is now committed in pack manifests:
+
+| Provider | Metadata class | Evidence | Status |
+|---|---|---|---|
+| Google Cloud | `provider_config.requirements` | `docs/provider-labs/gcp-pr38.md` | Validated, guidance-only. |
+| NetBox | `absent_defaults.rules` | `docs/provider-labs/netbox-pr22.md` | Validated, manual-review only. |
+| Cloudflare | `absent_defaults.rules` + `dynamic_schema.rules` | `docs/provider-labs/cloudflare-free-tier-pr32.md` | Validated, manual-review only. |
+| Grafana | unclassified | `docs/provider-labs/grafana-pr24.md` | Pending sensitive-required design. |
