@@ -210,6 +210,66 @@ make check
 git diff --check
 ```
 
+## Provider-Config Guidance Negative Retest
+
+Date: 2026-06-24
+Commit: `f11dadc`
+
+A live retest was run after provider-config `assert-adoptable` guidance
+annotations were implemented. The retest did not validate the annotation
+because the historical attribution-label drift no longer reproduced on current
+main/provider flow.
+
+Result:
+
+- The narrow GCP subset was seeded: `google_bigquery_dataset`,
+  `google_pubsub_topic`, and `google_pubsub_subscription`.
+- The seed used `add_terraform_attribution_label = false`.
+- Import-oracle/adoption flow succeeded.
+- Initial saved plans were import-only and `assert-adoptable` reported clean.
+- After applying import-only plans to local state, unstaging imports, and
+  replanning, post-import saved plans were still clean.
+- `assert-adoptable` reported all saved plans clean.
+- No blocked plan path existed for
+  `terraform_labels.goog-terraform-provisioned`.
+- Therefore the provider-config guidance annotation did not have a live blocked
+  path to attach to.
+
+Additional attempted reproduction:
+
+- `GOOGLE_ADD_TERRAFORM_ATTRIBUTION_LABEL=true`
+- explicit temporary tfvars value for
+  `terraform_labels.goog-terraform-provisioned`
+
+Both attempts still produced clean plans. `terraform_labels` is computed-only
+for the tested resources, and generated modules do not render it as input.
+
+Sanitized output excerpt:
+
+```text
+post-import assert-adoptable:
+all 3 saved plan(s) clean
+
+forced attribution env assert-adoptable:
+all 3 saved plan(s) clean
+
+forced terraform_labels tfvars assert-adoptable:
+all 3 saved plan(s) clean
+```
+
+Conclusion: the historical GCP attribution-label drift documented in this lab is
+not currently reproducible on current main/provider flow. This lab remains
+useful historical evidence for the provider-config failure class, but it should
+not be treated as current live validation for provider-config
+`assert-adoptable` guidance annotations.
+
+Cleanup:
+
+- Terraform destroy completed for the three seeded retest resources.
+- The retest worktree was clean after cleanup.
+- No logs, state, plans, credentials, project IDs, local temp roots, generated
+  tfvars/import blocks, or provider artifacts were committed.
+
 ## Follow-Ups
 
 - `pack:provider-config`: use provider-config diagnostics for

@@ -171,13 +171,22 @@ In all failure cases, `assert-adoptable` behaves exactly as it does today.
 
 ## Evidence Requirements
 
-Before the first implementation PR merges, the following evidence must exist:
+Before broadening or relying on provider-config guidance as live-validated
+behavior, at least one current provider-config lab must produce a blocked plan
+path that matches committed provider-config metadata and show the annotation
+appears while the plan remains blocked.
 
-- The existing GCP lab evidence in `docs/provider-labs/gcp-pr38.md` remains the
-  basis for the attribution-label annotation.
-- A GCP lab re-run showing the annotation appears for the known attribution-label
-  drift when the behavior is implemented. The implementation must be validated by
-  this re-run before broadening the behavior to other provider-config classes.
+The existing GCP lab evidence in `docs/provider-labs/gcp-pr38.md` remains
+historical evidence for the attribution-label failure class and the committed
+Google provider-config requirement. A later live GCP retest did not reproduce
+the historical attribution-label drift on current main/provider flow, so that
+case is not current live validation for the `assert-adoptable` guidance
+annotation.
+
+The first implementation may remain unit-tested/synthetic until a current live
+provider-config failure is found. It should not be described as live-lab
+validated unless a current lab produces a blocked provider-config path, the
+annotation appears, and the plan remains blocked.
 
 Before expanding beyond this narrow provider-config guidance class, a second
 provider-config lab is required, preferably AWS or Azure. This design does not
@@ -226,6 +235,9 @@ This design does not authorize:
 - raw API inference
 - automatic remediation
 
+The negative GCP retest does not authorize any provider-config rendering,
+mutation, drift tolerance, or status downgrade.
+
 ## Rollback Plan
 
 The behavior is additive output only. Reverting the annotation code removes the
@@ -256,6 +268,7 @@ This PR does not implement:
 
 ## Recommended Next Step
 
-After this design PR is accepted, the next PR is a narrow implementation of the
-annotation behavior against the existing Google Cloud provider-config metadata.
-That implementation PR must remain additive, fail-closed, and annotation-only.
+Keep the annotation behavior additive, fail-closed, and annotation-only. Before
+broadening it or treating it as live-lab validated, run a provider-config lab
+that currently produces a blocked plan path matching committed metadata and
+shows the guidance annotation while the plan remains blocked.
