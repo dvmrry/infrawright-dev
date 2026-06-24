@@ -30,6 +30,39 @@ raw API fetch
 - It does not generate `lifecycle.ignore_changes`.
 - It does not fix provider read/write bugs.
 
+## Adoption Identity Metadata
+
+Pack registries can provide explicit identity metadata for resources whose raw
+API, provider import docs, and Terraform state use different names for the same
+object identity:
+
+```json
+{
+  "cloudflare_d1_database": {
+    "generate": true,
+    "product": "cloudflare",
+    "adopt": {
+      "key_field": "name",
+      "identity_fields": {
+        "raw_id": "uuid",
+        "import_id": "uuid"
+      }
+    }
+  }
+}
+```
+
+`identity_fields` copies named raw identity paths into canonical identity fields
+used by adoption. It preserves the source paths, fails loudly when a configured
+path is missing, and does not infer aliases from field names. If an
+`identity_fields.import_id` alias is present and `adopt.import_id` is omitted,
+the import template defaults to `{import_id}`. An explicit `adopt.import_id`
+always wins.
+
+This metadata is only for stable key/import derivation. It does not change
+Terraform schema projection, HCL rendering, advisory classification, or provider
+state semantics.
+
 ## Workflow
 
 ```sh

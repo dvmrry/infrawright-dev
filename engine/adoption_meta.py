@@ -18,7 +18,8 @@ def adoption_entry(resource_type):
       "adopt": {
         "key_field": "name",
         "import_id": "{id}",
-        "identity_renames": {"vpnConnectionId": "id"}
+        "identity_renames": {"vpnConnectionId": "id"},
+        "identity_fields": {"import_id": "uuid"}
       }
 
     Existing packs can fall back to transform overrides for first-branch
@@ -27,12 +28,22 @@ def adoption_entry(resource_type):
     reg = load_registry().get(resource_type, {})
     explicit = reg.get("adopt") or {}
     override = transform.load_override(resource_type)
+    identity_fields = _identity_fields(explicit, override)
+    if "import_id" in explicit:
+        import_id = explicit["import_id"]
+    elif "import_id" in override:
+        import_id = override["import_id"]
+    elif "import_id" in identity_fields:
+        import_id = "{import_id}"
+    else:
+        import_id = "{id}"
     return {
         "key_field": explicit.get("key_field", override.get("key_field", "name")),
-        "import_id": explicit.get("import_id", override.get("import_id", "{id}")),
+        "import_id": import_id,
         "identity_renames": explicit.get(
             "identity_renames", override.get("renames", {})
         ),
+        "identity_fields": identity_fields,
         "skip_if": explicit.get("skip_if", override.get("skip_if", [])),
     }
 
@@ -41,11 +52,28 @@ def identity_item(raw, resource_type):
     """Return a snake_cased item suitable for key/import-id derivation only."""
     meta = adoption_entry(resource_type)
     item = transform.snake_keys(raw)
+    raw_item = dict(item)
     for old, new in sorted((meta.get("identity_renames") or {}).items()):
         old_snake = transform.snake(old)
         new_snake = transform.snake(new)
         if old_snake in item:
             item[new_snake] = item.pop(old_snake)
+    for alias, path in sorted((meta.get("identity_fields") or {}).items()):
+        value = _path_value(raw_item, path)
+        if value is _MISSING:
+            value = _path_value(item, path)
+        if value is _MISSING:
+            raise KeyError(
+                "%s adopt.identity_fields.%s path %r missing from item"
+                % (resource_type, alias, path)
+            )
+        if alias in item and item[alias] != value:
+            raise ValueError(
+                "%s adopt.identity_fields.%s path %r would overwrite existing "
+                "field %r (%r != %r)"
+                % (resource_type, alias, path, alias, item[alias], value)
+            )
+        item[alias] = value
     return item
 
 
@@ -93,6 +121,21 @@ def derive_import_id_from_identity(item, meta, resource_type, key):
 
 
 _MISSING = object()
+
+
+def _identity_fields(explicit, override):
+    fields = explicit.get("identity_fields", override.get("identity_fields", {}))
+    if fields is None:
+        return {}
+    if not isinstance(fields, dict):
+        raise ValueError("adopt.identity_fields must be an object")
+    out = {}
+    for alias, path in sorted(fields.items()):
+        alias_snake = transform.snake(alias)
+        if not alias_snake:
+            raise ValueError("adopt.identity_fields contains an empty alias")
+        out[alias_snake] = str(path)
+    return out
 
 
 def _path_value(item, path):
