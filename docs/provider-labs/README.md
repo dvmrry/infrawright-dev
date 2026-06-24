@@ -186,11 +186,11 @@ Use these buckets so provider findings stay comparable:
 
 - `engine:dynamic-schema` for Terraform `dynamic` attributes or normalized
   dynamic values. Use [dynamic-schema-diagnostics.md](../dynamic-schema-diagnostics.md)
-  to classify lab paths before choosing a remediation.
+  to classify lab paths before choosing a follow-up behavior.
 - `engine:absent-defaults` for provider-specific null/empty/zero/default drift.
   Use [absent-default-diagnostics.md](../absent-default-diagnostics.md) to
   classify projected placeholders and saved-plan diffs before choosing a
-  remediation.
+  follow-up behavior.
 - `engine:sensitive-required` for sensitive state that is structurally required
   by Terraform config. Use [sensitive-required-diagnostics.md](../sensitive-required-diagnostics.md)
   to classify schema-required and validation-required evidence separately.
@@ -202,7 +202,8 @@ Use these buckets so provider findings stay comparable:
 - `pack:provider-config` for provider-level settings needed to prevent
   adoption drift. Use
   [provider-config-diagnostics.md](../provider-config-diagnostics.md) to
-  classify saved-plan diffs against explicit pack metadata.
+  classify saved-plan diffs against explicit pack metadata. Provider-config
+  findings should produce guidance, not generated provider configuration.
 - `provider-boundary:paid-or-disabled` for plan, product, or feature gates.
 - `provider-boundary:deprecated-api` for provider resources backed by deprecated
   or maintenance-mode APIs.
