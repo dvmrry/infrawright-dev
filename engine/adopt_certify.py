@@ -22,6 +22,7 @@ _STATIC_REPORT_METADATA = {
     "terraform_plan": "not_run_by_cli",
     "plan_cleanliness": "not_computed_by_cli_use_assert_adoptable",
     "required_missing": "caller_supplied_not_computed_by_cli",
+    "sensitive_present": "derived_from_oracle_sensitive_values",
     "sensitive_blocked": (
         "derived_from_oracle_sensitive_values_or_caller_supplied"
     ),
@@ -100,8 +101,8 @@ def main(argv=None):
             "Build a fixture-driven static adoption advisory diff. "
             "This CLI does not run oracle import, projection, or Terraform "
             "plan; required_missing is caller-supplied and sensitive_blocked "
-            "is derived from oracle sensitive_values plus caller-supplied "
-            "diagnostics."
+            "and sensitive_present are derived from oracle sensitive_values; "
+            "sensitive_blocked also includes caller-supplied diagnostics."
         ))
     parser.add_argument("--resource-type", required=True)
     parser.add_argument("--raw", required=True)

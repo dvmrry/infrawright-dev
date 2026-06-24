@@ -41,6 +41,8 @@ provider-specific policy, or explicit non-automatable boundaries.
 |---|---|---|
 | Static advisory diff | Implemented | Compare raw API leaf paths, oracle provider state paths, projected tfvars paths, and policy omissions. |
 | Sensitive blocked | Implemented | Derive sensitive provider-observed paths from oracle-state `sensitive_values` when projection omits them. |
+| Sensitive present | Implemented | Derive sensitive provider-observed paths from oracle-state `sensitive_values` when projection includes them. |
+| Block/container policy omissions | Implemented | Classify provider-observed descendants under block-level `projection_omit` entries without hiding raw-only paths. |
 | Identity alias metadata | Implemented | Map raw, import, and state identity fields explicitly without name inference. |
 | Dynamic schema diagnostics | Implemented | Classify map keys, dynamic values, open object members, computed-only fields, and unknown schema paths. |
 | Absent/default diagnostics | Implemented | Classify placeholder-shaped projected values and saved-plan absent/default drift candidates. |
@@ -56,10 +58,6 @@ into remediation behavior.
 Open classes should remain separate until lab evidence proves the smallest safe
 behavior:
 
-- Block/container-level `projection_omit` advisory reporting, tracked as
-  `engine:advisory-containers`.
-- A `sensitive_present` advisory bucket for sensitive paths that are already
-  projected and therefore not blocked.
 - Provider-config remediation or provider-config rendering from pack metadata.
 - Provider-specific absent/default normalization rules.
 - Dynamic schema remediation strategy for opaque maps, open objects, and
@@ -86,12 +84,10 @@ preserve the existing fail-loud behavior outside its narrow class.
 
 ## Recommended Next Implementation Order
 
-1. Add block/container-level `projection_omit` advisory reporting.
-2. Add a `sensitive_present` advisory bucket.
-3. Propose provider-config remediation and pack rendering semantics.
-4. Propose absent/default normalization semantics.
-5. Propose dynamic schema remediation semantics.
-6. Run a billing-enabled Google Cloud lab or a focused AWS/Azure lab.
+1. Propose provider-config remediation and pack rendering semantics.
+2. Propose absent/default normalization semantics.
+3. Propose dynamic schema remediation semantics.
+4. Run a billing-enabled Google Cloud lab or a focused AWS/Azure lab.
 
 After each remediation proposal, run at least one provider lab that originally
 exposed the failure class before generalizing the behavior.
