@@ -10,15 +10,8 @@ import json
 import sys
 
 from engine import path_inventory
-from engine.drift_policy import parse_path
-from engine.tfschema import (
-    attr_type,
-    block_is_single,
-    classify_attributes,
-    input_block_types,
-    load_resource,
-    resource_input_attrs,
-)
+from engine import schema_paths
+from engine.tfschema import load_resource
 
 
 def build_report(
@@ -55,12 +48,17 @@ def _classify_item(resource_type, provider_values, sensitive_values, projected,
                    required_paths):
     projected_present = (
         set(path_inventory.leaf_paths(projected))
-        | _container_paths(projected)
+        | schema_paths.container_paths(projected)
     )
+    block = load_resource(resource_type)["block"]
     out = []
     for marker in _sensitive_markers(sensitive_values, provider_values):
         path = marker["path"]
-        schema = _schema_status(resource_type, _parse_report_path(path))
+        schema = schema_paths.schema_status_for_block(
+            block,
+            schema_paths.parse_report_path(path),
+            block_mode="requiredness",
+        )
         required_evidence = []
         if schema == "required":
             required_evidence.append("schema")
@@ -96,7 +94,7 @@ def _sensitive_markers(sensitive_values, provider_values):
 def _walk_sensitive(sensitive_value, provider_value, path, out):
     if sensitive_value is True:
         out.append({
-            "path": path_inventory.format_path(path),
+            "path": schema_paths.format_path(path),
             "marker": (
                 "container"
                 if isinstance(provider_value, (dict, list)) else "leaf"
@@ -120,100 +118,9 @@ def _walk_sensitive(sensitive_value, provider_value, path, out):
             _walk_sensitive(
                 child,
                 provider_child,
-                path + (path_inventory.LIST_MARKER,),
+                path + (schema_paths.LIST_MARKER,),
                 out,
             )
-
-
-def _container_paths(value):
-    out = set()
-    _walk_containers(value, (), out)
-    return out
-
-
-def _walk_containers(value, path, out):
-    if isinstance(value, dict):
-        if path:
-            out.add(path_inventory.format_path(path))
-        for key in sorted(value, key=lambda item: str(item)):
-            _walk_containers(value[key], path + (str(key),), out)
-        return
-    if isinstance(value, list):
-        if path:
-            out.add(path_inventory.format_path(path))
-        for child in value:
-            _walk_containers(
-                child,
-                path + (path_inventory.LIST_MARKER,),
-                out,
-            )
-
-
-def _schema_status(resource_type, path):
-    block = load_resource(resource_type)["block"]
-    return _schema_status_block(block, path, resource_top=True)
-
-
-def _schema_status_block(block, path, resource_top):
-    if not path:
-        return "block"
-    segment = path[0]
-    if not isinstance(segment, str) or segment == path_inventory.LIST_MARKER:
-        return "unknown"
-    cls = resource_input_attrs(block) if resource_top else classify_attributes(block)
-    attrs = block.get("attributes") or {}
-    blocks = input_block_types(block)
-    if segment in cls["required"] or segment in cls["optional"]:
-        base = "required" if segment in cls["required"] else "optional"
-        if len(path) == 1:
-            return base
-        return _schema_status_encoding(attr_type(attrs[segment]), path[1:], base)
-    if segment in blocks:
-        bt = blocks[segment]
-        if len(path) == 1:
-            return "required" if (bt.get("min_items") or 0) >= 1 else "optional"
-        remaining = _strip_collection_selector(path[1:])
-        inner = _schema_status_block(bt["block"], remaining, resource_top=False)
-        if inner == "required" and not block_is_single(bt):
-            return "required"
-        return inner
-    if segment in attrs or segment in (block.get("block_types") or {}):
-        return "computed_only"
-    return "unknown"
-
-
-def _schema_status_encoding(encoding, path, base):
-    if not path:
-        return base
-    if isinstance(encoding, list) and len(encoding) == 2:
-        kind, inner = encoding
-        if kind in ("list", "set"):
-            return _schema_status_encoding(
-                inner, _strip_collection_selector(path), base
-            )
-        if kind == "map":
-            return base
-        if kind == "object" and isinstance(inner, dict):
-            child = path[0]
-            if isinstance(child, str) and child in inner:
-                return _schema_status_encoding(inner[child], path[1:], base)
-    return "unknown"
-
-
-def _strip_collection_selector(path):
-    if path and (path[0] == path_inventory.LIST_MARKER or isinstance(path[0], int)):
-        return path[1:]
-    return path
-
-
-def _parse_report_path(path):
-    if path == "<root>":
-        return ()
-    normalized = path.replace("[]", "[*]")
-    return tuple(
-        path_inventory.LIST_MARKER if segment == "*" else segment
-        for segment in parse_path(normalized)
-    )
 
 
 def _normalize_required_paths(value):
@@ -230,8 +137,8 @@ def _normalize_required_paths(value):
 
 def _format_required_path(path):
     if isinstance(path, str):
-        return path_inventory.format_path(_parse_report_path(path))
-    return path_inventory.format_path(path)
+        return schema_paths.format_path(schema_paths.parse_report_path(path))
+    return schema_paths.format_path(path)
 
 
 def _summary(items):
