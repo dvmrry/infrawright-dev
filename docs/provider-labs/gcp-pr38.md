@@ -3,7 +3,7 @@
 Date: 2026-06-24  
 Provider: `hashicorp/google` `v7.38.0`  
 Terraform: `v1.15.4`  
-Target: disposable Google Cloud project `iw-cf-lab`
+Target: disposable Google Cloud project `<disposable-gcp-project>`
 
 This lab exercised the import-oracle adoption path and static advisory report
 against a disposable Google Cloud project. This is a provider lab report, not a
@@ -22,10 +22,10 @@ state, projected tfvars, Terraform roots, state, plans, and logs were kept under
 | Initial import-only/adoptable plan | 2 |
 | Initial blocked by provider-label drift | 3 |
 | Final import-only/adoptable plan | 5 |
-| Required missing | 0 |
+| Required missing (caller-supplied diagnostics) | 0 |
 | Sensitive blocked | 0 |
 
-Static advisory totals for the five certified resources:
+Static advisory totals for the five import-only/adoptable resources:
 
 | Advisory bucket | Count |
 |---|---:|
@@ -34,7 +34,7 @@ Static advisory totals for the five certified resources:
 | Raw-only paths | 19 |
 | Provider-only paths | 23 |
 | Omitted by policy | 0 |
-| Required missing | 0 |
+| Required missing (caller-supplied diagnostics) | 0 |
 | Sensitive blocked | 0 |
 
 Cleanup: Terraform destroy completed for all tracked objects. Separate REST
