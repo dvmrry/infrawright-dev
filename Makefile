@@ -1,7 +1,7 @@
 PYTHON ?= python3
 TF ?= terraform
 
-.PHONY: demo check-demo check-modules check test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: demo check-demo check-modules check test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 demo: ## Materialize the demo tenant under config/demo and imports/demo
 	@set -e; for rt in $$($(PYTHON) -c "from engine.registry import generated_types; print('\n'.join(generated_types()))"); do \
@@ -80,6 +80,10 @@ adopt: ## Transform pulled JSON using Terraform/OpenTofu import oracle (IN=<dir>
 		fi; \
 	done; \
 	test -z "$$failed" || { echo ""; echo "adopt FAILED for:$$failed"; exit 1; }
+
+provider-probe: ## Run provider readiness probe (RECIPE=<recipe.json> [WORK_DIR=<dir>] [OUT=<summary.json>] [MARKDOWN=<summary.md>])
+	@test -n "$(RECIPE)" || { echo "usage: make provider-probe RECIPE=<recipe.json> [WORK_DIR=<dir>] [OUT=<summary.json>] [MARKDOWN=<summary.md>]"; exit 2; }
+	$(PYTHON) -m engine.provider_probe "$(RECIPE)" $(if $(WORK_DIR),--work-dir "$(WORK_DIR)") $(if $(OUT),--out "$(OUT)") $(if $(MARKDOWN),--markdown "$(MARKDOWN)")
 
 stage-imports: ## Copy import/moved blocks into env roots (TENANT=<label> [RESOURCE=<type|provider>] [STATE_AWARE=1] [BACKEND_CONFIG=<file>])
 	$(PYTHON) -m engine.ops stage-imports --tenant "$(TENANT)" $(if $(STATE_AWARE),--state-aware) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(RESOURCE)
