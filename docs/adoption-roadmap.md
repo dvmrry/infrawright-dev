@@ -150,13 +150,10 @@ The sensitive-required failure class is now documented in `docs/sensitive-requir
 
 ## Next Phase
 
-- Implement provider-config assert-adoptable guidance annotations as the first
-  behavior candidate, following the design in
-  `docs/provider-config-assert-guidance.md`. The implementation must remain
-  additive, annotation-only, and fail-closed; it must not change plan status,
-  render provider config, or modify any files.
-- Validate the implementation against a GCP lab re-run showing the annotation
-  for the known attribution-label drift.
+- The provider-config assert-adoptable guidance annotation implementation is in
+  progress. It must be validated by a GCP lab re-run showing the annotation for
+  the known attribution-label drift before broadening to other provider-config
+  classes.
 - Commit sensitive-required pack metadata for a concrete provider lab finding
   once the class is narrowly defined and safe.
 - Run another provider lab that proves a narrow, safe sensitive-required class
