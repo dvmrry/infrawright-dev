@@ -775,6 +775,61 @@ class OpsAssertAdoptableProviderConfigGuidanceTest(unittest.TestCase):
             sys.stderr = old_stderr
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_provider_config_and_absent_default_guidance_can_coexist(self):
+        pack = {
+            "provider_prefixes": {"sample_": "sample"},
+            "provider_sources": {"sample": "example/sample"},
+            "provider_config": {
+                "requirements": [{
+                    "id": "sample_disable_attribution_label",
+                    "setting": "add_sample_attribution_label",
+                    "value": False,
+                    "reason": "Sample provider adds attribution labels.",
+                    "plan_paths": ["terraform_labels.goog-terraform-provisioned"],
+                    "remediation": {
+                        "kind": "provider_argument",
+                        "mode": "required_external",
+                        "evidence": "docs/provider-labs/sample.md",
+                    },
+                }]
+            },
+            "absent_defaults": {
+                "rules": [{
+                    "id": "sample_empty_name_prefix",
+                    "provider": "sample",
+                    "resource_type": "sample_resource",
+                    "path": "name_prefix",
+                    "kind": "provider_absent_placeholder",
+                    "observed_value": "",
+                    "action": "manual_review_required",
+                    "evidence": "docs/provider-labs/sample.md",
+                    "reason": "Sample provider imported empty name_prefix.",
+                }]
+            },
+        }
+        plan = self._base_plan(
+            {
+                "name": "thing",
+                "name_prefix": "",
+                "terraform_labels": {},
+            },
+            {
+                "name": "thing",
+                "terraform_labels": {
+                    "goog-terraform-provisioned": "true",
+                },
+            },
+        )
+        exc, out = self._run_blocked(pack, plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertIn("Provider configuration guidance:", out)
+        self.assertIn("setting: add_sample_attribution_label", out)
+        self.assertIn("Absent/default guidance:", out)
+        self.assertIn("rule: sample_empty_name_prefix", out)
+        self.assertIn("status: informational only; plan remains blocked", out)
+        self.assertNotIn("adoptable with consumer-tolerated drift", out)
+        self.assertNotIn("all 1 saved plan(s) clean", out)
+
 
 class OpsAssertAdoptableAbsentDefaultGuidanceTest(unittest.TestCase):
     """Tests for absent/default guidance annotations in blocked output."""
@@ -915,14 +970,14 @@ class OpsAssertAdoptableAbsentDefaultGuidanceTest(unittest.TestCase):
             {"name": "thing", "name_prefix": ""},
             {"name": "thing"},
         )
-        old_impl = ops._absent_default_guidance_impl
+        old_impl = ops._absent_default_guidance
         try:
-            ops._absent_default_guidance_impl = lambda _plan, _resource_type: (
+            ops._absent_default_guidance = lambda _plan, _resource_type: (
                 (_ for _ in ()).throw(RuntimeError("boom"))
             )
             exc, out = self._run_blocked(self._base_pack(self._base_rule()), plan)
         finally:
-            ops._absent_default_guidance_impl = old_impl
+            ops._absent_default_guidance = old_impl
         self.assertIn("1 saved plan(s) blocked", exc)
         self.assertIn("name_prefix", out)
         self.assertNotIn("Absent/default guidance:", out)
