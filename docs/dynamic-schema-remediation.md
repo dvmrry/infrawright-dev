@@ -107,6 +107,11 @@ Baseline evidence is required for `diagnostic_only` and `manual_review_required`
 - Saved-plan path and drift behavior, if applicable.
 - Raw API path and value, or raw API absence, if applicable.
 - Ownership rationale (`user_owned`, `provider_computed`, `server_owned`, or `unknown`).
+- Corroboration that the ownership rationale is not inferred from provider state
+  alone. Lab evidence must tie ownership to a deliberate source such as user
+  intent, schema documentation, provider behavior, or a controlled before/after
+  plan. V1 cannot prove this inference chain from free-text evidence; it is
+  enforced during design/lab review, not static validation.
 - Sensitivity status or a statement that sensitivity is unknown/manual-review.
 - Cleanup and safety notes from the lab.
 
@@ -197,9 +202,14 @@ provider-state namespace is the V1 primary key.
 `raw_api_path`, `projected_path`, and `plan_path` are evidence fields only. They
 cannot replace `path`.
 
-Path syntax must use the engine's normalized path syntax, including `[]` for
-collection selectors. Wildcards and numeric collection indexes are not allowed
-unless already supported by the engine path parser.
+V1 path input must use the engine's normalized path syntax with `[]` collection
+selectors. The validator may canonicalize inputs using the existing
+`schema_paths.parse_report_path` / `format_path` behavior before identity
+comparison. Inputs such as `[0]` or `[*]`, if accepted by the existing parser,
+normalize to `[]`. Bare wildcard path segments or unsupported syntax are rejected.
+Rule identity uses the canonicalized provider-state path.
+
+V1 does not add new path syntax.
 
 ## Provider Version Constraint
 
@@ -207,9 +217,12 @@ Dynamic schema gaps can change across provider versions. `provider_version_const
 is required for every rule because dynamic-schema behavior is
 provider-version-sensitive.
 
-The V1 validator rejects rules missing `provider_version_constraint`. The value
-should be a version constraint string that the engine can later evaluate with the
-installed provider version.
+The V1 validator rejects rules missing `provider_version_constraint`. In V1 the
+validator only checks that the value is a non-empty string after `str.strip()`.
+It does not parse or semantically evaluate version constraints. The example uses
+Terraform-style constraint syntax as an intended future grammar;
+parsing/evaluating provider version constraints is future engine-integrated
+behavior.
 
 ## Allowed V1 Actions
 
@@ -275,13 +288,22 @@ conflicting rules. Rule identity is:
 provider + provider_version_constraint + resource scope + path
 ```
 
+- `provider_version_constraint` is compared by exact string equality after
+  `str.strip()`. Semantic equivalence of version ranges is not evaluated in V1.
+  For example, `>= 4.0.0, < 5.0.0` and `>=4.0.0,<5.0.0` are distinct strings and
+  therefore distinct identities unless a future canonicalization rule is designed.
+- `path` is the canonicalized provider-state path.
 - Resource scope is either an exact `resource_type` or a `resource_prefix`.
-- Identical identity with identical `kind`, `ownership`, `action`, and evidence
-  paths is a **duplicate** and is rejected.
-- Identical identity with a different `kind`, `ownership`, `action`, or evidence
-  path is a **conflict** and is rejected.
+- Identical identity with identical `kind`, `ownership`, `action`, `evidence`,
+  `raw_api_path`, `projected_path`, and `plan_path` is a **duplicate** and is
+  rejected.
+- Identical identity with a different `kind`, `ownership`, `action`, `evidence`,
+  `raw_api_path`, `projected_path`, or `plan_path` is a **conflict** and is
+  rejected.
 - An exact `resource_type` and a `resource_prefix` that match the same provider,
-  version, and `path` are treated as **overlapping scope** and are rejected.
+  stripped version constraint string, canonical path, and scope are treated as
+  **overlapping scope** and are rejected. Semantic overlap of version ranges is
+  deferred to future engine-integrated behavior.
 - There is no merge rule in V1. The validator never combines two rules; it
   rejects the ambiguity instead.
 
@@ -296,11 +318,13 @@ The V1 validator also rejects:
 Any future dynamic-schema behavior must fail loud on sensitive overlap rather
 than projecting or omitting.
 
-V1 validator rejects sensitive path targets when static sensitivity metadata is
-available. Dynamic paths with ambiguous sensitivity must remain
-`manual_review_required` or `diagnostic_only`. Do not invent a new sensitivity
-resolver in V1; document the boundary and rely on existing or caller-supplied
-static sensitivity metadata.
+V1 static sensitive-path rejection uses exact string match against the supplied
+sensitive-path set, using the same path canonicalization used for rule identity
+if applicable. Descendant/ancestor sensitive overlap detection is future
+engine-integrated behavior. Dynamic paths with ambiguous sensitivity must
+remain `manual_review_required` or `diagnostic_only`. Do not invent a new
+sensitivity resolver in V1; document the boundary and rely on existing or
+caller-supplied static sensitivity metadata.
 
 ## Relationship To Sibling Systems
 
@@ -318,9 +342,13 @@ Paths that are primarily falsey/default/placeholder value semantics belong to
 absent/default normalization. Paths that are primarily schema-unknown or
 provider-state ownership semantics belong to dynamic-schema remediation. A path
 may be relevant to both, but a rule should be filed under the design that
-best describes the failure class. Cross-design duplicate rules for the same
-provider/version/scope/path should be rejected or deferred until a cross-design
-identity rule exists.
+best describes the failure class.
+
+Cross-design duplicate handling is deferred until a cross-design identity rule
+exists. Human reviewers should avoid declaring both `absent_defaults` and
+`dynamic_schema` rules for the same provider/resource/path unless the ownership
+boundary is explicit. If a future cross-design check is added, it must account
+for absent-default rules lacking `provider_version_constraint`.
 
 ### `provider_config`
 
@@ -355,8 +383,6 @@ The first behavior PR, if any, should be validator-only:
 - Reject provider/resource mismatch when a provider_prefixes map is available.
 - Reject `raw_api_path`, `projected_path`, or `plan_path` used as the primary
   rule key.
-- Reject rules that infer ownership from provider state alone without
-  corroborating evidence.
 - Render nothing.
 - Project nothing.
 - Omit nothing.
@@ -379,5 +405,6 @@ This design is not:
 
 ## Recommended Next Step
 
-External review of this tightened design. Do not implement the validator until
-the V1 contract issues are closed. Do not implement projection behavior.
+After this determinism patch, run a final light external review if desired. Then
+proceed to validator-only implementation planning. Do not implement projection
+behavior.
