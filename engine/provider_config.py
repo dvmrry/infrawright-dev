@@ -95,10 +95,13 @@ def _matched_change(source, rc, path, req):
         "source": source,
         "address": rc.get("address"),
         "resource_type": rc.get("type"),
+        "provider": req["provider"],
         "path": path,
         "requirement": req["id"],
         "setting": req["setting"],
         "value": req["value"],
+        "mode": req["mode"],
+        "evidence": req["evidence"],
         "reason": req["reason"],
     }
 
@@ -161,6 +164,10 @@ def _normalize_requirements(requirements):
         if "value" not in item and remediation_mode != "required_external":
             raise ValueError("%s: %s missing value" % (label, ident))
         value = item.get("value")
+        evidence = ""
+        if remediation_mode != "diagnostic_only":
+            remediation = item.get("remediation") or {}
+            evidence = str(remediation.get("evidence") or "").strip()
         key = (provider, setting)
         if key in seen_settings:
             _raise_duplicate_setting(
@@ -185,6 +192,8 @@ def _normalize_requirements(requirements):
             "plan_paths": set(plan_paths),
             "resource_types": set(resource_types),
             "resource_prefixes": tuple(resource_prefixes),
+            "mode": remediation_mode,
+            "evidence": evidence,
         })
     return sorted(out, key=lambda req: (req["provider"], req["id"]))
 

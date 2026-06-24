@@ -311,6 +311,11 @@ class OpsPlanSafetyTest(unittest.TestCase):
                     "value": False,
                     "reason": "Sample provider adds attribution labels.",
                     "plan_paths": ["terraform_labels.goog-terraform-provisioned"],
+                    "remediation": {
+                        "kind": "provider_argument",
+                        "mode": "required_external",
+                        "evidence": "docs/provider-labs/sample.md",
+                    },
                 }]
             },
         })
@@ -353,15 +358,412 @@ class OpsPlanSafetyTest(unittest.TestCase):
             self.assertIn("1 saved plan(s) blocked", str(ctx.exception))
             out = stderr.getvalue()
             self.assertIn("BLOCKED: tenant/sample_resource", out)
-            self.assertIn(
-                "provider-config guidance: sample_disable_attribution_label",
-                out,
-            )
+            self.assertIn("Provider configuration guidance:", out)
+            self.assertIn("provider: sample", out)
             self.assertIn("setting: add_sample_attribution_label", out)
-            self.assertIn("value: false", out)
+            self.assertIn("expected value: false", out)
+            self.assertIn("mode: required_external", out)
+            self.assertIn(
+                "matched plan path: terraform_labels.goog-terraform-provisioned", out
+            )
             self.assertIn("reason: Sample provider adds attribution labels.", out)
+            self.assertIn("evidence: docs/provider-labs/sample.md", out)
+            self.assertIn("status: informational only; plan remains blocked", out)
             self.assertNotIn("adoptable with consumer-tolerated drift", out)
             self.assertNotIn("all 1 saved plan(s) clean", out)
+        finally:
+            if old_packs is None:
+                os.environ.pop("INFRAWRIGHT_PACKS", None)
+            else:
+                os.environ["INFRAWRIGHT_PACKS"] = old_packs
+            packs.reset()
+            ops.selected_env_pairs = old_pairs
+            ops._show_plan_json = old_show
+            sys.stderr = old_stderr
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class OpsAssertAdoptableProviderConfigGuidanceTest(unittest.TestCase):
+    """Tests for provider-config guidance annotations in assert-adoptable output.
+
+    These tests verify that the annotation is additive, fail-closed, and never
+    changes plan status or renders/mutates provider configuration.
+    """
+
+    def _setup_test(self, pack_data, plan_data):
+        tmp = tempfile.mkdtemp(prefix="ops-provider-config-")
+        pack_root = os.path.join(tmp, "packs")
+        _write_json(os.path.join(pack_root, "sample", "pack.json"), pack_data)
+        old_packs = os.environ.get("INFRAWRIGHT_PACKS")
+        old_pairs = ops.selected_env_pairs
+        old_show = ops._show_plan_json
+        old_stderr = sys.stderr
+        stderr = io.StringIO()
+        try:
+            os.environ["INFRAWRIGHT_PACKS"] = pack_root
+            packs.reset()
+            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
+                ("tenant", "sample_resource", tmp)
+            ]
+            ops._show_plan_json = lambda env_dir: plan_data
+            sys.stderr = stderr
+            return tmp, old_packs, old_pairs, old_show, old_stderr, stderr
+        except Exception:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise
+
+    def _teardown(self, tmp, old_packs, old_pairs, old_show, old_stderr):
+        if old_packs is None:
+            os.environ.pop("INFRAWRIGHT_PACKS", None)
+        else:
+            os.environ["INFRAWRIGHT_PACKS"] = old_packs
+        packs.reset()
+        ops.selected_env_pairs = old_pairs
+        ops._show_plan_json = old_show
+        sys.stderr = old_stderr
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    def _run_blocked(self, pack_data, plan_data):
+        tmp, old_packs, old_pairs, old_show, old_stderr, stderr = self._setup_test(
+            pack_data, plan_data
+        )
+        try:
+            with self.assertRaises(RuntimeError) as ctx:
+                ops.cmd_assert_adoptable({
+                    "tenant": "tenant",
+                    "selectors": [],
+                    "policy": None,
+                })
+            return str(ctx.exception), stderr.getvalue()
+        finally:
+            self._teardown(tmp, old_packs, old_pairs, old_show, old_stderr)
+
+    def _base_pack(self, requirement):
+        return {
+            "provider_prefixes": {"sample_": "sample"},
+            "provider_sources": {"sample": "example/sample"},
+            "provider_config": {"requirements": [requirement]},
+        }
+
+    def _base_plan(self, before, after, resource_type="sample_resource"):
+        return {
+            "format_version": "1.0",
+            "resource_changes": [{
+                "address": "%s.this" % resource_type,
+                "type": resource_type,
+                "change": {
+                    "actions": ["update"],
+                    "before": before,
+                    "after": after,
+                },
+            }],
+        }
+
+    def test_required_external_annotation_contains_all_fields(self):
+        requirement = {
+            "id": "sample_disable_attribution_label",
+            "setting": "add_sample_attribution_label",
+            "value": False,
+            "reason": "Sample provider adds attribution labels.",
+            "plan_paths": ["terraform_labels.goog-terraform-provisioned"],
+            "remediation": {
+                "kind": "provider_argument",
+                "mode": "required_external",
+                "evidence": "docs/provider-labs/sample.md",
+            },
+        }
+        plan = self._base_plan(
+            {"terraform_labels": {}},
+            {"terraform_labels": {"goog-terraform-provisioned": "true"}},
+        )
+        exc, out = self._run_blocked(self._base_pack(requirement), plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertIn("Provider configuration guidance:", out)
+        self.assertIn("provider: sample", out)
+        self.assertIn("setting: add_sample_attribution_label", out)
+        self.assertIn("expected value: false", out)
+        self.assertIn("mode: required_external", out)
+        self.assertIn(
+            "matched plan path: terraform_labels.goog-terraform-provisioned", out
+        )
+        self.assertIn("reason: Sample provider adds attribution labels.", out)
+        self.assertIn("evidence: docs/provider-labs/sample.md", out)
+        self.assertIn("status: informational only; plan remains blocked", out)
+
+    def test_renderable_default_annotation_is_guidance_only(self):
+        requirement = {
+            "id": "sample_disable_attribution_label",
+            "setting": "add_sample_attribution_label",
+            "value": False,
+            "reason": "Sample provider adds attribution labels.",
+            "plan_paths": ["terraform_labels.goog-terraform-provisioned"],
+            "remediation": {
+                "kind": "provider_argument",
+                "mode": "renderable_default",
+                "evidence": "docs/provider-labs/sample.md",
+                "safety": {
+                    "non_sensitive": True,
+                    "not_tenant_specific": True,
+                    "not_destructive": True,
+                },
+            },
+        }
+        plan = self._base_plan(
+            {"terraform_labels": {}},
+            {"terraform_labels": {"goog-terraform-provisioned": "true"}},
+        )
+        exc, out = self._run_blocked(self._base_pack(requirement), plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertIn("mode: renderable_default", out)
+        self.assertIn("status: informational only; plan remains blocked", out)
+        self.assertNotIn("rendered provider", out)
+        self.assertNotIn("provider_config {", out)
+
+    def test_no_matching_metadata_leaves_output_unchanged(self):
+        requirement = {
+            "id": "sample_disable_attribution_label",
+            "setting": "add_sample_attribution_label",
+            "value": False,
+            "reason": "Sample provider adds attribution labels.",
+            "plan_paths": ["other_path"],
+        }
+        plan = self._base_plan(
+            {"terraform_labels": {}},
+            {"terraform_labels": {"goog-terraform-provisioned": "true"}},
+        )
+        exc, out = self._run_blocked(self._base_pack(requirement), plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertNotIn("Provider configuration guidance:", out)
+        self.assertIn("terraform_labels.goog-terraform-provisioned", out)
+
+    def test_non_matching_plan_path_does_not_annotate(self):
+        requirement = {
+            "id": "sample_disable_attribution_label",
+            "setting": "add_sample_attribution_label",
+            "value": False,
+            "reason": "Sample provider adds attribution labels.",
+            "plan_paths": ["terraform_labels.goog-terraform-provisioned"],
+        }
+        plan = self._base_plan(
+            {"other_field": {}},
+            {"other_field": {"changed": "true"}},
+        )
+        exc, out = self._run_blocked(self._base_pack(requirement), plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertNotIn("Provider configuration guidance:", out)
+
+    def test_wrong_provider_does_not_annotate(self):
+        requirement = {
+            "id": "other_disable_attribution_label",
+            "provider": "other",
+            "setting": "add_other_attribution_label",
+            "value": False,
+            "reason": "Other provider adds attribution labels.",
+            "plan_paths": ["terraform_labels.goog-terraform-provisioned"],
+        }
+        plan = self._base_plan(
+            {"terraform_labels": {}},
+            {"terraform_labels": {"goog-terraform-provisioned": "true"}},
+        )
+        # pack metadata has no provider_prefixes for other; provider is taken from
+        # requirement but must still match the resource provider.
+        pack = self._base_pack(requirement)
+        pack["provider_prefixes"] = {"sample_": "sample", "other_": "other"}
+        exc, out = self._run_blocked(pack, plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertNotIn("Provider configuration guidance:", out)
+
+    def test_non_blocked_paths_do_not_annotate(self):
+        # A clean plan produces no guidance and no exception.
+        requirement = {
+            "id": "sample_disable_attribution_label",
+            "setting": "add_sample_attribution_label",
+            "value": False,
+            "reason": "Sample provider adds attribution labels.",
+            "plan_paths": ["terraform_labels.goog-terraform-provisioned"],
+        }
+        plan = {
+            "format_version": "1.0",
+            "resource_changes": [{
+                "address": "sample_resource.this",
+                "type": "sample_resource",
+                "change": {
+                    "actions": ["no-op"],
+                    "before": {"terraform_labels": {}},
+                    "after": {"terraform_labels": {}},
+                },
+            }],
+        }
+        tmp, old_packs, old_pairs, old_show, old_stderr, stderr = self._setup_test(
+            self._base_pack(requirement), plan
+        )
+        try:
+            code = ops.cmd_assert_adoptable({
+                "tenant": "tenant",
+                "selectors": [],
+                "policy": None,
+            })
+            self.assertEqual(code, 0)
+            self.assertNotIn("Provider configuration guidance:", stderr.getvalue())
+        finally:
+            self._teardown(tmp, old_packs, old_pairs, old_show, old_stderr)
+
+    def test_metadata_failure_does_not_annotate(self):
+        requirement = {
+            "id": "sample_disable_attribution_label",
+            "setting": "add_sample_attribution_label",
+            "reason": "Sample provider adds attribution labels.",
+            # Missing plan_paths makes the metadata invalid.
+        }
+        plan = self._base_plan(
+            {"terraform_labels": {}},
+            {"terraform_labels": {"goog-terraform-provisioned": "true"}},
+        )
+        exc, out = self._run_blocked(self._base_pack(requirement), plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        # The provider-config guidance section is omitted because metadata loading
+        # fails. Existing blocked output is preserved.
+        self.assertNotIn("Provider configuration guidance:", out)
+        self.assertIn("terraform_labels.goog-terraform-provisioned", out)
+
+    def test_deterministic_ordering_with_multiple_matches(self):
+        requirement = {
+            "id": "sample_settings",
+            "setting": "add_sample_attribution_label",
+            "value": False,
+            "reason": "Sample provider adds attribution labels.",
+            "plan_paths": [
+                "terraform_labels.goog-terraform-provisioned",
+                "labels.goog-terraform-provisioned",
+            ],
+            "remediation": {
+                "kind": "provider_argument",
+                "mode": "required_external",
+                "evidence": "docs/provider-labs/sample.md",
+            },
+        }
+        plan = {
+            "format_version": "1.0",
+            "resource_changes": [{
+                "address": "sample_resource.this",
+                "type": "sample_resource",
+                "change": {
+                    "actions": ["update"],
+                    "before": {
+                        "terraform_labels": {},
+                        "labels": {},
+                    },
+                    "after": {
+                        "terraform_labels": {
+                            "goog-terraform-provisioned": "true",
+                        },
+                        "labels": {
+                            "goog-terraform-provisioned": "true",
+                        },
+                    },
+                },
+            }],
+        }
+        exc, out = self._run_blocked(self._base_pack(requirement), plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertIn("Provider configuration guidance:", out)
+        # Annotations are sorted by provider, setting, matched_plan_path.
+        first = out.find("matched plan path: labels.goog-terraform-provisioned")
+        second = out.find(
+            "matched plan path: terraform_labels.goog-terraform-provisioned"
+        )
+        self.assertNotEqual(first, -1)
+        self.assertNotEqual(second, -1)
+        self.assertLess(first, second)
+
+
+    def test_diagnostic_only_does_not_annotate(self):
+        requirement = {
+            "id": "sample_disable_attribution_label",
+            "setting": "add_sample_attribution_label",
+            "value": False,
+            "reason": "Sample provider adds attribution labels.",
+            "plan_paths": ["terraform_labels.goog-terraform-provisioned"],
+            # No remediation -> diagnostic_only
+        }
+        plan = self._base_plan(
+            {"terraform_labels": {}},
+            {"terraform_labels": {"goog-terraform-provisioned": "true"}},
+        )
+        exc, out = self._run_blocked(self._base_pack(requirement), plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertNotIn("Provider configuration guidance:", out)
+        self.assertIn("terraform_labels.goog-terraform-provisioned", out)
+
+    def test_tolerated_drift_does_not_annotate(self):
+        requirement = {
+            "id": "sample_disable_attribution_label",
+            "setting": "add_sample_attribution_label",
+            "value": False,
+            "reason": "Sample provider adds attribution labels.",
+            "plan_paths": ["terraform_labels.goog-terraform-provisioned"],
+            "remediation": {
+                "kind": "provider_argument",
+                "mode": "required_external",
+                "evidence": "docs/provider-labs/sample.md",
+            },
+        }
+        # Tolerated path is a no-op update that is fully covered by a policy
+        # plan_tolerate entry.
+        plan = {
+            "format_version": "1.0",
+            "resource_changes": [{
+                "address": "sample_resource.this",
+                "type": "sample_resource",
+                "change": {
+                    "actions": ["update"],
+                    "before": {"terraform_labels": {}},
+                    "after": {
+                        "terraform_labels": {
+                            "goog-terraform-provisioned": "true",
+                        }
+                    },
+                },
+            }],
+        }
+        tmp = tempfile.mkdtemp(prefix="ops-provider-config-tolerated-")
+        policy_path = os.path.join(tmp, "policy.json")
+        _write_json(policy_path, {
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "plan_tolerate": [{
+                        "path": 'terraform_labels["goog-terraform-provisioned"]',
+                        "reason": "test tolerance",
+                        "approved_by": "unit",
+                    }]
+                }
+            }
+        })
+        pack_root = os.path.join(tmp, "packs")
+        _write_json(os.path.join(pack_root, "sample", "pack.json"), self._base_pack(requirement))
+        old_packs = os.environ.get("INFRAWRIGHT_PACKS")
+        old_pairs = ops.selected_env_pairs
+        old_show = ops._show_plan_json
+        old_stderr = sys.stderr
+        stderr = io.StringIO()
+        try:
+            os.environ["INFRAWRIGHT_PACKS"] = pack_root
+            packs.reset()
+            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
+                ("tenant", "sample_resource", tmp)
+            ]
+            ops._show_plan_json = lambda env_dir: plan
+            sys.stderr = stderr
+            code = ops.cmd_assert_adoptable({
+                "tenant": "tenant",
+                "selectors": [],
+                "policy": policy_path,
+            })
+            self.assertEqual(code, 0)
+            out = stderr.getvalue()
+            self.assertIn("adoptable with consumer-tolerated drift", out)
+            self.assertNotIn("Provider configuration guidance:", out)
         finally:
             if old_packs is None:
                 os.environ.pop("INFRAWRIGHT_PACKS", None)

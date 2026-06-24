@@ -176,7 +176,8 @@ Before the first implementation PR merges, the following evidence must exist:
 - The existing GCP lab evidence in `docs/provider-labs/gcp-pr38.md` remains the
   basis for the attribution-label annotation.
 - A GCP lab re-run showing the annotation appears for the known attribution-label
-  drift when the behavior is implemented.
+  drift when the behavior is implemented. The implementation must be validated by
+  this re-run before broadening the behavior to other provider-config classes.
 
 Before expanding beyond this narrow provider-config guidance class, a second
 provider-config lab is required, preferably AWS or Azure. This design does not

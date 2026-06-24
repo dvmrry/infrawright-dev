@@ -253,7 +253,10 @@ def _destroy_count(plan):
 def _provider_config_guidance(plan, resource_type):
     from engine import provider_config
 
-    report = provider_config.build_report(resource_type=resource_type, plan=plan)
+    try:
+        report = provider_config.build_report(resource_type=resource_type, plan=plan)
+    except Exception:
+        return {}
     guidance = {}
     for item in report.get("plan_changes") or []:
         if item.get("status") != "provider_config_requirement":
@@ -268,6 +271,7 @@ def _print_findings(findings, provider_config_guidance=None):
     from engine import schema_paths
 
     provider_config_guidance = provider_config_guidance or {}
+    all_annotations = []
     for finding in findings:
         if finding.get("status") not in (BLOCKED, TOLERATED):
             continue
@@ -279,30 +283,57 @@ def _print_findings(findings, provider_config_guidance=None):
                 finding.get("status"),
             )
         )
+        annotations = []
         for path in finding.get("paths") or []:
             rendered = format_path(path)
             sys.stderr.write("    - %s\n" % rendered)
+            if finding.get("status") != BLOCKED:
+                continue
             guidance_key = (
                 finding.get("source"),
                 finding.get("address"),
                 schema_paths.format_path(path),
             )
-            for item in provider_config_guidance.get(guidance_key, []):
+            for item in sorted(
+                provider_config_guidance.get(guidance_key, []),
+                key=lambda i: (
+                    i.get("provider", ""),
+                    i.get("setting", ""),
+                    i.get("path", ""),
+                ),
+            ):
+                if item.get("mode") not in ("required_external", "renderable_default"):
+                    continue
+                annotations.append(item)
+        if annotations:
+            all_annotations.extend(annotations)
+    if all_annotations:
+        sys.stderr.write("  Provider configuration guidance:\n")
+        for item in sorted(
+            all_annotations,
+            key=lambda i: (
+                i.get("provider", ""),
+                i.get("setting", ""),
+                i.get("path", ""),
+            ),
+        ):
+            sys.stderr.write("    - provider: %s\n" % item.get("provider"))
+            sys.stderr.write("      setting: %s\n" % item.get("setting"))
+            if item.get("value") is not None:
                 sys.stderr.write(
-                    "      provider-config guidance: %s\n"
-                    % item.get("requirement")
+                    "      expected value: %s\n"
+                    % json.dumps(item.get("value"), sort_keys=True)
                 )
-                sys.stderr.write(
-                    "        setting: %s\n" % item.get("setting")
-                )
-                if item.get("value") is not None:
-                    sys.stderr.write(
-                        "        value: %s\n"
-                        % json.dumps(item.get("value"), sort_keys=True)
-                    )
-                sys.stderr.write(
-                    "        reason: %s\n" % item.get("reason")
-                )
+            sys.stderr.write("      mode: %s\n" % item.get("mode"))
+            sys.stderr.write(
+                "      matched plan path: %s\n" % item.get("path")
+            )
+            sys.stderr.write("      reason: %s\n" % item.get("reason"))
+            if item.get("evidence"):
+                sys.stderr.write("      evidence: %s\n" % item.get("evidence"))
+            sys.stderr.write(
+                "      status: informational only; plan remains blocked\n"
+            )
 
 
 def cmd_stage_imports(opts):
