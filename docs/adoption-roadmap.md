@@ -48,6 +48,7 @@ provider-specific policy, or explicit non-automatable boundaries.
 | Absent/default diagnostics | Implemented | Classify placeholder-shaped projected values and saved-plan absent/default drift candidates. |
 | Sensitive-required diagnostics | Implemented | Separate schema-required sensitive paths, validation-required paths, optional sensitive candidates, and projected sensitive paths. |
 | Provider-config diagnostics | Implemented | Map saved-plan drift paths to explicit `provider_config.requirements` metadata. |
+| Provider-config assert-adoptable guidance | Implemented | Annotate matching blocked plan paths while keeping plans blocked. |
 | Shared schema/path helpers | Implemented | Normalize `[]` selectors, quoted map selectors, container paths, and Terraform schema status lookups. |
 
 These tools are diagnostic-only unless a future PR explicitly promotes one class
@@ -85,11 +86,9 @@ preserve the existing fail-loud behavior outside its narrow class.
 
 ## Recommended Next Implementation Order
 
-1. Propose provider-config `assert-adoptable` guidance annotations, keeping
-   matched plans blocked.
-2. Propose absent/default normalization semantics.
-3. Propose dynamic schema remediation semantics.
-4. Run a billing-enabled Google Cloud lab or a focused AWS/Azure lab.
+1. Propose absent/default normalization semantics.
+2. Propose dynamic schema remediation semantics.
+3. Run a billing-enabled Google Cloud lab or a focused AWS/Azure lab.
 
 After each behavior proposal, run at least one provider lab that originally
 exposed the failure class before generalizing the behavior.

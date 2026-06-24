@@ -78,3 +78,14 @@ The report classifies each update path as either:
 The diagnostic never infers behavior from field names alone. A path such as
 `terraform_labels.goog-terraform-provisioned` remains unmatched until a pack
 declares the provider setting that explains it.
+
+## Assert-Adoptable Guidance
+
+`make assert-adoptable` also uses this metadata as guidance for blocked saved
+plans. When a blocked update path matches a declared provider-config
+requirement, the blocked finding includes the requirement id, setting, value
+when present, and reason.
+
+This is guidance only. The plan remains blocked, provider-config matches are
+not drift tolerance, and `assert-adoptable` does not render or mutate provider
+configuration.

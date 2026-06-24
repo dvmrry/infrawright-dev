@@ -298,6 +298,81 @@ class OpsPlanSafetyTest(unittest.TestCase):
             sys.stderr = old_stderr
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_assert_adoptable_guides_provider_config_but_stays_blocked(self):
+        tmp = tempfile.mkdtemp(prefix="ops-provider-config-")
+        pack_root = os.path.join(tmp, "packs")
+        _write_json(os.path.join(pack_root, "sample", "pack.json"), {
+            "provider_prefixes": {"sample_": "sample"},
+            "provider_sources": {"sample": "example/sample"},
+            "provider_config": {
+                "requirements": [{
+                    "id": "sample_disable_attribution_label",
+                    "setting": "add_sample_attribution_label",
+                    "value": False,
+                    "reason": "Sample provider adds attribution labels.",
+                    "plan_paths": ["terraform_labels.goog-terraform-provisioned"],
+                }]
+            },
+        })
+        old_packs = os.environ.get("INFRAWRIGHT_PACKS")
+        old_pairs = ops.selected_env_pairs
+        old_show = ops._show_plan_json
+        old_stderr = sys.stderr
+        stderr = io.StringIO()
+        try:
+            os.environ["INFRAWRIGHT_PACKS"] = pack_root
+            packs.reset()
+            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
+                ("tenant", "sample_resource", tmp)
+            ]
+            ops._show_plan_json = lambda env_dir: {
+                "format_version": "1.0",
+                "resource_changes": [{
+                    "address": "sample_resource.this",
+                    "type": "sample_resource",
+                    "change": {
+                        "actions": ["update"],
+                        "before": {"terraform_labels": {}},
+                        "after": {
+                            "terraform_labels": {
+                                "goog-terraform-provisioned": "true",
+                            }
+                        },
+                    },
+                }],
+            }
+            sys.stderr = stderr
+
+            with self.assertRaises(RuntimeError) as ctx:
+                ops.cmd_assert_adoptable({
+                    "tenant": "tenant",
+                    "selectors": [],
+                    "policy": None,
+                })
+
+            self.assertIn("1 saved plan(s) blocked", str(ctx.exception))
+            out = stderr.getvalue()
+            self.assertIn("BLOCKED: tenant/sample_resource", out)
+            self.assertIn(
+                "provider-config guidance: sample_disable_attribution_label",
+                out,
+            )
+            self.assertIn("setting: add_sample_attribution_label", out)
+            self.assertIn("value: false", out)
+            self.assertIn("reason: Sample provider adds attribution labels.", out)
+            self.assertNotIn("adoptable with consumer-tolerated drift", out)
+            self.assertNotIn("all 1 saved plan(s) clean", out)
+        finally:
+            if old_packs is None:
+                os.environ.pop("INFRAWRIGHT_PACKS", None)
+            else:
+                os.environ["INFRAWRIGHT_PACKS"] = old_packs
+            packs.reset()
+            ops.selected_env_pairs = old_pairs
+            ops._show_plan_json = old_show
+            sys.stderr = old_stderr
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()
