@@ -64,7 +64,9 @@ behavior:
   provider-config rendering and mutation are out of scope.
 - Provider-specific absent/default normalization rules; design proposed in
   [Absent/Default Normalization Design](absent-default-normalization.md), not
-  implemented.
+  implemented. Any future omit behavior must reuse the existing
+  `projection_omit` path and remain blocked until runtime discriminator and
+  kind/action constraints are proven.
 - Dynamic schema remediation strategy for opaque maps, open objects, and
   dynamic attributes.
 - Sensitive-required remediation, manual override, or explicit cannot-adopt
@@ -88,7 +90,9 @@ preserve the existing fail-loud behavior outside its narrow class.
 
 ## Recommended Next Implementation Order
 
-1. Propose absent/default normalization semantics.
+1. Re-review absent/default normalization semantics after the `projection_omit`
+   relationship, runtime discriminator requirement, kind/action matrix, and V1
+   path namespace are explicit.
 2. Propose dynamic schema remediation semantics.
 3. Run a billing-enabled Google Cloud lab or a focused AWS/Azure lab.
 
