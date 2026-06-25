@@ -278,8 +278,7 @@ def _provider_config_guidance(plan, resource_type):
 
 def _absent_default_guidance(plan, resource_type):
     from engine import adoption_guidance
-    from engine import schema_paths
-    from engine.plan_eval import diff_paths, truthy_paths
+    from engine import guidance_paths
 
     provider = packs.provider_of(resource_type)
     rules = packs.absent_default_rules(provider)
@@ -295,43 +294,31 @@ def _absent_default_guidance(plan, resource_type):
         return []
 
     annotations = []
-    for source in ("resource_changes", "resource_drift"):
-        for rc in plan.get(source) or []:
-            if rc.get("type") != resource_type:
+    for candidate in guidance_paths.guidance_candidate_paths(plan, resource_type):
+        formatted = candidate["formatted_path"]
+        for rule in by_path.get(formatted, []):
+            if not _absent_default_observed_value_matches(
+                    rule, candidate["before"], candidate["path"]):
                 continue
-            change = rc.get("change") or {}
-            if "update" not in set(change.get("actions") or []):
-                continue
-            before = change.get("before")
-            paths = sorted(
-                set(diff_paths(before, change.get("after")))
-                | set(truthy_paths(change.get("after_unknown")))
-            )
-            for path in paths:
-                formatted = schema_paths.format_path(path)
-                for rule in by_path.get(formatted, []):
-                    if not _absent_default_observed_value_matches(rule, before, path):
-                        continue
-                    annotations.append(adoption_guidance.absent_default_annotation(
-                        source=source,
-                        address=rc.get("address"),
-                        matched_plan_path=formatted,
-                        provider=rule["provider"],
-                        resource_type=rc.get("type"),
-                        rule=rule["id"],
-                        kind=rule["kind"],
-                        action=rule["action"],
-                        observed_value=rule.get("observed_value"),
-                        reason=rule.get("reason"),
-                        evidence=rule.get("evidence"),
-                    ))
+            annotations.append(adoption_guidance.absent_default_annotation(
+                source=candidate["source"],
+                address=candidate["address"],
+                matched_plan_path=formatted,
+                provider=rule["provider"],
+                resource_type=candidate["resource_type"],
+                rule=rule["id"],
+                kind=rule["kind"],
+                action=rule["action"],
+                observed_value=rule.get("observed_value"),
+                reason=rule.get("reason"),
+                evidence=rule.get("evidence"),
+            ))
     return annotations
 
 
 def _dynamic_schema_guidance(plan, resource_type):
     from engine import adoption_guidance
-    from engine import schema_paths
-    from engine.plan_eval import diff_paths, truthy_paths
+    from engine import guidance_paths
 
     provider = packs.provider_of(resource_type)
     rules = packs.dynamic_schema_rules(provider)
@@ -347,36 +334,25 @@ def _dynamic_schema_guidance(plan, resource_type):
         return []
 
     annotations = []
-    for source in ("resource_changes", "resource_drift"):
-        for rc in plan.get(source) or []:
-            if rc.get("type") != resource_type:
-                continue
-            change = rc.get("change") or {}
-            if "update" not in set(change.get("actions") or []):
-                continue
-            paths = sorted(
-                set(diff_paths(change.get("before"), change.get("after")))
-                | set(truthy_paths(change.get("after_unknown")))
-            )
-            for path in paths:
-                formatted = schema_paths.format_path(path)
-                for rule in by_path.get(formatted, []):
-                    annotations.append(adoption_guidance.dynamic_schema_annotation(
-                        source=source,
-                        address=rc.get("address"),
-                        matched_plan_path=formatted,
-                        provider=rule["provider"],
-                        resource_type=rc.get("type"),
-                        rule=rule["id"],
-                        kind=rule["kind"],
-                        ownership=rule["ownership"],
-                        action=rule["action"],
-                        provider_version_constraint=rule.get(
-                            "provider_version_constraint"
-                        ),
-                        reason=rule.get("reason"),
-                        evidence=rule.get("evidence"),
-                    ))
+    for candidate in guidance_paths.guidance_candidate_paths(plan, resource_type):
+        formatted = candidate["formatted_path"]
+        for rule in by_path.get(formatted, []):
+            annotations.append(adoption_guidance.dynamic_schema_annotation(
+                source=candidate["source"],
+                address=candidate["address"],
+                matched_plan_path=formatted,
+                provider=rule["provider"],
+                resource_type=candidate["resource_type"],
+                rule=rule["id"],
+                kind=rule["kind"],
+                ownership=rule["ownership"],
+                action=rule["action"],
+                provider_version_constraint=rule.get(
+                    "provider_version_constraint"
+                ),
+                reason=rule.get("reason"),
+                evidence=rule.get("evidence"),
+            ))
     return annotations
 
 
