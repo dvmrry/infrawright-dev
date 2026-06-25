@@ -192,6 +192,67 @@ class GenerateEnvTest(unittest.TestCase):
                 else:
                     os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
 
+    def test_literal_expression_like_string_without_sidecar_stays_var_items(self):
+        from engine.gen_env import generate_env
+        with tempfile.TemporaryDirectory() as td:
+            dep = os.path.join(td, "deployment.json")
+            with open(dep, "w", encoding="utf-8") as f:
+                f.write(json.dumps({"overlay": td}))
+            saved = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+            try:
+                tenant = "tenant"
+                resource_type = "zpa_application_segment"
+                config_dir = os.path.join(td, "config", tenant)
+                os.makedirs(config_dir)
+                with open(
+                    os.path.join(
+                        config_dir, resource_type + ".auto.tfvars.json"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({
+                        "items": {
+                            "example": {
+                                "clientless_app_config": {
+                                    "password": "var.zpa_client_secret",
+                                },
+                            },
+                        },
+                    }, f)
+
+                generate_env(
+                    tenant,
+                    out_root=os.path.join(td, "generated-envs"),
+                    fmt=False,
+                    selectors=[resource_type],
+                )
+
+                base = os.path.join(
+                    td, "generated-envs", tenant, resource_type)
+                self.assertFalse(os.path.exists(os.path.join(
+                    base, "expression_bindings.tf",
+                )))
+                with open(os.path.join(base, "main.tf"), encoding="utf-8") as f:
+                    main_tf = f.read()
+                self.assertIn("items = var.items", main_tf)
+
+                generated_text = ""
+                for root, _, filenames in os.walk(base):
+                    for filename in filenames:
+                        path = os.path.join(root, filename)
+                        with open(path, encoding="utf-8") as f:
+                            generated_text += f.read()
+                self.assertNotIn(
+                    "password = var.zpa_client_secret",
+                    generated_text,
+                )
+            finally:
+                if saved is None:
+                    os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+                else:
+                    os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
+
     def test_expression_binding_missing_parent_fails_closed(self):
         from engine.gen_env import generate_env
         with tempfile.TemporaryDirectory() as td:
