@@ -136,7 +136,7 @@ class ExpressionBindingsTest(unittest.TestCase):
         self.assertIsNone(
             projected["example"]["clientless_app_config"]["password"])
 
-    def test_apply_bindings_can_insert_leaf_when_parent_exists(self):
+    def test_apply_bindings_missing_leaf_under_parent_fails_closed(self):
         bindings = expression_bindings.parse_bindings({
             "resources": {
                 "zpa_application_segment.example": {
@@ -147,14 +147,10 @@ class ExpressionBindingsTest(unittest.TestCase):
             },
         }, "zpa_application_segment")
 
-        bound = expression_bindings.apply_bindings({
-            "example": {"clientless_app_config": {"username": "svc-user"}},
-        }, bindings)
-
-        self.assertEqual(
-            bound["example"]["clientless_app_config"]["password"],
-            expression_bindings.HclExpression("var.zpa_client_secret"),
-        )
+        with self.assertRaises(ValueError):
+            expression_bindings.apply_bindings({
+                "example": {"clientless_app_config": {"username": "svc-user"}},
+            }, bindings)
 
     def test_apply_bindings_missing_parent_fails_closed(self):
         bindings = expression_bindings.parse_bindings({
@@ -181,6 +177,36 @@ class ExpressionBindingsTest(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             expression_bindings.apply_bindings({"example": {}}, bindings)
+
+    def test_existing_literal_string_remains_literal_without_exact_binding(self):
+        bindings = expression_bindings.parse_bindings({
+            "resources": {
+                "zpa_application_segment.example": {
+                    "clientless_app_config.username": {
+                        "expression": "local.zpa_client_username",
+                    },
+                },
+            },
+        }, "zpa_application_segment")
+        projected = {
+            "example": {
+                "clientless_app_config": {
+                    "username": "svc-user",
+                    "password": "var.zpa_client_secret",
+                },
+            },
+        }
+
+        bound = expression_bindings.apply_bindings(projected, bindings)
+
+        self.assertEqual(
+            bound["example"]["clientless_app_config"]["username"],
+            expression_bindings.HclExpression("local.zpa_client_username"),
+        )
+        self.assertEqual(
+            bound["example"]["clientless_app_config"]["password"],
+            "var.zpa_client_secret",
+        )
 
     def test_var_declarations_only_for_exact_var_references(self):
         bindings = expression_bindings.parse_bindings({

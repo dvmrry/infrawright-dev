@@ -196,8 +196,8 @@ def apply_bindings(items, bindings):
     """Return a copy of items with exact path leaves replaced by expressions.
 
     V1 supports object paths only. Intermediate parent objects must already
-    exist; the leaf can be absent so an explicit binding can satisfy an omitted
-    or null projected value without constructing arbitrary parent structure.
+    exist, and the target leaf must already exist. Arbitrary object
+    construction is not supported at env-root composition time.
     """
     out = json.loads(json.dumps(items))
     for binding in bindings or []:
@@ -219,6 +219,11 @@ def apply_bindings(items, bindings):
         if not isinstance(cur, dict):
             raise ValueError(
                 "expression binding %s.%s parent is not an object"
+                % (binding["address"], binding["path"])
+            )
+        if parts[-1] not in cur:
+            raise ValueError(
+                "expression binding %s.%s has missing target leaf"
                 % (binding["address"], binding["path"])
             )
         cur[parts[-1]] = HclExpression(binding["expression"])

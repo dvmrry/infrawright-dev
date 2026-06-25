@@ -241,6 +241,63 @@ class GenerateEnvTest(unittest.TestCase):
                 else:
                     os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
 
+    def test_expression_binding_missing_leaf_fails_closed(self):
+        from engine.gen_env import generate_env
+        with tempfile.TemporaryDirectory() as td:
+            dep = os.path.join(td, "deployment.json")
+            with open(dep, "w", encoding="utf-8") as f:
+                f.write(json.dumps({"overlay": td}))
+            saved = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+            try:
+                tenant = "tenant"
+                resource_type = "zpa_application_segment"
+                config_dir = os.path.join(td, "config", tenant)
+                os.makedirs(config_dir)
+                with open(
+                    os.path.join(
+                        config_dir, resource_type + ".auto.tfvars.json"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({
+                        "items": {
+                            "example": {
+                                "clientless_app_config": {
+                                    "username": "svc-user",
+                                },
+                            },
+                        },
+                    }, f)
+                with open(
+                    os.path.join(
+                        config_dir, resource_type + ".expressions.json"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({
+                        "resources": {
+                            "zpa_application_segment.example": {
+                                "clientless_app_config.password": {
+                                    "expression": "var.zpa_client_secret",
+                                },
+                            },
+                        },
+                    }, f)
+
+                with self.assertRaises(ValueError):
+                    generate_env(
+                        tenant,
+                        out_root=os.path.join(td, "generated-envs"),
+                        fmt=False,
+                        selectors=[resource_type],
+                    )
+            finally:
+                if saved is None:
+                    os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+                else:
+                    os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
+
     def test_expression_binding_file_removed_when_sidecar_is_absent(self):
         from engine.gen_env import generate_env
         with tempfile.TemporaryDirectory() as td:

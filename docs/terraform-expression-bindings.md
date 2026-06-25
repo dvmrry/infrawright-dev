@@ -87,7 +87,11 @@ Bindings are exact:
 - The path must be a dotted object path.
 - The target resource must exist in projected config.
 - Intermediate parent objects must exist.
-- The leaf may already exist or may be inserted under an existing parent object.
+- The target leaf must already exist in projected config.
+
+V1 expression bindings replace existing projected leaves only. Missing leaf
+construction is intentionally not supported, and sensitive-required adoption
+integration is not implemented in this primitive.
 
 V1 rejects list selectors such as `connectors[0].token` or
 `connectors[].token`. Add support only after list identity is stable enough to
