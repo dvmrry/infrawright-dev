@@ -328,6 +328,58 @@ def _absent_default_guidance(plan, resource_type):
     return annotations
 
 
+def _dynamic_schema_guidance(plan, resource_type):
+    from engine import adoption_guidance
+    from engine import schema_paths
+    from engine.plan_eval import diff_paths, truthy_paths
+
+    provider = packs.provider_of(resource_type)
+    rules = packs.dynamic_schema_rules(provider)
+    by_path = {}
+    for rule in rules:
+        if rule.get("action") != "manual_review_required":
+            continue
+        if not _dynamic_schema_rule_matches(rule, provider, resource_type):
+            continue
+        path = _dynamic_schema_plan_path(rule)
+        by_path.setdefault(path, []).append(rule)
+    if not by_path:
+        return []
+
+    annotations = []
+    for source in ("resource_changes", "resource_drift"):
+        for rc in plan.get(source) or []:
+            if rc.get("type") != resource_type:
+                continue
+            change = rc.get("change") or {}
+            if "update" not in set(change.get("actions") or []):
+                continue
+            paths = sorted(
+                set(diff_paths(change.get("before"), change.get("after")))
+                | set(truthy_paths(change.get("after_unknown")))
+            )
+            for path in paths:
+                formatted = schema_paths.format_path(path)
+                for rule in by_path.get(formatted, []):
+                    annotations.append(adoption_guidance.dynamic_schema_annotation(
+                        source=source,
+                        address=rc.get("address"),
+                        matched_plan_path=formatted,
+                        provider=rule["provider"],
+                        resource_type=rc.get("type"),
+                        rule=rule["id"],
+                        kind=rule["kind"],
+                        ownership=rule["ownership"],
+                        action=rule["action"],
+                        provider_version_constraint=rule.get(
+                            "provider_version_constraint"
+                        ),
+                        reason=rule.get("reason"),
+                        evidence=rule.get("evidence"),
+                    ))
+    return annotations
+
+
 def _absent_default_rule_matches(rule, provider, resource_type):
     if rule.get("provider") != provider:
         return False
@@ -338,6 +390,25 @@ def _absent_default_rule_matches(rule, provider, resource_type):
 
 
 def _absent_default_plan_path(rule):
+    from engine import schema_paths
+
+    path = rule.get("plan_path") or rule.get("path")
+    try:
+        return schema_paths.format_path(schema_paths.parse_report_path(path))
+    except Exception:
+        return path
+
+
+def _dynamic_schema_rule_matches(rule, provider, resource_type):
+    if rule.get("provider") != provider:
+        return False
+    if "resource_type" in rule:
+        return rule["resource_type"] == resource_type
+    prefix = rule.get("resource_prefix")
+    return bool(prefix and resource_type.startswith(prefix))
+
+
+def _dynamic_schema_plan_path(rule):
     from engine import schema_paths
 
     path = rule.get("plan_path") or rule.get("path")
@@ -392,6 +463,9 @@ def _guidance_annotations(plan, resource_type):
     ))
     annotations.extend(adoption_guidance.safe_collect_guidance(
         _absent_default_guidance, plan, resource_type
+    ))
+    annotations.extend(adoption_guidance.safe_collect_guidance(
+        _dynamic_schema_guidance, plan, resource_type
     ))
     return adoption_guidance.sort_annotations(annotations)
 

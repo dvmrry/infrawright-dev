@@ -9,11 +9,13 @@ import json
 
 LANE_PROVIDER_CONFIG = "provider_config"
 LANE_ABSENT_DEFAULT = "absent_default"
+LANE_DYNAMIC_SCHEMA = "dynamic_schema"
 STATUS_EFFECT_BLOCKED = "informational only; plan remains blocked"
 
 _LANE_ORDER = {
     LANE_PROVIDER_CONFIG: 0,
     LANE_ABSENT_DEFAULT: 1,
+    LANE_DYNAMIC_SCHEMA: 2,
 }
 
 
@@ -79,6 +81,35 @@ def absent_default_annotation(source, address, matched_plan_path, provider,
     }
 
 
+def dynamic_schema_annotation(source, address, matched_plan_path, provider,
+                              resource_type, rule, kind, ownership, action,
+                              provider_version_constraint, reason, evidence):
+    """Return a normalized dynamic-schema guidance annotation."""
+    return {
+        "lane": LANE_DYNAMIC_SCHEMA,
+        "provider": provider,
+        "resource_type": resource_type,
+        "address": address,
+        "source": source,
+        "matched_plan_path": matched_plan_path,
+        "status_effect": STATUS_EFFECT_BLOCKED,
+        "rule": rule,
+        "kind": kind,
+        "ownership": ownership,
+        "action": action,
+        "provider_version_constraint": provider_version_constraint,
+        "reason": reason,
+        "evidence": evidence,
+        "sort_key": (
+            _LANE_ORDER[LANE_DYNAMIC_SCHEMA],
+            provider or "",
+            resource_type or "",
+            matched_plan_path or "",
+            rule or "",
+        ),
+    }
+
+
 def annotations_for_finding_path(annotations, finding, path):
     """Return sorted annotations for a blocked finding path."""
     from engine import schema_paths
@@ -109,10 +140,16 @@ def print_guidance_sections(annotations, write):
         a for a in annotations
         if a.get("lane") == LANE_ABSENT_DEFAULT
     ]
+    dynamic_schema = [
+        a for a in annotations
+        if a.get("lane") == LANE_DYNAMIC_SCHEMA
+    ]
     if provider_config:
         _print_provider_config(provider_config, write)
     if absent_default:
         _print_absent_default(absent_default, write)
+    if dynamic_schema:
+        _print_dynamic_schema(dynamic_schema, write)
 
 
 def _print_provider_config(annotations, write):
@@ -145,6 +182,27 @@ def _print_absent_default(annotations, write):
             write(
                 "      observed value: %s\n"
                 % json.dumps(item.get("observed_value"), sort_keys=True)
+            )
+        write("      matched plan path: %s\n" % item.get("matched_plan_path"))
+        write("      reason: %s\n" % item.get("reason"))
+        if item.get("evidence"):
+            write("      evidence: %s\n" % item.get("evidence"))
+        write("      status: %s\n" % item.get("status_effect"))
+
+
+def _print_dynamic_schema(annotations, write):
+    write("  Dynamic-schema guidance:\n")
+    for item in annotations:
+        write("    - rule: %s\n" % item.get("rule"))
+        write("      provider: %s\n" % item.get("provider"))
+        write("      resource type: %s\n" % item.get("resource_type"))
+        write("      kind: %s\n" % item.get("kind"))
+        write("      ownership: %s\n" % item.get("ownership"))
+        write("      action: %s\n" % item.get("action"))
+        if item.get("provider_version_constraint"):
+            write(
+                "      provider version constraint: %s\n"
+                % item.get("provider_version_constraint")
             )
         write("      matched plan path: %s\n" % item.get("matched_plan_path"))
         write("      reason: %s\n" % item.get("reason"))
