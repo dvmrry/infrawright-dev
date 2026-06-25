@@ -20,7 +20,7 @@ declare provider-level settings known from lab evidence. When a blocked drift
 path matches a declared provider-config requirement, `assert-adoptable` should be
 annotated with operator guidance. The plan remains blocked.
 
-Concrete example from the Google Cloud lab
+Historical example from the Google Cloud lab
 (`docs/provider-labs/gcp-pr38.md`):
 
 - Provider setting: `add_terraform_attribution_label = false`

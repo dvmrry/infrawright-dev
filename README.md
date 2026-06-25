@@ -23,8 +23,9 @@ tenant is an outage, not a diff. infrawright is built to keep the state stable:
   every run, so its state address never moves.
 - **Automatic `moved {}` reconciliation** — when a key *does* change, it's emitted as a
   move, not a recreate.
-- **Deterministic, verified output** — `make check` proves the generated config,
-  imports, and modules are byte-stable.
+- **Deterministic, verified output** — `make check` proves the committed demo
+  config/import artifacts do not drift and that the module generator still
+  renders every resource type.
 
 The acceptance bar isn't "0 to change" — it's **0 to destroy, 0 to create** after import.
 
@@ -62,10 +63,16 @@ demo-owned example workflows without making them part of the root command
 contract. `make check-demo` pins `demo/deployment.json` so the shipped demo can
 still be verified even when a local deployment points somewhere else.
 
+Only one overlay is active for a command. Use separate deployment files for
+separate domains, such as `overlays/zscaler/deployment.json`,
+`overlays/aws/deployment.json`, and `overlays/gcp/deployment.json`, then run
+with the matching `OVERLAY` and `DEPLOYMENT`. Infrawright does not compose
+multiple overlays in one run.
+
 ## Quickstart
 
 ```
-make check      # full gate: unit tests + byte-identical demo + module generator smoke
+make check      # full gate: unit tests + demo drift check + module generator smoke
 make demo       # materialize the demo tenant (no credentials needed)
 ```
 

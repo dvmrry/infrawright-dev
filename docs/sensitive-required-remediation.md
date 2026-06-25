@@ -1,10 +1,11 @@
 # Sensitive-Required Remediation Design
 
-This is a design note, not implemented behavior. The current engine already fails
-loud on sensitive provider-state paths that cannot be projected safely. This
-document defines the class of values and blocks that are both sensitive and
-structurally required for Terraform/OpenTofu to produce a clean plan, and it
-proposes a future metadata contract for pack-owned guidance.
+This is a design note for behavior, not an implemented remediation path. The
+current engine already fails loud on sensitive provider-state paths that cannot
+be projected safely. This document defines the class of values and blocks that
+are both sensitive and structurally required for Terraform/OpenTofu to produce
+a clean plan, and it records the implemented V1 metadata validator contract for
+pack-owned guidance.
 
 The safety invariant is absolute: the system must never synthesize, guess, echo,
 persist, or project sensitive values. Existing fail-loud sensitive handling
@@ -68,18 +69,19 @@ must preserve this invariant and prove it per provider, per resource, per path.
 
 ## V1 Position
 
-V1 is design-only and diagnostic-only. No behavior changes are allowed. No
-placeholder rendering is allowed. No sensitive value projection is allowed. No
-auto-omit is allowed. No `assert-adoptable` downgrade is allowed.
+V1 is validator-only and diagnostic-only. The metadata validator and pack
+accessor exist, but no behavior changes are authorized. No placeholder rendering
+is allowed. No sensitive value projection is allowed. No auto-omit is allowed.
+No `assert-adoptable` downgrade is allowed.
 
-The V1 design only defines the failure class, the metadata shape, the evidence
-requirements, and the boundaries with sibling systems. A future PR may add a
-validator. A later future PR may add behavior only after the validator and
-evidence contract survive review and a provider lab proves a narrow, safe class.
+The V1 contract defines the failure class, metadata shape, evidence
+requirements, validator boundaries, and boundaries with sibling systems. A
+later behavior PR may add guidance or operator workflows only after committed
+metadata and a provider lab prove a narrow, safe class.
 
-## Proposed Future Metadata Shape
+## Metadata Shape
 
-This is illustrative only. It is not loaded by the engine today.
+The engine validates this metadata shape through `packs.sensitive_required_rules(provider=None)`.
 
 ```json
 {
@@ -109,7 +111,7 @@ guidance-only in V1. No behavior is authorized by this shape.
 
 ## Accepted Keys
 
-The future V1 accepted key set for `sensitive_required.rules` is:
+The V1 accepted key set for `sensitive_required.rules` is:
 
 - `id`
 - `provider`
@@ -127,18 +129,17 @@ The future V1 accepted key set for `sensitive_required.rules` is:
 - `projected_path`
 - `plan_path`
 
-A future validator rejects any unknown key. `raw_api_path`, `projected_path`,
+The V1 validator rejects any unknown key. `raw_api_path`, `projected_path`,
 and `plan_path` are evidence-only fields and cannot replace `path`. They may be
 used to show the mapping between raw API, projected, and plan namespaces, but
 identity is always based on the provider-state `path`.
 
-The future pack metadata key is `sensitive_required.rules`. A future accessor
-would be `packs.sensitive_required_rules(provider=None)`. No accessor is
-implemented in this PR.
+The pack metadata key is `sensitive_required.rules`. The accessor is
+`packs.sensitive_required_rules(provider=None)`.
 
 ## Required V1 Fields
 
-A future validator must require:
+The V1 validator requires:
 
 - `id`
 - `provider`
@@ -155,8 +156,8 @@ A future validator must require:
 ## Forbid Value-Carrying Fields
 
 Sensitive-required metadata must never contain sensitive values or placeholder
-values. A future validator rejects the following value-carrying keys with a
-distinct `forbidden_value_carrying_key` error:
+values. The V1 validator rejects the following value-carrying keys with a distinct
+`forbidden_value_carrying_key` error:
 
 - `value`
 - `observed_value`
@@ -189,7 +190,7 @@ The V1 `kind` enum is closed and conservative:
   present in configuration but the actual sensitive value must be supplied by the
   operator after adoption.
 
-Keep the set small. A future validator rejects any unknown `kind`. Do not add a
+Keep the set small. The V1 validator rejects any unknown `kind`. Do not add a
 kind until a provider lab proves the case.
 
 ## Possible Future Sensitivity
@@ -204,7 +205,7 @@ The V1 `sensitivity` enum is closed:
 - `write_only_sensitive`: the value is required in config but not recoverable from
   provider state.
 
-A future validator rejects any unknown `sensitivity` value.
+The V1 validator rejects any unknown `sensitivity` value.
 
 ## Possible Future Structural Requirement
 
@@ -220,7 +221,7 @@ The V1 `structural_requirement` enum is closed:
 - `operator_input_required_for_valid_config`: valid config requires an
   operator-supplied value that cannot be recovered safely from state.
 
-A future validator rejects any unknown `structural_requirement` value.
+The V1 validator rejects any unknown `structural_requirement` value.
 
 ## Kind / Sensitivity / Structural Requirement Matrix
 
@@ -236,14 +237,14 @@ downgrade.
 | `sensitive_nested_secret` | `contains_sensitive_fields` | `parent_block_required`, `block_required_for_valid_config` |
 | `sensitive_structural_placeholder_required` | `sensitive_block`, `contains_sensitive_fields`, `write_only_sensitive` | `block_required_for_valid_config`, `parent_block_required`, `operator_input_required_for_valid_config` |
 
-A future validator rejects any out-of-matrix combination.
+The V1 validator rejects any out-of-matrix combination.
 
 ### Kind specificity
 
 If more than one kind permits the same `sensitivity` + `structural_requirement`
 pair, rule authors must choose the most specific kind proven by lab evidence.
 `sensitive_structural_placeholder_required` is a fallback classification and is
-valid only when no more specific kind fits the evidence. A future validator does
+valid only when no more specific kind fits the evidence. The V1 validator does
 not infer kind precedence from the matrix alone; it only validates that the chosen
 kind is in-matrix. Specificity is enforced during lab/design review unless a
 future contract adds deterministic precedence. Do not use multiple rules with
@@ -305,7 +306,7 @@ unless a very narrow, provider-proven alternative is reviewed separately.
 ## Path Namespace
 
 V1 `path` is the provider-state path. It uses the engine normalized path syntax.
-A future validator canonicalizes `path` using `schema_paths.parse_report_path` then
+The V1 validator canonicalizes `path` using `schema_paths.parse_report_path` then
 `schema_paths.format_path`. Accepted `[0]` and `[*]` normalize to `[]` through
 `schema_paths.parse_report_path` / `format_path`. Bare wildcard path segments and
 unsupported syntax are rejected.
@@ -332,7 +333,7 @@ provider + stripped provider_version_constraint + resource scope + canonical pat
 
 Resource scope is either `("type", resource_type)` or `("prefix", resource_prefix)`.
 
-A future validator must reject:
+The V1 validator rejects:
 
 - duplicate identical identity,
 - same identity with different `kind`,
@@ -353,7 +354,7 @@ version ranges. No merge or precedence rule exists in V1.
 
 ## Action Rejection
 
-A future validator splits actions into four categories and rejects everything
+The V1 validator splits actions into four categories and rejects everything
 outside the allowed set:
 
 - **Allowed V1 actions** (`diagnostic_only`, `manual_review_required`) are the
@@ -379,7 +380,7 @@ All reserved, forbidden, and unknown actions are invalid in V1.
 
 ## Sensitive Path Handling
 
-If a static `sensitive_paths` set is supplied, a future validator canonicalizes
+If a static `sensitive_paths` set is supplied, the V1 validator canonicalizes
 each entry with `schema_paths.parse_report_path` then `schema_paths.format_path`.
 The rule `path` is canonicalized with the same process. The validator rejects the
 rule if the canonicalized rule path is not present in the canonicalized sensitive
@@ -413,7 +414,7 @@ A future rule must cite evidence showing both sides of the failure class:
 - Cleanup and safety notes from the lab.
 
 The evidence checklist is enforced during lab/design review, not by the static
-validator. A future validator only checks that `evidence` is a non-empty string
+validator. The V1 validator only checks that `evidence` is a non-empty string
 and that `reason` is present; it does not semantically validate the checklist
 unless future structured evidence fields are added.
 
@@ -500,15 +501,16 @@ This design is not:
 # V1 Validator Contract
 
 This section freezes the exact V1 static validator contract for
-`sensitive_required.rules`. The design is contract-ready; the next PR should
-implement the validator mechanically without making new design decisions.
+`sensitive_required.rules`. The validator is implemented; this section records
+its static contract so future metadata and behavior PRs do not reopen the safety
+boundary.
 
 ## V1 Validator Scope
 
-The future V1 validator:
+The V1 validator:
 
 - Validates metadata shape only.
-- Returns normalized metadata only if/when implemented.
+- Returns normalized metadata.
 - Renders nothing.
 - Projects nothing.
 - Omits nothing.
@@ -521,13 +523,11 @@ The future V1 validator:
 
 ## Pack Metadata Key
 
-The future pack metadata key is:
+The pack metadata key is:
 
 - Top-level: `sensitive_required`
 - Rule list: `sensitive_required.rules`
-- Future accessor: `packs.sensitive_required_rules(provider=None)`
-
-No accessor exists in this PR.
+- Accessor: `packs.sensitive_required_rules(provider=None)`
 
 ## Accepted Keys
 
@@ -554,7 +554,7 @@ value-carrying keys below, which are rejected as `forbidden_value_carrying_key`.
 
 ## Required Fields
 
-A V1 validator must require:
+The V1 validator requires:
 
 - `id`
 - `provider`
@@ -764,7 +764,7 @@ documentation/test categories, not a structured runtime error type. This matches
 the absent/default and dynamic-schema validators; no runtime error shape is
 changed by this contract.
 
-Future messages should include the rule index and rule `id` when present, the
+Messages should include the rule index and rule `id` when present, the
 offending field, and the identity tuple when relevant.
 
 | Category | Trigger | Scope | Message fragment |
@@ -811,10 +811,10 @@ offending field, and the identity tuple when relevant.
 | `overlapping_scope` | same type and matching prefix for same provider/version/path | rule set | `overlaps resource_prefix` |
 | `path_not_in_sensitive_set` | static sensitive path set supplied but rule path missing | rule | `path <x> is not in supplied sensitive_paths` |
 
-## Test Matrix For Future Validator PR
+## Validator Test Matrix
 
-The following matrix must be covered by tests in the validator-only
-implementation PR. This contract PR does not implement or test them.
+The validator implementation should continue to cover this matrix. This list is
+the contract for metadata validation coverage, not a behavior test plan.
 
 ### Positive tests
 
@@ -870,29 +870,22 @@ implementation PR. This contract PR does not implement or test them.
 
 ## Out Of Scope
 
-This contract PR explicitly does not implement:
+This contract explicitly does not authorize:
 
-- A validator module.
-- A pack accessor (`packs.sensitive_required_rules`).
-- Pack metadata.
-- Inventory integration.
-- Advisory integration.
-- `assert-adoptable` integration.
+- Pack metadata without provider-lab evidence.
+- Advisory or `assert-adoptable` behavior.
 - Projection behavior.
 - Omission behavior.
 - Placeholder rendering.
 - Terraform/OpenTofu execution.
-- Any runtime behavior.
+- Any runtime behavior that writes, guesses, or suppresses sensitive values.
 
 ## Recommended Next Step
 
-After this contract PR is accepted, the next PR is a validator-only
-implementation that follows this contract exactly. Do not implement the
-validator or any behavior in this contract PR.
-
-No sensitive-required behavior should be implemented until the metadata contract,
-evidence requirements, and safety invariant are accepted and at least one
+Do not implement sensitive-required behavior until committed pack metadata,
+evidence requirements, and the safety invariant survive review and at least one
 provider lab proves a narrow, safe class.
 
-Until the validator-only implementation exists, `grafana_contact_point.webhook`
-remains manual-review/unclassified in pack metadata.
+`grafana_contact_point.webhook` remains manual-review/unclassified in pack
+metadata until a separate metadata PR cites the Grafana lab and passes the V1
+validator.

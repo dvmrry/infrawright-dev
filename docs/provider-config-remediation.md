@@ -140,9 +140,9 @@ When `remediation` is present, `kind` is required. V1 allows only
   provider config. This is the current effective behavior and the safe default
   when `remediation` is absent.
 - `required_external`: the requirement is known, but the value must come from
-  consumer-owned provider configuration. It never renders. A future
-  `assert-adoptable` path may use it to emit guidance when matching drift is
-  detected. It may carry `value` as advisory context only.
+  consumer-owned provider configuration. It never renders. `assert-adoptable`
+  can use it to emit guidance when matching blocked drift is detected. It may
+  carry `value` as advisory context only.
 - `renderable_default`: a stronger evidence claim that the value is
   non-secret, not tenant-specific, not destructive, and primitive enough to be
   reviewed. Despite the name, it is still guidance-only in the current engine.

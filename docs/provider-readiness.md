@@ -353,15 +353,13 @@ When a provider shows low OpenAPI coverage:
 This keeps the human review set small and prevents us from treating "wrong API
 document" as hundreds of field-level drift questions.
 
-## Future Direction: Provider Recipes
-
-This is an early design note, not an implemented engine contract.
+## Provider Probe Recipes
 
 Provider readiness needs version-locked evidence, but the repository should not
 store rendered schemas, provider source trees, SDK source trees, and OpenAPI
-artifacts for every provider version. Instead, store small provider recipes and
-render the evidence bundle on the consumer or CI side for the requested provider
-version.
+artifacts for every provider version. Instead, store small provider recipes
+under `docs/recipes/providers/` and render the evidence bundle on the consumer
+or CI side for the requested provider version with `make provider-probe`.
 
 The committed recipe should describe how to resolve inputs:
 
@@ -384,5 +382,5 @@ provider/version tuple:
 
 Nix flakes may be useful as an optional development harness for reproducible
 tooling, but they should not be required as the product interface. The durable
-contract is the recipe plus rendered lock/report JSON; flakes, dev shells, or CI
+contract is the recipe plus rendered probe artifacts; flakes, dev shells, or CI
 jobs can be different ways to produce and verify that contract.
