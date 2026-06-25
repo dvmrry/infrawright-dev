@@ -2,9 +2,8 @@
 
 The one component that must run in restricted environments: stdlib-only,
 Python 3.6-floor, file in -> files out, no network, no credentials. Driven
-by the committed provider schemas (tools/tfschema.py) plus per-resource
-override maps (tools/overrides/<type>.json) — exceptions are data, not
-code. See AGENTS.md rules 5, 7, 8.
+by committed provider schemas plus pack-owned per-resource override maps —
+exceptions are data, not code. See AGENTS.md rules 5, 7, 8.
 """
 import json
 import os
@@ -755,7 +754,7 @@ def render_imports(resource_type, originals, override):
             raise ValueError(
                 "import_id template %r for %s item %r references field %s "
                 "the item does not carry — fix import_id in "
-                "tools/overrides/%s.json"
+                "packs/<provider>/overrides/%s.json"
                 % (template, resource_type, key, exc, resource_type))
         blocks.append(
             "import {\n"
@@ -926,16 +925,13 @@ def main(argv=None):
         sys.stderr.write(
             "%d unacknowledged dropped field(s) above — NEW API surface "
             "for %s. Confirm each against the provider read/expand, then add "
-            "the safe ones to acknowledged_drops in tools/overrides/%s.json "
+            "the safe ones to acknowledged_drops in packs/<provider>/overrides/%s.json "
             "(a dropped field can be write-REQUIRED under another schema name "
             "— the signingCertId class — so verify before acknowledging). "
-            "`make triage IN=<pulls dir> APPLY=1` bulk-classifies, but it is "
-            "GLOBAL: it writes acks for EVERY type in <pulls dir>, so for a "
-            "single resource prefer the per-type ack above. DROPS_CHECK=1 "
-            "makes this exit 4.\n"
+            "DROPS_CHECK=1 makes this exit 4.\n"
             % (len(unexpected), resource_type, resource_type))
         sys.stderr.write(
-            "Exact paths from this run (merge into tools/overrides/%s.json "
+            "Exact paths from this run (merge into packs/<provider>/overrides/%s.json "
             "only after verification):\n%s\n"
             % (
                 resource_type,

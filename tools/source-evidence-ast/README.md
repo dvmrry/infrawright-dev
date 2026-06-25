@@ -1,16 +1,17 @@
 # source-evidence-ast
 
-Experimental Go AST fact collector for Terraform provider source trees.
+Go AST fact collector for Terraform provider source trees.
 
-This is intentionally not wired into the Python readiness engine yet. It emits
-JSON facts that the Python prototype can later consume once the fact contract
-settles.
+This tool emits JSON facts consumed by the provider-readiness source evidence
+workflow. `make source-evidence-eval` runs it automatically when
+`SOURCE_FACTS=<facts.json>` is not supplied; `engine.source_operation_map` can
+also consume a facts file directly.
 
 ```bash
 go run . --source-root /path/to/terraform-provider-example --out facts.json
 ```
 
-The Python mapper can consume the facts as an experimental B-test path:
+The Python mapper can consume the facts directly:
 
 ```bash
 python3 -m engine.source_operation_map \

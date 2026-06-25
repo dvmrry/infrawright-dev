@@ -10,10 +10,11 @@ inspect, compare, or manage secret values.
 
 ## Sidecar File
 
-For tenant `<tenant>` and resource type `<resource_type>`, place bindings in:
+For tenant `<tenant>` and resource type `<resource_type>`, place bindings next
+to the generated tfvars file in the deployment-selected config directory:
 
 ```text
-config/<tenant>/<resource_type>.expressions.json
+[<overlay>/]config/<tenant>/<resource_type>.expressions.json
 ```
 
 Example:

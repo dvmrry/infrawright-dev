@@ -163,7 +163,7 @@ func resourceFolder() {
         repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         for name in ("digitalocean", "github"):
             with self.subTest(name=name):
-                path = os.path.join(repo, "recipes", "providers", name + ".json")
+                path = os.path.join(repo, "docs", "recipes", "providers", name + ".json")
                 with open(path, encoding="utf-8") as f:
                     recipe = json.load(f)
                 url = recipe["openapi"]["url"]

@@ -3,9 +3,9 @@
 Python 3.6 lacks PEP 538/540, so on agents with a POSIX/C locale
 sys.stdout/stderr come up latin-1 — and the first report line carrying
 an em-dash (or any tenant data with non-ASCII) dies with
-UnicodeEncodeError (field-hit: make lint in the pipeline). The
+UnicodeEncodeError (field-hit: a pipeline lint/check stage). The
 encoding="utf-8" discipline on open() calls cannot cover the standard
-streams, so every `python -m tools.X` entry point gets them fixed here,
+streams, so every `python -m engine.X` entry point gets them fixed here,
 at import, conditionally: a stream that is already UTF-8 (every 3.7+
 interpreter, every healthy locale) is left completely untouched.
 

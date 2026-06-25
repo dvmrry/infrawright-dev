@@ -138,7 +138,7 @@ def collector_for(provider):
     """Collector module for a provider pack.
 
     Provider collectors live at packs/<provider>/collector.py and expose the
-    small auth/URL contract consumed by collectors.rest.
+    small auth/URL contract consumed by engine.collectors.rest.
     """
     return importlib.import_module("packs.%s.collector" % provider)
 
@@ -412,8 +412,8 @@ def adoption_status_paths():
 
 
 def schema_extract_path():
-    """The sole schema-extract/main.tf under packs/ (the schema-dump pin source
-    for `make schemas`; vendor-shared in _shared/ today)."""
+    """The sole schema-extract/main.tf under packs/ (the schema-dump pin source;
+    vendor-shared in _shared/ today)."""
     root = packs_root()
     if os.path.isdir(root):
         for dirpath, _dirs, files in os.walk(root):

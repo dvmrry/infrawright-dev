@@ -127,7 +127,7 @@ class DynamicSchemaTest(unittest.TestCase):
                     "projection_omit": [
                         {
                             "path": "data.flags",
-                            "reason": "temporary lab prune",
+                            "reason": "lab-observed dynamic schema member",
                             "approved_by": "unit",
                         }
                     ]

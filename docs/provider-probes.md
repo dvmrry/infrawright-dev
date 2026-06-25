@@ -9,7 +9,7 @@ enough to investigate a provider without starting from manual triage.
 
 ## Recipe Shape
 
-Recipes live under `recipes/providers/` and pin:
+Recipes live under `docs/recipes/providers/` and pin:
 
 - `provider_source` and `provider_version`: the Terraform provider schema to
   inspect.
@@ -35,8 +35,8 @@ YAML OpenAPI specs are converted to JSON with Ruby's standard YAML support.
 ## Running
 
 ```bash
-make provider-probe RECIPE=recipes/providers/github.json
-make provider-probe RECIPE=recipes/providers/digitalocean.json
+make provider-probe RECIPE=docs/recipes/providers/github.json
+make provider-probe RECIPE=docs/recipes/providers/digitalocean.json
 ```
 
 By default, outputs are written under:
@@ -59,7 +59,7 @@ Use `WORK_DIR`, `OUT`, and `MARKDOWN` to copy summaries somewhere explicit:
 
 ```bash
 make provider-probe \
-  RECIPE=recipes/providers/github.json \
+  RECIPE=docs/recipes/providers/github.json \
   WORK_DIR=/tmp/infrawright-provider-probes/github \
   OUT=/tmp/github-probe-summary.json \
   MARKDOWN=/tmp/github-probe-summary.md

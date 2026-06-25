@@ -640,7 +640,7 @@ class CLISmokeTest(unittest.TestCase):
 
     def _run_cli(self, args):
         import subprocess
-        cmd = ["python3", "scripts/adoption-inventory-report.py"] + args
+        cmd = ["python3", "-m", "engine.adoption_inventory_report"] + args
         result = subprocess.run(
             cmd,
             cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),

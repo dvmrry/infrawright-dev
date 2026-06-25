@@ -1,6 +1,6 @@
 # Demo Dataset — Provenance
 
-These JSON files are input fixtures for `tools/tests/test_demo_pipeline.py`, the
+These JSON files are input fixtures for `tests/test_demo_pipeline.py`, the
 end-to-end pipeline test that exercises the full transform pipeline against
 realistic API response shapes.
 
