@@ -20,6 +20,7 @@ from engine.filter_imports import filter_imports
 from engine.registry import derived_types, generated_types, load_registry
 
 CONFIG_SUFFIX = ".auto.tfvars.json"
+EXPRESSION_BINDINGS_SUFFIX = ".expressions.json"
 IMPORTS_SUFFIX = "_imports.tf"
 MOVES_SUFFIX = "_moves.tf"
 VALID_TENANT = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -85,6 +86,12 @@ def expand_resources(selectors=None):
 def config_file(tenant, resource_type):
     return os.path.join(
         deployment.config_dir(tenant), resource_type + CONFIG_SUFFIX
+    )
+
+
+def expression_bindings_file(tenant, resource_type):
+    return os.path.join(
+        deployment.config_dir(tenant), resource_type + EXPRESSION_BINDINGS_SUFFIX
     )
 
 
