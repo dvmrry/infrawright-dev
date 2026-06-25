@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infrawright.local/schemas/surface-map.schema.json",
+  "title": "OpenAPI Surface Map",
+  "description": "Stable resource-to-API surface records emitted by openapi-map.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "summary",
+    "diagnostics",
+    "records"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "records",
+        "by_source",
+        "by_status"
+      ],
+      "properties": {
+        "records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "by_source": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "by_status": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "code",
+          "message"
+        ],
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/surfaceRecord"
+      }
+    }
+  },
+  "$defs": {
+    "surfaceRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource_type",
+        "provider",
+        "api_surface",
+        "match_status",
+        "read_path",
+        "read_operation",
+        "source",
+        "confidence",
+        "ambiguity_reason",
+        "adapter_required",
+        "evidence"
+      ],
+      "properties": {
+        "resource_type": {
+          "type": "string"
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "api_surface": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "match_status": {
+          "enum": [
+            "matched",
+            "ambiguous",
+            "missing",
+            "action_shaped",
+            "adapter_required",
+            "unsupported_for_now"
+          ]
+        },
+        "read_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "read_operation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "enum": [
+            "generic_crud",
+            "registry_fetch",
+            "source_read_registry"
+          ]
+        },
+        "confidence": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ambiguity_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "adapter_required": {
+          "type": "boolean"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  }
+}

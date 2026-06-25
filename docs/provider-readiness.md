@@ -32,6 +32,38 @@ the stronger coverage signal. Generic CRUD coverage is still useful as a
 candidate generator for new packs and non-fetch-backed resources, but it should
 not be treated as authoritative by itself.
 
+## Surface Map Artifact
+
+`openapi-map` also emits a stable `surface_map` section. This is the contract
+future pack and provider-readiness work should consume when deciding whether a
+Terraform resource has known API read/list evidence.
+
+The JSON shape is documented at
+[`docs/schemas/surface-map.schema.json`](schemas/surface-map.schema.json). Each
+record includes:
+
+- `resource_type`: Terraform resource type.
+- `provider`: Terraform provider source address when supplied.
+- `api_surface`: matched product/client/path surface when known.
+- `match_status`: one of `matched`, `ambiguous`, `missing`, `action_shaped`,
+  `adapter_required`, or `unsupported_for_now`.
+- `read_path` and `read_operation`: the selected OpenAPI GET path/operation
+  when the evidence has one.
+- `source`: `generic_crud`, `registry_fetch`, or `source_read_registry`.
+- `confidence`, `ambiguity_reason`, `adapter_required`, and `evidence`.
+
+The three sources are intentionally separate records. A resource can have a
+weak or missing generic CRUD candidate while also having a matched curated
+`registry_fetch` path or source-derived `source_read_registry` read path. In
+that case, read the registry/source record as the stronger evidence and keep the
+generic record as candidate-generation context.
+
+`action_shaped` and `adapter_required` mean the mapper found a non-vanilla CRUD
+shape and did not pretend it is ordinary collection/detail CRUD. Examples
+include Zscaler Client Connector action paths such as `listByCompany`, ZTW
+activation actions, parent-scoped policy paths, GraphQL-backed resources, or
+client families that need a dedicated adapter.
+
 When a provider has no pack registry yet but is written against generated
 OpenAPI clients, derive a provisional registry from provider source:
 

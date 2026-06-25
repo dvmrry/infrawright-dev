@@ -53,6 +53,7 @@ The important artifacts are:
 - `source-diagnostics.json`: mapper diagnostics for mapped, ambiguous, and
   unmapped resources.
 - `openapi-map.json`: full generic and registry-backed OpenAPI coverage report.
+  Its `surface_map` section is the stable resource-to-API surface contract.
 
 Use `WORK_DIR`, `OUT`, and `MARKDOWN` to copy summaries somewhere explicit:
 
@@ -69,6 +70,10 @@ make provider-probe \
 Treat `registry_read_coverage` as the headline OpenAPI signal because it is
 backed by provider source evidence. Treat `generic_openapi_map` as candidate
 generation only.
+
+For machine consumption, prefer `openapi-map.json.surface_map.records`: it keeps
+generic CRUD candidates, curated fetch paths, and source-derived read paths as
+separate evidence records with stable `match_status` values.
 
 Ambiguous and unmapped resources are not hidden. They mean the source evidence
 collector could not identify one clear read operation, or the selected path did
