@@ -1,20 +1,21 @@
 PYTHON ?= python3
 TF ?= terraform
+OVERLAY ?= demo
+DEPLOYMENT ?= deployment.json
+DEMO_DEPLOYMENT ?= demo/deployment.json
 
-.PHONY: demo check-demo check-modules check test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+-include local.mk
+ifneq ($(strip $(OVERLAY)),)
+-include $(OVERLAY)/Makefile
+-include $(OVERLAY)/local.mk
+endif
 
-demo: ## Materialize the demo tenant under config/demo and imports/demo
-	@set -e; for rt in $$($(PYTHON) -c "from engine.registry import generated_types; print('\n'.join(generated_types()))"); do \
-		src=$$($(PYTHON) -c "from engine.registry import derive_entry; d=derive_entry('$$rt'); print(d['from'] if d else '$$rt')"); \
-		f="packs/_shared/zscaler/demo/$$src.json"; \
-		test -f "$$f" || continue; \
-		$(PYTHON) -m engine.transform "$$rt" "$$f" demo; \
-	done
+.PHONY: check-demo check-modules check test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
-check-demo: ## Fail if the committed demo tenant drifts from pipeline output
-	$(MAKE) demo > /dev/null 2>&1
-	@test -z "$$(git status --porcelain -- config/demo imports/demo)" || { \
-		echo "demo drift:"; git status --porcelain -- config/demo imports/demo; exit 1; }
+check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
+	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1
+	@test -z "$$(git status --porcelain -- demo/config/demo demo/imports/demo)" || { \
+		echo "demo drift:"; git status --porcelain -- demo/config/demo demo/imports/demo; exit 1; }
 
 check-modules: ## Fail if generated modules drift from committed output
 	$(PYTHON) -m engine.gen_module > /dev/null 2>&1

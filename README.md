@@ -40,8 +40,23 @@ The acceptance bar isn't "0 to change" — it's **0 to destroy, 0 to create** af
 | `[<overlay>/]envs/<tenant>/<resource_type>/` | generated per-resource Terraform roots |
 
 There is one generated output layout. `overlay` is an optional free-form prefix
-owned by the adopter; the demo tenant uses none, so `make demo` writes at repo
-root under `config/demo` and `imports/demo`.
+owned by the adopter. The shipped `deployment.json` points at the `demo/`
+overlay, so demo artifacts live under `demo/config/demo` and
+`demo/imports/demo` while real deployments can choose their own overlay prefix.
+
+The root `Makefile` is the stable product command surface. Deployment-specific
+workflow targets can live in optional extension Makefiles:
+
+```
+local.mk
+<overlay>/Makefile
+<overlay>/local.mk
+```
+
+Those files are included when present. The shipped demo uses `demo/Makefile` for
+demo-owned example workflows without making them part of the root command
+contract. `make check-demo` pins `demo/deployment.json` so the shipped demo can
+still be verified even when a local deployment points somewhere else.
 
 ## Quickstart
 

@@ -11,7 +11,6 @@ import os
 import sys
 
 DEPLOYMENT_JSON = "deployment.json"
-TEMPLATE_TENANTS = frozenset({"demo"})
 
 
 def _deployment_path():
@@ -42,7 +41,7 @@ def overlay():
 
 
 def tenant_root(tenant):
-    return "." if tenant in TEMPLATE_TENANTS else overlay()
+    return overlay()
 
 
 def _path(tenant, kind, provider=None):

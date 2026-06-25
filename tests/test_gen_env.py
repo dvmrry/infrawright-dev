@@ -103,22 +103,37 @@ class GenerateEnvTest(unittest.TestCase):
         from engine.gen_env import generate_env
         tenant = "demo"
         resource_type = "zia_url_categories"
-        config_path = os.path.join(
-            deployment.config_dir(tenant),
-            resource_type + ".auto.tfvars.json",
+        repo_deployment = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "deployment.json",
         )
-        self.assertTrue(os.path.exists(config_path), config_path)
-        with tempfile.TemporaryDirectory() as td:
-            generate_env(
-                tenant, out_root=td, fmt=False, selectors=[resource_type])
-            env_root_dir = os.path.join(td, tenant, resource_type)
-            smoke_path = os.path.join(env_root_dir, "tests", "smoke.tftest.hcl")
-            with open(smoke_path, encoding="utf-8") as f:
-                smoke = f.read()
-            match = re.search(r'jsondecode\(file\("([^"]+)"\)\)', smoke)
-            self.assertIsNotNone(match, smoke)
-            resolved = os.path.normpath(os.path.join(env_root_dir, match.group(1)))
-            self.assertEqual(resolved, os.path.normpath(os.path.abspath(config_path)))
+        saved = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = repo_deployment
+        try:
+            config_path = os.path.join(
+                deployment.config_dir(tenant),
+                resource_type + ".auto.tfvars.json",
+            )
+            self.assertTrue(os.path.exists(config_path), config_path)
+            with tempfile.TemporaryDirectory() as td:
+                generate_env(
+                    tenant, out_root=td, fmt=False, selectors=[resource_type])
+                env_root_dir = os.path.join(td, tenant, resource_type)
+                smoke_path = os.path.join(env_root_dir, "tests", "smoke.tftest.hcl")
+                with open(smoke_path, encoding="utf-8") as f:
+                    smoke = f.read()
+                match = re.search(r'jsondecode\(file\("([^"]+)"\)\)', smoke)
+                self.assertIsNotNone(match, smoke)
+                resolved = os.path.normpath(os.path.join(env_root_dir, match.group(1)))
+                self.assertEqual(
+                    resolved,
+                    os.path.normpath(os.path.abspath(config_path)),
+                )
+        finally:
+            if saved is None:
+                os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+            else:
+                os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
 
     def test_expression_binding_file_writes_env_root_overlay(self):
         from engine.gen_env import generate_env
