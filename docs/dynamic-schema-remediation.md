@@ -1,8 +1,10 @@
 # Dynamic Schema Remediation Design
 
-This is a design note, not implemented behavior. The current engine can
-diagnose dynamic-schema paths, but it does not authorize projection or omission
-of those paths from pack metadata.
+This is primarily a design note for future projection or omission behavior. The
+current engine can diagnose dynamic-schema paths and annotate blocked
+`assert-adoptable` output when a blocked path matches committed
+`manual_review_required` metadata, but it does not authorize projection or
+omission of those paths from pack metadata.
 
 The problem is deliberately dangerous. When provider schema cannot statically
 describe a path, the wrong move is to either project it blindly or ignore it
@@ -27,6 +29,36 @@ Any future dynamic-schema behavior must either:
 - remain diagnostic/manual-review only, or
 - feed or reuse the existing projection paths so required-path guards and
   advisory omission accounting stay intact.
+
+## Assert-Adoptable Guidance
+
+`assert-adoptable` now annotates blocked saved-plan paths that exactly match
+committed `dynamic_schema.rules` for the same provider and resource scope. This
+guidance is informational only: the plan remains blocked.
+
+Dynamic-schema guidance:
+
+- Only uses committed metadata loaded through
+  `packs.dynamic_schema_rules(provider)`.
+- Only annotates rules with `action: manual_review_required`.
+- Does not annotate `diagnostic_only`, `preserve_observed_scalar`, or
+  `projection_omit_candidate` rules.
+- Matches blocked value-drift and `after_unknown` paths.
+- Does not match sensitivity-only `before_sensitive` or `after_sensitive` paths.
+- Does not project dynamic-schema paths.
+- Does not omit paths.
+- Does not change drift policy.
+- Does not change `assert-adoptable` status.
+- Does not use raw API fallback.
+- Does not mutate provider state, generated config, or provider config.
+- Does not execute Terraform/OpenTofu.
+
+The guidance output includes the rule's `provider_version_constraint`. Current
+`assert-adoptable` execution does not have a provider-version source, so V1
+displays the constraint for operator review rather than enforcing it. A future
+provider-version-aware collector may skip annotations whose constraints are
+known not to apply, but it must not infer provider versions from plan paths or
+raw API data.
 
 ## The Real Question
 

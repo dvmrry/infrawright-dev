@@ -831,6 +831,311 @@ class OpsAssertAdoptableProviderConfigGuidanceTest(unittest.TestCase):
         self.assertNotIn("all 1 saved plan(s) clean", out)
 
 
+class OpsAssertAdoptableDynamicSchemaGuidanceTest(unittest.TestCase):
+    """Tests for dynamic-schema guidance annotations in blocked output."""
+
+    def _setup_test(self, pack_data, plan_data):
+        tmp = tempfile.mkdtemp(prefix="ops-dynamic-schema-")
+        pack_root = os.path.join(tmp, "packs")
+        _write_json(os.path.join(pack_root, "sample", "pack.json"), pack_data)
+        old_packs = os.environ.get("INFRAWRIGHT_PACKS")
+        old_pairs = ops.selected_env_pairs
+        old_show = ops._show_plan_json
+        old_stderr = sys.stderr
+        stderr = io.StringIO()
+        try:
+            os.environ["INFRAWRIGHT_PACKS"] = pack_root
+            packs.reset()
+            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
+                ("tenant", "sample_resource", tmp)
+            ]
+            ops._show_plan_json = lambda env_dir: plan_data
+            sys.stderr = stderr
+            return tmp, old_packs, old_pairs, old_show, old_stderr, stderr
+        except Exception:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise
+
+    def _teardown(self, tmp, old_packs, old_pairs, old_show, old_stderr):
+        if old_packs is None:
+            os.environ.pop("INFRAWRIGHT_PACKS", None)
+        else:
+            os.environ["INFRAWRIGHT_PACKS"] = old_packs
+        packs.reset()
+        ops.selected_env_pairs = old_pairs
+        ops._show_plan_json = old_show
+        sys.stderr = old_stderr
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    def _run_blocked(self, pack_data, plan_data):
+        tmp, old_packs, old_pairs, old_show, old_stderr, stderr = self._setup_test(
+            pack_data, plan_data
+        )
+        try:
+            with self.assertRaises(RuntimeError) as ctx:
+                ops.cmd_assert_adoptable({
+                    "tenant": "tenant",
+                    "selectors": [],
+                    "policy": None,
+                })
+            return str(ctx.exception), stderr.getvalue()
+        finally:
+            self._teardown(tmp, old_packs, old_pairs, old_show, old_stderr)
+
+    def _base_pack(self, rule):
+        return {
+            "provider_prefixes": {"sample_": "sample"},
+            "provider_sources": {"sample": "example/sample"},
+            "dynamic_schema": {"rules": [rule]},
+        }
+
+    def _base_rule(self, **overrides):
+        rule = {
+            "id": "sample_dynamic_data_flags",
+            "provider": "sample",
+            "provider_version_constraint": "1.2.3",
+            "resource_type": "sample_resource",
+            "path": "data.flags",
+            "kind": "provider_observed_projection_unsafe",
+            "ownership": "unknown",
+            "action": "manual_review_required",
+            "evidence": "docs/provider-labs/sample.md",
+            "reason": "Sample provider exposes a dynamic data.flags path.",
+        }
+        rule.update(overrides)
+        return rule
+
+    def _base_plan(self, before, after):
+        return {
+            "format_version": "1.0",
+            "resource_changes": [{
+                "address": "sample_resource.this",
+                "type": "sample_resource",
+                "change": {
+                    "actions": ["update"],
+                    "before": before,
+                    "after": after,
+                },
+            }],
+        }
+
+    def test_manual_review_annotation_contains_all_fields(self):
+        plan = self._base_plan(
+            {"data": {}},
+            {"data": {"flags": "provider-added"}},
+        )
+        exc, out = self._run_blocked(self._base_pack(self._base_rule()), plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertIn("BLOCKED: tenant/sample_resource", out)
+        self.assertIn("Dynamic-schema guidance:", out)
+        self.assertIn("rule: sample_dynamic_data_flags", out)
+        self.assertIn("provider: sample", out)
+        self.assertIn("resource type: sample_resource", out)
+        self.assertIn("kind: provider_observed_projection_unsafe", out)
+        self.assertIn("ownership: unknown", out)
+        self.assertIn("action: manual_review_required", out)
+        self.assertIn("provider version constraint: 1.2.3", out)
+        self.assertIn("matched plan path: data.flags", out)
+        self.assertIn("reason: Sample provider exposes a dynamic data.flags path.", out)
+        self.assertIn("evidence: docs/provider-labs/sample.md", out)
+        self.assertIn("status: informational only; plan remains blocked", out)
+        self.assertNotIn("adoptable with consumer-tolerated drift", out)
+        self.assertNotIn("all 1 saved plan(s) clean", out)
+
+    def test_non_matching_plan_path_does_not_annotate(self):
+        plan = self._base_plan({"other": ""}, {"other": "value"})
+        exc, out = self._run_blocked(self._base_pack(self._base_rule()), plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertIn("other", out)
+        self.assertNotIn("Dynamic-schema guidance:", out)
+
+    def test_wrong_provider_does_not_annotate(self):
+        rule = self._base_rule(
+            id="other_dynamic_data_flags",
+            provider="other",
+            resource_type="other_resource",
+        )
+        pack = self._base_pack(rule)
+        pack["provider_prefixes"] = {"sample_": "sample", "other_": "other"}
+        plan = self._base_plan({"data": {}}, {"data": {"flags": "x"}})
+        exc, out = self._run_blocked(pack, plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertNotIn("Dynamic-schema guidance:", out)
+
+    def test_wrong_resource_type_does_not_annotate(self):
+        rule = self._base_rule(resource_type="sample_other")
+        plan = self._base_plan({"data": {}}, {"data": {"flags": "x"}})
+        exc, out = self._run_blocked(self._base_pack(rule), plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertNotIn("Dynamic-schema guidance:", out)
+
+    def test_resource_prefix_scope_can_annotate(self):
+        rule = self._base_rule(resource_type=None, resource_prefix="sample_")
+        del rule["resource_type"]
+        plan = self._base_plan({"data": {}}, {"data": {"flags": "x"}})
+        exc, out = self._run_blocked(self._base_pack(rule), plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertIn("Dynamic-schema guidance:", out)
+        self.assertIn("rule: sample_dynamic_data_flags", out)
+
+    def test_diagnostic_only_does_not_annotate(self):
+        rule = self._base_rule(action="diagnostic_only")
+        plan = self._base_plan({"data": {}}, {"data": {"flags": "x"}})
+        exc, out = self._run_blocked(self._base_pack(rule), plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertNotIn("Dynamic-schema guidance:", out)
+        self.assertIn("data.flags", out)
+
+    def test_reserved_action_fails_closed_without_annotation(self):
+        rule = self._base_rule(action="preserve_observed_scalar")
+        plan = self._base_plan({"data": {}}, {"data": {"flags": "x"}})
+        exc, out = self._run_blocked(self._base_pack(rule), plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertIn("data.flags", out)
+        self.assertNotIn("Dynamic-schema guidance:", out)
+        self.assertNotIn("preserve_observed_scalar", out)
+
+    def test_helper_failure_preserves_blocked_output(self):
+        plan = self._base_plan({"data": {}}, {"data": {"flags": "x"}})
+        old_impl = ops._dynamic_schema_guidance
+        try:
+            ops._dynamic_schema_guidance = lambda _plan, _resource_type: (
+                (_ for _ in ()).throw(RuntimeError("boom"))
+            )
+            exc, out = self._run_blocked(self._base_pack(self._base_rule()), plan)
+        finally:
+            ops._dynamic_schema_guidance = old_impl
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertIn("data.flags", out)
+        self.assertNotIn("Dynamic-schema guidance:", out)
+        self.assertNotIn("boom", out)
+
+    def test_after_unknown_path_can_annotate(self):
+        plan = self._base_plan(
+            {"data": {"flags": "known"}},
+            {"data": {"flags": "known"}},
+        )
+        plan["resource_changes"][0]["change"]["after_unknown"] = {
+            "data": {"flags": True},
+        }
+        exc, out = self._run_blocked(self._base_pack(self._base_rule()), plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertIn("Dynamic-schema guidance:", out)
+        self.assertIn("matched plan path: data.flags", out)
+
+    def test_sensitivity_only_path_does_not_annotate(self):
+        plan = self._base_plan(
+            {"data": {"flags": "same"}, "other": "old"},
+            {"data": {"flags": "same"}, "other": "new"},
+        )
+        plan["resource_changes"][0]["change"]["before_sensitive"] = {
+            "data": {"flags": True},
+        }
+        plan["resource_changes"][0]["change"]["after_sensitive"] = {
+            "data": {"flags": True},
+        }
+        exc, out = self._run_blocked(self._base_pack(self._base_rule()), plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertIn("data.flags", out)
+        self.assertIn("other", out)
+        self.assertNotIn("Dynamic-schema guidance:", out)
+
+    def test_tolerated_drift_does_not_collect_guidance(self):
+        plan = self._base_plan({"data": {}}, {"data": {"flags": "x"}})
+        tmp = tempfile.mkdtemp(prefix="ops-dynamic-schema-tolerated-")
+        policy_path = os.path.join(tmp, "policy.json")
+        _write_json(policy_path, {
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "plan_tolerate": [{
+                        "path": "data.flags",
+                        "reason": "test tolerance",
+                        "approved_by": "unit",
+                    }]
+                }
+            }
+        })
+        pack_root = os.path.join(tmp, "packs")
+        _write_json(
+            os.path.join(pack_root, "sample", "pack.json"),
+            self._base_pack(self._base_rule()),
+        )
+        old_packs = os.environ.get("INFRAWRIGHT_PACKS")
+        old_pairs = ops.selected_env_pairs
+        old_show = ops._show_plan_json
+        old_guidance = ops._guidance_annotations
+        old_stderr = sys.stderr
+        stderr = io.StringIO()
+        calls = []
+        try:
+            os.environ["INFRAWRIGHT_PACKS"] = pack_root
+            packs.reset()
+            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
+                ("tenant", "sample_resource", tmp)
+            ]
+            ops._show_plan_json = lambda env_dir: plan
+            ops._guidance_annotations = lambda _plan, _resource_type: (
+                calls.append(True) or []
+            )
+            sys.stderr = stderr
+            code = ops.cmd_assert_adoptable({
+                "tenant": "tenant",
+                "selectors": [],
+                "policy": policy_path,
+            })
+            self.assertEqual(code, 0)
+            out = stderr.getvalue()
+            self.assertIn("adoptable with consumer-tolerated drift", out)
+            self.assertNotIn("Dynamic-schema guidance:", out)
+            self.assertEqual(calls, [])
+        finally:
+            if old_packs is None:
+                os.environ.pop("INFRAWRIGHT_PACKS", None)
+            else:
+                os.environ["INFRAWRIGHT_PACKS"] = old_packs
+            packs.reset()
+            ops.selected_env_pairs = old_pairs
+            ops._show_plan_json = old_show
+            ops._guidance_annotations = old_guidance
+            sys.stderr = old_stderr
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_committed_cloudflare_metadata_can_surface_guidance(self):
+        old_packs = os.environ.get("INFRAWRIGHT_PACKS")
+        try:
+            os.environ.pop("INFRAWRIGHT_PACKS", None)
+            packs.reset()
+            plan = {
+                "format_version": "1.0",
+                "resource_changes": [{
+                    "address": "cloudflare_dns_record.this",
+                    "type": "cloudflare_dns_record",
+                    "change": {
+                        "actions": ["update"],
+                        "before": {"data": {}},
+                        "after": {"data": {"flags": ["aa"]}},
+                    },
+                }],
+            }
+            annotations = ops._dynamic_schema_guidance(
+                plan,
+                "cloudflare_dns_record",
+            )
+        finally:
+            if old_packs is None:
+                os.environ.pop("INFRAWRIGHT_PACKS", None)
+            else:
+                os.environ["INFRAWRIGHT_PACKS"] = old_packs
+            packs.reset()
+        self.assertEqual(len(annotations), 1)
+        self.assertEqual(
+            annotations[0]["rule"],
+            "cloudflare_dns_record_data_flags_dynamic",
+        )
+        self.assertEqual(annotations[0]["matched_plan_path"], "data.flags")
+
+
 class OpsAssertAdoptableAbsentDefaultGuidanceTest(unittest.TestCase):
     """Tests for absent/default guidance annotations in blocked output."""
 

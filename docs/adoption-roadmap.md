@@ -156,6 +156,20 @@ resource type. The annotation is informational only: the plan remains blocked,
 and no omission, normalization, projection mutation, drift tolerance,
 provider-config behavior, or Terraform/OpenTofu execution is authorized.
 
+## Dynamic-Schema Assert-Adoptable Guidance
+
+`assert-adoptable` now annotates blocked saved-plan paths that exactly match
+committed manual-review `dynamic_schema.rules` for the same provider and
+resource scope. The annotation is informational only: the plan remains blocked,
+and no dynamic-schema projection, omission, raw API fallback, drift tolerance,
+provider-config behavior, or Terraform/OpenTofu execution is authorized.
+
+Dynamic-schema guidance uses only value-drift and `after_unknown` plan paths. It
+does not annotate sensitivity-only `before_sensitive` or `after_sensitive`
+paths. The output displays each rule's `provider_version_constraint`; V1 does
+not enforce that constraint because `assert-adoptable` does not currently have a
+provider-version source.
+
 ## Sensitive-Required Design Checkpoint
 
 The sensitive-required failure class is now documented in `docs/sensitive-required-remediation.md`.

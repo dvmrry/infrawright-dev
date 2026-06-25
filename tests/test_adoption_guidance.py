@@ -41,6 +41,24 @@ class AdoptionGuidanceTest(unittest.TestCase):
         values.update(overrides)
         return adoption_guidance.absent_default_annotation(**values)
 
+    def _dynamic_schema_annotation(self, **overrides):
+        values = {
+            "source": "resource_changes",
+            "address": "sample_resource.this",
+            "matched_plan_path": "data.flags",
+            "provider": "sample",
+            "resource_type": "sample_resource",
+            "rule": "sample_dynamic_data_flags",
+            "kind": "provider_observed_projection_unsafe",
+            "ownership": "unknown",
+            "action": "manual_review_required",
+            "provider_version_constraint": "1.2.3",
+            "reason": "Sample provider exposes a dynamic data.flags path.",
+            "evidence": "docs/provider-labs/sample.md",
+        }
+        values.update(overrides)
+        return adoption_guidance.dynamic_schema_annotation(**values)
+
     def test_safe_collect_guidance_returns_empty_on_exception(self):
         def boom():
             raise RuntimeError("hidden failure")
@@ -127,9 +145,35 @@ class AdoptionGuidanceTest(unittest.TestCase):
             "      status: informational only; plan remains blocked\n"
         ))
 
+    def test_dynamic_schema_guidance_section_golden(self):
+        out = io.StringIO()
+        adoption_guidance.print_guidance_sections(
+            [self._dynamic_schema_annotation()],
+            out.write,
+        )
+        self.assertEqual(out.getvalue(), (
+            "  Dynamic-schema guidance:\n"
+            "    - rule: sample_dynamic_data_flags\n"
+            "      provider: sample\n"
+            "      resource type: sample_resource\n"
+            "      kind: provider_observed_projection_unsafe\n"
+            "      ownership: unknown\n"
+            "      action: manual_review_required\n"
+            "      provider version constraint: 1.2.3\n"
+            "      matched plan path: data.flags\n"
+            "      reason: Sample provider exposes a dynamic data.flags path.\n"
+            "      evidence: docs/provider-labs/sample.md\n"
+            "      status: informational only; plan remains blocked\n"
+        ))
+
     def test_combined_guidance_sections_golden_ordering(self):
         out = io.StringIO()
         adoption_guidance.print_guidance_sections([
+            self._dynamic_schema_annotation(
+                rule="z_dynamic",
+                matched_plan_path="z_dynamic_path",
+                reason="Z dynamic-schema reason.",
+            ),
             self._absent_default_annotation(
                 rule="z_empty_name_prefix",
                 matched_plan_path="z_name_prefix",
@@ -149,6 +193,11 @@ class AdoptionGuidanceTest(unittest.TestCase):
                 setting="a_provider_setting",
                 matched_plan_path="a_provider_path",
                 reason="A provider-config reason.",
+            ),
+            self._dynamic_schema_annotation(
+                rule="a_dynamic",
+                matched_plan_path="a_dynamic_path",
+                reason="A dynamic-schema reason.",
             ),
         ], out.write)
         self.assertEqual(out.getvalue(), (
@@ -188,6 +237,29 @@ class AdoptionGuidanceTest(unittest.TestCase):
             "      observed value: \"\"\n"
             "      matched plan path: z_name_prefix\n"
             "      reason: Z absent/default reason.\n"
+            "      evidence: docs/provider-labs/sample.md\n"
+            "      status: informational only; plan remains blocked\n"
+            "  Dynamic-schema guidance:\n"
+            "    - rule: a_dynamic\n"
+            "      provider: sample\n"
+            "      resource type: sample_resource\n"
+            "      kind: provider_observed_projection_unsafe\n"
+            "      ownership: unknown\n"
+            "      action: manual_review_required\n"
+            "      provider version constraint: 1.2.3\n"
+            "      matched plan path: a_dynamic_path\n"
+            "      reason: A dynamic-schema reason.\n"
+            "      evidence: docs/provider-labs/sample.md\n"
+            "      status: informational only; plan remains blocked\n"
+            "    - rule: z_dynamic\n"
+            "      provider: sample\n"
+            "      resource type: sample_resource\n"
+            "      kind: provider_observed_projection_unsafe\n"
+            "      ownership: unknown\n"
+            "      action: manual_review_required\n"
+            "      provider version constraint: 1.2.3\n"
+            "      matched plan path: z_dynamic_path\n"
+            "      reason: Z dynamic-schema reason.\n"
             "      evidence: docs/provider-labs/sample.md\n"
             "      status: informational only; plan remains blocked\n"
         ))
