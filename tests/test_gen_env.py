@@ -1,11 +1,17 @@
 """Tests for tools/gen_env.py."""
+import json
 import os
 import re
 import tempfile
 import unittest
 
 from engine import deployment
-from engine.gen_env import expand_resources, render_env_main, render_env_test
+from engine.gen_env import (
+    expand_resources,
+    render_env_expression_bindings,
+    render_env_main,
+    render_env_test,
+)
 
 
 class RenderEnvMainTest(unittest.TestCase):
@@ -25,6 +31,20 @@ class RenderEnvMainTest(unittest.TestCase):
         self.assertIn('variable "items"', out)
         self.assertIn("type = any", out)
         self.assertIn("zscaler/zpa", out)
+
+    def test_expression_bindings_root_uses_merged_local_items(self):
+        out = render_env_main(
+            "zpa_application_segment",
+            "zs2",
+            self._root_env_dir("zpa_application_segment", "zs2"),
+            has_expression_bindings=True,
+        )
+
+        self.assertIn(
+            "items = local.infrawright_expression_bound_items",
+            out,
+        )
+        self.assertNotIn("items = var.items", out)
 
     def test_zia_provider(self):
         out = render_env_main("zia_url_categories", "zs2",
@@ -99,6 +119,224 @@ class GenerateEnvTest(unittest.TestCase):
             self.assertIsNotNone(match, smoke)
             resolved = os.path.normpath(os.path.join(env_root_dir, match.group(1)))
             self.assertEqual(resolved, os.path.normpath(os.path.abspath(config_path)))
+
+    def test_expression_binding_file_writes_env_root_overlay(self):
+        from engine.gen_env import generate_env
+        with tempfile.TemporaryDirectory() as td:
+            dep = os.path.join(td, "deployment.json")
+            with open(dep, "w", encoding="utf-8") as f:
+                f.write(json.dumps({"overlay": td}))
+            saved = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+            try:
+                tenant = "tenant"
+                resource_type = "zpa_application_segment"
+                config_dir = os.path.join(td, "config", tenant)
+                os.makedirs(config_dir)
+                with open(
+                    os.path.join(
+                        config_dir, resource_type + ".auto.tfvars.json"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({
+                        "items": {
+                            "example": {
+                                "clientless_app_config": {
+                                    "username": "svc-user",
+                                    "password": None,
+                                },
+                            },
+                        },
+                    }, f)
+                with open(
+                    os.path.join(
+                        config_dir, resource_type + ".expressions.json"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({
+                        "resources": {
+                            "zpa_application_segment.example": {
+                                "clientless_app_config.password": {
+                                    "expression": "var.zpa_client_secret",
+                                    "sensitive": True,
+                                },
+                            },
+                        },
+                    }, f)
+                generate_env(
+                    tenant,
+                    out_root=os.path.join(td, "generated-envs"),
+                    fmt=False,
+                    selectors=[resource_type],
+                )
+                base = os.path.join(
+                    td, "generated-envs", tenant, resource_type)
+                with open(os.path.join(base, "main.tf"), encoding="utf-8") as f:
+                    self.assertIn(
+                        "items = local.infrawright_expression_bound_items",
+                        f.read(),
+                    )
+                with open(
+                    os.path.join(base, "expression_bindings.tf"),
+                    encoding="utf-8",
+                ) as f:
+                    overlay = f.read()
+                self.assertIn('variable "zpa_client_secret"', overlay)
+                self.assertIn("sensitive = true", overlay)
+                self.assertIn("password = var.zpa_client_secret", overlay)
+            finally:
+                if saved is None:
+                    os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+                else:
+                    os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
+
+    def test_expression_binding_missing_parent_fails_closed(self):
+        from engine.gen_env import generate_env
+        with tempfile.TemporaryDirectory() as td:
+            dep = os.path.join(td, "deployment.json")
+            with open(dep, "w", encoding="utf-8") as f:
+                f.write(json.dumps({"overlay": td}))
+            saved = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+            try:
+                tenant = "tenant"
+                resource_type = "zpa_application_segment"
+                config_dir = os.path.join(td, "config", tenant)
+                os.makedirs(config_dir)
+                with open(
+                    os.path.join(
+                        config_dir, resource_type + ".auto.tfvars.json"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({"items": {"example": {}}}, f)
+                with open(
+                    os.path.join(
+                        config_dir, resource_type + ".expressions.json"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({
+                        "resources": {
+                            "zpa_application_segment.example": {
+                                "clientless_app_config.password": {
+                                    "expression": "var.zpa_client_secret",
+                                },
+                            },
+                        },
+                    }, f)
+
+                with self.assertRaises(ValueError):
+                    generate_env(
+                        tenant,
+                        out_root=os.path.join(td, "generated-envs"),
+                        fmt=False,
+                        selectors=[resource_type],
+                    )
+            finally:
+                if saved is None:
+                    os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+                else:
+                    os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
+
+    def test_expression_binding_missing_leaf_fails_closed(self):
+        from engine.gen_env import generate_env
+        with tempfile.TemporaryDirectory() as td:
+            dep = os.path.join(td, "deployment.json")
+            with open(dep, "w", encoding="utf-8") as f:
+                f.write(json.dumps({"overlay": td}))
+            saved = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+            try:
+                tenant = "tenant"
+                resource_type = "zpa_application_segment"
+                config_dir = os.path.join(td, "config", tenant)
+                os.makedirs(config_dir)
+                with open(
+                    os.path.join(
+                        config_dir, resource_type + ".auto.tfvars.json"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({
+                        "items": {
+                            "example": {
+                                "clientless_app_config": {
+                                    "username": "svc-user",
+                                },
+                            },
+                        },
+                    }, f)
+                with open(
+                    os.path.join(
+                        config_dir, resource_type + ".expressions.json"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({
+                        "resources": {
+                            "zpa_application_segment.example": {
+                                "clientless_app_config.password": {
+                                    "expression": "var.zpa_client_secret",
+                                },
+                            },
+                        },
+                    }, f)
+
+                with self.assertRaises(ValueError):
+                    generate_env(
+                        tenant,
+                        out_root=os.path.join(td, "generated-envs"),
+                        fmt=False,
+                        selectors=[resource_type],
+                    )
+            finally:
+                if saved is None:
+                    os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+                else:
+                    os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
+
+    def test_expression_binding_file_removed_when_sidecar_is_absent(self):
+        from engine.gen_env import generate_env
+        with tempfile.TemporaryDirectory() as td:
+            base = os.path.join(
+                td, "tenant", "zpa_application_segment")
+            os.makedirs(base)
+            stale = os.path.join(base, "expression_bindings.tf")
+            with open(stale, "w", encoding="utf-8") as f:
+                f.write("# stale\n")
+            generate_env(
+                "tenant",
+                out_root=td,
+                fmt=False,
+                selectors=["zpa_application_segment"],
+            )
+            self.assertFalse(os.path.exists(stale))
+
+
+class RenderEnvExpressionBindingsTest(unittest.TestCase):
+    def test_render_env_expression_bindings_delegates_to_hcl_renderer(self):
+        from engine import expression_bindings
+
+        bindings = expression_bindings.parse_bindings({
+            "resources": {
+                "zpa_application_segment.example": {
+                    "clientless_app_config.password": {
+                        "expression": "var.zpa_client_secret",
+                        "sensitive": True,
+                    },
+                },
+            },
+        }, "zpa_application_segment")
+
+        text = render_env_expression_bindings(bindings)
+        self.assertIn(
+            "infrawright_expression_bound_items = merge(var.items, {",
+            text,
+        )
+        self.assertIn("password = var.zpa_client_secret", text)
 
 
 class ExpandResourcesTest(unittest.TestCase):
