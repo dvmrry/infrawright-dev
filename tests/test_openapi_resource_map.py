@@ -20,6 +20,15 @@ class OpenApiResourceMapTest(unittest.TestCase):
             json.dump(data, f)
         return path
 
+    def _surface_record(self, report, resource_type, source):
+        matches = [
+            record for record in report["surface_map"]["records"]
+            if (record["resource_type"] == resource_type
+                and record["source"] == source)
+        ]
+        self.assertEqual(len(matches), 1)
+        return matches[0]
+
     def _schema_path(self):
         return self._write_json("schema.json", {
             "provider_schemas": {
@@ -364,6 +373,18 @@ class OpenApiResourceMapTest(unittest.TestCase):
         self.assertEqual(report["summary"]["matched"], 2)
         self.assertEqual(report["summary"]["special"], 5)
         self.assertEqual(report["summary"]["unmatched"], 0)
+        record = self._surface_record(
+            report, "netbox_device_interface", "generic_crud")
+        self.assertEqual(record["match_status"], "matched")
+        self.assertEqual(record["read_path"], "/api/dcim/interfaces/{id}/")
+        self.assertEqual(
+            record["read_operation"], "GET:/api/dcim/interfaces/{id}/")
+        self.assertEqual(record["api_surface"], "dcim")
+        self.assertEqual(record["confidence"], "suffix_plural")
+        self.assertEqual(record["adapter_required"], False)
+        self.assertEqual(
+            record["evidence"][0]["kind"], "generic_crud_candidate")
+        self.assertEqual(report["surface_map"]["schema_version"], 1)
 
     def test_maps_slashless_openapi_collections(self):
         schema_path = self._write_json("grafana-schema.json", {
@@ -598,6 +619,26 @@ class OpenApiResourceMapTest(unittest.TestCase):
                                 },
                             },
                         },
+                        "grafana_machine_learning_job": {
+                            "block": {
+                                "attributes": {
+                                    "name": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                        "grafana_synthetic_monitoring_check": {
+                            "block": {
+                                "attributes": {
+                                    "name": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
                     },
                 },
             },
@@ -663,6 +704,58 @@ class OpenApiResourceMapTest(unittest.TestCase):
         self.assertEqual(
             [hint["name"] for hint in report["provider_config_hints"]],
             ["auth", "cloud_access_policy_token", "oncall_url", "url"])
+        surface_warnings = [
+            diagnostic["code"]
+            for diagnostic in report["surface_map"]["diagnostics"]
+        ]
+        self.assertIn("low_openapi_resource_coverage", surface_warnings)
+        self.assertIn("uncovered_resource_families", surface_warnings)
+
+    def test_surface_map_marks_collection_without_detail_as_adapter_required(self):
+        schema_path = self._write_json("schema.json", {
+            "provider_schemas": {
+                "registry.terraform.io/example/example": {
+                    "resource_schemas": {
+                        "example_project_action": {
+                            "block": {
+                                "attributes": {
+                                    "name": {
+                                        "type": "string",
+                                        "required": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        openapi_path = self._write_json("openapi.json", {
+            "openapi": "3.1.0",
+            "paths": {
+                "/api/v1/projectActions": {
+                    "get": {"responses": {"200": {"description": "ok"}}},
+                    "post": {"responses": {"200": {"description": "ok"}}},
+                },
+            },
+        })
+
+        report = openapi_resource_map.build_report(
+            schema_path,
+            openapi_path,
+            provider_source="registry.terraform.io/example/example",
+            resource_prefix="example",
+            api_prefix="/api/v1/",
+        )
+        record = self._surface_record(
+            report, "example_project_action", "generic_crud")
+
+        self.assertEqual(record["match_status"], "adapter_required")
+        self.assertEqual(record["adapter_required"], True)
+        self.assertEqual(
+            record["ambiguity_reason"],
+            "matched_collection_has_no_standard_detail_path")
+        self.assertIsNone(record["read_path"])
 
     def test_maps_ztc_openapi_aliases_and_activation_action(self):
         schema_path = self._write_json("ztc-schema.json", {
@@ -805,6 +898,18 @@ class OpenApiResourceMapTest(unittest.TestCase):
         self.assertEqual(
             by_resource["ztc_activation_status"]["write_operations"],
             ["PUT:/ecAdminActivateStatus/activate"])
+        gateway_record = self._surface_record(
+            report, "ztc_forwarding_gateway", "generic_crud")
+        self.assertEqual(gateway_record["match_status"], "matched")
+        self.assertEqual(gateway_record["read_path"], "/gateways/{gatewayId}")
+        self.assertEqual(gateway_record["api_surface"], "gateways")
+        action_record = self._surface_record(
+            report, "ztc_activation_status", "generic_crud")
+        self.assertEqual(action_record["match_status"], "action_shaped")
+        self.assertEqual(action_record["read_path"], "/ecAdminActivateStatus")
+        self.assertEqual(
+            action_record["read_operation"], "GET:/ecAdminActivateStatus")
+        self.assertEqual(action_record["adapter_required"], True)
 
     def test_registry_fetch_coverage_catches_parent_scoped_zpa_path(self):
         schema_path = self._write_json("zpa-schema.json", {
@@ -891,6 +996,16 @@ class OpenApiResourceMapTest(unittest.TestCase):
         }
         self.assertEqual(by_resource["zpa_application_segment"]["match"], "suffix")
         self.assertEqual(by_resource["zpa_policy_access_rule"]["match"], "suffix")
+        generic = self._surface_record(
+            report, "zpa_application_segment", "generic_crud")
+        fetch = self._surface_record(
+            report, "zpa_application_segment", "registry_fetch")
+        self.assertEqual(generic["match_status"], "missing")
+        self.assertEqual(fetch["match_status"], "matched")
+        self.assertEqual(
+            fetch["read_path"],
+            "/mgmtconfig/v1/admin/customers/{customerId}/application")
+        self.assertEqual(fetch["evidence"][0]["fetch_path"], "application")
 
     def test_registry_fetch_coverage_strips_zcc_product_prefix(self):
         schema_path = self._write_json("zcc-schema.json", {
@@ -944,6 +1059,14 @@ class OpenApiResourceMapTest(unittest.TestCase):
         self.assertEqual(
             report["registry_fetch_coverage"]["resources"][0]["variant"],
             "product_prefix_stripped")
+        record = self._surface_record(
+            report, "zcc_forwarding_profile", "registry_fetch")
+        self.assertEqual(record["match_status"], "matched")
+        self.assertEqual(
+            record["read_path"],
+            "/papi/public/v1/webForwardingProfile/listByCompany")
+        self.assertEqual(
+            record["evidence"][0]["variant"], "product_prefix_stripped")
 
     def test_cli_registry_fetch_coverage_strips_api_prefix(self):
         schema_path = self._write_json("schema.json", {
@@ -1064,6 +1187,12 @@ class OpenApiResourceMapTest(unittest.TestCase):
         self.assertEqual(resource["read_path"], "/api/v1/projects/{id}")
         self.assertEqual(resource["operation_id"], "ProjectsRetrieve")
         self.assertEqual(resource["path_kind"], "detail")
+        record = self._surface_record(
+            report, "example_project", "source_read_registry")
+        self.assertEqual(record["match_status"], "matched")
+        self.assertEqual(record["read_path"], "/api/v1/projects/{id}")
+        self.assertEqual(record["read_operation"], "ProjectsRetrieve")
+        self.assertEqual(record["confidence"], "source_read")
 
     def test_registry_read_coverage_counts_ambiguous_source_entries(self):
         schema_path = self._write_json("schema.json", {
@@ -1169,6 +1298,12 @@ class OpenApiResourceMapTest(unittest.TestCase):
                 "matched": 0,
                 "unmatched": 0,
             })
+        record = self._surface_record(
+            report, "example_thing", "source_read_registry")
+        self.assertEqual(record["match_status"], "ambiguous")
+        self.assertEqual(
+            record["ambiguity_reason"], "ambiguous_source_operation")
+        self.assertIsNone(record["read_path"])
 
     def test_registry_fetch_coverage_rejects_wrong_known_product_spec(self):
         schema_path = self._write_json("ztc-schema.json", {
@@ -1229,6 +1364,13 @@ class OpenApiResourceMapTest(unittest.TestCase):
                 "registry_openapi_product_mismatch",
                 "registry_fetch_paths_missing_from_openapi",
             ])
+        record = self._surface_record(
+            report, "ztc_dns_gateway", "registry_fetch")
+        self.assertEqual(record["match_status"], "missing")
+        self.assertEqual(record["ambiguity_reason"], "openapi_product_mismatch")
+        self.assertIn(
+            "registry_openapi_product_mismatch",
+            [d["code"] for d in report["surface_map"]["diagnostics"]])
 
     def test_registry_read_coverage_rejects_wrong_known_product_spec(self):
         schema_path = self._write_json("ztc-schema.json", {

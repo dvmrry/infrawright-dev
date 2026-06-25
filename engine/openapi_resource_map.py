@@ -16,6 +16,15 @@ from engine import reconcile_schema_api as reconcile
 
 
 HTTP_METHODS = frozenset(("get", "post", "put", "patch", "delete"))
+SURFACE_MAP_SCHEMA_VERSION = 1
+SURFACE_MAP_STATUSES = frozenset((
+    "matched",
+    "ambiguous",
+    "missing",
+    "action_shaped",
+    "adapter_required",
+    "unsupported_for_now",
+))
 SURFACE_HINT_ATTR_RE = re.compile(
     r"(?:^|_)(?:url|uri|host|endpoint|token|auth|cloud|region|realm)(?:$|_)")
 
@@ -994,6 +1003,301 @@ def _static_action_contract(spec, resource_schema, write_ops):
     }
 
 
+def _operation_id(method, path):
+    if not method or not path:
+        return None
+    return "%s:%s" % (method.upper(), path)
+
+
+def _operation_path(operation):
+    if not operation:
+        return None
+    if ":" not in operation:
+        return operation
+    return operation.split(":", 1)[1]
+
+
+def _surface_map_record(resource_type, provider_source, api_surface,
+                        match_status, source, read_path=None,
+                        read_operation=None, confidence=None,
+                        ambiguity_reason=None, adapter_required=False,
+                        evidence=None):
+    if match_status not in SURFACE_MAP_STATUSES:
+        raise ValueError("unknown surface map status %r" % match_status)
+    return {
+        "resource_type": resource_type,
+        "provider": provider_source,
+        "api_surface": api_surface,
+        "match_status": match_status,
+        "read_path": read_path,
+        "read_operation": read_operation,
+        "source": source,
+        "confidence": confidence,
+        "ambiguity_reason": ambiguity_reason,
+        "adapter_required": bool(adapter_required),
+        "evidence": evidence or [],
+    }
+
+
+def _surface_map_generic_record(resource, provider_source, resource_prefix):
+    resource_type = resource["resource"]
+    status = resource["status"]
+    api_surface = resource.get("surface") or resource_prefix or None
+    evidence = []
+    candidates = resource.get("candidates") or []
+    if status == "matched":
+        read_ops = (
+            (resource.get("static_contract") or {}).get("read_operations")
+            or []
+        )
+        read_operation = read_ops[0] if read_ops else None
+        evidence.append({
+            "kind": "generic_crud_candidate",
+            "collection_path": resource.get("collection_path"),
+            "detail_path": resource.get("detail_path"),
+            "score": resource.get("score"),
+            "matched_segment": resource.get("matched_segment"),
+        })
+        return _surface_map_record(
+            resource_type,
+            provider_source,
+            api_surface,
+            "matched",
+            "generic_crud",
+            read_path=_operation_path(read_operation),
+            read_operation=read_operation,
+            confidence=resource.get("confidence"),
+            evidence=evidence,
+        )
+    if status == "ambiguous":
+        evidence.append({
+            "kind": "generic_crud_candidates",
+            "candidates": candidates,
+        })
+        return _surface_map_record(
+            resource_type,
+            provider_source,
+            api_surface,
+            "ambiguous",
+            "generic_crud",
+            confidence=resource.get("confidence"),
+            ambiguity_reason=resource.get("reason"),
+            evidence=evidence,
+        )
+    if status == "special":
+        read_ops = resource.get("read_operations") or []
+        read_path = _operation_path(read_ops[0]) if read_ops else None
+        evidence.append({
+            "kind": "special_resource_match",
+            "special_type": resource.get("special_type"),
+            "reason": resource.get("reason"),
+            "read_operations": read_ops,
+            "write_operations": resource.get("write_operations") or [],
+            "actions": resource.get("actions") or [],
+        })
+        return _surface_map_record(
+            resource_type,
+            provider_source,
+            api_surface,
+            "action_shaped",
+            "generic_crud",
+            read_path=read_path,
+            read_operation=read_ops[0] if read_ops else None,
+            confidence="static_adapter",
+            ambiguity_reason=resource.get("reason"),
+            adapter_required=True,
+            evidence=evidence,
+        )
+
+    reason = resource.get("reason")
+    match_status = "missing"
+    adapter_required = False
+    if reason == "matched_collection_has_no_standard_detail_path":
+        match_status = "adapter_required"
+        adapter_required = True
+    evidence.append({
+        "kind": "generic_crud_miss",
+        "reason": reason,
+        "candidates": candidates,
+    })
+    return _surface_map_record(
+        resource_type,
+        provider_source,
+        api_surface,
+        match_status,
+        "generic_crud",
+        confidence=resource.get("confidence"),
+        ambiguity_reason=reason,
+        adapter_required=adapter_required,
+        evidence=evidence,
+    )
+
+
+def _surface_map_registry_fetch_record(item, provider_source, resource_prefix):
+    status = item["status"]
+    reason = item.get("reason")
+    if status == "matched":
+        match_status = "matched"
+        read_path = item.get("openapi_path")
+        read_operation = _operation_id("GET", read_path)
+        confidence = "registry_fetch"
+    else:
+        match_status = "missing"
+        read_path = None
+        read_operation = None
+        confidence = None
+    evidence = [{
+        "kind": "registry_fetch_path",
+        "fetch_path": item.get("fetch_path"),
+        "openapi_path": item.get("openapi_path"),
+        "match": item.get("match"),
+        "variant": item.get("variant"),
+        "pagination": item.get("pagination"),
+        "reason": reason,
+    }]
+    return _surface_map_record(
+        item["resource"],
+        provider_source,
+        resource_prefix or None,
+        match_status,
+        "registry_fetch",
+        read_path=read_path,
+        read_operation=read_operation,
+        confidence=confidence,
+        ambiguity_reason=reason,
+        evidence=evidence,
+    )
+
+
+def _surface_map_registry_read_record(item, provider_source, resource_prefix):
+    status = item["status"]
+    reason = item.get("reason")
+    evidence = [{
+        "kind": "source_read_registry",
+        "read_path": item.get("read_path"),
+        "openapi_path": item.get("openapi_path"),
+        "operation_id": item.get("operation_id"),
+        "path_kind": item.get("path_kind"),
+        "match": item.get("match"),
+        "variant": item.get("variant"),
+        "reason": reason,
+    }]
+    if status == "matched":
+        read_path = item.get("openapi_path") or item.get("read_path")
+        read_operation = item.get("operation_id") or _operation_id(
+            "GET", read_path)
+        return _surface_map_record(
+            item["resource"],
+            provider_source,
+            resource_prefix or None,
+            "matched",
+            "source_read_registry",
+            read_path=read_path,
+            read_operation=read_operation,
+            confidence="source_read",
+            evidence=evidence,
+        )
+    if status == "ambiguous_source_operation":
+        return _surface_map_record(
+            item["resource"],
+            provider_source,
+            resource_prefix or None,
+            "ambiguous",
+            "source_read_registry",
+            ambiguity_reason=reason or status,
+            evidence=evidence,
+        )
+    if status == "graphql_source":
+        return _surface_map_record(
+            item["resource"],
+            provider_source,
+            resource_prefix or None,
+            "unsupported_for_now",
+            "source_read_registry",
+            ambiguity_reason=reason or status,
+            adapter_required=True,
+            evidence=evidence,
+        )
+    return _surface_map_record(
+        item["resource"],
+        provider_source,
+        resource_prefix or None,
+        "missing",
+        "source_read_registry",
+        ambiguity_reason=reason or status,
+        evidence=evidence,
+    )
+
+
+def _surface_map_summary(records):
+    by_source = {}
+    by_status = {}
+    for record in records:
+        source = record["source"]
+        status = record["match_status"]
+        by_source.setdefault(source, {})
+        by_source[source][status] = by_source[source].get(status, 0) + 1
+        by_status[status] = by_status.get(status, 0) + 1
+    return {
+        "records": len(records),
+        "by_source": {
+            source: dict(sorted(counts.items()))
+            for source, counts in sorted(by_source.items())
+        },
+        "by_status": dict(sorted(by_status.items())),
+    }
+
+
+def _build_surface_map(provider_source, resource_prefix, resources,
+                       registry_fetch_coverage, registry_read_coverage,
+                       coverage_warnings):
+    records = [
+        _surface_map_generic_record(
+            resource, provider_source, resource_prefix)
+        for resource in resources
+    ]
+    records.extend(
+        _surface_map_registry_fetch_record(
+            item, provider_source, resource_prefix)
+        for item in registry_fetch_coverage.get("resources") or []
+    )
+    records.extend(
+        _surface_map_registry_read_record(
+            item, provider_source, resource_prefix)
+        for item in registry_read_coverage.get("resources") or []
+    )
+    records.sort(key=lambda r: (
+        r["resource_type"],
+        r["source"],
+        r["match_status"],
+        r["read_path"] or "",
+        r["read_operation"] or "",
+    ))
+    diagnostics = []
+    for warning in coverage_warnings:
+        diagnostics.append({
+            "source": "generic_crud",
+            "code": warning.get("code"),
+            "message": warning.get("message"),
+        })
+    for section_name, coverage in (
+            ("registry_fetch", registry_fetch_coverage),
+            ("source_read_registry", registry_read_coverage)):
+        for warning in coverage.get("warnings") or []:
+            diagnostics.append({
+                "source": section_name,
+                "code": warning.get("code"),
+                "message": warning.get("message"),
+            })
+    diagnostics.sort(key=lambda d: (d["source"], d["code"] or ""))
+    return {
+        "schema_version": SURFACE_MAP_SCHEMA_VERSION,
+        "summary": _surface_map_summary(records),
+        "diagnostics": diagnostics,
+        "records": records,
+    }
+
+
 def _load_default_registry(resource_prefix, registry_data):
     if not resource_prefix:
         return {}
@@ -1192,6 +1496,13 @@ def build_report(schema_path, openapi_path, provider_source=None,
         resources.append(item)
     openapi_profile = _openapi_path_profile(spec, api_prefix)
     provider_config_hints = _provider_config_surface_hints(provider)
+    coverage = _coverage_diagnostics(
+        summary, family_coverage, openapi_profile,
+        provider_config_hints)
+    registry_fetch_coverage = _registry_fetch_coverage(
+        spec, api_prefix, resource_prefix, registry_data=registry_data)
+    registry_read_coverage = _registry_read_coverage(
+        spec, api_prefix, resource_prefix, registry_data=registry_data)
     return {
         "provider_source": provider_source,
         "resource_prefix": resource_prefix,
@@ -1204,13 +1515,17 @@ def build_report(schema_path, openapi_path, provider_source=None,
         },
         "provider_config_hints": provider_config_hints,
         "summary": summary,
-        "coverage": _coverage_diagnostics(
-            summary, family_coverage, openapi_profile,
-            provider_config_hints),
-        "registry_fetch_coverage": _registry_fetch_coverage(
-            spec, api_prefix, resource_prefix, registry_data=registry_data),
-        "registry_read_coverage": _registry_read_coverage(
-            spec, api_prefix, resource_prefix, registry_data=registry_data),
+        "coverage": coverage,
+        "registry_fetch_coverage": registry_fetch_coverage,
+        "registry_read_coverage": registry_read_coverage,
+        "surface_map": _build_surface_map(
+            provider_source,
+            resource_prefix,
+            resources,
+            registry_fetch_coverage,
+            registry_read_coverage,
+            coverage.get("warnings") or [],
+        ),
         "surfaces": dict(sorted(surfaces.items())),
         "resources": resources,
     }
