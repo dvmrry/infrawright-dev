@@ -945,6 +945,55 @@ class OpsAssertAdoptableAbsentDefaultGuidanceTest(unittest.TestCase):
         self.assertNotIn("adoptable with consumer-tolerated drift", out)
         self.assertNotIn("all 1 saved plan(s) clean", out)
 
+    def test_sensitivity_only_path_does_not_annotate(self):
+        plan = self._base_plan(
+            {"name": "thing", "name_prefix": "", "other": "old"},
+            {"name": "thing", "name_prefix": "", "other": "new"},
+        )
+        plan["resource_changes"][0]["change"]["before_sensitive"] = {
+            "name_prefix": True,
+        }
+        plan["resource_changes"][0]["change"]["after_sensitive"] = {
+            "name_prefix": True,
+        }
+
+        exc, out = self._run_blocked(self._base_pack(self._base_rule()), plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertIn("name_prefix", out)
+        self.assertIn("other", out)
+        self.assertNotIn("Absent/default guidance:", out)
+
+    def test_unknown_after_path_still_annotates(self):
+        plan = self._base_plan(
+            {"name": "thing", "name_prefix": ""},
+            {"name": "thing", "name_prefix": ""},
+        )
+        plan["resource_changes"][0]["change"]["after_unknown"] = {
+            "name_prefix": True,
+        }
+
+        exc, out = self._run_blocked(self._base_pack(self._base_rule()), plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertIn("Absent/default guidance:", out)
+        self.assertIn("matched plan path: name_prefix", out)
+
+    def test_diff_path_still_annotates_when_also_sensitive(self):
+        plan = self._base_plan(
+            {"name": "thing", "name_prefix": ""},
+            {"name": "thing"},
+        )
+        plan["resource_changes"][0]["change"]["before_sensitive"] = {
+            "name_prefix": True,
+        }
+        plan["resource_changes"][0]["change"]["after_sensitive"] = {
+            "name_prefix": True,
+        }
+
+        exc, out = self._run_blocked(self._base_pack(self._base_rule()), plan)
+        self.assertIn("1 saved plan(s) blocked", exc)
+        self.assertIn("Absent/default guidance:", out)
+        self.assertIn("matched plan path: name_prefix", out)
+
     def test_observed_value_must_match_before_value(self):
         plan = self._base_plan(
             {"name": "thing", "name_prefix": "not-empty"},
@@ -1040,8 +1089,10 @@ class OpsAssertAdoptableAbsentDefaultGuidanceTest(unittest.TestCase):
         old_packs = os.environ.get("INFRAWRIGHT_PACKS")
         old_pairs = ops.selected_env_pairs
         old_show = ops._show_plan_json
+        old_guidance = ops._guidance_annotations
         old_stderr = sys.stderr
         stderr = io.StringIO()
+        calls = []
         try:
             os.environ["INFRAWRIGHT_PACKS"] = pack_root
             packs.reset()
@@ -1049,6 +1100,9 @@ class OpsAssertAdoptableAbsentDefaultGuidanceTest(unittest.TestCase):
                 ("tenant", "sample_resource", tmp)
             ]
             ops._show_plan_json = lambda env_dir: plan
+            ops._guidance_annotations = lambda _plan, _resource_type: (
+                calls.append(True) or []
+            )
             sys.stderr = stderr
             code = ops.cmd_assert_adoptable({
                 "tenant": "tenant",
@@ -1059,6 +1113,7 @@ class OpsAssertAdoptableAbsentDefaultGuidanceTest(unittest.TestCase):
             out = stderr.getvalue()
             self.assertIn("adoptable with consumer-tolerated drift", out)
             self.assertNotIn("Absent/default guidance:", out)
+            self.assertEqual(calls, [])
         finally:
             if old_packs is None:
                 os.environ.pop("INFRAWRIGHT_PACKS", None)
@@ -1067,6 +1122,7 @@ class OpsAssertAdoptableAbsentDefaultGuidanceTest(unittest.TestCase):
             packs.reset()
             ops.selected_env_pairs = old_pairs
             ops._show_plan_json = old_show
+            ops._guidance_annotations = old_guidance
             sys.stderr = old_stderr
             shutil.rmtree(tmp, ignore_errors=True)
 

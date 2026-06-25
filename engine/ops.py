@@ -306,8 +306,6 @@ def _absent_default_guidance(plan, resource_type):
             paths = sorted(
                 set(diff_paths(before, change.get("after")))
                 | set(truthy_paths(change.get("after_unknown")))
-                | set(truthy_paths(change.get("before_sensitive")))
-                | set(truthy_paths(change.get("after_sensitive")))
             )
             for path in paths:
                 formatted = schema_paths.format_path(path)

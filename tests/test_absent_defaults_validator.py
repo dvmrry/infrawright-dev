@@ -178,6 +178,12 @@ class AbsentDefaultsValidatorPositiveTest(unittest.TestCase):
         ])
         self.assertEqual(rules[0]["path"], "foo[].bar")
 
+    def test_plan_path_canonicalizes_numeric_index(self):
+        rules = absent_defaults_validator.validate_absent_default_rules([
+            _base_rule(plan_path="foo[0].bar"),
+        ])
+        self.assertEqual(rules[0]["plan_path"], "foo[].bar")
+
     def test_path_canonicalizes_wildcard_index(self):
         rules = absent_defaults_validator.validate_absent_default_rules([
             _base_rule(path="foo[*].bar"),
