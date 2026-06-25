@@ -28,6 +28,9 @@ maintained development evidence.
 - Root `Makefile` targets are the stable product command surface.
 - `local.mk`, `<overlay>/Makefile`, and `<overlay>/local.mk` are extension
   hooks for local or overlay-specific workflow targets.
+- Exactly one overlay is active per command. Use separate deployment files for
+  separate domains such as Zscaler, AWS, or GCP; multi-overlay composition is
+  not part of the current contract.
 - The shipped demo owns `demo/Makefile`; demo-only helpers should not expand the
   root product API.
 - Generated tenant artifacts live under `[<overlay>/]config/<tenant>/`,

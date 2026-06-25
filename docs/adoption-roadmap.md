@@ -184,10 +184,11 @@ The sensitive-required failure class is now documented in `docs/sensitive-requir
 
 ## Next Phase
 
-- The provider-config assert-adoptable guidance annotation implementation remains
-  the first behavior candidate. A current GCP attribution-label retest did not
-  reproduce the old drift, so a current live provider-config blocked-path lab is
-  still required before broadening or generalizing the behavior.
+- Provider-config assert-adoptable guidance annotations are implemented as
+  unit-tested, fail-closed, annotation-only output. A current GCP
+  attribution-label retest did not reproduce the old drift, so a current live
+  provider-config blocked-path lab is still required before describing that lane
+  as live-lab validated or generalizing it further.
 - The next provider-config lab target should be a provider/config setting that
   reliably produces provider-driven drift on an existing blocked plan path.
 - Commit sensitive-required pack metadata for a concrete provider lab finding
@@ -203,7 +204,7 @@ live-lab validated.
 
 ## Provider-Config Assert-Adoptable Guidance
 
-The first provider-config behavior candidate is documented in
+Provider-config guidance behavior is documented in
 `docs/provider-config-assert-guidance.md`:
 
 - Additive guidance annotations for blocked `assert-adoptable` output when a
