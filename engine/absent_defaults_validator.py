@@ -193,6 +193,8 @@ def validate_absent_default_rule(rule, idx=None, sensitive_paths=None,
     _validate_observed_value(item, label)
     _validate_path_namespace(item, label)
     _validate_evidence_paths(item, label)
+    if "plan_path" in item:
+        item["plan_path"] = _canonicalize_path(item["plan_path"], label, "plan_path")
     _validate_sensitive_path(item, label, sensitive_paths)
 
     return item
