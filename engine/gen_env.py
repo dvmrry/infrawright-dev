@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 
+from engine import deployment
 from engine import expression_bindings
 from engine import ops
 from engine import packs
@@ -40,6 +41,10 @@ def _env_root_dir(tenant, resource_type, out_root=None):
     return ops.env_root_under(tenant, resource_type, out_root=out_root)
 
 
+def _module_dir(resource_type):
+    return os.path.join(deployment.module_dir(), resource_type)
+
+
 def _config_ref(tenant, resource_type, env_dir):
     return os.path.relpath(_config_file(tenant, resource_type), env_dir)
 
@@ -52,7 +57,7 @@ def expand_resources(selectors):
 def render_env_main(resource_type, tenant, env_dir, backend=None,
                     has_expression_bindings=False):
     provider = _provider_of(resource_type)
-    module_src = os.path.relpath(os.path.join("modules", resource_type), env_dir)
+    module_src = os.path.relpath(_module_dir(resource_type), env_dir)
     if not module_src.startswith(("../", "./", "/")):
         module_src = "./" + module_src  # never a Terraform registry ref
     if backend:

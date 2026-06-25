@@ -46,6 +46,29 @@ class RenderEnvMainTest(unittest.TestCase):
         )
         self.assertNotIn("items = var.items", out)
 
+    def test_module_source_uses_deployment_module_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            dep = os.path.join(td, "deployment.json")
+            with open(dep, "w", encoding="utf-8") as f:
+                f.write(json.dumps({"module_dir": "private/modules/zia-v4.3.0"}))
+            saved = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+            try:
+                out = render_env_main(
+                    "zia_url_categories",
+                    "tenant-a",
+                    os.path.join("private", "envs", "tenant-a", "zia_url_categories"),
+                )
+            finally:
+                if saved is None:
+                    os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+                else:
+                    os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
+            self.assertIn(
+                'source = "../../../modules/zia-v4.3.0/zia_url_categories"',
+                out,
+            )
+
     def test_zia_provider(self):
         out = render_env_main("zia_url_categories", "zs2",
                               self._root_env_dir("zia_url_categories", "zs2"))

@@ -3,6 +3,7 @@ TF ?= terraform
 OVERLAY ?= demo
 DEPLOYMENT ?= deployment.json
 DEMO_DEPLOYMENT ?= demo/deployment.json
+MODULE_DIR ?= $(shell INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(PYTHON) -m engine.deployment module-dir)
 
 -include local.mk
 ifneq ($(strip $(OVERLAY)),)
@@ -18,10 +19,10 @@ check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
 		echo "demo drift:"; git status --porcelain -- demo/config/demo demo/imports/demo; exit 1; }
 
 check-modules: ## Fail if generated modules drift from committed output
-	$(PYTHON) -m engine.gen_module > /dev/null 2>&1
-	@test -z "$$(git status --porcelain -- modules)" || { \
+	INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(PYTHON) -m engine.gen_module > /dev/null 2>&1
+	@test -z "$$(git status --porcelain -- "$(MODULE_DIR)")" || { \
 		echo "modules drifted from generator output:"; \
-		git status --porcelain -- modules; \
+		git status --porcelain -- "$(MODULE_DIR)"; \
 		echo "Run 'python -m engine.gen_module' and commit (or fix the regression)."; exit 1; }
 
 check: test check-demo check-modules ## Full gate: unit tests + demo + module byte-identity

@@ -47,6 +47,14 @@ class DeploymentResolverTest(unittest.TestCase):
         self.assertEqual(deployment.config_dir("acme"), os.path.join("_local", "config", "acme"))
         self.assertEqual(deployment.imports_dir("acme"), os.path.join("_local", "imports", "acme"))
         self.assertEqual(deployment.envs_dir("acme"), os.path.join("_local", "envs", "acme"))
+        self.assertEqual(
+            deployment.module_dir(),
+            os.path.join("_local", "modules", "default"),
+        )
+
+    def test_module_dir_can_be_explicit(self):
+        self._write({"overlay": "_local", "module_dir": "_local/modules/v4"})
+        self.assertEqual(deployment.module_dir(), "_local/modules/v4")
 
     def test_demo_uses_overlay_like_other_tenants(self):
         self._write({"overlay": "_local"})

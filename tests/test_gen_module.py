@@ -1,4 +1,5 @@
 """Tests for tools/gen_module.py renderers, pinned to the committed dumps."""
+import json
 import os
 import shutil
 import tempfile
@@ -138,7 +139,8 @@ class RenderRestTest(unittest.TestCase):
     def test_readme_mentions_regeneration(self):
         rs = load_resource("zpa_segment_group")
         out = render_readme("zpa_segment_group", rs)
-        self.assertIn("make generate", out)
+        self.assertIn("python -m engine.gen_module", out)
+        self.assertIn("make check-modules", out)
         self.assertIn("zpa_segment_group", out)
 
     def test_sample_has_required_attrs_only(self):
@@ -313,6 +315,29 @@ class GenerateModuleTest(unittest.TestCase):
             with open(os.path.join(td, "mod", "zpa_segment_group", "main.tf"), encoding="utf-8") as f:
                 self.assertEqual(f.read(), "# OVERRIDE\n")
 
+    def test_default_output_root_comes_from_deployment_module_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            dep = os.path.join(td, "deployment.json")
+            module_root = os.path.join(td, "modules", "v4")
+            with open(dep, "w", encoding="utf-8") as f:
+                f.write(json.dumps({"module_dir": module_root}))
+            saved = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+            try:
+                generate_module(
+                    "zpa_segment_group",
+                    overrides_root=os.path.join(td, "none"),
+                    fmt=False,
+                )
+            finally:
+                if saved is None:
+                    os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+                else:
+                    os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
+            self.assertTrue(
+                os.path.exists(os.path.join(module_root, "zpa_segment_group", "main.tf"))
+            )
+
 class GoldenTest(unittest.TestCase):
     GOLDENS = [
         ("zia_cloud_app_control_rule", "variables.tf", "render_variables"),
@@ -465,7 +490,7 @@ class SampleGoldenTest(unittest.TestCase):
         from engine.tfschema import load_resource
         from engine.transform import load_override
         for rt in generated_types():
-            committed = os.path.join("modules", rt, "tests",
+            committed = os.path.join("demo", "modules", "default", rt, "tests",
                                      "sample.auto.tfvars.json")
             self.assertTrue(os.path.exists(committed), committed)
             with open(committed, encoding="utf-8") as f:

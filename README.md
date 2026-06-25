@@ -38,11 +38,14 @@ The acceptance bar isn't "0 to change" — it's **0 to destroy, 0 to create** af
 | `[<overlay>/]config/<tenant>/<resource_type>.auto.tfvars.json` | generated tenant config |
 | `[<overlay>/]imports/<tenant>/<resource_type>_imports.tf` | generated import blocks |
 | `[<overlay>/]envs/<tenant>/<resource_type>/` | generated per-resource Terraform roots |
+| `<module_dir>/<resource_type>/` | generated Terraform modules for the selected deployment module set |
 
 There is one generated output layout. `overlay` is an optional free-form prefix
 owned by the adopter. The shipped `deployment.json` points at the `demo/`
 overlay, so demo artifacts live under `demo/config/demo` and
 `demo/imports/demo` while real deployments can choose their own overlay prefix.
+Generated env roots resolve module sources from deployment-configured
+`module_dir`; the shipped demo module set lives under `demo/modules/default`.
 
 The root `Makefile` is the stable product command surface. Deployment-specific
 workflow targets can live in optional extension Makefiles:

@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import sys
+from engine import deployment
 from engine import packs
 from engine.registry import generated_types
 from engine.tfschema import (
@@ -221,9 +222,9 @@ def render_readme(resource_type, resource_schema):
     return (
         "# %s (generated module)\n\n"
         "Manages `%s` via a typed `items` map. GENERATED — do not edit by\n"
-        "hand (AGENTS.md rule 6). Regenerate: `make generate`. Test:\n"
-        "`terraform -chdir=modules/%s test`.\n"
-        % (resource_type, resource_type, resource_type)
+        "hand (AGENTS.md rule 6). Regenerate with `python -m engine.gen_module` "
+        "or `make check-modules`.\n"
+        % (resource_type, resource_type)
     )
 
 
@@ -328,7 +329,9 @@ def _load_json_override(resource_type, overrides_root):
         return json.load(f)
 
 
-def generate_module(resource_type, out_root=MODULES_ROOT, overrides_root=None, fmt=True):
+def generate_module(resource_type, out_root=None, overrides_root=None, fmt=True):
+    if out_root is None:
+        out_root = deployment.module_dir()
     if overrides_root is None:
         overrides_root = packs.overrides_dir_for(resource_type)
     rs = load_resource(resource_type)
