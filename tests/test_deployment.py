@@ -48,10 +48,13 @@ class DeploymentResolverTest(unittest.TestCase):
         self.assertEqual(deployment.imports_dir("acme"), os.path.join("_local", "imports", "acme"))
         self.assertEqual(deployment.envs_dir("acme"), os.path.join("_local", "envs", "acme"))
 
-    def test_demo_always_root_even_with_overlay(self):
+    def test_demo_uses_overlay_like_other_tenants(self):
         self._write({"overlay": "_local"})
-        self.assertEqual(deployment.tenant_root("demo"), ".")
-        self.assertEqual(deployment.config_dir("demo"), os.path.join("config", "demo"))
+        self.assertEqual(deployment.tenant_root("demo"), "_local")
+        self.assertEqual(
+            deployment.config_dir("demo"),
+            os.path.join("_local", "config", "demo"),
+        )
 
     def test_pulls_always_root(self):
         self._write({"overlay": "_local"})
