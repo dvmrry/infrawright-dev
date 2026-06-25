@@ -1,5 +1,5 @@
 """Overlay-aware tenant path resolution. Single source of truth for where a
-tenant's config/envs/imports live, driven by deployment.json. Stdlib-only,
+tenant's config/envs/imports and module roots live, driven by deployment.json. Stdlib-only,
 Python 3.6-floor. Consumed by both the Makefile (via the CLI verbs) and the
 Python tools so path logic lives in exactly one place.
 
@@ -38,6 +38,24 @@ def _load():
 
 def overlay():
     return _load().get("overlay", ".") or "."
+
+
+def module_dir():
+    """Directory containing generated modules for this deployment.
+
+    New deployments should set module_dir explicitly so module sets can be
+    versioned under the overlay. Missing module_dir keeps the old root modules/
+    location as a transitional fallback; an overlay without module_dir uses the
+    conventional <overlay>/modules/default module set.
+    """
+    data = _load()
+    explicit = data.get("module_dir")
+    if explicit:
+        return explicit
+    root = data.get("overlay", ".") or "."
+    if root == ".":
+        return "modules"
+    return os.path.join(root, "modules", "default")
 
 
 def tenant_root(tenant):
@@ -96,6 +114,8 @@ def main(argv=None):
     try:
         if verb == "overlay":
             print(overlay())
+        elif verb == "module-dir":
+            print(module_dir())
         elif verb in _VERBS:
             if len(argv) < 2:
                 sys.stderr.write("error: %s requires a tenant\n" % verb)

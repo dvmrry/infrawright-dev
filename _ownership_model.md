@@ -60,7 +60,7 @@ repo-root/
 │               ├── main.tf
 │               └── tests/smoke.tftest.hcl
 │
-└── modules/                                # generated module library, keyed by full resource type
+└── <module_dir>/                           # generated module set, keyed by full resource type
     └── zpa_app_connector_group/
 ```
 
@@ -132,8 +132,8 @@ boot and does not need provider API credentials.
 
 - Small shop: keep generated provider config and authored cloud slices in one repo.
 - Larger or multi-team shop: split by ownership. The platform team owns
-  generated `config/`, `imports/`, `envs/`, and `modules/`; business units own
-  only their cloud slice directories.
+  generated `config/`, `imports/`, `envs/`, and the deployment-configured
+  module set; business units own only their cloud slice directories.
 
 The split works because every cloud slice is a self-contained Terraform root
 joined to generated control-plane data only by secret naming and operational
