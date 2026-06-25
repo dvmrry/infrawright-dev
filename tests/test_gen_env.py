@@ -1,4 +1,4 @@
-"""Tests for tools/gen_env.py."""
+"""Tests for engine.gen_env."""
 import json
 import os
 import re

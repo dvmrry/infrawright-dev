@@ -34,8 +34,8 @@ def load_provider(provider):
 def load_resource(resource_type):
     """Return the schema entry for one resource type.
 
-    Raises KeyError for unknown prefixes or resource types so a typo in
-    tools/registry.json fails the build instead of generating nothing.
+    Raises KeyError for unknown prefixes or resource types so a typo in pack
+    registry metadata fails the build instead of generating nothing.
     """
     provider = _provider_for(resource_type)
     schemas = load_provider(provider)["resource_schemas"]

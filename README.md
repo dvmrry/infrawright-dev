@@ -10,8 +10,8 @@ so console renames and key changes resolve as *moves*, never destroy/recreate. A
 
 The engine carries **zero vendor knowledge**. Each provider is a **pack** under
 `packs/<name>/` supplying its own collector, registry, overrides, and schema — the same
-engine drives any provider. Zscaler is the reference pack (byte-identical, zero-drift
-baseline); Cloudflare is next.
+engine drives any provider. Zscaler is the reference pack; Cloudflare, Google,
+AWS, and NetBox provide additional provider-lab and metadata evidence.
 
 ## Why it's safe to point at production
 
@@ -32,8 +32,7 @@ The acceptance bar isn't "0 to change" — it's **0 to destroy, 0 to create** af
 
 | Path | Role |
 |------|------|
-| `engine/` | vendor-agnostic: transform → modular TF + `import` + `moved` reconciliation |
-| `collectors/rest/` | shared token-REST fetch base (provider collectors lean on it) |
+| `engine/` | vendor-agnostic: transform → modular TF + `import` + `moved` reconciliation; includes the shared REST collector |
 | `packs/<name>/` | a provider bundle: `pack.json` + `registry.json` + `overrides/` + `schemas/` + collector |
 | `[<overlay>/]config/<tenant>/<resource_type>.auto.tfvars.json` | generated tenant config |
 | `[<overlay>/]imports/<tenant>/<resource_type>_imports.tf` | generated import blocks |
@@ -45,7 +44,9 @@ owned by the adopter. The shipped `deployment.json` points at the `demo/`
 overlay, so demo artifacts live under `demo/config/demo` and
 `demo/imports/demo` while real deployments can choose their own overlay prefix.
 Generated env roots resolve module sources from deployment-configured
-`module_dir`; the shipped demo module set lives under `demo/modules/default`.
+`module_dir`; the shipped demo generates `demo/modules/default` on demand.
+See [Repository Surface](docs/repo-surface.md) for the keep/prune policy across
+core, demo, packs, tools, release scripts, and archived docs.
 
 The root `Makefile` is the stable product command surface. Deployment-specific
 workflow targets can live in optional extension Makefiles:
@@ -64,7 +65,7 @@ still be verified even when a local deployment points somewhere else.
 ## Quickstart
 
 ```
-make check      # full gate: unit tests + byte-identical demo + module reproduction
+make check      # full gate: unit tests + byte-identical demo + module generator smoke
 make demo       # materialize the demo tenant (no credentials needed)
 ```
 
@@ -139,10 +140,9 @@ resource is `static_mapped`, `read_observed`, `write_sampled`,
 Humans classify surfaces; tools classify resources and evidence so the index
 does not drift by hand.
 
-## Experimental Import Oracle Adoption
+## Import Oracle Adoption
 
-The default transform path is unchanged. An experimental adoption path can use
-Terraform/OpenTofu import as a provider-state oracle:
+The adoption path can use Terraform/OpenTofu import as a provider-state oracle:
 
 ```
 make adopt IN=pulls/<tenant> TENANT=<tenant> RESOURCE=<type>
@@ -155,7 +155,8 @@ usage, and consumer drift policy format.
 
 **0.1 — Zscaler** (`zia` · `zpa` · `zcc`): reproduces its demo tenant byte-identically
 through the agnosticized engine; provider-first packs; identity-keyed reconciliation.
-Cloudflare (tier-1 resources) is in progress on a branch.
+Additional provider labs and metadata cover Cloudflare, Google, AWS, NetBox,
+and Grafana evidence without making those packs production-certified.
 
 ## License
 

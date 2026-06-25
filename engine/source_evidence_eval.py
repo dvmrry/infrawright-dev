@@ -1,7 +1,7 @@
 """Evaluate text-scanned source evidence against AST-backed source facts.
 
-This is an experimental harness for provider-readiness work. It runs the
-current source mapper twice: once with the legacy text scanner and once with
+This is an evaluation harness for provider-readiness work. It runs the current
+source mapper twice: once with the legacy text scanner and once with
 `source-evidence-ast` facts. The output classifies deltas so parser changes can
 be reviewed as regressions, improvements, or harmless diagnostic cleanup.
 

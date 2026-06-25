@@ -1,4 +1,4 @@
-"""Tests for tools/transform.py. All fixture data is fictional."""
+"""Tests for engine.transform. All fixture data is fictional."""
 import io
 import json
 import os
@@ -1374,7 +1374,7 @@ class LoudFailureTest(unittest.TestCase):
             render_imports("zia_rule_labels", {"k": {"id": "1"}},
                            {"import_id": "{type}:{id}"})
         msg = str(ctx.exception)
-        self.assertIn("tools/overrides/zia_rule_labels.json", msg)
+        self.assertIn("packs/<provider>/overrides/zia_rule_labels.json", msg)
         self.assertIn("'k'", msg)
 
 
@@ -1459,7 +1459,7 @@ class DropsCheckGateTest(unittest.TestCase):
         code, err = self._run_main(self.RAW, env_flag=True)
         self.assertEqual(code, 4)
         self.assertIn("NEW API surface", err)
-        self.assertIn("make triage", err)
+        self.assertIn("Exact paths from this run", err)
         self.assertIn("signingCertId", err)
         self.assertIn('"acknowledged_drops"', err)
         self.assertIn('"brand_new_api_field"', err)

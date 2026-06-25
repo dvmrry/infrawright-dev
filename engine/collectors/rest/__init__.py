@@ -1,0 +1,862 @@
+"""Fetch detail-shaped REST API JSON into pulls/<tenant>/<type>.json.
+
+Runs with real credentials ONLY in trusted environments; here it is
+exercised against fictional canned responses via an injected opener.
+Stdlib-only, Python 3.6-floor. Per-resource knowledge lives in
+pack registry.json files (data); auth and URL seams live in provider packs.
+See AGENTS.md rules 1-5.
+"""
+import json
+import os
+import re
+import sys
+import time
+
+
+def _mask_identifiers(text):
+    """Mask tenant-identifying substrings in a URL/host for error and
+    diagnostic messages: the vanity label of a *.zslogin*.net token host and
+    the ZPA /customers/<id>/ path segment. Hosts and path structure — the
+    actionable part of a connectivity/HTTP error — are preserved. Always
+    applied (these messages may end up in a shared log); the full URL adds
+    no diagnostic value beyond the host + status anyway.
+    """
+    text = re.sub(r"([/.]|^)([^/.]+)(\.zslogin[a-z0-9]*\.net)",
+                  r"\1<vanity>\3", text)
+    text = re.sub(r"(/customers/)[^/]+", r"\1<customer-id>", text)
+    return text
+
+def load_manifest():
+    from engine.registry import load_registry
+    out = {}
+    for rt, e in load_registry().items():
+        if "fetch" in e:
+            entry = dict(e["fetch"])
+            entry["product"] = e["product"]
+            out[rt] = entry
+    return out
+
+
+def manifest_entry(resource_type):
+    from engine.registry import fetch_entry
+    return fetch_entry(resource_type)
+
+
+def obfuscate_api_key(api_key, timestamp):
+    from packs.zia import collector
+    return collector.obfuscate_api_key(api_key, timestamp)
+
+
+from urllib.parse import quote as _quote, urlencode
+
+
+# HTTP 429 (rate-limit) backoff. Request-dense resources fan out into many
+# rapid GETs (e.g. zia_cloud_app_control_rule = one GET per rule type) and
+# trip ZIA's per-second GET limit; the fetcher must pace itself and retry
+# rather than die on the first 429.
+_MAX_RETRIES = 5
+_RETRY_BASE = 1.0    # seconds — exponential base
+_RETRY_CAP = 30.0    # seconds — ceiling on any single wait
+
+
+def _retry_delay(attempt, retry_after):
+    """Seconds to wait before retry `attempt` (0-based) of a 429.
+
+    A numeric `Retry-After` (delta-seconds) wins — ZIA's per-second limit
+    returns a precise value — but is capped so a hostile or huge value
+    cannot stall the run. `Retry-After` may also be an HTTP-date (RFC 7231);
+    we do not parse that and fall back to capped exponential backoff, which
+    is correct for the per-second limits we actually hit.
+    """
+    if retry_after is not None:
+        try:
+            return max(0.0, min(float(retry_after), _RETRY_CAP))
+        except (TypeError, ValueError):
+            pass
+    return min(_RETRY_BASE * (2 ** attempt), _RETRY_CAP)
+
+
+def _request_with_retry(request_fn, sleep, max_retries=_MAX_RETRIES):
+    """Call `request_fn() -> (status, body, retry_after)`; on HTTP 429 sleep
+    and retry up to `max_retries` times, then return the final (status, body).
+
+    `request_fn` carries the actual HTTP call, so this stays transport-agnostic
+    and unit-testable. Only 429 is retried — every other status flows straight
+    back to the caller's existing handling untouched.
+    """
+    attempt = 0
+    while True:
+        status, body, retry_after = request_fn()
+        if status != 429 or attempt >= max_retries:
+            return status, body
+        sleep(_retry_delay(attempt, retry_after))
+        attempt += 1
+
+
+def _get_json(opener, url, headers, query):
+    full = url + ("?" + urlencode(query) if query else "")
+    status, body = opener("GET", full, headers, None)
+    if status != 200:
+        raise RuntimeError("GET %s returned HTTP %d"
+                           % (_mask_identifiers(url), status))
+    return json.loads(body.decode())
+
+
+def paginate_zia(opener, url, headers, query, page_size=1000, max_pages=100000,
+                 envelope=None):
+    """ZIA-style: page until a page returns fewer than page_size items.
+
+    max_pages is a runaway guard — a real API that always returns a full
+    page (total an exact multiple of page_size) would otherwise loop
+    forever. The default ceiling is far above any real ZIA result set.
+    envelope: some endpoints wrap the page in an object (e.g. ZCC v1
+    trusted networks: {"totalCount": N, "trustedNetworkContracts": [...]})
+    — name the wrapping key in the registry entry to unwrap it.
+    """
+    items = []
+    page = 1
+    while True:
+        q = dict(query)
+        q.update({"page": page, "pageSize": page_size})
+        batch = _get_json(opener, url, headers, q)
+        if envelope is not None and isinstance(batch, dict):
+            batch = batch.get(envelope) or []
+        if not isinstance(batch, list):
+            raise RuntimeError("ZIA %s did not return a list page" % url)
+        items.extend(batch)
+        if len(batch) < page_size:
+            return items
+        if page >= max_pages:
+            raise RuntimeError(
+                "ZIA %s exceeded max_pages=%d; aborting runaway pagination"
+                % (url, max_pages)
+            )
+        page += 1
+
+
+def paginate_zpa(opener, url, headers, query, page_size=500):
+    """ZPA: page up to totalPages, collecting the `list` field."""
+    items = []
+    page = 1
+    while True:
+        q = dict(query)
+        q.update({"page": page, "pagesize": page_size})
+        payload = _get_json(opener, url, headers, q)
+        items.extend(payload.get("list") or [])
+        total = int(payload.get("totalPages", 1) or 1)
+        if page >= total:
+            return items
+        page += 1
+
+
+def paginate_single(opener, url, headers, query):
+    """Single-object endpoints (no pagination): GET once, return as a
+    one-element list so the caller can iterate items uniformly.
+
+    Used for ZCC singleton resources (fail-open policy, web-privacy) that
+    return a plain JSON object rather than a paged array.
+    """
+    payload = _get_json(opener, url, headers, query)
+    if isinstance(payload, list):
+        return payload
+    return [payload]
+
+
+def paginate_zcc_v2(opener, url, headers, query, per_page=100, max_pages=100000):
+    """ZCC v2 offset-based pagination: {items, total, offset, limit, count}.
+
+    Speculative infrastructure: no registry entry currently sets
+    pagination="zcc_v2" (the four ZCC resources use "zia"/"single"), so this
+    is not exercised in production yet. Kept ready (and tested) for future
+    ZCC v2 offset-based endpoints; wire it by adding pagination="zcc_v2" to a
+    registry entry that returns this envelope.
+
+    Advances skip by per_page after each page. Terminates on any of:
+    - count == 0 or items empty (empty-page safety)
+    - count < limit (short last page)
+    - collected >= total (server-authoritative total)
+    """
+    items = []
+    skip = 0
+    page = 0
+    while True:
+        q = dict(query)
+        q.update({"skip": skip, "perPage": per_page})
+        payload = _get_json(opener, url, headers, q)
+        page_items = payload.get("items") or []
+        items.extend(page_items)
+        count = payload.get("count", 0)
+        total = payload.get("total", 0)
+        limit = payload.get("limit", per_page)
+        if count == 0 or not page_items:
+            break
+        if limit > 0 and count < limit:
+            break
+        if total > 0 and len(items) >= total:
+            break
+        page += 1
+        if page >= max_pages:
+            raise RuntimeError(
+                "ZCC v2 %s exceeded max_pages=%d; aborting runaway pagination"
+                % (url, max_pages)
+            )
+        skip += per_page
+    return items
+
+
+def _oneapi_gateway(cloud):
+    from packs._shared.zscaler import collector
+    return collector._oneapi_gateway(cloud)
+
+
+def _zpa_legacy_base_or_none(cloud):
+    from packs.zpa import collector
+    return collector._zpa_legacy_base_or_none(cloud)
+
+
+def _legacy_zpa_base(cloud):
+    from packs.zpa import collector
+    return collector._legacy_zpa_base(cloud)
+
+
+def _legacy_zia_base(cloud):
+    from packs.zia import collector
+    return collector._legacy_zia_base(cloud)
+
+
+def host_overrides(env):
+    from packs._shared.zscaler import collector
+    return collector.host_overrides(env)
+
+
+def _gateway_for(ctx):
+    from packs._shared.zscaler import collector
+    return collector._gateway_for(ctx)
+
+
+def _zia_legacy_base_for(ctx):
+    from packs.zia import collector
+    return collector._zia_legacy_base_for(ctx)
+
+
+def _zpa_legacy_base_for(ctx):
+    from packs.zpa import collector
+    return collector._zpa_legacy_base_for(ctx)
+
+
+def compose_url(auth_mode, product, path, ctx):
+    from engine import packs
+    return packs.collector_for(product).compose_url(auth_mode, path, ctx)
+
+
+def build_headers(token):
+    """Bearer header for OneAPI / legacy-ZPA; cookie-only (no auth header)
+    for legacy-ZIA, where token is None and the session cookie rides in the
+    opener's cookie jar.
+    """
+    if token is None:
+        return {"Accept": "application/json"}
+    return {"Authorization": "Bearer " + token, "Accept": "application/json"}
+
+
+def ca_bundle_path(env):
+    """Path to a CA bundle that trusts the corporate TLS-inspection root,
+    or None to use the system defaults.
+
+    Zscaler (and most enterprise proxies) MITM-inspect outbound HTTPS —
+    including, ironically, traffic to the Zscaler API itself — presenting a
+    corporate root CA that Python does not trust out of the box, so the
+    handshake fails. Point one of the de-facto-standard vars at the
+    exported root (the same ones curl/requests honor); no new var invented.
+    """
+    return env.get("REQUESTS_CA_BUNDLE") or env.get("SSL_CERT_FILE") or None
+
+
+def connection_hint(reason):
+    """One-line remediation for common connection failures, so the error is
+    actionable where it happens instead of requiring a relayed traceback."""
+    text = reason.lower()
+    if "certificate" in text or "ssl" in text:
+        return (
+            "hint: corporate TLS inspection? set REQUESTS_CA_BUNDLE to the "
+            "exported proxy root CA (it is ADDED to system trust)"
+        )
+    if (
+        "refused" in text
+        or "timed out" in text
+        or "unreachable" in text
+        or "nodename" in text
+        or "name or service" in text
+    ):
+        return (
+            "hint: blocked egress? if an explicit proxy is required set "
+            "HTTPS_PROXY (and NO_PROXY); transparent agents need nothing"
+        )
+    return "hint: check provider pack auth/proxy/TLS settings and collector diagnostics"
+
+
+def _unreachable_message(url, reason):
+    """Actionable 'cannot reach' message with the host preserved but
+    tenant-identifying parts masked (the vanity / ZPA customer id), since
+    this string surfaces in fetch_all's failure summary and may be relayed.
+    The reason is masked too — a TLS error can name the host (e.g.
+    'certificate is not valid for <vanity>.zslogin.net')."""
+    return "cannot reach %s: %s\n%s" % (
+        _mask_identifiers(url.split("?")[0]),
+        _mask_identifiers(str(reason)),
+        connection_hint(str(reason)))
+
+
+def real_opener(env=None):
+    """Default opener over urllib with a cookie jar — wraps GET/POST into
+    (status, bytes). The jar persists the ZIA legacy session cookie across
+    calls, so legacy-ZIA GETs authenticate after the session POST without
+    any explicit token. If a CA bundle is configured (see ca_bundle_path),
+    HTTPS verifies against it so corporate TLS inspection does not break the
+    handshake. Untested here (it touches the network); the fake opener in
+    tests exercises everything that consumes an opener.
+    """
+    import http.cookiejar
+    import ssl
+    import urllib.error
+    import urllib.request
+
+    if env is None:
+        env = os.environ
+    jar = http.cookiejar.CookieJar()
+    handlers = [urllib.request.HTTPCookieProcessor(jar)]
+    bundle = ca_bundle_path(env)
+    if bundle:
+        # ADD the corporate root on top of system trust (not instead of it):
+        # hosts the proxy bypasses from inspection present their real public
+        # certs and must still verify. build_opener keeps the default
+        # ProxyHandler, so HTTPS_PROXY/NO_PROXY env vars are honored.
+        context = ssl.create_default_context()
+        context.load_verify_locations(cafile=bundle)
+        handlers.append(urllib.request.HTTPSHandler(context=context))
+    url_opener = urllib.request.build_opener(*handlers)
+
+    def _open(method, url, headers, body):
+        def once():
+            req = urllib.request.Request(
+                url, data=body, headers=headers or {}, method=method)
+            try:
+                resp = url_opener.open(req)
+                return resp.getcode(), resp.read(), None
+            except urllib.error.HTTPError as e:  # surface status for caller
+                retry_after = e.headers.get("Retry-After") if e.headers else None
+                return e.code, e.read(), retry_after
+            except urllib.error.URLError as e:
+                # Self-explanatory on this side — no traceback relay needed.
+                # Identifiers masked: this surfaces in the failure summary.
+                raise SystemExit(_unreachable_message(url, e.reason))
+        # 429s are retried HERE (honoring Retry-After), so every request —
+        # data GETs and auth POSTs alike — paces itself transparently and
+        # callers keep their simple (status, body) contract.
+        return _request_with_retry(once, time.sleep)
+
+    return _open
+
+
+_PAGINATORS = {
+    "zia": paginate_zia,
+    "zpa": paginate_zpa,
+    "single": paginate_single,
+    "zcc_v2": paginate_zcc_v2,
+}
+
+
+def expand_paths(entry):
+    """List of concrete API paths for a fetch entry. Entries may declare
+    {"expand": {"placeholder": [values]}} with "{placeholder}" in path —
+    per-type APIs like webApplicationRules/{rule_type}. One placeholder
+    max (no product needs more)."""
+    path = entry["path"]
+    expand = entry.get("expand") or {}
+    if not expand:
+        return [path]
+    if len(expand) != 1:
+        raise ValueError("expand supports exactly one placeholder: %r" % sorted(expand))
+    key = sorted(expand)[0]
+    token = "{%s}" % key
+    if token not in path:
+        raise ValueError("expand key %r not present in path %r" % (key, path))
+    return [path.replace(token, _quote(value, safe="")) for value in expand[key]]
+
+
+def _fetch_paths(entry, auth_mode, ctx, token, opener):
+    product = entry["product"]
+    from engine import packs
+    collector = packs.collector_for(product)
+    headers = build_headers(token)
+    query = entry.get("query") or {}
+    paginate = _PAGINATORS[entry.get("pagination", product)]
+    kwargs = {}
+    if entry.get("envelope") and paginate is paginate_zia:
+        kwargs["envelope"] = entry["envelope"]
+    items = []
+    for path in expand_paths(entry):
+        url = collector.compose_url(auth_mode, path, ctx)
+        items.extend(paginate(opener, url, headers, query, **kwargs))
+    return items
+
+
+def fetch_resource(resource_type, auth_mode, ctx, token, opener):
+    """List one resource type into a list of detail-shaped dicts."""
+    entry = manifest_entry(resource_type)
+    from engine import packs
+    collector = packs.collector_for(entry["product"])
+    hook = getattr(collector, "fetch_resource", None)
+    if hook is not None:
+        return hook(resource_type, entry, auth_mode, ctx, token, opener)
+    return _fetch_paths(entry, auth_mode, ctx, token, opener)
+
+
+def _require(env, name):
+    value = env.get(name)
+    if not value:
+        raise SystemExit("missing required env var %s" % name)
+    return value
+
+
+def _token_field(raw, key, label):
+    """Extract a token field from an auth response body, LOUDLY.
+
+    A 200 with an unexpected body (maintenance HTML, an error envelope
+    without the token) must become an actionable per-product SystemExit
+    — a bare KeyError here once escaped fetch_all's per-product
+    isolation and aborted every remaining fetch. The body is NOT echoed
+    (auth responses are a credential-adjacent surface)."""
+    try:
+        doc = json.loads(raw.decode())
+    except ValueError:
+        raise SystemExit(
+            "%s: HTTP 200 but the response is not JSON (maintenance page? "
+            "proxy interception?) — re-try, then check the auth endpoint "
+            "with make fetch-diag" % label)
+    if not isinstance(doc, dict) or key not in doc:
+        raise SystemExit(
+            "%s: HTTP 200 but no %r in the response — check the API "
+            "client's permissions/credentials for this product" % (label, key))
+    return doc[key]
+
+
+def auth_mode_from_env(env):
+    """oneapi unless ZSCALER_USE_LEGACY_CLIENT is truthy."""
+    flag = (env.get("ZSCALER_USE_LEGACY_CLIENT") or "").strip().lower()
+    return "legacy" if flag in ("1", "true", "yes", "on") else "oneapi"
+
+
+def _zslogin_host(vanity, cloud):
+    from packs._shared.zscaler import collector
+    return collector._zslogin_host(vanity, cloud)
+
+
+def acquire_token(auth_mode, product, env, ctx, opener, now_ms=None):
+    from engine import packs
+    return packs.collector_for(product).acquire(
+        auth_mode, env, ctx, opener, now_ms=now_ms)
+
+
+def products_in_manifest():
+    return sorted({e["product"] for e in load_manifest().values()})
+
+
+def _host_of(url):
+    """Hostname of an https URL (drops scheme and any path)."""
+    return url.split("//", 1)[-1].split("/", 1)[0]
+
+
+def diag_hosts(env):
+    """Unique HTTPS hosts the fetcher will contact in the configured mode.
+
+    Honors the legacy host overrides (ZIA_LEGACY_BASE_URL /
+    ZPA_LEGACY_BASE_URL) so --diag probes the hosts a real fetch will
+    actually dial. ZCC is OneAPI-only — no separate host.
+    """
+    if auth_mode_from_env(env) == "oneapi":
+        vanity = env.get("ZSCALER_VANITY_DOMAIN") or "<vanity>"
+        cloud = env.get("ZSCALER_CLOUD", "")
+        login = _zslogin_host(vanity, cloud)
+        gateway = _oneapi_gateway(cloud)
+        return sorted({_host_of(login), _host_of(gateway)})
+    cloud = env.get("ZIA_CLOUD", "") or env.get("ZSCALER_CLOUD", "") or "<cloud>"
+    zia = env.get("ZIA_LEGACY_BASE_URL") or "https://zsapi.%s.net" % cloud
+    zpa = (env.get("ZPA_LEGACY_BASE_URL")
+           or _zpa_legacy_base_or_none(env.get("ZPA_CLOUD", ""))
+           or "https://config.<zpa-cloud>")
+    return sorted({_host_of(zia), _host_of(zpa)})
+
+
+def _safe_base(derive, override):
+    """Render a derived base URL for debug, tagging an active override and
+    never raising — host-derivation errors are shown inline so the debug
+    summary always prints; the real failure surfaces at auth time."""
+    if override:
+        return override + " (override)"
+    try:
+        return derive()
+    except SystemExit as e:
+        return "<unresolved: %s>" % e
+
+
+def _debug_verbose(env):
+    return (env.get("FETCH_DEBUG") or "").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
+def debug_config(env, ctx, auth_mode, products):
+    """Secret-safe startup summary: the auth mode, the URLs/hosts the run
+    will hit, and the safe targeting vars. Returns lines; the caller writes
+    them to stderr.
+
+    Two redaction tiers. Credentials and the proxy VALUE are NEVER printed
+    (proxy shown only as set/not-set). Tenant-IDENTIFYING values — the
+    vanity domain and the ZPA customer id — are shown as "set" unless
+    FETCH_DEBUG is truthy; the operationally-critical, non-identifying
+    info (mode, clouds, the derived/overridden base hosts, proxy state) is
+    always shown, since that is what diagnoses the host-derivation class of
+    failure without revealing which tenant this is.
+    """
+    verbose = _debug_verbose(env)
+    masked = []
+
+    def ident(value):
+        if value and not verbose:
+            masked.append(1)
+            return "set"
+        return value or "<unset>"
+
+    lines = ["fetch: auth mode = %s" % auth_mode]
+    proxy = env.get("HTTPS_PROXY") or env.get("https_proxy")
+    lines.append("fetch: proxy = %s" % ("set" if proxy else "not set"))
+    if auth_mode == "oneapi":
+        lines.append("fetch: ZSCALER_CLOUD = %s"
+                     % (env.get("ZSCALER_CLOUD") or "(production)"))
+        lines.append("fetch: ZSCALER_VANITY_DOMAIN = %s"
+                     % ident(env.get("ZSCALER_VANITY_DOMAIN")))
+        if ctx.get("customer_id"):
+            lines.append("fetch: ZPA_CUSTOMER_ID = %s" % ident(ctx["customer_id"]))
+        # The derived token host embeds the vanity domain, so mask the vanity
+        # (keeping the cloud suffix, the diagnostic part) unless verbose.
+        vanity = env.get("ZSCALER_VANITY_DOMAIN")
+        if not verbose:
+            if vanity:
+                masked.append(1)
+            vanity = "<vanity>"
+        token = _zslogin_host(vanity or "<vanity>", env.get("ZSCALER_CLOUD", ""))
+        lines.append("fetch: token host = %s" % token)
+        lines.append("fetch: gateway = %s" % _gateway_for(ctx))
+    else:
+        lines.append("fetch: ZIA_CLOUD = %s" % (env.get("ZIA_CLOUD") or "<unset>"))
+        if "zpa" in products:
+            lines.append("fetch: ZPA_CLOUD = %s"
+                         % (env.get("ZPA_CLOUD") or "(production)"))
+        if ctx.get("customer_id"):
+            lines.append("fetch: ZPA_CUSTOMER_ID = %s" % ident(ctx["customer_id"]))
+        if "zia" in products:
+            lines.append("fetch: zia base = %s" % _safe_base(
+                lambda: _zia_legacy_base_for(ctx), ctx.get("zia_legacy_base")))
+        if "zpa" in products:
+            lines.append("fetch: zpa base = %s" % _safe_base(
+                lambda: _zpa_legacy_base_for(ctx), ctx.get("zpa_legacy_base")))
+    if masked:
+        lines.append("fetch: (vanity/customer-id hidden; set FETCH_DEBUG=1 to show)")
+    return lines
+
+
+def _try_tls(host, context):
+    """(ok, detail) for an HTTPS request to host under context.
+
+    Goes through urllib — the same stack the fetcher uses — so it is
+    proxy-aware (HTTPS_PROXY/system proxy) exactly like production. A raw
+    socket probe would bypass the proxy and hang on networks that block
+    direct egress, diagnosing a problem the fetcher does not have. Any
+    HTTP status (even 401/403) means TLS succeeded.
+    """
+    import urllib.error
+    import urllib.request
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=context)
+    )
+    try:
+        resp = opener.open("https://%s/" % host, timeout=15)
+        return True, "HTTP %d" % resp.getcode()
+    except urllib.error.HTTPError as e:
+        return True, "HTTP %d" % e.code
+    except urllib.error.URLError as e:
+        return False, str(e.reason)
+    except OSError as e:
+        return False, str(e)
+
+
+def run_diag(env):
+    """Per host, try system trust then system+bundle; print which leg works.
+
+    Output is infrastructure-only (host, verify result, issuer org) —
+    designed so the result can be acted on, or relayed, without exposing
+    anything tenant-specific.
+    """
+    import ssl
+    bundle = ca_bundle_path(env)
+    system_ctx = ssl.create_default_context()
+    bundle_ctx = None
+    if bundle:
+        bundle_ctx = ssl.create_default_context()
+        bundle_ctx.load_verify_locations(cafile=bundle)
+    for host in diag_hosts(env):
+        if "<" in host:
+            sys.stderr.write("%s: skipped (env vars not set)\n" % host)
+            continue
+        # Probe the REAL host, but print a vanity-masked name so a relayed
+        # --diag log does not reveal the tenant's vanity (in <vanity>.zslogin).
+        shown = _mask_identifiers(host)
+        ok, detail = _try_tls(host, system_ctx)
+        # detail is a TLS/connection reason that can itself name the host.
+        line = "%s: system-trust %s (%s)" % (
+            shown, "OK" if ok else "FAIL", _mask_identifiers(detail))
+        if bundle_ctx is not None:
+            ok2, detail2 = _try_tls(host, bundle_ctx)
+            line += "; +bundle %s (%s)" % (
+                "OK" if ok2 else "FAIL", _mask_identifiers(detail2))
+        else:
+            line += "; no CA bundle configured (set REQUESTS_CA_BUNDLE)"
+        sys.stderr.write(line + "\n")
+    return 0
+
+
+_VALID_TENANT = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def main(argv=None):
+    argv = argv if argv is not None else sys.argv[1:]
+    if argv == ["--diag"]:
+        return run_diag(os.environ)
+    if len(argv) < 1:
+        sys.stderr.write(
+            "usage: python -m engine.collectors.rest <tenant> "
+            "[resource_type|product ...] | --diag\n"
+        )
+        return 2
+    tenant = argv[0]
+    # The tenant is a directory key: pulls are written to pulls/<tenant>.
+    # Validate it the same way the make targets do (and reject '.'/'..',
+    # which the bare charset allows) so a bad label can't write outside the
+    # pulls/ convention — direct `python3 -m tools.fetch` is safe too.
+    if not _VALID_TENANT.match(tenant) or tenant in (".", ".."):
+        sys.stderr.write(
+            "error: tenant %r must match [A-Za-z0-9_.-]+ and not be '.'/'..' "
+            "— it is a directory key under pulls/\n" % tenant)
+        return 2
+    only = expand_selectors(argv[1:])
+    if only:
+        unknown = only - set(load_manifest())
+        if unknown:
+            sys.stderr.write(
+                "error: unknown resource type(s)/product(s): %s\n"
+                "valid products: %s\nvalid resources: %s\n"
+                % (
+                    ", ".join(sorted(unknown)),
+                    ", ".join(sorted(products_in_manifest())),
+                    ", ".join(sorted(load_manifest())),
+                )
+            )
+            return 2
+    env = os.environ
+    auth_mode = auth_mode_from_env(env)
+    opener = real_opener()
+    # ZPA_CUSTOMER_ID is only used to compose ZPA URLs, so require it only
+    # when ZPA is actually in scope. A provider-scoped fetch must not demand
+    # credentials for products it never uses (only= scoping benefit).
+    wanted = sorted(only) if only else sorted(load_manifest())
+    needed_products = set(manifest_entry(rt)["product"] for rt in wanted)
+    if "zpa" in needed_products:
+        customer_id = _require(env, "ZPA_CUSTOMER_ID")
+    else:
+        customer_id = env.get("ZPA_CUSTOMER_ID", "")
+    ctx = {
+        "cloud": env.get("ZIA_CLOUD", "") or env.get("ZSCALER_CLOUD", ""),
+        "customer_id": customer_id,
+    }
+    ctx.update(host_overrides(env))
+    for line in debug_config(env, ctx, auth_mode, needed_products):
+        sys.stderr.write(line + "\n")
+    out_dir = os.path.join("pulls", tenant)
+    return fetch_all(auth_mode, env, ctx, opener, out_dir, only=only)
+
+
+def expand_selectors(args):
+    """Resource names and/or product tokens -> the resource-type set.
+
+    A selector that names a product (zia/zpa/zcc) expands to every
+    registered resource of that product, so a pipeline can disable a
+    whole product (e.g. ZCC until OneAPI is enabled) with
+    RESOURCE="zia zpa" instead of deleting its credentials and turning
+    every drift run red. Returns None for no selectors (= everything).
+    Unknown names pass through for the caller's loud validation.
+    """
+    if not args:
+        return None
+    from engine.registry import derive_entry
+    products = set(products_in_manifest())
+    out = set()
+    for arg in args:
+        if arg in products:
+            for rt in load_manifest():
+                if manifest_entry(rt)["product"] == arg:
+                    out.add(rt)
+            continue
+        # A DERIVED type (e.g. zpa_policy_access_rule_reorder) has no fetch of
+        # its own — fetch its SOURCE instead, so `RESOURCE=<derived>` scopes
+        # the fetch to what the later transform derives from, rather than
+        # erroring "unknown resource type" in the manifest validation below.
+        derive = derive_entry(arg)
+        out.add(derive["from"] if derive else arg)
+    return out
+
+
+def _auth_identity(auth_mode, product):
+    if auth_mode == "oneapi":
+        return "oneapi"
+    return "%s:%s" % (auth_mode, product)
+
+
+def fetch_all(auth_mode, env, ctx, opener, out_dir, only=None):
+    """Fetch every registered resource, completing what it can.
+
+    One product's failure (missing entitlement, wrong path, outage) must
+    not block the others — failures are collected and summarized at the
+    end, and the exit code is non-zero when anything failed. Learned the
+    hard way: zcc sorts first, so a single 404 used to abort all the
+    healthy pulls behind it.
+
+    only: optional set of resource types to fetch (scoped drift — e.g.
+    an hourly URL-categories check shouldn't pull all 16 resources).
+    Tokens are acquired only for products actually needed.
+    """
+    wanted = sorted(only) if only else sorted(load_manifest())
+    needed_products = set(manifest_entry(rt)["product"] for rt in wanted)
+    tokens = {}
+    token_keys = {}
+    failed_auth = {}
+    failed_products = {}
+    from engine import packs
+    for product in products_in_manifest():
+        if product not in needed_products:
+            continue
+        token_key = _auth_identity(auth_mode, product)
+        token_keys[product] = token_key
+        if token_key in failed_auth:
+            failed_products[product] = failed_auth[token_key]
+            continue
+        try:
+            if token_key not in tokens:
+                tokens[token_key] = packs.collector_for(product).acquire(
+                    auth_mode, env, ctx, opener)
+        except SystemExit as e:
+            failed_auth[token_key] = str(e)
+            failed_products[product] = str(e)
+    os.makedirs(out_dir, exist_ok=True)
+    failures = {}
+    skipped = {}
+    for resource_type in wanted:
+        entry = manifest_entry(resource_type)
+        product = entry["product"]
+        if product in failed_products:
+            failures[resource_type] = "auth failed: %s" % failed_products[product]
+            continue
+        try:
+            items = fetch_resource(
+                resource_type, auth_mode, ctx, tokens[token_keys[product]], opener
+            )
+        except (RuntimeError, SystemExit, ValueError) as e:
+            status = _http_status_from_error(str(e))
+            optional = set(entry.get("optional_http_statuses") or [])
+            if status in optional:
+                skipped[resource_type] = str(e)
+                continue
+            failures[resource_type] = str(e)
+            continue
+        path = os.path.join(out_dir, resource_type + ".json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(items, f, indent=2, sort_keys=True)
+            f.write("\n")
+        sys.stderr.write("wrote %s (%d items)\n" % (path, len(items)))
+    if skipped:
+        sys.stderr.write("\n%d resource(s) SKIPPED (known optional HTTP status):\n" % len(skipped))
+        for resource_type in sorted(skipped):
+            sys.stderr.write("  %s: %s\n" % (resource_type, skipped[resource_type]))
+    if failures:
+        sys.stderr.write("\n%d resource(s) FAILED:\n" % len(failures))
+        for resource_type in sorted(failures):
+            sys.stderr.write("  %s: %s\n" % (resource_type, failures[resource_type]))
+        for line in failure_hints(failures.values(), scoped=bool(only)):
+            sys.stderr.write(line + "\n")
+        return 1
+    return 0
+
+
+def _http_status_from_error(message):
+    match = re.search(r"HTTP (\d+)", message)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def failure_hints(reasons, scoped=False):
+    """Remediation hints partitioned by failure type, so the advice matches
+    the actual cause instead of always blaming a 404.
+
+    A plain substring scan over the collected failure reason strings (the
+    same text printed above) — auth/HTTP-status/transient lines only fire
+    when that kind of failure is present. scoped=True (only= active) appends
+    a note that the EVERY-endpoint entitlement heuristic needs a full pull.
+    """
+    blob = " ".join(reasons)
+    hints = []
+    if "auth failed:" in blob:
+        hints.append(
+            "hint: a product's auth FAILED, so all its resources were "
+            "skipped. 'missing required env var' means that credential is "
+            "not set; a token/signin HTTP error means the credential was "
+            "rejected (rotate it or check the Zidentity/ZPA console)."
+        )
+    if "returned HTTP 401" in blob or "returned HTTP 403" in blob:
+        hints.append(
+            "hint: HTTP 401/403 means the token was rejected or lacks scope "
+            "(expired credential, or the API client is missing this "
+            "product's role); re-issue credentials in the Zidentity console."
+        )
+    if "returned HTTP 404" in blob:
+        hints.append(
+            "hint: a 404 on ONE endpoint means that path/version is not "
+            "mounted on the gateway for your cloud (try the v1 equivalent "
+            "in the registry); 404s on EVERY endpoint of a product mean "
+            "the API client lacks that product's entitlement (Zidentity "
+            "console)."
+        )
+        if scoped:
+            hints.append(
+                "note: only= scoped this run, so the EVERY-endpoint "
+                "entitlement heuristic above needs an unscoped fetch to be "
+                "actionable (you are not seeing the full product's paths)."
+            )
+    if "returned HTTP 5" in blob:
+        hints.append(
+            "hint: an HTTP 5xx is a transient gateway/server error or "
+            "outage; retry shortly, and check the Zscaler status page if it "
+            "persists."
+        )
+    if not hints:
+        hints.append(
+            "hint: check provider pack auth/proxy/TLS settings and collector diagnostics."
+        )
+    hints.append("Successful pulls above are unaffected either way.")
+    return hints
+
+
+if __name__ == "__main__":
+    sys.exit(main())

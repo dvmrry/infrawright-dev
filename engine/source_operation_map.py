@@ -2229,7 +2229,7 @@ def main(argv=None):
         help="Comma-separated Terraform resource names to evaluate")
     parser.add_argument(
         "--source-facts",
-        help="Experimental source-evidence-ast JSON facts to use instead of text scanning")
+        help="source-evidence-ast JSON facts to use instead of text scanning")
     parser.add_argument(
         "--source-facts-compare",
         help="Write old-scanner vs --source-facts comparison JSON")

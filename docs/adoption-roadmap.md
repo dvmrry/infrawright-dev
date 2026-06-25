@@ -142,7 +142,7 @@ objects.
 A read-only cross-class inventory report now aggregates committed metadata:
 
 - `engine/adoption_inventory_report.py` normalizes `provider_config.requirements`, `absent_defaults.rules`, `dynamic_schema.rules`, and `sensitive_required.rules` into a single inventory.
-- `scripts/adoption-inventory-report.py` emits JSON or markdown for humans/operators and supports `--class sensitive_required`.
+- `python -m engine.adoption_inventory_report` emits JSON or markdown for humans/operators and supports `--class sensitive_required`.
 - The report is read-only: it does not project, omit, change drift policy, alter `assert-adoptable`, render provider configuration, render placeholder values or blocks, run Terraform/OpenTofu, or enforce cross-class rules.
 - It includes cross-class overlap diagnostics (warnings and info), but it is not an adoption decision engine and does not enforce cross-design rules.
 - Sensitive-required rules are now integrated into the inventory as a read-only visibility lane, with warning-level overlap diagnostics against `absent_default` and `dynamic_schema` paths.

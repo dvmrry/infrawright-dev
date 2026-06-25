@@ -1,8 +1,7 @@
 """Single source of truth for which resource types the toolchain knows.
 
-Replaces the old tools/resources.txt (generator list) and
-tools/fetch_manifest.json (fetch endpoints). Consumers read the slice they
-need: generators use generated_types(); the fetcher uses fetch_entry().
+Consumers read the slice they need: generators use generated_types(); the
+fetcher uses fetch_entry().
 Stdlib-only, Python 3.6-floor — see AGENTS.md rule 5.
 """
 import json
@@ -41,7 +40,7 @@ def fetch_entry(resource_type):
     reg = load_registry()
     if resource_type not in reg or "fetch" not in reg[resource_type]:
         raise KeyError(
-            "%r has no fetch entry in tools/registry.json" % resource_type
+            "%r has no fetch entry in pack registry metadata" % resource_type
         )
     entry = dict(reg[resource_type]["fetch"])
     entry["product"] = reg[resource_type]["product"]

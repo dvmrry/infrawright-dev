@@ -1,4 +1,4 @@
-"""Tests for tools/tfschema.py against the committed provider dumps."""
+"""Tests for engine.tfschema against the committed provider dumps."""
 import unittest
 
 from engine.tfschema import (

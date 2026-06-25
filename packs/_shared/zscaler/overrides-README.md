@@ -1,34 +1,35 @@
 # Generator overrides
 
-Most entries below encode a rule mined from the pinned provider's Go
-source. `make mine` scans that source and reports any quirk no override
-covers — run it after provider bumps and before adopting a new resource;
-`tools/MINING.md` is the verification procedure for its findings (and
-the full methodology, including the lanes no tool automates).
+Most entries below encode a rule mined from the pinned provider schema,
+provider source, API evidence, or provider-lab findings. Overrides are
+pack-owned metadata, not engine code.
 
-Run `make typecheck TENANT=<label>` after every `make transform` to catch type
-mismatches before Terraform does. Each output line ends with a one-line
-remediation — follow that suggestion exactly; it is the authoritative decision
-table for every known mismatch class.
+The current workflow is:
 
-If `tools/overrides/<resource_type>/main.tf` exists, `make generate` uses
-it verbatim instead of the rendered `main.tf` for that resource — the
-escape hatch for provider quirks the generator cannot express. Each
-override is a carried bug: record why in a comment at the top of the
-file, and delete the override (then regenerate) when upstream fixes land.
+1. Use provider-readiness evidence (`make openapi-map`,
+   `make source-operation-map`, `make provider-probe`) and/or live provider
+   labs to identify a provider mismatch.
+2. Encode the narrow exception in `packs/<provider>/overrides/` or the
+   provider pack metadata.
+3. Regenerate and verify with `python -m engine.gen_module`, `make check`, and
+   `make check-demo`.
+
+If `packs/<provider>/overrides/<resource_type>/main.tf` exists,
+`engine.gen_module` uses it verbatim instead of the rendered `main.tf` for that
+resource. This is the escape hatch for provider quirks the generator cannot
+express. Each override is a carried bug: record why in a comment at the top of
+the file, and delete the override (then regenerate) when upstream fixes land.
 
 ## Transform override maps
 
-`tools/overrides/<resource_type>.json` configures the transform for that
+`packs/<provider>/overrides/<resource_type>.json` configures the transform for that
 resource (all keys optional): `key_field` (map key source, default
 `name`; may be a LIST of fields joined into one slug for composite keys —
 e.g. `["type", "name"]` where names are only unique within a type),
 `renames` (post-snake-case API→schema names), `drops` (fields
 always removed; a DOTTED path like `conditions.operands.name` reaches
 inside nested blocks — for fields the API rewrites so a config copy can
-never round-trip, e.g. operand display names, zpa#287; `make lint`
-ERRORS when a dropped field reappears in config, so hand-edits that
-re-add one fail the PR gate instead of perma-diffing), `references`
+never round-trip, e.g. operand display names, zpa#287), `references`
 (force `{id,...}` unwrapping), `sort_lists` (list-of-string fields
 whose ORDER the provider itself diff-suppresses — zia url_categories
 `urls` — sorted so unstable API ordering can't churn drift PRs;
@@ -59,8 +60,7 @@ returned it empty — for required-on-write fields where "unset means
 everything", e.g. `"defaults": {"url_categories": ["ANY"]}` on URL
 filtering rules; pick the value the PROVIDER's read normalizes to so it
 round-trips stably), `ranges` (field→[min, max]: provider RUNTIME validator bounds mined from
-provider source — invisible in the schema dump; enforced by `make lint`
-so hand-edited values fail the PR gate instead of the plan stage, e.g.
+provider source — invisible in the schema dump, e.g.
 `"ranges": {"size_quota": [10, 100000]}` — size_quota is MB in config),
 `split_csv` (list of post-rename fields whose
 comma-joined string values become real lists, empties dropped — ZCC

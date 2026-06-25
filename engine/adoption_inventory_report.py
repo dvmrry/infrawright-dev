@@ -6,7 +6,9 @@ it in a single report. It does not project, omit, change drift policy, alter
 assert-adoptable, render provider configuration, render placeholder values or
 blocks, run Terraform/OpenTofu, or enforce cross-design rules.
 """
+import argparse
 import json
+import sys
 
 from engine import packs
 
@@ -415,3 +417,48 @@ def _markdown_scope(item):
     if item.get("resource_prefixes"):
         return ", ".join(item["resource_prefixes"])
     return ""
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Read-only adoption metadata inventory report."
+    )
+    parser.add_argument(
+        "--provider",
+        help="Filter to one provider short name.",
+    )
+    parser.add_argument(
+        "--resource-type",
+        help="Filter to one resource type.",
+    )
+    parser.add_argument(
+        "--class",
+        dest="metadata_class",
+        choices=["provider_config", "absent_default", "dynamic_schema", "sensitive_required"],
+        help="Filter to one metadata class.",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["json", "markdown"],
+        default="json",
+        help="Output format (default: json).",
+    )
+    args = parser.parse_args(argv)
+
+    report = build_report(
+        provider=args.provider,
+        resource_type=args.resource_type,
+        metadata_class=args.metadata_class,
+    )
+
+    if args.format == "json":
+        sys.stdout.write(to_json(report))
+        sys.stdout.write("\n")
+    else:
+        sys.stdout.write(to_markdown(report))
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

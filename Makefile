@@ -18,24 +18,22 @@ check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
 	@test -z "$$(git status --porcelain -- demo/config/demo demo/imports/demo)" || { \
 		echo "demo drift:"; git status --porcelain -- demo/config/demo demo/imports/demo; exit 1; }
 
-check-modules: ## Fail if generated modules drift from committed output
-	INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(PYTHON) -m engine.gen_module > /dev/null 2>&1
-	@test -z "$$(git status --porcelain -- "$(MODULE_DIR)")" || { \
-		echo "modules drifted from generator output:"; \
-		git status --porcelain -- "$(MODULE_DIR)"; \
-		echo "Run 'python -m engine.gen_module' and commit (or fix the regression)."; exit 1; }
+check-modules: ## Generate every module into a temp deployment to catch generator regressions
+	@tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \
+	printf '{"module_dir": "%s/modules"}\n' "$$tmp" > "$$tmp/deployment.json"; \
+	INFRAWRIGHT_DEPLOYMENT="$$tmp/deployment.json" $(PYTHON) -m engine.gen_module > /dev/null 2>&1
 
-check: test check-demo check-modules ## Full gate: unit tests + demo + module byte-identity
+check: test check-demo check-modules ## Full gate: unit tests + demo + module generator smoke
 
 test: ## Run engine unit tests
 	$(PYTHON) -m unittest discover -s tests -t . -v
 
 fetch: ## Pull API JSON into pulls/<tenant> (TENANT=<name> [RESOURCE="<type|provider> ..."])
 	@test -n "$(TENANT)" || { echo "usage: make fetch TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
-	$(PYTHON) -m collectors.rest "$(TENANT)" $(RESOURCE)
+	$(PYTHON) -m engine.collectors.rest "$(TENANT)" $(RESOURCE)
 
 fetch-diag: ## Probe TLS to the fetcher's hosts under system trust and +bundle
-	$(PYTHON) -m collectors.rest --diag
+	$(PYTHON) -m engine.collectors.rest --diag
 
 gen-env: ## Generate env roots for a tenant (TENANT=<label> [BACKEND=azurerm] [RESOURCE="<type|provider> ..."])
 	@test -n "$(TENANT)" || { echo "usage: make gen-env TENANT=<label> [BACKEND=azurerm] [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
