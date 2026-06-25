@@ -1,3 +1,4 @@
+import ast
 import json
 import unittest
 
@@ -109,6 +110,58 @@ class ExpressionBindingsTest(unittest.TestCase):
             json.dumps(rendered, sort_keys=True),
             '{"literal": "var.zpa_client_secret", '
             '"password": "${var.zpa_client_secret}"}',
+        )
+
+    def test_expression_binding_module_stays_isolated_from_adoption_logic(self):
+        with open(expression_bindings.__file__, encoding="utf-8") as f:
+            tree = ast.parse(f.read())
+
+        imports = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imports.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if module == "engine":
+                    imports.update("engine.%s" % alias.name for alias in node.names)
+                elif module.startswith("engine."):
+                    imports.add(module)
+
+        forbidden = {
+            "engine.adoption_guidance",
+            "engine.drift_policy",
+            "engine.plan_eval",
+            "engine.state_project",
+            "engine.sensitive_required",
+            "engine.sensitive_required_validator",
+        }
+        forbidden_imports = sorted(
+            name for name in imports
+            if name in forbidden or name.startswith("engine.sensitive_required")
+        )
+
+        self.assertEqual(forbidden_imports, [])
+
+    def test_expression_sentinel_renders_in_tf_json_lists(self):
+        value = [
+            expression_bindings.HclExpression("var.secret"),
+            "literal",
+        ]
+
+        self.assertEqual(
+            expression_bindings.to_tf_json_value(value),
+            ["${var.secret}", "literal"],
+        )
+
+    def test_expression_sentinel_renders_in_native_hcl_lists(self):
+        value = [
+            expression_bindings.HclExpression("var.secret"),
+            "literal",
+        ]
+
+        self.assertEqual(
+            expression_bindings.render_hcl_value(value),
+            '[var.secret, "literal"]',
         )
 
     def test_apply_bindings_replaces_nested_object_leaf(self):
@@ -228,6 +281,47 @@ class ExpressionBindingsTest(unittest.TestCase):
             expression_bindings.variable_declarations(bindings),
             {"secret": True},
         )
+
+    def test_variable_declarations_deduplicate_sensitive_or(self):
+        bindings = expression_bindings.parse_bindings({
+            "resources": {
+                "sample_resource.one": {
+                    "password": {
+                        "expression": "var.shared_secret",
+                        "sensitive": False,
+                    },
+                },
+                "sample_resource.two": {
+                    "password": {
+                        "expression": "var.shared_secret",
+                        "sensitive": True,
+                    },
+                },
+            },
+        }, "sample_resource")
+
+        self.assertEqual(
+            expression_bindings.variable_declarations(bindings),
+            {"shared_secret": True},
+        )
+
+    def test_render_hcl_honors_explicit_sensitive_false(self):
+        bindings = expression_bindings.parse_bindings({
+            "resources": {
+                "sample_resource.prod": {
+                    "password": {
+                        "expression": "var.non_secret",
+                        "sensitive": False,
+                    },
+                },
+            },
+        }, "sample_resource")
+
+        text = expression_bindings.render_hcl(bindings)
+
+        self.assertIn('variable "non_secret" {', text)
+        self.assertIn("  type = string", text)
+        self.assertNotIn("sensitive = true", text)
 
     def test_rejects_non_resource_address(self):
         with self.assertRaises(ValueError):

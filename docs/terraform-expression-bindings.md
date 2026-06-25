@@ -109,6 +109,10 @@ variable "zpa_client_secret" {
 }
 ```
 
+Generated variables have no default value. Terraform will require them to be
+supplied through `TF_VAR_*`, `-var`, tfvars, or another Terraform-compatible
+variable mechanism.
+
 The variable is marked `sensitive = true` if any binding for that variable marks
 it sensitive.
 
