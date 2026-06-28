@@ -124,14 +124,10 @@ def env_root_under(tenant, resource_type, out_root=None):
 
 
 def _env_base_candidates():
-    bases = {"envs"}
-    try:
-        overlay = deployment.overlay()
-    except ValueError:
-        overlay = "."
+    overlay = deployment.overlay()
     if overlay and overlay != ".":
-        bases.add(os.path.join(overlay, "envs"))
-    return sorted(bases)
+        return [os.path.join(overlay, "envs")]
+    return ["envs"]
 
 
 def discover_env_pairs(tenant=None):
