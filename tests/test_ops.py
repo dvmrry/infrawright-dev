@@ -88,6 +88,94 @@ class OpsPathTest(unittest.TestCase):
         )
 
 
+class OpsEnvDiscoveryTest(unittest.TestCase):
+    RESOURCE = "zia_rule_labels"
+
+    def setUp(self):
+        self.cwd = os.getcwd()
+        self.tmp = tempfile.mkdtemp(prefix="ops-env-discovery-")
+        os.chdir(self.tmp)
+        self.saved_dep = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+
+    def tearDown(self):
+        os.chdir(self.cwd)
+        if self.saved_dep is None:
+            os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+        else:
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = self.saved_dep
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write_deployment(self, data):
+        path = os.path.join(self.tmp, "deployment.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = path
+        return path
+
+    def _write_deployment_text(self, text):
+        path = os.path.join(self.tmp, "deployment.json")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = path
+        return path
+
+    def _env_root(self, *parts):
+        path = os.path.join(*parts)
+        os.makedirs(path, exist_ok=True)
+        return path
+
+    def test_no_tenant_discovery_uses_only_active_overlay_envs(self):
+        root_path = self._env_root("envs", "rootTenant", self.RESOURCE)
+        overlay_path = self._env_root("demo", "envs", "demoTenant", self.RESOURCE)
+        self._write_deployment({"overlay": "demo"})
+
+        self.assertEqual(
+            ops.discover_env_pairs(),
+            [("demoTenant", self.RESOURCE, overlay_path)],
+        )
+        self.assertNotIn(
+            ("rootTenant", self.RESOURCE, root_path),
+            ops.discover_env_pairs(),
+        )
+
+    def test_no_tenant_discovery_uses_root_when_no_overlay(self):
+        root_path = self._env_root("envs", "rootTenant", self.RESOURCE)
+        self._env_root("demo", "envs", "demoTenant", self.RESOURCE)
+        self._write_deployment({})
+
+        self.assertEqual(
+            ops.selected_env_pairs(None, []),
+            [("rootTenant", self.RESOURCE, root_path)],
+        )
+
+    def test_no_tenant_discovery_uses_root_for_dot_overlay(self):
+        root_path = self._env_root("envs", "rootTenant", self.RESOURCE)
+        self._env_root("demo", "envs", "demoTenant", self.RESOURCE)
+        self._write_deployment({"overlay": "."})
+
+        self.assertEqual(
+            ops.discover_env_pairs(),
+            [("rootTenant", self.RESOURCE, root_path)],
+        )
+
+    def test_explicit_tenant_resolves_under_active_overlay(self):
+        self._env_root("envs", "demoTenant", self.RESOURCE)
+        overlay_path = self._env_root("demo", "envs", "demoTenant", self.RESOURCE)
+        self._write_deployment({"overlay": "demo"})
+
+        self.assertEqual(
+            ops.selected_env_pairs("demoTenant", []),
+            [("demoTenant", self.RESOURCE, overlay_path)],
+        )
+
+    def test_malformed_deployment_does_not_fall_back_to_root_envs(self):
+        self._env_root("envs", "rootTenant", self.RESOURCE)
+        self._write_deployment_text("{ not json")
+
+        with self.assertRaises(ValueError):
+            ops.discover_env_pairs()
+
+
 class OpsStageImportsTest(unittest.TestCase):
     def setUp(self):
         self.cwd = os.getcwd()
