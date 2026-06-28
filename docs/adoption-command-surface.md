@@ -1,0 +1,127 @@
+# Adoption Command Surface
+
+The root `Makefile` is the stable product command surface. Overlay Makefiles may
+add local workflows, but they should not redefine the meaning of the core
+adoption commands.
+
+## Primary Adoption Flow
+
+These commands are the normal import-oracle adoption workflow:
+
+```text
+fetch
+  -> adopt
+  -> gen-env
+  -> stage-imports
+  -> plan SAVE=1
+  -> assert-adoptable
+  -> apply
+```
+
+Command responsibilities:
+
+| Command | Responsibility |
+|---|---|
+| `make fetch` | Collect raw provider inventory/detail JSON into `pulls/<tenant>`. |
+| `make adopt` | Use Terraform/OpenTofu import as the provider-state oracle and write projected config/import artifacts. |
+| `make gen-env` | Generate isolated Terraform/OpenTofu env roots that source the deployment-selected module set. |
+| `make stage-imports` | Copy generated `import {}` and `moved {}` blocks into env roots. |
+| `make plan SAVE=1` | Run Terraform/OpenTofu plans and save plan artifacts for later gates. |
+| `make assert-adoptable` | Classify saved plans as clean, tolerated by explicit policy, or blocked. Guidance annotations never make a blocked plan clean. |
+| `make apply` | Apply saved plans with explicit safety flags for destructive or non-main workflows. |
+
+Supporting adoption commands:
+
+| Command | Responsibility |
+|---|---|
+| `make unstage-imports` | Remove staged import/move blocks from env roots. |
+| `make clean-plans` | Remove saved plan artifacts. |
+| `make assert-clean` | Compatibility/no-policy saved-plan gate for no-op or import-only plans. Prefer `assert-adoptable` for adoption workflows that may use drift policy or guidance annotations. |
+
+## Raw Transform Path
+
+`make transform` remains a maintained path for demo generation, pack
+development, and workflows that intentionally project raw API bodies directly.
+It is not the import-oracle adoption path.
+
+Use `make adopt` when the desired source of truth is provider-imported state.
+Use `make transform` only when a pack/workflow explicitly wants raw API fields
+projected through registry overrides.
+
+## Provider Readiness And Probe Commands
+
+These commands support pack onboarding and API/schema evidence. They are not
+tenant adoption commands:
+
+| Command | Responsibility |
+|---|---|
+| `make reconcile` | Compare one raw API fixture to Terraform schema/OpenAPI evidence. |
+| `make openapi-map` | Produce provider-resource to OpenAPI surface mapping evidence. |
+| `make source-operation-map` | Derive read/list evidence from provider source and OpenAPI operations. |
+| `make source-evidence-eval` | Compare text-scanner evidence against AST-backed source facts. |
+| `make provider-probe` | Run a pinned provider readiness recipe and write probe artifacts. |
+
+Provider-readiness outputs can inform pack metadata, but they do not write
+tenant config, imports, env roots, or Terraform state.
+
+## Demo And Validation Commands
+
+These commands keep the shipped demo and generators healthy:
+
+| Command | Responsibility |
+|---|---|
+| `make demo` | Overlay-owned demo workflow from `demo/Makefile`; materializes demo config/import artifacts and local generated modules. |
+| `make check-demo` | Verifies committed demo config/import artifacts do not drift. |
+| `make check-modules` | Generates modules in a temporary deployment and checks generator output. |
+| `make test` | Runs unit tests. |
+| `make check` | Runs unit tests, demo drift checks, and module generator checks. |
+
+The generated demo module tree remains local/ignored. It is not part of the
+public committed surface.
+
+## Collector Boundary
+
+Collectors gather provider data. They do not own adoption semantics.
+
+`make fetch` currently invokes the shared REST collector entrypoint:
+
+```text
+python -m engine.collectors.rest
+```
+
+That entrypoint is product code, but provider-specific collection behavior
+belongs in packs and pack-owned helpers. A collector may know how to authenticate,
+page, call list/detail endpoints, and write raw JSON into `pulls/<tenant>`.
+
+A collector must not:
+
+- decide Terraform schema projection,
+- generate tfvars, imports, moved blocks, modules, or env roots,
+- mutate drift policy,
+- decide plan tolerance,
+- mark an adoption as clean,
+- render provider configuration,
+- hide provider/API fields from advisory reporting.
+
+The adoption engine treats collector output as input evidence. In the
+import-oracle path, raw JSON supplies stable keys and import IDs; Terraform or
+OpenTofu provider state supplies the projected configuration body. Raw detail
+JSON remains useful for static advisory reports and provider labs, especially to
+detect API fields that Terraform/provider state cannot see.
+
+`make fetch-diag` is also collector-scoped. It diagnoses TLS/system-trust issues
+for fetcher hosts and does not participate in adoption or plan classification.
+
+## Overlay Boundary
+
+Only one overlay is active per command. Use separate deployment files for
+separate domains or providers, such as:
+
+```text
+overlays/zscaler/deployment.json
+overlays/aws/deployment.json
+overlays/gcp/deployment.json
+```
+
+Then invoke the root commands with matching `OVERLAY` and `DEPLOYMENT` values.
+Infrawright does not compose multiple overlays in a single run.
