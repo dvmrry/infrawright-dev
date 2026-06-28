@@ -5,7 +5,18 @@ import shutil
 import tempfile
 import unittest
 
-from engine.gen_module import render_main, render_variables, render_outputs, render_readme, render_test, render_sample, render_versions, generate_module
+from engine.gen_module import (
+    EXPECTED_MODULE_FILES,
+    generate_module,
+    render_main,
+    render_outputs,
+    render_readme,
+    render_sample,
+    render_test,
+    render_variables,
+    render_versions,
+    validate_generated_module_tree,
+)
 from engine.tfschema import load_resource
 
 EXPECTED_SEGMENT_GROUP_VARIABLES = '''\
@@ -295,6 +306,27 @@ class RenderRestTest(unittest.TestCase):
 
 
 class GenerateModuleTest(unittest.TestCase):
+    def _write_expected_files(self, module_root, resource_type):
+        for rel in EXPECTED_MODULE_FILES:
+            path = os.path.join(module_root, resource_type, rel)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("x\n")
+
+    def test_expected_module_file_contract(self):
+        self.assertEqual(
+            EXPECTED_MODULE_FILES,
+            (
+                "main.tf",
+                "variables.tf",
+                "outputs.tf",
+                "versions.tf",
+                "README.md",
+                os.path.join("tests", "defaults.tftest.hcl"),
+                os.path.join("tests", "sample.auto.tfvars.json"),
+            ),
+        )
+
     def test_writes_all_files(self):
         with tempfile.TemporaryDirectory() as td:
             generate_module("zpa_segment_group", out_root=td, overrides_root=os.path.join(td, "none"), fmt=False)
@@ -303,6 +335,58 @@ class GenerateModuleTest(unittest.TestCase):
                 self.assertTrue(os.path.exists(os.path.join(base, fname)), fname)
             self.assertTrue(os.path.exists(os.path.join(base, "tests", "defaults.tftest.hcl")))
             self.assertTrue(os.path.exists(os.path.join(base, "tests", "sample.auto.tfvars.json")))
+
+    def test_validates_generated_sample_module_tree(self):
+        with tempfile.TemporaryDirectory() as td:
+            generate_module(
+                "zpa_segment_group",
+                out_root=td,
+                overrides_root=os.path.join(td, "none"),
+                fmt=False,
+            )
+            self.assertEqual(
+                validate_generated_module_tree(td, ["zpa_segment_group"]),
+                ["zpa_segment_group"],
+            )
+
+    def test_validate_generated_module_tree_reports_missing_main(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._write_expected_files(td, "zpa_segment_group")
+            os.remove(os.path.join(td, "zpa_segment_group", "main.tf"))
+            with self.assertRaises(ValueError) as ctx:
+                validate_generated_module_tree(td, ["zpa_segment_group"])
+            self.assertIn("zpa_segment_group/main.tf", str(ctx.exception))
+
+    def test_validate_generated_module_tree_reports_missing_nested_fixture(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._write_expected_files(td, "zpa_segment_group")
+            os.remove(os.path.join(
+                td,
+                "zpa_segment_group",
+                "tests",
+                "sample.auto.tfvars.json",
+            ))
+            with self.assertRaises(ValueError) as ctx:
+                validate_generated_module_tree(td, ["zpa_segment_group"])
+            self.assertIn(
+                os.path.join(
+                    "zpa_segment_group",
+                    "tests",
+                    "sample.auto.tfvars.json",
+                ),
+                str(ctx.exception),
+            )
+
+    def test_validate_generated_module_tree_checks_all_generated_resources(self):
+        from engine.registry import generated_types
+        resource_types = generated_types()
+        with tempfile.TemporaryDirectory() as td:
+            for resource_type in resource_types:
+                self._write_expected_files(td, resource_type)
+            self.assertEqual(
+                validate_generated_module_tree(td),
+                resource_types,
+            )
 
     def test_override_replaces_main(self):
         with tempfile.TemporaryDirectory() as td:

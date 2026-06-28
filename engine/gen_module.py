@@ -303,6 +303,15 @@ def render_test(resource_type, resource_schema):
 
 
 MODULES_ROOT = "modules"
+EXPECTED_MODULE_FILES = (
+    "main.tf",
+    "variables.tf",
+    "outputs.tf",
+    "versions.tf",
+    "README.md",
+    os.path.join("tests", "defaults.tftest.hcl"),
+    os.path.join("tests", "sample.auto.tfvars.json"),
+)
 
 
 def _fmt(text):
@@ -361,10 +370,43 @@ def generate_module(resource_type, out_root=None, overrides_root=None, fmt=True)
         sys.stderr.write("wrote %s\n" % os.path.join(base, rel))
 
 
-def main():
+def validate_generated_module_tree(module_root, resource_types=None):
+    """Fail loudly if any generated resource module is missing contract files."""
+    resource_types = list(resource_types or generated_types())
+    missing = []
+    for resource_type in resource_types:
+        base = os.path.join(module_root, resource_type)
+        for rel in EXPECTED_MODULE_FILES:
+            path = os.path.join(base, rel)
+            if not os.path.isfile(path):
+                missing.append(os.path.join(resource_type, rel))
+    if missing:
+        preview = "\n".join("  - %s" % path for path in missing[:20])
+        extra = ""
+        if len(missing) > 20:
+            extra = "\n  ... %d more" % (len(missing) - 20)
+        raise ValueError(
+            "generated module tree %s is missing %d expected file(s):\n%s%s"
+            % (module_root, len(missing), preview, extra)
+        )
+    return resource_types
+
+
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv:
+        if len(argv) == 2 and argv[0] == "--check-output":
+            validate_generated_module_tree(argv[1])
+            sys.stderr.write("validated generated module tree %s\n" % argv[1])
+            return 0
+        sys.stderr.write(
+            "usage: python -m engine.gen_module [--check-output <module_dir>]\n"
+        )
+        return 2
     for resource_type in generated_types():
         generate_module(resource_type)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
