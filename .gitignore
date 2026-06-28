@@ -2,8 +2,12 @@ __pycache__/
 *.pyc
 .terraform/
 .terraform.lock.hcl
+**/tfplan
+*.tfplan
 *.tfstate
 *.tfstate.*
+crash.log
+crash.*.log
 pulls/
 bin/
 .DS_Store
