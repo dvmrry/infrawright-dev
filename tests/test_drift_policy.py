@@ -3,6 +3,27 @@ import unittest
 from engine.drift_policy import DriftPolicy, DriftPolicyError, parse_path
 
 
+def _entry(**overrides):
+    entry = {
+        "path": "status",
+        "reason": "test",
+        "approved_by": "unit",
+    }
+    entry.update(overrides)
+    return entry
+
+
+def _policy(mode, entry):
+    return {
+        "version": 1,
+        "resource_types": {
+            "sample_resource": {
+                mode: [entry],
+            },
+        },
+    }
+
+
 class DriftPolicyTest(unittest.TestCase):
     def test_parse_supported_paths(self):
         self.assertEqual(parse_path("foo.bar"), ("foo", "bar"))
@@ -38,6 +59,140 @@ class DriftPolicyTest(unittest.TestCase):
     def test_unsupported_version_fails(self):
         with self.assertRaises(DriftPolicyError):
             DriftPolicy({"version": 2, "resource_types": {}})
+
+    def test_default_policy_is_empty_version_one(self):
+        policy = DriftPolicy(None)
+        self.assertFalse(policy.projection_omits("sample_resource", ("name",)))
+        self.assertEqual(policy.stale_entries(), [])
+
+    def test_rejects_unknown_top_level_key(self):
+        with self.assertRaises(DriftPolicyError):
+            DriftPolicy({
+                "version": 1,
+                "resource_types": {},
+                "unexpected": True,
+            })
+
+    def test_rejects_missing_top_level_shape(self):
+        for data in (
+                {},
+                {"version": 1},
+                {"resource_types": {}},
+                [],
+                "not a policy",
+        ):
+            with self.assertRaises(DriftPolicyError):
+                DriftPolicy(data)
+
+    def test_rejects_malformed_resource_types(self):
+        for resource_types in ([], "sample_resource"):
+            with self.assertRaises(DriftPolicyError):
+                DriftPolicy({"version": 1, "resource_types": resource_types})
+        with self.assertRaises(DriftPolicyError):
+            DriftPolicy({
+                "version": 1,
+                "resource_types": {"bad-resource": {}},
+            })
+        with self.assertRaises(DriftPolicyError):
+            DriftPolicy({
+                "version": 1,
+                "resource_types": {"sample_resource": []},
+            })
+
+    def test_rejects_unknown_per_resource_key(self):
+        with self.assertRaises(DriftPolicyError):
+            DriftPolicy({
+                "version": 1,
+                "resource_types": {
+                    "sample_resource": {"other_mode": []},
+                },
+            })
+
+    def test_rejects_non_list_policy_collections(self):
+        for mode in ("projection_omit", "plan_tolerate"):
+            with self.assertRaises(DriftPolicyError):
+                DriftPolicy({
+                    "version": 1,
+                    "resource_types": {
+                        "sample_resource": {mode: _entry()},
+                    },
+                })
+
+    def test_rejects_unknown_entry_key(self):
+        with self.assertRaises(DriftPolicyError):
+            DriftPolicy(_policy("plan_tolerate", _entry(unexpected=True)))
+        with self.assertRaises(DriftPolicyError):
+            DriftPolicy(_policy("projection_omit", _entry(actions=["update"])))
+
+    def test_rejects_unsafe_plan_actions(self):
+        for actions in (
+                ["delete"],
+                ["create"],
+                ["delete", "create"],
+                ["no-op"],
+                ["import-only"],
+        ):
+            with self.assertRaises(DriftPolicyError):
+                DriftPolicy(_policy("plan_tolerate", _entry(actions=actions)))
+
+    def test_rejects_malformed_actions(self):
+        for actions in ("update", [], ["update", "update"], [1], [None]):
+            with self.assertRaises(DriftPolicyError):
+                DriftPolicy(_policy("plan_tolerate", _entry(actions=actions)))
+
+    def test_rejects_duplicate_tolerated_path_entries(self):
+        with self.assertRaises(DriftPolicyError):
+            DriftPolicy({
+                "version": 1,
+                "resource_types": {
+                    "sample_resource": {
+                        "plan_tolerate": [
+                            _entry(path="status", reason="one"),
+                            _entry(path="status", reason="two"),
+                        ],
+                    },
+                },
+            })
+
+    def test_rejects_duplicate_projection_omission_entries(self):
+        with self.assertRaises(DriftPolicyError):
+            DriftPolicy({
+                "version": 1,
+                "resource_types": {
+                    "sample_resource": {
+                        "projection_omit": [
+                            _entry(path="description", reason="one"),
+                            _entry(path="description", reason="two"),
+                        ],
+                    },
+                },
+            })
+
+    def test_rejects_invalid_path(self):
+        with self.assertRaises(DriftPolicyError):
+            DriftPolicy(_policy("plan_tolerate", _entry(path="bad..path")))
+
+    def test_ticket_is_allowed_but_must_be_string(self):
+        DriftPolicy(_policy("plan_tolerate", _entry(ticket="NET-1842")))
+        with self.assertRaises(DriftPolicyError):
+            DriftPolicy(_policy("plan_tolerate", _entry(ticket=1842)))
+
+    def test_implicit_update_action_preserves_existing_behavior(self):
+        policy = DriftPolicy(_policy("plan_tolerate", _entry(path="status")))
+        self.assertTrue(
+            policy.tolerates_plan_path(
+                "sample_resource",
+                ("status",),
+                "update",
+            )
+        )
+        self.assertFalse(
+            policy.tolerates_plan_path(
+                "sample_resource",
+                ("status",),
+                "delete",
+            )
+        )
 
     def test_matching_and_stale_entries(self):
         policy = DriftPolicy({
