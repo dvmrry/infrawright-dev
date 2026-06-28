@@ -700,6 +700,24 @@ def render_tfvars(items):
     return json.dumps({"items": items}, indent=2, sort_keys=True) + "\n"
 
 
+def hcl_string_literal(value):
+    """Return value as a Terraform/OpenTofu double-quoted string literal."""
+    if not isinstance(value, str):
+        value = str(value)
+    if "\x00" in value:
+        raise ValueError("HCL string literals cannot contain NUL bytes")
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+        .replace("${", "$${")
+        .replace("%{", "%%{")
+    )
+    return '"%s"' % escaped
+
+
 def _order_key(order):
     """Sort rules numerically when the order is an integer string, else
     lexically — deterministic either way."""
@@ -758,21 +776,94 @@ def render_imports(resource_type, originals, override):
                 % (template, resource_type, key, exc, resource_type))
         blocks.append(
             "import {\n"
-            '  to = module.%s.%s.this["%s"]\n'
-            '  id = "%s"\n'
-            "}\n" % (resource_type, resource_type, key, import_id)
+            "  to = module.%s.%s.this[%s]\n"
+            "  id = %s\n"
+            "}\n" % (
+                resource_type,
+                resource_type,
+                hcl_string_literal(key),
+                hcl_string_literal(import_id),
+            )
         )
     return "\n".join(blocks)
 
 
-_IMPORT_PAIR_RE = re.compile(
-    r'to = module\.[\w]+\.[\w]+\.this\["(.+?)"\]\s*\n\s*id = "(.+?)"'
-)
+def _parse_hcl_string_literal(text, start=0):
+    if start >= len(text) or text[start] != '"':
+        raise ValueError("expected HCL quoted string literal")
+    out = []
+    i = start + 1
+    while i < len(text):
+        ch = text[i]
+        if ch == '"':
+            return "".join(out), i + 1
+        if ch == "\\":
+            i += 1
+            if i >= len(text):
+                raise ValueError("unterminated HCL escape sequence")
+            esc = text[i]
+            if esc == "n":
+                out.append("\n")
+            elif esc == "r":
+                out.append("\r")
+            elif esc == "t":
+                out.append("\t")
+            elif esc in ('"', "\\"):
+                out.append(esc)
+            else:
+                raise ValueError("unsupported HCL escape sequence \\%s" % esc)
+        elif text.startswith("$${", i):
+            out.append("${")
+            i += 2
+        elif text.startswith("%%{", i):
+            out.append("%{")
+            i += 2
+        else:
+            out.append(ch)
+        i += 1
+    raise ValueError("unterminated HCL quoted string literal")
+
+
+def _parse_generated_import_key(line):
+    marker = ".this["
+    start = line.find(marker)
+    if start == -1:
+        return None
+    key, end = _parse_hcl_string_literal(line, start + len(marker))
+    if line[end:].strip() != "]":
+        raise ValueError("unexpected text after generated import address key")
+    return key
+
+
+def _parse_generated_import_id(line):
+    stripped = line.strip()
+    if not stripped.startswith("id ="):
+        return None
+    start = stripped.index("=") + 1
+    while start < len(stripped) and stripped[start].isspace():
+        start += 1
+    import_id, end = _parse_hcl_string_literal(stripped, start)
+    if stripped[end:].strip():
+        raise ValueError("unexpected text after generated import id")
+    return import_id
 
 
 def parse_import_pairs(imports_text):
-    """{key: import_id} from a rendered imports file."""
-    return dict(_IMPORT_PAIR_RE.findall(imports_text))
+    """{key: import_id} from a generated imports file."""
+    pairs = {}
+    key = None
+    for line in imports_text.splitlines():
+        parsed_key = _parse_generated_import_key(line)
+        if parsed_key is not None:
+            key = parsed_key
+            continue
+        parsed_id = _parse_generated_import_id(line)
+        if parsed_id is not None:
+            if key is None:
+                raise ValueError("generated import id appeared before address")
+            pairs[key] = parsed_id
+            key = None
+    return pairs
 
 
 def derive_moves(old_imports_text, new_imports_text):
@@ -803,11 +894,11 @@ def render_moves(resource_type, moves):
     for old_key, new_key in moves:
         blocks.append(
             "moved {\n"
-            '  from = module.%s.%s.this["%s"]\n'
-            '  to   = module.%s.%s.this["%s"]\n'
+            "  from = module.%s.%s.this[%s]\n"
+            "  to   = module.%s.%s.this[%s]\n"
             "}\n" % (
-                resource_type, resource_type, old_key,
-                resource_type, resource_type, new_key,
+                resource_type, resource_type, hcl_string_literal(old_key),
+                resource_type, resource_type, hcl_string_literal(new_key),
             )
         )
     return "\n".join(blocks)

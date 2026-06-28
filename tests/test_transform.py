@@ -5,7 +5,22 @@ import os
 import sys
 import unittest
 
-from engine.transform import apply_overrides, coerce_item, derive_key, filter_item, load_override, render_imports, render_tfvars, slugify, snake, snake_keys, transform_items, _warn_if_slim
+from engine.transform import (
+    _warn_if_slim,
+    apply_overrides,
+    coerce_item,
+    derive_key,
+    filter_item,
+    hcl_string_literal,
+    load_override,
+    parse_import_pairs,
+    render_imports,
+    render_tfvars,
+    slugify,
+    snake,
+    snake_keys,
+    transform_items,
+)
 from engine.tfschema import load_resource
 
 
@@ -731,6 +746,52 @@ class PipelineTest(unittest.TestCase):
         text = render_imports("zia_fake", originals, {"import_id": "{type}:{id}"})
         self.assertIn('id = "CUSTOM:10"', text)
 
+    def test_hcl_string_literal_escapes_generated_block_chars(self):
+        self.assertEqual(
+            hcl_string_literal('a"b\\c\nr\rt\t東京'),
+            '"a\\"b\\\\c\\nr\\rt\\t東京"',
+        )
+
+    def test_hcl_string_literal_escapes_template_markers(self):
+        self.assertEqual(
+            hcl_string_literal("${name} %{ if true }"),
+            '"$${name} %%{ if true }"',
+        )
+
+    def test_render_imports_escapes_keys_and_ids(self):
+        cases = {
+            'quote"key': 'quote"id',
+            "slash\\key": "slash\\id",
+            "line\nkey": "line\nid",
+            "tab\tkey": "tab\tid",
+            "東京": "識別子",
+        }
+        for key, import_id in cases.items():
+            text = render_imports("zia_fake", {key: {"id": import_id}}, {})
+            self.assertEqual(parse_import_pairs(text), {key: import_id})
+        text = render_imports("zia_fake", {
+            'quote"key': {'id': 'quote"id'},
+            "slash\\key": {"id": "slash\\id"},
+            "line\nkey": {"id": "line\nid"},
+            "tab\tkey": {"id": "tab\tid"},
+        }, {})
+        self.assertIn('this["quote\\"key"]', text)
+        self.assertIn('id = "quote\\"id"', text)
+        self.assertIn('this["slash\\\\key"]', text)
+        self.assertIn('id = "slash\\\\id"', text)
+        self.assertIn('this["line\\nkey"]', text)
+        self.assertIn('id = "line\\nid"', text)
+        self.assertIn('this["tab\\tkey"]', text)
+        self.assertIn('id = "tab\\tid"', text)
+
+    def test_render_imports_adversarial_key_stays_inside_string(self):
+        bad = 'bad" }\nresource "x" "y" {'
+        text = render_imports("zia_fake", {bad: {"id": bad}}, {})
+        self.assertEqual(parse_import_pairs(text), {bad: bad})
+        self.assertEqual(text.count("import {"), 1)
+        self.assertNotIn('\nresource "x" "y" {', text)
+        self.assertIn('bad\\" }\\nresource \\"x\\" \\"y\\" {', text)
+
 
 class NullObjectStubTest(unittest.TestCase):
     """The ZIA/ZPA "not configured" stubs: blocks the API emits with id=0
@@ -1116,9 +1177,21 @@ class MovedBlocksTest(unittest.TestCase):
     )
 
     def test_parse_import_pairs(self):
-        from engine.transform import parse_import_pairs
         self.assertEqual(
             parse_import_pairs(self.OLD), {"old_name": "101", "stable": "102"}
+        )
+
+    def test_parse_import_pairs_round_trips_escaped_rendered_imports(self):
+        originals = {
+            'bad" }\nresource "x" "y" {': {
+                "id": 'id" }\nresource "x" "y" {',
+            },
+            "slash\\tab\tunicode東京": {"id": "slash\\tab\tunicode識別子"},
+        }
+        rendered = render_imports("zia_rule_labels", originals, {})
+        self.assertEqual(
+            parse_import_pairs(rendered),
+            dict((key, item["id"]) for key, item in originals.items()),
         )
 
     def test_rename_detected_same_id_new_key(self):
@@ -1161,6 +1234,24 @@ class MovedBlocksTest(unittest.TestCase):
         self.assertIn('from = module.zia_rule_labels.zia_rule_labels.this["a"]', out)
         self.assertIn('to   = module.zia_rule_labels.zia_rule_labels.this["b"]', out)
         self.assertTrue(out.startswith("moved {"))
+
+    def test_render_moves_escapes_hcl_string_keys(self):
+        from engine.transform import render_moves
+        old_key = 'bad" }\nresource "x" "y" {'
+        new_key = "slash\\new\t東京"
+        out = render_moves("zia_rule_labels", [(old_key, new_key)])
+        self.assertEqual(out.count("moved {"), 1)
+        self.assertNotIn('\nresource "x" "y" {', out)
+        self.assertIn(
+            'from = module.zia_rule_labels.zia_rule_labels.this'
+            '["bad\\" }\\nresource \\"x\\" \\"y\\" {"]',
+            out,
+        )
+        self.assertIn(
+            'to   = module.zia_rule_labels.zia_rule_labels.this'
+            '["slash\\\\new\\t東京"]',
+            out,
+        )
 
 
 class MovedBlocksEndToEndTest(unittest.TestCase):
@@ -1376,6 +1467,18 @@ class LoudFailureTest(unittest.TestCase):
         msg = str(ctx.exception)
         self.assertIn("packs/<provider>/overrides/zia_rule_labels.json", msg)
         self.assertIn("'k'", msg)
+
+
+class GitignoreTest(unittest.TestCase):
+    def test_terraform_plan_and_crash_artifacts_ignored(self):
+        with open(".gitignore", encoding="utf-8") as f:
+            patterns = set(
+                line.strip()
+                for line in f
+                if line.strip() and not line.strip().startswith("#")
+            )
+        for pattern in ("**/tfplan", "*.tfplan", "crash.log", "crash.*.log"):
+            self.assertIn(pattern, patterns)
 
 
 class OverrideAuthoringValidationTest(unittest.TestCase):
