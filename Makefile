@@ -21,7 +21,8 @@ check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
 check-modules: ## Generate every module into a temp deployment to catch generator regressions
 	@tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \
 	printf '{"module_dir": "%s/modules"}\n' "$$tmp" > "$$tmp/deployment.json"; \
-	INFRAWRIGHT_DEPLOYMENT="$$tmp/deployment.json" $(PYTHON) -m engine.gen_module > /dev/null 2>&1
+	INFRAWRIGHT_DEPLOYMENT="$$tmp/deployment.json" $(PYTHON) -m engine.gen_module > /dev/null 2>&1; \
+	$(PYTHON) -m engine.gen_module --check-output "$$tmp/modules" > /dev/null
 
 check: test check-demo check-modules ## Full gate: unit tests + demo + module generator smoke
 
