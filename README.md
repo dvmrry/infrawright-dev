@@ -67,7 +67,9 @@ Only one overlay is active for a command. Use separate deployment files for
 separate domains, such as `overlays/zscaler/deployment.json`,
 `overlays/aws/deployment.json`, and `overlays/gcp/deployment.json`, then run
 with the matching `OVERLAY` and `DEPLOYMENT`. Infrawright does not compose
-multiple overlays in one run.
+multiple overlays in one run. See
+[Adoption Command Surface](docs/adoption-command-surface.md) for the command
+contract and collector boundary.
 
 ## Quickstart
 

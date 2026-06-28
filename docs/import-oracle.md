@@ -65,6 +65,9 @@ state semantics.
 
 ## Workflow
 
+The import-oracle path uses the stable adoption command sequence documented in
+[Adoption Command Surface](adoption-command-surface.md). The normal workflow is:
+
 ```sh
 make fetch TENANT=prod RESOURCE="zpa_application_segment"
 make adopt IN=pulls/prod TENANT=prod RESOURCE="zpa_application_segment"
@@ -80,6 +83,10 @@ The existing transform path remains available:
 make transform IN=pulls/prod TENANT=prod RESOURCE="zpa_application_segment"
 make assert-clean TENANT=prod RESOURCE="zpa_application_segment"
 ```
+
+`transform` projects raw API bodies directly and remains useful for demos and
+pack development. It is not the import-oracle adoption path; use `adopt` when
+Terraform/OpenTofu provider state should be the configuration truth.
 
 ## OpenTofu
 
