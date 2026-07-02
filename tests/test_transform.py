@@ -1199,6 +1199,77 @@ class MovedBlocksTest(unittest.TestCase):
         new = self.OLD.replace("old_name", "new_name")
         self.assertEqual(derive_moves(self.OLD, new), [("old_name", "new_name")])
 
+    def _imports_for_pairs(self, pairs):
+        return render_imports(
+            "zia_rule_labels",
+            dict((key, {"id": import_id}) for key, import_id in pairs),
+            {},
+        )
+
+    def test_safe_move_result_has_no_suppressed_candidates(self):
+        from engine.transform import derive_moves_with_diagnostics
+        old = self._imports_for_pairs([("old_name", "101")])
+        new = self._imports_for_pairs([("new_name", "101")])
+
+        result = derive_moves_with_diagnostics(old, new)
+
+        self.assertEqual(result.moves, [("old_name", "new_name")])
+        self.assertEqual(result.suppressed, [])
+
+    def test_key_swap_suppresses_both_candidates(self):
+        from engine.transform import derive_moves_with_diagnostics
+        from engine.transform import render_moves
+        old = self._imports_for_pairs([("a", "101"), ("b", "102")])
+        new = self._imports_for_pairs([("a", "102"), ("b", "101")])
+
+        result = derive_moves_with_diagnostics(old, new)
+
+        self.assertEqual(result.moves, [])
+        self.assertEqual(
+            [(s.old_key, s.new_key, s.reason) for s in result.suppressed],
+            [("a", "b", "key_swap"), ("b", "a", "key_swap")],
+        )
+        self.assertNotIn("moved {", render_moves("zia_rule_labels", result.moves))
+
+    def test_rename_into_occupied_destination_is_suppressed(self):
+        from engine.transform import derive_moves_with_diagnostics
+        old = self._imports_for_pairs([("a", "101"), ("b", "102")])
+        new = self._imports_for_pairs([("b", "101")])
+
+        result = derive_moves_with_diagnostics(old, new)
+
+        self.assertEqual(result.moves, [])
+        self.assertEqual(len(result.suppressed), 1)
+        self.assertEqual(result.suppressed[0].old_key, "a")
+        self.assertEqual(result.suppressed[0].new_key, "b")
+        self.assertEqual(result.suppressed[0].reason, "destination_occupied")
+
+    def test_duplicate_from_candidates_are_suppressed(self):
+        from engine.transform import derive_moves_with_diagnostics
+        old = self._imports_for_pairs([("a", "101")])
+        new = self._imports_for_pairs([("b", "101"), ("c", "101")])
+
+        result = derive_moves_with_diagnostics(old, new)
+
+        self.assertEqual(result.moves, [])
+        self.assertEqual(
+            [(s.old_key, s.new_key, s.reason) for s in result.suppressed],
+            [("a", "b", "duplicate_from"), ("a", "c", "duplicate_from")],
+        )
+
+    def test_ambiguous_duplicate_old_import_ids_are_suppressed(self):
+        from engine.transform import derive_moves_with_diagnostics
+        old = self._imports_for_pairs([("a", "101"), ("b", "101")])
+        new = self._imports_for_pairs([("c", "101")])
+
+        result = derive_moves_with_diagnostics(old, new)
+
+        self.assertEqual(result.moves, [])
+        self.assertEqual(
+            [(s.old_key, s.new_key, s.reason) for s in result.suppressed],
+            [("a", "c", "ambiguous"), ("b", "c", "ambiguous")],
+        )
+
     def test_add_and_remove_are_not_renames(self):
         from engine.transform import derive_moves
         # 101 removed entirely; 103 added: neither is a rename.
@@ -1288,6 +1359,45 @@ class MovedBlocksEndToEndTest(unittest.TestCase):
                 body = f.read()
             self.assertIn('from = module.zia_rule_labels.zia_rule_labels.this["original_name"]', body)
             self.assertIn('to   = module.zia_rule_labels.zia_rule_labels.this["renamed_thing"]', body)
+
+    def test_key_swap_reports_suppressed_moves_without_staging_file(self):
+        import shutil
+        import tempfile
+        from engine.transform import main as transform_main
+
+        self.addCleanup(shutil.rmtree, os.path.join("config", self.TENANT), True)
+        self.addCleanup(shutil.rmtree, os.path.join("imports", self.TENANT), True)
+        self.addCleanup(shutil.rmtree, self.TENANT, True)
+        moves_path = os.path.join(
+            self._imports_dir("zia_rule_labels"), "zia_rule_labels_moves.tf")
+        old_stderr = sys.stderr
+        stderr = io.StringIO()
+        try:
+            sys.stderr = stderr
+            with tempfile.TemporaryDirectory() as td:
+                src = os.path.join(td, "in.json")
+                with open(src, "w", encoding="utf-8") as f:
+                    json.dump([
+                        {"id": 7, "name": "Alpha"},
+                        {"id": 8, "name": "Beta"},
+                    ], f)
+                self.assertEqual(
+                    transform_main(["zia_rule_labels", src, self.TENANT]), 0)
+                with open(src, "w", encoding="utf-8") as f:
+                    json.dump([
+                        {"id": 7, "name": "Beta"},
+                        {"id": 8, "name": "Alpha"},
+                    ], f)
+                self.assertEqual(
+                    transform_main(["zia_rule_labels", src, self.TENANT]), 0)
+        finally:
+            sys.stderr = old_stderr
+
+        self.assertFalse(os.path.exists(moves_path))
+        out = stderr.getvalue()
+        self.assertIn("SUPPRESSED RENAME CANDIDATE: zia_rule_labels", out)
+        self.assertIn("reason=key_swap", out)
+        self.assertIn("no moved block emitted", out)
 
     def test_stale_moves_file_removed_when_a_later_run_has_no_rename(self):
         # DAV-8 P2: a rename stages _moves.tf; a subsequent run with no

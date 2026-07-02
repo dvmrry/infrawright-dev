@@ -80,10 +80,13 @@ def write_outputs(resource_type, raw_items, tenant, policy):
     moves_path = ops.moves_file(tenant, resource_type)
     override = {"import_id": adoption_entry(resource_type)["import_id"]}
     new_imports = transform.render_imports(resource_type, originals, override)
-    moves = []
+    move_result = transform.MoveDerivationResult(moves=[], suppressed=[])
     if os.path.exists(imports_path):
         with open(imports_path, encoding="utf-8") as f:
-            moves = transform.derive_moves(f.read(), new_imports)
+            move_result = transform.derive_moves_with_diagnostics(
+                f.read(), new_imports
+            )
+    moves = move_result.moves
     if moves:
         with open(moves_path, "w", encoding="utf-8") as f:
             f.write(transform.render_moves(resource_type, moves))
@@ -91,6 +94,7 @@ def write_outputs(resource_type, raw_items, tenant, policy):
     elif os.path.exists(moves_path):
         os.remove(moves_path)
         sys.stderr.write("removed stale %s\n" % moves_path)
+    transform.report_suppressed_moves(resource_type, move_result.suppressed)
 
     with open(tfvars_path, "w", encoding="utf-8") as f:
         f.write(transform.render_tfvars(items))
