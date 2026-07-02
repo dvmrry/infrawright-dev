@@ -11,7 +11,7 @@ ifneq ($(strip $(OVERLAY)),)
 -include $(OVERLAY)/local.mk
 endif
 
-.PHONY: check-demo check-modules check-pack check test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: check-demo check-modules check-pack audit-vendor-boundary check test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
 	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1
@@ -27,7 +27,10 @@ check-modules: ## Generate every module into a temp deployment to catch generato
 check-pack: ## Validate pack.json and registry.json metadata ([PACK=<name>])
 	$(PYTHON) -m engine.check_pack $(if $(PACK),--pack "$(PACK)")
 
-check: test check-demo check-modules check-pack ## Full gate: unit tests + demo + module generator smoke + pack metadata validation
+audit-vendor-boundary: ## Audit vendor-specific tokens in engine source
+	$(PYTHON) -m engine.audit_vendor_boundary
+
+check: test check-demo check-modules check-pack audit-vendor-boundary ## Full gate: unit tests + demo + module generator smoke + pack metadata + vendor-boundary audit
 
 test: ## Run engine unit tests
 	$(PYTHON) -m unittest discover -s tests -t . -v

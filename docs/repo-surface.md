@@ -9,7 +9,7 @@ maintained development evidence.
 
 | Path | Purpose | Owner | Keep criteria | Notes |
 |---|---|---|---|---|
-| `engine/` | Core product logic: provider-agnostic transform, import oracle, projection, diagnostics, provider-readiness mapping, shared collectors, and CLI entrypoints. | Core maintainers | Keep only behavior used by root commands, tests, docs, or provider-pack contracts. | Engine changes require tests and should not absorb provider-specific one-offs. |
+| `engine/` | Core product logic: provider-agnostic transform, import oracle, projection, diagnostics, provider-readiness mapping, shared collectors, and CLI entrypoints. | Core maintainers | Keep only behavior used by root commands, tests, docs, or provider-pack contracts. | Engine changes require tests and should not absorb provider-specific one-offs; `make audit-vendor-boundary` makes current exceptions explicit. |
 | `packs/` | Declarative provider metadata, schemas, registries, overrides, adoption metadata, and provider collectors. | Pack maintainers | Keep metadata that is validated, referenced by tests, or backed by provider-lab/readiness evidence. | Shared helpers belong under `packs/_shared/`; provider-specific behavior should not leak into `engine/`. |
 | `tools/` | Maintained developer/operator tooling outside the Python engine. | Tool maintainers | Keep tools with documented input/output, tests or fixtures, and a current workflow reference. | `tools/source-evidence-ast/` is used by provider-readiness source evidence evaluation. |
 | `docs/recipes/` | Small pinned provider-readiness workflows. | Provider-readiness maintainers | Keep recipes that are current, pinned, credential-free, and runnable from a fresh clone. | Stale, aspirational, or private-provider recipes should be archived or deleted. |
@@ -45,6 +45,10 @@ maintained development evidence.
 - Root-global `modules/` is not required for demo operation after the
   overlay-scoped module-dir migration. The root `modules/` fallback exists only
   for deployments with no overlay and no explicit `module_dir`.
+- `make audit-vendor-boundary` scans `engine/**/*.py` for configured
+  provider/vendor tokens and fails on matches not listed in
+  `engine/vendor_boundary_allowlist.json`. The allowlist is transitional
+  documentation, not a claim that the engine edge is already vendor-free.
 
 ## Prune Policy
 
