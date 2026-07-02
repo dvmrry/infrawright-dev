@@ -705,6 +705,9 @@ def _current_branch():
 
 
 def cmd_apply(opts):
+    from engine.drift_policy import DriftPolicy
+    from engine.plan_eval import BLOCKED, TOLERATED
+
     main_branch = opts["main_branch"] or "main"
     branch = _current_branch()
     if branch != main_branch and not opts["allow_non_main"]:
@@ -712,6 +715,13 @@ def cmd_apply(opts):
             "apply refused from %r - only merged %s config gets applied "
             "(use ALLOW_NON_MAIN=1 for an intentional exception)"
             % (branch, main_branch)
+        )
+    policy = DriftPolicy.load(opts.get("policy"))
+    if opts["allow_plan_changes"]:
+        sys.stderr.write(
+            "WARNING: --allow-plan-changes is a broad legacy override for "
+            "BLOCKED saved plans; prefer POLICY=<file> for explicit tolerated "
+            "drift.\n"
         )
     applied = 0
     for tenant, resource_type, path in selected_env_pairs(
@@ -725,19 +735,30 @@ def cmd_apply(opts):
             stdout=subprocess.DEVNULL,
         )
         plan = _show_plan_json(path)
-        changes = _non_import_change_count(plan)
-        if changes and not opts["allow_plan_changes"]:
-            raise RuntimeError(
-                "%s/%s saved plan contains %d non-import change(s); refused. "
-                "Run assert-adoptable for review, or pass --allow-plan-changes "
-                "for an intentional apply."
-                % (tenant, resource_type, changes)
-            )
+        result = _classify_apply_plan(plan, policy)
         destroys = _destroy_count(plan)
-        if destroys and not opts["allow_destroy"]:
+        if result["status"] == BLOCKED and destroys and not opts["allow_destroy"]:
             raise RuntimeError(
                 "%s/%s saved plan destroys (or replaces) %d resource(s) - refused"
                 % (tenant, resource_type, destroys)
+            )
+        if result["status"] == BLOCKED and not opts["allow_plan_changes"]:
+            raise RuntimeError(
+                "%s/%s saved plan is blocked by untolerated changes; refused. "
+                "Run assert-adoptable for review, pass POLICY=<file> for "
+                "explicit tolerated drift, or use --allow-plan-changes only as "
+                "a broad unsafe override."
+                % (tenant, resource_type)
+            )
+        if result["status"] == TOLERATED:
+            sys.stderr.write(
+                "TOLERATED: %s/%s saved plan has consumer-tolerated drift\n"
+                % (tenant, resource_type)
+            )
+        elif result["status"] == BLOCKED:
+            sys.stderr.write(
+                "WARNING: applying BLOCKED %s/%s saved plan because "
+                "--allow-plan-changes was set\n" % (tenant, resource_type)
             )
         _check_call([terraform(), "-chdir=" + path, "apply", "-input=false", "tfplan"])
         os.remove(os.path.join(path, "tfplan"))
@@ -745,6 +766,12 @@ def cmd_apply(opts):
     if applied == 0:
         raise RuntimeError("no saved plans found - run make plan SAVE=1 first")
     return 0
+
+
+def _classify_apply_plan(plan, policy):
+    from engine.plan_eval import classify_plan
+
+    return classify_plan(plan, policy=policy)
 
 
 def _parse(argv, allow_optional_tenant=False):

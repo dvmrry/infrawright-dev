@@ -28,7 +28,7 @@ Command responsibilities:
 | `make stage-imports` | Copy generated `import {}` and `moved {}` blocks into env roots. |
 | `make plan SAVE=1` | Run Terraform/OpenTofu plans and save plan artifacts for later gates. |
 | `make assert-adoptable` | Classify saved plans as clean, tolerated by explicit policy, or blocked. Guidance annotations never make a blocked plan clean. |
-| `make apply` | Apply saved plans with explicit safety flags for destructive or non-main workflows. |
+| `make apply` | Reclassify saved plans and apply only when they are clean/import-only or fully tolerated by explicit policy; destructive or non-main workflows still require explicit safety flags. |
 
 Supporting adoption commands:
 
@@ -37,6 +37,14 @@ Supporting adoption commands:
 | `make unstage-imports` | Remove staged import/move blocks from env roots. |
 | `make clean-plans` | Remove saved plan artifacts. |
 | `make assert-clean` | Compatibility/no-policy saved-plan gate for no-op or import-only plans. Prefer `assert-adoptable` for adoption workflows that may use drift policy or guidance annotations. |
+
+`make apply` uses the same saved-plan classification semantics as
+`make assert-adoptable`. If `assert-adoptable` used `POLICY=<file>` to classify
+intentional drift as tolerated, pass the same `POLICY=<file>` to `make apply`.
+The legacy `ALLOW_PLAN_CHANGES=1` path is a broad override for intentionally
+applying blocked saved plans; it is noisy, should not replace explicit drift
+policy, and does not bypass `ALLOW_DESTROY=1` for destructive or replacement
+plans.
 
 ## Raw Transform Path
 
