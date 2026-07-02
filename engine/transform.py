@@ -380,6 +380,41 @@ def _coerce_object_members(obj, members):
 # resource resolves to its owning pack's overrides/ via the resolver.
 OVERRIDES_DIR = None
 
+OVERRIDE_KEYS = frozenset([
+    "acknowledged_drops",
+    "defaults",
+    "divide",
+    "drop_if_default",
+    "drops",
+    "html_escape_fields",
+    "identity_fields",
+    "import_id",
+    "invert_bool",
+    "key_field",
+    "merge_blocks",
+    "no_html_unescape",
+    "ranges",
+    "references",
+    "renames",
+    "sample",
+    "skip_if",
+    "sort_lists",
+    "split_csv",
+    "strip_prefix",
+    "value_map",
+])
+
+
+def validate_override_metadata(data, path=None):
+    label = path or "<override>"
+    if not isinstance(data, dict):
+        raise ValueError("override metadata in %s must be an object" % label)
+    unknown = sorted(set(data) - OVERRIDE_KEYS)
+    if unknown:
+        raise ValueError(
+            "unknown override key %s in %s" % (unknown[0], label)
+        )
+
 
 def load_override(resource_type):
     base = OVERRIDES_DIR if OVERRIDES_DIR is not None else packs.overrides_dir_for(resource_type)
@@ -388,6 +423,7 @@ def load_override(resource_type):
         return {}
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
+    validate_override_metadata(data, path=path)
     # Validate authoring-side once at load (not per item): a 0 divisor would
     # raise a bare ZeroDivisionError deep in apply_overrides with no clue
     # which override file is wrong. Name the field and the file instead.

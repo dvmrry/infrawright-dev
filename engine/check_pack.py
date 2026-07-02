@@ -10,6 +10,7 @@ import sys
 
 from engine import packs
 from engine import registry
+from engine import transform
 
 
 def _usage():
@@ -69,7 +70,18 @@ def _validate_one(root, name):
     if os.path.isfile(registry_path):
         registry_data = _load_json(registry_path)
         registry.validate_registry(registry_data, path=registry_path)
+    _validate_overrides(pack_dir)
     return registry_path, registry_data
+
+
+def _validate_overrides(pack_dir):
+    overrides_dir = os.path.join(pack_dir, "overrides")
+    if not os.path.isdir(overrides_dir):
+        return
+    for name in sorted(os.listdir(overrides_dir)):
+        path = os.path.join(overrides_dir, name)
+        if os.path.isfile(path) and name.endswith(".json"):
+            transform.validate_override_metadata(_load_json(path), path=path)
 
 
 def _check_duplicate_resources(registries):

@@ -1713,6 +1713,33 @@ class OverrideAuthoringValidationTest(unittest.TestCase):
                             rt="zpa_policy_access_rule")
         self.assertIn("not a nested block", str(ctx2.exception))
 
+    def test_unknown_override_key_rejected(self):
+        with self.assertRaises(ValueError) as ctx:
+            self._load_with({"rename": {"oldname": "newname"}})
+        msg = str(ctx.exception)
+        self.assertIn("unknown override key rename", msg)
+        self.assertIn("zpa_segment_group.json", msg)
+
+    def test_renames_override_key_accepted(self):
+        override = self._load_with({"renames": {"oldname": "newname"}})
+        self.assertEqual(override["renames"], {"oldname": "newname"})
+
+    def test_committed_override_files_validate_metadata(self):
+        import json as _json
+        from engine.transform import validate_override_metadata
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        count = 0
+        for dirpath, _, filenames in os.walk(os.path.join(root, "packs")):
+            if os.path.basename(dirpath) != "overrides":
+                continue
+            for filename in sorted(f for f in filenames if f.endswith(".json")):
+                path = os.path.join(dirpath, filename)
+                with open(path, encoding="utf-8") as f:
+                    validate_override_metadata(_json.load(f), path=path)
+                count += 1
+        self.assertGreater(count, 0)
+
     def test_real_overrides_all_load(self):
         from engine.registry import generated_types
         from engine.transform import load_override

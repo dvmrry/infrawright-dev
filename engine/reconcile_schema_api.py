@@ -16,6 +16,7 @@ from engine.transform import _coerce_primitive
 from engine.transform import apply_overrides
 from engine.transform import snake
 from engine.transform import snake_keys
+from engine.transform import validate_override_metadata
 
 
 BUCKETS = (
@@ -131,7 +132,9 @@ def load_resource_schema(resource_type, schema_path=None, provider_source=None):
 def load_override_file(path):
     if not path:
         return {}
-    return _read_json(path)
+    data = _read_json(path)
+    validate_override_metadata(data, path=path)
+    return data
 
 
 def api_items_from(value, source="<api>"):
