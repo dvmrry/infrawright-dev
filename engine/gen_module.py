@@ -12,6 +12,7 @@ import subprocess
 import sys
 from engine import deployment
 from engine import packs
+from engine.transform import validate_override_metadata
 from engine.registry import generated_types
 from engine.tfschema import (
     attr_type,
@@ -333,7 +334,9 @@ def _load_json_override(resource_type, overrides_root):
     if not os.path.exists(path):
         return {}
     with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+    validate_override_metadata(data, path=path)
+    return data
 
 
 def generate_module(resource_type, out_root=None, overrides_root=None, fmt=True):

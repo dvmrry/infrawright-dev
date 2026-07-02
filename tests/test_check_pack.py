@@ -95,6 +95,18 @@ class CheckPackCliTest(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("optional_http_statuses[0] must be an integer", proc.stderr)
 
+    def test_invalid_override_metadata_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            _write_pack(td, "bad", registry=_registry())
+            _write_json(
+                os.path.join(td, "bad", "overrides", "sample_resource.json"),
+                {"rename": {"old": "new"}},
+            )
+            proc = self._run(packs_root=td)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("unknown override key rename", proc.stderr)
+        self.assertIn("sample_resource.json", proc.stderr)
+
     def test_duplicate_registry_resource_type_fails_all_pack_validation(self):
         with tempfile.TemporaryDirectory() as td:
             _write_pack(td, "one", registry=_registry("sample_resource"))
