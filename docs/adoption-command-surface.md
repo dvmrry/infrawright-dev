@@ -79,13 +79,16 @@ These commands keep the shipped demo and generators healthy:
 | Command | Responsibility |
 |---|---|
 | `make demo` | Overlay-owned demo workflow from `demo/Makefile`; materializes demo config/import artifacts and local generated modules. |
+| `make demo-contract` | Credential-free demo contract check: materializes the demo, verifies committed demo config/import artifacts do not drift, rejects stale demo moved-block files, and checks the generated demo module tree. |
 | `make check-demo` | Verifies committed demo config/import artifacts do not drift. |
 | `make check-modules` | Generates modules in a temporary deployment and checks generator output. |
 | `make test` | Runs unit tests. |
-| `make check` | Runs unit tests, demo drift checks, and module generator checks. |
+| `make check` | Runs unit tests, demo drift checks, module generator checks, pack validation, and vendor-boundary audit. |
 
 The generated demo module tree remains local/ignored. It is not part of the
-public committed surface.
+public committed surface. `make demo-contract` is intentionally not a live
+provider import/plan proof; that requires credentials and the primary adoption
+flow.
 
 ## Collector Boundary
 

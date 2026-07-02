@@ -76,7 +76,15 @@ The acceptance bar isn't "0 to change" — it's **0 to destroy, 0 to create** af
 ```bash
 make check      # full gate: unit tests + demo/module/probe checks + metadata/audit gates
 make demo       # materialize the demo tenant (no credentials needed)
+make demo-contract  # credential-free demo artifact/module contract check
 ```
+
+`make demo-contract` is the local no-credentials proof for the shipped demo: it
+materializes the demo overlay, verifies committed demo config/import artifacts
+do not drift, checks there are no stale demo moved-block files, and validates
+the generated demo module tree. It does not run live provider import or
+Terraform/OpenTofu plan; the live plan contract begins with the primary
+adoption workflow above and requires real provider credentials.
 
 ## Layout
 
