@@ -38,6 +38,14 @@ def validate_tenant(tenant):
         )
 
 
+def validate_resource_type(resource_type):
+    if resource_type not in set(generated_types()):
+        raise ValueError(
+            "RESOURCE must be an exact generated resource type (got %r)"
+            % resource_type
+        )
+
+
 def expand_resources(selectors=None):
     """Expand exact resource, provider/product, or provider/bare selectors."""
     selectors = selectors or []
