@@ -121,6 +121,8 @@ def main(argv=None):
         )
         return 2
     resource_type, input_path, tenant = argv
+    ops.validate_tenant(tenant)
+    ops.validate_resource_type(resource_type)
     policy = DriftPolicy.load(policy_path)
     try:
         with open(input_path, encoding="utf-8") as f:
