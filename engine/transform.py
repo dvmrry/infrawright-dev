@@ -1016,6 +1016,8 @@ def main(argv=None):
         )
         return 2
     resource_type, input_path, tenant = argv
+    ops.validate_tenant(tenant)
+    ops.validate_resource_type(resource_type)
     override = load_override(resource_type)
     with open(input_path, encoding="utf-8") as f:
         raw_items = json.load(f)

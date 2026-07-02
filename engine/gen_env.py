@@ -191,6 +191,8 @@ def generate_env(tenant, out_root=None, fmt=True, backend=None,
     drift gate) reproduces the same roots instead of silently reverting
     to local state.
     """
+    ops.validate_tenant(tenant)
+    selected_resources = expand_resources(selectors or [])
     tenant_env_dir = _tenant_env_dir(tenant, out_root=out_root)
     marker = os.path.join(tenant_env_dir, ".backend")
     if backend is None and os.path.exists(marker):
@@ -200,7 +202,7 @@ def generate_env(tenant, out_root=None, fmt=True, backend=None,
     if backend:
         with open(marker, "w", encoding="utf-8") as f:
             f.write(backend + "\n")
-    for resource_type in expand_resources(selectors or []):
+    for resource_type in selected_resources:
         base = _env_root_dir(tenant, resource_type, out_root=out_root)
         os.makedirs(base, exist_ok=True)
         expression_path = _expression_bindings_file(tenant, resource_type)

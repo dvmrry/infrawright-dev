@@ -1,7 +1,9 @@
 """Tests for engine.gen_env."""
+import io
 import json
 import os
 import re
+import sys
 import tempfile
 import unittest
 
@@ -108,6 +110,54 @@ class GenerateEnvTest(unittest.TestCase):
             base = os.path.join(td, "zs2", "zpa_segment_group")
             self.assertTrue(os.path.exists(os.path.join(base, "main.tf")))
             self.assertTrue(os.path.exists(os.path.join(base, "README.md")))
+
+    def test_invalid_tenant_rejected_before_writing_env_root(self):
+        from engine.gen_env import generate_env
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(ValueError):
+                generate_env(
+                    "../x", out_root=td, fmt=False,
+                    selectors=["zia_rule_labels"])
+            self.assertEqual(os.listdir(td), [])
+
+    def test_tenant_with_separator_rejected_before_writing_env_root(self):
+        from engine.gen_env import generate_env
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(ValueError):
+                generate_env(
+                    "bad/tenant", out_root=td, fmt=False,
+                    selectors=["zia_rule_labels"])
+            self.assertEqual(os.listdir(td), [])
+
+    def test_invalid_selector_rejected_before_writing_env_root(self):
+        from engine.gen_env import generate_env
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(ValueError):
+                generate_env(
+                    "tenant", out_root=td, fmt=False,
+                    selectors=["../zia_rule_labels"])
+            self.assertEqual(os.listdir(td), [])
+
+    def test_main_rejects_invalid_tenant_before_writing_env_root(self):
+        from engine.gen_env import main
+        with tempfile.TemporaryDirectory() as td:
+            dep = os.path.join(td, "deployment.json")
+            with open(dep, "w", encoding="utf-8") as f:
+                f.write(json.dumps({"overlay": td}))
+            saved = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+            old_err = sys.stderr
+            sys.stderr = io.StringIO()
+            try:
+                self.assertEqual(main(["../../etc", "zia_rule_labels"]), 2)
+                self.assertIn("TENANT must match", sys.stderr.getvalue())
+                self.assertFalse(os.path.exists(os.path.join(td, "envs")))
+            finally:
+                sys.stderr = old_err
+                if saved is None:
+                    os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+                else:
+                    os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
 
     def test_scoped_generation_writes_only_selected_root(self):
         from engine.gen_env import generate_env

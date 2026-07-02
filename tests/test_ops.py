@@ -59,6 +59,11 @@ class OpsSelectorTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             ops.expand_resources(["sample_data_only"])
 
+    def test_validate_resource_type_requires_exact_generated_type(self):
+        ops.validate_resource_type("resource_without_provider_prefix")
+        with self.assertRaises(ValueError):
+            ops.validate_resource_type("../resource_without_provider_prefix")
+
 
 class OpsPathTest(unittest.TestCase):
     def setUp(self):

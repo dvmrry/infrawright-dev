@@ -3,6 +3,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 import unittest
 
 from engine.transform import (
@@ -1431,6 +1432,86 @@ class MovedBlocksEndToEndTest(unittest.TestCase):
             self.assertFalse(
                 os.path.exists(moves_path),
                 "stale moves file must be removed when a run has no rename")
+
+
+class TransformDirectEntryValidationTest(unittest.TestCase):
+    def _write_overlay_and_input(self, root, raw_items=None):
+        raw_items = raw_items or [{"id": 7, "name": "Example"}]
+        dep = os.path.join(root, "deployment.json")
+        with open(dep, "w", encoding="utf-8") as f:
+            json.dump({"overlay": root}, f)
+        src = os.path.join(root, "input.json")
+        with open(src, "w", encoding="utf-8") as f:
+            json.dump(raw_items, f)
+        return dep, src
+
+    def _with_deployment(self, dep):
+        saved = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+        return saved
+
+    def _restore_deployment(self, saved):
+        if saved is None:
+            os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+        else:
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
+
+    def test_invalid_tenant_rejected_before_writing_outputs(self):
+        from engine.transform import main as transform_main
+        with tempfile.TemporaryDirectory() as td:
+            dep, src = self._write_overlay_and_input(td)
+            saved = self._with_deployment(dep)
+            try:
+                with self.assertRaises(ValueError):
+                    transform_main(["zia_rule_labels", src, "../../etc"])
+                self.assertFalse(os.path.exists(os.path.join(td, "config")))
+                self.assertFalse(os.path.exists(os.path.join(td, "imports")))
+            finally:
+                self._restore_deployment(saved)
+
+    def test_tenant_with_separator_rejected_before_writing_outputs(self):
+        from engine.transform import main as transform_main
+        with tempfile.TemporaryDirectory() as td:
+            dep, src = self._write_overlay_and_input(td)
+            saved = self._with_deployment(dep)
+            try:
+                with self.assertRaises(ValueError):
+                    transform_main(["zia_rule_labels", src, "bad/tenant"])
+                self.assertFalse(os.path.exists(os.path.join(td, "config")))
+                self.assertFalse(os.path.exists(os.path.join(td, "imports")))
+            finally:
+                self._restore_deployment(saved)
+
+    def test_invalid_resource_type_rejected_before_writing_outputs(self):
+        from engine.transform import main as transform_main
+        with tempfile.TemporaryDirectory() as td:
+            dep, src = self._write_overlay_and_input(td)
+            saved = self._with_deployment(dep)
+            try:
+                with self.assertRaises(ValueError):
+                    transform_main(["../zia_rule_labels", src, "tenant"])
+                self.assertFalse(os.path.exists(os.path.join(td, "config")))
+                self.assertFalse(os.path.exists(os.path.join(td, "imports")))
+            finally:
+                self._restore_deployment(saved)
+
+    def test_valid_tenant_still_writes_expected_outputs(self):
+        from engine.transform import main as transform_main
+        with tempfile.TemporaryDirectory() as td:
+            dep, src = self._write_overlay_and_input(td)
+            saved = self._with_deployment(dep)
+            try:
+                self.assertEqual(
+                    transform_main(["zia_rule_labels", src, "tenant"]), 0)
+                self.assertTrue(os.path.exists(os.path.join(
+                    td, "config", "tenant",
+                    "zia_rule_labels.auto.tfvars.json",
+                )))
+                self.assertTrue(os.path.exists(os.path.join(
+                    td, "imports", "tenant", "zia_rule_labels_imports.tf",
+                )))
+            finally:
+                self._restore_deployment(saved)
 
 
 class AcknowledgedDropsTest(unittest.TestCase):
