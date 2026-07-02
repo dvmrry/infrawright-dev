@@ -59,7 +59,7 @@ Run against a saved plan JSON fixture:
 ```sh
 python -m engine.provider_config \
   --provider google \
-  --plan /tmp/infrawright-gcp-lab/plans/google_pubsub_topic.tfplan.json
+  --plan reports/provider-config/google_pubsub_topic.tfplan.json
 ```
 
 Or infer the provider from a single resource type:
@@ -67,7 +67,7 @@ Or infer the provider from a single resource type:
 ```sh
 python -m engine.provider_config \
   --resource-type google_pubsub_topic \
-  --plan /tmp/infrawright-gcp-lab/plans/google_pubsub_topic.tfplan.json
+  --plan reports/provider-config/google_pubsub_topic.tfplan.json
 ```
 
 The report classifies each update path as either:

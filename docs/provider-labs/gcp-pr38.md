@@ -1,4 +1,6 @@
-# Google Cloud Provider Lab PR38
+# Google Cloud No-Billing Provider Lab
+
+Historical report file: `gcp-pr38.md`.
 
 Date: 2026-06-24
 Provider: `hashicorp/google` `v7.38.0`
@@ -8,8 +10,8 @@ Target: disposable Google Cloud project `<disposable-gcp-project>`
 This lab exercised the import-oracle adoption path and static advisory report
 against a disposable Google Cloud project. This is a provider lab report, not a
 committed Google Cloud pack. Temporary packs, schemas, raw REST details, oracle
-state, projected tfvars, Terraform roots, state, plans, and logs were kept under
-`/tmp/infrawright-gcp-lab` and are not part of this repository.
+state, projected tfvars, Terraform roots, state, plans, and logs were kept in
+an uncommitted temporary lab root and are not part of this repository.
 
 ## Summary
 
@@ -58,7 +60,7 @@ minted from the disposable service account key.
 | Terraform provider | `registry.terraform.io/hashicorp/google` `v7.38.0` |
 | Terraform | `v1.15.4` |
 | Lab run prefix | `iw-gcp-lab-20260624a` |
-| Temporary root | `/tmp/infrawright-gcp-lab` |
+| Temporary root | uncommitted temporary lab root |
 | Live cleanup | completed |
 
 The lab used a temporary `INFRAWRIGHT_PACKS` root with five Google Cloud
@@ -285,9 +287,11 @@ recorded in `packs/google/pack.json` under `provider_config.requirements` with
 `required_external` mode. It cites this lab report and targets the three
 resources that drifted on `terraform_labels.goog-terraform-provisioned`.
 
-The future assert-adoptable guidance annotation for this requirement is designed
-in `docs/provider-config-assert-guidance.md`. The design is additive and
-annotation-only; it does not render or mutate provider configuration.
+Provider-config `assert-adoptable` guidance annotations are implemented as
+additive, annotation-only output and documented in
+`docs/provider-config-assert-guidance.md`. The historical GCP drift in this lab
+is not current live validation for that guidance path; the guidance still does
+not render or mutate provider configuration.
 - `pack:identity-alias`: keep explicit identity/import metadata for Google
   resources where REST, import ID, and Terraform state names diverge, starting
   with BigQuery dataset `datasetReference.datasetId` to

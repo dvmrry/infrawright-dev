@@ -1,4 +1,6 @@
-# Grafana Provider Lab PR24
+# Grafana OSS Import-Oracle Provider Lab
+
+Historical report file: `grafana-pr24.md`.
 
 ## Scope
 
@@ -8,7 +10,7 @@ Grafana OSS target.
 
 This is a provider lab report, not a committed Grafana pack. The temporary
 pack, schema dump, raw API details, oracle state, projected tfvars, Terraform
-roots, state, plans, and logs were kept under `/tmp/infrawright-grafana-lab`
+roots, state, plans, and logs were kept in an uncommitted temporary lab root
 and are not part of this repository.
 
 ## Environment
@@ -120,10 +122,11 @@ generated tfvars unless policy explicitly omits it. After the lab omitted that
 block, Terraform validation still required one notifier block to be present, so
 the generated configuration was structurally invalid.
 
-That is not the same problem as NetBox's absent placeholders. It suggests the
-adoption engine needs a future diagnostic for sensitive required blocks, or a
-provider-specific way to classify which sensitive block fields can be safely
-represented, redacted, or intentionally left for a human.
+That is not the same problem as NetBox's absent placeholders. Static
+sensitive-required diagnostics now classify this failure class, but automatic
+remediation is still intentionally absent. A provider-specific policy would be
+needed before the engine could decide which sensitive block fields can be
+safely represented, redacted, or intentionally left for a human.
 
 With static sensitive marker derivation, the advisory report should flag the
 sensitive provider-observed paths that were absent from projected tfvars. That

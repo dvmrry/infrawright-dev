@@ -14,11 +14,11 @@ Use labs to answer three questions:
 
 | Provider | Report | Primary signal |
 |---|---|---|
-| NetBox | [netbox-pr22.md](netbox-pr22.md) | Absent/default placeholder drift |
-| Grafana | [grafana-pr24.md](grafana-pr24.md) | Sensitive-but-required nested blocks |
-| Cloudflare | [cloudflare-free-tier-pr32.md](cloudflare-free-tier-pr32.md) | Dynamic schema attrs, identity aliases, singleton/default drift |
-| Google Cloud | [gcp-pr38.md](gcp-pr38.md) | Historical provider attribution-label drift, billing/API gates, later negative retest |
-| AWS | [aws-free-core-pr77.md](aws-free-core-pr77.md) | Core adoption loop, IAM JSON canonicalization, absent/default placeholder candidates |
+| NetBox | [NetBox import-oracle lab](netbox-pr22.md) | Absent/default placeholder drift |
+| Grafana | [Grafana OSS import-oracle lab](grafana-pr24.md) | Sensitive-but-required nested blocks |
+| Cloudflare | [Cloudflare free-tier lab](cloudflare-free-tier-pr32.md) | Dynamic schema attrs, identity aliases, singleton/default drift |
+| Google Cloud | [GCP no-billing lab and negative provider-config retest](gcp-pr38.md) | Historical provider attribution-label drift, billing/API gates, later negative retest |
+| AWS | [AWS free/core adoption lab](aws-free-core-pr77.md) | Core adoption loop, IAM JSON canonicalization, absent/default placeholder candidates |
 
 These labs are enough to treat the import-oracle approach as viable. Future
 labs should focus on repeatability, provider-specific failure classes, and the
