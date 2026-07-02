@@ -788,7 +788,7 @@ def render_imports(resource_type, originals, override):
     return "\n".join(blocks)
 
 
-def _parse_hcl_string_literal(text, start=0):
+def parse_hcl_string_literal(text, start=0):
     if start >= len(text) or text[start] != '"':
         raise ValueError("expected HCL quoted string literal")
     out = []
@@ -822,6 +822,9 @@ def _parse_hcl_string_literal(text, start=0):
             out.append(ch)
         i += 1
     raise ValueError("unterminated HCL quoted string literal")
+
+
+_parse_hcl_string_literal = parse_hcl_string_literal
 
 
 def _parse_generated_import_key(line):
