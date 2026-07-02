@@ -9,6 +9,8 @@ import json
 import os
 import re
 import sys
+from collections import Counter
+from collections import namedtuple
 
 from engine import deployment
 from engine import ops
@@ -28,6 +30,12 @@ from engine.tfschema import (
 _SNAKE_1 = re.compile(r"(.)([A-Z][a-z]+)")
 _SNAKE_2 = re.compile(r"([a-z0-9])([A-Z])")
 _SLUG_BAD = re.compile(r"[^a-z0-9]+")
+MoveDerivationResult = namedtuple(
+    "MoveDerivationResult", ["moves", "suppressed"]
+)
+MoveSuppression = namedtuple(
+    "MoveSuppression", ["old_key", "new_key", "import_id", "reason"]
+)
 
 
 def snake(name):
@@ -870,26 +878,89 @@ def parse_import_pairs(imports_text):
 
 
 def derive_moves(old_imports_text, new_imports_text):
+    """Backwards-compatible safe emitted moves wrapper."""
+    return derive_moves_with_diagnostics(old_imports_text, new_imports_text).moves
+
+
+def derive_moves_with_diagnostics(old_imports_text, new_imports_text):
     """Detect console renames: same import id under a different config key.
 
     A rename in the console changes the derived map key, which terraform
     sees as destroy-old-address + create-new-address — a destroy/create
     of a LIVE object. The import id is identity (unique per resource), so
     same-id-different-key pairs become `moved` blocks instead, making the
-    rename a pure state-address change. Returns sorted (old_key, new_key)
-    pairs.
+    rename a pure state-address change. Returns safe emitted moves plus
+    suppressed candidate diagnostics for ambiguous or invalid moved blocks.
     """
     old_pairs = parse_import_pairs(old_imports_text)
     new_pairs = parse_import_pairs(new_imports_text)
-    old_by_id = {}
-    for key, import_id in old_pairs.items():
-        old_by_id.setdefault(import_id, key)
+    old_by_id = _keys_by_import_id(old_pairs)
+    new_by_id = _keys_by_import_id(new_pairs)
+    candidates = []
+    for import_id, new_keys in sorted(new_by_id.items()):
+        old_keys = old_by_id.get(import_id, [])
+        for old_key in old_keys:
+            for new_key in new_keys:
+                if old_key != new_key:
+                    candidates.append((old_key, new_key, import_id))
+    from_counts = Counter(old_key for old_key, _, _ in candidates)
     moves = []
-    for new_key, import_id in new_pairs.items():
-        old_key = old_by_id.get(import_id)
-        if old_key is not None and old_key != new_key and old_key not in new_pairs:
-            moves.append((old_key, new_key))
-    return sorted(moves)
+    suppressed = []
+    for old_key, new_key, import_id in candidates:
+        reason = _move_suppression_reason(
+            old_key, new_key, import_id, old_pairs, new_pairs,
+            old_by_id, from_counts,
+        )
+        if reason is not None:
+            suppressed.append(
+                MoveSuppression(old_key, new_key, import_id, reason)
+            )
+            continue
+        moves.append((old_key, new_key))
+    return MoveDerivationResult(
+        moves=sorted(moves),
+        suppressed=sorted(suppressed, key=_suppression_sort_key),
+    )
+
+
+def _keys_by_import_id(pairs):
+    out = {}
+    for key, import_id in pairs.items():
+        out.setdefault(import_id, []).append(key)
+    return dict((import_id, sorted(keys)) for import_id, keys in out.items())
+
+
+def _move_suppression_reason(old_key, new_key, import_id, old_pairs, new_pairs,
+                             old_by_id, from_counts):
+    if len(old_by_id.get(import_id, [])) > 1:
+        return "ambiguous"
+    if from_counts.get(old_key, 0) > 1:
+        return "duplicate_from"
+    if _is_key_swap(old_key, new_key, old_pairs, new_pairs):
+        return "key_swap"
+    if new_key in old_pairs or old_key in new_pairs:
+        return "destination_occupied"
+    return None
+
+
+def _is_key_swap(old_key, new_key, old_pairs, new_pairs):
+    return (
+        old_key in old_pairs
+        and new_key in old_pairs
+        and old_key in new_pairs
+        and new_key in new_pairs
+        and old_pairs[old_key] == new_pairs[new_key]
+        and old_pairs[new_key] == new_pairs[old_key]
+    )
+
+
+def _suppression_sort_key(suppression):
+    return (
+        suppression.old_key,
+        suppression.new_key,
+        suppression.import_id,
+        suppression.reason,
+    )
 
 
 def render_moves(resource_type, moves):
@@ -905,6 +976,22 @@ def render_moves(resource_type, moves):
             )
         )
     return "\n".join(blocks)
+
+
+def report_suppressed_moves(resource_type, suppressions, write=None):
+    write = write or sys.stderr.write
+    for suppression in suppressions:
+        write(
+            "SUPPRESSED RENAME CANDIDATE: %s %r -> %r "
+            "(import_id %r, reason=%s); no moved block emitted\n"
+            % (
+                resource_type,
+                suppression.old_key,
+                suppression.new_key,
+                suppression.import_id,
+                suppression.reason,
+            )
+        )
 
 
 def _warn_if_slim(raw_items, block, resource_type):
@@ -977,10 +1064,11 @@ def main(argv=None):
     # the rename is a state-address change, not destroy+create of a live
     # object. The moves file is staged ONLY when renames exist; copy it
     # into the env root alongside the imports file and delete after apply.
-    moves = []
+    move_result = MoveDerivationResult(moves=[], suppressed=[])
     if os.path.exists(imports_path):
         with open(imports_path, encoding="utf-8") as f:
-            moves = derive_moves(f.read(), new_imports)
+            move_result = derive_moves_with_diagnostics(f.read(), new_imports)
+    moves = move_result.moves
     if moves:
         with open(moves_path, "w", encoding="utf-8") as f:
             f.write(render_moves(resource_type, moves))
@@ -996,6 +1084,7 @@ def main(argv=None):
         # otherwise the old moved blocks get staged into env roots later.
         os.remove(moves_path)
         sys.stderr.write("removed stale %s (no renames this run)\n" % moves_path)
+    report_suppressed_moves(resource_type, move_result.suppressed)
     with open(tfvars_path, "w", encoding="utf-8") as f:
         f.write(render_tfvars(items))
     with open(imports_path, "w", encoding="utf-8") as f:
