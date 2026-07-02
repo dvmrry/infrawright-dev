@@ -1,10 +1,10 @@
 """Fetch detail-shaped REST API JSON into pulls/<tenant>/<type>.json.
 
-Runs with real credentials ONLY in trusted environments; here it is
-exercised against fictional canned responses via an injected opener.
-Stdlib-only, Python 3.6-floor. Per-resource knowledge lives in
-pack registry.json files (data); auth and URL seams live in provider packs.
-See AGENTS.md rules 1-5.
+Runs with real credentials ONLY in trusted environments. This module is the
+audited shared REST collector edge: per-resource knowledge lives in pack
+registry.json files, while auth and URL seams live in provider packs.
+Credential-free tests cover the CLI/metadata boundary; live fetch behavior
+requires a controlled provider environment.
 """
 import json
 import os
