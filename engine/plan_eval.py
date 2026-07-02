@@ -4,6 +4,8 @@ from engine.drift_policy import DriftPolicy
 CLEAN = "clean"
 TOLERATED = "clean_with_tolerated_drift"
 BLOCKED = "blocked"
+OPAQUE_UPDATE = "<opaque_update>"
+_OPAQUE_UPDATE_PATH = (OPAQUE_UPDATE,)
 
 
 def classify_plan(plan, policy=None):
@@ -42,14 +44,7 @@ def _classify_change(rc, policy, source):
     if actions & set(["create"]):
         return [_blocked(source, address, actions, [("<create>",)])]
     if actions & set(["update"]):
-        paths = sorted(
-            set(diff_paths(change.get("before"), change.get("after")))
-            | set(truthy_paths(change.get("after_unknown")))
-            | set(truthy_paths(change.get("before_sensitive")))
-            | set(truthy_paths(change.get("after_sensitive")))
-        )
-        if not paths:
-            return []
+        paths = _update_paths(change)
         unmatched = [
             p for p in paths
             if not policy.tolerates_plan_path(resource_type, p, "update")
@@ -66,6 +61,21 @@ def _classify_change(rc, policy, source):
     return [_blocked(source, address, actions, [("<unsupported_action>",)])]
 
 
+def _update_paths(change):
+    paths = set()
+    opaque = False
+    for path in (
+            list(diff_paths(change.get("before"), change.get("after")))
+            + list(truthy_paths(change.get("after_unknown")))):
+        if path:
+            paths.add(path)
+        else:
+            opaque = True
+    if opaque or not paths:
+        paths.add(_OPAQUE_UPDATE_PATH)
+    return sorted(paths, key=_path_sort_key)
+
+
 def _blocked(source, address, actions, paths):
     return {
         "status": BLOCKED,
@@ -74,6 +84,10 @@ def _blocked(source, address, actions, paths):
         "actions": sorted(actions),
         "paths": paths,
     }
+
+
+def _path_sort_key(path):
+    return tuple(str(segment) for segment in path)
 
 
 def diff_paths(before, after, path=()):

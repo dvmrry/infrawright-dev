@@ -13,8 +13,8 @@ def guidance_candidate_paths(plan, resource_type):
 
     Guidance lanes use these paths to decide whether already-blocked plan paths
     can receive informational annotations. Sensitivity-only paths are
-    deliberately excluded; plan classification may still block on them, but they
-    are not value-shape guidance evidence.
+    deliberately excluded; unchanged sensitive markers are not value-shape
+    guidance evidence or classifier drift.
     """
     records = []
     for source in ("resource_changes", "resource_drift"):

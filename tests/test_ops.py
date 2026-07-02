@@ -1224,8 +1224,8 @@ class OpsAssertAdoptableDynamicSchemaGuidanceTest(unittest.TestCase):
         }
         exc, out = self._run_blocked(self._base_pack(self._base_rule()), plan)
         self.assertIn("1 saved plan(s) blocked", exc)
-        self.assertIn("data.flags", out)
         self.assertIn("other", out)
+        self.assertNotIn("data.flags", out)
         self.assertNotIn("Dynamic-schema guidance:", out)
 
     def test_tolerated_drift_does_not_collect_guidance(self):
@@ -1452,8 +1452,8 @@ class OpsAssertAdoptableAbsentDefaultGuidanceTest(unittest.TestCase):
 
         exc, out = self._run_blocked(self._base_pack(self._base_rule()), plan)
         self.assertIn("1 saved plan(s) blocked", exc)
-        self.assertIn("name_prefix", out)
         self.assertIn("other", out)
+        self.assertNotIn("name_prefix", out)
         self.assertNotIn("Absent/default guidance:", out)
 
     def test_unknown_after_path_still_annotates(self):
