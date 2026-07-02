@@ -59,6 +59,12 @@ class AdoptCommandTest(unittest.TestCase):
         registry.reload_registry()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def _assert_no_adopt_outputs(self):
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "config")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "imports")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "envs")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "lookup")))
+
     def test_adopt_outputs_provider_observed_state_not_raw_noise(self):
         input_path = os.path.join(self.tmp, "api.json")
         _write_json(input_path, [
@@ -177,6 +183,29 @@ class AdoptCommandTest(unittest.TestCase):
         self.assertIn("error: failed to parse", msg)
         self.assertIn("bad.json", msg)
         self.assertIn("line", msg)
+
+    def test_invalid_tenant_rejected_before_writing_outputs(self):
+        input_path = os.path.join(self.tmp, "api.json")
+        _write_json(input_path, [])
+
+        for tenant in ("../../etc", "../x", "bad/tenant", "/absolute/path"):
+            with self.subTest(tenant=tenant):
+                with self.assertRaises(ValueError) as ctx:
+                    adopt.main(["sample_resource", input_path, tenant])
+                self.assertIn("TENANT must match", str(ctx.exception))
+                self._assert_no_adopt_outputs()
+
+    def test_invalid_resource_type_rejected_before_writing_outputs(self):
+        input_path = os.path.join(self.tmp, "api.json")
+        _write_json(input_path, [])
+
+        with self.assertRaises(ValueError) as ctx:
+            adopt.main(["../sample_resource", input_path, "tenant"])
+
+        self.assertIn(
+            "RESOURCE must be an exact generated resource type", str(ctx.exception)
+        )
+        self._assert_no_adopt_outputs()
 
 
 if __name__ == "__main__":
