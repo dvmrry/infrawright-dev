@@ -11,7 +11,7 @@ ifneq ($(strip $(OVERLAY)),)
 -include $(OVERLAY)/local.mk
 endif
 
-.PHONY: check-demo check-modules check-pack audit-vendor-boundary check test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: check-demo check-modules check-pack audit-vendor-boundary demo-contract check test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
 	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1
@@ -29,6 +29,20 @@ check-pack: ## Validate pack.json and registry.json metadata ([PACK=<name>])
 
 audit-vendor-boundary: ## Audit vendor-specific tokens in engine source
 	$(PYTHON) -m engine.audit_vendor_boundary
+
+demo-contract: ## Credential-free demo artifact/module contract check
+	@echo "demo-contract: materializing demo overlay without credentials"
+	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1
+	@test -z "$$(git status --porcelain -- demo/config/demo demo/imports/demo)" || { \
+		echo "demo-contract: demo config/import artifacts drifted:"; \
+		git status --porcelain -- demo/config/demo demo/imports/demo; exit 1; }
+	@test -z "$$(find demo/imports/demo -name '*_moves.tf' -print)" || { \
+		echo "demo-contract: stale demo moved-block files found:"; \
+		find demo/imports/demo -name '*_moves.tf' -print; exit 1; }
+	@module_dir="$$(INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(PYTHON) -m engine.deployment module-dir)"; \
+	INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(PYTHON) -m engine.gen_module --check-output "$$module_dir" > /dev/null; \
+	echo "demo-contract: committed demo config/imports and generated modules are in sync"
+	@echo "demo-contract: live provider import/plan proof requires credentials and the adoption workflow"
 
 check: test check-demo check-modules check-pack audit-vendor-boundary ## Full gate: unit tests + demo + module generator smoke + pack metadata + vendor-boundary audit
 

@@ -54,6 +54,15 @@ class MakefileOverlayTest(unittest.TestCase):
             self.assertIn(" demo > /dev/null", proc.stdout)
             self.assertIn("INFRAWRIGHT_DEPLOYMENT=\"demo/deployment.json\"", proc.stdout)
 
+    def test_demo_contract_reenters_demo_overlay(self):
+        with tempfile.TemporaryDirectory() as td:
+            missing_overlay = os.path.join(td, "missing")
+            proc = _run_make(["OVERLAY=%s" % missing_overlay, "-n", "demo-contract"])
+            self.assertIn("OVERLAY=demo", proc.stdout)
+            self.assertIn(" demo > /dev/null", proc.stdout)
+            self.assertIn("INFRAWRIGHT_DEPLOYMENT=\"demo/deployment.json\"", proc.stdout)
+            self.assertIn("engine.gen_module --check-output", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

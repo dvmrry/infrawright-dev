@@ -94,6 +94,27 @@ make assert-clean TENANT=prod RESOURCE="zpa_application_segment"
 pack development. It is not the import-oracle adoption path; use `adopt` when
 Terraform/OpenTofu provider state should be the configuration truth.
 
+## Credential-Free Demo Contract
+
+The shipped demo can prove the deterministic local artifact contract without
+provider credentials:
+
+```sh
+make demo
+make demo-contract
+```
+
+`make demo` materializes the demo overlay from committed fixtures.
+`make demo-contract` then verifies committed demo config/import artifacts do not
+drift, rejects stale demo moved-block files, and checks that the generated demo
+module tree matches the module generator.
+
+This is not a live-provider import or plan proof. It does not call provider
+APIs, run Terraform/OpenTofu import, or prove provider read semantics. The real
+import-oracle plan contract begins with `make fetch` / `make adopt` against a
+real provider tenant and continues through `make plan SAVE=1` and
+`make assert-adoptable`.
+
 ## OpenTofu
 
 The existing `TF` binary override is used for both Terraform and OpenTofu:
