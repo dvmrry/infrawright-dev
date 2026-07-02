@@ -111,12 +111,30 @@ def _validate_statuses(value, path):
             raise ValueError("%s[%d] must be an integer" % (path, idx))
 
 
+def _pagination_values():
+    from engine.collectors.rest import pagination_styles
+    return pagination_styles()
+
+
+def _validate_enum(value, allowed, path):
+    if value not in allowed:
+        raise ValueError(
+            "%s unsupported value %r; allowed values: %s"
+            % (path, value, ", ".join(sorted(allowed)))
+        )
+
+
 def _validate_fetch(fetch, path):
     if not isinstance(fetch, dict):
         raise ValueError("%s must be an object" % path)
     _reject_unknown_keys(fetch, FETCH_KEYS, path)
     _require_keys(fetch, FETCH_REQUIRED_KEYS, path)
     _require_non_empty_string(fetch.get("pagination"), "%s.pagination" % path)
+    _validate_enum(
+        fetch.get("pagination"),
+        _pagination_values(),
+        "%s.pagination" % path,
+    )
     _require_non_empty_string(fetch.get("path"), "%s.path" % path)
     if "envelope" in fetch:
         _require_non_empty_string(fetch["envelope"], "%s.envelope" % path)
@@ -138,6 +156,9 @@ def _validate_derive(derive, path):
     _require_keys(derive, DERIVE_REQUIRED_KEYS, path)
     _require_non_empty_string(derive.get("from"), "%s.from" % path)
     if "policy_type" in derive:
+        # policy_type is provider data carried into the generated reorder
+        # resource, not an engine-owned closed enum. Keep it open until pack
+        # metadata has a provider-specific vocabulary to validate against.
         _require_non_empty_string(
             derive["policy_type"], "%s.policy_type" % path
         )
