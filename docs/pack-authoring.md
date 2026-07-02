@@ -172,6 +172,79 @@ skip_if
 `identity_fields` and `identity_renames` are string maps. `skip_if`, when
 present, must be a list.
 
+## Overrides
+
+Transform override files live at:
+
+```text
+packs/<name>/overrides/<resource_type>.json
+```
+
+An override file is optional. If it is missing, the engine uses empty/default
+override behavior for that resource. When an override file is present, unknown
+top-level keys fail validation so typos do not silently become no-ops.
+
+Overrides are explicit pack-authored projection and normalization metadata.
+They do not change drift policy, plan classification, provider configuration,
+adoption status, or Terraform/OpenTofu execution behavior. Do not store secret
+values in overrides.
+
+Allowed top-level keys:
+
+<!-- override-key-table:start -->
+| Key | Meaning |
+|---|---|
+| `acknowledged_drops` | Dotted dropped paths that are known and suppressed from the transform drop report. The fields are still removed from generated tfvars. |
+| `defaults` | Field-to-literal defaults filled when the API omits a field or returns `null`, `""`, or `[]`; use only for provider-normalized round-trip values. |
+| `divide` | Field-to-integer divisor for read-side unit conversion before default dropping; divisors must be non-zero. |
+| `drop_if_default` | Field-to-value map for removing fields whose normalized value equals the configured default. Dotted nested-block attribute paths are supported. |
+| `drops` | Fields or dotted nested-block attribute paths to remove from projected config. Dotted paths are applied during schema filtering. |
+| `html_escape_fields` | Top-level string fields to HTML-escape after normal override transforms, matching provider read behavior for specific resources. |
+| `identity_fields` | Identity/import aliases copied from raw or normalized item paths for oracle adoption metadata fallback. Prefer `registry.json` `adopt.identity_fields` for new packs. |
+| `import_id` | Python format string used to render Terraform import IDs from the normalized item, defaulting to `{id}`. |
+| `invert_bool` | Fields whose API boolean/int meaning is inverted relative to Terraform config; values are coerced to bool and flipped. |
+| `key_field` | Field name or list of field names used to derive the stable `items` map key, defaulting to `name`. |
+| `merge_blocks` | Nested block names whose API list elements should be merged into one block before schema coercion. |
+| `no_html_unescape` | Boolean opt-out from product-wide ZPA/ZCC top-level `name`/`description` HTML unescaping. |
+| `ranges` | Provider runtime-validator bounds used by module/sample generation; not applied as transform-time value rewriting. |
+| `references` | Field map that forces `{id, ...}` object references or lists of references to unwrap to IDs during transform. |
+| `renames` | Post-snake-case API-field to Terraform-schema-field rename map, applied before other field transforms. |
+| `sample` | Module-generation sample overrides for required attributes whose generated example value would not be valid. |
+| `skip_if` | List of matchers; an item is skipped entirely when any matcher matches all listed snake-cased raw fields. |
+| `sort_lists` | Top-level list-of-string fields sorted for stable output where provider behavior makes ordering plan-invisible. Dotted paths are not supported. |
+| `split_csv` | Post-rename fields whose comma-joined string values are split into real lists with empty parts removed. |
+| `strip_prefix` | Field-to-prefix map for removing provider-added read prefixes from strings or lists of strings. |
+| `value_map` | Field-to-value map for converting API enum/string values to Terraform config values. Unmapped values pass through. |
+<!-- override-key-table:end -->
+
+Current transform order is:
+
+1. snake-case raw API keys
+2. product HTML-unescape of top-level `name` and `description`, unless
+   `no_html_unescape` is set
+3. `skip_if`
+4. `renames`
+5. `split_csv`
+6. `sort_lists`
+7. top-level `drops`
+8. `references`
+9. `divide`
+10. `invert_bool`
+11. `value_map`
+12. `strip_prefix`
+13. `defaults`
+14. `drop_if_default`
+15. `html_escape_fields`
+16. `key_field` key derivation
+17. schema filtering/coercion, including `merge_blocks`, dotted `drops`, and
+    dotted `drop_if_default`
+18. `import_id` import block rendering
+
+Naming caveat: pack-level `references` in `pack.json` and override-level
+`references` in `overrides/<resource_type>.json` are unrelated concepts. The
+pack-level form describes lookup sidecars; the override-level form unwraps
+API reference objects during transform.
+
 ## Duplicate Resource Types
 
 When validating all packs, duplicate resource types across registry files fail

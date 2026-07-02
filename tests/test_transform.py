@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from engine.transform import (
+    OVERRIDE_KEYS,
     _warn_if_slim,
     apply_overrides,
     coerce_item,
@@ -1739,6 +1740,24 @@ class OverrideAuthoringValidationTest(unittest.TestCase):
                     validate_override_metadata(_json.load(f), path=path)
                 count += 1
         self.assertGreater(count, 0)
+
+    def test_pack_authoring_docs_override_keys_match_validator(self):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(root, "docs", "pack-authoring.md")
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        start = "<!-- override-key-table:start -->"
+        end = "<!-- override-key-table:end -->"
+        self.assertIn(start, text)
+        self.assertIn(end, text)
+        section = text.split(start, 1)[1].split(end, 1)[0]
+        documented = []
+        for line in section.splitlines():
+            line = line.strip()
+            if line.startswith("| `"):
+                documented.append(line.split("`", 2)[1])
+        self.assertEqual(sorted(documented), sorted(OVERRIDE_KEYS))
+        self.assertEqual(len(documented), len(set(documented)))
 
     def test_real_overrides_all_load(self):
         from engine.registry import generated_types
