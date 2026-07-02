@@ -8,12 +8,46 @@ variables, native `import {}` blocks, and **identity-keyed `moved {}` reconcilia
 so console renames and key changes resolve as *moves*, never destroy/recreate. A clean
 `terraform plan` against your real state is the contract.
 
-The engine carries **zero vendor knowledge**. Each provider is a **pack** under
-`packs/<name>/` supplying its own collector, registry, overrides, and schema — the same
-engine drives any provider. Zscaler is the reference pack; Cloudflare, Google,
-AWS, and NetBox provide additional provider-lab and metadata evidence.
+The core adoption/codegen contract is provider-agnostic: provider-specific
+enumeration, identity, schema, and diagnostic metadata live in **packs** under
+`packs/<name>/`. Zscaler is the reference pack; Cloudflare, Google, AWS, and
+NetBox provide additional provider-lab and metadata evidence. Engine-edge
+vendor references are tracked by `make audit-vendor-boundary` so the current
+exceptions stay visible instead of quietly growing.
 
-## Why it's safe to point at production
+## Primary Adoption Workflow
+
+Use the import-oracle path when Terraform/OpenTofu provider state should be the
+configuration truth:
+
+```bash
+make fetch TENANT=<tenant> RESOURCE=<resource-or-provider>
+make adopt IN=pulls/<tenant> TENANT=<tenant> RESOURCE=<resource-or-provider>
+make gen-env TENANT=<tenant> RESOURCE=<resource-or-provider>
+make stage-imports TENANT=<tenant> RESOURCE=<resource-or-provider>
+make plan TENANT=<tenant> RESOURCE=<resource-or-provider> SAVE=1
+make assert-adoptable TENANT=<tenant> RESOURCE=<resource-or-provider> POLICY=<file>
+make apply TENANT=<tenant> RESOURCE=<resource-or-provider> POLICY=<file>
+```
+
+What each step owns:
+
+| Command | Responsibility |
+|---|---|
+| `make fetch` | Gathers raw provider/API evidence into `pulls/<tenant>`. |
+| `make adopt` | Uses Terraform/OpenTofu import and provider state as the projection oracle, then writes config/import artifacts. |
+| `make gen-env` | Generates isolated env roots that source the selected module set. |
+| `make stage-imports` | Stages generated `import {}` and `moved {}` blocks into env roots. |
+| `make plan SAVE=1` | Produces saved plan artifacts for the safety gates. |
+| `make assert-adoptable` | Classifies saved plans as clean, explicitly policy-tolerated, or blocked. |
+| `make apply` | Reclassifies saved plans and applies only clean/import-only or explicitly policy-tolerated plans. |
+
+See [Adoption Command Surface](docs/adoption-command-surface.md) for the
+complete command contract and collector boundary, and
+[Import Oracle Adoption](docs/import-oracle.md) for the oracle workflow and
+consumer drift-policy format.
+
+## Safety Model
 
 The fragile part of adopting IaC over live infrastructure is the Terraform **state** — a
 resource key that shifts between runs reads as *destroy + recreate*, which on a real
@@ -26,14 +60,29 @@ tenant is an outage, not a diff. infrawright is built to keep the state stable:
 - **Deterministic, verified output** — `make check` proves the committed demo
   config/import artifacts do not drift and that the module generator still
   renders every resource type.
+- **Provider state as adoption oracle** — raw API/read data supplies evidence,
+  stable keys, and import IDs; Terraform/OpenTofu provider state supplies the
+  projected configuration body.
+- **Fail-loud unsafe cases** — sensitive, ambiguous, unsupported, or
+  provider-blind surfaces block or report explicitly instead of being silently
+  rendered.
+- **Explicit policy only** — drift tolerance is consumer-owned policy; guidance
+  annotations can explain blocked paths but cannot make blocked plans clean.
 
 The acceptance bar isn't "0 to change" — it's **0 to destroy, 0 to create** after import.
+
+## Quickstart
+
+```bash
+make check      # full gate: unit tests + demo/module/probe checks + metadata/audit gates
+make demo       # materialize the demo tenant (no credentials needed)
+```
 
 ## Layout
 
 | Path | Role |
 |------|------|
-| `engine/` | vendor-agnostic: transform → modular TF + `import` + `moved` reconciliation; includes the shared REST collector |
+| `engine/` | core transform/adoption/codegen: modular TF + `import` + `moved` reconciliation; includes the audited shared REST collector edge |
 | `packs/<name>/` | a provider bundle: `pack.json` + `registry.json` + `overrides/` + `schemas/` + collector |
 | `[<overlay>/]config/<tenant>/<resource_type>.auto.tfvars.json` | generated tenant config |
 | `[<overlay>/]imports/<tenant>/<resource_type>_imports.tf` | generated import blocks |
@@ -73,15 +122,10 @@ multiple overlays in one run. See
 [Adoption Command Surface](docs/adoption-command-surface.md) for the command
 contract and collector boundary.
 
-## Quickstart
-
-```
-make check      # full gate: unit tests + demo drift check + module generator smoke
-make demo       # materialize the demo tenant (no credentials needed)
-```
-
 ## Provider Readiness
 
+Provider-readiness tooling is maintainer infrastructure. It helps decide whether
+a provider/resource is worth pack and lab work before adoption evidence exists.
 Before a new pack graduates, compare raw API readback against the Terraform
 provider schema and make every observed field explainable. Start with the
 surface map, because one Terraform provider can span multiple API products:
@@ -150,17 +194,6 @@ resource is `static_mapped`, `read_observed`, `write_sampled`,
 `import_verified`, `not_tested_paid`, `not_tested_risky`, or `not_applicable`.
 Humans classify surfaces; tools classify resources and evidence so the index
 does not drift by hand.
-
-## Import Oracle Adoption
-
-The adoption path can use Terraform/OpenTofu import as a provider-state oracle:
-
-```
-make adopt IN=pulls/<tenant> TENANT=<tenant> RESOURCE=<type>
-```
-
-See [docs/import-oracle.md](docs/import-oracle.md) for the workflow, OpenTofu
-usage, and consumer drift policy format.
 
 ## Status
 
