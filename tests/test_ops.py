@@ -222,6 +222,103 @@ class OpsStageImportsTest(unittest.TestCase):
 
 
 class OpsPlanSafetyTest(unittest.TestCase):
+    def _run_apply_fixture(self, plan, opts_extra=None):
+        tmp = tempfile.mkdtemp(prefix="ops-apply-")
+        os.makedirs(tmp, exist_ok=True)
+        with open(os.path.join(tmp, "tfplan"), "w", encoding="utf-8") as f:
+            f.write("fake")
+        old_pairs = ops.selected_env_pairs
+        old_check_backend = ops._check_backend
+        old_check_call = ops._check_call
+        old_show = ops._show_plan_json
+        old_branch = ops._current_branch
+        old_stderr = sys.stderr
+        stderr = io.StringIO()
+        calls = []
+        opts = {
+            "tenant": "tenant",
+            "selectors": [],
+            "backend_config": None,
+            "policy": None,
+            "allow_destroy": False,
+            "allow_non_main": False,
+            "allow_plan_changes": False,
+            "main_branch": "main",
+        }
+        if opts_extra:
+            opts.update(opts_extra)
+        try:
+            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
+                ("tenant", "sample_resource", tmp)
+            ]
+            ops._check_backend = lambda env_dir, resource_type, backend_config: None
+            ops._check_call = lambda args, stdout=None: calls.append(args) or 0
+            ops._current_branch = lambda: "main"
+            ops._show_plan_json = lambda env_dir: plan
+            sys.stderr = stderr
+            error = None
+            result = None
+            try:
+                result = ops.cmd_apply(opts)
+            except Exception as exc:  # noqa: BLE001 - test helper preserves errors.
+                error = exc
+            return {
+                "result": result,
+                "error": error,
+                "stderr": stderr.getvalue(),
+                "calls": calls,
+                "tfplan_exists": os.path.exists(os.path.join(tmp, "tfplan")),
+            }
+        finally:
+            ops.selected_env_pairs = old_pairs
+            ops._check_backend = old_check_backend
+            ops._check_call = old_check_call
+            ops._show_plan_json = old_show
+            ops._current_branch = old_branch
+            sys.stderr = old_stderr
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def _update_plan(self, before=None, after=None):
+        return {
+            "format_version": "1.0",
+            "resource_changes": [{
+                "address": "sample_resource.this",
+                "type": "sample_resource",
+                "change": {
+                    "actions": ["update"],
+                    "before": before if before is not None else {"status": "old"},
+                    "after": after if after is not None else {"status": "new"},
+                },
+            }],
+        }
+
+    def _delete_plan(self):
+        return {
+            "format_version": "1.0",
+            "resource_changes": [{
+                "address": "sample_resource.this",
+                "type": "sample_resource",
+                "change": {
+                    "actions": ["delete"],
+                    "before": {"status": "old"},
+                    "after": None,
+                },
+            }],
+        }
+
+    def _write_policy(self, entries):
+        tmp = tempfile.mkdtemp(prefix="ops-policy-")
+        path = os.path.join(tmp, "policy.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({
+                "version": 1,
+                "resource_types": {
+                    "sample_resource": {"plan_tolerate": entries},
+                },
+            }, f)
+        self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        return path
+
     def test_non_import_change_count_ignores_noops_and_import_creates(self):
         plan = {
             "resource_changes": [
@@ -243,84 +340,87 @@ class OpsPlanSafetyTest(unittest.TestCase):
         self.assertEqual(ops._destroy_count(plan), 2)
 
     def test_apply_refuses_non_import_changes_by_default(self):
-        tmp = tempfile.mkdtemp(prefix="ops-apply-")
-        old_pairs = ops.selected_env_pairs
-        old_check_backend = ops._check_backend
-        old_check_call = ops._check_call
-        old_show = ops._show_plan_json
-        old_branch = ops._current_branch
-        try:
-            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
-                ("tenant", "sample_resource", tmp)
-            ]
-            ops._check_backend = lambda env_dir, resource_type, backend_config: None
-            ops._check_call = lambda args, stdout=None: 0
-            ops._current_branch = lambda: "main"
-            ops._show_plan_json = lambda env_dir: {
-                "format_version": "1.0",
-                "resource_changes": [{"change": {"actions": ["update"]}}],
-            }
-            with self.assertRaises(RuntimeError):
-                ops.cmd_apply({
-                    "tenant": "tenant",
-                    "selectors": [],
-                    "backend_config": None,
-                    "allow_destroy": False,
-                    "allow_non_main": False,
-                    "allow_plan_changes": False,
-                    "main_branch": "main",
-                })
-        finally:
-            ops.selected_env_pairs = old_pairs
-            ops._check_backend = old_check_backend
-            ops._check_call = old_check_call
-            ops._show_plan_json = old_show
-            ops._current_branch = old_branch
-            shutil.rmtree(tmp, ignore_errors=True)
+        result = self._run_apply_fixture(self._update_plan())
+        self.assertIsInstance(result["error"], RuntimeError)
+        self.assertIn("blocked by untolerated changes", str(result["error"]))
+        self.assertTrue(result["tfplan_exists"])
 
     def test_apply_allows_import_only_without_plan_change_override(self):
-        tmp = tempfile.mkdtemp(prefix="ops-apply-")
-        os.makedirs(tmp, exist_ok=True)
-        with open(os.path.join(tmp, "tfplan"), "w", encoding="utf-8") as f:
-            f.write("fake")
-        old_pairs = ops.selected_env_pairs
-        old_check_backend = ops._check_backend
-        old_check_call = ops._check_call
-        old_show = ops._show_plan_json
-        old_branch = ops._current_branch
-        try:
-            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
-                ("tenant", "sample_resource", tmp)
-            ]
-            ops._check_backend = lambda env_dir, resource_type, backend_config: None
-            ops._check_call = lambda args, stdout=None: 0
-            ops._current_branch = lambda: "main"
-            ops._show_plan_json = lambda env_dir: {
-                "format_version": "1.0",
-                "resource_changes": [{
-                    "change": {
-                        "actions": ["create"],
-                        "importing": {"id": "123"},
-                    }
-                }],
-            }
-            self.assertEqual(ops.cmd_apply({
-                "tenant": "tenant",
-                "selectors": [],
-                "backend_config": None,
-                "allow_destroy": False,
-                "allow_non_main": False,
-                "allow_plan_changes": False,
-                "main_branch": "main",
-            }), 0)
-            self.assertFalse(os.path.exists(os.path.join(tmp, "tfplan")))
-        finally:
-            ops.selected_env_pairs = old_pairs
-            ops._check_backend = old_check_backend
-            ops._check_call = old_check_call
-            ops._show_plan_json = old_show
-            ops._current_branch = old_branch
-            shutil.rmtree(tmp, ignore_errors=True)
+        result = self._run_apply_fixture({
+            "format_version": "1.0",
+            "resource_changes": [{
+                "change": {
+                    "actions": ["create"],
+                    "importing": {"id": "123"},
+                }
+            }],
+        })
+        self.assertIsNone(result["error"])
+        self.assertEqual(result["result"], 0)
+        self.assertFalse(result["tfplan_exists"])
+
+    def test_apply_allows_policy_tolerated_update_without_plan_change_override(self):
+        policy = self._write_policy([{
+            "path": "status",
+            "reason": "unit",
+            "approved_by": "unit",
+        }])
+        result = self._run_apply_fixture(
+            self._update_plan(),
+            {"policy": policy},
+        )
+        self.assertIsNone(result["error"])
+        self.assertEqual(result["result"], 0)
+        self.assertIn("TOLERATED: tenant/sample_resource", result["stderr"])
+        self.assertFalse(result["tfplan_exists"])
+
+    def test_apply_blocks_update_not_tolerated_by_policy(self):
+        policy = self._write_policy([{
+            "path": "other_status",
+            "reason": "unit",
+            "approved_by": "unit",
+        }])
+        result = self._run_apply_fixture(
+            self._update_plan(),
+            {"policy": policy},
+        )
+        self.assertIsInstance(result["error"], RuntimeError)
+        self.assertIn("blocked by untolerated changes", str(result["error"]))
+        self.assertTrue(result["tfplan_exists"])
+
+    def test_apply_malformed_policy_fails_closed_before_apply(self):
+        tmp = tempfile.mkdtemp(prefix="ops-bad-policy-")
+        path = os.path.join(tmp, "policy.json")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("{")
+        self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        result = self._run_apply_fixture(
+            self._update_plan(),
+            {"policy": path},
+        )
+        self.assertIsNotNone(result["error"])
+        self.assertEqual(result["calls"], [])
+        self.assertTrue(result["tfplan_exists"])
+
+    def test_apply_allow_plan_changes_is_loud_legacy_override_for_update(self):
+        result = self._run_apply_fixture(
+            self._update_plan(),
+            {"allow_plan_changes": True},
+        )
+        self.assertIsNone(result["error"])
+        self.assertEqual(result["result"], 0)
+        self.assertIn("broad legacy override", result["stderr"])
+        self.assertIn("applying BLOCKED tenant/sample_resource", result["stderr"])
+        self.assertFalse(result["tfplan_exists"])
+
+    def test_apply_allow_plan_changes_does_not_bypass_destroy_guard(self):
+        result = self._run_apply_fixture(
+            self._delete_plan(),
+            {"allow_plan_changes": True},
+        )
+        self.assertIsInstance(result["error"], RuntimeError)
+        self.assertIn("saved plan destroys", str(result["error"]))
+        self.assertTrue(result["tfplan_exists"])
 
     def test_assert_adoptable_warns_on_stale_policy(self):
         tmp = tempfile.mkdtemp(prefix="ops-adoptable-")

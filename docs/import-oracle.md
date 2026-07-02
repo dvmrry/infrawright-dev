@@ -75,7 +75,13 @@ make gen-env TENANT=prod RESOURCE="zpa_application_segment"
 make stage-imports TENANT=prod RESOURCE="zpa_application_segment"
 make plan TENANT=prod RESOURCE="zpa_application_segment" SAVE=1
 make assert-adoptable TENANT=prod RESOURCE="zpa_application_segment" POLICY=policy/prod/drift-policy.json
+make apply TENANT=prod RESOURCE="zpa_application_segment" POLICY=policy/prod/drift-policy.json
 ```
+
+Use the same `POLICY` for `apply` that was used for `assert-adoptable` when a
+saved plan contains intentionally tolerated drift. `ALLOW_PLAN_CHANGES=1`
+remains a broad legacy override for blocked saved plans and is not the normal
+path for policy-backed adoption.
 
 The existing transform path remains available:
 
