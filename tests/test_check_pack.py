@@ -95,6 +95,19 @@ class CheckPackCliTest(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("optional_http_statuses[0] must be an integer", proc.stderr)
 
+    def test_invalid_registry_pagination_value_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            data = _registry()
+            data["sample_resource"]["fetch"]["pagination"] = "ziaa"
+            _write_pack(td, "bad", registry=data)
+            proc = self._run(packs_root=td)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("fetch.pagination unsupported value 'ziaa'", proc.stderr)
+        self.assertIn("allowed values:", proc.stderr)
+        self.assertIn("single", proc.stderr)
+        self.assertIn("zia", proc.stderr)
+        self.assertIn("zpa", proc.stderr)
+
     def test_invalid_override_metadata_fails(self):
         with tempfile.TemporaryDirectory() as td:
             _write_pack(td, "bad", registry=_registry())

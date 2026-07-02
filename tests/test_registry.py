@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 from engine import packs
+from engine.collectors.rest import pagination_styles
 from engine.headroom_report import provider_resources
 from engine.registry import (
     derive_entry,
@@ -119,6 +120,49 @@ class PackRegistryValidationTest(unittest.TestCase):
         for path in packs.registry_paths():
             with open(path, encoding="utf-8") as f:
                 validate_registry(json.load(f), path=path)
+
+    def test_current_committed_pagination_values_are_supported(self):
+        seen = set()
+        for path in packs.registry_paths():
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            validate_registry(data, path=path)
+            for entry in data.values():
+                if "fetch" in entry:
+                    seen.add(entry["fetch"]["pagination"])
+        self.assertTrue(seen)
+        self.assertTrue(seen.issubset(pagination_styles()))
+
+    def test_all_supported_pagination_values_validate(self):
+        for pagination in sorted(pagination_styles()):
+            data = self._registry_metadata()
+            data["sample_resource"]["fetch"]["pagination"] = pagination
+            validate_registry(data, path="packs/sample/registry.json")
+
+    def test_bad_fetch_pagination_value_fails(self):
+        data = self._registry_metadata()
+        data["sample_resource"]["fetch"]["pagination"] = "ziaa"
+        with self.assertRaises(ValueError) as ctx:
+            validate_registry(data, path="packs/sample/registry.json")
+        msg = str(ctx.exception)
+        self.assertIn("packs/sample/registry.json.sample_resource.fetch.pagination", msg)
+        self.assertIn("'ziaa'", msg)
+        self.assertIn("allowed values:", msg)
+        for value in sorted(pagination_styles()):
+            self.assertIn(value, msg)
+
+    def test_derive_policy_type_remains_open_data_value(self):
+        data = {
+            "sample_reorder": {
+                "generate": True,
+                "product": "sample",
+                "derive": {
+                    "from": "sample_resource",
+                    "policy_type": "CUSTOM_POLICY",
+                },
+            },
+        }
+        validate_registry(data, path="packs/sample/registry.json")
 
     def test_unknown_key_in_pack_json_fails(self):
         data = self._pack_metadata()

@@ -129,6 +129,14 @@ path
 
 `optional_http_statuses` must be a list of integers. `expand` is an object of
 string keys to string-list values. `query` is an object of scalar query values.
+`pagination` must be one of the implemented REST collector styles:
+
+```text
+single
+zcc_v2
+zia
+zpa
+```
 
 ### `derive`
 
@@ -144,6 +152,9 @@ Required when `derive` is present:
 ```text
 from
 ```
+
+`policy_type`, when present, is provider data emitted into the derived
+resource config. It is not currently validated as a closed engine enum.
 
 ### `adopt`
 

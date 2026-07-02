@@ -366,6 +366,11 @@ _PAGINATORS = {
 }
 
 
+def pagination_styles():
+    """Supported fetch.pagination values for pack registry validation."""
+    return frozenset(_PAGINATORS)
+
+
 def expand_paths(entry):
     """List of concrete API paths for a fetch entry. Entries may declare
     {"expand": {"placeholder": [values]}} with "{placeholder}" in path —
