@@ -195,13 +195,14 @@ of manually sifting whole API bodies. Live import/plan evidence comes after the
 published API pass, mainly to prove provider semantics or produce actionable
 upstream evidence when the published contract is wrong.
 
-Provider readiness should also grow a generated surface-coverage index: resource
+Provider readiness indexes should be generated from provider schema, surface
+rules, and evidence files rather than hand-maintained tables. Resource
 inventories come from provider schema, surfaces are classified by small
 declarative rules, and live/static evidence files determine whether each
 resource is `static_mapped`, `read_observed`, `write_sampled`,
 `import_verified`, `not_tested_paid`, `not_tested_risky`, or `not_applicable`.
-Humans classify surfaces; tools classify resources and evidence so the index
-does not drift by hand.
+Humans classify surfaces; tools classify resources and evidence so indexes do
+not drift by hand.
 
 ## Status
 

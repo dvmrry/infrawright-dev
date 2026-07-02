@@ -34,9 +34,9 @@ not be treated as authoritative by itself.
 
 ## Surface Map Artifact
 
-`openapi-map` also emits a stable `surface_map` section. This is the contract
-future pack and provider-readiness work should consume when deciding whether a
-Terraform resource has known API read/list evidence.
+`openapi-map` also emits a stable `surface_map` section. This is the shipped
+contract that pack and provider-readiness work should consume when deciding
+whether a Terraform resource has known API read/list evidence.
 
 The JSON shape is documented at
 [`docs/schemas/surface-map.schema.json`](schemas/surface-map.schema.json). Each
@@ -269,7 +269,10 @@ REST path extraction, ConnectRPC/protobuf, or live-only evidence.
 
 ## Zscaler Trial
 
-The generated Zscaler OpenAPI artifacts made the product split clear:
+The generated Zscaler OpenAPI artifacts used during the Zscaler trial made the
+product split clear. Those artifacts are not committed in this repository; when
+re-running the trial, place or generate equivalent files under an ignored local
+work directory such as `local/zscaler-openapi/`.
 
 - `zia.openapi.json`: ZIA
 - `zpa.openapi.json`: ZPA
@@ -285,31 +288,31 @@ Example commands:
 ```bash
 make openapi-map \
   SCHEMA=packs/zia/schemas/provider/zia.json \
-  OPENAPI=/tmp/zscaler-automate-blob-proof/openapi/zia.openapi.json \
+  OPENAPI=local/zscaler-openapi/zia.openapi.json \
   RESOURCE_PREFIX=zia \
   API_PREFIX=/ \
-  OUT=/tmp/infrawright-zscaler-openapi-map/zia.json
+  OUT=reports/readiness/zscaler/zia-openapi-map.json
 
 make openapi-map \
   SCHEMA=packs/zpa/schemas/provider/zpa.json \
-  OPENAPI=/tmp/zscaler-automate-blob-proof/openapi/zpa.openapi.json \
+  OPENAPI=local/zscaler-openapi/zpa.openapi.json \
   RESOURCE_PREFIX=zpa \
   API_PREFIX=/ \
-  OUT=/tmp/infrawright-zscaler-openapi-map/zpa.json
+  OUT=reports/readiness/zscaler/zpa-openapi-map.json
 
 make openapi-map \
   SCHEMA=packs/zcc/schemas/provider/zcc.json \
-  OPENAPI=/tmp/zscaler-automate-blob-proof/openapi/zcc.openapi.json \
+  OPENAPI=local/zscaler-openapi/zcc.openapi.json \
   RESOURCE_PREFIX=zcc \
   API_PREFIX=/ \
-  OUT=/tmp/infrawright-zscaler-openapi-map/zcc.json
+  OUT=reports/readiness/zscaler/zcc-openapi-map.json
 
 make openapi-map \
-  SCHEMA=packs/ztc/schemas/provider/ztc.json \
-  OPENAPI=/tmp/zscaler-automate-blob-proof/openapi/zcloudconnector.openapi.json \
-  RESOURCE_PREFIX=ztc \
+  SCHEMA=local/zscaler-ztw-provider-schema.json \
+  OPENAPI=local/zscaler-openapi/zcloudconnector.openapi.json \
+  RESOURCE_PREFIX=ztw \
   API_PREFIX=/ \
-  OUT=/tmp/infrawright-zscaler-openapi-map/ztc.json
+  OUT=reports/readiness/zscaler/ztw-openapi-map.json
 ```
 
 Current local results:
@@ -319,7 +322,7 @@ Current local results:
 | `zia` | `zia.openapi.json` | `23/72` matched, `3` ambiguous | `53/53` | fetch-backed surface covered |
 | `zpa` | `zpa.openapi.json` | `6/54` matched | `16/16` | parent-scoped/action paths undercount generically |
 | `zcc` | `zcc.openapi.json` | `0/7` matched | `5/5` | action-shaped API undercounts generically |
-| `ztc` | `zcloudconnector.openapi.json` | `15/16` matched, `1` special | `16/16` | ZTW covered; activation is action-shaped |
+| ZTW / Cloud and Branch Connector | `zcloudconnector.openapi.json` | `15/16` matched, `1` special | `16/16` | Covered in the trial using the ZTW Terraform provider schema; activation is action-shaped |
 
 The generic column should not be read as final provider quality. It is surface
 triage and candidate generation:
@@ -333,10 +336,10 @@ triage and candidate generation:
 - ZCC's OpenAPI is action-shaped (`listByCompany`, `edit`, `delete`) rather
   than collection CRUD, so the generic CRUD matcher correctly undercounts while
   registry-backed coverage confirms the current fetch surface exists.
-- ZTW is represented by the Terraform provider `zscaler/ztc`, while the
-  generated OpenAPI artifact is named `zcloudconnector.openapi.json`.
-  `ztc_activation_status` is intentionally reported as a special action resource
-  rather than CRUD.
+- ZTW / Cloud and Branch Connector used the Terraform provider schema available
+  during the trial, while the generated OpenAPI artifact was named
+  `zcloudconnector.openapi.json`. The activation status resource was
+  intentionally reported as a special action resource rather than CRUD.
 
 ## What To Do Next
 

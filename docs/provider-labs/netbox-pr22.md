@@ -1,4 +1,6 @@
-# NetBox Provider Lab PR22
+# NetBox Import-Oracle Provider Lab
+
+Historical report file: `netbox-pr22.md`.
 
 ## Scope
 
@@ -8,8 +10,8 @@ NetBox target.
 
 This is a provider lab report, not a committed NetBox pack. The temporary pack,
 schema dump, raw API details, oracle state, projected tfvars, Terraform roots,
-state, plans, and logs were kept under `/tmp/infrawright-netbox-lab` and are not
-part of this repository.
+state, plans, and logs were kept in an uncommitted temporary lab root and are
+not part of this repository.
 
 ## Environment
 
