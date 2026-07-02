@@ -45,7 +45,9 @@ What each step owns:
 See [Adoption Command Surface](docs/adoption-command-surface.md) for the
 complete command contract and collector boundary, and
 [Import Oracle Adoption](docs/import-oracle.md) for the oracle workflow and
-consumer drift-policy format.
+consumer drift-policy format. Use the
+[Integration Validation Runbook](docs/integration-validation.md) when proving
+the workflow against real provider credentials or a controlled tenant.
 
 ## Safety Model
 

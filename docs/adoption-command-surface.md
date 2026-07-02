@@ -46,6 +46,11 @@ applying blocked saved plans; it is noisy, should not replace explicit drift
 policy, and does not bypass `ALLOW_DESTROY=1` for destructive or replacement
 plans.
 
+For real provider/tenant validation, use the
+[Integration Validation Runbook](integration-validation.md) to capture evidence
+and classify failures before turning them into engine, pack, collector, or
+documentation work.
+
 ## Raw Transform Path
 
 `make transform` remains a maintained path for demo generation, pack
