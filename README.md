@@ -48,6 +48,8 @@ Generated env roots resolve module sources from deployment-configured
 `module_dir`; the shipped demo generates `demo/modules/default` on demand.
 See [Repository Surface](docs/repo-surface.md) for the keep/prune policy across
 core, demo, packs, tools, release scripts, and archived docs.
+See [Pack Authoring Contract](docs/pack-authoring.md) for the current validated
+`pack.json` and `registry.json` vocabulary.
 
 The root `Makefile` is the stable product command surface. Deployment-specific
 workflow targets can live in optional extension Makefiles:
