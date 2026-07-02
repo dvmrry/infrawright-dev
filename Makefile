@@ -11,7 +11,7 @@ ifneq ($(strip $(OVERLAY)),)
 -include $(OVERLAY)/local.mk
 endif
 
-.PHONY: check-demo check-modules check test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: check-demo check-modules check-pack check test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
 	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1
@@ -24,7 +24,10 @@ check-modules: ## Generate every module into a temp deployment to catch generato
 	INFRAWRIGHT_DEPLOYMENT="$$tmp/deployment.json" $(PYTHON) -m engine.gen_module > /dev/null 2>&1; \
 	$(PYTHON) -m engine.gen_module --check-output "$$tmp/modules" > /dev/null
 
-check: test check-demo check-modules ## Full gate: unit tests + demo + module generator smoke
+check-pack: ## Validate pack.json and registry.json metadata ([PACK=<name>])
+	$(PYTHON) -m engine.check_pack $(if $(PACK),--pack "$(PACK)")
+
+check: test check-demo check-modules check-pack ## Full gate: unit tests + demo + module generator smoke + pack metadata validation
 
 test: ## Run engine unit tests
 	$(PYTHON) -m unittest discover -s tests -t . -v

@@ -28,6 +28,8 @@ maintained development evidence.
 - Root `Makefile` targets are the stable product command surface.
 - The adoption command contract and collector boundary are documented in
   [Adoption Command Surface](adoption-command-surface.md).
+- The validated pack metadata contract is documented in
+  [Pack Authoring Contract](pack-authoring.md).
 - `local.mk`, `<overlay>/Makefile`, and `<overlay>/local.mk` are extension
   hooks for local or overlay-specific workflow targets.
 - Exactly one overlay is active per command. Use separate deployment files for
