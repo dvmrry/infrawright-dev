@@ -11,15 +11,185 @@ from engine import packs
 
 _cache = {}
 
+REGISTRY_RESOURCE_KEYS = set(["adopt", "derive", "fetch", "generate", "product"])
+REGISTRY_REQUIRED_RESOURCE_KEYS = set(["product"])
+FETCH_KEYS = set([
+    "envelope",
+    "expand",
+    "optional_http_statuses",
+    "pagination",
+    "path",
+    "query",
+])
+FETCH_REQUIRED_KEYS = set(["pagination", "path"])
+DERIVE_KEYS = set(["from", "policy_type"])
+DERIVE_REQUIRED_KEYS = set(["from"])
+ADOPT_KEYS = set([
+    "identity_fields",
+    "identity_renames",
+    "import_id",
+    "key_field",
+    "skip_if",
+])
+
 
 def load_registry():
     """Merge every pack's registry.json. One pack today; one per provider
     after the split — provider 'product' fields keep entries disjoint."""
     if not _cache:
+        merged = {}
+        owners = {}
         for path in packs.registry_paths():
             with open(path, encoding="utf-8") as f:
-                _cache.update(json.load(f))
+                data = json.load(f)
+            validate_registry(data, path=path)
+            for resource_type, entry in data.items():
+                if resource_type in merged:
+                    raise ValueError(
+                        "%s: duplicate resource type %r already loaded from %s"
+                        % (path, resource_type, owners[resource_type])
+                    )
+                merged[resource_type] = entry
+                owners[resource_type] = path
+        _cache.update(merged)
     return _cache
+
+
+def _where(path):
+    return path or "registry.json"
+
+
+def _reject_unknown_keys(data, allowed, path):
+    unknown = sorted(set(data) - allowed)
+    if unknown:
+        raise ValueError("%s: unknown key %s" % (path, unknown[0]))
+
+
+def _require_keys(data, required, path):
+    missing = sorted(required - set(data))
+    if missing:
+        raise ValueError("%s: missing required key %s" % (path, missing[0]))
+
+
+def _require_non_empty_string(value, path):
+    if not isinstance(value, str) or not value:
+        raise ValueError("%s must be a non-empty string" % path)
+
+
+def _validate_query(value, path):
+    if not isinstance(value, dict):
+        raise ValueError("%s must be an object" % path)
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise ValueError("%s keys must be strings" % path)
+        if not isinstance(item, (str, int, float, bool)) and item is not None:
+            raise ValueError(
+                "%s.%s must be a scalar query value" % (path, key)
+            )
+
+
+def _validate_expand(value, path):
+    if not isinstance(value, dict):
+        raise ValueError("%s must be an object" % path)
+    for key, values in value.items():
+        if not isinstance(key, str) or not key:
+            raise ValueError("%s keys must be non-empty strings" % path)
+        if not isinstance(values, list):
+            raise ValueError("%s.%s must be a list" % (path, key))
+        for idx, item in enumerate(values):
+            if not isinstance(item, str) or not item:
+                raise ValueError(
+                    "%s.%s[%d] must be a non-empty string" % (path, key, idx)
+                )
+
+
+def _validate_statuses(value, path):
+    if not isinstance(value, list):
+        raise ValueError("%s must be a list" % path)
+    for idx, item in enumerate(value):
+        if not isinstance(item, int) or isinstance(item, bool):
+            raise ValueError("%s[%d] must be an integer" % (path, idx))
+
+
+def _validate_fetch(fetch, path):
+    if not isinstance(fetch, dict):
+        raise ValueError("%s must be an object" % path)
+    _reject_unknown_keys(fetch, FETCH_KEYS, path)
+    _require_keys(fetch, FETCH_REQUIRED_KEYS, path)
+    _require_non_empty_string(fetch.get("pagination"), "%s.pagination" % path)
+    _require_non_empty_string(fetch.get("path"), "%s.path" % path)
+    if "envelope" in fetch:
+        _require_non_empty_string(fetch["envelope"], "%s.envelope" % path)
+    if "query" in fetch:
+        _validate_query(fetch["query"], "%s.query" % path)
+    if "expand" in fetch:
+        _validate_expand(fetch["expand"], "%s.expand" % path)
+    if "optional_http_statuses" in fetch:
+        _validate_statuses(
+            fetch["optional_http_statuses"],
+            "%s.optional_http_statuses" % path,
+        )
+
+
+def _validate_derive(derive, path):
+    if not isinstance(derive, dict):
+        raise ValueError("%s must be an object" % path)
+    _reject_unknown_keys(derive, DERIVE_KEYS, path)
+    _require_keys(derive, DERIVE_REQUIRED_KEYS, path)
+    _require_non_empty_string(derive.get("from"), "%s.from" % path)
+    if "policy_type" in derive:
+        _require_non_empty_string(
+            derive["policy_type"], "%s.policy_type" % path
+        )
+
+
+def _validate_string_map(value, path):
+    if not isinstance(value, dict):
+        raise ValueError("%s must be an object" % path)
+    for key, item in value.items():
+        if not isinstance(key, str) or not key:
+            raise ValueError("%s keys must be non-empty strings" % path)
+        if not isinstance(item, str) or not item:
+            raise ValueError("%s.%s must be a non-empty string" % (path, key))
+
+
+def _validate_adopt(adopt, path):
+    if not isinstance(adopt, dict):
+        raise ValueError("%s must be an object" % path)
+    _reject_unknown_keys(adopt, ADOPT_KEYS, path)
+    for key in ("key_field", "import_id"):
+        if key in adopt:
+            _require_non_empty_string(adopt[key], "%s.%s" % (path, key))
+    for key in ("identity_renames", "identity_fields"):
+        if key in adopt:
+            _validate_string_map(adopt[key], "%s.%s" % (path, key))
+    if "skip_if" in adopt and not isinstance(adopt["skip_if"], list):
+        raise ValueError("%s.skip_if must be a list" % path)
+
+
+def validate_registry(data, path=None):
+    """Validate registry.json metadata vocabulary."""
+    path = _where(path)
+    if not isinstance(data, dict):
+        raise ValueError("%s must contain a JSON object" % path)
+    for resource_type, entry in data.items():
+        if not isinstance(resource_type, str) or not resource_type:
+            raise ValueError("%s resource keys must be non-empty strings" % path)
+        label = "%s.%s" % (path, resource_type)
+        if not isinstance(entry, dict):
+            raise ValueError("%s must be an object" % label)
+        _reject_unknown_keys(entry, REGISTRY_RESOURCE_KEYS, label)
+        _require_keys(entry, REGISTRY_REQUIRED_RESOURCE_KEYS, label)
+        if "generate" in entry and not isinstance(entry.get("generate"), bool):
+            raise ValueError("%s.generate must be a boolean" % label)
+        _require_non_empty_string(entry.get("product"), "%s.product" % label)
+        if "fetch" in entry:
+            _validate_fetch(entry["fetch"], "%s.fetch" % label)
+        if "derive" in entry:
+            _validate_derive(entry["derive"], "%s.derive" % label)
+        if "adopt" in entry:
+            _validate_adopt(entry["adopt"], "%s.adopt" % label)
+    return data
 
 
 def generated_types():

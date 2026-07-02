@@ -1,6 +1,11 @@
 """Tests for engine.registry."""
+import json
+import os
+import shutil
+import tempfile
 import unittest
 
+from engine import packs
 from engine.headroom_report import provider_resources
 from engine.registry import (
     derive_entry,
@@ -9,6 +14,7 @@ from engine.registry import (
     generated_types,
     load_registry,
     reload_registry,
+    validate_registry,
 )
 
 
@@ -52,3 +58,125 @@ class RegistryTest(unittest.TestCase):
         reg = reload_registry()
         self.assertEqual(reg, load_registry())
         self.assertIn("zpa_segment_group", reg)
+
+
+class PackRegistryValidationTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="pack-registry-validation-")
+        self.prev = os.environ.get("INFRAWRIGHT_PACKS")
+        os.environ.pop("INFRAWRIGHT_PACKS", None)
+        packs.reset()
+        reload_registry()
+
+    def tearDown(self):
+        if self.prev is None:
+            os.environ.pop("INFRAWRIGHT_PACKS", None)
+        else:
+            os.environ["INFRAWRIGHT_PACKS"] = self.prev
+        packs.reset()
+        reload_registry()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _pack_metadata(self):
+        return {
+            "pin": "1.0.0",
+            "provider_prefixes": {"sample_": "sample"},
+            "provider_sources": {"sample": "example/sample"},
+            "vendor": "sample",
+        }
+
+    def _registry_metadata(self, resource_type="sample_resource"):
+        return {
+            resource_type: {
+                "generate": True,
+                "product": "sample",
+                "fetch": {
+                    "pagination": "single",
+                    "path": "sample/path",
+                },
+            },
+        }
+
+    def _write_pack(self, name, pack=None, registry=None):
+        root = os.path.join(self.tmp, name)
+        os.makedirs(root)
+        with open(os.path.join(root, "pack.json"), "w", encoding="utf-8") as f:
+            json.dump(pack or self._pack_metadata(), f)
+        if registry is not None:
+            with open(os.path.join(root, "registry.json"), "w", encoding="utf-8") as f:
+                json.dump(registry, f)
+
+    def _activate_tmp_packs(self):
+        os.environ["INFRAWRIGHT_PACKS"] = self.tmp
+        packs.reset()
+        reload_registry()
+
+    def test_current_committed_pack_metadata_validates(self):
+        for manifest in packs._manifests():
+            self.assertIn("_name", manifest)
+
+    def test_current_committed_registries_validate(self):
+        for path in packs.registry_paths():
+            with open(path, encoding="utf-8") as f:
+                validate_registry(json.load(f), path=path)
+
+    def test_unknown_key_in_pack_json_fails(self):
+        data = self._pack_metadata()
+        data["rename"] = {}
+        with self.assertRaises(ValueError) as ctx:
+            packs.validate_pack_metadata(data, path="packs/sample/pack.json")
+        self.assertIn("unknown key rename", str(ctx.exception))
+
+    def test_missing_required_key_in_pack_json_fails(self):
+        data = self._pack_metadata()
+        data["lookup_sources"] = {"sample_resource": {}}
+        with self.assertRaises(ValueError) as ctx:
+            packs.validate_pack_metadata(data, path="packs/sample/pack.json")
+        self.assertIn("missing required key name_field", str(ctx.exception))
+
+    def test_wrong_type_in_pack_json_fails(self):
+        data = self._pack_metadata()
+        data["provider_prefixes"] = []
+        with self.assertRaises(ValueError) as ctx:
+            packs.validate_pack_metadata(data, path="packs/sample/pack.json")
+        self.assertIn("provider_prefixes must be an object", str(ctx.exception))
+
+    def test_unknown_per_resource_key_in_registry_fails(self):
+        data = self._registry_metadata()
+        data["sample_resource"]["rename"] = {}
+        with self.assertRaises(ValueError) as ctx:
+            validate_registry(data, path="packs/sample/registry.json")
+        self.assertIn("unknown key rename", str(ctx.exception))
+
+    def test_missing_required_per_resource_key_in_registry_fails(self):
+        data = self._registry_metadata()
+        del data["sample_resource"]["product"]
+        with self.assertRaises(ValueError) as ctx:
+            validate_registry(data, path="packs/sample/registry.json")
+        self.assertIn("missing required key product", str(ctx.exception))
+
+    def test_wrong_type_in_registry_fails(self):
+        data = self._registry_metadata()
+        data["sample_resource"]["fetch"]["optional_http_statuses"] = ["403"]
+        with self.assertRaises(ValueError) as ctx:
+            validate_registry(data, path="packs/sample/registry.json")
+        self.assertIn("optional_http_statuses[0] must be an integer", str(ctx.exception))
+
+    def test_duplicate_resource_type_across_registries_fails(self):
+        self._write_pack("one", registry=self._registry_metadata("sample_resource"))
+        self._write_pack("two", registry=self._registry_metadata("sample_resource"))
+        os.environ["INFRAWRIGHT_PACKS"] = self.tmp
+        packs.reset()
+        with self.assertRaises(ValueError) as ctx:
+            reload_registry()
+        self.assertIn("duplicate resource type 'sample_resource'", str(ctx.exception))
+
+    def test_existing_registry_lookups_still_work_with_valid_pack(self):
+        self._write_pack("one", registry=self._registry_metadata("sample_resource"))
+        os.environ["INFRAWRIGHT_PACKS"] = self.tmp
+        packs.reset()
+        reload_registry()
+        self.assertEqual(generated_types(), ["sample_resource"])
+        entry = fetch_entry("sample_resource")
+        self.assertEqual(entry["product"], "sample")
+        self.assertEqual(entry["path"], "sample/path")

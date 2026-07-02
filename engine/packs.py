@@ -23,6 +23,38 @@ _DEFAULT_PACKS_ROOT = os.path.join(
 
 _MANIFESTS = None
 
+PACK_METADATA_KEYS = set([
+    "absent_defaults",
+    "dynamic_schema",
+    "lookup_sources",
+    "pin",
+    "provider_config",
+    "provider_prefixes",
+    "provider_sources",
+    "references",
+    "scope_segments",
+    "sensitive_required",
+    "unescape_products",
+    "vendor",
+])
+
+PACK_REQUIRED_KEYS = set()
+
+PACK_DICT_KEYS = set([
+    "absent_defaults",
+    "dynamic_schema",
+    "lookup_sources",
+    "provider_config",
+    "provider_prefixes",
+    "provider_sources",
+    "references",
+    "scope_segments",
+    "sensitive_required",
+])
+
+PACK_STRING_KEYS = set(["pin", "vendor"])
+PACK_LIST_KEYS = set(["unescape_products"])
+
 
 def packs_root():
     """Effective packs/ directory: INFRAWRIGHT_PACKS if set, else the
@@ -52,10 +84,168 @@ def _manifests():
                 if os.path.isfile(path):
                     with open(path, encoding="utf-8") as f:
                         manifest = json.load(f)
+                    validate_pack_metadata(manifest, path=path)
                     manifest["_name"] = name
                     found.append(manifest)
         _MANIFESTS = found
     return _MANIFESTS
+
+
+def _where(path):
+    return path or "pack.json"
+
+
+def _require_keys(data, required, path):
+    missing = sorted(required - set(data))
+    if missing:
+        raise ValueError("%s: missing required key %s" % (path, missing[0]))
+
+
+def _reject_unknown_keys(data, allowed, path):
+    unknown = sorted(set(data) - allowed)
+    if unknown:
+        raise ValueError("%s: unknown key %s" % (path, unknown[0]))
+
+
+def _require_type(data, key, expected, path):
+    if key in data and not isinstance(data[key], expected):
+        typename = _type_name(expected)
+        article = "an" if typename.startswith(("o", "a", "e", "i", "u")) else "a"
+        raise ValueError("%s.%s must be %s %s" % (
+            path, key, article, typename
+        ))
+
+
+def _type_name(expected):
+    if expected is dict:
+        return "object"
+    if expected is list:
+        return "list"
+    if expected is str:
+        return "string"
+    return expected.__name__
+
+
+def _validate_string_map(value, path):
+    for key, item in value.items():
+        if not isinstance(key, str) or not key:
+            raise ValueError("%s keys must be non-empty strings" % path)
+        if not isinstance(item, str) or not item:
+            raise ValueError("%s.%s must be a non-empty string" % (path, key))
+
+
+def _validate_unescape_products(value, path):
+    for idx, item in enumerate(value):
+        if not isinstance(item, str) or not item:
+            raise ValueError("%s[%d] must be a non-empty string" % (path, idx))
+
+
+def _validate_lookup_sources(value, path):
+    for resource_type, item in value.items():
+        if not isinstance(resource_type, str) or not resource_type:
+            raise ValueError("%s keys must be non-empty strings" % path)
+        if not isinstance(item, dict):
+            raise ValueError("%s.%s must be an object" % (path, resource_type))
+        _reject_unknown_keys(item, set(["name_field"]), "%s.%s" % (
+            path, resource_type
+        ))
+        _require_keys(item, set(["name_field"]), "%s.%s" % (
+            path, resource_type
+        ))
+        if not isinstance(item["name_field"], str) or not item["name_field"]:
+            raise ValueError("%s.%s.name_field must be a non-empty string" % (
+                path, resource_type
+            ))
+
+
+def _validate_references(value, path):
+    for resource_type, fields in value.items():
+        if not isinstance(resource_type, str) or not resource_type:
+            raise ValueError("%s keys must be non-empty strings" % path)
+        if not isinstance(fields, dict):
+            raise ValueError("%s.%s must be an object" % (path, resource_type))
+        for field, item in fields.items():
+            if not isinstance(field, str) or not field:
+                raise ValueError("%s.%s keys must be non-empty strings" % (
+                    path, resource_type
+                ))
+            label = "%s.%s.%s" % (path, resource_type, field)
+            if not isinstance(item, dict):
+                raise ValueError("%s must be an object" % label)
+            _reject_unknown_keys(item, set(["name_field", "referent"]), label)
+            _require_keys(item, set(["name_field", "referent"]), label)
+            for key in ("name_field", "referent"):
+                if not isinstance(item[key], str) or not item[key]:
+                    raise ValueError("%s.%s must be a non-empty string" % (
+                        label, key
+                    ))
+
+
+def _validate_rule_group(data, key, path):
+    if key not in data:
+        return
+    group = data[key]
+    _reject_unknown_keys(group, set(["rules"]), "%s.%s" % (path, key))
+    if "rules" not in group:
+        raise ValueError("%s.%s missing required key rules" % (path, key))
+    if not isinstance(group["rules"], list):
+        raise ValueError("%s.%s.rules must be a list" % (path, key))
+
+
+def _validate_provider_config(data, path):
+    if "provider_config" not in data:
+        return
+    group = data["provider_config"]
+    _reject_unknown_keys(group, set(["requirements"]), "%s.provider_config" % path)
+    if "requirements" not in group:
+        raise ValueError(
+            "%s.provider_config missing required key requirements" % path
+        )
+    if not isinstance(group["requirements"], list):
+        raise ValueError("%s.provider_config.requirements must be a list" % path)
+
+
+def validate_pack_metadata(data, path=None):
+    """Validate pack.json metadata vocabulary.
+
+    This is intentionally a small structural gate. Detailed diagnostic-rule
+    semantics stay in their lane-specific validators.
+    """
+    path = _where(path)
+    if not isinstance(data, dict):
+        raise ValueError("%s must contain a JSON object" % path)
+    _reject_unknown_keys(data, PACK_METADATA_KEYS, path)
+    _require_keys(data, PACK_REQUIRED_KEYS, path)
+
+    for key in PACK_DICT_KEYS:
+        _require_type(data, key, dict, path)
+    for key in PACK_STRING_KEYS:
+        _require_type(data, key, str, path)
+        if key in data and not data[key]:
+            raise ValueError("%s.%s must be a non-empty string" % (path, key))
+    for key in PACK_LIST_KEYS:
+        _require_type(data, key, list, path)
+
+    _validate_string_map(data.get("provider_prefixes", {}),
+                         "%s.provider_prefixes" % path)
+    _validate_string_map(data.get("provider_sources", {}),
+                         "%s.provider_sources" % path)
+    _validate_string_map(data.get("scope_segments", {}),
+                         "%s.scope_segments" % path)
+    if "unescape_products" in data:
+        _validate_unescape_products(
+            data["unescape_products"], "%s.unescape_products" % path
+        )
+    if "lookup_sources" in data:
+        _validate_lookup_sources(
+            data["lookup_sources"], "%s.lookup_sources" % path
+        )
+    if "references" in data:
+        _validate_references(data["references"], "%s.references" % path)
+    for key in ("absent_defaults", "dynamic_schema", "sensitive_required"):
+        _validate_rule_group(data, key, path)
+    _validate_provider_config(data, path)
+    return data
 
 
 def provider_prefixes():
