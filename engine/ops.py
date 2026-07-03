@@ -459,7 +459,8 @@ def _guidance_annotations(plan, resource_type):
 
 def _print_findings(findings, guidance_annotations=None):
     from engine import adoption_guidance
-    from engine.plan_eval import BLOCKED, TOLERATED, format_path
+    from engine.paths import format_path
+    from engine.plan_eval import BLOCKED, TOLERATED
 
     guidance_annotations = guidance_annotations or []
     all_annotations = []

@@ -8,8 +8,8 @@ from engine.plan_eval import (
     TOLERATED,
     classify_plan,
     diff_paths,
-    format_path,
 )
+from engine.paths import format_path
 
 
 def _update(before, after):

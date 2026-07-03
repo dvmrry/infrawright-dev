@@ -1,6 +1,6 @@
 """Stable dotted-path inventory for JSON-like values."""
 
-LIST_MARKER = "[]"
+from engine.paths import LIST_MARKER, format_path
 
 
 def leaf_paths(value, normalize_lists=True):
@@ -26,25 +26,3 @@ def _walk(value, path, out, normalize_lists):
             _walk(child, path + (segment,), out, normalize_lists)
         return
     out.add(format_path(path))
-
-
-def format_path(path):
-    if isinstance(path, str):
-        return path
-    if not path:
-        return "<root>"
-    parts = []
-    for segment in path:
-        if segment == LIST_MARKER:
-            if parts:
-                parts[-1] = parts[-1] + LIST_MARKER
-            else:
-                parts.append(LIST_MARKER)
-        elif isinstance(segment, int):
-            if parts:
-                parts[-1] = "%s[%d]" % (parts[-1], segment)
-            else:
-                parts.append("[%d]" % segment)
-        else:
-            parts.append(str(segment))
-    return ".".join(parts)
