@@ -9,7 +9,9 @@ This lab exercised the import-oracle adoption path and static advisory report
 against a disposable `<provider>` target. This is a provider lab report, not a
 committed provider pack. Temporary packs, schemas, raw API details, oracle state,
 projected tfvars, Terraform roots, state, plans, and logs were kept under
-`/tmp/infrawright-<provider>-lab` and are not part of this repository.
+an uncommitted lab root such as `local/provider-labs/<provider>-lab`, or
+another private temporary root outside the repository. They are not part of this
+repository.
 
 ## Summary
 
@@ -51,7 +53,7 @@ unless the ID is intentionally public fixture context.>`
 | Terraform provider | `<source>` `<version>` |
 | Terraform/OpenTofu | `<version>` |
 | Lab run prefix | `<prefix>` |
-| Temporary root | `/tmp/infrawright-<provider>-lab` |
+| Temporary root | `local/provider-labs/<provider>-lab` or private temp root |
 | Live cleanup | `<completed/partial/not-created>` |
 
 Provider credentials were supplied by environment variables. No remote backend

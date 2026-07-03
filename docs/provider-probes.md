@@ -42,7 +42,7 @@ make provider-probe RECIPE=docs/recipes/providers/digitalocean.json
 By default, outputs are written under:
 
 ```text
-/tmp/infrawright-provider-probes/<provider>/artifacts/
+local/provider-probes/<provider>/artifacts/
 ```
 
 The important artifacts are:
@@ -60,10 +60,13 @@ Use `WORK_DIR`, `OUT`, and `MARKDOWN` to copy summaries somewhere explicit:
 ```bash
 make provider-probe \
   RECIPE=docs/recipes/providers/github.json \
-  WORK_DIR=/tmp/infrawright-provider-probes/github \
-  OUT=/tmp/github-probe-summary.json \
-  MARKDOWN=/tmp/github-probe-summary.md
+  WORK_DIR=local/provider-probes/github \
+  OUT=reports/provider-probes/github-summary.json \
+  MARKDOWN=reports/provider-probes/github-summary.md
 ```
+
+Keep `local/provider-probes/` and any generated `reports/provider-probes/`
+outputs uncommitted unless a PR is explicitly adding sanitized evidence.
 
 ## Reading Results
 

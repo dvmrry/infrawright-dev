@@ -27,7 +27,9 @@ smallest engine or pack follow-ups needed to productize adoption.
 ## Standard Workflow
 
 1. Create a fresh branch from `main` for the report.
-2. Create all temporary lab artifacts under `/tmp/infrawright-<provider>-lab`.
+2. Create all temporary lab artifacts under an uncommitted lab root such as
+   `local/provider-labs/<provider>-lab`, or another private temporary root
+   outside the repository.
 3. Use a temporary `INFRAWRIGHT_PACKS` root with only the resources under test.
 4. Extract the provider schema from the exact provider version under test.
 5. Seed only disposable resources with a unique lab prefix.
@@ -100,10 +102,13 @@ Use one realpath-normalized lab root:
 ```bash
 export LAB_ROOT="$(python3 - <<'PY'
 import os
-print(os.path.realpath("/tmp/infrawright-<provider>-lab"))
+print(os.path.realpath("local/provider-labs/<provider>-lab"))
 PY
 )"
 ```
+
+If the lab root is inside the worktree, keep it uncommitted. Add it to
+`.git/info/exclude` locally if needed; do not commit raw lab artifacts.
 
 Set shared Terraform paths inside that root:
 
