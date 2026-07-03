@@ -12,8 +12,6 @@ import importlib
 import json
 import os
 
-from engine import absent_defaults_validator
-
 # The packs/ dir is anchored to the install (engine/.. == repo root), NOT the
 # current working directory: importing the engine from any cwd must neither
 # crash nor silently resolve to a different packs/. Override with the
@@ -467,6 +465,20 @@ def provider_config_requirements(provider=None):
     return out
 
 
+def _lane_rules(manifest_key, provider, validate):
+    out = []
+    for m in _manifests():
+        cfg = m.get(manifest_key) or {}
+        providers = sorted(set((m.get("provider_prefixes") or {}).values()))
+        for rule in cfg.get("rules") or []:
+            item = dict(rule)
+            if "provider" not in item and len(providers) == 1:
+                item["provider"] = providers[0]
+            if provider is None or item.get("provider") == provider:
+                out.append(item)
+    return validate(out, provider_prefixes=provider_prefixes())
+
+
 def absent_default_rules(provider=None):
     """Absent/default rule metadata declared by pack manifests.
 
@@ -490,19 +502,10 @@ def absent_default_rules(provider=None):
     This only exposes validated metadata. It does not normalize values, omit
     values, change projection, or change drift policy.
     """
-    out = []
-    for m in _manifests():
-        cfg = m.get("absent_defaults") or {}
-        providers = sorted(set((m.get("provider_prefixes") or {}).values()))
-        for rule in cfg.get("rules") or []:
-            item = dict(rule)
-            if "provider" not in item and len(providers) == 1:
-                item["provider"] = providers[0]
-            if provider is None or item.get("provider") == provider:
-                out.append(item)
-    return absent_defaults_validator.validate_absent_default_rules(
-        out,
-        provider_prefixes=provider_prefixes(),
+    from engine import absent_defaults_validator
+    return _lane_rules(
+        "absent_defaults", provider,
+        absent_defaults_validator.validate_absent_default_rules,
     )
 
 
@@ -530,20 +533,10 @@ def dynamic_schema_rules(provider=None):
     This only exposes validated metadata. It does not project paths, omit paths,
     change projection, or change drift policy.
     """
-    out = []
-    for m in _manifests():
-        cfg = m.get("dynamic_schema") or {}
-        providers = sorted(set((m.get("provider_prefixes") or {}).values()))
-        for rule in cfg.get("rules") or []:
-            item = dict(rule)
-            if "provider" not in item and len(providers) == 1:
-                item["provider"] = providers[0]
-            if provider is None or item.get("provider") == provider:
-                out.append(item)
     from engine import dynamic_schema_validator
-    return dynamic_schema_validator.validate_dynamic_schema_rules(
-        out,
-        provider_prefixes=provider_prefixes(),
+    return _lane_rules(
+        "dynamic_schema", provider,
+        dynamic_schema_validator.validate_dynamic_schema_rules,
     )
 
 
@@ -573,19 +566,9 @@ def sensitive_required_rules(provider=None):
     render placeholders, omit paths, or change adoption behavior.
     """
     from engine import sensitive_required_validator
-    out = []
-    for m in _manifests():
-        cfg = m.get("sensitive_required") or {}
-        providers = sorted(set((m.get("provider_prefixes") or {}).values()))
-        for rule in cfg.get("rules") or []:
-            item = dict(rule)
-            if "provider" not in item and len(providers) == 1:
-                item["provider"] = providers[0]
-            if provider is None or item.get("provider") == provider:
-                out.append(item)
-    return sensitive_required_validator.validate_sensitive_required_rules(
-        out,
-        provider_prefixes=provider_prefixes(),
+    return _lane_rules(
+        "sensitive_required", provider,
+        sensitive_required_validator.validate_sensitive_required_rules,
     )
 
 
