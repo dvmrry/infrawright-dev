@@ -86,80 +86,52 @@ def _provider_config_items():
     return out
 
 
+def _rule_item(rule, class_name, always_keys, optional_keys):
+    item = {
+        "provider": rule["provider"],
+        "class": class_name,
+        "kind": rule["kind"],
+        "action": rule["action"],
+        "behavior_effect": "validation_only",
+        "evidence": rule["evidence"],
+        "reason": rule["reason"],
+        "source": rule,
+    }
+    for key in always_keys:
+        item[key] = rule.get(key)
+    for key in ("resource_type", "resource_prefix") + tuple(optional_keys):
+        if key in rule:
+            item[key] = rule[key]
+    return item
+
+
 def _absent_default_items():
-    out = []
-    for rule in packs.absent_default_rules():
-        item = {
-            "provider": rule["provider"],
-            "class": "absent_default",
-            "kind": rule["kind"],
-            "action": rule["action"],
-            "behavior_effect": "validation_only",
-            "evidence": rule["evidence"],
-            "reason": rule["reason"],
-            "source": rule,
-            "path": rule.get("path"),
-            "observed_value": rule.get("observed_value"),
-        }
-        if "resource_type" in rule:
-            item["resource_type"] = rule["resource_type"]
-        if "resource_prefix" in rule:
-            item["resource_prefix"] = rule["resource_prefix"]
-        out.append(item)
-    return out
+    return [
+        _rule_item(rule, "absent_default",
+                   always_keys=("path", "observed_value"), optional_keys=())
+        for rule in packs.absent_default_rules()
+    ]
 
 
 def _dynamic_schema_items():
-    out = []
-    for rule in packs.dynamic_schema_rules():
-        item = {
-            "provider": rule["provider"],
-            "class": "dynamic_schema",
-            "kind": rule["kind"],
-            "action": rule["action"],
-            "behavior_effect": "validation_only",
-            "evidence": rule["evidence"],
-            "reason": rule["reason"],
-            "source": rule,
-            "path": rule.get("path"),
-            "ownership": rule.get("ownership"),
-            "provider_version_constraint": rule.get("provider_version_constraint"),
-        }
-        if "resource_type" in rule:
-            item["resource_type"] = rule["resource_type"]
-        if "resource_prefix" in rule:
-            item["resource_prefix"] = rule["resource_prefix"]
-        out.append(item)
-    return out
+    return [
+        _rule_item(rule, "dynamic_schema",
+                   always_keys=("path", "ownership",
+                                "provider_version_constraint"),
+                   optional_keys=())
+        for rule in packs.dynamic_schema_rules()
+    ]
 
 
 def _sensitive_required_items():
-    out = []
-    for rule in packs.sensitive_required_rules():
-        item = {
-            "provider": rule["provider"],
-            "class": "sensitive_required",
-            "kind": rule["kind"],
-            "action": rule["action"],
-            "behavior_effect": "validation_only",
-            "evidence": rule["evidence"],
-            "reason": rule["reason"],
-            "source": rule,
-            "id": rule["id"],
-            "provider_version_constraint": rule.get("provider_version_constraint"),
-            "path": rule.get("path"),
-            "sensitivity": rule.get("sensitivity"),
-            "structural_requirement": rule.get("structural_requirement"),
-        }
-        if "resource_type" in rule:
-            item["resource_type"] = rule["resource_type"]
-        if "resource_prefix" in rule:
-            item["resource_prefix"] = rule["resource_prefix"]
-        for key in ("raw_api_path", "projected_path", "plan_path"):
-            if key in rule:
-                item[key] = rule[key]
-        out.append(item)
-    return out
+    return [
+        _rule_item(rule, "sensitive_required",
+                   always_keys=("id", "provider_version_constraint", "path",
+                                "sensitivity", "structural_requirement"),
+                   optional_keys=("raw_api_path", "projected_path",
+                                  "plan_path"))
+        for rule in packs.sensitive_required_rules()
+    ]
 
 
 def _matches_resource_type(item, resource_type):
