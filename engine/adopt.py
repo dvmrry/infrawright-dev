@@ -3,9 +3,9 @@ import json
 import os
 import sys
 
+from engine import artifacts
 from engine import deployment
 from engine import lookup
-from engine import ops
 from engine import transform
 from engine.adoption_meta import (
     adoption_entry,
@@ -75,9 +75,9 @@ def write_outputs(resource_type, raw_items, tenant, policy):
         )
         sys.stderr.write("wrote %s\n" % lookup_path)
 
-    tfvars_path = ops.config_file(tenant, resource_type)
-    imports_path = ops.imports_file(tenant, resource_type)
-    moves_path = ops.moves_file(tenant, resource_type)
+    tfvars_path = artifacts.config_file(tenant, resource_type)
+    imports_path = artifacts.imports_file(tenant, resource_type)
+    moves_path = artifacts.moves_file(tenant, resource_type)
     override = {"import_id": adoption_entry(resource_type)["import_id"]}
     new_imports = transform.render_imports(resource_type, originals, override)
     move_result = transform.MoveDerivationResult(moves=[], suppressed=[])
@@ -121,8 +121,8 @@ def main(argv=None):
         )
         return 2
     resource_type, input_path, tenant = argv
-    ops.validate_tenant(tenant)
-    ops.validate_resource_type(resource_type)
+    artifacts.validate_tenant(tenant)
+    artifacts.validate_resource_type(resource_type)
     policy = DriftPolicy.load(policy_path)
     try:
         with open(input_path, encoding="utf-8") as f:

@@ -12,9 +12,9 @@ import os
 import subprocess
 import sys
 
+from engine import artifacts
 from engine import deployment
 from engine import expression_bindings
-from engine import ops
 from engine import packs
 
 ENVS_ROOT = "envs"
@@ -26,19 +26,19 @@ def _provider_of(resource_type):
 
 
 def _config_file(tenant, resource_type):
-    return ops.config_file(tenant, resource_type)
+    return artifacts.config_file(tenant, resource_type)
 
 
 def _expression_bindings_file(tenant, resource_type):
-    return ops.expression_bindings_file(tenant, resource_type)
+    return artifacts.expression_bindings_file(tenant, resource_type)
 
 
 def _tenant_env_dir(tenant, out_root=None):
-    return ops.tenant_env_dir(tenant, out_root=out_root)
+    return artifacts.tenant_env_dir(tenant, out_root=out_root)
 
 
 def _env_root_dir(tenant, resource_type, out_root=None):
-    return ops.env_root_under(tenant, resource_type, out_root=out_root)
+    return artifacts.env_root_under(tenant, resource_type, out_root=out_root)
 
 
 def _module_dir(resource_type):
@@ -51,7 +51,7 @@ def _config_ref(tenant, resource_type, env_dir):
 
 def expand_resources(selectors):
     """Expand optional resource/product selectors to generated resource types."""
-    return ops.expand_resources(selectors)
+    return artifacts.expand_resources(selectors)
 
 
 def render_env_main(resource_type, tenant, env_dir, backend=None,
@@ -191,7 +191,7 @@ def generate_env(tenant, out_root=None, fmt=True, backend=None,
     drift gate) reproduces the same roots instead of silently reverting
     to local state.
     """
-    ops.validate_tenant(tenant)
+    artifacts.validate_tenant(tenant)
     selected_resources = expand_resources(selectors or [])
     tenant_env_dir = _tenant_env_dir(tenant, out_root=out_root)
     marker = os.path.join(tenant_env_dir, ".backend")

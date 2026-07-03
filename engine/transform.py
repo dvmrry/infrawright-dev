@@ -12,8 +12,8 @@ import sys
 from collections import Counter
 from collections import namedtuple
 
+from engine import artifacts
 from engine import deployment
-from engine import ops
 from engine import lookup
 from engine import packs
 from engine.registry import derive_entry
@@ -1052,8 +1052,8 @@ def main(argv=None):
         )
         return 2
     resource_type, input_path, tenant = argv
-    ops.validate_tenant(tenant)
-    ops.validate_resource_type(resource_type)
+    artifacts.validate_tenant(tenant)
+    artifacts.validate_resource_type(resource_type)
     override = load_override(resource_type)
     with open(input_path, encoding="utf-8") as f:
         raw_items = json.load(f)
@@ -1076,7 +1076,7 @@ def main(argv=None):
     if derive is not None:
         items = derive_reorder(raw_items, derive)
         os.makedirs(config_dir, exist_ok=True)
-        tfvars_path = ops.config_file(tenant, resource_type)
+        tfvars_path = artifacts.config_file(tenant, resource_type)
         with open(tfvars_path, "w", encoding="utf-8") as f:
             f.write(render_tfvars(items))
         sys.stderr.write(
@@ -1093,9 +1093,9 @@ def main(argv=None):
             tenant, resource_type, [snake_keys(raw) for raw in raw_items]
         )
         sys.stderr.write("wrote %s\n" % lookup_path)
-    tfvars_path = ops.config_file(tenant, resource_type)
-    imports_path = ops.imports_file(tenant, resource_type)
-    moves_path = ops.moves_file(tenant, resource_type)
+    tfvars_path = artifacts.config_file(tenant, resource_type)
+    imports_path = artifacts.imports_file(tenant, resource_type)
+    moves_path = artifacts.moves_file(tenant, resource_type)
     new_imports = render_imports(resource_type, originals, override)
     # Console renames: compare the previously committed imports (key->id)
     # with the fresh ones; same id under a new key becomes a moved block so

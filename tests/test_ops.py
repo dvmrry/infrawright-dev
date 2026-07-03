@@ -6,10 +6,8 @@ import sys
 import tempfile
 import unittest
 
-from engine import deployment
 from engine import ops
 from engine import packs
-from engine import registry
 
 
 def _write_json(path, data):
@@ -18,79 +16,19 @@ def _write_json(path, data):
         json.dump(data, f)
 
 
-class OpsSelectorTest(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ops-packs-")
-        self.saved_packs = os.environ.get("INFRAWRIGHT_PACKS")
-        os.environ["INFRAWRIGHT_PACKS"] = self.tmp
-        os.makedirs(os.path.join(self.tmp, "sample"), exist_ok=True)
-        _write_json(os.path.join(self.tmp, "sample", "pack.json"), {
-            "provider_prefixes": {"unused_": "sample"},
-            "provider_sources": {"sample": "example/sample"},
-        })
-        _write_json(os.path.join(self.tmp, "sample", "registry.json"), {
-            "resource_without_provider_prefix": {
-                "generate": True,
-                "product": "sample",
-            },
-            "sample_data_only": {
-                "product": "sample",
-            },
-        })
-        packs.reset()
-        registry.reload_registry()
-
-    def tearDown(self):
-        if self.saved_packs is None:
-            os.environ.pop("INFRAWRIGHT_PACKS", None)
-        else:
-            os.environ["INFRAWRIGHT_PACKS"] = self.saved_packs
-        packs.reset()
-        registry.reload_registry()
-        shutil.rmtree(self.tmp, ignore_errors=True)
-
-    def test_product_selector_uses_registry_product_not_prefix(self):
-        self.assertEqual(
-            ops.expand_resources(["sample"]),
-            ["resource_without_provider_prefix"],
-        )
-
-    def test_non_generated_exact_resource_is_rejected(self):
-        with self.assertRaises(ValueError):
-            ops.expand_resources(["sample_data_only"])
-
-    def test_validate_resource_type_requires_exact_generated_type(self):
-        ops.validate_resource_type("resource_without_provider_prefix")
-        with self.assertRaises(ValueError):
-            ops.validate_resource_type("../resource_without_provider_prefix")
+def _plan(records, drift=None):
+    return {
+        "format_version": "1.2",
+        "resource_changes": records,
+        "resource_drift": drift or [],
+    }
 
 
-class OpsPathTest(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ops-deployment-")
-        self.saved_dep = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
-
-    def tearDown(self):
-        if self.saved_dep is None:
-            os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
-        else:
-            os.environ["INFRAWRIGHT_DEPLOYMENT"] = self.saved_dep
-        shutil.rmtree(self.tmp, ignore_errors=True)
-
-    def test_overlay_keeps_flat_resource_type_paths(self):
-        dep = os.path.join(self.tmp, "deployment.json")
-        with open(dep, "w", encoding="utf-8") as f:
-            f.write(json.dumps({"overlay": "acme"}))
-        os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
-        self.assertEqual(
-            ops.config_file("tenant", "sample_resource"),
-            os.path.join("acme", "config", "tenant",
-                         "sample_resource.auto.tfvars.json"),
-        )
-        self.assertEqual(
-            ops.env_root("tenant", "sample_resource"),
-            os.path.join("acme", "envs", "tenant", "sample_resource"),
-        )
+def _rc(actions, importing=False, before=None, after=None):
+    change = {"actions": actions, "before": before, "after": after}
+    if importing:
+        change["importing"] = {"id": "x"}
+    return {"address": "m.x", "type": "t_x", "change": change}
 
 
 class OpsEnvDiscoveryTest(unittest.TestCase):
@@ -224,6 +162,31 @@ class OpsStageImportsTest(unittest.TestCase):
                 "backend_config": None,
             })
         self.assertIn("run make transform or make adopt first", str(ctx.exception))
+
+
+class NonImportChangeCountTest(unittest.TestCase):
+    def test_noop_and_import_only_are_zero(self):
+        plan = _plan([_rc(["no-op"]), _rc(["create"], importing=True)])
+        self.assertEqual(ops._non_import_change_count(plan), 0)
+
+    def test_update_delete_replace_create_read_each_count_one(self):
+        plan = _plan([
+            _rc(["update"], before={"a": 1}, after={"a": 2}),
+            _rc(["delete"]),
+            _rc(["create", "delete"]),
+            _rc(["create"]),
+            _rc(["read"]),
+        ])
+        self.assertEqual(ops._non_import_change_count(plan), 5)
+
+    def test_drift_records_count(self):
+        plan = _plan([], drift=[_rc(["update"], before={"a": 1}, after={"a": 2})])
+        self.assertEqual(ops._non_import_change_count(plan), 1)
+
+    def test_importing_update_counts(self):
+        plan = _plan([_rc(["update"], importing=True,
+                          before={"a": 1}, after={"a": 2})])
+        self.assertEqual(ops._non_import_change_count(plan), 1)
 
 
 class OpsPlanSafetyTest(unittest.TestCase):

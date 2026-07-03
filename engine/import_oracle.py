@@ -13,7 +13,6 @@ import subprocess
 import sys
 import tempfile
 
-from engine import ops
 from engine import packs
 
 
@@ -25,6 +24,10 @@ _MAX_SUBPROCESS_OUTPUT = 1200
 _DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 300
 _BACKEND_BLOCK_RE = re.compile(r'\bbackend\s+"[^"]+"\s*\{')
 _CLOUD_BLOCK_RE = re.compile(r'\bcloud\s*\{')
+
+
+def _terraform():
+    return os.environ.get("TF") or "terraform"
 
 
 def _instance_name(key):
@@ -258,7 +261,7 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False):
             f.write(root)
         env = os.environ.copy()
         env["TF_DATA_DIR"] = os.path.join(temp, ".terraform")
-        tf = ops.terraform()
+        tf = _terraform()
         debug_dir = temp if keep else None
         _run(
             [tf, "init", "-input=false", "-no-color"],

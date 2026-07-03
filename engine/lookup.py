@@ -8,15 +8,13 @@ Stdlib-only, Python 3.6-floor - see AGENTS.md rule 5.
 """
 import json
 import os
-import re
 import sys
 
+from engine import artifacts
 from engine import deployment
-from engine import ops
 from engine import packs
 
 UNKNOWN = "<unknown>"
-CONFIG_SUFFIX = ".auto.tfvars.json"
 LOOKUP_SUFFIX = ".lookup.json"
 
 # The reference graph + lookup sources are vendor data — they live in the
@@ -24,8 +22,6 @@ LOOKUP_SUFFIX = ".lookup.json"
 REFERENCES = packs.references()
 
 LOOKUP_SOURCES = packs.lookup_sources()
-
-_VALID_TENANT = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 class LookupDataError(Exception):
@@ -49,11 +45,7 @@ def lookup_sources():
 
 
 def check_tenant(tenant):
-    if not _VALID_TENANT.match(tenant or "") or tenant in (".", ".."):
-        raise ValueError(
-            "tenant must match [A-Za-z0-9_.-]+ and not be . or .. (got %r)"
-            % tenant
-        )
+    artifacts.validate_tenant(tenant)
 
 
 def lookup_path(tenant, referent, config_root=None):
@@ -64,11 +56,10 @@ def lookup_path(tenant, referent, config_root=None):
 
 def config_path(tenant, resource_type, config_root=None):
     if config_root is None:
-        return os.path.join(
-            deployment.config_dir(tenant),
-            resource_type + CONFIG_SUFFIX,
-        )
-    return os.path.join(config_root, tenant, resource_type + CONFIG_SUFFIX)
+        return artifacts.config_file(tenant, resource_type)
+    return os.path.join(
+        config_root, tenant, resource_type + artifacts.CONFIG_SUFFIX
+    )
 
 
 def _display_name(item, name_field):
@@ -130,7 +121,7 @@ def load_lookup(tenant, referent, config_root=None):
 
 
 def _expand_selectors(selectors):
-    return ops.expand_resources(selectors)
+    return artifacts.expand_resources(selectors)
 
 
 def _is_system_constant(value):
