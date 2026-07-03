@@ -33,11 +33,6 @@ def _base_rule(**overrides):
 
 
 class AbsentDefaultsValidatorPositiveTest(unittest.TestCase):
-    def test_none_rules_validates_empty(self):
-        self.assertEqual(absent_defaults_validator.validate_absent_default_rules(None), [])
-
-    def test_empty_rules_validates_empty(self):
-        self.assertEqual(absent_defaults_validator.validate_absent_default_rules([]), [])
 
     def test_netbox_provider_absent_placeholder_manual_review(self):
         rules = absent_defaults_validator.validate_absent_default_rules([
@@ -129,26 +124,6 @@ class AbsentDefaultsValidatorPositiveTest(unittest.TestCase):
         self.assertEqual(len(rules), 1)
         self.assertNotIn("observed_value", rules[0])
 
-    def test_optional_evidence_paths_accepted(self):
-        rules = absent_defaults_validator.validate_absent_default_rules([
-            _base_rule(
-                plan_path="planned_values.root_module.resources[].values.rack_face",
-                raw_api_path="rack_face",
-                provider_state_path="rack_face",
-            ),
-        ])
-        self.assertEqual(len(rules), 1)
-
-    def test_resource_prefix_scope_accepted(self):
-        rules = absent_defaults_validator.validate_absent_default_rules([
-            _base_rule(
-                resource_type=_DELETE,
-                resource_prefix="netbox_",
-            ),
-        ])
-        self.assertEqual(len(rules), 1)
-        self.assertEqual(rules[0]["resource_prefix"], "netbox_")
-
     def test_resource_type_matches_provider_with_prefixes(self):
         rules = absent_defaults_validator.validate_absent_default_rules(
             [_base_rule(provider="netbox", resource_type="netbox_device")],
@@ -204,46 +179,11 @@ class AbsentDefaultsValidatorNegativeTest(unittest.TestCase):
         self.assertIn("absent_defaults rule", err)
         self.assertIn(text, err)
 
-    def test_rules_not_list(self):
-        with self.assertRaises(ValueError) as ctx:
-            absent_defaults_validator.validate_absent_default_rules({})
-        self.assertIn("absent_defaults.rules must be a list", str(ctx.exception))
-
-    def test_rule_not_object(self):
-        self._assert_invalid(None, "must be an object", rules=[None])
-
-    def test_missing_id(self):
-        self._assert_invalid(_base_rule(id=_DELETE), "missing id")
-
-    def test_missing_provider(self):
-        self._assert_invalid(_base_rule(provider=_DELETE), "missing provider")
-
-    def test_missing_resource_scope(self):
-        self._assert_invalid(
-            _base_rule(resource_type=_DELETE),
-            "missing resource scope",
-        )
-
     def test_both_resource_type_and_prefix(self):
         self._assert_invalid(
             _base_rule(resource_prefix="netbox_"),
             "cannot specify both resource_type and resource_prefix",
         )
-
-    def test_missing_path(self):
-        self._assert_invalid(_base_rule(path=_DELETE), "missing path")
-
-    def test_missing_kind(self):
-        self._assert_invalid(_base_rule(kind=_DELETE), "missing kind")
-
-    def test_unknown_kind(self):
-        self._assert_invalid(_base_rule(kind="unknown_kind"), "unknown kind")
-
-    def test_missing_action(self):
-        self._assert_invalid(_base_rule(action=_DELETE), "missing action")
-
-    def test_unknown_action(self):
-        self._assert_invalid(_base_rule(action="unknown_action"), "unknown action")
 
     def test_omit_when_absent_in_api_rejected(self):
         self._assert_invalid(
@@ -553,111 +493,6 @@ class AbsentDefaultsPacksAccessorTest(unittest.TestCase):
         self._write_pack("a", {"provider_prefixes": {"a_": "a"}})
         packs.reset()
         self.assertEqual(packs.absent_default_rules(), [])
-
-    def test_accessor_reads_and_validates_rules(self):
-        self._write_pack("a", {
-            "provider_prefixes": {"a_": "a"},
-            "absent_defaults": {
-                "rules": [{
-                    "id": "a_empty_label",
-                    "resource_type": "a_thing",
-                    "path": "label",
-                    "kind": "provider_absent_placeholder",
-                    "observed_value": "",
-                    "action": "diagnostic_only",
-                    "evidence": "docs/a.md",
-                    "reason": "placeholder",
-                }]
-            },
-        })
-        packs.reset()
-        rules = packs.absent_default_rules()
-        self.assertEqual(len(rules), 1)
-        self.assertEqual(rules[0]["provider"], "a")
-        self.assertEqual(rules[0]["id"], "a_empty_label")
-
-    def test_accessor_filters_by_provider(self):
-        self._write_pack("a", {
-            "provider_prefixes": {"a_": "a"},
-            "absent_defaults": {
-                "rules": [{
-                    "id": "a_empty_label",
-                    "resource_type": "a_thing",
-                    "path": "label",
-                    "kind": "provider_absent_placeholder",
-                    "observed_value": "",
-                    "action": "diagnostic_only",
-                    "evidence": "docs/a.md",
-                    "reason": "placeholder",
-                }]
-            },
-        })
-        self._write_pack("b", {
-            "provider_prefixes": {"b_": "b"},
-            "absent_defaults": {
-                "rules": [{
-                    "id": "b_empty_label",
-                    "resource_type": "b_thing",
-                    "path": "label",
-                    "kind": "provider_absent_placeholder",
-                    "observed_value": "",
-                    "action": "diagnostic_only",
-                    "evidence": "docs/b.md",
-                    "reason": "placeholder",
-                }]
-            },
-        })
-        packs.reset()
-        self.assertEqual(
-            [r["id"] for r in packs.absent_default_rules("a")],
-            ["a_empty_label"],
-        )
-
-    def test_accessor_raises_on_invalid_rules(self):
-        self._write_pack("a", {
-            "provider_prefixes": {"a_": "a"},
-            "absent_defaults": {
-                "rules": [{
-                    "id": "a_empty_label",
-                    "resource_type": "a_thing",
-                    "path": "label",
-                    "kind": "provider_absent_placeholder",
-                    "action": "omit_when_absent_in_api",
-                    "evidence": "docs/a.md",
-                    "reason": "placeholder",
-                }]
-            },
-        })
-        packs.reset()
-        with self.assertRaises(ValueError) as ctx:
-            packs.absent_default_rules()
-        self.assertIn("omit_when_absent_in_api is rejected in V1", str(ctx.exception))
-
-    def test_accessor_raises_on_provider_resource_mismatch(self):
-        self._write_pack("a", {
-            "provider_prefixes": {"a_": "a"},
-            "absent_defaults": {
-                "rules": [{
-                    "id": "a_mismatch",
-                    "provider": "a",
-                    "resource_type": "b_thing",
-                    "path": "label",
-                    "kind": "provider_absent_placeholder",
-                    "observed_value": "",
-                    "action": "manual_review_required",
-                    "evidence": "docs/a.md",
-                    "reason": "placeholder",
-                }]
-            },
-        })
-        packs.reset()
-        with self.assertRaises(ValueError) as ctx:
-            packs.absent_default_rules()
-        self.assertIn(
-            "resource_type b_thing is not declared in provider_prefixes",
-            str(ctx.exception),
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

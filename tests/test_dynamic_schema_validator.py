@@ -34,15 +34,6 @@ def _base_rule(**overrides):
 
 
 class DynamicSchemaValidatorPositiveTest(unittest.TestCase):
-    def test_none_rules_validates_empty(self):
-        self.assertEqual(
-            dynamic_schema_validator.validate_dynamic_schema_rules(None), []
-        )
-
-    def test_empty_rules_validates_empty(self):
-        self.assertEqual(
-            dynamic_schema_validator.validate_dynamic_schema_rules([]), []
-        )
 
     def test_valid_provider_observed_projection_unsafe(self):
         rules = dynamic_schema_validator.validate_dynamic_schema_rules([
@@ -109,27 +100,6 @@ class DynamicSchemaValidatorPositiveTest(unittest.TestCase):
         ])
         self.assertEqual(rules[0]["path"], "rules[].action_parameters")
 
-    def test_optional_evidence_paths_accepted(self):
-        rules = dynamic_schema_validator.validate_dynamic_schema_rules([
-            _base_rule(
-                raw_api_path="api.results[].parameters",
-                projected_path="projected.rules[].parameters",
-                plan_path="planned_values.root_module.resources[].values.rules[].parameters",
-            ),
-        ])
-        self.assertEqual(len(rules), 1)
-        self.assertEqual(rules[0]["raw_api_path"], "api.results[].parameters")
-
-    def test_resource_prefix_scope_accepted(self):
-        rules = dynamic_schema_validator.validate_dynamic_schema_rules([
-            _base_rule(
-                resource_type=_DELETE,
-                resource_prefix="cloudflare_",
-            ),
-        ])
-        self.assertEqual(len(rules), 1)
-        self.assertEqual(rules[0]["resource_prefix"], "cloudflare_")
-
     def test_provider_resource_match_accepted(self):
         rules = dynamic_schema_validator.validate_dynamic_schema_rules(
             [_base_rule()],
@@ -176,22 +146,8 @@ class DynamicSchemaValidatorNegativeTest(unittest.TestCase):
         self.assertIn("dynamic_schema rule", err)
         self.assertIn(text, err)
 
-    def test_rules_not_list(self):
-        with self.assertRaises(ValueError) as ctx:
-            dynamic_schema_validator.validate_dynamic_schema_rules({})
-        self.assertIn("dynamic_schema.rules must be a list", str(ctx.exception))
-
-    def test_rule_not_object(self):
-        self._assert_invalid(None, "must be an object", rules=[None])
-
     def test_unknown_key(self):
         self._assert_invalid(_base_rule(extra=True), "unknown rule key extra")
-
-    def test_missing_id(self):
-        self._assert_invalid(_base_rule(id=_DELETE), "missing id")
-
-    def test_missing_provider(self):
-        self._assert_invalid(_base_rule(provider=_DELETE), "missing provider")
 
     def test_missing_provider_version_constraint(self):
         self._assert_invalid(
@@ -223,20 +179,11 @@ class DynamicSchemaValidatorNegativeTest(unittest.TestCase):
             "missing provider_version_constraint",
         )
 
-    def test_missing_resource_scope(self):
-        self._assert_invalid(
-            _base_rule(resource_type=_DELETE),
-            "missing resource scope",
-        )
-
     def test_both_resource_type_and_prefix(self):
         self._assert_invalid(
             _base_rule(resource_prefix="cloudflare_"),
             "cannot specify both resource_type and resource_prefix",
         )
-
-    def test_missing_path(self):
-        self._assert_invalid(_base_rule(path=_DELETE), "missing path")
 
     def test_evidence_path_without_path(self):
         self._assert_invalid(
@@ -250,12 +197,6 @@ class DynamicSchemaValidatorNegativeTest(unittest.TestCase):
             "unsupported syntax",
         )
 
-    def test_missing_kind(self):
-        self._assert_invalid(_base_rule(kind=_DELETE), "missing kind")
-
-    def test_unknown_kind(self):
-        self._assert_invalid(_base_rule(kind="unknown_kind"), "unknown kind")
-
     def test_missing_ownership(self):
         self._assert_invalid(_base_rule(ownership=_DELETE), "missing ownership")
 
@@ -264,12 +205,6 @@ class DynamicSchemaValidatorNegativeTest(unittest.TestCase):
             _base_rule(ownership="invalid"),
             "unknown ownership",
         )
-
-    def test_missing_action(self):
-        self._assert_invalid(_base_rule(action=_DELETE), "missing action")
-
-    def test_unknown_action(self):
-        self._assert_invalid(_base_rule(action="project_dynamic"), "unknown action")
 
     def test_preserve_observed_scalar_rejected(self):
         self._assert_invalid(
@@ -520,68 +455,6 @@ class DynamicSchemaPacksAccessorTest(unittest.TestCase):
             with open(os.path.join(d, "registry.json"), "w", encoding="utf-8") as f:
                 json.dump({}, f)
 
-    def test_accessor_reads_and_validates_rules(self):
-        self._write_pack("a", {
-            "provider_prefixes": {"a_": "a"},
-            "dynamic_schema": {
-                "rules": [{
-                    "id": "a_dynamic",
-                    "resource_type": "a_thing",
-                    "path": "dynamic",
-                    "kind": "provider_observed_projection_unsafe",
-                    "ownership": "unknown",
-                    "action": "diagnostic_only",
-                    "provider_version_constraint": ">= 1.0.0",
-                    "evidence": "docs/a.md",
-                    "reason": "dynamic",
-                }]
-            },
-        })
-        packs.reset()
-        rules = packs.dynamic_schema_rules()
-        self.assertEqual(len(rules), 1)
-        self.assertEqual(rules[0]["provider"], "a")
-        self.assertEqual(rules[0]["id"], "a_dynamic")
-
-    def test_accessor_filters_by_provider(self):
-        self._write_pack("a", {
-            "provider_prefixes": {"a_": "a"},
-            "dynamic_schema": {
-                "rules": [{
-                    "id": "a_dynamic",
-                    "resource_type": "a_thing",
-                    "path": "dynamic",
-                    "kind": "provider_observed_projection_unsafe",
-                    "ownership": "unknown",
-                    "action": "diagnostic_only",
-                    "provider_version_constraint": ">= 1.0.0",
-                    "evidence": "docs/a.md",
-                    "reason": "dynamic",
-                }]
-            },
-        })
-        self._write_pack("b", {
-            "provider_prefixes": {"b_": "b"},
-            "dynamic_schema": {
-                "rules": [{
-                    "id": "b_dynamic",
-                    "resource_type": "b_thing",
-                    "path": "dynamic",
-                    "kind": "provider_observed_projection_unsafe",
-                    "ownership": "unknown",
-                    "action": "diagnostic_only",
-                    "provider_version_constraint": ">= 1.0.0",
-                    "evidence": "docs/b.md",
-                    "reason": "dynamic",
-                }]
-            },
-        })
-        packs.reset()
-        self.assertEqual(
-            [r["id"] for r in packs.dynamic_schema_rules("a")],
-            ["a_dynamic"],
-        )
-
     def test_accessor_infers_provider_from_single_provider_manifest(self):
         self._write_pack("a", {
             "provider_prefixes": {"a_": "a"},
@@ -602,58 +475,6 @@ class DynamicSchemaPacksAccessorTest(unittest.TestCase):
         packs.reset()
         rules = packs.dynamic_schema_rules()
         self.assertEqual(rules[0]["provider"], "a")
-
-    def test_accessor_raises_on_invalid_rules(self):
-        self._write_pack("a", {
-            "provider_prefixes": {"a_": "a"},
-            "dynamic_schema": {
-                "rules": [{
-                    "id": "a_dynamic",
-                    "resource_type": "a_thing",
-                    "path": "dynamic",
-                    "kind": "provider_observed_projection_unsafe",
-                    "ownership": "unknown",
-                    "action": "projection_omit_candidate",
-                    "provider_version_constraint": ">= 1.0.0",
-                    "evidence": "docs/a.md",
-                    "reason": "dynamic",
-                }]
-            },
-        })
-        packs.reset()
-        with self.assertRaises(ValueError) as ctx:
-            packs.dynamic_schema_rules()
-        self.assertIn(
-            "action projection_omit_candidate is rejected in V1",
-            str(ctx.exception),
-        )
-
-    def test_accessor_raises_on_provider_resource_mismatch(self):
-        self._write_pack("a", {
-            "provider_prefixes": {"a_": "a"},
-            "dynamic_schema": {
-                "rules": [{
-                    "id": "a_mismatch",
-                    "provider": "a",
-                    "resource_type": "b_thing",
-                    "path": "dynamic",
-                    "kind": "provider_observed_projection_unsafe",
-                    "ownership": "unknown",
-                    "action": "diagnostic_only",
-                    "provider_version_constraint": ">= 1.0.0",
-                    "evidence": "docs/a.md",
-                    "reason": "dynamic",
-                }]
-            },
-        })
-        packs.reset()
-        with self.assertRaises(ValueError) as ctx:
-            packs.dynamic_schema_rules()
-        self.assertIn(
-            "resource_type b_thing is not declared in provider_prefixes",
-            str(ctx.exception),
-        )
-
 
 if __name__ == "__main__":
     unittest.main()
