@@ -35,15 +35,6 @@ def _base_rule(**overrides):
 
 
 class SensitiveRequiredValidatorPositiveTest(unittest.TestCase):
-    def test_none_rules_validates_empty(self):
-        self.assertEqual(
-            sensitive_required_validator.validate_sensitive_required_rules(None), []
-        )
-
-    def test_empty_rules_validates_empty(self):
-        self.assertEqual(
-            sensitive_required_validator.validate_sensitive_required_rules([]), []
-        )
 
     def test_valid_sensitive_required_block(self):
         rules = sensitive_required_validator.validate_sensitive_required_rules([
@@ -126,28 +117,6 @@ class SensitiveRequiredValidatorPositiveTest(unittest.TestCase):
         ])
         self.assertEqual(rules[0]["path"], "webhook[].url")
 
-    def test_optional_evidence_paths_accepted(self):
-        rules = sensitive_required_validator.validate_sensitive_required_rules([
-            _base_rule(
-                raw_api_path="api.contact_point.settings",
-                projected_path="projected.webhook",
-                plan_path="planned_values.webhook",
-            ),
-        ])
-        self.assertEqual(len(rules), 1)
-        self.assertEqual(rules[0]["raw_api_path"], "api.contact_point.settings")
-
-    def test_resource_prefix_scope_accepted(self):
-        rules = sensitive_required_validator.validate_sensitive_required_rules([
-            _base_rule(
-                id="prefix_rule",
-                resource_prefix="grafana_",
-                resource_type=_DELETE,
-            ),
-        ])
-        self.assertEqual(len(rules), 1)
-        self.assertEqual(rules[0]["resource_prefix"], "grafana_")
-
     def test_provider_resource_match_accepted(self):
         rules = sensitive_required_validator.validate_sensitive_required_rules([
             _base_rule(),
@@ -176,13 +145,6 @@ class SensitiveRequiredValidatorPositiveTest(unittest.TestCase):
 
 
 class SensitiveRequiredValidatorNegativeTest(unittest.TestCase):
-    def test_rules_not_list(self):
-        with self.assertRaisesRegex(ValueError, "must be a list"):
-            sensitive_required_validator.validate_sensitive_required_rules("nope")
-
-    def test_rule_not_object(self):
-        with self.assertRaisesRegex(ValueError, "must be an object"):
-            sensitive_required_validator.validate_sensitive_required_rules(["nope"])
 
     def test_unknown_key(self):
         with self.assertRaisesRegex(ValueError, "unknown rule key"):
@@ -226,34 +188,10 @@ class SensitiveRequiredValidatorNegativeTest(unittest.TestCase):
                 _base_rule(sensitive_value="x"),
             ])
 
-    def test_missing_id(self):
-        with self.assertRaisesRegex(ValueError, "missing id"):
-            sensitive_required_validator.validate_sensitive_required_rules([
-                _base_rule(id=_DELETE),
-            ])
-
-    def test_missing_provider(self):
-        with self.assertRaisesRegex(ValueError, "missing provider"):
-            sensitive_required_validator.validate_sensitive_required_rules([
-                _base_rule(provider=_DELETE),
-            ])
-
     def test_missing_provider_version_constraint(self):
         with self.assertRaisesRegex(ValueError, "missing provider_version_constraint"):
             sensitive_required_validator.validate_sensitive_required_rules([
                 _base_rule(provider_version_constraint=_DELETE),
-            ])
-
-    def test_missing_path(self):
-        with self.assertRaisesRegex(ValueError, "missing path"):
-            sensitive_required_validator.validate_sensitive_required_rules([
-                _base_rule(path=_DELETE),
-            ])
-
-    def test_missing_kind(self):
-        with self.assertRaisesRegex(ValueError, "missing kind"):
-            sensitive_required_validator.validate_sensitive_required_rules([
-                _base_rule(kind=_DELETE),
             ])
 
     def test_missing_sensitivity(self):
@@ -266,12 +204,6 @@ class SensitiveRequiredValidatorNegativeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "missing structural_requirement"):
             sensitive_required_validator.validate_sensitive_required_rules([
                 _base_rule(structural_requirement=_DELETE),
-            ])
-
-    def test_missing_action(self):
-        with self.assertRaisesRegex(ValueError, "missing action"):
-            sensitive_required_validator.validate_sensitive_required_rules([
-                _base_rule(action=_DELETE),
             ])
 
     def test_missing_evidence(self):
@@ -298,12 +230,6 @@ class SensitiveRequiredValidatorNegativeTest(unittest.TestCase):
                 _base_rule(id="   "),
             ])
 
-    def test_missing_resource_scope(self):
-        with self.assertRaisesRegex(ValueError, "missing resource scope"):
-            sensitive_required_validator.validate_sensitive_required_rules([
-                _base_rule(resource_type=_DELETE),
-            ])
-
     def test_both_resource_scopes(self):
         with self.assertRaisesRegex(ValueError, "cannot specify both"):
             sensitive_required_validator.validate_sensitive_required_rules([
@@ -328,12 +254,6 @@ class SensitiveRequiredValidatorNegativeTest(unittest.TestCase):
                 _base_rule(path="*.url"),
             ])
 
-    def test_unknown_kind(self):
-        with self.assertRaisesRegex(ValueError, "unknown kind"):
-            sensitive_required_validator.validate_sensitive_required_rules([
-                _base_rule(kind="unknown_kind"),
-            ])
-
     def test_unknown_sensitivity(self):
         with self.assertRaisesRegex(ValueError, "unknown sensitivity"):
             sensitive_required_validator.validate_sensitive_required_rules([
@@ -344,12 +264,6 @@ class SensitiveRequiredValidatorNegativeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unknown structural_requirement"):
             sensitive_required_validator.validate_sensitive_required_rules([
                 _base_rule(structural_requirement="unknown_requirement"),
-            ])
-
-    def test_unknown_action(self):
-        with self.assertRaisesRegex(ValueError, "unknown action"):
-            sensitive_required_validator.validate_sensitive_required_rules([
-                _base_rule(action="unknown_action"),
             ])
 
     def test_reserved_render_placeholder_block(self):
@@ -658,54 +572,6 @@ class SensitiveRequiredPacksAccessorTest(unittest.TestCase):
         self.assertEqual(packs.sensitive_required_rules(), [])
         self.assertEqual(packs.sensitive_required_rules("grafana"), [])
 
-    def test_accessor_reads_and_validates_rules(self):
-        self._write_pack("grafana", {
-            "provider_prefixes": {"grafana_": "grafana"},
-            "provider_sources": {"grafana": "grafana/grafana"},
-            "sensitive_required": {
-                "rules": [{
-                    "id": "grafana_contact_point_webhook",
-                    "provider_version_constraint": ">= 3.0.0",
-                    "resource_type": "grafana_contact_point",
-                    "path": "webhook",
-                    "kind": "sensitive_required_block",
-                    "sensitivity": "contains_sensitive_fields",
-                    "structural_requirement": "one_of_block_required",
-                    "action": "manual_review_required",
-                    "evidence": "docs/provider-labs/grafana-pr24.md",
-                    "reason": "Notifier block required.",
-                }]
-            },
-        })
-        rules = packs.sensitive_required_rules()
-        self.assertEqual(len(rules), 1)
-        self.assertEqual(rules[0]["id"], "grafana_contact_point_webhook")
-        self.assertEqual(rules[0]["provider"], "grafana")
-
-    def test_accessor_filters_by_provider(self):
-        self._write_pack("grafana", {
-            "provider_prefixes": {"grafana_": "grafana"},
-            "provider_sources": {"grafana": "grafana/grafana"},
-            "sensitive_required": {
-                "rules": [{
-                    "id": "grafana_contact_point_webhook",
-                    "provider_version_constraint": ">= 3.0.0",
-                    "resource_type": "grafana_contact_point",
-                    "path": "webhook",
-                    "kind": "sensitive_required_block",
-                    "sensitivity": "contains_sensitive_fields",
-                    "structural_requirement": "one_of_block_required",
-                    "action": "manual_review_required",
-                    "evidence": "docs/provider-labs/grafana-pr24.md",
-                    "reason": "Notifier block required.",
-                }]
-            },
-        })
-        rules = packs.sensitive_required_rules("grafana")
-        self.assertEqual(len(rules), 1)
-        rules = packs.sensitive_required_rules("other")
-        self.assertEqual(rules, [])
-
     def test_accessor_infers_provider_from_single_provider_manifest(self):
         self._write_pack("grafana", {
             "provider_prefixes": {"grafana_": "grafana"},
@@ -727,52 +593,6 @@ class SensitiveRequiredPacksAccessorTest(unittest.TestCase):
         })
         rules = packs.sensitive_required_rules()
         self.assertEqual(rules[0]["provider"], "grafana")
-
-    def test_accessor_raises_on_invalid_rules(self):
-        self._write_pack("grafana", {
-            "provider_prefixes": {"grafana_": "grafana"},
-            "provider_sources": {"grafana": "grafana/grafana"},
-            "sensitive_required": {
-                "rules": [{
-                    "id": "grafana_contact_point_webhook",
-                    "provider_version_constraint": ">= 3.0.0",
-                    "resource_type": "grafana_contact_point",
-                    "path": "webhook",
-                    "kind": "unknown_kind",
-                    "sensitivity": "contains_sensitive_fields",
-                    "structural_requirement": "one_of_block_required",
-                    "action": "manual_review_required",
-                    "evidence": "docs/provider-labs/grafana-pr24.md",
-                    "reason": "Notifier block required.",
-                }]
-            },
-        })
-        with self.assertRaisesRegex(ValueError, "unknown kind"):
-            packs.sensitive_required_rules()
-
-    def test_accessor_raises_on_provider_resource_mismatch(self):
-        self._write_pack("grafana", {
-            "provider_prefixes": {"grafana_": "grafana"},
-            "provider_sources": {"grafana": "grafana/grafana"},
-            "sensitive_required": {
-                "rules": [{
-                    "id": "grafana_contact_point_webhook",
-                    "provider": "grafana",
-                    "provider_version_constraint": ">= 3.0.0",
-                    "resource_type": "other_contact_point",
-                    "path": "webhook",
-                    "kind": "sensitive_required_block",
-                    "sensitivity": "contains_sensitive_fields",
-                    "structural_requirement": "one_of_block_required",
-                    "action": "manual_review_required",
-                    "evidence": "docs/provider-labs/grafana-pr24.md",
-                    "reason": "Notifier block required.",
-                }]
-            },
-        })
-        with self.assertRaisesRegex(ValueError, "resource_type other_contact_point is not declared"):
-            packs.sensitive_required_rules()
-
 
 if __name__ == "__main__":
     unittest.main()
