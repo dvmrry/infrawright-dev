@@ -178,20 +178,18 @@ def _provider_config_guidance(plan, resource_type):
     return annotations
 
 
-def _absent_default_guidance(plan, resource_type):
-    from engine import adoption_guidance
+def _rule_lane_guidance(plan, resource_type, rules, candidate_ok, annotate):
     from engine import guidance_paths
+    from engine import lanes
 
     provider = packs.provider_of(resource_type)
-    rules = packs.absent_default_rules(provider)
     by_path = {}
     for rule in rules:
         if rule.get("action") != "manual_review_required":
             continue
-        if not _absent_default_rule_matches(rule, provider, resource_type):
+        if not lanes.rule_matches(rule, provider, resource_type):
             continue
-        path = _absent_default_plan_path(rule)
-        by_path.setdefault(path, []).append(rule)
+        by_path.setdefault(lanes.rule_plan_path(rule), []).append(rule)
     if not by_path:
         return []
 
@@ -199,101 +197,65 @@ def _absent_default_guidance(plan, resource_type):
     for candidate in guidance_paths.guidance_candidate_paths(plan, resource_type):
         formatted = candidate["formatted_path"]
         for rule in by_path.get(formatted, []):
-            if not _absent_default_observed_value_matches(
-                    rule, candidate["before"], candidate["path"]):
+            if not candidate_ok(rule, candidate):
                 continue
-            annotations.append(adoption_guidance.absent_default_annotation(
-                source=candidate["source"],
-                address=candidate["address"],
-                matched_plan_path=formatted,
-                provider=rule["provider"],
-                resource_type=candidate["resource_type"],
-                rule=rule["id"],
-                kind=rule["kind"],
-                action=rule["action"],
-                observed_value=rule.get("observed_value"),
-                reason=rule.get("reason"),
-                evidence=rule.get("evidence"),
-            ))
+            annotations.append(annotate(rule, candidate, formatted))
     return annotations
+
+
+def _absent_default_guidance(plan, resource_type):
+    from engine import adoption_guidance
+
+    def candidate_ok(rule, candidate):
+        return _absent_default_observed_value_matches(
+            rule, candidate["before"], candidate["path"])
+
+    def annotate(rule, candidate, formatted):
+        return adoption_guidance.absent_default_annotation(
+            source=candidate["source"],
+            address=candidate["address"],
+            matched_plan_path=formatted,
+            provider=rule["provider"],
+            resource_type=candidate["resource_type"],
+            rule=rule["id"],
+            kind=rule["kind"],
+            action=rule["action"],
+            observed_value=rule.get("observed_value"),
+            reason=rule.get("reason"),
+            evidence=rule.get("evidence"),
+        )
+
+    return _rule_lane_guidance(
+        plan, resource_type,
+        packs.absent_default_rules(packs.provider_of(resource_type)),
+        candidate_ok, annotate)
 
 
 def _dynamic_schema_guidance(plan, resource_type):
     from engine import adoption_guidance
-    from engine import guidance_paths
 
-    provider = packs.provider_of(resource_type)
-    rules = packs.dynamic_schema_rules(provider)
-    by_path = {}
-    for rule in rules:
-        if rule.get("action") != "manual_review_required":
-            continue
-        if not _dynamic_schema_rule_matches(rule, provider, resource_type):
-            continue
-        path = _dynamic_schema_plan_path(rule)
-        by_path.setdefault(path, []).append(rule)
-    if not by_path:
-        return []
+    def annotate(rule, candidate, formatted):
+        return adoption_guidance.dynamic_schema_annotation(
+            source=candidate["source"],
+            address=candidate["address"],
+            matched_plan_path=formatted,
+            provider=rule["provider"],
+            resource_type=candidate["resource_type"],
+            rule=rule["id"],
+            kind=rule["kind"],
+            ownership=rule["ownership"],
+            action=rule["action"],
+            provider_version_constraint=rule.get(
+                "provider_version_constraint"
+            ),
+            reason=rule.get("reason"),
+            evidence=rule.get("evidence"),
+        )
 
-    annotations = []
-    for candidate in guidance_paths.guidance_candidate_paths(plan, resource_type):
-        formatted = candidate["formatted_path"]
-        for rule in by_path.get(formatted, []):
-            annotations.append(adoption_guidance.dynamic_schema_annotation(
-                source=candidate["source"],
-                address=candidate["address"],
-                matched_plan_path=formatted,
-                provider=rule["provider"],
-                resource_type=candidate["resource_type"],
-                rule=rule["id"],
-                kind=rule["kind"],
-                ownership=rule["ownership"],
-                action=rule["action"],
-                provider_version_constraint=rule.get(
-                    "provider_version_constraint"
-                ),
-                reason=rule.get("reason"),
-                evidence=rule.get("evidence"),
-            ))
-    return annotations
-
-
-def _absent_default_rule_matches(rule, provider, resource_type):
-    if rule.get("provider") != provider:
-        return False
-    if "resource_type" in rule:
-        return rule["resource_type"] == resource_type
-    prefix = rule.get("resource_prefix")
-    return bool(prefix and resource_type.startswith(prefix))
-
-
-def _absent_default_plan_path(rule):
-    from engine import schema_paths
-
-    path = rule.get("plan_path") or rule.get("path")
-    try:
-        return schema_paths.format_path(schema_paths.parse_report_path(path))
-    except Exception:
-        return path
-
-
-def _dynamic_schema_rule_matches(rule, provider, resource_type):
-    if rule.get("provider") != provider:
-        return False
-    if "resource_type" in rule:
-        return rule["resource_type"] == resource_type
-    prefix = rule.get("resource_prefix")
-    return bool(prefix and resource_type.startswith(prefix))
-
-
-def _dynamic_schema_plan_path(rule):
-    from engine import schema_paths
-
-    path = rule.get("plan_path") or rule.get("path")
-    try:
-        return schema_paths.format_path(schema_paths.parse_report_path(path))
-    except Exception:
-        return path
+    return _rule_lane_guidance(
+        plan, resource_type,
+        packs.dynamic_schema_rules(packs.provider_of(resource_type)),
+        lambda rule, candidate: True, annotate)
 
 
 _MISSING_ABSENT_DEFAULT_VALUE = object()
