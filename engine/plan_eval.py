@@ -123,17 +123,3 @@ def truthy_paths(value, path=()):
             out.extend(truthy_paths(child, path + (idx,)))
         return out
     return []
-
-
-def format_path(path):
-    if isinstance(path, str):
-        return path
-    if not path:
-        return "<root>"
-    out = []
-    for p in path:
-        if isinstance(p, int):
-            out[-1] = "%s[%d]" % (out[-1], p)
-        else:
-            out.append(str(p))
-    return ".".join(out)

@@ -13,6 +13,7 @@ projection or Terraform validation itself.
 """
 
 from engine import path_inventory
+from engine import paths
 from engine.drift_policy import parse_path
 
 
@@ -113,7 +114,7 @@ def _projection_omit_paths(resource_type, drift_policy):
         entries = drift_policy._entries(resource_type, "projection_omit")
     out = set()
     for entry in entries:
-        out.add(_format_policy_path(parse_path(entry["path"])))
+        out.add(paths.format_report_path(parse_path(entry["path"])))
     return out
 
 
@@ -134,24 +135,6 @@ def _policy_path_covers_observed(policy_path, observed_path):
         observed_path.startswith(policy_path + ".")
         or observed_path.startswith(policy_path + "[]")
     )
-
-
-def _format_policy_path(path):
-    parts = []
-    for segment in path:
-        if segment == "*":
-            if parts:
-                parts[-1] = parts[-1] + "[]"
-            else:
-                parts.append("[]")
-        elif isinstance(segment, int):
-            if parts:
-                parts[-1] = "%s[]" % parts[-1]
-            else:
-                parts.append("[]")
-        else:
-            parts.append(str(segment))
-    return ".".join(parts) if parts else "<root>"
 
 
 def _sensitive_paths(value):
