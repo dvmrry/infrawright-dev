@@ -9,6 +9,7 @@ import tempfile
 import unittest
 
 from engine import deployment
+from engine import artifacts
 from engine import lookup
 from engine.transform import main as transform_main
 
@@ -35,7 +36,7 @@ def _config_dir(tenant, resource_type):
 def _config_file(tenant, resource_type):
     return os.path.join(
         _config_dir(tenant, resource_type),
-        resource_type + lookup.CONFIG_SUFFIX,
+        resource_type + artifacts.CONFIG_SUFFIX,
     )
 
 
@@ -151,7 +152,7 @@ class LookupExplainTest(unittest.TestCase):
             os.path.join(
                 self.config_root,
                 tenant,
-                resource_type + lookup.CONFIG_SUFFIX,
+                resource_type + artifacts.CONFIG_SUFFIX,
             ),
             {"items": items},
         )

@@ -9,126 +9,34 @@ Provider packs own behavior and metadata; they do not create path segments.
 """
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
 
 from engine import deployment
 from engine import packs
+from engine.artifacts import (
+    CONFIG_SUFFIX,
+    EXPRESSION_BINDINGS_SUFFIX,
+    IMPORTS_SUFFIX,
+    MOVES_SUFFIX,
+    config_file,
+    env_root,
+    env_root_under,
+    expand_resources,
+    expression_bindings_file,
+    imports_file,
+    moves_file,
+    tenant_env_dir,
+    validate_resource_type,
+    validate_tenant,
+)
 from engine.filter_imports import filter_imports
-from engine.registry import derived_types, generated_types, load_registry
-
-CONFIG_SUFFIX = ".auto.tfvars.json"
-EXPRESSION_BINDINGS_SUFFIX = ".expressions.json"
-IMPORTS_SUFFIX = "_imports.tf"
-MOVES_SUFFIX = "_moves.tf"
-VALID_TENANT = re.compile(r"^[A-Za-z0-9_.-]+$")
+from engine.registry import derived_types, generated_types
 
 
 def terraform():
     return os.environ.get("TF") or "terraform"
-
-
-def validate_tenant(tenant):
-    if not VALID_TENANT.match(tenant or "") or tenant in (".", ".."):
-        raise ValueError(
-            "TENANT must match [A-Za-z0-9_.-]+ and not be . or .. (got %r)"
-            % tenant
-        )
-
-
-def validate_resource_type(resource_type):
-    if resource_type not in set(generated_types()):
-        raise ValueError(
-            "RESOURCE must be an exact generated resource type (got %r)"
-            % resource_type
-        )
-
-
-def expand_resources(selectors=None):
-    """Expand exact resource, provider/product, or provider/bare selectors."""
-    selectors = selectors or []
-    generated = set(generated_types())
-    registry = load_registry()
-    if not selectors:
-        return sorted(generated)
-
-    selected = set()
-    unknown = []
-    for selector in selectors:
-        if selector in generated:
-            selected.add(selector)
-            continue
-        if selector in registry:
-            unknown.append(selector)
-            continue
-
-        product_matches = sorted(
-            rt for rt in generated if registry.get(rt, {}).get("product") == selector
-        )
-        if product_matches:
-            selected.update(product_matches)
-            continue
-
-        if "/" in selector:
-            provider, bare = selector.split("/", 1)
-            path_matches = sorted(
-                rt for rt in generated
-                if packs.provider_of(rt) == provider and packs.bare_name(rt) == bare
-            )
-            if path_matches:
-                selected.update(path_matches)
-                continue
-
-        unknown.append(selector)
-
-    if unknown:
-        raise ValueError(
-            "unknown or non-generated resource selector(s): %s"
-            % ", ".join(sorted(unknown))
-        )
-    return sorted(selected)
-
-
-def config_file(tenant, resource_type):
-    return os.path.join(
-        deployment.config_dir(tenant), resource_type + CONFIG_SUFFIX
-    )
-
-
-def expression_bindings_file(tenant, resource_type):
-    return os.path.join(
-        deployment.config_dir(tenant), resource_type + EXPRESSION_BINDINGS_SUFFIX
-    )
-
-
-def imports_file(tenant, resource_type):
-    return os.path.join(
-        deployment.imports_dir(tenant), resource_type + IMPORTS_SUFFIX
-    )
-
-
-def moves_file(tenant, resource_type):
-    return os.path.join(
-        deployment.imports_dir(tenant), resource_type + MOVES_SUFFIX
-    )
-
-
-def env_root(tenant, resource_type):
-    return os.path.join(deployment.envs_dir(tenant), resource_type)
-
-
-def tenant_env_dir(tenant, out_root=None):
-    if out_root is None:
-        return deployment.envs_dir(tenant)
-    return os.path.join(out_root, tenant)
-
-
-def env_root_under(tenant, resource_type, out_root=None):
-    if out_root is None:
-        return env_root(tenant, resource_type)
-    return os.path.join(out_root, tenant, resource_type)
 
 
 def _env_base_candidates():
@@ -221,18 +129,6 @@ def _show_plan_json(env_dir):
     return plan
 
 
-def _plan_change_count(plan):
-    return _non_import_change_count(plan)
-
-
-def _is_import_only_change(resource_change):
-    change = resource_change.get("change") or {}
-    actions = set(change.get("actions") or [])
-    return (change.get("importing") or resource_change.get("importing")) and (
-        actions <= {"create"}
-    )
-
-
 def _iter_plan_change_records(plan):
     for resource_change in plan.get("resource_changes") or []:
         yield resource_change
@@ -241,15 +137,10 @@ def _iter_plan_change_records(plan):
 
 
 def _non_import_change_count(plan):
-    total = 0
-    for resource_change in _iter_plan_change_records(plan):
-        actions = set((resource_change.get("change") or {}).get("actions") or [])
-        if actions <= {"no-op"}:
-            continue
-        if _is_import_only_change(resource_change):
-            continue
-        total += 1
-    return total
+    from engine.plan_eval import CLEAN, classify_plan
+
+    findings = classify_plan(plan)["findings"]
+    return sum(1 for finding in findings if finding["status"] != CLEAN)
 
 
 def _destroy_count(plan):
@@ -619,7 +510,7 @@ def cmd_assert_clean(opts):
     for tenant, resource_type, path in selected_env_pairs(
             opts.get("tenant"), opts["selectors"], require_plan=True):
         plan = _show_plan_json(path)
-        changes = _plan_change_count(plan)
+        changes = _non_import_change_count(plan)
         checked += 1
         if changes:
             sys.stderr.write(
