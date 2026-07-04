@@ -17,12 +17,6 @@ from engine import packs
 UNKNOWN = "<unknown>"
 LOOKUP_SUFFIX = ".lookup.json"
 
-# The reference graph + lookup sources are vendor data — they live in the
-# active pack's manifest (packs/<pack>/pack.json), not in the engine.
-REFERENCES = packs.references()
-
-LOOKUP_SOURCES = packs.lookup_sources()
-
 
 class LookupDataError(Exception):
     pass
@@ -37,11 +31,13 @@ def _copy_nested(mapping):
 
 
 def reference_manifest():
-    return _copy_nested(REFERENCES)
+    # The reference graph + lookup sources are vendor data — they live in the
+    # active pack's manifest (packs/<pack>/pack.json), not in the engine.
+    return _copy_nested(packs.references())
 
 
 def lookup_sources():
-    return dict((key, dict(value)) for key, value in LOOKUP_SOURCES.items())
+    return dict((key, dict(value)) for key, value in packs.lookup_sources().items())
 
 
 def check_tenant(tenant):
@@ -86,7 +82,7 @@ def render_lookup(mapping):
 
 
 def write_lookup(tenant, referent, items, config_root=None):
-    source = LOOKUP_SOURCES.get(referent)
+    source = packs.lookup_sources().get(referent)
     if source is None:
         return None
     path = lookup_path(tenant, referent, config_root=config_root)
@@ -177,7 +173,7 @@ def render_explain(tenant, selectors=None, config_root=None, missing_lookups=Non
     check_tenant(tenant)
     lines = []
     for resource_type in _expand_selectors(selectors or []):
-        refs = REFERENCES.get(resource_type)
+        refs = packs.references().get(resource_type)
         if not refs:
             continue
         path = config_path(tenant, resource_type, config_root=config_root)

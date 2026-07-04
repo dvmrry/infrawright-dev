@@ -11,6 +11,7 @@ import unittest
 from engine import deployment
 from engine import artifacts
 from engine import lookup
+from engine import packs
 from engine.transform import main as transform_main
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -45,6 +46,44 @@ def _lookup_file(tenant, resource_type):
         _config_dir(tenant, resource_type),
         resource_type + lookup.LOOKUP_SUFFIX,
     )
+
+
+class LookupPackManifestTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="lookup-packs-")
+        self._prev = os.environ.get("INFRAWRIGHT_PACKS")
+        os.environ["INFRAWRIGHT_PACKS"] = self.tmp
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        if self._prev is None:
+            os.environ.pop("INFRAWRIGHT_PACKS", None)
+        else:
+            os.environ["INFRAWRIGHT_PACKS"] = self._prev
+        packs.reset()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_reference_manifest_reads_current_pack_tables(self):
+        references = {
+            "sample_rule": {
+                "category_id": {
+                    "name_field": "display_name",
+                    "referent": "sample_category",
+                },
+            },
+        }
+        lookup_sources = {
+            "sample_category": {"name_field": "display_name"},
+        }
+        _write_json(os.path.join(self.tmp, "sample", "pack.json"), {
+            "lookup_sources": lookup_sources,
+            "provider_prefixes": {"sample_": "sample"},
+            "references": references,
+        })
+        packs.reset()
+
+        self.assertEqual(lookup.reference_manifest(), references)
+        self.assertEqual(lookup.lookup_sources(), lookup_sources)
 
 
 class LookupBuildTest(unittest.TestCase):
