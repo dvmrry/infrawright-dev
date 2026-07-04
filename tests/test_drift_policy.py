@@ -1,3 +1,4 @@
+import json
 import unittest
 
 from engine.drift_policy import DriftPolicy, DriftPolicyError, parse_path
@@ -22,6 +23,58 @@ def _policy(mode, entry):
             },
         },
     }
+
+
+def _tolerating_policy_data():
+    return {
+        "version": 1,
+        "resource_types": {
+            "t_x": {
+                "plan_tolerate": [{
+                    "path": "a[].b",
+                    "reason": "r",
+                    "approved_by": "me",
+                }],
+            },
+        },
+    }
+
+
+class StatelessDataTest(unittest.TestCase):
+    def test_matching_does_not_mutate_policy_data(self):
+        data = _tolerating_policy_data()
+        snapshot = json.loads(json.dumps(data))
+        policy = DriftPolicy(data)
+        self.assertTrue(policy.tolerates_plan_path("t_x", ("a", 0, "b"), "update"))
+        self.assertEqual(policy.data, snapshot)
+
+    def test_used_policy_data_revalidates(self):
+        data = _tolerating_policy_data()
+        policy = DriftPolicy(data)
+        policy.tolerates_plan_path("t_x", ("a", 0, "b"), "update")
+        DriftPolicy(policy.data)  # must not raise on unknown key _matched
+
+    def test_stale_entries_still_tracks_matches(self):
+        policy = DriftPolicy(_tolerating_policy_data())
+        self.assertEqual(
+            policy.stale_entries(modes=("plan_tolerate",)),
+            [("t_x", "plan_tolerate", "a[].b")],
+        )
+        policy.tolerates_plan_path("t_x", ("a", 0, "b"), "update")
+        self.assertEqual(policy.stale_entries(modes=("plan_tolerate",)), [])
+
+    def test_match_state_is_per_instance(self):
+        data = _tolerating_policy_data()
+        first = DriftPolicy(data)
+        second = DriftPolicy(data)
+        first.tolerates_plan_path("t_x", ("a", 0, "b"), "update")
+        self.assertEqual(second.stale_entries(modes=("plan_tolerate",)),
+                         [("t_x", "plan_tolerate", "a[].b")])
+
+    def test_entries_public_accessor(self):
+        policy = DriftPolicy(_tolerating_policy_data())
+        self.assertEqual(len(policy.entries("t_x", "plan_tolerate")), 1)
+        self.assertEqual(policy.entries("missing", "plan_tolerate"), [])
 
 
 class DriftPolicyTest(unittest.TestCase):

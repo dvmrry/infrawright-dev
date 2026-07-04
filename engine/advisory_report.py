@@ -109,11 +109,8 @@ def _summary(items):
 def _projection_omit_paths(resource_type, drift_policy):
     if drift_policy is None:
         return set()
-    entries = []
-    if hasattr(drift_policy, "_entries"):
-        entries = drift_policy._entries(resource_type, "projection_omit")
     out = set()
-    for entry in entries:
+    for entry in drift_policy.entries(resource_type, "projection_omit"):
         out.add(paths.format_report_path(parse_path(entry["path"])))
     return out
 

@@ -25,6 +25,7 @@ class DriftPolicy(object):
         )
         self.source = source
         self._validate()
+        self._matched_ids = set()
 
     @classmethod
     def load(cls, path):
@@ -41,7 +42,7 @@ class DriftPolicy(object):
             if action not in entry.get("actions", ["update"]):
                 continue
             if paths.selector_matches(parse_path(entry["path"]), path_tuple):
-                entry["_matched"] = True
+                self._matched_ids.add(id(entry))
                 return True
         return False
 
@@ -54,16 +55,20 @@ class DriftPolicy(object):
                 continue
             for mode in modes:
                 for entry in cfg.get(mode) or []:
-                    if not entry.get("_matched"):
+                    if id(entry) not in self._matched_ids:
                         stale.append((rt, mode, entry["path"]))
         return stale
 
     def _matches(self, resource_type, mode, path_tuple):
         for entry in self._entries(resource_type, mode):
             if paths.selector_matches(parse_path(entry["path"]), path_tuple):
-                entry["_matched"] = True
+                self._matched_ids.add(id(entry))
                 return True
         return False
+
+    def entries(self, resource_type, mode):
+        """Public read accessor for policy entries. Do not mutate the result."""
+        return list(self._entries(resource_type, mode))
 
     def _entries(self, resource_type, mode):
         return (
