@@ -20,6 +20,26 @@ from engine.registry import (
 )
 
 
+def _registry_pack_product_tokens():
+    # Independent expectation source: pack.json manifests of registry-bearing
+    # packs, never the registry under test. Assumes provider_prefixes values
+    # equal the pack's registry 'product' tokens — true for zia/zpa/zcc; a
+    # future pack where provider != product must extend this derivation.
+    declared = set()
+    root = packs.packs_root()
+    if not os.path.isdir(root):
+        return declared
+    for name in sorted(os.listdir(root)):
+        manifest_path = os.path.join(root, name, "pack.json")
+        registry_path = os.path.join(root, name, "registry.json")
+        if not os.path.isfile(manifest_path) or not os.path.isfile(registry_path):
+            continue
+        with open(manifest_path, encoding="utf-8") as f:
+            manifest = json.load(f)
+        declared.update(manifest.get("provider_prefixes", {}).values())
+    return declared
+
+
 class CheckDuplicateResourceTypesTest(unittest.TestCase):
     def test_none_data_entries_are_skipped(self):
         check_duplicate_resource_types([
@@ -81,14 +101,18 @@ class RegistryTest(unittest.TestCase):
             fetch_entry("zpa_nope")
 
     def test_every_entry_has_product(self):
+        declared = _registry_pack_product_tokens()
         for rt, e in load_registry().items():
-            self.assertIn(e["product"], ("zcc", "zia", "zpa"), rt)
+            self.assertIn(e["product"], declared, rt)
 
     def test_generators_and_fetch_consume_registry(self):
         import engine.collectors.rest as fetch
         for rt in generated_types():
             self.assertIn(rt, load_registry())
-        self.assertEqual(sorted(fetch.products_in_manifest()), ["zcc", "zia", "zpa"])
+        self.assertEqual(
+            sorted(fetch.products_in_manifest()),
+            sorted(_registry_pack_product_tokens()),
+        )
 
     def test_reload_registry(self):
         reg = reload_registry()
