@@ -12,7 +12,7 @@ import subprocess
 import sys
 from engine import deployment
 from engine import packs
-from engine.transform import validate_override_metadata
+from engine.overrides import validate_override_metadata
 from engine.registry import generated_types
 from engine.tfschema import (
     attr_type,

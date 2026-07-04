@@ -16,6 +16,8 @@ from engine import artifacts
 from engine import deployment
 from engine import lookup
 from engine import packs
+from engine.overrides import OVERRIDE_KEYS
+from engine.overrides import validate_override_metadata
 from engine.registry import derive_entry
 from engine.adoption_status import known_hold_paths
 from engine.tfschema import (
@@ -379,41 +381,6 @@ def _coerce_object_members(obj, members):
 # Test seam: tests monkey-patch this to a tmp dir. None (default) => each
 # resource resolves to its owning pack's overrides/ via the resolver.
 OVERRIDES_DIR = None
-
-OVERRIDE_KEYS = frozenset([
-    "acknowledged_drops",
-    "defaults",
-    "divide",
-    "drop_if_default",
-    "drops",
-    "html_escape_fields",
-    "identity_fields",
-    "import_id",
-    "invert_bool",
-    "key_field",
-    "merge_blocks",
-    "no_html_unescape",
-    "ranges",
-    "references",
-    "renames",
-    "sample",
-    "skip_if",
-    "sort_lists",
-    "split_csv",
-    "strip_prefix",
-    "value_map",
-])
-
-
-def validate_override_metadata(data, path=None):
-    label = path or "<override>"
-    if not isinstance(data, dict):
-        raise ValueError("override metadata in %s must be an object" % label)
-    unknown = sorted(set(data) - OVERRIDE_KEYS)
-    if unknown:
-        raise ValueError(
-            "unknown override key %s in %s" % (unknown[0], label)
-        )
 
 
 def load_override(resource_type):

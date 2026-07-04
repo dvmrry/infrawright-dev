@@ -10,7 +10,7 @@ import sys
 
 from engine import packs
 from engine import registry
-from engine import transform
+from engine.overrides import validate_override_metadata
 
 
 def _usage():
@@ -81,21 +81,7 @@ def _validate_overrides(pack_dir):
     for name in sorted(os.listdir(overrides_dir)):
         path = os.path.join(overrides_dir, name)
         if os.path.isfile(path) and name.endswith(".json"):
-            transform.validate_override_metadata(_load_json(path), path=path)
-
-
-def _check_duplicate_resources(registries):
-    owners = {}
-    for path, data in registries:
-        if data is None:
-            continue
-        for resource_type in data:
-            if resource_type in owners:
-                raise ValueError(
-                    "%s: duplicate resource type %r already loaded from %s"
-                    % (path, resource_type, owners[resource_type])
-                )
-            owners[resource_type] = path
+            validate_override_metadata(_load_json(path), path=path)
 
 
 def validate_packs(pack=None):
@@ -109,7 +95,7 @@ def validate_packs(pack=None):
     for name in names:
         registries.append(_validate_one(root, name))
     if pack is None:
-        _check_duplicate_resources(registries)
+        registry.check_duplicate_resource_types(registries)
     return names
 
 

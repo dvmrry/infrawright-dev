@@ -12,11 +12,11 @@ import os
 import sys
 
 from engine import tfschema
+from engine.overrides import validate_override_metadata
 from engine.transform import _coerce_primitive
 from engine.transform import apply_overrides
 from engine.transform import snake
 from engine.transform import snake_keys
-from engine.transform import validate_override_metadata
 
 
 BUCKETS = (

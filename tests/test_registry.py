@@ -9,6 +9,7 @@ from engine import packs
 from engine.collectors.rest import pagination_styles
 from engine.headroom_report import provider_resources
 from engine.registry import (
+    check_duplicate_resource_types,
     derive_entry,
     derived_types,
     fetch_entry,
@@ -17,6 +18,40 @@ from engine.registry import (
     reload_registry,
     validate_registry,
 )
+
+
+class CheckDuplicateResourceTypesTest(unittest.TestCase):
+    def test_none_data_entries_are_skipped(self):
+        check_duplicate_resource_types([
+            ("a.json", None),
+            ("b.json", {"sample_x": {"product": "sample"}}),
+        ])
+
+    def test_duplicate_across_files_names_first_owner(self):
+        with self.assertRaises(ValueError) as ctx:
+            check_duplicate_resource_types([
+                ("a.json", {"sample_x": {"product": "sample"}}),
+                ("b.json", {"sample_x": {"product": "sample"}}),
+            ])
+        self.assertIn(
+            "b.json: duplicate resource type 'sample_x' "
+            "already loaded from a.json",
+            str(ctx.exception),
+        )
+
+    def test_first_duplicate_in_insertion_order_is_reported(self):
+        with self.assertRaises(ValueError) as ctx:
+            check_duplicate_resource_types([
+                ("a.json", {
+                    "sample_m": {"product": "sample"},
+                    "sample_z": {"product": "sample"},
+                }),
+                ("b.json", {
+                    "sample_z": {"product": "sample"},
+                    "sample_m": {"product": "sample"},
+                }),
+            ])
+        self.assertIn("'sample_z'", str(ctx.exception))
 
 
 class RegistryTest(unittest.TestCase):
