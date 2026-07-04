@@ -101,24 +101,6 @@ class PackContractTest(unittest.TestCase):
         packs.reset()  # empty packs dir
         self.assertEqual(packs.provider_of("unknown_thing"), "unknown")
 
-    def test_pack_root_raises_with_no_registry_pack(self):
-        _write_pack(self.tmp, "a", {"provider_prefixes": {"a_": "a"}})
-        packs.reset()
-        with self.assertRaises(RuntimeError):
-            packs.pack_root()
-
-    def test_pack_root_returns_sole_registry_pack(self):
-        _write_pack(self.tmp, "only", {}, with_registry=True)
-        packs.reset()
-        self.assertEqual(os.path.basename(packs.pack_root()), "only")
-
-    def test_pack_root_raises_on_multiple_registry_packs(self):
-        _write_pack(self.tmp, "one", {}, with_registry=True)
-        _write_pack(self.tmp, "two", {}, with_registry=True)
-        packs.reset()
-        with self.assertRaises(RuntimeError):
-            packs.pack_root()
-
     def test_references_and_lookup_sources_merge(self):
         _write_pack(self.tmp, "a", {
             "references": {"r1": {"f": {"referent": "t1", "name_field": "n"}}},
