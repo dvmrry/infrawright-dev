@@ -178,11 +178,9 @@ def _summary(results):
 def _projection_omit_paths(resource_type, drift_policy):
     if drift_policy is None:
         return []
-    if not hasattr(drift_policy, "_entries"):
-        return []
     return [
         entry["path"]
-        for entry in drift_policy._entries(resource_type, "projection_omit")
+        for entry in drift_policy.entries(resource_type, "projection_omit")
     ]
 
 
@@ -231,7 +229,7 @@ def main(argv=None):
         if args.paths_json:
             paths.extend(_read_paths_json(args.paths_json, args.resource_type))
         policy = DriftPolicy.load(args.policy)
-        if not paths and not policy._entries(args.resource_type, "projection_omit"):
+        if not paths and not policy.entries(args.resource_type, "projection_omit"):
             raise ValueError("provide at least one --path, --paths-json, or --policy")
         report = build_report(args.resource_type, paths, drift_policy=policy)
     except Exception as exc:
