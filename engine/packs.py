@@ -4,7 +4,7 @@ The engine carries zero vendor knowledge. Each pack under packs/<name>/
 ships a pack.json manifest (provider prefixes, registry sources, unescape
 products, scope segments) plus its data (registry.json, overrides/,
 schemas/, adoption_status.json). This module discovers packs and exposes
-the merged tables plus the active pack root the engine reads data from.
+the merged tables the engine reads data from.
 
 Stdlib-only, Python 3.6-floor.
 """
@@ -320,37 +320,6 @@ def collector_for(provider):
     small auth/URL contract consumed by engine.collectors.rest.
     """
     return importlib.import_module("packs.%s.collector" % provider)
-
-
-def _registry_packs():
-    roots = []
-    root = packs_root()
-    if os.path.isdir(root):
-        for name in sorted(os.listdir(root)):
-            if os.path.isfile(os.path.join(root, name, "registry.json")):
-                roots.append(os.path.join(root, name))
-    return roots
-
-
-def pack_root():
-    """The active pack's directory — the sole pack shipping a registry.json.
-
-    Single-pack by construction in Phase 1. If a SECOND registry-bearing pack
-    is added, this RAISES rather than silently shadowing one pack with the
-    alphabetically-first: multi-pack data resolution must be per-resource
-    (owning pack derived from the registry 'product' field), which lands with
-    the second pack (Phase 2).
-    """
-    roots = _registry_packs()
-    if not roots:
-        raise RuntimeError("no pack with a registry.json under %r" % packs_root())
-    if len(roots) > 1:
-        names = ", ".join(os.path.basename(r) for r in roots)
-        raise RuntimeError(
-            "multiple registry-bearing packs (%s): single active-pack "
-            "resolution is ambiguous. Per-resource resolution by the registry "
-            "'product' field is required for multi-pack (Phase 2)." % names)
-    return roots[0]
 
 
 # --- per-resource resolution (provider-first) -------------------------------

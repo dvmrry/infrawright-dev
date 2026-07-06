@@ -608,14 +608,13 @@ def derive_key(item, override):
 # keep the ESCAPED bytes in state, so their config must stay escaped too.
 # Field-hit: unescaping ACG descriptions created a perpetual
 # "---->" vs "----&gt;" diff.
-_UNESCAPE_PRODUCTS = packs.unescape_products()
 _UNESCAPE_FIELDS = ("name", "description")
 
 
 def _unescape_html_fields(snake_raw, resource_type, override=None):
     import html
 
-    if not resource_type.startswith(_UNESCAPE_PRODUCTS):
+    if not resource_type.startswith(packs.unescape_products()):
         return
     if (override or {}).get("no_html_unescape"):
         return
