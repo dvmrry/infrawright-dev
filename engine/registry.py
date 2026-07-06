@@ -7,6 +7,7 @@ Stdlib-only, Python 3.6-floor — see AGENTS.md rule 5.
 import json
 import os
 
+from engine import manifest_checks
 from engine import packs
 
 _cache = {}
@@ -37,43 +38,38 @@ def load_registry():
     """Merge every pack's registry.json. One pack today; one per provider
     after the split — provider 'product' fields keep entries disjoint."""
     if not _cache:
-        merged = {}
-        owners = {}
+        registries = []
         for path in packs.registry_paths():
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             validate_registry(data, path=path)
+            registries.append((path, data))
+        check_duplicate_resource_types(registries)
+        merged = {}
+        for path, data in registries:
             for resource_type, entry in data.items():
-                if resource_type in merged:
-                    raise ValueError(
-                        "%s: duplicate resource type %r already loaded from %s"
-                        % (path, resource_type, owners[resource_type])
-                    )
                 merged[resource_type] = entry
-                owners[resource_type] = path
         _cache.update(merged)
     return _cache
 
 
+def check_duplicate_resource_types(registries):
+    """Fail loudly when two registry files declare the same resource type."""
+    owners = {}
+    for path, data in registries:
+        if data is None:
+            continue
+        for resource_type in data:
+            if resource_type in owners:
+                raise ValueError(
+                    "%s: duplicate resource type %r already loaded from %s"
+                    % (path, resource_type, owners[resource_type])
+                )
+            owners[resource_type] = path
+
+
 def _where(path):
     return path or "registry.json"
-
-
-def _reject_unknown_keys(data, allowed, path):
-    unknown = sorted(set(data) - allowed)
-    if unknown:
-        raise ValueError("%s: unknown key %s" % (path, unknown[0]))
-
-
-def _require_keys(data, required, path):
-    missing = sorted(required - set(data))
-    if missing:
-        raise ValueError("%s: missing required key %s" % (path, missing[0]))
-
-
-def _require_non_empty_string(value, path):
-    if not isinstance(value, str) or not value:
-        raise ValueError("%s must be a non-empty string" % path)
 
 
 def _validate_query(value, path):
@@ -127,17 +123,21 @@ def _validate_enum(value, allowed, path):
 def _validate_fetch(fetch, path):
     if not isinstance(fetch, dict):
         raise ValueError("%s must be an object" % path)
-    _reject_unknown_keys(fetch, FETCH_KEYS, path)
-    _require_keys(fetch, FETCH_REQUIRED_KEYS, path)
-    _require_non_empty_string(fetch.get("pagination"), "%s.pagination" % path)
+    manifest_checks.reject_unknown_keys(fetch, FETCH_KEYS, path)
+    manifest_checks.require_keys(fetch, FETCH_REQUIRED_KEYS, path)
+    manifest_checks.require_non_empty_string(
+        fetch.get("pagination"), "%s.pagination" % path
+    )
     _validate_enum(
         fetch.get("pagination"),
         _pagination_values(),
         "%s.pagination" % path,
     )
-    _require_non_empty_string(fetch.get("path"), "%s.path" % path)
+    manifest_checks.require_non_empty_string(fetch.get("path"), "%s.path" % path)
     if "envelope" in fetch:
-        _require_non_empty_string(fetch["envelope"], "%s.envelope" % path)
+        manifest_checks.require_non_empty_string(
+            fetch["envelope"], "%s.envelope" % path
+        )
     if "query" in fetch:
         _validate_query(fetch["query"], "%s.query" % path)
     if "expand" in fetch:
@@ -152,38 +152,30 @@ def _validate_fetch(fetch, path):
 def _validate_derive(derive, path):
     if not isinstance(derive, dict):
         raise ValueError("%s must be an object" % path)
-    _reject_unknown_keys(derive, DERIVE_KEYS, path)
-    _require_keys(derive, DERIVE_REQUIRED_KEYS, path)
-    _require_non_empty_string(derive.get("from"), "%s.from" % path)
+    manifest_checks.reject_unknown_keys(derive, DERIVE_KEYS, path)
+    manifest_checks.require_keys(derive, DERIVE_REQUIRED_KEYS, path)
+    manifest_checks.require_non_empty_string(derive.get("from"), "%s.from" % path)
     if "policy_type" in derive:
         # policy_type is provider data carried into the generated reorder
         # resource, not an engine-owned closed enum. Keep it open until pack
         # metadata has a provider-specific vocabulary to validate against.
-        _require_non_empty_string(
+        manifest_checks.require_non_empty_string(
             derive["policy_type"], "%s.policy_type" % path
         )
-
-
-def _validate_string_map(value, path):
-    if not isinstance(value, dict):
-        raise ValueError("%s must be an object" % path)
-    for key, item in value.items():
-        if not isinstance(key, str) or not key:
-            raise ValueError("%s keys must be non-empty strings" % path)
-        if not isinstance(item, str) or not item:
-            raise ValueError("%s.%s must be a non-empty string" % (path, key))
 
 
 def _validate_adopt(adopt, path):
     if not isinstance(adopt, dict):
         raise ValueError("%s must be an object" % path)
-    _reject_unknown_keys(adopt, ADOPT_KEYS, path)
+    manifest_checks.reject_unknown_keys(adopt, ADOPT_KEYS, path)
     for key in ("key_field", "import_id"):
         if key in adopt:
-            _require_non_empty_string(adopt[key], "%s.%s" % (path, key))
+            manifest_checks.require_non_empty_string(
+                adopt[key], "%s.%s" % (path, key)
+            )
     for key in ("identity_renames", "identity_fields"):
         if key in adopt:
-            _validate_string_map(adopt[key], "%s.%s" % (path, key))
+            manifest_checks.validate_string_map(adopt[key], "%s.%s" % (path, key))
     if "skip_if" in adopt and not isinstance(adopt["skip_if"], list):
         raise ValueError("%s.skip_if must be a list" % path)
 
@@ -199,11 +191,13 @@ def validate_registry(data, path=None):
         label = "%s.%s" % (path, resource_type)
         if not isinstance(entry, dict):
             raise ValueError("%s must be an object" % label)
-        _reject_unknown_keys(entry, REGISTRY_RESOURCE_KEYS, label)
-        _require_keys(entry, REGISTRY_REQUIRED_RESOURCE_KEYS, label)
+        manifest_checks.reject_unknown_keys(entry, REGISTRY_RESOURCE_KEYS, label)
+        manifest_checks.require_keys(entry, REGISTRY_REQUIRED_RESOURCE_KEYS, label)
         if "generate" in entry and not isinstance(entry.get("generate"), bool):
             raise ValueError("%s.generate must be a boolean" % label)
-        _require_non_empty_string(entry.get("product"), "%s.product" % label)
+        manifest_checks.require_non_empty_string(
+            entry.get("product"), "%s.product" % label
+        )
         if "fetch" in entry:
             _validate_fetch(entry["fetch"], "%s.fetch" % label)
         if "derive" in entry:

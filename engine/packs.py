@@ -12,6 +12,8 @@ import importlib
 import json
 import os
 
+from engine import manifest_checks
+
 # The packs/ dir is anchored to the install (engine/.. == repo root), NOT the
 # current working directory: importing the engine from any cwd must neither
 # crash nor silently resolve to a different packs/. Override with the
@@ -93,18 +95,6 @@ def _where(path):
     return path or "pack.json"
 
 
-def _require_keys(data, required, path):
-    missing = sorted(required - set(data))
-    if missing:
-        raise ValueError("%s: missing required key %s" % (path, missing[0]))
-
-
-def _reject_unknown_keys(data, allowed, path):
-    unknown = sorted(set(data) - allowed)
-    if unknown:
-        raise ValueError("%s: unknown key %s" % (path, unknown[0]))
-
-
 def _require_type(data, key, expected, path):
     if key in data and not isinstance(data[key], expected):
         typename = _type_name(expected)
@@ -124,14 +114,6 @@ def _type_name(expected):
     return expected.__name__
 
 
-def _validate_string_map(value, path):
-    for key, item in value.items():
-        if not isinstance(key, str) or not key:
-            raise ValueError("%s keys must be non-empty strings" % path)
-        if not isinstance(item, str) or not item:
-            raise ValueError("%s.%s must be a non-empty string" % (path, key))
-
-
 def _validate_unescape_products(value, path):
     for idx, item in enumerate(value):
         if not isinstance(item, str) or not item:
@@ -144,10 +126,10 @@ def _validate_lookup_sources(value, path):
             raise ValueError("%s keys must be non-empty strings" % path)
         if not isinstance(item, dict):
             raise ValueError("%s.%s must be an object" % (path, resource_type))
-        _reject_unknown_keys(item, set(["name_field"]), "%s.%s" % (
+        manifest_checks.reject_unknown_keys(item, set(["name_field"]), "%s.%s" % (
             path, resource_type
         ))
-        _require_keys(item, set(["name_field"]), "%s.%s" % (
+        manifest_checks.require_keys(item, set(["name_field"]), "%s.%s" % (
             path, resource_type
         ))
         if not isinstance(item["name_field"], str) or not item["name_field"]:
@@ -170,8 +152,12 @@ def _validate_references(value, path):
             label = "%s.%s.%s" % (path, resource_type, field)
             if not isinstance(item, dict):
                 raise ValueError("%s must be an object" % label)
-            _reject_unknown_keys(item, set(["name_field", "referent"]), label)
-            _require_keys(item, set(["name_field", "referent"]), label)
+            manifest_checks.reject_unknown_keys(
+                item, set(["name_field", "referent"]), label
+            )
+            manifest_checks.require_keys(
+                item, set(["name_field", "referent"]), label
+            )
             for key in ("name_field", "referent"):
                 if not isinstance(item[key], str) or not item[key]:
                     raise ValueError("%s.%s must be a non-empty string" % (
@@ -183,7 +169,7 @@ def _validate_rule_group(data, key, path):
     if key not in data:
         return
     group = data[key]
-    _reject_unknown_keys(group, set(["rules"]), "%s.%s" % (path, key))
+    manifest_checks.reject_unknown_keys(group, set(["rules"]), "%s.%s" % (path, key))
     if "rules" not in group:
         raise ValueError("%s.%s missing required key rules" % (path, key))
     if not isinstance(group["rules"], list):
@@ -194,7 +180,9 @@ def _validate_provider_config(data, path):
     if "provider_config" not in data:
         return
     group = data["provider_config"]
-    _reject_unknown_keys(group, set(["requirements"]), "%s.provider_config" % path)
+    manifest_checks.reject_unknown_keys(
+        group, set(["requirements"]), "%s.provider_config" % path
+    )
     if "requirements" not in group:
         raise ValueError(
             "%s.provider_config missing required key requirements" % path
@@ -212,8 +200,8 @@ def validate_pack_metadata(data, path=None):
     path = _where(path)
     if not isinstance(data, dict):
         raise ValueError("%s must contain a JSON object" % path)
-    _reject_unknown_keys(data, PACK_METADATA_KEYS, path)
-    _require_keys(data, PACK_REQUIRED_KEYS, path)
+    manifest_checks.reject_unknown_keys(data, PACK_METADATA_KEYS, path)
+    manifest_checks.require_keys(data, PACK_REQUIRED_KEYS, path)
 
     for key in PACK_DICT_KEYS:
         _require_type(data, key, dict, path)
@@ -224,12 +212,15 @@ def validate_pack_metadata(data, path=None):
     for key in PACK_LIST_KEYS:
         _require_type(data, key, list, path)
 
-    _validate_string_map(data.get("provider_prefixes", {}),
-                         "%s.provider_prefixes" % path)
-    _validate_string_map(data.get("provider_sources", {}),
-                         "%s.provider_sources" % path)
-    _validate_string_map(data.get("scope_segments", {}),
-                         "%s.scope_segments" % path)
+    manifest_checks.validate_string_map(
+        data.get("provider_prefixes", {}), "%s.provider_prefixes" % path
+    )
+    manifest_checks.validate_string_map(
+        data.get("provider_sources", {}), "%s.provider_sources" % path
+    )
+    manifest_checks.validate_string_map(
+        data.get("scope_segments", {}), "%s.scope_segments" % path
+    )
     if "unescape_products" in data:
         _validate_unescape_products(
             data["unescape_products"], "%s.unescape_products" % path
