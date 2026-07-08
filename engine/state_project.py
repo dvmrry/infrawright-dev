@@ -244,6 +244,13 @@ def _guard_projection_sync(resource_type, entry, target_path, source_path):
             % (entry["target_path"], resource_type)
         )
 
+    _guard_projection_sync_path_shape(
+        resource_type, "target_path", entry["target_path"], target_path
+    )
+    _guard_projection_sync_path_shape(
+        resource_type, "source_path", entry["source_path"], source_path
+    )
+
     target_type = _schema_terminal_type(resource_type, target_path)
     source_type = _schema_terminal_type(resource_type, source_path)
     if target_type != source_type:
@@ -258,6 +265,105 @@ def _guard_projection_sync(resource_type, entry, target_path, source_path):
                 source_type,
             )
         )
+
+
+def _guard_projection_sync_path_shape(resource_type, field, raw_path, path):
+    block = load_resource(resource_type)["block"]
+    _guard_projection_sync_block_shape(
+        block,
+        tuple(path),
+        resource_top=True,
+        resource_type=resource_type,
+        field=field,
+        raw_path=raw_path,
+    )
+
+
+def _guard_projection_sync_block_shape(
+        block, path, resource_top, resource_type, field, raw_path):
+    if len(path) <= 1:
+        return
+    segment = path[0]
+    if not isinstance(segment, str):
+        return
+    cls = resource_input_attrs(block) if resource_top else classify_attributes(block)
+    attrs = block.get("attributes") or {}
+    if segment in cls["required"] or segment in cls["optional"]:
+        _guard_projection_sync_encoding_shape(
+            attr_type(attrs[segment]),
+            path[1:],
+            resource_type=resource_type,
+            field=field,
+            raw_path=raw_path,
+            segment=segment,
+        )
+        return
+    blocks = input_block_types(block)
+    if segment in blocks:
+        bt = blocks[segment]
+        if not block_is_single(bt):
+            _projection_sync_shape_error(
+                resource_type,
+                field,
+                raw_path,
+                segment,
+                "is a repeated block",
+            )
+        _guard_projection_sync_block_shape(
+            bt["block"],
+            path[1:],
+            resource_top=False,
+            resource_type=resource_type,
+            field=field,
+            raw_path=raw_path,
+        )
+
+
+def _guard_projection_sync_encoding_shape(
+        encoding, path, resource_type, field, raw_path, segment):
+    if not path:
+        return
+    if isinstance(encoding, list) and len(encoding) == 2:
+        kind, inner = encoding
+        if kind in ("list", "set"):
+            _projection_sync_shape_error(
+                resource_type,
+                field,
+                raw_path,
+                segment,
+                "is a %s-typed attribute" % kind,
+            )
+        if kind == "map":
+            if len(path) > 1:
+                _guard_projection_sync_encoding_shape(
+                    inner,
+                    path[1:],
+                    resource_type=resource_type,
+                    field=field,
+                    raw_path=raw_path,
+                    segment=path[0],
+                )
+            return
+        if kind == "object" and isinstance(inner, dict):
+            child = path[0]
+            if isinstance(child, str) and child in inner:
+                _guard_projection_sync_encoding_shape(
+                    inner[child],
+                    path[1:],
+                    resource_type=resource_type,
+                    field=field,
+                    raw_path=raw_path,
+                    segment=child,
+                )
+
+
+def _projection_sync_shape_error(
+        resource_type, field, raw_path, segment, detail):
+    raise ProjectionError(
+        "refusing to projection_sync %s %s of %s: non-terminal segment %s "
+        "%s, not an object-shaped container"
+        % (field, raw_path, resource_type, segment, detail)
+    )
 
 
 def _path_value(value, path):

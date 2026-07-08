@@ -15,6 +15,10 @@ FAKE_SCHEMA = {
             "count": {"type": "number", "optional": True},
             "labels": {"type": ["map", "string"], "optional": True},
             "labels_copy": {"type": ["map", "string"], "optional": True},
+            "list_items": {
+                "type": ["list", ["object", {"name": "string"}]],
+                "optional": True,
+            },
             "dest_ip_categories": {"type": ["set", "string"], "optional": True},
             "res_categories": {"type": ["set", "string"], "optional": True},
             "optional_null": {"type": "string", "optional": True},
@@ -228,6 +232,119 @@ class StateProjectTest(unittest.TestCase):
         }, policy=policy)
 
         self.assertEqual(out["res_categories"], ["CAT_A"])
+        self.assertEqual(policy.stale_entries(modes=("projection_sync",)), [])
+
+    def test_projection_sync_rejects_list_block_child_target(self):
+        for field, target_path, source_path in (
+                ("target_path", "ports.end", "count"),
+                ("source_path", "count", "ports.end"),
+        ):
+            policy = DriftPolicy({
+                "version": 1,
+                "resource_types": {
+                    "sample_resource": {
+                        "projection_sync": [
+                            {
+                                "target_path": target_path,
+                                "source_path": source_path,
+                                "reason": "test",
+                                "approved_by": "unit",
+                            }
+                        ]
+                    }
+                },
+            })
+
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(
+                        ProjectionError,
+                        "%s ports\\.end of sample_resource: "
+                        "non-terminal segment ports" % field):
+                    project_item("sample_resource", {
+                        "name": "Prod",
+                        "count": 443,
+                    }, policy=policy)
+
+    def test_projection_sync_rejects_list_attribute_child_target(self):
+        for field, target_path, source_path in (
+                ("target_path", "list_items.name", "description"),
+                ("source_path", "description", "list_items.name"),
+        ):
+            policy = DriftPolicy({
+                "version": 1,
+                "resource_types": {
+                    "sample_resource": {
+                        "projection_sync": [
+                            {
+                                "target_path": target_path,
+                                "source_path": source_path,
+                                "reason": "test",
+                                "approved_by": "unit",
+                            }
+                        ]
+                    }
+                },
+            })
+
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(
+                        ProjectionError,
+                        "%s list_items\\.name of sample_resource: "
+                        "non-terminal segment list_items" % field):
+                    project_item("sample_resource", {
+                        "name": "Prod",
+                        "description": "source",
+                    }, policy=policy)
+
+    def test_projection_sync_allows_single_block_child_target(self):
+        policy = DriftPolicy({
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "projection_sync": [
+                        {
+                            "target_path": "settings.flag",
+                            "source_path": "enabled",
+                            "reason": "test",
+                            "approved_by": "unit",
+                        }
+                    ]
+                }
+            },
+        })
+
+        out = project_item("sample_resource", {
+            "name": "Prod",
+            "enabled": False,
+            "settings": {"mode": "strict"},
+        }, policy=policy)
+
+        self.assertEqual(out["settings"], {"mode": "strict", "flag": False})
+        self.assertEqual(policy.stale_entries(modes=("projection_sync",)), [])
+
+    def test_projection_sync_allows_map_attribute_key_target(self):
+        policy = DriftPolicy({
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "projection_sync": [
+                        {
+                            "target_path": 'labels_copy["app"]',
+                            "source_path": "description",
+                            "reason": "test",
+                            "approved_by": "unit",
+                        }
+                    ]
+                }
+            },
+        })
+
+        out = project_item("sample_resource", {
+            "name": "Prod",
+            "description": "api",
+        }, policy=policy)
+
+        self.assertEqual(out["labels_copy"], {"app": "api"})
         self.assertEqual(policy.stale_entries(modes=("projection_sync",)), [])
 
     def test_projection_sync_noops_when_target_already_equals_source(self):
