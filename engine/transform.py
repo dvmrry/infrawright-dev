@@ -691,6 +691,17 @@ def transform_items(raw_items, resource_type, override):
     return items, originals, reported
 
 
+def lookup_survivor_items(raw_items, resource_type, override):
+    survivors = []
+    for raw in raw_items:
+        snake_raw = snake_keys(raw)
+        _unescape_html_fields(snake_raw, resource_type, override)
+        if _skip_item(snake_raw, override):
+            continue
+        survivors.append(snake_raw)
+    return survivors
+
+
 def render_acknowledged_drops_snippet(override, drops):
     """Copy-paste helper for a DROPS_CHECK report.
 
@@ -1084,7 +1095,8 @@ def main(argv=None):
     os.makedirs(imports_dir, exist_ok=True)
     if resource_type in lookup.lookup_sources():
         lookup_path = lookup.write_lookup(
-            tenant, resource_type, [snake_keys(raw) for raw in raw_items]
+            tenant, resource_type,
+            lookup_survivor_items(raw_items, resource_type, override)
         )
         sys.stderr.write("wrote %s\n" % lookup_path)
     tfvars_path = artifacts.config_file(tenant, resource_type)

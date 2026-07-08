@@ -15,10 +15,23 @@ import sys
 from engine import artifacts
 from engine import deployment
 from engine import expression_bindings
+from engine import group_bindings
 from engine import packs
 
 ENVS_ROOT = "envs"
 EXPRESSION_BINDINGS_TF = "expression_bindings.tf"
+NOTE_STALE_GENERATED_DISABLED = (
+    "stale generated bindings ignored (bind_references disabled); "
+    "rerun make transform to remove %s"
+)
+NOTE_STALE_GENERATED_NONMEMBER = (
+    "stale generated binding ignored (target %s not in root members); "
+    "rerun make transform to remove %s"
+)
+CYCLE_REMEDY = (
+    "resolve one direction via a literal ID or operator expression, "
+    "or disable bind_references"
+)
 
 
 def _provider_of(resource_type):
@@ -206,16 +219,128 @@ def _merge_binding_layers(layers):
     ]
 
 
-def _load_expression_binding_layers(tenant, resource_type):
+def _note_bindings(message):
+    sys.stderr.write("NOTE bindings: %s\n" % message)
+
+
+def _module_targets(expression):
+    targets = set()
+    i = 0
+    in_string = False
+    escaped = False
+    while i < len(expression):
+        ch = expression[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+            i += 1
+            continue
+        if expression.startswith("module.", i):
+            start = i + len("module.")
+            end = start
+            while end < len(expression) and (
+                    expression[end].isalnum() or expression[end] == "_"):
+                end += 1
+            if end > start:
+                targets.add(expression[start:end])
+            i = end
+            continue
+        i += 1
+    return sorted(targets)
+
+
+def _filter_generated_bindings(bindings, path, member_types):
+    if member_types is None:
+        return bindings
+    members = set(member_types)
+    kept = []
+    for binding in bindings:
+        nonmembers = sorted(
+            target for target in _module_targets(binding["expression"])
+            if target not in members
+        )
+        if nonmembers:
+            _note_bindings(
+                NOTE_STALE_GENERATED_NONMEMBER % (", ".join(nonmembers), path)
+            )
+            continue
+        kept.append(binding)
+    return kept
+
+
+def _load_expression_binding_layers(tenant, resource_type, member_types=None):
     layers = []
-    for path in (
-            _generated_expression_bindings_file(tenant, resource_type),
-            _expression_bindings_file(tenant, resource_type),
-    ):
-        if os.path.exists(path):
-            layers.append(expression_bindings.load_bindings(
-                path, resource_type))
+    generated_path = _generated_expression_bindings_file(tenant, resource_type)
+    if os.path.exists(generated_path):
+        if group_bindings.bindings_enabled(resource_type):
+            generated = expression_bindings.load_bindings(
+                generated_path, resource_type)
+            generated = _filter_generated_bindings(
+                generated, generated_path, member_types)
+            if generated:
+                layers.append(generated)
+        else:
+            _note_bindings(
+                NOTE_STALE_GENERATED_DISABLED % generated_path
+            )
+    operator_path = _expression_bindings_file(tenant, resource_type)
+    if os.path.exists(operator_path):
+        layers.append(expression_bindings.load_bindings(
+            operator_path, resource_type))
     return _merge_binding_layers(layers)
+
+
+def _cycle_path(edges, nodes):
+    state = {}
+    stack = []
+
+    def visit(node):
+        state[node] = "visiting"
+        stack.append(node)
+        for target in sorted(edges.get(node, [])):
+            if target not in nodes:
+                continue
+            if state.get(target) == "visiting":
+                idx = stack.index(target)
+                return stack[idx:] + [target]
+            if state.get(target) is None:
+                found = visit(target)
+                if found:
+                    return found
+        stack.pop()
+        state[node] = "done"
+        return None
+
+    for node in sorted(nodes):
+        if state.get(node) is None:
+            found = visit(node)
+            if found:
+                return found
+    return None
+
+
+def _assert_no_binding_cycles(label, member_types, bindings_by_type):
+    members = set(member_types)
+    edges = {}
+    for resource_type in sorted(bindings_by_type):
+        for binding in bindings_by_type[resource_type]:
+            for target in _module_targets(binding["expression"]):
+                if target in members:
+                    edges.setdefault(resource_type, set()).add(target)
+    cycle = _cycle_path(edges, members)
+    if cycle:
+        raise ValueError(
+            "expression binding cycle detected in root %s: %s; %s"
+            % (label, " -> ".join(cycle), CYCLE_REMEDY)
+        )
 
 
 def _render_env_root_readme(label, member_types, tenant, env_dir=None):
@@ -381,7 +506,8 @@ def generate_env(tenant, out_root=None, fmt=True, backend=None,
         os.makedirs(base, exist_ok=True)
         bindings_by_type = {}
         for resource_type in member_types:
-            bindings = _load_expression_binding_layers(tenant, resource_type)
+            bindings = _load_expression_binding_layers(
+                tenant, resource_type, member_types=member_types)
             if not bindings:
                 continue
             _validate_expression_bindings_against_config(
@@ -390,6 +516,7 @@ def generate_env(tenant, out_root=None, fmt=True, backend=None,
                 var_name=artifacts.tfvars_var_name(resource_type),
             )
             bindings_by_type[resource_type] = bindings
+        _assert_no_binding_cycles(label, member_types, bindings_by_type)
         main_text = render_env_main(
             label,
             member_types,

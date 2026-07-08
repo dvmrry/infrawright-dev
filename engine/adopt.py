@@ -72,7 +72,8 @@ def write_outputs(resource_type, raw_items, tenant, policy):
     items, originals = adopt_items(raw_items, resource_type, policy=policy)
     if resource_type in lookup.lookup_sources():
         lookup_path = lookup.write_lookup(
-            tenant, resource_type, [transform.snake_keys(raw) for raw in raw_items]
+            tenant, resource_type,
+            [originals[key] for key in sorted(originals)]
         )
         sys.stderr.write("wrote %s\n" % lookup_path)
 

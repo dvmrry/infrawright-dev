@@ -10,6 +10,7 @@ import unittest
 from engine import artifacts
 from engine import expression_bindings
 from engine import gen_env
+from engine import gen_module
 from engine import group_bindings
 from engine import lookup
 from engine import packs
@@ -92,7 +93,7 @@ class GroupBindingsTest(unittest.TestCase):
         )
         self.assertEqual(
             expr,
-            'module.zpa_segment_group.name_to_id["Segment One"]',
+            'module.zpa_segment_group.name_to_id["Segment One"][0]',
         )
         self.assertEqual(
             expression_bindings.parse_bindings(
@@ -153,8 +154,8 @@ class GroupBindingsTest(unittest.TestCase):
         )
         self.assertEqual(
             expr,
-            '[module.zpa_server_group.name_to_id["Group One"], '
-            'module.zpa_server_group.name_to_id["Group Two"]]',
+            '[module.zpa_server_group.name_to_id["Group One"][0], '
+            'module.zpa_server_group.name_to_id["Group Two"][0]]',
         )
         self.assertEqual(
             expression_bindings.parse_bindings(
@@ -317,6 +318,48 @@ class GroupBindingsTest(unittest.TestCase):
         self.assertIsNone(written)
         self.assertFalse(os.path.exists(path))
 
+    def test_self_reference_is_skipped_with_summary_reason(self):
+        self._deployment(["zpa_segment_group"])
+        self._patch_refs(
+            "zpa_segment_group", "parent_id", "zpa_segment_group")
+        self._write_lookup("zpa_segment_group", {"sg-1": "Parent"})
+
+        data, stderr = self._capture_derive("zpa_segment_group", {
+            "child": {"name": "Child", "parent_id": "sg-1"},
+        })
+
+        self.assertEqual(data, {"resources": {}})
+        self.assertIn(
+            "NOTE bindings: zpa_segment_group.parent_id skipped; "
+            "self-referential bindings would create a Terraform cycle\n",
+            stderr,
+        )
+        self.assertIn("self_reference=1", stderr)
+
+    def test_nested_reference_field_is_skipped_loudly(self):
+        self._deployment(["zpa_application_segment", "zpa_segment_group"])
+        self._patch_refs(
+            "zpa_application_segment",
+            "settings.segment_group_id",
+            "zpa_segment_group",
+        )
+        self._write_lookup("zpa_segment_group", {"sg-1": "Segment One"})
+
+        data, stderr = self._capture_derive("zpa_application_segment", {
+            "app": {
+                "name": "App",
+                "settings.segment_group_id": "sg-1",
+            },
+        })
+
+        self.assertEqual(data, {"resources": {}})
+        self.assertIn(
+            "NOTE bindings: zpa_application_segment.settings.segment_group_id "
+            "skipped; nested reference fields are unsupported\n",
+            stderr,
+        )
+        self.assertIn("nested_field_unsupported=1", stderr)
+
 
 class GroupBindingsEndToEndTest(unittest.TestCase):
     def setUp(self):
@@ -345,13 +388,6 @@ class GroupBindingsEndToEndTest(unittest.TestCase):
 
     def _configure(self):
         module_dir = os.path.join(self.tmp, "modules", "default")
-        os.makedirs(module_dir)
-        source_modules = os.path.join(os.getcwd(), "demo", "modules", "default")
-        for resource_type in ("zpa_application_segment", "zpa_segment_group"):
-            shutil.copytree(
-                os.path.join(source_modules, resource_type),
-                os.path.join(module_dir, resource_type),
-            )
         dep = os.path.join(self.tmp, "deployment.json")
         with open(dep, "w", encoding="utf-8") as f:
             json.dump({
@@ -370,6 +406,8 @@ class GroupBindingsEndToEndTest(unittest.TestCase):
                 },
             }, f)
         os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+        for resource_type in ("zpa_application_segment", "zpa_segment_group"):
+            gen_module.generate_module(resource_type, out_root=module_dir, fmt=False)
         lookup.reference_manifest = lambda: {
             "zpa_application_segment": {
                 "segment_group_id": {
@@ -429,7 +467,7 @@ class GroupBindingsEndToEndTest(unittest.TestCase):
         )
         self.assertEqual(
             expression,
-            'module.zpa_segment_group.name_to_id["Segment One"]',
+            'module.zpa_segment_group.name_to_id["Segment One"][0]',
         )
 
         out_root = os.path.join(self.tmp, "generated-envs")
@@ -454,9 +492,57 @@ class GroupBindingsEndToEndTest(unittest.TestCase):
             bindings_tf = f.read()
         self.assertIn(
             'segment_group_id = '
-            'module.zpa_segment_group.name_to_id["Segment One"]',
+            'module.zpa_segment_group.name_to_id["Segment One"][0]',
             bindings_tf,
         )
+
+    def test_duplicate_referent_names_do_not_break_validate(self):
+        self._configure()
+        for resource_type, data in (
+                ("zpa_segment_group", {
+                    "zpa_segment_group_items": {
+                        "first": {
+                            "enabled": True,
+                            "name": "Segment One",
+                        },
+                        "second": {
+                            "enabled": True,
+                            "name": "Segment One",
+                        },
+                    },
+                }),
+                ("zpa_application_segment", {
+                    "zpa_application_segment_items": {
+                        "app": {
+                            "domain_names": ["app.example.com"],
+                            "name": "App One",
+                            "segment_group_id": "sg-1",
+                        },
+                    },
+                }),
+        ):
+            path = artifacts.config_file(self.tenant, resource_type)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+
+        out_root = os.path.join(self.tmp, "generated-envs")
+        gen_env.generate_env(
+            self.tenant,
+            out_root=out_root,
+            fmt=False,
+            selectors=["zpa_application_segment"],
+        )
+        root = os.path.join(out_root, self.tenant, "zpa_custom")
+        with open(os.path.join(root, "main.tf"), encoding="utf-8") as f:
+            main_tf = f.read()
+        self.assertIn(
+            'module "zpa_segment_group"',
+            main_tf,
+        )
+        self.assertFalse(os.path.exists(os.path.join(
+            root, "expression_bindings.tf",
+        )))
 
         if shutil.which("terraform") is None:
             self.skipTest("terraform not on PATH - env root validate is optional")
@@ -465,7 +551,7 @@ class GroupBindingsEndToEndTest(unittest.TestCase):
             cwd=root,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
+            universal_newlines=True,
         )
         if init.returncode != 0:
             self.skipTest("terraform init unavailable:\n%s" % init.stdout)
@@ -474,9 +560,17 @@ class GroupBindingsEndToEndTest(unittest.TestCase):
             cwd=root,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
+            universal_newlines=True,
         )
         self.assertEqual(validate.returncode, 0, validate.stdout)
+        test = subprocess.run(
+            ["terraform", "test"],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+        )
+        self.assertEqual(test.returncode, 0, test.stdout)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,16 @@ from engine.gen_env import (
 
 
 class RenderEnvMainTest(unittest.TestCase):
+    def setUp(self):
+        self.saved_dep = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = os.devnull
+
+    def tearDown(self):
+        if self.saved_dep is None:
+            os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+        else:
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = self.saved_dep
+
     def _root_env_dir(self, resource_type, tenant):
         return os.path.join(
             "envs",
@@ -796,6 +806,384 @@ class GenerateEnvTest(unittest.TestCase):
                     overlay,
                 )
                 self.assertNotIn("Generated", overlay)
+            finally:
+                if saved is None:
+                    os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+                else:
+                    os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
+
+    def test_generated_bindings_ignored_when_bind_references_disabled(self):
+        from engine.gen_env import generate_env
+
+        with tempfile.TemporaryDirectory() as td:
+            dep = os.path.join(td, "deployment.json")
+            with open(dep, "w", encoding="utf-8") as f:
+                json.dump({
+                    "overlay": td,
+                    "roots": {
+                        "zpa": {
+                            "groups": {
+                                "zpa_custom": [
+                                    "zpa_application_segment",
+                                    "zpa_segment_group",
+                                ],
+                            },
+                            "bind_references": False,
+                        },
+                    },
+                }, f)
+            saved = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+            try:
+                tenant = "tenant"
+                resource_type = "zpa_application_segment"
+                os.makedirs(deployment.config_dir(tenant))
+                with open(
+                    artifacts.config_file(tenant, resource_type),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({
+                        "zpa_application_segment_items": {
+                            "app": {"segment_group_id": "sg-1"},
+                        },
+                    }, f)
+                generated_path = artifacts.generated_expression_bindings_file(
+                    tenant, resource_type)
+                with open(generated_path, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "resources": {
+                            "zpa_application_segment.app": {
+                                "segment_group_id": {
+                                    "expression": (
+                                        'module.zpa_segment_group.name_to_id'
+                                        '["Generated"][0]'
+                                    ),
+                                },
+                            },
+                        },
+                    }, f)
+                with open(
+                    artifacts.expression_bindings_file(tenant, resource_type),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({
+                        "resources": {
+                            "zpa_application_segment.app": {
+                                "segment_group_id": {
+                                    "expression": (
+                                        'module.zpa_segment_group.name_to_id'
+                                        '["Operator"][0]'
+                                    ),
+                                },
+                            },
+                        },
+                    }, f)
+
+                stderr = io.StringIO()
+                old_err = sys.stderr
+                sys.stderr = stderr
+                try:
+                    generate_env(
+                        tenant,
+                        out_root=os.path.join(td, "generated-envs"),
+                        fmt=False,
+                        selectors=[resource_type],
+                    )
+                finally:
+                    sys.stderr = old_err
+
+                overlay_path = os.path.join(
+                    td,
+                    "generated-envs",
+                    tenant,
+                    "zpa_custom",
+                    "expression_bindings.tf",
+                )
+                with open(overlay_path, encoding="utf-8") as f:
+                    overlay = f.read()
+                self.assertIn("Operator", overlay)
+                self.assertNotIn("Generated", overlay)
+                self.assertIn(
+                    "NOTE bindings: "
+                    "stale generated bindings ignored "
+                    "(bind_references disabled); rerun make transform "
+                    "to remove %s\n" % generated_path,
+                    stderr.getvalue(),
+                )
+            finally:
+                if saved is None:
+                    os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+                else:
+                    os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
+
+    def test_generated_binding_targeting_nonmember_is_dropped(self):
+        from engine.gen_env import generate_env
+
+        with tempfile.TemporaryDirectory() as td:
+            dep = os.path.join(td, "deployment.json")
+            with open(dep, "w", encoding="utf-8") as f:
+                json.dump({
+                    "overlay": td,
+                    "roots": {
+                        "zpa": {
+                            "groups": {
+                                "zpa_custom": [
+                                    "zpa_application_segment",
+                                    "zpa_server_group",
+                                ],
+                            },
+                            "bind_references": True,
+                        },
+                    },
+                }, f)
+            saved = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+            try:
+                tenant = "tenant"
+                resource_type = "zpa_application_segment"
+                os.makedirs(deployment.config_dir(tenant))
+                with open(
+                    artifacts.config_file(tenant, resource_type),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({
+                        "zpa_application_segment_items": {
+                            "app": {
+                                "description": "literal",
+                                "segment_group_id": "sg-1",
+                            },
+                        },
+                    }, f)
+                generated_path = artifacts.generated_expression_bindings_file(
+                    tenant, resource_type)
+                with open(generated_path, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "resources": {
+                            "zpa_application_segment.app": {
+                                "description": {
+                                    "expression": (
+                                        'module.zpa_server_group.name_to_id'
+                                        '["Server"][0]'
+                                    ),
+                                },
+                                "segment_group_id": {
+                                    "expression": (
+                                        'module.zpa_segment_group.name_to_id'
+                                        '["Stale"][0]'
+                                    ),
+                                },
+                            },
+                        },
+                    }, f)
+
+                stderr = io.StringIO()
+                old_err = sys.stderr
+                sys.stderr = stderr
+                try:
+                    generate_env(
+                        tenant,
+                        out_root=os.path.join(td, "generated-envs"),
+                        fmt=False,
+                        selectors=[resource_type],
+                    )
+                finally:
+                    sys.stderr = old_err
+
+                overlay_path = os.path.join(
+                    td,
+                    "generated-envs",
+                    tenant,
+                    "zpa_custom",
+                    "expression_bindings.tf",
+                )
+                with open(overlay_path, encoding="utf-8") as f:
+                    overlay = f.read()
+                self.assertIn("module.zpa_server_group", overlay)
+                self.assertNotIn("module.zpa_segment_group", overlay)
+                self.assertIn(
+                    "NOTE bindings: stale generated binding ignored "
+                    "(target zpa_segment_group not in root members); "
+                    "rerun make transform to remove %s\n" % generated_path,
+                    stderr.getvalue(),
+                )
+            finally:
+                if saved is None:
+                    os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+                else:
+                    os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
+
+    def test_mutual_expression_binding_cycle_raises(self):
+        from engine.gen_env import CYCLE_REMEDY, generate_env
+
+        with tempfile.TemporaryDirectory() as td:
+            dep = os.path.join(td, "deployment.json")
+            with open(dep, "w", encoding="utf-8") as f:
+                json.dump({
+                    "overlay": td,
+                    "roots": {
+                        "zpa": {
+                            "groups": {
+                                "zpa_custom": [
+                                    "zpa_application_segment",
+                                    "zpa_segment_group",
+                                ],
+                            },
+                            "bind_references": True,
+                        },
+                    },
+                }, f)
+            saved = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+            try:
+                tenant = "tenant"
+                config_dir = deployment.config_dir(tenant)
+                os.makedirs(config_dir)
+                with open(
+                    artifacts.config_file(tenant, "zpa_application_segment"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({
+                        "zpa_application_segment_items": {
+                            "app": {"segment_group_id": "sg-1"},
+                        },
+                    }, f)
+                with open(
+                    artifacts.config_file(tenant, "zpa_segment_group"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({
+                        "zpa_segment_group_items": {
+                            "group": {"description": "literal"},
+                        },
+                    }, f)
+                with open(
+                    artifacts.expression_bindings_file(
+                        tenant, "zpa_application_segment"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({
+                        "resources": {
+                            "zpa_application_segment.app": {
+                                "segment_group_id": {
+                                    "expression": (
+                                        'module.zpa_segment_group.name_to_id'
+                                        '["Group"][0]'
+                                    ),
+                                },
+                            },
+                        },
+                    }, f)
+                with open(
+                    artifacts.expression_bindings_file(
+                        tenant, "zpa_segment_group"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({
+                        "resources": {
+                            "zpa_segment_group.group": {
+                                "description": {
+                                    "expression": (
+                                        'module.zpa_application_segment.name_to_id'
+                                        '["App"][0]'
+                                    ),
+                                },
+                            },
+                        },
+                    }, f)
+
+                with self.assertRaises(ValueError) as ctx:
+                    generate_env(
+                        tenant,
+                        out_root=os.path.join(td, "generated-envs"),
+                        fmt=False,
+                        selectors=["zpa_application_segment"],
+                    )
+                msg = str(ctx.exception)
+                self.assertIn("zpa_application_segment", msg)
+                self.assertIn("zpa_segment_group", msg)
+                self.assertIn(CYCLE_REMEDY, msg)
+            finally:
+                if saved is None:
+                    os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+                else:
+                    os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
+
+    def test_one_way_expression_binding_renders(self):
+        from engine.gen_env import generate_env
+
+        with tempfile.TemporaryDirectory() as td:
+            dep = os.path.join(td, "deployment.json")
+            with open(dep, "w", encoding="utf-8") as f:
+                json.dump({
+                    "overlay": td,
+                    "roots": {
+                        "zpa": {
+                            "groups": {
+                                "zpa_custom": [
+                                    "zpa_application_segment",
+                                    "zpa_segment_group",
+                                ],
+                            },
+                            "bind_references": True,
+                        },
+                    },
+                }, f)
+            saved = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+            try:
+                tenant = "tenant"
+                os.makedirs(deployment.config_dir(tenant))
+                with open(
+                    artifacts.config_file(tenant, "zpa_application_segment"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({
+                        "zpa_application_segment_items": {
+                            "app": {"segment_group_id": "sg-1"},
+                        },
+                    }, f)
+                with open(
+                    artifacts.expression_bindings_file(
+                        tenant, "zpa_application_segment"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({
+                        "resources": {
+                            "zpa_application_segment.app": {
+                                "segment_group_id": {
+                                    "expression": (
+                                        'module.zpa_segment_group.name_to_id'
+                                        '["Group"][0]'
+                                    ),
+                                },
+                            },
+                        },
+                    }, f)
+
+                generate_env(
+                    tenant,
+                    out_root=os.path.join(td, "generated-envs"),
+                    fmt=False,
+                    selectors=["zpa_application_segment"],
+                )
+                overlay_path = os.path.join(
+                    td,
+                    "generated-envs",
+                    tenant,
+                    "zpa_custom",
+                    "expression_bindings.tf",
+                )
+                with open(overlay_path, encoding="utf-8") as f:
+                    self.assertIn("module.zpa_segment_group", f.read())
             finally:
                 if saved is None:
                     os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)

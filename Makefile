@@ -2,6 +2,10 @@ PYTHON ?= python3
 TF ?= terraform
 OVERLAY ?= demo
 DEPLOYMENT ?= deployment.json
+# Every engine invocation must see the selected deployment. ?= keeps an
+# explicitly exported INFRAWRIGHT_DEPLOYMENT from the caller authoritative;
+# recipe-level overrides (check-demo, check-modules) still win per-command.
+export INFRAWRIGHT_DEPLOYMENT ?= $(DEPLOYMENT)
 DEMO_DEPLOYMENT ?= demo/deployment.json
 MODULE_DIR ?= $(shell INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(PYTHON) -m engine.deployment module-dir)
 

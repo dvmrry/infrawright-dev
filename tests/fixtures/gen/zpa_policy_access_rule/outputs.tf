@@ -34,5 +34,5 @@ output "items" {
 
 output "name_to_id" {
   description = "Map of resource name to provider-assigned id."
-  value       = { for k, v in zpa_policy_access_rule.this : v.name => v.id }
+  value       = { for k, v in zpa_policy_access_rule.this : v.name => v.id... }
 }
