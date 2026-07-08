@@ -404,6 +404,61 @@ class AdvisoryReportTest(unittest.TestCase):
         self.assertEqual(item["provider_only_paths"], [])
         self.assertEqual(item["omitted_by_policy"], ["metadata.generate_name"])
 
+    def test_projection_omit_if_counts_as_policy_covered_omission(self):
+        policy = DriftPolicy({
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "projection_omit_if": [
+                        {
+                            "path": "ports[*].end",
+                            "values": [0],
+                            "reason": "provider sentinel",
+                            "approved_by": "unit",
+                        }
+                    ],
+                    "projection_sync": [
+                        {
+                            "target_path": "res_categories",
+                            "source_path": "dest_ip_categories",
+                            "reason": "provider diff guard",
+                            "approved_by": "unit",
+                        }
+                    ],
+                }
+            },
+        })
+
+        report = build_report(
+            "sample_resource",
+            {
+                "prod_app": {
+                    "name": "Prod",
+                    "ports": [{"start": 443, "end": 0}],
+                }
+            },
+            {
+                "prod_app": {
+                    "values": {
+                        "name": "Prod",
+                        "ports": [{"start": 443, "end": 0}],
+                        "res_categories": ["CAT_A"],
+                    }
+                }
+            },
+            {
+                "prod_app": {
+                    "name": "Prod",
+                    "ports": [{"start": 443}],
+                }
+            },
+            policy,
+        )
+
+        item = report["items"]["prod_app"]
+        self.assertEqual(item["omitted_by_policy"], ["ports[].end"])
+        self.assertEqual(item["provider_only_paths"], ["res_categories[]"])
+
     def test_container_projection_omit_classifies_provider_observed_leaves(self):
         policy = DriftPolicy({
             "version": 1,

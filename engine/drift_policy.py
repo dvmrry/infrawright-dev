@@ -11,10 +11,27 @@ class DriftPolicyError(ValueError):
 
 _NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _TOP_LEVEL_KEYS = frozenset(("version", "resource_types"))
-_RESOURCE_KEYS = frozenset(("projection_omit", "plan_tolerate"))
+_RESOURCE_KEYS = frozenset((
+    "projection_omit",
+    "projection_sync",
+    "projection_omit_if",
+    "plan_tolerate",
+))
 _COMMON_ENTRY_KEYS = frozenset(("path", "reason", "approved_by", "ticket"))
+_PROJECTION_SYNC_ENTRY_KEYS = frozenset((
+    "target_path", "source_path", "reason", "approved_by", "ticket"
+))
+_PROJECTION_OMIT_IF_ENTRY_KEYS = (
+    _COMMON_ENTRY_KEYS | frozenset(("values",))
+)
 _PLAN_TOLERATE_ENTRY_KEYS = _COMMON_ENTRY_KEYS | frozenset(("actions",))
 _SAFE_PLAN_ACTIONS = frozenset(("update",))
+_DEFAULT_STALE_MODES = (
+    "projection_omit",
+    "projection_sync",
+    "projection_omit_if",
+    "plan_tolerate",
+)
 
 
 class DriftPolicy(object):
@@ -48,7 +65,7 @@ class DriftPolicy(object):
 
     def stale_entries(self, resource_types=None, modes=None):
         resource_types = set(resource_types or [])
-        modes = tuple(modes or ("projection_omit", "plan_tolerate"))
+        modes = tuple(modes or _DEFAULT_STALE_MODES)
         stale = []
         for rt, cfg in sorted((self.data.get("resource_types") or {}).items()):
             if resource_types and rt not in resource_types:
@@ -56,7 +73,7 @@ class DriftPolicy(object):
             for mode in modes:
                 for entry in cfg.get(mode) or []:
                     if id(entry) not in self._matched_ids:
-                        stale.append((rt, mode, entry["path"]))
+                        stale.append((rt, mode, _entry_display_path(entry)))
         return stale
 
     def _matches(self, resource_type, mode, path_tuple):
@@ -69,6 +86,9 @@ class DriftPolicy(object):
     def entries(self, resource_type, mode):
         """Public read accessor for policy entries. Do not mutate the result."""
         return list(self._entries(resource_type, mode))
+
+    def mark_matched(self, entry):
+        self._matched_ids.add(id(entry))
 
     def _entries(self, resource_type, mode):
         return (
@@ -107,7 +127,7 @@ class DriftPolicy(object):
             _reject_unknown_keys(
                 cfg, _RESOURCE_KEYS, "%s policy for %s" % (self.source, rt)
             )
-            for mode in ("projection_omit", "plan_tolerate"):
+            for mode in _DEFAULT_STALE_MODES:
                 entries = cfg.get(mode, [])
                 if not isinstance(entries, list):
                     raise DriftPolicyError(
@@ -116,8 +136,7 @@ class DriftPolicy(object):
                     )
                 seen = {}
                 for entry in entries:
-                    path, actions = self._validate_entry(rt, mode, entry)
-                    scope = (path, tuple(actions))
+                    path, scope = self._validate_entry(rt, mode, entry)
                     prior = seen.get(scope)
                     if prior is not None:
                         raise DriftPolicyError(
@@ -131,16 +150,22 @@ class DriftPolicy(object):
             raise DriftPolicyError(
                 "%s %s entry for %s must be an object" % (self.source, mode, rt)
             )
-        allowed = (
-            _PLAN_TOLERATE_ENTRY_KEYS
-            if mode == "plan_tolerate" else _COMMON_ENTRY_KEYS
-        )
+        allowed = _entry_keys_for_mode(mode)
         _reject_unknown_keys(
             entry,
             allowed,
             "%s %s entry for %s" % (self.source, mode, rt),
         )
-        for required in ("path", "reason", "approved_by"):
+        required_fields = (
+            ("target_path", "source_path", "reason", "approved_by")
+            if mode == "projection_sync" else
+            ("path", "values", "reason", "approved_by")
+            if mode == "projection_omit_if" else
+            ("path", "reason", "approved_by")
+        )
+        for required in required_fields:
+            if required == "values":
+                continue
             if not isinstance(entry.get(required), str) or not entry.get(required):
                 raise DriftPolicyError(
                     "%s %s entry for %s missing %s"
@@ -152,10 +177,50 @@ class DriftPolicy(object):
                 "%s %s entry for %s has invalid ticket"
                 % (self.source, mode, rt)
             )
+        if mode == "projection_sync":
+            target_path = entry["target_path"]
+            source_path = entry["source_path"]
+            target = parse_path(target_path)
+            source = parse_path(source_path)
+            if target == source:
+                raise DriftPolicyError(
+                    "%s projection_sync entry for %s target_path and "
+                    "source_path must differ" % (self.source, rt)
+                )
+            if _has_wildcard_or_index(target):
+                raise DriftPolicyError(
+                    "%s projection_sync entry for %s target_path must not "
+                    "contain wildcard or index selectors" % (self.source, rt)
+                )
+            if _has_wildcard_or_index(source):
+                raise DriftPolicyError(
+                    "%s projection_sync entry for %s source_path must not "
+                    "contain wildcard or index selectors" % (self.source, rt)
+                )
+            return target_path, ("projection_sync", target_path)
+
         path = entry["path"]
         parse_path(path)
+        if mode == "projection_omit_if":
+            values = entry.get("values")
+            if not isinstance(values, list) or not values:
+                raise DriftPolicyError(
+                    "%s projection_omit_if entry for %s values must be a "
+                    "non-empty JSON list" % (self.source, rt)
+                )
+            for value in values:
+                if not _is_json_scalar(value):
+                    raise DriftPolicyError(
+                        "%s projection_omit_if entry for %s values must "
+                        "contain only JSON scalars" % (self.source, rt)
+                    )
+            return path, (
+                "projection_omit_if",
+                path,
+                tuple(_json_scalar_key(value) for value in values),
+            )
         if mode != "plan_tolerate":
-            return path, ("projection_omit",)
+            return path, ("projection_omit", path)
         actions = entry.get("actions", ["update"])
         if not isinstance(actions, list):
             raise DriftPolicyError(
@@ -185,7 +250,43 @@ class DriftPolicy(object):
                     % (self.source, rt, action)
                 )
             seen_actions.add(action)
-        return path, tuple(sorted(actions))
+        return path, ("plan_tolerate", path, tuple(sorted(actions)))
+
+
+def _entry_keys_for_mode(mode):
+    if mode == "plan_tolerate":
+        return _PLAN_TOLERATE_ENTRY_KEYS
+    if mode == "projection_sync":
+        return _PROJECTION_SYNC_ENTRY_KEYS
+    if mode == "projection_omit_if":
+        return _PROJECTION_OMIT_IF_ENTRY_KEYS
+    return _COMMON_ENTRY_KEYS
+
+
+def _entry_display_path(entry):
+    return entry.get("path", entry.get("target_path"))
+
+
+def _has_wildcard_or_index(path):
+    return any(
+        isinstance(segment, int)
+        or (type(segment) is str and segment == paths.WILDCARD)
+        for segment in path
+    )
+
+
+def _is_json_scalar(value):
+    return value is None or type(value) in (str, int, float, bool)
+
+
+def _json_scalar_key(value):
+    if value is None:
+        return ("null", None)
+    if isinstance(value, bool):
+        return ("bool", value)
+    if isinstance(value, (int, float)):
+        return ("number", value)
+    return ("string", value)
 
 
 def _reject_unknown_keys(obj, allowed, where):

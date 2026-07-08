@@ -112,6 +112,10 @@ def _projection_omit_paths(resource_type, drift_policy):
     out = set()
     for entry in drift_policy.entries(resource_type, "projection_omit"):
         out.add(paths.format_report_path(parse_path(entry["path"])))
+    for entry in drift_policy.entries(resource_type, "projection_omit_if"):
+        out.add(paths.format_report_path(parse_path(entry["path"])))
+    # projection_sync is intentionally not counted: it fills values but does
+    # not omit any provider-observed path from projected config.
     return out
 
 

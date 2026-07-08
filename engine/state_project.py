@@ -1,5 +1,12 @@
 """Project provider-observed state values into generated module input values."""
+import copy
+
+from engine import paths
+from engine import schema_paths
+from engine.drift_policy import parse_path
+from engine.ops import _same_json_value
 from engine.tfschema import (
+    attr_type,
     block_is_single,
     classify_attributes,
     input_block_types,
@@ -13,9 +20,15 @@ class ProjectionError(ValueError):
 
 
 def project_item(resource_type, state_values, sensitive_values=None, policy=None):
+    """Project one provider state object into tfvars input shape.
+
+    projection_omit applies inline during schema projection and may suppress
+    sensitive, absent, or optional fields. Post-projection policy then applies
+    projection_sync followed by projection_omit_if.
+    """
     block = load_resource(resource_type)["block"]
     sensitive_values = sensitive_values or {}
-    return _project_block(
+    out = _project_block(
         state_values,
         sensitive_values,
         block,
@@ -24,6 +37,9 @@ def project_item(resource_type, state_values, sensitive_values=None, policy=None
         resource_type=resource_type,
         policy=policy,
     )
+    if policy:
+        _apply_projection_policy(resource_type, out, policy)
+    return out
 
 
 def _project_block(values, sens, block, path, resource_top, resource_type, policy):
@@ -175,6 +191,185 @@ def _is_sensitive_attr(sens, name):
     if not isinstance(sens, dict):
         return False
     return _any_sensitive(sens.get(name))
+
+
+def _apply_projection_policy(resource_type, out, policy):
+    _apply_projection_sync(resource_type, out, policy)
+    _apply_projection_omit_if(resource_type, out, policy)
+
+
+def _apply_projection_sync(resource_type, out, policy):
+    for entry in policy.entries(resource_type, "projection_sync"):
+        target_path = parse_path(entry["target_path"])
+        source_path = parse_path(entry["source_path"])
+        _guard_projection_sync(resource_type, entry, target_path, source_path)
+
+        target_present, target_value = _path_value(out, target_path)
+        if target_present and not _is_absent_or_empty(target_value):
+            continue
+
+        source_present, source_value = _path_value(out, source_path)
+        if not source_present or _is_absent_or_empty(source_value):
+            continue
+
+        _set_path(out, target_path, copy.deepcopy(source_value))
+        policy.mark_matched(entry)
+
+
+def _apply_projection_omit_if(resource_type, out, policy):
+    for entry in policy.entries(resource_type, "projection_omit_if"):
+        selector = parse_path(entry["path"])
+        if schema_paths.schema_status(resource_type, selector) == "required":
+            raise ProjectionError(
+                "refusing to conditionally omit required attribute %s of %s"
+                % (entry["path"], resource_type)
+            )
+        removed = _remove_matching_leaves(
+            out,
+            selector,
+            lambda value, values=entry["values"]: any(
+                _same_json_value(value, candidate) for candidate in values
+            ),
+        )
+        if removed:
+            policy.mark_matched(entry)
+
+
+def _guard_projection_sync(resource_type, entry, target_path, source_path):
+    target_status = schema_paths.schema_status(resource_type, target_path)
+    if target_status not in ("required", "optional"):
+        raise ProjectionError(
+            "refusing to projection_sync target attribute %s of %s: "
+            "not a writable input attribute"
+            % (entry["target_path"], resource_type)
+        )
+
+    target_type = _schema_terminal_type(resource_type, target_path)
+    source_type = _schema_terminal_type(resource_type, source_path)
+    if target_type != source_type:
+        raise ProjectionError(
+            "refusing to projection_sync target %s from source %s of %s: "
+            "schema types differ (%r != %r)"
+            % (
+                entry["target_path"],
+                entry["source_path"],
+                resource_type,
+                target_type,
+                source_type,
+            )
+        )
+
+
+def _path_value(value, path):
+    cur = value
+    for segment in path:
+        if not isinstance(segment, str):
+            return False, None
+        if not isinstance(cur, dict) or segment not in cur:
+            return False, None
+        cur = cur[segment]
+    return True, cur
+
+
+def _set_path(value, path, replacement):
+    cur = value
+    for segment in path[:-1]:
+        if segment not in cur or cur[segment] is None:
+            cur[segment] = {}
+        elif not isinstance(cur[segment], dict):
+            raise ProjectionError(
+                "cannot projection_sync through non-object path %s"
+                % _fmt_path(path)
+            )
+        cur = cur[segment]
+    cur[path[-1]] = replacement
+
+
+def _is_absent_or_empty(value):
+    return (
+        value is None
+        or (isinstance(value, (dict, list)) and not value)
+    )
+
+
+def _remove_matching_leaves(value, selector, predicate, path=()):
+    removed = 0
+    if isinstance(value, dict):
+        for key in sorted(list(value), key=str):
+            child_path = path + (str(key),)
+            child = value[key]
+            if (
+                    _is_leaf(child)
+                    and paths.selector_matches(selector, child_path)
+                    and predicate(child)):
+                del value[key]
+                removed += 1
+                continue
+            removed += _remove_matching_leaves(
+                child, selector, predicate, child_path
+            )
+        return removed
+    if isinstance(value, list):
+        for idx in range(len(value) - 1, -1, -1):
+            child_path = path + (idx,)
+            child = value[idx]
+            if (
+                    _is_leaf(child)
+                    and paths.selector_matches(selector, child_path)
+                    and predicate(child)):
+                del value[idx]
+                removed += 1
+                continue
+            removed += _remove_matching_leaves(
+                child, selector, predicate, child_path
+            )
+    return removed
+
+
+def _is_leaf(value):
+    return not isinstance(value, (dict, list))
+
+
+def _schema_terminal_type(resource_type, path):
+    block = load_resource(resource_type)["block"]
+    return _schema_type_for_block(block, tuple(path), resource_top=True)
+
+
+def _schema_type_for_block(block, path, resource_top):
+    if not path:
+        return None
+    segment = path[0]
+    if not isinstance(segment, str):
+        return None
+    cls = resource_input_attrs(block) if resource_top else classify_attributes(block)
+    attrs = block.get("attributes") or {}
+    if segment in cls["required"] or segment in cls["optional"]:
+        return _schema_type_for_encoding(attr_type(attrs[segment]), path[1:])
+    blocks = input_block_types(block)
+    if segment in blocks:
+        remaining = schema_paths.strip_collection_selector(path[1:])
+        return _schema_type_for_block(
+            blocks[segment]["block"], remaining, resource_top=False
+        )
+    return None
+
+
+def _schema_type_for_encoding(encoding, path):
+    if not path:
+        return encoding
+    if isinstance(encoding, list) and len(encoding) == 2:
+        kind, inner = encoding
+        if kind in ("list", "set"):
+            return _schema_type_for_encoding(
+                inner, schema_paths.strip_collection_selector(path)
+            )
+        if kind == "map":
+            return _schema_type_for_encoding(inner, path[1:])
+        if kind == "object" and isinstance(inner, dict):
+            child = path[0]
+            if isinstance(child, str) and child in inner:
+                return _schema_type_for_encoding(inner[child], path[1:])
+    return None
 
 
 def _fmt_path(path):
