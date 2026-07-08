@@ -1,0 +1,4062 @@
+{
+  "data_source_schemas": {
+    "ztc_account_groups": {
+      "block": {
+        "attributes": {
+          "cloud_connector_groups": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "cloud_type": {
+            "computed": true,
+            "description": "The cloud type. The default and manadatory value is AWS. Supported values are AWS, AZURE, GCP",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "description": {
+            "computed": true,
+            "description": "Description of the IP group or IP pool",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description": "The ID of the AWS account group.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "name": {
+            "computed": true,
+            "description": "The name of the AWS account group. Must be non-null, non-empty, unique, and 128 characters or fewer in length.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "public_cloud_accounts": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_activation_status": {
+      "block": {
+        "attributes": {
+          "admin_activate_status": {
+            "computed": true,
+            "description": "Admin activation status",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "admin_status_map": {
+            "computed": true,
+            "description": "Admin status",
+            "description_kind": "plain",
+            "type": [
+              "map",
+              "string"
+            ]
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "org_edit_status": {
+            "computed": true,
+            "description": "Organization policy edit status",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "org_last_activate_status": {
+            "computed": true,
+            "description": "Organization policy last activation status",
+            "description_kind": "plain",
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_dns_forwarding_gateway": {
+      "block": {
+        "attributes": {
+          "dns_gateway_type": {
+            "computed": true,
+            "description": "Type of the DNS Forwarding Gateway",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "ec_dns_gateway_options_primary": {
+            "computed": true,
+            "description": "IP address of the primary LAN DNS Server",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "ec_dns_gateway_options_secondary": {
+            "computed": true,
+            "description": "IP address of the secondary LAN DNS Server.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "failure_behavior": {
+            "computed": true,
+            "description": "Choose what happens if the DNS server is unreachable.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description": "A unique identifier assigned to the DNS Forwarding Gateway",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "last_modified_by": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "set",
+              [
+                "object",
+                {
+                  "association_time": "number",
+                  "deleted": "bool",
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "external_id": "string",
+                  "id": "number",
+                  "is_name_l10n_tag": "bool",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "last_modified_time": {
+            "computed": true,
+            "description": "Timestamp when the it was last modified",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "name": {
+            "computed": true,
+            "description": "The name of the DNS Forwarding Gateway",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "primary_ip": {
+            "computed": true,
+            "description": "IP address of the primary custom DNS server.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "secondary_ip": {
+            "computed": true,
+            "description": "IP address of the secondary custom DNS server.",
+            "description_kind": "plain",
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_dns_gateway": {
+      "block": {
+        "attributes": {
+          "dns_gateway_type": {
+            "computed": true,
+            "description": "Type of the DNS Gateway",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "ec_dns_gateway_options_primary": {
+            "computed": true,
+            "description": "Primary DNS gateway option for Edge Connector",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "ec_dns_gateway_options_secondary": {
+            "computed": true,
+            "description": "Secondary DNS gateway option for Edge Connector",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "failure_behavior": {
+            "computed": true,
+            "description": "Choose what happens if the DNS server is unreachable",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description": "A unique identifier assigned to the DNS Gateway",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "last_modified_by": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "set",
+              [
+                "object",
+                {
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "last_modified_time": {
+            "computed": true,
+            "description": "Timestamp when it was last modified",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "name": {
+            "computed": true,
+            "description": "The name of the DNS Gateway",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "primary_ip": {
+            "computed": true,
+            "description": "IP address of the primary custom DNS server",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "secondary_ip": {
+            "computed": true,
+            "description": "IP address of the secondary custom DNS server",
+            "description_kind": "plain",
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_edge_connector_group": {
+      "block": {
+        "attributes": {
+          "aws_availability_zone": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "azure_availability_zone": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "deploy_type": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "desc": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "ec_vms": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "set",
+              [
+                "object",
+                {
+                  "build_version": "string",
+                  "city_geo_id": "number",
+                  "ec_instances": [
+                    "set",
+                    [
+                      "object",
+                      {
+                        "dns_ip": [
+                          "list",
+                          "string"
+                        ],
+                        "ec_instance_type": "string",
+                        "nat_ip": "string",
+                        "out_gw_ip": "string",
+                        "service_nw": [
+                          "set",
+                          [
+                            "object",
+                            {
+                              "default_gateway": "string",
+                              "dns": [
+                                "set",
+                                [
+                                  "object",
+                                  {
+                                    "dns_type": "string",
+                                    "id": "number",
+                                    "ips": [
+                                      "set",
+                                      "string"
+                                    ]
+                                  }
+                                ]
+                              ],
+                              "id": "number",
+                              "ip_end": "string",
+                              "ip_start": "string",
+                              "netmask": "string",
+                              "nw_type": "string"
+                            }
+                          ]
+                        ],
+                        "virtual_nw": [
+                          "set",
+                          [
+                            "object",
+                            {
+                              "default_gateway": "string",
+                              "dns": [
+                                "set",
+                                [
+                                  "object",
+                                  {
+                                    "dns_type": "string",
+                                    "id": "number",
+                                    "ips": [
+                                      "set",
+                                      "string"
+                                    ]
+                                  }
+                                ]
+                              ],
+                              "id": "number",
+                              "ip_end": "string",
+                              "ip_start": "string",
+                              "netmask": "string",
+                              "nw_type": "string"
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  ],
+                  "form_factor": "string",
+                  "id": "number",
+                  "last_upgrade_time": "number",
+                  "management_nw": [
+                    "set",
+                    [
+                      "object",
+                      {
+                        "default_gateway": "string",
+                        "dns": [
+                          "set",
+                          [
+                            "object",
+                            {
+                              "dns_type": "string",
+                              "id": "number",
+                              "ips": [
+                                "set",
+                                "string"
+                              ]
+                            }
+                          ]
+                        ],
+                        "id": "number",
+                        "ip_end": "string",
+                        "ip_start": "string",
+                        "netmask": "string",
+                        "nw_type": "string"
+                      }
+                    ]
+                  ],
+                  "name": "string",
+                  "nat_ip": "string",
+                  "upgrade_end_time": "number",
+                  "upgrade_start_time": "number",
+                  "upgrade_status": "number",
+                  "zia_gateway": "string",
+                  "zpa_broker": "string"
+                }
+              ]
+            ]
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "location": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "set",
+              [
+                "object",
+                {
+                  "association_time": "number",
+                  "deleted": "bool",
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "external_id": "string",
+                  "id": "number",
+                  "is_name_l10n_tag": "bool",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "max_ec_count": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "name": {
+            "computed": true,
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "platform": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "prov_template": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "set",
+              [
+                "object",
+                {
+                  "association_time": "number",
+                  "deleted": "bool",
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "external_id": "string",
+                  "id": "number",
+                  "is_name_l10n_tag": "bool",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "status": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "tunnel_mode": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_forwarding_gateway": {
+      "block": {
+        "attributes": {
+          "description": {
+            "computed": true,
+            "description": "Additional details about the Forwarding Gateway",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "fail_closed": {
+            "computed": true,
+            "description": "\"A true value indicates that traffic must be dropped when both primary and secondary proxies defined in the gateway are unreachable.\n\t\t\t\t A false value indicates that traffic must be allowed.\"",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "id": {
+            "computed": true,
+            "description": "A unique identifier assigned to the forwarding gateway",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "last_modified_by": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "set",
+              [
+                "object",
+                {
+                  "association_time": "number",
+                  "deleted": "bool",
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "external_id": "string",
+                  "id": "number",
+                  "is_name_l10n_tag": "bool",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "last_modified_time": {
+            "computed": true,
+            "description": "Timestamp when the ZPA gateway was last modified",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "manual_primary": {
+            "computed": true,
+            "description": "\"Specifies the primary proxy through which traffic must be forwarded\n\t\t\t\tDepending on the proxy forwarding type specified (AUTODC), this field includes a preconfigured data center, or a specified IP address or domain name.\"",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "manual_secondary": {
+            "computed": true,
+            "description": "\"Specifies the secondary proxy through which traffic must be forwarded\n\t\t\t\tDepending on the proxy forwarding type specified (AUTODC), this field includes a preconfigured data center, or a specified IP address or domain name.\"",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "computed": true,
+            "description": "The name of the Forwarding Gateway",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "primary_type": {
+            "computed": true,
+            "description": "\"Type of the primary proxy, such as automatic proxy (AUTO), manual proxy (DC) that forwards\n\t\t\t\ttraffic through a selected data center (DC), or override (MANUAL_OVERRIDE) that forwards\n\t\t\t\ttraffic through a specified IP address or domain.\"",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "secondary_type": {
+            "computed": true,
+            "description": "\"Type of the secondary proxy, such as automatic proxy (AUTO), manual proxy (DC) that forwards\n\t\t\t\ttraffic through a selected data center (DC), or override (MANUAL_OVERRIDE) that forwards\n\t\t\t\ttraffic through a specified IP address or domain.\"",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "subcloud_primary": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "set",
+              [
+                "object",
+                {
+                  "association_time": "number",
+                  "deleted": "bool",
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "external_id": "string",
+                  "id": "number",
+                  "is_name_l10n_tag": "bool",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "subcloud_secondary": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "set",
+              [
+                "object",
+                {
+                  "association_time": "number",
+                  "deleted": "bool",
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "external_id": "string",
+                  "id": "number",
+                  "is_name_l10n_tag": "bool",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "type": {
+            "computed": true,
+            "description": "Gateway type",
+            "description_kind": "plain",
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_ip_destination_groups": {
+      "block": {
+        "attributes": {
+          "addresses": {
+            "computed": true,
+            "description": "IP addresses or domain names included in the group",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "countries": {
+            "computed": true,
+            "description": "Countries included in the group",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "description": {
+            "computed": true,
+            "description": "Description of the group",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description": "ID of the destination IP group",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "is_non_editable": {
+            "computed": true,
+            "description": "Indicates whether the group is view-only (true) or editable (false)",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "name": {
+            "computed": true,
+            "description": "Name of the destination IP group",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "type": {
+            "computed": true,
+            "description": "Type of the destination IP group",
+            "description_kind": "plain",
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_ip_pool_groups": {
+      "block": {
+        "attributes": {
+          "creator_context": {
+            "computed": true,
+            "description": "Indicates that the IP group or IP pool is created in Cloud & Branch Connector (EC) (only applicable value)",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "description": {
+            "computed": true,
+            "description": "Description of the IP group or IP pool",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "extranet_ip_pool": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "id": {
+            "computed": true,
+            "description": "ID of the IP address group or IP pool",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "ip_addresses": {
+            "computed": true,
+            "description": "IP addresses included in the IP group or IP pool",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "is_non_editable": {
+            "computed": true,
+            "description": "Indicates whether the group is view-only (true) or editable (false)",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "is_predefined": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "name": {
+            "computed": true,
+            "description": "Name of the IP address group or IP pool",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_ip_source_groups": {
+      "block": {
+        "attributes": {
+          "creator_context": {
+            "computed": true,
+            "description": "Indicates that the IP group or IP pool is created in Cloud & Branch Connector (EC) (only applicable value).",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "description": {
+            "computed": true,
+            "description": "Description of the IP group or IP pool",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description": "ID of the IP address group or IP pool",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "ip_addresses": {
+            "computed": true,
+            "description": "IP addresses included in the IP group or IP pool",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "is_non_editable": {
+            "computed": true,
+            "description": "Indicates whether the group is view-only (true) or editable (false)",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "name": {
+            "computed": true,
+            "description": "Name of the IP address group or IP pool",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_location_management": {
+      "block": {
+        "attributes": {
+          "aup_enabled": {
+            "computed": true,
+            "description": "Indicates whether to enable Acceptable Use Policy (AUP) for this location",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "auth_required": {
+            "computed": true,
+            "description": "\"Indicates whether to enforce authentication.\n\t\t\t\tRequired when ports are enabled, IP Surrogate is enabled, or Kerberos Authentication is enabled.\"",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "caution_enabled": {
+            "computed": true,
+            "description": "Indicates whether to enable Caution for this location",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "country": {
+            "computed": true,
+            "description": "Country of the location",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "description": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "dn_bandwidth": {
+            "computed": true,
+            "description": "Download bandwidth in Kbps. The value 0 implies no Bandwidth Control enforcement.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "ec_location": {
+            "computed": true,
+            "description": "Indicates whether this is a Cloud or Branch Connector location (true) or a generic location (false).",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "enforce_bandwidth_control": {
+            "computed": true,
+            "description": "Enable to specify the maximum bandwidth limits for download (Mbps) and upload (Mbps).",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "exclude_from_dynamic_groups": {
+            "computed": true,
+            "description": "Indicates whether to exclude this location from dynamic location groups when created",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "exclude_from_manual_groups": {
+            "computed": true,
+            "description": "Indicates whether to exclude this location from manual location groups when created",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "id": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "ips_control": {
+            "computed": true,
+            "description": "Indicates whether to enable IPS for this location",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "language": {
+            "computed": true,
+            "description": "Language of the location",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "non_editable": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "ofw_enabled": {
+            "computed": true,
+            "description": "Indicates whether to enable firewall for this location",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "parent_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "public_cloud_account_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "state": {
+            "computed": true,
+            "description": "State of the location",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "tz": {
+            "computed": true,
+            "description": "Timezone of the location. If not specified, it defaults to GMT",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "up_bandwidth": {
+            "computed": true,
+            "description": "Upload bandwidth in Kbps. The value 0 implies no Bandwidth Control enforcement.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "xff_forward_enabled": {
+            "computed": true,
+            "description": "\"Enable XFF Forwarding for a location.\n\t\t\t\tWhen set to true, traffic is passed to Zscaler Cloud via the X-Forwarded-For (XFF) header.\n\t\t\t\tNote: For sub-locations, this attribute is a read-only field as the value is inherited from the parent location.\"",
+            "description_kind": "plain",
+            "type": "bool"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_location_template": {
+      "block": {
+        "attributes": {
+          "desc": {
+            "computed": true,
+            "description": "Description of Cloud & Branch Connector location template",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "editable": {
+            "computed": true,
+            "description": "Whether Cloud & Branch Connector location template is editable",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "id": {
+            "computed": true,
+            "description": "ID of Cloud & Branch Connector location template",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "last_mod_time": {
+            "computed": true,
+            "description": "Last time Cloud & Branch Connector location template was modified",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "last_mod_uid": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "set",
+              [
+                "object",
+                {
+                  "association_time": "number",
+                  "deleted": "bool",
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "external_id": "string",
+                  "id": "number",
+                  "is_name_l10n_tag": "bool",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "name": {
+            "computed": true,
+            "description": "Name of Cloud & Branch Connector location template",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "template": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "aup_enabled": "bool",
+                  "aup_timeout_in_days": "number",
+                  "auth_required": "bool",
+                  "caution_enabled": "bool",
+                  "dn_bandwidth": "number",
+                  "enforce_bandwidth_control": "bool",
+                  "ips_control": "bool",
+                  "ofw_enabled": "bool",
+                  "template_prefix": "string",
+                  "up_bandwidth": "number",
+                  "xff_forward_enabled": "bool"
+                }
+              ]
+            ]
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_network_service_groups": {
+      "block": {
+        "attributes": {
+          "description": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "name": {
+            "computed": true,
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "services": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "description": "string",
+                  "dest_tcp_ports": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "end": "number",
+                        "start": "number"
+                      }
+                    ]
+                  ],
+                  "dest_udp_ports": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "end": "number",
+                        "start": "number"
+                      }
+                    ]
+                  ],
+                  "id": "number",
+                  "is_name_l10n_tag": "bool",
+                  "name": "string",
+                  "src_tcp_ports": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "end": "number",
+                        "start": "number"
+                      }
+                    ]
+                  ],
+                  "src_udp_ports": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "end": "number",
+                        "start": "number"
+                      }
+                    ]
+                  ],
+                  "tag": "string",
+                  "type": "string"
+                }
+              ]
+            ]
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_network_services": {
+      "block": {
+        "attributes": {
+          "description": {
+            "computed": true,
+            "description": "Description of network service",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "dest_tcp_ports": {
+            "computed": true,
+            "description": "Destination TCP ports",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "end": "number",
+                  "start": "number"
+                }
+              ]
+            ]
+          },
+          "dest_udp_ports": {
+            "computed": true,
+            "description": "Destination UDP ports",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "end": "number",
+                  "start": "number"
+                }
+              ]
+            ]
+          },
+          "id": {
+            "computed": true,
+            "description": "ID of network service",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "is_name_l10n_tag": {
+            "computed": true,
+            "description": "Indicates the external ID. Applicable only when this reference is of an external entity.",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "name": {
+            "computed": true,
+            "description": "Name of network service",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "src_tcp_ports": {
+            "computed": true,
+            "description": "Source TCP ports",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "end": "number",
+                  "start": "number"
+                }
+              ]
+            ]
+          },
+          "src_udp_ports": {
+            "computed": true,
+            "description": "Source UDP ports",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "end": "number",
+                  "start": "number"
+                }
+              ]
+            ]
+          },
+          "tag": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "type": {
+            "computed": true,
+            "description": "Type of network service: standard, predefined, or custom",
+            "description_kind": "plain",
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_provisioning_url": {
+      "block": {
+        "attributes": {
+          "desc": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "id": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "last_mod_time": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "last_mod_uid": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "set",
+              [
+                "object",
+                {
+                  "association_time": "number",
+                  "deleted": "bool",
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "external_id": "string",
+                  "id": "number",
+                  "is_name_l10n_tag": "bool",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "name": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "prov_url": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "prov_url_data": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "set",
+              [
+                "object",
+                {
+                  "api_server": "string",
+                  "auto_scale_details": [
+                    "set",
+                    [
+                      "object",
+                      {
+                        "auto_scale": "bool"
+                      }
+                    ]
+                  ],
+                  "cell_edge_deploy": "bool",
+                  "cloud_provider_type": "string",
+                  "config_server": "string",
+                  "form_factor": "string",
+                  "location_template": [
+                    "set",
+                    [
+                      "object",
+                      {
+                        "desc": "string",
+                        "editable": "bool",
+                        "id": "number",
+                        "last_mod_time": "number",
+                        "name": "string",
+                        "template": [
+                          "set",
+                          [
+                            "object",
+                            {
+                              "aup_enabled": "bool",
+                              "aup_timeout_in_days": "number",
+                              "auth_required": "bool",
+                              "caution_enabled": "bool",
+                              "dn_bandwidth": "number",
+                              "enforce_bandwidth_control": "bool",
+                              "idle_time_in_minutes": "number",
+                              "ips_control": "bool",
+                              "ofw_enabled": "bool",
+                              "surrogate_ip": "bool",
+                              "surrogate_ip_enforced_for_known_browsers": "bool",
+                              "surrogate_refresh_time_in_minutes": "number",
+                              "template_prefix": "string",
+                              "up_bandwidth": "number",
+                              "xff_forward_enabled": "bool"
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  ],
+                  "org_id": "number",
+                  "pac_server": "string",
+                  "registration_server": "string",
+                  "release_channel": "string",
+                  "zs_cloud_domain": "string"
+                }
+              ]
+            ]
+          },
+          "prov_url_type": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "status": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_public_cloud_info": {
+      "block": {
+        "attributes": {
+          "account_details": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "aws_account_id": "string",
+                  "aws_role_name": "string",
+                  "cloud_watch_group_arn": "string",
+                  "event_bus_name": "string",
+                  "external_id": "string",
+                  "log_info_type": "string",
+                  "name": "string",
+                  "trouble_shooting_logging": "bool",
+                  "trusted_account_id": "string",
+                  "trusted_role": "string"
+                }
+              ]
+            ]
+          },
+          "account_groups": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "set",
+              [
+                "object",
+                {
+                  "association_time": "number",
+                  "deleted": "bool",
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "external_id": "string",
+                  "id": "number",
+                  "is_name_l10n_tag": "bool",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "cloud_type": {
+            "computed": true,
+            "description": "The cloud type. The default and mandatory value is AWS. Supported values are AWS, AZURE, GCP",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "external_id": {
+            "computed": true,
+            "description": "A unique external ID for the AWS account.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description": "The unique ID of the AWS account.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "last_mod_time": {
+            "computed": true,
+            "description": "The date and time when the AWS account was last modified.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "last_mod_user": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "set",
+              [
+                "object",
+                {
+                  "association_time": "number",
+                  "deleted": "bool",
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "external_id": "string",
+                  "id": "number",
+                  "is_name_l10n_tag": "bool",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "last_sync_time": {
+            "computed": true,
+            "description": "The last time the AWS account was synced.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "name": {
+            "computed": true,
+            "description": "The name of the AWS account. Must be non-null, non-empty, unique, and 128 characters or fewer in length.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "region_status": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "cloud_type": "string",
+                  "id": "number",
+                  "name": "string",
+                  "status": "bool"
+                }
+              ]
+            ]
+          },
+          "supported_regions": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "cloud_type": "string",
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_supported_regions": {
+      "block": {
+        "attributes": {
+          "cloud_type": {
+            "computed": true,
+            "description": "The cloud type when retrieving a single region. The default value is AWS. Supported values are AWS, AZURE, GCP",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description": "The unique ID of the supported region. When specified, returns a single region.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "name": {
+            "computed": true,
+            "description": "The name of the supported region. When specified, returns a single region.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "regions": {
+            "computed": true,
+            "description": "List of all supported regions. Populated when neither id nor name is specified.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "cloud_type": "string",
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_traffic_forwarding_dns_rule": {
+      "block": {
+        "attributes": {
+          "action": {
+            "description": "Access permission available for the current user to the rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "description": {
+            "computed": true,
+            "description": "Additional information about the forwarding rule",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "dest_addresses": {
+            "computed": true,
+            "description": "List of destination IP addresses or FQDNs for which the rule is applicable. CIDR notation can be used for destination IP addresses. If not set, the rule is not restricted to a specific destination addresses unless specified by destCountries, destIpGroups, or destIpCategories.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "dest_ip_groups": {
+            "computed": true,
+            "description": "User-defined destination IP address groups to which the rule is applied. If not set, the rule is not restricted to a specific destination IP address group.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "dns_gateway": {
+            "computed": true,
+            "description": "The proxy gateway for which the rule is applicable. This field is applicable only for the Proxy Chaining forwarding method.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "ec_groups": {
+            "computed": true,
+            "description": "Name-ID pairs of the Zscaler Cloud Connector groups to which the forwarding rule applies",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "id": {
+            "description": "A unique identifier assigned to the forwarding rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "location_groups": {
+            "computed": true,
+            "description": "Name-ID pairs of the location groups to which the forwarding rule applies",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "locations": {
+            "computed": true,
+            "description": "Name-ID pairs of the locations to which the forwarding rule applies. If not set, the rule is applied to all locations.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "name": {
+            "description": "The name of the forwarding rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "order": {
+            "computed": true,
+            "description": "The order of execution for the forwarding rule order",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "rank": {
+            "computed": true,
+            "description": "Admin rank assigned to the forwarding rule",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "src_ip_groups": {
+            "computed": true,
+            "description": "Source IP address groups for which the rule is applicable. If not set, the rule is not restricted to a specific source IP address group.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "src_ips": {
+            "computed": true,
+            "description": "User-defined source IP addresses for which the rule is applicable. If not set, the rule is not restricted to a specific source IP address.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "state": {
+            "computed": true,
+            "description": "Indicates whether the forwarding rule is enabled or disabled",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "type": {
+            "description": "The rule type selected from the available options",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "zpa_ip_group": {
+            "computed": true,
+            "description": "The zpa ip group for which the rule is applicable.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_traffic_forwarding_log_rule": {
+      "block": {
+        "attributes": {
+          "default_rule": {
+            "computed": true,
+            "description": "Indicates whether the forwarding rule is a default rule",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "description": {
+            "computed": true,
+            "description": "Additional information about the forwarding rule",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "ec_groups": {
+            "computed": true,
+            "description": "Name-ID pairs of the Zscaler Cloud Connector groups to which the forwarding rule applies",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "forward_method": {
+            "computed": true,
+            "description": "The type of traffic forwarding method selected from the available options",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "id": {
+            "description": "A unique identifier assigned to the forwarding rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "locations": {
+            "computed": true,
+            "description": "Name-ID pairs of the locations to which the forwarding rule applies. If not set, the rule is applied to all locations.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "name": {
+            "description": "The name of the forwarding rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "order": {
+            "computed": true,
+            "description": "The order of execution for the forwarding rule order",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "proxy_gateway": {
+            "computed": true,
+            "description": "The proxy gateway for which the rule is applicable. This field is applicable only for the Proxy Chaining forwarding method.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "rank": {
+            "computed": true,
+            "description": "Admin rank assigned to the forwarding rule",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "state": {
+            "computed": true,
+            "description": "Indicates whether the forwarding rule is enabled or disabled",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "type": {
+            "computed": true,
+            "description": "The rule type selected from the available options",
+            "description_kind": "plain",
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_traffic_forwarding_rule": {
+      "block": {
+        "attributes": {
+          "access_control": {
+            "description": "Access permission available for the current user to the rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "description": {
+            "computed": true,
+            "description": "Additional information about the forwarding rule",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "dest_addresses": {
+            "computed": true,
+            "description": "List of destination IP addresses or FQDNs for which the rule is applicable. CIDR notation can be used for destination IP addresses. If not set, the rule is not restricted to a specific destination addresses unless specified by destCountries, destIpGroups, or destIpCategories.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "dest_countries": {
+            "computed": true,
+            "description": "Destination countries for which the rule is applicable. If not set, the rule is not restricted to specific destination countries.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "dest_ip_categories": {
+            "computed": true,
+            "description": "List of destination IP categories to which the rule applies. If not set, the rule is not restricted to specific destination IP categories.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "dest_ip_groups": {
+            "computed": true,
+            "description": "User-defined destination IP address groups to which the rule is applied. If not set, the rule is not restricted to a specific destination IP address group.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "ec_groups": {
+            "computed": true,
+            "description": "Name-ID pairs of the Zscaler Cloud Connector groups to which the forwarding rule applies",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "forward_method": {
+            "computed": true,
+            "description": "The type of traffic forwarding method selected from the available options",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "id": {
+            "description": "A unique identifier assigned to the forwarding rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "location_groups": {
+            "computed": true,
+            "description": "Name-ID pairs of the location groups to which the forwarding rule applies",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "locations": {
+            "computed": true,
+            "description": "Name-ID pairs of the locations to which the forwarding rule applies. If not set, the rule is applied to all locations.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "name": {
+            "description": "The name of the forwarding rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "nw_applications": {
+            "computed": true,
+            "description": "User-defined network service applications to which the rule applies. If not set, the rule is not restricted to a specific network service application.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "nw_service_groups": {
+            "computed": true,
+            "description": "User-defined network service group to which the rule applies. If not set, the rule is not restricted to a specific network service group.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "nw_services": {
+            "computed": true,
+            "description": "User-defined network services to which the rule applies. If not set, the rule is not restricted to a specific network service. Note: When the forwarding method is Proxy Chaining, only TCP-based network services are considered for policy match .",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "order": {
+            "computed": true,
+            "description": "The order of execution for the forwarding rule order",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "proxy_gateway": {
+            "computed": true,
+            "description": "The proxy gateway for which the rule is applicable. This field is applicable only for the Proxy Chaining forwarding method.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "rank": {
+            "computed": true,
+            "description": "Admin rank assigned to the forwarding rule",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "res_categories": {
+            "computed": true,
+            "description": "List of destination domain categories to which the rule applies",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "src_ip_groups": {
+            "computed": true,
+            "description": "Source IP address groups for which the rule is applicable. If not set, the rule is not restricted to a specific source IP address group.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "src_ips": {
+            "computed": true,
+            "description": "User-defined source IP addresses for which the rule is applicable. If not set, the rule is not restricted to a specific source IP address.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "src_workload_groups": {
+            "computed": true,
+            "description": "The list of preconfigured workload groups to which the policy must be applied",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "state": {
+            "computed": true,
+            "description": "Indicates whether the forwarding rule is enabled or disabled",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "type": {
+            "description": "The rule type selected from the available options",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "wan_selection": {
+            "computed": true,
+            "description": "\"WAN selection is only applicable when configuring a hardware device deployed in\n\t\t\t\tgateway mode. If no value is specified, this field is set to the wide-area network.\n\t\t\t\t(WAN) configuration selected in the Branch Connector Configuration Template.\n\t\t\t\tTo distribute traffic evenly, specify BALANCED_RULE. To always forward the traffic via the best-performing WAN link, specify BESTLINK_RULE.\"",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "zpa_application_segment_groups": {
+            "computed": true,
+            "description": "List of ZPA Application Segment Groups for which this rule is applicable. This field is applicable only for the ECZPA forwarding method (used for Zscaler Cloud Connector).",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "deleted": "bool",
+                  "id": "number",
+                  "name": "string",
+                  "zpa_app_segments_count": "number",
+                  "zpa_id": "number"
+                }
+              ]
+            ]
+          },
+          "zpa_application_segments": {
+            "computed": true,
+            "description": "The ZPA application segments to which the rule applies",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "deleted": "bool",
+                  "id": "number",
+                  "name": "string",
+                  "zpa_id": "number"
+                }
+              ]
+            ]
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_workload_groups": {
+      "block": {
+        "attributes": {
+          "description": {
+            "computed": true,
+            "description": "The description of the workload group",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "expression": {
+            "computed": true,
+            "description": "The workload group expression containing tag types, tags, and their relationships.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "expression_json": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "expression_containers": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "operator": "string",
+                        "tag_container": [
+                          "list",
+                          [
+                            "object",
+                            {
+                              "operator": "string",
+                              "tags": [
+                                "list",
+                                [
+                                  "object",
+                                  {
+                                    "key": "string",
+                                    "value": "string"
+                                  }
+                                ]
+                              ]
+                            }
+                          ]
+                        ],
+                        "tag_type": "string"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            ]
+          },
+          "id": {
+            "computed": true,
+            "description": "A unique identifier assigned to the workload group",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "last_modified_by": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "external_id": "string",
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "last_modified_time": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "name": {
+            "description": "The name of the workload group",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    }
+  },
+  "provider": {
+    "block": {
+      "attributes": {
+        "api_key": {
+          "description_kind": "plain",
+          "optional": true,
+          "sensitive": true,
+          "type": "string"
+        },
+        "client_id": {
+          "description": "zpa client id",
+          "description_kind": "plain",
+          "optional": true,
+          "type": "string"
+        },
+        "client_secret": {
+          "description": "zpa client secret",
+          "description_kind": "plain",
+          "optional": true,
+          "sensitive": true,
+          "type": "string"
+        },
+        "http_proxy": {
+          "description": "Alternate HTTP proxy of scheme://hostname or scheme://hostname:port format",
+          "description_kind": "plain",
+          "optional": true,
+          "type": "string"
+        },
+        "max_retries": {
+          "description": "maximum number of retries to attempt before erroring out.",
+          "description_kind": "plain",
+          "optional": true,
+          "type": "number"
+        },
+        "parallelism": {
+          "description": "Number of concurrent requests to make within a resource where bulk operations are not possible. Take note of https://help.zscaler.com/oneapi/understanding-rate-limiting.",
+          "description_kind": "plain",
+          "optional": true,
+          "type": "number"
+        },
+        "password": {
+          "description_kind": "plain",
+          "optional": true,
+          "sensitive": true,
+          "type": "string"
+        },
+        "private_key": {
+          "description": "zpa private key",
+          "description_kind": "plain",
+          "optional": true,
+          "sensitive": true,
+          "type": "string"
+        },
+        "request_timeout": {
+          "description": "Timeout for single request (in seconds) which is made to Zscaler, the default is `0` (means no limit is set). The maximum value can be `300`.",
+          "description_kind": "plain",
+          "optional": true,
+          "type": "number"
+        },
+        "use_legacy_client": {
+          "description": "Enable ZTW API via Legacy Mode",
+          "description_kind": "plain",
+          "optional": true,
+          "type": "bool"
+        },
+        "username": {
+          "description_kind": "plain",
+          "optional": true,
+          "type": "string"
+        },
+        "vanity_domain": {
+          "description": "Zscaler Vanity Domain",
+          "description_kind": "plain",
+          "optional": true,
+          "sensitive": true,
+          "type": "string"
+        },
+        "zscaler_cloud": {
+          "description": "Zscaler Cloud Name",
+          "description_kind": "plain",
+          "optional": true,
+          "sensitive": true,
+          "type": "string"
+        },
+        "ztc_cloud": {
+          "description_kind": "plain",
+          "optional": true,
+          "type": "string"
+        }
+      },
+      "description_kind": "plain"
+    },
+    "version": 0
+  },
+  "resource_schemas": {
+    "ztc_account_groups": {
+      "block": {
+        "attributes": {
+          "cloud_type": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "description": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "group_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the AWS account group. Must be non-null, non-empty, unique, and 128 characters or fewer in length.",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          }
+        },
+        "block_types": {
+          "cloud_connector_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "list of public cloud connector groups to be set in the account group",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "public_cloud_accounts": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "list of public cloud accounts to be set in the account group",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_activation_status": {
+      "block": {
+        "attributes": {
+          "admin_activate_status": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "admin_status_map": {
+            "computed": true,
+            "description": "Admin status",
+            "description_kind": "plain",
+            "type": [
+              "map",
+              "string"
+            ]
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "org_edit_status": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "org_last_activate_status": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_dns_forwarding_gateway": {
+      "block": {
+        "attributes": {
+          "ec_dns_gateway_options_primary": {
+            "description": "IP address of the primary LAN DNS Server",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "ec_dns_gateway_options_secondary": {
+            "description": "IP address of the secondary LAN DNS Server.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "failure_behavior": {
+            "description": "Choose what happens if the DNS server is unreachable.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "gateway_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the DNS Forwarding Gateway",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "primary_ip": {
+            "description": "IP address of the primary custom DNS server.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "secondary_ip": {
+            "description": "IP address of the secondary custom DNS server.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_dns_gateway": {
+      "block": {
+        "attributes": {
+          "dns_gateway_type": {
+            "computed": true,
+            "description": "Type of the DNS Gateway",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "ec_dns_gateway_options_primary": {
+            "description": "Primary DNS gateway option for Edge Connector",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "ec_dns_gateway_options_secondary": {
+            "description": "Secondary DNS gateway option for Edge Connector",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "failure_behavior": {
+            "description": "Choose what happens if the DNS server is unreachable",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "gateway_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the DNS Gateway",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "primary_ip": {
+            "description": "IP address of the primary custom DNS server",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "secondary_ip": {
+            "description": "IP address of the secondary custom DNS server",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_forwarding_gateway": {
+      "block": {
+        "attributes": {
+          "description": {
+            "description": "Additional details about the Forwarding Gateway",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "fail_closed": {
+            "description": "\"A true value indicates that traffic must be dropped when both primary and secondary proxies defined in the gateway are unreachable.\n\t\t\t\t A false value indicates that traffic must be allowed.\"",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
+          "gateway_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "manual_primary": {
+            "description": "\"Specifies the primary proxy through which traffic must be forwarded\n\t\t\t\tDepending on the proxy forwarding type specified (AUTODC), this field includes a preconfigured data center, or a specified IP address or domain name.\"",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "manual_secondary": {
+            "description": "\"Specifies the secondary proxy through which traffic must be forwarded\n\t\t\t\tDepending on the proxy forwarding type specified (AUTODC), this field includes a preconfigured data center, or a specified IP address or domain name.\"",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "name": {
+            "computed": true,
+            "description": "The name of the Forwarding Gateway",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "primary_type": {
+            "description": "\"Type of the primary proxy, such as automatic proxy (AUTO), manual proxy (DC) that forwards\n\t\t\t\ttraffic through a selected data center (DC), or override (MANUAL_OVERRIDE) that forwards\n\t\t\t\ttraffic through a specified IP address or domain.\"",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "secondary_type": {
+            "description": "\"Type of the secondary proxy, such as automatic proxy (AUTO), manual proxy (DC) that forwards\n\t\t\t\ttraffic through a selected data center (DC), or override (MANUAL_OVERRIDE) that forwards\n\t\t\t\ttraffic through a specified IP address or domain.\"",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "type": {
+            "description": "Gateway type",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "block_types": {
+          "subcloud_primary": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description": "The unique identifier for the resource.",
+                  "description_kind": "plain",
+                  "required": true,
+                  "type": "number"
+                },
+                "name": {
+                  "description": "The name of the resource.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description": "If a manual (DC) primary proxy is used and if the organization has subclouds associated, you can specify a subcloud using this field for the specified DC",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "subcloud_secondary": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description": "The unique identifier for the resource.",
+                  "description_kind": "plain",
+                  "required": true,
+                  "type": "number"
+                },
+                "name": {
+                  "description": "The name of the resource.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description": "If a manual (DC) secondary proxy is used and if the organization has subclouds associated, you can specify a subcloud using this field for the specified DC",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_ip_destination_groups": {
+      "block": {
+        "attributes": {
+          "addresses": {
+            "description": "Destination IP addresses within the group",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "countries": {
+            "computed": true,
+            "description": "Destination countries for which the rule is applicable. If not set, the rule is not restricted to specific destination countries.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "description": {
+            "description": "Additional information about the destination IP group",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "group_id": {
+            "computed": true,
+            "description": "Unique identifer for the destination IP group",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "id": {
+            "computed": true,
+            "description": "Unique identifer for the destination IP group",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "ip_categories": {
+            "description": "Destination IP addresses within the group",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "name": {
+            "description": "Destination IP group name",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "type": {
+            "computed": true,
+            "description": "Destination IP group type (i.e., the group can contain destination IP addresses or FQDNs)",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_ip_pool_groups": {
+      "block": {
+        "attributes": {
+          "description": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "group_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "ip_addresses": {
+            "description_kind": "plain",
+            "required": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "name": {
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_ip_source_groups": {
+      "block": {
+        "attributes": {
+          "description": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "group_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "ip_addresses": {
+            "description_kind": "plain",
+            "required": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "name": {
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_location_template": {
+      "block": {
+        "attributes": {
+          "desc": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description": "Location Name.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "template_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          }
+        },
+        "block_types": {
+          "template": {
+            "block": {
+              "attributes": {
+                "aup_enabled": {
+                  "computed": true,
+                  "description": "Enable AUP. When set to true, AUP is enabled for the location.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "bool"
+                },
+                "aup_timeout_in_days": {
+                  "computed": true,
+                  "description": "Custom AUP Frequency. Refresh time (in days) to re-validate the AUP.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "number"
+                },
+                "auth_required": {
+                  "computed": true,
+                  "description": "Enforce Authentication. Required when ports are enabled, IP Surrogate is enabled, or Kerberos Authentication is enabled.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "bool"
+                },
+                "caution_enabled": {
+                  "computed": true,
+                  "description": "Enable Caution. When set to true, a caution notifcation is enabled for the location.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "bool"
+                },
+                "dn_bandwidth": {
+                  "computed": true,
+                  "description": "Upload bandwidth in bytes. The value 0 implies no Bandwidth Control enforcement.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "number"
+                },
+                "enforce_bandwidth_control": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "bool"
+                },
+                "ips_control": {
+                  "computed": true,
+                  "description": "Enable IPS Control. When set to true, IPS Control is enabled for the location if Firewall is enabled.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "bool"
+                },
+                "ofw_enabled": {
+                  "computed": true,
+                  "description": "Enable Firewall. When set to true, Firewall is enabled for the location.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "bool"
+                },
+                "template_prefix": {
+                  "computed": true,
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "up_bandwidth": {
+                  "computed": true,
+                  "description": "Upload bandwidth in bytes. The value 0 implies no Bandwidth Control enforcement.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "number"
+                },
+                "xff_forward_enabled": {
+                  "computed": true,
+                  "description": "Enable XFF Forwarding. When set to true, traffic is passed to Zscaler Cloud via the X-Forwarded-For (XFF) header.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "bool"
+                }
+              },
+              "description_kind": "plain"
+            },
+            "nesting_mode": "set"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_network_service_groups": {
+      "block": {
+        "attributes": {
+          "description": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "group_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          }
+        },
+        "block_types": {
+          "services": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "required": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "list of services IDs",
+              "description_kind": "plain"
+            },
+            "nesting_mode": "set"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_network_services": {
+      "block": {
+        "attributes": {
+          "description": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "is_name_l10n_tag": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
+          "name": {
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "service_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "tag": {
+            "computed": true,
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "type": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "block_types": {
+          "dest_tcp_ports": {
+            "block": {
+              "attributes": {
+                "end": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "number"
+                },
+                "start": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "number"
+                }
+              },
+              "description": "dest tcp ports",
+              "description_kind": "plain"
+            },
+            "nesting_mode": "set"
+          },
+          "dest_udp_ports": {
+            "block": {
+              "attributes": {
+                "end": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "number"
+                },
+                "start": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "number"
+                }
+              },
+              "description": "dest udp ports",
+              "description_kind": "plain"
+            },
+            "nesting_mode": "set"
+          },
+          "src_tcp_ports": {
+            "block": {
+              "attributes": {
+                "end": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "number"
+                },
+                "start": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "number"
+                }
+              },
+              "description": "src tcp ports",
+              "description_kind": "plain"
+            },
+            "nesting_mode": "set"
+          },
+          "src_udp_ports": {
+            "block": {
+              "attributes": {
+                "end": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "number"
+                },
+                "start": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "number"
+                }
+              },
+              "description": "src udp ports",
+              "description_kind": "plain"
+            },
+            "nesting_mode": "set"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_provisioning_url": {
+      "block": {
+        "attributes": {
+          "desc": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "prov_url": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "prov_url_type": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "provurl_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          }
+        },
+        "block_types": {
+          "prov_url_data": {
+            "block": {
+              "attributes": {
+                "cell_edge_deploy": {
+                  "computed": true,
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "bool"
+                },
+                "cloud_provider_type": {
+                  "computed": true,
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "form_factor": {
+                  "computed": true,
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "release_channel": {
+                  "computed": true,
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "block_types": {
+                "auto_scale_details": {
+                  "block": {
+                    "attributes": {
+                      "auto_scale": {
+                        "computed": true,
+                        "description_kind": "plain",
+                        "optional": true,
+                        "type": "bool"
+                      }
+                    },
+                    "description_kind": "plain"
+                  },
+                  "max_items": 1,
+                  "nesting_mode": "list"
+                },
+                "location_template": {
+                  "block": {
+                    "attributes": {
+                      "id": {
+                        "description_kind": "plain",
+                        "required": true,
+                        "type": "number"
+                      }
+                    },
+                    "description_kind": "plain"
+                  },
+                  "max_items": 1,
+                  "min_items": 1,
+                  "nesting_mode": "list"
+                }
+              },
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "list"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_public_cloud_info": {
+      "block": {
+        "attributes": {
+          "cloud_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "cloud_type": {
+            "description": "The cloud type. The default and mandatory value is AWS. Supported values are AWS, AZURE, GCP",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "external_id": {
+            "computed": true,
+            "description": "A unique external ID for the AWS account.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the AWS account. Must be non-null, non-empty, unique, and 128 characters or fewer in length.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "block_types": {
+          "account_details": {
+            "block": {
+              "attributes": {
+                "aws_account_id": {
+                  "description": "The AWS account ID where workloads are deployed. The ID is non-null, non-empty, and unique, and contains 12 digits.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "aws_role_name": {
+                  "description": "The AWS trusting role in your account. The name is non-null, non-empty, and 64 characters or fewer in length.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "cloud_watch_group_arn": {
+                  "description": "The resource name (ARN) of the AWS CloudWatch log group.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "event_bus_name": {
+                  "description": "The name of the event bus that sends notifications to the Zscaler service using EventBridge.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "external_id": {
+                  "computed": true,
+                  "description": "The unique external ID for the AWS account. If provided, it must match the externalId specified outside of accountDetails.",
+                  "description_kind": "plain",
+                  "type": "string"
+                },
+                "log_info_type": {
+                  "description": "The type of log information. Supported types are INFO and ERROR.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "trouble_shooting_logging": {
+                  "description": "Indicates whether logging is enabled for troubleshooting purposes.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "bool"
+                },
+                "trusted_account_id": {
+                  "description": "The ID of the Zscaler AWS account.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "trusted_role": {
+                  "description": "The name of the trusted role in the Zscaler AWS account.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description_kind": "plain"
+            },
+            "nesting_mode": "list"
+          },
+          "supported_regions": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "Regions supported by Zscaler\u2019s Tag Discovery Service.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_traffic_forwarding_dns_rule": {
+      "block": {
+        "attributes": {
+          "action": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "description": {
+            "description": "Additional information about the forwarding rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "dest_addresses": {
+            "description": "List of destination IP addresses or FQDNs for which the rule is applicable. CIDR notation can be used for destination IP addresses. If not set, the rule is not restricted to a specific destination addresses unless specified by destCountries, destIpGroups, or destIpCategories.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "id": {
+            "computed": true,
+            "description": "A unique identifier assigned to the forwarding rule",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the forwarding rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "order": {
+            "description": "The order of execution for the forwarding rule order",
+            "description_kind": "plain",
+            "required": true,
+            "type": "number"
+          },
+          "rank": {
+            "description": "Admin rank assigned to the forwarding rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "rule_id": {
+            "computed": true,
+            "description": "A unique identifier assigned to the forwarding rule",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "src_ips": {
+            "description": "User-defined source IP addresses for which the rule is applicable. If not set, the rule is not restricted to a specific source IP address.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "state": {
+            "description": "Determines whether the Firewall Filtering policy rule is enabled or disabled",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "block_types": {
+          "dest_ip_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "User-defined destination IP address groups to which the rule is applied. If not set, the rule is not restricted to a specific destination IP address group",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "dns_gateway": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description": "The unique identifier for the resource.",
+                  "description_kind": "plain",
+                  "required": true,
+                  "type": "number"
+                },
+                "name": {
+                  "description": "The name of the resource.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description": "The dns gateway for which the rule is applicable. This field is applicable only for the Proxy Chaining forwarding method.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "ec_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "Name-ID pairs of the Zscaler Cloud Connector groups to which the forwarding rule applies",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "location_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "Name-ID pairs of the location groups to which the forwarding rule applies",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "locations": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "Name-ID pairs of the locations to which the forwarding rule applies. If not set, the rule is applied to all locations.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "src_ip_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "Source IP address groups for which the rule is applicable. If not set, the rule is not restricted to a specific source IP address group",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "timeouts": {
+            "block": {
+              "attributes": {
+                "create": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "update": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description_kind": "plain"
+            },
+            "nesting_mode": "single"
+          },
+          "zpa_ip_group": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description": "The unique identifier for the resource.",
+                  "description_kind": "plain",
+                  "required": true,
+                  "type": "number"
+                },
+                "name": {
+                  "description": "The name of the resource.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description": "The zpa ip group for which the rule is applicable. This field is applicable only for action REDIR_ZPA",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_traffic_forwarding_log_rule": {
+      "block": {
+        "attributes": {
+          "description": {
+            "description": "Additional information about the forwarding rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "forward_method": {
+            "description": "The type of traffic forwarding method selected from the available options",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description": "A unique identifier assigned to the forwarding rule",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the forwarding rule",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "order": {
+            "description": "The order of execution for the forwarding rule order",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "rank": {
+            "description": "Admin rank assigned to the forwarding rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "rule_id": {
+            "computed": true,
+            "description": "A unique identifier assigned to the forwarding rule",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "state": {
+            "description": "Indicates whether the forwarding rule is enabled or disabled",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "block_types": {
+          "ec_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "Name-ID pairs of the Zscaler Cloud Connector groups to which the forwarding rule applies",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "locations": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "Name-ID pairs of the locations to which the forwarding rule applies. If not set, the rule is applied to all locations.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "proxy_gateway": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description": "The unique identifier for the resource.",
+                  "description_kind": "plain",
+                  "required": true,
+                  "type": "number"
+                },
+                "name": {
+                  "description": "The name of the resource.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description": "The proxy gateway for which the rule is applicable. This field is applicable only for the Proxy Chaining forwarding method.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "timeouts": {
+            "block": {
+              "attributes": {
+                "create": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "update": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description_kind": "plain"
+            },
+            "nesting_mode": "single"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "ztc_traffic_forwarding_rule": {
+      "block": {
+        "attributes": {
+          "description": {
+            "description": "Additional information about the forwarding rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "dest_addresses": {
+            "description": "List of destination IP addresses or FQDNs for which the rule is applicable. CIDR notation can be used for destination IP addresses. If not set, the rule is not restricted to a specific destination addresses unless specified by destCountries, destIpGroups, or destIpCategories.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "dest_countries": {
+            "computed": true,
+            "description": "Destination countries for which the rule is applicable. If not set, the rule is not restricted to specific destination countries.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "dest_ip_categories": {
+            "description": "List of destination IP categories to which the rule applies. If not set, the rule is not restricted to specific destination IP categories.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "forward_method": {
+            "description": "The type of traffic forwarding method selected from the available options",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description": "A unique identifier assigned to the forwarding rule",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the forwarding rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "order": {
+            "description": "The order of execution for the forwarding rule order",
+            "description_kind": "plain",
+            "required": true,
+            "type": "number"
+          },
+          "rank": {
+            "description": "Admin rank assigned to the forwarding rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "res_categories": {
+            "description": "List of destination domain categories to which the rule applies",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "rule_id": {
+            "computed": true,
+            "description": "A unique identifier assigned to the forwarding rule",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "source_ip_group_exclusion": {
+            "description": "Source IP groups that must be excluded from the rule application",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
+          "src_ips": {
+            "description": "User-defined source IP addresses for which the rule is applicable. If not set, the rule is not restricted to a specific source IP address.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "state": {
+            "description": "Determines whether the Firewall Filtering policy rule is enabled or disabled",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "type": {
+            "description": "The rule type selected from the available options",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "wan_selection": {
+            "description": "WAN selection is only applicable when configuring a hardware device deployed in gateway mode.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "block_types": {
+          "app_service_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "list of application service groups",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "dest_ip_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "User-defined destination IP address groups to which the rule is applied. If not set, the rule is not restricted to a specific destination IP address group",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "ec_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "Name-ID pairs of the Zscaler Cloud Connector groups to which the forwarding rule applies",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "location_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "Name-ID pairs of the location groups to which the forwarding rule applies",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "locations": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "Name-ID pairs of the locations to which the forwarding rule applies. If not set, the rule is applied to all locations.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "nw_service_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "User-defined network service group to which the rule applies. If not set, the rule is not restricted to a specific network service group.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "nw_services": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "User-defined network services to which the rule applies. If not set, the rule is not restricted to a specific network service.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "proxy_gateway": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description": "The unique identifier for the resource.",
+                  "description_kind": "plain",
+                  "required": true,
+                  "type": "number"
+                },
+                "name": {
+                  "description": "The name of the resource.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description": "The proxy gateway for which the rule is applicable. This field is applicable only for the Proxy Chaining forwarding method.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "src_ip_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "Source IP address groups for which the rule is applicable. If not set, the rule is not restricted to a specific source IP address group",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "src_workload_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The list of preconfigured workload groups to which the policy must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "timeouts": {
+            "block": {
+              "attributes": {
+                "create": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "update": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description_kind": "plain"
+            },
+            "nesting_mode": "single"
+          },
+          "zpa_application_segment_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "List of ZPA Application Segment Groups for which this rule is applicable. This field is applicable only for the ECZPA forwarding method (used for Zscaler Cloud Connector).",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "zpa_application_segments": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "List of ZPA Application Segments for which this rule is applicable. This field is applicable only for the ECZPA forwarding method (used for Zscaler Cloud Connector).",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    }
+  }
+}

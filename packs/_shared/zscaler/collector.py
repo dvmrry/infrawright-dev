@@ -79,6 +79,10 @@ def compose_url(auth_mode, product, path, ctx):
         )
     if product == "zcc":
         return "%s/%s" % (gateway, path)
+    if product == "ztc":
+        if path.startswith("/"):
+            return "%s%s" % (gateway, path)
+        return "%s/%s" % (gateway, path)
     raise ValueError("unknown auth_mode/product: %r/%r" % (auth_mode, product))
 
 

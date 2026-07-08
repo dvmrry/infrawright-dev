@@ -1,0 +1,186 @@
+{
+  "ztc_account_groups": {
+    "adopt": {
+      "import_id": "{id}",
+      "key_field": "name"
+    },
+    "fetch": {
+      "pagination": "zia",
+      "path": "/ztw/api/v1/accountGroups"
+    },
+    "generate": true,
+    "product": "ztc"
+  },
+  "ztc_activation_status": {
+    "generate": true,
+    "product": "ztc"
+  },
+  "ztc_dns_forwarding_gateway": {
+    "adopt": {
+      "import_id": "{id}",
+      "key_field": "name"
+    },
+    "fetch": {
+      "pagination": "zia",
+      "path": "/ztw/api/v1/dnsGateways"
+    },
+    "generate": true,
+    "product": "ztc"
+  },
+  "ztc_dns_gateway": {
+    "adopt": {
+      "import_id": "{id}",
+      "key_field": "name"
+    },
+    "fetch": {
+      "pagination": "zia",
+      "path": "/ztw/api/v1/dnsGateways"
+    },
+    "generate": true,
+    "product": "ztc"
+  },
+  "ztc_forwarding_gateway": {
+    "adopt": {
+      "import_id": "{id}",
+      "key_field": "name"
+    },
+    "fetch": {
+      "pagination": "zia",
+      "path": "/ztw/api/v1/gateways"
+    },
+    "generate": true,
+    "product": "ztc"
+  },
+  "ztc_ip_destination_groups": {
+    "adopt": {
+      "import_id": "{id}",
+      "key_field": "name"
+    },
+    "fetch": {
+      "pagination": "zia",
+      "path": "/ztw/api/v1/ipDestinationGroups"
+    },
+    "generate": true,
+    "product": "ztc"
+  },
+  "ztc_ip_pool_groups": {
+    "adopt": {
+      "import_id": "{id}",
+      "key_field": "name"
+    },
+    "fetch": {
+      "pagination": "zia",
+      "path": "/ztw/api/v1/ipGroups"
+    },
+    "generate": true,
+    "product": "ztc"
+  },
+  "ztc_ip_source_groups": {
+    "adopt": {
+      "import_id": "{id}",
+      "key_field": "name"
+    },
+    "fetch": {
+      "pagination": "zia",
+      "path": "/ztw/api/v1/ipSourceGroups"
+    },
+    "generate": true,
+    "product": "ztc"
+  },
+  "ztc_location_template": {
+    "adopt": {
+      "import_id": "{id}",
+      "key_field": "name"
+    },
+    "fetch": {
+      "pagination": "zia",
+      "path": "/ztw/api/v1/locationTemplate"
+    },
+    "generate": true,
+    "product": "ztc"
+  },
+  "ztc_network_service_groups": {
+    "adopt": {
+      "import_id": "{id}",
+      "key_field": "name"
+    },
+    "fetch": {
+      "pagination": "zia",
+      "path": "/ztw/api/v1/networkServiceGroups"
+    },
+    "generate": true,
+    "product": "ztc"
+  },
+  "ztc_network_services": {
+    "adopt": {
+      "import_id": "{id}",
+      "key_field": "name"
+    },
+    "fetch": {
+      "pagination": "zia",
+      "path": "/ztw/api/v1/networkServices"
+    },
+    "generate": true,
+    "product": "ztc"
+  },
+  "ztc_provisioning_url": {
+    "adopt": {
+      "import_id": "{id}",
+      "key_field": "name"
+    },
+    "fetch": {
+      "pagination": "zia",
+      "path": "/ztw/api/v1/provUrl"
+    },
+    "generate": true,
+    "product": "ztc"
+  },
+  "ztc_public_cloud_info": {
+    "adopt": {
+      "import_id": "{id}",
+      "key_field": "name"
+    },
+    "fetch": {
+      "pagination": "zia",
+      "path": "/ztw/api/v1/publicCloudInfo"
+    },
+    "generate": true,
+    "product": "ztc"
+  },
+  "ztc_traffic_forwarding_dns_rule": {
+    "adopt": {
+      "import_id": "{id}",
+      "key_field": "name"
+    },
+    "fetch": {
+      "pagination": "zia",
+      "path": "/ztw/api/v1/ecRules/ecDns"
+    },
+    "generate": true,
+    "product": "ztc"
+  },
+  "ztc_traffic_forwarding_log_rule": {
+    "adopt": {
+      "import_id": "{id}",
+      "key_field": "name"
+    },
+    "fetch": {
+      "pagination": "zia",
+      "path": "/ztw/api/v1/ecRules/self"
+    },
+    "generate": true,
+    "product": "ztc"
+  },
+  "ztc_traffic_forwarding_rule": {
+    "adopt": {
+      "import_id": "{id}",
+      "key_field": "name"
+    },
+    "fetch": {
+      "pagination": "zia",
+      "path": "/ztw/api/v1/ecRules/ecRdr"
+    },
+    "generate": true,
+    "product": "ztc"
+  }
+}
