@@ -1,7 +1,7 @@
 {
   "lookup_sources": {
     "zcc_trusted_network": {
-      "name_field": "network_name"
+      "name_field": "name"
     }
   },
   "pin": "0.1.0-beta.1",
