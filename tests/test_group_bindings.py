@@ -59,6 +59,12 @@ class GroupBindingsTest(unittest.TestCase):
                 },
             },
         }
+        lookup.lookup_sources = lambda: {
+            referent: {"name_field": "name"},
+        }
+        packs.lookup_sources = lambda: {
+            referent: {"name_field": "name"},
+        }
 
     def _write_lookup(self, referent, mapping):
         path = lookup.lookup_path(self.tenant, referent)
@@ -102,6 +108,63 @@ class GroupBindingsTest(unittest.TestCase):
         )
         self.assertIn(
             "NOTE bindings: zpa_application_segment: 1 bound, 0 skipped\n",
+            stderr,
+        )
+
+    def test_name_field_name_still_binds(self):
+        self._deployment(["zpa_application_segment", "zpa_segment_group"])
+        self._patch_refs(
+            "zpa_application_segment", "segment_group_id", "zpa_segment_group")
+        self._write_lookup("zpa_segment_group", {"sg-1": "Segment One"})
+
+        data, stderr = self._capture_derive("zpa_application_segment", {
+            "app": {"name": "App", "segment_group_id": "sg-1"},
+        })
+
+        self.assertEqual(
+            data["resources"]["zpa_application_segment.app"]
+            ["segment_group_id"]["expression"],
+            'module.zpa_segment_group.name_to_id["Segment One"][0]',
+        )
+        self.assertIn(
+            "NOTE bindings: zpa_application_segment: 1 bound, 0 skipped\n",
+            stderr,
+        )
+
+    def test_referent_name_field_mismatch_skips_field(self):
+        self._deployment(
+            ["zia_url_categories", "zia_url_filtering_rules"],
+            provider="zia",
+        )
+        lookup.reference_manifest = lambda: {
+            "zia_url_filtering_rules": {
+                "url_categories": {
+                    "referent": "zia_url_categories",
+                    "name_field": "configured_name",
+                },
+            },
+        }
+        lookup.lookup_sources = lambda: {
+            "zia_url_categories": {"name_field": "configured_name"},
+        }
+        packs.lookup_sources = lambda: {
+            "zia_url_categories": {"name_field": "configured_name"},
+        }
+
+        data, stderr = self._capture_derive("zia_url_filtering_rules", {
+            "rule": {"url_categories": ["cat-1"]},
+        })
+
+        self.assertEqual(data, {"resources": {}})
+        self.assertIn(
+            "NOTE bindings: zia_url_filtering_rules.url_categories skipped; "
+            "zia_url_categories lookup uses name_field 'configured_name' but "
+            "name_to_id is keyed by name\n",
+            stderr,
+        )
+        self.assertIn(
+            "NOTE bindings: zia_url_filtering_rules: 0 bound, 1 skipped "
+            "(name_field_mismatch=1)\n",
             stderr,
         )
 

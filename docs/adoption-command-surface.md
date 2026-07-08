@@ -46,6 +46,13 @@ applying blocked saved plans; it is noisy, should not replace explicit drift
 policy, and does not bypass `ALLOW_DESTROY=1` for destructive or replacement
 plans.
 
+`make plan SAVE=1` writes a `tfplan.sources` fingerprint next to each saved
+`tfplan`. `make assert-clean`, `make assert-adoptable`, and `make apply`
+recompute that fingerprint before reading the saved plan and refuse stale or
+pre-fingerprint plans; re-run `make plan SAVE=1` after root membership,
+generated env files, staged imports/moves, expression bindings, or member
+tfvars change.
+
 For real provider/tenant validation, use the
 [Integration Validation Runbook](integration-validation.md) to capture evidence
 and classify failures before turning them into engine, pack, collector, or
@@ -60,6 +67,13 @@ It is not the import-oracle adoption path.
 Use `make adopt` when the desired source of truth is provider-imported state.
 Use `make transform` only when a pack/workflow explicitly wants raw API fields
 projected through registry overrides.
+
+Full `make transform` and `make adopt` runs process selected resource types in
+pack reference order, so a referent lookup sidecar is refreshed before same-root
+referrers derive generated bindings. A selective transform of only a referrer
+derives bindings from the committed referent sidecar by design; backfill
+pipelines commit sidecars, and operators should re-run the referent first when
+that referent changed.
 
 Generated tenant config is JSON by default. Set `tfvars_format` to `hcl` in the
 active `deployment.json` to write `<resource_type>.auto.tfvars` instead of
@@ -152,6 +166,7 @@ Generated binding skip/fallback semantics:
 | Lookup display name is `<unknown>` | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
 | Lookup display name maps to more than one referent ID | Leave the literal ID in tfvars and print a `NOTE bindings:` skip to avoid ambiguous `name_to_id` lookups. |
 | Referent module does not emit `name_to_id` | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
+| Referent lookup sidecar uses a `name_field` other than `name` | Leave the literal ID in tfvars and print a `NOTE bindings:` skip because generated `name_to_id` outputs are keyed by `name`. |
 | Reference crosses a group/root boundary | No generated binding is considered; existing literal/comment behavior applies. |
 
 Group membership is fixed at first import. Changing it later means a fresh re-bootstrap of the affected types into new state — there is no regroup tooling, by design.

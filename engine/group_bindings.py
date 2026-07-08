@@ -18,6 +18,7 @@ REASON_ID_ABSENT = "id_absent"
 REASON_UNKNOWN_NAME = "unknown_name"
 REASON_NONUNIQUE_NAME = "nonunique_name"
 REASON_NAME_TO_ID_UNAVAILABLE = "name_to_id_unavailable"
+REASON_NAME_FIELD_MISMATCH = "name_field_mismatch"
 REASON_UNSAFE_NAME = "unsafe_name"
 REASON_UNBINDABLE_LIST = "unbindable_list"
 REASON_SELF_REFERENCE = "self_reference"
@@ -200,6 +201,21 @@ def derive(resource_type, items, tenant, config_root=None):
         referent = spec["referent"]
         candidates = _field_values(items, field)
         if not candidates:
+            continue
+        name_field = (
+            packs.lookup_sources().get(referent, {}).get("name_field")
+        )
+        if name_field != "name":
+            reason_counts[REASON_NAME_FIELD_MISMATCH] = (
+                reason_counts.get(REASON_NAME_FIELD_MISMATCH, 0)
+                + len(candidates)
+            )
+            skipped += len(candidates)
+            _note(
+                "%s.%s skipped; %s lookup uses name_field %r but "
+                "name_to_id is keyed by name"
+                % (resource_type, field, referent, name_field)
+            )
             continue
         if not gen_module.emits_name_to_id(referent):
             reason_counts[REASON_NAME_TO_ID_UNAVAILABLE] = (

@@ -9,6 +9,7 @@ Provider packs own behavior and metadata; they do not create path segments.
 """
 import json
 import os
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -46,6 +47,111 @@ def _env_base_candidates():
 WHOLE_ROOT_SELECTION_NOTE = (
     "NOTE: selecting %s selects whole root %s; also operating on %s\n"
 )
+REFERENCE_ORDER_CYCLE_NOTE = (
+    "NOTE: reference order cycle detected among %s; breaking alphabetically\n"
+)
+PLAN_FINGERPRINT = "tfplan.sources"
+STALE_PLAN_MESSAGE = (
+    "%s: saved plan is stale relative to the current root configuration - "
+    "re-run make plan SAVE=1"
+)
+MISSING_PLAN_FINGERPRINT_DETAIL = (
+    "no plan fingerprint found; saved plan predates staleness checking"
+)
+
+
+def _reference_graph(resource_types):
+    selected = set(resource_types)
+    graph = dict((resource_type, set()) for resource_type in selected)
+    indegree = dict((resource_type, 0) for resource_type in selected)
+    refs = packs.references()
+    for referrer in sorted(selected):
+        for _field, spec in sorted((refs.get(referrer) or {}).items()):
+            referent = spec.get("referent")
+            if referent not in selected:
+                continue
+            if referrer not in graph[referent]:
+                graph[referent].add(referrer)
+                indegree[referrer] += 1
+    return graph, indegree
+
+
+def _reference_cycle_members(nodes, graph):
+    nodes = set(nodes)
+    index = [0]
+    indexes = {}
+    lowlinks = {}
+    stack = []
+    on_stack = set()
+    cycle_members = set()
+
+    def visit(node):
+        indexes[node] = index[0]
+        lowlinks[node] = index[0]
+        index[0] += 1
+        stack.append(node)
+        on_stack.add(node)
+
+        for child in sorted(graph.get(node, ())):
+            if child not in nodes:
+                continue
+            if child not in indexes:
+                visit(child)
+                lowlinks[node] = min(lowlinks[node], lowlinks[child])
+            elif child in on_stack:
+                lowlinks[node] = min(lowlinks[node], indexes[child])
+
+        if lowlinks[node] != indexes[node]:
+            return
+        component = []
+        while True:
+            child = stack.pop()
+            on_stack.remove(child)
+            component.append(child)
+            if child == node:
+                break
+        if len(component) > 1:
+            cycle_members.update(component)
+        elif node in graph.get(node, ()):
+            cycle_members.add(node)
+
+    for node in sorted(nodes):
+        if node not in indexes:
+            visit(node)
+    return sorted(cycle_members)
+
+
+def reference_order(resource_types):
+    """Return stable referent-before-referrer order for resource types."""
+    resource_types = sorted(set(resource_types))
+    graph, indegree = _reference_graph(resource_types)
+    cycle_members = _reference_cycle_members(resource_types, graph)
+    if cycle_members:
+        sys.stderr.write(
+            REFERENCE_ORDER_CYCLE_NOTE % ", ".join(cycle_members)
+        )
+
+    remaining = set(resource_types)
+    ready = sorted(rt for rt in resource_types if indegree[rt] == 0)
+    out = []
+    while remaining:
+        if ready:
+            resource_type = ready.pop(0)
+            if resource_type not in remaining:
+                continue
+        else:
+            cyclic_ready = sorted(rt for rt in cycle_members if rt in remaining)
+            resource_type = (
+                cyclic_ready[0] if cyclic_ready else sorted(remaining)[0]
+            )
+        remaining.remove(resource_type)
+        out.append(resource_type)
+        for child in sorted(graph.get(resource_type, ())):
+            indegree[child] -= 1
+            if indegree[child] == 0 and child in remaining:
+                ready.append(child)
+        ready = sorted(ready)
+    return out
 
 
 def discover_env_roots(tenant=None):
@@ -186,6 +292,119 @@ def _show_plan_json(env_dir):
             % env_dir
         )
     return plan
+
+
+def _plan_fingerprint_path(env_dir):
+    return os.path.join(env_dir, PLAN_FINGERPRINT)
+
+
+def _file_sha256(path):
+    hasher = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(1024 * 1024)
+            if not chunk:
+                break
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def _root_tf_fingerprints(env_dir):
+    out = []
+    if not os.path.isdir(env_dir):
+        return out
+    for name in sorted(os.listdir(env_dir)):
+        if not name.endswith(".tf"):
+            continue
+        path = os.path.join(env_dir, name)
+        if os.path.isfile(path):
+            out.append((name, _file_sha256(path)))
+    return out
+
+
+def _var_file_fingerprints(var_files):
+    # Key by basename, not absolute path: fingerprints must not vary by
+    # checkout location, and member config basenames are unique per root.
+    out = []
+    for path in sorted(var_files, key=os.path.basename):
+        if os.path.isfile(path):
+            out.append((os.path.basename(path), _file_sha256(path)))
+    return out
+
+
+def _current_var_files(tenant, member_types):
+    out = []
+    for resource_type in sorted(member_types):
+        var_file = config_file(tenant, resource_type)
+        if os.path.exists(var_file):
+            out.append(var_file)
+    return out
+
+
+def _plan_sources_sha256(env_dir, var_files, member_types):
+    payload = {
+        "member_types": sorted(member_types),
+        "root_tf": _root_tf_fingerprints(env_dir),
+        "var_files": _var_file_fingerprints(var_files),
+    }
+    text = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _plan_fingerprint(env_dir, var_files, member_types):
+    return {
+        "version": 1,
+        "sha256": _plan_sources_sha256(env_dir, var_files, member_types),
+    }
+
+
+def _write_plan_fingerprint(env_dir, var_files, member_types):
+    path = _plan_fingerprint_path(env_dir)
+    data = _plan_fingerprint(env_dir, var_files, member_types)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, sort_keys=True)
+        f.write("\n")
+    return path
+
+
+def _load_plan_fingerprint(env_dir):
+    path = _plan_fingerprint_path(env_dir)
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError("%s must contain a JSON object" % path)
+    return data
+
+
+def _stale_plan_error(env_dir, detail=None):
+    message = STALE_PLAN_MESSAGE % env_dir
+    if detail:
+        message += " (%s)" % detail
+    return message
+
+
+def _assert_saved_plan_fresh(env_dir, tenant, member_types):
+    path = _plan_fingerprint_path(env_dir)
+    if not os.path.exists(path):
+        raise RuntimeError(
+            _stale_plan_error(env_dir, MISSING_PLAN_FINGERPRINT_DETAIL)
+        )
+    try:
+        saved = _load_plan_fingerprint(env_dir)
+    except (IOError, OSError, ValueError) as exc:
+        raise RuntimeError(_stale_plan_error(env_dir, str(exc)))
+    current = _plan_fingerprint(
+        env_dir, _current_var_files(tenant, member_types), member_types
+    )
+    if saved != current:
+        raise RuntimeError(_stale_plan_error(env_dir))
+
+
+def _remove_saved_plan_artifacts(env_dir):
+    for name in ("tfplan", PLAN_FINGERPRINT):
+        path = os.path.join(env_dir, name)
+        if os.path.exists(path):
+            os.remove(path)
 
 
 def _iter_plan_change_records(plan):
@@ -538,6 +757,8 @@ def cmd_plan(opts):
         if opts["save"]:
             args.append("-out=tfplan")
         _check_call(args)
+        if opts["save"]:
+            _write_plan_fingerprint(path, var_files, member_types)
         planned += 1
     if planned == 0:
         raise RuntimeError(
@@ -549,8 +770,9 @@ def cmd_plan(opts):
 def cmd_assert_clean(opts):
     checked = 0
     dirty = 0
-    for tenant, label, path, _member_types in selected_env_roots(
+    for tenant, label, path, member_types in selected_env_roots(
             opts.get("tenant"), opts["selectors"], require_plan=True):
+        _assert_saved_plan_fresh(path, tenant, member_types)
         plan = _show_plan_json(path)
         changes = _non_import_change_count(plan)
         checked += 1
@@ -581,6 +803,7 @@ def cmd_assert_adoptable(opts):
     checked_types = set()
     for tenant, label, path, member_types in selected_env_roots(
             opts.get("tenant"), opts["selectors"], require_plan=True):
+        _assert_saved_plan_fresh(path, tenant, member_types)
         plan = _show_plan_json(path)
         result = classify_plan(plan, policy=policy)
         checked += 1
@@ -623,10 +846,14 @@ def cmd_clean_plans(opts):
     removed = 0
     for _tenant, _label, path, _member_types in selected_env_roots(
             opts.get("tenant"), opts["selectors"]):
-        plan = os.path.join(path, "tfplan")
-        if os.path.exists(plan):
-            os.remove(plan)
-            sys.stderr.write("removed %s\n" % plan)
+        removed_any = False
+        for name in ("tfplan", PLAN_FINGERPRINT):
+            plan = os.path.join(path, name)
+            if os.path.exists(plan):
+                os.remove(plan)
+                sys.stderr.write("removed %s\n" % plan)
+                removed_any = True
+        if removed_any:
             removed += 1
     sys.stderr.write("%d stale plan(s) removed\n" % removed)
     return 0
@@ -671,8 +898,9 @@ def cmd_apply(opts):
             "drift.\n"
         )
     applied = 0
-    for tenant, label, path, _member_types in selected_env_roots(
+    for tenant, label, path, member_types in selected_env_roots(
             opts.get("tenant"), opts["selectors"], require_plan=True):
+        _assert_saved_plan_fresh(path, tenant, member_types)
         sys.stderr.write("== apply %s/%s\n" % (tenant, label))
         _check_backend(path, label, opts["backend_config"])
         _check_call(
@@ -708,7 +936,7 @@ def cmd_apply(opts):
                 "--allow-plan-changes was set\n" % (tenant, label)
             )
         _check_call([terraform(), "-chdir=" + path, "apply", "-input=false", "tfplan"])
-        os.remove(os.path.join(path, "tfplan"))
+        _remove_saved_plan_artifacts(path)
         applied += 1
     if applied == 0:
         raise RuntimeError("no saved plans found - run make plan SAVE=1 first")
@@ -782,6 +1010,23 @@ def _parse(argv, allow_optional_tenant=False):
     return opts
 
 
+def _parse_resources(argv):
+    order = "sorted"
+    selectors = []
+    for arg in argv:
+        if arg.startswith("--order="):
+            order = arg.split("=", 1)[1]
+            if order != "references":
+                raise ValueError(
+                    "resources --order must be references (got %r)" % order
+                )
+        elif arg.startswith("-"):
+            raise ValueError("unknown option %s" % arg)
+        else:
+            selectors.append(arg)
+    return order, selectors
+
+
 def _usage():
     return (
         "usage: python -m engine.ops <resources|stage-imports|unstage-imports|plan|"
@@ -799,7 +1044,11 @@ def main(argv=None):
     rest = argv[1:]
     try:
         if command == "resources":
-            for resource_type in expand_resources(rest):
+            order, selectors = _parse_resources(rest)
+            resource_types = expand_resources(selectors)
+            if order == "references":
+                resource_types = reference_order(resource_types)
+            for resource_type in resource_types:
                 sys.stdout.write(resource_type + "\n")
             return 0
         if command == "stage-imports":
