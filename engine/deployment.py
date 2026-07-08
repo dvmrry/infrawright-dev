@@ -40,6 +40,21 @@ def overlay():
     return _load().get("overlay", ".") or "."
 
 
+def tfvars_format():
+    """Return the deployment-selected generated tfvars format.
+
+    JSON is the compatibility default. HCL is opt-in via
+    deployment.json: {"tfvars_format": "hcl"}.
+    """
+    value = _load().get("tfvars_format", "json")
+    if value in ("json", "hcl"):
+        return value
+    raise ValueError(
+        "%s tfvars_format must be 'json' or 'hcl' (got %r)"
+        % (_deployment_path(), value)
+    )
+
+
 def module_dir():
     """Directory containing generated modules for this deployment.
 

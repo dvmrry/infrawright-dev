@@ -75,7 +75,6 @@ def write_outputs(resource_type, raw_items, tenant, policy):
         )
         sys.stderr.write("wrote %s\n" % lookup_path)
 
-    tfvars_path = artifacts.config_file(tenant, resource_type)
     imports_path = artifacts.imports_file(tenant, resource_type)
     moves_path = artifacts.moves_file(tenant, resource_type)
     override = {"import_id": adoption_entry(resource_type)["import_id"]}
@@ -96,8 +95,7 @@ def write_outputs(resource_type, raw_items, tenant, policy):
         sys.stderr.write("removed stale %s\n" % moves_path)
     transform.report_suppressed_moves(resource_type, move_result.suppressed)
 
-    with open(tfvars_path, "w", encoding="utf-8") as f:
-        f.write(transform.render_tfvars(items))
+    tfvars_path = transform.write_deployment_tfvars(resource_type, items, tenant)
     with open(imports_path, "w", encoding="utf-8") as f:
         f.write(new_imports)
     sys.stderr.write("wrote %s\nwrote %s\n" % (tfvars_path, imports_path))

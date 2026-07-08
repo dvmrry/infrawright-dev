@@ -63,6 +63,26 @@ class MakefileOverlayTest(unittest.TestCase):
             self.assertIn("INFRAWRIGHT_DEPLOYMENT=\"demo/deployment.json\"", proc.stdout)
             self.assertIn("engine.gen_module --check-output", proc.stdout)
 
+    def test_check_tfvars_fmt_skips_json_deployment(self):
+        with tempfile.TemporaryDirectory() as td:
+            dep = os.path.join(td, "deployment.json")
+            with open(dep, "w", encoding="utf-8") as f:
+                f.write('{"tfvars_format": "json"}\n')
+            proc = _run_make([
+                "OVERLAY=%s" % os.path.join(td, "missing"),
+                "DEPLOYMENT=%s" % dep,
+                "check-tfvars-fmt",
+            ])
+            self.assertIn("skip (json tfvars)", proc.stdout)
+
+    def test_check_runs_tfvars_fmt_after_modules(self):
+        with tempfile.TemporaryDirectory() as td:
+            missing_overlay = os.path.join(td, "missing")
+            proc = _run_make(["OVERLAY=%s" % missing_overlay, "-n", "check"])
+            modules = proc.stdout.index("engine.gen_module --check-output")
+            tfvars = proc.stdout.index("check-tfvars-fmt")
+            self.assertLess(modules, tfvars)
+
 
 if __name__ == "__main__":
     unittest.main()

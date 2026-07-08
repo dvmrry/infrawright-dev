@@ -72,6 +72,21 @@ class DeploymentResolverTest(unittest.TestCase):
         self._write({"$note": "hi", "overlay": "_local"})
         self.assertEqual(deployment.overlay(), "_local")
 
+    def test_tfvars_format_defaults_to_json(self):
+        self.assertEqual(deployment.tfvars_format(), "json")
+
+    def test_tfvars_format_accepts_explicit_hcl(self):
+        self._write({"tfvars_format": "hcl"})
+        self.assertEqual(deployment.tfvars_format(), "hcl")
+
+    def test_tfvars_format_rejects_invalid_value(self):
+        self._write({"tfvars_format": "yaml"})
+        with self.assertRaises(ValueError) as ctx:
+            deployment.tfvars_format()
+        msg = str(ctx.exception)
+        self.assertIn("deployment.json", msg)
+        self.assertIn("yaml", msg)
+
     def test_malformed_raises(self):
         self._write("{ not json")
         with self.assertRaises(ValueError):

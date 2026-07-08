@@ -79,6 +79,7 @@ class ArtifactsPathTest(unittest.TestCase):
         with open(dep, "w", encoding="utf-8") as f:
             f.write(json.dumps({"overlay": "acme"}))
         os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+        self.assertEqual(artifacts.config_suffix(), artifacts.CONFIG_SUFFIX)
         self.assertEqual(
             artifacts.config_file("tenant", "sample_resource"),
             os.path.join("acme", "config", "tenant",
@@ -87,6 +88,19 @@ class ArtifactsPathTest(unittest.TestCase):
         self.assertEqual(
             artifacts.env_root("tenant", "sample_resource"),
             os.path.join("acme", "envs", "tenant", "sample_resource"),
+        )
+
+    def test_config_file_suffix_follows_hcl_deployment(self):
+        dep = os.path.join(self.tmp, "deployment.json")
+        with open(dep, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"overlay": "acme", "tfvars_format": "hcl"}))
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+        self.assertEqual(artifacts.CONFIG_SUFFIX, ".auto.tfvars.json")
+        self.assertEqual(artifacts.config_suffix(), ".auto.tfvars")
+        self.assertEqual(
+            artifacts.config_file("tenant", "sample_resource"),
+            os.path.join("acme", "config", "tenant",
+                         "sample_resource.auto.tfvars"),
         )
 
     def test_artifacts_does_not_import_ops(self):

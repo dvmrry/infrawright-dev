@@ -1,7 +1,7 @@
 """Artifact layout contract for tenant roots.
 
 The artifact layout is flat by Terraform resource type:
-  [overlay/]config/<tenant>/<resource_type>.auto.tfvars.json
+  [overlay/]config/<tenant>/<resource_type>.auto.tfvars[.json]
   [overlay/]imports/<tenant>/<resource_type>_imports.tf
   [overlay/]envs/<tenant>/<resource_type>/
 
@@ -84,9 +84,15 @@ def expand_resources(selectors=None):
     return sorted(selected)
 
 
+def config_suffix():
+    if deployment.tfvars_format() == "hcl":
+        return ".auto.tfvars"
+    return CONFIG_SUFFIX
+
+
 def config_file(tenant, resource_type):
     return os.path.join(
-        deployment.config_dir(tenant), resource_type + CONFIG_SUFFIX
+        deployment.config_dir(tenant), resource_type + config_suffix()
     )
 
 

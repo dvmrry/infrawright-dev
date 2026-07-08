@@ -1436,11 +1436,14 @@ class MovedBlocksEndToEndTest(unittest.TestCase):
 
 
 class TransformDirectEntryValidationTest(unittest.TestCase):
-    def _write_overlay_and_input(self, root, raw_items=None):
+    def _write_overlay_and_input(self, root, raw_items=None, tfvars_format=None):
         raw_items = raw_items or [{"id": 7, "name": "Example"}]
         dep = os.path.join(root, "deployment.json")
+        deployment = {"overlay": root}
+        if tfvars_format is not None:
+            deployment["tfvars_format"] = tfvars_format
         with open(dep, "w", encoding="utf-8") as f:
-            json.dump({"overlay": root}, f)
+            json.dump(deployment, f)
         src = os.path.join(root, "input.json")
         with open(src, "w", encoding="utf-8") as f:
             json.dump(raw_items, f)
@@ -1511,6 +1514,61 @@ class TransformDirectEntryValidationTest(unittest.TestCase):
                 self.assertTrue(os.path.exists(os.path.join(
                     td, "imports", "tenant", "zia_rule_labels_imports.tf",
                 )))
+            finally:
+                self._restore_deployment(saved)
+
+    def test_hcl_deployment_writes_hcl_config_only(self):
+        from engine import hcl_tfvars
+        from engine.transform import main as transform_main
+        with tempfile.TemporaryDirectory() as td:
+            dep, src = self._write_overlay_and_input(td, tfvars_format="hcl")
+            saved = self._with_deployment(dep)
+            try:
+                self.assertEqual(
+                    transform_main(["zia_rule_labels", src, "tenant"]), 0)
+                hcl_path = os.path.join(
+                    td, "config", "tenant", "zia_rule_labels.auto.tfvars")
+                json_path = hcl_path + ".json"
+                self.assertTrue(os.path.exists(hcl_path), hcl_path)
+                self.assertFalse(os.path.exists(json_path), json_path)
+                with open(hcl_path, encoding="utf-8") as f:
+                    self.assertTrue(f.read().startswith(hcl_tfvars.HEADER))
+            finally:
+                self._restore_deployment(saved)
+
+    def test_hcl_write_removes_stale_json_tfvars(self):
+        from engine.transform import main as transform_main
+        with tempfile.TemporaryDirectory() as td:
+            dep, src = self._write_overlay_and_input(td, tfvars_format="hcl")
+            stale_json = os.path.join(
+                td, "config", "tenant", "zia_rule_labels.auto.tfvars.json")
+            os.makedirs(os.path.dirname(stale_json), exist_ok=True)
+            with open(stale_json, "w", encoding="utf-8") as f:
+                f.write('{"items": {"stale": {}}}\n')
+            saved = self._with_deployment(dep)
+            try:
+                self.assertEqual(
+                    transform_main(["zia_rule_labels", src, "tenant"]), 0)
+                self.assertTrue(os.path.exists(stale_json[:-len(".json")]))
+                self.assertFalse(os.path.exists(stale_json), stale_json)
+            finally:
+                self._restore_deployment(saved)
+
+    def test_json_write_removes_stale_hcl_tfvars(self):
+        from engine.transform import main as transform_main
+        with tempfile.TemporaryDirectory() as td:
+            dep, src = self._write_overlay_and_input(td)
+            stale_hcl = os.path.join(
+                td, "config", "tenant", "zia_rule_labels.auto.tfvars")
+            os.makedirs(os.path.dirname(stale_hcl), exist_ok=True)
+            with open(stale_hcl, "w", encoding="utf-8") as f:
+                f.write("items = {}\n")
+            saved = self._with_deployment(dep)
+            try:
+                self.assertEqual(
+                    transform_main(["zia_rule_labels", src, "tenant"]), 0)
+                self.assertTrue(os.path.exists(stale_hcl + ".json"))
+                self.assertFalse(os.path.exists(stale_hcl), stale_hcl)
             finally:
                 self._restore_deployment(saved)
 
