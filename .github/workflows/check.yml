@@ -1,0 +1,35 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: Full gate
+        run: make check
+      - name: Whitespace hygiene
+        run: git diff --check
+
+  floor:
+    # The engine documents a Python 3.6 floor; 3.6 runners are gone, so pin
+    # the oldest interpreter GitHub still hosts as the enforced floor and
+    # keep syntax honest (no f-strings, no walrus, no 3.7+-only kwargs).
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.7"
+      - name: Unit tests on floor interpreter
+        run: python3 -m unittest discover -s tests -t .
