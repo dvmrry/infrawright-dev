@@ -111,5 +111,204 @@ class ArtifactsPathTest(unittest.TestCase):
         self.assertNotIn("from engine import ops", source)
 
 
+class ArtifactsRootResolutionTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="artifacts-roots-")
+        self.saved_dep = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+
+    def tearDown(self):
+        if self.saved_dep is None:
+            os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+        else:
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = self.saved_dep
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _deployment(self, roots):
+        dep = os.path.join(self.tmp, "deployment.json")
+        with open(dep, "w", encoding="utf-8") as f:
+            json.dump({"roots": roots}, f)
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+
+    def test_derived_types_never_join_groups(self):
+        self._deployment({"zpa": {"groups": {"zpa_policy_all": [
+            "zpa_policy_access_rule",
+            "zpa_policy_access_rule_reorder",
+        ]}}})
+        with self.assertRaises(ValueError) as ctx:
+            artifacts.root_label("zpa_policy_access_rule")
+        self.assertIn("derived type", str(ctx.exception))
+
+    def test_slug_strategy_excludes_derived_types(self):
+        self._deployment({"zpa": {"strategy": "slug"}})
+        self.assertEqual(
+            artifacts.root_label("zpa_policy_access_rule_reorder"),
+            "zpa_policy_access_rule_reorder",
+        )
+        self.assertEqual(
+            artifacts.root_label("zpa_policy_access_rule"), "zpa_policy")
+
+    def test_no_roots_default_keeps_resource_labels_and_items_var(self):
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = os.devnull
+        self.assertEqual(
+            artifacts.root_label("zpa_segment_group"),
+            "zpa_segment_group",
+        )
+        self.assertEqual(
+            artifacts.root_members("zpa_segment_group"),
+            ["zpa_segment_group"],
+        )
+        self.assertEqual(
+            artifacts.env_root("tenant", "zpa_segment_group"),
+            os.path.join("envs", "tenant", "zpa_segment_group"),
+        )
+        self.assertEqual(
+            artifacts.tfvars_var_name("zpa_segment_group"),
+            "items",
+        )
+        self.assertIn("zpa_segment_group", artifacts.all_root_labels())
+
+    def test_slug_groups_multiple_members_and_collapses_singletons(self):
+        self._deployment({"zpa": {"strategy": "slug"}})
+
+        self.assertEqual(
+            artifacts.root_label("zpa_application_segment"),
+            "zpa_application",
+        )
+        self.assertEqual(
+            artifacts.root_label("zpa_application_server"),
+            "zpa_application",
+        )
+        self.assertEqual(
+            artifacts.root_members("zpa_application"),
+            sorted(artifacts.root_members("zpa_application")),
+        )
+        self.assertIn(
+            "zpa_application_segment",
+            artifacts.root_members("zpa_application"),
+        )
+        self.assertEqual(
+            artifacts.tfvars_var_name("zpa_application_segment"),
+            "zpa_application_segment_items",
+        )
+        self.assertEqual(
+            artifacts.root_label("zpa_segment_group"),
+            "zpa_segment_group",
+        )
+        self.assertEqual(
+            artifacts.tfvars_var_name("zpa_segment_group"),
+            "items",
+        )
+
+    def test_explicit_groups_override_slug_for_their_members(self):
+        self._deployment({
+            "zpa": {
+                "strategy": "slug",
+                "groups": {
+                    "zpa_custom": [
+                        "zpa_application_segment",
+                        "zpa_application_server",
+                    ],
+                },
+            },
+        })
+
+        self.assertEqual(
+            artifacts.root_label("zpa_application_segment"),
+            "zpa_custom",
+        )
+        self.assertEqual(
+            artifacts.root_members("zpa_custom"),
+            ["zpa_application_segment", "zpa_application_server"],
+        )
+        self.assertEqual(
+            artifacts.root_label("zpa_application_segment_browser_access"),
+            "zpa_application",
+        )
+
+    def test_explicit_strategy_groups_only_listed_members(self):
+        self._deployment({
+            "zpa": {
+                "groups": {
+                    "zpa_custom": [
+                        "zpa_application_segment",
+                        "zpa_application_server",
+                    ],
+                },
+            },
+        })
+
+        self.assertEqual(
+            artifacts.root_label("zpa_application_segment"),
+            "zpa_custom",
+        )
+        self.assertEqual(
+            artifacts.root_label("zpa_application_segment_browser_access"),
+            "zpa_application_segment_browser_access",
+        )
+
+    def test_root_resolution_validation_failures(self):
+        cases = [
+            (
+                {"bogus": {}},
+                "not a declared provider",
+            ),
+            (
+                {"zpa": {"groups": {"zpa_custom": ["zpa_not_real"]}}},
+                "unknown generated resource type",
+            ),
+            (
+                {"zpa": {"groups": {"zpa_custom": ["zia_url_categories"]}}},
+                "belongs to provider zia",
+            ),
+            (
+                {
+                    "zpa": {
+                        "groups": {
+                            "zpa_one": ["zpa_segment_group"],
+                            "zpa_two": ["zpa_segment_group"],
+                        },
+                    },
+                },
+                "more than one roots group",
+            ),
+            (
+                {"zpa": {"groups": {"zpa_segment_group": ["zpa_server_group"]}}},
+                "collides with a generated resource type",
+            ),
+            (
+                {"zpa": {"groups": {"bad-label": ["zpa_segment_group"]}}},
+                "group labels must match",
+            ),
+            (
+                {
+                    "zpa": {"groups": {"shared": ["zpa_segment_group"]}},
+                    "zia": {"groups": {"shared": ["zia_rule_labels"]}},
+                },
+                "collides with another provider group",
+            ),
+        ]
+        for roots, needle in cases:
+            self._deployment(roots)
+            with self.assertRaises(ValueError) as ctx:
+                artifacts.all_root_labels()
+            self.assertIn(needle, str(ctx.exception))
+
+    def test_root_resolution_is_deterministic(self):
+        self._deployment({"zpa": {"strategy": "slug"}})
+
+        first = (
+            artifacts.all_root_labels(),
+            artifacts.root_members("zpa_application"),
+            artifacts.root_label("zpa_application_segment"),
+        )
+        second = (
+            artifacts.all_root_labels(),
+            artifacts.root_members("zpa_application"),
+            artifacts.root_label("zpa_application_segment"),
+        )
+
+        self.assertEqual(first, second)
+
+
 if __name__ == "__main__":
     unittest.main()

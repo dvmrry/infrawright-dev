@@ -8,9 +8,15 @@ Present-but-malformed deployment.json => raise / exit non-zero (fail loud).
 """
 import json
 import os
+import re
 import sys
 
+from engine import manifest_checks
+
 DEPLOYMENT_JSON = "deployment.json"
+ROOTS_PROVIDER_KEYS = set(["strategy", "groups", "bind_references"])
+ROOTS_STRATEGIES = set(["explicit", "slug"])
+ROOT_LABEL_RE = re.compile(r"^[a-z0-9_]+$")
 
 
 def _deployment_path():
@@ -53,6 +59,58 @@ def tfvars_format():
         "%s tfvars_format must be 'json' or 'hcl' (got %r)"
         % (_deployment_path(), value)
     )
+
+
+def roots_config():
+    """Return the validated raw roots section from deployment.json.
+
+    This validates only deployment-local shape and enum constraints. Provider
+    and resource-type validation stays in engine.artifacts so deployment.py
+    remains independent of packs and registry data.
+    """
+    data = _load()
+    if "roots" not in data:
+        return {}
+    roots = data.get("roots")
+    if not isinstance(roots, dict):
+        raise ValueError("%s roots must be an object" % _deployment_path())
+    for provider, cfg in roots.items():
+        if not isinstance(provider, str) or not provider:
+            raise ValueError(
+                "%s roots keys must be non-empty strings" % _deployment_path()
+            )
+        path = "%s roots.%s" % (_deployment_path(), provider)
+        if not isinstance(cfg, dict):
+            raise ValueError("%s must be an object" % path)
+        manifest_checks.reject_unknown_keys(cfg, ROOTS_PROVIDER_KEYS, path)
+        if "strategy" in cfg and cfg["strategy"] not in ROOTS_STRATEGIES:
+            raise ValueError(
+                "%s.strategy must be 'explicit' or 'slug' (got %r)"
+                % (path, cfg["strategy"])
+            )
+        if "bind_references" in cfg and not isinstance(cfg["bind_references"], bool):
+            raise ValueError("%s.bind_references must be a bool" % path)
+        if "groups" not in cfg:
+            continue
+        groups = cfg["groups"]
+        if not isinstance(groups, dict):
+            raise ValueError("%s.groups must be an object" % path)
+        for label, members in groups.items():
+            group_path = "%s.groups.%s" % (path, label)
+            if not isinstance(label, str) or not ROOT_LABEL_RE.match(label):
+                raise ValueError(
+                    "%s group labels must match [a-z0-9_]+" % path
+                )
+            if not isinstance(members, list):
+                raise ValueError("%s must be a list" % group_path)
+            if not members:
+                raise ValueError("%s must not be empty" % group_path)
+            for idx, member in enumerate(members):
+                if not isinstance(member, str) or not member:
+                    raise ValueError(
+                        "%s[%d] must be a non-empty string" % (group_path, idx)
+                    )
+    return roots
 
 
 def module_dir():

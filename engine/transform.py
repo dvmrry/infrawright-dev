@@ -706,8 +706,8 @@ def render_acknowledged_drops_snippet(override, drops):
     )
 
 
-def render_tfvars(items):
-    return json.dumps({"items": items}, indent=2, sort_keys=True) + "\n"
+def render_tfvars(items, var_name="items"):
+    return json.dumps({var_name: items}, indent=2, sort_keys=True) + "\n"
 
 
 def _stale_tfvars_path(tfvars_path):
@@ -719,12 +719,14 @@ def _stale_tfvars_path(tfvars_path):
 
 
 def _render_deployment_tfvars(resource_type, items, tenant):
+    var_name = artifacts.tfvars_var_name(resource_type)
     if deployment.tfvars_format() == "hcl":
         from engine import hcl_tfvars
 
         comments = hcl_tfvars.derive_comments(resource_type, items, tenant)
-        return hcl_tfvars.render_tfvars_hcl(items, comments)
-    return render_tfvars(items)
+        return hcl_tfvars.render_tfvars_hcl(
+            items, comments, var_name=var_name)
+    return render_tfvars(items, var_name=var_name)
 
 
 def write_deployment_tfvars(resource_type, items, tenant):

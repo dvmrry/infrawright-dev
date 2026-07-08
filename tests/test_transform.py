@@ -26,6 +26,35 @@ from engine.transform import (
 from engine.tfschema import load_resource
 
 
+class RenderTfvarsTest(unittest.TestCase):
+    def test_render_tfvars_default_items_key_unchanged(self):
+        self.assertEqual(
+            render_tfvars({"one": {"name": "One"}}),
+            '{\n'
+            '  "items": {\n'
+            '    "one": {\n'
+            '      "name": "One"\n'
+            '    }\n'
+            '  }\n'
+            '}\n',
+        )
+
+    def test_render_tfvars_accepts_namespaced_var_name(self):
+        self.assertEqual(
+            render_tfvars(
+                {"one": {"name": "One"}},
+                var_name="sample_resource_items",
+            ),
+            '{\n'
+            '  "sample_resource_items": {\n'
+            '    "one": {\n'
+            '      "name": "One"\n'
+            '    }\n'
+            '  }\n'
+            '}\n',
+        )
+
+
 class SnakeTest(unittest.TestCase):
     def test_basic(self):
         self.assertEqual(snake("configSpace"), "config_space")
@@ -1436,12 +1465,15 @@ class MovedBlocksEndToEndTest(unittest.TestCase):
 
 
 class TransformDirectEntryValidationTest(unittest.TestCase):
-    def _write_overlay_and_input(self, root, raw_items=None, tfvars_format=None):
+    def _write_overlay_and_input(self, root, raw_items=None, tfvars_format=None,
+                                 roots=None):
         raw_items = raw_items or [{"id": 7, "name": "Example"}]
         dep = os.path.join(root, "deployment.json")
         deployment = {"overlay": root}
         if tfvars_format is not None:
             deployment["tfvars_format"] = tfvars_format
+        if roots is not None:
+            deployment["roots"] = roots
         with open(dep, "w", encoding="utf-8") as f:
             json.dump(deployment, f)
         src = os.path.join(root, "input.json")
@@ -1533,6 +1565,61 @@ class TransformDirectEntryValidationTest(unittest.TestCase):
                 self.assertFalse(os.path.exists(json_path), json_path)
                 with open(hcl_path, encoding="utf-8") as f:
                     self.assertTrue(f.read().startswith(hcl_tfvars.HEADER))
+            finally:
+                self._restore_deployment(saved)
+
+    def test_grouped_json_deployment_writes_namespaced_tfvars(self):
+        from engine.transform import main as transform_main
+        roots = {
+            "zia": {
+                "groups": {
+                    "zia_custom": [
+                        "zia_rule_labels",
+                        "zia_url_categories",
+                    ],
+                },
+            },
+        }
+        with tempfile.TemporaryDirectory() as td:
+            dep, src = self._write_overlay_and_input(td, roots=roots)
+            saved = self._with_deployment(dep)
+            try:
+                self.assertEqual(
+                    transform_main(["zia_rule_labels", src, "tenant"]), 0)
+                tfvars_path = os.path.join(
+                    td, "config", "tenant",
+                    "zia_rule_labels.auto.tfvars.json")
+                with open(tfvars_path, encoding="utf-8") as f:
+                    data = json.load(f)
+                self.assertEqual(sorted(data), ["zia_rule_labels_items"])
+            finally:
+                self._restore_deployment(saved)
+
+    def test_grouped_hcl_deployment_writes_namespaced_tfvars(self):
+        from engine.transform import main as transform_main
+        roots = {
+            "zia": {
+                "groups": {
+                    "zia_custom": [
+                        "zia_rule_labels",
+                        "zia_url_categories",
+                    ],
+                },
+            },
+        }
+        with tempfile.TemporaryDirectory() as td:
+            dep, src = self._write_overlay_and_input(
+                td, tfvars_format="hcl", roots=roots)
+            saved = self._with_deployment(dep)
+            try:
+                self.assertEqual(
+                    transform_main(["zia_rule_labels", src, "tenant"]), 0)
+                tfvars_path = os.path.join(
+                    td, "config", "tenant", "zia_rule_labels.auto.tfvars")
+                with open(tfvars_path, encoding="utf-8") as f:
+                    text = f.read()
+                self.assertIn("zia_rule_labels_items = {", text)
+                self.assertNotIn("\nitems = {", text)
             finally:
                 self._restore_deployment(saved)
 

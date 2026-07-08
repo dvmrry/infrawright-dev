@@ -31,6 +31,11 @@ def _rc(actions, importing=False, before=None, after=None):
     return {"address": "m.x", "type": "t_x", "change": change}
 
 
+def _root_tuple(path, resource_type="sample_resource",
+                label=None, tenant="tenant"):
+    return (tenant, label or resource_type, path, [resource_type])
+
+
 class OpsEnvDiscoveryTest(unittest.TestCase):
     RESOURCE = "zia_rule_labels"
 
@@ -118,6 +123,41 @@ class OpsEnvDiscoveryTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             ops.discover_env_pairs()
 
+    def test_grouped_root_discovery_and_member_selection_note(self):
+        grouped_path = self._env_root("envs", "tenant", "zpa_custom")
+        self._write_deployment({
+            "roots": {
+                "zpa": {
+                    "groups": {
+                        "zpa_custom": [
+                            "zpa_segment_group",
+                            "zpa_server_group",
+                        ],
+                    },
+                },
+            },
+        })
+        old_stderr = sys.stderr
+        stderr = io.StringIO()
+        try:
+            sys.stderr = stderr
+            self.assertEqual(
+                ops.selected_env_roots("tenant", ["zpa_segment_group"]),
+                [(
+                    "tenant",
+                    "zpa_custom",
+                    grouped_path,
+                    ["zpa_segment_group", "zpa_server_group"],
+                )],
+            )
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(
+            stderr.getvalue(),
+            "NOTE: selecting zpa_segment_group selects whole root zpa_custom; "
+            "also operating on zpa_server_group\n",
+        )
+
 
 class OpsStageImportsTest(unittest.TestCase):
     def setUp(self):
@@ -163,6 +203,228 @@ class OpsStageImportsTest(unittest.TestCase):
             })
         self.assertIn("run make transform or make adopt first", str(ctx.exception))
 
+    def test_grouped_stage_imports_copies_each_member_file_to_shared_root(self):
+        dep = os.path.join(self.tmp, "deployment.json")
+        _write_json(dep, {
+            "roots": {
+                "zpa": {
+                    "groups": {
+                        "zpa_custom": [
+                            "zpa_segment_group",
+                            "zpa_server_group",
+                        ],
+                    },
+                },
+            },
+        })
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+        os.makedirs(os.path.join("imports", "tenant"), exist_ok=True)
+        os.makedirs(os.path.join("envs", "tenant", "zpa_custom"), exist_ok=True)
+        sources = [
+            os.path.join("imports", "tenant", "zpa_segment_group_imports.tf"),
+            os.path.join("imports", "tenant", "zpa_server_group_moves.tf"),
+        ]
+        for source in sources:
+            with open(source, "w", encoding="utf-8") as f:
+                f.write("# staged\n")
+        old_stderr = sys.stderr
+        stderr = io.StringIO()
+        try:
+            sys.stderr = stderr
+            code = ops.cmd_stage_imports({
+                "tenant": "tenant",
+                "selectors": ["zpa_segment_group"],
+                "state_aware": False,
+                "backend_config": None,
+            })
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(code, 0)
+        self.assertTrue(os.path.exists(os.path.join(
+            "envs", "tenant", "zpa_custom", "zpa_segment_group_imports.tf"
+        )))
+        self.assertTrue(os.path.exists(os.path.join(
+            "envs", "tenant", "zpa_custom", "zpa_server_group_moves.tf"
+        )))
+        self.assertIn(
+            "NOTE: selecting zpa_segment_group selects whole root zpa_custom; "
+            "also operating on zpa_server_group\n",
+            stderr.getvalue(),
+        )
+
+
+class OpsGroupedRootCommandTest(unittest.TestCase):
+    def setUp(self):
+        self.cwd = os.getcwd()
+        self.tmp = tempfile.mkdtemp(prefix="ops-grouped-")
+        os.chdir(self.tmp)
+        self.saved_dep = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+        dep = os.path.join(self.tmp, "deployment.json")
+        _write_json(dep, {
+            "roots": {
+                "zpa": {
+                    "groups": {
+                        "zpa_custom": [
+                            "zpa_segment_group",
+                            "zpa_server_group",
+                        ],
+                    },
+                },
+            },
+        })
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+
+    def tearDown(self):
+        os.chdir(self.cwd)
+        if self.saved_dep is None:
+            os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+        else:
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = self.saved_dep
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write_group_root(self, with_plan=False):
+        root = os.path.join("envs", "tenant", "zpa_custom")
+        os.makedirs(root, exist_ok=True)
+        if with_plan:
+            with open(os.path.join(root, "tfplan"), "w", encoding="utf-8") as f:
+                f.write("fake")
+        return root
+
+    def _write_member_configs(self):
+        os.makedirs(os.path.join("config", "tenant"), exist_ok=True)
+        paths = []
+        for resource_type in ("zpa_segment_group", "zpa_server_group"):
+            path = os.path.join(
+                "config", "tenant", resource_type + ".auto.tfvars.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"%s_items" % resource_type: {}}, f)
+            paths.append(path)
+        return paths
+
+    def test_plan_fails_loud_on_partial_member_configs(self):
+        self._write_group_root()
+        os.makedirs(os.path.join("config", "tenant"), exist_ok=True)
+        present = os.path.join(
+            "config", "tenant", "zpa_segment_group.auto.tfvars.json")
+        with open(present, "w", encoding="utf-8") as f:
+            json.dump({"zpa_segment_group_items": {}}, f)
+        old_check = ops._check_call
+        old_backend = ops._check_backend
+        old_stderr = sys.stderr
+        calls = []
+        try:
+            ops._check_call = lambda args, stdout=None: calls.append(args) or 0
+            ops._check_backend = lambda env_dir, label, backend_config: None
+            sys.stderr = io.StringIO()
+            with self.assertRaises(RuntimeError) as ctx:
+                ops.cmd_plan({
+                    "tenant": "tenant",
+                    "selectors": ["zpa_segment_group"],
+                    "imports_only": False,
+                    "backend_config": None,
+                    "save": False,
+                })
+        finally:
+            ops._check_call = old_check
+            ops._check_backend = old_backend
+            sys.stderr = old_stderr
+        message = str(ctx.exception)
+        self.assertIn("missing member config(s)", message)
+        self.assertIn("zpa_server_group.auto.tfvars.json", message)
+        self.assertEqual(calls, [])
+
+    def test_plan_builds_one_root_argv_with_each_member_var_file(self):
+        root = self._write_group_root()
+        config_paths = self._write_member_configs()
+        old_check = ops._check_call
+        old_backend = ops._check_backend
+        old_stderr = sys.stderr
+        calls = []
+        stderr = io.StringIO()
+        try:
+            ops._check_call = lambda args, stdout=None: calls.append(args) or 0
+            ops._check_backend = lambda env_dir, label, backend_config: None
+            sys.stderr = stderr
+            self.assertEqual(ops.cmd_plan({
+                "tenant": "tenant",
+                "selectors": ["zpa_segment_group"],
+                "imports_only": False,
+                "backend_config": None,
+                "save": True,
+            }), 0)
+        finally:
+            ops._check_call = old_check
+            ops._check_backend = old_backend
+            sys.stderr = old_stderr
+        self.assertEqual(calls[0], [
+            ops.terraform(), "-chdir=" + root, "init", "-input=false",
+        ])
+        self.assertEqual(calls[1], [
+            ops.terraform(), "-chdir=" + root, "plan", "-input=false",
+            "-var-file=" + os.path.abspath(config_paths[0]),
+            "-var-file=" + os.path.abspath(config_paths[1]),
+            "-out=tfplan",
+        ])
+        self.assertIn(
+            "NOTE: selecting zpa_segment_group selects whole root zpa_custom; "
+            "also operating on zpa_server_group\n",
+            stderr.getvalue(),
+        )
+
+    def test_assert_clean_checks_grouped_root_plan_once(self):
+        root = self._write_group_root(with_plan=True)
+        old_show = ops._show_plan_json
+        old_stderr = sys.stderr
+        stderr = io.StringIO()
+        try:
+            ops._show_plan_json = lambda env_dir: {
+                "format_version": "1.0",
+                "resource_changes": [],
+            }
+            sys.stderr = stderr
+            self.assertEqual(ops.cmd_assert_clean({
+                "tenant": "tenant",
+                "selectors": ["zpa_segment_group"],
+            }), 0)
+        finally:
+            ops._show_plan_json = old_show
+            sys.stderr = old_stderr
+        self.assertTrue(os.path.exists(os.path.join(root, "tfplan")))
+        self.assertIn("all 1 saved plan(s) clean", stderr.getvalue())
+
+    def test_assert_adoptable_collects_guidance_for_all_root_members(self):
+        root = self._write_group_root(with_plan=True)
+        old_show = ops._show_plan_json
+        old_guidance = ops._guidance_annotations
+        calls = []
+        try:
+            ops._show_plan_json = lambda env_dir: {
+                "format_version": "1.0",
+                "resource_changes": [{
+                    "address": "module.zpa_segment_group.x.this[\"one\"]",
+                    "type": "zpa_segment_group",
+                    "change": {
+                        "actions": ["update"],
+                        "before": {"name": "old"},
+                        "after": {"name": "new"},
+                    },
+                }],
+            }
+            ops._guidance_annotations = lambda plan, resource_type: (
+                calls.append(resource_type) or []
+            )
+            with self.assertRaises(RuntimeError):
+                ops.cmd_assert_adoptable({
+                    "tenant": "tenant",
+                    "selectors": [],
+                    "policy": None,
+                })
+        finally:
+            ops._show_plan_json = old_show
+            ops._guidance_annotations = old_guidance
+        self.assertTrue(os.path.exists(os.path.join(root, "tfplan")))
+        self.assertEqual(calls, ["zpa_segment_group", "zpa_server_group"])
+
 
 class NonImportChangeCountTest(unittest.TestCase):
     def test_noop_and_import_only_are_zero(self):
@@ -195,7 +457,7 @@ class OpsPlanSafetyTest(unittest.TestCase):
         os.makedirs(tmp, exist_ok=True)
         with open(os.path.join(tmp, "tfplan"), "w", encoding="utf-8") as f:
             f.write("fake")
-        old_pairs = ops.selected_env_pairs
+        old_roots = ops.selected_env_roots
         old_check_backend = ops._check_backend
         old_check_call = ops._check_call
         old_show = ops._show_plan_json
@@ -216,8 +478,8 @@ class OpsPlanSafetyTest(unittest.TestCase):
         if opts_extra:
             opts.update(opts_extra)
         try:
-            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
-                ("tenant", "sample_resource", tmp)
+            ops.selected_env_roots = lambda tenant, selectors, require_plan=False: [
+                _root_tuple(tmp)
             ]
             ops._check_backend = lambda env_dir, resource_type, backend_config: None
             ops._check_call = lambda args, stdout=None: calls.append(args) or 0
@@ -238,7 +500,7 @@ class OpsPlanSafetyTest(unittest.TestCase):
                 "tfplan_exists": os.path.exists(os.path.join(tmp, "tfplan")),
             }
         finally:
-            ops.selected_env_pairs = old_pairs
+            ops.selected_env_roots = old_roots
             ops._check_backend = old_check_backend
             ops._check_call = old_check_call
             ops._show_plan_json = old_show
@@ -424,13 +686,13 @@ class OpsPlanSafetyTest(unittest.TestCase):
                     }
                 },
             }, f)
-        old_pairs = ops.selected_env_pairs
+        old_roots = ops.selected_env_roots
         old_show = ops._show_plan_json
         old_stderr = sys.stderr
         stderr = io.StringIO()
         try:
-            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
-                ("tenant", "sample_resource", tmp)
+            ops.selected_env_roots = lambda tenant, selectors, require_plan=False: [
+                _root_tuple(tmp)
             ]
             ops._show_plan_json = lambda env_dir: {
                 "format_version": "1.0",
@@ -449,7 +711,7 @@ class OpsPlanSafetyTest(unittest.TestCase):
             self.assertNotIn("projection_omit", stderr.getvalue())
             self.assertNotIn("other_resource", stderr.getvalue())
         finally:
-            ops.selected_env_pairs = old_pairs
+            ops.selected_env_roots = old_roots
             ops._show_plan_json = old_show
             sys.stderr = old_stderr
             shutil.rmtree(tmp, ignore_errors=True)
@@ -476,15 +738,15 @@ class OpsPlanSafetyTest(unittest.TestCase):
             },
         })
         old_packs = os.environ.get("INFRAWRIGHT_PACKS")
-        old_pairs = ops.selected_env_pairs
+        old_roots = ops.selected_env_roots
         old_show = ops._show_plan_json
         old_stderr = sys.stderr
         stderr = io.StringIO()
         try:
             os.environ["INFRAWRIGHT_PACKS"] = pack_root
             packs.reset()
-            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
-                ("tenant", "sample_resource", tmp)
+            ops.selected_env_roots = lambda tenant, selectors, require_plan=False: [
+                _root_tuple(tmp)
             ]
             ops._show_plan_json = lambda env_dir: {
                 "format_version": "1.0",
@@ -533,7 +795,7 @@ class OpsPlanSafetyTest(unittest.TestCase):
             else:
                 os.environ["INFRAWRIGHT_PACKS"] = old_packs
             packs.reset()
-            ops.selected_env_pairs = old_pairs
+            ops.selected_env_roots = old_roots
             ops._show_plan_json = old_show
             sys.stderr = old_stderr
             shutil.rmtree(tmp, ignore_errors=True)
@@ -551,36 +813,36 @@ class OpsAssertAdoptableProviderConfigGuidanceTest(unittest.TestCase):
         pack_root = os.path.join(tmp, "packs")
         _write_json(os.path.join(pack_root, "sample", "pack.json"), pack_data)
         old_packs = os.environ.get("INFRAWRIGHT_PACKS")
-        old_pairs = ops.selected_env_pairs
+        old_roots = ops.selected_env_roots
         old_show = ops._show_plan_json
         old_stderr = sys.stderr
         stderr = io.StringIO()
         try:
             os.environ["INFRAWRIGHT_PACKS"] = pack_root
             packs.reset()
-            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
-                ("tenant", "sample_resource", tmp)
+            ops.selected_env_roots = lambda tenant, selectors, require_plan=False: [
+                _root_tuple(tmp)
             ]
             ops._show_plan_json = lambda env_dir: plan_data
             sys.stderr = stderr
-            return tmp, old_packs, old_pairs, old_show, old_stderr, stderr
+            return tmp, old_packs, old_roots, old_show, old_stderr, stderr
         except Exception:
             shutil.rmtree(tmp, ignore_errors=True)
             raise
 
-    def _teardown(self, tmp, old_packs, old_pairs, old_show, old_stderr):
+    def _teardown(self, tmp, old_packs, old_roots, old_show, old_stderr):
         if old_packs is None:
             os.environ.pop("INFRAWRIGHT_PACKS", None)
         else:
             os.environ["INFRAWRIGHT_PACKS"] = old_packs
         packs.reset()
-        ops.selected_env_pairs = old_pairs
+        ops.selected_env_roots = old_roots
         ops._show_plan_json = old_show
         sys.stderr = old_stderr
         shutil.rmtree(tmp, ignore_errors=True)
 
     def _run_blocked(self, pack_data, plan_data):
-        tmp, old_packs, old_pairs, old_show, old_stderr, stderr = self._setup_test(
+        tmp, old_packs, old_roots, old_show, old_stderr, stderr = self._setup_test(
             pack_data, plan_data
         )
         try:
@@ -592,7 +854,7 @@ class OpsAssertAdoptableProviderConfigGuidanceTest(unittest.TestCase):
                 })
             return str(ctx.exception), stderr.getvalue()
         finally:
-            self._teardown(tmp, old_packs, old_pairs, old_show, old_stderr)
+            self._teardown(tmp, old_packs, old_roots, old_show, old_stderr)
 
     def _base_pack(self, requirement):
         return {
@@ -750,7 +1012,7 @@ class OpsAssertAdoptableProviderConfigGuidanceTest(unittest.TestCase):
                 },
             }],
         }
-        tmp, old_packs, old_pairs, old_show, old_stderr, stderr = self._setup_test(
+        tmp, old_packs, old_roots, old_show, old_stderr, stderr = self._setup_test(
             self._base_pack(requirement), plan
         )
         try:
@@ -762,7 +1024,7 @@ class OpsAssertAdoptableProviderConfigGuidanceTest(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertNotIn("Provider configuration guidance:", stderr.getvalue())
         finally:
-            self._teardown(tmp, old_packs, old_pairs, old_show, old_stderr)
+            self._teardown(tmp, old_packs, old_roots, old_show, old_stderr)
 
     def test_metadata_failure_does_not_annotate(self):
         requirement = {
@@ -899,15 +1161,15 @@ class OpsAssertAdoptableProviderConfigGuidanceTest(unittest.TestCase):
         pack_root = os.path.join(tmp, "packs")
         _write_json(os.path.join(pack_root, "sample", "pack.json"), self._base_pack(requirement))
         old_packs = os.environ.get("INFRAWRIGHT_PACKS")
-        old_pairs = ops.selected_env_pairs
+        old_roots = ops.selected_env_roots
         old_show = ops._show_plan_json
         old_stderr = sys.stderr
         stderr = io.StringIO()
         try:
             os.environ["INFRAWRIGHT_PACKS"] = pack_root
             packs.reset()
-            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
-                ("tenant", "sample_resource", tmp)
+            ops.selected_env_roots = lambda tenant, selectors, require_plan=False: [
+                _root_tuple(tmp)
             ]
             ops._show_plan_json = lambda env_dir: plan
             sys.stderr = stderr
@@ -926,7 +1188,7 @@ class OpsAssertAdoptableProviderConfigGuidanceTest(unittest.TestCase):
             else:
                 os.environ["INFRAWRIGHT_PACKS"] = old_packs
             packs.reset()
-            ops.selected_env_pairs = old_pairs
+            ops.selected_env_roots = old_roots
             ops._show_plan_json = old_show
             sys.stderr = old_stderr
             shutil.rmtree(tmp, ignore_errors=True)
@@ -995,36 +1257,36 @@ class OpsAssertAdoptableDynamicSchemaGuidanceTest(unittest.TestCase):
         pack_root = os.path.join(tmp, "packs")
         _write_json(os.path.join(pack_root, "sample", "pack.json"), pack_data)
         old_packs = os.environ.get("INFRAWRIGHT_PACKS")
-        old_pairs = ops.selected_env_pairs
+        old_roots = ops.selected_env_roots
         old_show = ops._show_plan_json
         old_stderr = sys.stderr
         stderr = io.StringIO()
         try:
             os.environ["INFRAWRIGHT_PACKS"] = pack_root
             packs.reset()
-            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
-                ("tenant", "sample_resource", tmp)
+            ops.selected_env_roots = lambda tenant, selectors, require_plan=False: [
+                _root_tuple(tmp)
             ]
             ops._show_plan_json = lambda env_dir: plan_data
             sys.stderr = stderr
-            return tmp, old_packs, old_pairs, old_show, old_stderr, stderr
+            return tmp, old_packs, old_roots, old_show, old_stderr, stderr
         except Exception:
             shutil.rmtree(tmp, ignore_errors=True)
             raise
 
-    def _teardown(self, tmp, old_packs, old_pairs, old_show, old_stderr):
+    def _teardown(self, tmp, old_packs, old_roots, old_show, old_stderr):
         if old_packs is None:
             os.environ.pop("INFRAWRIGHT_PACKS", None)
         else:
             os.environ["INFRAWRIGHT_PACKS"] = old_packs
         packs.reset()
-        ops.selected_env_pairs = old_pairs
+        ops.selected_env_roots = old_roots
         ops._show_plan_json = old_show
         sys.stderr = old_stderr
         shutil.rmtree(tmp, ignore_errors=True)
 
     def _run_blocked(self, pack_data, plan_data):
-        tmp, old_packs, old_pairs, old_show, old_stderr, stderr = self._setup_test(
+        tmp, old_packs, old_roots, old_show, old_stderr, stderr = self._setup_test(
             pack_data, plan_data
         )
         try:
@@ -1036,7 +1298,7 @@ class OpsAssertAdoptableDynamicSchemaGuidanceTest(unittest.TestCase):
                 })
             return str(ctx.exception), stderr.getvalue()
         finally:
-            self._teardown(tmp, old_packs, old_pairs, old_show, old_stderr)
+            self._teardown(tmp, old_packs, old_roots, old_show, old_stderr)
 
     def _base_pack(self, rule):
         return {
@@ -1218,7 +1480,7 @@ class OpsAssertAdoptableDynamicSchemaGuidanceTest(unittest.TestCase):
             self._base_pack(self._base_rule()),
         )
         old_packs = os.environ.get("INFRAWRIGHT_PACKS")
-        old_pairs = ops.selected_env_pairs
+        old_roots = ops.selected_env_roots
         old_show = ops._show_plan_json
         old_guidance = ops._guidance_annotations
         old_stderr = sys.stderr
@@ -1227,8 +1489,8 @@ class OpsAssertAdoptableDynamicSchemaGuidanceTest(unittest.TestCase):
         try:
             os.environ["INFRAWRIGHT_PACKS"] = pack_root
             packs.reset()
-            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
-                ("tenant", "sample_resource", tmp)
+            ops.selected_env_roots = lambda tenant, selectors, require_plan=False: [
+                _root_tuple(tmp)
             ]
             ops._show_plan_json = lambda env_dir: plan
             ops._guidance_annotations = lambda _plan, _resource_type: (
@@ -1251,7 +1513,7 @@ class OpsAssertAdoptableDynamicSchemaGuidanceTest(unittest.TestCase):
             else:
                 os.environ["INFRAWRIGHT_PACKS"] = old_packs
             packs.reset()
-            ops.selected_env_pairs = old_pairs
+            ops.selected_env_roots = old_roots
             ops._show_plan_json = old_show
             ops._guidance_annotations = old_guidance
             sys.stderr = old_stderr
@@ -1300,36 +1562,36 @@ class OpsAssertAdoptableAbsentDefaultGuidanceTest(unittest.TestCase):
         pack_root = os.path.join(tmp, "packs")
         _write_json(os.path.join(pack_root, "sample", "pack.json"), pack_data)
         old_packs = os.environ.get("INFRAWRIGHT_PACKS")
-        old_pairs = ops.selected_env_pairs
+        old_roots = ops.selected_env_roots
         old_show = ops._show_plan_json
         old_stderr = sys.stderr
         stderr = io.StringIO()
         try:
             os.environ["INFRAWRIGHT_PACKS"] = pack_root
             packs.reset()
-            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
-                ("tenant", "sample_resource", tmp)
+            ops.selected_env_roots = lambda tenant, selectors, require_plan=False: [
+                _root_tuple(tmp)
             ]
             ops._show_plan_json = lambda env_dir: plan_data
             sys.stderr = stderr
-            return tmp, old_packs, old_pairs, old_show, old_stderr, stderr
+            return tmp, old_packs, old_roots, old_show, old_stderr, stderr
         except Exception:
             shutil.rmtree(tmp, ignore_errors=True)
             raise
 
-    def _teardown(self, tmp, old_packs, old_pairs, old_show, old_stderr):
+    def _teardown(self, tmp, old_packs, old_roots, old_show, old_stderr):
         if old_packs is None:
             os.environ.pop("INFRAWRIGHT_PACKS", None)
         else:
             os.environ["INFRAWRIGHT_PACKS"] = old_packs
         packs.reset()
-        ops.selected_env_pairs = old_pairs
+        ops.selected_env_roots = old_roots
         ops._show_plan_json = old_show
         sys.stderr = old_stderr
         shutil.rmtree(tmp, ignore_errors=True)
 
     def _run_blocked(self, pack_data, plan_data):
-        tmp, old_packs, old_pairs, old_show, old_stderr, stderr = self._setup_test(
+        tmp, old_packs, old_roots, old_show, old_stderr, stderr = self._setup_test(
             pack_data, plan_data
         )
         try:
@@ -1341,7 +1603,7 @@ class OpsAssertAdoptableAbsentDefaultGuidanceTest(unittest.TestCase):
                 })
             return str(ctx.exception), stderr.getvalue()
         finally:
-            self._teardown(tmp, old_packs, old_pairs, old_show, old_stderr)
+            self._teardown(tmp, old_packs, old_roots, old_show, old_stderr)
 
     def _base_pack(self, rule):
         return {
@@ -1548,7 +1810,7 @@ class OpsAssertAdoptableAbsentDefaultGuidanceTest(unittest.TestCase):
             self._base_pack(self._base_rule()),
         )
         old_packs = os.environ.get("INFRAWRIGHT_PACKS")
-        old_pairs = ops.selected_env_pairs
+        old_roots = ops.selected_env_roots
         old_show = ops._show_plan_json
         old_guidance = ops._guidance_annotations
         old_stderr = sys.stderr
@@ -1557,8 +1819,8 @@ class OpsAssertAdoptableAbsentDefaultGuidanceTest(unittest.TestCase):
         try:
             os.environ["INFRAWRIGHT_PACKS"] = pack_root
             packs.reset()
-            ops.selected_env_pairs = lambda tenant, selectors, require_plan=False: [
-                ("tenant", "sample_resource", tmp)
+            ops.selected_env_roots = lambda tenant, selectors, require_plan=False: [
+                _root_tuple(tmp)
             ]
             ops._show_plan_json = lambda env_dir: plan
             ops._guidance_annotations = lambda _plan, _resource_type: (
@@ -1581,7 +1843,7 @@ class OpsAssertAdoptableAbsentDefaultGuidanceTest(unittest.TestCase):
             else:
                 os.environ["INFRAWRIGHT_PACKS"] = old_packs
             packs.reset()
-            ops.selected_env_pairs = old_pairs
+            ops.selected_env_roots = old_roots
             ops._show_plan_json = old_show
             ops._guidance_annotations = old_guidance
             sys.stderr = old_stderr
