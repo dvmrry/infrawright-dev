@@ -75,7 +75,7 @@ gen-env: ## Generate env roots for a tenant (TENANT=<label> [BACKEND=azurerm] [R
 
 transform: ## Transform pulled JSON for a tenant (IN=<dir> TENANT=<name> [RESOURCE="<type|provider> ..."])
 	@test -n "$(IN)" -a -n "$(TENANT)" || { echo "usage: make transform IN=pulls/<tenant> TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
-	@set -e; resources="$$($(PYTHON) -m engine.ops resources $(RESOURCE))"; failed=""; for rt in $$resources; do \
+	@set -e; resources="$$($(PYTHON) -m engine.ops resources --order=references $(RESOURCE))"; failed=""; for rt in $$resources; do \
 		src=$$($(PYTHON) -c "from engine.registry import derive_entry; d=derive_entry('$$rt'); print(d['from'] if d else '$$rt')"); \
 		f="$(IN)/$$src.json"; \
 		if [ -f "$$f" ]; then \
@@ -104,7 +104,7 @@ source-evidence-eval: ## A/B evaluate text source scanning vs AST facts (SCHEMA=
 
 adopt: ## Transform pulled JSON using Terraform/OpenTofu import oracle (IN=<dir> TENANT=<name> [RESOURCE="<type|provider> ..."] [POLICY=<file>])
 	@test -n "$(IN)" -a -n "$(TENANT)" || { echo "usage: make adopt IN=pulls/<tenant> TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"] [POLICY=<file>]"; exit 2; }
-	@set -e; resources="$$($(PYTHON) -m engine.ops resources $(RESOURCE))"; failed=""; for rt in $$resources; do \
+	@set -e; resources="$$($(PYTHON) -m engine.ops resources --order=references $(RESOURCE))"; failed=""; for rt in $$resources; do \
 		src=$$($(PYTHON) -c "from engine.registry import derive_entry; d=derive_entry('$$rt'); print(d['from'] if d else '$$rt')"); \
 		f="$(IN)/$$src.json"; \
 		if [ -f "$$f" ]; then \

@@ -8,6 +8,8 @@ import unittest
 
 from engine import ops
 from engine import packs
+from engine import registry
+from engine import transform
 
 
 def _write_json(path, data):
@@ -34,6 +36,262 @@ def _rc(actions, importing=False, before=None, after=None):
 def _root_tuple(path, resource_type="sample_resource",
                 label=None, tenant="tenant"):
     return (tenant, label or resource_type, path, [resource_type])
+
+
+def _write_fresh_plan(path, member_types=None):
+    member_types = member_types or ["sample_resource"]
+    os.makedirs(path, exist_ok=True)
+    with open(os.path.join(path, "tfplan"), "w", encoding="utf-8") as f:
+        f.write("fake")
+    ops._write_plan_fingerprint(path, [], member_types)
+
+
+class OpsReferenceOrderTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ops-reference-order-")
+        self.pack_root = os.path.join(self.tmp, "packs")
+        self.saved_packs = os.environ.get("INFRAWRIGHT_PACKS")
+
+    def tearDown(self):
+        if self.saved_packs is None:
+            os.environ.pop("INFRAWRIGHT_PACKS", None)
+        else:
+            os.environ["INFRAWRIGHT_PACKS"] = self.saved_packs
+        packs.reset()
+        registry.reload_registry()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _configure_pack(self, references):
+        os.environ["INFRAWRIGHT_PACKS"] = self.pack_root
+        _write_json(os.path.join(self.pack_root, "sample", "pack.json"), {
+            "provider_prefixes": {"sample_": "sample"},
+            "provider_sources": {"sample": "example/sample"},
+            "references": references,
+        })
+        _write_json(os.path.join(self.pack_root, "sample", "registry.json"), {
+            "sample_a_referrer": {"generate": True, "product": "sample"},
+            "sample_aa_unrelated": {"generate": True, "product": "sample"},
+            "sample_b_referent": {"generate": True, "product": "sample"},
+            "sample_cycle_a": {"generate": True, "product": "sample"},
+            "sample_cycle_b": {"generate": True, "product": "sample"},
+        })
+        packs.reset()
+        registry.reload_registry()
+
+    def _capture_resources(self, argv):
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        try:
+            sys.stdout = stdout
+            sys.stderr = stderr
+            code = ops.main(["resources"] + argv)
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_reference_order_emits_referent_before_referrer(self):
+        self._configure_pack({
+            "sample_a_referrer": {
+                "referent_id": {
+                    "referent": "sample_b_referent",
+                    "name_field": "name",
+                },
+            },
+        })
+
+        self.assertEqual(ops.reference_order([
+            "sample_a_referrer",
+            "sample_aa_unrelated",
+            "sample_b_referent",
+        ]), [
+            "sample_aa_unrelated",
+            "sample_b_referent",
+            "sample_a_referrer",
+        ])
+
+    def test_resources_cli_default_order_is_unchanged(self):
+        self._configure_pack({
+            "sample_a_referrer": {
+                "referent_id": {
+                    "referent": "sample_b_referent",
+                    "name_field": "name",
+                },
+            },
+        })
+
+        code, stdout, stderr = self._capture_resources([])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            stdout.splitlines(),
+            [
+                "sample_a_referrer",
+                "sample_aa_unrelated",
+                "sample_b_referent",
+                "sample_cycle_a",
+                "sample_cycle_b",
+            ],
+        )
+        self.assertEqual(stderr, "")
+
+    def test_resources_cli_reference_order(self):
+        self._configure_pack({
+            "sample_a_referrer": {
+                "referent_id": {
+                    "referent": "sample_b_referent",
+                    "name_field": "name",
+                },
+            },
+        })
+
+        code, stdout, stderr = self._capture_resources([
+            "--order=references",
+            "sample_a_referrer",
+            "sample_b_referent",
+        ])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            stdout.splitlines(),
+            ["sample_b_referent", "sample_a_referrer"],
+        )
+        self.assertEqual(stderr, "")
+
+    def test_reference_cycle_falls_back_with_one_note(self):
+        self._configure_pack({
+            "sample_cycle_a": {
+                "other_id": {
+                    "referent": "sample_cycle_b",
+                    "name_field": "name",
+                },
+            },
+            "sample_cycle_b": {
+                "other_id": {
+                    "referent": "sample_cycle_a",
+                    "name_field": "name",
+                },
+            },
+        })
+        old_stderr = sys.stderr
+        stderr = io.StringIO()
+        try:
+            sys.stderr = stderr
+            order = ops.reference_order(["sample_cycle_b", "sample_cycle_a"])
+        finally:
+            sys.stderr = old_stderr
+
+        self.assertEqual(order, ["sample_cycle_a", "sample_cycle_b"])
+        self.assertEqual(
+            stderr.getvalue(),
+            "NOTE: reference order cycle detected among sample_cycle_a, "
+            "sample_cycle_b; breaking alphabetically\n",
+        )
+
+
+class OpsReferenceOrderTransformIntegrationTest(unittest.TestCase):
+    def setUp(self):
+        self.cwd = os.getcwd()
+        self.tmp = tempfile.mkdtemp(prefix="ops-reference-transform-")
+        os.chdir(self.tmp)
+        self.saved_dep = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+        self.saved_pack_references = packs.references
+        self.saved_pack_lookup_sources = packs.lookup_sources
+        self.tenant = "tenant"
+        dep = os.path.join(self.tmp, "deployment.json")
+        _write_json(dep, {
+            "overlay": self.tmp,
+            "roots": {
+                "zpa": {
+                    "groups": {
+                        "zpa_custom": [
+                            "zpa_application_segment",
+                            "zpa_segment_group",
+                        ],
+                    },
+                    "bind_references": True,
+                },
+            },
+        })
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+        packs.references = lambda: {
+            "zpa_application_segment": {
+                "segment_group_id": {
+                    "referent": "zpa_segment_group",
+                    "name_field": "name",
+                },
+            },
+        }
+        packs.lookup_sources = lambda: {
+            "zpa_segment_group": {"name_field": "name"},
+        }
+
+    def tearDown(self):
+        os.chdir(self.cwd)
+        packs.references = self.saved_pack_references
+        packs.lookup_sources = self.saved_pack_lookup_sources
+        if self.saved_dep is None:
+            os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+        else:
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = self.saved_dep
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write_input(self, name, data):
+        path = os.path.join(self.tmp, name)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        return path
+
+    def test_topo_order_transform_derives_binding_on_first_run(self):
+        inputs = {
+            "zpa_segment_group": self._write_input("zpa_segment_group.json", [{
+                "id": "sg-1",
+                "name": "Segment One",
+                "enabled": True,
+            }]),
+            "zpa_application_segment": self._write_input(
+                "zpa_application_segment.json",
+                [{
+                    "id": "app-1",
+                    "name": "App One",
+                    "domainNames": ["app.example.com"],
+                    "segmentGroupId": "sg-1",
+                }],
+            ),
+        }
+
+        ordered = ops.reference_order([
+            "zpa_application_segment",
+            "zpa_segment_group",
+        ])
+        self.assertEqual(ordered, [
+            "zpa_segment_group",
+            "zpa_application_segment",
+        ])
+        for resource_type in ordered:
+            self.assertEqual(
+                transform.main([resource_type, inputs[resource_type], self.tenant]),
+                0,
+            )
+
+        generated_path = os.path.join(
+            self.tmp,
+            "config",
+            self.tenant,
+            "zpa_application_segment.generated.expressions.json",
+        )
+        with open(generated_path, encoding="utf-8") as f:
+            generated = json.load(f)
+        expression = (
+            generated["resources"]["zpa_application_segment.app_one"]
+            ["segment_group_id"]["expression"]
+        )
+        self.assertEqual(
+            expression,
+            'module.zpa_segment_group.name_to_id["Segment One"][0]',
+        )
 
 
 class OpsEnvDiscoveryTest(unittest.TestCase):
@@ -288,6 +546,8 @@ class OpsGroupedRootCommandTest(unittest.TestCase):
         if with_plan:
             with open(os.path.join(root, "tfplan"), "w", encoding="utf-8") as f:
                 f.write("fake")
+            ops._write_plan_fingerprint(
+                root, [], ["zpa_segment_group", "zpa_server_group"])
         return root
 
     def _write_member_configs(self):
@@ -426,6 +686,189 @@ class OpsGroupedRootCommandTest(unittest.TestCase):
         self.assertEqual(calls, ["zpa_segment_group", "zpa_server_group"])
 
 
+class OpsPlanFingerprintTest(unittest.TestCase):
+    def setUp(self):
+        self.cwd = os.getcwd()
+        self.tmp = tempfile.mkdtemp(prefix="ops-plan-fingerprint-")
+        os.chdir(self.tmp)
+        self.saved_dep = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+        self.tenant = "tenant"
+        self.members = ["zpa_segment_group", "zpa_server_group"]
+        self._write_deployment(self.members)
+        self._write_root_and_configs(self.members)
+
+    def tearDown(self):
+        os.chdir(self.cwd)
+        if self.saved_dep is None:
+            os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+        else:
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = self.saved_dep
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write_deployment(self, members):
+        dep = os.path.join(self.tmp, "deployment.json")
+        _write_json(dep, {
+            "roots": {
+                "zpa": {
+                    "groups": {
+                        "zpa_custom": members,
+                    },
+                },
+            },
+        })
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+
+    def _root(self):
+        return os.path.join("envs", self.tenant, "zpa_custom")
+
+    def _write_root_and_configs(self, members):
+        root = self._root()
+        os.makedirs(root, exist_ok=True)
+        with open(os.path.join(root, "main.tf"), "w", encoding="utf-8") as f:
+            f.write("# root\n")
+        os.makedirs(os.path.join("config", self.tenant), exist_ok=True)
+        for resource_type in members:
+            with open(
+                os.path.join(
+                    "config",
+                    self.tenant,
+                    resource_type + ".auto.tfvars.json",
+                ),
+                "w",
+                encoding="utf-8",
+            ) as f:
+                json.dump({"%s_items" % resource_type: {}}, f)
+
+    def _save_plan(self):
+        old_check = ops._check_call
+        old_backend = ops._check_backend
+        calls = []
+
+        def fake_check(args, stdout=None):
+            calls.append(args)
+            if "-out=tfplan" in args:
+                with open(os.path.join(self._root(), "tfplan"), "w",
+                          encoding="utf-8") as f:
+                    f.write("fake")
+            return 0
+
+        try:
+            ops._check_call = fake_check
+            ops._check_backend = lambda env_dir, label, backend_config: None
+            self.assertEqual(ops.cmd_plan({
+                "tenant": self.tenant,
+                "selectors": ["zpa_segment_group"],
+                "imports_only": False,
+                "backend_config": None,
+                "save": True,
+            }), 0)
+        finally:
+            ops._check_call = old_check
+            ops._check_backend = old_backend
+        return calls
+
+    def _apply_saved_plan(self):
+        old_check = ops._check_call
+        old_backend = ops._check_backend
+        old_show = ops._show_plan_json
+        old_branch = ops._current_branch
+        calls = []
+        try:
+            ops._check_call = lambda args, stdout=None: calls.append(args) or 0
+            ops._check_backend = lambda env_dir, label, backend_config: None
+            ops._show_plan_json = lambda env_dir: {
+                "format_version": "1.0",
+                "resource_changes": [],
+            }
+            ops._current_branch = lambda: "main"
+            result = ops.cmd_apply({
+                "tenant": self.tenant,
+                "selectors": ["zpa_segment_group"],
+                "backend_config": None,
+                "policy": None,
+                "allow_destroy": False,
+                "allow_non_main": False,
+                "allow_plan_changes": False,
+                "main_branch": "main",
+            })
+            return result, calls
+        finally:
+            ops._check_call = old_check
+            ops._check_backend = old_backend
+            ops._show_plan_json = old_show
+            ops._current_branch = old_branch
+
+    def test_plan_save_writes_fingerprint_and_apply_proceeds(self):
+        self._save_plan()
+        source_path = os.path.join(self._root(), ops.PLAN_FINGERPRINT)
+        self.assertTrue(os.path.exists(source_path))
+        with open(source_path, encoding="utf-8") as f:
+            data = json.load(f)
+        self.assertEqual(data["version"], 1)
+        self.assertEqual(len(data["sha256"]), 64)
+
+        result, calls = self._apply_saved_plan()
+
+        self.assertEqual(result, 0)
+        self.assertTrue(any("apply" in call for call in calls))
+        self.assertFalse(os.path.exists(os.path.join(self._root(), "tfplan")))
+        self.assertFalse(os.path.exists(source_path))
+
+    def test_membership_change_makes_saved_plan_stale(self):
+        self._save_plan()
+        self._write_deployment(["zpa_segment_group"])
+
+        with self.assertRaises(RuntimeError) as ctx:
+            self._apply_saved_plan()
+
+        self.assertEqual(
+            str(ctx.exception),
+            ops.STALE_PLAN_MESSAGE % self._root(),
+        )
+
+    def test_main_tf_edit_makes_saved_plan_stale(self):
+        self._save_plan()
+        with open(os.path.join(self._root(), "main.tf"), "a",
+                  encoding="utf-8") as f:
+            f.write("# changed\n")
+
+        with self.assertRaises(RuntimeError) as ctx:
+            self._apply_saved_plan()
+
+        self.assertEqual(
+            str(ctx.exception),
+            ops.STALE_PLAN_MESSAGE % self._root(),
+        )
+
+    def test_missing_fingerprint_makes_saved_plan_stale_with_migration_note(self):
+        self._save_plan()
+        os.remove(os.path.join(self._root(), ops.PLAN_FINGERPRINT))
+
+        with self.assertRaises(RuntimeError) as ctx:
+            self._apply_saved_plan()
+
+        self.assertEqual(
+            str(ctx.exception),
+            "%s (%s)" % (
+                ops.STALE_PLAN_MESSAGE % self._root(),
+                ops.MISSING_PLAN_FINGERPRINT_DETAIL,
+            ),
+        )
+
+    def test_clean_plans_removes_plan_and_fingerprint(self):
+        self._save_plan()
+
+        self.assertEqual(ops.cmd_clean_plans({
+            "tenant": self.tenant,
+            "selectors": ["zpa_segment_group"],
+        }), 0)
+
+        self.assertFalse(os.path.exists(os.path.join(self._root(), "tfplan")))
+        self.assertFalse(os.path.exists(
+            os.path.join(self._root(), ops.PLAN_FINGERPRINT)
+        ))
+
+
 class NonImportChangeCountTest(unittest.TestCase):
     def test_noop_and_import_only_are_zero(self):
         plan = _plan([_rc(["no-op"]), _rc(["create"], importing=True)])
@@ -454,9 +897,7 @@ class NonImportChangeCountTest(unittest.TestCase):
 class OpsPlanSafetyTest(unittest.TestCase):
     def _run_apply_fixture(self, plan, opts_extra=None):
         tmp = tempfile.mkdtemp(prefix="ops-apply-")
-        os.makedirs(tmp, exist_ok=True)
-        with open(os.path.join(tmp, "tfplan"), "w", encoding="utf-8") as f:
-            f.write("fake")
+        _write_fresh_plan(tmp)
         old_roots = ops.selected_env_roots
         old_check_backend = ops._check_backend
         old_check_call = ops._check_call
@@ -691,6 +1132,7 @@ class OpsPlanSafetyTest(unittest.TestCase):
         old_stderr = sys.stderr
         stderr = io.StringIO()
         try:
+            _write_fresh_plan(tmp)
             ops.selected_env_roots = lambda tenant, selectors, require_plan=False: [
                 _root_tuple(tmp)
             ]
@@ -745,6 +1187,7 @@ class OpsPlanSafetyTest(unittest.TestCase):
         try:
             os.environ["INFRAWRIGHT_PACKS"] = pack_root
             packs.reset()
+            _write_fresh_plan(tmp)
             ops.selected_env_roots = lambda tenant, selectors, require_plan=False: [
                 _root_tuple(tmp)
             ]
@@ -820,6 +1263,7 @@ class OpsAssertAdoptableProviderConfigGuidanceTest(unittest.TestCase):
         try:
             os.environ["INFRAWRIGHT_PACKS"] = pack_root
             packs.reset()
+            _write_fresh_plan(tmp)
             ops.selected_env_roots = lambda tenant, selectors, require_plan=False: [
                 _root_tuple(tmp)
             ]
@@ -1168,6 +1612,7 @@ class OpsAssertAdoptableProviderConfigGuidanceTest(unittest.TestCase):
         try:
             os.environ["INFRAWRIGHT_PACKS"] = pack_root
             packs.reset()
+            _write_fresh_plan(tmp)
             ops.selected_env_roots = lambda tenant, selectors, require_plan=False: [
                 _root_tuple(tmp)
             ]
@@ -1264,6 +1709,7 @@ class OpsAssertAdoptableDynamicSchemaGuidanceTest(unittest.TestCase):
         try:
             os.environ["INFRAWRIGHT_PACKS"] = pack_root
             packs.reset()
+            _write_fresh_plan(tmp)
             ops.selected_env_roots = lambda tenant, selectors, require_plan=False: [
                 _root_tuple(tmp)
             ]
@@ -1489,6 +1935,7 @@ class OpsAssertAdoptableDynamicSchemaGuidanceTest(unittest.TestCase):
         try:
             os.environ["INFRAWRIGHT_PACKS"] = pack_root
             packs.reset()
+            _write_fresh_plan(tmp)
             ops.selected_env_roots = lambda tenant, selectors, require_plan=False: [
                 _root_tuple(tmp)
             ]
@@ -1569,6 +2016,7 @@ class OpsAssertAdoptableAbsentDefaultGuidanceTest(unittest.TestCase):
         try:
             os.environ["INFRAWRIGHT_PACKS"] = pack_root
             packs.reset()
+            _write_fresh_plan(tmp)
             ops.selected_env_roots = lambda tenant, selectors, require_plan=False: [
                 _root_tuple(tmp)
             ]
@@ -1819,6 +2267,7 @@ class OpsAssertAdoptableAbsentDefaultGuidanceTest(unittest.TestCase):
         try:
             os.environ["INFRAWRIGHT_PACKS"] = pack_root
             packs.reset()
+            _write_fresh_plan(tmp)
             ops.selected_env_roots = lambda tenant, selectors, require_plan=False: [
                 _root_tuple(tmp)
             ]

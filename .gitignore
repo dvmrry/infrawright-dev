@@ -13,3 +13,4 @@ bin/
 .DS_Store
 /demo/modules/
 /modules/
+**/tfplan.sources
