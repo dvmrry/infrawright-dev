@@ -137,6 +137,77 @@ class AdoptCommandTest(unittest.TestCase):
         ) as f:
             self.assertEqual(f.read(), "")
 
+    def test_hcl_deployment_writes_hcl_config_and_removes_stale_json(self):
+        from engine import hcl_tfvars
+
+        dep = os.path.join(self.tmp, "deployment.json")
+        _write_json(dep, {"tfvars_format": "hcl"})
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+        input_path = os.path.join(self.tmp, "api.json")
+        _write_json(input_path, [
+            {"id": "123", "name": "Prod App"}
+        ])
+        stale_json = os.path.join(
+            "config", "tenant", "sample_resource.auto.tfvars.json")
+        os.makedirs(os.path.dirname(stale_json), exist_ok=True)
+        with open(stale_json, "w", encoding="utf-8") as f:
+            f.write('{"items": {"stale": {}}}\n')
+
+        def fake_import_state(resource_type, key_to_import_id):
+            return {
+                "prod_app": {
+                    "values": {"name": "Prod App"},
+                    "sensitive_values": {},
+                }
+            }
+
+        def fake_project_item(resource_type, state_values,
+                              sensitive_values=None, policy=None):
+            return {"name": state_values["name"]}
+
+        adopt.import_state = fake_import_state
+        adopt.project_item = fake_project_item
+        self.assertEqual(adopt.main(["sample_resource", input_path, "tenant"]), 0)
+
+        hcl_path = os.path.join(
+            "config", "tenant", "sample_resource.auto.tfvars")
+        self.assertTrue(os.path.exists(hcl_path), hcl_path)
+        self.assertFalse(os.path.exists(stale_json), stale_json)
+        with open(hcl_path, encoding="utf-8") as f:
+            self.assertTrue(f.read().startswith(hcl_tfvars.HEADER))
+
+    def test_json_deployment_removes_stale_hcl_config(self):
+        input_path = os.path.join(self.tmp, "api.json")
+        _write_json(input_path, [
+            {"id": "123", "name": "Prod App"}
+        ])
+        stale_hcl = os.path.join(
+            "config", "tenant", "sample_resource.auto.tfvars")
+        os.makedirs(os.path.dirname(stale_hcl), exist_ok=True)
+        with open(stale_hcl, "w", encoding="utf-8") as f:
+            f.write("items = {}\n")
+
+        def fake_import_state(resource_type, key_to_import_id):
+            return {
+                "prod_app": {
+                    "values": {"name": "Prod App"},
+                    "sensitive_values": {},
+                }
+            }
+
+        def fake_project_item(resource_type, state_values,
+                              sensitive_values=None, policy=None):
+            return {"name": state_values["name"]}
+
+        adopt.import_state = fake_import_state
+        adopt.project_item = fake_project_item
+        self.assertEqual(adopt.main(["sample_resource", input_path, "tenant"]), 0)
+
+        json_path = os.path.join(
+            "config", "tenant", "sample_resource.auto.tfvars.json")
+        self.assertTrue(os.path.exists(json_path), json_path)
+        self.assertFalse(os.path.exists(stale_hcl), stale_hcl)
+
     def test_duplicate_alias_derived_import_ids_fail_before_oracle(self):
         _write_json(os.path.join(self.tmp, "packs", "sample", "registry.json"), {
             "sample_resource": {

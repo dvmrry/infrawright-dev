@@ -94,7 +94,7 @@ adoption workflow above and requires real provider credentials.
 |------|------|
 | `engine/` | core transform/adoption/codegen: modular TF + `import` + `moved` reconciliation; includes the audited shared REST collector edge |
 | `packs/<name>/` | a provider bundle: `pack.json` + `registry.json` + `overrides/` + `schemas/` + collector |
-| `[<overlay>/]config/<tenant>/<resource_type>.auto.tfvars.json` | generated tenant config |
+| `[<overlay>/]config/<tenant>/<resource_type>.auto.tfvars[.json]` | generated tenant config; `deployment.json` `tfvars_format` selects `json` by default or opt-in `hcl` |
 | `[<overlay>/]imports/<tenant>/<resource_type>_imports.tf` | generated import blocks |
 | `[<overlay>/]envs/<tenant>/<resource_type>/` | generated per-resource Terraform roots |
 | `<module_dir>/<resource_type>/` | generated Terraform modules for the selected deployment module set |

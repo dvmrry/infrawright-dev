@@ -118,6 +118,14 @@ def _validate_expression_bindings_against_config(bindings, config_file):
         raise ValueError(
             "expression bindings require projected config at %s" % config_file
         )
+    if not config_file.endswith(".json"):
+        # HCL tfvars cannot be read back (no HCL parser in the engine); skip
+        # the binding/config cross-check rather than crash on non-JSON bytes.
+        sys.stderr.write(
+            "skip expression binding validation for %s "
+            "(hcl tfvars; validation reads json only)\n" % config_file
+        )
+        return
     with open(config_file, encoding="utf-8") as f:
         config = json.load(f)
     items = config.get("items") if isinstance(config, dict) else None
@@ -139,7 +147,8 @@ def render_env_readme(resource_type, tenant, env_dir=None):
     )
 
 
-def render_env_test(resource_type, tenant, env_dir=None, has_config=False):
+def render_env_test(resource_type, tenant, env_dir=None, has_config=False,
+                    config_format="json"):
     """Render the smoke test HCL for an env root.
 
     Always emits an empty_plan run block (mock provider, no credentials).
@@ -161,7 +170,7 @@ def render_env_test(resource_type, tenant, env_dir=None, has_config=False):
         "  }\n"
         "}\n" % (tenant, provider)
     )
-    if not has_config:
+    if not has_config or config_format != "json":
         return base
     config_ref = _config_ref(tenant, resource_type, env_dir)
     config_block = (
@@ -244,7 +253,8 @@ def generate_env(tenant, out_root=None, fmt=True, backend=None,
         config_file = _config_file(tenant, resource_type)
         has_config = os.path.exists(config_file)
         test_text = render_env_test(
-            resource_type, tenant, env_dir=base, has_config=has_config)
+            resource_type, tenant, env_dir=base, has_config=has_config,
+            config_format=deployment.tfvars_format())
         if fmt:
             test_text = _fmt(test_text)
         with open(os.path.join(tests_dir, "smoke.tftest.hcl"), "w", encoding="utf-8") as f:

@@ -11,7 +11,7 @@ ifneq ($(strip $(OVERLAY)),)
 -include $(OVERLAY)/local.mk
 endif
 
-.PHONY: check-demo check-modules check-pack audit-vendor-boundary demo-contract check test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: check-demo check-modules check-tfvars-fmt check-pack audit-vendor-boundary demo-contract check test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
 	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1
@@ -23,6 +23,15 @@ check-modules: ## Generate every module into a temp deployment to catch generato
 	printf '{"module_dir": "%s/modules"}\n' "$$tmp" > "$$tmp/deployment.json"; \
 	INFRAWRIGHT_DEPLOYMENT="$$tmp/deployment.json" $(PYTHON) -m engine.gen_module > /dev/null 2>&1; \
 	$(PYTHON) -m engine.gen_module --check-output "$$tmp/modules" > /dev/null
+
+check-tfvars-fmt: ## Validate HCL tfvars formatting when deployment selects hcl
+	@fmt="$$(INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(PYTHON) -c 'from engine import deployment; print(deployment.tfvars_format())')" || exit $$?; \
+	if [ "$$fmt" = "json" ]; then echo "check-tfvars-fmt: skip (json tfvars)"; exit 0; fi; \
+	if ! command -v "$(TF)" >/dev/null 2>&1; then echo "check-tfvars-fmt: skip (no terraform)"; exit 0; fi; \
+	overlay="$$(INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(PYTHON) -m engine.deployment overlay)" || exit $$?; \
+	if [ "$$overlay" = "." ]; then config_dir="config"; else config_dir="$$overlay/config"; fi; \
+	if [ ! -d "$$config_dir" ]; then echo "check-tfvars-fmt: no config dirs"; exit 0; fi; \
+	"$(TF)" fmt -check -recursive "$$config_dir"
 
 check-pack: ## Validate pack.json and registry.json metadata ([PACK=<name>])
 	$(PYTHON) -m engine.check_pack $(if $(PACK),--pack "$(PACK)")
@@ -44,7 +53,7 @@ demo-contract: ## Credential-free demo artifact/module contract check
 	echo "demo-contract: committed demo config/imports and generated modules are in sync"
 	@echo "demo-contract: live provider import/plan proof requires credentials and the adoption workflow"
 
-check: test check-demo check-modules check-pack audit-vendor-boundary ## Full gate: unit tests + demo + module generator smoke + pack metadata + vendor-boundary audit
+check: test check-demo check-modules check-tfvars-fmt check-pack audit-vendor-boundary ## Full gate: unit tests + demo + module generator smoke + tfvars fmt + pack metadata + vendor-boundary audit
 
 test: ## Run engine unit tests
 	$(PYTHON) -m unittest discover -s tests -t . -v

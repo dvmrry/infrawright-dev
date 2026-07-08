@@ -1,7 +1,7 @@
 """Operational orchestration helpers for tenant roots.
 
 The artifact layout is flat by Terraform resource type:
-  [overlay/]config/<tenant>/<resource_type>.auto.tfvars.json
+  [overlay/]config/<tenant>/<resource_type>.auto.tfvars[.json]
   [overlay/]imports/<tenant>/<resource_type>_imports.tf
   [overlay/]envs/<tenant>/<resource_type>/
 
@@ -16,7 +16,6 @@ import sys
 from engine import deployment
 from engine import packs
 from engine.artifacts import (
-    CONFIG_SUFFIX,
     EXPRESSION_BINDINGS_SUFFIX,
     IMPORTS_SUFFIX,
     MOVES_SUFFIX,

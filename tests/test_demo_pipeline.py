@@ -3,8 +3,12 @@ public SDK test cassettes (see fixtures/demo/README.md). Catches
 realistic-shape regressions the hand-built fixtures may miss."""
 import json
 import os
+import shutil
+import subprocess
+import tempfile
 import unittest
 
+from engine import hcl_tfvars
 from engine.registry import derive_entry, generated_types
 from engine.tfschema import classify_attributes, load_resource
 from engine.transform import (
@@ -143,6 +147,32 @@ class DemoPipelineTest(unittest.TestCase):
                 expected_imports,
                 "%s imports golden drifted — rebless via make update-demo-goldens after intentional changes" % rt,
             )
+
+    def test_demo_fixture_items_render_as_fmt_clean_hcl_without_demo_drift(self):
+        if shutil.which("terraform") is None:
+            self.skipTest("terraform not on PATH — HCL tfvars fmt smoke is authoring-side")
+        with tempfile.TemporaryDirectory() as td:
+            for rt in _demo_types():
+                with open(os.path.join(DEMO_DIR, rt + ".json"), encoding="utf-8") as f:
+                    raw = json.load(f)
+                override = load_override(rt)
+                items, _originals, _drops = transform_items(raw, rt, override)
+                self.assertIn('"items"', render_tfvars(items), rt)
+                comments = hcl_tfvars.derive_comments(
+                    rt, items, "demo", config_root=os.path.join("demo", "config"))
+                rendered = hcl_tfvars.render_tfvars_hcl(items, comments)
+                self.assertTrue(rendered.startswith(hcl_tfvars.HEADER), rt)
+                with open(os.path.join(td, rt + ".auto.tfvars"),
+                          "w", encoding="utf-8") as f:
+                    f.write(rendered)
+
+            subprocess.check_call([
+                "terraform", "fmt", "-check", "-recursive", td,
+            ])
+        status = subprocess.check_output([
+            "git", "status", "--porcelain", "--", "demo/",
+        ]).decode("utf-8")
+        self.assertEqual(status, "")
 
 
 if __name__ == "__main__":

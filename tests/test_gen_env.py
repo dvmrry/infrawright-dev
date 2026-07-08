@@ -524,6 +524,14 @@ class RenderEnvTestTest(unittest.TestCase):
         self.assertIn('run "config_plan"', out)
         self.assertIn("command = plan", out)
 
+    def test_hcl_config_does_not_emit_jsondecode_config_plan(self):
+        out = render_env_test(
+            "zpa_segment_group", "zs2", has_config=True,
+            config_format="hcl")
+        self.assertNotIn('run "config_plan"', out)
+        self.assertNotIn("jsondecode", out)
+        self.assertIn('run "empty_plan"', out)
+
     def test_config_plan_file_path_correct(self):
         out = render_env_test("zpa_segment_group", "zs2", has_config=True)
         self.assertIn(
@@ -619,6 +627,29 @@ class ReadmeContentTest(unittest.TestCase):
         self.assertIn("acme", text)
         self.assertIn("zpa_segment_group", text)
         self.assertIn("make gen-env", text)
+
+
+class HclBindingValidationSkipTest(unittest.TestCase):
+    def test_hcl_config_skips_binding_validation_with_warning(self):
+        from engine import gen_env
+
+        tmp = tempfile.mkdtemp(prefix="genenv-hcl-bindings-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, True))
+        config_path = os.path.join(tmp, "sample_resource.auto.tfvars")
+        with open(config_path, "w", encoding="utf-8") as f:
+            f.write("items = {}\n")
+
+        stderr = io.StringIO()
+        saved = sys.stderr
+        sys.stderr = stderr
+        try:
+            gen_env._validate_expression_bindings_against_config(
+                object(), config_path)
+        finally:
+            sys.stderr = saved
+        self.assertIn(
+            "skip expression binding validation", stderr.getvalue())
+        self.assertIn("hcl tfvars", stderr.getvalue())
 
 
 if __name__ == "__main__":

@@ -36,8 +36,8 @@ def _config_dir(tenant, resource_type):
 
 def _config_file(tenant, resource_type):
     return os.path.join(
-        _config_dir(tenant, resource_type),
-        resource_type + artifacts.CONFIG_SUFFIX,
+        REPO_ROOT,
+        artifacts.config_file(tenant, resource_type),
     )
 
 
@@ -191,7 +191,7 @@ class LookupExplainTest(unittest.TestCase):
             os.path.join(
                 self.config_root,
                 tenant,
-                resource_type + artifacts.CONFIG_SUFFIX,
+                resource_type + artifacts.config_suffix(),
             ),
             {"items": items},
         )
@@ -257,6 +257,38 @@ class LookupExplainTest(unittest.TestCase):
             "    url_categories: %s (CUSTOM_01)\n" % lookup.UNKNOWN,
         )
         self.assertEqual(missing, ["zia_url_categories"])
+
+    def test_hcl_tfvars_explain_skips_with_warning(self):
+        dep = os.path.join(self.config_root, "deployment.json")
+        _write_json(dep, {"tfvars_format": "hcl"})
+        saved = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+        try:
+            tenant_dir = os.path.join(self.config_root, "t")
+            os.makedirs(tenant_dir, exist_ok=True)
+            with open(
+                    os.path.join(
+                        tenant_dir, "zia_url_filtering_rules.auto.tfvars"),
+                    "w",
+                    encoding="utf-8",
+            ) as f:
+                f.write("items = {}\n")
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                out = lookup.render_explain(
+                    "t", ["zia_url_filtering_rules"],
+                    config_root=self.config_root)
+            self.assertEqual(out, "")
+            self.assertEqual(
+                stderr.getvalue(),
+                "skip zia_url_filtering_rules "
+                "(hcl tfvars; explain reads json only)\n",
+            )
+        finally:
+            if saved is None:
+                os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+            else:
+                os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
 
     def test_unmanifested_resource_prints_nothing(self):
         self._write_config("t", "zia_url_categories", {

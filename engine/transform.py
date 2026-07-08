@@ -710,6 +710,34 @@ def render_tfvars(items):
     return json.dumps({"items": items}, indent=2, sort_keys=True) + "\n"
 
 
+def _stale_tfvars_path(tfvars_path):
+    if deployment.tfvars_format() == "hcl":
+        return tfvars_path + ".json"
+    if tfvars_path.endswith(".json"):
+        return tfvars_path[:-len(".json")]
+    return None
+
+
+def _render_deployment_tfvars(resource_type, items, tenant):
+    if deployment.tfvars_format() == "hcl":
+        from engine import hcl_tfvars
+
+        comments = hcl_tfvars.derive_comments(resource_type, items, tenant)
+        return hcl_tfvars.render_tfvars_hcl(items, comments)
+    return render_tfvars(items)
+
+
+def write_deployment_tfvars(resource_type, items, tenant):
+    tfvars_path = artifacts.config_file(tenant, resource_type)
+    stale_path = _stale_tfvars_path(tfvars_path)
+    if stale_path and os.path.exists(stale_path):
+        os.remove(stale_path)
+        sys.stderr.write("removed stale %s\n" % stale_path)
+    with open(tfvars_path, "w", encoding="utf-8") as f:
+        f.write(_render_deployment_tfvars(resource_type, items, tenant))
+    return tfvars_path
+
+
 def hcl_string_literal(value):
     """Return value as a Terraform/OpenTofu double-quoted string literal."""
     if not isinstance(value, str):
@@ -1042,9 +1070,7 @@ def main(argv=None):
     if derive is not None:
         items = derive_reorder(raw_items, derive)
         os.makedirs(config_dir, exist_ok=True)
-        tfvars_path = artifacts.config_file(tenant, resource_type)
-        with open(tfvars_path, "w", encoding="utf-8") as f:
-            f.write(render_tfvars(items))
+        tfvars_path = write_deployment_tfvars(resource_type, items, tenant)
         sys.stderr.write(
             "wrote %s (derived from %s; not importable — no imports)\n"
             % (tfvars_path, derive["from"]))
@@ -1089,8 +1115,7 @@ def main(argv=None):
         os.remove(moves_path)
         sys.stderr.write("removed stale %s (no renames this run)\n" % moves_path)
     report_suppressed_moves(resource_type, move_result.suppressed)
-    with open(tfvars_path, "w", encoding="utf-8") as f:
-        f.write(render_tfvars(items))
+    tfvars_path = write_deployment_tfvars(resource_type, items, tenant)
     with open(imports_path, "w", encoding="utf-8") as f:
         f.write(new_imports)
     # drops contains paths not in acknowledged_drops. Split the repo-declared

@@ -61,6 +61,13 @@ Use `make adopt` when the desired source of truth is provider-imported state.
 Use `make transform` only when a pack/workflow explicitly wants raw API fields
 projected through registry overrides.
 
+Generated tenant config is JSON by default. Set `tfvars_format` to `hcl` in the
+active `deployment.json` to write `<resource_type>.auto.tfvars` instead of
+`<resource_type>.auto.tfvars.json`; write commands remove the stale
+opposite-format artifact so Terraform never auto-loads both. HCL inline comments
+are generated from pack reference metadata and lookup sidecars, not from
+operator-authored files.
+
 ## Provider Readiness And Probe Commands
 
 These commands support pack onboarding and API/schema evidence. They are not

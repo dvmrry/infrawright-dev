@@ -54,7 +54,7 @@ def config_path(tenant, resource_type, config_root=None):
     if config_root is None:
         return artifacts.config_file(tenant, resource_type)
     return os.path.join(
-        config_root, tenant, resource_type + artifacts.CONFIG_SUFFIX
+        config_root, tenant, resource_type + artifacts.config_suffix()
     )
 
 
@@ -184,6 +184,12 @@ def render_explain(tenant, selectors=None, config_root=None, missing_lookups=Non
             continue
         path = config_path(tenant, resource_type, config_root=config_root)
         if not os.path.exists(path):
+            continue
+        if deployment.tfvars_format() == "hcl":
+            sys.stderr.write(
+                "skip %s (hcl tfvars; explain reads json only)\n"
+                % resource_type
+            )
             continue
         data = load_json_object(path)
         items = data.get("items") or {}
