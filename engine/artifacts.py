@@ -3,7 +3,7 @@
 The artifact layout is flat by Terraform resource type:
   [overlay/]config/<tenant>/<resource_type>.auto.tfvars[.json]
   [overlay/]imports/<tenant>/<resource_type>_imports.tf
-  [overlay/]envs/<tenant>/<resource_type>/
+  [overlay/]envs/<tenant>/<root_label>/
 
 Provider packs own behavior and metadata; they do not create path segments.
 Single home for tenant/resource label validation and artifact path helpers;
@@ -14,13 +14,14 @@ import re
 
 from engine import deployment
 from engine import packs
-from engine.registry import generated_types, load_registry
+from engine.registry import derived_types, generated_types, load_registry
 
 CONFIG_SUFFIX = ".auto.tfvars.json"
 EXPRESSION_BINDINGS_SUFFIX = ".expressions.json"
 IMPORTS_SUFFIX = "_imports.tf"
 MOVES_SUFFIX = "_moves.tf"
 VALID_TENANT = re.compile(r"^[A-Za-z0-9_.-]+$")
+VALID_ROOT_LABEL = re.compile(r"^[a-z0-9_]+$")
 
 
 def validate_tenant(tenant):
@@ -84,6 +85,153 @@ def expand_resources(selectors=None):
     return sorted(selected)
 
 
+def _provider_prefix(resource_type, provider):
+    prefixes = packs.provider_prefixes()
+    for prefix in sorted(prefixes, key=len, reverse=True):
+        if resource_type.startswith(prefix) and prefixes[prefix] == provider:
+            return prefix
+    raise ValueError(
+        "resource type %s has no declared prefix for provider %s"
+        % (resource_type, provider)
+    )
+
+
+def _slug_label(resource_type, provider):
+    prefix = _provider_prefix(resource_type, provider)
+    rest = resource_type[len(prefix):]
+    return prefix + rest.split("_")[0]
+
+
+def _validate_group_label(label, generated, used_labels, provider):
+    if not VALID_ROOT_LABEL.match(label or ""):
+        raise ValueError("roots.%s group label %r must match [a-z0-9_]+"
+                         % (provider, label))
+    if label in generated:
+        raise ValueError(
+            "roots.%s group label %r collides with a generated resource type"
+            % (provider, label)
+        )
+    if label in used_labels:
+        raise ValueError(
+            "roots.%s group label %r collides with another provider group"
+            % (provider, label)
+        )
+    used_labels.add(label)
+
+
+def _validate_member(provider, resource_type, generated):
+    if resource_type in set(derived_types()):
+        raise ValueError(
+            "roots.%s member %s is a derived type; derived types keep "
+            "per-resource roots so IMPORTS_ONLY sequencing works"
+            % (provider, resource_type)
+        )
+    if resource_type not in generated:
+        raise ValueError(
+            "roots.%s references unknown generated resource type %r"
+            % (provider, resource_type)
+        )
+    actual = packs.provider_of(resource_type)
+    if actual != provider:
+        raise ValueError(
+            "roots.%s member %r belongs to provider %s"
+            % (provider, resource_type, actual)
+        )
+
+
+def _root_resolution():
+    roots = deployment.roots_config()
+    generated = set(generated_types())
+    labels_to_members = dict((rt, [rt]) for rt in sorted(generated))
+    type_to_label = dict((rt, rt) for rt in sorted(generated))
+    if not roots:
+        return labels_to_members, type_to_label
+
+    known_providers = set(packs.provider_prefixes().values())
+    used_group_labels = set()
+    explicit_members = {}
+    for provider in sorted(roots):
+        if provider not in known_providers:
+            raise ValueError(
+                "roots.%s is not a declared provider prefix value" % provider
+            )
+        cfg = roots[provider]
+        groups = cfg.get("groups") or {}
+        for label in sorted(groups):
+            _validate_group_label(label, generated, used_group_labels, provider)
+            members = sorted(groups[label])
+            for member in members:
+                _validate_member(provider, member, generated)
+                if member in explicit_members:
+                    raise ValueError(
+                        "%s appears in more than one roots group (%s and %s)"
+                        % (member, explicit_members[member], label)
+                    )
+                explicit_members[member] = label
+            for member in members:
+                labels_to_members.pop(member, None)
+                type_to_label[member] = label
+            labels_to_members[label] = members
+
+    for provider in sorted(roots):
+        cfg = roots[provider]
+        if cfg.get("strategy", "explicit") != "slug":
+            continue
+        slug_groups = {}
+        derived = set(derived_types())
+        for resource_type in sorted(generated):
+            if resource_type in derived:
+                continue
+            if type_to_label[resource_type] != resource_type:
+                continue
+            if packs.provider_of(resource_type) != provider:
+                continue
+            label = _slug_label(resource_type, provider)
+            slug_groups.setdefault(label, []).append(resource_type)
+        for label in sorted(slug_groups):
+            members = sorted(slug_groups[label])
+            if len(members) < 2:
+                continue
+            _validate_group_label(label, generated, used_group_labels, provider)
+            for member in members:
+                labels_to_members.pop(member, None)
+                type_to_label[member] = label
+            labels_to_members[label] = members
+
+    return labels_to_members, type_to_label
+
+
+def root_label(resource_type):
+    if not deployment.roots_config():
+        return resource_type
+    labels_to_members, type_to_label = _root_resolution()
+    if resource_type not in type_to_label:
+        validate_resource_type(resource_type)
+    return type_to_label[resource_type]
+
+
+def root_members(label):
+    if not deployment.roots_config():
+        return [label]
+    labels_to_members, type_to_label = _root_resolution()
+    if label in labels_to_members:
+        return list(labels_to_members[label])
+    if label in type_to_label:
+        return [label]
+    raise ValueError("unknown env root label %r" % label)
+
+
+def all_root_labels():
+    labels_to_members, _type_to_label = _root_resolution()
+    return sorted(labels_to_members)
+
+
+def tfvars_var_name(resource_type):
+    if root_label(resource_type) == resource_type:
+        return "items"
+    return "%s_items" % resource_type
+
+
 def config_suffix():
     if deployment.tfvars_format() == "hcl":
         return ".auto.tfvars"
@@ -115,7 +263,11 @@ def moves_file(tenant, resource_type):
 
 
 def env_root(tenant, resource_type):
-    return os.path.join(deployment.envs_dir(tenant), resource_type)
+    return env_root_for_label(tenant, root_label(resource_type))
+
+
+def env_root_for_label(tenant, label):
+    return os.path.join(deployment.envs_dir(tenant), label)
 
 
 def tenant_env_dir(tenant, out_root=None):
@@ -127,4 +279,4 @@ def tenant_env_dir(tenant, out_root=None):
 def env_root_under(tenant, resource_type, out_root=None):
     if out_root is None:
         return env_root(tenant, resource_type)
-    return os.path.join(out_root, tenant, resource_type)
+    return os.path.join(out_root, tenant, root_label(resource_type))

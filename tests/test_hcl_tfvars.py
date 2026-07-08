@@ -28,6 +28,24 @@ class HclTfvarsRenderTest(unittest.TestCase):
             hcl_tfvars.HEADER + "\nitems = {}\n",
         )
 
+    def test_namespaced_var_name(self):
+        self.assertEqual(
+            hcl_tfvars.render_tfvars_hcl(
+                {"rule": {"name": "Rule"}},
+                var_name="sample_resource_items",
+            ),
+            hcl_tfvars.HEADER + "\n"
+            "sample_resource_items = {\n"
+            "  \"rule\" = {\n"
+            "    name = \"Rule\"\n"
+            "  }\n"
+            "}\n",
+        )
+
+    def test_var_name_must_be_bare_identifier(self):
+        with self.assertRaises(ValueError):
+            hcl_tfvars.render_tfvars_hcl({}, var_name="bad-name")
+
     def test_mixed_scalar_types(self):
         items = {
             "rule": {

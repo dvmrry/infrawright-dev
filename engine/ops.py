@@ -16,22 +16,20 @@ import sys
 from engine import deployment
 from engine import packs
 from engine.artifacts import (
-    EXPRESSION_BINDINGS_SUFFIX,
     IMPORTS_SUFFIX,
     MOVES_SUFFIX,
+    all_root_labels,
     config_file,
-    env_root,
-    env_root_under,
+    env_root_for_label,
     expand_resources,
-    expression_bindings_file,
     imports_file,
     moves_file,
-    tenant_env_dir,
-    validate_resource_type,
+    root_label,
+    root_members,
     validate_tenant,
 )
 from engine.filter_imports import filter_imports
-from engine.registry import derived_types, generated_types
+from engine.registry import derived_types
 
 
 def terraform():
@@ -45,10 +43,15 @@ def _env_base_candidates():
     return ["envs"]
 
 
-def discover_env_pairs(tenant=None):
-    """Return sorted (tenant, resource_type, env_dir) with generated roots."""
-    generated = set(generated_types())
-    pairs = []
+WHOLE_ROOT_SELECTION_NOTE = (
+    "NOTE: selecting %s selects whole root %s; also operating on %s\n"
+)
+
+
+def discover_env_roots(tenant=None):
+    """Return sorted (tenant, label, env_dir, member_types) with generated roots."""
+    labels = set(all_root_labels())
+    roots = []
     bases = [deployment.envs_dir(tenant)] if tenant else _env_base_candidates()
     for base in bases:
         if not os.path.isdir(base):
@@ -65,22 +68,79 @@ def discover_env_pairs(tenant=None):
             tenant_dir = tenant_dirs[tenant_name]
             if not os.path.isdir(tenant_dir):
                 continue
-            for resource_type in sorted(os.listdir(tenant_dir)):
-                path = os.path.join(tenant_dir, resource_type)
-                if resource_type in generated and os.path.isdir(path):
-                    pairs.append((tenant_name, resource_type, path))
+            for label in sorted(os.listdir(tenant_dir)):
+                path = os.path.join(tenant_dir, label)
+                if label in labels and os.path.isdir(path):
+                    roots.append((
+                        tenant_name,
+                        label,
+                        path,
+                        tuple(root_members(label)),
+                    ))
+    return [
+        (tenant_name, label, path, list(member_types))
+        for tenant_name, label, path, member_types in sorted(set(roots))
+    ]
+
+
+def discover_env_pairs(tenant=None):
+    """Return sorted (tenant, resource_type, env_dir) with generated roots."""
+    pairs = []
+    for tenant_name, _label, path, member_types in discover_env_roots(tenant):
+        for resource_type in member_types:
+            pairs.append((tenant_name, resource_type, path))
     return sorted(set(pairs))
 
 
+def _note_whole_root_selection(selected_members, label, members):
+    selected_members = sorted(selected_members)
+    other_members = sorted(set(members) - set(selected_members))
+    if not selected_members or not other_members:
+        return
+    sys.stderr.write(
+        WHOLE_ROOT_SELECTION_NOTE
+        % (", ".join(selected_members), label, ", ".join(other_members))
+    )
+
+
+def _selected_root_specs(selectors=None):
+    if selectors:
+        selected = set(expand_resources(selectors or []))
+        labels = sorted(set(root_label(resource_type)
+                            for resource_type in selected))
+    else:
+        selected = None
+        labels = all_root_labels()
+    out = []
+    for label in labels:
+        members = root_members(label)
+        if selected is not None:
+            _note_whole_root_selection(set(members) & selected, label, members)
+        out.append((label, members))
+    return out
+
+
 def selected_env_pairs(tenant=None, selectors=None, require_plan=False):
+    out = []
+    for tenant_name, _label, path, member_types in selected_env_roots(
+            tenant, selectors, require_plan=require_plan):
+        for resource_type in member_types:
+            out.append((tenant_name, resource_type, path))
+    return out
+
+
+def selected_env_roots(tenant=None, selectors=None, require_plan=False):
     selected = set(expand_resources(selectors or [])) if selectors else None
     out = []
-    for tenant_name, resource_type, path in discover_env_pairs(tenant):
-        if selected is not None and resource_type not in selected:
-            continue
+    for tenant_name, label, path, member_types in discover_env_roots(tenant):
+        if selected is not None:
+            selected_members = set(member_types) & selected
+            if not selected_members:
+                continue
+            _note_whole_root_selection(selected_members, label, member_types)
         if require_plan and not os.path.exists(os.path.join(path, "tfplan")):
             continue
-        out.append((tenant_name, resource_type, path))
+        out.append((tenant_name, label, path, member_types))
     return out
 
 
@@ -343,63 +403,66 @@ def _print_findings(findings, guidance_annotations=None):
 def cmd_stage_imports(opts):
     tenant = opts["tenant"]
     validate_tenant(tenant)
-    selected = expand_resources(opts["selectors"])
     staged = 0
     sources = 0
-    for resource_type in selected:
-        env_dir = env_root(tenant, resource_type)
-        for source in (imports_file(tenant, resource_type), moves_file(tenant, resource_type)):
-            if not os.path.exists(source):
-                continue
-            sources += 1
-            base = os.path.basename(source)
-            if not os.path.isdir(env_dir):
-                sys.stderr.write(
-                    "skip %s (no env root %s - run make gen-env)\n"
-                    % (base, env_dir)
-                )
-                continue
-            dest = os.path.join(env_dir, base)
-            if source.endswith(IMPORTS_SUFFIX) and opts["state_aware"]:
-                _check_backend(env_dir, resource_type, opts["backend_config"])
-                _check_call(
-                    _init_args(
-                        env_dir, tenant, resource_type,
-                        backend_config=opts["backend_config"],
-                    ),
-                    stdout=subprocess.DEVNULL,
-                )
-                state = subprocess.run(
-                    [terraform(), "-chdir=" + env_dir, "state", "list"],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    check=False,
-                )
-                addresses = (
-                    state.stdout.decode("utf-8").splitlines()
-                    if state.returncode == 0 else []
-                )
-                with open(source, encoding="utf-8") as f:
-                    text, kept, skipped = filter_imports(f.read(), addresses)
-                if text:
-                    with open(dest, "w", encoding="utf-8") as f:
-                        f.write(text)
+    for label, member_types in _selected_root_specs(opts["selectors"]):
+        env_dir = env_root_for_label(tenant, label)
+        for resource_type in member_types:
+            for source in (
+                    imports_file(tenant, resource_type),
+                    moves_file(tenant, resource_type),
+            ):
+                if not os.path.exists(source):
+                    continue
+                sources += 1
+                base = os.path.basename(source)
+                if not os.path.isdir(env_dir):
                     sys.stderr.write(
-                        "%d import(s) kept, %d already managed (skipped)\n"
-                        % (kept, skipped)
-                    )
-                else:
-                    if os.path.exists(dest):
-                        os.remove(dest)
-                    sys.stderr.write(
-                        "skip %s (every import already managed - delta is empty)\n"
-                        % base
+                        "skip %s (no env root %s - run make gen-env)\n"
+                        % (base, env_dir)
                     )
                     continue
-            else:
-                shutil.copyfile(source, dest)
-            sys.stderr.write("staged %s\n" % dest)
-            staged += 1
+                dest = os.path.join(env_dir, base)
+                if source.endswith(IMPORTS_SUFFIX) and opts["state_aware"]:
+                    _check_backend(env_dir, label, opts["backend_config"])
+                    _check_call(
+                        _init_args(
+                            env_dir, tenant, label,
+                            backend_config=opts["backend_config"],
+                        ),
+                        stdout=subprocess.DEVNULL,
+                    )
+                    state = subprocess.run(
+                        [terraform(), "-chdir=" + env_dir, "state", "list"],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                    )
+                    addresses = (
+                        state.stdout.decode("utf-8").splitlines()
+                        if state.returncode == 0 else []
+                    )
+                    with open(source, encoding="utf-8") as f:
+                        text, kept, skipped = filter_imports(f.read(), addresses)
+                    if text:
+                        with open(dest, "w", encoding="utf-8") as f:
+                            f.write(text)
+                        sys.stderr.write(
+                            "%d import(s) kept, %d already managed (skipped)\n"
+                            % (kept, skipped)
+                        )
+                    else:
+                        if os.path.exists(dest):
+                            os.remove(dest)
+                        sys.stderr.write(
+                            "skip %s (every import already managed - delta is empty)\n"
+                            % base
+                        )
+                        continue
+                else:
+                    shutil.copyfile(source, dest)
+                sys.stderr.write("staged %s\n" % dest)
+                staged += 1
     if sources == 0:
         raise RuntimeError(
             "nothing to stage for TENANT=%s "
@@ -416,13 +479,15 @@ def cmd_unstage_imports(opts):
     tenant = opts["tenant"]
     validate_tenant(tenant)
     removed = 0
-    for _tenant, resource_type, path in selected_env_pairs(tenant, opts["selectors"]):
-        for suffix in (IMPORTS_SUFFIX, MOVES_SUFFIX):
-            target = os.path.join(path, resource_type + suffix)
-            if os.path.exists(target):
-                os.remove(target)
-                sys.stderr.write("removed %s\n" % target)
-                removed += 1
+    for _tenant, _label, path, member_types in selected_env_roots(
+            tenant, opts["selectors"]):
+        for resource_type in member_types:
+            for suffix in (IMPORTS_SUFFIX, MOVES_SUFFIX):
+                target = os.path.join(path, resource_type + suffix)
+                if os.path.exists(target):
+                    os.remove(target)
+                    sys.stderr.write("removed %s\n" % target)
+                    removed += 1
     sys.stderr.write("%d file(s) removed\n" % removed)
     return 0
 
@@ -432,28 +497,44 @@ def cmd_plan(opts):
     validate_tenant(tenant)
     skipped_derived = set(derived_types()) if opts["imports_only"] else set()
     planned = 0
-    for _tenant, resource_type, path in selected_env_pairs(tenant, opts["selectors"]):
-        if resource_type in skipped_derived:
+    for _tenant, label, path, member_types in selected_env_roots(
+            tenant, opts["selectors"]):
+        derived_members = sorted(set(member_types) & skipped_derived)
+        if derived_members:
             sys.stderr.write(
-                "skip %s (IMPORTS_ONLY: derived/non-importable)\n" % resource_type
+                "skip %s (IMPORTS_ONLY: derived/non-importable member %s)\n"
+                % (label, ", ".join(derived_members))
             )
             continue
-        var_file = config_file(tenant, resource_type)
-        if not os.path.exists(var_file):
-            sys.stderr.write("skip %s (no %s)\n" % (resource_type, var_file))
+        var_files = []
+        missing = []
+        for resource_type in member_types:
+            var_file = config_file(tenant, resource_type)
+            if os.path.exists(var_file):
+                var_files.append(var_file)
+            else:
+                missing.append(var_file)
+        if not var_files:
+            for var_file in missing:
+                sys.stderr.write("skip %s (no %s)\n" % (label, var_file))
             continue
-        _check_backend(path, resource_type, opts["backend_config"])
-        sys.stderr.write("== plan %s\n" % resource_type)
+        if missing:
+            raise RuntimeError(
+                "root %s is missing member config(s): %s - run "
+                "make transform or make adopt for every group member first"
+                % (label, ", ".join(missing))
+            )
+        _check_backend(path, label, opts["backend_config"])
+        sys.stderr.write("== plan %s\n" % label)
         _check_call(
             _init_args(
-                path, tenant, resource_type, backend_config=opts["backend_config"]
+                path, tenant, label, backend_config=opts["backend_config"]
             ),
             stdout=subprocess.DEVNULL,
         )
-        args = [
-            terraform(), "-chdir=" + path, "plan", "-input=false",
-            "-var-file=" + os.path.abspath(var_file),
-        ]
+        args = [terraform(), "-chdir=" + path, "plan", "-input=false"]
+        for var_file in var_files:
+            args.append("-var-file=" + os.path.abspath(var_file))
         if opts["save"]:
             args.append("-out=tfplan")
         _check_call(args)
@@ -468,7 +549,7 @@ def cmd_plan(opts):
 def cmd_assert_clean(opts):
     checked = 0
     dirty = 0
-    for tenant, resource_type, path in selected_env_pairs(
+    for tenant, label, path, _member_types in selected_env_roots(
             opts.get("tenant"), opts["selectors"], require_plan=True):
         plan = _show_plan_json(path)
         changes = _non_import_change_count(plan)
@@ -476,7 +557,7 @@ def cmd_assert_clean(opts):
         if changes:
             sys.stderr.write(
                 "NOT CLEAN: %s/%s plan contains %d change(s) beyond imports\n"
-                % (tenant, resource_type, changes)
+                % (tenant, label, changes)
             )
             dirty += 1
     if checked == 0:
@@ -498,22 +579,26 @@ def cmd_assert_adoptable(opts):
     blocked = 0
     tolerated = 0
     checked_types = set()
-    for tenant, resource_type, path in selected_env_pairs(
+    for tenant, label, path, member_types in selected_env_roots(
             opts.get("tenant"), opts["selectors"], require_plan=True):
         plan = _show_plan_json(path)
         result = classify_plan(plan, policy=policy)
         checked += 1
-        checked_types.add(resource_type)
+        checked_types.update(member_types)
         if result["status"] == BLOCKED:
             blocked += 1
-            sys.stderr.write("BLOCKED: %s/%s\n" % (tenant, resource_type))
+            sys.stderr.write("BLOCKED: %s/%s\n" % (tenant, label))
+            guidance_annotations = []
+            for resource_type in member_types:
+                guidance_annotations.extend(
+                    _guidance_annotations(plan, resource_type))
             _print_findings(
                 result["findings"],
-                guidance_annotations=_guidance_annotations(plan, resource_type),
+                guidance_annotations=guidance_annotations,
             )
         elif result["status"] == TOLERATED:
             tolerated += 1
-            sys.stderr.write("TOLERATED: %s/%s\n" % (tenant, resource_type))
+            sys.stderr.write("TOLERATED: %s/%s\n" % (tenant, label))
             _print_findings(result["findings"])
     if checked == 0:
         raise RuntimeError("no saved plans to check - run make plan SAVE=1 first")
@@ -536,7 +621,8 @@ def cmd_assert_adoptable(opts):
 
 def cmd_clean_plans(opts):
     removed = 0
-    for _tenant, _resource_type, path in selected_env_pairs(opts.get("tenant"), opts["selectors"]):
+    for _tenant, _label, path, _member_types in selected_env_roots(
+            opts.get("tenant"), opts["selectors"]):
         plan = os.path.join(path, "tfplan")
         if os.path.exists(plan):
             os.remove(plan)
@@ -585,13 +671,13 @@ def cmd_apply(opts):
             "drift.\n"
         )
     applied = 0
-    for tenant, resource_type, path in selected_env_pairs(
+    for tenant, label, path, _member_types in selected_env_roots(
             opts.get("tenant"), opts["selectors"], require_plan=True):
-        sys.stderr.write("== apply %s/%s\n" % (tenant, resource_type))
-        _check_backend(path, resource_type, opts["backend_config"])
+        sys.stderr.write("== apply %s/%s\n" % (tenant, label))
+        _check_backend(path, label, opts["backend_config"])
         _check_call(
             _init_args(
-                path, tenant, resource_type, backend_config=opts["backend_config"]
+                path, tenant, label, backend_config=opts["backend_config"]
             ),
             stdout=subprocess.DEVNULL,
         )
@@ -601,7 +687,7 @@ def cmd_apply(opts):
         if result["status"] == BLOCKED and destroys and not opts["allow_destroy"]:
             raise RuntimeError(
                 "%s/%s saved plan destroys (or replaces) %d resource(s) - refused"
-                % (tenant, resource_type, destroys)
+                % (tenant, label, destroys)
             )
         if result["status"] == BLOCKED and not opts["allow_plan_changes"]:
             raise RuntimeError(
@@ -609,17 +695,17 @@ def cmd_apply(opts):
                 "Run assert-adoptable for review, pass POLICY=<file> for "
                 "explicit tolerated drift, or use --allow-plan-changes only as "
                 "a broad unsafe override."
-                % (tenant, resource_type)
+                % (tenant, label)
             )
         if result["status"] == TOLERATED:
             sys.stderr.write(
                 "TOLERATED: %s/%s saved plan has consumer-tolerated drift\n"
-                % (tenant, resource_type)
+                % (tenant, label)
             )
         elif result["status"] == BLOCKED:
             sys.stderr.write(
                 "WARNING: applying BLOCKED %s/%s saved plan because "
-                "--allow-plan-changes was set\n" % (tenant, resource_type)
+                "--allow-plan-changes was set\n" % (tenant, label)
             )
         _check_call([terraform(), "-chdir=" + path, "apply", "-input=false", "tfplan"])
         os.remove(os.path.join(path, "tfplan"))

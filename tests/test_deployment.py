@@ -87,6 +87,56 @@ class DeploymentResolverTest(unittest.TestCase):
         self.assertIn("deployment.json", msg)
         self.assertIn("yaml", msg)
 
+    def test_roots_config_absent_defaults_empty(self):
+        self.assertEqual(deployment.roots_config(), {})
+
+    def test_roots_config_accepts_valid_shape(self):
+        roots = {
+            "zpa": {
+                "strategy": "slug",
+                "groups": {
+                    "zpa_app": [
+                        "zpa_segment_group",
+                        "zpa_server_group",
+                    ],
+                },
+                "bind_references": True,
+            },
+        }
+        self._write({"roots": roots})
+        self.assertEqual(deployment.roots_config(), roots)
+
+    def test_roots_config_rejects_bad_shape(self):
+        cases = [
+            ({"roots": []}, "roots must be an object"),
+            ({"roots": {"zpa": []}}, "roots.zpa must be an object"),
+            ({"roots": {"zpa": {"unknown": True}}}, "unknown key unknown"),
+            ({"roots": {"zpa": {"strategy": "magic"}}}, "strategy"),
+            ({"roots": {"zpa": {"bind_references": "yes"}}}, "bind_references"),
+            ({"roots": {"zpa": {"groups": []}}}, "groups must be an object"),
+            (
+                {"roots": {"zpa": {"groups": {"bad-label": ["zpa_segment_group"]}}}},
+                "group labels must match",
+            ),
+            (
+                {"roots": {"zpa": {"groups": {"zpa_app": "zpa_segment_group"}}}},
+                "must be a list",
+            ),
+            (
+                {"roots": {"zpa": {"groups": {"zpa_app": []}}}},
+                "must not be empty",
+            ),
+            (
+                {"roots": {"zpa": {"groups": {"zpa_app": [None]}}}},
+                "must be a non-empty string",
+            ),
+        ]
+        for data, needle in cases:
+            self._write(data)
+            with self.assertRaises(ValueError) as ctx:
+                deployment.roots_config()
+            self.assertIn(needle, str(ctx.exception))
+
     def test_malformed_raises(self):
         self._write("{ not json")
         with self.assertRaises(ValueError):

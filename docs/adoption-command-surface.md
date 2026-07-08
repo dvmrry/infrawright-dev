@@ -68,6 +68,65 @@ opposite-format artifact so Terraform never auto-loads both. HCL inline comments
 are generated from pack reference metadata and lookup sidecars, not from
 operator-authored files.
 
+## Grouped Env Roots
+
+By default each generated resource type gets its own env root:
+`envs/<tenant>/<resource_type>/`. Deployments may opt in to grouped roots with
+a `roots` block in `deployment.json`:
+
+```json
+{
+  "roots": {
+    "zpa": {
+      "strategy": "slug",
+      "groups": {
+        "zpa_app": [
+          "zpa_segment_group",
+          "zpa_server_group",
+          "zpa_application_segment"
+        ]
+      },
+      "bind_references": false
+    }
+  }
+}
+```
+
+`roots` keys are provider names declared by pack `provider_prefixes` values. A
+provider entry supports:
+
+| Key | Meaning |
+|---|---|
+| `strategy` | `"explicit"` or `"slug"`; absent means `"explicit"`. |
+| `groups` | Optional map of `<root_label>` to resource type list. Listed members share `envs/<tenant>/<root_label>/`. |
+| `bind_references` | Optional boolean, default `false`; validated here and reserved for generated group-local reference bindings. |
+
+Explicit `groups` always win for their listed members. With `strategy: "slug"`,
+remaining resource types are grouped by provider prefix plus the first token
+after the prefix: `zpa_application_segment` maps to `zpa_application`. Slug
+groups with only one member collapse back to the ungrouped resource-type root,
+so enabling slug grouping does not create singleton topology churn.
+
+Grouped root members still keep per-resource config and import filenames.
+Inside the shared root, each grouped member uses a namespaced tfvars variable
+such as `zpa_segment_group_items`; ungrouped roots continue to use `items`.
+
+Operations are whole-root. Selecting any member of a grouped root selects the
+entire root, because Terraform state cannot safely apply part of one root. The
+CLI prints:
+
+```text
+NOTE: selecting <member> selects whole root <root_label>; also operating on <other_members>
+```
+
+`stage-imports` copies every selected root member's
+`<resource_type>_imports.tf` and `<resource_type>_moves.tf` into the shared root.
+`plan` passes one `-var-file` for each member config file that exists and emits
+a skip note for missing member config. `assert-clean`, `assert-adoptable`,
+`clean-plans`, and `apply` operate once per root plan.
+
+Group membership is fixed at first import. Changing it later means a fresh re-bootstrap of the affected types into new state — there is no regroup tooling, by design.
+
 ## Provider Readiness And Probe Commands
 
 These commands support pack onboarding and API/schema evidence. They are not
