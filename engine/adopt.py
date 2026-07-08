@@ -71,10 +71,17 @@ def write_outputs(resource_type, raw_items, tenant, policy):
 
     items, originals = adopt_items(raw_items, resource_type, policy=policy)
     if resource_type in lookup.lookup_sources():
-        lookup_path = lookup.write_lookup(
-            tenant, resource_type,
-            [originals[key] for key in sorted(originals)]
-        )
+        # Sidecar entries merge identity (for the id) with the PROJECTED
+        # provider-state item: name_to_id is keyed by the provider-state
+        # name, and raw API text can diverge from it (e.g. HTML-escaped
+        # readback). Keys absent from the oracle are not managed and are
+        # excluded, matching the survivors-only sidecar contract.
+        lookup_items = []
+        for key in sorted(items):
+            merged = dict(originals.get(key) or {})
+            merged.update(items[key])
+            lookup_items.append(merged)
+        lookup_path = lookup.write_lookup(tenant, resource_type, lookup_items)
         sys.stderr.write("wrote %s\n" % lookup_path)
 
     imports_path = artifacts.imports_file(tenant, resource_type)
