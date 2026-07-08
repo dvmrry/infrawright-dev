@@ -691,14 +691,19 @@ def transform_items(raw_items, resource_type, override):
     return items, originals, reported
 
 
-def lookup_survivor_items(raw_items, resource_type, override):
+def lookup_sidecar_items(items, originals):
+    """Merge survivor identity with projected values for lookup sidecars.
+
+    The identity/original item contributes the provider id; the projected
+    item contributes display fields after overrides, filtering, and coercion.
+    This mirrors adopt.write_outputs, so transform and adopt sidecars agree
+    for the same managed survivor set.
+    """
     survivors = []
-    for raw in raw_items:
-        snake_raw = snake_keys(raw)
-        _unescape_html_fields(snake_raw, resource_type, override)
-        if _skip_item(snake_raw, override):
-            continue
-        survivors.append(snake_raw)
+    for key in sorted(items):
+        merged = dict(originals.get(key) or {})
+        merged.update(items[key])
+        survivors.append(merged)
     return survivors
 
 
@@ -1096,7 +1101,7 @@ def main(argv=None):
     if resource_type in lookup.lookup_sources():
         lookup_path = lookup.write_lookup(
             tenant, resource_type,
-            lookup_survivor_items(raw_items, resource_type, override)
+            lookup_sidecar_items(items, originals)
         )
         sys.stderr.write("wrote %s\n" % lookup_path)
     tfvars_path = artifacts.config_file(tenant, resource_type)
