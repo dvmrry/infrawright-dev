@@ -1,4 +1,5 @@
 import os
+import json
 import subprocess
 import tempfile
 import unittest
@@ -82,6 +83,42 @@ class MakefileOverlayTest(unittest.TestCase):
             modules = proc.stdout.index("engine.gen_module --check-output")
             tfvars = proc.stdout.index("check-tfvars-fmt")
             self.assertLess(modules, tfvars)
+
+    def test_deployment_export_reaches_engine_invocations(self):
+        with tempfile.TemporaryDirectory() as td:
+            missing_overlay = os.path.join(td, "missing")
+            hcl_dep = os.path.join(td, "hcl-deployment.json")
+            json_dep = os.path.join(td, "json-deployment.json")
+            with open(hcl_dep, "w", encoding="utf-8") as f:
+                json.dump({"overlay": td, "tfvars_format": "hcl"}, f)
+            with open(json_dep, "w", encoding="utf-8") as f:
+                json.dump({"overlay": td, "tfvars_format": "json"}, f)
+            probe = (
+                "--eval=probe:; @$(PYTHON) -c "
+                "\"from engine import deployment; "
+                "print(deployment.tfvars_format())\""
+            )
+            env = os.environ.copy()
+            env.pop("INFRAWRIGHT_DEPLOYMENT", None)
+
+            proc = _run_make([
+                "--no-print-directory",
+                "OVERLAY=%s" % missing_overlay,
+                "DEPLOYMENT=%s" % hcl_dep,
+                probe,
+                "probe",
+            ], env=env)
+            self.assertEqual(proc.stdout, "hcl\n")
+
+            env["INFRAWRIGHT_DEPLOYMENT"] = json_dep
+            proc = _run_make([
+                "--no-print-directory",
+                "OVERLAY=%s" % missing_overlay,
+                "DEPLOYMENT=%s" % hcl_dep,
+                probe,
+                "probe",
+            ], env=env)
+            self.assertEqual(proc.stdout, "json\n")
 
 
 if __name__ == "__main__":

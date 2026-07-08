@@ -125,7 +125,8 @@ class RenderRestTest(unittest.TestCase):
         self.assertIn("value = zpa_segment_group.this", out)
         self.assertIn('output "name_to_id" {', out)
         self.assertIn(
-            "value = { for k, v in zpa_segment_group.this : v.name => v.id }", out
+            "value       = { for k, v in zpa_segment_group.this : "
+            "v.name => v.id... }", out
         )
 
     def test_outputs_omits_name_map_without_name(self):

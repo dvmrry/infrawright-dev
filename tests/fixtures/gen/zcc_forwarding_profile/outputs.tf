@@ -8,5 +8,5 @@ output "items" {
 
 output "name_to_id" {
   description = "Map of resource name to provider-assigned id."
-  value       = { for k, v in zcc_forwarding_profile.this : v.name => v.id }
+  value       = { for k, v in zcc_forwarding_profile.this : v.name => v.id... }
 }

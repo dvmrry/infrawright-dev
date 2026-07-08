@@ -644,8 +644,9 @@ class CLISmokeTest(unittest.TestCase):
         result = subprocess.run(
             cmd,
             cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            capture_output=True,
-            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
         )
         return result
 

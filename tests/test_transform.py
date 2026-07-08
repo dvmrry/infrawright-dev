@@ -6,6 +6,11 @@ import sys
 import tempfile
 import unittest
 
+from engine import group_bindings
+from engine import hcl_tfvars
+from engine import lookup
+from engine import packs
+import engine.transform as transform_mod
 from engine.transform import (
     OVERRIDE_KEYS,
     _warn_if_slim,
@@ -1359,6 +1364,16 @@ class MovedBlocksTest(unittest.TestCase):
 class MovedBlocksEndToEndTest(unittest.TestCase):
     TENANT = "tmpmovestest"
 
+    def setUp(self):
+        self.saved_dep = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = os.devnull
+
+    def tearDown(self):
+        if self.saved_dep is None:
+            os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+        else:
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = self.saved_dep
+
     def _imports_dir(self, resource_type):
         from engine import deployment
         return deployment.imports_dir(self.TENANT)
@@ -1773,6 +1788,106 @@ class SkipIfTest(unittest.TestCase):
         raw = [{"id": "1", "name": "A"}]
         items, _, _ = transform_items(raw, "zpa_segment_group", {})
         self.assertIn("a", items)
+
+    def test_lookup_sidecar_uses_post_skip_survivors(self):
+        tmp = tempfile.mkdtemp(prefix="transform-lookup-survivors-")
+        prev_dep = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+        prev_load_override = transform_mod.load_override
+        prev_lookup_sources = packs.lookup_sources
+        prev_references = packs.references
+        prev_reference_manifest = lookup.reference_manifest
+        try:
+            dep = os.path.join(tmp, "deployment.json")
+            with open(dep, "w", encoding="utf-8") as f:
+                json.dump({
+                    "overlay": tmp,
+                    "roots": {
+                        "zpa": {
+                            "groups": {
+                                "zpa_custom": [
+                                    "zpa_application_segment",
+                                    "zpa_segment_group",
+                                ],
+                            },
+                            "bind_references": True,
+                        },
+                    },
+                }, f)
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+            transform_mod.load_override = (
+                lambda resource_type: {"skip_if": [{"system": True}]}
+            )
+            packs.lookup_sources = lambda: {
+                "zpa_segment_group": {"name_field": "name"},
+            }
+            refs = {
+                "zpa_application_segment": {
+                    "segment_group_id": {
+                        "name_field": "name",
+                        "referent": "zpa_segment_group",
+                    },
+                },
+            }
+            packs.references = lambda: refs
+            lookup.reference_manifest = lambda: refs
+            src = os.path.join(tmp, "zpa_segment_group.json")
+            with open(src, "w", encoding="utf-8") as f:
+                json.dump([
+                    {
+                        "id": "sg-skip",
+                        "name": "System Group",
+                        "system": True,
+                    },
+                    {
+                        "id": "sg-keep",
+                        "name": "Managed Group",
+                        "system": False,
+                    },
+                ], f)
+
+            self.assertEqual(
+                transform_mod.main(["zpa_segment_group", src, "tenant"]),
+                0,
+            )
+
+            with open(
+                lookup.lookup_path("tenant", "zpa_segment_group"),
+                encoding="utf-8",
+            ) as f:
+                mapping = json.load(f)
+            self.assertEqual(mapping, {"sg-keep": "Managed Group"})
+
+            stderr = io.StringIO()
+            old_err = sys.stderr
+            sys.stderr = stderr
+            try:
+                data = group_bindings.derive(
+                    "zpa_application_segment",
+                    {"app": {"segment_group_id": "sg-skip"}},
+                    "tenant",
+                )
+            finally:
+                sys.stderr = old_err
+            self.assertEqual(data, {"resources": {}})
+            self.assertIn("id_absent=1", stderr.getvalue())
+            self.assertEqual(
+                hcl_tfvars.derive_comments(
+                    "zpa_application_segment",
+                    {"app": {"segment_group_id": "sg-skip"}},
+                    "tenant",
+                ),
+                {("app", "segment_group_id"): lookup.UNKNOWN},
+            )
+        finally:
+            transform_mod.load_override = prev_load_override
+            packs.lookup_sources = prev_lookup_sources
+            packs.references = prev_references
+            lookup.reference_manifest = prev_reference_manifest
+            if prev_dep is None:
+                os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+            else:
+                os.environ["INFRAWRIGHT_DEPLOYMENT"] = prev_dep
+            __import__("shutil").rmtree(tmp, ignore_errors=True)
 
 
 

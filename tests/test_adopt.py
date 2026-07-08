@@ -28,6 +28,9 @@ class AdoptCommandTest(unittest.TestCase):
         os.environ["INFRAWRIGHT_PACKS"] = os.path.join(self.tmp, "packs")
         os.makedirs(os.path.join(self.tmp, "packs", "sample"), exist_ok=True)
         _write_json(os.path.join(self.tmp, "packs", "sample", "pack.json"), {
+            "lookup_sources": {
+                "sample_resource": {"name_field": "name"},
+            },
             "provider_prefixes": {"sample_": "sample"},
             "provider_sources": {"sample": "example/sample"},
         })
@@ -136,6 +139,48 @@ class AdoptCommandTest(unittest.TestCase):
                 encoding="utf-8",
         ) as f:
             self.assertEqual(f.read(), "")
+
+    def test_lookup_sidecar_uses_post_skip_identity_survivors(self):
+        _write_json(os.path.join(self.tmp, "packs", "sample", "registry.json"), {
+            "sample_resource": {
+                "generate": True,
+                "product": "sample",
+                "adopt": {
+                    "key_field": "name",
+                    "import_id": "{id}",
+                    "skip_if": [{"system": True}],
+                },
+            }
+        })
+        registry.reload_registry()
+        input_path = os.path.join(self.tmp, "api.json")
+        _write_json(input_path, [
+            {"id": "skip-1", "name": "System", "system": True},
+            {"id": "keep-1", "name": "Managed", "system": False},
+        ])
+
+        def fake_import_state(resource_type, key_to_import_id):
+            self.assertEqual(key_to_import_id, {"managed": "keep-1"})
+            return {
+                "managed": {
+                    "values": {"name": "Managed"},
+                    "sensitive_values": {},
+                }
+            }
+
+        def fake_project_item(resource_type, state_values,
+                              sensitive_values=None, policy=None):
+            return {"name": state_values["name"]}
+
+        adopt.import_state = fake_import_state
+        adopt.project_item = fake_project_item
+        self.assertEqual(adopt.main(["sample_resource", input_path, "tenant"]), 0)
+
+        with open(
+                os.path.join("config", "tenant", "sample_resource.lookup.json"),
+                encoding="utf-8",
+        ) as f:
+            self.assertEqual(json.load(f), {"keep-1": "Managed"})
 
     def test_hcl_deployment_writes_hcl_config_and_removes_stale_json(self):
         from engine import hcl_tfvars

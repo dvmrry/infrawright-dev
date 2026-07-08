@@ -20,6 +20,8 @@ REASON_NONUNIQUE_NAME = "nonunique_name"
 REASON_NAME_TO_ID_UNAVAILABLE = "name_to_id_unavailable"
 REASON_UNSAFE_NAME = "unsafe_name"
 REASON_UNBINDABLE_LIST = "unbindable_list"
+REASON_SELF_REFERENCE = "self_reference"
+REASON_NESTED_FIELD_UNSUPPORTED = "nested_field_unsupported"
 
 
 def _empty():
@@ -38,7 +40,13 @@ def _roots_binding_enabled(resource_type):
     return bool((roots.get(provider) or {}).get("bind_references", False))
 
 
+def bindings_enabled(resource_type):
+    return _roots_binding_enabled(resource_type)
+
+
 def _same_group(resource_type, referent):
+    if resource_type == referent:
+        return False
     generated = set(generated_types())
     derived = set(derived_types())
     if resource_type in derived or referent in derived:
@@ -49,15 +57,33 @@ def _same_group(resource_type, referent):
 
 
 def _candidate_fields(resource_type):
+    fields, _skipped_fields = _candidate_field_decisions(resource_type)
+    return fields
+
+
+def _candidate_field_decisions(resource_type):
     if not _roots_binding_enabled(resource_type):
-        return {}
+        return {}, {}
     refs = lookup.reference_manifest().get(resource_type) or {}
     out = {}
+    skipped = {}
     for field, spec in sorted(refs.items()):
+        if "." in field:
+            skipped[field] = (
+                REASON_NESTED_FIELD_UNSUPPORTED,
+                "nested reference fields are unsupported",
+            )
+            continue
         referent = spec.get("referent")
+        if resource_type == referent:
+            skipped[field] = (
+                REASON_SELF_REFERENCE,
+                "self-referential bindings would create a Terraform cycle",
+            )
+            continue
         if referent and _same_group(resource_type, referent):
             out[field] = spec
-    return out
+    return out, skipped
 
 
 def _field_values(items, field):
@@ -126,7 +152,11 @@ def _resolve_expr(resource_type, key, path, value, referent, mapping, by_name,
             "display name %r contains a template interpolation" % display,
         )
         return None
-    return "module.%s.name_to_id[%s]" % (
+    # name_to_id groups duplicate live names as lists. Generation-time lookup
+    # uniqueness means a generated binding targets a 1-element list; if a
+    # duplicate appears later, [0] keeps the root plannable and assert-adoptable
+    # blocks the resulting ID diff.
+    return "module.%s.name_to_id[%s][0]" % (
         referent,
         transform.hcl_string_literal(display),
     )
@@ -150,13 +180,22 @@ def _summary(resource_type, bound, skipped, reason_counts):
 
 def derive(resource_type, items, tenant, config_root=None):
     """Return expression-bindings JSON for same-root reference fields."""
-    fields = _candidate_fields(resource_type)
-    if not fields:
-        return _empty()
+    fields, skipped_fields = _candidate_field_decisions(resource_type)
     resources = {}
     bound = 0
     skipped = 0
     reason_counts = {}
+    for field, (reason, detail) in sorted(skipped_fields.items()):
+        candidates = _field_values(items, field)
+        if not candidates:
+            continue
+        reason_counts[reason] = reason_counts.get(reason, 0) + len(candidates)
+        skipped += len(candidates)
+        _note("%s.%s skipped; %s" % (resource_type, field, detail))
+    if not fields:
+        if skipped:
+            _summary(resource_type, bound, skipped, reason_counts)
+        return _empty()
     for field, spec in sorted(fields.items()):
         referent = spec["referent"]
         candidates = _field_values(items, field)

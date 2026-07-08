@@ -8,5 +8,5 @@ output "items" {
 
 output "name_to_id" {
   description = "Map of resource name to provider-assigned id."
-  value       = { for k, v in zpa_server_group.this : v.name => v.id }
+  value       = { for k, v in zpa_server_group.this : v.name => v.id... }
 }

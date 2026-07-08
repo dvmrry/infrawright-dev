@@ -131,9 +131,17 @@ resource tfvars. Env generation loads generated bindings first and then
 operator-authored `config/<tenant>/<resource_type>.expressions.json`, so a
 hand-written binding wins for the same resource path. Generated bindings only
 target same-root references and resolve them through sibling module outputs:
-`module.<referent_type>.name_to_id["<display_name>"]`.
+`module.<referent_type>.name_to_id["<display_name>"][0]`.
 
 Bindings are explicit generated artifacts; tfvars keep the raw IDs and readback still round-trips.
+
+### Binding Validation Limits
+
+When `tfvars_format: hcl` is active, operator-authored expression sidecars are
+validated by Terraform/OpenTofu at plan time only. The engine does not parse HCL
+tfvars back into data; generated bindings are leaf-exact by construction before
+the HCL file is written. Generated reference binding derivation supports only
+top-level reference fields. Dotted or nested referent paths are not derived.
 
 Generated binding skip/fallback semantics:
 

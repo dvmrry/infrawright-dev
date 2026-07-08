@@ -212,7 +212,8 @@ def render_outputs(resource_type, resource_schema):
         out += (
             '\noutput "name_to_id" {\n'
             + '  description = "Map of resource name to provider-assigned id."\n'
-            + "  value = { for k, v in %s.this : v.name => v.id }\n}\n" % resource_type
+            + "  value       = { for k, v in %s.this : v.name => v.id... }\n}\n"
+            % resource_type
         )
     return out
 

@@ -169,25 +169,8 @@ class ExpressionBindingsTest(unittest.TestCase):
             "resources": {
                 "sample_resource.prod": {
                     "group_id": {
-                        "expression": 'module.sample_group.name_to_id["Prod Group"]',
-                    },
-                },
-            },
-        }, "sample_resource")
-
-        self.assertEqual(
-            bindings[0]["expression"],
-            'module.sample_group.name_to_id["Prod Group"]',
-        )
-
-    def test_parse_allows_generated_list_expression(self):
-        bindings = expression_bindings.parse_bindings({
-            "resources": {
-                "sample_resource.prod": {
-                    "group_ids": {
                         "expression": (
-                            '[module.sample_group.name_to_id["One"], '
-                            'module.sample_group.name_to_id["Two"]]'
+                            'module.sample_group.name_to_id["Prod Group"][0]'
                         ),
                     },
                 },
@@ -196,8 +179,59 @@ class ExpressionBindingsTest(unittest.TestCase):
 
         self.assertEqual(
             bindings[0]["expression"],
-            '[module.sample_group.name_to_id["One"], '
-            'module.sample_group.name_to_id["Two"]]',
+            'module.sample_group.name_to_id["Prod Group"][0]',
+        )
+
+    def test_parse_allows_decimal_numeric_module_selector(self):
+        bindings = expression_bindings.parse_bindings({
+            "resources": {
+                "sample_resource.prod": {
+                    "group_id": {
+                        "expression": 'module.sample_group.ids[12]',
+                    },
+                },
+            },
+        }, "sample_resource")
+
+        self.assertEqual(
+            bindings[0]["expression"],
+            "module.sample_group.ids[12]",
+        )
+
+    def test_parse_rejects_malformed_numeric_module_selectors(self):
+        for expr in (
+                "module.sample_group.ids[0][",
+                "module.sample_group.ids[-1]",
+                "module.sample_group.ids[0x1]",
+        ):
+            with self.subTest(expr=expr):
+                with self.assertRaises(ValueError):
+                    expression_bindings.parse_bindings({
+                        "resources": {
+                            "sample_resource.prod": {
+                                "group_id": {"expression": expr},
+                            },
+                        },
+                    }, "sample_resource")
+
+    def test_parse_allows_generated_list_expression(self):
+        bindings = expression_bindings.parse_bindings({
+            "resources": {
+                "sample_resource.prod": {
+                    "group_ids": {
+                        "expression": (
+                            '[module.sample_group.name_to_id["One"][0], '
+                            'module.sample_group.name_to_id["Two"][0]]'
+                        ),
+                    },
+                },
+            },
+        }, "sample_resource")
+
+        self.assertEqual(
+            bindings[0]["expression"],
+            '[module.sample_group.name_to_id["One"][0], '
+            'module.sample_group.name_to_id["Two"][0]]',
         )
 
     def test_apply_bindings_replaces_nested_object_leaf(self):
