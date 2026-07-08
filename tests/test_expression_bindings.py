@@ -164,6 +164,42 @@ class ExpressionBindingsTest(unittest.TestCase):
             '[var.secret, "literal"]',
         )
 
+    def test_parse_allows_module_lookup_with_hcl_string_key(self):
+        bindings = expression_bindings.parse_bindings({
+            "resources": {
+                "sample_resource.prod": {
+                    "group_id": {
+                        "expression": 'module.sample_group.name_to_id["Prod Group"]',
+                    },
+                },
+            },
+        }, "sample_resource")
+
+        self.assertEqual(
+            bindings[0]["expression"],
+            'module.sample_group.name_to_id["Prod Group"]',
+        )
+
+    def test_parse_allows_generated_list_expression(self):
+        bindings = expression_bindings.parse_bindings({
+            "resources": {
+                "sample_resource.prod": {
+                    "group_ids": {
+                        "expression": (
+                            '[module.sample_group.name_to_id["One"], '
+                            'module.sample_group.name_to_id["Two"]]'
+                        ),
+                    },
+                },
+            },
+        }, "sample_resource")
+
+        self.assertEqual(
+            bindings[0]["expression"],
+            '[module.sample_group.name_to_id["One"], '
+            'module.sample_group.name_to_id["Two"]]',
+        )
+
     def test_apply_bindings_replaces_nested_object_leaf(self):
         bindings = expression_bindings.parse_bindings(
             self._valid_data(), "zpa_application_segment")
@@ -368,6 +404,32 @@ class ExpressionBindingsTest(unittest.TestCase):
                     },
                 },
             }, "sample_resource")
+
+    def test_rejects_template_interpolation_in_module_index(self):
+        for evil in (
+                'module.g.name_to_id["${uuid()}"]',
+                'module.g.name_to_id["%{ for a in b }"]',
+                '["${data.terraform_remote_state.s.outputs.x}"]',
+        ):
+            with self.assertRaises(ValueError):
+                expression_bindings.parse_bindings({
+                    "resources": {
+                        "sample_resource.prod": {
+                            "ref": {"expression": evil},
+                        },
+                    },
+                }, "sample_resource")
+
+    def test_accepts_dollar_and_percent_not_before_brace(self):
+        parsed = expression_bindings.parse_bindings({
+            "resources": {
+                "sample_resource.prod": {
+                    "ref": {"expression": 'module.g.name_to_id["cost $5 100%"]'},
+                },
+            },
+        }, "sample_resource")
+        self.assertEqual(
+            parsed[0]["expression"], 'module.g.name_to_id["cost $5 100%"]')
 
     def test_rejects_interpolation_wrapped_expression_input(self):
         with self.assertRaises(ValueError):

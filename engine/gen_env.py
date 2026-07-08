@@ -33,6 +33,10 @@ def _expression_bindings_file(tenant, resource_type):
     return artifacts.expression_bindings_file(tenant, resource_type)
 
 
+def _generated_expression_bindings_file(tenant, resource_type):
+    return artifacts.generated_expression_bindings_file(tenant, resource_type)
+
+
 def _tenant_env_dir(tenant, out_root=None):
     return artifacts.tenant_env_dir(tenant, out_root=out_root)
 
@@ -189,6 +193,29 @@ def _validate_expression_bindings_against_config(bindings, config_file,
     if not isinstance(items, dict):
         raise ValueError("%s must contain a %s object" % (config_file, var_name))
     expression_bindings.apply_bindings(items, bindings)
+
+
+def _merge_binding_layers(layers):
+    by_key_path = {}
+    for bindings in layers:
+        for binding in bindings:
+            by_key_path[(binding["key"], binding["path"])] = binding
+    return [
+        by_key_path[key]
+        for key in sorted(by_key_path)
+    ]
+
+
+def _load_expression_binding_layers(tenant, resource_type):
+    layers = []
+    for path in (
+            _generated_expression_bindings_file(tenant, resource_type),
+            _expression_bindings_file(tenant, resource_type),
+    ):
+        if os.path.exists(path):
+            layers.append(expression_bindings.load_bindings(
+                path, resource_type))
+    return _merge_binding_layers(layers)
 
 
 def _render_env_root_readme(label, member_types, tenant, env_dir=None):
@@ -354,11 +381,9 @@ def generate_env(tenant, out_root=None, fmt=True, backend=None,
         os.makedirs(base, exist_ok=True)
         bindings_by_type = {}
         for resource_type in member_types:
-            expression_path = _expression_bindings_file(tenant, resource_type)
-            if not os.path.exists(expression_path):
+            bindings = _load_expression_binding_layers(tenant, resource_type)
+            if not bindings:
                 continue
-            bindings = expression_bindings.load_bindings(
-                expression_path, resource_type)
             _validate_expression_bindings_against_config(
                 bindings,
                 _config_file(tenant, resource_type),

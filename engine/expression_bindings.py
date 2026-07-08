@@ -10,12 +10,20 @@ import re
 PATH_SEGMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 EXACT_VAR_EXPR = re.compile(r"^var\.([A-Za-z_][A-Za-z0-9_]*)$")
 IDENT = r"[A-Za-z_][A-Za-z0-9_]*"
-SELECTOR_TAIL = r'(?:\.%s|\["[A-Za-z_][A-Za-z0-9_-]*"\])*' % IDENT
+HCL_STRING = r'"(?:[^"\\$%]|\$(?!\{)|%(?!\{)|\\["\\nrt])*"'  # reject ${ / %{ interpolation
+SELECTOR_TAIL = r"(?:\.%s|\[%s\])*" % (IDENT, HCL_STRING)
+MODULE_SELECTOR = r"module\.%s%s" % (IDENT, SELECTOR_TAIL)
+DATA_SELECTOR = r"data\.%s\.%s%s" % (IDENT, IDENT, SELECTOR_TAIL)
+LIST_EXPR_ELEMENT = r"(?:%s|%s)" % (MODULE_SELECTOR, HCL_STRING)
 ALLOWED_EXPRS = (
     re.compile(r"^var\.%s$" % IDENT),
     re.compile(r"^local\.%s$" % IDENT),
-    re.compile(r"^data\.%s\.%s%s$" % (IDENT, IDENT, SELECTOR_TAIL)),
-    re.compile(r"^module\.%s%s$" % (IDENT, SELECTOR_TAIL)),
+    re.compile(r"^%s$" % DATA_SELECTOR),
+    re.compile(r"^%s$" % MODULE_SELECTOR),
+    re.compile(
+        r"^\[\s*(?:%s(?:\s*,\s*%s)*)?\s*\]$"
+        % (LIST_EXPR_ELEMENT, LIST_EXPR_ELEMENT)
+    ),
 )
 CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 

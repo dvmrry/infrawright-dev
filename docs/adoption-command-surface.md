@@ -99,7 +99,7 @@ provider entry supports:
 |---|---|
 | `strategy` | `"explicit"` or `"slug"`; absent means `"explicit"`. |
 | `groups` | Optional map of `<root_label>` to resource type list. Listed members share `envs/<tenant>/<root_label>/`. |
-| `bind_references` | Optional boolean, default `false`; validated here and reserved for generated group-local reference bindings. |
+| `bind_references` | Optional boolean, default `false`; when true, generate group-local expression bindings for pack-declared references whose referent is in the same grouped root. |
 
 Explicit `groups` always win for their listed members. With `strategy: "slug"`,
 remaining resource types are grouped by provider prefix plus the first token
@@ -124,6 +124,27 @@ NOTE: selecting <member> selects whole root <root_label>; also operating on <oth
 `plan` passes one `-var-file` for each member config file that exists and emits
 a skip note for missing member config. `assert-clean`, `assert-adoptable`,
 `clean-plans`, and `apply` operate once per root plan.
+
+When `bind_references` is true, transform/adopt may write
+`config/<tenant>/<resource_type>.generated.expressions.json` beside the
+resource tfvars. Env generation loads generated bindings first and then
+operator-authored `config/<tenant>/<resource_type>.expressions.json`, so a
+hand-written binding wins for the same resource path. Generated bindings only
+target same-root references and resolve them through sibling module outputs:
+`module.<referent_type>.name_to_id["<display_name>"]`.
+
+Bindings are explicit generated artifacts; tfvars keep the raw IDs and readback still round-trips.
+
+Generated binding skip/fallback semantics:
+
+| Condition | Behavior |
+|---|---|
+| Referent lookup sidecar is missing | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
+| ID is absent from the referent lookup | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
+| Lookup display name is `<unknown>` | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
+| Lookup display name maps to more than one referent ID | Leave the literal ID in tfvars and print a `NOTE bindings:` skip to avoid ambiguous `name_to_id` lookups. |
+| Referent module does not emit `name_to_id` | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
+| Reference crosses a group/root boundary | No generated binding is considered; existing literal/comment behavior applies. |
 
 Group membership is fixed at first import. Changing it later means a fresh re-bootstrap of the affected types into new state — there is no regroup tooling, by design.
 

@@ -208,13 +208,22 @@ def render_outputs(resource_type, resource_schema):
             + sensitive_line
             + "  value = %s.this\n}\n" % resource_type
         )
-    if attrs.get("name", {}).get("required") and "id" in attrs:
+    if _schema_emits_name_to_id(resource_schema):
         out += (
             '\noutput "name_to_id" {\n'
             + '  description = "Map of resource name to provider-assigned id."\n'
             + "  value = { for k, v in %s.this : v.name => v.id }\n}\n" % resource_type
         )
     return out
+
+
+def _schema_emits_name_to_id(resource_schema):
+    attrs = resource_schema["block"].get("attributes") or {}
+    return bool(attrs.get("name", {}).get("required") and "id" in attrs)
+
+
+def emits_name_to_id(resource_type):
+    return _schema_emits_name_to_id(load_resource(resource_type))
 
 
 def render_readme(resource_type, resource_schema):
