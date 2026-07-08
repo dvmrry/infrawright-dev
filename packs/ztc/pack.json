@@ -1,0 +1,13 @@
+{
+  "lookup_sources": {},
+  "pin": "0.2.0",
+  "provider_prefixes": {
+    "ztc_": "ztc"
+  },
+  "provider_sources": {
+    "ztc": "zscaler/ztc"
+  },
+  "references": {},
+  "scope_segments": {},
+  "vendor": "zscaler"
+}
