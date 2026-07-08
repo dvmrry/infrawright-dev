@@ -15,7 +15,9 @@ raw API fetch
   -> import into ephemeral fresh local Terraform/OpenTofu state
   -> terraform/tofu show -json state
   -> project provider-observed state through provider schema
-  -> apply consumer-owned projection omissions
+     (projection_omit applies inline)
+  -> apply consumer-owned post-projection policy
+     (projection_sync -> projection_omit_if)
   -> write normal tfvars/imports/moves
   -> run normal plan
   -> classify clean / tolerated provider noise / blocked
@@ -146,6 +148,90 @@ they are not desired configuration:
   }
 }
 ```
+
+Projection sync fills an absent, null, or empty-list/object target from a
+source path after normal schema projection. It never overwrites a populated
+target, even when the target differs from the source; that difference remains
+visible to the adoption oracle. Sync targets are restricted to writable input
+attributes and the source/target schema types must match.
+
+The ZIA DNS rule policy below handles zia provider 4.7.26 evidence from
+`firewallDNSCategoriesMirrorCustomizeDiff`, which compares
+`res_categories` and `dest_ip_categories` as sets. Live probes rejected
+`dest_ip_categories` with `res_categories` omitted, rejected
+`res_categories = ["ANY"]`, and accepted both sets equal with
+0 add / 0 change / 0 destroy:
+
+```json
+{
+  "version": 1,
+  "resource_types": {
+    "zia_firewall_dns_rule": {
+      "projection_sync": [
+        {
+          "target_path": "res_categories",
+          "source_path": "dest_ip_categories",
+          "reason": "ZIA provider 4.7.26 CustomizeDiff firewallDNSCategoriesMirrorCustomizeDiff requires res_categories to equal dest_ip_categories as sets; live probes rejected dest set + res omitted and res=[\"ANY\"], and accepted both equal with 0 add / 0 change / 0 destroy.",
+          "approved_by": "zscaler-adoption"
+        }
+      ]
+    }
+  }
+}
+```
+
+Conditional projection omit removes only matching leaves. Values use strict JSON
+equality: booleans are not numbers, so `false` does not match `0`. It does not
+cascade-remove emptied parent objects or blocks. A `projection_omit_if` entry is
+rejected if its terminal schema path is required.
+
+The ZIA network service policy below handles live readback probes for
+`h_323`, `zscaler_proxy_my_services`, and `webex`, where single-port blocks
+come back as `{ "start": N, "end": 0 }` and projecting `end = 0` diffs. The
+policy omits only the provider's `end: 0` sentinel:
+
+```json
+{
+  "version": 1,
+  "resource_types": {
+    "zia_firewall_filtering_network_service": {
+      "projection_omit_if": [
+        {
+          "path": "dest_tcp_ports[*].end",
+          "values": [0],
+          "reason": "ZIA provider 4.7.26 reads h_323, zscaler_proxy_my_services, and webex single-port blocks back as {start: N, end: 0}; omitting only the end: 0 sentinel avoids a projected diff.",
+          "approved_by": "zscaler-adoption"
+        },
+        {
+          "path": "dest_udp_ports[*].end",
+          "values": [0],
+          "reason": "ZIA provider 4.7.26 reads h_323, zscaler_proxy_my_services, and webex single-port blocks back as {start: N, end: 0}; omitting only the end: 0 sentinel avoids a projected diff.",
+          "approved_by": "zscaler-adoption"
+        },
+        {
+          "path": "src_tcp_ports[*].end",
+          "values": [0],
+          "reason": "ZIA provider 4.7.26 reads h_323, zscaler_proxy_my_services, and webex single-port blocks back as {start: N, end: 0}; omitting only the end: 0 sentinel avoids a projected diff.",
+          "approved_by": "zscaler-adoption"
+        },
+        {
+          "path": "src_udp_ports[*].end",
+          "values": [0],
+          "reason": "ZIA provider 4.7.26 reads h_323, zscaler_proxy_my_services, and webex single-port blocks back as {start: N, end: 0}; omitting only the end: 0 sentinel avoids a projected diff.",
+          "approved_by": "zscaler-adoption"
+        }
+      ]
+    }
+  }
+}
+```
+
+Projection policy application order is fixed: `projection_omit` applies inline
+during schema projection and may suppress sensitive, absent, or optional fields,
+preserving its established behavior. After projection, `projection_sync` fills
+first, then `projection_omit_if` strips matching leaves. The order is not
+configurable. Conditional omit can strip a value that sync just wrote; the
+shipped use cases touch disjoint paths.
 
 Plan tolerances classify final saved plans when provider noise remains:
 

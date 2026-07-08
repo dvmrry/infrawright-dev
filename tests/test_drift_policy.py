@@ -14,6 +14,28 @@ def _entry(**overrides):
     return entry
 
 
+def _sync_entry(**overrides):
+    entry = {
+        "target_path": "res_categories",
+        "source_path": "dest_ip_categories",
+        "reason": "test",
+        "approved_by": "unit",
+    }
+    entry.update(overrides)
+    return entry
+
+
+def _omit_if_entry(**overrides):
+    entry = {
+        "path": "ports[*].end",
+        "values": [0],
+        "reason": "test",
+        "approved_by": "unit",
+    }
+    entry.update(overrides)
+    return entry
+
+
 def _policy(mode, entry):
     return {
         "version": 1,
@@ -76,6 +98,43 @@ class StatelessDataTest(unittest.TestCase):
         self.assertEqual(len(policy.entries("t_x", "plan_tolerate")), 1)
         self.assertEqual(policy.entries("missing", "plan_tolerate"), [])
 
+    def test_new_policy_match_state_does_not_mutate_policy_data(self):
+        data = {
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "projection_sync": [_sync_entry()],
+                    "projection_omit_if": [_omit_if_entry()],
+                },
+            },
+        }
+        snapshot = json.loads(json.dumps(data))
+        policy = DriftPolicy(data)
+        policy.mark_matched(policy.entries(
+            "sample_resource", "projection_sync")[0])
+        policy.mark_matched(policy.entries(
+            "sample_resource", "projection_omit_if")[0])
+        self.assertEqual(policy.data, snapshot)
+        DriftPolicy(policy.data)
+
+    def test_new_policy_modes_are_stale_until_marked(self):
+        policy = DriftPolicy({
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "projection_sync": [_sync_entry()],
+                    "projection_omit_if": [_omit_if_entry()],
+                },
+            },
+        })
+        self.assertEqual(policy.stale_entries(), [
+            ("sample_resource", "projection_sync", "res_categories"),
+            ("sample_resource", "projection_omit_if", "ports[*].end"),
+        ])
+        policy.mark_matched(policy.entries(
+            "sample_resource", "projection_sync")[0])
+        self.assertEqual(policy.stale_entries(modes=("projection_sync",)), [])
+
 
 class DriftPolicyTest(unittest.TestCase):
     def test_parse_supported_paths(self):
@@ -108,6 +167,16 @@ class DriftPolicyTest(unittest.TestCase):
                     }
                 },
             })
+        with self.assertRaises(DriftPolicyError):
+            DriftPolicy(_policy(
+                "projection_sync",
+                _sync_entry(reason=""),
+            ))
+        with self.assertRaises(DriftPolicyError):
+            DriftPolicy(_policy(
+                "projection_omit_if",
+                _omit_if_entry(approved_by=""),
+            ))
 
     def test_unsupported_version_fails(self):
         with self.assertRaises(DriftPolicyError):
@@ -162,7 +231,12 @@ class DriftPolicyTest(unittest.TestCase):
             })
 
     def test_rejects_non_list_policy_collections(self):
-        for mode in ("projection_omit", "plan_tolerate"):
+        for mode in (
+                "projection_omit",
+                "projection_sync",
+                "projection_omit_if",
+                "plan_tolerate",
+        ):
             with self.assertRaises(DriftPolicyError):
                 DriftPolicy({
                     "version": 1,
@@ -176,6 +250,98 @@ class DriftPolicyTest(unittest.TestCase):
             DriftPolicy(_policy("plan_tolerate", _entry(unexpected=True)))
         with self.assertRaises(DriftPolicyError):
             DriftPolicy(_policy("projection_omit", _entry(actions=["update"])))
+        with self.assertRaises(DriftPolicyError):
+            DriftPolicy(_policy("projection_sync", _sync_entry(path="status")))
+        with self.assertRaises(DriftPolicyError):
+            DriftPolicy(_policy(
+                "projection_omit_if",
+                _omit_if_entry(actions=["update"]),
+            ))
+
+    def test_accepts_projection_sync_and_omit_if_shapes(self):
+        policy = DriftPolicy({
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "projection_sync": [_sync_entry(ticket="NET-1")],
+                    "projection_omit_if": [
+                        _omit_if_entry(values=["x", 0, 0.5, False, None])
+                    ],
+                },
+            },
+        })
+
+        self.assertEqual(
+            policy.entries("sample_resource", "projection_sync")[0]
+            ["target_path"],
+            "res_categories",
+        )
+        self.assertEqual(
+            policy.entries("sample_resource", "projection_omit_if")[0]
+            ["values"],
+            ["x", 0, 0.5, False, None],
+        )
+
+    def test_rejects_invalid_projection_sync_shape(self):
+        for entry in (
+                _sync_entry(target_path=""),
+                _sync_entry(source_path=""),
+                _sync_entry(target_path="same", source_path="same"),
+                _sync_entry(target_path="rules[*].name"),
+                _sync_entry(source_path="rules[0].name"),
+                _sync_entry(target_path="bad..path"),
+        ):
+            with self.assertRaises(DriftPolicyError):
+                DriftPolicy(_policy("projection_sync", entry))
+
+    def test_rejects_invalid_projection_omit_if_values(self):
+        for values in (None, 0, [], [{}], [[]]):
+            with self.assertRaises(DriftPolicyError):
+                DriftPolicy(_policy(
+                    "projection_omit_if",
+                    _omit_if_entry(values=values),
+                ))
+
+    def test_rejects_duplicate_projection_sync_target_entries(self):
+        with self.assertRaises(DriftPolicyError):
+            DriftPolicy({
+                "version": 1,
+                "resource_types": {
+                    "sample_resource": {
+                        "projection_sync": [
+                            _sync_entry(source_path="dest_ip_categories"),
+                            _sync_entry(source_path="other_categories"),
+                        ],
+                    },
+                },
+            })
+
+    def test_rejects_duplicate_projection_omit_if_entries(self):
+        with self.assertRaises(DriftPolicyError):
+            DriftPolicy({
+                "version": 1,
+                "resource_types": {
+                    "sample_resource": {
+                        "projection_omit_if": [
+                            _omit_if_entry(values=[0]),
+                            _omit_if_entry(values=[0]),
+                        ],
+                    },
+                },
+            })
+
+    def test_projection_omit_if_duplicate_scope_uses_json_scalar_types(self):
+        DriftPolicy({
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "projection_omit_if": [
+                        _omit_if_entry(values=[0]),
+                        _omit_if_entry(values=[False]),
+                    ],
+                },
+            },
+        })
 
     def test_rejects_unsafe_plan_actions(self):
         for actions in (
