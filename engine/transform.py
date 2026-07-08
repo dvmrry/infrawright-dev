@@ -1118,6 +1118,9 @@ def main(argv=None):
         sys.stderr.write("removed stale %s (no renames this run)\n" % moves_path)
     report_suppressed_moves(resource_type, move_result.suppressed)
     tfvars_path = write_deployment_tfvars(resource_type, items, tenant)
+    from engine import group_bindings
+
+    group_bindings.write_generated(resource_type, items, tenant)
     with open(imports_path, "w", encoding="utf-8") as f:
         f.write(new_imports)
     # drops contains paths not in acknowledged_drops. Split the repo-declared

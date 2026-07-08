@@ -18,6 +18,7 @@ from engine.registry import derived_types, generated_types, load_registry
 
 CONFIG_SUFFIX = ".auto.tfvars.json"
 EXPRESSION_BINDINGS_SUFFIX = ".expressions.json"
+GENERATED_EXPRESSION_BINDINGS_SUFFIX = ".generated.expressions.json"
 IMPORTS_SUFFIX = "_imports.tf"
 MOVES_SUFFIX = "_moves.tf"
 VALID_TENANT = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -247,6 +248,13 @@ def config_file(tenant, resource_type):
 def expression_bindings_file(tenant, resource_type):
     return os.path.join(
         deployment.config_dir(tenant), resource_type + EXPRESSION_BINDINGS_SUFFIX
+    )
+
+
+def generated_expression_bindings_file(tenant, resource_type):
+    return os.path.join(
+        deployment.config_dir(tenant),
+        resource_type + GENERATED_EXPRESSION_BINDINGS_SUFFIX,
     )
 
 

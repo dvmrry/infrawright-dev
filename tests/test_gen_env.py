@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 
+from engine import artifacts
 from engine import deployment
 from engine import transform
 from engine.gen_env import (
@@ -698,6 +699,108 @@ class GenerateEnvTest(unittest.TestCase):
                 selectors=["zpa_application_segment"],
             )
             self.assertFalse(os.path.exists(stale))
+
+    def test_operator_expression_binding_overrides_generated_binding(self):
+        from engine.gen_env import generate_env
+        with tempfile.TemporaryDirectory() as td:
+            dep = os.path.join(td, "deployment.json")
+            with open(dep, "w", encoding="utf-8") as f:
+                json.dump({
+                    "overlay": td,
+                    "roots": {
+                        "zpa": {
+                            "groups": {
+                                "zpa_custom": [
+                                    "zpa_application_segment",
+                                    "zpa_segment_group",
+                                ],
+                            },
+                            "bind_references": True,
+                        },
+                    },
+                }, f)
+            saved = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+            os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
+            try:
+                tenant = "tenant"
+                resource_type = "zpa_application_segment"
+                config_dir = deployment.config_dir(tenant)
+                os.makedirs(config_dir)
+                with open(
+                    artifacts.config_file(tenant, resource_type),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump({
+                        "zpa_application_segment_items": {
+                            "app": {"segment_group_id": "sg-1"},
+                        },
+                    }, f)
+                generated = {
+                    "resources": {
+                        "zpa_application_segment.app": {
+                            "segment_group_id": {
+                                "expression": (
+                                    'module.zpa_segment_group.name_to_id'
+                                    '["Generated"]'
+                                ),
+                            },
+                        },
+                    },
+                }
+                operator = {
+                    "resources": {
+                        "zpa_application_segment.app": {
+                            "segment_group_id": {
+                                "expression": (
+                                    'module.zpa_segment_group.name_to_id'
+                                    '["Operator"]'
+                                ),
+                            },
+                        },
+                    },
+                }
+                with open(
+                    artifacts.generated_expression_bindings_file(
+                        tenant, resource_type),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump(generated, f)
+                with open(
+                    artifacts.expression_bindings_file(tenant, resource_type),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    json.dump(operator, f)
+
+                generate_env(
+                    tenant,
+                    out_root=os.path.join(td, "generated-envs"),
+                    fmt=False,
+                    selectors=[resource_type],
+                )
+
+                path = os.path.join(
+                    td,
+                    "generated-envs",
+                    tenant,
+                    "zpa_custom",
+                    "expression_bindings.tf",
+                )
+                with open(path, encoding="utf-8") as f:
+                    overlay = f.read()
+                self.assertIn(
+                    'segment_group_id = '
+                    'module.zpa_segment_group.name_to_id["Operator"]',
+                    overlay,
+                )
+                self.assertNotIn("Generated", overlay)
+            finally:
+                if saved is None:
+                    os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+                else:
+                    os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved
 
 
 class RenderEnvExpressionBindingsTest(unittest.TestCase):

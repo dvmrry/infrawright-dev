@@ -7,6 +7,7 @@ import unittest
 
 from engine.gen_module import (
     EXPECTED_MODULE_FILES,
+    emits_name_to_id,
     generate_module,
     render_main,
     render_outputs,
@@ -131,6 +132,18 @@ class RenderRestTest(unittest.TestCase):
         fake = {"block": {"attributes": {"id": {"type": "string", "computed": True}}}}
         out = render_outputs("zia_fake", fake)
         self.assertNotIn("name_to_id", out)
+
+    def test_emits_name_to_id_predicate_matches_rendered_output(self):
+        self.assertTrue(emits_name_to_id("zpa_segment_group"))
+        self.assertIn(
+            'output "name_to_id"',
+            render_outputs("zpa_segment_group", load_resource("zpa_segment_group")),
+        )
+        self.assertFalse(emits_name_to_id("zia_url_categories"))
+        self.assertNotIn(
+            'output "name_to_id"',
+            render_outputs("zia_url_categories", load_resource("zia_url_categories")),
+        )
 
     def test_outputs_omits_name_map_for_optional_name(self):
         # An optional name can be null at plan time; a null for-expression

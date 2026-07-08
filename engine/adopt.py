@@ -5,6 +5,7 @@ import sys
 
 from engine import artifacts
 from engine import deployment
+from engine import group_bindings
 from engine import lookup
 from engine import transform
 from engine.adoption_meta import (
@@ -96,6 +97,7 @@ def write_outputs(resource_type, raw_items, tenant, policy):
     transform.report_suppressed_moves(resource_type, move_result.suppressed)
 
     tfvars_path = transform.write_deployment_tfvars(resource_type, items, tenant)
+    group_bindings.write_generated(resource_type, items, tenant)
     with open(imports_path, "w", encoding="utf-8") as f:
         f.write(new_imports)
     sys.stderr.write("wrote %s\nwrote %s\n" % (tfvars_path, imports_path))
