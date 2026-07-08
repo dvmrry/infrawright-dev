@@ -303,12 +303,12 @@ class RenderRestTest(unittest.TestCase):
         # can never silently diverge.
         from engine.gen_module import _load_provider_pins
         pins = _load_provider_pins()
-        self.assertEqual(pins.get("zia"), "4.7.24")
-        self.assertEqual(pins.get("zpa"), "4.4.4")
+        self.assertEqual(pins.get("zia"), "4.7.26")
+        self.assertEqual(pins.get("zpa"), "4.4.6")
         out_zia = render_versions("zia_url_categories", load_resource("zia_url_categories"))
-        self.assertIn('version = "4.7.24"', out_zia)
+        self.assertIn('version = "4.7.26"', out_zia)
         out_zpa = render_versions("zpa_segment_group", load_resource("zpa_segment_group"))
-        self.assertIn('version = "4.4.4"', out_zpa)
+        self.assertIn('version = "4.4.6"', out_zpa)
 
     def test_load_provider_pins_fails_loud_on_missing_file(self):
         # A silent {} would regenerate unpinned modules, reintroducing the bug;

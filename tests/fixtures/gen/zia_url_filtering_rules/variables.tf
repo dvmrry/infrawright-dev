@@ -45,6 +45,12 @@ variable "items" {
     groups = optional(object({
       id = optional(set(number))
     }))
+    http_header_action_profiles = optional(object({
+      id = optional(set(number))
+    }))
+    http_header_profiles = optional(object({
+      id = optional(set(number))
+    }))
     labels = optional(object({
       id = optional(set(number))
     }))

@@ -7,7 +7,7 @@ import unittest
 
 from engine import packs
 from engine.collectors.rest import pagination_styles
-from engine.headroom_report import provider_resources
+from engine.headroom_report import classify_resource, provider_resources
 from engine.registry import (
     check_duplicate_resource_types,
     derive_entry,
@@ -18,6 +18,13 @@ from engine.registry import (
     reload_registry,
     validate_registry,
 )
+
+
+EXPECTED_PROVIDER_HEADROOM = {
+    "zia_http_header_action_profile": "zia",
+    "zia_http_header_profile": "zia",
+    "zpa_private_cloud": "zpa",
+}
 
 
 def _registry_pack_product_tokens():
@@ -76,10 +83,26 @@ class CheckDuplicateResourceTypesTest(unittest.TestCase):
 
 class RegistryTest(unittest.TestCase):
     def test_generated_types_sorted(self):
+        resources = provider_resources()
+        headroom = dict(
+            (rt, resources[rt])
+            for rt in EXPECTED_PROVIDER_HEADROOM
+            if rt in resources
+        )
+        self.assertEqual(headroom, EXPECTED_PROVIDER_HEADROOM)
         self.assertEqual(
             generated_types(),
-            sorted(provider_resources()),
+            sorted(
+                rt for rt in resources
+                if rt not in EXPECTED_PROVIDER_HEADROOM
+            ),
         )
+        registry = load_registry()
+        for rt, product in sorted(EXPECTED_PROVIDER_HEADROOM.items()):
+            self.assertEqual(
+                classify_resource(rt, product, registry, {"dispositions": {}})[0],
+                "module-ready",
+            )
 
     def test_derived_resource_has_no_fetch(self):
         # a derived resource is generated from another's pull, never fetched

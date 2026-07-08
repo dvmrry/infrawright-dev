@@ -4938,6 +4938,184 @@
       },
       "version": 0
     },
+    "zpa_private_cloud": {
+      "block": {
+        "attributes": {
+          "assistant_groups_ids": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "enabled": "bool",
+                  "id": "string",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "creation_time": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "description": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "enabled": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "fire_drill_enabled": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "id": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "microtenant_id": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "microtenant_name": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "modified_by": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "modified_time": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "private_broker_group_ids": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "enabled": "bool",
+                  "id": "string",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "private_exporter_group_ids": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "enabled": "bool",
+                  "id": "string",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "re_enroll_period": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "read_only": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "remote_lss": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "siem_ids": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "enabled": "bool",
+                  "id": "string",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "site_controller_group_ids": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "enabled": "bool",
+                  "id": "string",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "sitec_preferred": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "zpn_fire_drill_site": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "creation_time": "string",
+                  "fire_drill_interval": "string",
+                  "fire_drill_interval_time_unit": "string",
+                  "id": "string",
+                  "microtenant_id": "string",
+                  "microtenant_name": "string",
+                  "modified_by": "string",
+                  "modified_time": "string"
+                }
+              ]
+            ]
+          },
+          "zscaler_managed": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "bool"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
     "zpa_private_cloud_controller": {
       "block": {
         "attributes": {
@@ -8122,7 +8300,7 @@
           },
           "auto_app_protect_enabled": {
             "computed": true,
-            "description": "If autoAppProtectEnabled is set to true, this field indicates if the application segment\u2019s traffic is inspected by AppProtection.",
+            "description": "If autoAppProtectEnabled is set to true, this field indicates if the application segment’s traffic is inspected by AppProtection.",
             "description_kind": "plain",
             "optional": true,
             "type": "bool"
@@ -13390,6 +13568,170 @@
       },
       "version": 0
     },
+    "zpa_private_cloud": {
+      "block": {
+        "attributes": {
+          "description": {
+            "description": "Description of the Private Cloud Controller",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Whether this Private Cloud Controller is enabled or not",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
+          "fire_drill_enabled": {
+            "description": "Whether fire drill is enabled for the Private Cloud Controller",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "microtenant_id": {
+            "description": "Microtenant ID for the Private Cloud Controller",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the Private Cloud Controller",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "re_enroll_period": {
+            "description": "The re-enrollment period for the Private Cloud Controller",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "remote_lss": {
+            "description": "Whether remote Log Streaming Service (LSS) is enabled",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
+          "sitec_preferred": {
+            "description": "Whether the Site Controller is preferred",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          }
+        },
+        "block_types": {
+          "assistant_groups_ids": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "string"
+                  ]
+                }
+              },
+              "description": "The list of Assistant (App Connector) Group IDs associated with the Private Cloud Controller",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "list"
+          },
+          "private_broker_group_ids": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "string"
+                  ]
+                }
+              },
+              "description": "The list of Private Broker Group IDs associated with the Private Cloud Controller",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "list"
+          },
+          "siem_ids": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "string"
+                  ]
+                }
+              },
+              "description": "The list of SIEM IDs associated with the Private Cloud Controller",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "list"
+          },
+          "site_controller_group_ids": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "string"
+                  ]
+                }
+              },
+              "description": "The list of Site Controller Group IDs associated with the Private Cloud Controller",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "list"
+          },
+          "zpn_fire_drill_site": {
+            "block": {
+              "attributes": {
+                "fire_drill_interval": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "fire_drill_interval_time_unit": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "microtenant_id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description": "The fire drill site configuration for the Private Cloud Controller",
+              "description_kind": "plain"
+            },
+            "nesting_mode": "list"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
     "zpa_private_cloud_group": {
       "block": {
         "attributes": {
@@ -13417,6 +13759,13 @@
             "description_kind": "plain",
             "optional": true,
             "type": "bool"
+          },
+          "enrollment_cert_id": {
+            "computed": true,
+            "description": "ID of the enrollment certificate that can be used for OAuth2 enrollment. If not set, the provider will automatically look up the 'Connector' enrollment certificate by name.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
           },
           "id": {
             "computed": true,
@@ -13466,12 +13815,6 @@
             "optional": true,
             "type": "bool"
           },
-          "site_id": {
-            "description": "Site ID for the Private Cloud Group",
-            "description_kind": "plain",
-            "optional": true,
-            "type": "string"
-          },
           "upgrade_day": {
             "description": "Private Cloud Controllers in this group will attempt to update to a newer version of the software during this specified day",
             "description_kind": "plain",
@@ -13484,8 +13827,25 @@
             "optional": true,
             "type": "string"
           },
+          "user_codes": {
+            "description": "User codes from deployed Private Cloud Controllers for OAuth2 enrollment. When provided, the provider will call the user code verification API to enroll the Private Cloud Controllers. These codes are obtained from the Private Cloud Controller VM after deployment.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
           "version_profile_id": {
+            "computed": true,
             "description": "ID of the version profile for the Private Cloud Group",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "version_profile_name": {
+            "computed": true,
+            "description": "Name of the version profile. To learn more, see Version Profile Use Cases. This value is required, if the value for overrideVersionProfile is set to true",
             "description_kind": "plain",
             "optional": true,
             "type": "string"

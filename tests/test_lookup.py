@@ -180,6 +180,26 @@ class LookupTransformTest(unittest.TestCase):
         with open(lookup_file, encoding="utf-8") as f:
             self.assertEqual(f.read(), original)
 
+    def test_transform_writes_zcc_trusted_network_lookup_from_demo_fixture(self):
+        src = os.path.join(
+            REPO_ROOT,
+            "packs",
+            "_shared",
+            "zscaler",
+            "demo",
+            "zcc_trusted_network.json",
+        )
+
+        self.assertEqual(
+            transform_main(["zcc_trusted_network", src, self.TENANT]), 0)
+
+        lookup_file = _lookup_file(self.TENANT, "zcc_trusted_network")
+        with open(lookup_file, encoding="utf-8") as f:
+            self.assertEqual(
+                f.read(),
+                '{\n  "501": "HQ Wired",\n  "502": "Branch WiFi"\n}\n',
+            )
+
 
 class LookupExplainTest(unittest.TestCase):
     def setUp(self):

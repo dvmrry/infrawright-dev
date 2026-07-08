@@ -19,6 +19,85 @@
       },
       "version": 0
     },
+    "zia_adaptive_access_profile": {
+      "block": {
+        "attributes": {
+          "aap_index": {
+            "computed": true,
+            "description": "The Adaptive Access profile index",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "deleted": {
+            "computed": true,
+            "description": "A Boolean value that indicates whether the Adaptive Access profile is deleted",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "iam_aap_id": {
+            "computed": true,
+            "description": "The Adaptive Access profile ID that is used by the API for policy configuration. This field allows you to specify which Adaptive Access profiles are applied in the access policy criteria.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "iam_aap_ids": {
+            "description": "Filters the profile rules by one or more Adaptive Access profile IDs. Setting this attribute returns the matching profile rules in the `profiles` block.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "id": {
+            "computed": true,
+            "description": "The Adaptive Access profile ID",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "name": {
+            "computed": true,
+            "description": "The Adaptive Access profile name",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "org_id": {
+            "description": "Filters the profile rules by organization ID. Setting this attribute returns the matching profile rules in the `profiles` block.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "profiles": {
+            "computed": true,
+            "description": "The list of Adaptive Access profile rules returned when `iam_aap_ids` or `org_id` is set.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "aap_index": "number",
+                  "deleted": "bool",
+                  "iam_aap_id": "string",
+                  "id": "number",
+                  "name": "string",
+                  "type": "string"
+                }
+              ]
+            ]
+          },
+          "type": {
+            "computed": true,
+            "description": "The Adaptive Access profile type",
+            "description_kind": "plain",
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
     "zia_admin_roles": {
       "block": {
         "attributes": {
@@ -10268,6 +10347,141 @@
       },
       "version": 0
     },
+    "zia_http_header_action_profile": {
+      "block": {
+        "attributes": {
+          "deleted": {
+            "computed": true,
+            "description": "Indicates whether the HTTP header action profile is deleted.",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "description": {
+            "computed": true,
+            "description": "Additional information about the HTTP header action profile.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "http_header_action_profile_keys": {
+            "computed": true,
+            "description": "The list of header key/value pairs applied by the action profile.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "id": "number",
+                  "key": "string",
+                  "value": "string"
+                }
+              ]
+            ]
+          },
+          "id": {
+            "computed": true,
+            "description": "The unique identifier for the HTTP header action profile.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "name": {
+            "computed": true,
+            "description": "The HTTP header action profile name.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "profile_ready_for_use": {
+            "computed": true,
+            "description": "Indicates whether the HTTP header action profile is ready for use.",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "slot_id": {
+            "computed": true,
+            "description": "The slot ID assigned to the HTTP header action profile.",
+            "description_kind": "plain",
+            "type": "number"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "zia_http_header_profile": {
+      "block": {
+        "attributes": {
+          "deleted": {
+            "computed": true,
+            "description": "Indicates whether the HTTP header profile is deleted.",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "description": {
+            "computed": true,
+            "description": "Additional information about the HTTP header profile.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "http_header_profile_criteria": {
+            "computed": true,
+            "description": "The list of matching criteria evaluated by the HTTP header profile.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "category_bitmap": [
+                    "list",
+                    "string"
+                  ],
+                  "cloud_app_bitmap": [
+                    "list",
+                    "string"
+                  ],
+                  "header": "string",
+                  "id": "number",
+                  "operator": "string",
+                  "user_agent": "string",
+                  "user_agent_bitmap": "string",
+                  "user_agent_version": "string"
+                }
+              ]
+            ]
+          },
+          "id": {
+            "computed": true,
+            "description": "The unique identifier for the HTTP header profile.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "name": {
+            "computed": true,
+            "description": "The HTTP header profile name.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "profile_ready_for_use": {
+            "computed": true,
+            "description": "Indicates whether the HTTP header profile is ready for use.",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "slot_id": {
+            "computed": true,
+            "description": "The slot ID assigned to the HTTP header profile.",
+            "description_kind": "plain",
+            "type": "number"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
     "zia_ips_signature_rules": {
       "block": {
         "attributes": {
@@ -13151,7 +13365,7 @@
       "block": {
         "attributes": {
           "browser_type": {
-            "description": "Optional filter \u2014 return only the supported version entry for this browser type. One of: `CHROME`, `FIREFOX`, `SAFARI`, `OPERA`, `MSCHREDGE`.",
+            "description": "Optional filter — return only the supported version entry for this browser type. One of: `CHROME`, `FIREFOX`, `SAFARI`, `OPERA`, `MSCHREDGE`.",
             "description_kind": "plain",
             "optional": true,
             "type": "string"
@@ -17427,7 +17641,7 @@
                   "type": "string"
                 }
               },
-              "description": "The Cloud Browser Isolation profile applied when Smart Browser Isolation is enabled. Required when `enable_smart_browser_isolation` is `true`. All three of `id`, `name`, and `url` must be populated \u2014 typically by referencing the `zia_cloud_browser_isolation_profile` data source.",
+              "description": "The Cloud Browser Isolation profile applied when Smart Browser Isolation is enabled. Required when `enable_smart_browser_isolation` is `true`. All three of `id`, `name`, and `url` must be populated — typically by referencing the `zia_cloud_browser_isolation_profile` data source.",
               "description_kind": "plain"
             },
             "max_items": 1,
@@ -24162,6 +24376,190 @@
       },
       "version": 0
     },
+    "zia_http_header_action_profile": {
+      "block": {
+        "attributes": {
+          "description": {
+            "description": "Additional information about the HTTP header action profile.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "header_action_profile_id": {
+            "computed": true,
+            "description": "The unique identifier for the HTTP header action profile.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description": "The HTTP header action profile name.",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "profile_ready_for_use": {
+            "computed": true,
+            "description": "Indicates whether the HTTP header action profile is ready for use.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
+          "slot_id": {
+            "computed": true,
+            "description": "The slot ID assigned to the HTTP header action profile.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          }
+        },
+        "block_types": {
+          "http_header_action_profile_keys": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "computed": true,
+                  "description": "Identifier that uniquely identifies the header key/value pair.",
+                  "description_kind": "plain",
+                  "type": "number"
+                },
+                "key": {
+                  "description": "The header key.",
+                  "description_kind": "plain",
+                  "required": true,
+                  "type": "string"
+                },
+                "value": {
+                  "description": "The header value.",
+                  "description_kind": "plain",
+                  "required": true,
+                  "type": "string"
+                }
+              },
+              "description": "The list of header key/value pairs applied by the action profile.",
+              "description_kind": "plain"
+            },
+            "nesting_mode": "list"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "zia_http_header_profile": {
+      "block": {
+        "attributes": {
+          "description": {
+            "description": "Additional information about the HTTP header profile.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "header_profile_id": {
+            "computed": true,
+            "description": "The unique identifier for the HTTP header profile.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description": "The HTTP header profile name.",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "profile_ready_for_use": {
+            "computed": true,
+            "description": "Indicates whether the HTTP header profile is ready for use.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
+          "slot_id": {
+            "computed": true,
+            "description": "HTTP header profile slot ID",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          }
+        },
+        "block_types": {
+          "http_header_profile_criteria": {
+            "block": {
+              "attributes": {
+                "category_bitmap": {
+                  "description": "The URL category bitmap evaluated by the criteria.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "string"
+                  ]
+                },
+                "cloud_app_bitmap": {
+                  "description": "The cloud application bitmap evaluated by the criteria.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "string"
+                  ]
+                },
+                "header": {
+                  "description": "Specifies the type of HTTP header",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "id": {
+                  "computed": true,
+                  "description": "Identifier that uniquely identifies the criteria entry.",
+                  "description_kind": "plain",
+                  "type": "number"
+                },
+                "operator": {
+                  "description": "The operator applied to the header criteria.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "user_agent": {
+                  "description": "The user agent evaluated by the criteria.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "user_agent_bitmap": {
+                  "description": "The user agent bitmap evaluated by the criteria.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "user_agent_version": {
+                  "description": "The user agent version evaluated by the criteria.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description": "The list of matching criteria evaluated by the HTTP header profile.",
+              "description_kind": "plain"
+            },
+            "nesting_mode": "list"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
     "zia_ips_signature_rules": {
       "block": {
         "attributes": {
@@ -28333,6 +28731,42 @@
                 }
               },
               "description": "Name-ID pairs of groups for which rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "http_header_action_profiles": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "Name-ID pairs HTTP header action profile to which the rule applies",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "http_header_profiles": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "Name-ID pairs HTTP header profile to which the rule applies",
               "description_kind": "plain"
             },
             "max_items": 1,
