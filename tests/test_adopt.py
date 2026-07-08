@@ -182,6 +182,36 @@ class AdoptCommandTest(unittest.TestCase):
         ) as f:
             self.assertEqual(json.load(f), {"keep-1": "Managed"})
 
+    def test_lookup_sidecar_uses_provider_state_names_not_raw(self):
+        input_path = os.path.join(self.tmp, "api.json")
+        _write_json(input_path, [
+            {"id": "g1", "name": "R&amp;D"},
+        ])
+
+        def fake_import_state(resource_type, key_to_import_id):
+            return {
+                "r_amp_d": {
+                    "values": {"name": "R&D"},
+                    "sensitive_values": {},
+                }
+            }
+
+        def fake_project_item(resource_type, state_values,
+                              sensitive_values=None, policy=None):
+            return {"name": state_values["name"]}
+
+        adopt.import_state = fake_import_state
+        adopt.project_item = fake_project_item
+        self.assertEqual(adopt.main(["sample_resource", input_path, "tenant"]), 0)
+
+        with open(
+                os.path.join("config", "tenant", "sample_resource.lookup.json"),
+                encoding="utf-8",
+        ) as f:
+            sidecar = json.load(f)
+        # Provider-state name (the name_to_id key), not the raw API text.
+        self.assertEqual(sidecar, {"g1": "R&D"})
+
     def test_hcl_deployment_writes_hcl_config_and_removes_stale_json(self):
         from engine import hcl_tfvars
 
