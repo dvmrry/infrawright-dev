@@ -66,6 +66,20 @@ resource "zia_url_filtering_rules" "this" {
     }
   }
 
+  dynamic "http_header_action_profiles" {
+    for_each = each.value.http_header_action_profiles == null ? [] : [each.value.http_header_action_profiles]
+    content {
+      id = http_header_action_profiles.value.id
+    }
+  }
+
+  dynamic "http_header_profiles" {
+    for_each = each.value.http_header_profiles == null ? [] : [each.value.http_header_profiles]
+    content {
+      id = http_header_profiles.value.id
+    }
+  }
+
   dynamic "labels" {
     for_each = each.value.labels == null ? [] : [each.value.labels]
     content {

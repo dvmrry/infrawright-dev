@@ -1,5 +1,9 @@
 {
-  "lookup_sources": {},
+  "lookup_sources": {
+    "zcc_trusted_network": {
+      "name_field": "network_name"
+    }
+  },
   "pin": "0.1.0-beta.1",
   "provider_prefixes": {
     "zcc_": "zcc"
@@ -7,7 +11,18 @@
   "provider_sources": {
     "zcc": "zscaler/zcc"
   },
-  "references": {},
+  "references": {
+    "zcc_forwarding_profile": {
+      "trusted_network_ids": {
+        "name_field": "network_name",
+        "referent": "zcc_trusted_network"
+      },
+      "trusted_network_ids_selected": {
+        "name_field": "network_name",
+        "referent": "zcc_trusted_network"
+      }
+    }
+  },
   "scope_segments": {},
   "unescape_products": [
     "zcc_"

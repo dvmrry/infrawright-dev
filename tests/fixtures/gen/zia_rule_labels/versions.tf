@@ -5,7 +5,7 @@ terraform {
   required_providers {
     zia = {
       source  = "zscaler/zia"
-      version = "4.7.24"
+      version = "4.7.26"
     }
   }
 }

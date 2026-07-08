@@ -1,6 +1,6 @@
 {
   "lookup_sources": {},
-  "pin": "4.4.4",
+  "pin": "4.4.6",
   "provider_prefixes": {
     "zpa_": "zpa"
   },
