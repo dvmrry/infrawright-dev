@@ -137,6 +137,12 @@ def _resolve_id(value, mapping):
     return UNKNOWN, ident
 
 
+def resolve_display(value, mapping):
+    """id → display name; system constants pass through; unknown ids → UNKNOWN."""
+    display, _ident = _resolve_id(value, mapping)
+    return display
+
+
 def _field_values(value):
     if value is None:
         return []
