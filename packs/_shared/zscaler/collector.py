@@ -35,6 +35,8 @@ def _cloud_label(cloud, label="ZSCALER_CLOUD"):
 
 
 def _normalize_https_base_url(name, value):
+    # Legacy overrides intentionally support private/custom Zscaler hosts. This
+    # is URL-shape validation, not an egress domain allowlist.
     if not value:
         return ""
     parts = urlsplit(value)
@@ -45,9 +47,10 @@ def _normalize_https_base_url(name, value):
     if parts.path not in ("", "/") or parts.query or parts.fragment:
         raise SystemExit("%s must not contain path, query, or fragment" % name)
     host = (parts.hostname or "").lower()
+    segments = []
     for segment in host.split("."):
-        _validate_label(segment, "%s host segment" % name)
-    netloc = host
+        segments.append(_validate_label(segment, "%s host segment" % name))
+    netloc = ".".join(segments)
     try:
         port = parts.port
     except ValueError:

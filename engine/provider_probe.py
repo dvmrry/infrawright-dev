@@ -182,6 +182,8 @@ def _convert_yaml_to_json(yaml_path, dest_path):
         "STDOUT.write(JSON.pretty_generate("
         "YAML.safe_load("
         "File.read(ARGV[0]), "
+        # OpenAPI specs commonly use anchors; keep aliases for compatibility
+        # while safe_load keeps arbitrary classes and symbols disabled.
         "permitted_classes: [], permitted_symbols: [], aliases: true"
         ")))"
     )
