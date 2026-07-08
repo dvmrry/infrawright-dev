@@ -3,13 +3,61 @@
 Stdlib-only, Python 3.6-floor.
 """
 import json
+import re
 from urllib.parse import urlencode
+from urllib.parse import urlsplit
+from urllib.parse import urlunsplit
 
 
 # The OAuth audience is NOT a dialable host - api.zscaler.com serves no
 # valid cert and exists only as the token-request audience value. The real
 # OneAPI gateway is api.zsapi.net (api.<cloud>.zsapi.net off production).
 _ONEAPI_AUDIENCE = "https://api.zscaler.com"
+_DNS_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
+
+
+def _validate_label(value, label, allow_placeholder=False):
+    text = (value or "").strip().lower()
+    if allow_placeholder and text == "<vanity>":
+        return text
+    if not text or not _DNS_LABEL_RE.match(text):
+        raise SystemExit(
+            "%s must be a DNS label (letters, digits, hyphen; no dots, "
+            "slashes, or empty labels)" % label)
+    return text
+
+
+def _cloud_label(cloud, label="ZSCALER_CLOUD"):
+    text = (cloud or "").strip().lower()
+    if text in ("", "production"):
+        return ""
+    return _validate_label(text, label)
+
+
+def _normalize_https_base_url(name, value):
+    # Legacy overrides intentionally support private/custom Zscaler hosts. This
+    # is URL-shape validation, not an egress domain allowlist.
+    if not value:
+        return ""
+    parts = urlsplit(value)
+    if parts.scheme.lower() != "https" or not parts.netloc:
+        raise SystemExit("%s must be an https:// host URL" % name)
+    if parts.username or parts.password:
+        raise SystemExit("%s must not contain username or password" % name)
+    if parts.path not in ("", "/") or parts.query or parts.fragment:
+        raise SystemExit("%s must not contain path, query, or fragment" % name)
+    host = (parts.hostname or "").lower()
+    segments = []
+    for segment in host.split("."):
+        segments.append(_validate_label(segment, "%s host segment" % name))
+    netloc = ".".join(segments)
+    try:
+        port = parts.port
+    except ValueError:
+        raise SystemExit("%s must contain a valid port" % name)
+    if port is not None:
+        netloc += ":%d" % port
+    return urlunsplit(("https", netloc, "", "", ""))
 
 
 def _require(env, name):
@@ -36,8 +84,8 @@ def _token_field(raw, key, label):
 
 
 def _oneapi_gateway(cloud):
-    norm = (cloud or "").strip().lower()
-    if norm in ("", "production"):
+    norm = _cloud_label(cloud)
+    if not norm:
         return "https://api.zsapi.net"
     return "https://api.%s.zsapi.net" % norm
 
@@ -50,8 +98,9 @@ def _gateway_for(ctx):
 def _zslogin_host(vanity, cloud):
     """OneAPI token host. Production (empty/PRODUCTION cloud) has no suffix;
     other clouds lowercase into the host, per the SDK."""
-    norm = (cloud or "").strip().lower()
-    suffix = "" if norm in ("", "production") else norm
+    vanity = _validate_label(vanity, "ZSCALER_VANITY_DOMAIN",
+                             allow_placeholder=True)
+    suffix = _cloud_label(cloud)
     return "https://%s.zslogin%s.net" % (vanity, suffix)
 
 
@@ -61,8 +110,10 @@ def host_overrides(env):
     """
     return {
         "zpa_cloud": env.get("ZPA_CLOUD", ""),
-        "zia_legacy_base": env.get("ZIA_LEGACY_BASE_URL", ""),
-        "zpa_legacy_base": env.get("ZPA_LEGACY_BASE_URL", ""),
+        "zia_legacy_base": _normalize_https_base_url(
+            "ZIA_LEGACY_BASE_URL", env.get("ZIA_LEGACY_BASE_URL", "")),
+        "zpa_legacy_base": _normalize_https_base_url(
+            "ZPA_LEGACY_BASE_URL", env.get("ZPA_LEGACY_BASE_URL", "")),
     }
 
 

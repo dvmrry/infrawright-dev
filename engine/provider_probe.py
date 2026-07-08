@@ -179,7 +179,13 @@ def _convert_yaml_to_json(yaml_path, dest_path):
             "YAML->JSON conversion" % yaml_path)
     script = (
         "require 'yaml'; require 'json'; "
-        "STDOUT.write(JSON.pretty_generate(YAML.load_file(ARGV[0])))"
+        "STDOUT.write(JSON.pretty_generate("
+        "YAML.safe_load("
+        "File.read(ARGV[0]), "
+        # OpenAPI specs commonly use anchors; keep aliases for compatibility
+        # while safe_load keeps arbitrary classes and symbols disabled.
+        "permitted_classes: [], permitted_symbols: [], aliases: true"
+        ")))"
     )
     _run([ruby, "-e", script, yaml_path], stdout_path=dest_path)
     # Validate the converted output before using it downstream.

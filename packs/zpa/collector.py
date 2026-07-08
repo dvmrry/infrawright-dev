@@ -48,7 +48,11 @@ def _legacy_zpa_base(cloud):
 
 def _zpa_legacy_base_for(ctx):
     """Legacy ZPA base: ZPA_LEGACY_BASE_URL override wins over derivation."""
-    return ctx.get("zpa_legacy_base") or _legacy_zpa_base(ctx.get("zpa_cloud", ""))
+    return (
+        zscaler._normalize_https_base_url(
+            "ZPA_LEGACY_BASE_URL", ctx.get("zpa_legacy_base"))
+        or _legacy_zpa_base(ctx.get("zpa_cloud", ""))
+    )
 
 
 def compose_url(auth_mode, path, ctx):
