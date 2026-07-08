@@ -36,12 +36,17 @@ def _legacy_zia_base(cloud):
         raise SystemExit(
             "ZIA_CLOUD is required in legacy mode (e.g. zscalertwo) — it "
             "selects the ZIA host https://zsapi.<cloud>.net")
+    cloud = zscaler._validate_label(cloud, "ZIA_CLOUD")
     return "https://zsapi.%s.net" % cloud
 
 
 def _zia_legacy_base_for(ctx):
     """Legacy ZIA base: ZIA_LEGACY_BASE_URL override wins over derivation."""
-    return ctx.get("zia_legacy_base") or _legacy_zia_base(ctx.get("cloud", ""))
+    return (
+        zscaler._normalize_https_base_url(
+            "ZIA_LEGACY_BASE_URL", ctx.get("zia_legacy_base"))
+        or _legacy_zia_base(ctx.get("cloud", ""))
+    )
 
 
 def compose_url(auth_mode, path, ctx):

@@ -626,6 +626,24 @@
     },
     {
       "path": "engine/collectors/rest/__init__.py",
+      "pattern": "\"ZIA %s expected response object with envelope %r\"",
+      "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
+      "token": "zia"
+    },
+    {
+      "path": "engine/collectors/rest/__init__.py",
+      "pattern": "\"ZIA %s response missing envelope %r\"",
+      "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
+      "token": "zia"
+    },
+    {
+      "path": "engine/collectors/rest/__init__.py",
+      "pattern": "\"ZIA %s envelope %r did not contain a list page\"",
+      "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
+      "token": "zia"
+    },
+    {
+      "path": "engine/collectors/rest/__init__.py",
       "pattern": "\"\"\"oneapi unless ZSCALER_USE_LEGACY_CLIENT is truthy.\"\"\"",
       "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
       "token": "zscaler"
@@ -686,13 +704,37 @@
     },
     {
       "path": "engine/collectors/rest/__init__.py",
+      "pattern": "cloud = env.get(\"ZIA_CLOUD\", \"\") or env.get(\"ZSCALER_CLOUD\", \"\")",
+      "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
+      "token": "zia"
+    },
+    {
+      "path": "engine/collectors/rest/__init__.py",
+      "pattern": "cloud = env.get(\"ZIA_CLOUD\", \"\") or env.get(\"ZSCALER_CLOUD\", \"\")",
+      "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
+      "token": "zscaler"
+    },
+    {
+      "path": "engine/collectors/rest/__init__.py",
       "pattern": "zia = env.get(\"ZIA_LEGACY_BASE_URL\") or \"https://zsapi.%s.net\" % cloud",
       "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
       "token": "zia"
     },
     {
       "path": "engine/collectors/rest/__init__.py",
+      "pattern": "zia = overrides[\"zia_legacy_base\"] or \"https://zsapi.%s.net\" % cloud",
+      "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
+      "token": "zia"
+    },
+    {
+      "path": "engine/collectors/rest/__init__.py",
       "pattern": "zpa = (env.get(\"ZPA_LEGACY_BASE_URL\")",
+      "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
+      "token": "zpa"
+    },
+    {
+      "path": "engine/collectors/rest/__init__.py",
+      "pattern": "zpa = (overrides[\"zpa_legacy_base\"]",
       "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
       "token": "zpa"
     },

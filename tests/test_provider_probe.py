@@ -341,6 +341,33 @@ func resourceFolder() {
                 os.path.join(self.tmp, "work"),
             )
 
+    def test_openapi_yaml_uses_safe_loader(self):
+        if not shutil.which("ruby"):
+            self.skipTest("ruby not available for YAML conversion")
+        openapi_path = self._write(
+            "openapi.yaml",
+            "--- !ruby/object:Object {}\n",
+        )
+        recipe_path = self._write_json("recipe.json", {
+            "openapi": {
+                "path": "openapi.yaml",
+                "format": "yaml",
+            }
+        })
+
+        with self.assertRaisesRegex(
+                ValueError, "failed to parse OpenAPI as YAML"):
+            provider_probe._prepare_openapi(
+                {
+                    "openapi": {
+                        "path": os.path.basename(openapi_path),
+                        "format": "yaml",
+                    }
+                },
+                recipe_path,
+                os.path.join(self.tmp, "work"),
+            )
+
     def test_remote_fetch_error_names_url_and_destination(self):
         dest_path = os.path.join(self.tmp, "download.raw")
 

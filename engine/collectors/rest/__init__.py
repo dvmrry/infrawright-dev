@@ -119,8 +119,20 @@ def paginate_zia(opener, url, headers, query, page_size=1000, max_pages=100000,
         q = dict(query)
         q.update({"page": page, "pageSize": page_size})
         batch = _get_json(opener, url, headers, q)
-        if envelope is not None and isinstance(batch, dict):
-            batch = batch.get(envelope) or []
+        if envelope is not None:
+            if not isinstance(batch, dict):
+                raise RuntimeError(
+                    "ZIA %s expected response object with envelope %r"
+                    % (_mask_identifiers(url), envelope))
+            if envelope not in batch:
+                raise RuntimeError(
+                    "ZIA %s response missing envelope %r"
+                    % (_mask_identifiers(url), envelope))
+            batch = batch[envelope]
+            if not isinstance(batch, list):
+                raise RuntimeError(
+                    "ZIA %s envelope %r did not contain a list page"
+                    % (_mask_identifiers(url), envelope))
         if not isinstance(batch, list):
             raise RuntimeError("ZIA %s did not return a list page" % url)
         items.extend(batch)
@@ -485,9 +497,10 @@ def diag_hosts(env):
         login = _zslogin_host(vanity, cloud)
         gateway = _oneapi_gateway(cloud)
         return sorted({_host_of(login), _host_of(gateway)})
+    overrides = host_overrides(env)
     cloud = env.get("ZIA_CLOUD", "") or env.get("ZSCALER_CLOUD", "") or "<cloud>"
-    zia = env.get("ZIA_LEGACY_BASE_URL") or "https://zsapi.%s.net" % cloud
-    zpa = (env.get("ZPA_LEGACY_BASE_URL")
+    zia = overrides["zia_legacy_base"] or "https://zsapi.%s.net" % cloud
+    zpa = (overrides["zpa_legacy_base"]
            or _zpa_legacy_base_or_none(env.get("ZPA_CLOUD", ""))
            or "https://config.<zpa-cloud>")
     return sorted({_host_of(zia), _host_of(zpa)})
@@ -679,11 +692,16 @@ def main(argv=None):
         customer_id = _require(env, "ZPA_CUSTOMER_ID")
     else:
         customer_id = env.get("ZPA_CUSTOMER_ID", "")
+    if auth_mode == "oneapi":
+        cloud = env.get("ZSCALER_CLOUD", "")
+    else:
+        cloud = env.get("ZIA_CLOUD", "") or env.get("ZSCALER_CLOUD", "")
     ctx = {
-        "cloud": env.get("ZIA_CLOUD", "") or env.get("ZSCALER_CLOUD", ""),
+        "cloud": cloud,
         "customer_id": customer_id,
     }
-    ctx.update(host_overrides(env))
+    if auth_mode == "legacy":
+        ctx.update(host_overrides(env))
     for line in debug_config(env, ctx, auth_mode, needed_products):
         sys.stderr.write(line + "\n")
     out_dir = os.path.join("pulls", tenant)
