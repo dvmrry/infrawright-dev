@@ -84,6 +84,14 @@ class ImportOracleTest(unittest.TestCase):
                             return args[index + 1]
                     return os.path.join(os.getcwd(), "tfplan")
 
+                def generated_config_path(args):
+                    for index, arg in enumerate(args):
+                        if arg.startswith("-generate-config-out="):
+                            return arg[len("-generate-config-out="):]
+                        if arg == "-generate-config-out" and index + 1 < len(args):
+                            return args[index + 1]
+                    return None
+
                 def plan_json(imports, actions=None, drift=False):
                     changes = []
                     for address, import_id in sorted(imports.items()):
@@ -136,10 +144,28 @@ class ImportOracleTest(unittest.TestCase):
                             for m in re.finditer(r'resource\\s+"([^"]+)"\\s+"([^"]+)"', main_tf)
                         )
                         imports = parse_import_blocks(imports_tf)
-                        for address in imports:
-                            if address not in declared:
-                                sys.stderr.write("undeclared import address %s\\n" % address)
+                        undeclared = sorted(
+                            address for address in imports if address not in declared
+                        )
+                        generated_path = generated_config_path(args)
+                        if undeclared:
+                            if not generated_path:
+                                sys.stderr.write(
+                                    "undeclared import address %s\\n" % undeclared[0]
+                                )
                                 return 42
+                            if os.path.exists(generated_path):
+                                sys.stderr.write(
+                                    "generated config target already exists\\n"
+                                )
+                                return 43
+                            with open(generated_path, "w", encoding="utf-8") as f:
+                                for address in undeclared:
+                                    rtype, name = address.split(".", 1)
+                                    f.write(
+                                        'resource "%s" "%s" {\\n  id = %s\\n}\\n\\n'
+                                        % (rtype, name, json.dumps(imports[address]))
+                                    )
                         if os.environ.get("FAKE_TF_FAIL_IMPORT") == "1":
                             import_id = sorted(imports.values())[0]
                             print(("stdout import id=%s " % import_id) + ("x" * 1600))
@@ -243,12 +269,12 @@ class ImportOracleTest(unittest.TestCase):
         packs.reset()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_render_root_uses_pack_source_pin_and_provider_block(self):
+    def test_render_root_uses_pack_source_pin_and_provider_block_only(self):
         root = render_root("sample_resource", {"prod_app": "123"})
         self.assertIn('source = "example/sample"', root)
         self.assertIn('version = "1.2.3"', root)
         self.assertIn('provider "sample"', root)
-        self.assertIn('resource "sample_resource" "iw_', root)
+        self.assertNotIn('resource "sample_resource" "iw_', root)
 
     def test_render_import_blocks_targets_scratch_addresses_and_escapes_ids(self):
         blocks = render_import_blocks(
@@ -271,6 +297,12 @@ class ImportOracleTest(unittest.TestCase):
         self.assertEqual([cmd[0] for cmd in commands], [
             "init", "plan", "show", "apply", "show",
         ])
+        generate_config_args = [
+            arg for arg in commands[1] if arg.startswith("-generate-config-out=")
+        ]
+        self.assertEqual(len(generate_config_args), 1)
+        generated_config = generate_config_args[0].split("=", 1)[1]
+        self.assertEqual(os.path.basename(generated_config), "generated.tf")
         self.assertEqual(sum(1 for cmd in commands if cmd[0] == "plan"), 1)
         self.assertEqual(sum(1 for cmd in commands if cmd[0] == "apply"), 1)
         self.assertFalse([cmd for cmd in commands if cmd[0] == "import"])
@@ -437,6 +469,7 @@ class ImportOracleTest(unittest.TestCase):
             msg = stderr.getvalue()
             self.assertIn("WARNING: kept oracle workdir", msg)
             self.assertIn("unencrypted provider state", msg)
+            self.assertIn("generated configuration", msg)
             self.assertIn("import IDs", msg)
             match = re.search(r"workdir ([^;]+);", msg)
             self.assertIsNotNone(match, msg)
