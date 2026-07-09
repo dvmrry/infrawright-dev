@@ -3,6 +3,7 @@
 Imports remote objects into an ephemeral local state and returns the provider
 state values Terraform/OpenTofu reports via ``show -json``.
 """
+import difflib
 import hashlib
 import json
 import os
@@ -365,7 +366,7 @@ def _has_exact_index(selector):
 
 def _apply_generated_config_policy(
         resource_type, expected_addresses, generated_config_path, policy,
-        entries=None):
+        entries=None, debug_dir=None):
     if entries is None:
         entries = _generated_config_policy_entries(resource_type, policy)
     if not entries or not os.path.exists(generated_config_path):
@@ -375,9 +376,26 @@ def _apply_generated_config_policy(
     filtered, removed = _filter_generated_config_lines(
         resource_type, set(expected_addresses), original, entries, policy)
     if removed:
+        _write_generated_config_policy_debug(debug_dir, original, filtered)
         with open(generated_config_path, "w", encoding="utf-8") as f:
             f.writelines(filtered)
     return removed
+
+
+def _write_generated_config_policy_debug(debug_dir, original, filtered):
+    if not debug_dir:
+        return
+    before_path = os.path.join(debug_dir, "generated.tf.before-policy")
+    diff_path = os.path.join(debug_dir, "generated.tf.policy.diff")
+    with open(before_path, "w", encoding="utf-8") as f:
+        f.writelines(original)
+    with open(diff_path, "w", encoding="utf-8") as f:
+        f.writelines(difflib.unified_diff(
+            original,
+            filtered,
+            fromfile="generated.tf.before-policy",
+            tofile="generated.tf",
+        ))
 
 
 def _filter_generated_config_lines(
@@ -556,7 +574,7 @@ def _plan_imports_with_generated_config(
     )
     removed = _apply_generated_config_policy(
         resource_type, expected_addresses, generated_config_path, policy,
-        entries=entries)
+        entries=entries, debug_dir=debug_dir)
     if proc.returncode != 0 and not removed:
         _raise_run_error(
             generate_args,

@@ -410,6 +410,63 @@ class ImportOracleTest(unittest.TestCase):
         self.assertFalse(any(
             arg.startswith("-generate-config-out=") for arg in commands[2]))
 
+    def test_generated_config_policy_debug_artifacts_show_removed_lines(self):
+        os.environ["FAKE_TF_GENERATED_SENTINEL"] = "1"
+        os.environ["FAKE_TF_FAIL_GENERATED_CONFIG"] = "1"
+        os.environ["FAKE_TF_REJECT_GENERATED_SENTINEL"] = "1"
+        policy = self._policy({
+            "projection_omit_if": [
+                {
+                    "path": "size_quota",
+                    "values": [0],
+                    "reason": "provider rejects unset sentinel",
+                    "approved_by": "unit",
+                },
+                {
+                    "path": "ports[*].end",
+                    "values": [0],
+                    "reason": "provider rejects unset sentinel",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+        kept = None
+        stderr = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(stderr):
+                out = import_state(
+                    "sample_resource",
+                    {"prod_app": "123"},
+                    keep_workdir=True,
+                    policy=policy,
+                )
+            self.assertEqual(out["prod_app"]["values"]["id"], "123")
+            match = re.search(r"workdir ([^;]+);", stderr.getvalue())
+            self.assertIsNotNone(match, stderr.getvalue())
+            kept = match.group(1)
+
+            before_path = os.path.join(kept, "generated.tf.before-policy")
+            after_path = os.path.join(kept, "generated.tf")
+            diff_path = os.path.join(kept, "generated.tf.policy.diff")
+            with open(before_path, encoding="utf-8") as f:
+                before = f.read()
+            with open(after_path, encoding="utf-8") as f:
+                after = f.read()
+            with open(diff_path, encoding="utf-8") as f:
+                diff = f.read()
+
+            self.assertIn("  size_quota = 0\n", before)
+            self.assertIn("    end = 0\n", before)
+            self.assertNotIn("  size_quota = 0\n", after)
+            self.assertNotIn("    end = 0\n", after)
+            self.assertIn("--- generated.tf.before-policy", diff)
+            self.assertIn("+++ generated.tf", diff)
+            self.assertIn("-  size_quota = 0\n", diff)
+            self.assertIn("-    end = 0\n", diff)
+        finally:
+            if kept:
+                shutil.rmtree(kept, ignore_errors=True)
+
     def test_generated_config_policy_rejects_required_omit_before_plan(self):
         policy = self._policy({
             "projection_omit": [
