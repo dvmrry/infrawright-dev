@@ -368,43 +368,196 @@ def _tree_fingerprints(root):
     return out
 
 
+_HCL_HEREDOC_START = re.compile(
+    r"<<(-?)([A-Za-z_][A-Za-z0-9_-]*)"
+)
+
+
+def _hcl_structure_lines(text, path):
+    """Return HCL lines with comments blanked for structural parsing.
+
+    This is deliberately a small structural scanner, not an HCL evaluator. It
+    preserves quoted strings and braces needed by the generated-root parser,
+    while ensuring comment text cannot masquerade as configuration. Generated
+    roots do not contain heredocs, so reject them instead of approximating
+    their delimiter semantics.
+    """
+    out = []
+    block_comment = False
+    for line_number, line in enumerate(text.splitlines(True), 1):
+        code = []
+        in_string = False
+        escaped = False
+        i = 0
+        while i < len(line):
+            if block_comment:
+                end = line.find("*/", i)
+                if end < 0:
+                    if line.endswith(("\r", "\n")):
+                        code.append("\n")
+                    i = len(line)
+                    continue
+                code.append(" " * (end + 2 - i))
+                block_comment = False
+                i = end + 2
+                continue
+
+            ch = line[i]
+            if in_string:
+                code.append(ch)
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_string = False
+                i += 1
+                continue
+            if ch == '"':
+                code.append(ch)
+                in_string = True
+                i += 1
+                continue
+            if ch == "#" or line.startswith("//", i):
+                if line.endswith(("\r", "\n")):
+                    code.append("\n")
+                break
+            if line.startswith("/*", i):
+                code.append("  ")
+                block_comment = True
+                i += 2
+                continue
+            if line.startswith("<<", i):
+                match = _HCL_HEREDOC_START.match(line, i)
+                if match:
+                    raise RuntimeError(
+                        "%s:%d contains a heredoc outside the generated-root "
+                        "contract; run make gen-env to regenerate the root"
+                        % (path, line_number)
+                    )
+            code.append(ch)
+            i += 1
+
+        if in_string:
+            raise RuntimeError(
+                "%s:%d contains an unterminated quoted string"
+                % (path, line_number)
+            )
+        out.append("".join(code))
+
+    if block_comment:
+        raise RuntimeError("%s contains an unterminated block comment" % path)
+    return out
+
+
+def _hcl_brace_delta(line):
+    delta = 0
+    in_string = False
+    escaped = False
+    for ch in line:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            delta += 1
+        elif ch == "}":
+            delta -= 1
+    return delta
+
+
 def _root_module_sources(env_dir):
     sources = {}
     if not os.path.isdir(env_dir):
         return sources
     module_start = re.compile(r'^\s*module\s+"([^"]+)"\s*\{\s*$')
-    source_line = re.compile(r'^\s*source\s*=\s*"([^"]+)"\s*$')
+    source_line = re.compile(r'^\s*source\s*=\s*"([^"\\]+)"\s*$')
+    items_line = re.compile(
+        r'^\s*items\s*=\s*(?:var|local)\.[A-Za-z_][A-Za-z0-9_]*\s*$'
+    )
     for name in sorted(os.listdir(env_dir)):
         if not name.endswith(".tf"):
             continue
         path = os.path.join(env_dir, name)
         if not os.path.isfile(path):
             continue
+        with open(path, encoding="utf-8") as f:
+            lines = _hcl_structure_lines(f.read(), path)
         current = None
         source = None
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                if current is None:
-                    match = module_start.match(line)
-                    if match:
-                        current = match.group(1)
-                        source = None
-                    continue
-                match = source_line.match(line)
+        items_seen = False
+        module_depth = None
+        depth = 0
+        for line_number, line in enumerate(lines, 1):
+            if current is None and depth == 0:
+                match = module_start.match(line)
                 if match:
-                    source = match.group(1)
-                    continue
-                if line.strip() != "}":
-                    continue
-                if source is not None:
-                    if current in sources:
+                    current = match.group(1)
+                    source = None
+                    items_seen = False
+                    module_depth = 1
+            elif current is not None and depth == module_depth:
+                stripped = line.strip()
+                source_match = source_line.match(line)
+                if source_match:
+                    if source is not None:
                         raise RuntimeError(
-                            "%s contains duplicate module %s"
-                            % (env_dir, current)
+                            "%s:%d module %s has multiple source values"
+                            % (path, line_number, current)
                         )
-                    sources[current] = source
+                    candidate = source_match.group(1)
+                    if "${" in candidate or "%{" in candidate:
+                        raise RuntimeError(
+                            "%s:%d module %s source uses HCL template syntax "
+                            "outside the generated-root contract; run make "
+                            "gen-env to regenerate the root"
+                            % (path, line_number, current)
+                        )
+                    source = candidate
+                elif items_line.match(line):
+                    if items_seen:
+                        raise RuntimeError(
+                            "%s:%d module %s has multiple items values"
+                            % (path, line_number, current)
+                        )
+                    items_seen = True
+                elif stripped and stripped != "}":
+                    raise RuntimeError(
+                        "%s:%d module %s is outside the generated-root "
+                        "contract; run make gen-env to regenerate the root"
+                        % (path, line_number, current)
+                    )
+            depth += _hcl_brace_delta(line)
+            if depth < 0:
+                raise RuntimeError(
+                    "%s:%d has an unexpected closing brace"
+                    % (path, line_number)
+                )
+            if current is not None and depth < module_depth:
+                if source is None or not items_seen:
+                    raise RuntimeError(
+                        "%s module %s is outside the generated-root contract; "
+                        "run make gen-env to regenerate the root"
+                        % (path, current)
+                    )
+                if current in sources:
+                    raise RuntimeError(
+                        "%s contains duplicate module %s"
+                        % (env_dir, current)
+                    )
+                sources[current] = source
                 current = None
                 source = None
+                items_seen = False
+                module_depth = None
+        if depth != 0:
+            raise RuntimeError("%s has unbalanced braces" % path)
     return sources
 
 
@@ -423,11 +576,22 @@ def _module_fingerprints(env_dir, member_types):
     out = []
     for resource_type in sorted(member_types):
         source = sources.get(resource_type)
+        if source is None:
+            raise RuntimeError(
+                "%s member %s has no module source; run make gen-env to "
+                "regenerate the root" % (env_dir, resource_type)
+            )
         path = _local_module_path(env_dir, source)
+        if path is None:
+            raise RuntimeError(
+                "%s member %s module source %r is not local; generated roots "
+                "must use local module sources"
+                % (env_dir, resource_type, source)
+            )
         out.append({
-            "files": _tree_fingerprints(path) if path else [],
-            "local": path is not None,
-            "present": bool(path and os.path.isdir(path)),
+            "files": _tree_fingerprints(path),
+            "local": True,
+            "present": os.path.isdir(path),
             "resource_type": resource_type,
             "source": source,
         })

@@ -38,9 +38,29 @@ def _root_tuple(path, resource_type="sample_resource",
     return (tenant, label or resource_type, path, [resource_type])
 
 
+def _write_test_root_modules(path, member_types):
+    os.makedirs(path, exist_ok=True)
+    sections = []
+    for resource_type in member_types:
+        module_path = os.path.join(path, "test-modules", resource_type)
+        os.makedirs(module_path, exist_ok=True)
+        with open(os.path.join(module_path, "main.tf"), "w",
+                  encoding="utf-8") as f:
+            f.write("# %s test module\n" % resource_type)
+        sections.append(
+            'module "%s" {\n'
+            '  source = "./test-modules/%s"\n'
+            '  items = var.%s_items\n'
+            '}\n'
+            % (resource_type, resource_type, resource_type)
+        )
+    with open(os.path.join(path, "main.tf"), "w", encoding="utf-8") as f:
+        f.write("\n".join(sections))
+
+
 def _write_fresh_plan(path, member_types=None):
     member_types = member_types or ["sample_resource"]
-    os.makedirs(path, exist_ok=True)
+    _write_test_root_modules(path, member_types)
     with open(os.path.join(path, "tfplan"), "w", encoding="utf-8") as f:
         f.write("fake")
     ops._write_plan_fingerprint(path, [], member_types)
@@ -542,12 +562,12 @@ class OpsGroupedRootCommandTest(unittest.TestCase):
 
     def _write_group_root(self, with_plan=False):
         root = os.path.join("envs", "tenant", "zpa_custom")
-        os.makedirs(root, exist_ok=True)
+        members = ["zpa_segment_group", "zpa_server_group"]
+        _write_test_root_modules(root, members)
         if with_plan:
             with open(os.path.join(root, "tfplan"), "w", encoding="utf-8") as f:
                 f.write("fake")
-            ops._write_plan_fingerprint(
-                root, [], ["zpa_segment_group", "zpa_server_group"])
+            ops._write_plan_fingerprint(root, [], members)
         return root
 
     def _write_member_configs(self):
@@ -731,8 +751,11 @@ class OpsPlanFingerprintTest(unittest.TestCase):
                 source = os.path.relpath(
                     os.path.join("modules", resource_type), root)
                 f.write(
-                    '\nmodule "%s" {\n  source = "%s"\n}\n'
-                    % (resource_type, source)
+                    '\nmodule "%s" {\n'
+                    '  source = "%s"\n'
+                    '  items = var.%s_items\n'
+                    '}\n'
+                    % (resource_type, source, resource_type)
                 )
         os.makedirs(os.path.join("config", self.tenant), exist_ok=True)
         for resource_type in members:
@@ -910,6 +933,96 @@ class OpsPlanFingerprintTest(unittest.TestCase):
             str(ctx.exception),
             ops.STALE_PLAN_MESSAGE % self._root(),
         )
+
+    def test_missing_member_module_source_fails_loudly(self):
+        main_path = os.path.join(self._root(), "main.tf")
+        with open(main_path, encoding="utf-8") as f:
+            text = f.read()
+        text = text.replace(
+            '  source = "../../../modules/zpa_server_group"\n', "")
+        with open(main_path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+        with self.assertRaisesRegex(
+                RuntimeError,
+                "module zpa_server_group is outside the generated-root "
+                "contract"):
+            self._save_plan()
+
+        self.assertFalse(os.path.exists(
+            os.path.join(self._root(), "tfplan")))
+        self.assertFalse(os.path.exists(
+            os.path.join(self._root(), ops.PLAN_FINGERPRINT)))
+
+    def test_nonlocal_member_module_source_fails_loudly(self):
+        main_path = os.path.join(self._root(), "main.tf")
+        with open(main_path, encoding="utf-8") as f:
+            text = f.read()
+        text = text.replace(
+            "../../../modules/zpa_server_group",
+            "example/zpa_server_group/provider",
+        )
+        with open(main_path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+        with self.assertRaisesRegex(
+                RuntimeError, "zpa_server_group module source .* is not local"):
+            self._save_plan()
+
+        self.assertFalse(os.path.exists(
+            os.path.join(self._root(), "tfplan")))
+        self.assertFalse(os.path.exists(
+            os.path.join(self._root(), ops.PLAN_FINGERPRINT)))
+
+    def test_commented_local_source_cannot_shadow_nonlocal_source(self):
+        main_path = os.path.join(self._root(), "main.tf")
+        with open(main_path, encoding="utf-8") as f:
+            text = f.read()
+        text = text.replace(
+            '  source = "../../../modules/zpa_server_group"\n',
+            '  source = "example/zpa_server_group/provider"\n'
+            '  /* ignored text must not replace the effective source:\n'
+            '  source = "../../../modules/zpa_server_group"\n'
+            '  }\n'
+            '  */\n',
+        )
+        with open(main_path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+        with self.assertRaisesRegex(
+                RuntimeError, "zpa_server_group module source .* is not local"):
+            self._save_plan()
+
+        self.assertFalse(os.path.exists(
+            os.path.join(self._root(), "tfplan")))
+        self.assertFalse(os.path.exists(
+            os.path.join(self._root(), ops.PLAN_FINGERPRINT)))
+
+    def test_module_source_template_escape_fails_loudly(self):
+        decoded_path = os.path.join("modules", "${zpa_server_group}")
+        os.makedirs(decoded_path, exist_ok=True)
+        with open(os.path.join(decoded_path, "main.tf"), "w",
+                  encoding="utf-8") as f:
+            f.write("# Terraform's decoded source tree\n")
+
+        main_path = os.path.join(self._root(), "main.tf")
+        with open(main_path, encoding="utf-8") as f:
+            text = f.read()
+        text = text.replace(
+            "../../../modules/zpa_server_group",
+            "../../../modules/$${zpa_server_group}",
+        )
+        with open(main_path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+        with self.assertRaisesRegex(
+                RuntimeError, "source uses HCL template syntax"):
+            self._save_plan()
+
+        self.assertFalse(os.path.exists(
+            os.path.join(self._root(), "tfplan")))
+        self.assertFalse(os.path.exists(
+            os.path.join(self._root(), ops.PLAN_FINGERPRINT)))
 
     def test_effective_root_module_source_survives_deployment_change(self):
         self._save_plan()

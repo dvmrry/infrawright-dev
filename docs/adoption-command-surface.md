@@ -54,6 +54,11 @@ older-fingerprint plans. The fingerprint covers root Terraform inputs
 tfvars, the effective selected local module trees except transient cache
 directories, and the effective remote-backend config digest and state key.
 It stores hashes, not backend-config contents or absolute paths.
+Every root member must resolve to a local module source; missing or non-local
+member sources fail loudly before a fingerprint can be written. Fingerprint
+extraction accepts the generated module-block shape only, so comments cannot
+shadow an effective source, HCL template escapes cannot remap its path, and
+structural edits require regenerating the root.
 
 Creating a new saved plan removes any older plan/fingerprint pair before init,
 checks that init-consumed root, module, and backend inputs are unchanged across
