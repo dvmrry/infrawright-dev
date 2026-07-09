@@ -24,13 +24,6 @@ _MAX_SUBPROCESS_OUTPUT = 1200
 _DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 300
 _BACKEND_BLOCK_RE = re.compile(r'\bbackend\s+"[^"]+"\s*\{')
 _CLOUD_BLOCK_RE = re.compile(r'\bcloud\s*\{')
-_PLAN_SUMMARY_RE = re.compile(
-    r"Plan:\s+(?:(\d+)\s+to import,\s+)?"
-    r"(\d+)\s+to add,\s+(\d+)\s+to change,\s+(\d+)\s+to destroy",
-    re.I,
-)
-
-
 def _terraform():
     return os.environ.get("TF") or "terraform"
 
@@ -220,23 +213,46 @@ def _write_debug_output(debug_dir, debug_name, stdout, stderr):
     return stdout_path, stderr_path
 
 
-def _assert_import_plan_only(resource_type, plan_stdout, expected_imports):
-    match = _PLAN_SUMMARY_RE.search(plan_stdout or "")
-    if not match:
+def _assert_import_plan_only(resource_type, plan, expected_addresses):
+    drift = plan.get("resource_drift") or []
+    if drift:
         raise OracleError(
-            "%s oracle import plan did not report an import-only summary; "
-            "refusing to apply the scratch plan" % resource_type
+            "%s oracle import plan reported resource drift; refusing to apply "
+            "the scratch plan" % resource_type
         )
-    imports = int(match.group(1) or 0)
-    adds = int(match.group(2))
-    changes = int(match.group(3))
-    destroys = int(match.group(4))
-    if imports != expected_imports or adds or changes or destroys:
+    changes = plan.get("resource_changes") or []
+    addresses = set()
+    expected = set(expected_addresses)
+    if len(changes) != len(expected):
         raise OracleError(
-            "%s oracle import plan was not import-only "
-            "(expected %d import(s), saw %d import(s), %d add, %d change, "
-            "%d destroy); refusing to apply the scratch plan"
-            % (resource_type, expected_imports, imports, adds, changes, destroys)
+            "%s oracle import plan reported %d resource change(s), expected "
+            "%d import(s); refusing to apply the scratch plan"
+            % (resource_type, len(changes), len(expected))
+        )
+    for change in changes:
+        address = change.get("address")
+        addresses.add(address)
+        details = change.get("change") or {}
+        actions = details.get("actions") or []
+        importing = details.get("importing")
+        if actions != ["no-op"] or not importing:
+            raise OracleError(
+                "%s oracle import plan was not import-only for %s "
+                "(actions=%r importing=%s); refusing to apply the scratch plan"
+                % (resource_type, address, actions, bool(importing))
+            )
+    if addresses != expected:
+        missing = sorted(expected - addresses)
+        unexpected = sorted(addresses - expected)
+        raise OracleError(
+            "%s oracle import plan addresses did not match expected scratch "
+            "addresses (missing=%s unexpected=%s); refusing to apply the "
+            "scratch plan"
+            % (
+                resource_type,
+                ", ".join(missing) or "<none>",
+                ", ".join(unexpected) or "<none>",
+            )
         )
 
 
@@ -340,7 +356,7 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False):
             addr = _address(resource_type, key)
             address_to_key[addr] = key
         plan_path = os.path.join(temp, "oracle.tfplan")
-        plan_stdout = _run(
+        _run(
             [
                 tf, "plan", "-input=false", "-no-color", "-lock=false",
                 "-out=%s" % plan_path,
@@ -351,7 +367,22 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False):
             debug_name="plan-imports",
             sensitive_tokens=import_ids,
         )
-        _assert_import_plan_only(resource_type, plan_stdout, len(key_to_import_id))
+        raw_plan = _run(
+            [tf, "show", "-json", plan_path],
+            cwd=temp,
+            env=env,
+            debug_dir=debug_dir,
+            debug_name="show-plan",
+            sensitive_tokens=import_ids,
+        )
+        try:
+            plan = json.loads(raw_plan)
+        except ValueError as exc:
+            raise OracleError(
+                "%s terraform show -json plan returned invalid JSON: %s"
+                % (resource_type, exc)
+            )
+        _assert_import_plan_only(resource_type, plan, set(address_to_key))
         _run(
             [
                 tf, "apply", "-input=false", "-no-color", "-lock=false",

@@ -84,6 +84,40 @@ class ImportOracleTest(unittest.TestCase):
                             return args[index + 1]
                     return os.path.join(os.getcwd(), "tfplan")
 
+                def plan_json(imports, actions=None, drift=False):
+                    changes = []
+                    for address, import_id in sorted(imports.items()):
+                        rtype, name = address.split(".", 1)
+                        changes.append({
+                            "address": address,
+                            "mode": "managed",
+                            "type": rtype,
+                            "name": name,
+                            "change": {
+                                "actions": actions or ["no-op"],
+                                "importing": {"id": import_id},
+                            },
+                        })
+                    out = {
+                        "format_version": "1.0",
+                        "resource_changes": changes,
+                    }
+                    if drift:
+                        out["resource_drift"] = [{
+                            "address": sorted(imports)[0],
+                            "change": {"actions": ["update"]},
+                        }]
+                    return out
+
+                def imports_from_plan(path):
+                    with open(path, encoding="utf-8") as f:
+                        plan = json.load(f)
+                    return {
+                        change["address"]: change["change"]["importing"]["id"]
+                        for change in plan.get("resource_changes", [])
+                        if change.get("change", {}).get("importing")
+                    }
+
                 def main():
                     args = sys.argv[1:]
                     log_command(args)
@@ -113,28 +147,44 @@ class ImportOracleTest(unittest.TestCase):
                                 ("stderr import id=%s " % import_id) + ("y" * 1600)
                             )
                             return 17
+                        if os.environ.get("FAKE_TF_SPOOF_PLAN_STDOUT") == "1":
+                            print(
+                                "description = \\"Plan: %d to import, 0 to add, 0 to change, 0 to destroy.\\""
+                                % len(imports)
+                            )
                         if os.environ.get("FAKE_TF_PLAN_CHANGES") == "1":
                             print(
                                 "Plan: %d to import, 0 to add, 1 to change, 0 to destroy."
                                 % len(imports)
                             )
+                            data = plan_json(imports, actions=["update"])
+                        elif os.environ.get("FAKE_TF_PLAN_DRIFT") == "1":
+                            print(
+                                "Plan: %d to import, 0 to add, 0 to change, 0 to destroy."
+                                % len(imports)
+                            )
+                            data = plan_json(imports, drift=True)
                         else:
                             print(
                                 "Plan: %d to import, 0 to add, 0 to change, 0 to destroy."
                                 % len(imports)
                             )
+                            data = plan_json(imports)
                         with open(plan_path(args), "w", encoding="utf-8") as f:
-                            json.dump(imports, f)
+                            json.dump(data, f)
                         return 0
                     if args[0] == "apply":
-                        with open(args[-1], encoding="utf-8") as f:
-                            imports = json.load(f)
+                        imports = imports_from_plan(args[-1])
                         with open(os.path.join(os.getcwd(), "fake-imports.json"), "w", encoding="utf-8") as f:
                             json.dump(imports, f)
                         with open(os.path.join(os.getcwd(), "terraform.tfstate"), "w", encoding="utf-8") as f:
                             f.write("{}")
                         return 0
                     if args[0] == "show":
+                        if len(args) >= 3 and args[1] == "-json" and args[2].endswith("tfplan"):
+                            with open(args[2], encoding="utf-8") as f:
+                                sys.stdout.write(f.read())
+                            return 0
                         if os.environ.get("FAKE_TF_BAD_SHOW_JSON_SECRET") == "1":
                             print('{"secret": "PLAINTEXT", bad')
                             return 0
@@ -183,6 +233,8 @@ class ImportOracleTest(unittest.TestCase):
             os.environ["TF"] = self.prev_tf
         os.environ.pop("FAKE_TF_FAIL_IMPORT", None)
         os.environ.pop("FAKE_TF_PLAN_CHANGES", None)
+        os.environ.pop("FAKE_TF_PLAN_DRIFT", None)
+        os.environ.pop("FAKE_TF_SPOOF_PLAN_STDOUT", None)
         os.environ.pop("FAKE_TF_BAD_SHOW_JSON", None)
         os.environ.pop("FAKE_TF_BAD_SHOW_JSON_SECRET", None)
         os.environ.pop("FAKE_TF_COMMAND_LOG", None)
@@ -217,23 +269,37 @@ class ImportOracleTest(unittest.TestCase):
 
         commands = self._fake_commands()
         self.assertEqual([cmd[0] for cmd in commands], [
-            "init", "plan", "apply", "show",
+            "init", "plan", "show", "apply", "show",
         ])
         self.assertEqual(sum(1 for cmd in commands if cmd[0] == "plan"), 1)
         self.assertEqual(sum(1 for cmd in commands if cmd[0] == "apply"), 1)
         self.assertFalse([cmd for cmd in commands if cmd[0] == "import"])
 
-    def test_non_import_only_plan_is_rejected_before_apply(self):
+    def test_spoofed_plan_stdout_does_not_authorize_apply(self):
         os.environ["FAKE_TF_PLAN_CHANGES"] = "1"
+        os.environ["FAKE_TF_SPOOF_PLAN_STDOUT"] = "1"
 
         with self.assertRaises(OracleError) as ctx:
             import_state("sample_resource", {"prod_app": "123"})
 
         msg = str(ctx.exception)
-        self.assertIn("sample_resource oracle import plan was not import-only", msg)
-        self.assertIn("1 change", msg)
+        self.assertIn(
+            "sample_resource oracle import plan was not import-only", msg)
+        self.assertIn("actions=['update']", msg)
         commands = self._fake_commands()
-        self.assertEqual([cmd[0] for cmd in commands], ["init", "plan"])
+        self.assertEqual([cmd[0] for cmd in commands], ["init", "plan", "show"])
+        self.assertFalse([cmd for cmd in commands if cmd[0] == "apply"])
+
+    def test_plan_resource_drift_is_rejected_before_apply(self):
+        os.environ["FAKE_TF_PLAN_DRIFT"] = "1"
+
+        with self.assertRaises(OracleError) as ctx:
+            import_state("sample_resource", {"prod_app": "123"})
+
+        msg = str(ctx.exception)
+        self.assertIn("sample_resource oracle import plan reported resource drift", msg)
+        commands = self._fake_commands()
+        self.assertEqual([cmd[0] for cmd in commands], ["init", "plan", "show"])
         self.assertFalse([cmd for cmd in commands if cmd[0] == "apply"])
 
     def test_empty_import_set_returns_empty_without_terraform(self):
