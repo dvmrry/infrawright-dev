@@ -3,6 +3,7 @@
 Imports remote objects into an ephemeral local state and returns the provider
 state values Terraform/OpenTofu reports via ``show -json``.
 """
+import difflib
 import hashlib
 import json
 import os
@@ -14,6 +15,11 @@ import sys
 import tempfile
 
 from engine import packs
+from engine import paths
+from engine import schema_paths
+from engine.drift_policy import parse_path
+from engine.ops import _same_json_value
+from engine.transform import parse_hcl_string_literal
 
 
 class OracleError(RuntimeError):
@@ -213,6 +219,29 @@ def _write_debug_output(debug_dir, debug_name, stdout, stderr):
     return stdout_path, stderr_path
 
 
+def _raise_run_error(args, proc, debug_dir=None, debug_name=None,
+                     sensitive_tokens=None):
+    stdout_path, stderr_path = _write_debug_output(
+        debug_dir, debug_name, proc.stdout, proc.stderr)
+    debug_hint = ""
+    if stdout_path or stderr_path:
+        debug_hint = (
+            "\nfull stdout: %s\nfull stderr: %s"
+            % (stdout_path, stderr_path)
+        )
+    tokens = _sensitive_command_tokens(args, sensitive_tokens)
+    raise OracleError(
+        "%s failed with exit %d\nstdout:\n%s\nstderr:\n%s%s"
+        % (
+            _display_args(args),
+            proc.returncode,
+            _summarize_output(proc.stdout, tokens),
+            _summarize_output(proc.stderr, tokens),
+            debug_hint,
+        )
+    )
+
+
 def _assert_import_plan_only(resource_type, plan, expected_addresses):
     drift = plan.get("resource_drift") or []
     if drift:
@@ -258,8 +287,29 @@ def _assert_import_plan_only(resource_type, plan, expected_addresses):
 
 def _run(args, cwd, env, debug_dir=None, debug_name=None,
          sensitive_tokens=None):
+    proc = _run_process(
+        args,
+        cwd,
+        env,
+        debug_dir=debug_dir,
+        debug_name=debug_name,
+        sensitive_tokens=sensitive_tokens,
+    )
+    if proc.returncode != 0:
+        _raise_run_error(
+            args,
+            proc,
+            debug_dir=debug_dir,
+            debug_name=debug_name,
+            sensitive_tokens=sensitive_tokens,
+        )
+    return proc.stdout.decode("utf-8", "replace")
+
+
+def _run_process(args, cwd, env, debug_dir=None, debug_name=None,
+                 sensitive_tokens=None):
     try:
-        proc = subprocess.run(
+        return subprocess.run(
             args,
             cwd=cwd,
             env=env,
@@ -290,30 +340,266 @@ def _run(args, cwd, env, debug_dir=None, debug_name=None,
                 debug_hint,
             )
         )
-    if proc.returncode != 0:
-        stdout_path, stderr_path = _write_debug_output(
-            debug_dir, debug_name, proc.stdout, proc.stderr)
-        debug_hint = ""
-        if stdout_path or stderr_path:
-            debug_hint = (
-                "\nfull stdout: %s\nfull stderr: %s"
-                % (stdout_path, stderr_path)
+
+
+def _generated_config_policy_entries(resource_type, policy):
+    if not policy:
+        return []
+    entries = []
+    for mode in ("projection_omit", "projection_omit_if"):
+        for entry in policy.entries(resource_type, mode):
+            selector = parse_path(entry["path"])
+            if schema_paths.schema_status(resource_type, selector) == "required":
+                raise OracleError(
+                    "%s generated import config policy cannot %s required "
+                    "path %s" % (resource_type, mode, entry["path"])
+                )
+            if _has_exact_index(selector):
+                continue
+            entries.append((mode, entry, selector))
+    return entries
+
+
+def _has_exact_index(selector):
+    return any(isinstance(segment, int) for segment in selector)
+
+
+def _apply_generated_config_policy(
+        resource_type, expected_addresses, generated_config_path, policy,
+        entries=None, debug_dir=None):
+    if entries is None:
+        entries = _generated_config_policy_entries(resource_type, policy)
+    if not entries or not os.path.exists(generated_config_path):
+        return 0
+    with open(generated_config_path, encoding="utf-8") as f:
+        original = f.readlines()
+    filtered, removed = _filter_generated_config_lines(
+        resource_type, set(expected_addresses), original, entries, policy)
+    if removed:
+        _write_generated_config_policy_debug(debug_dir, original, filtered)
+        with open(generated_config_path, "w", encoding="utf-8") as f:
+            f.writelines(filtered)
+    return removed
+
+
+def _write_generated_config_policy_debug(debug_dir, original, filtered):
+    if not debug_dir:
+        return
+    before_path = os.path.join(debug_dir, "generated.tf.before-policy")
+    diff_path = os.path.join(debug_dir, "generated.tf.policy.diff")
+    with open(before_path, "w", encoding="utf-8") as f:
+        f.writelines(original)
+    with open(diff_path, "w", encoding="utf-8") as f:
+        f.writelines(difflib.unified_diff(
+            original,
+            filtered,
+            fromfile="generated.tf.before-policy",
+            tofile="generated.tf",
+        ))
+
+
+def _filter_generated_config_lines(
+        resource_type, expected_addresses, lines, entries, policy):
+    out = []
+    stack = []
+    heredoc_end = None
+    value_depth = 0
+    removed = 0
+    for line in lines:
+        stripped = line.strip()
+        if heredoc_end is not None:
+            out.append(line)
+            if stripped == heredoc_end:
+                heredoc_end = None
+            continue
+        if value_depth:
+            out.append(line)
+            value_depth += _hcl_value_depth_delta(stripped)
+            if value_depth <= 0:
+                value_depth = 0
+            continue
+
+        resource_match = re.match(
+            r'^resource\s+"([^"]+)"\s+"([^"]+)"\s*\{\s*$', stripped)
+        if resource_match:
+            rtype, name = resource_match.groups()
+            address = "%s.%s" % (rtype, name)
+            if rtype != resource_type or address not in expected_addresses:
+                raise OracleError(
+                    "%s generated import config contained unexpected "
+                    "resource block %s" % (resource_type, address)
+                )
+            stack.append({"kind": "resource", "path": (), "counts": {}})
+            out.append(line)
+            continue
+
+        if stripped == "}":
+            if stack:
+                stack.pop()
+            out.append(line)
+            continue
+
+        block_match = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)\s*\{\s*$', stripped)
+        if block_match and stack:
+            name = block_match.group(1)
+            parent = stack[-1]
+            index = parent["counts"].get(name, 0)
+            parent["counts"][name] = index + 1
+            stack.append({
+                "kind": "block",
+                "path": parent["path"] + (name, index),
+                "counts": {},
+            })
+            out.append(line)
+            continue
+
+        if stack and stack[0]["kind"] == "resource":
+            attr_match = re.match(
+                r'^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$', stripped)
+            if attr_match:
+                attr, raw_value = attr_match.groups()
+                actual_path = stack[-1]["path"] + (attr,)
+                value_known, value = _parse_generated_hcl_scalar(raw_value)
+                matched_entry = _generated_config_match(
+                    resource_type, actual_path, value_known, value, entries)
+                if matched_entry is not None:
+                    policy.mark_matched(matched_entry)
+                    removed += 1
+                    continue
+                heredoc_end = _hcl_heredoc_end(raw_value)
+                if heredoc_end is None:
+                    value_depth = max(0, _hcl_value_depth_delta(raw_value))
+
+        out.append(line)
+    return out, removed
+
+
+def _parse_generated_hcl_scalar(raw):
+    text = raw.strip()
+    if text.startswith('"'):
+        try:
+            value, end = parse_hcl_string_literal(text, 0)
+        except ValueError:
+            return False, None
+        if text[end:].strip():
+            return False, None
+        return True, value
+    if text == "true":
+        return True, True
+    if text == "false":
+        return True, False
+    if text == "null":
+        return True, None
+    if re.match(r'^-?(0|[1-9][0-9]*)(\.[0-9]+)?$', text):
+        return True, float(text) if "." in text else int(text)
+    return False, None
+
+
+def _hcl_heredoc_end(raw):
+    match = re.match(r'^<<-?\s*([A-Za-z_][A-Za-z0-9_]*)$', raw.strip())
+    return match.group(1) if match else None
+
+
+def _hcl_value_depth_delta(text):
+    depth = 0
+    in_string = False
+    escaped = False
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if escaped:
+            escaped = False
+            index += 1
+            continue
+        if in_string:
+            if char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            index += 1
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "#":
+            break
+        elif char == "/" and index + 1 < len(text) and text[index + 1] == "/":
+            break
+        elif char in "{[(":
+            depth += 1
+        elif char in "}])":
+            depth -= 1
+        index += 1
+    return depth
+
+
+def _generated_config_match(resource_type, actual_path, value_known, value,
+                            entries):
+    if not value_known:
+        return None
+    for mode, entry, selector in entries:
+        if not paths.selector_matches(selector, actual_path):
+            continue
+        status = schema_paths.schema_status(resource_type, selector)
+        if status != "optional":
+            raise OracleError(
+                "%s generated import config policy matched non-optional "
+                "path %s (schema status %s)"
+                % (resource_type, entry["path"], status)
             )
-        tokens = _sensitive_command_tokens(args, sensitive_tokens)
-        raise OracleError(
-            "%s failed with exit %d\nstdout:\n%s\nstderr:\n%s%s"
-            % (
-                _display_args(args),
-                proc.returncode,
-                _summarize_output(proc.stdout, tokens),
-                _summarize_output(proc.stderr, tokens),
-                debug_hint,
-            )
+        if mode == "projection_omit":
+            return entry
+        if value_known and any(
+                _same_json_value(value, candidate)
+                for candidate in entry["values"]):
+            return entry
+    return None
+
+
+def _plan_imports_with_generated_config(
+        tf, temp, env, resource_type, plan_path, generated_config_path,
+        expected_addresses, policy, debug_dir, import_ids):
+    entries = _generated_config_policy_entries(resource_type, policy)
+    generate_args = [
+        tf, "plan", "-input=false", "-no-color", "-lock=false",
+        "-generate-config-out=%s" % generated_config_path,
+        "-out=%s" % plan_path,
+    ]
+    proc = _run_process(
+        generate_args,
+        cwd=temp,
+        env=env,
+        debug_dir=debug_dir,
+        debug_name="plan-generate-config",
+        sensitive_tokens=import_ids,
+    )
+    removed = _apply_generated_config_policy(
+        resource_type, expected_addresses, generated_config_path, policy,
+        entries=entries, debug_dir=debug_dir)
+    if proc.returncode != 0 and not removed:
+        _raise_run_error(
+            generate_args,
+            proc,
+            debug_dir=debug_dir,
+            debug_name="plan-generate-config",
+            sensitive_tokens=import_ids,
         )
-    return proc.stdout.decode("utf-8", "replace")
+    if proc.returncode == 0 and not removed:
+        return
+    _run(
+        [
+            tf, "plan", "-input=false", "-no-color", "-lock=false",
+            "-out=%s" % plan_path,
+        ],
+        cwd=temp,
+        env=env,
+        debug_dir=debug_dir,
+        debug_name="plan-imports",
+        sensitive_tokens=import_ids,
+    )
 
 
-def import_state(resource_type, key_to_import_id, keep_workdir=False):
+def import_state(resource_type, key_to_import_id, keep_workdir=False,
+                 policy=None):
     """Return {key: {"address": ..., "values": ..., "sensitive_values": ...}}."""
     if not key_to_import_id:
         return {}
@@ -357,17 +643,17 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False):
             address_to_key[addr] = key
         plan_path = os.path.join(temp, "oracle.tfplan")
         generated_config_path = os.path.join(temp, "generated.tf")
-        _run(
-            [
-                tf, "plan", "-input=false", "-no-color", "-lock=false",
-                "-generate-config-out=%s" % generated_config_path,
-                "-out=%s" % plan_path,
-            ],
-            cwd=temp,
-            env=env,
-            debug_dir=debug_dir,
-            debug_name="plan-imports",
-            sensitive_tokens=import_ids,
+        _plan_imports_with_generated_config(
+            tf,
+            temp,
+            env,
+            resource_type,
+            plan_path,
+            generated_config_path,
+            set(address_to_key),
+            policy,
+            debug_dir,
+            import_ids,
         )
         raw_plan = _run(
             [tf, "show", "-json", plan_path],

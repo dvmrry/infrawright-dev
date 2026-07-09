@@ -9,6 +9,7 @@ import unittest
 from engine import adopt
 from engine import packs
 from engine import registry
+from engine.drift_policy import DriftPolicy
 
 
 def _write_json(path, data):
@@ -74,7 +75,7 @@ class AdoptCommandTest(unittest.TestCase):
             {"id": "123", "name": "Prod App", "apiOnlyNoise": "x"}
         ])
 
-        def fake_import_state(resource_type, key_to_import_id):
+        def fake_import_state(resource_type, key_to_import_id, policy=None):
             self.assertEqual(resource_type, "sample_resource")
             self.assertEqual(key_to_import_id, {"prod_app": "123"})
             return {
@@ -117,11 +118,48 @@ class AdoptCommandTest(unittest.TestCase):
         self.assertIn('id = "123"', imports)
         self.assertIn('this["prod_app"]', imports)
 
+    def test_adopt_items_passes_same_policy_to_oracle_and_projection(self):
+        policy_obj = DriftPolicy({
+            "version": 1,
+            "resource_types": {"sample_resource": {}},
+        })
+
+        def fake_import_state(resource_type, key_to_import_id, policy=None):
+            self.assertEqual(resource_type, "sample_resource")
+            self.assertEqual(key_to_import_id, {"prod_app": "123"})
+            self.assertIs(policy, policy_obj)
+            return {
+                "prod_app": {
+                    "values": {"name": "Prod App"},
+                    "sensitive_values": {"name": False},
+                }
+            }
+
+        def fake_project_item(resource_type, state_values,
+                              sensitive_values=None, policy=None):
+            self.assertEqual(resource_type, "sample_resource")
+            self.assertEqual(state_values, {"name": "Prod App"})
+            self.assertEqual(sensitive_values, {"name": False})
+            self.assertIs(policy, policy_obj)
+            return {"name": state_values["name"]}
+
+        adopt.import_state = fake_import_state
+        adopt.project_item = fake_project_item
+
+        items, originals = adopt.adopt_items(
+            [{"id": "123", "name": "Prod App"}],
+            "sample_resource",
+            policy=policy_obj,
+        )
+
+        self.assertEqual(items, {"prod_app": {"name": "Prod App"}})
+        self.assertEqual(originals["prod_app"]["id"], "123")
+
     def test_empty_pull_writes_empty_outputs_without_oracle(self):
         input_path = os.path.join(self.tmp, "empty.json")
         _write_json(input_path, [])
 
-        def fail_import_state(resource_type, key_to_import_id):
+        def fail_import_state(resource_type, key_to_import_id, policy=None):
             raise AssertionError("empty adoption should not call import oracle")
 
         adopt.import_state = fail_import_state
@@ -159,7 +197,7 @@ class AdoptCommandTest(unittest.TestCase):
             {"id": "keep-1", "name": "Managed", "system": False},
         ])
 
-        def fake_import_state(resource_type, key_to_import_id):
+        def fake_import_state(resource_type, key_to_import_id, policy=None):
             self.assertEqual(key_to_import_id, {"managed": "keep-1"})
             return {
                 "managed": {
@@ -191,7 +229,7 @@ class AdoptCommandTest(unittest.TestCase):
             {"id": "g1", "name": "R&amp;D"},
         ])
 
-        def fake_import_state(resource_type, key_to_import_id):
+        def fake_import_state(resource_type, key_to_import_id, policy=None):
             return {
                 "r_amp_d": {
                     "values": {"name": "R&D"},
@@ -237,7 +275,7 @@ class AdoptCommandTest(unittest.TestCase):
             {"id": "tn-1", "networkName": "Raw Branch"},
         ])
 
-        def fake_import_state(resource_type, key_to_import_id):
+        def fake_import_state(resource_type, key_to_import_id, policy=None):
             self.assertEqual(key_to_import_id, {"raw_branch": "tn-1"})
             return {
                 "raw_branch": {
@@ -279,7 +317,7 @@ class AdoptCommandTest(unittest.TestCase):
         with open(stale_json, "w", encoding="utf-8") as f:
             f.write('{"items": {"stale": {}}}\n')
 
-        def fake_import_state(resource_type, key_to_import_id):
+        def fake_import_state(resource_type, key_to_import_id, policy=None):
             return {
                 "prod_app": {
                     "values": {"name": "Prod App"},
@@ -313,7 +351,7 @@ class AdoptCommandTest(unittest.TestCase):
         with open(stale_hcl, "w", encoding="utf-8") as f:
             f.write("items = {}\n")
 
-        def fake_import_state(resource_type, key_to_import_id):
+        def fake_import_state(resource_type, key_to_import_id, policy=None):
             return {
                 "prod_app": {
                     "values": {"name": "Prod App"},
@@ -348,7 +386,7 @@ class AdoptCommandTest(unittest.TestCase):
         registry.reload_registry()
         called = []
 
-        def fail_import_state(resource_type, key_to_import_id):
+        def fail_import_state(resource_type, key_to_import_id, policy=None):
             called.append((resource_type, key_to_import_id))
             raise AssertionError("duplicate import IDs should fail before oracle")
 

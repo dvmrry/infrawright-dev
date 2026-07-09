@@ -50,7 +50,7 @@ def adopt_items(raw_items, resource_type, policy=None):
     if not key_to_import_id:
         return {}, key_to_identity
 
-    oracle = import_state(resource_type, key_to_import_id)
+    oracle = import_state(resource_type, key_to_import_id, policy=policy)
     items = {}
     for key in sorted(oracle):
         state_obj = oracle[key]

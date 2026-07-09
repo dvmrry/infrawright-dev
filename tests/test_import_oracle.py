@@ -12,6 +12,7 @@ from unittest import mock
 
 from engine import packs
 from engine import import_oracle
+from engine.drift_policy import DriftPolicy
 from engine.import_oracle import (
     OracleError,
     import_state,
@@ -26,11 +27,41 @@ def _write_json(path, data):
         json.dump(data, f)
 
 
+FAKE_PROVIDER_SCHEMA = {
+    "block": {
+        "attributes": {
+            "id": {"type": "string", "computed": True},
+            "name": {"type": "string", "required": True},
+            "size_quota": {"type": "number", "optional": True},
+            "enabled": {"type": "bool", "optional": True},
+            "description": {"type": "string", "optional": True},
+        },
+        "block_types": {
+            "ports": {
+                "nesting_mode": "list",
+                "block": {
+                    "attributes": {
+                        "start": {"type": "number", "optional": True},
+                        "end": {"type": "number", "optional": True},
+                    }
+                },
+            },
+        },
+    }
+}
+
+
 class ImportOracleTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="import-oracle-")
         self.prev_packs = os.environ.get("INFRAWRIGHT_PACKS")
         self.prev_tf = os.environ.get("TF")
+        self.prev_schema_load_resource = (
+            import_oracle.schema_paths.load_resource
+        )
+        import_oracle.schema_paths.load_resource = (
+            lambda resource_type: FAKE_PROVIDER_SCHEMA
+        )
         os.environ["INFRAWRIGHT_PACKS"] = self.tmp
         os.makedirs(os.path.join(self.tmp, "sample"), exist_ok=True)
         _write_json(os.path.join(self.tmp, "sample", "pack.json"), {
@@ -126,6 +157,24 @@ class ImportOracleTest(unittest.TestCase):
                         if change.get("change", {}).get("importing")
                     }
 
+                def tf_text():
+                    out = []
+                    for name in sorted(os.listdir(os.getcwd())):
+                        if not name.endswith(".tf") or name == "imports.tf":
+                            continue
+                        with open(os.path.join(os.getcwd(), name), encoding="utf-8") as f:
+                            out.append(f.read())
+                    return "\\n".join(out)
+
+                def has_rejected_generated_sentinel():
+                    text = tf_text()
+                    return (
+                        re.search(r'^\\s*size_quota\\s*=\\s*0\\s*$',
+                                  text, re.M)
+                        or re.search(r'^\\s*end\\s*=\\s*0\\s*$',
+                                     text, re.M)
+                    )
+
                 def main():
                     args = sys.argv[1:]
                     log_command(args)
@@ -135,15 +184,19 @@ class ImportOracleTest(unittest.TestCase):
                         sys.stderr.write("unexpected terraform import command\\n")
                         return 99
                     if args[0] == "plan":
-                        with open(os.path.join(os.getcwd(), "main.tf"), encoding="utf-8") as f:
-                            main_tf = f.read()
                         with open(os.path.join(os.getcwd(), "imports.tf"), encoding="utf-8") as f:
                             imports_tf = f.read()
                         declared = set(
                             "%s.%s" % (m.group(1), m.group(2))
-                            for m in re.finditer(r'resource\\s+"([^"]+)"\\s+"([^"]+)"', main_tf)
+                            for m in re.finditer(r'resource\\s+"([^"]+)"\\s+"([^"]+)"', tf_text())
                         )
                         imports = parse_import_blocks(imports_tf)
+                        if (
+                                os.environ.get("FAKE_TF_REJECT_GENERATED_SENTINEL") == "1"
+                                and not generated_config_path(args)
+                                and has_rejected_generated_sentinel()):
+                            sys.stderr.write("generated config rejected sentinel\\n")
+                            return 45
                         undeclared = sorted(
                             address for address in imports if address not in declared
                         )
@@ -163,9 +216,18 @@ class ImportOracleTest(unittest.TestCase):
                                 for address in undeclared:
                                     rtype, name = address.split(".", 1)
                                     f.write(
-                                        'resource "%s" "%s" {\\n  id = %s\\n}\\n\\n'
+                                        'resource "%s" "%s" {\\n  id = %s\\n'
                                         % (rtype, name, json.dumps(imports[address]))
                                     )
+                                    if os.environ.get("FAKE_TF_GENERATED_SENTINEL") == "1":
+                                        f.write("  size_quota = 0\\n")
+                                        f.write("  ports {\\n    start = 443\\n    end = 0\\n  }\\n")
+                                    if os.environ.get("FAKE_TF_GENERATED_COMPLEX") == "1":
+                                        f.write("  size_quota = [0]\\n")
+                                    f.write("}\\n\\n")
+                            if os.environ.get("FAKE_TF_FAIL_GENERATED_CONFIG") == "1":
+                                sys.stderr.write("generated config validation failed\\n")
+                                return 44
                         if os.environ.get("FAKE_TF_FAIL_IMPORT") == "1":
                             import_id = sorted(imports.values())[0]
                             print(("stdout import id=%s " % import_id) + ("x" * 1600))
@@ -263,9 +325,14 @@ class ImportOracleTest(unittest.TestCase):
         os.environ.pop("FAKE_TF_SPOOF_PLAN_STDOUT", None)
         os.environ.pop("FAKE_TF_BAD_SHOW_JSON", None)
         os.environ.pop("FAKE_TF_BAD_SHOW_JSON_SECRET", None)
+        os.environ.pop("FAKE_TF_GENERATED_SENTINEL", None)
+        os.environ.pop("FAKE_TF_GENERATED_COMPLEX", None)
+        os.environ.pop("FAKE_TF_FAIL_GENERATED_CONFIG", None)
+        os.environ.pop("FAKE_TF_REJECT_GENERATED_SENTINEL", None)
         os.environ.pop("FAKE_TF_COMMAND_LOG", None)
         os.environ.pop("INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS", None)
         os.environ.pop("INFRAWRIGHT_KEEP_ORACLE", None)
+        import_oracle.schema_paths.load_resource = self.prev_schema_load_resource
         packs.reset()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
@@ -306,6 +373,310 @@ class ImportOracleTest(unittest.TestCase):
         self.assertEqual(sum(1 for cmd in commands if cmd[0] == "plan"), 1)
         self.assertEqual(sum(1 for cmd in commands if cmd[0] == "apply"), 1)
         self.assertFalse([cmd for cmd in commands if cmd[0] == "import"])
+
+    def test_generated_config_policy_rescues_provider_validation_failure(self):
+        os.environ["FAKE_TF_GENERATED_SENTINEL"] = "1"
+        os.environ["FAKE_TF_FAIL_GENERATED_CONFIG"] = "1"
+        os.environ["FAKE_TF_REJECT_GENERATED_SENTINEL"] = "1"
+        policy = self._policy({
+            "projection_omit_if": [
+                {
+                    "path": "size_quota",
+                    "values": [0],
+                    "reason": "provider rejects unset sentinel",
+                    "approved_by": "unit",
+                },
+                {
+                    "path": "ports[*].end",
+                    "values": [0],
+                    "reason": "provider rejects unset sentinel",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+
+        out = import_state(
+            "sample_resource", {"prod_app": "123"}, policy=policy)
+
+        self.assertEqual(out["prod_app"]["values"]["id"], "123")
+        self.assertEqual(policy.stale_entries(
+            modes=("projection_omit_if",)), [])
+        commands = self._fake_commands()
+        self.assertEqual([cmd[0] for cmd in commands], [
+            "init", "plan", "plan", "show", "apply", "show",
+        ])
+        self.assertTrue(any(
+            arg.startswith("-generate-config-out=") for arg in commands[1]))
+        self.assertFalse(any(
+            arg.startswith("-generate-config-out=") for arg in commands[2]))
+
+    def test_generated_config_policy_debug_artifacts_show_removed_lines(self):
+        os.environ["FAKE_TF_GENERATED_SENTINEL"] = "1"
+        os.environ["FAKE_TF_FAIL_GENERATED_CONFIG"] = "1"
+        os.environ["FAKE_TF_REJECT_GENERATED_SENTINEL"] = "1"
+        policy = self._policy({
+            "projection_omit_if": [
+                {
+                    "path": "size_quota",
+                    "values": [0],
+                    "reason": "provider rejects unset sentinel",
+                    "approved_by": "unit",
+                },
+                {
+                    "path": "ports[*].end",
+                    "values": [0],
+                    "reason": "provider rejects unset sentinel",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+        kept = None
+        stderr = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(stderr):
+                out = import_state(
+                    "sample_resource",
+                    {"prod_app": "123"},
+                    keep_workdir=True,
+                    policy=policy,
+                )
+            self.assertEqual(out["prod_app"]["values"]["id"], "123")
+            match = re.search(r"workdir ([^;]+);", stderr.getvalue())
+            self.assertIsNotNone(match, stderr.getvalue())
+            kept = match.group(1)
+
+            before_path = os.path.join(kept, "generated.tf.before-policy")
+            after_path = os.path.join(kept, "generated.tf")
+            diff_path = os.path.join(kept, "generated.tf.policy.diff")
+            with open(before_path, encoding="utf-8") as f:
+                before = f.read()
+            with open(after_path, encoding="utf-8") as f:
+                after = f.read()
+            with open(diff_path, encoding="utf-8") as f:
+                diff = f.read()
+
+            self.assertIn("  size_quota = 0\n", before)
+            self.assertIn("    end = 0\n", before)
+            self.assertNotIn("  size_quota = 0\n", after)
+            self.assertNotIn("    end = 0\n", after)
+            self.assertIn("--- generated.tf.before-policy", diff)
+            self.assertIn("+++ generated.tf", diff)
+            self.assertIn("-  size_quota = 0\n", diff)
+            self.assertIn("-    end = 0\n", diff)
+        finally:
+            if kept:
+                shutil.rmtree(kept, ignore_errors=True)
+
+    def test_generated_config_policy_rejects_required_omit_before_plan(self):
+        policy = self._policy({
+            "projection_omit": [
+                {"path": "name", "reason": "test", "approved_by": "unit"}
+            ],
+        })
+
+        with self.assertRaisesRegex(
+                OracleError,
+                "cannot projection_omit required path name"):
+            import_state("sample_resource", {"prod_app": "123"}, policy=policy)
+
+        self.assertEqual([cmd[0] for cmd in self._fake_commands()], ["init"])
+
+    def test_generated_config_policy_non_scalar_reraises_original_failure(self):
+        os.environ["FAKE_TF_GENERATED_COMPLEX"] = "1"
+        os.environ["FAKE_TF_FAIL_GENERATED_CONFIG"] = "1"
+        policy = self._policy({
+            "projection_omit_if": [
+                {
+                    "path": "size_quota",
+                    "values": [0],
+                    "reason": "test",
+                    "approved_by": "unit",
+                }
+            ],
+        })
+
+        with self.assertRaisesRegex(OracleError, "failed with exit 44"):
+            import_state("sample_resource", {"prod_app": "123"}, policy=policy)
+
+        self.assertEqual([cmd[0] for cmd in self._fake_commands()], [
+            "init", "plan",
+        ])
+
+    def test_generated_config_policy_skips_exact_indexes_and_reraises(self):
+        os.environ["FAKE_TF_GENERATED_SENTINEL"] = "1"
+        os.environ["FAKE_TF_FAIL_GENERATED_CONFIG"] = "1"
+        policy = self._policy({
+            "projection_omit_if": [
+                {
+                    "path": "ports[0].end",
+                    "values": [0],
+                    "reason": "test",
+                    "approved_by": "unit",
+                }
+            ],
+        })
+
+        with self.assertRaisesRegex(OracleError, "failed with exit 44"):
+            import_state("sample_resource", {"prod_app": "123"}, policy=policy)
+
+        self.assertEqual([cmd[0] for cmd in self._fake_commands()], [
+            "init", "plan",
+        ])
+
+    def test_generated_config_policy_uses_strict_json_equality(self):
+        policy = self._policy({
+            "projection_omit_if": [
+                {
+                    "path": "enabled",
+                    "values": [0],
+                    "reason": "test",
+                    "approved_by": "unit",
+                },
+                {
+                    "path": "size_quota",
+                    "values": [0],
+                    "reason": "test",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+        lines = [
+            'resource "sample_resource" "iw_prod_app" {\n',
+            "  enabled = false\n",
+            "  size_quota = 0.0\n",
+            "}\n",
+        ]
+        entries = import_oracle._generated_config_policy_entries(
+            "sample_resource", policy)
+
+        filtered, removed = import_oracle._filter_generated_config_lines(
+            "sample_resource",
+            {"sample_resource.iw_prod_app"},
+            lines,
+            entries,
+            policy,
+        )
+
+        self.assertEqual(removed, 1)
+        text = "".join(filtered)
+        self.assertIn("enabled = false", text)
+        self.assertNotIn("size_quota", text)
+        self.assertEqual(policy.stale_entries(
+            modes=("projection_omit_if",)),
+            [("sample_resource", "projection_omit_if", "enabled")])
+
+    def test_generated_config_policy_removes_nested_scalar_leaf_only(self):
+        policy = self._policy({
+            "projection_omit_if": [
+                {
+                    "path": "ports[*].end",
+                    "values": [0],
+                    "reason": "test",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+        lines = [
+            'resource "sample_resource" "iw_prod_app" {\n',
+            "  ports {\n",
+            "    start = 443\n",
+            "    end = 0\n",
+            "  }\n",
+            "}\n",
+        ]
+        entries = import_oracle._generated_config_policy_entries(
+            "sample_resource", policy)
+
+        filtered, removed = import_oracle._filter_generated_config_lines(
+            "sample_resource",
+            {"sample_resource.iw_prod_app"},
+            lines,
+            entries,
+            policy,
+        )
+
+        self.assertEqual(removed, 1)
+        text = "".join(filtered)
+        self.assertIn("ports {\n", text)
+        self.assertIn("start = 443", text)
+        self.assertNotIn("end = 0", text)
+
+    def test_generated_config_policy_rejects_unexpected_resource_block(self):
+        policy = self._policy({
+            "projection_omit": [
+                {
+                    "path": "size_quota",
+                    "reason": "test",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+        entries = import_oracle._generated_config_policy_entries(
+            "sample_resource", policy)
+
+        with self.assertRaisesRegex(
+                OracleError,
+                "unexpected resource block other_resource.iw_bad"):
+            import_oracle._filter_generated_config_lines(
+                "sample_resource",
+                {"sample_resource.iw_prod_app"},
+                ['resource "other_resource" "iw_bad" {\n', "}\n"],
+                entries,
+                policy,
+            )
+
+    def test_generated_config_policy_leaves_unsafe_hcl_values_untouched(self):
+        policy = self._policy({
+            "projection_omit": [
+                {
+                    "path": "description",
+                    "reason": "test",
+                    "approved_by": "unit",
+                },
+                {
+                    "path": "size_quota",
+                    "reason": "test",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+        lines = [
+            'provider "sample" {}\n',
+            "terraform {\n",
+            "}\n",
+            "import {\n",
+            "}\n",
+            'resource "sample_resource" "iw_prod_app" {\n',
+            '  description = "brace } in string"\n',
+            "  size_quota = [0]\n",
+            "  description = <<EOT\n",
+            "}\n",
+            "EOT\n",
+            "  description = {\n",
+            '    value = "drop"\n',
+            "  }\n",
+            "}\n",
+        ]
+        entries = import_oracle._generated_config_policy_entries(
+            "sample_resource", policy)
+
+        filtered, removed = import_oracle._filter_generated_config_lines(
+            "sample_resource",
+            {"sample_resource.iw_prod_app"},
+            lines,
+            entries,
+            policy,
+        )
+
+        self.assertEqual(removed, 1)
+        text = "".join(filtered)
+        self.assertIn('provider "sample" {}', text)
+        self.assertIn("terraform {\n}\n", text)
+        self.assertIn("import {\n}\n", text)
+        self.assertNotIn('description = "brace } in string"', text)
+        self.assertIn("size_quota = [0]", text)
+        self.assertIn("description = <<EOT", text)
+        self.assertIn("description = {", text)
 
     def test_spoofed_plan_stdout_does_not_authorize_apply(self):
         os.environ["FAKE_TF_PLAN_CHANGES"] = "1"
@@ -542,6 +913,12 @@ class ImportOracleTest(unittest.TestCase):
         msg = str(ctx.exception)
         self.assertIn("oracle scratch root must not declare", msg)
         self.assertIn("ephemeral and local", msg)
+
+    def _policy(self, resource_policy):
+        return DriftPolicy({
+            "version": 1,
+            "resource_types": {"sample_resource": resource_policy},
+        })
 
     def _fake_commands(self):
         with open(self.command_log, encoding="utf-8") as f:
