@@ -94,21 +94,51 @@ The main provider-read normalization probes are:
 1. `zia_url_filtering_rules.size_quota` and
    `zia_cloud_app_control_rule.size_quota`: transform divides by 1024. The
    transform comment says the ZIA provider reads `resp.SizeQuota / 1024`
-   ([engine/transform.py](../engine/transform.py#L479-L495)). Confirm whether
-   oracle-projected provider state is already in config units. If yes, this is
-   not an oracle gap.
+   ([engine/transform.py](../engine/transform.py#L479-L495)). RESOLVED - no
+   oracle gap. zia 4.7.26 `resource_zia_url_filtering_rules.go` READ does
+   `sizeQuotaMB := resp.SizeQuota / 1024` before `d.Set("size_quota", ...)`;
+   CREATE/UPDATE converts back via `convertAndValidateSizeQuota`. Provider
+   state is already in config units (MB). Cite:
+   https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go
 2. `zcc_failopen_policy` inverted booleans:
    [engine/transform.py](../engine/transform.py#L496-L504) applies local
-   inversion, but terraformer has no ZCC support. This is the highest-value
-   value-transform probe because the provider is beta and upstream offers no
-   corroboration.
+   inversion, but terraformer has no ZCC support. RESOLVED - no oracle gap.
+   zcc 0.1.0-beta.1 `internal/framework/resources/failopen_policy.go`:
+   `flattenFailOpenPolicy` applies `invertedStrToBool` / `invertedIntToBool`
+   (API "0"/0 means true) on READ for `active`,
+   `enable_captive_portal_detection`, `enable_fail_open`,
+   `enable_web_sec_on_proxy_unreachable`, `enable_web_sec_on_tunnel_failure`;
+   `expandFailOpenPolicy` inverts symmetrically on write (`boolToInvertedStr`
+   / `boolToInvertedInt`). Oracle-projected state is already correct
+   config-space booleans. Follow-up: the provider schema also has
+   `enable_strict_enforcement_prompt`, which is NOT in the local transform
+   `invert_bool` list - verify the raw transform path handles it (raw-path
+   concern only, not an oracle gap). Cite:
+   https://github.com/zscaler/terraform-provider-zcc/blob/v0.1.0-beta.1/internal/framework/resources/failopen_policy.go
 3. `zpa_application_segment.policy_style`: transform maps API enum strings to a
    schema boolean ([engine/transform.py](../engine/transform.py#L505-L510)).
-   Verify whether imported provider state is already boolean.
+   RESOLVED - no oracle gap. zpa 4.4.6 `resource_zpa_application_segment.go`
+   READ does `d.Set("policy_style", PolicyStyleAPIToBool(resp.PolicyStyle))`;
+   write uses `PolicyStyleBoolToAPIString`. State is already boolean. Cite:
+   https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_application_segment.go
 4. `zia_url_filtering_rules.url_categories=["ANY"]`: transform defaults missing
    or empty input ([engine/transform.py](../engine/transform.py#L524-L532)).
    Upstream terraformer independently injects the same default for this resource
-   only. This is a read-default question, not a raw value transform.
+   only. RESOLVED - no oracle gap and NOT a url-filtering test blocker. Same
+   zia file READ: `if len(resp.URLCategories) == 0 { d.Set("url_categories",
+   []string{"ANY"}) }`. The oracle sees ["ANY"] by construction.
+
+### Provider Read Normalization Finding
+
+Transform-path value overrides (`divide`, `invert_bool`, `value_map`)
+compensate for the RAW API; the adopt/oracle path reads through the provider,
+whose READ path is config-space at the pinned versions. Value transforms are
+therefore not an oracle-gap class. The only confirmed oracle-gap classes
+remain read-omits (handled by `projection_fill`) and read-sentinels (handled
+by `projection_omit_if`). Also note: zpa `resource_zpa_application_segment.go`
+READ sets `microtenant_id` raw (including "0"), so transform's
+`drop_if_default` is a cosmetic tfvars divergence from adopt output, not a
+plan-correctness gap.
 
 ## Numeric Zero Phantom Reference
 
@@ -141,6 +171,12 @@ sentinel and drops it before rendering list-ID blocks
 reference lists, then bind the remaining siblings. A list that is only `[0]`
 now emits `[]`. The remaining evidence gate is semantic: confirm per affected
 field that `0` means none/sentinel rather than any/all.
+
+A live check (terraform 2026-07-09) confirmed Terraform implicitly converts
+uniform-string and mixed int/string lists to `list(number)`, and module
+reference `.id` values are strings; the string literal fallback for
+out-of-group numeric ids is therefore type-safe, and no bare-numeric-literal
+change to `_literal_expr` is needed.
 
 ## Terraformer Corroboration And Net-New Rules
 
@@ -205,9 +241,11 @@ appears.
 2. Verify provider-read normalization for value transforms. Prioritize
    `zcc_failopen_policy` inverted booleans first, then
    `zpa_application_segment.policy_style`, then mature-ZIA `size_quota`
-   conversions.
+   conversions. DONE via pinned provider source (2026-07-09) for all three
+   named cases; see Existing Oracle Coverage above.
 3. Test whether oracle/adopt emits or needs
-   `zia_url_filtering_rules.url_categories=["ANY"]`.
+   `zia_url_filtering_rules.url_categories=["ANY"]`. RESOLVED by provider
+   source; see item 4 in Existing Oracle Coverage above.
 4. Build a ZPA reference inventory from the upstream mapper. Start with
    `serverGroups`, `appServerGroups`, `appConnectorGroups`, and
    `segmentGroupId`, and verify each against the pinned ZPA 4.4.6 schema.
@@ -217,12 +255,19 @@ appears.
 6. Decide whether to continue per-quirk projection policy or design an
    override-to-projection bridge. Do not bridge blindly: transforms have
    different oracle relevance, and some are intentionally transform-only.
+   DECIDED: no bridge; per-quirk projection policy stays, and the provider
+   read normalization finding removes most of the anticipated tail.
 
 ## Post-#144 Deferred Items
 
 These are not code blockers for #144. They are the evidence gates and follow-ups
 to keep on the checklist before relying on the new behavior broadly or extending
 it to more resources.
+
+The value-transform verification items were resolved offline via pinned
+provider source on 2026-07-09, so the remaining tenant gates are only the DNS
+order split, the `[0]` none-vs-all semantics, and the previously-gated
+generate-config-out behaviors.
 
 1. DNS rule order split: in a dev tenant, dump `zia_firewall_dns_rule` order
    values and confirm predefined/system rules have `order <= 0` while real
