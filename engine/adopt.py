@@ -27,6 +27,7 @@ def adopt_items(raw_items, resource_type, policy=None):
     key_to_import_id = {}
     key_to_raw = {}
     import_id_to_key = {}
+    identities = []
     for raw in raw_items:
         ident = identity_item(raw, resource_type)
         if skip_identity_item(ident, meta):
@@ -35,6 +36,16 @@ def adopt_items(raw_items, resource_type, policy=None):
                 % (resource_type, ident.get("name") or ident.get("id"))
             )
             continue
+        identities.append((ident, raw))
+
+    if meta.get("constant_key") is not None and len(identities) > 1:
+        raise ValueError(
+            "%s adopt.constant_key %r is only valid for singleton adoption; "
+            "read produced %d items after skip_if"
+            % (resource_type, meta["constant_key"], len(identities))
+        )
+
+    for ident, raw in identities:
         key = derive_key_from_identity(ident, meta)
         if key in key_to_identity:
             raise ValueError("duplicate derived key %r for %s" % (key, resource_type))

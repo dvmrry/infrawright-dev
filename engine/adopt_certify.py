@@ -43,13 +43,26 @@ def _raw_items_by_key(resource_type, raw):
         raise ValueError("--raw must be a JSON object or list")
 
     meta = adoption_entry(resource_type)
-    out = {}
+    identities = []
+    raw_by_identity = []
     for raw_item in raw:
         if not isinstance(raw_item, dict):
             raise ValueError("--raw list items must be objects")
         ident = identity_item(raw_item, resource_type)
         if skip_identity_item(ident, meta):
             continue
+        identities.append(ident)
+        raw_by_identity.append((ident, raw_item))
+
+    if meta.get("constant_key") is not None and len(identities) > 1:
+        raise ValueError(
+            "%s adopt.constant_key %r is only valid for singleton adoption; "
+            "--raw contained %d items after skip_if"
+            % (resource_type, meta["constant_key"], len(identities))
+        )
+
+    out = {}
+    for ident, raw_item in raw_by_identity:
         key = derive_key_from_identity(ident, meta)
         if key in out:
             raise ValueError("duplicate derived raw key %r" % key)

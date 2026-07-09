@@ -26,6 +26,7 @@ FETCH_REQUIRED_KEYS = set(["pagination", "path"])
 DERIVE_KEYS = set(["from", "policy_type"])
 DERIVE_REQUIRED_KEYS = set(["from"])
 ADOPT_KEYS = set([
+    "constant_key",
     "identity_fields",
     "identity_renames",
     "import_id",
@@ -168,7 +169,13 @@ def _validate_adopt(adopt, path):
     if not isinstance(adopt, dict):
         raise ValueError("%s must be an object" % path)
     manifest_checks.reject_unknown_keys(adopt, ADOPT_KEYS, path)
-    for key in ("key_field", "import_id"):
+    if "constant_key" in adopt and "key_field" in adopt:
+        raise ValueError(
+            "%s cannot set both constant_key and key_field" % path
+        )
+    if "constant_key" in adopt and "import_id" not in adopt:
+        raise ValueError("%s.constant_key requires import_id" % path)
+    for key in ("constant_key", "key_field", "import_id"):
         if key in adopt:
             manifest_checks.require_non_empty_string(
                 adopt[key], "%s.%s" % (path, key)

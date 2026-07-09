@@ -238,6 +238,89 @@ class AdoptCommandTest(unittest.TestCase):
         ) as f:
             self.assertEqual(f.read(), "")
 
+    def test_constant_key_singleton_adopts_without_identity_field(self):
+        _write_json(os.path.join(self.tmp, "packs", "sample", "registry.json"), {
+            "sample_resource": {
+                "generate": True,
+                "product": "sample",
+                "adopt": {
+                    "constant_key": "settings",
+                    "import_id": "settings",
+                },
+            }
+        })
+        registry.reload_registry()
+        input_path = os.path.join(self.tmp, "api.json")
+        _write_json(input_path, [{"enabled": True}])
+
+        def fake_import_state(resource_type, key_to_import_id,
+                              policy=None, raw_items=None):
+            self.assertEqual(key_to_import_id, {"settings": "settings"})
+            self.assertEqual(raw_items, {"settings": {"enabled": True}})
+            return {
+                "settings": {
+                    "values": {"enabled": True},
+                    "sensitive_values": {},
+                }
+            }
+
+        def fake_project_item(resource_type, state_values,
+                              sensitive_values=None, policy=None, raw_item=None):
+            self.assertEqual(raw_item, {"enabled": True})
+            return {"enabled": state_values["enabled"]}
+
+        adopt.import_state = fake_import_state
+        adopt.project_item = fake_project_item
+        self.assertEqual(adopt.main(["sample_resource", input_path, "tenant"]), 0)
+
+        with open(
+                os.path.join(
+                    "config", "tenant", "sample_resource.auto.tfvars.json"
+                ),
+                encoding="utf-8",
+        ) as f:
+            data = json.load(f)
+        self.assertEqual(data["items"], {"settings": {"enabled": True}})
+        with open(
+                os.path.join("imports", "tenant", "sample_resource_imports.tf"),
+                encoding="utf-8",
+        ) as f:
+            imports = f.read()
+        self.assertIn('this["settings"]', imports)
+        self.assertIn('id = "settings"', imports)
+
+    def test_constant_key_collection_fails_before_oracle(self):
+        _write_json(os.path.join(self.tmp, "packs", "sample", "registry.json"), {
+            "sample_resource": {
+                "generate": True,
+                "product": "sample",
+                "adopt": {
+                    "constant_key": "settings",
+                    "import_id": "settings",
+                },
+            }
+        })
+        registry.reload_registry()
+        called = []
+
+        def fail_import_state(resource_type, key_to_import_id,
+                              policy=None, raw_items=None):
+            called.append((resource_type, key_to_import_id))
+            raise AssertionError("constant-key collections must fail before oracle")
+
+        adopt.import_state = fail_import_state
+        with self.assertRaises(ValueError) as ctx:
+            adopt.adopt_items([
+                {"enabled": True},
+                {"enabled": False},
+            ], "sample_resource")
+
+        self.assertEqual(called, [])
+        msg = str(ctx.exception)
+        self.assertIn("sample_resource", msg)
+        self.assertIn("adopt.constant_key", msg)
+        self.assertIn("singleton", msg)
+
     def test_lookup_sidecar_uses_post_skip_identity_survivors(self):
         _write_json(os.path.join(self.tmp, "packs", "sample", "registry.json"), {
             "sample_resource": {

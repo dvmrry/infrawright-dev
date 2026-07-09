@@ -137,6 +137,35 @@ class AdoptCertifyCliTest(unittest.TestCase):
             ["provider_default.mode"],
         )
 
+    def test_raw_list_constant_key_rejects_multiple_items(self):
+        _write_json(os.path.join(
+            self.tmp, "packs", "sample", "registry.json"), {
+                "sample_resource": {
+                    "generate": True,
+                    "product": "sample",
+                    "adopt": {
+                        "constant_key": "settings",
+                        "import_id": "settings",
+                    },
+                }
+            })
+        registry.reload_registry()
+        raw = self._path("raw.json", [{"enabled": True}, {"enabled": False}])
+        oracle = self._path("oracle.json", {"settings": {"values": {}}})
+        projected = self._path("projected.json", {"items": {"settings": {}}})
+
+        code, out, err = self._run([
+            "--resource-type", "sample_resource",
+            "--raw", raw,
+            "--oracle-state", oracle,
+            "--projected", projected,
+        ])
+
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("adopt.constant_key", err)
+        self.assertIn("singleton", err)
+
     def test_cli_derives_sensitive_blocked_from_oracle_state(self):
         raw = self._path("raw.json", {
             "prod_app": {
