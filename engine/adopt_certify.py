@@ -57,7 +57,7 @@ def _raw_items_by_key(resource_type, raw):
     if meta.get("constant_key") is not None and len(identities) > 1:
         raise ValueError(
             "%s adopt.constant_key %r is only valid for singleton adoption; "
-            "--raw contained %d items after skip_if"
+            "--raw contained %d items after skip predicates"
             % (resource_type, meta["constant_key"], len(identities))
         )
 

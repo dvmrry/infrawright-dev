@@ -168,18 +168,20 @@ identity_renames
 import_id
 key_field
 skip_if
+skip_if_lte
 ```
 
 `constant_key`, `key_field`, and `import_id`, when present, must be strings.
-`identity_fields` and `identity_renames` are string maps. `skip_if`, when
-present, must be a list.
+`identity_fields` and `identity_renames` are string maps. `skip_if` and
+`skip_if_lte`, when present, must be lists of non-empty matcher objects;
+`skip_if_lte` thresholds must be JSON numbers.
 
 `constant_key` is for identity-less singleton resources: resources where the
 provider has one object per tenant and the read payload has no natural `id`,
 `name`, or other stable key field. The value is used verbatim as the generated
 tfvars/import key, and the adoption path rejects it when the read produces more
-than one item after `skip_if`. It requires an explicit `import_id`; use a literal
-`import_id` when the provider imports the singleton by a fixed ID:
+than one item after skip predicates. It requires an explicit `import_id`; use a
+literal `import_id` when the provider imports the singleton by a fixed ID:
 
 ```json
 {
@@ -268,18 +270,24 @@ Allowed top-level keys:
 | `renames` | Post-snake-case API-field to Terraform-schema-field rename map, applied before other field transforms. |
 | `sample` | Module-generation sample overrides for required attributes whose generated example value would not be valid. |
 | `skip_if` | List of matchers; an item is skipped entirely when any matcher matches all listed snake-cased raw fields. |
+| `skip_if_lte` | List of numeric threshold matchers; an item is skipped entirely when any matcher has all listed snake-cased raw fields less than or equal to the configured threshold. |
 | `sort_lists` | Top-level list-of-string fields sorted for stable output where provider behavior makes ordering plan-invisible. Dotted paths are not supported. |
 | `split_csv` | Post-rename fields whose comma-joined string values are split into real lists with empty parts removed. |
 | `strip_prefix` | Field-to-prefix map for removing provider-added read prefixes from strings or lists of strings. |
 | `value_map` | Field-to-value map for converting API enum/string values to Terraform config values. Unmapped values pass through. |
 <!-- override-key-table:end -->
 
+Skip predicates run before transform `renames`, while adoption identity fallback
+applies `renames` before checking skip predicates. To keep transform and
+adoption in lockstep, an override skip matcher must not reference a field that
+appears as either the source or destination of `renames`.
+
 Current transform order is:
 
 1. snake-case raw API keys
 2. product HTML-unescape of top-level `name` and `description`, unless
    `no_html_unescape` is set
-3. `skip_if`
+3. `skip_if` / `skip_if_lte`
 4. `renames`
 5. `split_csv`
 6. `sort_lists`

@@ -47,6 +47,9 @@ def adoption_entry(resource_type):
         ),
         "identity_fields": identity_fields,
         "skip_if": explicit.get("skip_if", override.get("skip_if", [])),
+        "skip_if_lte": explicit.get(
+            "skip_if_lte", override.get("skip_if_lte", [])
+        ),
     }
 
 
@@ -80,10 +83,11 @@ def identity_item(raw, resource_type):
 
 
 def skip_identity_item(item, meta):
-    for matcher in meta.get("skip_if") or []:
-        if all(item.get(transform.snake(k)) == v for k, v in matcher.items()):
-            return True
-    return False
+    return skip_identity_item_reason(item, meta) is not None
+
+
+def skip_identity_item_reason(item, meta):
+    return transform.skip_item_match_reason(item, meta)
 
 
 def derive_key_from_identity(item, meta):

@@ -15,6 +15,7 @@ from engine import tfschema
 from engine.overrides import validate_override_metadata
 from engine.transform import _coerce_primitive
 from engine.transform import apply_overrides
+from engine.transform import skip_item_match_reason
 from engine.transform import snake
 from engine.transform import snake_keys
 
@@ -511,10 +512,7 @@ def _relationship_value(value):
 
 
 def _skip_item(item, override):
-    for matcher in override.get("skip_if") or []:
-        if all(item.get(field) == value for field, value in matcher.items()):
-            return True
-    return False
+    return skip_item_match_reason(item, override)
 
 
 class Report(object):
@@ -904,9 +902,10 @@ def reconcile_items(resource_type, items, resource_schema, override=None,
     for raw in items:
         report.item_count += 1
         snake_raw = snake_keys(raw)
-        if _skip_item(snake_raw, override):
+        skip_reason = _skip_item(snake_raw, override)
+        if skip_reason:
             report.add(
-                "skipped", "$item", "skip_if",
+                "skipped", "$item", skip_reason,
                 snake_raw.get("name") or snake_raw.get("id"))
             continue
         normalized = apply_overrides(snake_raw, override)
