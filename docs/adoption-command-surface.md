@@ -49,9 +49,23 @@ plans.
 `make plan SAVE=1` writes a `tfplan.sources` fingerprint next to each saved
 `tfplan`. `make assert-clean`, `make assert-adoptable`, and `make apply`
 recompute that fingerprint before reading the saved plan and refuse stale or
-pre-fingerprint plans; re-run `make plan SAVE=1` after root membership,
-generated env files, staged imports/moves, expression bindings, or member
-tfvars change.
+older-fingerprint plans. The fingerprint covers root Terraform inputs
+(`.tf`, `.tf.json`, auto-loaded tfvars, and `.terraform.lock.hcl`), member
+tfvars, the effective selected local module trees except transient cache
+directories, and the effective remote-backend config digest and state key.
+It stores hashes, not backend-config contents or absolute paths.
+
+Creating a new saved plan removes any older plan/fingerprint pair before init,
+checks that init-consumed root, module, and backend inputs are unchanged across
+init, and checks that the full fingerprint is unchanged across the plan
+command. A failed re-plan or an input change during planning therefore leaves
+no saved pair to classify or apply. Apply checks the fingerprint both before
+and after its own init step.
+
+Re-run `make plan SAVE=1` after any of those inputs change. When planning with
+`BACKEND_CONFIG=<file>`, pass the same option to `assert-clean`,
+`assert-adoptable`, and `apply`; omitting it or changing its contents makes the
+saved plan stale before classification or apply.
 
 For real provider/tenant validation, use the
 [Integration Validation Runbook](integration-validation.md) to capture evidence

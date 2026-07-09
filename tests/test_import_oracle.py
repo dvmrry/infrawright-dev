@@ -239,19 +239,23 @@ class ImportOracleTest(unittest.TestCase):
                                     "generated config target already exists\\n"
                                 )
                                 return 43
-                            with open(generated_path, "w", encoding="utf-8") as f:
-                                for address in undeclared:
-                                    rtype, name = address.split(".", 1)
-                                    f.write(
-                                        'resource "%s" "%s" {\\n  id = %s\\n'
-                                        % (rtype, name, json.dumps(imports[address]))
-                                    )
-                                    if os.environ.get("FAKE_TF_GENERATED_SENTINEL") == "1":
-                                        f.write("  size_quota = 0\\n")
-                                        f.write("  ports {\\n    start = 443\\n    end = 0\\n  }\\n")
-                                    if os.environ.get("FAKE_TF_GENERATED_COMPLEX") == "1":
-                                        f.write("  size_quota = [0]\\n")
-                                    f.write("}\\n\\n")
+                            if os.environ.get(
+                                    "FAKE_TF_SKIP_GENERATED_CONFIG") != "1":
+                                with open(generated_path, "w",
+                                          encoding="utf-8") as f:
+                                    for address in undeclared:
+                                        rtype, name = address.split(".", 1)
+                                        f.write(
+                                            'resource "%s" "%s" {\\n  id = %s\\n'
+                                            % (rtype, name,
+                                               json.dumps(imports[address]))
+                                        )
+                                        if os.environ.get("FAKE_TF_GENERATED_SENTINEL") == "1":
+                                            f.write("  size_quota = 0\\n")
+                                            f.write("  ports {\\n    start = 443\\n    end = 0\\n  }\\n")
+                                        if os.environ.get("FAKE_TF_GENERATED_COMPLEX") == "1":
+                                            f.write("  size_quota = [0]\\n")
+                                        f.write("}\\n\\n")
                             if os.environ.get("FAKE_TF_FAIL_GENERATED_CONFIG") == "1":
                                 sys.stderr.write("generated config validation failed\\n")
                                 return 44
@@ -354,6 +358,7 @@ class ImportOracleTest(unittest.TestCase):
         os.environ.pop("FAKE_TF_BAD_SHOW_JSON_SECRET", None)
         os.environ.pop("FAKE_TF_GENERATED_SENTINEL", None)
         os.environ.pop("FAKE_TF_GENERATED_COMPLEX", None)
+        os.environ.pop("FAKE_TF_SKIP_GENERATED_CONFIG", None)
         os.environ.pop("FAKE_TF_FAIL_GENERATED_CONFIG", None)
         os.environ.pop("FAKE_TF_REJECT_GENERATED_SENTINEL", None)
         os.environ.pop("FAKE_TF_REJECT_MISSING_CBI_PROFILE", None)
@@ -438,6 +443,60 @@ class ImportOracleTest(unittest.TestCase):
             arg.startswith("-generate-config-out=") for arg in commands[1]))
         self.assertFalse(any(
             arg.startswith("-generate-config-out=") for arg in commands[2]))
+
+    def test_generated_config_policy_fails_closed_when_file_is_missing(self):
+        os.environ["FAKE_TF_SKIP_GENERATED_CONFIG"] = "1"
+        policy = self._policy({
+            "projection_omit_if": [
+                {
+                    "path": "size_quota",
+                    "values": [0],
+                    "reason": "provider rejects unset sentinel",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+
+        with self.assertRaisesRegex(
+                OracleError, "generated import config is missing"):
+            import_state(
+                "sample_resource", {"prod_app": "123"}, policy=policy)
+
+        self.assertEqual([cmd[0] for cmd in self._fake_commands()], [
+            "init", "plan",
+        ])
+
+    def test_missing_generated_config_without_policy_is_ignored(self):
+        missing = os.path.join(self.tmp, "does-not-exist.tf")
+
+        self.assertEqual(import_oracle._apply_generated_config_policy(
+            "sample_resource",
+            {"sample_resource.iw_prod_app": "prod_app"},
+            missing,
+            None,
+        ), 0)
+
+    def test_failed_plan_without_generated_config_reports_plan_failure(self):
+        os.environ["FAKE_TF_SKIP_GENERATED_CONFIG"] = "1"
+        os.environ["FAKE_TF_FAIL_GENERATED_CONFIG"] = "1"
+        policy = self._policy({
+            "projection_omit_if": [
+                {
+                    "path": "size_quota",
+                    "values": [0],
+                    "reason": "provider rejects unset sentinel",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+
+        with self.assertRaisesRegex(OracleError, "failed with exit 44"):
+            import_state(
+                "sample_resource", {"prod_app": "123"}, policy=policy)
+
+        self.assertEqual([cmd[0] for cmd in self._fake_commands()], [
+            "init", "plan",
+        ])
 
     def test_generated_config_policy_debug_artifacts_show_removed_lines(self):
         os.environ["FAKE_TF_GENERATED_SENTINEL"] = "1"

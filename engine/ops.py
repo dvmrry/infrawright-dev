@@ -10,6 +10,7 @@ Provider packs own behavior and metadata; they do not create path segments.
 import json
 import os
 import hashlib
+import re
 import shutil
 import subprocess
 import sys
@@ -51,6 +52,15 @@ REFERENCE_ORDER_CYCLE_NOTE = (
     "NOTE: reference order cycle detected among %s; breaking alphabetically\n"
 )
 PLAN_FINGERPRINT = "tfplan.sources"
+PLAN_FINGERPRINT_VERSION = 2
+MODULE_FINGERPRINT_IGNORED_DIRS = set([
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".terraform",
+    "__pycache__",
+])
 STALE_PLAN_MESSAGE = (
     "%s: saved plan is stale relative to the current root configuration - "
     "re-run make plan SAVE=1"
@@ -314,12 +324,134 @@ def _root_tf_fingerprints(env_dir):
     if not os.path.isdir(env_dir):
         return out
     for name in sorted(os.listdir(env_dir)):
-        if not name.endswith(".tf"):
+        is_plan_input = (
+            name.endswith(".tf")
+            or name.endswith(".tf.json")
+            or name == ".terraform.lock.hcl"
+            or name == "terraform.tfvars"
+            or name == "terraform.tfvars.json"
+            or name.endswith(".auto.tfvars")
+            or name.endswith(".auto.tfvars.json")
+        )
+        if not is_plan_input:
             continue
         path = os.path.join(env_dir, name)
         if os.path.isfile(path):
             out.append((name, _file_sha256(path)))
     return out
+
+
+def _root_config_fingerprints(env_dir):
+    return [
+        entry for entry in _root_tf_fingerprints(env_dir)
+        if entry[0].endswith(".tf") or entry[0].endswith(".tf.json")
+    ]
+
+
+def _tree_fingerprints(root):
+    out = []
+    if not os.path.isdir(root):
+        return out
+    for current, dirs, files in os.walk(root):
+        dirs[:] = sorted(
+            name for name in dirs
+            if name not in MODULE_FINGERPRINT_IGNORED_DIRS
+        )
+        for name in sorted(files):
+            path = os.path.join(current, name)
+            if not os.path.isfile(path):
+                continue
+            relative = os.path.relpath(path, root)
+            if os.sep != "/":
+                relative = relative.replace(os.sep, "/")
+            out.append((relative, _file_sha256(path)))
+    return out
+
+
+def _root_module_sources(env_dir):
+    sources = {}
+    if not os.path.isdir(env_dir):
+        return sources
+    module_start = re.compile(r'^\s*module\s+"([^"]+)"\s*\{\s*$')
+    source_line = re.compile(r'^\s*source\s*=\s*"([^"]+)"\s*$')
+    for name in sorted(os.listdir(env_dir)):
+        if not name.endswith(".tf"):
+            continue
+        path = os.path.join(env_dir, name)
+        if not os.path.isfile(path):
+            continue
+        current = None
+        source = None
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                if current is None:
+                    match = module_start.match(line)
+                    if match:
+                        current = match.group(1)
+                        source = None
+                    continue
+                match = source_line.match(line)
+                if match:
+                    source = match.group(1)
+                    continue
+                if line.strip() != "}":
+                    continue
+                if source is not None:
+                    if current in sources:
+                        raise RuntimeError(
+                            "%s contains duplicate module %s"
+                            % (env_dir, current)
+                        )
+                    sources[current] = source
+                current = None
+                source = None
+    return sources
+
+
+def _local_module_path(env_dir, source):
+    if not source:
+        return None
+    if os.path.isabs(source):
+        return os.path.normpath(source)
+    if source.startswith(("./", "../")):
+        return os.path.normpath(os.path.join(env_dir, source))
+    return None
+
+
+def _module_fingerprints(env_dir, member_types):
+    sources = _root_module_sources(env_dir)
+    out = []
+    for resource_type in sorted(member_types):
+        source = sources.get(resource_type)
+        path = _local_module_path(env_dir, source)
+        out.append({
+            "files": _tree_fingerprints(path) if path else [],
+            "local": path is not None,
+            "present": bool(path and os.path.isdir(path)),
+            "resource_type": resource_type,
+            "source": source,
+        })
+    return out
+
+
+def _backend_fingerprint(backend_config, backend_key):
+    if not backend_config:
+        return None
+    path = os.path.abspath(backend_config)
+    present = os.path.isfile(path)
+    out = {
+        "key": backend_key,
+        "present": present,
+    }
+    if present:
+        out["sha256"] = _file_sha256(path)
+    return out
+
+
+def _backend_state_key(tenant, root_label, backend_config):
+    if not backend_config:
+        return None
+    return "%s/%s.tfstate" % (tenant, root_label)
 
 
 def _var_file_fingerprints(var_files):
@@ -341,9 +473,12 @@ def _current_var_files(tenant, member_types):
     return out
 
 
-def _plan_sources_sha256(env_dir, var_files, member_types):
+def _plan_sources_sha256(env_dir, var_files, member_types,
+                         backend_config=None, backend_key=None):
     payload = {
+        "backend": _backend_fingerprint(backend_config, backend_key),
         "member_types": sorted(member_types),
+        "modules": _module_fingerprints(env_dir, member_types),
         "root_tf": _root_tf_fingerprints(env_dir),
         "var_files": _var_file_fingerprints(var_files),
     }
@@ -351,16 +486,45 @@ def _plan_sources_sha256(env_dir, var_files, member_types):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _plan_fingerprint(env_dir, var_files, member_types):
+def _init_sources_sha256(env_dir, member_types, backend_config=None,
+                         backend_key=None):
+    payload = {
+        "backend": _backend_fingerprint(backend_config, backend_key),
+        "modules": _module_fingerprints(env_dir, member_types),
+        "root_config": _root_config_fingerprints(env_dir),
+    }
+    text = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _plan_fingerprint(env_dir, var_files, member_types,
+                      backend_config=None, backend_key=None):
     return {
-        "version": 1,
-        "sha256": _plan_sources_sha256(env_dir, var_files, member_types),
+        "version": PLAN_FINGERPRINT_VERSION,
+        "sha256": _plan_sources_sha256(
+            env_dir,
+            var_files,
+            member_types,
+            backend_config=backend_config,
+            backend_key=backend_key,
+        ),
     }
 
 
-def _write_plan_fingerprint(env_dir, var_files, member_types):
+def _write_plan_fingerprint(env_dir, var_files, member_types,
+                            backend_config=None, backend_key=None):
+    data = _plan_fingerprint(
+        env_dir,
+        var_files,
+        member_types,
+        backend_config=backend_config,
+        backend_key=backend_key,
+    )
+    return _write_plan_fingerprint_data(env_dir, data)
+
+
+def _write_plan_fingerprint_data(env_dir, data):
     path = _plan_fingerprint_path(env_dir)
-    data = _plan_fingerprint(env_dir, var_files, member_types)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, sort_keys=True)
         f.write("\n")
@@ -383,7 +547,8 @@ def _stale_plan_error(env_dir, detail=None):
     return message
 
 
-def _assert_saved_plan_fresh(env_dir, tenant, member_types):
+def _assert_saved_plan_fresh(env_dir, tenant, member_types, root_label=None,
+                             backend_config=None):
     path = _plan_fingerprint_path(env_dir)
     if not os.path.exists(path):
         raise RuntimeError(
@@ -394,7 +559,12 @@ def _assert_saved_plan_fresh(env_dir, tenant, member_types):
     except (IOError, OSError, ValueError) as exc:
         raise RuntimeError(_stale_plan_error(env_dir, str(exc)))
     current = _plan_fingerprint(
-        env_dir, _current_var_files(tenant, member_types), member_types
+        env_dir,
+        _current_var_files(tenant, member_types),
+        member_types,
+        backend_config=backend_config,
+        backend_key=_backend_state_key(
+            tenant, root_label or os.path.basename(env_dir), backend_config),
     )
     if saved != current:
         raise RuntimeError(_stale_plan_error(env_dir))
@@ -725,6 +895,8 @@ def cmd_plan(opts):
                 % (label, ", ".join(derived_members))
             )
             continue
+        if opts["save"]:
+            _remove_saved_plan_artifacts(path)
         var_files = []
         missing = []
         for resource_type in member_types:
@@ -745,20 +917,59 @@ def cmd_plan(opts):
             )
         _check_backend(path, label, opts["backend_config"])
         sys.stderr.write("== plan %s\n" % label)
+        backend_key = _backend_state_key(
+            tenant, label, opts["backend_config"])
+        init_sources_before = None
+        if opts["save"]:
+            init_sources_before = _init_sources_sha256(
+                path,
+                member_types,
+                backend_config=opts["backend_config"],
+                backend_key=backend_key,
+            )
         _check_call(
             _init_args(
                 path, tenant, label, backend_config=opts["backend_config"]
             ),
             stdout=subprocess.DEVNULL,
         )
+        if opts["save"] and _init_sources_sha256(
+                path,
+                member_types,
+                backend_config=opts["backend_config"],
+                backend_key=backend_key) != init_sources_before:
+            _remove_saved_plan_artifacts(path)
+            raise RuntimeError(
+                "%s: init inputs changed while init was running - "
+                "re-run make plan SAVE=1" % path
+            )
         args = [terraform(), "-chdir=" + path, "plan", "-input=false"]
         for var_file in var_files:
             args.append("-var-file=" + os.path.abspath(var_file))
+        planned_fingerprint = None
         if opts["save"]:
+            planned_fingerprint = _plan_fingerprint(
+                path,
+                var_files,
+                member_types,
+                backend_config=opts["backend_config"],
+                backend_key=backend_key,
+            )
             args.append("-out=tfplan")
         _check_call(args)
         if opts["save"]:
-            _write_plan_fingerprint(path, var_files, member_types)
+            current_fingerprint = _plan_fingerprint(
+                path,
+                var_files,
+                member_types,
+                backend_config=opts["backend_config"],
+                backend_key=backend_key,
+            )
+            if current_fingerprint != planned_fingerprint:
+                _remove_saved_plan_artifacts(path)
+                raise RuntimeError(_stale_plan_error(
+                    path, "plan inputs changed while the plan was running"))
+            _write_plan_fingerprint_data(path, planned_fingerprint)
         planned += 1
     if planned == 0:
         raise RuntimeError(
@@ -772,7 +983,13 @@ def cmd_assert_clean(opts):
     dirty = 0
     for tenant, label, path, member_types in selected_env_roots(
             opts.get("tenant"), opts["selectors"], require_plan=True):
-        _assert_saved_plan_fresh(path, tenant, member_types)
+        _assert_saved_plan_fresh(
+            path,
+            tenant,
+            member_types,
+            root_label=label,
+            backend_config=opts.get("backend_config"),
+        )
         plan = _show_plan_json(path)
         changes = _non_import_change_count(plan)
         checked += 1
@@ -803,7 +1020,13 @@ def cmd_assert_adoptable(opts):
     checked_types = set()
     for tenant, label, path, member_types in selected_env_roots(
             opts.get("tenant"), opts["selectors"], require_plan=True):
-        _assert_saved_plan_fresh(path, tenant, member_types)
+        _assert_saved_plan_fresh(
+            path,
+            tenant,
+            member_types,
+            root_label=label,
+            backend_config=opts.get("backend_config"),
+        )
         plan = _show_plan_json(path)
         result = classify_plan(plan, policy=policy)
         checked += 1
@@ -900,7 +1123,13 @@ def cmd_apply(opts):
     applied = 0
     for tenant, label, path, member_types in selected_env_roots(
             opts.get("tenant"), opts["selectors"], require_plan=True):
-        _assert_saved_plan_fresh(path, tenant, member_types)
+        _assert_saved_plan_fresh(
+            path,
+            tenant,
+            member_types,
+            root_label=label,
+            backend_config=opts["backend_config"],
+        )
         sys.stderr.write("== apply %s/%s\n" % (tenant, label))
         _check_backend(path, label, opts["backend_config"])
         _check_call(
@@ -908,6 +1137,13 @@ def cmd_apply(opts):
                 path, tenant, label, backend_config=opts["backend_config"]
             ),
             stdout=subprocess.DEVNULL,
+        )
+        _assert_saved_plan_fresh(
+            path,
+            tenant,
+            member_types,
+            root_label=label,
+            backend_config=opts["backend_config"],
         )
         plan = _show_plan_json(path)
         result = _classify_apply_plan(plan, policy)

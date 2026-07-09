@@ -58,32 +58,29 @@ into narrow, reviewed behavior.
 
 ## Known Guidance, Behavior, And Reporting Classes
 
-Open classes should remain separate until lab evidence proves the smallest safe
-behavior:
+Implementation status and live-provider evidence should remain separate until
+a lab proves the smallest safe behavior:
 
-- Batch `-generate-config-out` projection timing for provider-rejected
-  optional-zero sentinels. The batch oracle now asks Terraform/OpenTofu to
-  generate import config before apply, but provider validation happens against
-  that generated config before post-import `show -json` projection policy runs.
-  That means known projection-policy cases such as `end = 0` and ZIA
-  `size_quota = 0` can fail at generated-config validation time even when a
-  later `projection_omit_if` rule would omit the same sentinel from projected
-  state. The upstream engine ask is to apply the same projection omission
-  policy to the generated config between `-generate-config-out` and apply, or
-  otherwise run the omit step at generated-config time. Acceptance evidence
-  should show `zia_url_filtering_rules` adopting with
-  `projection_omit_if` for `size_quota` values `[0]`, `assert-adoptable`
-  reporting zero add/change/destroy drift, and the same path handling
-  generalizing to `end = 0` and future optional-zero sentinels without
-  per-field code. Until then, the Zscaler binding proof/Test B remains blocked
-  on URL-filtering adoption.
+- Batch `-generate-config-out` projection handling is implemented for
+  `projection_omit`, `projection_omit_if`, and `projection_fill`. The oracle
+  edits or fills generated config before rerunning the import plan, and now
+  fails closed when generated-config-applicable projection policy requires the
+  file but Terraform/OpenTofu does not create it. Focused tests cover generic
+  optional-zero sentinels and provider-read-dropped raw fills. Live ZIA
+  acceptance evidence is still outstanding: `zia_url_filtering_rules` must
+  adopt with `projection_omit_if` for `size_quota` values `[0]`, preserve the
+  existing generic `end = 0` behavior, and report zero add/change/destroy drift
+  through `assert-adoptable`. Until that evidence exists, the Zscaler binding
+  proof/Test B remains blocked on validation rather than on an unimplemented
+  engine hook.
 - Batch URL-filtering adoption also exercises provider-read-dropped required
-  fields. ZIA ISOLATE URL filtering rules need `cbi_profile` on write, but
-  provider readback can omit it while the raw `urlFilteringRules` pull carries
-  `cbiProfile`. This is the explicit `projection_fill` class: restore a
-  top-level writable target only from the raw pull, never synthesize it, never
-  overwrite provider readback, and make the same fill visible in generated
-  config before provider validation.
+  fields. ZIA ISOLATE URL filtering rules need `cbi_profile` on write, while
+  provider readback can omit it and the raw `urlFilteringRules` pull carries
+  `cbiProfile`. `projection_fill` now restores that writable target only from
+  the raw pull, never synthesizes it, never overwrites provider readback, and
+  makes the same fill visible before generated-config provider validation. The
+  dev-tenant run still needs to prove those assumptions against the live
+  provider.
 - ZIA singleton identity checks remain part of the same validation track.
   `zia_url_filtering_and_cloud_app_settings` is a singleton-style surface with
   no natural per-object `id` in the read payload; the pack override currently

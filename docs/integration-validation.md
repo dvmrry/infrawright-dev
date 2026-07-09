@@ -45,6 +45,10 @@ Use the same `POLICY=<file>` for `assert-adoptable` and `apply`. Apply
 reclassifies saved plans before execution and should only proceed for clean,
 import-only, or explicitly policy-tolerated saved plans.
 
+When using a remote backend, also pass the same `BACKEND_CONFIG=<file>` to
+`plan`, `assert-adoptable` (or `assert-clean`), and `apply`. The saved-plan
+fingerprint treats a missing or changed backend config as stale.
+
 Useful inspection and cleanup commands:
 
 ```sh

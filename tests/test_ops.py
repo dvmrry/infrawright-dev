@@ -705,9 +705,10 @@ class OpsPlanFingerprintTest(unittest.TestCase):
             os.environ["INFRAWRIGHT_DEPLOYMENT"] = self.saved_dep
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def _write_deployment(self, members):
+    def _write_deployment(self, members, module_dir="modules"):
         dep = os.path.join(self.tmp, "deployment.json")
         _write_json(dep, {
+            "module_dir": module_dir,
             "roots": {
                 "zpa": {
                     "groups": {
@@ -726,8 +727,20 @@ class OpsPlanFingerprintTest(unittest.TestCase):
         os.makedirs(root, exist_ok=True)
         with open(os.path.join(root, "main.tf"), "w", encoding="utf-8") as f:
             f.write("# root\n")
+            for resource_type in members:
+                source = os.path.relpath(
+                    os.path.join("modules", resource_type), root)
+                f.write(
+                    '\nmodule "%s" {\n  source = "%s"\n}\n'
+                    % (resource_type, source)
+                )
         os.makedirs(os.path.join("config", self.tenant), exist_ok=True)
         for resource_type in members:
+            module_path = os.path.join("modules", resource_type)
+            os.makedirs(module_path, exist_ok=True)
+            with open(os.path.join(module_path, "main.tf"), "w",
+                      encoding="utf-8") as f:
+                f.write("# %s module\n" % resource_type)
             with open(
                 os.path.join(
                     "config",
@@ -739,7 +752,7 @@ class OpsPlanFingerprintTest(unittest.TestCase):
             ) as f:
                 json.dump({"%s_items" % resource_type: {}}, f)
 
-    def _save_plan(self):
+    def _save_plan(self, backend_config=None, plan_hook=None):
         old_check = ops._check_call
         old_backend = ops._check_backend
         calls = []
@@ -750,6 +763,8 @@ class OpsPlanFingerprintTest(unittest.TestCase):
                 with open(os.path.join(self._root(), "tfplan"), "w",
                           encoding="utf-8") as f:
                     f.write("fake")
+                if plan_hook:
+                    plan_hook()
             return 0
 
         try:
@@ -759,7 +774,7 @@ class OpsPlanFingerprintTest(unittest.TestCase):
                 "tenant": self.tenant,
                 "selectors": ["zpa_segment_group"],
                 "imports_only": False,
-                "backend_config": None,
+                "backend_config": backend_config,
                 "save": True,
             }), 0)
         finally:
@@ -767,14 +782,23 @@ class OpsPlanFingerprintTest(unittest.TestCase):
             ops._check_backend = old_backend
         return calls
 
-    def _apply_saved_plan(self):
+    def _apply_saved_plan(self, backend_config=None, init_hook=None,
+                          calls=None):
         old_check = ops._check_call
         old_backend = ops._check_backend
         old_show = ops._show_plan_json
         old_branch = ops._current_branch
-        calls = []
+        if calls is None:
+            calls = []
+
+        def fake_check(args, stdout=None):
+            calls.append(args)
+            if "init" in args and init_hook:
+                init_hook()
+            return 0
+
         try:
-            ops._check_call = lambda args, stdout=None: calls.append(args) or 0
+            ops._check_call = fake_check
             ops._check_backend = lambda env_dir, label, backend_config: None
             ops._show_plan_json = lambda env_dir: {
                 "format_version": "1.0",
@@ -784,7 +808,7 @@ class OpsPlanFingerprintTest(unittest.TestCase):
             result = ops.cmd_apply({
                 "tenant": self.tenant,
                 "selectors": ["zpa_segment_group"],
-                "backend_config": None,
+                "backend_config": backend_config,
                 "policy": None,
                 "allow_destroy": False,
                 "allow_non_main": False,
@@ -804,7 +828,7 @@ class OpsPlanFingerprintTest(unittest.TestCase):
         self.assertTrue(os.path.exists(source_path))
         with open(source_path, encoding="utf-8") as f:
             data = json.load(f)
-        self.assertEqual(data["version"], 1)
+        self.assertEqual(data["version"], 2)
         self.assertEqual(len(data["sha256"]), 64)
 
         result, calls = self._apply_saved_plan()
@@ -839,6 +863,243 @@ class OpsPlanFingerprintTest(unittest.TestCase):
             str(ctx.exception),
             ops.STALE_PLAN_MESSAGE % self._root(),
         )
+
+    def test_dependency_lock_edit_makes_saved_plan_stale(self):
+        lock_path = os.path.join(self._root(), ".terraform.lock.hcl")
+        with open(lock_path, "w", encoding="utf-8") as f:
+            f.write("# provider selections\n")
+        self._save_plan()
+        with open(lock_path, "a", encoding="utf-8") as f:
+            f.write("# changed\n")
+
+        with self.assertRaises(RuntimeError) as ctx:
+            self._apply_saved_plan()
+
+        self.assertEqual(
+            str(ctx.exception),
+            ops.STALE_PLAN_MESSAGE % self._root(),
+        )
+
+    def test_root_auto_tfvars_edit_makes_saved_plan_stale(self):
+        tfvars_path = os.path.join(self._root(), "local.auto.tfvars")
+        with open(tfvars_path, "w", encoding="utf-8") as f:
+            f.write('value = "before"\n')
+        self._save_plan()
+        with open(tfvars_path, "w", encoding="utf-8") as f:
+            f.write('value = "after"\n')
+
+        with self.assertRaises(RuntimeError) as ctx:
+            self._apply_saved_plan()
+
+        self.assertEqual(
+            str(ctx.exception),
+            ops.STALE_PLAN_MESSAGE % self._root(),
+        )
+
+    def test_module_source_edit_makes_saved_plan_stale(self):
+        self._save_plan()
+        module_path = os.path.join(
+            "modules", "zpa_segment_group", "main.tf")
+        with open(module_path, "a", encoding="utf-8") as f:
+            f.write("# changed\n")
+
+        with self.assertRaises(RuntimeError) as ctx:
+            self._apply_saved_plan()
+
+        self.assertEqual(
+            str(ctx.exception),
+            ops.STALE_PLAN_MESSAGE % self._root(),
+        )
+
+    def test_effective_root_module_source_survives_deployment_change(self):
+        self._save_plan()
+        shutil.copytree("modules", "modules_b")
+        self._write_deployment(self.members, module_dir="modules_b")
+        with open(os.path.join(
+                "modules", "zpa_segment_group", "main.tf"), "a",
+                encoding="utf-8") as f:
+            f.write("# changed in effective source\n")
+
+        with self.assertRaises(RuntimeError) as ctx:
+            self._apply_saved_plan()
+
+        self.assertEqual(
+            str(ctx.exception),
+            ops.STALE_PLAN_MESSAGE % self._root(),
+        )
+
+    def test_plan_input_change_during_plan_discards_saved_artifacts(self):
+        module_path = os.path.join(
+            "modules", "zpa_segment_group", "main.tf")
+
+        def change_module():
+            with open(module_path, "a", encoding="utf-8") as f:
+                f.write("# changed during plan\n")
+
+        with self.assertRaisesRegex(
+                RuntimeError, "plan inputs changed while the plan was running"):
+            self._save_plan(plan_hook=change_module)
+
+        self.assertFalse(os.path.exists(
+            os.path.join(self._root(), "tfplan")))
+        self.assertFalse(os.path.exists(
+            os.path.join(self._root(), ops.PLAN_FINGERPRINT)))
+
+    def test_failed_replan_discards_previous_saved_artifacts(self):
+        self._save_plan()
+        old_check = ops._check_call
+        old_backend = ops._check_backend
+
+        def fake_check(args, stdout=None):
+            if "init" in args:
+                return 0
+            raise RuntimeError("plan failed")
+
+        try:
+            ops._check_call = fake_check
+            ops._check_backend = lambda env_dir, label, backend_config: None
+            with self.assertRaisesRegex(RuntimeError, "plan failed"):
+                ops.cmd_plan({
+                    "tenant": self.tenant,
+                    "selectors": ["zpa_segment_group"],
+                    "imports_only": False,
+                    "backend_config": None,
+                    "save": True,
+                })
+        finally:
+            ops._check_call = old_check
+            ops._check_backend = old_backend
+
+        self.assertFalse(os.path.exists(
+            os.path.join(self._root(), "tfplan")))
+        self.assertFalse(os.path.exists(
+            os.path.join(self._root(), ops.PLAN_FINGERPRINT)))
+
+    def test_failed_init_discards_previous_saved_artifacts(self):
+        self._save_plan()
+        old_check = ops._check_call
+        old_backend = ops._check_backend
+
+        def fake_check(args, stdout=None):
+            raise RuntimeError("init failed")
+
+        try:
+            ops._check_call = fake_check
+            ops._check_backend = lambda env_dir, label, backend_config: None
+            with self.assertRaisesRegex(RuntimeError, "init failed"):
+                ops.cmd_plan({
+                    "tenant": self.tenant,
+                    "selectors": ["zpa_segment_group"],
+                    "imports_only": False,
+                    "backend_config": None,
+                    "save": True,
+                })
+        finally:
+            ops._check_call = old_check
+            ops._check_backend = old_backend
+
+        self.assertFalse(os.path.exists(
+            os.path.join(self._root(), "tfplan")))
+        self.assertFalse(os.path.exists(
+            os.path.join(self._root(), ops.PLAN_FINGERPRINT)))
+
+    def test_backend_change_during_init_discards_saved_artifacts(self):
+        backend_config = os.path.join(self.tmp, "backend.hcl")
+        with open(backend_config, "w", encoding="utf-8") as f:
+            f.write('bucket = "before"\n')
+        self._save_plan(backend_config=backend_config)
+        old_check = ops._check_call
+        old_backend = ops._check_backend
+        calls = []
+
+        def fake_check(args, stdout=None):
+            calls.append(args)
+            if "init" in args:
+                with open(backend_config, "w", encoding="utf-8") as f:
+                    f.write('bucket = "after"\n')
+            return 0
+
+        try:
+            ops._check_call = fake_check
+            ops._check_backend = lambda env_dir, label, backend_config: None
+            with self.assertRaisesRegex(
+                    RuntimeError, "init inputs changed while init was running"):
+                ops.cmd_plan({
+                    "tenant": self.tenant,
+                    "selectors": ["zpa_segment_group"],
+                    "imports_only": False,
+                    "backend_config": backend_config,
+                    "save": True,
+                })
+        finally:
+            ops._check_call = old_check
+            ops._check_backend = old_backend
+
+        self.assertFalse(any("plan" in call for call in calls))
+        self.assertFalse(os.path.exists(
+            os.path.join(self._root(), "tfplan")))
+        self.assertFalse(os.path.exists(
+            os.path.join(self._root(), ops.PLAN_FINGERPRINT)))
+
+    def test_backend_config_edit_makes_saved_plan_stale(self):
+        backend_config = os.path.join(self.tmp, "backend.hcl")
+        with open(backend_config, "w", encoding="utf-8") as f:
+            f.write('bucket = "before"\n')
+        self._save_plan(backend_config=backend_config)
+        with open(backend_config, "w", encoding="utf-8") as f:
+            f.write('bucket = "after"\n')
+
+        with self.assertRaises(RuntimeError) as ctx:
+            self._apply_saved_plan(backend_config=backend_config)
+
+        self.assertEqual(
+            str(ctx.exception),
+            ops.STALE_PLAN_MESSAGE % self._root(),
+        )
+
+    def test_unchanged_backend_config_allows_saved_plan_apply(self):
+        backend_config = os.path.join(self.tmp, "backend.hcl")
+        with open(backend_config, "w", encoding="utf-8") as f:
+            f.write('bucket = "same"\n')
+        self._save_plan(backend_config=backend_config)
+
+        result, calls = self._apply_saved_plan(
+            backend_config=backend_config)
+
+        self.assertEqual(result, 0)
+        self.assertTrue(any("apply" in call for call in calls))
+
+    def test_backend_config_must_be_reused_for_saved_plan(self):
+        backend_config = os.path.join(self.tmp, "backend.hcl")
+        with open(backend_config, "w", encoding="utf-8") as f:
+            f.write('bucket = "same"\n')
+        self._save_plan(backend_config=backend_config)
+
+        with self.assertRaises(RuntimeError) as ctx:
+            self._apply_saved_plan()
+
+        self.assertEqual(
+            str(ctx.exception),
+            ops.STALE_PLAN_MESSAGE % self._root(),
+        )
+
+    def test_apply_rechecks_fingerprint_after_init(self):
+        self._save_plan()
+        calls = []
+
+        def create_lock_file():
+            with open(os.path.join(self._root(), ".terraform.lock.hcl"), "w",
+                      encoding="utf-8") as f:
+                f.write("# changed by init\n")
+
+        with self.assertRaises(RuntimeError) as ctx:
+            self._apply_saved_plan(init_hook=create_lock_file, calls=calls)
+
+        self.assertEqual(
+            str(ctx.exception),
+            ops.STALE_PLAN_MESSAGE % self._root(),
+        )
+        self.assertFalse(any("apply" in call for call in calls))
 
     def test_missing_fingerprint_makes_saved_plan_stale_with_migration_note(self):
         self._save_plan()
