@@ -12,7 +12,12 @@ from unittest import mock
 
 from engine import packs
 from engine import import_oracle
-from engine.import_oracle import OracleError, import_state, render_root
+from engine.import_oracle import (
+    OracleError,
+    import_state,
+    render_import_blocks,
+    render_root,
+)
 
 
 def _write_json(path, data):
@@ -34,6 +39,7 @@ class ImportOracleTest(unittest.TestCase):
             "pin": "1.2.3",
         })
         packs.reset()
+        self.command_log = os.path.join(self.tmp, "fake-commands.json")
         self.fake_tf = os.path.join(self.tmp, "fake_tf.py")
         with open(self.fake_tf, "w", encoding="utf-8") as f:
             f.write(textwrap.dedent("""\
@@ -43,36 +49,88 @@ class ImportOracleTest(unittest.TestCase):
                 import re
                 import sys
 
+                def log_command(args):
+                    path = os.environ.get("FAKE_TF_COMMAND_LOG")
+                    if not path:
+                        return
+                    data = []
+                    if os.path.exists(path):
+                        with open(path, encoding="utf-8") as f:
+                            data = json.load(f)
+                    data.append(args)
+                    with open(path, "w", encoding="utf-8") as f:
+                        json.dump(data, f)
+
+                def parse_import_blocks(text):
+                    blocks = re.findall(r'import\\s*\\{(.*?)\\n\\}', text, re.S)
+                    imports = {}
+                    for block in blocks:
+                        to_match = re.search(r'^\\s*to\\s*=\\s*([^\\n]+)\\s*$',
+                                             block, re.M)
+                        id_match = re.search(r'^\\s*id\\s*=\\s*"(.*)"\\s*$',
+                                             block, re.M)
+                        if not to_match or not id_match:
+                            continue
+                        import_id = bytes(
+                            id_match.group(1), "utf-8").decode("unicode_escape")
+                        imports[to_match.group(1).strip()] = import_id
+                    return imports
+
+                def plan_path(args):
+                    for index, arg in enumerate(args):
+                        if arg.startswith("-out="):
+                            return arg[len("-out="):]
+                        if arg == "-out" and index + 1 < len(args):
+                            return args[index + 1]
+                    return os.path.join(os.getcwd(), "tfplan")
+
                 def main():
                     args = sys.argv[1:]
+                    log_command(args)
                     if args[0] == "init":
                         return 0
                     if args[0] == "import":
-                        address = args[-2]
-                        import_id = args[-1]
+                        sys.stderr.write("unexpected terraform import command\\n")
+                        return 99
+                    if args[0] == "plan":
+                        with open(os.path.join(os.getcwd(), "main.tf"), encoding="utf-8") as f:
+                            main_tf = f.read()
+                        with open(os.path.join(os.getcwd(), "imports.tf"), encoding="utf-8") as f:
+                            imports_tf = f.read()
+                        declared = set(
+                            "%s.%s" % (m.group(1), m.group(2))
+                            for m in re.finditer(r'resource\\s+"([^"]+)"\\s+"([^"]+)"', main_tf)
+                        )
+                        imports = parse_import_blocks(imports_tf)
+                        for address in imports:
+                            if address not in declared:
+                                sys.stderr.write("undeclared import address %s\\n" % address)
+                                return 42
                         if os.environ.get("FAKE_TF_FAIL_IMPORT") == "1":
+                            import_id = sorted(imports.values())[0]
                             print(("stdout import id=%s " % import_id) + ("x" * 1600))
                             sys.stderr.write(
                                 ("stderr import id=%s " % import_id) + ("y" * 1600)
                             )
                             return 17
-                        with open(os.path.join(os.getcwd(), "main.tf"), encoding="utf-8") as f:
-                            main_tf = f.read()
-                        declared = set(
-                            "%s.%s" % (m.group(1), m.group(2))
-                            for m in re.finditer(r'resource\\s+"([^"]+)"\\s+"([^"]+)"', main_tf)
-                        )
-                        if address not in declared:
-                            sys.stderr.write("undeclared import address %s\\n" % address)
-                            return 42
-                        path = os.path.join(os.getcwd(), "fake-imports.json")
-                        data = {}
-                        if os.path.exists(path):
-                            with open(path, encoding="utf-8") as f:
-                                data = json.load(f)
-                        data[address] = import_id
-                        with open(path, "w", encoding="utf-8") as f:
-                            json.dump(data, f)
+                        if os.environ.get("FAKE_TF_PLAN_CHANGES") == "1":
+                            print(
+                                "Plan: %d to import, 0 to add, 1 to change, 0 to destroy."
+                                % len(imports)
+                            )
+                        else:
+                            print(
+                                "Plan: %d to import, 0 to add, 0 to change, 0 to destroy."
+                                % len(imports)
+                            )
+                        with open(plan_path(args), "w", encoding="utf-8") as f:
+                            json.dump(imports, f)
+                        return 0
+                    if args[0] == "apply":
+                        with open(args[-1], encoding="utf-8") as f:
+                            imports = json.load(f)
+                        with open(os.path.join(os.getcwd(), "fake-imports.json"), "w", encoding="utf-8") as f:
+                            json.dump(imports, f)
                         with open(os.path.join(os.getcwd(), "terraform.tfstate"), "w", encoding="utf-8") as f:
                             f.write("{}")
                         return 0
@@ -112,6 +170,7 @@ class ImportOracleTest(unittest.TestCase):
             """))
         os.chmod(self.fake_tf, os.stat(self.fake_tf).st_mode | stat.S_IXUSR)
         os.environ["TF"] = self.fake_tf
+        os.environ["FAKE_TF_COMMAND_LOG"] = self.command_log
 
     def tearDown(self):
         if self.prev_packs is None:
@@ -123,8 +182,10 @@ class ImportOracleTest(unittest.TestCase):
         else:
             os.environ["TF"] = self.prev_tf
         os.environ.pop("FAKE_TF_FAIL_IMPORT", None)
+        os.environ.pop("FAKE_TF_PLAN_CHANGES", None)
         os.environ.pop("FAKE_TF_BAD_SHOW_JSON", None)
         os.environ.pop("FAKE_TF_BAD_SHOW_JSON_SECRET", None)
+        os.environ.pop("FAKE_TF_COMMAND_LOG", None)
         os.environ.pop("INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS", None)
         os.environ.pop("INFRAWRIGHT_KEEP_ORACLE", None)
         packs.reset()
@@ -137,11 +198,43 @@ class ImportOracleTest(unittest.TestCase):
         self.assertIn('provider "sample"', root)
         self.assertIn('resource "sample_resource" "iw_', root)
 
+    def test_render_import_blocks_targets_scratch_addresses_and_escapes_ids(self):
+        blocks = render_import_blocks(
+            "sample_resource",
+            {"prod_app": 'tenant"}\n${secret}'},
+        )
+        self.assertIn("import {\n", blocks)
+        self.assertIn("  to = sample_resource.iw_", blocks)
+        self.assertIn('  id = "tenant\\"}\\n$${secret}"', blocks)
+        self.assertNotIn('module.sample_resource', blocks)
+        self.assertNotIn('\nresource "', blocks)
+
     def test_import_state_uses_fake_terraform_and_returns_values(self):
         out = import_state("sample_resource", {"a": "123", "b": "456"})
         self.assertEqual(set(out), {"a", "b"})
         self.assertEqual(out["a"]["values"]["id"], "123")
         self.assertTrue(out["a"]["address"].startswith("sample_resource.iw_"))
+
+        commands = self._fake_commands()
+        self.assertEqual([cmd[0] for cmd in commands], [
+            "init", "plan", "apply", "show",
+        ])
+        self.assertEqual(sum(1 for cmd in commands if cmd[0] == "plan"), 1)
+        self.assertEqual(sum(1 for cmd in commands if cmd[0] == "apply"), 1)
+        self.assertFalse([cmd for cmd in commands if cmd[0] == "import"])
+
+    def test_non_import_only_plan_is_rejected_before_apply(self):
+        os.environ["FAKE_TF_PLAN_CHANGES"] = "1"
+
+        with self.assertRaises(OracleError) as ctx:
+            import_state("sample_resource", {"prod_app": "123"})
+
+        msg = str(ctx.exception)
+        self.assertIn("sample_resource oracle import plan was not import-only", msg)
+        self.assertIn("1 change", msg)
+        commands = self._fake_commands()
+        self.assertEqual([cmd[0] for cmd in commands], ["init", "plan"])
+        self.assertFalse([cmd for cmd in commands if cmd[0] == "apply"])
 
     def test_empty_import_set_returns_empty_without_terraform(self):
         os.environ["TF"] = os.path.join(self.tmp, "missing-fake-tf")
@@ -350,6 +443,10 @@ class ImportOracleTest(unittest.TestCase):
         msg = str(ctx.exception)
         self.assertIn("oracle scratch root must not declare", msg)
         self.assertIn("ephemeral and local", msg)
+
+    def _fake_commands(self):
+        with open(self.command_log, encoding="utf-8") as f:
+            return json.load(f)
 
 
 if __name__ == "__main__":
