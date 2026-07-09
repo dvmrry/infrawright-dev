@@ -99,8 +99,6 @@ def render_root(resource_type, keys=None):
         + "}\n\n"
         + _provider_block(provider)
     )
-    for key in sorted(keys or []):
-        text += '\nresource "%s" "%s" {}\n' % (resource_type, _instance_name(key))
     return text
 
 
@@ -358,9 +356,11 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False):
             addr = _address(resource_type, key)
             address_to_key[addr] = key
         plan_path = os.path.join(temp, "oracle.tfplan")
+        generated_config_path = os.path.join(temp, "generated.tf")
         _run(
             [
                 tf, "plan", "-input=false", "-no-color", "-lock=false",
+                "-generate-config-out=%s" % generated_config_path,
                 "-out=%s" % plan_path,
             ],
             cwd=temp,

@@ -12,8 +12,9 @@ The adoption flow is:
 ```text
 raw API fetch
   -> derive stable key + import ID
-  -> render scratch resource + import blocks
-  -> plan/apply the import-only scratch root into ephemeral local state
+  -> render scratch Terraform/provider header + import blocks
+  -> plan with generated provider config into ephemeral local state
+  -> apply the import-only scratch plan
   -> terraform/tofu show -json state
   -> project provider-observed state through provider schema
      (projection_omit applies inline)
