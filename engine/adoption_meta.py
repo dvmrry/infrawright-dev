@@ -17,6 +17,7 @@ def adoption_entry(resource_type):
     New packs should prefer registry.json:
       "adopt": {
         "key_field": "name",
+        "constant_key": "settings",
         "import_id": "{id}",
         "identity_renames": {"vpnConnectionId": "id"},
         "identity_fields": {"import_id": "uuid"}
@@ -38,6 +39,7 @@ def adoption_entry(resource_type):
     else:
         import_id = "{id}"
     return {
+        "constant_key": explicit.get("constant_key"),
         "key_field": explicit.get("key_field", override.get("key_field", "name")),
         "import_id": import_id,
         "identity_renames": explicit.get(
@@ -85,6 +87,11 @@ def skip_identity_item(item, meta):
 
 
 def derive_key_from_identity(item, meta):
+    constant_key = meta.get("constant_key")
+    if constant_key is not None:
+        if not isinstance(constant_key, str) or not constant_key:
+            raise ValueError("adopt.constant_key must be a non-empty string")
+        return constant_key
     field = meta.get("key_field", "name")
     fields = field if isinstance(field, list) else [field]
     parts = []

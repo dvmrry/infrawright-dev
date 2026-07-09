@@ -215,6 +215,29 @@ class PackRegistryValidationTest(unittest.TestCase):
         self.assertTrue(seen)
         self.assertTrue(seen.issubset(pagination_styles()))
 
+    def test_zia_singleton_adopt_constants_are_declared(self):
+        expected = {
+            "zia_advanced_settings": "advanced_settings",
+            "zia_advanced_threat_settings": "advanced_threat_settings",
+            "zia_atp_malicious_urls": "all_urls",
+            "zia_atp_malware_inspection": "inspection",
+            "zia_atp_malware_policy": "policy",
+            "zia_atp_malware_protocols": "protocol",
+            "zia_atp_malware_settings": "malware_settings",
+            "zia_atp_security_exceptions": "bypass_url",
+            "zia_auth_settings_urls": "all_urls",
+            "zia_browser_control_policy": "browser_settings",
+            "zia_end_user_notification": "enduser_notification",
+            "zia_ftp_control_policy": "ftp_control",
+            "zia_mobile_malware_protection_policy": "mobile_settings",
+            "zia_url_filtering_and_cloud_app_settings": "app_setting",
+        }
+        registry = load_registry()
+        for resource_type, constant in sorted(expected.items()):
+            adopt = registry[resource_type]["adopt"]
+            self.assertEqual(adopt["constant_key"], constant)
+            self.assertEqual(adopt["import_id"], constant)
+
     def test_all_supported_pagination_values_validate(self):
         for pagination in sorted(pagination_styles()):
             data = self._registry_metadata()
@@ -245,6 +268,39 @@ class PackRegistryValidationTest(unittest.TestCase):
             },
         }
         validate_registry(data, path="packs/sample/registry.json")
+
+    def test_adopt_constant_key_validates_as_string(self):
+        data = self._registry_metadata()
+        data["sample_resource"]["adopt"] = {
+            "constant_key": "settings",
+            "import_id": "settings",
+        }
+        validate_registry(data, path="packs/sample/registry.json")
+
+        data["sample_resource"]["adopt"]["constant_key"] = ""
+        with self.assertRaises(ValueError) as ctx:
+            validate_registry(data, path="packs/sample/registry.json")
+        self.assertIn("sample_resource.adopt.constant_key", str(ctx.exception))
+
+    def test_adopt_constant_key_rejects_explicit_key_field(self):
+        data = self._registry_metadata()
+        data["sample_resource"]["adopt"] = {
+            "constant_key": "settings",
+            "key_field": "name",
+            "import_id": "settings",
+        }
+        with self.assertRaises(ValueError) as ctx:
+            validate_registry(data, path="packs/sample/registry.json")
+        self.assertIn("cannot set both constant_key and key_field", str(ctx.exception))
+
+    def test_adopt_constant_key_requires_explicit_import_id(self):
+        data = self._registry_metadata()
+        data["sample_resource"]["adopt"] = {
+            "constant_key": "settings",
+        }
+        with self.assertRaises(ValueError) as ctx:
+            validate_registry(data, path="packs/sample/registry.json")
+        self.assertIn("constant_key requires import_id", str(ctx.exception))
 
     def test_unknown_key_in_pack_json_fails(self):
         data = self._pack_metadata()

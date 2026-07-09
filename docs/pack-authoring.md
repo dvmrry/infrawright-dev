@@ -162,6 +162,7 @@ resource config. It is not currently validated as a closed engine enum.
 Allowed keys:
 
 ```text
+constant_key
 identity_fields
 identity_renames
 import_id
@@ -169,9 +170,31 @@ key_field
 skip_if
 ```
 
-`key_field` and `import_id`, when present, must be strings.
+`constant_key`, `key_field`, and `import_id`, when present, must be strings.
 `identity_fields` and `identity_renames` are string maps. `skip_if`, when
 present, must be a list.
+
+`constant_key` is for identity-less singleton resources: resources where the
+provider has one object per tenant and the read payload has no natural `id`,
+`name`, or other stable key field. The value is used verbatim as the generated
+tfvars/import key, and the adoption path rejects it when the read produces more
+than one item after `skip_if`. It requires an explicit `import_id`; use a literal
+`import_id` when the provider imports the singleton by a fixed ID:
+
+```json
+{
+  "adopt": {
+    "constant_key": "settings",
+    "import_id": "settings"
+  }
+}
+```
+
+Do not set `constant_key` and `key_field` in the same `adopt` block.
+
+Do not use transform override `defaults` to make singleton adoption work. Defaults
+are projection/normalization metadata for transformed items; singleton key
+derivation belongs in registry `adopt` metadata.
 
 ### `drift_policy`
 

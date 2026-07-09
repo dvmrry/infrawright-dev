@@ -16,6 +16,10 @@
     "product": "zia"
   },
   "zia_advanced_settings": {
+    "adopt": {
+      "constant_key": "advanced_settings",
+      "import_id": "advanced_settings"
+    },
     "fetch": {
       "pagination": "single",
       "path": "advancedSettings"
@@ -24,6 +28,10 @@
     "product": "zia"
   },
   "zia_advanced_threat_settings": {
+    "adopt": {
+      "constant_key": "advanced_threat_settings",
+      "import_id": "advanced_threat_settings"
+    },
     "fetch": {
       "pagination": "single",
       "path": "cyberThreatProtection/advancedThreatSettings"
@@ -32,6 +40,10 @@
     "product": "zia"
   },
   "zia_atp_malicious_urls": {
+    "adopt": {
+      "constant_key": "all_urls",
+      "import_id": "all_urls"
+    },
     "fetch": {
       "pagination": "single",
       "path": "cyberThreatProtection/maliciousUrls"
@@ -40,6 +52,10 @@
     "product": "zia"
   },
   "zia_atp_malware_inspection": {
+    "adopt": {
+      "constant_key": "inspection",
+      "import_id": "inspection"
+    },
     "fetch": {
       "pagination": "single",
       "path": "cyberThreatProtection/atpMalwareInspection"
@@ -48,6 +64,10 @@
     "product": "zia"
   },
   "zia_atp_malware_policy": {
+    "adopt": {
+      "constant_key": "policy",
+      "import_id": "policy"
+    },
     "fetch": {
       "pagination": "single",
       "path": "cyberThreatProtection/malwarePolicy"
@@ -56,6 +76,10 @@
     "product": "zia"
   },
   "zia_atp_malware_protocols": {
+    "adopt": {
+      "constant_key": "protocol",
+      "import_id": "protocol"
+    },
     "fetch": {
       "pagination": "single",
       "path": "cyberThreatProtection/atpMalwareProtocols"
@@ -64,6 +88,10 @@
     "product": "zia"
   },
   "zia_atp_malware_settings": {
+    "adopt": {
+      "constant_key": "malware_settings",
+      "import_id": "malware_settings"
+    },
     "fetch": {
       "pagination": "single",
       "path": "cyberThreatProtection/malwareSettings"
@@ -72,6 +100,10 @@
     "product": "zia"
   },
   "zia_atp_security_exceptions": {
+    "adopt": {
+      "constant_key": "bypass_url",
+      "import_id": "bypass_url"
+    },
     "fetch": {
       "pagination": "single",
       "path": "cyberThreatProtection/securityExceptions"
@@ -80,6 +112,10 @@
     "product": "zia"
   },
   "zia_auth_settings_urls": {
+    "adopt": {
+      "constant_key": "all_urls",
+      "import_id": "all_urls"
+    },
     "fetch": {
       "pagination": "single",
       "path": "authSettings/exemptedUrls"
@@ -113,6 +149,10 @@
     "product": "zia"
   },
   "zia_browser_control_policy": {
+    "adopt": {
+      "constant_key": "browser_settings",
+      "import_id": "browser_settings"
+    },
     "fetch": {
       "pagination": "single",
       "path": "browserControlSettings"
@@ -224,6 +264,10 @@
     "product": "zia"
   },
   "zia_end_user_notification": {
+    "adopt": {
+      "constant_key": "enduser_notification",
+      "import_id": "enduser_notification"
+    },
     "fetch": {
       "pagination": "single",
       "path": "eun"
@@ -340,6 +384,10 @@
     "product": "zia"
   },
   "zia_ftp_control_policy": {
+    "adopt": {
+      "constant_key": "ftp_control",
+      "import_id": "ftp_control"
+    },
     "fetch": {
       "pagination": "single",
       "path": "ftpSettings"
@@ -360,6 +408,10 @@
     "product": "zia"
   },
   "zia_mobile_malware_protection_policy": {
+    "adopt": {
+      "constant_key": "mobile_settings",
+      "import_id": "mobile_settings"
+    },
     "fetch": {
       "pagination": "single",
       "path": "mobileAdvanceThreatSettings"
@@ -491,6 +543,10 @@
     "product": "zia"
   },
   "zia_url_filtering_and_cloud_app_settings": {
+    "adopt": {
+      "constant_key": "app_setting",
+      "import_id": "app_setting"
+    },
     "fetch": {
       "pagination": "single",
       "path": "advancedUrlFilterAndCloudAppSettings"

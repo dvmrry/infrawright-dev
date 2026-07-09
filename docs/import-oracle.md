@@ -76,6 +76,27 @@ This metadata is only for stable key/import derivation. It does not change
 Terraform schema projection, HCL rendering, advisory classification, or provider
 state semantics.
 
+Identity-less singleton resources can use a literal `constant_key` instead of a
+`key_field`:
+
+```json
+{
+  "zia_end_user_notification": {
+    "generate": true,
+    "product": "zia",
+    "adopt": {
+      "constant_key": "enduser_notification",
+      "import_id": "enduser_notification"
+    }
+  }
+}
+```
+
+This is only valid for singleton reads. `make adopt` fails before oracle import
+if `constant_key` is configured and the raw read produces more than one item
+after `skip_if`. The key is used verbatim as the generated item key; it is not
+derived from, or filled into, the provider-state payload.
+
 ## Workflow
 
 The import-oracle path uses the stable adoption command sequence documented in

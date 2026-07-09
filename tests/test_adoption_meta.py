@@ -116,6 +116,28 @@ class AdoptionMetaTest(unittest.TestCase):
                 {"name": "Prod"}, meta, "sample_resource", "prod"
             )
 
+    def test_constant_key_derives_literal_key_without_identity_field(self):
+        self._registry({
+            "sample_singleton": {
+                "generate": True,
+                "product": "sample",
+                "adopt": {
+                    "constant_key": "settings",
+                    "import_id": "settings",
+                },
+            }
+        })
+        meta = adoption_entry("sample_singleton")
+        item = identity_item({"enabled": True}, "sample_singleton")
+
+        self.assertEqual(derive_key_from_identity(item, meta), "settings")
+        self.assertEqual(
+            derive_import_id_from_identity(
+                item, meta, "sample_singleton", "settings"
+            ),
+            "settings",
+        )
+
     def test_dotted_key_field_uses_snaked_path_segments(self):
         self._registry({
             "sample_resource": {
