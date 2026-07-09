@@ -102,9 +102,11 @@ The main provider-read normalization probes are:
    and cloud app control
    ([resource_zia_cloud_app_control_rules.go#L393-L395](https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_cloud_app_control_rules.go#L393-L395)).
    Both CREATE/UPDATE paths convert back through the shared
-   `convertAndValidateSizeQuota` helper. Provider state is already in config
-   units (MB) for both. Note `time_quota` is passed through unconverted, which
-   is why only `size_quota` carries a `divide` override.
+   `convertAndValidateSizeQuota` helper
+   ([utils.go#L709-L720](https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/utils.go#L709-L720)).
+   Provider state is already in config units (MB) for both. Note `time_quota`
+   is passed through unconverted, which is why only `size_quota` carries a
+   `divide` override.
 2. `zcc_failopen_policy` inverted booleans:
    [engine/transform.py](../engine/transform.py#L496-L504) applies local
    inversion, but terraformer has no ZCC support. RESOLVED - no oracle gap.
@@ -147,13 +149,16 @@ source proves only raw pass-through: zpa 4.4.6
 [resource_zpa_application_segment.go](https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_application_segment.go)
 READ sets `microtenant_id` raw, including `"0"`. That does not prove that
 OMITTING `"0"` from config is plan-neutral, which is what transform's
-`drop_if_default` assumes. The pinned zpa schema declares `microtenant_id` as
-`optional` and NOT `computed`
+`drop_if_default` assumes. The pinned zpa schema declares
+`zpa_application_segment.microtenant_id` as `optional` and NOT `computed`
 ([packs/zpa/schemas/provider/zpa.json](../packs/zpa/schemas/provider/zpa.json)),
 so a null config value against a `"0"` state value would be expected to plan a
-change rather than be suppressed. Treat this as a candidate oracle/plan gap,
-not a cosmetic divergence, until a pinned import/show/plan test proves
-otherwise.
+change rather than be suppressed. This is unique to the app segment: every
+other dropped `microtenant_id` path is `optional` plus `computed` and is
+expected to plan clean when omitted (see tenant gate 4 below for the full
+per-resource breakdown). Treat the app segment case as a candidate
+oracle/plan gap, not a cosmetic divergence, until a pinned import/show/plan
+test proves otherwise.
 
 ## Numeric Zero Phantom Reference
 
@@ -303,11 +308,24 @@ previously-gated generate-config-out behaviors.
    catch it earlier.
 4. `microtenant_id="0"` omission: prove with a pinned import/show/plan test
    whether omitting `microtenant_id` from config plans clean against a state
-   value of `"0"`. The schema declares the attribute `optional` and not
-   `computed`, so the expected result is a planned change, which would make
-   transform's `drop_if_default` a real divergence rather than cosmetic. This
-   affects `zpa_application_segment`, `zpa_server_group`, `zpa_segment_group`,
-   `zpa_application_server`, and nested `zpa_policy_access_rule` operands.
+   value of `"0"`. Test scope: `zpa_application_segment` only. Six override
+   files drop `microtenant_id="0"` (`zpa_application_segment`,
+   `zpa_server_group`, `zpa_segment_group`, `zpa_application_server`,
+   `zpa_app_connector_group`, and `zpa_policy_access_rule` including its
+   nested `conditions` and `conditions.operands` paths), but zpa 4.4.6
+   declares every one of those attributes `Optional` plus `Computed` except
+   `zpa_application_segment.microtenant_id`, which is `Optional` only
+   ([resource_zpa_application_segment.go#L231-L234](https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_application_segment.go#L231-L234);
+   contrast
+   [resource_zpa_server_group.go#L96-L100](https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_server_group.go#L96-L100);
+   local dump
+   [packs/zpa/schemas/provider/zpa.json](../packs/zpa/schemas/provider/zpa.json)
+   agrees for all eight field paths). An `Optional`-plus-`Computed` attribute
+   omitted from config keeps its prior state value and plans clean, so those
+   drops are expected cosmetic by schema semantics. Only the app segment
+   attribute lacks `Computed`, so the expected result there is a planned
+   change, which would make transform's `drop_if_default` a real divergence
+   for `zpa_application_segment` rather than cosmetic.
 
 ## Acceptance Bar
 
