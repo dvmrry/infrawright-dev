@@ -437,8 +437,9 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False):
         if keep:
             sys.stderr.write(
                 "WARNING: kept oracle workdir %s; it may contain "
-                "unencrypted provider state, credentials, import IDs, and "
-                "provider diagnostics. Remove it when debugging is complete.\n"
+                "unencrypted provider state, generated configuration, "
+                "credentials, import IDs, and provider diagnostics. Remove it "
+                "when debugging is complete.\n"
                 % temp
             )
         else:

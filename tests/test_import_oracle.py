@@ -469,6 +469,7 @@ class ImportOracleTest(unittest.TestCase):
             msg = stderr.getvalue()
             self.assertIn("WARNING: kept oracle workdir", msg)
             self.assertIn("unencrypted provider state", msg)
+            self.assertIn("generated configuration", msg)
             self.assertIn("import IDs", msg)
             match = re.search(r"workdir ([^;]+);", msg)
             self.assertIsNotNone(match, msg)
