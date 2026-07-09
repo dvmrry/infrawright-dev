@@ -138,6 +138,12 @@ def _literal_expr(value):
     return transform.hcl_string_literal(str(value))
 
 
+def _is_bindable_list_element(value):
+    if isinstance(value, str):
+        return bool(value)
+    return type(value) is int
+
+
 def _summary(resource_type, bound, skipped, reason_counts):
     if reason_counts:
         reasons = ", ".join(
@@ -206,15 +212,15 @@ def derive(resource_type, items, tenant, config_root=None):
                 continue
             value = item.get(field)
             if isinstance(value, list):
-                if not all(isinstance(child, str) and child for child in value):
-                    # A list mixing ids with null/non-string cannot be re-emitted
+                if not all(_is_bindable_list_element(child) for child in value):
+                    # A list mixing ids with null/non-scalar cannot be re-emitted
                     # as a faithful HCL list (unbound siblings would be type-
                     # coerced), so leave the raw tfvars value untouched.
                     reason_counts[REASON_UNBINDABLE_LIST] = (
                         reason_counts.get(REASON_UNBINDABLE_LIST, 0) + 1)
                     skipped += 1
                     _note(
-                        "%s.%s.%s skipped; list has null or non-string elements"
+                        "%s.%s.%s skipped; list has null or unbindable elements"
                         % (resource_type, key, field))
                     continue
                 fragments = []
