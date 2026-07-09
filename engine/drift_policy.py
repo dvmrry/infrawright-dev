@@ -163,6 +163,7 @@ class DriftPolicy(object):
                             % (self.source, mode, rt, path)
                         )
                     seen[scope] = entry
+            _reject_projection_fill_omit_conflicts(self.source, rt, cfg)
 
     def _validate_entry(self, rt, mode, entry):
         if not isinstance(entry, dict):
@@ -315,6 +316,20 @@ def _entry_keys_for_mode(mode):
 
 def _entry_display_path(entry):
     return entry.get("path", entry.get("target_path"))
+
+
+def _reject_projection_fill_omit_conflicts(source, rt, cfg):
+    fill_paths = dict(
+        (tuple(parse_path(entry["path"])), entry["path"])
+        for entry in cfg.get("projection_fill") or []
+    )
+    for entry in cfg.get("projection_omit") or []:
+        path = tuple(parse_path(entry["path"]))
+        if path in fill_paths:
+            raise DriftPolicyError(
+                "%s projection_fill and projection_omit entries for %s "
+                "conflict on path %s" % (source, rt, entry["path"])
+            )
 
 
 def _merge_policy_data(base, override):

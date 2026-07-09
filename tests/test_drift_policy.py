@@ -376,6 +376,23 @@ class DriftPolicyTest(unittest.TestCase):
                 },
             })
 
+    def test_rejects_projection_fill_and_projection_omit_same_path(self):
+        with self.assertRaisesRegex(
+                DriftPolicyError,
+                "projection_fill and projection_omit entries for "
+                "sample_resource conflict on path cbi_profile"):
+            DriftPolicy({
+                "version": 1,
+                "resource_types": {
+                    "sample_resource": {
+                        "projection_fill": [_fill_entry()],
+                        "projection_omit": [
+                            _entry(path="cbi_profile"),
+                        ],
+                    },
+                },
+            })
+
     def test_rejects_duplicate_projection_omit_if_entries(self):
         with self.assertRaises(DriftPolicyError):
             DriftPolicy({

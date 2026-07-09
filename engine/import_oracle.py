@@ -714,12 +714,24 @@ def _render_hcl_value(value, indent):
         pad = " " * indent
         child_pad = " " * (indent + 2)
         lines = ["{\n"]
-        for key in sorted(value):
+        for key in sorted(value, key=str):
             lines.append("%s%s = %s\n" % (
-                child_pad, key, _render_hcl_value(value[key], indent + 2)))
+                child_pad,
+                _hcl_object_key_literal(key),
+                _render_hcl_value(value[key], indent + 2),
+            ))
         lines.append("%s}" % pad)
         return "".join(lines)
     raise OracleError("cannot render projection_fill value for generated config")
+
+
+def _hcl_object_key_literal(key):
+    if not isinstance(key, str):
+        raise OracleError(
+            "cannot render non-string projection_fill object key for "
+            "generated config"
+        )
+    return _hcl_string_literal(key)
 
 
 def _parse_generated_hcl_scalar(raw):

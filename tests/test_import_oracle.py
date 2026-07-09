@@ -533,6 +533,48 @@ class ImportOracleTest(unittest.TestCase):
             "init", "plan", "plan", "show", "apply", "show",
         ])
 
+    def test_generated_config_fill_update_plan_rejected_before_apply(self):
+        os.environ["FAKE_TF_FAIL_GENERATED_CONFIG"] = "1"
+        os.environ["FAKE_TF_REJECT_MISSING_CBI_PROFILE"] = "1"
+        os.environ["FAKE_TF_PLAN_CHANGES"] = "1"
+        policy = self._policy({
+            "projection_fill": [
+                {
+                    "path": "cbi_profile",
+                    "source": "cbiProfile",
+                    "reason": "provider read omits isolate profile",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+
+        with self.assertRaises(OracleError) as ctx:
+            import_state(
+                "sample_resource",
+                {"prod_app": "123"},
+                policy=policy,
+                raw_items={
+                    "prod_app": {
+                        "cbiProfile": {
+                            "id": "cbi-1",
+                            "name": "Isolation",
+                            "profileSeq": "7",
+                            "url": "https://example.invalid",
+                        },
+                    },
+                },
+            )
+
+        msg = str(ctx.exception)
+        self.assertIn(
+            "sample_resource oracle import plan was not import-only", msg)
+        self.assertIn("actions=['update']", msg)
+        commands = self._fake_commands()
+        self.assertEqual([cmd[0] for cmd in commands], [
+            "init", "plan", "plan", "show",
+        ])
+        self.assertFalse([cmd for cmd in commands if cmd[0] == "apply"])
+
     def test_generated_config_policy_debug_artifacts_show_filled_block(self):
         os.environ["FAKE_TF_FAIL_GENERATED_CONFIG"] = "1"
         os.environ["FAKE_TF_REJECT_MISSING_CBI_PROFILE"] = "1"
@@ -664,6 +706,16 @@ class ImportOracleTest(unittest.TestCase):
 
         self.assertEqual(count, 0)
         self.assertEqual(filled, lines)
+
+    def test_render_hcl_value_escapes_object_keys(self):
+        rendered = import_oracle._render_hcl_value({
+            "bad-key": "${var.value}",
+            'quote"key': "literal",
+        }, 2)
+
+        self.assertIn('    "bad-key" = "$${var.value}"\n', rendered)
+        self.assertIn('    "quote\\"key" = "literal"\n', rendered)
+        self.assertNotIn("bad-key =", rendered)
 
     def test_generated_config_policy_fill_rejects_duplicate_resource_block(self):
         policy = self._policy({
