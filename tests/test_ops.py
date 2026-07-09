@@ -290,7 +290,7 @@ class OpsReferenceOrderTransformIntegrationTest(unittest.TestCase):
         )
         self.assertEqual(
             expression,
-            'module.zpa_segment_group.name_to_id["Segment One"][0]',
+            'module.zpa_segment_group.items["segment_one"].id',
         )
 
 

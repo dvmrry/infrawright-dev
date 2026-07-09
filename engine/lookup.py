@@ -16,6 +16,8 @@ from engine import packs
 
 UNKNOWN = "<unknown>"
 LOOKUP_SUFFIX = ".lookup.json"
+LOOKUP_BY_ID = "by_id"
+LOOKUP_KEY_BY_ID = "key_by_id"
 
 
 class LookupDataError(Exception):
@@ -65,9 +67,18 @@ def _display_name(item, name_field):
     return value
 
 
+def _iter_lookup_items(items):
+    if isinstance(items, dict):
+        for key in sorted(items):
+            yield str(key), items[key]
+        return
+    for item in items:
+        yield None, item
+
+
 def build_lookup(items, name_field):
     out = {}
-    for item in items:
+    for _key, item in _iter_lookup_items(items):
         if not isinstance(item, dict):
             continue
         ident = item.get("id")
@@ -77,8 +88,27 @@ def build_lookup(items, name_field):
     return out
 
 
-def render_lookup(mapping):
-    return json.dumps(mapping, indent=2, sort_keys=True) + "\n"
+def build_lookup_key_map(items):
+    out = {}
+    for key, item in _iter_lookup_items(items):
+        if key is None or not isinstance(item, dict):
+            continue
+        ident = item.get("id")
+        if ident is None or ident == "":
+            continue
+        out[str(ident)] = key
+    return out
+
+
+def render_lookup(mapping, key_mapping=None):
+    if key_mapping:
+        data = {
+            LOOKUP_BY_ID: mapping,
+            LOOKUP_KEY_BY_ID: key_mapping,
+        }
+    else:
+        data = mapping
+    return json.dumps(data, indent=2, sort_keys=True) + "\n"
 
 
 def write_lookup(tenant, referent, items, config_root=None):
@@ -90,7 +120,10 @@ def write_lookup(tenant, referent, items, config_root=None):
     if directory:
         os.makedirs(directory, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        f.write(render_lookup(build_lookup(items, source["name_field"])))
+        f.write(render_lookup(
+            build_lookup(items, source["name_field"]),
+            key_mapping=build_lookup_key_map(items),
+        ))
     return path
 
 
@@ -110,9 +143,26 @@ def load_lookup(tenant, referent, config_root=None):
     if not os.path.exists(path):
         return {}
     data = load_json_object(path)
+    if isinstance(data.get(LOOKUP_BY_ID), dict):
+        data = data[LOOKUP_BY_ID]
     out = {}
     for key, value in data.items():
         out[str(key)] = value if isinstance(value, str) else UNKNOWN
+    return out
+
+
+def load_lookup_keys(tenant, referent, config_root=None):
+    path = lookup_path(tenant, referent, config_root=config_root)
+    if not os.path.exists(path):
+        return {}
+    data = load_json_object(path)
+    mapping = data.get(LOOKUP_KEY_BY_ID)
+    if not isinstance(mapping, dict):
+        return {}
+    out = {}
+    for key, value in mapping.items():
+        if isinstance(value, str) and value:
+            out[str(key)] = value
     return out
 
 

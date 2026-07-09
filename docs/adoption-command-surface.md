@@ -145,7 +145,7 @@ resource tfvars. Env generation loads generated bindings first and then
 operator-authored `config/<tenant>/<resource_type>.expressions.json`, so a
 hand-written binding wins for the same resource path. Generated bindings only
 target same-root references and resolve them through sibling module outputs:
-`module.<referent_type>.name_to_id["<display_name>"][0]`.
+`module.<referent_type>.items["<config_key>"].id`.
 
 Bindings are explicit generated artifacts; tfvars keep the raw IDs and readback still round-trips.
 
@@ -163,10 +163,8 @@ Generated binding skip/fallback semantics:
 |---|---|
 | Referent lookup sidecar is missing | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
 | ID is absent from the referent lookup | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
-| Lookup display name is `<unknown>` | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
-| Lookup display name maps to more than one referent ID | Leave the literal ID in tfvars and print a `NOTE bindings:` skip to avoid ambiguous `name_to_id` lookups. |
-| Referent module does not emit `name_to_id` | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
-| Referent lookup sidecar uses a `name_field` other than `name` | Leave the literal ID in tfvars and print a `NOTE bindings:` skip because generated `name_to_id` outputs are keyed by `name`. |
+| Referent lookup sidecar has no `key_by_id` map | Leave the literal ID in tfvars and print a `NOTE bindings:` skip; rerun transform/adopt for the referent to refresh the sidecar. |
+| Referent key contains Terraform template interpolation syntax | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
 | Reference crosses a group/root boundary | No generated binding is considered; existing literal/comment behavior applies. |
 
 Group membership is fixed at first import. Changing it later means a fresh re-bootstrap of the affected types into new state — there is no regroup tooling, by design.

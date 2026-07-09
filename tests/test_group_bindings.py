@@ -66,11 +66,24 @@ class GroupBindingsTest(unittest.TestCase):
             referent: {"name_field": "name"},
         }
 
-    def _write_lookup(self, referent, mapping):
+    def _write_lookup(self, referent, mapping, keys=None, legacy=False):
         path = lookup.lookup_path(self.tenant, referent)
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        if legacy:
+            data = mapping
+        else:
+            if keys is None:
+                keys = dict(
+                    (ident, transform.slugify(display))
+                    for ident, display in mapping.items()
+                    if display != lookup.UNKNOWN
+                )
+            data = {
+                lookup.LOOKUP_BY_ID: mapping,
+                lookup.LOOKUP_KEY_BY_ID: keys,
+            }
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(mapping, f, indent=2, sort_keys=True)
+            json.dump(data, f, indent=2, sort_keys=True)
         return path
 
     def _capture_derive(self, resource_type, items):
@@ -99,7 +112,7 @@ class GroupBindingsTest(unittest.TestCase):
         )
         self.assertEqual(
             expr,
-            'module.zpa_segment_group.name_to_id["Segment One"][0]',
+            'module.zpa_segment_group.items["segment_one"].id',
         )
         self.assertEqual(
             expression_bindings.parse_bindings(
@@ -124,14 +137,14 @@ class GroupBindingsTest(unittest.TestCase):
         self.assertEqual(
             data["resources"]["zpa_application_segment.app"]
             ["segment_group_id"]["expression"],
-            'module.zpa_segment_group.name_to_id["Segment One"][0]',
+            'module.zpa_segment_group.items["segment_one"].id',
         )
         self.assertIn(
             "NOTE bindings: zpa_application_segment: 1 bound, 0 skipped\n",
             stderr,
         )
 
-    def test_referent_name_field_mismatch_skips_field(self):
+    def test_referent_name_field_mismatch_still_binds_by_key(self):
         self._deployment(
             ["zia_url_categories", "zia_url_filtering_rules"],
             provider="zia",
@@ -150,30 +163,34 @@ class GroupBindingsTest(unittest.TestCase):
         packs.lookup_sources = lambda: {
             "zia_url_categories": {"name_field": "configured_name"},
         }
+        self._write_lookup("zia_url_categories", {"cat-1": "Category One"})
 
         data, stderr = self._capture_derive("zia_url_filtering_rules", {
             "rule": {"url_categories": ["cat-1"]},
         })
 
-        self.assertEqual(data, {"resources": {}})
-        self.assertIn(
-            "NOTE bindings: zia_url_filtering_rules.url_categories skipped; "
-            "zia_url_categories lookup uses name_field 'configured_name' but "
-            "name_to_id is keyed by name\n",
-            stderr,
+        expr = (
+            data["resources"]["zia_url_filtering_rules.rule"]
+            ["url_categories"]["expression"]
+        )
+        self.assertEqual(
+            expr,
+            '[module.zia_url_categories.items["category_one"].id]',
         )
         self.assertIn(
-            "NOTE bindings: zia_url_filtering_rules: 0 bound, 1 skipped "
-            "(name_field_mismatch=1)\n",
+            "NOTE bindings: zia_url_filtering_rules: 1 bound, 0 skipped\n",
             stderr,
         )
 
-    def test_display_name_with_interpolation_is_skipped_not_emitted(self):
+    def test_referent_key_with_interpolation_is_skipped_not_emitted(self):
         self._deployment(["zpa_application_segment", "zpa_segment_group"])
         self._patch_refs(
             "zpa_application_segment", "segment_group_id", "zpa_segment_group")
         self._write_lookup(
-            "zpa_segment_group", {"sg-1": "Bad ${uuid()} Name"})
+            "zpa_segment_group",
+            {"sg-1": "Safe Display"},
+            keys={"sg-1": "bad_${uuid()}_key"},
+        )
 
         data, stderr = self._capture_derive("zpa_application_segment", {
             "app": {"name": "App", "segment_group_id": "sg-1"},
@@ -181,7 +198,7 @@ class GroupBindingsTest(unittest.TestCase):
 
         self.assertEqual(data.get("resources"), {})
         self.assertIn("template interpolation", stderr)
-        self.assertIn("unsafe_name=1", stderr)
+        self.assertIn("unsafe_key=1", stderr)
 
     def test_list_with_null_or_nonstring_element_is_not_bound(self):
         self._deployment(["zpa_application_server", "zpa_server_group"])
@@ -217,8 +234,8 @@ class GroupBindingsTest(unittest.TestCase):
         )
         self.assertEqual(
             expr,
-            '[module.zpa_server_group.name_to_id["Group One"][0], '
-            'module.zpa_server_group.name_to_id["Group Two"][0]]',
+            '[module.zpa_server_group.items["group_one"].id, '
+            'module.zpa_server_group.items["group_two"].id]',
         )
         self.assertEqual(
             expression_bindings.parse_bindings(
@@ -274,55 +291,55 @@ class GroupBindingsTest(unittest.TestCase):
             stderr,
         )
 
-    def test_unknown_display_name_skip_note(self):
+    def test_unknown_display_name_still_binds_by_key(self):
         self._deployment(["zpa_application_segment", "zpa_segment_group"])
         self._patch_refs(
             "zpa_application_segment", "segment_group_id", "zpa_segment_group")
-        self._write_lookup("zpa_segment_group", {"sg-1": lookup.UNKNOWN})
+        self._write_lookup(
+            "zpa_segment_group",
+            {"sg-1": lookup.UNKNOWN},
+            keys={"sg-1": "segment_one"},
+        )
 
         data, stderr = self._capture_derive("zpa_application_segment", {
             "app": {"segment_group_id": "sg-1"},
         })
 
-        self.assertEqual(data, {"resources": {}})
-        self.assertIn(
-            "NOTE bindings: zpa_application_segment.app.segment_group_id "
-            "value 'sg-1' skipped; display name is <unknown>\n",
-            stderr,
+        self.assertEqual(
+            data["resources"]["zpa_application_segment.app"]
+            ["segment_group_id"]["expression"],
+            'module.zpa_segment_group.items["segment_one"].id',
         )
         self.assertIn(
-            "NOTE bindings: zpa_application_segment: 0 bound, 1 skipped "
-            "(unknown_name=1)\n",
+            "NOTE bindings: zpa_application_segment: 1 bound, 0 skipped\n",
             stderr,
         )
 
-    def test_nonunique_display_name_skip_note(self):
+    def test_nonunique_display_name_still_binds_by_key(self):
         self._deployment(["zpa_application_segment", "zpa_segment_group"])
         self._patch_refs(
             "zpa_application_segment", "segment_group_id", "zpa_segment_group")
         self._write_lookup(
             "zpa_segment_group",
             {"sg-1": "Duplicate", "sg-2": "Duplicate"},
+            keys={"sg-1": "first", "sg-2": "second"},
         )
 
         data, stderr = self._capture_derive("zpa_application_segment", {
             "app": {"segment_group_id": "sg-1"},
         })
 
-        self.assertEqual(data, {"resources": {}})
-        self.assertIn(
-            "NOTE bindings: zpa_application_segment.app.segment_group_id "
-            "value 'sg-1' skipped; display name 'Duplicate' maps to multiple "
-            "zpa_segment_group ids\n",
-            stderr,
+        self.assertEqual(
+            data["resources"]["zpa_application_segment.app"]
+            ["segment_group_id"]["expression"],
+            'module.zpa_segment_group.items["first"].id',
         )
         self.assertIn(
-            "NOTE bindings: zpa_application_segment: 0 bound, 1 skipped "
-            "(nonunique_name=1)\n",
+            "NOTE bindings: zpa_application_segment: 1 bound, 0 skipped\n",
             stderr,
         )
 
-    def test_referent_without_name_to_id_skip_note(self):
+    def test_referent_without_name_to_id_still_binds_by_key(self):
         self._deployment(
             ["zia_url_categories", "zia_url_filtering_rules"],
             provider="zia",
@@ -335,17 +352,34 @@ class GroupBindingsTest(unittest.TestCase):
             "rule": {"url_categories": ["cat-1"]},
         })
 
+        self.assertEqual(
+            data["resources"]["zia_url_filtering_rules.rule"]
+            ["url_categories"]["expression"],
+            '[module.zia_url_categories.items["category_one"].id]',
+        )
+        self.assertIn(
+            "NOTE bindings: zia_url_filtering_rules: 1 bound, 0 skipped\n",
+            stderr,
+        )
+
+    def test_legacy_lookup_without_key_map_skips_loudly(self):
+        self._deployment(["zpa_application_segment", "zpa_segment_group"])
+        self._patch_refs(
+            "zpa_application_segment", "segment_group_id", "zpa_segment_group")
+        self._write_lookup(
+            "zpa_segment_group", {"sg-1": "Segment One"}, legacy=True)
+
+        data, stderr = self._capture_derive("zpa_application_segment", {
+            "app": {"segment_group_id": "sg-1"},
+        })
+
         self.assertEqual(data, {"resources": {}})
         self.assertIn(
-            "NOTE bindings: zia_url_filtering_rules.url_categories skipped; "
-            "zia_url_categories module does not emit name_to_id\n",
+            "NOTE bindings: zpa_application_segment.segment_group_id skipped; "
+            "lookup for zpa_segment_group has no key_by_id map\n",
             stderr,
         )
-        self.assertIn(
-            "NOTE bindings: zia_url_filtering_rules: 0 bound, 1 skipped "
-            "(name_to_id_unavailable=1)\n",
-            stderr,
-        )
+        self.assertIn("key_map_unavailable=1", stderr)
 
     def test_deterministic_rendering(self):
         self._deployment(["zpa_application_server", "zpa_server_group"])
@@ -530,7 +564,7 @@ class GroupBindingsEndToEndTest(unittest.TestCase):
         )
         self.assertEqual(
             expression,
-            'module.zpa_segment_group.name_to_id["Segment One"][0]',
+            'module.zpa_segment_group.items["segment_one"].id',
         )
 
         out_root = os.path.join(self.tmp, "generated-envs")
@@ -555,9 +589,28 @@ class GroupBindingsEndToEndTest(unittest.TestCase):
             bindings_tf = f.read()
         self.assertIn(
             'segment_group_id = '
-            'module.zpa_segment_group.name_to_id["Segment One"][0]',
+            'module.zpa_segment_group.items["segment_one"].id',
             bindings_tf,
         )
+        if shutil.which("terraform") is None:
+            self.skipTest("terraform not on PATH - env root validate is optional")
+        init = subprocess.run(
+            ["terraform", "init", "-backend=false", "-input=false"],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+        )
+        if init.returncode != 0:
+            self.skipTest("terraform init unavailable:\n%s" % init.stdout)
+        validate = subprocess.run(
+            ["terraform", "validate"],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+        )
+        self.assertEqual(validate.returncode, 0, validate.stdout)
 
     def test_duplicate_referent_names_do_not_break_validate(self):
         self._configure()

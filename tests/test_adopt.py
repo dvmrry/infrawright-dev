@@ -180,7 +180,10 @@ class AdoptCommandTest(unittest.TestCase):
                 os.path.join("config", "tenant", "sample_resource.lookup.json"),
                 encoding="utf-8",
         ) as f:
-            self.assertEqual(json.load(f), {"keep-1": "Managed"})
+            self.assertEqual(json.load(f), {
+                "by_id": {"keep-1": "Managed"},
+                "key_by_id": {"keep-1": "managed"},
+            })
 
     def test_lookup_sidecar_uses_provider_state_names_not_raw(self):
         input_path = os.path.join(self.tmp, "api.json")
@@ -209,8 +212,12 @@ class AdoptCommandTest(unittest.TestCase):
                 encoding="utf-8",
         ) as f:
             sidecar = json.load(f)
-        # Provider-state name (the name_to_id key), not the raw API text.
-        self.assertEqual(sidecar, {"g1": "R&D"})
+        # Provider-state display name is kept for comments/explain, while
+        # key_by_id carries the config key used by module.<type>.items.
+        self.assertEqual(sidecar, {
+            "by_id": {"g1": "R&D"},
+            "key_by_id": {"g1": "r_amp_d"},
+        })
 
     def test_lookup_sidecar_uses_provider_state_name_after_identity_rename(self):
         _write_json(os.path.join(self.tmp, "packs", "sample", "registry.json"), {
@@ -251,7 +258,10 @@ class AdoptCommandTest(unittest.TestCase):
                 os.path.join("config", "tenant", "sample_resource.lookup.json"),
                 encoding="utf-8",
         ) as f:
-            self.assertEqual(json.load(f), {"tn-1": "Provider Branch"})
+            self.assertEqual(json.load(f), {
+                "by_id": {"tn-1": "Provider Branch"},
+                "key_by_id": {"tn-1": "raw_branch"},
+            })
 
     def test_hcl_deployment_writes_hcl_config_and_removes_stale_json(self):
         from engine import hcl_tfvars
