@@ -25,6 +25,7 @@ def adopt_items(raw_items, resource_type, policy=None):
     meta = adoption_entry(resource_type)
     key_to_identity = {}
     key_to_import_id = {}
+    key_to_raw = {}
     import_id_to_key = {}
     for raw in raw_items:
         ident = identity_item(raw, resource_type)
@@ -46,11 +47,13 @@ def adopt_items(raw_items, resource_type, policy=None):
         import_id_to_key[import_id] = key
         key_to_identity[key] = ident
         key_to_import_id[key] = import_id
+        key_to_raw[key] = raw
 
     if not key_to_import_id:
         return {}, key_to_identity
 
-    oracle = import_state(resource_type, key_to_import_id, policy=policy)
+    oracle = import_state(
+        resource_type, key_to_import_id, policy=policy, raw_items=key_to_raw)
     items = {}
     for key in sorted(oracle):
         state_obj = oracle[key]
@@ -59,6 +62,7 @@ def adopt_items(raw_items, resource_type, policy=None):
             state_obj["values"],
             sensitive_values=state_obj.get("sensitive_values"),
             policy=policy,
+            raw_item=key_to_raw.get(key),
         )
     return items, key_to_identity
 
@@ -132,7 +136,7 @@ def main(argv=None):
     resource_type, input_path, tenant = argv
     artifacts.validate_tenant(tenant)
     artifacts.validate_resource_type(resource_type)
-    policy = DriftPolicy.load(policy_path)
+    policy = DriftPolicy.load_for_adoption(policy_path)
     try:
         with open(input_path, encoding="utf-8") as f:
             raw_items = json.load(f)

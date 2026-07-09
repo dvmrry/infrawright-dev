@@ -4,8 +4,11 @@
 
 Raw API fetches are good at discovering objects, but they are not always a
 trustworthy source for Terraform/OpenTofu field coverage. The import oracle
-path uses raw API data only for identity and import IDs, then asks the provider
-what each imported object looks like through Terraform/OpenTofu state JSON.
+path uses raw API data only for identity and import IDs, plus explicit
+`projection_fill` exceptions where a pack or operator policy identifies a
+provider-read omission that must be restored from the same raw pull. Otherwise
+the provider state reported through Terraform/OpenTofu JSON remains the
+configuration truth.
 
 The adoption flow is:
 
@@ -19,7 +22,7 @@ raw API fetch
   -> project provider-observed state through provider schema
      (projection_omit applies inline)
   -> apply consumer-owned post-projection policy
-     (projection_sync -> projection_omit_if)
+     (projection_sync -> projection_fill -> projection_omit_if)
   -> write normal tfvars/imports/moves
   -> run normal plan
   -> classify clean / tolerated provider noise / blocked
@@ -29,6 +32,8 @@ raw API fetch
 
 - It does not use OpenAPI to decide field coverage.
 - It does not use generated HCL as the source of truth.
+- It does not use raw API values for configuration unless a pack or operator
+  policy explicitly declares a `projection_fill` path.
 - It does not store oracle state artifacts by default.
 - It does not allow remote backend blocks in the oracle scratch root.
 - It does not apply non-import changes from the scratch root; it checks the
@@ -232,12 +237,44 @@ policy omits only the provider's `end: 0` sentinel:
 }
 ```
 
+Projection fill restores a whole top-level writable attribute or block from the
+raw API pull when provider readback omits it but provider write validation
+requires it. V1 deliberately accepts only a single top-level target name and a
+single top-level raw source name. It never overwrites provider readback: if the
+projected provider state already contains the target, even as an empty list or
+object, the fill entry remains stale. It also refuses sensitive targets.
+
+The ZIA URL filtering rule policy below handles ISOLATE rules where provider
+readback omits `cbi_profile`, but provider write validation requires
+`cbi_profile` when `action = "ISOLATE"`. The raw `urlFilteringRules` API pull
+carries `cbiProfile` with `id`, `name`, `profileSeq`, and `url`, so the value is
+recoverable without synthesis:
+
+```json
+{
+  "version": 1,
+  "resource_types": {
+    "zia_url_filtering_rules": {
+      "projection_fill": [
+        {
+          "path": "cbi_profile",
+          "source": "cbiProfile",
+          "reason": "ZIA provider 4.7.26 read omits cbi_profile for ISOLATE URL filtering rules, while write validation requires cbi_profile when action is ISOLATE; the raw urlFilteringRules API pull carries cbiProfile with id/name/profileSeq/url.",
+          "approved_by": "zscaler-adoption"
+        }
+      ]
+    }
+  }
+}
+```
+
 Projection policy application order is fixed: `projection_omit` applies inline
 during schema projection and may suppress sensitive, absent, or optional fields,
 preserving its established behavior. After projection, `projection_sync` fills
-first, then `projection_omit_if` strips matching leaves. The order is not
-configurable. Conditional omit can strip a value that sync just wrote; the
-shipped use cases touch disjoint paths.
+from provider-observed state, `projection_fill` fills from explicit raw-pull
+sources, and then `projection_omit_if` strips matching leaves. The order is not
+configurable. Conditional omit can strip a value that sync or fill just wrote;
+the shipped use cases touch disjoint paths.
 
 Plan tolerances classify final saved plans when provider noise remains:
 
@@ -280,7 +317,8 @@ The oracle path fails closed for unsafe or ambiguous adoption:
 For troubleshooting scratch roots, set `INFRAWRIGHT_KEEP_ORACLE=1` before
 running `make adopt`. Infrawright will print a warning with the kept directory.
 That directory may contain unencrypted provider state, import IDs, credentials,
-and provider diagnostics; remove it when debugging is complete.
+raw API pull values, generated configuration, and provider diagnostics; remove
+it when debugging is complete.
 
 Terraform/OpenTofu subprocess errors are redacted and truncated by default.
 Full failing stdout/stderr is written only when the oracle workdir is explicitly

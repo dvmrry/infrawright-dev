@@ -25,6 +25,7 @@ _MANIFESTS = None
 
 PACK_METADATA_KEYS = set([
     "absent_defaults",
+    "drift_policy",
     "dynamic_schema",
     "lookup_sources",
     "pin",
@@ -42,6 +43,7 @@ PACK_REQUIRED_KEYS = set()
 
 PACK_DICT_KEYS = set([
     "absent_defaults",
+    "drift_policy",
     "dynamic_schema",
     "lookup_sources",
     "provider_config",
@@ -233,6 +235,9 @@ def validate_pack_metadata(data, path=None):
         _validate_references(data["references"], "%s.references" % path)
     for key in ("absent_defaults", "dynamic_schema", "sensitive_required"):
         _validate_rule_group(data, key, path)
+    if "drift_policy" in data:
+        from engine.drift_policy import DriftPolicy
+        DriftPolicy(data["drift_policy"], source="%s.drift_policy" % path)
     _validate_provider_config(data, path)
     return data
 
@@ -530,6 +535,18 @@ def sensitive_required_rules(provider=None):
         "sensitive_required", provider,
         sensitive_required_validator.validate_sensitive_required_rules,
     )
+
+
+def drift_policy_data():
+    out = {"version": 1, "resource_types": {}}
+    for manifest in _manifests():
+        data = manifest.get("drift_policy") or {}
+        for resource_type, cfg in (data.get("resource_types") or {}).items():
+            merged = out["resource_types"].setdefault(resource_type, {})
+            for mode, entries in (cfg or {}).items():
+                merged.setdefault(mode, [])
+                merged[mode].extend(json.loads(json.dumps(entries)))
+    return out
 
 
 def adoption_status_paths():

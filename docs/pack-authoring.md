@@ -39,6 +39,7 @@ Allowed top-level keys:
 
 ```text
 absent_defaults
+drift_policy
 dynamic_schema
 lookup_sources
 pin
@@ -172,6 +173,38 @@ skip_if
 `identity_fields` and `identity_renames` are string maps. `skip_if`, when
 present, must be a list.
 
+### `drift_policy`
+
+Pack manifests may declare reviewed adoption-time projection policy for
+provider-specific read/write inconsistencies:
+
+```json
+{
+  "drift_policy": {
+    "version": 1,
+    "resource_types": {
+      "zia_url_filtering_rules": {
+        "projection_fill": [
+          {
+            "path": "cbi_profile",
+            "source": "cbiProfile",
+            "reason": "Provider read omits a write-required field; raw pull carries it.",
+            "approved_by": "zscaler-adoption"
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+This pack policy is merged into `make adopt` / `engine.adopt` only. Saved-plan
+classification and apply still use the operator-supplied `POLICY=<file>`; pack
+metadata must not silently tolerate plan drift. Keep pack declarations narrow,
+source-backed, and provider-version-specific in their reason text. Do not use
+pack policy for tenant secrets, synthetic defaults, placeholders, or
+environment-specific choices.
+
 ## Overrides
 
 Transform override files live at:
@@ -186,7 +219,8 @@ top-level keys fail validation so typos do not silently become no-ops.
 
 Overrides are explicit pack-authored projection and normalization metadata.
 They do not change drift policy, plan classification, provider configuration,
-adoption status, or Terraform/OpenTofu execution behavior. Do not store secret
+adoption status, or Terraform/OpenTofu execution behavior. Use `drift_policy`
+only for reviewed adoption-time projection exceptions. Do not store secret
 values in overrides.
 
 Allowed top-level keys:

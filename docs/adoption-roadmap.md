@@ -77,6 +77,13 @@ behavior:
   generalizing to `end = 0` and future optional-zero sentinels without
   per-field code. Until then, the Zscaler binding proof/Test B remains blocked
   on URL-filtering adoption.
+- Batch URL-filtering adoption also exercises provider-read-dropped required
+  fields. ZIA ISOLATE URL filtering rules need `cbi_profile` on write, but
+  provider readback can omit it while the raw `urlFilteringRules` pull carries
+  `cbiProfile`. This is the explicit `projection_fill` class: restore a
+  top-level writable target only from the raw pull, never synthesize it, never
+  overwrite provider readback, and make the same fill visible in generated
+  config before provider validation.
 - ZIA singleton identity checks remain part of the same validation track.
   `zia_url_filtering_and_cloud_app_settings` is a singleton-style surface with
   no natural per-object `id` in the read payload; the pack override currently

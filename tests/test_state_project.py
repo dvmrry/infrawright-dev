@@ -23,6 +23,7 @@ FAKE_SCHEMA = {
             "res_categories": {"type": ["set", "string"], "optional": True},
             "optional_null": {"type": "string", "optional": True},
             "computed_only": {"type": "string", "computed": True},
+            "secret": {"type": "string", "optional": True, "sensitive": True},
         },
         "block_types": {
             "settings": {
@@ -63,14 +64,19 @@ class StateProjectTest(unittest.TestCase):
     def setUp(self):
         self.prev = state_project.load_resource
         self.prev_schema_paths = state_project.schema_paths.load_resource
+        self.prev_fill_load_resource = state_project.projection_fill.load_resource
         state_project.load_resource = lambda resource_type: FAKE_SCHEMA
         state_project.schema_paths.load_resource = (
+            lambda resource_type: FAKE_SCHEMA
+        )
+        state_project.projection_fill.load_resource = (
             lambda resource_type: FAKE_SCHEMA
         )
 
     def tearDown(self):
         state_project.load_resource = self.prev
         state_project.schema_paths.load_resource = self.prev_schema_paths
+        state_project.projection_fill.load_resource = self.prev_fill_load_resource
 
     def test_projects_schema_inputs_and_preserves_false_zero_empty_list(self):
         out = project_item("sample_resource", {
@@ -516,6 +522,178 @@ class StateProjectTest(unittest.TestCase):
                 "refusing to conditionally omit required attribute name "
                 "of sample_resource"):
             project_item("sample_resource", {"name": "Prod"}, policy=policy)
+
+    def test_projection_fill_adds_absent_block_from_raw_pull(self):
+        policy = DriftPolicy({
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "projection_fill": [
+                        {
+                            "path": "ports",
+                            "source": "rawPorts",
+                            "reason": "test",
+                            "approved_by": "unit",
+                        }
+                    ]
+                }
+            },
+        })
+
+        out = project_item(
+            "sample_resource",
+            {"name": "Prod"},
+            policy=policy,
+            raw_item={"rawPorts": {"start": "443", "end": "8443"}},
+        )
+
+        self.assertEqual(out["ports"], [{"start": 443, "end": 8443}])
+        self.assertEqual(policy.stale_entries(modes=("projection_fill",)), [])
+
+    def test_projection_fill_uses_exact_raw_source_spelling(self):
+        policy = DriftPolicy({
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "projection_fill": [
+                        {
+                            "path": "ports",
+                            "source": "rawPorts",
+                            "reason": "test",
+                            "approved_by": "unit",
+                        }
+                    ]
+                }
+            },
+        })
+
+        out = project_item(
+            "sample_resource",
+            {"name": "Prod"},
+            policy=policy,
+            raw_item={"raw_ports": {"start": "443", "end": "8443"}},
+        )
+
+        self.assertEqual(out, {"name": "Prod"})
+        self.assertEqual(
+            policy.stale_entries(modes=("projection_fill",)),
+            [("sample_resource", "projection_fill", "ports")],
+        )
+
+    def test_projection_fill_never_overwrites_provider_readback(self):
+        policy = DriftPolicy({
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "projection_fill": [
+                        {
+                            "path": "ports",
+                            "source": "rawPorts",
+                            "reason": "test",
+                            "approved_by": "unit",
+                        }
+                    ]
+                }
+            },
+        })
+
+        out = project_item(
+            "sample_resource",
+            {"name": "Prod", "ports": []},
+            policy=policy,
+            raw_item={"rawPorts": {"start": 443}},
+        )
+
+        self.assertEqual(out["ports"], [])
+        self.assertEqual(
+            policy.stale_entries(modes=("projection_fill",)),
+            [("sample_resource", "projection_fill", "ports")],
+        )
+
+    def test_projection_fill_requires_raw_item(self):
+        policy = DriftPolicy({
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "projection_fill": [
+                        {
+                            "path": "ports",
+                            "source": "rawPorts",
+                            "reason": "test",
+                            "approved_by": "unit",
+                        }
+                    ]
+                }
+            },
+        })
+
+        with self.assertRaisesRegex(ProjectionError, "requires the raw API item"):
+            project_item("sample_resource", {"name": "Prod"}, policy=policy)
+
+    def test_projection_fill_sensitive_target_fails_closed(self):
+        policy = DriftPolicy({
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "projection_fill": [
+                        {
+                            "path": "secret",
+                            "source": "rawSecret",
+                            "reason": "test",
+                            "approved_by": "unit",
+                        }
+                    ]
+                }
+            },
+        })
+
+        with self.assertRaisesRegex(ProjectionError, "sensitive path secret"):
+            project_item(
+                "sample_resource",
+                {"name": "Prod"},
+                policy=policy,
+                raw_item={"rawSecret": "plain"},
+            )
+
+    def test_projection_fill_then_omit_if_can_strip_filled_value(self):
+        policy = DriftPolicy({
+            "version": 1,
+            "resource_types": {
+                "sample_resource": {
+                    "projection_fill": [
+                        {
+                            "path": "ports",
+                            "source": "rawPorts",
+                            "reason": "test",
+                            "approved_by": "unit",
+                        }
+                    ],
+                    "projection_omit_if": [
+                        {
+                            "path": "ports[*].end",
+                            "values": [0],
+                            "reason": "test",
+                            "approved_by": "unit",
+                        }
+                    ],
+                }
+            },
+        })
+
+        out = project_item(
+            "sample_resource",
+            {"name": "Prod"},
+            policy=policy,
+            raw_item={"rawPorts": {"start": "443", "end": "0"}},
+        )
+
+        self.assertEqual(out["ports"], [{"start": 443}])
+        self.assertEqual(
+            policy.stale_entries(
+                modes=("projection_fill", "projection_omit_if")
+            ),
+            [],
+        )
 
     def test_projection_sync_non_input_target_fails(self):
         policy = DriftPolicy({

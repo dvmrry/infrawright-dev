@@ -16,9 +16,11 @@ import tempfile
 
 from engine import packs
 from engine import paths
+from engine import projection_fill
 from engine import schema_paths
 from engine.drift_policy import parse_path
 from engine.ops import _same_json_value
+from engine.tfschema import block_is_single
 from engine.transform import parse_hcl_string_literal
 
 
@@ -360,26 +362,49 @@ def _generated_config_policy_entries(resource_type, policy):
     return entries
 
 
+def _generated_config_fill_entries(resource_type, policy):
+    if not policy:
+        return []
+    return list(policy.entries(resource_type, "projection_fill"))
+
+
 def _has_exact_index(selector):
     return any(isinstance(segment, int) for segment in selector)
 
 
 def _apply_generated_config_policy(
-        resource_type, expected_addresses, generated_config_path, policy,
-        entries=None, debug_dir=None):
+        resource_type, address_to_key, generated_config_path, policy,
+        raw_items=None, entries=None, fill_entries=None, debug_dir=None):
     if entries is None:
         entries = _generated_config_policy_entries(resource_type, policy)
-    if not entries or not os.path.exists(generated_config_path):
+    if fill_entries is None:
+        fill_entries = _generated_config_fill_entries(resource_type, policy)
+    if not (entries or fill_entries) or not os.path.exists(generated_config_path):
         return 0
     with open(generated_config_path, encoding="utf-8") as f:
         original = f.readlines()
-    filtered, removed = _filter_generated_config_lines(
-        resource_type, set(expected_addresses), original, entries, policy)
-    if removed:
-        _write_generated_config_policy_debug(debug_dir, original, filtered)
+    expected_addresses = set(address_to_key)
+    updated = original
+    filled = 0
+    if fill_entries:
+        updated, filled = _fill_generated_config_lines(
+            resource_type,
+            address_to_key,
+            raw_items,
+            updated,
+            fill_entries,
+            policy,
+        )
+    removed = 0
+    if entries:
+        updated, removed = _filter_generated_config_lines(
+            resource_type, expected_addresses, updated, entries, policy)
+    edits = filled + removed
+    if edits:
+        _write_generated_config_policy_debug(debug_dir, original, updated)
         with open(generated_config_path, "w", encoding="utf-8") as f:
-            f.writelines(filtered)
-    return removed
+            f.writelines(updated)
+    return edits
 
 
 def _write_generated_config_policy_debug(debug_dir, original, filtered):
@@ -474,6 +499,229 @@ def _filter_generated_config_lines(
     return out, removed
 
 
+def _fill_generated_config_lines(
+        resource_type, address_to_key, raw_items, lines, fill_entries, policy):
+    if raw_items is None:
+        raise OracleError(
+            "%s generated import config projection_fill requires raw_items"
+            % resource_type
+        )
+    out = []
+    stack = []
+    heredoc_end = None
+    value_depth = 0
+    filled = 0
+    expected_addresses = set(address_to_key)
+    seen_addresses = set()
+    for line in lines:
+        stripped = line.strip()
+        if heredoc_end is not None:
+            out.append(line)
+            if stripped == heredoc_end:
+                heredoc_end = None
+            continue
+        if value_depth:
+            out.append(line)
+            value_depth += _hcl_value_depth_delta(stripped)
+            if value_depth <= 0:
+                value_depth = 0
+            continue
+
+        resource_match = re.match(
+            r'^resource\s+"([^"]+)"\s+"([^"]+)"\s*\{\s*$', stripped)
+        if resource_match:
+            rtype, name = resource_match.groups()
+            address = "%s.%s" % (rtype, name)
+            if rtype != resource_type or address not in expected_addresses:
+                raise OracleError(
+                    "%s generated import config contained unexpected "
+                    "resource block %s" % (resource_type, address)
+                )
+            if address in seen_addresses:
+                raise OracleError(
+                    "%s generated import config contained duplicate "
+                    "resource block %s" % (resource_type, address)
+                )
+            seen_addresses.add(address)
+            stack.append({
+                "kind": "resource",
+                "path": (),
+                "counts": {},
+                "address": address,
+                "present": set(),
+            })
+            out.append(line)
+            continue
+
+        if stripped == "}":
+            if stack and len(stack) == 1 and stack[0]["kind"] == "resource":
+                insert, inserted = _generated_config_fill_for_resource(
+                    resource_type,
+                    stack[0]["address"],
+                    address_to_key,
+                    raw_items,
+                    fill_entries,
+                    stack[0]["present"],
+                    policy,
+                )
+                if insert:
+                    out.extend(insert)
+                    filled += inserted
+            if stack:
+                stack.pop()
+            out.append(line)
+            continue
+
+        block_match = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)\s*\{\s*$', stripped)
+        if block_match and stack:
+            name = block_match.group(1)
+            parent = stack[-1]
+            if len(stack) == 1 and parent["kind"] == "resource":
+                parent["present"].add(name)
+            index = parent["counts"].get(name, 0)
+            parent["counts"][name] = index + 1
+            stack.append({
+                "kind": "block",
+                "path": parent["path"] + (name, index),
+                "counts": {},
+            })
+            out.append(line)
+            continue
+
+        if stack and stack[0]["kind"] == "resource":
+            attr_match = re.match(
+                r'^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$', stripped)
+            if attr_match:
+                attr, raw_value = attr_match.groups()
+                if len(stack) == 1:
+                    stack[0]["present"].add(attr)
+                heredoc_end = _hcl_heredoc_end(raw_value)
+                if heredoc_end is None:
+                    value_depth = max(0, _hcl_value_depth_delta(raw_value))
+
+        out.append(line)
+    return out, filled
+
+
+def _generated_config_fill_for_resource(
+        resource_type, address, address_to_key, raw_items, fill_entries,
+        present, policy):
+    key = address_to_key.get(address)
+    if key is None:
+        raise OracleError(
+            "%s generated import config missing key for %s"
+            % (resource_type, address)
+        )
+    if key not in raw_items:
+        raise OracleError(
+            "%s generated import config projection_fill missing raw item for "
+            "key %s" % (resource_type, key)
+        )
+    raw_item = raw_items[key]
+    out = []
+    filled = 0
+    for entry in fill_entries:
+        target = parse_path(entry["path"])[0]
+        if target in present:
+            continue
+        try:
+            value = projection_fill.fill_value_from_raw(
+                resource_type, entry, raw_item)
+        except projection_fill.ProjectionFillError as exc:
+            raise OracleError(str(exc))
+        if value is None:
+            continue
+        lines = _render_generated_fill(resource_type, target, value)
+        if not lines:
+            continue
+        out.extend(lines)
+        present.add(target)
+        policy.mark_matched(entry)
+        filled += 1
+    return out, filled
+
+
+def _render_generated_fill(resource_type, target, value):
+    kind = projection_fill.fill_target_kind(resource_type, target)
+    if kind == "attribute":
+        return ["  %s = %s\n" % (target, _render_hcl_value(value, 2))]
+    if kind == "block":
+        block_type = projection_fill.fill_target_block_type(resource_type, target)
+        values = [value] if block_is_single(block_type) else value
+        if not isinstance(values, list):
+            raise OracleError(
+                "%s projection_fill block %s did not shape to a list"
+                % (resource_type, target)
+            )
+        out = []
+        for item in values:
+            if not isinstance(item, dict) or not item:
+                continue
+            out.extend(_render_hcl_block(target, block_type["block"], item, 2))
+        return out
+    raise OracleError(
+        "%s projection_fill target %s is not a writable input"
+        % (resource_type, target)
+    )
+
+
+def _render_hcl_block(name, block, value, indent):
+    pad = " " * indent
+    out = ["%s%s {\n" % (pad, name)]
+    attrs = block.get("attributes") or {}
+    blocks = block.get("block_types") or {}
+    for key in sorted(value):
+        if key in attrs:
+            out.append(
+                "%s%s = %s\n"
+                % (" " * (indent + 2), key, _render_hcl_value(value[key], indent + 2))
+            )
+        elif key in blocks:
+            child_type = blocks[key]
+            child_values = [value[key]] if block_is_single(child_type) else value[key]
+            if isinstance(child_values, list):
+                for child in child_values:
+                    if isinstance(child, dict) and child:
+                        out.extend(_render_hcl_block(
+                            key, child_type["block"], child, indent + 2))
+    out.append("%s}\n" % pad)
+    return out
+
+
+def _render_hcl_value(value, indent):
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return _hcl_string_literal(value)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return json.dumps(value)
+    if isinstance(value, list):
+        if not value:
+            return "[]"
+        pad = " " * indent
+        child_pad = " " * (indent + 2)
+        lines = ["[\n"]
+        for item in value:
+            lines.append("%s%s,\n" % (
+                child_pad, _render_hcl_value(item, indent + 2)))
+        lines.append("%s]" % pad)
+        return "".join(lines)
+    if isinstance(value, dict):
+        if not value:
+            return "{}"
+        pad = " " * indent
+        child_pad = " " * (indent + 2)
+        lines = ["{\n"]
+        for key in sorted(value):
+            lines.append("%s%s = %s\n" % (
+                child_pad, key, _render_hcl_value(value[key], indent + 2)))
+        lines.append("%s}" % pad)
+        return "".join(lines)
+    raise OracleError("cannot render projection_fill value for generated config")
+
+
 def _parse_generated_hcl_scalar(raw):
     text = raw.strip()
     if text.startswith('"'):
@@ -557,8 +805,9 @@ def _generated_config_match(resource_type, actual_path, value_known, value,
 
 def _plan_imports_with_generated_config(
         tf, temp, env, resource_type, plan_path, generated_config_path,
-        expected_addresses, policy, debug_dir, import_ids):
+        address_to_key, policy, debug_dir, import_ids, raw_items):
     entries = _generated_config_policy_entries(resource_type, policy)
+    fill_entries = _generated_config_fill_entries(resource_type, policy)
     generate_args = [
         tf, "plan", "-input=false", "-no-color", "-lock=false",
         "-generate-config-out=%s" % generated_config_path,
@@ -572,10 +821,11 @@ def _plan_imports_with_generated_config(
         debug_name="plan-generate-config",
         sensitive_tokens=import_ids,
     )
-    removed = _apply_generated_config_policy(
-        resource_type, expected_addresses, generated_config_path, policy,
-        entries=entries, debug_dir=debug_dir)
-    if proc.returncode != 0 and not removed:
+    edits = _apply_generated_config_policy(
+        resource_type, address_to_key, generated_config_path, policy,
+        raw_items=raw_items, entries=entries, fill_entries=fill_entries,
+        debug_dir=debug_dir)
+    if proc.returncode != 0 and not edits:
         _raise_run_error(
             generate_args,
             proc,
@@ -583,7 +833,7 @@ def _plan_imports_with_generated_config(
             debug_name="plan-generate-config",
             sensitive_tokens=import_ids,
         )
-    if proc.returncode == 0 and not removed:
+    if proc.returncode == 0 and not edits:
         return
     _run(
         [
@@ -599,10 +849,12 @@ def _plan_imports_with_generated_config(
 
 
 def import_state(resource_type, key_to_import_id, keep_workdir=False,
-                 policy=None):
+                 policy=None, raw_items=None):
     """Return {key: {"address": ..., "values": ..., "sensitive_values": ...}}."""
     if not key_to_import_id:
         return {}
+    if projection_fill.has_projection_fill(policy, resource_type) and raw_items is None:
+        raise OracleError("%s projection_fill requires raw_items" % resource_type)
 
     seen = {}
     for key, import_id in sorted(key_to_import_id.items()):
@@ -650,10 +902,11 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False,
             resource_type,
             plan_path,
             generated_config_path,
-            set(address_to_key),
+            address_to_key,
             policy,
             debug_dir,
             import_ids,
+            raw_items,
         )
         raw_plan = _run(
             [tf, "show", "-json", plan_path],
@@ -724,8 +977,8 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False,
             sys.stderr.write(
                 "WARNING: kept oracle workdir %s; it may contain "
                 "unencrypted provider state, generated configuration, "
-                "credentials, import IDs, and provider diagnostics. Remove it "
-                "when debugging is complete.\n"
+                "raw API pull values, credentials, import IDs, and provider "
+                "diagnostics. Remove it when debugging is complete.\n"
                 % temp
             )
         else:

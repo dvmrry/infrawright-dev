@@ -1,4 +1,19 @@
 {
+  "drift_policy": {
+    "version": 1,
+    "resource_types": {
+      "zia_url_filtering_rules": {
+        "projection_fill": [
+          {
+            "path": "cbi_profile",
+            "source": "cbiProfile",
+            "reason": "ZIA provider 4.7.26 read omits cbi_profile for ISOLATE URL filtering rules, while write validation requires cbi_profile when action is ISOLATE; the raw urlFilteringRules API pull carries cbiProfile with id/name/profileSeq/url.",
+            "approved_by": "zscaler-adoption"
+          }
+        ]
+      }
+    }
+  },
   "lookup_sources": {
     "zia_url_categories": {
       "name_field": "configured_name"
