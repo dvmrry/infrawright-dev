@@ -72,6 +72,34 @@ class AdoptionMetaTest(unittest.TestCase):
         self.assertEqual(item["object_id"], "123")
         self.assertTrue(skip_identity_item(item, meta))
 
+    def test_skip_identity_item_supports_numeric_lte_matchers(self):
+        self._registry({"sample_resource": {"generate": True, "product": "sample"}})
+        self._override("sample_resource", {
+            "skip_if_lte": [{"order": 0}],
+        })
+        meta = adoption_entry("sample_resource")
+
+        self.assertTrue(skip_identity_item(
+            identity_item({"id": "1", "name": "Zero", "order": 0},
+                          "sample_resource"),
+            meta,
+        ))
+        self.assertTrue(skip_identity_item(
+            identity_item({"id": "2", "name": "String Zero", "order": "0"},
+                          "sample_resource"),
+            meta,
+        ))
+        self.assertFalse(skip_identity_item(
+            identity_item({"id": "3", "name": "Managed", "order": 1},
+                          "sample_resource"),
+            meta,
+        ))
+        self.assertFalse(skip_identity_item(
+            identity_item({"id": "4", "name": "Bool", "order": False},
+                          "sample_resource"),
+            meta,
+        ))
+
     def test_registry_adopt_overrides_legacy_override(self):
         self._registry({
             "sample_resource": {

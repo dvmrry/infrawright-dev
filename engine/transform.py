@@ -6,6 +6,7 @@ by committed provider schemas plus pack-owned per-resource override maps —
 exceptions are data, not code. See AGENTS.md rules 5, 7, 8.
 """
 import json
+import math
 import os
 import re
 import sys
@@ -549,14 +550,55 @@ def apply_overrides(item, override):
     return out
 
 
-def _skip_item(snake_raw, override):
-    """True when any skip_if matcher fully matches the snake_cased raw
-    item. skip_if is the item-level exclusion for unmanageable system
-    objects (e.g. predefined default rules the provider refuses)."""
+def _number_for_lte(value):
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return value if math.isfinite(value) else None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            number = float(text)
+        except ValueError:
+            return None
+        return number if math.isfinite(number) else None
+    return None
+
+
+def _skip_if_lte_matches(snake_raw, matcher):
+    for field, threshold_value in matcher.items():
+        threshold = _number_for_lte(threshold_value)
+        if threshold is None:
+            raise ValueError(
+                "skip_if_lte threshold for %r must be numeric" % field
+            )
+        value = _number_for_lte(snake_raw.get(snake(field)))
+        if value is None or value > threshold:
+            return False
+    return True
+
+
+def skip_item_match_reason(snake_raw, override):
+    """Return the matched item-level skip key for a snake_cased raw item."""
     for matcher in override.get("skip_if") or []:
-        if all(snake_raw.get(f) == v for f, v in matcher.items()):
-            return True
-    return False
+        if all(snake_raw.get(snake(f)) == v for f, v in matcher.items()):
+            return "skip_if"
+    for matcher in override.get("skip_if_lte") or []:
+        if _skip_if_lte_matches(snake_raw, matcher):
+            return "skip_if_lte"
+    return None
+
+
+def skip_item_matches(snake_raw, override):
+    """True when any item-level skip matcher matches a snake_cased raw item."""
+    return skip_item_match_reason(snake_raw, override) is not None
+
+
+def _skip_item(snake_raw, override):
+    """True when the raw item should be excluded before projection."""
+    return skip_item_matches(snake_raw, override)
 
 
 def derive_key(item, override):
@@ -659,10 +701,15 @@ def transform_items(raw_items, resource_type, override):
     for raw in raw_items:
         snake_raw = snake_keys(raw)
         _unescape_html_fields(snake_raw, resource_type, override)
-        if _skip_item(snake_raw, override):
+        skip_reason = skip_item_match_reason(snake_raw, override)
+        if skip_reason:
             sys.stderr.write(
-                "skipped %s item %r (skip_if matched)\n"
-                % (resource_type, snake_raw.get("name") or snake_raw.get("id"))
+                "skipped %s item %r (%s matched)\n"
+                % (
+                    resource_type,
+                    snake_raw.get("name") or snake_raw.get("id"),
+                    skip_reason,
+                )
             )
             continue
         normalized = apply_overrides(snake_raw, override)

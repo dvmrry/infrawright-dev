@@ -302,6 +302,23 @@ class PackRegistryValidationTest(unittest.TestCase):
             validate_registry(data, path="packs/sample/registry.json")
         self.assertIn("constant_key requires import_id", str(ctx.exception))
 
+    def test_adopt_skip_if_lte_validates_as_list(self):
+        data = self._registry_metadata()
+        data["sample_resource"]["adopt"] = {
+            "skip_if_lte": [{"order": 0}],
+        }
+        validate_registry(data, path="packs/sample/registry.json")
+
+        data["sample_resource"]["adopt"]["skip_if_lte"] = {"order": 0}
+        with self.assertRaises(ValueError) as ctx:
+            validate_registry(data, path="packs/sample/registry.json")
+        self.assertIn("sample_resource.adopt.skip_if_lte", str(ctx.exception))
+
+        data["sample_resource"]["adopt"]["skip_if_lte"] = [{"order": "0"}]
+        with self.assertRaises(ValueError) as ctx:
+            validate_registry(data, path="packs/sample/registry.json")
+        self.assertIn("finite JSON number", str(ctx.exception))
+
     def test_unknown_key_in_pack_json_fails(self):
         data = self._pack_metadata()
         data["rename"] = {}

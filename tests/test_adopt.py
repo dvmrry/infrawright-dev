@@ -366,6 +366,51 @@ class AdoptCommandTest(unittest.TestCase):
                 "key_by_id": {"keep-1": "managed"},
             })
 
+    def test_lookup_sidecar_uses_post_lte_skip_identity_survivors(self):
+        _write_json(os.path.join(self.tmp, "packs", "sample", "registry.json"), {
+            "sample_resource": {
+                "generate": True,
+                "product": "sample",
+                "adopt": {
+                    "key_field": "name",
+                    "import_id": "{id}",
+                    "skip_if_lte": [{"order": 0}],
+                },
+            }
+        })
+        registry.reload_registry()
+        input_path = os.path.join(self.tmp, "api.json")
+        _write_json(input_path, [
+            {"id": "skip-1", "name": "System", "order": 0},
+            {"id": "keep-1", "name": "Managed", "order": 1},
+        ])
+
+        def fake_import_state(resource_type, key_to_import_id, policy=None, raw_items=None):
+            self.assertEqual(key_to_import_id, {"managed": "keep-1"})
+            return {
+                "managed": {
+                    "values": {"name": "Managed"},
+                    "sensitive_values": {},
+                }
+            }
+
+        def fake_project_item(resource_type, state_values,
+                              sensitive_values=None, policy=None, raw_item=None):
+            return {"name": state_values["name"]}
+
+        adopt.import_state = fake_import_state
+        adopt.project_item = fake_project_item
+        self.assertEqual(adopt.main(["sample_resource", input_path, "tenant"]), 0)
+
+        with open(
+                os.path.join("config", "tenant", "sample_resource.lookup.json"),
+                encoding="utf-8",
+        ) as f:
+            self.assertEqual(json.load(f), {
+                "by_id": {"keep-1": "Managed"},
+                "key_by_id": {"keep-1": "managed"},
+            })
+
     def test_lookup_sidecar_uses_provider_state_names_not_raw(self):
         input_path = os.path.join(self.tmp, "api.json")
         _write_json(input_path, [

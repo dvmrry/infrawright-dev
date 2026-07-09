@@ -153,6 +153,32 @@ class ReconcileSchemaApiTest(unittest.TestCase):
         self.assertIn("api_only", _paths(report, "dropped_acknowledged"))
         self.assertFalse(report.has_unknowns())
 
+    def test_skip_if_lte_explains_skipped_items(self):
+        raw = [
+            {"id": "1", "name": "system", "order": 0, "apiOnly": "ignored"},
+            {"id": "2", "name": "managed", "order": 1},
+        ]
+        schema = {
+            "block": {
+                "attributes": {
+                    "id": {"type": "string", "computed": True},
+                    "name": {"type": "string", "required": True},
+                    "order": {"type": "number", "optional": True},
+                }
+            }
+        }
+        report = reconcile.reconcile_items(
+            "sample_widget", raw, schema,
+            override={"skip_if_lte": [{"order": 0}]})
+
+        self.assertIn("$item", _paths(report, "skipped"))
+        self.assertEqual(
+            _entry(report, "skipped", "$item")["reasons"],
+            {"skip_if_lte": 1},
+        )
+        self.assertNotIn("api_only", _paths(report, "unknown"))
+        self.assertFalse(report.has_unknowns())
+
     def test_netbox_style_relationship_choices_and_tags_are_classified(self):
         raw = [{
             "name": "edge-01",

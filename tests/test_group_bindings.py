@@ -324,6 +324,84 @@ class GroupBindingsTest(unittest.TestCase):
             stderr,
         )
 
+    def test_drops_zero_sentinel_from_numeric_list_reference_expression(self):
+        self._deployment(["zcc_forwarding_profile", "zcc_trusted_network"],
+                         provider="zcc")
+        lookup.reference_manifest = lambda: {
+            "zcc_forwarding_profile": {
+                "trusted_network_ids": {
+                    "referent": "zcc_trusted_network",
+                    "name_field": "network_name",
+                },
+            },
+        }
+        lookup.lookup_sources = lambda: {
+            "zcc_trusted_network": {"name_field": "network_name"},
+        }
+        packs.lookup_sources = lambda: {
+            "zcc_trusted_network": {"name_field": "network_name"},
+        }
+        self._write_lookup(
+            "zcc_trusted_network",
+            {"19281": "Trusted One", "19282": "Trusted Two"},
+        )
+
+        data, stderr = self._capture_derive("zcc_forwarding_profile", {
+            "forwarding": {
+                "trusted_network_ids": [19281, 0, 19282],
+            },
+        })
+
+        expr = (
+            data["resources"]["zcc_forwarding_profile.forwarding"]
+            ["trusted_network_ids"]["expression"]
+        )
+        self.assertEqual(
+            expr,
+            '[module.zcc_trusted_network.items["trusted_one"].id, '
+            'module.zcc_trusted_network.items["trusted_two"].id]',
+        )
+        self.assertNotIn('"0"', expr)
+        self.assertIn(
+            "NOTE bindings: zcc_forwarding_profile: 2 bound, 0 skipped\n",
+            stderr,
+        )
+
+    def test_zero_only_numeric_list_reference_expression_becomes_empty_list(self):
+        self._deployment(["zcc_forwarding_profile", "zcc_trusted_network"],
+                         provider="zcc")
+        lookup.reference_manifest = lambda: {
+            "zcc_forwarding_profile": {
+                "trusted_network_ids": {
+                    "referent": "zcc_trusted_network",
+                    "name_field": "network_name",
+                },
+            },
+        }
+        lookup.lookup_sources = lambda: {
+            "zcc_trusted_network": {"name_field": "network_name"},
+        }
+        packs.lookup_sources = lambda: {
+            "zcc_trusted_network": {"name_field": "network_name"},
+        }
+        self._write_lookup("zcc_trusted_network", {"19281": "Trusted One"})
+
+        data, stderr = self._capture_derive("zcc_forwarding_profile", {
+            "forwarding": {
+                "trusted_network_ids": [0],
+            },
+        })
+
+        expr = (
+            data["resources"]["zcc_forwarding_profile.forwarding"]
+            ["trusted_network_ids"]["expression"]
+        )
+        self.assertEqual(expr, "[]")
+        self.assertIn(
+            "NOTE bindings: zcc_forwarding_profile: 0 bound, 0 skipped\n",
+            stderr,
+        )
+
     def test_missing_lookup_skip_note(self):
         self._deployment(["zpa_application_segment", "zpa_segment_group"])
         self._patch_refs(

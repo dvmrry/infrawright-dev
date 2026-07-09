@@ -9,6 +9,7 @@ import os
 
 from engine import manifest_checks
 from engine import packs
+from engine.overrides import validate_skip_matcher_metadata
 
 _cache = {}
 
@@ -32,6 +33,7 @@ ADOPT_KEYS = set([
     "import_id",
     "key_field",
     "skip_if",
+    "skip_if_lte",
 ])
 
 
@@ -183,8 +185,7 @@ def _validate_adopt(adopt, path):
     for key in ("identity_renames", "identity_fields"):
         if key in adopt:
             manifest_checks.validate_string_map(adopt[key], "%s.%s" % (path, key))
-    if "skip_if" in adopt and not isinstance(adopt["skip_if"], list):
-        raise ValueError("%s.skip_if must be a list" % path)
+    validate_skip_matcher_metadata(adopt, path=path)
 
 
 def validate_registry(data, path=None):

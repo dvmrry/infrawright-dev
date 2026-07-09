@@ -1784,6 +1784,32 @@ class SkipIfTest(unittest.TestCase):
         items, _, _ = transform_items(raw, "zpa_segment_group", override)
         self.assertIn("a", items)  # order!=-1 so the AND-matcher misses
 
+    def test_skip_if_lte_excludes_non_positive_numeric_values(self):
+        raw = [
+            {"id": "1", "name": "Negative", "order": -1},
+            {"id": "2", "name": "Zero", "order": 0},
+            {"id": "3", "name": "String Zero", "order": "0"},
+            {"id": "4", "name": "Managed", "order": 1},
+        ]
+        override = {"skip_if_lte": [{"order": 0}]}
+
+        items, _, _ = transform_items(raw, "zpa_segment_group", override)
+
+        self.assertEqual(sorted(items), ["managed"])
+
+    def test_skip_if_lte_keeps_missing_bool_and_nonnumeric_values(self):
+        raw = [
+            {"id": "1", "name": "Missing"},
+            {"id": "2", "name": "Bool", "order": False},
+            {"id": "3", "name": "Bad", "order": "n/a"},
+            {"id": "4", "name": "Positive", "order": 1},
+        ]
+        override = {"skip_if_lte": [{"order": 0}]}
+
+        items, _, _ = transform_items(raw, "zpa_segment_group", override)
+
+        self.assertEqual(sorted(items), ["bad", "bool", "missing", "positive"])
+
     def test_no_skip_if_is_noop(self):
         raw = [{"id": "1", "name": "A"}]
         items, _, _ = transform_items(raw, "zpa_segment_group", {})
@@ -1987,6 +2013,29 @@ class OverrideAuthoringValidationTest(unittest.TestCase):
     def test_renames_override_key_accepted(self):
         override = self._load_with({"renames": {"oldname": "newname"}})
         self.assertEqual(override["renames"], {"oldname": "newname"})
+
+    def test_skip_matcher_on_renamed_field_rejected(self):
+        for field in ("oldname", "newname"):
+            with self.assertRaises(ValueError) as ctx:
+                self._load_with({
+                    "renames": {"oldname": "newname"},
+                    "skip_if": [{field: True}],
+                })
+            msg = str(ctx.exception)
+            self.assertIn("skip predicates", msg)
+            self.assertIn("renamed field", msg)
+
+    def test_skip_matcher_shape_rejected(self):
+        cases = [
+            ({"skip_if": [{}]}, "must not be empty"),
+            ({"skip_if": [{"system": ["yes"]}]}, "value must be a scalar"),
+            ({"skip_if_lte": [{"order": "0"}]}, "finite JSON number"),
+            ({"skip_if_lte": [["order", 0]]}, "must be an object"),
+        ]
+        for data, expected in cases:
+            with self.assertRaises(ValueError) as ctx:
+                self._load_with(data)
+            self.assertIn(expected, str(ctx.exception))
 
     def test_committed_override_files_validate_metadata(self):
         import json as _json

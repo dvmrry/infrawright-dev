@@ -73,8 +73,13 @@ matchers; each matcher is a dict of field→value; an item is excluded
 entirely when any matcher's pairs all match the snake_cased raw item —
 use this for system/predefined objects the provider refuses to manage, e.g.
 `"skip_if": [{"default_rule": true}]` drops any item where `default_rule`
-is `true`). Exceptions are data, not code: prefer an entry here over
-editing the transform.
+is `true`), `skip_if_lte` (list of numeric threshold matchers; an item is
+excluded when all listed snake_cased raw fields are less than or equal to
+the JSON-number threshold, e.g. `"skip_if_lte": [{"order": 0}]`). Skip
+predicates must not reference fields that also appear as either side of
+`renames`, because transform and adoption evaluate those steps in opposite
+orders. Exceptions are data, not code: prefer an entry here over editing the
+transform.
 
 The same JSON file may also carry one GENERATOR key: `sample` (a dict
 merged over the generated module test fixture's example item) — for

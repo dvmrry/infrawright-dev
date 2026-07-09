@@ -13,7 +13,7 @@ from engine.adoption_meta import (
     derive_import_id_from_identity,
     derive_key_from_identity,
     identity_item,
-    skip_identity_item,
+    skip_identity_item_reason,
 )
 from engine.drift_policy import DriftPolicy
 from engine.import_oracle import import_state
@@ -30,10 +30,15 @@ def adopt_items(raw_items, resource_type, policy=None):
     identities = []
     for raw in raw_items:
         ident = identity_item(raw, resource_type)
-        if skip_identity_item(ident, meta):
+        skip_reason = skip_identity_item_reason(ident, meta)
+        if skip_reason:
             sys.stderr.write(
-                "skipped %s item %r (identity skip_if matched)\n"
-                % (resource_type, ident.get("name") or ident.get("id"))
+                "skipped %s item %r (identity %s matched)\n"
+                % (
+                    resource_type,
+                    ident.get("name") or ident.get("id"),
+                    skip_reason,
+                )
             )
             continue
         identities.append((ident, raw))
@@ -41,7 +46,7 @@ def adopt_items(raw_items, resource_type, policy=None):
     if meta.get("constant_key") is not None and len(identities) > 1:
         raise ValueError(
             "%s adopt.constant_key %r is only valid for singleton adoption; "
-            "read produced %d items after skip_if"
+            "read produced %d items after skip predicates"
             % (resource_type, meta["constant_key"], len(identities))
         )
 

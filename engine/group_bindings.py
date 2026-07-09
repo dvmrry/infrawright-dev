@@ -144,6 +144,10 @@ def _is_bindable_list_element(value):
     return type(value) is int
 
 
+def _is_zero_sentinel(value):
+    return type(value) is int and value == 0
+
+
 def _summary(resource_type, bound, skipped, reason_counts):
     if reason_counts:
         reasons = ", ".join(
@@ -212,10 +216,18 @@ def derive(resource_type, items, tenant, config_root=None):
                 continue
             value = item.get(field)
             if isinstance(value, list):
-                if not all(_is_bindable_list_element(child) for child in value):
+                bindable_values = [
+                    child for child in value if not _is_zero_sentinel(child)
+                ]
+                had_zero_sentinel = len(bindable_values) != len(value)
+                if not all(
+                        _is_bindable_list_element(child)
+                        for child in bindable_values):
                     # A list mixing ids with null/non-scalar cannot be re-emitted
                     # as a faithful HCL list (unbound siblings would be type-
-                    # coerced), so leave the raw tfvars value untouched.
+                    # coerced), so leave the raw tfvars value untouched. Numeric
+                    # 0 is a sentinel in provider reference lists and is dropped
+                    # before this guard so valid siblings can still bind.
                     reason_counts[REASON_UNBINDABLE_LIST] = (
                         reason_counts.get(REASON_UNBINDABLE_LIST, 0) + 1)
                     skipped += 1
@@ -226,6 +238,8 @@ def derive(resource_type, items, tenant, config_root=None):
                 fragments = []
                 bound_any = False
                 for idx, child in enumerate(value):
+                    if _is_zero_sentinel(child):
+                        continue
                     child_path = "%s[%d]" % (field, idx)
                     expr = _resolve_expr(
                         resource_type, key, child_path, child, referent,
@@ -238,8 +252,12 @@ def derive(resource_type, items, tenant, config_root=None):
                         bound_any = True
                         fragments.append(expr)
                 if not bound_any:
-                    continue
-                binding_expr = "[%s]" % ", ".join(fragments)
+                    if had_zero_sentinel and not bindable_values:
+                        binding_expr = "[]"
+                    else:
+                        continue
+                else:
+                    binding_expr = "[%s]" % ", ".join(fragments)
             else:
                 expr = _resolve_expr(
                     resource_type, key, field, value, referent,
