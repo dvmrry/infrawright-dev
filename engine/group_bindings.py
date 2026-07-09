@@ -5,7 +5,6 @@ import sys
 
 from engine import artifacts
 from engine import deployment
-from engine import gen_module
 from engine import lookup
 from engine import packs
 from engine import transform
@@ -15,11 +14,8 @@ from engine.registry import generated_types
 
 REASON_MISSING_LOOKUP = "missing_lookup"
 REASON_ID_ABSENT = "id_absent"
-REASON_UNKNOWN_NAME = "unknown_name"
-REASON_NONUNIQUE_NAME = "nonunique_name"
-REASON_NAME_TO_ID_UNAVAILABLE = "name_to_id_unavailable"
-REASON_NAME_FIELD_MISMATCH = "name_field_mismatch"
-REASON_UNSAFE_NAME = "unsafe_name"
+REASON_KEY_MAP_UNAVAILABLE = "key_map_unavailable"
+REASON_UNSAFE_KEY = "unsafe_key"
 REASON_UNBINDABLE_LIST = "unbindable_list"
 REASON_SELF_REFERENCE = "self_reference"
 REASON_NESTED_FIELD_UNSUPPORTED = "nested_field_unsupported"
@@ -105,13 +101,6 @@ def _field_values(items, field):
     return values
 
 
-def _name_index(mapping):
-    by_name = {}
-    for ident, display in sorted(mapping.items()):
-        by_name.setdefault(display, []).append(ident)
-    return dict((name, sorted(ids)) for name, ids in by_name.items())
-
-
 def _record_skip(resource_type, key, path, value, referent, reason_counts,
                  reason, detail):
     reason_counts[reason] = reason_counts.get(reason, 0) + 1
@@ -121,45 +110,27 @@ def _record_skip(resource_type, key, path, value, referent, reason_counts,
     )
 
 
-def _resolve_expr(resource_type, key, path, value, referent, mapping, by_name,
+def _resolve_expr(resource_type, key, path, value, referent, key_mapping,
                   reason_counts):
     ident = str(value)
-    if ident not in mapping:
+    if ident not in key_mapping:
         _record_skip(
             resource_type, key, path, value, referent, reason_counts,
             REASON_ID_ABSENT,
             "id is absent from %s lookup" % referent,
         )
         return None
-    display = mapping[ident]
-    if display == lookup.UNKNOWN:
+    referent_key = key_mapping[ident]
+    if "${" in referent_key or "%{" in referent_key:
         _record_skip(
             resource_type, key, path, value, referent, reason_counts,
-            REASON_UNKNOWN_NAME,
-            "display name is %s" % lookup.UNKNOWN,
+            REASON_UNSAFE_KEY,
+            "referent key %r contains a template interpolation" % referent_key,
         )
         return None
-    if len(by_name.get(display, [])) > 1:
-        _record_skip(
-            resource_type, key, path, value, referent, reason_counts,
-            REASON_NONUNIQUE_NAME,
-            "display name %r maps to multiple %s ids" % (display, referent),
-        )
-        return None
-    if "${" in display or "%{" in display:
-        _record_skip(
-            resource_type, key, path, value, referent, reason_counts,
-            REASON_UNSAFE_NAME,
-            "display name %r contains a template interpolation" % display,
-        )
-        return None
-    # name_to_id groups duplicate live names as lists. Generation-time lookup
-    # uniqueness means a generated binding targets a 1-element list; if a
-    # duplicate appears later, [0] keeps the root plannable and assert-adoptable
-    # blocks the resulting ID diff.
-    return "module.%s.name_to_id[%s][0]" % (
+    return "module.%s.items[%s].id" % (
         referent,
-        transform.hcl_string_literal(display),
+        transform.hcl_string_literal(referent_key),
     )
 
 
@@ -202,32 +173,6 @@ def derive(resource_type, items, tenant, config_root=None):
         candidates = _field_values(items, field)
         if not candidates:
             continue
-        name_field = (
-            packs.lookup_sources().get(referent, {}).get("name_field")
-        )
-        if name_field != "name":
-            reason_counts[REASON_NAME_FIELD_MISMATCH] = (
-                reason_counts.get(REASON_NAME_FIELD_MISMATCH, 0)
-                + len(candidates)
-            )
-            skipped += len(candidates)
-            _note(
-                "%s.%s skipped; %s lookup uses name_field %r but "
-                "name_to_id is keyed by name"
-                % (resource_type, field, referent, name_field)
-            )
-            continue
-        if not gen_module.emits_name_to_id(referent):
-            reason_counts[REASON_NAME_TO_ID_UNAVAILABLE] = (
-                reason_counts.get(REASON_NAME_TO_ID_UNAVAILABLE, 0)
-                + len(candidates)
-            )
-            skipped += len(candidates)
-            _note(
-                "%s.%s skipped; %s module does not emit name_to_id"
-                % (resource_type, field, referent)
-            )
-            continue
         lookup_path = lookup.lookup_path(tenant, referent, config_root=config_root)
         if not os.path.exists(lookup_path):
             reason_counts[REASON_MISSING_LOOKUP] = (
@@ -239,8 +184,19 @@ def derive(resource_type, items, tenant, config_root=None):
                 % (resource_type, field, referent, lookup_path)
             )
             continue
-        mapping = lookup.load_lookup(tenant, referent, config_root=config_root)
-        by_name = _name_index(mapping)
+        key_mapping = lookup.load_lookup_keys(
+            tenant, referent, config_root=config_root)
+        if not key_mapping:
+            reason_counts[REASON_KEY_MAP_UNAVAILABLE] = (
+                reason_counts.get(REASON_KEY_MAP_UNAVAILABLE, 0)
+                + len(candidates)
+            )
+            skipped += len(candidates)
+            _note(
+                "%s.%s skipped; lookup for %s has no key_by_id map"
+                % (resource_type, field, referent)
+            )
+            continue
         by_item = {}
         for key, path, value in candidates:
             by_item.setdefault(key, []).append((path, value))
@@ -267,7 +223,7 @@ def derive(resource_type, items, tenant, config_root=None):
                     child_path = "%s[%d]" % (field, idx)
                     expr = _resolve_expr(
                         resource_type, key, child_path, child, referent,
-                        mapping, by_name, reason_counts)
+                        key_mapping, reason_counts)
                     if expr is None:
                         skipped += 1
                         fragments.append(_literal_expr(child))
@@ -281,7 +237,7 @@ def derive(resource_type, items, tenant, config_root=None):
             else:
                 expr = _resolve_expr(
                     resource_type, key, field, value, referent,
-                    mapping, by_name, reason_counts)
+                    key_mapping, reason_counts)
                 if expr is None:
                     skipped += 1
                     continue
@@ -290,7 +246,7 @@ def derive(resource_type, items, tenant, config_root=None):
             address = "%s.%s" % (resource_type, key)
             resources.setdefault(address, {})[field] = {
                 "expression": binding_expr,
-                "reason": "group-local reference binding via %s.name_to_id"
+                "reason": "group-local reference binding via %s.items"
                 % referent,
             }
     _summary(resource_type, bound, skipped, reason_counts)

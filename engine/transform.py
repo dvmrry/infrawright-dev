@@ -699,11 +699,11 @@ def lookup_sidecar_items(items, originals):
     This mirrors adopt.write_outputs, so transform and adopt sidecars agree
     for the same managed survivor set.
     """
-    survivors = []
+    survivors = {}
     for key in sorted(items):
         merged = dict(originals.get(key) or {})
         merged.update(items[key])
-        survivors.append(merged)
+        survivors[key] = merged
     return survivors
 
 

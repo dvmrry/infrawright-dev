@@ -124,6 +124,33 @@ class LookupBuildTest(unittest.TestCase):
             '{\n  "CUSTOM_01": "Alpha",\n  "CUSTOM_02": "Beta"\n}\n',
         )
 
+    def test_render_lookup_with_key_map_is_structured(self):
+        self.assertEqual(
+            lookup.render_lookup(
+                {"CUSTOM_02": "Beta", "CUSTOM_01": "Alpha"},
+                key_mapping={"CUSTOM_02": "beta", "CUSTOM_01": "alpha"},
+            ),
+            '{\n'
+            '  "by_id": {\n'
+            '    "CUSTOM_01": "Alpha",\n'
+            '    "CUSTOM_02": "Beta"\n'
+            '  },\n'
+            '  "key_by_id": {\n'
+            '    "CUSTOM_01": "alpha",\n'
+            '    "CUSTOM_02": "beta"\n'
+            '  }\n'
+            '}\n',
+        )
+
+    def test_build_lookup_key_map_uses_config_keys(self):
+        self.assertEqual(
+            lookup.build_lookup_key_map({
+                "beta": {"id": "CUSTOM_02", "configured_name": "Beta"},
+                "alpha": {"id": "CUSTOM_01", "configured_name": "Alpha"},
+            }),
+            {"CUSTOM_01": "alpha", "CUSTOM_02": "beta"},
+        )
+
 
 class LookupTransformTest(unittest.TestCase):
     TENANT = "tmplookuptest"
@@ -146,8 +173,17 @@ class LookupTransformTest(unittest.TestCase):
             lookup_file = _lookup_file(self.TENANT, "zia_url_categories")
             with open(lookup_file, encoding="utf-8") as f:
                 self.assertEqual(
-                    f.read(),
-                    '{\n  "CUSTOM_01": "Alpha",\n  "CUSTOM_02": "Beta"\n}\n',
+                    json.load(f),
+                    {
+                        "by_id": {
+                            "CUSTOM_01": "Alpha",
+                            "CUSTOM_02": "Beta",
+                        },
+                        "key_by_id": {
+                            "CUSTOM_01": "alpha",
+                            "CUSTOM_02": "beta",
+                        },
+                    },
                 )
 
             config_file = _config_file(self.TENANT, "zia_url_categories")
@@ -196,8 +232,17 @@ class LookupTransformTest(unittest.TestCase):
         lookup_file = _lookup_file(self.TENANT, "zcc_trusted_network")
         with open(lookup_file, encoding="utf-8") as f:
             self.assertEqual(
-                f.read(),
-                '{\n  "501": "HQ Wired",\n  "502": "Branch WiFi"\n}\n',
+                json.load(f),
+                {
+                    "by_id": {
+                        "501": "HQ Wired",
+                        "502": "Branch WiFi",
+                    },
+                    "key_by_id": {
+                        "501": "hq_wired",
+                        "502": "branch_wifi",
+                    },
+                },
             )
 
 

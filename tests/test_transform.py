@@ -1855,7 +1855,10 @@ class SkipIfTest(unittest.TestCase):
                 encoding="utf-8",
             ) as f:
                 mapping = json.load(f)
-            self.assertEqual(mapping, {"sg-keep": "Managed Group"})
+            self.assertEqual(mapping, {
+                "by_id": {"sg-keep": "Managed Group"},
+                "key_by_id": {"sg-keep": "managed_group"},
+            })
 
             stderr = io.StringIO()
             old_err = sys.stderr
