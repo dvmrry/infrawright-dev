@@ -39,6 +39,23 @@ def _address(resource_type, key):
     return "%s.%s" % (resource_type, _instance_name(key))
 
 
+def _hcl_string_literal(value):
+    if not isinstance(value, str):
+        value = str(value)
+    if "\x00" in value:
+        raise OracleError("oracle import IDs cannot contain NUL bytes")
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+        .replace("${", "$${")
+        .replace("%{", "%%{")
+    )
+    return '"%s"' % escaped
+
+
 def _check_instance_name_collisions(resource_type, keys):
     seen = {}
     for key in sorted(keys):
@@ -87,6 +104,21 @@ def render_root(resource_type, keys=None):
     return text
 
 
+def render_import_blocks(resource_type, key_to_import_id):
+    blocks = []
+    for key in sorted(key_to_import_id):
+        blocks.append(
+            "import {\n"
+            "  to = %s\n"
+            "  id = %s\n"
+            "}\n" % (
+                _address(resource_type, key),
+                _hcl_string_literal(key_to_import_id[key]),
+            )
+        )
+    return "\n".join(blocks)
+
+
 def _assert_local_scratch_root(text):
     if _BACKEND_BLOCK_RE.search(text):
         raise OracleError(
@@ -107,10 +139,13 @@ def _display_args(args):
     return " ".join(shlex.quote(str(arg)) for arg in shown)
 
 
-def _sensitive_command_tokens(args):
+def _sensitive_command_tokens(args, extra_tokens=None):
+    tokens = []
     if len(args) >= 2 and args[1] == "import" and len(args) >= 3:
-        return [str(args[-1])]
-    return []
+        tokens.append(str(args[-1]))
+    for token in extra_tokens or []:
+        tokens.append(str(token))
+    return tokens
 
 
 def _redact(text, tokens):
@@ -180,7 +215,51 @@ def _write_debug_output(debug_dir, debug_name, stdout, stderr):
     return stdout_path, stderr_path
 
 
-def _run(args, cwd, env, debug_dir=None, debug_name=None):
+def _assert_import_plan_only(resource_type, plan, expected_addresses):
+    drift = plan.get("resource_drift") or []
+    if drift:
+        raise OracleError(
+            "%s oracle import plan reported resource drift; refusing to apply "
+            "the scratch plan" % resource_type
+        )
+    changes = plan.get("resource_changes") or []
+    addresses = set()
+    expected = set(expected_addresses)
+    if len(changes) != len(expected):
+        raise OracleError(
+            "%s oracle import plan reported %d resource change(s), expected "
+            "%d import(s); refusing to apply the scratch plan"
+            % (resource_type, len(changes), len(expected))
+        )
+    for change in changes:
+        address = change.get("address")
+        addresses.add(address)
+        details = change.get("change") or {}
+        actions = details.get("actions") or []
+        importing = details.get("importing")
+        if actions != ["no-op"] or not importing:
+            raise OracleError(
+                "%s oracle import plan was not import-only for %s "
+                "(actions=%r importing=%s); refusing to apply the scratch plan"
+                % (resource_type, address, actions, bool(importing))
+            )
+    if addresses != expected:
+        missing = sorted(expected - addresses)
+        unexpected = sorted(addresses - expected)
+        raise OracleError(
+            "%s oracle import plan addresses did not match expected scratch "
+            "addresses (missing=%s unexpected=%s); refusing to apply the "
+            "scratch plan"
+            % (
+                resource_type,
+                ", ".join(missing) or "<none>",
+                ", ".join(unexpected) or "<none>",
+            )
+        )
+
+
+def _run(args, cwd, env, debug_dir=None, debug_name=None,
+         sensitive_tokens=None):
     try:
         proc = subprocess.run(
             args,
@@ -202,7 +281,7 @@ def _run(args, cwd, env, debug_dir=None, debug_name=None):
                 "\nfull stdout: %s\nfull stderr: %s"
                 % (stdout_path, stderr_path)
             )
-        tokens = _sensitive_command_tokens(args)
+        tokens = _sensitive_command_tokens(args, sensitive_tokens)
         raise OracleError(
             "%s timed out after %s seconds\nstdout:\n%s\nstderr:\n%s%s"
             % (
@@ -222,7 +301,7 @@ def _run(args, cwd, env, debug_dir=None, debug_name=None):
                 "\nfull stdout: %s\nfull stderr: %s"
                 % (stdout_path, stderr_path)
             )
-        tokens = _sensitive_command_tokens(args)
+        tokens = _sensitive_command_tokens(args, sensitive_tokens)
         raise OracleError(
             "%s failed with exit %d\nstdout:\n%s\nstderr:\n%s%s"
             % (
@@ -256,13 +335,17 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False):
     temp = tempfile.mkdtemp(prefix="infrawright-oracle-")
     try:
         root = render_root(resource_type, key_to_import_id)
+        imports = render_import_blocks(resource_type, key_to_import_id)
         _assert_local_scratch_root(root)
         with open(os.path.join(temp, "main.tf"), "w", encoding="utf-8") as f:
             f.write(root)
+        with open(os.path.join(temp, "imports.tf"), "w", encoding="utf-8") as f:
+            f.write(imports)
         env = os.environ.copy()
         env["TF_DATA_DIR"] = os.path.join(temp, ".terraform")
         tf = _terraform()
         debug_dir = temp if keep else None
+        import_ids = sorted(str(value) for value in key_to_import_id.values())
         _run(
             [tf, "init", "-input=false", "-no-color"],
             cwd=temp,
@@ -274,22 +357,52 @@ def import_state(resource_type, key_to_import_id, keep_workdir=False):
         for key, import_id in sorted(key_to_import_id.items()):
             addr = _address(resource_type, key)
             address_to_key[addr] = key
-            _run(
-                [
-                    tf, "import", "-input=false", "-no-color", "-lock=false",
-                    addr, import_id,
-                ],
-                cwd=temp,
-                env=env,
-                debug_dir=debug_dir,
-                debug_name="import-%s" % _instance_name(key),
+        plan_path = os.path.join(temp, "oracle.tfplan")
+        _run(
+            [
+                tf, "plan", "-input=false", "-no-color", "-lock=false",
+                "-out=%s" % plan_path,
+            ],
+            cwd=temp,
+            env=env,
+            debug_dir=debug_dir,
+            debug_name="plan-imports",
+            sensitive_tokens=import_ids,
+        )
+        raw_plan = _run(
+            [tf, "show", "-json", plan_path],
+            cwd=temp,
+            env=env,
+            debug_dir=debug_dir,
+            debug_name="show-plan",
+            sensitive_tokens=import_ids,
+        )
+        try:
+            plan = json.loads(raw_plan)
+        except ValueError as exc:
+            raise OracleError(
+                "%s terraform show -json plan returned invalid JSON: %s"
+                % (resource_type, exc)
             )
+        _assert_import_plan_only(resource_type, plan, set(address_to_key))
+        _run(
+            [
+                tf, "apply", "-input=false", "-no-color", "-lock=false",
+                plan_path,
+            ],
+            cwd=temp,
+            env=env,
+            debug_dir=debug_dir,
+            debug_name="apply-imports",
+            sensitive_tokens=import_ids,
+        )
         raw = _run(
             [tf, "show", "-json", "terraform.tfstate"],
             cwd=temp,
             env=env,
             debug_dir=debug_dir,
             debug_name="show",
+            sensitive_tokens=import_ids,
         )
         try:
             state = json.loads(raw)

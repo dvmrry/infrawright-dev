@@ -12,7 +12,8 @@ The adoption flow is:
 ```text
 raw API fetch
   -> derive stable key + import ID
-  -> import into ephemeral fresh local Terraform/OpenTofu state
+  -> render scratch resource + import blocks
+  -> plan/apply the import-only scratch root into ephemeral local state
   -> terraform/tofu show -json state
   -> project provider-observed state through provider schema
      (projection_omit applies inline)
@@ -29,6 +30,10 @@ raw API fetch
 - It does not use generated HCL as the source of truth.
 - It does not store oracle state artifacts by default.
 - It does not allow remote backend blocks in the oracle scratch root.
+- It does not apply non-import changes from the scratch root; it checks the
+  saved plan JSON for exact import-only resource changes and stops before apply
+  if Terraform or OpenTofu reports drift, add, change, destroy, or unexpected
+  addresses.
 - It does not generate `lifecycle.ignore_changes`.
 - It does not fix provider read/write bugs.
 

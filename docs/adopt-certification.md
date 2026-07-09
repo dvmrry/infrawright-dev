@@ -3,7 +3,7 @@
 The import-oracle adoption path can intentionally run from key-only inventory:
 
 ```text
-key/import_id -> Terraform/OpenTofu import -> provider state projection
+key/import_id -> Terraform/OpenTofu import blocks -> provider state projection
 ```
 
 That is the normal adoption path. It avoids treating raw API response bodies as

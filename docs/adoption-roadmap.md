@@ -10,7 +10,7 @@ The current adoption stack is viable across several non-trivial provider
 surfaces:
 
 - Key-only inventory can drive import-oracle adoption:
-  `key/import_id -> Terraform/OpenTofu import -> provider state projection`.
+  `key/import_id -> Terraform/OpenTofu import blocks -> provider state projection`.
 - Static advisory reports restore the "what is Terraform blind to?" signal when
   raw detail JSON is available.
 - Provider labs can isolate failure classes without committing raw API details,
