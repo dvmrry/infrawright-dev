@@ -95,11 +95,16 @@ The main provider-read normalization probes are:
    `zia_cloud_app_control_rule.size_quota`: transform divides by 1024. The
    transform comment says the ZIA provider reads `resp.SizeQuota / 1024`
    ([engine/transform.py](../engine/transform.py#L479-L495)). RESOLVED - no
-   oracle gap. zia 4.7.26 `resource_zia_url_filtering_rules.go` READ does
-   `sizeQuotaMB := resp.SizeQuota / 1024` before `d.Set("size_quota", ...)`;
-   CREATE/UPDATE converts back via `convertAndValidateSizeQuota`. Provider
-   state is already in config units (MB). Cite:
-   https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go
+   oracle gap, for BOTH resources. zia 4.7.26 READ does
+   `sizeQuotaMB := resp.SizeQuota / 1024` before `d.Set("size_quota", ...)` in
+   each: URL filtering
+   ([resource_zia_url_filtering_rules.go](https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go))
+   and cloud app control
+   ([resource_zia_cloud_app_control_rules.go#L393-L395](https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_cloud_app_control_rules.go#L393-L395)).
+   Both CREATE/UPDATE paths convert back through the shared
+   `convertAndValidateSizeQuota` helper. Provider state is already in config
+   units (MB) for both. Note `time_quota` is passed through unconverted, which
+   is why only `size_quota` carries a `divide` override.
 2. `zcc_failopen_policy` inverted booleans:
    [engine/transform.py](../engine/transform.py#L496-L504) applies local
    inversion, but terraformer has no ZCC support. RESOLVED - no oracle gap.
@@ -110,10 +115,10 @@ The main provider-read normalization probes are:
    `enable_web_sec_on_proxy_unreachable`, `enable_web_sec_on_tunnel_failure`;
    `expandFailOpenPolicy` inverts symmetrically on write (`boolToInvertedStr`
    / `boolToInvertedInt`). Oracle-projected state is already correct
-   config-space booleans. Follow-up: the provider schema also has
-   `enable_strict_enforcement_prompt`, which is NOT in the local transform
-   `invert_bool` list - verify the raw transform path handles it (raw-path
-   concern only, not an oracle gap). Cite:
+   config-space booleans. The provider inverts exactly these five fields; the
+   schema's sixth boolean `enable_strict_enforcement_prompt` is NOT inverted,
+   and the local `invert_bool` list correctly excludes it (normal
+   integer-to-bool coercion applies). Cite:
    https://github.com/zscaler/terraform-provider-zcc/blob/v0.1.0-beta.1/internal/framework/resources/failopen_policy.go
 3. `zpa_application_segment.policy_style`: transform maps API enum strings to a
    schema boolean ([engine/transform.py](../engine/transform.py#L505-L510)).
@@ -135,10 +140,20 @@ compensate for the RAW API; the adopt/oracle path reads through the provider,
 whose READ path is config-space at the pinned versions. Value transforms are
 therefore not an oracle-gap class. The only confirmed oracle-gap classes
 remain read-omits (handled by `projection_fill`) and read-sentinels (handled
-by `projection_omit_if`). Also note: zpa `resource_zpa_application_segment.go`
-READ sets `microtenant_id` raw (including "0"), so transform's
-`drop_if_default` is a cosmetic tfvars divergence from adopt output, not a
-plan-correctness gap.
+by `projection_omit_if`).
+
+`microtenant_id="0"` is explicitly NOT resolved by this finding. Provider
+source proves only raw pass-through: zpa 4.4.6
+[resource_zpa_application_segment.go](https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_application_segment.go)
+READ sets `microtenant_id` raw, including `"0"`. That does not prove that
+OMITTING `"0"` from config is plan-neutral, which is what transform's
+`drop_if_default` assumes. The pinned zpa schema declares `microtenant_id` as
+`optional` and NOT `computed`
+([packs/zpa/schemas/provider/zpa.json](../packs/zpa/schemas/provider/zpa.json)),
+so a null config value against a `"0"` state value would be expected to plan a
+change rather than be suppressed. Treat this as a candidate oracle/plan gap,
+not a cosmetic divergence, until a pinned import/show/plan test proves
+otherwise.
 
 ## Numeric Zero Phantom Reference
 
@@ -172,11 +187,13 @@ reference lists, then bind the remaining siblings. A list that is only `[0]`
 now emits `[]`. The remaining evidence gate is semantic: confirm per affected
 field that `0` means none/sentinel rather than any/all.
 
-A live check (terraform 2026-07-09) confirmed Terraform implicitly converts
-uniform-string and mixed int/string lists to `list(number)`, and module
-reference `.id` values are strings; the string literal fallback for
-out-of-group numeric ids is therefore type-safe, and no bare-numeric-literal
-change to `_literal_expr` is needed.
+A live check with Terraform `v1.15.4` (2026-07-09) confirmed that when a list
+is assigned to a target declared as `list(number)`, Terraform implicitly
+converts string elements to numbers - verified for both all-string
+(`["123","456"]`) and mixed (`[123,"456"]`) inputs. Module reference `.id`
+values are strings. The string literal fallback for out-of-group numeric ids
+is therefore type-safe, and no bare-numeric-literal change to `_literal_expr`
+is needed.
 
 ## Terraformer Corroboration And Net-New Rules
 
@@ -184,7 +201,7 @@ change to `_literal_expr` is needed.
 
 | Finding | Upstream evidence | Local status |
 |---|---|---|
-| URL filtering `url_categories=["ANY"]` | Upstream injects `["ANY"]` for `zia_url_filtering_rules` only: [`generate.go#L2614-L2634`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/generate.go#L2614-L2634). | Transform override exists; oracle behavior still needs verification. |
+| URL filtering `url_categories=["ANY"]` | Upstream injects `["ANY"]` for `zia_url_filtering_rules` only: [`generate.go#L2614-L2634`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/generate.go#L2614-L2634). | Transform override exists. Oracle behavior RESOLVED by pinned provider source: zia 4.7.26 READ sets `["ANY"]` when the API returns an empty list, so the oracle sees it by construction. Scoped to URL filtering; cloud app control has no `url_categories`. |
 | Empty/non-empty `cbi_profile` handling | Upstream has a resource-specific block writer for URL filtering and cloud app rules: [`nesting.go#L69-L115`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/nesting/nesting.go#L69-L115). | Pack `projection_fill` exists for URL filtering. |
 | Default microtenant controller skip | Import filters `ID!="0"` and generate filters `Name!="Default"`: [`import.go#L1077-L1100`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/import.go#L1077-L1100), [`generate.go#L1360-L1379`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/generate.go#L1360-L1379). | Local `zpa_microtenant_controller` has `skip_if.id="0"`. |
 | Numeric ID list blocks drop `id==0` | Upstream numeric list block helper skips numeric zero IDs: [`helpers.go#L409-L438`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/helpers/helpers.go#L409-L438). | Implemented in #144 via numeric `0` sentinel filtering in group bindings. Tenant evidence gate remains: confirm `0` means none/sentinel, not any/all, for each affected field. |
@@ -264,10 +281,11 @@ These are not code blockers for #144. They are the evidence gates and follow-ups
 to keep on the checklist before relying on the new behavior broadly or extending
 it to more resources.
 
-The value-transform verification items were resolved offline via pinned
-provider source on 2026-07-09, so the remaining tenant gates are only the DNS
-order split, the `[0]` none-vs-all semantics, and the previously-gated
-generate-config-out behaviors.
+The `size_quota`, failopen-inversion, `policy_style`, and `url_categories`
+value-transform items were resolved offline via pinned provider source on
+2026-07-09. The remaining tenant gates are the DNS order split, the `[0]`
+none-vs-all semantics, the `microtenant_id="0"` omission test below, and the
+previously-gated generate-config-out behaviors.
 
 1. DNS rule order split: in a dev tenant, dump `zia_firewall_dns_rule` order
    values and confirm predefined/system rules have `order <= 0` while real
@@ -283,6 +301,13 @@ generate-config-out behaviors.
    a schema or raw-field vocabulary. A typo such as `{"ordr": 0}` fails open by
    keeping the item, so it is safe, but a future schema-aware validator could
    catch it earlier.
+4. `microtenant_id="0"` omission: prove with a pinned import/show/plan test
+   whether omitting `microtenant_id` from config plans clean against a state
+   value of `"0"`. The schema declares the attribute `optional` and not
+   `computed`, so the expected result is a planned change, which would make
+   transform's `drop_if_default` a real divergence rather than cosmetic. This
+   affects `zpa_application_segment`, `zpa_server_group`, `zpa_segment_group`,
+   `zpa_application_server`, and nested `zpa_policy_access_rule` operands.
 
 ## Acceptance Bar
 
