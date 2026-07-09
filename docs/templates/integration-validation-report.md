@@ -37,6 +37,14 @@ make apply TENANT=<tenant> RESOURCE=<resource-or-provider> POLICY=<file>
 |---|---|---|---|---|
 |  |  |  |  |  |
 
+## Generated-Config Projection Timing
+
+- Resource(s) exercised:
+- Optional-zero sentinel paths tested, for example `size_quota = 0` or `end = 0`:
+- Projection policy entries expected to apply before provider validation:
+- Result:
+- Dependent tests or binding proofs still blocked:
+
 ## Policy Used
 
 - Policy path:
