@@ -61,6 +61,28 @@ into narrow, reviewed behavior.
 Open classes should remain separate until lab evidence proves the smallest safe
 behavior:
 
+- Batch `-generate-config-out` projection timing for provider-rejected
+  optional-zero sentinels. The batch oracle now asks Terraform/OpenTofu to
+  generate import config before apply, but provider validation happens against
+  that generated config before post-import `show -json` projection policy runs.
+  That means known projection-policy cases such as `end = 0` and ZIA
+  `size_quota = 0` can fail at generated-config validation time even when a
+  later `projection_omit_if` rule would omit the same sentinel from projected
+  state. The upstream engine ask is to apply the same projection omission
+  policy to the generated config between `-generate-config-out` and apply, or
+  otherwise run the omit step at generated-config time. Acceptance evidence
+  should show `zia_url_filtering_rules` adopting with
+  `projection_omit_if` for `size_quota` values `[0]`, `assert-adoptable`
+  reporting zero add/change/destroy drift, and the same path handling
+  generalizing to `end = 0` and future optional-zero sentinels without
+  per-field code. Until then, the Zscaler binding proof/Test B remains blocked
+  on URL-filtering adoption.
+- ZIA singleton identity checks remain part of the same validation track.
+  `zia_url_filtering_and_cloud_app_settings` is a singleton-style surface with
+  no natural per-object `id` in the read payload; the pack override currently
+  supplies a stable synthetic identity. The dev-tenant validation run must
+  confirm that this identity is sufficient, but it is unrelated to the
+  generated-config projection timing root cause.
 - Provider-config guidance for blocked drift; validator metadata is implemented
   in [Provider Config Requirement Guidance](provider-config-remediation.md), but
   provider-config rendering and mutation are out of scope.
