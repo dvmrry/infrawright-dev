@@ -200,19 +200,33 @@ class GroupBindingsTest(unittest.TestCase):
         self.assertIn("template interpolation", stderr)
         self.assertIn("unsafe_key=1", stderr)
 
-    def test_list_with_null_or_nonstring_element_is_not_bound(self):
+    def test_list_with_null_or_non_scalar_element_is_not_bound(self):
         self._deployment(["zpa_application_server", "zpa_server_group"])
         self._patch_refs(
             "zpa_application_server", "app_server_group_ids", "zpa_server_group")
         self._write_lookup("zpa_server_group", {"sg-1": "Group One"})
 
         data, stderr = self._capture_derive("zpa_application_server", {
-            "server": {"app_server_group_ids": ["sg-1", None, 42]},
+            "server": {"app_server_group_ids": ["sg-1", None, {"id": "sg-2"}]},
         })
 
-        # Fail closed: the raw list stays in tfvars; no fabricated "None"/"42".
+        # Fail closed: the raw list stays in tfvars; no fabricated "None".
         self.assertEqual(data.get("resources"), {})
         self.assertNotIn('"None"', stderr)
+        self.assertIn("unbindable_list=1", stderr)
+
+    def test_list_with_bool_element_is_not_bound(self):
+        self._deployment(["zpa_application_server", "zpa_server_group"])
+        self._patch_refs(
+            "zpa_application_server", "app_server_group_ids", "zpa_server_group")
+        self._write_lookup("zpa_server_group", {"True": "Group One"})
+
+        data, stderr = self._capture_derive("zpa_application_server", {
+            "server": {"app_server_group_ids": [True]},
+        })
+
+        # bool is an int subclass in Python, but not a provider ID scalar here.
+        self.assertEqual(data.get("resources"), {})
         self.assertIn("unbindable_list=1", stderr)
 
     def test_derives_bound_list_reference_expression(self):
@@ -244,6 +258,69 @@ class GroupBindingsTest(unittest.TestCase):
         )
         self.assertIn(
             "NOTE bindings: zpa_application_server: 2 bound, 0 skipped\n",
+            stderr,
+        )
+
+    def test_derives_bound_numeric_list_reference_expression(self):
+        self._deployment(["zcc_forwarding_profile", "zcc_trusted_network"],
+                         provider="zcc")
+        lookup.reference_manifest = lambda: {
+            "zcc_forwarding_profile": {
+                "trusted_network_ids": {
+                    "referent": "zcc_trusted_network",
+                    "name_field": "network_name",
+                },
+                "trusted_network_ids_selected": {
+                    "referent": "zcc_trusted_network",
+                    "name_field": "network_name",
+                },
+            },
+        }
+        lookup.lookup_sources = lambda: {
+            "zcc_trusted_network": {"name_field": "network_name"},
+        }
+        packs.lookup_sources = lambda: {
+            "zcc_trusted_network": {"name_field": "network_name"},
+        }
+        self._write_lookup(
+            "zcc_trusted_network",
+            {"19281": "Trusted One", "19282": "Trusted Two"},
+        )
+
+        data, stderr = self._capture_derive("zcc_forwarding_profile", {
+            "forwarding": {
+                "trusted_network_ids": [19281, 19282],
+                "trusted_network_ids_selected": [19282],
+            },
+        })
+
+        trusted_expr = (
+            data["resources"]["zcc_forwarding_profile.forwarding"]
+            ["trusted_network_ids"]["expression"]
+        )
+        self.assertEqual(
+            trusted_expr,
+            '[module.zcc_trusted_network.items["trusted_one"].id, '
+            'module.zcc_trusted_network.items["trusted_two"].id]',
+        )
+        selected_expr = (
+            data["resources"]["zcc_forwarding_profile.forwarding"]
+            ["trusted_network_ids_selected"]["expression"]
+        )
+        self.assertEqual(
+            selected_expr,
+            '[module.zcc_trusted_network.items["trusted_two"].id]',
+        )
+        self.assertEqual(
+            sorted(
+                binding["expression"]
+                for binding in expression_bindings.parse_bindings(
+                    data, "zcc_forwarding_profile")
+            ),
+            sorted([trusted_expr, selected_expr]),
+        )
+        self.assertIn(
+            "NOTE bindings: zcc_forwarding_profile: 3 bound, 0 skipped\n",
             stderr,
         )
 
