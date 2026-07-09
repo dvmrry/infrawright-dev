@@ -14,12 +14,16 @@ _TOP_LEVEL_KEYS = frozenset(("version", "resource_types"))
 _RESOURCE_KEYS = frozenset((
     "projection_omit",
     "projection_sync",
+    "projection_fill",
     "projection_omit_if",
     "plan_tolerate",
 ))
 _COMMON_ENTRY_KEYS = frozenset(("path", "reason", "approved_by", "ticket"))
 _PROJECTION_SYNC_ENTRY_KEYS = frozenset((
     "target_path", "source_path", "reason", "approved_by", "ticket"
+))
+_PROJECTION_FILL_ENTRY_KEYS = frozenset((
+    "path", "source", "reason", "approved_by", "ticket"
 ))
 _PROJECTION_OMIT_IF_ENTRY_KEYS = (
     _COMMON_ENTRY_KEYS | frozenset(("values",))
@@ -29,6 +33,7 @@ _SAFE_PLAN_ACTIONS = frozenset(("update",))
 _DEFAULT_STALE_MODES = (
     "projection_omit",
     "projection_sync",
+    "projection_fill",
     "projection_omit_if",
     "plan_tolerate",
 )
@@ -50,6 +55,20 @@ class DriftPolicy(object):
             return cls(None)
         with open(path, encoding="utf-8") as f:
             return cls(json.load(f), source=path)
+
+    @classmethod
+    def load_for_adoption(cls, path):
+        from engine import packs
+
+        data = packs.drift_policy_data()
+        source = "pack drift policy"
+        if path:
+            with open(path, encoding="utf-8") as f:
+                user_data = json.load(f)
+            cls(user_data, source=path)
+            data = _merge_policy_data(data, user_data)
+            source = "%s merged with pack drift policy" % path
+        return cls(data, source=source)
 
     def projection_omits(self, resource_type, path_tuple):
         return self._matches(resource_type, "projection_omit", path_tuple)
@@ -144,6 +163,7 @@ class DriftPolicy(object):
                             % (self.source, mode, rt, path)
                         )
                     seen[scope] = entry
+            _reject_projection_fill_omit_conflicts(self.source, rt, cfg)
 
     def _validate_entry(self, rt, mode, entry):
         if not isinstance(entry, dict):
@@ -159,6 +179,8 @@ class DriftPolicy(object):
         required_fields = (
             ("target_path", "source_path", "reason", "approved_by")
             if mode == "projection_sync" else
+            ("path", "source", "reason", "approved_by")
+            if mode == "projection_fill" else
             ("path", "values", "reason", "approved_by")
             if mode == "projection_omit_if" else
             ("path", "reason", "approved_by")
@@ -198,6 +220,33 @@ class DriftPolicy(object):
                     "contain wildcard or index selectors" % (self.source, rt)
                 )
             return target_path, ("projection_sync", target_path)
+
+        if mode == "projection_fill":
+            path = entry["path"]
+            source = entry["source"]
+            target_path = parse_path(path)
+            source_path = parse_path(source)
+            if len(target_path) != 1:
+                raise DriftPolicyError(
+                    "%s projection_fill entry for %s path must be a single "
+                    "top-level name" % (self.source, rt)
+                )
+            if len(source_path) != 1:
+                raise DriftPolicyError(
+                    "%s projection_fill entry for %s source must be a single "
+                    "top-level raw API name" % (self.source, rt)
+                )
+            if _has_wildcard_or_index(target_path):
+                raise DriftPolicyError(
+                    "%s projection_fill entry for %s path must not contain "
+                    "wildcard or index selectors" % (self.source, rt)
+                )
+            if _has_wildcard_or_index(source_path):
+                raise DriftPolicyError(
+                    "%s projection_fill entry for %s source must not contain "
+                    "wildcard or index selectors" % (self.source, rt)
+                )
+            return path, ("projection_fill", path)
 
         path = entry["path"]
         parse_path(path)
@@ -258,6 +307,8 @@ def _entry_keys_for_mode(mode):
         return _PLAN_TOLERATE_ENTRY_KEYS
     if mode == "projection_sync":
         return _PROJECTION_SYNC_ENTRY_KEYS
+    if mode == "projection_fill":
+        return _PROJECTION_FILL_ENTRY_KEYS
     if mode == "projection_omit_if":
         return _PROJECTION_OMIT_IF_ENTRY_KEYS
     return _COMMON_ENTRY_KEYS
@@ -265,6 +316,39 @@ def _entry_keys_for_mode(mode):
 
 def _entry_display_path(entry):
     return entry.get("path", entry.get("target_path"))
+
+
+def _reject_projection_fill_omit_conflicts(source, rt, cfg):
+    fill_paths = dict(
+        (tuple(parse_path(entry["path"])), entry["path"])
+        for entry in cfg.get("projection_fill") or []
+    )
+    for entry in cfg.get("projection_omit") or []:
+        path = tuple(parse_path(entry["path"]))
+        if path in fill_paths:
+            raise DriftPolicyError(
+                "%s projection_fill and projection_omit entries for %s "
+                "conflict on path %s" % (source, rt, entry["path"])
+            )
+
+
+def _merge_policy_data(base, override):
+    out = json.loads(json.dumps(base or {"version": 1, "resource_types": {}}))
+    if override is None:
+        return out
+    if not isinstance(override, dict):
+        return override
+    if out.get("version", 1) != override.get("version", 1):
+        # Let normal validation produce the canonical unsupported-version error.
+        return override
+    out["version"] = override.get("version", out.get("version", 1))
+    resource_types = out.setdefault("resource_types", {})
+    for rt, cfg in (override.get("resource_types") or {}).items():
+        merged = resource_types.setdefault(rt, {})
+        for mode, entries in (cfg or {}).items():
+            merged.setdefault(mode, [])
+            merged[mode].extend(json.loads(json.dumps(entries)))
+    return out
 
 
 def _has_wildcard_or_index(path):

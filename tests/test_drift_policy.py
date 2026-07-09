@@ -36,6 +36,17 @@ def _omit_if_entry(**overrides):
     return entry
 
 
+def _fill_entry(**overrides):
+    entry = {
+        "path": "cbi_profile",
+        "source": "cbiProfile",
+        "reason": "test",
+        "approved_by": "unit",
+    }
+    entry.update(overrides)
+    return entry
+
+
 def _policy(mode, entry):
     return {
         "version": 1,
@@ -104,6 +115,7 @@ class StatelessDataTest(unittest.TestCase):
             "resource_types": {
                 "sample_resource": {
                     "projection_sync": [_sync_entry()],
+                    "projection_fill": [_fill_entry()],
                     "projection_omit_if": [_omit_if_entry()],
                 },
             },
@@ -112,6 +124,8 @@ class StatelessDataTest(unittest.TestCase):
         policy = DriftPolicy(data)
         policy.mark_matched(policy.entries(
             "sample_resource", "projection_sync")[0])
+        policy.mark_matched(policy.entries(
+            "sample_resource", "projection_fill")[0])
         policy.mark_matched(policy.entries(
             "sample_resource", "projection_omit_if")[0])
         self.assertEqual(policy.data, snapshot)
@@ -123,12 +137,14 @@ class StatelessDataTest(unittest.TestCase):
             "resource_types": {
                 "sample_resource": {
                     "projection_sync": [_sync_entry()],
+                    "projection_fill": [_fill_entry()],
                     "projection_omit_if": [_omit_if_entry()],
                 },
             },
         })
         self.assertEqual(policy.stale_entries(), [
             ("sample_resource", "projection_sync", "res_categories"),
+            ("sample_resource", "projection_fill", "cbi_profile"),
             ("sample_resource", "projection_omit_if", "ports[*].end"),
         ])
         policy.mark_matched(policy.entries(
@@ -234,6 +250,7 @@ class DriftPolicyTest(unittest.TestCase):
         for mode in (
                 "projection_omit",
                 "projection_sync",
+                "projection_fill",
                 "projection_omit_if",
                 "plan_tolerate",
         ):
@@ -253,17 +270,20 @@ class DriftPolicyTest(unittest.TestCase):
         with self.assertRaises(DriftPolicyError):
             DriftPolicy(_policy("projection_sync", _sync_entry(path="status")))
         with self.assertRaises(DriftPolicyError):
+            DriftPolicy(_policy("projection_fill", _fill_entry(source_path="raw")))
+        with self.assertRaises(DriftPolicyError):
             DriftPolicy(_policy(
                 "projection_omit_if",
                 _omit_if_entry(actions=["update"]),
             ))
 
-    def test_accepts_projection_sync_and_omit_if_shapes(self):
+    def test_accepts_projection_sync_fill_and_omit_if_shapes(self):
         policy = DriftPolicy({
             "version": 1,
             "resource_types": {
                 "sample_resource": {
                     "projection_sync": [_sync_entry(ticket="NET-1")],
+                    "projection_fill": [_fill_entry(ticket="NET-2")],
                     "projection_omit_if": [
                         _omit_if_entry(values=["x", 0, 0.5, False, None])
                     ],
@@ -275,6 +295,16 @@ class DriftPolicyTest(unittest.TestCase):
             policy.entries("sample_resource", "projection_sync")[0]
             ["target_path"],
             "res_categories",
+        )
+        self.assertEqual(
+            policy.entries("sample_resource", "projection_fill")[0]
+            ["source"],
+            "cbiProfile",
+        )
+        self.assertEqual(
+            policy.entries("sample_resource", "projection_fill")[0]
+            ["ticket"],
+            "NET-2",
         )
         self.assertEqual(
             policy.entries("sample_resource", "projection_omit_if")[0]
@@ -294,6 +324,19 @@ class DriftPolicyTest(unittest.TestCase):
             with self.assertRaises(DriftPolicyError):
                 DriftPolicy(_policy("projection_sync", entry))
 
+    def test_rejects_invalid_projection_fill_shape(self):
+        for entry in (
+                _fill_entry(path=""),
+                _fill_entry(source=""),
+                _fill_entry(path="ports[*].end"),
+                _fill_entry(path="settings.flag"),
+                _fill_entry(source="cbiProfile.id"),
+                _fill_entry(source="cbiProfile[*]"),
+        ):
+            with self.subTest(entry=entry):
+                with self.assertRaises(DriftPolicyError):
+                    DriftPolicy(_policy("projection_fill", entry))
+
     def test_rejects_invalid_projection_omit_if_values(self):
         for values in (None, 0, [], [{}], [[]]):
             with self.assertRaises(DriftPolicyError):
@@ -311,6 +354,40 @@ class DriftPolicyTest(unittest.TestCase):
                         "projection_sync": [
                             _sync_entry(source_path="dest_ip_categories"),
                             _sync_entry(source_path="other_categories"),
+                        ],
+                    },
+                },
+            })
+
+    def test_rejects_duplicate_projection_fill_target_entries(self):
+        with self.assertRaisesRegex(
+                DriftPolicyError,
+                "duplicate projection_fill entry for sample_resource "
+                "path cbi_profile"):
+            DriftPolicy({
+                "version": 1,
+                "resource_types": {
+                    "sample_resource": {
+                        "projection_fill": [
+                            _fill_entry(source="firstRaw"),
+                            _fill_entry(source="secondRaw"),
+                        ],
+                    },
+                },
+            })
+
+    def test_rejects_projection_fill_and_projection_omit_same_path(self):
+        with self.assertRaisesRegex(
+                DriftPolicyError,
+                "projection_fill and projection_omit entries for "
+                "sample_resource conflict on path cbi_profile"):
+            DriftPolicy({
+                "version": 1,
+                "resource_types": {
+                    "sample_resource": {
+                        "projection_fill": [_fill_entry()],
+                        "projection_omit": [
+                            _entry(path="cbi_profile"),
                         ],
                     },
                 },

@@ -2,6 +2,7 @@
 import copy
 
 from engine import paths
+from engine import projection_fill
 from engine import schema_paths
 from engine.drift_policy import parse_path
 from engine.ops import _same_json_value
@@ -19,12 +20,14 @@ class ProjectionError(ValueError):
     pass
 
 
-def project_item(resource_type, state_values, sensitive_values=None, policy=None):
+def project_item(
+        resource_type, state_values, sensitive_values=None, policy=None,
+        raw_item=None):
     """Project one provider state object into tfvars input shape.
 
     projection_omit applies inline during schema projection and may suppress
     sensitive, absent, or optional fields. Post-projection policy then applies
-    projection_sync followed by projection_omit_if.
+    projection_sync, projection_fill, and projection_omit_if in that order.
     """
     block = load_resource(resource_type)["block"]
     sensitive_values = sensitive_values or {}
@@ -38,7 +41,7 @@ def project_item(resource_type, state_values, sensitive_values=None, policy=None
         policy=policy,
     )
     if policy:
-        _apply_projection_policy(resource_type, out, policy)
+        _apply_projection_policy(resource_type, out, policy, raw_item=raw_item)
     return out
 
 
@@ -193,8 +196,9 @@ def _is_sensitive_attr(sens, name):
     return _any_sensitive(sens.get(name))
 
 
-def _apply_projection_policy(resource_type, out, policy):
+def _apply_projection_policy(resource_type, out, policy, raw_item=None):
     _apply_projection_sync(resource_type, out, policy)
+    _apply_projection_fill(resource_type, out, policy, raw_item)
     _apply_projection_omit_if(resource_type, out, policy)
 
 
@@ -213,6 +217,28 @@ def _apply_projection_sync(resource_type, out, policy):
             continue
 
         _set_path(out, target_path, copy.deepcopy(source_value))
+        policy.mark_matched(entry)
+
+
+def _apply_projection_fill(resource_type, out, policy, raw_item):
+    entries = policy.entries(resource_type, "projection_fill")
+    if entries and raw_item is None:
+        raise ProjectionError(
+            "%s projection_fill requires the raw API item" % resource_type
+        )
+    for entry in entries:
+        target_path = parse_path(entry["path"])
+        target_present, _target_value = _path_value(out, target_path)
+        if target_present:
+            continue
+        try:
+            value = projection_fill.fill_value_from_raw(
+                resource_type, entry, raw_item)
+        except projection_fill.ProjectionFillError as exc:
+            raise ProjectionError(str(exc))
+        if value is None:
+            continue
+        _set_path(out, target_path, value)
         policy.mark_matched(entry)
 
 

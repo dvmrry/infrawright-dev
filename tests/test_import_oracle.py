@@ -37,6 +37,17 @@ FAKE_PROVIDER_SCHEMA = {
             "description": {"type": "string", "optional": True},
         },
         "block_types": {
+            "cbi_profile": {
+                "nesting_mode": "list",
+                "block": {
+                    "attributes": {
+                        "id": {"type": "string", "optional": True},
+                        "name": {"type": "string", "optional": True},
+                        "profile_seq": {"type": "number", "optional": True},
+                        "url": {"type": "string", "optional": True},
+                    }
+                },
+            },
             "ports": {
                 "nesting_mode": "list",
                 "block": {
@@ -59,7 +70,13 @@ class ImportOracleTest(unittest.TestCase):
         self.prev_schema_load_resource = (
             import_oracle.schema_paths.load_resource
         )
+        self.prev_fill_load_resource = (
+            import_oracle.projection_fill.load_resource
+        )
         import_oracle.schema_paths.load_resource = (
+            lambda resource_type: FAKE_PROVIDER_SCHEMA
+        )
+        import_oracle.projection_fill.load_resource = (
             lambda resource_type: FAKE_PROVIDER_SCHEMA
         )
         os.environ["INFRAWRIGHT_PACKS"] = self.tmp
@@ -175,6 +192,10 @@ class ImportOracleTest(unittest.TestCase):
                                      text, re.M)
                     )
 
+                def has_cbi_profile():
+                    return re.search(r'^\\s*cbi_profile\\s*\\{\\s*$',
+                                     tf_text(), re.M)
+
                 def main():
                     args = sys.argv[1:]
                     log_command(args)
@@ -197,6 +218,12 @@ class ImportOracleTest(unittest.TestCase):
                                 and has_rejected_generated_sentinel()):
                             sys.stderr.write("generated config rejected sentinel\\n")
                             return 45
+                        if (
+                                os.environ.get("FAKE_TF_REJECT_MISSING_CBI_PROFILE") == "1"
+                                and not generated_config_path(args)
+                                and not has_cbi_profile()):
+                            sys.stderr.write("generated config missing cbi_profile\\n")
+                            return 46
                         undeclared = sorted(
                             address for address in imports if address not in declared
                         )
@@ -329,10 +356,12 @@ class ImportOracleTest(unittest.TestCase):
         os.environ.pop("FAKE_TF_GENERATED_COMPLEX", None)
         os.environ.pop("FAKE_TF_FAIL_GENERATED_CONFIG", None)
         os.environ.pop("FAKE_TF_REJECT_GENERATED_SENTINEL", None)
+        os.environ.pop("FAKE_TF_REJECT_MISSING_CBI_PROFILE", None)
         os.environ.pop("FAKE_TF_COMMAND_LOG", None)
         os.environ.pop("INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS", None)
         os.environ.pop("INFRAWRIGHT_KEEP_ORACLE", None)
         import_oracle.schema_paths.load_resource = self.prev_schema_load_resource
+        import_oracle.projection_fill.load_resource = self.prev_fill_load_resource
         packs.reset()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
@@ -466,6 +495,256 @@ class ImportOracleTest(unittest.TestCase):
         finally:
             if kept:
                 shutil.rmtree(kept, ignore_errors=True)
+
+    def test_generated_config_policy_rescues_missing_raw_fill_block(self):
+        os.environ["FAKE_TF_FAIL_GENERATED_CONFIG"] = "1"
+        os.environ["FAKE_TF_REJECT_MISSING_CBI_PROFILE"] = "1"
+        policy = self._policy({
+            "projection_fill": [
+                {
+                    "path": "cbi_profile",
+                    "source": "cbiProfile",
+                    "reason": "provider read omits isolate profile",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+
+        out = import_state(
+            "sample_resource",
+            {"prod_app": "123"},
+            policy=policy,
+            raw_items={
+                "prod_app": {
+                    "cbiProfile": {
+                        "id": "cbi-1",
+                        "name": "Isolation",
+                        "profileSeq": "7",
+                        "url": "https://example.invalid",
+                    },
+                },
+            },
+        )
+
+        self.assertEqual(out["prod_app"]["values"]["id"], "123")
+        self.assertEqual(policy.stale_entries(modes=("projection_fill",)), [])
+        commands = self._fake_commands()
+        self.assertEqual([cmd[0] for cmd in commands], [
+            "init", "plan", "plan", "show", "apply", "show",
+        ])
+
+    def test_generated_config_fill_update_plan_rejected_before_apply(self):
+        os.environ["FAKE_TF_FAIL_GENERATED_CONFIG"] = "1"
+        os.environ["FAKE_TF_REJECT_MISSING_CBI_PROFILE"] = "1"
+        os.environ["FAKE_TF_PLAN_CHANGES"] = "1"
+        policy = self._policy({
+            "projection_fill": [
+                {
+                    "path": "cbi_profile",
+                    "source": "cbiProfile",
+                    "reason": "provider read omits isolate profile",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+
+        with self.assertRaises(OracleError) as ctx:
+            import_state(
+                "sample_resource",
+                {"prod_app": "123"},
+                policy=policy,
+                raw_items={
+                    "prod_app": {
+                        "cbiProfile": {
+                            "id": "cbi-1",
+                            "name": "Isolation",
+                            "profileSeq": "7",
+                            "url": "https://example.invalid",
+                        },
+                    },
+                },
+            )
+
+        msg = str(ctx.exception)
+        self.assertIn(
+            "sample_resource oracle import plan was not import-only", msg)
+        self.assertIn("actions=['update']", msg)
+        commands = self._fake_commands()
+        self.assertEqual([cmd[0] for cmd in commands], [
+            "init", "plan", "plan", "show",
+        ])
+        self.assertFalse([cmd for cmd in commands if cmd[0] == "apply"])
+
+    def test_generated_config_policy_debug_artifacts_show_filled_block(self):
+        os.environ["FAKE_TF_FAIL_GENERATED_CONFIG"] = "1"
+        os.environ["FAKE_TF_REJECT_MISSING_CBI_PROFILE"] = "1"
+        policy = self._policy({
+            "projection_fill": [
+                {
+                    "path": "cbi_profile",
+                    "source": "cbiProfile",
+                    "reason": "provider read omits isolate profile",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+        kept = None
+        stderr = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(stderr):
+                import_state(
+                    "sample_resource",
+                    {"prod_app": "123"},
+                    keep_workdir=True,
+                    policy=policy,
+                    raw_items={
+                        "prod_app": {
+                            "cbiProfile": {
+                                "id": "cbi-1",
+                                "name": "Isolation",
+                                "profileSeq": "7",
+                                "url": "https://example.invalid",
+                            },
+                        },
+                    },
+                )
+            match = re.search(r"workdir ([^;]+);", stderr.getvalue())
+            self.assertIsNotNone(match, stderr.getvalue())
+            self.assertIn("raw API pull values", stderr.getvalue())
+            kept = match.group(1)
+
+            before_path = os.path.join(kept, "generated.tf.before-policy")
+            after_path = os.path.join(kept, "generated.tf")
+            diff_path = os.path.join(kept, "generated.tf.policy.diff")
+            self.assertFalse(before_path.endswith(".tf"))
+            self.assertFalse(diff_path.endswith(".tf"))
+            with open(before_path, encoding="utf-8") as f:
+                before = f.read()
+            with open(after_path, encoding="utf-8") as f:
+                after = f.read()
+            with open(diff_path, encoding="utf-8") as f:
+                diff = f.read()
+
+            self.assertNotIn("cbi_profile {", before)
+            self.assertIn("  cbi_profile {\n", after)
+            self.assertIn('    id = "cbi-1"\n', after)
+            self.assertIn('    name = "Isolation"\n', after)
+            self.assertIn("    profile_seq = 7\n", after)
+            self.assertIn('    url = "https://example.invalid"\n', after)
+            self.assertIn("+  cbi_profile {\n", diff)
+            self.assertIn("+    profile_seq = 7\n", diff)
+        finally:
+            if kept:
+                shutil.rmtree(kept, ignore_errors=True)
+
+    def test_projection_fill_policy_requires_raw_items(self):
+        policy = self._policy({
+            "projection_fill": [
+                {
+                    "path": "cbi_profile",
+                    "source": "cbiProfile",
+                    "reason": "test",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+
+        with self.assertRaisesRegex(OracleError, "requires raw_items"):
+            import_state("sample_resource", {"prod_app": "123"}, policy=policy)
+
+    def test_generated_config_policy_does_not_fill_when_source_missing(self):
+        os.environ["FAKE_TF_FAIL_GENERATED_CONFIG"] = "1"
+        policy = self._policy({
+            "projection_fill": [
+                {
+                    "path": "cbi_profile",
+                    "source": "cbiProfile",
+                    "reason": "test",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+
+        with self.assertRaisesRegex(OracleError, "failed with exit 44"):
+            import_state(
+                "sample_resource",
+                {"prod_app": "123"},
+                policy=policy,
+                raw_items={"prod_app": {"otherRaw": {}}},
+            )
+
+        self.assertEqual(
+            policy.stale_entries(modes=("projection_fill",)),
+            [("sample_resource", "projection_fill", "cbi_profile")],
+        )
+
+    def test_generated_config_policy_fill_skips_existing_target(self):
+        policy = self._policy({
+            "projection_fill": [
+                {
+                    "path": "cbi_profile",
+                    "source": "cbiProfile",
+                    "reason": "test",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+        lines = [
+            'resource "sample_resource" "iw_prod_app" {\n',
+            '  cbi_profile = []\n',
+            "}\n",
+        ]
+        filled, count = import_oracle._fill_generated_config_lines(
+            "sample_resource",
+            {"sample_resource.iw_prod_app": "prod_app"},
+            {"prod_app": {"cbiProfile": {"id": "cbi-1"}}},
+            lines,
+            import_oracle._generated_config_fill_entries(
+                "sample_resource", policy),
+            policy,
+        )
+
+        self.assertEqual(count, 0)
+        self.assertEqual(filled, lines)
+
+    def test_render_hcl_value_escapes_object_keys(self):
+        rendered = import_oracle._render_hcl_value({
+            "bad-key": "${var.value}",
+            'quote"key': "literal",
+        }, 2)
+
+        self.assertIn('    "bad-key" = "$${var.value}"\n', rendered)
+        self.assertIn('    "quote\\"key" = "literal"\n', rendered)
+        self.assertNotIn("bad-key =", rendered)
+
+    def test_generated_config_policy_fill_rejects_duplicate_resource_block(self):
+        policy = self._policy({
+            "projection_fill": [
+                {
+                    "path": "cbi_profile",
+                    "source": "cbiProfile",
+                    "reason": "test",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+        lines = [
+            'resource "sample_resource" "iw_prod_app" {\n',
+            "}\n",
+            'resource "sample_resource" "iw_prod_app" {\n',
+            "}\n",
+        ]
+
+        with self.assertRaisesRegex(OracleError, "duplicate resource block"):
+            import_oracle._fill_generated_config_lines(
+                "sample_resource",
+                {"sample_resource.iw_prod_app": "prod_app"},
+                {"prod_app": {"cbiProfile": {"id": "cbi-1"}}},
+                lines,
+                import_oracle._generated_config_fill_entries(
+                    "sample_resource", policy),
+                policy,
+            )
 
     def test_generated_config_policy_rejects_required_omit_before_plan(self):
         policy = self._policy({

@@ -114,13 +114,12 @@ class PackAdoptionMetadataTest(unittest.TestCase):
 
 
 class PackMetadataBehaviorInvariantTest(unittest.TestCase):
-    """System-level invariant: committed pack metadata must not authorize behavior.
+    """System-level invariant: diagnostic pack metadata is non-remediating.
 
-    Validators, guidance, and reporting may exist, but no committed rule should
-    use a mode or action that authorizes projection, omission, drift tolerance,
-    provider rendering, assert-adoptable downgrade, secret handling, or
-    placeholder rendering. These invariants must be updated only by a future
-    behavior PR that explicitly promotes a narrow, reviewed action.
+    Validators, guidance, and reporting may exist, but diagnostic rules should
+    not authorize projection, omission, drift tolerance, provider rendering,
+    assert-adoptable downgrade, secret handling, or placeholder rendering.
+    Behavior-authorizing adoption projection policy is checked separately.
     """
 
     def setUp(self):
@@ -216,6 +215,29 @@ class PackMetadataBehaviorInvariantTest(unittest.TestCase):
                           self._format_rule_offense("sensitive_required", rule, action))
             self.assertNotIn(action, rejected,
                              self._format_rule_offense("sensitive_required", rule, action))
+
+    def test_pack_drift_policy_is_projection_fill_only(self):
+        policy = packs.drift_policy_data()
+        self.assertEqual(policy.get("version"), 1)
+        for resource_type, cfg in (policy.get("resource_types") or {}).items():
+            for mode in cfg:
+                self.assertEqual(
+                    mode,
+                    "projection_fill",
+                    "%s pack drift policy must not authorize %s"
+                    % (resource_type, mode),
+                )
+
+    def test_zia_url_filtering_declares_cbi_projection_fill(self):
+        policy = packs.drift_policy_data()
+        entries = (
+            policy.get("resource_types", {})
+            .get("zia_url_filtering_rules", {})
+            .get("projection_fill", [])
+        )
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["path"], "cbi_profile")
+        self.assertEqual(entries[0]["source"], "cbiProfile")
 
     def test_no_sensitive_required_pack_metadata_exists_yet(self):
         # Grafana remains manual-review/unclassified. Update this test when the
