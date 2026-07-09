@@ -10,6 +10,7 @@ Provider packs own behavior and metadata; they do not create path segments.
 import json
 import os
 import hashlib
+import re
 import shutil
 import subprocess
 import sys
@@ -51,6 +52,15 @@ REFERENCE_ORDER_CYCLE_NOTE = (
     "NOTE: reference order cycle detected among %s; breaking alphabetically\n"
 )
 PLAN_FINGERPRINT = "tfplan.sources"
+PLAN_FINGERPRINT_VERSION = 2
+MODULE_FINGERPRINT_IGNORED_DIRS = set([
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".terraform",
+    "__pycache__",
+])
 STALE_PLAN_MESSAGE = (
     "%s: saved plan is stale relative to the current root configuration - "
     "re-run make plan SAVE=1"
@@ -314,12 +324,298 @@ def _root_tf_fingerprints(env_dir):
     if not os.path.isdir(env_dir):
         return out
     for name in sorted(os.listdir(env_dir)):
-        if not name.endswith(".tf"):
+        is_plan_input = (
+            name.endswith(".tf")
+            or name.endswith(".tf.json")
+            or name == ".terraform.lock.hcl"
+            or name == "terraform.tfvars"
+            or name == "terraform.tfvars.json"
+            or name.endswith(".auto.tfvars")
+            or name.endswith(".auto.tfvars.json")
+        )
+        if not is_plan_input:
             continue
         path = os.path.join(env_dir, name)
         if os.path.isfile(path):
             out.append((name, _file_sha256(path)))
     return out
+
+
+def _root_config_fingerprints(env_dir):
+    return [
+        entry for entry in _root_tf_fingerprints(env_dir)
+        if entry[0].endswith(".tf") or entry[0].endswith(".tf.json")
+    ]
+
+
+def _tree_fingerprints(root):
+    out = []
+    if not os.path.isdir(root):
+        return out
+    for current, dirs, files in os.walk(root):
+        dirs[:] = sorted(
+            name for name in dirs
+            if name not in MODULE_FINGERPRINT_IGNORED_DIRS
+        )
+        for name in sorted(files):
+            path = os.path.join(current, name)
+            if not os.path.isfile(path):
+                continue
+            relative = os.path.relpath(path, root)
+            if os.sep != "/":
+                relative = relative.replace(os.sep, "/")
+            out.append((relative, _file_sha256(path)))
+    return out
+
+
+_HCL_HEREDOC_START = re.compile(
+    r"<<(-?)([A-Za-z_][A-Za-z0-9_-]*)"
+)
+
+
+def _hcl_structure_lines(text, path):
+    """Return HCL lines with comments blanked for structural parsing.
+
+    This is deliberately a small structural scanner, not an HCL evaluator. It
+    preserves quoted strings and braces needed by the generated-root parser,
+    while ensuring comment text cannot masquerade as configuration. Generated
+    roots do not contain heredocs, so reject them instead of approximating
+    their delimiter semantics.
+    """
+    out = []
+    block_comment = False
+    for line_number, line in enumerate(text.splitlines(True), 1):
+        code = []
+        in_string = False
+        escaped = False
+        i = 0
+        while i < len(line):
+            if block_comment:
+                end = line.find("*/", i)
+                if end < 0:
+                    if line.endswith(("\r", "\n")):
+                        code.append("\n")
+                    i = len(line)
+                    continue
+                code.append(" " * (end + 2 - i))
+                block_comment = False
+                i = end + 2
+                continue
+
+            ch = line[i]
+            if in_string:
+                code.append(ch)
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_string = False
+                i += 1
+                continue
+            if ch == '"':
+                code.append(ch)
+                in_string = True
+                i += 1
+                continue
+            if ch == "#" or line.startswith("//", i):
+                if line.endswith(("\r", "\n")):
+                    code.append("\n")
+                break
+            if line.startswith("/*", i):
+                code.append("  ")
+                block_comment = True
+                i += 2
+                continue
+            if line.startswith("<<", i):
+                match = _HCL_HEREDOC_START.match(line, i)
+                if match:
+                    raise RuntimeError(
+                        "%s:%d contains a heredoc outside the generated-root "
+                        "contract; run make gen-env to regenerate the root"
+                        % (path, line_number)
+                    )
+            code.append(ch)
+            i += 1
+
+        if in_string:
+            raise RuntimeError(
+                "%s:%d contains an unterminated quoted string"
+                % (path, line_number)
+            )
+        out.append("".join(code))
+
+    if block_comment:
+        raise RuntimeError("%s contains an unterminated block comment" % path)
+    return out
+
+
+def _hcl_brace_delta(line):
+    delta = 0
+    in_string = False
+    escaped = False
+    for ch in line:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            delta += 1
+        elif ch == "}":
+            delta -= 1
+    return delta
+
+
+def _root_module_sources(env_dir):
+    sources = {}
+    if not os.path.isdir(env_dir):
+        return sources
+    module_start = re.compile(r'^\s*module\s+"([^"]+)"\s*\{\s*$')
+    source_line = re.compile(r'^\s*source\s*=\s*"([^"\\]+)"\s*$')
+    items_line = re.compile(
+        r'^\s*items\s*=\s*(?:var|local)\.[A-Za-z_][A-Za-z0-9_]*\s*$'
+    )
+    for name in sorted(os.listdir(env_dir)):
+        if not name.endswith(".tf"):
+            continue
+        path = os.path.join(env_dir, name)
+        if not os.path.isfile(path):
+            continue
+        with open(path, encoding="utf-8") as f:
+            lines = _hcl_structure_lines(f.read(), path)
+        current = None
+        source = None
+        items_seen = False
+        module_depth = None
+        depth = 0
+        for line_number, line in enumerate(lines, 1):
+            if current is None and depth == 0:
+                match = module_start.match(line)
+                if match:
+                    current = match.group(1)
+                    source = None
+                    items_seen = False
+                    module_depth = 1
+            elif current is not None and depth == module_depth:
+                stripped = line.strip()
+                source_match = source_line.match(line)
+                if source_match:
+                    if source is not None:
+                        raise RuntimeError(
+                            "%s:%d module %s has multiple source values"
+                            % (path, line_number, current)
+                        )
+                    candidate = source_match.group(1)
+                    if "${" in candidate or "%{" in candidate:
+                        raise RuntimeError(
+                            "%s:%d module %s source uses HCL template syntax "
+                            "outside the generated-root contract; run make "
+                            "gen-env to regenerate the root"
+                            % (path, line_number, current)
+                        )
+                    source = candidate
+                elif items_line.match(line):
+                    if items_seen:
+                        raise RuntimeError(
+                            "%s:%d module %s has multiple items values"
+                            % (path, line_number, current)
+                        )
+                    items_seen = True
+                elif stripped and stripped != "}":
+                    raise RuntimeError(
+                        "%s:%d module %s is outside the generated-root "
+                        "contract; run make gen-env to regenerate the root"
+                        % (path, line_number, current)
+                    )
+            depth += _hcl_brace_delta(line)
+            if depth < 0:
+                raise RuntimeError(
+                    "%s:%d has an unexpected closing brace"
+                    % (path, line_number)
+                )
+            if current is not None and depth < module_depth:
+                if source is None or not items_seen:
+                    raise RuntimeError(
+                        "%s module %s is outside the generated-root contract; "
+                        "run make gen-env to regenerate the root"
+                        % (path, current)
+                    )
+                if current in sources:
+                    raise RuntimeError(
+                        "%s contains duplicate module %s"
+                        % (env_dir, current)
+                    )
+                sources[current] = source
+                current = None
+                source = None
+                items_seen = False
+                module_depth = None
+        if depth != 0:
+            raise RuntimeError("%s has unbalanced braces" % path)
+    return sources
+
+
+def _local_module_path(env_dir, source):
+    if not source:
+        return None
+    if os.path.isabs(source):
+        return os.path.normpath(source)
+    if source.startswith(("./", "../")):
+        return os.path.normpath(os.path.join(env_dir, source))
+    return None
+
+
+def _module_fingerprints(env_dir, member_types):
+    sources = _root_module_sources(env_dir)
+    out = []
+    for resource_type in sorted(member_types):
+        source = sources.get(resource_type)
+        if source is None:
+            raise RuntimeError(
+                "%s member %s has no module source; run make gen-env to "
+                "regenerate the root" % (env_dir, resource_type)
+            )
+        path = _local_module_path(env_dir, source)
+        if path is None:
+            raise RuntimeError(
+                "%s member %s module source %r is not local; generated roots "
+                "must use local module sources"
+                % (env_dir, resource_type, source)
+            )
+        out.append({
+            "files": _tree_fingerprints(path),
+            "local": True,
+            "present": os.path.isdir(path),
+            "resource_type": resource_type,
+            "source": source,
+        })
+    return out
+
+
+def _backend_fingerprint(backend_config, backend_key):
+    if not backend_config:
+        return None
+    path = os.path.abspath(backend_config)
+    present = os.path.isfile(path)
+    out = {
+        "key": backend_key,
+        "present": present,
+    }
+    if present:
+        out["sha256"] = _file_sha256(path)
+    return out
+
+
+def _backend_state_key(tenant, root_label, backend_config):
+    if not backend_config:
+        return None
+    return "%s/%s.tfstate" % (tenant, root_label)
 
 
 def _var_file_fingerprints(var_files):
@@ -341,9 +637,12 @@ def _current_var_files(tenant, member_types):
     return out
 
 
-def _plan_sources_sha256(env_dir, var_files, member_types):
+def _plan_sources_sha256(env_dir, var_files, member_types,
+                         backend_config=None, backend_key=None):
     payload = {
+        "backend": _backend_fingerprint(backend_config, backend_key),
         "member_types": sorted(member_types),
+        "modules": _module_fingerprints(env_dir, member_types),
         "root_tf": _root_tf_fingerprints(env_dir),
         "var_files": _var_file_fingerprints(var_files),
     }
@@ -351,16 +650,45 @@ def _plan_sources_sha256(env_dir, var_files, member_types):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _plan_fingerprint(env_dir, var_files, member_types):
+def _init_sources_sha256(env_dir, member_types, backend_config=None,
+                         backend_key=None):
+    payload = {
+        "backend": _backend_fingerprint(backend_config, backend_key),
+        "modules": _module_fingerprints(env_dir, member_types),
+        "root_config": _root_config_fingerprints(env_dir),
+    }
+    text = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _plan_fingerprint(env_dir, var_files, member_types,
+                      backend_config=None, backend_key=None):
     return {
-        "version": 1,
-        "sha256": _plan_sources_sha256(env_dir, var_files, member_types),
+        "version": PLAN_FINGERPRINT_VERSION,
+        "sha256": _plan_sources_sha256(
+            env_dir,
+            var_files,
+            member_types,
+            backend_config=backend_config,
+            backend_key=backend_key,
+        ),
     }
 
 
-def _write_plan_fingerprint(env_dir, var_files, member_types):
+def _write_plan_fingerprint(env_dir, var_files, member_types,
+                            backend_config=None, backend_key=None):
+    data = _plan_fingerprint(
+        env_dir,
+        var_files,
+        member_types,
+        backend_config=backend_config,
+        backend_key=backend_key,
+    )
+    return _write_plan_fingerprint_data(env_dir, data)
+
+
+def _write_plan_fingerprint_data(env_dir, data):
     path = _plan_fingerprint_path(env_dir)
-    data = _plan_fingerprint(env_dir, var_files, member_types)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, sort_keys=True)
         f.write("\n")
@@ -383,7 +711,8 @@ def _stale_plan_error(env_dir, detail=None):
     return message
 
 
-def _assert_saved_plan_fresh(env_dir, tenant, member_types):
+def _assert_saved_plan_fresh(env_dir, tenant, member_types, root_label=None,
+                             backend_config=None):
     path = _plan_fingerprint_path(env_dir)
     if not os.path.exists(path):
         raise RuntimeError(
@@ -394,7 +723,12 @@ def _assert_saved_plan_fresh(env_dir, tenant, member_types):
     except (IOError, OSError, ValueError) as exc:
         raise RuntimeError(_stale_plan_error(env_dir, str(exc)))
     current = _plan_fingerprint(
-        env_dir, _current_var_files(tenant, member_types), member_types
+        env_dir,
+        _current_var_files(tenant, member_types),
+        member_types,
+        backend_config=backend_config,
+        backend_key=_backend_state_key(
+            tenant, root_label or os.path.basename(env_dir), backend_config),
     )
     if saved != current:
         raise RuntimeError(_stale_plan_error(env_dir))
@@ -725,6 +1059,8 @@ def cmd_plan(opts):
                 % (label, ", ".join(derived_members))
             )
             continue
+        if opts["save"]:
+            _remove_saved_plan_artifacts(path)
         var_files = []
         missing = []
         for resource_type in member_types:
@@ -745,20 +1081,59 @@ def cmd_plan(opts):
             )
         _check_backend(path, label, opts["backend_config"])
         sys.stderr.write("== plan %s\n" % label)
+        backend_key = _backend_state_key(
+            tenant, label, opts["backend_config"])
+        init_sources_before = None
+        if opts["save"]:
+            init_sources_before = _init_sources_sha256(
+                path,
+                member_types,
+                backend_config=opts["backend_config"],
+                backend_key=backend_key,
+            )
         _check_call(
             _init_args(
                 path, tenant, label, backend_config=opts["backend_config"]
             ),
             stdout=subprocess.DEVNULL,
         )
+        if opts["save"] and _init_sources_sha256(
+                path,
+                member_types,
+                backend_config=opts["backend_config"],
+                backend_key=backend_key) != init_sources_before:
+            _remove_saved_plan_artifacts(path)
+            raise RuntimeError(
+                "%s: init inputs changed while init was running - "
+                "re-run make plan SAVE=1" % path
+            )
         args = [terraform(), "-chdir=" + path, "plan", "-input=false"]
         for var_file in var_files:
             args.append("-var-file=" + os.path.abspath(var_file))
+        planned_fingerprint = None
         if opts["save"]:
+            planned_fingerprint = _plan_fingerprint(
+                path,
+                var_files,
+                member_types,
+                backend_config=opts["backend_config"],
+                backend_key=backend_key,
+            )
             args.append("-out=tfplan")
         _check_call(args)
         if opts["save"]:
-            _write_plan_fingerprint(path, var_files, member_types)
+            current_fingerprint = _plan_fingerprint(
+                path,
+                var_files,
+                member_types,
+                backend_config=opts["backend_config"],
+                backend_key=backend_key,
+            )
+            if current_fingerprint != planned_fingerprint:
+                _remove_saved_plan_artifacts(path)
+                raise RuntimeError(_stale_plan_error(
+                    path, "plan inputs changed while the plan was running"))
+            _write_plan_fingerprint_data(path, planned_fingerprint)
         planned += 1
     if planned == 0:
         raise RuntimeError(
@@ -772,7 +1147,13 @@ def cmd_assert_clean(opts):
     dirty = 0
     for tenant, label, path, member_types in selected_env_roots(
             opts.get("tenant"), opts["selectors"], require_plan=True):
-        _assert_saved_plan_fresh(path, tenant, member_types)
+        _assert_saved_plan_fresh(
+            path,
+            tenant,
+            member_types,
+            root_label=label,
+            backend_config=opts.get("backend_config"),
+        )
         plan = _show_plan_json(path)
         changes = _non_import_change_count(plan)
         checked += 1
@@ -803,7 +1184,13 @@ def cmd_assert_adoptable(opts):
     checked_types = set()
     for tenant, label, path, member_types in selected_env_roots(
             opts.get("tenant"), opts["selectors"], require_plan=True):
-        _assert_saved_plan_fresh(path, tenant, member_types)
+        _assert_saved_plan_fresh(
+            path,
+            tenant,
+            member_types,
+            root_label=label,
+            backend_config=opts.get("backend_config"),
+        )
         plan = _show_plan_json(path)
         result = classify_plan(plan, policy=policy)
         checked += 1
@@ -900,7 +1287,13 @@ def cmd_apply(opts):
     applied = 0
     for tenant, label, path, member_types in selected_env_roots(
             opts.get("tenant"), opts["selectors"], require_plan=True):
-        _assert_saved_plan_fresh(path, tenant, member_types)
+        _assert_saved_plan_fresh(
+            path,
+            tenant,
+            member_types,
+            root_label=label,
+            backend_config=opts["backend_config"],
+        )
         sys.stderr.write("== apply %s/%s\n" % (tenant, label))
         _check_backend(path, label, opts["backend_config"])
         _check_call(
@@ -908,6 +1301,13 @@ def cmd_apply(opts):
                 path, tenant, label, backend_config=opts["backend_config"]
             ),
             stdout=subprocess.DEVNULL,
+        )
+        _assert_saved_plan_fresh(
+            path,
+            tenant,
+            member_types,
+            root_label=label,
+            backend_config=opts["backend_config"],
         )
         plan = _show_plan_json(path)
         result = _classify_apply_plan(plan, policy)

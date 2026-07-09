@@ -117,6 +117,11 @@ saved plan contains intentionally tolerated drift. `ALLOW_PLAN_CHANGES=1`
 remains a broad legacy override for blocked saved plans and is not the normal
 path for policy-backed adoption.
 
+For a remote backend, pass the same `BACKEND_CONFIG=<file>` to `plan`,
+`assert-adoptable` (or `assert-clean`), and `apply`. Saved-plan freshness
+checking fingerprints the backend-config contents and computed state key; it
+does not persist the config contents or absolute path.
+
 The existing transform path remains available:
 
 ```sh
@@ -288,6 +293,15 @@ recoverable without synthesis:
   }
 }
 ```
+
+The oracle also applies `projection_omit`, `projection_omit_if`, and
+`projection_fill` to Terraform/OpenTofu generated import config before provider
+validation. If any generated-config-applicable entries are active and the
+generated-config file is missing, adoption fails closed instead of silently
+skipping the policy. Exact-index omit selectors are intentionally excluded from
+generated-config rewriting because they cannot be matched safely before stable
+collection indexes exist; their existing plan-failure behavior remains
+unchanged.
 
 Projection policy application order is fixed: `projection_omit` applies inline
 during schema projection and may suppress sensitive, absent, or optional fields,

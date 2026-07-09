@@ -379,8 +379,14 @@ def _apply_generated_config_policy(
         entries = _generated_config_policy_entries(resource_type, policy)
     if fill_entries is None:
         fill_entries = _generated_config_fill_entries(resource_type, policy)
-    if not (entries or fill_entries) or not os.path.exists(generated_config_path):
+    if not (entries or fill_entries):
         return 0
+    if not os.path.exists(generated_config_path):
+        raise OracleError(
+            "%s generated import config is missing at %s; projection policy "
+            "cannot be applied safely"
+            % (resource_type, generated_config_path)
+        )
     with open(generated_config_path, encoding="utf-8") as f:
         original = f.readlines()
     expected_addresses = set(address_to_key)
@@ -833,6 +839,14 @@ def _plan_imports_with_generated_config(
         debug_name="plan-generate-config",
         sensitive_tokens=import_ids,
     )
+    if proc.returncode != 0 and not os.path.exists(generated_config_path):
+        _raise_run_error(
+            generate_args,
+            proc,
+            debug_dir=debug_dir,
+            debug_name="plan-generate-config",
+            sensitive_tokens=import_ids,
+        )
     edits = _apply_generated_config_policy(
         resource_type, address_to_key, generated_config_path, policy,
         raw_items=raw_items, entries=entries, fill_entries=fill_entries,
