@@ -73,6 +73,11 @@ tenant is an outage, not a diff. infrawright is built to keep the state stable:
 
 The acceptance bar isn't "0 to change" — it's **0 to destroy, 0 to create** after import.
 
+High-risk agent-built changes to evidence, provider-readiness, OpenAPI mapping,
+or generated artifacts use the
+[Adversarial Review Workflow](docs/adversarial-review.md) before final
+acceptance.
+
 ## Quickstart
 
 ```bash
