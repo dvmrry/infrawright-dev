@@ -1228,7 +1228,16 @@ def _write_assessment_error(report, path, kind, message):
         ),
     }
     report["error"] = {"kind": kind, "message": message}
-    _write_json_contract(path, report)
+    try:
+        _write_json_contract(path, report)
+    except (IOError, OSError, TypeError, ValueError) as exc:
+        try:
+            sys.stderr.write(
+                "WARNING: could not write assessment error report %r: %s; "
+                "preserving original assessment error\n" % (path, exc)
+            )
+        except (IOError, OSError):
+            pass
 
 
 def cmd_stage_imports(opts):
@@ -1565,18 +1574,18 @@ def cmd_assert_adoptable(opts):
             report, opts.get("report"), "no_saved_plans", message
         )
         raise RuntimeError(message)
-    for rt, mode, path in policy.stale_entries(
-            resource_types=checked_types, modes=("plan_tolerate",)):
-        report["stale_policy"].append({
-            "resource_type": rt,
-            "mode": mode,
-            "path": path,
-        })
-        sys.stderr.write(
-            "STALE DRIFT POLICY: %s %s %s matched no path\n"
-            % (rt, mode, path)
-        )
     try:
+        for rt, mode, path in policy.stale_entries(
+                resource_types=checked_types, modes=("plan_tolerate",)):
+            report["stale_policy"].append({
+                "resource_type": rt,
+                "mode": mode,
+                "path": path,
+            })
+            sys.stderr.write(
+                "STALE DRIFT POLICY: %s %s %s matched no path\n"
+                % (rt, mode, path)
+            )
         _recheck_assessment_inputs(
             evidence,
             policy_path=policy_path,

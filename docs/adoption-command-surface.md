@@ -90,6 +90,9 @@ roots do not need to exist. It includes logical root labels, sorted members,
 provider ownership, the resource-to-root map, and tenant artifact directories
 when `TENANT` is supplied. Its schema is
 [`docs/schemas/root-topology.schema.json`](schemas/root-topology.schema.json).
+Root provider ownership is safe to derive from the first member because
+deployment validation rejects mixed-provider roots. All reported directories
+and root paths are repository-relative so contracts are checkout-independent.
 Malformed deployment JSON, including a non-object top level, and explicit empty
 tenant values fail before any topology JSON is emitted.
 
@@ -113,10 +116,27 @@ sources (plus policy, when supplied) are rechecked immediately before report
 publication. A concurrent change writes an error assessment and fails the gate
 instead of publishing a successful classification bound to different evidence.
 
+Finding paths and guidance paths deliberately expose two domains. Each
+`findings[].paths` and `guidance[].finding_path` is a concrete plan-space path
+that retains list indexes, such as `rules[0].id`. The corresponding
+`guidance[].matched_plan_path` is the normalized schema-space rule path, such as
+`rules[].id`. Downstream joins guidance to a finding with `finding_path`, while
+`matched_plan_path` explains which reusable guidance rule matched.
+
+Report creation begins after command-line parsing. An invalid invocation, such
+as an unknown option or malformed tenant, fails without creating `REPORT`; a
+downstream caller must treat a non-zero exit and missing report as an invocation
+error. Once assessment begins, report writing is attempted for every error. If
+the target itself is unwritable, a warning is printed while the original
+assessment error remains the command result.
+
 The assessment schema is
 [`docs/schemas/saved-plan-assessment.schema.json`](schemas/saved-plan-assessment.schema.json).
 Both contracts carry `schema_version: 1`; consumers must reject unsupported
 versions rather than guessing at field meaning.
+The assessment schema intentionally fixes the accepted `tfplan.sources` shape;
+a future fingerprint format change requires a coordinated assessment-schema
+version update.
 
 For real provider/tenant validation, use the
 [Integration Validation Runbook](integration-validation.md) to capture evidence

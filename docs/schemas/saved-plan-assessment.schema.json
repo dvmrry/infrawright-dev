@@ -211,6 +211,7 @@
     },
     "fingerprint": {
       "type": "object",
+      "description": "Exact tfplan.sources shape accepted by assessment schema version 1. Adding fingerprint fields or versions requires a coordinated assessment-schema update.",
       "additionalProperties": false,
       "required": [
         "version",
@@ -272,6 +273,7 @@
         },
         "paths": {
           "type": "array",
+          "description": "Concrete plan-space paths. Numeric list indexes are retained, for example rules[0].id.",
           "items": {
             "type": "string"
           }
@@ -285,6 +287,7 @@
         "lane",
         "source",
         "address",
+        "finding_path",
         "matched_plan_path",
         "status_effect"
       ],
@@ -305,8 +308,13 @@
             "null"
           ]
         },
+        "finding_path": {
+          "type": "string",
+          "description": "Concrete plan-space path for the finding this guidance instance joins to. Numeric list indexes are retained."
+        },
         "matched_plan_path": {
-          "type": "string"
+          "type": "string",
+          "description": "Normalized schema-space path matched by the guidance rule. List positions use [], for example rules[].id."
         },
         "status_effect": {
           "type": "string"

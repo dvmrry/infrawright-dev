@@ -113,6 +113,16 @@ class OpsContractSchemaTest(unittest.TestCase):
             "tenant"
         ]
         self.assertTrue(root_tenant["pattern"])
+        guidance = assessment["$defs"]["guidance"]
+        self.assertIn("finding_path", guidance["required"])
+        self.assertIn(
+            "Concrete plan-space",
+            guidance["properties"]["finding_path"]["description"],
+        )
+        self.assertIn(
+            "schema-space",
+            guidance["properties"]["matched_plan_path"]["description"],
+        )
 
     def test_contract_options_are_scoped_to_contract_commands(self):
         opts = ops._parse(
@@ -1086,7 +1096,99 @@ class OpsGroupedRootCommandTest(unittest.TestCase):
         }])
         self.assertEqual(len(root_report["guidance"]), 1)
         self.assertEqual(root_report["guidance"][0]["lane"], "provider_config")
+        self.assertEqual(root_report["guidance"][0]["finding_path"], "name")
+        self.assertEqual(
+            root_report["guidance"][0]["matched_plan_path"], "name"
+        )
         self.assertNotIn("sort_key", root_report["guidance"][0])
+
+    def test_report_joins_schema_guidance_to_each_concrete_list_path(self):
+        self._write_group_root(with_plan=True)
+        report_path = os.path.join(self.tmp, "reports", "indexed.json")
+        address = 'module.zpa_segment_group.x.this["one"]'
+        annotation = adoption_guidance.provider_config_annotation(
+            source="resource_changes",
+            address=address,
+            matched_plan_path="rules[].id",
+            provider="zpa",
+            resource_type="zpa_segment_group",
+            setting="sample_setting",
+            expected_value=False,
+            mode="required_external",
+            reason="test guidance",
+            evidence="docs/test.md",
+        )
+        old_show = ops._show_plan_json
+        old_guidance = ops._guidance_annotations
+        old_stderr = sys.stderr
+        try:
+            ops._show_plan_json = lambda env_dir: {
+                "format_version": "1.0",
+                "resource_changes": [{
+                    "address": address,
+                    "type": "zpa_segment_group",
+                    "change": {
+                        "actions": ["update"],
+                        "before": {
+                            "rules": [{"id": "old-a"}, {"id": "old-b"}],
+                        },
+                        "after": {
+                            "rules": [{"id": "new-a"}, {"id": "new-b"}],
+                        },
+                    },
+                }],
+            }
+            ops._guidance_annotations = lambda plan, resource_type: (
+                [annotation] if resource_type == "zpa_segment_group" else []
+            )
+            sys.stderr = io.StringIO()
+            with self.assertRaisesRegex(RuntimeError, "blocked"):
+                ops.cmd_assert_adoptable({
+                    "tenant": "tenant",
+                    "selectors": [],
+                    "policy": None,
+                    "report": report_path,
+                })
+        finally:
+            ops._show_plan_json = old_show
+            ops._guidance_annotations = old_guidance
+            sys.stderr = old_stderr
+        with open(report_path, encoding="utf-8") as f:
+            root_report = json.load(f)["roots"][0]
+        self.assertEqual(
+            root_report["findings"][0]["paths"],
+            ["rules[0].id", "rules[1].id"],
+        )
+        self.assertEqual(
+            [
+                (item["finding_path"], item["matched_plan_path"])
+                for item in root_report["guidance"]
+            ],
+            [
+                ("rules[0].id", "rules[].id"),
+                ("rules[1].id", "rules[].id"),
+            ],
+        )
+
+    def test_unwritable_error_report_preserves_original_assessment_error(self):
+        old_stderr = sys.stderr
+        stderr = io.StringIO()
+        try:
+            sys.stderr = stderr
+            with self.assertRaisesRegex(RuntimeError, "no saved plans"):
+                ops.cmd_assert_clean({
+                    "tenant": "tenant",
+                    "selectors": [],
+                    "report": self.tmp,
+                })
+        finally:
+            sys.stderr = old_stderr
+        self.assertIn(
+            "could not write assessment error report", stderr.getvalue()
+        )
+        self.assertIn(
+            "preserving original assessment error", stderr.getvalue()
+        )
 
     def test_assert_adoptable_collects_guidance_for_all_root_members(self):
         root = self._write_group_root(with_plan=True)
