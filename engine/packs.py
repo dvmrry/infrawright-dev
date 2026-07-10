@@ -549,13 +549,35 @@ def drift_policy_data():
     return out
 
 
-def adoption_status_paths():
-    """Every adoption_status.json under packs/ (vendor-shared in _shared/ today;
-    per-provider later). load_status merges them."""
-    out = []
+def _component_roots():
+    """Installed pack/shared directories that own recursively loaded data."""
     root = packs_root()
-    if os.path.isdir(root):
-        for dirpath, _dirs, files in os.walk(root):
+    if not os.path.isdir(root):
+        return []
+    out = []
+    for name in sorted(os.listdir(root)):
+        path = os.path.join(root, name)
+        if not os.path.isdir(path):
+            continue
+        if name != "_shared":
+            out.append(path)
+            continue
+        for shared_name in sorted(os.listdir(path)):
+            shared_path = os.path.join(path, shared_name)
+            if os.path.isdir(shared_path):
+                out.append(shared_path)
+    return out
+
+
+def adoption_status_paths():
+    """Every component-owned adoption_status.json.
+
+    Loose files at the pack root or directly under ``_shared`` have no profile
+    identity and are therefore not runtime inputs.
+    """
+    out = []
+    for component_root in _component_roots():
+        for dirpath, _dirs, files in os.walk(component_root):
             if "adoption_status.json" in files:
                 out.append(os.path.join(dirpath, "adoption_status.json"))
     return sorted(out)
@@ -564,9 +586,8 @@ def adoption_status_paths():
 def schema_extract_path():
     """The sole schema-extract/main.tf under packs/ (the schema-dump pin source;
     vendor-shared in _shared/ today)."""
-    root = packs_root()
-    if os.path.isdir(root):
-        for dirpath, _dirs, files in os.walk(root):
+    for component_root in _component_roots():
+        for dirpath, _dirs, files in os.walk(component_root):
             if "main.tf" in files and os.path.basename(dirpath) == "schema-extract":
                 return os.path.join(dirpath, "main.tf")
     return None

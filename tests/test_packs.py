@@ -155,6 +155,22 @@ class PackContractTest(unittest.TestCase):
         packs.reset()
         self.assertEqual(packs.provider_prefixes(), {"a_": "a"})
 
+    def test_recursive_runtime_inputs_require_a_component_owner(self):
+        os.makedirs(os.path.join(self.tmp, "_shared"))
+        os.makedirs(os.path.join(self.tmp, "owned"))
+        for path in (
+                os.path.join(self.tmp, "adoption_status.json"),
+                os.path.join(self.tmp, "_shared", "adoption_status.json"),
+                os.path.join(self.tmp, "owned", "adoption_status.json")):
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"dispositions": {}}, f)
+        packs.reset()
+
+        self.assertEqual(
+            packs.adoption_status_paths(),
+            [os.path.join(self.tmp, "owned", "adoption_status.json")],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

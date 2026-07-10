@@ -48,7 +48,12 @@ even when it has no `pack.json`; every directory immediately below `_shared`
 counts as a shared component. This is deliberate. Runtime loaders can consume
 registry, adoption-status, schema-extract, and shared inputs from a partially
 copied directory, so an exact profile must reject that stale directory instead
-of omitting its tests while continuing to load its data.
+of omitting its tests while continuing to load its data. Recursively discovered
+runtime inputs must live below one of those component directories; loose
+`adoption_status.json` inputs at the pack root or directly under `_shared` are
+ignored because no profile component owns them. A top-level or shared
+`schema-extract` directory is itself a component and must appear in the exact
+profile/catalog or validation fails.
 
 ## Check Layers
 
