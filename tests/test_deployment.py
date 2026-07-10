@@ -142,6 +142,17 @@ class DeploymentResolverTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             deployment.overlay()
 
+    def test_non_object_deployment_raises_at_load_boundary(self):
+        for value in ([], "deployment", None, 7):
+            with self.subTest(value=value):
+                self._write(json.dumps(value))
+                with self.assertRaisesRegex(
+                        ValueError, "must contain a JSON object"):
+                    deployment.overlay()
+                with self.assertRaisesRegex(
+                        ValueError, "must contain a JSON object"):
+                    deployment.roots_config()
+
     def test_prefix_is_repo_relative_string(self):
         self._write({"overlay": "_local"})
         self.assertEqual(deployment.config_prefix("acme"), os.path.join("_local", "config", "acme"))

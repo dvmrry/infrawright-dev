@@ -1,0 +1,360 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infrawright.local/schemas/saved-plan-assessment.schema.json",
+  "title": "Infrawright Saved Plan Assessment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_version",
+    "mode",
+    "request",
+    "summary",
+    "roots",
+    "stale_policy"
+  ],
+  "properties": {
+    "kind": {
+      "const": "infrawright.saved_plan_assessment"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "mode": {
+      "enum": [
+        "assert-clean",
+        "assert-adoptable"
+      ]
+    },
+    "request": {
+      "$ref": "#/$defs/request"
+    },
+    "summary": {
+      "$ref": "#/$defs/summary"
+    },
+    "roots": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/rootAssessment"
+      }
+    },
+    "stale_policy": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stalePolicy"
+      }
+    },
+    "error": {
+      "$ref": "#/$defs/error"
+    }
+  },
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tenant",
+        "selectors",
+        "policy",
+        "policy_sha256"
+      ],
+      "properties": {
+        "tenant": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "selectors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "policy": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "policy_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "checked",
+        "clean",
+        "tolerated",
+        "blocked"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "clean",
+            "clean_with_tolerated_drift",
+            "blocked",
+            "error"
+          ]
+        },
+        "checked": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "clean": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tolerated": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blocked": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "rootAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tenant",
+        "label",
+        "members",
+        "status",
+        "plan",
+        "plan_fingerprint",
+        "findings",
+        "guidance"
+      ],
+      "properties": {
+        "tenant": {
+          "type": "string",
+          "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+        },
+        "label": {
+          "type": "string"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "enum": [
+            "clean",
+            "clean_with_tolerated_drift",
+            "blocked"
+          ]
+        },
+        "plan": {
+          "$ref": "#/$defs/plan"
+        },
+        "plan_fingerprint": {
+          "$ref": "#/$defs/fingerprint"
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/finding"
+          }
+        },
+        "guidance": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/guidance"
+          }
+        }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "format_version",
+        "terraform_version"
+      ],
+      "properties": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "format_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "terraform_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "fingerprint": {
+      "type": "object",
+      "description": "Exact tfplan.sources shape accepted by assessment schema version 1. Adding fingerprint fields or versions requires a coordinated assessment-schema update.",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "sha256"
+      ],
+      "properties": {
+        "version": {
+          "const": 2
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "source",
+        "address",
+        "resource_type",
+        "actions",
+        "paths"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "clean",
+            "clean_with_tolerated_drift",
+            "blocked"
+          ]
+        },
+        "source": {
+          "enum": [
+            "resource_changes",
+            "resource_drift"
+          ]
+        },
+        "address": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resource_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "paths": {
+          "type": "array",
+          "description": "Concrete plan-space paths. Numeric list indexes are retained, for example rules[0].id.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "guidance": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "lane",
+        "source",
+        "address",
+        "finding_path",
+        "matched_plan_path",
+        "status_effect"
+      ],
+      "properties": {
+        "lane": {
+          "enum": [
+            "provider_config",
+            "absent_default",
+            "dynamic_schema"
+          ]
+        },
+        "source": {
+          "type": "string"
+        },
+        "address": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "finding_path": {
+          "type": "string",
+          "description": "Concrete plan-space path for the finding this guidance instance joins to. Numeric list indexes are retained."
+        },
+        "matched_plan_path": {
+          "type": "string",
+          "description": "Normalized schema-space path matched by the guidance rule. List positions use [], for example rules[].id."
+        },
+        "status_effect": {
+          "type": "string"
+        }
+      }
+    },
+    "stalePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource_type",
+        "mode",
+        "path"
+      ],
+      "properties": {
+        "resource_type": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "message"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

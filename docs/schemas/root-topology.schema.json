@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infrawright.local/schemas/root-topology.schema.json",
+  "title": "Infrawright Root Topology",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_version",
+    "tenant",
+    "selectors",
+    "directories",
+    "roots",
+    "resource_roots"
+  ],
+  "properties": {
+    "kind": {
+      "const": "infrawright.root_topology"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "tenant": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+        }
+      ]
+    },
+    "selectors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "directories": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "config",
+            "imports",
+            "envs"
+          ],
+          "properties": {
+            "config": {
+              "type": "string"
+            },
+            "imports": {
+              "type": "string"
+            },
+            "envs": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "roots": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/root"
+      }
+    },
+    "resource_roots": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "tenant": {
+            "type": "null"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "directories": {
+            "type": "null"
+          },
+          "roots": {
+            "items": {
+              "properties": {
+                "env_dir": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "directories": {
+            "type": "object"
+          },
+          "roots": {
+            "items": {
+              "properties": {
+                "env_dir": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "root": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "provider",
+        "members",
+        "env_dir"
+      ],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env_dir": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

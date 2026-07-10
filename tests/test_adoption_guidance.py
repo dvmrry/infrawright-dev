@@ -283,12 +283,15 @@ class AdoptionGuidanceTest(unittest.TestCase):
             "address": "sample_resource.this",
         }
 
+        expected = dict(annotation)
+        expected["finding_path"] = "rules[0].name_prefix"
         self.assertEqual(
             adoption_guidance.annotations_for_finding_path(
                 [annotation], finding, ("rules", 0, "name_prefix")
             ),
-            [annotation],
+            [expected],
         )
+        self.assertNotIn("finding_path", annotation)
 
 
 if __name__ == "__main__":

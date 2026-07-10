@@ -111,7 +111,8 @@ def dynamic_schema_annotation(source, address, matched_plan_path, provider,
 
 
 def annotations_for_finding_path(annotations, finding, path):
-    """Return sorted annotations for a blocked finding path."""
+    """Return matched annotations joined to the concrete finding path."""
+    from engine import paths
     from engine import schema_paths
 
     key = (
@@ -119,10 +120,14 @@ def annotations_for_finding_path(annotations, finding, path):
         finding.get("address"),
         schema_paths.format_path(path),
     )
-    return sort_annotations([
-        annotation for annotation in (annotations or [])
-        if _annotation_key(annotation) == key
-    ])
+    matched = []
+    for annotation in annotations or []:
+        if _annotation_key(annotation) != key:
+            continue
+        joined = dict(annotation)
+        joined["finding_path"] = paths.format_path(path)
+        matched.append(joined)
+    return sort_annotations(matched)
 
 
 def sort_annotations(annotations):
