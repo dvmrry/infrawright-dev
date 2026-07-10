@@ -10,10 +10,12 @@ engine uses.
 Stdlib-only, Python 3.6-floor.
 """
 import importlib
+import importlib.machinery
 import json
 import os
 import re
 import sys
+import types
 
 from engine import manifest_checks
 
@@ -77,8 +79,12 @@ PACKS_ROOT = _DEFAULT_PACKS_ROOT
 
 
 def reset():
-    """Drop cached manifests so a later pack change (or an INFRAWRIGHT_PACKS
-    swap in tests) is re-discovered. Mirrors registry.reload_registry()."""
+    """Drop cached manifests and the imported pack namespace.
+
+    Metadata changes at the same root are re-read after reset. Collector source
+    edits should use a fresh process; normal Python bytecode-cache rules still
+    apply to same-path source re-imports.
+    """
     global _MANIFESTS, _MANIFESTS_ROOT, _PACK_NAMESPACE_ROOT
     _MANIFESTS = None
     _MANIFESTS_ROOT = None
@@ -89,8 +95,33 @@ def reset():
 
 def _purge_pack_modules():
     for name in list(sys.modules):
-        if name.startswith("packs."):
+        if name == "packs" or name.startswith("packs."):
             del sys.modules[name]
+
+
+def _validate_provider_ownership(manifests):
+    provider_owners = {}
+    prefix_owners = {}
+    for manifest in manifests:
+        pack_name = manifest["_name"]
+        prefixes = manifest.get("provider_prefixes", {})
+        for prefix in sorted(prefixes):
+            provider = prefixes[prefix]
+            previous = prefix_owners.get(prefix)
+            if previous is not None and previous != pack_name:
+                raise ValueError(
+                    "provider prefix %r is declared by multiple packs: %s, %s"
+                    % (prefix, previous, pack_name)
+                )
+            prefix_owners[prefix] = pack_name
+        for provider in sorted(set(prefixes.values())):
+            previous = provider_owners.get(provider)
+            if previous is not None and previous != pack_name:
+                raise ValueError(
+                    "provider %r is declared by multiple packs: %s, %s"
+                    % (provider, previous, pack_name)
+                )
+            provider_owners[provider] = pack_name
 
 
 def _discover_manifests(root):
@@ -108,6 +139,7 @@ def _discover_manifests(root):
         validate_pack_metadata(manifest, path=path)
         manifest["_name"] = name
         found.append(manifest)
+    _validate_provider_ownership(found)
     return found
 
 
@@ -377,8 +409,16 @@ def _configure_pack_namespace():
     if _PACK_NAMESPACE_ROOT == root:
         return
     _purge_pack_modules()
-    namespace = importlib.import_module("packs")
+    spec = importlib.machinery.ModuleSpec(
+        "packs", loader=None, is_package=True
+    )
+    spec.submodule_search_locations = [root]
+    namespace = types.ModuleType("packs")
+    namespace.__loader__ = None
+    namespace.__package__ = "packs"
     namespace.__path__ = [root]
+    namespace.__spec__ = spec
+    sys.modules["packs"] = namespace
     importlib.invalidate_caches()
     _PACK_NAMESPACE_ROOT = root
 
@@ -407,6 +447,42 @@ def validate_shared_dependencies(pack_names=None, root=None):
                 )
 
 
+def validate_collector_layout(pack_name, root=None):
+    """Fail authoring when collector code lives under an unimportable name."""
+    root = os.path.abspath(root or packs_root())
+    collector_path = os.path.join(root, pack_name, "collector.py")
+    if (
+            os.path.isfile(collector_path)
+            and not _IMPORTABLE_NAME_RE.match(pack_name)):
+        raise ValueError(
+            "pack %s cannot expose a Python collector: its directory name "
+            "is not an importable identifier" % pack_name
+        )
+
+
+def shared_module(component, module=None):
+    """Import shared pack code exclusively from the effective pack root."""
+    if not _IMPORTABLE_NAME_RE.match(component):
+        raise RuntimeError(
+            "shared component %r is not an importable identifier" % component
+        )
+    path = os.path.join(packs_root(), "_shared", component)
+    if not os.path.isdir(path):
+        raise RuntimeError(
+            "missing shared component %s under %s"
+            % (component, os.path.join(packs_root(), "_shared"))
+        )
+    _configure_pack_namespace()
+    import_name = "packs._shared.%s" % component
+    if module:
+        if not _IMPORTABLE_NAME_RE.match(module):
+            raise RuntimeError(
+                "shared module %r is not an importable identifier" % module
+            )
+        import_name += "." + module
+    return importlib.import_module(import_name)
+
+
 def collector_for(provider):
     """Collector module for a provider pack.
 
@@ -425,11 +501,7 @@ def collector_for(provider):
             "pack %s declares provider %r but has no collector.py under %s"
             % (pack_name, provider, os.path.dirname(collector_path))
         )
-    if not _IMPORTABLE_NAME_RE.match(pack_name):
-        raise RuntimeError(
-            "pack %s cannot expose a Python collector: its directory name "
-            "is not an importable identifier" % pack_name
-        )
+    validate_collector_layout(pack_name)
     _configure_pack_namespace()
     return importlib.import_module("packs.%s.collector" % pack_name)
 

@@ -68,6 +68,7 @@ def _validate_one(root, name):
     if not os.path.isfile(pack_path):
         raise ValueError("unknown pack %r under %s" % (name, root))
     packs.validate_pack_metadata(_load_json(pack_path), path=pack_path)
+    packs.validate_collector_layout(name, root=root)
 
     registry_path = os.path.join(pack_dir, "registry.json")
     registry_data = None

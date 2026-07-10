@@ -20,7 +20,9 @@ registries, pack data, provider collector modules, and collector imports below
 `packs._shared`; collector code cannot fall back to the checkout's bundled
 packs. Changing the environment variable in a long-running Python process
 switches roots on the next pack lookup. Call `engine.packs.reset()` after
-editing code or metadata in place at the same root.
+editing metadata in place at the same root. Restart the Python process after
+editing collector source in place; `reset()` does not override Python's normal
+same-path bytecode-cache rules.
 
 For a deliberately reduced pack root, pair that setting with an exact
 `PACK_PROFILE`. See [Pack Distributions And Modular Checks](pack-distributions.md)
@@ -333,6 +335,11 @@ API reference objects during transform.
 When validating all packs, duplicate resource types across registry files fail
 loudly. The engine must not silently choose the last registry entry for a
 resource type.
+
+Provider ownership is also unique. Two installed packs may not map prefixes to
+the same provider token, and two packs may not claim the same provider prefix.
+Pack validation, exact profile validation, and collector resolution reject the
+conflict with both pack names rather than selecting code by directory order.
 
 ## Boundaries
 
