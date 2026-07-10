@@ -5,10 +5,10 @@ library behind one machine-only process host. Pipelines and supervised agents
 are the audience. This is not a human command-line interface and it is not an
 HTTP service.
 
-The first slices port the read-only root-topology and changed-path scoping
-operations. They establish the process protocol, deterministic JSON boundary,
-packaging, and differential validation pattern that later adoption operations
-will follow.
+The first slices port the read-only root-topology, changed-path scoping, and
+materialized plan-root enumeration operations. They establish the process
+protocol, deterministic JSON boundary, packaging, and differential validation
+pattern that later adoption operations will follow.
 
 ## Runtime and Distribution
 
@@ -30,6 +30,11 @@ node dist/infrawright.mjs < request.json > response.json
 The host reads exactly one request from stdin and writes exactly one response
 plus a trailing newline to stdout. Expected errors are structured responses;
 stderr is reserved for failures that prevent a protocol response.
+
+Error responses never carry partial success diagnostics. If discovery would
+emit a whole-root note before a later invalid tenant is found, the process
+response contains only the structured error. Consumers must not depend on
+Python CLI stderr emitted before a failed operation.
 
 ## Version 1 Requests
 
@@ -81,6 +86,37 @@ maps recognized deployment, config, import, environment-root, and module paths
 to affected resources and complete logical roots. Unknown paths remain in
 `unmatched_paths`; downstream owns the fail, full-scope, or ignore policy.
 Paths need not exist, so deleted files and VCS-supplied paths scope correctly.
+
+### Materialized plan roots
+
+```json
+{
+  "kind": "infrawright.process_request",
+  "schema_version": 1,
+  "request_id": "delivery-125",
+  "operation": "plan_roots",
+  "context": {
+    "workspace": "/workspace/deployment",
+    "deployment": "deployment.json",
+    "root_catalog": "catalogs/zscaler-root-catalog.v1.json"
+  },
+  "input": {
+    "tenant": null,
+    "selectors": [
+      "zpa/application_segment"
+    ]
+  }
+}
+```
+
+The result is the existing `infrawright.plan_roots` v1 contract. It enumerates
+only materialized, recognized environment roots and names each root's
+`tfplan`/`tfplan.sources` pair. `artifact_state` is presence-only: `complete`
+means both paths are regular files (including file symlinks), not that their
+contents are fresh or valid. A consumer must archive and restore the pair
+together, then rerun the engine assessment before using it. Unknown directories
+and stale labels are ignored; selection of one grouped member returns the whole
+materialized root and a structured diagnostic.
 
 `context.workspace` must be absolute. The other context paths may be absolute
 or workspace-relative. The process never consults
@@ -136,8 +172,11 @@ Zscaler catalog and deployment fixtures, then compare:
 Coverage includes the default topology, exact and product selectors,
 duplicates, explicit grouped roots, null and concrete tenants, every scoped
 artifact suffix, deleted leaves, and absolute, relative, and symlink-alias
-spellings for external overlays and deployment files. Each subsequent ported
-operation must add its own Python-produced differential corpus before cutover.
+spellings for external overlays and deployment files. Plan-root coverage adds
+all three artifact states, explicit and discovered tenants, grouped-root notes,
+lexical overlay paths, directory/file impostors, and symlinked roots/artifacts.
+Each subsequent ported operation must add its own Python-produced Zscaler
+differential corpus before cutover.
 
 Protocol/config JSON rejects duplicate keys, non-finite numbers, and integers
 that JavaScript cannot represent exactly. A separate lossless parser already
@@ -148,7 +187,8 @@ float-bearing output contract is migrated.
 
 ## Current Boundary
 
-These slices support only Zscaler root topology and changed-path scoping.
+These slices support only Zscaler root topology, changed-path scoping, and
+materialized plan-root enumeration.
 Python remains authoritative for all mutating adoption behavior, Terraform
 orchestration, saved-plan gates, and raw pack catalog production. Downstream
 should dual-run these operations and retain the Python result as the cutover

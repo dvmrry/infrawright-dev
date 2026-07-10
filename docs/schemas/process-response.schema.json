@@ -37,6 +37,9 @@
           "const": "scope_paths"
         },
         {
+          "const": "plan_roots"
+        },
+        {
           "type": "null"
         }
       ]
@@ -60,6 +63,9 @@
         },
         {
           "$ref": "changed-path-scope.schema.json"
+        },
+        {
+          "$ref": "plan-roots.schema.json"
         },
         {
           "type": "null"
@@ -118,6 +124,22 @@
               },
               "result": {
                 "$ref": "changed-path-scope.schema.json"
+              },
+              "error": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "request_id": {
+                "type": "string"
+              },
+              "operation": {
+                "const": "plan_roots"
+              },
+              "result": {
+                "$ref": "plan-roots.schema.json"
               },
               "error": {
                 "type": "null"

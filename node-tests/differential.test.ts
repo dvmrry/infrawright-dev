@@ -9,8 +9,10 @@ import { loadRootCatalog } from "../node-src/domain/catalog.js";
 import { loadDeployment } from "../node-src/domain/deployment.js";
 import { rootTopology } from "../node-src/domain/roots.js";
 import { changedPathScope } from "../node-src/domain/scope-paths.js";
+import { planRoots } from "../node-src/domain/plan-roots.js";
 import {
   renderLegacyChangedPathScope,
+  renderLegacyPlanRoots,
   renderLegacyRootDiagnostics,
   renderLegacyRootTopology,
 } from "../node-src/process/legacy.js";
@@ -88,6 +90,42 @@ async function compareScope(options: {
   assert.deepEqual(nodeResult, JSON.parse(python.stdout));
 }
 
+async function comparePlanRoots(options: {
+  deployment: string;
+  tenant: string | null;
+  selectors: readonly string[];
+  packsRoot?: string;
+}): Promise<Awaited<ReturnType<typeof planRoots>>> {
+  const catalog = await loadRootCatalog(CATALOG);
+  const deployment = await loadDeployment(options.deployment);
+  const nodeResult = await planRoots({
+    catalog,
+    deployment,
+    workspace: WORKSPACE,
+    tenant: options.tenant,
+    selectors: options.selectors,
+  });
+  const args = ["-m", "engine.ops", "plan-roots", "--json"];
+  if (options.tenant !== null) {
+    args.push("--tenant", options.tenant);
+  }
+  args.push(...options.selectors);
+  const python = spawnSync("python3", args, {
+    cwd: WORKSPACE,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      INFRAWRIGHT_DEPLOYMENT: options.deployment,
+      INFRAWRIGHT_PACKS: options.packsRoot ?? path.join(WORKSPACE, "packs"),
+    },
+  });
+  assert.equal(python.status, 0, python.stderr);
+  assert.equal(renderLegacyPlanRoots(nodeResult.result), python.stdout);
+  assert.equal(renderLegacyRootDiagnostics(nodeResult.diagnostics), python.stderr);
+  assert.deepEqual(nodeResult.result, JSON.parse(python.stdout));
+  return nodeResult;
+}
+
 test("committed Zscaler catalog is current", () => {
   const check = spawnSync(
     "python3",
@@ -142,6 +180,12 @@ test("pruned Zscaler pack root produces the same catalog and topology", async ()
       deployment: path.join(directory, "missing.json"),
       tenant: "prod",
       selectors: ["zpa", "zia/url_categories"],
+      packsRoot,
+    });
+    await comparePlanRoots({
+      deployment: path.join(directory, "missing.json"),
+      tenant: null,
+      selectors: ["zpa/application_segment"],
       packsRoot,
     });
   } finally {
@@ -382,4 +426,164 @@ test("dangling targets resolve symlink components before parent traversal", asyn
     await rm(directory, { recursive: true, force: true });
     await rm(external, { recursive: true, force: true });
   }
+});
+
+test("materialized plan-root artifact states and grouped diagnostics match Python", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-node-"));
+  try {
+    const overlay = path.join(directory, "overlay");
+    const deployment = path.join(directory, "deployment.json");
+    await writeFile(deployment, JSON.stringify({
+      overlay,
+      roots: {
+        zpa: {
+          groups: {
+            zpa_segments: ["zpa_application_segment", "zpa_segment_group"],
+          },
+        },
+      },
+    }));
+    for (const tenant of [
+      "absent",
+      "complete",
+      "directory-impostor",
+      "plan-only",
+      "sources-only",
+    ]) {
+      await mkdir(path.join(overlay, "envs", tenant, "zpa_segments"), {
+        recursive: true,
+      });
+    }
+    await writeFile(path.join(overlay, "envs/complete/zpa_segments/tfplan"), "plan");
+    await writeFile(
+      path.join(overlay, "envs/complete/zpa_segments/tfplan.sources"),
+      "sources",
+    );
+    await writeFile(path.join(overlay, "envs/plan-only/zpa_segments/tfplan"), "plan");
+    await writeFile(
+      path.join(overlay, "envs/sources-only/zpa_segments/tfplan.sources"),
+      "sources",
+    );
+    await mkdir(path.join(
+      overlay,
+      "envs/directory-impostor/zpa_segments/tfplan",
+    ));
+    await writeFile(
+      path.join(
+        overlay,
+        "envs/directory-impostor/zpa_segments/tfplan.sources",
+      ),
+      "sources",
+    );
+    const linkedRoot = path.join(directory, "linked-root");
+    await mkdir(path.join(overlay, "envs/linked"), { recursive: true });
+    await mkdir(linkedRoot);
+    const linkedPlan = path.join(directory, "linked-plan");
+    const linkedSources = path.join(directory, "linked-sources");
+    await writeFile(linkedPlan, "plan");
+    await writeFile(linkedSources, "sources");
+    await symlink(linkedPlan, path.join(linkedRoot, "tfplan"));
+    await symlink(linkedSources, path.join(linkedRoot, "tfplan.sources"));
+    await symlink(
+      linkedRoot,
+      path.join(overlay, "envs/linked/zpa_segments"),
+    );
+    await comparePlanRoots({
+      deployment,
+      tenant: null,
+      selectors: ["zpa_application_segment", "zpa_application_segment"],
+    });
+    await comparePlanRoots({
+      deployment,
+      tenant: "complete",
+      selectors: ["zpa"],
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("relative unnormalized plan-root overlays preserve Python path bytes", async () => {
+  const directory = await mkdtemp(path.join(WORKSPACE, ".node-plan-roots-"));
+  try {
+    const deployment = path.join(directory, "deployment.json");
+    const relative = path.relative(WORKSPACE, directory);
+    const overlay = `${relative}//staging/../actual`;
+    await writeFile(deployment, JSON.stringify({ overlay }));
+    await mkdir(path.join(directory, "staging"));
+    await mkdir(path.join(directory, "actual/envs/prod/zpa_application_segment"), {
+      recursive: true,
+    });
+    const compared = await comparePlanRoots({
+      deployment,
+      tenant: "prod",
+      selectors: ["zpa/application_segment"],
+    });
+    assert.equal(compared.result.roots.length, 1);
+    assert.equal(
+      compared.result.roots[0]?.env_dir,
+      `${overlay}/envs/prod/zpa_application_segment`,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("plan-root discovery validates only selected recognized tenant roots", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-node-"));
+  try {
+    const overlay = path.join(directory, "overlay");
+    const deploymentPath = path.join(directory, "deployment.json");
+    await writeFile(deploymentPath, JSON.stringify({ overlay }));
+    await mkdir(
+      path.join(overlay, "envs/bad tenant/zpa_application_segment"),
+      { recursive: true },
+    );
+    const catalog = await loadRootCatalog(CATALOG);
+    const deployment = await loadDeployment(deploymentPath);
+    await assert.rejects(
+      () => planRoots({
+        catalog,
+        deployment,
+        workspace: WORKSPACE,
+        tenant: null,
+        selectors: ["zpa/application_segment"],
+      }),
+      /TENANT must match/,
+    );
+    const ignored = await comparePlanRoots({
+      deployment: deploymentPath,
+      tenant: null,
+      selectors: ["zia/url_categories"],
+    });
+    assert.deepEqual(ignored.result.roots, []);
+    await mkdir(path.join(overlay, "envs/also bad/unknown_root"), {
+      recursive: true,
+    });
+    const unknownIgnored = await comparePlanRoots({
+      deployment: deploymentPath,
+      tenant: null,
+      selectors: ["ztc/dns_gateway"],
+    });
+    assert.deepEqual(unknownIgnored.result.roots, []);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("plan_roots validates unknown selectors before semantic root resolution", async () => {
+  const catalog = await loadRootCatalog(CATALOG);
+  await assert.rejects(
+    () => planRoots({
+      catalog,
+      deployment: {
+        overlay: ".",
+        roots: { unknown_provider: {} },
+      },
+      workspace: WORKSPACE,
+      tenant: null,
+      selectors: ["not_a_resource"],
+    }),
+    /unknown or non-generated resource selector/,
+  );
 });
