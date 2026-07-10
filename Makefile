@@ -23,8 +23,9 @@ endif
 
 check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
 	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1
-	@test -z "$$(git status --porcelain -- demo/config/demo demo/imports/demo)" || { \
-		echo "demo drift:"; git status --porcelain -- demo/config/demo demo/imports/demo; exit 1; }
+	@status="$$(git status --porcelain -- demo/config/demo demo/imports/demo)" || { \
+		echo "check-demo: unable to inspect demo drift" >&2; exit 1; }; \
+	test -z "$$status" || { echo "demo drift:"; echo "$$status"; exit 1; }
 
 check-examples: ## Validate examples whose declared pack requirements are installed
 	@set +e; output="$$( $(PYTHON) -m engine.pack_set --catalog "$(PACK_CATALOG)" --requirements "$(DEMO_PACK_REQUIREMENTS)" 2>&1 )"; status=$$?; set -e; \
@@ -63,9 +64,11 @@ audit-vendor-boundary: ## Audit vendor-specific tokens in engine source
 demo-contract: ## Credential-free demo artifact/module contract check
 	@echo "demo-contract: materializing demo overlay without credentials"
 	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1
-	@test -z "$$(git status --porcelain -- demo/config/demo demo/imports/demo)" || { \
+	@status="$$(git status --porcelain -- demo/config/demo demo/imports/demo)" || { \
+		echo "demo-contract: unable to inspect demo drift" >&2; exit 1; }; \
+	test -z "$$status" || { \
 		echo "demo-contract: demo config/import artifacts drifted:"; \
-		git status --porcelain -- demo/config/demo demo/imports/demo; exit 1; }
+		echo "$$status"; exit 1; }
 	@test -z "$$(find demo/imports/demo -name '*_moves.tf' -print)" || { \
 		echo "demo-contract: stale demo moved-block files found:"; \
 		find demo/imports/demo -name '*_moves.tf' -print; exit 1; }

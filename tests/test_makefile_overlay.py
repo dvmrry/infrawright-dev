@@ -185,6 +185,22 @@ class MakefileOverlayTest(unittest.TestCase):
             self.assertIn("INFRAWRIGHT_DEPLOYMENT=\"demo/deployment.json\"", proc.stdout)
             self.assertIn("engine.gen_module --check-output", proc.stdout)
 
+    def test_check_demo_propagates_git_status_failure(self):
+        with tempfile.TemporaryDirectory() as td:
+            proc = subprocess.run(
+                [
+                    "make", "-f", os.path.join(ROOT, "Makefile"),
+                    "MAKE=true", "check-demo",
+                ],
+                cwd=td,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
+            )
+
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("unable to inspect demo drift", proc.stderr)
+
     def test_check_tfvars_fmt_skips_json_deployment(self):
         with tempfile.TemporaryDirectory() as td:
             dep = os.path.join(td, "deployment.json")
