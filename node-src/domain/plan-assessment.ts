@@ -66,6 +66,13 @@ export interface SavedPlanAssessmentOptions {
   readonly terraformShowLimits?: TerraformShowLimits;
   readonly operationTimeoutMs?: number;
   readonly maxRetainedSnapshotBytes?: bigint;
+  readonly resultLimits?: SavedPlanAssessmentResultLimits;
+}
+
+export interface SavedPlanAssessmentResultLimits {
+  readonly maxFindings: number;
+  readonly maxPaths: number;
+  readonly maxMetadataBytes: number;
 }
 
 export interface AssessmentFinding extends PlanFinding {
@@ -128,7 +135,15 @@ export class SavedPlanAssessmentFailure extends ProcessFailure {
 export const MAX_SAVED_PLAN_ASSESSMENT_ROOTS = 1_000;
 export const MAX_RETAINED_PLAN_SNAPSHOT_BYTES = 2n * 1024n * 1024n * 1024n;
 export const MAX_SAVED_PLAN_ASSESSMENT_TIMEOUT_MS = 60 * 60 * 1_000;
+export const MAX_SAVED_PLAN_ASSESSMENT_FINDINGS = 100_000;
+export const MAX_SAVED_PLAN_ASSESSMENT_PATHS = 250_000;
+export const MAX_SAVED_PLAN_ASSESSMENT_METADATA_BYTES = 8 * 1024 * 1024;
 const DEFAULT_SAVED_PLAN_ASSESSMENT_TIMEOUT_MS = 10 * 60 * 1_000;
+const DEFAULT_ASSESSMENT_RESULT_LIMITS: SavedPlanAssessmentResultLimits = {
+  maxFindings: MAX_SAVED_PLAN_ASSESSMENT_FINDINGS,
+  maxPaths: MAX_SAVED_PLAN_ASSESSMENT_PATHS,
+  maxMetadataBytes: MAX_SAVED_PLAN_ASSESSMENT_METADATA_BYTES,
+};
 
 const DEFAULT_SAVED_PLAN_LIMITS: BoundedReadLimits = {
   maxFiles: 16,
@@ -206,7 +221,17 @@ function limitsWithin(
   limits: BoundedReadLimits,
   maximum: BoundedReadLimits,
 ): boolean {
-  return limits.maxFiles <= maximum.maxFiles
+  return Number.isSafeInteger(limits.maxFiles)
+    && limits.maxFiles > 0
+    && Number.isSafeInteger(limits.maxDirectories)
+    && limits.maxDirectories > 0
+    && Number.isSafeInteger(limits.maxDirectoryEntries)
+    && limits.maxDirectoryEntries > 0
+    && Number.isSafeInteger(limits.maxDepth)
+    && limits.maxDepth >= 0
+    && limits.maxTotalBytes > 0n
+    && limits.maxFileBytes > 0n
+    && limits.maxFiles <= maximum.maxFiles
     && limits.maxDirectories <= maximum.maxDirectories
     && limits.maxDirectoryEntries <= maximum.maxDirectoryEntries
     && limits.maxDepth <= maximum.maxDepth
@@ -256,6 +281,14 @@ function copyAssessmentOptions(
       ?? DEFAULT_SAVED_PLAN_ASSESSMENT_TIMEOUT_MS,
     maxRetainedSnapshotBytes: options.maxRetainedSnapshotBytes
       ?? MAX_RETAINED_PLAN_SNAPSHOT_BYTES,
+    resultLimits: {
+      maxFindings: options.resultLimits?.maxFindings
+        ?? DEFAULT_ASSESSMENT_RESULT_LIMITS.maxFindings,
+      maxPaths: options.resultLimits?.maxPaths
+        ?? DEFAULT_ASSESSMENT_RESULT_LIMITS.maxPaths,
+      maxMetadataBytes: options.resultLimits?.maxMetadataBytes
+        ?? DEFAULT_ASSESSMENT_RESULT_LIMITS.maxMetadataBytes,
+    },
   };
 }
 
@@ -288,6 +321,23 @@ function attachResourceTypes(
     ...finding,
     resource_type: types.get(`${finding.source}\0${finding.address}`) ?? null,
   }));
+}
+
+function findingMetadataBytes(finding: AssessmentFinding): number {
+  let bytes = Buffer.byteLength(finding.source, "utf8")
+    + Buffer.byteLength(finding.address, "utf8")
+    + (finding.resource_type === null
+      ? 0
+      : Buffer.byteLength(finding.resource_type, "utf8"));
+  for (const action of finding.actions) {
+    bytes += Buffer.byteLength(action, "utf8");
+  }
+  for (const findingPath of finding.paths) {
+    for (const segment of findingPath) {
+      bytes += Buffer.byteLength(String(segment), "utf8");
+    }
+  }
+  return bytes;
 }
 
 function totalStatus(clean: number, tolerated: number, blocked: number): PlanStatus {
@@ -399,16 +449,32 @@ async function runSavedPlanAssessment<T>(
   let hasCompleted = false;
   let primaryFailure: ProcessFailure | null = null;
   try {
+    if (options.roots.length > MAX_SAVED_PLAN_ASSESSMENT_ROOTS) {
+      fail(
+        "TOO_MANY_SAVED_PLANS",
+        "saved-plan assessment exceeds the root-count limit",
+      );
+    }
     capturedOptions = copyAssessmentOptions(options);
     validateRootInputs(capturedOptions.roots);
     const operationTimeoutMs = capturedOptions.operationTimeoutMs as number;
     const maxRetainedSnapshotBytes = capturedOptions.maxRetainedSnapshotBytes as bigint;
+    const resultLimits = capturedOptions.resultLimits as SavedPlanAssessmentResultLimits;
     if (
       !Number.isSafeInteger(operationTimeoutMs)
       || operationTimeoutMs <= 0
       || operationTimeoutMs > MAX_SAVED_PLAN_ASSESSMENT_TIMEOUT_MS
       || maxRetainedSnapshotBytes <= 0n
       || maxRetainedSnapshotBytes > MAX_RETAINED_PLAN_SNAPSHOT_BYTES
+      || !Number.isSafeInteger(resultLimits.maxFindings)
+      || resultLimits.maxFindings <= 0
+      || resultLimits.maxFindings > MAX_SAVED_PLAN_ASSESSMENT_FINDINGS
+      || !Number.isSafeInteger(resultLimits.maxPaths)
+      || resultLimits.maxPaths <= 0
+      || resultLimits.maxPaths > MAX_SAVED_PLAN_ASSESSMENT_PATHS
+      || !Number.isSafeInteger(resultLimits.maxMetadataBytes)
+      || resultLimits.maxMetadataBytes <= 0
+      || resultLimits.maxMetadataBytes > MAX_SAVED_PLAN_ASSESSMENT_METADATA_BYTES
     ) {
       fail("INVALID_ASSESSMENT_LIMIT", "saved-plan assessment limits are invalid");
     }
@@ -458,6 +524,9 @@ async function runSavedPlanAssessment<T>(
     }
     temporaryIdentity = { dev: temporaryStat.dev, ino: temporaryStat.ino };
     let retainedSnapshotBytes = 0n;
+    let findingCount = 0;
+    let findingPathCount = 0;
+    let findingMetadataByteCount = 0;
     for (const root of capturedOptions.roots) {
       remainingTime(deadline);
       const remainingSnapshotBytes = maxRetainedSnapshotBytes
@@ -520,6 +589,24 @@ async function runSavedPlanAssessment<T>(
         fingerprintBudget: new ReadBudget(sourceLimits),
         savedPlanBudget: new ReadBudget(savedPlanLimits),
       });
+      const findings = attachResourceTypes(plan, classification.findings);
+      findingCount += findings.length;
+      findingPathCount += findings.reduce((count, finding) => {
+        return count + finding.paths.length;
+      }, 0);
+      findingMetadataByteCount += findings.reduce((count, finding) => {
+        return count + findingMetadataBytes(finding);
+      }, 0);
+      if (
+        findingCount > resultLimits.maxFindings
+        || findingPathCount > resultLimits.maxPaths
+        || findingMetadataByteCount > resultLimits.maxMetadataBytes
+      ) {
+        fail(
+          "ASSESSMENT_RESULT_LIMIT_EXCEEDED",
+          "saved-plan assessment exceeds the report metadata limit",
+        );
+      }
       assessed.push({
         tenant: root.tenant,
         label: root.label,
@@ -531,7 +618,7 @@ async function runSavedPlanAssessment<T>(
           terraform_version: metadata(plan, "terraform_version"),
         },
         plan_fingerprint: captured.fingerprintFile.fingerprint,
-        findings: attachResourceTypes(plan, classification.findings),
+        findings,
       });
     }
 

@@ -4,7 +4,7 @@ import { DriftPolicy } from "./drift-policy.js";
 import { ProcessFailure } from "./errors.js";
 import {
   ReadBudget,
-  readBoundedUtf8File,
+  readBoundedFileBytes,
   sha256StableFile,
   type StableFileDigest,
 } from "../io/bounded-files.js";
@@ -47,12 +47,16 @@ export async function loadBoundDriftPolicy(
       "saved-plan policy requires a resolved absolute path",
     );
   }
-  const source = await readBoundedUtf8File(policyPath, budget);
+  const source = await readBoundedFileBytes(policyPath, budget);
   try {
+    const text = new TextDecoder("utf-8", {
+      fatal: true,
+      ignoreBOM: true,
+    }).decode(source.bytes);
     return {
       path: policyPath,
       file: source.digest,
-      policy: new DriftPolicy(parseControlJson(source.text), "<policy>"),
+      policy: new DriftPolicy(parseControlJson(text), "<policy>"),
     };
   } catch {
     throw new DriftPolicyLoadFailure(source.digest);

@@ -241,7 +241,7 @@ substitute either file. A PR-controlled plan/sidecar pair is not trusted
 evidence. Cryptographic planner attestation is a separate future contract, not
 something an additional attacker-writable digest could provide.
 
-All evidence reads have explicit operation-wide ceilings for file count,
+All evidence traversals have explicit per-pass ceilings for file count,
 directory count, directory entries, depth, individual bytes, and total bytes.
 Reads fail when a file mutates or is replaced, and plan/sources diagnostics do
 not include paths or content. The Node port intentionally hardens Python's
@@ -282,7 +282,8 @@ has a ten-minute default/one-hour hard execution ceiling. Caller-supplied read
 limits may only tighten the fixed source, plan, and policy ceilings. Individual
 evidence traversals receive fresh budgets so repeated final checks can reread
 the same bounded tree; transaction root, retained-byte, and deadline caps bound
-the aggregate operation.
+the aggregate operation. Report-safe retained metadata is separately capped at
+100,000 findings, 250,000 concrete paths, and 8 MiB of address/path/action text.
 
 The report omits raw plan documents, before/after leaf values, Terraform
 stdout/stderr, credentials, and filesystem paths from failures. It deliberately

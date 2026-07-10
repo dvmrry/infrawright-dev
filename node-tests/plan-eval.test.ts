@@ -81,6 +81,45 @@ test("diff paths matches Python missing-null and nested list behavior", () => {
   assert.deepEqual(diffPaths([], [null]), []);
 });
 
+test("prototype-like own keys cannot disappear behind tolerated drift", () => {
+  const before = JSON.parse('{"a":0}');
+  const after = JSON.parse('{"a":1,"__proto__":{}}');
+  assert.deepEqual(diffPaths(before, after), [["__proto__"], ["a"]]);
+  const policyData = {
+    version: 1,
+    resource_types: {
+      sample_resource: {
+        plan_tolerate: [{
+          path: "a",
+          reason: "fixture",
+          approved_by: "unit",
+        }],
+      },
+    },
+  };
+  const plan = {
+    format_version: "1.2",
+    complete: true,
+    errored: false,
+    resource_changes: [update(before, after)],
+  };
+  const actual = classifyPlan(plan, new DriftPolicy(policyData));
+  assert.equal(actual.status, BLOCKED);
+  assert.deepEqual(actual.findings[0]?.paths, [["__proto__"]]);
+  const python = spawnSync("python3", ["-c", [
+    "import json,sys",
+    "from engine.drift_policy import DriftPolicy",
+    "from engine.plan_eval import classify_plan",
+    "value=json.load(sys.stdin)",
+    "print(json.dumps(classify_plan(value['plan'], DriftPolicy(value['policy'])), sort_keys=True))",
+  ].join("; ")], {
+    input: JSON.stringify({ plan, policy: policyData }),
+    encoding: "utf8",
+  });
+  assert.equal(python.status, 0, python.stderr);
+  assert.deepEqual(actual, JSON.parse(python.stdout));
+});
+
 test("lossless number equality follows Python integer/float behavior", () => {
   const values = parseDataJsonLosslessly(
     '[9007199254740993,9007199254740993.0,1,1.0,true,false,0,-0.0]',

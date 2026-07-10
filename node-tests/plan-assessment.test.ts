@@ -300,6 +300,29 @@ test("assessment rejects an excessive root set before filesystem work", async ()
   );
 });
 
+test("invalid read limits fail before policy phase classification", async () => {
+  const outcome = await assessSavedPlansReport({
+    assessment: {
+      terraformExecutable: "/missing/terraform",
+      roots: [],
+      backendConfig: null,
+      policyPath: null,
+      policyLimits: {
+        maxFiles: 0,
+        maxDirectories: 1,
+        maxDirectoryEntries: 1,
+        maxDepth: 0,
+        maxTotalBytes: 1n,
+        maxFileBytes: 1n,
+      },
+    },
+    mode: "assert-clean",
+    request: { tenant: "tenant", selectors: [], policy: null },
+  });
+  assert.equal(outcome.failure?.code, "INVALID_ASSESSMENT_LIMIT");
+  assert.equal(outcome.report.error?.kind, "assessment_error");
+});
+
 test("retained snapshot cap is enforced before copying an oversized plan", async () => {
   await withFixture(async (fixture) => {
     const fake = executable(fixture.root, "exit 99");
@@ -310,6 +333,31 @@ test("retained snapshot cap is enforced before copying an oversized plan", async
       }),
       (error: unknown) => failure(error, "FILE_LIMIT_EXCEEDED"),
     );
+  });
+});
+
+test("aggregate report metadata limits fail closed inside the evidence transaction", async () => {
+  await withFixture(async (fixture) => {
+    const fake = executable(fixture.root, `printf '%s' ${shellLiteral(plan({
+      actions: ["update"],
+      before: { status: "old" },
+      after: { status: "new" },
+    }))}`);
+    const outcome = await assessSavedPlansReport({
+      assessment: {
+        ...options(fixture, fake),
+        resultLimits: {
+          maxFindings: 1,
+          maxPaths: 1,
+          maxMetadataBytes: 1,
+        },
+      },
+      mode: "assert-clean",
+      request: { tenant: "tenant", selectors: [], policy: null },
+    });
+    assert.equal(outcome.failure?.code, "ASSESSMENT_RESULT_LIMIT_EXCEEDED");
+    assert.equal(outcome.report.error?.kind, "assessment_error");
+    assert.deepEqual(outcome.report.roots, []);
   });
 });
 
@@ -376,6 +424,25 @@ test("zero-root reports preserve policy-error precedence and invalid-policy hash
       createHash("sha256").update(bytes).digest("hex"),
     );
     assert.deepEqual(invalid.report.roots, []);
+
+    const invalidUtf8 = Buffer.from([0xff, 0xfe, 0xfd]);
+    writeFileSync(policyPath, invalidUtf8);
+    const undecodable = await assessSavedPlansReport({
+      assessment: {
+        terraformExecutable: "/missing/terraform",
+        roots: [],
+        backendConfig: null,
+        policyPath,
+      },
+      mode: "assert-adoptable",
+      request: { tenant: "tenant", selectors: [], policy: "policy.json" },
+    });
+    assert.equal(undecodable.failure?.code, "INVALID_DRIFT_POLICY");
+    assert.equal(undecodable.report.error?.kind, "policy_error");
+    assert.equal(
+      undecodable.report.request.policy_sha256,
+      createHash("sha256").update(invalidUtf8).digest("hex"),
+    );
 
     const absent = await assessSavedPlansReport({
       assessment: {

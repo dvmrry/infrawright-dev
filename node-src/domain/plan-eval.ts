@@ -43,7 +43,11 @@ export function diffPaths(
     const paths: PlanPath[] = [];
     const keys = sortedStrings(new Set([...Object.keys(before), ...Object.keys(after)]));
     for (const key of keys) {
-      paths.push(...diffPaths(before[key] ?? null, after[key] ?? null, [...path, key]));
+      paths.push(...diffPaths(
+        Object.hasOwn(before, key) ? before[key] : null,
+        Object.hasOwn(after, key) ? after[key] : null,
+        [...path, key],
+      ));
     }
     return paths;
   }
