@@ -221,6 +221,36 @@ fingerprint, or policy. The validator is intentionally stricter than the
 Python helper on malformed shapes that Python can accidentally treat as an
 empty or clean plan.
 
+The next internal slice implements that evidence boundary without exposing it
+as a process operation. It reproduces fingerprint v2 byte-for-byte, including
+the generated-root HCL scanner, local-module tree ordering, root inputs,
+var-file basenames, and backend/key payload. A saved plan is accepted only with
+an exact `{version:2,sha256}` `tfplan.sources` file that matches current inputs.
+The plan is copied into a caller-owned, mode-0700 private directory as a random
+mode-0600 snapshot; the original, snapshot, fingerprint file, and recomputed
+source fingerprint are bound and rechecked before and after assessment.
+
+All evidence reads have explicit operation-wide ceilings for file count,
+directory count, directory entries, depth, individual bytes, and total bytes.
+Reads fail when a file mutates or is replaced, and plan/sources diagnostics do
+not include paths or content. The Node port intentionally hardens Python's
+unbounded and best-effort filesystem behavior: undecodable UTF-8, unreadable
+directories, excessive trees, special files, and mutation races fail closed.
+Fingerprint traversal otherwise retains Python v2 symlink semantics so digest
+bytes remain compatible. The public assessment operation will create the
+trusted temporary directory and own cleanup; callers cannot supply a snapshot
+path or raw plan JSON.
+
+The internal Terraform-show adapter accepts only an absolute, non-symlinked
+executable and a private regular-file snapshot. It invokes a fixed
+`terraform -chdir=<root> show -json <snapshot>` argv without a shell, replaces
+the child environment with fixed locale/checkpoint values (so `TF_CLI_ARGS*`
+and credentials cannot alter the call), enforces hard timeout/stdout/stderr
+ceilings, discards stderr, and parses stdout with the lossless bounded JSON
+contract. Child output, filesystem paths, and plan values never enter an error
+diagnostic. Final evidence rechecks remain mandatory because the adapter alone
+does not claim the root or snapshot stayed unchanged around execution.
+
 Python remains authoritative for all mutating adoption behavior, Terraform
 orchestration, saved-plan evidence capture and reports, gate exit semantics,
 and raw pack catalog production. Downstream should dual-run the public Node
