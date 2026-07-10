@@ -10,6 +10,8 @@ maintained development evidence.
 | Path | Purpose | Owner | Keep criteria | Notes |
 |---|---|---|---|---|
 | `engine/` | Core product logic: provider-agnostic transform, import oracle, projection, diagnostics, provider-readiness mapping, shared collectors, and CLI entrypoints. | Core maintainers | Keep only behavior used by root commands, tests, docs, or provider-pack contracts. | Engine changes require tests and should not absorb provider-specific one-offs; `make audit-vendor-boundary` makes current exceptions explicit. |
+| `node-src/` | Typed Node 24 library and machine-only process host. | Core maintainers | Keep only operations with published schemas and Python differential coverage until cutover. | This transition surface does not define a human CLI or HTTP service. |
+| `catalogs/` | Versioned, validated transition inputs for the Node runtime. | Core and pack maintainers | Keep generated catalogs with provenance hashes and CI drift checks. | Python remains the catalog producer until the full pack validator is ported. |
 | `packs/` | Declarative provider metadata, schemas, registries, overrides, adoption metadata, and provider collectors. | Pack maintainers | Keep metadata that is validated, referenced by tests, or backed by provider-lab/readiness evidence. | Shared helpers belong under `packs/_shared/`; provider-specific behavior should not leak into `engine/`. |
 | `packsets/` | Exact installed-pack profiles used by distribution checks. | Distribution maintainers | Keep profiles minimal, sorted, and explicit about shared components. | A profile validates a selected pack root; it does not silently filter a larger root. |
 | `tools/` | Maintained developer/operator tooling outside the Python engine. | Tool maintainers | Keep tools with documented input/output, tests or fixtures, and a current workflow reference. | `tools/source-evidence-ast/` is used by provider-readiness source evidence evaluation. |
@@ -27,6 +29,9 @@ maintained development evidence.
 ## Current Layout Boundaries
 
 - Root `Makefile` targets are the stable product command surface.
+- The Node process contract is documented in
+  [Node Process API Migration](node-process-api.md); it remains a differential
+  migration surface until each operation is cut over.
 - The adoption command contract and collector boundary are documented in
   [Adoption Command Surface](adoption-command-surface.md).
 - The validated pack metadata contract is documented in

@@ -93,11 +93,20 @@ the generated demo module tree. It does not run live provider import or
 Terraform/OpenTofu plan; the live plan contract begins with the primary
 adoption workflow above and requires real provider credentials.
 
+The Zscaler runtime is beginning a differential migration to Node 24. The first
+machine-only process operation emits the existing root-topology contract and is
+byte-compared with Python in CI. Build its no-install bundle with
+`npm ci --ignore-scripts && npm run check && npm run build`; see
+[Node Process API Migration](docs/node-process-api.md) for the request contract,
+current boundary, and downstream dual-run guidance.
+
 ## Layout
 
 | Path | Role |
 |------|------|
 | `engine/` | core transform/adoption/codegen: modular TF + `import` + `moved` reconciliation; includes the audited shared REST collector edge |
+| `node-src/` | typed Node 24 library and machine-only process host under differential migration |
+| `catalogs/` | versioned transition catalogs consumed by the Node runtime |
 | `packs/<name>/` | a provider bundle: `pack.json` + `registry.json` + `overrides/` + `schemas/` + collector |
 | `[<overlay>/]config/<tenant>/<resource_type>.auto.tfvars[.json]` | generated tenant config; `deployment.json` `tfvars_format` selects `json` by default or opt-in `hcl` |
 | `[<overlay>/]imports/<tenant>/<resource_type>_imports.tf` | generated import blocks |

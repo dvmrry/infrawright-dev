@@ -1,0 +1,29 @@
+{
+  "name": "@infrawright/process",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Machine-only Infrawright process host migration foundation",
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "bin": {
+    "infrawright-process": "dist/infrawright.mjs"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit && node scripts/build-node.mjs",
+    "check": "npm run typecheck && npm run test",
+    "test": "npm run build:test && node --test .node-test/node-tests/*.test.js",
+    "build:test": "tsc -p tsconfig.test.json",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit"
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "lossless-json": "4.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "esbuild": "0.25.12",
+    "typescript": "7.0.2"
+  }
+}
