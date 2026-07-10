@@ -298,64 +298,12 @@ class OpsReferenceOrderTransformIntegrationTest(unittest.TestCase):
             'module.zpa_segment_group.items["segment_one"].id',
         )
 
-    def test_inspection_profile_binding_uses_committed_pack_graph(self):
-        dep = os.path.join(self.tmp, "deployment.json")
-        _write_json(dep, {
-            "overlay": self.tmp,
-            "roots": {
-                "zpa": {
-                    "groups": {
-                        "zpa_policy": [
-                            "zpa_inspection_profile",
-                            "zpa_policy_access_rule",
-                        ],
-                    },
-                    "bind_references": True,
-                },
-            },
-        })
-        inputs = {
-            "zpa_inspection_profile": self._write_input(
-                "zpa_inspection_profile.json",
-                [{"id": "profile-1", "name": "Inspection One"}],
-            ),
-            "zpa_policy_access_rule": self._write_input(
-                "zpa_policy_access_rule.json",
-                [{
-                    "id": "rule-1",
-                    "name": "Access One",
-                    "zpnInspectionProfileId": "profile-1",
-                }],
-            ),
-        }
-
-        ordered = ops.reference_order([
+    def test_access_rule_does_not_claim_inspection_profile_dependency(self):
+        access_rule_refs = packs.references().get(
             "zpa_policy_access_rule",
-            "zpa_inspection_profile",
-        ])
-        self.assertEqual(ordered, [
-            "zpa_inspection_profile",
-            "zpa_policy_access_rule",
-        ])
-        for resource_type in ordered:
-            self.assertEqual(
-                transform.main([resource_type, inputs[resource_type], self.tenant]),
-                0,
-            )
-
-        generated_path = os.path.join(
-            self.tmp,
-            "config",
-            self.tenant,
-            "zpa_policy_access_rule.generated.expressions.json",
+            {},
         )
-        with open(generated_path, encoding="utf-8") as f:
-            generated = json.load(f)
-        self.assertEqual(
-            generated["resources"]["zpa_policy_access_rule.access_one"]
-            ["zpn_inspection_profile_id"]["expression"],
-            'module.zpa_inspection_profile.items["inspection_one"].id',
-        )
+        self.assertNotIn("zpn_inspection_profile_id", access_rule_refs)
 
 
 class OpsEnvDiscoveryTest(unittest.TestCase):

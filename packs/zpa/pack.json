@@ -1,8 +1,5 @@
 {
   "lookup_sources": {
-    "zpa_inspection_profile": {
-      "name_field": "name"
-    },
     "zpa_segment_group": {
       "name_field": "name"
     }
@@ -19,12 +16,6 @@
       "segment_group_id": {
         "name_field": "name",
         "referent": "zpa_segment_group"
-      }
-    },
-    "zpa_policy_access_rule": {
-      "zpn_inspection_profile_id": {
-        "name_field": "name",
-        "referent": "zpa_inspection_profile"
       }
     }
   },
