@@ -137,12 +137,14 @@ The main provider-read normalization probes are:
 
 ### Provider Read Normalization Finding
 
-Transform-path value overrides (`divide`, `invert_bool`, `value_map`)
-compensate for the RAW API; the adopt/oracle path reads through the provider,
-whose READ path is config-space at the pinned versions. Value transforms are
-therefore not an oracle-gap class. The only confirmed oracle-gap classes
-remain read-omits (handled by `projection_fill`) and read-sentinels (handled
-by `projection_omit_if`).
+For the four audited cases above, transform-path value overrides (`divide`,
+`invert_bool`, `value_map`, and the URL-category default) compensate for the
+raw API while the adopt/oracle path reads config-space values through the
+pinned provider. Those four cases are therefore not oracle gaps. Do not
+generalize that result to unaudited value transforms: each still needs its
+provider READ path checked. Among the audited cases, the only confirmed
+oracle-gap classes remain read-omits (handled by `projection_fill`) and
+read-sentinels (handled by `projection_omit_if`).
 
 `microtenant_id="0"` is not a provider-read normalization case, but it is also
 not a current oracle gap. Provider source proves raw pass-through: zpa 4.4.6
@@ -229,7 +231,7 @@ is needed.
 | Finding | Upstream evidence | Local status | Candidate action |
 |---|---|---|---|
 | `zia_firewall_dns_rule` skip `order <= 0` | Config and filter: [`helpers.go#L82-L136`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/helpers/helpers.go#L82-L136). Applied in import and generate: [`import.go#L2568-L2574`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/import.go#L2568-L2574), [`generate.go#L2522-L2528`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/generate.go#L2522-L2528). | Implemented in #144 as local `skip_if_lte.order <= 0`. | Confirm in a dev tenant that predefined/system DNS rules have `order <= 0` and real managed DNS rules have `order >= 1`. |
-| `zia_dlp_web_rules.apps_config.app_types` derived from `applicationProtocol` | `RDP`, `SSH`, `VNC` -> `SECURE_REMOTE_ACCESS`; `HTTPS`, `HTTP` -> `INSPECT`: [`helpers.go#L584-L600`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/helpers/helpers.go#L584-L600). | Local override has no transform beyond metadata. | Mine provider schema/readback; decide whether this is projection sync, fill, or transform-only. |
+| Dormant DLP-like `app_types` conversion (not active ZIA behavior) | `ListNestedBlock` contains an `applicationProtocol` conversion, but its only call sites render ZPA `praApps` and `inspectionApps`; no ZIA DLP path calls it: [`nesting.go#L298-L306`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/nesting/nesting.go#L298-L306), [`helpers.go#L554-L604`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/helpers/helpers.go#L554-L604). | No upstream ZIA behavior is corroborated; the previous inventory row incorrectly treated dormant helper code as an active derivation. | Do not implement from Terraformer evidence. Re-open only with pinned ZIA provider/API read-write evidence. |
 | ZPA reference map | Field spellings for app connector groups, server groups, segment groups, applications, service edges, trusted networks, PRA portals/apps, profiles, and CBI objects: [`datasource_processor.go#L68-L106`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/helpers/datasource_processor.go#L68-L106). | Local ZPA reference graph is empty. | Build a WP3 reference inventory; adopt one relationship at a time with schema and fixture evidence. |
 | ZIA reference/data-source map | Locations, groups, users, departments, network services, IP groups, application groups, labels: [`datasource_processor.go#L141-L178`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/helpers/datasource_processor.go#L141-L178). | Local ZIA declares only URL category lookup/reference. | Compare against current fixtures before expanding. |
 | ZPA policy operands | Object-type-specific mappings for `SCIM`, `SCIM_GROUP`, `SAML`, `POSTURE`, `TRUSTED_NETWORK`, `MACHINE_GRP`: [`zpa_policy_processor.go#L35-L84`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/helpers/zpa_policy_processor.go#L35-L84). | Local ZPA policy operand behavior is custom transform policy, not pack references. | Inventory as reference candidates; avoid upstream regex-HCL implementation. |
