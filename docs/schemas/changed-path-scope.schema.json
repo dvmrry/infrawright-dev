@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infrawright.local/schemas/changed-path-scope.schema.json",
+  "title": "Infrawright Changed Path Scope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_version",
+    "paths",
+    "path_matches",
+    "unmatched_paths",
+    "affected_resources",
+    "affected_roots"
+  ],
+  "properties": {
+    "kind": {
+      "const": "infrawright.changed_path_scope"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "path_matches": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pathMatch"
+      }
+    },
+    "unmatched_paths": {
+      "type": "array",
+      "description": "Caller-supplied paths outside recognized deployment artifact layouts. Downstream owns the fail/full-scope/ignore policy for these explicit paths.",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "affected_resources": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "affected_roots": {
+      "type": "array",
+      "description": "Complete logical roots affected by recognized paths. Each entry includes every member even when matched_resources is a subset.",
+      "items": {
+        "$ref": "#/$defs/affectedRoot"
+      }
+    }
+  },
+  "$defs": {
+    "pathMatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "kinds",
+        "tenants",
+        "resources",
+        "roots"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "config",
+              "deployment",
+              "env_root",
+              "imports",
+              "module"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "tenants": {
+          "type": "array",
+          "description": "Tenant path segments encoded by tenant-scoped artifact paths; this does not assert that the tenant is currently materialized.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "affectedRoot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "provider",
+        "members",
+        "matched_resources",
+        "paths"
+      ],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "matched_resources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

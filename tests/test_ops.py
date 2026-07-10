@@ -80,6 +80,16 @@ class OpsContractSchemaTest(unittest.TestCase):
                 ops.PLAN_ASSESSMENT_CONTRACT,
                 ops.PLAN_ASSESSMENT_SCHEMA_VERSION,
             ),
+            (
+                "docs/schemas/changed-path-scope.schema.json",
+                ops.CHANGED_PATH_SCOPE_CONTRACT,
+                ops.CHANGED_PATH_SCOPE_SCHEMA_VERSION,
+            ),
+            (
+                "docs/schemas/plan-roots.schema.json",
+                ops.PLAN_ROOTS_CONTRACT,
+                ops.PLAN_ROOTS_SCHEMA_VERSION,
+            ),
         ]
         for path, kind, version in cases:
             with self.subTest(path=path):
@@ -130,6 +140,37 @@ class OpsContractSchemaTest(unittest.TestCase):
             ops.PLAN_FINGERPRINT_VERSION,
         )
 
+    def test_plan_root_schema_binds_state_to_artifact_presence(self):
+        with open(
+                "docs/schemas/plan-roots.schema.json",
+                encoding="utf-8") as f:
+            schema = json.load(f)
+        rules = schema["$defs"]["root"]["allOf"]
+        self.assertEqual([
+            rule["if"]["properties"]["artifact_state"]["const"]
+            for rule in rules
+        ], ["absent", "complete", "incomplete"])
+        absent = rules[0]["then"]["properties"]["artifacts"]["properties"]
+        complete = rules[1]["then"]["properties"]["artifacts"]["properties"]
+        for name in ("tfplan", "tfplan_sources"):
+            self.assertIs(
+                absent[name]["properties"]["exists"]["const"], False
+            )
+            self.assertIs(
+                complete[name]["properties"]["exists"]["const"], True
+            )
+        incomplete = rules[2]["then"]["properties"]["artifacts"]["oneOf"]
+        combinations = set()
+        for choice in incomplete:
+            properties = choice["properties"]
+            combinations.add((
+                properties["tfplan"]["properties"]["exists"]["const"],
+                properties["tfplan_sources"]["properties"]["exists"][
+                    "const"
+                ],
+            ))
+        self.assertEqual(combinations, set([(True, False), (False, True)]))
+
     def test_contract_options_are_scoped_to_contract_commands(self):
         opts = ops._parse(
             ["--tenant", "tenant", "--report", "assessment.json", "zpa"],
@@ -148,6 +189,31 @@ class OpsContractSchemaTest(unittest.TestCase):
                 "json": True,
             },
         )
+        self.assertEqual(
+            ops._parse_scope_paths([
+                "--json",
+                "--path",
+                "config/tenant/sample.auto.tfvars.json",
+                "--paths-json",
+                "changed.json",
+            ]),
+            {
+                "json": True,
+                "paths": ["config/tenant/sample.auto.tfvars.json"],
+                "paths_json": "changed.json",
+            },
+        )
+        with self.assertRaisesRegex(ValueError, "unknown option changed.tf"):
+            ops._parse_scope_paths(["--json", "changed.tf"])
+        with self.assertRaisesRegex(ValueError, "specified only once"):
+            ops._parse_scope_paths([
+                "--paths-json", "one.json",
+                "--paths-json", "two.json",
+            ])
+        with self.assertRaisesRegex(ValueError, "scope-paths requires --json"):
+            ops.cmd_scope_paths({"json": False, "paths": []})
+        with self.assertRaisesRegex(ValueError, "plan-roots requires --json"):
+            ops.cmd_plan_roots({"json": False})
 
     def test_explicit_empty_tenant_is_rejected_for_all_contract_commands(self):
         with self.assertRaisesRegex(ValueError, "TENANT must match"):
@@ -764,6 +830,323 @@ class OpsGroupedRootCommandTest(unittest.TestCase):
             topology["roots"][0]["env_dir"],
             os.path.join(absolute_overlay, "envs", "tenant", "zpa_custom"),
         )
+
+    def test_changed_paths_map_to_resources_and_whole_grouped_root(self):
+        changed = [
+            os.path.join(
+                "config", "tenant",
+                "zpa_segment_group.auto.tfvars.json",
+            ),
+            os.path.join(
+                "imports", "tenant", "zpa_server_group_moves.tf",
+            ),
+            os.path.join("envs", "tenant", "zpa_custom", "main.tf"),
+            os.path.join("modules", "zpa_segment_group", "main.tf"),
+            os.path.join("docs", "unrelated.md"),
+        ]
+        scope = ops.changed_path_scope(list(reversed(changed)) + [changed[0]])
+
+        self.assertEqual(scope["kind"], "infrawright.changed_path_scope")
+        self.assertEqual(scope["schema_version"], 1)
+        self.assertEqual(scope["paths"], sorted(changed))
+        self.assertEqual(
+            scope["affected_resources"],
+            ["zpa_segment_group", "zpa_server_group"],
+        )
+        self.assertEqual(scope["unmatched_paths"], [
+            os.path.join("docs", "unrelated.md"),
+        ])
+        self.assertEqual(scope["affected_roots"], [{
+            "label": "zpa_custom",
+            "provider": "zpa",
+            "members": ["zpa_segment_group", "zpa_server_group"],
+            "matched_resources": [
+                "zpa_segment_group", "zpa_server_group",
+            ],
+            "paths": sorted(changed[:-1]),
+        }])
+        matches = dict(
+            (item["path"], item) for item in scope["path_matches"]
+        )
+        config_path = changed[0]
+        self.assertEqual(matches[config_path]["kinds"], ["config"])
+        self.assertEqual(matches[config_path]["tenants"], ["tenant"])
+        self.assertEqual(
+            matches[config_path]["resources"], ["zpa_segment_group"]
+        )
+        env_path = changed[2]
+        self.assertEqual(
+            matches[env_path]["resources"],
+            ["zpa_segment_group", "zpa_server_group"],
+        )
+
+    def test_changed_paths_preserve_absolute_overlay_matching(self):
+        deployment_path = os.environ["INFRAWRIGHT_DEPLOYMENT"]
+        with open(deployment_path, encoding="utf-8") as f:
+            data = json.load(f)
+        absolute_overlay = os.path.join(self.tmp, "external-overlay")
+        data["overlay"] = absolute_overlay
+        _write_json(deployment_path, data)
+        changed_path = os.path.join(
+            absolute_overlay,
+            "config",
+            "tenant",
+            "zpa_segment_group.auto.tfvars.json",
+        )
+
+        scope = ops.changed_path_scope([changed_path])
+        self.assertEqual(scope["unmatched_paths"], [])
+        self.assertEqual(
+            scope["affected_roots"][0]["label"], "zpa_custom"
+        )
+        self.assertEqual(
+            scope["path_matches"][0]["tenants"], ["tenant"]
+        )
+        relative_changed_path = os.path.relpath(changed_path, self.tmp)
+        relative_scope = ops.changed_path_scope([relative_changed_path])
+        self.assertEqual(relative_scope["unmatched_paths"], [])
+        self.assertEqual(
+            relative_scope["affected_roots"][0]["label"], "zpa_custom"
+        )
+
+    def test_external_overlay_path_spellings_scope_identically(self):
+        external = tempfile.mkdtemp(prefix="ops-external-overlay-")
+        self.addCleanup(lambda: shutil.rmtree(external, ignore_errors=True))
+        deployment_path = os.environ["INFRAWRIGHT_DEPLOYMENT"]
+        with open(deployment_path, encoding="utf-8") as f:
+            data = json.load(f)
+        data["overlay"] = external
+        _write_json(deployment_path, data)
+
+        absolute = os.path.join(
+            external,
+            "config",
+            "tenant",
+            "zpa_segment_group.auto.tfvars.json",
+        )
+        relative = os.path.relpath(absolute, os.getcwd())
+        alias_root = os.path.join(self.tmp, "external-alias")
+        os.symlink(external, alias_root)
+        alias = os.path.join(
+            alias_root,
+            "config",
+            "tenant",
+            "zpa_segment_group.auto.tfvars.json",
+        )
+        for spelling in (absolute, relative, alias):
+            with self.subTest(spelling=spelling):
+                scope = ops.changed_path_scope([spelling])
+                self.assertEqual(scope["unmatched_paths"], [])
+                self.assertEqual(
+                    scope["affected_resources"], ["zpa_segment_group"]
+                )
+                self.assertEqual(
+                    scope["affected_roots"][0]["label"], "zpa_custom"
+                )
+                self.assertEqual(scope["paths"], [os.path.normpath(spelling)])
+
+        unrelated = os.path.relpath(
+            os.path.join(
+                os.path.dirname(external),
+                "unrelated-external",
+                "config",
+                "tenant",
+                "zpa_segment_group.auto.tfvars.json",
+            ),
+            os.getcwd(),
+        )
+        self.assertEqual(
+            ops.changed_path_scope([unrelated])["unmatched_paths"],
+            [os.path.normpath(unrelated)],
+        )
+
+    def test_external_deployment_path_spellings_scope_identically(self):
+        external = tempfile.mkdtemp(prefix="ops-external-deployment-")
+        self.addCleanup(lambda: shutil.rmtree(external, ignore_errors=True))
+        absolute = os.path.join(external, "deployment.json")
+        _write_json(absolute, {
+            "roots": {
+                "zpa": {
+                    "groups": {
+                        "zpa_custom": [
+                            "zpa_segment_group",
+                            "zpa_server_group",
+                        ],
+                    },
+                },
+            },
+        })
+        relative = os.path.relpath(absolute, os.getcwd())
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = relative
+        alias = os.path.join(self.tmp, "deployment-alias.json")
+        os.symlink(absolute, alias)
+
+        expected_resources = ops.expand_resources()
+        for spelling in (relative, absolute, alias):
+            with self.subTest(spelling=spelling):
+                scope = ops.changed_path_scope([spelling])
+                self.assertEqual(scope["unmatched_paths"], [])
+                self.assertEqual(scope["affected_resources"], expected_resources)
+                self.assertEqual(
+                    scope["path_matches"][0]["kinds"], ["deployment"]
+                )
+
+    def test_changed_paths_recognize_every_resource_artifact_suffix(self):
+        cases = [
+            ("config", "zpa_segment_group.auto.tfvars.json", "config"),
+            ("config", "zpa_segment_group.auto.tfvars", "config"),
+            ("config", "zpa_segment_group.lookup.json", "config"),
+            ("config", "zpa_segment_group.expressions.json", "config"),
+            (
+                "config",
+                "zpa_segment_group.generated.expressions.json",
+                "config",
+            ),
+            ("imports", "zpa_segment_group_imports.tf", "imports"),
+            ("imports", "zpa_segment_group_moves.tf", "imports"),
+        ]
+        for directory, filename, kind in cases:
+            with self.subTest(filename=filename):
+                path = os.path.join(directory, "tenant", filename)
+                scope = ops.changed_path_scope([path])
+                self.assertEqual(scope["unmatched_paths"], [])
+                self.assertEqual(
+                    scope["path_matches"][0]["resources"],
+                    ["zpa_segment_group"],
+                )
+                self.assertEqual(scope["path_matches"][0]["kinds"], [kind])
+
+    def test_active_deployment_change_scopes_every_configured_root(self):
+        deployment_path = os.environ["INFRAWRIGHT_DEPLOYMENT"]
+        scope = ops.changed_path_scope([deployment_path])
+
+        self.assertEqual(scope["unmatched_paths"], [])
+        self.assertEqual(scope["path_matches"][0]["kinds"], ["deployment"])
+        self.assertEqual(
+            scope["affected_resources"], ops.expand_resources()
+        )
+        custom = [
+            root for root in scope["affected_roots"]
+            if root["label"] == "zpa_custom"
+        ][0]
+        self.assertEqual(
+            custom["members"],
+            ["zpa_segment_group", "zpa_server_group"],
+        )
+
+    def test_scope_paths_cli_reads_json_array_and_reports_unmatched(self):
+        paths_path = os.path.join(self.tmp, "changed.json")
+        _write_json(paths_path, [
+            "docs/unrelated.md",
+            "config/tenant/zpa_segment_group.auto.tfvars",
+        ])
+        stdout = io.StringIO()
+        old_stdout = sys.stdout
+        try:
+            sys.stdout = stdout
+            self.assertEqual(ops.cmd_scope_paths({
+                "json": True,
+                "paths": [],
+                "paths_json": paths_path,
+            }), 0)
+        finally:
+            sys.stdout = old_stdout
+        scope = json.loads(stdout.getvalue())
+        self.assertEqual(scope["affected_resources"], ["zpa_segment_group"])
+        self.assertEqual(scope["unmatched_paths"], ["docs/unrelated.md"])
+
+    def test_scope_paths_cli_accepts_json_array_on_stdin(self):
+        stdout = io.StringIO()
+        old_stdin = sys.stdin
+        old_stdout = sys.stdout
+        try:
+            sys.stdin = io.StringIO(json.dumps([
+                "imports/tenant/zpa_server_group_imports.tf",
+            ]))
+            sys.stdout = stdout
+            self.assertEqual(ops.cmd_scope_paths({
+                "json": True,
+                "paths": [],
+                "paths_json": "-",
+            }), 0)
+        finally:
+            sys.stdin = old_stdin
+            sys.stdout = old_stdout
+        scope = json.loads(stdout.getvalue())
+        self.assertEqual(scope["affected_resources"], ["zpa_server_group"])
+        self.assertEqual(scope["unmatched_paths"], [])
+
+    def test_changed_path_scope_rejects_invalid_path_lists(self):
+        with self.assertRaisesRegex(ValueError, "changed paths must"):
+            ops.changed_path_scope({"path": "config/tenant/file"})
+        for value in (None, "", 7):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "non-empty string"):
+                    ops.changed_path_scope([value])
+        invalid_path = os.path.join(self.tmp, "invalid.json")
+        _write_json(invalid_path, {"paths": []})
+        with self.assertRaisesRegex(ValueError, "JSON array"):
+            ops._load_changed_paths_json(invalid_path)
+
+    def test_plan_roots_enumerates_artifact_pair_states(self):
+        root = self._write_group_root()
+
+        contract = ops.plan_roots(
+            tenant="tenant", selectors=["zpa_segment_group"]
+        )
+        self.assertEqual(contract["kind"], "infrawright.plan_roots")
+        self.assertEqual(contract["request"], {
+            "tenant": "tenant",
+            "selectors": ["zpa_segment_group"],
+        })
+        self.assertEqual(len(contract["roots"]), 1)
+        root_contract = contract["roots"][0]
+        self.assertEqual(root_contract["label"], "zpa_custom")
+        self.assertEqual(
+            root_contract["members"],
+            ["zpa_segment_group", "zpa_server_group"],
+        )
+        self.assertEqual(root_contract["artifact_state"], "absent")
+        self.assertEqual(root_contract["artifacts"], {
+            "tfplan": {
+                "path": os.path.join(root, "tfplan"),
+                "exists": False,
+            },
+            "tfplan_sources": {
+                "path": os.path.join(root, "tfplan.sources"),
+                "exists": False,
+            },
+        })
+
+        ops._write_plan_fingerprint(
+            root, [], ["zpa_segment_group", "zpa_server_group"]
+        )
+        self.assertEqual(
+            ops.plan_roots("tenant")["roots"][0]["artifact_state"],
+            "incomplete",
+        )
+        os.remove(os.path.join(root, "tfplan.sources"))
+        with open(os.path.join(root, "tfplan"), "w", encoding="utf-8") as f:
+            f.write("fake")
+        self.assertEqual(
+            ops.plan_roots("tenant")["roots"][0]["artifact_state"],
+            "incomplete",
+        )
+        ops._write_plan_fingerprint(
+            root, [], ["zpa_segment_group", "zpa_server_group"]
+        )
+        complete = ops.plan_roots("tenant")["roots"][0]
+        self.assertEqual(complete["artifact_state"], "complete")
+        self.assertTrue(complete["artifacts"]["tfplan"]["exists"])
+        self.assertTrue(complete["artifacts"]["tfplan_sources"]["exists"])
+
+    def test_plan_roots_rejects_invalid_discovered_tenant_directory(self):
+        bad_root = os.path.join("envs", "bad tenant", "zpa_custom")
+        _write_test_root_modules(
+            bad_root, ["zpa_segment_group", "zpa_server_group"]
+        )
+        with self.assertRaisesRegex(ValueError, "TENANT must match"):
+            ops.plan_roots()
 
     def test_plan_fails_loud_on_partial_member_configs(self):
         self._write_group_root()

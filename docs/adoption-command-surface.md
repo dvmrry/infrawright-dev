@@ -38,6 +38,8 @@ Supporting adoption commands:
 | `make clean-plans` | Remove saved plan artifacts. |
 | `make assert-clean` | Compatibility/no-policy saved-plan gate for no-op or import-only plans. Prefer `assert-adoptable` for adoption workflows that may use drift policy or guidance annotations. |
 | `make roots` | Emit the configured root topology as versioned JSON for downstream path-to-root scoping. |
+| `make scope-paths` | Map a caller-supplied JSON list of changed paths to affected resources and complete logical roots without invoking a VCS. |
+| `make plan-roots` | Enumerate materialized env roots and the exact `tfplan`/`tfplan.sources` artifact locations used for save/restore. |
 
 `make apply` uses the same saved-plan classification semantics as
 `make assert-adoptable`. If `assert-adoptable` used `POLICY=<file>` to classify
@@ -98,6 +100,57 @@ paths. Consumers must not assume topology paths are checkout-independent.
 Malformed deployment JSON, including a non-object top level, and explicit empty
 tenant values fail before any topology JSON is emitted.
 
+Map changed paths directly to affected resources and whole logical roots with:
+
+```sh
+python -m engine.ops scope-paths --json \
+  --path config/prod/zpa_application_segment.auto.tfvars.json
+# or pass a JSON array produced by downstream changed.py
+make scope-paths PATHS_JSON=changed-paths.json
+```
+
+`scope-paths` is deliberately VCS-agnostic: it never invokes Git and accepts
+only paths supplied by its caller. It understands the active deployment's
+config, import, env-root, and module layouts. A deployment-file change scopes
+all configured resources because topology or paths may have changed. Each
+matched input records its match kinds, any tenant segment encoded by the path, exact
+resources, and logical roots. Aggregated root entries always include every root
+member plus the subset directly matched by the input paths. Unknown or unrelated
+paths are preserved in `unmatched_paths`; they are never silently coerced to an
+affected resource. Input paths are normalized and sorted for deterministic
+output, and deleted paths remain scopeable because matching does not require
+them to exist.
+Like the other deployment-aware commands, relative paths are interpreted from
+the repository/deployment working directory. Matching compares canonical
+absolute and realpath forms so equivalent absolute, `../`-relative, and symlink
+spellings scope identically, including for supported external overlays; emitted
+`paths` retain the caller's normalized spelling.
+
+The changed-path schema is
+[`docs/schemas/changed-path-scope.schema.json`](schemas/changed-path-scope.schema.json).
+Downstream owns the Git diff and its policy for `unmatched_paths`; the engine
+owns only deployment-layout and resource-to-root semantics.
+
+Enumerate materialized env roots and their plan-artifact pair with:
+
+```sh
+make plan-roots TENANT=prod RESOURCE=zpa_application_segment
+# or: python -m engine.ops plan-roots --json --tenant prod zpa
+```
+
+Each result includes the tenant, logical root, complete member list, provider,
+env directory, exact `tfplan` and `tfplan.sources` paths, existence flags, and
+an `artifact_state` of `absent`, `complete`, or `incomplete`. Save pipelines
+should archive only a `complete` pair. Restore pipelines must restore both files
+to their original enumerated root, then rerun `assert-clean` or
+`assert-adoptable` with the same backend configuration; a lone plan or lone
+fingerprint is intentionally classified as `incomplete`. `artifact_state`
+describes file presence only; the assertion command remains responsible for
+validating fingerprint contents, freshness, and plan classification.
+
+The materialized-plan-root schema is
+[`docs/schemas/plan-roots.schema.json`](schemas/plan-roots.schema.json).
+
 Write a saved-plan assessment alongside the existing human output with:
 
 ```sh
@@ -134,7 +187,7 @@ assessment error remains the command result.
 
 The assessment schema is
 [`docs/schemas/saved-plan-assessment.schema.json`](schemas/saved-plan-assessment.schema.json).
-Both contracts carry `schema_version: 1`; consumers must reject unsupported
+All published contracts carry `schema_version: 1`; consumers must reject unsupported
 versions rather than guessing at field meaning.
 The assessment schema intentionally fixes the accepted `tfplan.sources` shape;
 a future fingerprint format change requires a coordinated assessment-schema

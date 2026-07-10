@@ -19,6 +19,10 @@ import tempfile
 from engine import deployment
 from engine import packs
 from engine.artifacts import (
+    CONFIG_SUFFIX,
+    EXPRESSION_BINDINGS_SUFFIX,
+    GENERATED_EXPRESSION_BINDINGS_SUFFIX,
+    HCL_CONFIG_SUFFIX,
     IMPORTS_SUFFIX,
     MOVES_SUFFIX,
     all_root_labels,
@@ -32,6 +36,7 @@ from engine.artifacts import (
     validate_tenant,
 )
 from engine.filter_imports import filter_imports
+from engine.lookup import LOOKUP_SUFFIX
 from engine.registry import derived_types
 
 
@@ -56,6 +61,10 @@ PLAN_FINGERPRINT = "tfplan.sources"
 PLAN_FINGERPRINT_VERSION = 2
 ROOT_TOPOLOGY_CONTRACT = "infrawright.root_topology"
 ROOT_TOPOLOGY_SCHEMA_VERSION = 1
+CHANGED_PATH_SCOPE_CONTRACT = "infrawright.changed_path_scope"
+CHANGED_PATH_SCOPE_SCHEMA_VERSION = 1
+PLAN_ROOTS_CONTRACT = "infrawright.plan_roots"
+PLAN_ROOTS_SCHEMA_VERSION = 1
 PLAN_ASSESSMENT_CONTRACT = "infrawright.saved_plan_assessment"
 PLAN_ASSESSMENT_SCHEMA_VERSION = 1
 MODULE_FINGERPRINT_IGNORED_DIRS = set([
@@ -284,6 +293,258 @@ def cmd_roots(opts):
         raise ValueError("roots requires --json")
     sys.stdout.write(json.dumps(
         root_topology(opts.get("tenant"), opts.get("selectors")),
+        indent=2,
+        sort_keys=True,
+    ) + "\n")
+    return 0
+
+
+_CONFIG_PATH_SUFFIXES = (
+    GENERATED_EXPRESSION_BINDINGS_SUFFIX,
+    EXPRESSION_BINDINGS_SUFFIX,
+    CONFIG_SUFFIX,
+    HCL_CONFIG_SUFFIX,
+    LOOKUP_SUFFIX,
+)
+_IMPORT_PATH_SUFFIXES = (IMPORTS_SUFFIX, MOVES_SUFFIX)
+
+
+def _path_forms(path):
+    normalized = os.path.normpath(path)
+    absolute = (
+        normalized if os.path.isabs(normalized)
+        else os.path.abspath(normalized)
+    )
+    forms = set([
+        normalized,
+        os.path.normpath(absolute),
+        os.path.realpath(absolute),
+    ])
+    return sorted(forms)
+
+
+def _relative_under(path, root):
+    for path_form in _path_forms(path):
+        for root_form in _path_forms(root):
+            if os.path.isabs(path_form) != os.path.isabs(root_form):
+                continue
+            try:
+                relative = os.path.relpath(path_form, root_form)
+            except ValueError:
+                continue
+            if relative == os.curdir:
+                return []
+            if relative == os.pardir or relative.startswith(os.pardir + os.sep):
+                continue
+            return relative.split(os.sep)
+    return None
+
+
+def _same_contract_path(left, right):
+    return bool(set(_path_forms(left)) & set(_path_forms(right)))
+
+
+def _artifact_root(kind):
+    overlay = deployment.overlay()
+    return kind if not overlay or overlay == "." else os.path.join(overlay, kind)
+
+
+def _resource_from_artifact_name(name, suffixes, resource_types):
+    for suffix in sorted(suffixes, key=len, reverse=True):
+        if not name.endswith(suffix):
+            continue
+        resource_type = name[:-len(suffix)]
+        if resource_type in resource_types:
+            return resource_type
+    return None
+
+
+def _scope_path(path, resource_types, root_labels):
+    resources = set()
+    kinds = set()
+    tenants = set()
+
+    if _same_contract_path(path, deployment._deployment_path()):
+        resources.update(resource_types)
+        kinds.add("deployment")
+
+    relative = _relative_under(path, _artifact_root("config"))
+    if relative is not None and len(relative) == 2:
+        resource_type = _resource_from_artifact_name(
+            relative[1], _CONFIG_PATH_SUFFIXES, resource_types
+        )
+        if resource_type:
+            resources.add(resource_type)
+            tenants.add(relative[0])
+            kinds.add("config")
+
+    relative = _relative_under(path, _artifact_root("imports"))
+    if relative is not None and len(relative) == 2:
+        resource_type = _resource_from_artifact_name(
+            relative[1], _IMPORT_PATH_SUFFIXES, resource_types
+        )
+        if resource_type:
+            resources.add(resource_type)
+            tenants.add(relative[0])
+            kinds.add("imports")
+
+    relative = _relative_under(path, _artifact_root("envs"))
+    if relative is not None and len(relative) >= 2:
+        label = relative[1]
+        if label in root_labels:
+            resources.update(root_members(label))
+            tenants.add(relative[0])
+            kinds.add("env_root")
+
+    relative = _relative_under(path, deployment.module_dir())
+    if relative:
+        resource_type = relative[0]
+        if resource_type in resource_types:
+            resources.add(resource_type)
+            kinds.add("module")
+
+    if not resources:
+        return None
+    return {
+        "path": path,
+        "kinds": sorted(kinds),
+        "tenants": sorted(tenants),
+        "resources": sorted(resources),
+        "roots": sorted(set(root_label(rt) for rt in resources)),
+    }
+
+
+def changed_path_scope(paths):
+    """Map VCS-supplied paths to logical resources and whole roots."""
+    if not isinstance(paths, (list, tuple)):
+        raise ValueError("changed paths must be a JSON array or repeated --path")
+    normalized_paths = []
+    for index, path in enumerate(paths):
+        if not isinstance(path, str) or not path:
+            raise ValueError(
+                "changed path at index %d must be a non-empty string" % index
+            )
+        normalized_paths.append(os.path.normpath(path))
+    normalized_paths = sorted(set(normalized_paths))
+
+    resource_types = set(expand_resources())
+    root_labels = set(all_root_labels())
+    matches = []
+    unmatched = []
+    for path in normalized_paths:
+        match = _scope_path(path, resource_types, root_labels)
+        if match is None:
+            unmatched.append(path)
+        else:
+            matches.append(match)
+
+    affected_resources = sorted(set(
+        resource_type
+        for match in matches
+        for resource_type in match["resources"]
+    ))
+    root_paths = {}
+    root_resources = {}
+    for match in matches:
+        for label in match["roots"]:
+            root_paths.setdefault(label, set()).add(match["path"])
+            root_resources.setdefault(label, set()).update(
+                resource_type for resource_type in match["resources"]
+                if root_label(resource_type) == label
+            )
+    affected_roots = []
+    for label in sorted(root_paths):
+        members = sorted(root_members(label))
+        affected_roots.append({
+            "label": label,
+            "provider": packs.provider_of(members[0]) if members else None,
+            "members": members,
+            "matched_resources": sorted(root_resources[label]),
+            "paths": sorted(root_paths[label]),
+        })
+    return {
+        "kind": CHANGED_PATH_SCOPE_CONTRACT,
+        "schema_version": CHANGED_PATH_SCOPE_SCHEMA_VERSION,
+        "paths": normalized_paths,
+        "path_matches": matches,
+        "unmatched_paths": unmatched,
+        "affected_resources": affected_resources,
+        "affected_roots": affected_roots,
+    }
+
+
+def _load_changed_paths_json(path):
+    if path == "-":
+        data = json.load(sys.stdin)
+    else:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    if not isinstance(data, list):
+        raise ValueError("%s must contain a JSON array of changed paths" % path)
+    return data
+
+
+def cmd_scope_paths(opts):
+    if not opts.get("json"):
+        raise ValueError("scope-paths requires --json")
+    paths = list(opts.get("paths") or [])
+    if opts.get("paths_json"):
+        paths.extend(_load_changed_paths_json(opts["paths_json"]))
+    sys.stdout.write(json.dumps(
+        changed_path_scope(paths), indent=2, sort_keys=True
+    ) + "\n")
+    return 0
+
+
+def plan_roots(tenant=None, selectors=None):
+    """Enumerate materialized roots and their saved-plan artifact paths."""
+    if tenant is not None:
+        validate_tenant(tenant)
+    roots = []
+    for tenant_name, label, path, member_types in selected_env_roots(
+            tenant, selectors or []):
+        validate_tenant(tenant_name)
+        tfplan = os.path.join(path, "tfplan")
+        sources = _plan_fingerprint_path(path)
+        plan_exists = os.path.isfile(tfplan)
+        sources_exist = os.path.isfile(sources)
+        artifact_state = "absent"
+        if plan_exists and sources_exist:
+            artifact_state = "complete"
+        elif plan_exists or sources_exist:
+            artifact_state = "incomplete"
+        members = sorted(member_types)
+        roots.append({
+            "tenant": tenant_name,
+            "label": label,
+            "provider": packs.provider_of(members[0]) if members else None,
+            "members": members,
+            "env_dir": path,
+            "artifact_state": artifact_state,
+            "artifacts": {
+                "tfplan": {"path": tfplan, "exists": plan_exists},
+                "tfplan_sources": {
+                    "path": sources,
+                    "exists": sources_exist,
+                },
+            },
+        })
+    return {
+        "kind": PLAN_ROOTS_CONTRACT,
+        "schema_version": PLAN_ROOTS_SCHEMA_VERSION,
+        "request": {
+            "tenant": tenant,
+            "selectors": list(selectors or []),
+        },
+        "roots": roots,
+    }
+
+
+def cmd_plan_roots(opts):
+    if not opts.get("json"):
+        raise ValueError("plan-roots requires --json")
+    sys.stdout.write(json.dumps(
+        plan_roots(opts.get("tenant"), opts.get("selectors")),
         indent=2,
         sort_keys=True,
     ) + "\n")
@@ -1826,6 +2087,33 @@ def _parse_roots(argv):
     return opts
 
 
+def _parse_scope_paths(argv):
+    opts = {"json": False, "paths": [], "paths_json": None}
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--json":
+            if opts["json"]:
+                raise ValueError("--json may be specified only once")
+            opts["json"] = True
+        elif arg == "--path":
+            i += 1
+            if i >= len(argv):
+                raise ValueError("--path requires a value")
+            opts["paths"].append(argv[i])
+        elif arg == "--paths-json":
+            i += 1
+            if i >= len(argv):
+                raise ValueError("--paths-json requires a value")
+            if opts["paths_json"] is not None:
+                raise ValueError("--paths-json may be specified only once")
+            opts["paths_json"] = argv[i]
+        else:
+            raise ValueError("unknown option %s" % arg)
+        i += 1
+    return opts
+
+
 def _parse_resources(argv):
     order = "sorted"
     selectors = []
@@ -1845,8 +2133,9 @@ def _parse_resources(argv):
 
 def _usage():
     return (
-        "usage: python -m engine.ops <resources|roots|stage-imports|unstage-imports|plan|"
-        "assert-clean|assert-adoptable|clean-plans|apply> [options] "
+        "usage: python -m engine.ops <resources|roots|scope-paths|plan-roots|"
+        "stage-imports|unstage-imports|plan|assert-clean|assert-adoptable|"
+        "clean-plans|apply> [options] "
         "[resource|provider ...]\n"
     )
 
@@ -1869,6 +2158,10 @@ def main(argv=None):
             return 0
         if command == "roots":
             return cmd_roots(_parse_roots(rest))
+        if command == "scope-paths":
+            return cmd_scope_paths(_parse_scope_paths(rest))
+        if command == "plan-roots":
+            return cmd_plan_roots(_parse_roots(rest))
         if command == "stage-imports":
             return cmd_stage_imports(_parse(rest))
         if command == "unstage-imports":
