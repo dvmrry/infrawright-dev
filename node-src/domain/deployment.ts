@@ -143,9 +143,13 @@ function validateDeployment(value: unknown): Deployment {
   const moduleDir = Object.hasOwn(value, "module_dir")
     ? value.module_dir
     : undefined;
+  const tfvarsFormat = Object.hasOwn(value, "tfvars_format")
+    ? value.tfvars_format
+    : undefined;
   return {
     overlay: pythonTruthy(overlay) ? overlay : ".",
     ...(pythonTruthy(moduleDir) ? { module_dir: moduleDir } : {}),
+    ...(tfvarsFormat === undefined ? {} : { tfvars_format: tfvarsFormat }),
     roots,
   };
 }

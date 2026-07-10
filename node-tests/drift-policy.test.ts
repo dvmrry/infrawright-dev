@@ -46,6 +46,52 @@ test("plan tolerance matches updates and tracks stale entries", () => {
   assert.deepEqual(policy.staleEntries({ modes: ["plan_tolerate"] }), []);
 });
 
+test("canonical-equivalent exact selectors retain Python first-match order", () => {
+  const policy = new DriftPolicy({
+    version: 1,
+    resource_types: {
+      zpa_sample: {
+        plan_tolerate: [
+          { path: "field[0]", reason: "first", approved_by: "owner" },
+          { path: "field[00]", reason: "alias", approved_by: "owner" },
+        ],
+      },
+    },
+  });
+  assert.equal(policy.toleratesPlanPath("zpa_sample", ["field", 0], "update"), true);
+  assert.deepEqual(policy.staleEntries({
+    resourceTypes: new Set(["zpa_sample"]),
+    modes: ["plan_tolerate"],
+  }), [{
+    resource_type: "zpa_sample",
+    mode: "plan_tolerate",
+    path: "field[00]",
+  }]);
+});
+
+test("exact policy index cannot collide across path segment boundaries", () => {
+  const policy = new DriftPolicy({
+    version: 1,
+    resource_types: {
+      zpa_sample: {
+        plan_tolerate: [{
+          path: 'labels["x/string:y"]',
+          reason: "map key",
+          approved_by: "owner",
+        }],
+      },
+    },
+  });
+  assert.equal(
+    policy.toleratesPlanPath("zpa_sample", ["labels", "x", "y"], "update"),
+    false,
+  );
+  assert.equal(
+    policy.toleratesPlanPath("zpa_sample", ["labels", "x/string:y"], "update"),
+    true,
+  );
+});
+
 test("full policy validation rejects unsafe or ambiguous entries", () => {
   const invalid: unknown[] = [
     {},

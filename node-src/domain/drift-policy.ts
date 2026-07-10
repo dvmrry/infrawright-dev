@@ -1,5 +1,6 @@
 import {
   parsePolicyPath,
+  POLICY_WILDCARD,
   PolicyPathError,
   policyPathHasWildcardOrIndex,
   policyPathsEqual,
@@ -26,6 +27,15 @@ const MODES = [
 ] as const;
 type PolicyMode = typeof MODES[number];
 type PolicyEntry = Record<string, unknown>;
+
+const MAX_POLICY_ENTRIES = 50_000;
+const MAX_PLAN_TOLERATE_WILDCARDS_PER_RESOURCE = 1_000;
+
+interface CompiledPlanTolerate {
+  readonly entry: PolicyEntry;
+  readonly order: number;
+  readonly selector: readonly (string | number | bigint)[];
+}
 
 export class DriftPolicyError extends Error {
   constructor(message: string) {
@@ -123,9 +133,11 @@ function policyPath(value: unknown) {
 }
 
 function pathMarker(path: readonly (string | number | bigint)[]): string {
-  return path.map((segment) => (
-    typeof segment === "bigint" ? `bigint:${segment}` : `${typeof segment}:${segment}`
-  )).join("/");
+  return JSON.stringify(path.map((segment) => {
+    return typeof segment === "bigint"
+      ? ["bigint", String(segment)]
+      : [typeof segment, segment];
+  }));
 }
 
 function validateEntry(
@@ -240,6 +252,7 @@ function validatePolicy(data: unknown, source: string): Record<string, unknown> 
   if (!isRecord(data.resource_types)) {
     fail(`${source}: resource_types must be an object`);
   }
+  let entryCount = 0;
   for (const resourceType of sortedStrings(Object.keys(data.resource_types))) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(resourceType)) {
       fail(`${source}: invalid resource type ${JSON.stringify(resourceType)}`);
@@ -253,6 +266,10 @@ function validatePolicy(data: unknown, source: string): Record<string, unknown> 
       const rawEntries = Object.hasOwn(resource, mode) ? resource[mode] : [];
       if (!Array.isArray(rawEntries)) {
         fail(`${source} ${mode} entries for ${resourceType} must be a list`);
+      }
+      entryCount += rawEntries.length;
+      if (entryCount > MAX_POLICY_ENTRIES) {
+        fail(`${source}: drift policy exceeds the entry-count limit`);
       }
       const scopes = new Set<string>();
       for (const entry of rawEntries) {
@@ -291,6 +308,14 @@ export class DriftPolicy {
   readonly data: Record<string, unknown>;
   readonly source: string;
   private readonly matched = new WeakSet<object>();
+  private readonly exactPlanTolerate = new Map<
+    string,
+    ReadonlyMap<string, CompiledPlanTolerate>
+  >();
+  private readonly wildcardPlanTolerate = new Map<
+    string,
+    readonly CompiledPlanTolerate[]
+  >();
 
   constructor(data: unknown = null, source = "<memory>") {
     this.source = source;
@@ -298,6 +323,31 @@ export class DriftPolicy {
       data === null ? { version: 1, resource_types: {} } : data,
       source,
     );
+    const resources = this.data.resource_types as Record<string, unknown>;
+    for (const resourceType of Object.keys(resources)) {
+      const exact = new Map<string, CompiledPlanTolerate>();
+      const wildcard: CompiledPlanTolerate[] = [];
+      for (const [order, entry] of this.entries(
+        resourceType,
+        "plan_tolerate",
+      ).entries()) {
+        const selector = policyPath(entry.path);
+        const compiled = { entry, order, selector };
+        if (selector.includes(POLICY_WILDCARD)) {
+          wildcard.push(compiled);
+        } else if (!exact.has(pathMarker(selector))) {
+          // Python walks entries in declaration order. Textually distinct
+          // selectors such as field[0] and field[00] can canonicalize to the
+          // same path, so retain the first and leave later aliases stale.
+          exact.set(pathMarker(selector), compiled);
+        }
+      }
+      if (wildcard.length > MAX_PLAN_TOLERATE_WILDCARDS_PER_RESOURCE) {
+        fail(`${source}: plan_tolerate wildcard entries exceed the per-resource limit`);
+      }
+      this.exactPlanTolerate.set(resourceType, exact);
+      this.wildcardPlanTolerate.set(resourceType, wildcard);
+    }
   }
 
   entries(resourceType: string, mode: PolicyMode): PolicyEntry[] {
@@ -313,17 +363,24 @@ export class DriftPolicy {
     path: readonly ConcretePathSegment[],
     action: string,
   ): boolean {
-    for (const entry of this.entries(resourceType, "plan_tolerate")) {
-      const actions = (
-        Object.hasOwn(entry, "actions") ? entry.actions : ["update"]
-      ) as unknown[];
-      if (!actions.includes(action)) {
-        continue;
+    if (action !== "update") {
+      return false;
+    }
+    const candidates: CompiledPlanTolerate[] = [];
+    const exact = this.exactPlanTolerate.get(resourceType)?.get(pathMarker(path));
+    if (exact !== undefined && policySelectorMatches(exact.selector, path)) {
+      candidates.push(exact);
+    }
+    for (const candidate of this.wildcardPlanTolerate.get(resourceType) ?? []) {
+      if (policySelectorMatches(candidate.selector, path)) {
+        candidates.push(candidate);
       }
-      if (policySelectorMatches(policyPath(entry.path), path)) {
-        this.matched.add(entry);
-        return true;
-      }
+    }
+    candidates.sort((left, right) => left.order - right.order);
+    const matched = candidates[0];
+    if (matched !== undefined) {
+      this.matched.add(matched.entry);
+      return true;
     }
     return false;
   }

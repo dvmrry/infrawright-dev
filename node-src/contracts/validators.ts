@@ -6,6 +6,7 @@ import changedPathScopeSchema from "../../docs/schemas/changed-path-scope.schema
 import planRootsSchema from "../../docs/schemas/plan-roots.schema.json" with { type: "json" };
 import rootCatalogSchema from "../../docs/schemas/root-catalog.schema.json" with { type: "json" };
 import rootTopologySchema from "../../docs/schemas/root-topology.schema.json" with { type: "json" };
+import savedPlanAssessmentSchema from "../../docs/schemas/saved-plan-assessment.schema.json" with { type: "json" };
 import type { ErrorDetail } from "../domain/errors.js";
 
 const ajv = new Ajv2020({
@@ -39,6 +40,9 @@ export const validateChangedPathScope: ValidateFunction = ajv.getSchema(
 export const validatePlanRoots: ValidateFunction = ajv.getSchema(
   planRootsSchema.$id,
 ) as ValidateFunction;
+export const validateSavedPlanAssessment: ValidateFunction = ajv.compile(
+  savedPlanAssessmentSchema,
+);
 
 function errorMessage(error: ErrorObject): string {
   if (error.keyword === "additionalProperties") {

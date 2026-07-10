@@ -262,6 +262,13 @@ export function validateAssessmentPlan(plan: unknown): asserts plan is Record<st
   if (typeof plan.format_version !== "string" || !FORMAT_VERSION.test(plan.format_version)) {
     fail("plan format_version must be a supported 1.x version");
   }
+  if (
+    plan.terraform_version !== undefined
+    && plan.terraform_version !== null
+    && typeof plan.terraform_version !== "string"
+  ) {
+    fail("plan terraform_version must be a string when present");
+  }
   if (plan.complete !== true) {
     fail("plan must be complete before assessment");
   }

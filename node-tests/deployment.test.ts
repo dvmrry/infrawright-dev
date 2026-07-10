@@ -38,6 +38,19 @@ test("deployment loader defaults omitted overlay and module_dir", async () => {
   }
 });
 
+test("deployment loader preserves tfvars_format for operation-scoped validation", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-node-"));
+  try {
+    const deployment = path.join(directory, "deployment.json");
+    await writeFile(deployment, JSON.stringify({ tfvars_format: "hcl" }));
+    assert.equal((await loadDeployment(deployment)).tfvars_format, "hcl");
+    await writeFile(deployment, JSON.stringify({ tfvars_format: "future" }));
+    assert.equal((await loadDeployment(deployment)).tfvars_format, "future");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("deployment loader fails closed on malformed root configuration", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "deployment-node-"));
   try {
