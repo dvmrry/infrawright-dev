@@ -108,7 +108,7 @@ The main provider-read normalization probes are:
    oracle gap, for BOTH resources. zia 4.7.26 READ does
    `sizeQuotaMB := resp.SizeQuota / 1024` before `d.Set("size_quota", ...)` in
    each: URL filtering
-   ([resource_zia_url_filtering_rules.go](https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go))
+   ([resource_zia_url_filtering_rules.go#L512-L514](https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L512-L514))
    and cloud app control
    ([resource_zia_cloud_app_control_rules.go#L393-L395](https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_cloud_app_control_rules.go#L393-L395)).
    Both CREATE/UPDATE paths convert back through the shared
@@ -183,7 +183,12 @@ dropped field paths are `zpa_server_group.microtenant_id`,
 `zpa_policy_access_rule.microtenant_id`,
 `zpa_policy_access_rule.conditions[].microtenant_id`, and
 `zpa_policy_access_rule.conditions[].operands[].microtenant_id`; all are
-`optional` plus `computed` and are expected to plan clean when omitted
+`optional` plus `computed`. The two nested paths traverse SDKv2 `TypeList`
+blocks (`conditions` and `operands`), not `TypeSet`
+([common.go#L296-L366](https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/common.go#L296-L366)),
+so omission does not alter an element hash. The nested-path expectation assumes
+matching block shape and order. Under these predicates, all seven paths are
+expected to plan clean when omitted
 ([resource_zpa_server_group.go#L96-L100](https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_server_group.go#L96-L100)).
 Do not add a `projection_omit` or equivalent policy for the app-segment path
 without a pinned import/show/plan test.
@@ -226,7 +231,9 @@ converts string elements to numbers - verified for both all-string
 (`["123","456"]`) and mixed (`[123,"456"]`) inputs. Module reference `.id`
 values are strings. The string literal fallback for out-of-group numeric ids
 is therefore type-safe, and no bare-numeric-literal change to `_literal_expr`
-is needed.
+is needed. No fixture or command transcript is retained for this check. It
+therefore supports inaction only and must not authorize behavior until it is
+captured as a repeatable test.
 
 ## Terraformer Corroboration And Net-New Rules
 
