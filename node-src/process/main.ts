@@ -12,8 +12,8 @@ import {
 import { executeRequest } from "./execute.js";
 import type {
   ProcessErrorResponse,
+  ProcessRequest,
   ProcessResponse,
-  RootsProcessRequest,
 } from "./types.js";
 
 const MAX_REQUEST_BYTES = 1024 * 1024;
@@ -52,7 +52,7 @@ async function readRequest(): Promise<string> {
 
 function requestIdentity(value: unknown): {
   requestId: string | null;
-  operation: "roots" | null;
+  operation: "roots" | "scope_paths" | null;
 } {
   if (!isObject(value)) {
     return { requestId: null, operation: null };
@@ -64,14 +64,16 @@ function requestIdentity(value: unknown): {
     : null;
   return {
     requestId,
-    operation: value.operation === "roots" ? "roots" : null,
+    operation: value.operation === "roots" || value.operation === "scope_paths"
+      ? value.operation
+      : null,
   };
 }
 
 function errorResponse(options: {
   failure: ProcessFailure;
   requestId: string | null;
-  operation: "roots" | null;
+  operation: "roots" | "scope_paths" | null;
 }): ProcessErrorResponse {
   return {
     kind: "infrawright.process_response",
@@ -138,7 +140,7 @@ async function main(): Promise<void> {
         details: schemaErrorDetails(validateProcessRequest.errors),
       });
     }
-    emit(await executeRequest(parsed as RootsProcessRequest));
+    emit(await executeRequest(parsed as ProcessRequest));
   } catch (error: unknown) {
     const identity = requestIdentity(parsed);
     const failure = error instanceof ProcessFailure

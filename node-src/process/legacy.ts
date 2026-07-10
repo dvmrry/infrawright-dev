@@ -1,4 +1,8 @@
-import type { RootTopology, WholeRootDiagnostic } from "../domain/types.js";
+import type {
+  ChangedPathScope,
+  RootTopology,
+  WholeRootDiagnostic,
+} from "../domain/types.js";
 import {
   renderPythonCompatibleJson,
   type JsonValue,
@@ -12,4 +16,8 @@ export function renderLegacyRootDiagnostics(
   diagnostics: readonly WholeRootDiagnostic[],
 ): string {
   return diagnostics.map((diagnostic) => `NOTE: ${diagnostic.message}\n`).join("");
+}
+
+export function renderLegacyChangedPathScope(scope: ChangedPathScope): string {
+  return renderPythonCompatibleJson(scope as unknown as JsonValue);
 }

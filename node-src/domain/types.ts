@@ -25,6 +25,7 @@ export interface RootProviderConfig {
 
 export interface Deployment {
   readonly overlay: unknown;
+  readonly module_dir?: unknown;
   readonly roots: Readonly<Record<string, RootProviderConfig>>;
 }
 
@@ -56,4 +57,37 @@ export interface WholeRootDiagnostic {
   readonly selected_members: readonly string[];
   readonly root: string;
   readonly additional_members: readonly string[];
+}
+
+export type ChangedPathKind =
+  | "config"
+  | "deployment"
+  | "env_root"
+  | "imports"
+  | "module";
+
+export interface ChangedPathMatch {
+  readonly path: string;
+  readonly kinds: readonly ChangedPathKind[];
+  readonly tenants: readonly string[];
+  readonly resources: readonly string[];
+  readonly roots: readonly string[];
+}
+
+export interface AffectedRoot {
+  readonly label: string;
+  readonly provider: string | null;
+  readonly members: readonly string[];
+  readonly matched_resources: readonly string[];
+  readonly paths: readonly string[];
+}
+
+export interface ChangedPathScope {
+  readonly kind: "infrawright.changed_path_scope";
+  readonly schema_version: 1;
+  readonly paths: readonly string[];
+  readonly path_matches: readonly ChangedPathMatch[];
+  readonly unmatched_paths: readonly string[];
+  readonly affected_resources: readonly string[];
+  readonly affected_roots: readonly AffectedRoot[];
 }

@@ -1,4 +1,5 @@
 import type {
+  ChangedPathScope,
   RootTopology,
   WholeRootDiagnostic,
 } from "../domain/types.js";
@@ -20,6 +21,19 @@ export interface RootsProcessRequest {
   };
 }
 
+export interface ScopePathsProcessRequest {
+  readonly kind: "infrawright.process_request";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "scope_paths";
+  readonly context: RootsProcessRequest["context"];
+  readonly input: {
+    readonly paths: readonly string[];
+  };
+}
+
+export type ProcessRequest = RootsProcessRequest | ScopePathsProcessRequest;
+
 export interface ProcessError {
   readonly code: string;
   readonly category: ErrorCategory;
@@ -28,7 +42,7 @@ export interface ProcessError {
   readonly details: readonly ErrorDetail[];
 }
 
-export interface ProcessSuccessResponse {
+export interface RootsProcessSuccessResponse {
   readonly kind: "infrawright.process_response";
   readonly schema_version: 1;
   readonly request_id: string;
@@ -39,11 +53,26 @@ export interface ProcessSuccessResponse {
   readonly error: null;
 }
 
+export interface ScopePathsProcessSuccessResponse {
+  readonly kind: "infrawright.process_response";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "scope_paths";
+  readonly status: "ok";
+  readonly diagnostics: readonly [];
+  readonly result: ChangedPathScope;
+  readonly error: null;
+}
+
+export type ProcessSuccessResponse =
+  | RootsProcessSuccessResponse
+  | ScopePathsProcessSuccessResponse;
+
 export interface ProcessErrorResponse {
   readonly kind: "infrawright.process_response";
   readonly schema_version: 1;
   readonly request_id: string | null;
-  readonly operation: "roots" | null;
+  readonly operation: "roots" | "scope_paths" | null;
   readonly status: "error";
   readonly diagnostics: readonly [];
   readonly result: null;

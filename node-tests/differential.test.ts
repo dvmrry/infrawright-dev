@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,7 +8,9 @@ import test from "node:test";
 import { loadRootCatalog } from "../node-src/domain/catalog.js";
 import { loadDeployment } from "../node-src/domain/deployment.js";
 import { rootTopology } from "../node-src/domain/roots.js";
+import { changedPathScope } from "../node-src/domain/scope-paths.js";
 import {
+  renderLegacyChangedPathScope,
   renderLegacyRootDiagnostics,
   renderLegacyRootTopology,
 } from "../node-src/process/legacy.js";
@@ -51,6 +53,39 @@ async function compare(options: {
   assert.equal(renderLegacyRootTopology(nodeResult.topology), python.stdout);
   assert.equal(renderLegacyRootDiagnostics(nodeResult.diagnostics), python.stderr);
   assert.deepEqual(nodeResult.topology, JSON.parse(python.stdout));
+}
+
+async function compareScope(options: {
+  deployment: string;
+  paths: readonly string[];
+  packsRoot?: string;
+}): Promise<void> {
+  const catalog = await loadRootCatalog(CATALOG);
+  const deployment = await loadDeployment(options.deployment);
+  const nodeResult = changedPathScope({
+    catalog,
+    deployment,
+    deploymentPath: options.deployment,
+    workspace: WORKSPACE,
+    paths: options.paths,
+  });
+  const python = spawnSync(
+    "python3",
+    ["-m", "engine.ops", "scope-paths", "--json", "--paths-json", "-"],
+    {
+      cwd: WORKSPACE,
+      input: JSON.stringify(options.paths),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        INFRAWRIGHT_DEPLOYMENT: options.deployment,
+        INFRAWRIGHT_PACKS: options.packsRoot ?? path.join(WORKSPACE, "packs"),
+      },
+    },
+  );
+  assert.equal(python.status, 0, python.stderr);
+  assert.equal(renderLegacyChangedPathScope(nodeResult), python.stdout);
+  assert.deepEqual(nodeResult, JSON.parse(python.stdout));
 }
 
 test("committed Zscaler catalog is current", () => {
@@ -185,6 +220,130 @@ test("empty deployments, Python-falsey overlays, and slug roots match", async ()
       tenant: "prod",
       selectors: ["zpa_application_segment"],
     });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("changed-path scope bytes match Python across artifact kinds", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-node-"));
+  try {
+    const deployment = path.join(directory, "deployment.json");
+    await writeFile(deployment, JSON.stringify({
+      roots: {
+        zpa: {
+          groups: {
+            zpa_segments: ["zpa_application_segment", "zpa_segment_group"],
+          },
+        },
+      },
+    }));
+    await compareScope({
+      deployment,
+      paths: [
+        "./config/prod/zpa_application_segment.auto.tfvars.json",
+        "config/prod/zpa_application_segment.auto.tfvars.json",
+        "imports/prod/zpa_segment_group_imports.tf",
+        "envs/prod/zpa_segments",
+        "envs/prod/zpa_segments/terraform.tfstate",
+        "modules/zpa_application_segment/main.tf",
+        deployment,
+        "unrelated/file.txt",
+      ],
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("changed-path scope bytes match Python for overlay and module_dir", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-node-"));
+  try {
+    const deployment = path.join(directory, "deployment.json");
+    const overlay = path.join(directory, "external-overlay");
+    const moduleDir = path.join(directory, "external-modules");
+    await writeFile(deployment, JSON.stringify({
+      overlay,
+      module_dir: moduleDir,
+      roots: { zpa: { strategy: "slug" } },
+    }));
+    await compareScope({
+      deployment,
+      paths: [
+        `${overlay}/config/prod/zia_url_filtering_rules.generated.expressions.json`,
+        `${overlay}/config/prod/zia_url_filtering_rules.expressions.json`,
+        `${overlay}/config/prod/zia_url_filtering_rules.auto.tfvars`,
+        `${overlay}/config/prod/zia_url_filtering_rules.lookup.json`,
+        `${overlay}/imports/prod/zia_url_filtering_rules_moves.tf`,
+        `${moduleDir}/zpa_application_segment/variables.tf`,
+      ],
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("empty changed-path scope matches Python", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-node-"));
+  try {
+    await compareScope({
+      deployment: path.join(directory, "missing.json"),
+      paths: [],
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("external overlay spellings and missing leaves match Python", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-node-"));
+  const external = await mkdtemp(path.join(os.tmpdir(), "infrawright-overlay-"));
+  try {
+    const deployment = path.join(directory, "deployment.json");
+    await writeFile(deployment, JSON.stringify({ overlay: external }));
+    const absolute = path.join(
+      external,
+      "config/prod/zpa_segment_group.auto.tfvars.json",
+    );
+    const relative = path.relative(WORKSPACE, absolute);
+    const aliasRoot = path.join(directory, "overlay-alias");
+    await symlink(external, aliasRoot);
+    const alias = path.join(
+      aliasRoot,
+      "config/prod/zpa_segment_group.auto.tfvars.json",
+    );
+    for (const spelling of [absolute, relative, alias]) {
+      await compareScope({ deployment, paths: [spelling] });
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+    await rm(external, { recursive: true, force: true });
+  }
+});
+
+test("external deployment absolute, relative, and alias spellings match Python", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-node-"));
+  try {
+    const deployment = path.join(directory, "deployment.json");
+    await writeFile(deployment, JSON.stringify({}));
+    const relative = path.relative(WORKSPACE, deployment);
+    const alias = path.join(directory, "deployment-alias.json");
+    await symlink(deployment, alias);
+    for (const spelling of [deployment, relative, alias]) {
+      await compareScope({ deployment, paths: [spelling] });
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("dangling deployment aliases retain deleted-target scoping parity", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-node-"));
+  try {
+    const target = path.join(directory, "deleted-deployment.json");
+    const alias = path.join(directory, "deployment-alias.json");
+    await symlink(target, alias);
+    await compareScope({ deployment: alias, paths: [alias, target] });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

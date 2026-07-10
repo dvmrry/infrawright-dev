@@ -10,15 +10,29 @@ test("deployment loader preserves the Python missing and empty defaults", async 
   const directory = await mkdtemp(path.join(os.tmpdir(), "deployment-node-"));
   try {
     const deployment = path.join(directory, "deployment.json");
-    assert.deepEqual(await loadDeployment(deployment), {
-      overlay: ".",
-      roots: {},
-    });
+    const emptyLoaded = await loadDeployment(deployment);
+    assert.equal(emptyLoaded.overlay, ".");
+    assert.equal(emptyLoaded.module_dir, undefined);
+    assert.deepEqual(Object.keys(emptyLoaded.roots), []);
     await writeFile(deployment, " \n\t");
-    assert.deepEqual(await loadDeployment(deployment), {
-      overlay: ".",
-      roots: {},
-    });
+    const loaded = await loadDeployment(deployment);
+    assert.equal(loaded.overlay, ".");
+    assert.equal(loaded.module_dir, undefined);
+    assert.deepEqual(Object.keys(loaded.roots), []);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("deployment loader defaults omitted overlay and module_dir", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-node-"));
+  try {
+    const deployment = path.join(directory, "deployment.json");
+    await writeFile(deployment, JSON.stringify({ roots: {} }));
+    const loaded = await loadDeployment(deployment);
+    assert.equal(loaded.overlay, ".");
+    assert.equal(loaded.module_dir, undefined);
+    assert.deepEqual(Object.keys(loaded.roots), []);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

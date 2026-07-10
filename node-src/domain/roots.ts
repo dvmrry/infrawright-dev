@@ -7,6 +7,7 @@ import type {
   RootTopology,
   WholeRootDiagnostic,
 } from "./types.js";
+import { pythonPosixJoin } from "./paths.js";
 import { sortedStrings } from "../json/python-compatible.js";
 
 const ROOT_LABEL = /^[a-z0-9_]+$/;
@@ -266,20 +267,6 @@ function expandResources(
     );
   }
   return sortedStrings(selected);
-}
-
-function pythonPosixJoin(...parts: readonly string[]): string {
-  let result = "";
-  for (const part of parts) {
-    if (part.startsWith("/")) {
-      result = part;
-    } else if (result.length === 0 || result.endsWith("/")) {
-      result += part;
-    } else {
-      result += `/${part}`;
-    }
-  }
-  return result;
 }
 
 function tenantPath(
