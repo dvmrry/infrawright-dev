@@ -153,10 +153,40 @@
       "reason": "The regression reads the committed Cloudflare dynamic-schema rule."
     },
     {
-      "prefix": "tests.test_ops.OpsEnvDiscoveryTest.",
+      "prefix": "tests.test_ops.OpsEnvDiscoveryTest.test_explicit_tenant_resolves_under_active_overlay.",
+      "packs": ["zia"],
+      "shared": [],
+      "reason": "The flat discovery case validates the committed ZIA resource selector."
+    },
+    {
+      "prefix": "tests.test_ops.OpsEnvDiscoveryTest.test_grouped_root_discovery_and_member_selection_note.",
       "packs": ["zpa"],
       "shared": ["zscaler"],
-      "reason": "The discovery regression uses committed grouped ZPA root membership."
+      "reason": "The grouped discovery case uses committed ZPA root membership."
+    },
+    {
+      "prefix": "tests.test_ops.OpsEnvDiscoveryTest.test_malformed_deployment_does_not_fall_back_to_root_envs.",
+      "packs": ["zia"],
+      "shared": [],
+      "reason": "The malformed-deployment case creates a committed ZIA resource root."
+    },
+    {
+      "prefix": "tests.test_ops.OpsEnvDiscoveryTest.test_no_tenant_discovery_uses_only_active_overlay_envs.",
+      "packs": ["zia"],
+      "shared": [],
+      "reason": "The overlay discovery case validates the committed ZIA resource selector."
+    },
+    {
+      "prefix": "tests.test_ops.OpsEnvDiscoveryTest.test_no_tenant_discovery_uses_root_for_dot_overlay.",
+      "packs": ["zia"],
+      "shared": [],
+      "reason": "The dot-overlay discovery case validates the committed ZIA resource selector."
+    },
+    {
+      "prefix": "tests.test_ops.OpsEnvDiscoveryTest.test_no_tenant_discovery_uses_root_when_no_overlay.",
+      "packs": ["zia"],
+      "shared": [],
+      "reason": "The root discovery case validates the committed ZIA resource selector."
     },
     {
       "prefix": "tests.test_ops.OpsGroupedRootCommandTest.",
@@ -177,10 +207,22 @@
       "reason": "The integration case uses the committed ZPA reference graph."
     },
     {
-      "prefix": "tests.test_ops.OpsStageImportsTest.",
+      "prefix": "tests.test_ops.OpsStageImportsTest.test_grouped_stage_imports_copies_each_member_file_to_shared_root.",
       "packs": ["zpa"],
       "shared": ["zscaler"],
-      "reason": "The import-staging cases select committed ZPA resources."
+      "reason": "The grouped import-staging case selects committed ZPA resources."
+    },
+    {
+      "prefix": "tests.test_ops.OpsStageImportsTest.test_stage_imports_copies_flat_resource_type_file.",
+      "packs": ["zia"],
+      "shared": [],
+      "reason": "The flat import-staging case selects the committed ZIA resource."
+    },
+    {
+      "prefix": "tests.test_ops.OpsStageImportsTest.test_stage_imports_mentions_transform_or_adopt_when_sources_missing.",
+      "packs": ["zia"],
+      "shared": [],
+      "reason": "The missing-source import-staging case selects the committed ZIA resource."
     },
     {
       "prefix": "tests.test_pack_adoption_metadata.PackAdoptionMetadataTest.test_aws_absent_default_metadata_validates.",

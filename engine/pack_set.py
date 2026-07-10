@@ -83,14 +83,20 @@ def load_document(path, expected_kind):
 
 
 def discover_pack_names(root=None):
+    """Every installed top-level pack directory, manifested or not.
+
+    Runtime loaders consume registry and adoption-status inputs from the pack
+    tree independently of ``pack.json``. Counting directories is therefore the
+    fail-closed distribution boundary: a stale partial pack cannot be invisible
+    to an exact profile while remaining visible to a runtime loader.
+    """
     root = os.path.abspath(root or packs.packs_root())
     if not os.path.isdir(root):
         return []
-    out = []
-    for name in sorted(os.listdir(root)):
-        if os.path.isfile(os.path.join(root, name, "pack.json")):
-            out.append(name)
-    return out
+    return sorted(
+        name for name in os.listdir(root)
+        if name != "_shared" and os.path.isdir(os.path.join(root, name))
+    )
 
 
 def discover_shared_names(root=None):
@@ -100,8 +106,7 @@ def discover_shared_names(root=None):
         return []
     return sorted(
         name for name in os.listdir(shared_root)
-        if _NAME_RE.match(name)
-        and os.path.isdir(os.path.join(shared_root, name))
+        if os.path.isdir(os.path.join(shared_root, name))
     )
 
 

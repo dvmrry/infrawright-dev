@@ -57,6 +57,29 @@ class PackSetTest(unittest.TestCase):
                     "missing shared: required; undeclared shared: unexpected"):
                 pack_set.validate_active_pack_set(profile, root=root)
 
+    def test_exact_profile_rejects_manifestless_runtime_pack_data(self):
+        with tempfile.TemporaryDirectory() as root:
+            ghost = os.path.join(root, "ghost")
+            os.makedirs(ghost)
+            self._write(ghost, "registry.json", {
+                "ghost_resource": {"product": "ghost"},
+            })
+            self._write(ghost, "adoption_status.json", {
+                "dispositions": {
+                    "ghost_resource": {
+                        "status": "manual-only",
+                        "reason": "stale partial pack",
+                    },
+                },
+            })
+            profile = self._write(
+                root, "profile.json", self._profile()
+            )
+
+            with self.assertRaisesRegex(
+                    pack_set.PackSetError, "undeclared packs: ghost"):
+                pack_set.validate_active_pack_set(profile, root=root)
+
     def test_requirements_are_subset_not_exact(self):
         with tempfile.TemporaryDirectory() as root:
             self._pack(root, "one")

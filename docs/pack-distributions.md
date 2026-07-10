@@ -43,6 +43,13 @@ future external-loader change will make independently distributed pack roots
 fully authoritative for Python collectors as well; until then, selected roots
 are supported within a checkout of this repository.
 
+Every top-level directory other than `_shared` counts as an installed pack,
+even when it has no `pack.json`; every directory immediately below `_shared`
+counts as a shared component. This is deliberate. Runtime loaders can consume
+registry, adoption-status, schema-extract, and shared inputs from a partially
+copied directory, so an exact profile must reject that stale directory instead
+of omitting its tests while continuing to load its data.
+
 ## Check Layers
 
 - `make check` validates the active distribution: exact profile, selected unit

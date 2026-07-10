@@ -101,25 +101,37 @@ jobs:
           PROFILE: ${{ matrix.profile }}
         run: |
           root="$RUNNER_TEMP/pruned-$PROFILE"
-          mkdir -p "$root"
-          if [ "$PROFILE" = "empty" ]; then
-            git archive HEAD | tar -x -f - -C "$root" \
-              --exclude=packs/aws \
-              --exclude=packs/cloudflare \
-              --exclude=packs/google \
-              --exclude=packs/netbox \
-              --exclude=packs/zcc \
-              --exclude=packs/zia \
-              --exclude=packs/zpa \
-              --exclude=packs/ztc \
-              --exclude=packs/_shared
-          else
-            git archive HEAD | tar -x -f - -C "$root" \
-              --exclude=packs/aws \
-              --exclude=packs/cloudflare \
-              --exclude=packs/google \
-              --exclude=packs/netbox
-          fi
+          git worktree add --detach "$root" HEAD
+          python3 - "$PROFILE" "$root" <<'PY'
+          import json
+          import os
+          import shutil
+          import sys
+
+          profile_name, checkout = sys.argv[1:]
+          with open(
+                  os.path.join(checkout, "packsets", profile_name + ".json"),
+                  encoding="utf-8") as f:
+              profile = json.load(f)
+
+          packs_root = os.path.join(checkout, "packs")
+          selected_packs = set(profile["packs"])
+          for name in os.listdir(packs_root):
+              path = os.path.join(packs_root, name)
+              if (name != "_shared" and os.path.isdir(path)
+                      and name not in selected_packs):
+                  shutil.rmtree(path)
+
+          shared_root = os.path.join(packs_root, "_shared")
+          selected_shared = set(profile["shared"])
+          if os.path.isdir(shared_root):
+              for name in os.listdir(shared_root):
+                  path = os.path.join(shared_root, name)
+                  if os.path.isdir(path) and name not in selected_shared:
+                      shutil.rmtree(path)
+              if not selected_shared:
+                  shutil.rmtree(shared_root)
+          PY
           echo "PRUNED_ROOT=$root" >> "$GITHUB_ENV"
       - name: Pruned distribution gate
         env:

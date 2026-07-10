@@ -1,4 +1,5 @@
 """Tests for the active-pack-aware unittest selector."""
+import os
 import unittest
 
 from engine import pack_set
@@ -108,6 +109,39 @@ class TestRunnerSelectionTest(unittest.TestCase):
                 {"packs": ["known"], "shared": []},
                 "requirements.json",
             )
+
+    def test_committed_mixed_ops_classes_have_per_test_provider_requirements(self):
+        rules = run.load_requirements(os.path.join(
+            os.path.dirname(__file__), "pack-test-requirements.json"
+        ))
+        expected = {
+            "OpsEnvDiscoveryTest.test_explicit_tenant_resolves_under_active_overlay":
+                ("zia", []),
+            "OpsEnvDiscoveryTest.test_grouped_root_discovery_and_member_selection_note":
+                ("zpa", ["zscaler"]),
+            "OpsEnvDiscoveryTest.test_malformed_deployment_does_not_fall_back_to_root_envs":
+                ("zia", []),
+            "OpsEnvDiscoveryTest.test_no_tenant_discovery_uses_only_active_overlay_envs":
+                ("zia", []),
+            "OpsEnvDiscoveryTest.test_no_tenant_discovery_uses_root_for_dot_overlay":
+                ("zia", []),
+            "OpsEnvDiscoveryTest.test_no_tenant_discovery_uses_root_when_no_overlay":
+                ("zia", []),
+            "OpsStageImportsTest.test_grouped_stage_imports_copies_each_member_file_to_shared_root":
+                ("zpa", ["zscaler"]),
+            "OpsStageImportsTest.test_stage_imports_copies_flat_resource_type_file":
+                ("zia", []),
+            "OpsStageImportsTest."
+            "test_stage_imports_mentions_transform_or_adopt_when_sources_missing":
+                ("zia", []),
+        }
+        for suffix, (pack, shared) in sorted(expected.items()):
+            with self.subTest(test=suffix):
+                required = run.requirements_for(
+                    "tests.test_ops.%s" % suffix, rules
+                )
+                self.assertEqual(required["packs"], [pack])
+                self.assertEqual(required["shared"], shared)
 
 
 if __name__ == "__main__":
