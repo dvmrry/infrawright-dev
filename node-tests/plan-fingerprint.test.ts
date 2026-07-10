@@ -276,6 +276,36 @@ test("module tree top-level symlinks follow Python os.walk semantics", async () 
   });
 });
 
+test("leading U+FEFF filename bytes are preserved in root and module fingerprints", async () => {
+  await withTemp(async (temp) => {
+    const envDir = join(temp, "env");
+    const moduleDir = join(temp, "module");
+    mkdirSync(envDir, { recursive: true });
+    mkdirSync(moduleDir, { recursive: true });
+    write(join(envDir, "main.tf"), moduleBlock(
+      "zpa_sample",
+      relative(envDir, moduleDir),
+    ));
+    write(join(envDir, "\ufeffroot.tf"), "# leading FEFF root\n");
+    write(join(moduleDir, "\ufeffmodule.tf"), "# leading FEFF module\n");
+    const input: PlanFingerprintInput = {
+      envDir,
+      memberTypes: ["zpa_sample"],
+      varFiles: [],
+    };
+    const oracle = python<PythonFingerprintResult>(PYTHON_FINGERPRINT, {
+      env_dir: envDir,
+      member_types: input.memberTypes,
+      var_files: [],
+    });
+    const payload = await capturePlanSourcesPayload(input);
+    assert.deepEqual(payload, oracle.payload);
+    assert.equal((await planFingerprintV2(input)).sha256, oracle.digest);
+    assert.ok(payload.root_tf.some(([name]) => name === "\ufeffroot.tf"));
+    assert.ok(payload.modules[0]?.files.some(([name]) => name === "\ufeffmodule.tf"));
+  });
+});
+
 test("backend, var-file, and local-path edge semantics match Python", async () => {
   await withTemp(async (temp) => {
     const missingBackend = join(temp, "missing-backend.hcl");

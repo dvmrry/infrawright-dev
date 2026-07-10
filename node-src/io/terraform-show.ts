@@ -14,13 +14,16 @@ export interface TerraformShowLimits {
 
 export const DEFAULT_TERRAFORM_SHOW_LIMITS: TerraformShowLimits = {
   timeoutMs: 120_000,
-  maxStdoutBytes: 256 * 1024 * 1024,
+  maxStdoutBytes: 8 * 1024 * 1024,
   maxStderrBytes: 1024 * 1024,
 };
 
 const MAX_TERRAFORM_SHOW_TIMEOUT_MS = 10 * 60 * 1000;
-const MAX_TERRAFORM_SHOW_STDOUT_BYTES = 512 * 1024 * 1024;
+const MAX_TERRAFORM_SHOW_STDOUT_BYTES = 8 * 1024 * 1024;
 const MAX_TERRAFORM_SHOW_STDERR_BYTES = 16 * 1024 * 1024;
+const MAX_TERRAFORM_JSON_STRUCTURE_TOKENS = 100_000;
+const MAX_TERRAFORM_JSON_STRING_CHARACTERS = 4 * 1024 * 1024;
+const MAX_TERRAFORM_JSON_SCALAR_CHARACTERS = 1024 * 1024;
 
 export interface TerraformShowOptions {
   readonly terraformExecutable: string;
@@ -51,6 +54,80 @@ function validateLimits(limits: TerraformShowLimits): void {
   ) {
     fail("INVALID_TERRAFORM_SHOW_LIMIT", "Terraform show limits must be positive");
   }
+}
+
+function deadlineFailure(): never {
+  return fail(
+    "TERRAFORM_SHOW_TIMEOUT",
+    "Terraform show exceeded its execution deadline",
+    "io",
+  );
+}
+
+function checkDeadline(deadline: number): void {
+  if (Date.now() > deadline) {
+    deadlineFailure();
+  }
+}
+
+/** Bound lossless-parser object growth before constructing the JSON graph. */
+function preflightTerraformJson(text: string, deadline: number): void {
+  let escaped = false;
+  let inString = false;
+  let scalarCharacters = 0;
+  let stringCharacters = 0;
+  let structureTokens = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    if ((index & 0xfff) === 0) {
+      checkDeadline(deadline);
+    }
+    const character = text[index] ?? "";
+    if (inString) {
+      stringCharacters += 1;
+      if (stringCharacters > MAX_TERRAFORM_JSON_STRING_CHARACTERS) {
+        fail(
+          "TERRAFORM_SHOW_COMPLEXITY_LIMIT",
+          "Terraform show JSON exceeds its string-content limit",
+        );
+      }
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      scalarCharacters = 0;
+      continue;
+    }
+    if ("{}[],:".includes(character)) {
+      structureTokens += 1;
+      scalarCharacters = 0;
+      if (structureTokens > MAX_TERRAFORM_JSON_STRUCTURE_TOKENS) {
+        fail(
+          "TERRAFORM_SHOW_COMPLEXITY_LIMIT",
+          "Terraform show JSON exceeds its structural limit",
+        );
+      }
+      continue;
+    }
+    if (/\s/.test(character)) {
+      scalarCharacters = 0;
+      continue;
+    }
+    scalarCharacters += 1;
+    if (scalarCharacters > MAX_TERRAFORM_JSON_SCALAR_CHARACTERS) {
+      fail(
+        "TERRAFORM_SHOW_COMPLEXITY_LIMIT",
+        "Terraform show JSON exceeds its scalar-token limit",
+      );
+    }
+  }
+  checkDeadline(deadline);
 }
 
 async function requireRegularFile(
@@ -98,6 +175,7 @@ export async function terraformShowPlan(
   }
   const limits = options.limits ?? DEFAULT_TERRAFORM_SHOW_LIMITS;
   validateLimits(limits);
+  const deadline = Date.now() + limits.timeoutMs;
   await requireRegularFile(
     options.terraformExecutable,
     "UNTRUSTED_TERRAFORM_EXECUTABLE",
@@ -105,7 +183,8 @@ export async function terraformShowPlan(
   );
   await requireRegularFile(options.snapshotPath, "INVALID_PLAN_SNAPSHOT", false);
 
-  const stdout = await new Promise<Buffer>((resolve, reject) => {
+  checkDeadline(deadline);
+  let stdout = await new Promise<Buffer>((resolve, reject) => {
     const detached = process.platform !== "win32";
     let child: ChildProcessByStdio<null, Readable, Readable>;
     try {
@@ -137,7 +216,7 @@ export async function terraformShowPlan(
       }));
       return;
     }
-    const chunks: Buffer[] = [];
+    const output = Buffer.allocUnsafe(limits.maxStdoutBytes);
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let terminalFailure: ProcessFailure | null = null;
@@ -166,11 +245,11 @@ export async function terraformShowPlan(
         category: "io",
         message: "Terraform show exceeded its execution deadline",
       }));
-    }, limits.timeoutMs);
+    }, Math.max(1, deadline - Date.now()));
 
     child.stdout.on("data", (chunk: Buffer) => {
-      stdoutBytes += chunk.length;
-      if (stdoutBytes > limits.maxStdoutBytes) {
+      const nextSize = stdoutBytes + chunk.length;
+      if (nextSize > limits.maxStdoutBytes) {
         terminate(new ProcessFailure({
           code: "TERRAFORM_SHOW_STDOUT_LIMIT",
           category: "io",
@@ -178,7 +257,8 @@ export async function terraformShowPlan(
         }));
         return;
       }
-      chunks.push(Buffer.from(chunk));
+      chunk.copy(output, stdoutBytes);
+      stdoutBytes = nextSize;
     });
     child.stderr.on("data", (chunk: Buffer) => {
       stderrBytes += chunk.length;
@@ -232,7 +312,7 @@ export async function terraformShowPlan(
           message: "Terraform could not render the saved plan",
         }));
       } else {
-        resolve(Buffer.concat(chunks, stdoutBytes));
+        resolve(output.subarray(0, stdoutBytes));
       }
     });
   });
@@ -246,12 +326,18 @@ export async function terraformShowPlan(
       "Terraform show did not emit valid UTF-8 plan JSON",
     );
   }
+  stdout = Buffer.alloc(0);
+  checkDeadline(deadline);
+  preflightTerraformJson(text, deadline);
+  let plan: unknown;
   try {
-    return parseDataJsonLosslessly(text);
+    plan = parseDataJsonLosslessly(text);
   } catch {
     return fail(
       "INVALID_TERRAFORM_SHOW_JSON",
       "Terraform show did not emit valid plan JSON",
     );
   }
+  checkDeadline(deadline);
+  return plan;
 }

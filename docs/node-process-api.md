@@ -233,6 +233,16 @@ Cleanup scrubs snapshot bytes through a descriptor whose device/inode identity
 was bound at capture time; it never path-unlinks a caller-influenceable file.
 The operation-owned temporary directory then removes the empty artifact.
 
+This binding detects staleness and in-process filesystem races; it is not an
+authenticity proof against a principal that can replace plan artifacts. The v2
+sidecar fingerprints plan inputs and does not attest the plan bytes or planner
+identity. Pipelines must create `tfplan` and `tfplan.sources` in one trusted
+planning step, store and restore them as an inseparable artifact through
+authenticated CI storage, and assess them where untrusted changes cannot
+substitute either file. A PR-controlled plan/sidecar pair is not trusted
+evidence. Cryptographic planner attestation is a separate future contract, not
+something an additional attacker-writable digest could provide.
+
 All evidence reads have explicit operation-wide ceilings for file count,
 directory count, directory entries, depth, individual bytes, and total bytes.
 Reads fail when a file mutates or is replaced, and plan/sources diagnostics do
@@ -252,8 +262,11 @@ executable and a private regular-file snapshot. It invokes a fixed
 `terraform -chdir=<root> show -json <snapshot>` argv without a shell, replaces
 the child environment with fixed locale/checkpoint values (so `TF_CLI_ARGS*`
 and credentials cannot alter the call), enforces hard timeout/stdout/stderr
-ceilings, discards stderr, and parses stdout with the lossless bounded JSON
-contract. Child output, filesystem paths, and plan values never enter an error
+ceilings, discards stderr, and preflights stdout before lossless parsing. The
+current Zscaler cutover boundary accepts at most 8 MiB of JSON, 100,000
+structural tokens, 4 MiB of string content, and a 1 MiB scalar token; the same
+deadline covers child execution, decode, preflight, and parse. Child output,
+filesystem paths, and plan values never enter an error
 diagnostic. Final evidence rechecks remain mandatory because the adapter alone
 does not claim the root or snapshot stayed unchanged around execution.
 

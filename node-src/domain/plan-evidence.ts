@@ -107,7 +107,10 @@ function sameFile(
   return left.dev === right.dev && left.ino === right.ino;
 }
 
-async function snapshotFileIdentity(filePath: string): Promise<SnapshotFileIdentity> {
+async function snapshotFileIdentity(
+  filePath: string,
+  expected?: SnapshotFileIdentity,
+): Promise<SnapshotFileIdentity> {
   try {
     const metadata = await lstat(filePath, { bigint: true });
     if (!metadata.isFile() || metadata.isSymbolicLink()) {
@@ -116,7 +119,14 @@ async function snapshotFileIdentity(filePath: string): Promise<SnapshotFileIdent
         "saved-plan snapshot changed while evidence was prepared",
       );
     }
-    return { dev: metadata.dev, ino: metadata.ino };
+    const current = { dev: metadata.dev, ino: metadata.ino };
+    if (expected !== undefined && !sameFile(expected, current)) {
+      return fail(
+        "PLAN_SNAPSHOT_CHANGED",
+        "saved-plan snapshot changed while evidence was prepared",
+      );
+    }
+    return current;
   } catch (error: unknown) {
     if (error instanceof ProcessFailure) {
       throw error;
@@ -356,7 +366,10 @@ export async function prepareSavedPlanEvidence(
       privateDirectory: options.snapshotDirectory,
       budget: options.savedPlanBudget,
     });
-    snapshotIdentity = await snapshotFileIdentity(snapshot.path);
+    snapshotIdentity = await snapshotFileIdentity(snapshot.path, {
+      dev: snapshot.dev,
+      ino: snapshot.ino,
+    });
     const directoryAfter = await snapshotDirectoryIdentity(options.snapshotDirectory);
     if (!sameDirectory(directoryBefore, directoryAfter)) {
       fail(
@@ -403,6 +416,17 @@ export async function prepareSavedPlanEvidence(
       "SAVED_PLAN_CHANGED",
       "saved plan changed while evidence was prepared",
     );
+    const finalSnapshotCheck = await sha256StableFile(
+      snapshot.path,
+      options.savedPlanBudget,
+    );
+    requireBoundFile(
+      finalSnapshotCheck,
+      snapshot,
+      "PLAN_SNAPSHOT_CHANGED",
+      "saved-plan snapshot changed while evidence was prepared",
+    );
+    await snapshotFileIdentity(snapshot.path, snapshotIdentity);
 
     const evidence = Object.freeze({
       fingerprintInput: Object.freeze({
@@ -489,6 +513,7 @@ export async function recheckSavedPlanEvidence(
   if (binding === undefined || binding.cleaned) {
     fail("INVALID_EVIDENCE_BINDING", "saved-plan evidence is not active");
   }
+  await snapshotFileIdentity(evidence.snapshot.path, binding.file);
   const originalBefore = await sha256StableFile(
     evidence.originalPlan.path,
     options.savedPlanBudget,
@@ -531,6 +556,7 @@ export async function recheckSavedPlanEvidence(
     "PLAN_SNAPSHOT_CHANGED",
     "saved-plan snapshot changed after evidence was prepared",
   );
+  await snapshotFileIdentity(evidence.snapshot.path, binding.file);
 
   const declaredAfter = await readSavedPlanFingerprint(
     evidence.fingerprintPath,
@@ -563,6 +589,17 @@ export async function recheckSavedPlanEvidence(
     "SAVED_PLAN_CHANGED",
     "saved plan changed after evidence was prepared",
   );
+  const snapshotAfter = await sha256StableFile(
+    evidence.snapshot.path,
+    options.savedPlanBudget,
+  );
+  requireBoundFile(
+    snapshotAfter,
+    evidence.snapshot,
+    "PLAN_SNAPSHOT_CHANGED",
+    "saved-plan snapshot changed after evidence was prepared",
+  );
+  await snapshotFileIdentity(evidence.snapshot.path, binding.file);
 }
 
 export async function cleanupSavedPlanEvidence(

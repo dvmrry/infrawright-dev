@@ -146,6 +146,8 @@ test("prepares, binds, rechecks, and cleans up saved-plan evidence", async () =>
     assert.equal(evidence.originalPlan.size, BigInt(plan.length));
     assert.equal(evidence.snapshot.sha256, evidence.originalPlan.sha256);
     assert.equal(evidence.snapshot.size, evidence.originalPlan.size);
+    assert.equal(typeof evidence.snapshot.dev, "bigint");
+    assert.equal(typeof evidence.snapshot.ino, "bigint");
     assert.deepEqual(readFileSync(evidence.snapshot.path), plan);
     assert.equal(existsSync(evidence.snapshot.path), true);
 

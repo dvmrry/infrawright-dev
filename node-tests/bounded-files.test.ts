@@ -3,13 +3,16 @@ import { constants as bufferConstants } from "node:buffer";
 import { createHash } from "node:crypto";
 import {
   chmod,
+  copyFile,
   lstat,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rename,
   rm,
   symlink,
+  stat,
   truncate,
   writeFile,
 } from "node:fs/promises";
@@ -263,4 +266,83 @@ test("unsafe snapshot directories and invalid UTF-8 fail without leaking content
     assert.equal(error.code, "INVALID_UTF8");
     assert.equal(error.message.includes("SECRET"), false);
   }
+});
+
+test("partial snapshot failure scrubs its descriptor without following a swapped parent", async (context) => {
+  const directory = await temporaryDirectory();
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const snapshots = path.join(directory, "snapshots");
+  const moved = path.join(directory, "snapshots-moved");
+  const victimDirectory = path.join(directory, "victim");
+  await mkdir(snapshots, { mode: 0o700 });
+  await chmod(snapshots, 0o700);
+  await mkdir(victimDirectory, { mode: 0o700 });
+  const source = path.join(directory, "tfplan");
+  await writeFile(source, "secret partial snapshot bytes", { mode: 0o600 });
+  let snapshotName = "";
+  await assert.rejects(
+    snapshotStableFile({
+      sourcePath: source,
+      privateDirectory: snapshots,
+      budget: new ReadBudget(limits()),
+      readOptions: {
+        hooks: {
+          afterOpen: async () => {
+            const names = await readdir(snapshots);
+            assert.equal(names.length, 1);
+            snapshotName = names[0] ?? "";
+            assert.match(snapshotName, /^plan-[0-9a-f]{32}$/);
+            await rename(snapshots, moved);
+            await symlink(victimDirectory, snapshots, "dir");
+            await writeFile(
+              path.join(victimDirectory, snapshotName),
+              "victim must survive",
+            );
+            throw new Error("force snapshot copy failure");
+          },
+        },
+      },
+    }),
+    (error: unknown) => {
+      return error instanceof ProcessFailure && error.code === "READ_FAILED";
+    },
+  );
+  assert.equal(await readFile(path.join(victimDirectory, snapshotName), "utf8"), "victim must survive");
+  assert.equal((await stat(path.join(moved, snapshotName))).size, 0);
+});
+
+test("snapshot creation rejects identical-byte path replacement before returning", async (context) => {
+  const directory = await temporaryDirectory();
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const snapshots = path.join(directory, "snapshots");
+  await mkdir(snapshots, { mode: 0o700 });
+  await chmod(snapshots, 0o700);
+  const source = path.join(directory, "tfplan");
+  await writeFile(source, "secret snapshot bytes", { mode: 0o600 });
+  let moved = "";
+  await assert.rejects(
+    snapshotStableFile({
+      sourcePath: source,
+      privateDirectory: snapshots,
+      budget: new ReadBudget(limits()),
+      readOptions: {
+        hooks: {
+          beforeFinalStat: async () => {
+            const names = await readdir(snapshots);
+            assert.equal(names.length, 1);
+            const name = names[0] ?? "";
+            const snapshot = path.join(snapshots, name);
+            moved = `${snapshot}.original`;
+            await rename(snapshot, moved);
+            await copyFile(moved, snapshot);
+          },
+        },
+      },
+    }),
+    (error: unknown) => {
+      return error instanceof ProcessFailure
+        && error.code === "SNAPSHOT_PATH_CHANGED";
+    },
+  );
+  assert.equal((await stat(moved)).size, 0);
 });

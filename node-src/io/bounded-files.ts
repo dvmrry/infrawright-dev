@@ -4,7 +4,6 @@ import { constants, type BigIntStats } from "node:fs";
 import {
   lstat,
   open,
-  rm,
   stat,
   type FileHandle,
 } from "node:fs/promises";
@@ -51,6 +50,8 @@ export interface StableFileDigest {
 
 export interface StableFileSnapshot extends StableFileDigest {
   readonly path: string;
+  readonly dev: bigint;
+  readonly ino: bigint;
 }
 
 interface FileIdentity {
@@ -393,12 +394,67 @@ export async function snapshotStableFile(options: {
       },
     });
     await destination.sync();
+    const destinationStat = await destination.stat({ bigint: true });
+    const destinationIdentity = identity(destinationStat);
+    const currentIdentity = await pathIdentity(snapshotPath, false);
+    if (
+      !destinationStat.isFile()
+      || !sameIdentity(destinationIdentity, currentIdentity)
+    ) {
+      return fail(
+        "SNAPSHOT_PATH_CHANGED",
+        "saved-plan snapshot path changed while it was created",
+      );
+    }
     await destination.close();
     destination = null;
-    return { path: snapshotPath, sha256: result.sha256, size: result.size };
+    return {
+      path: snapshotPath,
+      sha256: result.sha256,
+      size: result.size,
+      dev: destinationIdentity.dev,
+      ino: destinationIdentity.ino,
+    };
   } catch (error: unknown) {
-    await destination?.close().catch(() => undefined);
-    await rm(snapshotPath, { force: true }).catch(() => undefined);
+    let cleanupFailed = false;
+    if (destination !== null) {
+      try {
+        // Scrub the partial snapshot through the already-bound descriptor.
+        // Never path-unlink here: a replaced parent could redirect deletion.
+        await destination.truncate(0);
+        await destination.sync();
+      } catch {
+        cleanupFailed = true;
+      }
+      try {
+        await destination.close();
+      } catch {
+        cleanupFailed = true;
+      }
+      destination = null;
+    }
+    if (cleanupFailed) {
+      if (error instanceof ProcessFailure) {
+        throw new ProcessFailure({
+          code: error.code,
+          category: error.category,
+          message: error.message,
+          retryable: error.retryable,
+          details: [
+            ...error.details,
+            {
+              path: "$",
+              code: "SNAPSHOT_CLEANUP_FAILED",
+              message: "partial saved-plan snapshot cleanup also failed",
+            },
+          ],
+        });
+      }
+      return fail(
+        "SNAPSHOT_AND_CLEANUP_FAILED",
+        "unable to create or scrub the saved-plan snapshot",
+      );
+    }
     if (error instanceof ProcessFailure) {
       throw error;
     }

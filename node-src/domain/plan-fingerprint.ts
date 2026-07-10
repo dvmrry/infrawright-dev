@@ -141,7 +141,10 @@ async function directoryNames(
         });
       }
       try {
-        names.push(new TextDecoder("utf-8", { fatal: true }).decode(entry.name));
+        names.push(new TextDecoder("utf-8", {
+          fatal: true,
+          ignoreBOM: true,
+        }).decode(entry.name));
       } catch {
         throw new ProcessFailure({
           code: "INVALID_FILENAME_ENCODING",

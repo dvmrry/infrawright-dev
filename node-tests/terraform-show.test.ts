@@ -247,7 +247,7 @@ test("Terraform show resource limits have fixed upper and lower bounds", async (
     for (const limits of [
       { ...LIMITS, timeoutMs: 0 },
       { ...LIMITS, timeoutMs: 10 * 60 * 1000 + 1 },
-      { ...LIMITS, maxStdoutBytes: 512 * 1024 * 1024 + 1 },
+      { ...LIMITS, maxStdoutBytes: 8 * 1024 * 1024 + 1 },
       { ...LIMITS, maxStderrBytes: 16 * 1024 * 1024 + 1 },
     ]) {
       await assert.rejects(
@@ -255,6 +255,26 @@ test("Terraform show resource limits have fixed upper and lower bounds", async (
         (error: unknown) => assertFailure(error, "INVALID_TERRAFORM_SHOW_LIMIT"),
       );
     }
+  });
+});
+
+test("lossless JSON graph growth is rejected before object construction", async () => {
+  await withTemp(async (fixture) => {
+    const values = Array.from({ length: 100_001 }, (_, index) => index).join(",");
+    const fake = executable(
+      fixture.root,
+      `printf '%s' '{"format_version":"1.2","values":[${values}]}'`,
+    );
+    await assert.rejects(
+      terraformShowPlan({
+        ...options(fixture, fake),
+        limits: { ...LIMITS, maxStdoutBytes: 2 * 1024 * 1024 },
+      }),
+      (error: unknown) => assertFailure(
+        error,
+        "TERRAFORM_SHOW_COMPLEXITY_LIMIT",
+      ),
+    );
   });
 });
 
