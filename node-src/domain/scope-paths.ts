@@ -33,9 +33,25 @@ function domainError(message: string): never {
   });
 }
 
+function deploymentError(message: string): never {
+  throw new ProcessFailure({
+    code: "INVALID_DEPLOYMENT",
+    category: "domain",
+    message,
+  });
+}
+
+function internalError(message: string): never {
+  throw new ProcessFailure({
+    code: "INVALID_OPERATION_RESULT",
+    category: "internal",
+    message,
+  });
+}
+
 function artifactRoot(deployment: Deployment, kind: string): string {
   if (typeof deployment.overlay !== "string") {
-    return domainError("deployment overlay must be a string when paths are scoped");
+    return deploymentError("deployment overlay must be a string when paths are scoped");
   }
   return deployment.overlay === "."
     ? kind
@@ -45,12 +61,12 @@ function artifactRoot(deployment: Deployment, kind: string): string {
 function moduleRoot(deployment: Deployment): string {
   if (deployment.module_dir !== undefined) {
     if (typeof deployment.module_dir !== "string") {
-      return domainError("deployment module_dir must be a string when paths are scoped");
+      return deploymentError("deployment module_dir must be a string when paths are scoped");
     }
     return deployment.module_dir;
   }
   if (typeof deployment.overlay !== "string") {
-    return domainError("deployment overlay must be a string when paths are scoped");
+    return deploymentError("deployment overlay must be a string when paths are scoped");
   }
   return deployment.overlay === "."
     ? "modules"
@@ -172,7 +188,7 @@ function scopeOnePath(options: {
     roots: sortedStrings(new Set(resources.map((resource) => {
       const label = options.resourceRoots[resource];
       if (label === undefined) {
-        return domainError(`generated resource '${resource}' has no logical root`);
+        return internalError(`generated resource '${resource}' has no logical root`);
       }
       return label;
     }))),
@@ -257,7 +273,7 @@ export function changedPathScope(options: {
     affected_roots: sortedStrings(rootPaths.keys()).map((label) => {
       const root = rootsByLabel.get(label);
       if (root === undefined) {
-        return domainError(`logical root '${label}' is missing from topology`);
+        return internalError(`logical root '${label}' is missing from topology`);
       }
       return {
         label,

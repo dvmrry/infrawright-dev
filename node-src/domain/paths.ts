@@ -1,4 +1,4 @@
-import { readlinkSync, realpathSync } from "node:fs";
+import { readlinkSync } from "node:fs";
 import path from "node:path";
 
 import { sortedStrings } from "../json/python-compatible.js";
@@ -55,48 +55,61 @@ export function pythonPosixAbspath(value: string, cwd: string): string {
  * Match Python realpath(strict=False): resolve the deepest existing ancestor,
  * then reattach a missing leaf without requiring the changed file to exist.
  */
-function weakRealpath(absolutePath: string, seen: ReadonlySet<string>): string {
+type RealpathToken =
+  | { readonly kind: "component"; readonly value: string }
+  | { readonly kind: "leave_link"; readonly path: string };
+
+/** Resolve symlinks in component order like Python realpath(strict=False). */
+export function pythonPosixRealpath(absolutePath: string): string {
   const normalized = pythonPosixNormPath(absolutePath);
-  if (seen.has(normalized)) {
-    return normalized;
-  }
-  let candidate = normalized;
-  const missing: string[] = [];
-  while (true) {
+  let resolved = "/";
+  let tokens: RealpathToken[] = normalized.split("/")
+    .filter((component) => component.length > 0)
+    .map((value) => ({ kind: "component", value }));
+  const activeLinks = new Set<string>();
+  while (tokens.length > 0) {
+    const token = tokens.shift();
+    if (token === undefined) {
+      break;
+    }
+    if (token.kind === "leave_link") {
+      activeLinks.delete(token.path);
+      continue;
+    }
+    if (token.value === ".") {
+      continue;
+    }
+    if (token.value === "..") {
+      resolved = path.posix.dirname(resolved);
+      continue;
+    }
+    const candidate = pythonPosixJoin(resolved, token.value);
     try {
-      const resolved = realpathSync.native(candidate);
-      return pythonPosixNormPath(pythonPosixJoin(resolved, ...missing));
-    } catch (error: unknown) {
-      const code = typeof error === "object" && error !== null && "code" in error
-        ? error.code
-        : undefined;
-      if (code !== "ENOENT" && code !== "ENOTDIR") {
-        return normalized;
+      const target = readlinkSync(candidate, { encoding: "utf8" });
+      if (activeLinks.has(candidate)) {
+        // Python strict=False leaves a detected loop unresolved.
+        resolved = candidate;
+        continue;
       }
-      try {
-        const target = readlinkSync(candidate, { encoding: "utf8" });
-        const targetPath = target.startsWith("/")
-          ? target
-          : pythonPosixJoin(path.posix.dirname(candidate), target);
-        return weakRealpath(
-          pythonPosixJoin(targetPath, ...missing),
-          new Set([...seen, normalized]),
-        );
-      } catch {
-        // The candidate is an ordinary missing component, not a dangling link.
+      activeLinks.add(candidate);
+      if (target.startsWith("/")) {
+        resolved = "/";
       }
-      const parent = path.posix.dirname(candidate);
-      if (parent === candidate) {
-        return normalized;
-      }
-      missing.unshift(path.posix.basename(candidate));
-      candidate = parent;
+      const targetTokens: RealpathToken[] = target.split("/")
+        .filter((component) => component.length > 0)
+        .map((value) => ({ kind: "component", value }));
+      tokens = [
+        ...targetTokens,
+        { kind: "leave_link", path: candidate },
+        ...tokens,
+      ];
+    } catch {
+      // Missing and non-link components stay in the non-strict result. Keeping
+      // the already-resolved prefix also matches Python for ELOOP/EACCES.
+      resolved = candidate;
     }
   }
-}
-
-export function pythonPosixRealpath(absolutePath: string): string {
-  return weakRealpath(absolutePath, new Set());
+  return pythonPosixNormPath(resolved);
 }
 
 export function physicalWorkspace(workspace: string): string {

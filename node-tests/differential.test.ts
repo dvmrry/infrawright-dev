@@ -348,3 +348,38 @@ test("dangling deployment aliases retain deleted-target scoping parity", async (
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("dangling targets resolve symlink components before parent traversal", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-node-"));
+  const external = await mkdtemp(path.join(os.tmpdir(), "infrawright-target-"));
+  try {
+    const jumpTarget = path.join(external, "nested");
+    await mkdir(jumpTarget);
+    await symlink(jumpTarget, path.join(directory, "jump"));
+
+    const deletedDeployment = path.join(external, "deleted-deployment.json");
+    const deploymentAlias = path.join(directory, "deployment-alias.json");
+    await symlink("jump/../deleted-deployment.json", deploymentAlias);
+    await compareScope({
+      deployment: deploymentAlias,
+      paths: [deploymentAlias, deletedDeployment],
+    });
+
+    const deployment = path.join(directory, "deployment.json");
+    const deletedOverlay = path.join(external, "deleted-overlay");
+    await writeFile(deployment, JSON.stringify({ overlay: deletedOverlay }));
+    const overlayAlias = path.join(directory, "overlay-alias");
+    await symlink("jump/../deleted-overlay", overlayAlias);
+    const relativeArtifact = "config/prod/zpa_segment_group.auto.tfvars.json";
+    await compareScope({
+      deployment,
+      paths: [
+        path.join(overlayAlias, relativeArtifact),
+        path.join(deletedOverlay, relativeArtifact),
+      ],
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+    await rm(external, { recursive: true, force: true });
+  }
+});
