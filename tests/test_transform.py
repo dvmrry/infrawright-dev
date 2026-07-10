@@ -925,6 +925,25 @@ class QuirkClosureTest(unittest.TestCase):
         self.assertNotIn("microtenant_id", it)
         self.assertEqual(it["app_server_groups"], [{"id": ["s1", "s2"]}])
 
+    def test_service_edge_group_does_not_claim_external_membership(self):
+        from engine.transform import load_override, transform_items
+
+        raw = [{
+            "id": "group-1",
+            "name": "Edge Group",
+            "serviceEdges": [{"id": "edge-1"}, {"id": "edge-2"}],
+            "trustedNetworks": [{"id": "network-1"}],
+        }]
+        ov = load_override("zpa_service_edge_group")
+        items, _, drops = transform_items(raw, "zpa_service_edge_group", ov)
+
+        self.assertNotIn("service_edges", items["edge_group"])
+        self.assertEqual(
+            items["edge_group"]["trusted_networks"],
+            [{"id": ["network-1"]}],
+        )
+        self.assertEqual(drops, [])
+
     def test_policy_style_value_map(self):
         from engine.transform import load_override, transform_items
 
