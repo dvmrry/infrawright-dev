@@ -37,6 +37,7 @@ Supporting adoption commands:
 | `make unstage-imports` | Remove staged import/move blocks from env roots. |
 | `make clean-plans` | Remove saved plan artifacts. |
 | `make assert-clean` | Compatibility/no-policy saved-plan gate for no-op or import-only plans. Prefer `assert-adoptable` for adoption workflows that may use drift policy or guidance annotations. |
+| `make roots` | Emit the configured root topology as versioned JSON for downstream path-to-root scoping. |
 
 `make apply` uses the same saved-plan classification semantics as
 `make assert-adoptable`. If `assert-adoptable` used `POLICY=<file>` to classify
@@ -71,6 +72,44 @@ Re-run `make plan SAVE=1` after any of those inputs change. When planning with
 `BACKEND_CONFIG=<file>`, pass the same option to `assert-clean`,
 `assert-adoptable`, and `apply`; omitting it or changing its contents makes the
 saved plan stale before classification or apply.
+
+## Machine-Readable Downstream Contracts
+
+Downstream delivery and drift pipelines must consume stable JSON instead of
+importing engine-internal Python helpers or parsing human stderr.
+
+Emit configured root topology with:
+
+```sh
+make roots TENANT=prod RESOURCE="zpa_application_segment zpa_segment_group"
+# or: python -m engine.ops roots --json --tenant prod zpa
+```
+
+The topology is derived from deployment configuration and pack metadata; env
+roots do not need to exist. It includes logical root labels, sorted members,
+provider ownership, the resource-to-root map, and tenant artifact directories
+when `TENANT` is supplied. Its schema is
+[`docs/schemas/root-topology.schema.json`](schemas/root-topology.schema.json).
+
+Write a saved-plan assessment alongside the existing human output with:
+
+```sh
+make assert-clean TENANT=prod REPORT=reports/prod-clean.json
+make assert-adoptable TENANT=prod POLICY=policy/prod.json \
+  REPORT=reports/prod-adoptable.json
+```
+
+The report records each logical root, its members, classification, normalized
+findings, matching informational guidance, stale drift-policy entries, and the
+exact saved-plan SHA-256, plan/Terraform format versions, drift-policy SHA-256,
+and validated `tfplan.sources` fingerprint. A blocked classification writes
+the report before returning the existing non-zero gate result. `REPORT=-`
+writes JSON to stdout. Human stderr and exit semantics remain unchanged.
+
+The assessment schema is
+[`docs/schemas/saved-plan-assessment.schema.json`](schemas/saved-plan-assessment.schema.json).
+Both contracts carry `schema_version: 1`; consumers must reject unsupported
+versions rather than guessing at field meaning.
 
 For real provider/tenant validation, use the
 [Integration Validation Runbook](integration-validation.md) to capture evidence

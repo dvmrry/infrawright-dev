@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 from engine import deployment
 from engine import packs
@@ -53,6 +54,10 @@ REFERENCE_ORDER_CYCLE_NOTE = (
 )
 PLAN_FINGERPRINT = "tfplan.sources"
 PLAN_FINGERPRINT_VERSION = 2
+ROOT_TOPOLOGY_CONTRACT = "infrawright.root_topology"
+ROOT_TOPOLOGY_SCHEMA_VERSION = 1
+PLAN_ASSESSMENT_CONTRACT = "infrawright.saved_plan_assessment"
+PLAN_ASSESSMENT_SCHEMA_VERSION = 1
 MODULE_FINGERPRINT_IGNORED_DIRS = set([
     ".git",
     ".mypy_cache",
@@ -234,6 +239,52 @@ def _selected_root_specs(selectors=None):
             _note_whole_root_selection(set(members) & selected, label, members)
         out.append((label, members))
     return out
+
+
+def root_topology(tenant=None, selectors=None):
+    """Return the stable logical root topology contract."""
+    if tenant:
+        validate_tenant(tenant)
+    roots = []
+    resource_roots = {}
+    for label, members in _selected_root_specs(selectors):
+        members = sorted(members)
+        provider = packs.provider_of(members[0]) if members else None
+        for resource_type in members:
+            resource_roots[resource_type] = label
+        roots.append({
+            "label": label,
+            "provider": provider,
+            "members": members,
+            "env_dir": env_root_for_label(tenant, label) if tenant else None,
+        })
+    directories = None
+    if tenant:
+        directories = {
+            "config": deployment.config_dir(tenant),
+            "imports": deployment.imports_dir(tenant),
+            "envs": deployment.envs_dir(tenant),
+        }
+    return {
+        "kind": ROOT_TOPOLOGY_CONTRACT,
+        "schema_version": ROOT_TOPOLOGY_SCHEMA_VERSION,
+        "tenant": tenant,
+        "selectors": list(selectors or []),
+        "directories": directories,
+        "roots": roots,
+        "resource_roots": resource_roots,
+    }
+
+
+def cmd_roots(opts):
+    if not opts.get("json"):
+        raise ValueError("roots requires --json")
+    sys.stdout.write(json.dumps(
+        root_topology(opts.get("tenant"), opts.get("selectors")),
+        indent=2,
+        sort_keys=True,
+    ) + "\n")
+    return 0
 
 
 def selected_env_pairs(tenant=None, selectors=None, require_plan=False):
@@ -953,6 +1004,167 @@ def _print_findings(findings, guidance_annotations=None):
     adoption_guidance.print_guidance_sections(all_annotations, sys.stderr.write)
 
 
+def _write_json_contract(path, data):
+    if not path:
+        return
+    text = json.dumps(data, indent=2, sort_keys=True) + "\n"
+    if path == "-":
+        sys.stdout.write(text)
+        return
+    target = os.path.abspath(path)
+    directory = os.path.dirname(target)
+    os.makedirs(directory, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=directory,
+                prefix=".infrawright-report-", delete=False) as f:
+            temporary = f.name
+            f.write(text)
+        os.replace(temporary, target)
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.remove(temporary)
+
+
+def _new_assessment_report(mode, opts):
+    policy = opts.get("policy") if mode == "assert-adoptable" else None
+    policy_sha256 = None
+    if policy and os.path.isfile(policy):
+        policy_sha256 = _file_sha256(policy)
+    return {
+        "kind": PLAN_ASSESSMENT_CONTRACT,
+        "schema_version": PLAN_ASSESSMENT_SCHEMA_VERSION,
+        "mode": mode,
+        "request": {
+            "tenant": opts.get("tenant"),
+            "selectors": list(opts.get("selectors") or []),
+            "policy": policy,
+            "policy_sha256": policy_sha256,
+        },
+        "summary": {
+            "status": "error",
+            "checked": 0,
+            "clean": 0,
+            "tolerated": 0,
+            "blocked": 0,
+        },
+        "roots": [],
+        "stale_policy": [],
+    }
+
+
+def _finding_resource_types(plan):
+    out = {}
+    for source, key in (
+            ("resource_changes", "resource_changes"),
+            ("resource_drift", "resource_drift")):
+        for change in plan.get(key) or []:
+            out[(source, change.get("address"))] = change.get("type")
+    return out
+
+
+def _normalize_findings(plan, findings):
+    from engine.paths import format_path
+
+    resource_types = _finding_resource_types(plan)
+    out = []
+    for finding in findings:
+        source = finding.get("source")
+        address = finding.get("address")
+        out.append({
+            "status": finding.get("status"),
+            "source": source,
+            "address": address,
+            "resource_type": resource_types.get((source, address)),
+            "actions": list(finding.get("actions") or []),
+            "paths": [
+                format_path(path) for path in (finding.get("paths") or [])
+            ],
+        })
+    return out
+
+
+def _matching_guidance(findings, annotations):
+    from engine import adoption_guidance
+    from engine.plan_eval import BLOCKED
+
+    matched = []
+    for finding in findings:
+        if finding.get("status") != BLOCKED:
+            continue
+        for path in finding.get("paths") or []:
+            matched.extend(adoption_guidance.annotations_for_finding_path(
+                annotations, finding, path
+            ))
+    out = []
+    seen = set()
+    for annotation in adoption_guidance.sort_annotations(matched):
+        normalized = dict(
+            (key, value) for key, value in annotation.items()
+            if key != "sort_key"
+        )
+        marker = json.dumps(normalized, sort_keys=True, separators=(",", ":"))
+        if marker in seen:
+            continue
+        seen.add(marker)
+        out.append(normalized)
+    return out
+
+
+def _append_root_assessment(report, tenant, label, path, member_types,
+                            plan, result, guidance=None):
+    report["roots"].append({
+        "tenant": tenant,
+        "label": label,
+        "members": sorted(member_types),
+        "status": result["status"],
+        "plan": {
+            "sha256": _file_sha256(os.path.join(path, "tfplan")),
+            "format_version": plan.get("format_version"),
+            "terraform_version": plan.get("terraform_version"),
+        },
+        "plan_fingerprint": _load_plan_fingerprint(path),
+        "findings": _normalize_findings(plan, result["findings"]),
+        "guidance": list(guidance or []),
+    })
+
+
+def _finish_assessment_report(report, clean, tolerated, blocked):
+    from engine.plan_eval import BLOCKED, CLEAN, TOLERATED
+
+    status = CLEAN
+    if blocked:
+        status = BLOCKED
+    elif tolerated:
+        status = TOLERATED
+    report["summary"] = {
+        "status": status,
+        "checked": clean + tolerated + blocked,
+        "clean": clean,
+        "tolerated": tolerated,
+        "blocked": blocked,
+    }
+
+
+def _write_assessment_error(report, path, kind, message):
+    roots = report.get("roots") or []
+    report["summary"] = {
+        "status": "error",
+        "checked": len(roots),
+        "clean": sum(1 for root in roots if root.get("status") == "clean"),
+        "tolerated": sum(
+            1 for root in roots
+            if root.get("status") == "clean_with_tolerated_drift"
+        ),
+        "blocked": sum(
+            1 for root in roots if root.get("status") == "blocked"
+        ),
+    }
+    report["error"] = {"kind": kind, "message": message}
+    _write_json_contract(path, report)
+
+
 def cmd_stage_imports(opts):
     tenant = opts["tenant"]
     validate_tenant(tenant)
@@ -1143,81 +1355,145 @@ def cmd_plan(opts):
 
 
 def cmd_assert_clean(opts):
+    from engine.plan_eval import CLEAN, classify_plan
+
+    report = _new_assessment_report("assert-clean", opts)
     checked = 0
     dirty = 0
-    for tenant, label, path, member_types in selected_env_roots(
-            opts.get("tenant"), opts["selectors"], require_plan=True):
-        _assert_saved_plan_fresh(
-            path,
-            tenant,
-            member_types,
-            root_label=label,
-            backend_config=opts.get("backend_config"),
-        )
-        plan = _show_plan_json(path)
-        changes = _non_import_change_count(plan)
-        checked += 1
-        if changes:
-            sys.stderr.write(
-                "NOT CLEAN: %s/%s plan contains %d change(s) beyond imports\n"
-                % (tenant, label, changes)
+    clean = 0
+    try:
+        for tenant, label, path, member_types in selected_env_roots(
+                opts.get("tenant"), opts["selectors"], require_plan=True):
+            _assert_saved_plan_fresh(
+                path,
+                tenant,
+                member_types,
+                root_label=label,
+                backend_config=opts.get("backend_config"),
             )
-            dirty += 1
+            plan = _show_plan_json(path)
+            result = classify_plan(plan)
+            changes = sum(
+                1 for finding in result["findings"]
+                if finding["status"] != CLEAN
+            )
+            checked += 1
+            if changes:
+                sys.stderr.write(
+                    "NOT CLEAN: %s/%s plan contains %d change(s) beyond imports\n"
+                    % (tenant, label, changes)
+                )
+                dirty += 1
+            else:
+                clean += 1
+            _append_root_assessment(
+                report, tenant, label, path, member_types, plan, result
+            )
+    except (OSError, RuntimeError, ValueError,
+            subprocess.CalledProcessError) as exc:
+        _write_assessment_error(
+            report, opts.get("report"), "assessment_error", str(exc)
+        )
+        raise
     if checked == 0:
-        raise RuntimeError("no saved plans to check - run make plan SAVE=1 first")
+        message = "no saved plans to check - run make plan SAVE=1 first"
+        _write_assessment_error(
+            report, opts.get("report"), "no_saved_plans", message
+        )
+        raise RuntimeError(message)
+    _finish_assessment_report(report, clean, 0, dirty)
+    _write_json_contract(opts.get("report"), report)
     if dirty:
         raise RuntimeError(
             "tenant moved since fetch (or transform disagrees) - do not auto-merge"
         )
+    if report["summary"]["status"] != CLEAN:
+        raise RuntimeError("assert-clean produced an unexpected classification")
     sys.stderr.write("all %d saved plan(s) clean (no-op/imports only)\n" % checked)
     return 0
 
 
 def cmd_assert_adoptable(opts):
     from engine.drift_policy import DriftPolicy
-    from engine.plan_eval import BLOCKED, TOLERATED, classify_plan
+    from engine.plan_eval import BLOCKED, CLEAN, TOLERATED, classify_plan
 
-    policy = DriftPolicy.load(opts.get("policy"))
+    report = _new_assessment_report("assert-adoptable", opts)
+    try:
+        policy = DriftPolicy.load(opts.get("policy"))
+    except (OSError, ValueError) as exc:
+        _write_assessment_error(
+            report, opts.get("report"), "policy_error", str(exc)
+        )
+        raise
     checked = 0
+    clean = 0
     blocked = 0
     tolerated = 0
     checked_types = set()
-    for tenant, label, path, member_types in selected_env_roots(
-            opts.get("tenant"), opts["selectors"], require_plan=True):
-        _assert_saved_plan_fresh(
-            path,
-            tenant,
-            member_types,
-            root_label=label,
-            backend_config=opts.get("backend_config"),
-        )
-        plan = _show_plan_json(path)
-        result = classify_plan(plan, policy=policy)
-        checked += 1
-        checked_types.update(member_types)
-        if result["status"] == BLOCKED:
-            blocked += 1
-            sys.stderr.write("BLOCKED: %s/%s\n" % (tenant, label))
-            guidance_annotations = []
-            for resource_type in member_types:
-                guidance_annotations.extend(
-                    _guidance_annotations(plan, resource_type))
-            _print_findings(
-                result["findings"],
-                guidance_annotations=guidance_annotations,
+    try:
+        for tenant, label, path, member_types in selected_env_roots(
+                opts.get("tenant"), opts["selectors"], require_plan=True):
+            _assert_saved_plan_fresh(
+                path,
+                tenant,
+                member_types,
+                root_label=label,
+                backend_config=opts.get("backend_config"),
             )
-        elif result["status"] == TOLERATED:
-            tolerated += 1
-            sys.stderr.write("TOLERATED: %s/%s\n" % (tenant, label))
-            _print_findings(result["findings"])
+            plan = _show_plan_json(path)
+            result = classify_plan(plan, policy=policy)
+            checked += 1
+            checked_types.update(member_types)
+            guidance_annotations = []
+            matched_guidance = []
+            if result["status"] == BLOCKED:
+                blocked += 1
+                sys.stderr.write("BLOCKED: %s/%s\n" % (tenant, label))
+                for resource_type in member_types:
+                    guidance_annotations.extend(
+                        _guidance_annotations(plan, resource_type))
+                matched_guidance = _matching_guidance(
+                    result["findings"], guidance_annotations
+                )
+                _print_findings(
+                    result["findings"],
+                    guidance_annotations=guidance_annotations,
+                )
+            elif result["status"] == TOLERATED:
+                tolerated += 1
+                sys.stderr.write("TOLERATED: %s/%s\n" % (tenant, label))
+                _print_findings(result["findings"])
+            elif result["status"] == CLEAN:
+                clean += 1
+            _append_root_assessment(
+                report, tenant, label, path, member_types, plan, result,
+                guidance=matched_guidance,
+            )
+    except (OSError, RuntimeError, ValueError,
+            subprocess.CalledProcessError) as exc:
+        _write_assessment_error(
+            report, opts.get("report"), "assessment_error", str(exc)
+        )
+        raise
     if checked == 0:
-        raise RuntimeError("no saved plans to check - run make plan SAVE=1 first")
+        message = "no saved plans to check - run make plan SAVE=1 first"
+        _write_assessment_error(
+            report, opts.get("report"), "no_saved_plans", message
+        )
+        raise RuntimeError(message)
     for rt, mode, path in policy.stale_entries(
             resource_types=checked_types, modes=("plan_tolerate",)):
+        report["stale_policy"].append({
+            "resource_type": rt,
+            "mode": mode,
+            "path": path,
+        })
         sys.stderr.write(
             "STALE DRIFT POLICY: %s %s %s matched no path\n"
             % (rt, mode, path)
         )
+    _finish_assessment_report(report, clean, tolerated, blocked)
+    _write_json_contract(opts.get("report"), report)
     if blocked:
         raise RuntimeError("%d saved plan(s) blocked by untolerated changes" % blocked)
     if tolerated:
@@ -1349,7 +1625,7 @@ def _classify_apply_plan(plan, policy):
     return classify_plan(plan, policy=policy)
 
 
-def _parse(argv, allow_optional_tenant=False):
+def _parse(argv, allow_optional_tenant=False, allow_report=False):
     opts = {
         "tenant": None,
         "selectors": [],
@@ -1362,6 +1638,7 @@ def _parse(argv, allow_optional_tenant=False):
         "allow_plan_changes": False,
         "main_branch": None,
         "policy": None,
+        "report": None,
     }
     i = 0
     while i < len(argv):
@@ -1398,6 +1675,15 @@ def _parse(argv, allow_optional_tenant=False):
             if i >= len(argv):
                 raise ValueError("--policy requires a value")
             opts["policy"] = argv[i]
+        elif arg == "--report":
+            if not allow_report:
+                raise ValueError("unknown option --report")
+            i += 1
+            if i >= len(argv):
+                raise ValueError("--report requires a value")
+            if opts["report"] is not None:
+                raise ValueError("--report may be specified only once")
+            opts["report"] = argv[i]
         elif arg.startswith("-"):
             raise ValueError("unknown option %s" % arg)
         else:
@@ -1405,6 +1691,32 @@ def _parse(argv, allow_optional_tenant=False):
         i += 1
     if not allow_optional_tenant and not opts["tenant"]:
         raise ValueError("--tenant is required")
+    if opts["tenant"]:
+        validate_tenant(opts["tenant"])
+    return opts
+
+
+def _parse_roots(argv):
+    opts = {"tenant": None, "selectors": [], "json": False}
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--tenant":
+            i += 1
+            if i >= len(argv):
+                raise ValueError("--tenant requires a value")
+            if opts["tenant"] is not None:
+                raise ValueError("--tenant may be specified only once")
+            opts["tenant"] = argv[i]
+        elif arg == "--json":
+            if opts["json"]:
+                raise ValueError("--json may be specified only once")
+            opts["json"] = True
+        elif arg.startswith("-"):
+            raise ValueError("unknown option %s" % arg)
+        else:
+            opts["selectors"].append(arg)
+        i += 1
     if opts["tenant"]:
         validate_tenant(opts["tenant"])
     return opts
@@ -1429,7 +1741,7 @@ def _parse_resources(argv):
 
 def _usage():
     return (
-        "usage: python -m engine.ops <resources|stage-imports|unstage-imports|plan|"
+        "usage: python -m engine.ops <resources|roots|stage-imports|unstage-imports|plan|"
         "assert-clean|assert-adoptable|clean-plans|apply> [options] "
         "[resource|provider ...]\n"
     )
@@ -1451,6 +1763,8 @@ def main(argv=None):
             for resource_type in resource_types:
                 sys.stdout.write(resource_type + "\n")
             return 0
+        if command == "roots":
+            return cmd_roots(_parse_roots(rest))
         if command == "stage-imports":
             return cmd_stage_imports(_parse(rest))
         if command == "unstage-imports":
@@ -1458,9 +1772,13 @@ def main(argv=None):
         if command == "plan":
             return cmd_plan(_parse(rest))
         if command == "assert-clean":
-            return cmd_assert_clean(_parse(rest, allow_optional_tenant=True))
+            return cmd_assert_clean(_parse(
+                rest, allow_optional_tenant=True, allow_report=True
+            ))
         if command == "assert-adoptable":
-            return cmd_assert_adoptable(_parse(rest, allow_optional_tenant=True))
+            return cmd_assert_adoptable(_parse(
+                rest, allow_optional_tenant=True, allow_report=True
+            ))
         if command == "clean-plans":
             return cmd_clean_plans(_parse(rest, allow_optional_tenant=True))
         if command == "apply":
