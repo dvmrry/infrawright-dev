@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infrawright.local/schemas/plan-roots.schema.json",
+  "title": "Infrawright Materialized Plan Roots",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_version",
+    "request",
+    "roots"
+  ],
+  "properties": {
+    "kind": {
+      "const": "infrawright.plan_roots"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "request": {
+      "$ref": "#/$defs/request"
+    },
+    "roots": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/root"
+      }
+    }
+  },
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tenant",
+        "selectors"
+      ],
+      "properties": {
+        "tenant": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "selectors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "exists"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "exists": {
+          "type": "boolean"
+        }
+      }
+    },
+    "root": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tenant",
+        "label",
+        "provider",
+        "members",
+        "env_dir",
+        "artifact_state",
+        "artifacts"
+      ],
+      "properties": {
+        "tenant": {
+          "type": "string",
+          "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+        },
+        "label": {
+          "type": "string"
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env_dir": {
+          "type": "string"
+        },
+        "artifact_state": {
+          "description": "Presence state only: complete means both artifact files exist, not that their contents are fresh or valid.",
+          "enum": [
+            "absent",
+            "complete",
+            "incomplete"
+          ]
+        },
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tfplan",
+            "tfplan_sources"
+          ],
+          "properties": {
+            "tfplan": {
+              "$ref": "#/$defs/artifact"
+            },
+            "tfplan_sources": {
+              "$ref": "#/$defs/artifact"
+            }
+          }
+        }
+      }
+    }
+  }
+}

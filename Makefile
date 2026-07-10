@@ -16,7 +16,7 @@ ifneq ($(strip $(OVERLAY)),)
 -include $(OVERLAY)/local.mk
 endif
 
-.PHONY: check-demo check-modules check-tfvars-fmt check-pack audit-vendor-boundary demo-contract check test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: check-demo check-modules check-tfvars-fmt check-pack audit-vendor-boundary demo-contract check test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
 	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1
@@ -122,6 +122,13 @@ provider-probe: ## Run provider readiness probe (RECIPE=<recipe.json> [WORK_DIR=
 
 roots: ## Emit root topology JSON ([TENANT=<label>] [RESOURCE=<type|provider>])
 	@$(PYTHON) -m engine.ops roots --json $(OPTIONAL_TENANT_ARG) $(RESOURCE)
+
+scope-paths: ## Map changed paths to affected whole roots (PATHS_JSON=<file|->)
+	@test -n "$(PATHS_JSON)" || { echo "usage: make scope-paths PATHS_JSON=<file|->"; exit 2; }
+	@$(PYTHON) -m engine.ops scope-paths --json --paths-json "$(PATHS_JSON)"
+
+plan-roots: ## Enumerate materialized env roots and plan artifacts ([TENANT=<label>] [RESOURCE=<type|provider>])
+	@$(PYTHON) -m engine.ops plan-roots --json $(OPTIONAL_TENANT_ARG) $(RESOURCE)
 
 stage-imports: ## Copy import/moved blocks into env roots (TENANT=<label> [RESOURCE=<type|provider>] [STATE_AWARE=1] [BACKEND_CONFIG=<file>])
 	$(PYTHON) -m engine.ops stage-imports --tenant "$(TENANT)" $(if $(STATE_AWARE),--state-aware) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(RESOURCE)

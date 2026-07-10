@@ -26,6 +26,59 @@ def _run_make(args, **kwargs):
 
 
 class MakefileOverlayTest(unittest.TestCase):
+    def test_scope_paths_make_emits_json_only(self):
+        with tempfile.TemporaryDirectory() as td:
+            deployment_path = os.path.join(td, "deployment.json")
+            paths_path = os.path.join(td, "changed.json")
+            with open(deployment_path, "w", encoding="utf-8") as f:
+                json.dump({}, f)
+            with open(paths_path, "w", encoding="utf-8") as f:
+                json.dump([
+                    "config/tenant/zpa_segment_group.auto.tfvars.json",
+                ], f)
+            env = os.environ.copy()
+            env.pop("INFRAWRIGHT_DEPLOYMENT", None)
+            proc = _run_make([
+                "--no-print-directory",
+                "OVERLAY=%s" % os.path.join(td, "missing"),
+                "DEPLOYMENT=%s" % deployment_path,
+                "PATHS_JSON=%s" % paths_path,
+                "scope-paths",
+            ], env=env)
+            output = json.loads(proc.stdout)
+            self.assertEqual(
+                output["affected_resources"], ["zpa_segment_group"]
+            )
+            self.assertEqual(
+                output["affected_roots"][0]["label"], "zpa_segment_group"
+            )
+
+    def test_plan_roots_make_emits_materialized_artifact_paths(self):
+        with tempfile.TemporaryDirectory() as td:
+            deployment_path = os.path.join(td, "deployment.json")
+            root = os.path.join(td, "envs", "tenant", "zpa_segment_group")
+            os.makedirs(root)
+            with open(deployment_path, "w", encoding="utf-8") as f:
+                json.dump({"overlay": td}, f)
+            env = os.environ.copy()
+            env.pop("INFRAWRIGHT_DEPLOYMENT", None)
+            proc = _run_make([
+                "--no-print-directory",
+                "OVERLAY=%s" % os.path.join(td, "missing"),
+                "DEPLOYMENT=%s" % deployment_path,
+                "TENANT=tenant",
+                "RESOURCE=zpa_segment_group",
+                "plan-roots",
+            ], env=env)
+            output = json.loads(proc.stdout)
+            self.assertEqual(len(output["roots"]), 1)
+            self.assertEqual(output["roots"][0]["env_dir"], root)
+            self.assertEqual(output["roots"][0]["artifact_state"], "absent")
+            self.assertEqual(
+                output["roots"][0]["artifacts"]["tfplan"]["path"],
+                os.path.join(root, "tfplan"),
+            )
+
     def test_optional_tenant_targets_reject_explicit_empty_make_value(self):
         with tempfile.TemporaryDirectory() as td:
             deployment_path = os.path.join(td, "deployment.json")
@@ -34,7 +87,7 @@ class MakefileOverlayTest(unittest.TestCase):
             env = os.environ.copy()
             env.pop("INFRAWRIGHT_DEPLOYMENT", None)
             for target in (
-                    "roots", "clean-plans", "assert-clean",
+                    "roots", "plan-roots", "clean-plans", "assert-clean",
                     "assert-adoptable", "apply"):
                 with self.subTest(target=target):
                     proc = subprocess.run(
