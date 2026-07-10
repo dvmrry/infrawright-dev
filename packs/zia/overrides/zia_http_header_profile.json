@@ -1,0 +1,7 @@
+{
+  "acknowledged_drops": [
+    "deleted",
+    "http_header_profile_criteria[].id"
+  ],
+  "import_id": "{id}"
+}

@@ -97,6 +97,40 @@ class RenderMainTest(unittest.TestCase):
         self.assertIn('dynamic "url_keyword_counts"', out)
         self.assertNotIn("category_id", out)  # computed-only never assigned
 
+    def test_http_header_modules_emit_only_provider_inputs(self):
+        expected = {
+            "zia_http_header_action_profile": (
+                "http_header_action_profile_keys",
+                ("key", "value"),
+                ("header_action_profile_id", "deleted"),
+            ),
+            "zia_http_header_profile": (
+                "http_header_profile_criteria",
+                (
+                    "header",
+                    "operator",
+                    "user_agent",
+                    "user_agent_bitmap",
+                    "user_agent_version",
+                    "category_bitmap",
+                    "cloud_app_bitmap",
+                ),
+                ("header_profile_id", "deleted"),
+            ),
+        }
+        for resource_type, (block, inputs, computed) in sorted(
+                expected.items()):
+            with self.subTest(resource_type=resource_type):
+                out = render_main(resource_type, load_resource(resource_type))
+                self.assertIn('resource "%s" "this"' % resource_type, out)
+                self.assertIn('dynamic "%s"' % block, out)
+                for field in inputs:
+                    self.assertIn("%s = %s.value.%s" % (
+                        field, block, field), out)
+                for field in computed:
+                    self.assertNotIn("  %s =" % field, out)
+                self.assertNotIn("    id = %s.value.id" % block, out)
+
     def test_single_mode_block_wraps_in_list(self):
         fake = {
             "block": {

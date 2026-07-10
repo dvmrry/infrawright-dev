@@ -898,6 +898,117 @@ class PredefinedUrlFilteringSkipTest(unittest.TestCase):
 class QuirkClosureTest(unittest.TestCase):
     """Survey-verified gap closures (provider-source-mined), one e2e each."""
 
+    def test_zia_http_header_action_profile_projects_provider_inputs(self):
+        raw = [{
+            "id": 101,
+            "name": "Action profile",
+            "description": "Insert tenant headers",
+            "slotId": 2,
+            "deleted": False,
+            "profileReadyForUse": True,
+            "httpHeaderActionProfileKeys": [
+                {"id": 1, "key": "X-Tenant", "value": "blue"},
+                {"id": 2, "key": "X-Region", "value": "east"},
+            ],
+        }]
+        override = load_override("zia_http_header_action_profile")
+        items, originals, drops = transform_items(
+            raw, "zia_http_header_action_profile", override
+        )
+        self.assertEqual(items, {
+            "action_profile": {
+                "description": "Insert tenant headers",
+                "http_header_action_profile_keys": [
+                    {"key": "X-Tenant", "value": "blue"},
+                    {"key": "X-Region", "value": "east"},
+                ],
+                "name": "Action profile",
+                "profile_ready_for_use": True,
+                "slot_id": 2,
+            }
+        })
+        self.assertEqual(drops, [])
+        self.assertIn(
+            'id = "101"',
+            render_imports(
+                "zia_http_header_action_profile", originals, override
+            ),
+        )
+
+    def test_zia_http_header_profile_projects_provider_inputs(self):
+        raw = [{
+            "id": 202,
+            "name": "Match profile",
+            "description": "Match browser traffic",
+            "slotId": 3,
+            "deleted": False,
+            "profileReadyForUse": False,
+            "httpHeaderProfileCriteria": [{
+                "id": 4,
+                "header": "USERAGENT",
+                "operator": "UAVERSIONEQ",
+                "userAgent": "FIREFOX",
+                "userAgentBitmap": "FIREFOX",
+                "userAgentVersion": "123.0",
+                "categoryBitmap": ["GENERAL_AI_ML", "AI_ML_APPS"],
+                "cloudAppBitmap": ["CHATGPT_AI"],
+            }],
+        }]
+        override = load_override("zia_http_header_profile")
+        items, originals, drops = transform_items(
+            raw, "zia_http_header_profile", override
+        )
+        self.assertEqual(items, {
+            "match_profile": {
+                "description": "Match browser traffic",
+                "http_header_profile_criteria": [{
+                    "category_bitmap": ["AI_ML_APPS", "GENERAL_AI_ML"],
+                    "cloud_app_bitmap": ["CHATGPT_AI"],
+                    "header": "USERAGENT",
+                    "operator": "UAVERSIONEQ",
+                    "user_agent": "FIREFOX",
+                    "user_agent_bitmap": "FIREFOX",
+                    "user_agent_version": "123.0",
+                }],
+                "name": "Match profile",
+                "profile_ready_for_use": False,
+                "slot_id": 3,
+            }
+        })
+        self.assertEqual(drops, [])
+        self.assertIn(
+            'id = "202"',
+            render_imports("zia_http_header_profile", originals, override),
+        )
+
+    def test_url_filtering_header_blocks_keep_ids_and_drop_names_only(self):
+        raw = [{
+            "id": 303,
+            "name": "Header rule",
+            "protocols": ["ANY_RULE"],
+            "httpHeaderProfiles": [
+                {"id": 202, "name": "Match profile"},
+                {"id": 203, "name": "Other match profile"},
+            ],
+            "httpHeaderActionProfiles": [
+                {"id": 101, "name": "Action profile"},
+            ],
+        }]
+        items, _, drops = transform_items(
+            raw,
+            "zia_url_filtering_rules",
+            load_override("zia_url_filtering_rules"),
+        )
+        self.assertEqual(
+            items["header_rule"]["http_header_profiles"],
+            {"id": [202, 203]},
+        )
+        self.assertEqual(
+            items["header_rule"]["http_header_action_profiles"],
+            {"id": [101]},
+        )
+        self.assertEqual(drops, [])
+
     def test_zia_advanced_threat_acronym_fields_survive_projection(self):
         raw = [{
             "webspamBlocked": True,
@@ -2387,8 +2498,9 @@ ESTATE_DROPS = {
  "zia_url_categories": ["category_group", "id", "val"],
  "zia_url_filtering_rules": ["access_control", "capture_pcap",
     "cbi_profile_id", "device_groups.name", "exclude_src_countries",
-    "groups.name", "groups_and_departments_set", "http_header_action_profiles",
-    "http_header_profiles", "id", "labels.name", "last_modified_by",
+    "groups.name", "groups_and_departments_set",
+    "http_header_action_profiles.name", "http_header_profiles.name", "id",
+    "labels.name", "last_modified_by",
     "last_modified_time", "location_groups.name",
     "locations.is_name_l10n_tag", "locations.name", "predefined",
     "source_ip_groups.name", "users.name", "users_and_groups_set"],

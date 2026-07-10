@@ -395,6 +395,22 @@
     "generate": true,
     "product": "zia"
   },
+  "zia_http_header_action_profile": {
+    "fetch": {
+      "pagination": "single",
+      "path": "httpHeaderActionProfile"
+    },
+    "generate": true,
+    "product": "zia"
+  },
+  "zia_http_header_profile": {
+    "fetch": {
+      "pagination": "single",
+      "path": "httpHeaderProfile"
+    },
+    "generate": true,
+    "product": "zia"
+  },
   "zia_ips_signature_rules": {
     "generate": true,
     "product": "zia"

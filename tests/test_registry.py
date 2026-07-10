@@ -22,8 +22,6 @@ from engine.registry import (
 
 
 EXPECTED_PROVIDER_HEADROOM = {
-    "zia_http_header_action_profile": "zia",
-    "zia_http_header_profile": "zia",
     "zpa_private_cloud": "zpa",
 }
 
@@ -133,6 +131,29 @@ class RegistryTest(unittest.TestCase):
         # lossy and must remain unavailable.
         with self.assertRaises(KeyError):
             fetch_entry("zia_security_settings")
+
+    def test_zia_http_header_fetch_entries_are_flat_unpaginated_lists(self):
+        expected = {
+            "zia_http_header_action_profile": "httpHeaderActionProfile",
+            "zia_http_header_profile": "httpHeaderProfile",
+        }
+        registry = load_registry()
+        for resource_type, path in sorted(expected.items()):
+            with self.subTest(resource_type=resource_type):
+                entry = fetch_entry(resource_type)
+                self.assertEqual(entry["product"], "zia")
+                self.assertEqual(entry["path"], path)
+                self.assertEqual(entry["pagination"], "single")
+                self.assertTrue(registry[resource_type]["generate"])
+                self.assertEqual(
+                    classify_resource(
+                        resource_type,
+                        "zia",
+                        registry,
+                        {"dispositions": {}},
+                    )[0],
+                    "managed-fetch",
+                )
 
     def test_fetch_entry_unknown_raises(self):
         with self.assertRaises(KeyError):
