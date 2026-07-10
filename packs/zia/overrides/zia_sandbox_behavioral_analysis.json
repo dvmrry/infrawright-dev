@@ -1,0 +1,6 @@
+{
+  "defaults": {
+    "id": "sandbox_settings"
+  },
+  "key_field": "id"
+}

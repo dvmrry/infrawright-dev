@@ -2,5 +2,11 @@
   "defaults": {
     "id": "advanced_threat_settings"
   },
-  "key_field": "id"
+  "key_field": "id",
+  "renames": {
+    "active_x_blocked": "activex_blocked",
+    "active_x_capture": "activex_capture",
+    "webspam_blocked": "web_spam_blocked",
+    "webspam_capture": "web_spam_capture"
+  }
 }
