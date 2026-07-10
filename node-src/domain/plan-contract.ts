@@ -1,4 +1,7 @@
-import { LosslessNumber } from "lossless-json";
+import {
+  isJsonRecord as isRecord,
+  pythonJsonEqual,
+} from "../json/python-equality.js";
 
 const FORMAT_VERSION = /^1\.[0-9]+$/;
 const RESOURCE_TYPE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -24,13 +27,6 @@ export class AssessmentPlanError extends Error {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object"
-    && value !== null
-    && !Array.isArray(value)
-    && !(value instanceof LosslessNumber);
-}
-
 function fail(message: string): never {
   throw new AssessmentPlanError(message);
 }
@@ -42,12 +38,35 @@ function validateImportMarker(value: unknown, where: string): void {
   if (!isRecord(value)) {
     fail(`${where} importing marker must be an object`);
   }
-  const hasId = typeof value.id === "string" && value.id.length > 0;
-  const hasIdentity = isRecord(value.identity)
-    && Object.keys(value.identity).length > 0;
-  if (!hasId && !hasIdentity) {
-    fail(`${where} importing marker must contain an id or identity`);
+}
+
+function validateBooleanMask(value: unknown, where: string): void {
+  if (typeof value === "boolean") {
+    return;
   }
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      validateBooleanMask(value[index], `${where}[${index}]`);
+    }
+    return;
+  }
+  if (isRecord(value)) {
+    for (const [key, child] of Object.entries(value)) {
+      validateBooleanMask(child, `${where}.${key}`);
+    }
+    return;
+  }
+  fail(`${where} must be a recursive boolean mask`);
+}
+
+function booleanMaskHasTrue(value: unknown): boolean {
+  if (value === true) {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.some(booleanMaskHasTrue);
+  }
+  return isRecord(value) && Object.values(value).some(booleanMaskHasTrue);
 }
 
 function validateChangeRecord(value: unknown, where: string): void {
@@ -77,14 +96,55 @@ function validateChangeRecord(value: unknown, where: string): void {
   if (!ACTION_SEQUENCES.has(JSON.stringify(actions))) {
     fail(`${where}.change.actions is not a supported Terraform action sequence`);
   }
+  if (Object.hasOwn(value, "importing")) {
+    fail(`${where}.importing is not part of the Terraform resource-change contract`);
+  }
   if (
     (actions[0] === "update" || actions[0] === "no-op")
     && (!Object.hasOwn(value.change, "before") || !Object.hasOwn(value.change, "after"))
   ) {
     fail(`${where}.change must bind before and after values`);
   }
+  if (
+    actions.length === 1
+    && actions[0] === "no-op"
+    && !pythonJsonEqual(value.change.before, value.change.after)
+  ) {
+    fail(`${where}.change no-op values must be identical`);
+  }
+  if (Object.hasOwn(value.change, "after_unknown")) {
+    validateBooleanMask(value.change.after_unknown, `${where}.change.after_unknown`);
+    if (
+      actions.length === 1
+      && actions[0] === "no-op"
+      && booleanMaskHasTrue(value.change.after_unknown)
+    ) {
+      fail(`${where}.change no-op must not contain unknown values`);
+    }
+  }
+  for (const field of ["before_sensitive", "after_sensitive"] as const) {
+    if (Object.hasOwn(value.change, field)) {
+      validateBooleanMask(value.change[field], `${where}.change.${field}`);
+    }
+  }
+  if (
+    actions.length === 1
+    && actions[0] === "no-op"
+    && !isRecord(value.change.importing)
+    && (
+      !pythonJsonEqual(
+        value.change.before_identity ?? null,
+        value.change.after_identity ?? null,
+      )
+      || !pythonJsonEqual(
+        value.change.before_sensitive ?? {},
+        value.change.after_sensitive ?? {},
+      )
+    )
+  ) {
+    fail(`${where}.change no-op metadata must be identical`);
+  }
   validateImportMarker(value.change.importing, `${where}.change`);
-  validateImportMarker(value.importing, where);
 }
 
 function records(
@@ -126,6 +186,30 @@ function validateOutputChanges(value: unknown): void {
     }
     if (change.actions.length !== 1 || change.actions[0] !== "no-op") {
       fail("non-no-op output changes are not supported by saved-plan assessment");
+    }
+    if (
+      !Object.hasOwn(change, "before")
+      || !Object.hasOwn(change, "after")
+      || !pythonJsonEqual(change.before, change.after)
+    ) {
+      fail("output no-op values must be identical");
+    }
+    if (Object.hasOwn(change, "after_unknown")) {
+      validateBooleanMask(change.after_unknown, "output_changes after_unknown");
+      if (booleanMaskHasTrue(change.after_unknown)) {
+        fail("output no-op must not contain unknown values");
+      }
+    }
+    for (const field of ["before_sensitive", "after_sensitive"] as const) {
+      if (Object.hasOwn(change, field)) {
+        validateBooleanMask(change[field], `output_changes ${field}`);
+      }
+    }
+    if (!pythonJsonEqual(
+      change.before_sensitive ?? {},
+      change.after_sensitive ?? {},
+    )) {
+      fail("output no-op sensitivity metadata must be identical");
     }
   }
 }

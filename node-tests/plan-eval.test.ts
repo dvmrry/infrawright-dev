@@ -7,8 +7,10 @@ import {
   CLEAN,
   classifyPlan,
   diffPaths,
+  IDENTITY_CHANGE,
   OPAQUE_UPDATE,
   pythonJsonEqual,
+  SENSITIVITY_CHANGE,
   TOLERATED,
 } from "../node-src/domain/plan-eval.js";
 import { DriftPolicy } from "../node-src/domain/drift-policy.js";
@@ -54,6 +56,21 @@ test("plan classification preserves clean, blocked, import, and opaque semantics
       address: "sample_resource.this",
       type: "sample_resource",
       change: { actions: ["create"], importing: { id: "1" } },
+    }],
+  }).status, BLOCKED);
+  assert.equal(classifyPlan({
+    format_version: "1.2",
+    complete: true,
+    errored: false,
+    resource_changes: [{
+      address: "sample_resource.this",
+      type: "sample_resource",
+      change: {
+        actions: ["no-op"],
+        before: { id: "1" },
+        after: { id: "1" },
+        importing: { id: "1" },
+      },
     }],
   }).status, CLEAN);
 });
@@ -152,6 +169,106 @@ test("current Terraform forget actions remain visible and blocked", () => {
   });
   assert.equal(replacement.status, BLOCKED);
   assert.deepEqual(replacement.findings[0]?.paths, [["<create>"]]);
+});
+
+test("identity and sensitivity deltas cannot hide behind tolerated drift", () => {
+  const policyData = {
+    version: 1,
+    resource_types: {
+      sample_resource: {
+        plan_tolerate: [{
+          path: "status",
+          reason: "verified normalization",
+          approved_by: "unit",
+        }],
+      },
+    },
+  };
+  for (const source of ["resource_changes", "resource_drift"] as const) {
+    const base = {
+      address: "sample_resource.this",
+      type: "sample_resource",
+      change: {
+        actions: ["update"],
+        before: { status: "before" },
+        after: { status: "after" },
+      },
+    };
+    const identity = classifyPlan({
+      format_version: "1.2",
+      complete: true,
+      errored: false,
+      resource_changes: source === "resource_changes" ? [{
+        ...base,
+        change: {
+          ...base.change,
+          before_identity: { id: "old" },
+          after_identity: { id: "new" },
+        },
+      }] : [],
+      resource_drift: source === "resource_drift" ? [{
+        ...base,
+        change: {
+          ...base.change,
+          before_identity: { id: "old" },
+          after_identity: { id: "new" },
+        },
+      }] : [],
+    }, new DriftPolicy(policyData));
+    assert.equal(identity.status, BLOCKED);
+    assert.deepEqual(identity.findings[0]?.paths, [[IDENTITY_CHANGE]]);
+
+    const sensitivity = classifyPlan({
+      format_version: "1.2",
+      complete: true,
+      errored: false,
+      resource_changes: source === "resource_changes" ? [{
+        ...base,
+        change: {
+          ...base.change,
+          before_sensitive: { secret: true },
+          after_sensitive: {},
+        },
+      }] : [],
+      resource_drift: source === "resource_drift" ? [{
+        ...base,
+        change: {
+          ...base.change,
+          before_sensitive: { secret: true },
+          after_sensitive: {},
+        },
+      }] : [],
+    }, new DriftPolicy(policyData));
+    assert.equal(sensitivity.status, BLOCKED);
+    assert.deepEqual(sensitivity.findings[0]?.paths, [[SENSITIVITY_CHANGE]]);
+
+    const unchanged = classifyPlan({
+      format_version: "1.2",
+      complete: true,
+      errored: false,
+      resource_changes: source === "resource_changes" ? [{
+        ...base,
+        change: {
+          ...base.change,
+          before_identity: { id: "same" },
+          after_identity: { id: "same" },
+          before_sensitive: { secret: true },
+          after_sensitive: { secret: true },
+        },
+      }] : [],
+      resource_drift: source === "resource_drift" ? [{
+        ...base,
+        change: {
+          ...base.change,
+          before_identity: { id: "same" },
+          after_identity: { id: "same" },
+          before_sensitive: { secret: true },
+          after_sensitive: { secret: true },
+        },
+      }] : [],
+    }, new DriftPolicy(policyData));
+    assert.equal(unchanged.status, TOLERATED);
+  }
 });
 
 test("policy classification and stale tracking match Python", () => {
@@ -277,6 +394,19 @@ test("assessment plan validation rejects malformed or ambiguous plan shapes", ()
       },
     }],
   }));
+  assert.doesNotThrow(() => validateAssessmentPlan({
+    ...complete,
+    resource_changes: [{
+      address: "sample_resource.this",
+      type: "sample_resource",
+      change: {
+        actions: ["no-op"],
+        before: {},
+        after: {},
+        importing: {},
+      },
+    }],
+  }));
   const invalid: unknown[] = [
     {},
     { ...complete, complete: false, resource_changes: [] },
@@ -284,6 +414,35 @@ test("assessment plan validation rejects malformed or ambiguous plan shapes", ()
     {
       ...complete,
       output_changes: { summary: { actions: ["update"] } },
+    },
+    {
+      ...complete,
+      output_changes: {
+        summary: { actions: ["no-op"], before: "before", after: "after" },
+      },
+    },
+    {
+      ...complete,
+      output_changes: {
+        summary: {
+          actions: ["no-op"],
+          before: "same",
+          after: "same",
+          after_unknown: true,
+        },
+      },
+    },
+    {
+      ...complete,
+      output_changes: {
+        summary: {
+          actions: ["no-op"],
+          before: "same",
+          after: "same",
+          before_sensitive: false,
+          after_sensitive: true,
+        },
+      },
     },
     { ...complete, output_changes: [] },
     {
@@ -340,23 +499,84 @@ test("assessment plan validation rejects malformed or ambiguous plan shapes", ()
     { ...complete, resource_changes: [{
       address: "sample_resource.this",
       type: "sample_resource",
+      change: { actions: ["no-op"], before: { id: 1 }, after: { id: 2 } },
+    }] },
+    { ...complete, resource_changes: [{
+      address: "sample_resource.this",
+      type: "sample_resource",
+      change: {
+        actions: ["update"],
+        before: { status: "before" },
+        after: { status: "after" },
+        after_unknown: { token: "true" },
+      },
+    }] },
+    { ...complete, resource_changes: [{
+      address: "sample_resource.this",
+      type: "sample_resource",
+      change: {
+        actions: ["update"],
+        before: {},
+        after: {},
+        before_sensitive: { secret: "true" },
+      },
+    }] },
+    { ...complete, resource_changes: [{
+      address: "sample_resource.this",
+      type: "sample_resource",
+      change: {
+        actions: ["no-op"],
+        before: {},
+        after: {},
+        after_unknown: { token: true },
+      },
+    }] },
+    { ...complete, resource_changes: [{
+      address: "sample_resource.this",
+      type: "sample_resource",
+      change: {
+        actions: ["no-op"],
+        before: {},
+        after: {},
+        before_identity: { id: "old" },
+        after_identity: { id: "new" },
+      },
+    }] },
+    { ...complete, resource_changes: [{
+      address: "sample_resource.this",
+      type: "sample_resource",
+      importing: { id: "synthetic" },
+      change: { actions: ["create"] },
+    }] },
+    { ...complete, resource_changes: [{
+      address: "sample_resource.this",
+      type: "sample_resource",
       change: { actions: ["create"], importing: "secret-id" },
-    }] },
-    { ...complete, resource_changes: [{
-      address: "sample_resource.this",
-      type: "sample_resource",
-      change: { actions: ["create"], importing: {} },
-    }] },
-    { ...complete, resource_changes: [{
-      address: "sample_resource.this",
-      type: "sample_resource",
-      change: { actions: ["create"], importing: { garbage: true } },
     }] },
   ];
   for (const plan of invalid) {
     assert.throws(() => validateAssessmentPlan(plan), AssessmentPlanError);
     assert.throws(() => classifyPlan(plan), AssessmentPlanError);
   }
+});
+
+test("no-op consistency retains lossless Python numeric equality", () => {
+  const compatible = parseDataJsonLosslessly(
+    '{"format_version":"1.2","complete":true,"errored":false,'
+      + '"resource_changes":[{"address":"sample_resource.this",'
+      + '"type":"sample_resource","change":{"actions":["no-op"],'
+      + '"before":{"value":1},"after":{"value":1.0}}}]}',
+  );
+  assert.equal(classifyPlan(compatible).status, CLEAN);
+
+  const unequal = parseDataJsonLosslessly(
+    '{"format_version":"1.2","complete":true,"errored":false,'
+      + '"resource_changes":[{"address":"sample_resource.this",'
+      + '"type":"sample_resource","change":{"actions":["no-op"],'
+      + '"before":{"value":9007199254740993},'
+      + '"after":{"value":9007199254740993.0}}}]}',
+  );
+  assert.throws(() => classifyPlan(unequal), AssessmentPlanError);
 });
 
 test("lossless numeric classification corpus matches Python", () => {

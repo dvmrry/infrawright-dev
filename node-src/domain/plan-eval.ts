@@ -1,13 +1,19 @@
-import { LosslessNumber } from "lossless-json";
-
 import type { DriftPolicy } from "./drift-policy.js";
 import { validateAssessmentPlan } from "./plan-contract.js";
+import {
+  isJsonRecord as isRecord,
+  pythonJsonEqual,
+} from "../json/python-equality.js";
 import { sortedStrings } from "../json/python-compatible.js";
+
+export { pythonJsonEqual } from "../json/python-equality.js";
 
 export const CLEAN = "clean" as const;
 export const TOLERATED = "clean_with_tolerated_drift" as const;
 export const BLOCKED = "blocked" as const;
 export const OPAQUE_UPDATE = "<opaque_update>" as const;
+export const IDENTITY_CHANGE = "<identity_change>" as const;
+export const SENSITIVITY_CHANGE = "<sensitivity_change>" as const;
 
 export type PlanStatus = typeof CLEAN | typeof TOLERATED | typeof BLOCKED;
 export type PlanPath = readonly (string | number)[];
@@ -23,108 +29,6 @@ export interface PlanFinding {
 export interface PlanClassification {
   readonly status: PlanStatus;
   readonly findings: readonly PlanFinding[];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object"
-    && value !== null
-    && !Array.isArray(value)
-    && !(value instanceof LosslessNumber);
-}
-
-function pythonTruthy(value: unknown): boolean {
-  if (value instanceof LosslessNumber) {
-    const numeric = numericValue(value);
-    return numeric?.kind === "integer"
-      ? numeric.integer !== 0n
-      : numeric?.float !== 0;
-  }
-  if (value === null || value === false || value === 0 || value === "") {
-    return false;
-  }
-  if (Array.isArray(value)) {
-    return value.length > 0;
-  }
-  if (isRecord(value)) {
-    return Object.keys(value).length > 0;
-  }
-  return value !== undefined;
-}
-
-interface NumericValue {
-  readonly kind: "integer" | "float";
-  readonly integer?: bigint;
-  readonly float?: number;
-}
-
-function numericValue(value: unknown): NumericValue | null {
-  if (typeof value === "boolean") {
-    return { kind: "integer", integer: value ? 1n : 0n };
-  }
-  if (value instanceof LosslessNumber) {
-    const token = value.toString();
-    if (/^-?(?:0|[1-9][0-9]*)$/.test(token)) {
-      return { kind: "integer", integer: BigInt(token) };
-    }
-    return { kind: "float", float: Number(token) };
-  }
-  if (typeof value === "number") {
-    if (Number.isSafeInteger(value) && !Object.is(value, -0)) {
-      return { kind: "integer", integer: BigInt(value) };
-    }
-    return { kind: "float", float: value };
-  }
-  return null;
-}
-
-function numericallyEqual(left: NumericValue, right: NumericValue): boolean {
-  if (left.kind === "integer" && right.kind === "integer") {
-    return left.integer === right.integer;
-  }
-  if (left.kind === "float" && right.kind === "float") {
-    return left.float === right.float;
-  }
-  const integer = left.kind === "integer" ? left.integer : right.integer;
-  const float = left.kind === "float" ? left.float : right.float;
-  return integer !== undefined
-    && float !== undefined
-    && Number.isFinite(float)
-    && Number.isInteger(float)
-    && BigInt(float) === integer;
-}
-
-/** Match Python JSON equality without truncating integer tokens. */
-export function pythonJsonEqual(left: unknown, right: unknown): boolean {
-  const leftNumber = numericValue(left);
-  const rightNumber = numericValue(right);
-  if (leftNumber !== null || rightNumber !== null) {
-    return leftNumber !== null
-      && rightNumber !== null
-      && numericallyEqual(leftNumber, rightNumber);
-  }
-  if (left === null || right === null) {
-    return left === right;
-  }
-  if (typeof left === "string" || typeof right === "string") {
-    return typeof left === "string" && left === right;
-  }
-  if (Array.isArray(left) || Array.isArray(right)) {
-    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
-      return false;
-    }
-    return left.every((value, index) => pythonJsonEqual(value, right[index]));
-  }
-  if (isRecord(left) || isRecord(right)) {
-    if (!isRecord(left) || !isRecord(right)) {
-      return false;
-    }
-    const leftKeys = sortedStrings(Object.keys(left));
-    const rightKeys = sortedStrings(Object.keys(right));
-    return leftKeys.length === rightKeys.length
-      && leftKeys.every((key, index) => key === rightKeys[index])
-      && leftKeys.every((key) => pythonJsonEqual(left[key], right[key]));
-  }
-  return left === right;
 }
 
 export function diffPaths(
@@ -219,6 +123,18 @@ function updatePaths(change: Record<string, unknown>): PlanPath[] {
       unique.set(JSON.stringify(path), path);
     }
   }
+  if (!pythonJsonEqual(
+    change.before_identity ?? null,
+    change.after_identity ?? null,
+  )) {
+    unique.set(JSON.stringify([IDENTITY_CHANGE]), [IDENTITY_CHANGE]);
+  }
+  if (!pythonJsonEqual(
+    truthyPaths(change.before_sensitive),
+    truthyPaths(change.after_sensitive),
+  )) {
+    unique.set(JSON.stringify([SENSITIVITY_CHANGE]), [SENSITIVITY_CHANGE]);
+  }
   if (opaque || unique.size === 0) {
     unique.set(JSON.stringify([OPAQUE_UPDATE]), [OPAQUE_UPDATE]);
   }
@@ -264,10 +180,6 @@ function classifyChange(
   const resourceType = record.type;
   if (typeof resourceType !== "string") {
     throw new TypeError(`${source} type must be a string`);
-  }
-  const importing = pythonTruthy(change.importing) || pythonTruthy(record.importing);
-  if (importing && Array.from(actions).every((action) => action === "create")) {
-    return [{ status: CLEAN, source, address, actions: sortedStrings(actions), paths: [] }];
   }
   if (actions.has("delete")) {
     return [blocked(source, address, actions, [["<delete>"]])];

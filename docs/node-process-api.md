@@ -194,7 +194,8 @@ float-bearing output contract is migrated.
 These slices support only Zscaler root topology, changed-path scoping, and
 materialized plan-root enumeration as public process operations.
 
-The Node library also contains the internal saved-plan classification kernel:
+The Node source tree also contains the internal saved-plan classification
+kernel. It is not yet imported into the bundled process executable:
 
 - strict v1 drift-policy validation for every policy lane, plus matching and
   stale-entry tracking for `plan_tolerate`;
@@ -205,6 +206,13 @@ The Node library also contains the internal saved-plan classification kernel:
   `1.x`, complete and non-errored plans, structurally valid change records,
   known action sequences, valid import markers, no non-no-op output changes,
   no action invocations, and no failed checks before classification.
+
+The valid-plan comparison intentionally hardens four Python edge cases:
+drift-policy versions must be the JSON number `1` rather than `true`, policy
+indexes use ASCII digits, create actions remain blocked even when an import
+marker is present, and identity or sensitivity metadata changes produce
+un-tolerable synthetic finding paths. Genuine Terraform 1.8+ imports are
+no-op changes with a nested import marker and remain clean.
 
 The unchecked compatibility kernel is private. There is deliberately no
 process operation that accepts caller-supplied plan JSON: until evidence
