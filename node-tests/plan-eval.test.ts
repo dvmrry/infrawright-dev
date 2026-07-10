@@ -579,6 +579,43 @@ test("no-op consistency retains lossless Python numeric equality", () => {
   assert.throws(() => classifyPlan(unequal), AssessmentPlanError);
 });
 
+test("no-op contract keeps Terraform booleans distinct from numbers", () => {
+  const resource = parseDataJsonLosslessly(
+    '{"format_version":"1.2","complete":true,"errored":false,'
+      + '"resource_changes":[{"address":"sample_resource.this",'
+      + '"type":"sample_resource","change":{"actions":["no-op"],'
+      + '"before":{"value":true},"after":{"value":1}}}]}',
+  );
+  const output = parseDataJsonLosslessly(
+    '{"format_version":"1.2","complete":true,"errored":false,'
+      + '"output_changes":{"value":{"actions":["no-op"],'
+      + '"before":false,"after":0}}}',
+  );
+  assert.throws(() => classifyPlan(resource), AssessmentPlanError);
+  assert.throws(() => classifyPlan(output), AssessmentPlanError);
+
+  const sameTyped = parseDataJsonLosslessly(
+    '{"format_version":"1.2","complete":true,"errored":false,'
+      + '"resource_changes":[{"address":"sample_resource.this",'
+      + '"type":"sample_resource","change":{"actions":["no-op"],'
+      + '"before":{"flag":true,"count":1},'
+      + '"after":{"flag":true,"count":1.0}}}]}',
+  );
+  assert.equal(classifyPlan(sameTyped).status, CLEAN);
+});
+
+test("import markers cannot hide no-op sensitivity changes", () => {
+  const plan = parseDataJsonLosslessly(
+    '{"format_version":"1.2","complete":true,"errored":false,'
+      + '"resource_changes":[{"address":"sample_resource.this",'
+      + '"type":"sample_resource","change":{"actions":["no-op"],'
+      + '"before":{"secret":"same"},"after":{"secret":"same"},'
+      + '"before_sensitive":{"secret":true},"after_sensitive":{},'
+      + '"importing":{"id":"x"}}}]}',
+  );
+  assert.throws(() => classifyPlan(plan), AssessmentPlanError);
+});
+
 test("lossless numeric classification corpus matches Python", () => {
   const pairs = [
     ["9007199254740992", "9007199254740993"],

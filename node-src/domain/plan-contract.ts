@@ -1,6 +1,6 @@
 import {
   isJsonRecord as isRecord,
-  pythonJsonEqual,
+  terraformJsonEqual,
 } from "../json/python-equality.js";
 
 const FORMAT_VERSION = /^1\.[0-9]+$/;
@@ -108,7 +108,7 @@ function validateChangeRecord(value: unknown, where: string): void {
   if (
     actions.length === 1
     && actions[0] === "no-op"
-    && !pythonJsonEqual(value.change.before, value.change.after)
+    && !terraformJsonEqual(value.change.before, value.change.after)
   ) {
     fail(`${where}.change no-op values must be identical`);
   }
@@ -130,13 +130,12 @@ function validateChangeRecord(value: unknown, where: string): void {
   if (
     actions.length === 1
     && actions[0] === "no-op"
-    && !isRecord(value.change.importing)
     && (
-      !pythonJsonEqual(
+      !terraformJsonEqual(
         value.change.before_identity ?? null,
         value.change.after_identity ?? null,
       )
-      || !pythonJsonEqual(
+      || !terraformJsonEqual(
         value.change.before_sensitive ?? {},
         value.change.after_sensitive ?? {},
       )
@@ -190,7 +189,7 @@ function validateOutputChanges(value: unknown): void {
     if (
       !Object.hasOwn(change, "before")
       || !Object.hasOwn(change, "after")
-      || !pythonJsonEqual(change.before, change.after)
+      || !terraformJsonEqual(change.before, change.after)
     ) {
       fail("output no-op values must be identical");
     }
@@ -205,7 +204,7 @@ function validateOutputChanges(value: unknown): void {
         validateBooleanMask(change[field], `output_changes ${field}`);
       }
     }
-    if (!pythonJsonEqual(
+    if (!terraformJsonEqual(
       change.before_sensitive ?? {},
       change.after_sensitive ?? {},
     )) {
