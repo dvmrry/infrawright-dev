@@ -165,7 +165,8 @@ class MakefileOverlayTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             missing_overlay = os.path.join(td, "missing")
             proc = _run_make(["OVERLAY=%s" % missing_overlay, "-n", "test"])
-            self.assertIn("python3 -m unittest discover", proc.stdout)
+            self.assertIn("python3 -m engine.pack_set", proc.stdout)
+            self.assertIn("python3 -m tests.run --catalog", proc.stdout)
 
     def test_check_demo_reenters_demo_overlay(self):
         with tempfile.TemporaryDirectory() as td:

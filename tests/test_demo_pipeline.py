@@ -170,7 +170,8 @@ class DemoPipelineTest(unittest.TestCase):
                 "terraform", "fmt", "-check", "-recursive", td,
             ])
         status = subprocess.check_output([
-            "git", "status", "--porcelain", "--", "demo/",
+            "git", "status", "--porcelain", "--",
+            "demo/config/demo", "demo/imports/demo",
         ]).decode("utf-8")
         self.assertEqual(status, "")
 

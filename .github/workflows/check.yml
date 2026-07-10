@@ -32,4 +32,96 @@ jobs:
         with:
           python-version: "3.7"
       - name: Unit tests on floor interpreter
-        run: python3 -m unittest discover -s tests -t .
+        run: make test
+
+  pack-profiles:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [empty, aws, cloudflare, google, netbox, zcc, zia, zpa, ztc, zscaler]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: Materialize selected pack root
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          root="$RUNNER_TEMP/packs-$PROFILE"
+          mkdir -p "$root"
+          python3 - "$PROFILE" "$root" <<'PY'
+          import json
+          import os
+          import shutil
+          import sys
+
+          profile_name, output_root = sys.argv[1:]
+          with open("packsets/%s.json" % profile_name, encoding="utf-8") as f:
+              profile = json.load(f)
+          for name in profile["packs"]:
+              shutil.copytree(
+                  os.path.join("packs", name),
+                  os.path.join(output_root, name),
+              )
+          if profile["shared"]:
+              shared_root = os.path.join(output_root, "_shared")
+              os.makedirs(shared_root)
+              for name in profile["shared"]:
+                  shutil.copytree(
+                      os.path.join("packs", "_shared", name),
+                      os.path.join(shared_root, name),
+                  )
+          PY
+          echo "INFRAWRIGHT_PACKS=$root" >> "$GITHUB_ENV"
+          echo "PACK_PROFILE=$GITHUB_WORKSPACE/packsets/$PROFILE.json" >> "$GITHUB_ENV"
+      - name: Selected distribution gate
+        run: make check
+
+  pruned-checkouts:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [empty, zscaler]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: Build checkout without omitted packs
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          root="$RUNNER_TEMP/pruned-$PROFILE"
+          mkdir -p "$root"
+          if [ "$PROFILE" = "empty" ]; then
+            git archive HEAD | tar -x -f - -C "$root" \
+              --exclude=packs/aws \
+              --exclude=packs/cloudflare \
+              --exclude=packs/google \
+              --exclude=packs/netbox \
+              --exclude=packs/zcc \
+              --exclude=packs/zia \
+              --exclude=packs/zpa \
+              --exclude=packs/ztc \
+              --exclude=packs/_shared
+          else
+            git archive HEAD | tar -x -f - -C "$root" \
+              --exclude=packs/aws \
+              --exclude=packs/cloudflare \
+              --exclude=packs/google \
+              --exclude=packs/netbox
+          fi
+          echo "PRUNED_ROOT=$root" >> "$GITHUB_ENV"
+      - name: Pruned distribution gate
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: make -C "$PRUNED_ROOT" PACK_PROFILE="packsets/$PROFILE.json" check

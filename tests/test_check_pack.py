@@ -44,9 +44,7 @@ def _registry(resource_type="sample_resource"):
 class CheckPackCliTest(unittest.TestCase):
     def _run(self, args=None, packs_root=None):
         env = os.environ.copy()
-        if packs_root is None:
-            env.pop("INFRAWRIGHT_PACKS", None)
-        else:
+        if packs_root is not None:
             env["INFRAWRIGHT_PACKS"] = packs_root
         return subprocess.run(
             [sys.executable, "-m", "engine.check_pack"] + list(args or []),
@@ -61,7 +59,6 @@ class CheckPackCliTest(unittest.TestCase):
         proc = self._run()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("validated packs:", proc.stdout)
-        self.assertIn("zia", proc.stdout)
         self.assertEqual(proc.stderr, "")
 
     def test_current_single_pack_validates(self):

@@ -11,16 +11,9 @@ from engine import packs
 
 class RealPackInventoryTest(unittest.TestCase):
     def setUp(self):
-        self._prev = os.environ.get("INFRAWRIGHT_PACKS")
-        if self._prev is not None:
-            del os.environ["INFRAWRIGHT_PACKS"]
         packs.reset()
 
     def tearDown(self):
-        if self._prev is None:
-            os.environ.pop("INFRAWRIGHT_PACKS", None)
-        else:
-            os.environ["INFRAWRIGHT_PACKS"] = self._prev
         packs.reset()
 
     def _find(self, report, cls=None, **kwargs):
@@ -118,10 +111,7 @@ class RealPackInventoryTest(unittest.TestCase):
             adoption_inventory_report.to_json(report1),
             adoption_inventory_report.to_json(report2),
         )
-        self.assertEqual(
-            report1["inventory"][0]["provider"],
-            report2["inventory"][0]["provider"],
-        )
+        self.assertEqual(report1["inventory"], report2["inventory"])
 
     def test_markdown_output_includes_provider_class_action_evidence(self):
         report = adoption_inventory_report.build_report()
@@ -626,16 +616,9 @@ class SensitiveRequiredInventoryTest(unittest.TestCase):
 
 class CLISmokeTest(unittest.TestCase):
     def setUp(self):
-        self._prev = os.environ.get("INFRAWRIGHT_PACKS")
-        if self._prev is not None:
-            del os.environ["INFRAWRIGHT_PACKS"]
         packs.reset()
 
     def tearDown(self):
-        if self._prev is None:
-            os.environ.pop("INFRAWRIGHT_PACKS", None)
-        else:
-            os.environ["INFRAWRIGHT_PACKS"] = self._prev
         packs.reset()
 
     def _run_cli(self, args):

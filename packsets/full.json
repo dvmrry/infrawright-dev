@@ -1,0 +1,17 @@
+{
+  "kind": "infrawright.pack-set",
+  "version": 1,
+  "packs": [
+    "aws",
+    "cloudflare",
+    "google",
+    "netbox",
+    "zcc",
+    "zia",
+    "zpa",
+    "ztc"
+  ],
+  "shared": [
+    "zscaler"
+  ]
+}

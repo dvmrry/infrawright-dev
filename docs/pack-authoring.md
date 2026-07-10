@@ -17,6 +17,10 @@ packs/<name>/
 Set `INFRAWRIGHT_PACKS=/path/to/packs` to validate or run against a different
 packs root. This uses the same discovery behavior as the engine.
 
+For a deliberately reduced pack root, pair that setting with an exact
+`PACK_PROFILE`. See [Pack Distributions And Modular Checks](pack-distributions.md)
+for the profile contract, reduced-root checks, and CI expectations.
+
 Validate packs with:
 
 ```bash
