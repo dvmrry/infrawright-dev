@@ -61,6 +61,8 @@ def _parse_args(argv):
 
 
 def _validate_one(root, name):
+    if name == "_shared":
+        raise ValueError("_shared is a reserved component root, not a pack")
     pack_dir = os.path.join(root, name)
     pack_path = os.path.join(pack_dir, "pack.json")
     if not os.path.isfile(pack_path):

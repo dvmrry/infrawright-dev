@@ -88,10 +88,17 @@ class CheckPackCliTest(unittest.TestCase):
             _write_json(os.path.join(td, "_shared", "pack.json"), {
                 "provider_sources": {"ghost": "example/ghost"},
             })
-            proc = self._run(packs_root=td)
+            default = self._run(packs_root=td)
+            explicit = [
+                self._run(["--pack", "_shared"], packs_root=td),
+                self._run(["PACK=_shared"], packs_root=td),
+            ]
 
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(proc.stdout, "validated packs: none\n")
+        self.assertEqual(default.returncode, 0, default.stderr)
+        self.assertEqual(default.stdout, "validated packs: none\n")
+        for proc in explicit:
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("_shared is a reserved component root", proc.stderr)
 
     def test_invalid_registry_metadata_fails(self):
         with tempfile.TemporaryDirectory() as td:
