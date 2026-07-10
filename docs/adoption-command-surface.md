@@ -208,6 +208,12 @@ Use `make adopt` when the desired source of truth is provider-imported state.
 Use `make transform` only when a pack/workflow explicitly wants raw API fields
 projected through registry overrides.
 
+Maintainers comparing those two representations should use the
+[Transform/Adopt Parity Diagnostic](transform-adopt-parity.md). Its committed,
+sanitized fixtures run the real local transform and oracle-projection paths and
+fail closed on new, stale, or still-evidence-gated differences. It is a
+diagnostic and does not make either path authoritative.
+
 Full `make transform` and `make adopt` runs process selected resource types in
 pack reference order, so a referent lookup sidecar is refreshed before same-root
 referrers derive generated bindings. A selective transform of only a referrer

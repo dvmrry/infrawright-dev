@@ -1,0 +1,59 @@
+{
+  "expected_differences": [
+    {
+      "adopt": {
+        "present": true,
+        "value": "Raw API Engine"
+      },
+      "classification": "semantic_mismatch",
+      "disposition": "evidence_gate",
+      "evidence": [
+        "packs/zia/overrides/zia_dlp_engines.json",
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_dlp_engines.go#L107-L135"
+      ],
+      "path": "/items/predefined_engine/name",
+      "reason": "Raw transform promotes predefined_engine_name, while provider Read writes resp.Name; decide the intended predefined-engine name before changing either path.",
+      "transform": {
+        "present": true,
+        "value": "Predefined Engine"
+      }
+    }
+  ],
+  "fixture_version": 1,
+  "name": "zia_dlp_engines_predefined_name",
+  "provenance": {
+    "local_sources": [
+      "packs/zia/overrides/zia_dlp_engines.json",
+      "packs/zia/schemas/provider/zia.json"
+    ],
+    "note": "Minimal source-derived fixture; it is not retained tenant output.",
+    "provider_version": "4.7.26",
+    "sanitized": true,
+    "sources": [
+      "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_dlp_engines.go#L107-L135"
+    ],
+    "status": "source_derived"
+  },
+  "provider_state": {
+    "101": {
+      "sensitive_values": {},
+      "values": {
+        "custom_dlp_engine": false,
+        "description": "Built in engine",
+        "engine_expression": "D63.S > 0",
+        "name": "Raw API Engine"
+      }
+    }
+  },
+  "raw_items": [
+    {
+      "customDlpEngine": false,
+      "description": "Built in engine",
+      "engineExpression": "D63.S > 0",
+      "id": 101,
+      "name": "Raw API Engine",
+      "predefinedEngineName": "Predefined Engine"
+    }
+  ],
+  "resource_type": "zia_dlp_engines"
+}

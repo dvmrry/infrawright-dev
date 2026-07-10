@@ -1,0 +1,90 @@
+{
+  "expected_differences": [
+    {
+      "adopt": {
+        "present": true,
+        "value": 0
+      },
+      "classification": "validation_asymmetry",
+      "disposition": "evidence_gate",
+      "evidence": [
+        "packs/zia/overrides/zia_url_filtering_rules.json",
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L239-L243",
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L512-L514"
+      ],
+      "path": "/items/no_quota_rule/size_quota",
+      "reason": "Raw transform omits the divided zero default, while provider Read stores zero; a provider-framework or live probe must determine whether explicit zero survives config validation.",
+      "transform": {
+        "present": false
+      }
+    },
+    {
+      "adopt": {
+        "present": true,
+        "value": 0
+      },
+      "classification": "validation_asymmetry",
+      "disposition": "evidence_gate",
+      "evidence": [
+        "packs/zia/overrides/zia_url_filtering_rules.json",
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L233-L237",
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L510-L510"
+      ],
+      "path": "/items/no_quota_rule/time_quota",
+      "reason": "Raw transform omits the zero default, while provider Read stores zero; a provider-framework or live probe must determine whether explicit zero survives config validation.",
+      "transform": {
+        "present": false
+      }
+    }
+  ],
+  "fixture_version": 1,
+  "name": "zia_url_filtering_rules_zero_quota",
+  "provenance": {
+    "local_sources": [
+      "packs/zia/overrides/zia_url_filtering_rules.json",
+      "packs/zia/schemas/provider/zia.json"
+    ],
+    "note": "Minimal source-derived fixture for provider Read zero values and transform omission; explicit-zero validation still requires a live or provider-framework probe.",
+    "provider_version": "4.7.26",
+    "sanitized": true,
+    "sources": [
+      "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L233-L237",
+      "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L239-L243",
+      "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L489-L514",
+      "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L510-L510",
+      "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L512-L514"
+    ],
+    "status": "source_derived"
+  },
+  "provider_state": {
+    "202": {
+      "sensitive_values": {},
+      "values": {
+        "name": "No Quota Rule",
+        "order": 1,
+        "protocols": [
+          "ANY_RULE"
+        ],
+        "size_quota": 0,
+        "time_quota": 0,
+        "url_categories": [
+          "ANY"
+        ]
+      }
+    }
+  },
+  "raw_items": [
+    {
+      "id": 202,
+      "name": "No Quota Rule",
+      "order": 1,
+      "protocols": [
+        "ANY_RULE"
+      ],
+      "sizeQuota": 0,
+      "timeQuota": 0,
+      "urlCategories": []
+    }
+  ],
+  "resource_type": "zia_url_filtering_rules"
+}
