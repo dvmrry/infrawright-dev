@@ -22,6 +22,7 @@
   "fixture_version": 1,
   "name": "zpa_application_segment_microtenant",
   "provenance": {
+    "dependency_sources": [],
     "local_sources": [
       "packs/zpa/overrides/zpa_application_segment.json",
       "packs/zpa/schemas/provider/zpa.json"

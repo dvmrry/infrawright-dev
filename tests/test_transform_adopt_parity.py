@@ -6,6 +6,7 @@ import os
 import unittest
 from contextlib import redirect_stderr
 from contextlib import redirect_stdout
+from unittest import mock
 
 from engine import transform_adopt_parity as parity
 
@@ -43,6 +44,7 @@ class TransformAdoptParityTest(unittest.TestCase):
             "accepted": 0,
             "stale_expectations": 0,
             "unacknowledged_drops": 0,
+            "unaccounted_byte_differences": 0,
         })
         by_name = dict((item["name"], item) for item in report["fixtures"])
         self.assertEqual(
@@ -50,6 +52,17 @@ class TransformAdoptParityTest(unittest.TestCase):
         )
         self.assertTrue(
             by_name["zcc_failopen_policy_inversion"]["outputs"]["byte_equal"]
+        )
+        zcc_fixture = _fixture_named("zcc_failopen_policy_inversion")
+        zcc_raw = zcc_fixture["raw_items"][0]
+        for field in (
+                "active",
+                "enableWebSecOnProxyUnreachable",
+                "enableWebSecOnTunnelFailure"):
+            self.assertIs(type(zcc_raw[field]), str)
+        self.assertEqual(
+            zcc_fixture["provenance"]["dependency_sources"][0]["version"],
+            "3.8.37",
         )
         expected_paths = {
             "zcc_failopen_policy_inversion": [],
@@ -144,6 +157,18 @@ class TransformAdoptParityTest(unittest.TestCase):
                 parity.ParityFixtureError, "does not match active zcc pack pin"):
             parity.validate_fixture(fixture)
 
+    def test_fixture_provider_source_must_use_exact_pinned_ref(self):
+        fixture = copy.deepcopy(_fixture_named(
+            "zia_dlp_engines_predefined_name"
+        ))
+        fixture["provenance"]["sources"][0] = (
+            "https://github.com/zscaler/terraform-provider-zia/blob/main/"
+            "source.go#L1"
+        )
+        with self.assertRaisesRegex(
+                parity.ParityFixtureError, "GitHub blob ref pinned"):
+            parity.validate_fixture(fixture)
+
     def test_fixture_provenance_local_sources_must_exist(self):
         fixture = copy.deepcopy(_fixture_named(
             "zcc_failopen_policy_inversion"
@@ -164,6 +189,15 @@ class TransformAdoptParityTest(unittest.TestCase):
                 parity.ParityFixtureError, "not declared by fixture provenance"):
             parity.validate_fixture(fixture)
 
+    def test_fixture_version_rejects_boolean(self):
+        fixture = copy.deepcopy(_fixture_named(
+            "zcc_failopen_policy_inversion"
+        ))
+        fixture["fixture_version"] = True
+        with self.assertRaisesRegex(
+                parity.ParityFixtureError, "unsupported fixture_version"):
+            parity.validate_fixture(fixture)
+
     def test_json_diff_distinguishes_boolean_and_number(self):
         differences = parity._json_differences(
             {"items": {"one": {"enabled": False}}},
@@ -172,6 +206,37 @@ class TransformAdoptParityTest(unittest.TestCase):
         self.assertEqual(len(differences), 1)
         self.assertEqual(
             differences[0]["path"], "/items/one/enabled"
+        )
+
+    def test_signed_zero_is_a_canonical_difference(self):
+        fixture = copy.deepcopy(_fixture_named(
+            "zcc_failopen_policy_inversion"
+        ))
+        fixture["raw_items"][0][
+            "captivePortalWebSecDisableMinutes"
+        ] = -0.0
+        fixture["provider_state"]["policy-001"]["values"][
+            "captive_portal_web_sec_disable_minutes"
+        ] = 0.0
+        result = parity.compare_fixture(fixture)
+        self.assertEqual(result["result"], "review_required")
+        self.assertFalse(result["outputs"]["byte_equal"])
+        self.assertEqual(result["summary"]["unclassified"], 1)
+        self.assertEqual(
+            result["differences"][0]["path"],
+            "/items/policy_001/captive_portal_web_sec_disable_minutes",
+        )
+
+    def test_unaccounted_byte_difference_requires_review(self):
+        fixture = _fixture_named("zia_dlp_engines_predefined_name")
+        with mock.patch.object(parity, "_json_differences", return_value=[]):
+            result = parity.compare_fixture(fixture)
+        self.assertEqual(result["result"], "review_required")
+        self.assertTrue(
+            result["outputs"]["unaccounted_byte_difference"]
+        )
+        self.assertEqual(
+            result["summary"]["unaccounted_byte_differences"], 1
         )
 
     def test_json_pointer_escapes_object_keys(self):

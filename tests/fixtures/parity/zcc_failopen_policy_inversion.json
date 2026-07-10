@@ -3,6 +3,13 @@
   "fixture_version": 1,
   "name": "zcc_failopen_policy_inversion",
   "provenance": {
+    "dependency_sources": [
+      {
+        "name": "zscaler/zscaler-sdk-go",
+        "url": "https://github.com/zscaler/zscaler-sdk-go/blob/v3.8.37/zscaler/zcc/services/failopen_policy/failopen_policy.go#L16-L30",
+        "version": "3.8.37"
+      }
+    ],
     "local_sources": [
       "packs/zcc/overrides/zcc_failopen_policy.json",
       "packs/zcc/schemas/provider/zcc.json"
@@ -34,13 +41,13 @@
   },
   "raw_items": [
     {
-      "active": 1,
+      "active": "1",
       "captivePortalWebSecDisableMinutes": 5,
       "enableCaptivePortalDetection": 1,
       "enableFailOpen": 1,
       "enableStrictEnforcementPrompt": 0,
-      "enableWebSecOnProxyUnreachable": 1,
-      "enableWebSecOnTunnelFailure": 1,
+      "enableWebSecOnProxyUnreachable": "1",
+      "enableWebSecOnTunnelFailure": "1",
       "id": "policy-001",
       "strictEnforcementPromptDelayMinutes": 0,
       "strictEnforcementPromptMessage": "",

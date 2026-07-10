@@ -22,6 +22,7 @@
   "fixture_version": 1,
   "name": "zia_dlp_engines_predefined_name",
   "provenance": {
+    "dependency_sources": [],
     "local_sources": [
       "packs/zia/overrides/zia_dlp_engines.json",
       "packs/zia/schemas/provider/zia.json"

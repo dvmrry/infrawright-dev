@@ -40,6 +40,7 @@
   "fixture_version": 1,
   "name": "zia_url_filtering_rules_zero_quota",
   "provenance": {
+    "dependency_sources": [],
     "local_sources": [
       "packs/zia/overrides/zia_url_filtering_rules.json",
       "packs/zia/schemas/provider/zia.json"

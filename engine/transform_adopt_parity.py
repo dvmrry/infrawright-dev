@@ -38,10 +38,12 @@ _PROVENANCE_KEYS = frozenset((
     "status",
     "provider_version",
     "sources",
+    "dependency_sources",
     "local_sources",
     "sanitized",
     "note",
 ))
+_DEPENDENCY_SOURCE_KEYS = frozenset(("name", "version", "url"))
 _STATE_KEYS = frozenset(("values", "sensitive_values"))
 _EXPECTATION_KEYS = frozenset((
     "path",
@@ -144,6 +146,7 @@ def _validate_provenance(provenance, resource_type, where):
             "status",
             "provider_version",
             "sources",
+            "dependency_sources",
             "local_sources",
             "sanitized",
             "note",
@@ -184,15 +187,45 @@ def _validate_provenance(provenance, resource_type, where):
                 "%s.%s must not contain duplicates" % (where, field)
             )
     for index, source in enumerate(provenance["sources"]):
-        if not source.startswith("https://"):
+        if not _pinned_github_source(
+                source, None, provenance["provider_version"]):
             raise ParityFixtureError(
-                "%s.sources[%d] must be an https URL" % (where, index)
+                "%s.sources[%d] must use a GitHub blob ref pinned to "
+                "provider version %s"
+                % (
+                    where,
+                    index,
+                    provenance["provider_version"],
+                )
             )
-        if provenance["provider_version"] not in source:
+    dependencies = provenance["dependency_sources"]
+    if not isinstance(dependencies, list):
+        raise ParityFixtureError(
+            "%s.dependency_sources must be a list" % where
+        )
+    dependency_urls = set()
+    for index, dependency in enumerate(dependencies):
+        label = "%s.dependency_sources[%d]" % (where, index)
+        if not isinstance(dependency, dict):
+            raise ParityFixtureError("%s must be an object" % label)
+        _reject_unknown_keys(dependency, _DEPENDENCY_SOURCE_KEYS, label)
+        _require_keys(dependency, _DEPENDENCY_SOURCE_KEYS, label)
+        for field in ("name", "version", "url"):
+            _require_non_empty_string(
+                dependency[field], "%s.%s" % (label, field)
+            )
+        if not _pinned_github_source(
+                dependency["url"], dependency["name"], dependency["version"]):
             raise ParityFixtureError(
-                "%s.sources[%d] is not pinned to provider version %s"
-                % (where, index, provenance["provider_version"])
+                "%s.url must reference %s at version %s"
+                % (label, dependency["name"], dependency["version"])
             )
+        if dependency["url"] in dependency_urls:
+            raise ParityFixtureError(
+                "%s.dependency_sources must not contain duplicate URLs"
+                % where
+            )
+        dependency_urls.add(dependency["url"])
     for index, source in enumerate(provenance["local_sources"]):
         normalized = os.path.normpath(source)
         if (os.path.isabs(source) or normalized == os.pardir
@@ -212,6 +245,21 @@ def _validate_provenance(provenance, resource_type, where):
             % where
         )
     _require_non_empty_string(provenance["note"], "%s.note" % where)
+
+
+def _pinned_github_source(url, repository, version):
+    github = "https://github.com/"
+    if not url.startswith(github):
+        return False
+    remainder = url[len(github):]
+    marker = "/blob/"
+    if marker not in remainder:
+        return False
+    actual_repository, remainder = remainder.split(marker, 1)
+    if repository is not None and actual_repository != repository:
+        return False
+    ref = remainder.split("/", 1)[0]
+    return ref in (version, "v%s" % version)
 
 
 def _validate_expectations(expectations, allowed_evidence, where):
@@ -273,7 +321,8 @@ def validate_fixture(data, where="parity fixture"):
         raise ParityFixtureError("%s must contain an object" % where)
     _reject_unknown_keys(data, _FIXTURE_KEYS, where)
     _require_keys(data, _FIXTURE_KEYS, where)
-    if data["fixture_version"] != FIXTURE_VERSION:
+    if (type(data["fixture_version"]) is not int
+            or data["fixture_version"] != FIXTURE_VERSION):
         raise ParityFixtureError(
             "%s has unsupported fixture_version %r"
             % (where, data["fixture_version"])
@@ -324,6 +373,10 @@ def validate_fixture(data, where="parity fixture"):
     _validate_expectations(
         data["expected_differences"],
         set(data["provenance"]["sources"])
+        | set(
+            entry["url"]
+            for entry in data["provenance"]["dependency_sources"]
+        )
         | set(data["provenance"]["local_sources"]),
         "%s.expected_differences" % where,
     )
@@ -432,13 +485,22 @@ def _json_differences(left, right, path=()):
                     left[index], right[index], path + (index,)
                 ))
         return out
-    if left != right:
+    if _canonical_json(left) != _canonical_json(right):
         return [{
             "path": _json_pointer(path),
             "transform": _side(True, left),
             "adopt": _side(True, right),
         }]
     return []
+
+
+def _canonical_json(value):
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
 
 
 def _difference_key(entry):
@@ -478,9 +540,11 @@ def compare_fixture(data):
 
     transform_rendered, transform_sha = _render_sha256(transform_items)
     adopt_rendered, adopt_sha = _render_sha256(adopt_items)
+    byte_equal = transform_rendered == adopt_rendered
     actual = _json_differences(
         {"items": transform_items}, {"items": adopt_items}
     )
+    unaccounted_byte_difference = bool(not byte_equal and not actual)
     expected = dict(
         (_difference_key(entry), entry)
         for entry in data["expected_differences"]
@@ -517,7 +581,7 @@ def compare_fixture(data):
         entry for entry in differences
         if entry.get("disposition") == "accepted"
     ])
-    if unclassified or stale or drops:
+    if unclassified or stale or drops or unaccounted_byte_difference:
         result = "review_required"
     elif evidence_gates:
         result = "evidence_gates"
@@ -531,7 +595,8 @@ def compare_fixture(data):
         "provenance": data["provenance"],
         "result": result,
         "outputs": {
-            "byte_equal": transform_rendered == adopt_rendered,
+            "byte_equal": byte_equal,
+            "unaccounted_byte_difference": unaccounted_byte_difference,
             "transform_sha256": transform_sha,
             "adopt_sha256": adopt_sha,
         },
@@ -546,6 +611,9 @@ def compare_fixture(data):
             "accepted": accepted,
             "stale_expectations": len(stale),
             "unacknowledged_drops": len(drops),
+            "unaccounted_byte_differences": (
+                1 if unaccounted_byte_difference else 0
+            ),
         },
     }
 
@@ -587,6 +655,10 @@ def build_report(fixtures):
         ),
         "unacknowledged_drops": sum(
             entry["summary"]["unacknowledged_drops"] for entry in results
+        ),
+        "unaccounted_byte_differences": sum(
+            entry["summary"]["unaccounted_byte_differences"]
+            for entry in results
         ),
     }
     return {

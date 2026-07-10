@@ -44,13 +44,15 @@ Each `tests/fixtures/parity/*.json` file contains:
 - `fixture_version` and a stable, path-independent `name`;
 - the exact generated `resource_type`;
 - explicit provenance, including the pinned provider version, provider-source
-  links, local pack/schema inputs, and whether the data is sanitized;
+  links, any separately pinned SDK dependency sources, local pack/schema
+  inputs, and whether the data is sanitized;
 - sanitized `raw_items`;
 - `provider_state` keyed by the import IDs derived through the real adoption
   metadata; and
 - `expected_differences` using RFC 6901 JSON pointers.
 
 Fixture validation requires the provider version to equal the active pack pin,
+requires provider and dependency sources to use exact GitHub blob refs,
 requires every local source to exist inside the repository, and requires every
 classification evidence reference to be declared by fixture provenance.
 
@@ -85,7 +87,7 @@ Every classification requires a reason and evidence references.
 
 | Fixture | Result | What it proves or exposes |
 |---|---|---|
-| `zcc_failopen_policy_inversion` | byte-equal | The five inverted booleans and the non-inverted strict-enforcement boolean agree across the two local paths for the source-derived values. |
+| `zcc_failopen_policy_inversion` | byte-equal | The five inverted booleans and the non-inverted strict-enforcement boolean agree across the two local paths for the source-derived values. The three string-backed API flags use the ZCC provider's pinned SDK model types. |
 | `zia_dlp_engines_predefined_name` | evidence gate | Transform promotes `predefined_engine_name`; provider Read stores `resp.Name`, producing a wrong-or-right semantic choice that a first clean oracle plan cannot settle. |
 | `zia_url_filtering_rules_zero_quota` | two evidence gates | Transform omits zero quotas while provider Read stores zero. Provider config validation or a controlled live probe must decide explicit-zero behavior. The same fixture confirms empty URL categories normalize to `["ANY"]` on both paths. |
 | `zpa_application_segment_microtenant` | evidence gate | Transform omits `microtenant_id="0"`, while provider Read and oracle projection retain it. The fixture separately confirms `policy_style="NONE"` and provider `false` agree. |
@@ -106,6 +108,10 @@ This slice compares canonical JSON tfvars payloads only. It does not compare
 HCL formatting, imports, moved blocks, lookup sidecars, generated expression
 bindings, plan results, apply/refresh behavior, or later-plan stability. Those
 are separate extensions and must not be inferred from an equal result here.
+Scalar comparison uses canonical JSON encoding rather than Python numeric
+equality, so representations such as `-0.0` and `0.0` cannot report equal. A
+byte mismatch with no structured difference is independently fail-closed as an
+unaccounted render difference.
 
 ## Adding A Case
 
