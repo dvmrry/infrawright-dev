@@ -58,6 +58,11 @@ test("deployment dictionaries do not treat prototype names specially", async () 
       Object.keys(loaded.roots.zpa?.groups ?? {}),
       ["__proto__"],
     );
+    await writeFile(
+      deployment,
+      '{"roots":{"zpa":{"groups":{"__proto__":["one"],"__proto__":["two"]}}}}',
+    );
+    await assert.rejects(() => loadDeployment(deployment));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

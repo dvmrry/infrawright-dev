@@ -98,6 +98,10 @@
       },
       "else": {
         "properties": {
+          "diagnostics": {
+            "type": "array",
+            "maxItems": 0
+          },
           "result": {
             "type": "null"
           },

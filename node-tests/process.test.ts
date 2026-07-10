@@ -3,6 +3,8 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
 
+import { validateProcessResponse } from "../node-src/contracts/validators.js";
+
 const WORKSPACE = process.cwd();
 const PROCESS_MAIN = path.join(
   WORKSPACE,
@@ -67,6 +69,19 @@ test("process host rejects malformed and schema-invalid requests structurally", 
   assert.equal(response.error.code, "INVALID_REQUEST");
   assert.ok(response.error.details.length > 0);
   assert.equal(String(invalid.stderr), "");
+
+  const duplicate = invoke(
+    '{"kind":"infrawright.process_request","schema_version":1,'
+    + '"request_id":"duplicate","request_id":"duplicate",'
+    + '"operation":"roots","context":{"workspace":"/tmp",'
+    + '"deployment":"deployment.json","root_catalog":"catalog.json"},'
+    + '"input":{"tenant":null,"selectors":[]}}',
+  );
+  assert.equal(duplicate.status, 2);
+  assert.equal(
+    JSON.parse(String(duplicate.stdout)).error.code,
+    "INVALID_JSON",
+  );
 });
 
 test("process host rejects invalid UTF-8 without replacement", () => {
@@ -76,4 +91,32 @@ test("process host rejects invalid UTF-8 without replacement", () => {
     JSON.parse(String(result.stdout)).error.code,
     "INVALID_UTF8",
   );
+});
+
+test("response schema forbids success diagnostics on errors", () => {
+  assert.equal(validateProcessResponse({
+    kind: "infrawright.process_response",
+    schema_version: 1,
+    request_id: "mixed",
+    operation: "roots",
+    status: "error",
+    diagnostics: [
+      {
+        level: "note",
+        code: "WHOLE_ROOT_SELECTION",
+        message: "not valid on an error",
+        selected_members: ["one"],
+        root: "group",
+        additional_members: ["two"],
+      },
+    ],
+    result: null,
+    error: {
+      code: "INVALID_REQUEST",
+      category: "request",
+      message: "bad request",
+      retryable: false,
+      details: [],
+    },
+  }), false);
 });

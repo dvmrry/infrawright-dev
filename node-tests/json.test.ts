@@ -42,6 +42,13 @@ test("integer-only compatibility renderer matches Python bytes", () => {
 
 test("control parser rejects duplicate keys and unsafe integers", () => {
   assert.throws(() => parseControlJson('{"a":1,"a":2}'));
+  assert.throws(() => parseControlJson('{"a":1,"a":1}'));
+  assert.throws(() => parseControlJson('{"a":1,"\\u0061":1}'));
+  assert.throws(
+    () => parseControlJson(
+      '{"__proto__":{"first":1},"__proto__":{"second":2}}',
+    ),
+  );
   assert.throws(() => parseControlJson('{"id":9007199254740993}'));
   assert.deepEqual(parseControlJson('{"id":9007199254740991}'), {
     id: 9007199254740991,
@@ -59,6 +66,12 @@ test("data parser preserves numeric lexemes beyond JavaScript precision", () => 
   const source = "{\"a\":9007199254740992,\"b\":9007199254740993,\"f\":-0.0}";
   const parsed = parseDataJsonLosslessly(source);
   assert.equal(stringifyLosslessly(parsed), source);
+  assert.throws(() => parseDataJsonLosslessly('{"a":1,"a":1}'));
+  assert.throws(
+    () => parseDataJsonLosslessly(
+      '{"__proto__":{"first":1},"__proto__":{"second":2}}',
+    ),
+  );
 });
 
 test("initial compatibility renderer refuses floats instead of changing bytes", () => {

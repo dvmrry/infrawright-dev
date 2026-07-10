@@ -45,5 +45,18 @@ export async function loadRootCatalog(path: string): Promise<RootCatalog> {
   assertSortedUnique(catalog.declared_providers, "declared_providers");
   assertSortedUnique(catalog.source_files, "source_files");
   assertSortedUnique(catalog.resources.map((resource) => resource.type), "resources");
+  const declaredProviders = new Set(catalog.declared_providers);
+  const undeclaredProviders = sortedStrings(new Set(
+    catalog.resources
+      .map((resource) => resource.provider)
+      .filter((provider) => !declaredProviders.has(provider)),
+  ));
+  if (undeclaredProviders.length > 0) {
+    throw new ProcessFailure({
+      code: "INVALID_ROOT_CATALOG",
+      category: "domain",
+      message: `resource providers must be declared: ${undeclaredProviders.join(", ")}`,
+    });
+  }
   return catalog;
 }
