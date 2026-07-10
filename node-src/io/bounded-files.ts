@@ -243,6 +243,12 @@ async function consumeStableFile(options: {
       return fail("NOT_REGULAR_FILE", "input must be a regular file");
     }
     const before = identity(beforeStat);
+    if (
+      options.collect === true
+      && before.size > BigInt(bufferConstants.MAX_STRING_LENGTH)
+    ) {
+      return fail("FILE_LIMIT_EXCEEDED", "input file exceeds the decoder size limit");
+    }
     options.budget.reserve(before.size);
     await options.readOptions?.hooks?.afterOpen?.();
 
@@ -311,7 +317,7 @@ export async function readBoundedUtf8File(
     readOptions: options,
     collect: true,
   });
-  if (result.size > BigInt(bufferConstants.MAX_LENGTH)) {
+  if (result.size > BigInt(bufferConstants.MAX_STRING_LENGTH)) {
     return fail("FILE_LIMIT_EXCEEDED", "input file exceeds the decoder size limit");
   }
   let text: string;

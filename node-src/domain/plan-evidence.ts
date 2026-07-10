@@ -1,4 +1,13 @@
-import { rm } from "node:fs/promises";
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  fsyncSync,
+  ftruncateSync,
+  lstatSync,
+  openSync,
+} from "node:fs";
+import { lstat } from "node:fs/promises";
 import path from "node:path";
 
 import { ProcessFailure } from "./errors.js";
@@ -19,6 +28,26 @@ import {
 import { parseControlJson } from "../json/control.js";
 
 const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+interface SnapshotDirectoryIdentity {
+  readonly dev: bigint;
+  readonly ino: bigint;
+}
+
+interface SnapshotFileIdentity {
+  readonly dev: bigint;
+  readonly ino: bigint;
+}
+
+interface EvidenceBinding {
+  readonly directory: SnapshotDirectoryIdentity;
+  readonly file: SnapshotFileIdentity;
+  readonly snapshotDirectory: string;
+  readonly snapshotPath: string;
+  cleaned: boolean;
+}
+
+const EVIDENCE_BINDINGS = new WeakMap<SavedPlanEvidence, EvidenceBinding>();
 
 export interface BoundFileDigest extends StableFileDigest {
   readonly path: string;
@@ -62,6 +91,117 @@ function fail(code: string, message: string): never {
 
 function sameDigest(left: StableFileDigest, right: StableFileDigest): boolean {
   return left.sha256 === right.sha256 && left.size === right.size;
+}
+
+function sameDirectory(
+  left: SnapshotDirectoryIdentity,
+  right: SnapshotDirectoryIdentity,
+): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+function sameFile(
+  left: SnapshotFileIdentity,
+  right: SnapshotFileIdentity,
+): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+async function snapshotFileIdentity(filePath: string): Promise<SnapshotFileIdentity> {
+  try {
+    const metadata = await lstat(filePath, { bigint: true });
+    if (!metadata.isFile() || metadata.isSymbolicLink()) {
+      return fail(
+        "PLAN_SNAPSHOT_CHANGED",
+        "saved-plan snapshot changed while evidence was prepared",
+      );
+    }
+    return { dev: metadata.dev, ino: metadata.ino };
+  } catch (error: unknown) {
+    if (error instanceof ProcessFailure) {
+      throw error;
+    }
+    return fail(
+      "PLAN_SNAPSHOT_CHANGED",
+      "saved-plan snapshot changed while evidence was prepared",
+    );
+  }
+}
+
+async function snapshotDirectoryIdentity(
+  directory: string,
+): Promise<SnapshotDirectoryIdentity> {
+  try {
+    const metadata = await lstat(directory, { bigint: true });
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+      return fail(
+        "UNSAFE_SNAPSHOT_DIRECTORY",
+        "snapshot directory is not a stable private directory",
+      );
+    }
+    return { dev: metadata.dev, ino: metadata.ino };
+  } catch (error: unknown) {
+    if (error instanceof ProcessFailure) {
+      throw error;
+    }
+    return fail(
+      "UNSAFE_SNAPSHOT_DIRECTORY",
+      "unable to bind the private snapshot directory",
+    );
+  }
+}
+
+function removeBoundSnapshot(binding: EvidenceBinding): void {
+  if (binding.cleaned) {
+    return;
+  }
+  try {
+    const directory = lstatSync(binding.snapshotDirectory, { bigint: true });
+    if (
+      !directory.isDirectory()
+      || directory.isSymbolicLink()
+      || !sameDirectory(binding.directory, {
+        dev: directory.dev,
+        ino: directory.ino,
+      })
+    ) {
+      return fail(
+        "SNAPSHOT_CLEANUP_REFUSED",
+        "private snapshot directory changed before cleanup",
+      );
+    }
+    let descriptor: number | null = null;
+    try {
+      descriptor = openSync(
+        binding.snapshotPath,
+        constants.O_RDWR | constants.O_NONBLOCK | constants.O_NOFOLLOW,
+      );
+      const snapshot = fstatSync(descriptor, { bigint: true });
+      if (
+        !snapshot.isFile()
+        || !sameFile(binding.file, { dev: snapshot.dev, ino: snapshot.ino })
+      ) {
+        return fail(
+          "SNAPSHOT_CLEANUP_REFUSED",
+          "saved-plan snapshot changed before cleanup",
+        );
+      }
+      // Scrub through the verified descriptor. No path-based unlink occurs, so
+      // a concurrent parent rename cannot redirect deletion to another file.
+      ftruncateSync(descriptor, 0);
+      fsyncSync(descriptor);
+      binding.cleaned = true;
+    } finally {
+      if (descriptor !== null) {
+        closeSync(descriptor);
+      }
+    }
+  } catch (error: unknown) {
+    if (error instanceof ProcessFailure) {
+      throw error;
+    }
+    fail("SNAPSHOT_CLEANUP_FAILED", "unable to scrub saved-plan snapshot");
+  }
 }
 
 function sameFingerprint(
@@ -197,6 +337,7 @@ export async function prepareSavedPlanEvidence(
   requireAbsolutePath(options.fingerprintPath);
   requireAbsolutePath(options.snapshotDirectory);
   const fingerprintInput = copyResolvedFingerprintInput(options.fingerprintInput);
+  const directoryBefore = await snapshotDirectoryIdentity(options.snapshotDirectory);
 
   const declaredBefore = await readSavedPlanFingerprint(
     options.fingerprintPath,
@@ -208,12 +349,21 @@ export async function prepareSavedPlanEvidence(
   );
 
   let snapshot: StableFileSnapshot | null = null;
+  let snapshotIdentity: SnapshotFileIdentity | null = null;
   try {
     snapshot = await snapshotStableFile({
       sourcePath: options.savedPlanPath,
       privateDirectory: options.snapshotDirectory,
       budget: options.savedPlanBudget,
     });
+    snapshotIdentity = await snapshotFileIdentity(snapshot.path);
+    const directoryAfter = await snapshotDirectoryIdentity(options.snapshotDirectory);
+    if (!sameDirectory(directoryBefore, directoryAfter)) {
+      fail(
+        "SNAPSHOT_DIRECTORY_CHANGED",
+        "private snapshot directory changed while evidence was prepared",
+      );
+    }
     const snapshotCheck = await sha256StableFile(
       snapshot.path,
       options.savedPlanBudget,
@@ -254,21 +404,77 @@ export async function prepareSavedPlanEvidence(
       "saved plan changed while evidence was prepared",
     );
 
-    return {
-      fingerprintInput,
+    const evidence = Object.freeze({
+      fingerprintInput: Object.freeze({
+        ...fingerprintInput,
+        varFiles: Object.freeze([...fingerprintInput.varFiles]),
+        memberTypes: Object.freeze([...fingerprintInput.memberTypes]),
+      }),
       fingerprintPath: options.fingerprintPath,
-      fingerprintFile: declaredBefore,
-      originalPlan: {
+      fingerprintFile: Object.freeze({
+        ...declaredBefore,
+        fingerprint: Object.freeze({ ...declaredBefore.fingerprint }),
+      }),
+      originalPlan: Object.freeze({
         path: options.savedPlanPath,
         sha256: snapshot.sha256,
         size: snapshot.size,
-      },
+      }),
       snapshotDirectory: options.snapshotDirectory,
-      snapshot,
-    };
+      snapshot: Object.freeze({ ...snapshot }),
+    });
+    EVIDENCE_BINDINGS.set(evidence, {
+      directory: directoryBefore,
+      file: snapshotIdentity,
+      snapshotDirectory: options.snapshotDirectory,
+      snapshotPath: snapshot.path,
+      cleaned: false,
+    });
+    return evidence;
   } catch (error: unknown) {
     if (snapshot !== null) {
-      await rm(snapshot.path, { force: true }).catch(() => undefined);
+      let cleanupFailure: unknown = null;
+      try {
+        if (snapshotIdentity === null) {
+          throw new ProcessFailure({
+            code: "SNAPSHOT_CLEANUP_REFUSED",
+            category: "io",
+            message: "saved-plan snapshot identity was not bound before cleanup",
+          });
+        }
+        removeBoundSnapshot({
+          directory: directoryBefore,
+          file: snapshotIdentity,
+          snapshotDirectory: options.snapshotDirectory,
+          snapshotPath: snapshot.path,
+          cleaned: false,
+        });
+      } catch (cleanupError: unknown) {
+        cleanupFailure = cleanupError;
+      }
+      if (cleanupFailure !== null) {
+        if (error instanceof ProcessFailure) {
+          throw new ProcessFailure({
+            code: error.code,
+            category: error.category,
+            message: error.message,
+            retryable: error.retryable,
+            details: [
+              ...error.details,
+              {
+                path: "$",
+                code: "SNAPSHOT_CLEANUP_FAILED",
+                message: "private saved-plan snapshot cleanup also failed",
+              },
+            ],
+          });
+        }
+        throw new ProcessFailure({
+          code: "EVIDENCE_PREPARATION_AND_CLEANUP_FAILED",
+          category: "io",
+          message: "saved-plan evidence preparation and private cleanup failed",
+        });
+      }
     }
     throw error;
   }
@@ -279,6 +485,10 @@ export async function recheckSavedPlanEvidence(
   options: RecheckSavedPlanEvidenceOptions,
 ): Promise<void> {
   const { evidence } = options;
+  const binding = EVIDENCE_BINDINGS.get(evidence);
+  if (binding === undefined || binding.cleaned) {
+    fail("INVALID_EVIDENCE_BINDING", "saved-plan evidence is not active");
+  }
   const originalBefore = await sha256StableFile(
     evidence.originalPlan.path,
     options.savedPlanBudget,
@@ -358,23 +568,12 @@ export async function recheckSavedPlanEvidence(
 export async function cleanupSavedPlanEvidence(
   evidence: SavedPlanEvidence,
 ): Promise<void> {
-  const expectedName = /^plan-[0-9a-f]{32}$/;
-  if (
-    !path.isAbsolute(evidence.snapshotDirectory)
-    || path.dirname(evidence.snapshot.path) !== evidence.snapshotDirectory
-    || !expectedName.test(path.basename(evidence.snapshot.path))
-  ) {
+  const binding = EVIDENCE_BINDINGS.get(evidence);
+  if (binding === undefined) {
     fail(
       "INVALID_SNAPSHOT_BINDING",
-      "saved-plan snapshot is not bound to its private directory",
+      "saved-plan snapshot has no active cleanup binding",
     );
   }
-  try {
-    await rm(evidence.snapshot.path, { force: true });
-  } catch {
-    fail(
-      "SNAPSHOT_CLEANUP_FAILED",
-      "unable to remove saved-plan snapshot",
-    );
-  }
+  removeBoundSnapshot(binding);
 }

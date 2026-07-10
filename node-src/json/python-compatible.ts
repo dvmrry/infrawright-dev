@@ -7,9 +7,10 @@ export type JsonValue =
   | readonly JsonValue[]
   | JsonObject;
 
-function compareCodePoints(left: string, right: string): number {
-  const leftPoints = Array.from(left, (item) => item.codePointAt(0) ?? 0);
-  const rightPoints = Array.from(right, (item) => item.codePointAt(0) ?? 0);
+function compareCodePoints(
+  leftPoints: readonly number[],
+  rightPoints: readonly number[],
+): number {
   const length = Math.min(leftPoints.length, rightPoints.length);
   for (let index = 0; index < length; index += 1) {
     const delta = (leftPoints[index] ?? 0) - (rightPoints[index] ?? 0);
@@ -21,7 +22,19 @@ function compareCodePoints(left: string, right: string): number {
 }
 
 export function sortedStrings(values: Iterable<string>): string[] {
-  return Array.from(values).sort(compareCodePoints);
+  const points = new Map<string, readonly number[]>();
+  const codePoints = (value: string): readonly number[] => {
+    const cached = points.get(value);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const computed = Array.from(value, (item) => item.codePointAt(0) ?? 0);
+    points.set(value, computed);
+    return computed;
+  };
+  return Array.from(values).sort((left, right) => {
+    return compareCodePoints(codePoints(left), codePoints(right));
+  });
 }
 
 function encodeString(value: string): string {

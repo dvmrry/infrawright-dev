@@ -127,11 +127,28 @@ async function directoryNames(
 ): Promise<string[]> {
   budget.enterDirectory(depth);
   try {
-    const handle = await opendir(directory);
+    // Node supports the documented fs "buffer" encoding here at runtime, but
+    // @types/node's OpenDirOptions still narrows it to BufferEncoding.
+    const handle = await opendir(directory, { encoding: "buffer" as BufferEncoding });
     const names: string[] = [];
     for await (const entry of handle) {
       budget.reserveDirectoryEntry();
-      names.push(entry.name);
+      if (!Buffer.isBuffer(entry.name)) {
+        throw new ProcessFailure({
+          code: "INVALID_FILENAME_ENCODING",
+          category: "io",
+          message: "fingerprint input name is not valid UTF-8",
+        });
+      }
+      try {
+        names.push(new TextDecoder("utf-8", { fatal: true }).decode(entry.name));
+      } catch {
+        throw new ProcessFailure({
+          code: "INVALID_FILENAME_ENCODING",
+          category: "io",
+          message: "fingerprint input name is not valid UTF-8",
+        });
+      }
     }
     return names;
   } catch (error: unknown) {

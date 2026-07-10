@@ -8,10 +8,12 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import test from "node:test";
 
 import { ProcessFailure } from "../node-src/domain/errors.js";
@@ -149,7 +151,8 @@ test("prepares, binds, rechecks, and cleans up saved-plan evidence", async () =>
 
     await recheck(evidence);
     await cleanupSavedPlanEvidence(evidence);
-    assert.equal(existsSync(evidence.snapshot.path), false);
+    assert.equal(existsSync(evidence.snapshot.path), true);
+    assert.equal(statSync(evidence.snapshot.path).size, 0);
     await cleanupSavedPlanEvidence(evidence);
   });
 });
@@ -285,6 +288,48 @@ test("cleanup cannot be redirected outside the bound snapshot directory", async 
       (error: unknown) => assertFailure(error, "INVALID_SNAPSHOT_BINDING"),
     );
     assert.equal(existsSync(victim), true);
+    await cleanupSavedPlanEvidence(evidence);
+  });
+});
+
+test("cleanup refuses a renamed-directory symlink swap without deleting a victim", async () => {
+  await withTemp(async (fixture) => {
+    const evidence = await prepare(fixture);
+    const movedDirectory = `${fixture.snapshotDirectory}-moved`;
+    const victimDirectory = join(fixture.root, "victim-directory");
+    const victim = join(victimDirectory, basename(evidence.snapshot.path));
+    mkdirSync(victimDirectory);
+    writeFileSync(victim, "must survive\n");
+    renameSync(fixture.snapshotDirectory, movedDirectory);
+    symlinkSync(victimDirectory, fixture.snapshotDirectory, "dir");
+
+    await assert.rejects(
+      cleanupSavedPlanEvidence(evidence),
+      (error: unknown) => assertFailure(error, "SNAPSHOT_CLEANUP_REFUSED"),
+    );
+    assert.equal(existsSync(victim), true);
+
+    rmSync(fixture.snapshotDirectory);
+    renameSync(movedDirectory, fixture.snapshotDirectory);
+    await cleanupSavedPlanEvidence(evidence);
+  });
+});
+
+test("cleanup refuses snapshot replacement and preserves both files", async () => {
+  await withTemp(async (fixture) => {
+    const evidence = await prepare(fixture);
+    const original = `${evidence.snapshot.path}.original`;
+    renameSync(evidence.snapshot.path, original);
+    writeFileSync(evidence.snapshot.path, "replacement must survive\n");
+    await assert.rejects(
+      cleanupSavedPlanEvidence(evidence),
+      (error: unknown) => assertFailure(error, "SNAPSHOT_CLEANUP_REFUSED"),
+    );
+    assert.equal(existsSync(original), true);
+    assert.equal(existsSync(evidence.snapshot.path), true);
+
+    rmSync(evidence.snapshot.path);
+    renameSync(original, evidence.snapshot.path);
     await cleanupSavedPlanEvidence(evidence);
   });
 });

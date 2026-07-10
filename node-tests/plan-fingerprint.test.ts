@@ -21,6 +21,7 @@ import {
   localModulePath,
   planFingerprintV2,
   planSourcesSha256,
+  rootTfFingerprints,
   rootModuleSources,
   treeFingerprints,
   varFileFingerprints,
@@ -464,4 +465,66 @@ test("duplicate modules across root files fail like Python", async () => {
     assert.equal(oracle.ok, false);
     assert.deepEqual(await scannerResult(envDir), oracle);
   });
+});
+
+test("Linux filenames with undecodable bytes fail closed instead of disappearing", async (t) => {
+  if (process.platform !== "linux") {
+    t.skip("Linux permits non-UTF-8 directory entry bytes");
+    return;
+  }
+  for (const kind of ["root file", "module file", "module directory"] as const) {
+    await t.test(kind, async () => {
+      await withTemp(async (temp) => {
+        const envDir = join(temp, "env");
+        const moduleDir = join(temp, "module");
+        mkdirSync(envDir, { recursive: true });
+        mkdirSync(moduleDir, { recursive: true });
+        write(join(moduleDir, "main.tf"), "# module\n");
+        write(
+          join(envDir, "main.tf"),
+          moduleBlock("zpa_sample", relative(envDir, moduleDir)),
+        );
+        const input: PlanFingerprintInput = {
+          envDir,
+          memberTypes: ["zpa_sample"],
+          varFiles: [],
+        };
+        const before = python<PythonFingerprintResult>(PYTHON_FINGERPRINT, {
+          env_dir: envDir,
+          member_types: input.memberTypes,
+          var_files: [],
+        });
+        const parent = kind === "root file" ? envDir : moduleDir;
+        const rawPath = Buffer.concat([
+          Buffer.from(`${parent}/bad-`),
+          Buffer.from([0xff]),
+          Buffer.from(kind === "module directory" ? "" : ".tf"),
+        ]);
+        if (kind === "module directory") {
+          mkdirSync(rawPath);
+          writeFileSync(
+            Buffer.concat([rawPath, Buffer.from("/child.tf")]),
+            "# nested raw path\n",
+          );
+        } else {
+          writeFileSync(rawPath, "# raw filename\n");
+        }
+        const after = python<PythonFingerprintResult>(PYTHON_FINGERPRINT, {
+          env_dir: envDir,
+          member_types: input.memberTypes,
+          var_files: [],
+        });
+        assert.notEqual(after.digest, before.digest);
+        await assert.rejects(
+          kind === "root file"
+            ? rootTfFingerprints(envDir)
+            : planFingerprintV2(input),
+          (error: unknown) => {
+            return error instanceof ProcessFailure
+              && error.code === "INVALID_FILENAME_ENCODING";
+          },
+        );
+      });
+    });
+  }
 });

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { constants as bufferConstants } from "node:buffer";
 import { createHash } from "node:crypto";
 import {
   chmod,
@@ -9,6 +10,7 @@ import {
   rename,
   rm,
   symlink,
+  truncate,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -109,6 +111,25 @@ test("file, aggregate byte, and count limits fail before unbounded reads", async
   assert.equal(
     await failureCode(sha256StableFile(second, countBudget)),
     "FILE_COUNT_EXCEEDED",
+  );
+});
+
+test("UTF-8 collection rejects oversized sparse files before allocating chunks", async (context) => {
+  const directory = await temporaryDirectory();
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const source = path.join(directory, "oversized-sparse");
+  const size = bufferConstants.MAX_STRING_LENGTH + 1;
+  await writeFile(source, "", { mode: 0o600 });
+  await truncate(source, size);
+  assert.equal(
+    await failureCode(readBoundedUtf8File(
+      source,
+      new ReadBudget(limits({
+        total: BigInt(size),
+        file: BigInt(size),
+      })),
+    )),
+    "FILE_LIMIT_EXCEEDED",
   );
 });
 

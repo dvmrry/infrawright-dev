@@ -229,6 +229,9 @@ an exact `{version:2,sha256}` `tfplan.sources` file that matches current inputs.
 The plan is copied into a caller-owned, mode-0700 private directory as a random
 mode-0600 snapshot; the original, snapshot, fingerprint file, and recomputed
 source fingerprint are bound and rechecked before and after assessment.
+Cleanup scrubs snapshot bytes through a descriptor whose device/inode identity
+was bound at capture time; it never path-unlinks a caller-influenceable file.
+The operation-owned temporary directory then removes the empty artifact.
 
 All evidence reads have explicit operation-wide ceilings for file count,
 directory count, directory entries, depth, individual bytes, and total bytes.
@@ -237,7 +240,10 @@ not include paths or content. The Node port intentionally hardens Python's
 unbounded and best-effort filesystem behavior: undecodable UTF-8, unreadable
 directories, excessive trees, special files, and mutation races fail closed.
 Fingerprint traversal otherwise retains Python v2 symlink semantics so digest
-bytes remain compatible. The public assessment operation will create the
+bytes remain compatible. Filesystem entries whose raw names are not valid
+UTF-8 are detected through byte-mode enumeration and fail closed instead of
+being silently skipped; JavaScript cannot address those POSIX byte names
+losslessly. The public assessment operation will create the
 trusted temporary directory and own cleanup; callers cannot supply a snapshot
 path or raw plan JSON.
 

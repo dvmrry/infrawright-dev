@@ -1,6 +1,7 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { lstat } from "node:fs/promises";
 import path from "node:path";
+import type { Readable } from "node:stream";
 
 import { ProcessFailure } from "../domain/errors.js";
 import { parseDataJsonLosslessly } from "../json/control.js";
@@ -82,6 +83,10 @@ export async function terraformShowPlan(
   options: TerraformShowOptions,
 ): Promise<unknown> {
   if (
+    options.terraformExecutable.includes("\0")
+    || options.envDir.includes("\0")
+    || options.snapshotPath.includes("\0")
+    ||
     !path.isAbsolute(options.terraformExecutable)
     || !path.isAbsolute(options.envDir)
     || !path.isAbsolute(options.snapshotPath)
@@ -101,35 +106,58 @@ export async function terraformShowPlan(
   await requireRegularFile(options.snapshotPath, "INVALID_PLAN_SNAPSHOT", false);
 
   const stdout = await new Promise<Buffer>((resolve, reject) => {
-    const child = spawn(
-      options.terraformExecutable,
-      [
-        `-chdir=${options.envDir}`,
-        "show",
-        "-json",
-        options.snapshotPath,
-      ],
-      {
-        env: {
-          CHECKPOINT_DISABLE: "1",
-          LANG: "C",
-          LC_ALL: "C",
+    const detached = process.platform !== "win32";
+    let child: ChildProcessByStdio<null, Readable, Readable>;
+    try {
+      child = spawn(
+        options.terraformExecutable,
+        [
+          `-chdir=${options.envDir}`,
+          "show",
+          "-json",
+          options.snapshotPath,
+        ],
+        {
+          detached,
+          env: {
+            CHECKPOINT_DISABLE: "1",
+            LANG: "C",
+            LC_ALL: "C",
+          },
+          shell: false,
+          stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
         },
-        shell: false,
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true,
-      },
-    );
+      );
+    } catch {
+      reject(new ProcessFailure({
+        code: "TERRAFORM_SHOW_SPAWN_FAILED",
+        category: "io",
+        message: "unable to start Terraform show",
+      }));
+      return;
+    }
     const chunks: Buffer[] = [];
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let terminalFailure: ProcessFailure | null = null;
     let closed = false;
 
+    const killProcessTree = (): void => {
+      if (detached && child.pid !== undefined) {
+        try {
+          process.kill(-child.pid, "SIGKILL");
+          return;
+        } catch {
+          // The process group may already be empty; fall back to the direct PID.
+        }
+      }
+      child.kill("SIGKILL");
+    };
     const terminate = (failure: ProcessFailure): void => {
       if (terminalFailure === null) {
         terminalFailure = failure;
-        child.kill("SIGKILL");
+        killProcessTree();
       }
     };
     const timer = setTimeout(() => {
@@ -162,6 +190,20 @@ export async function terraformShowPlan(
         }));
       }
     });
+    child.stdout.on("error", () => {
+      terminate(new ProcessFailure({
+        code: "TERRAFORM_SHOW_STDOUT_FAILED",
+        category: "io",
+        message: "unable to read Terraform show output",
+      }));
+    });
+    child.stderr.on("error", () => {
+      terminate(new ProcessFailure({
+        code: "TERRAFORM_SHOW_STDERR_FAILED",
+        category: "io",
+        message: "unable to read Terraform show diagnostic output",
+      }));
+    });
     child.on("error", () => {
       terminate(new ProcessFailure({
         code: "TERRAFORM_SHOW_SPAWN_FAILED",
@@ -175,6 +217,12 @@ export async function terraformShowPlan(
       }
       closed = true;
       clearTimeout(timer);
+      // A provider or wrapper descendant may outlive Terraform while retaining
+      // inherited pipes or continuing work. Reap the isolated POSIX group on
+      // every exit, including successful parent exit.
+      if (detached) {
+        killProcessTree();
+      }
       if (terminalFailure !== null) {
         reject(terminalFailure);
       } else if (code !== 0) {

@@ -7,6 +7,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -150,6 +151,60 @@ test("timeouts kill a non-terminating child", async () => {
   });
 });
 
+test("timeouts and success both reap inherited descendant process groups", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("POSIX process-group contract");
+    return;
+  }
+  await t.test("timeout with inherited pipes", async () => {
+    await withTemp(async (fixture) => {
+      const fake = executable(
+        fixture.root,
+        "(while :; do :; done) & wait",
+      );
+      const started = Date.now();
+      await assert.rejects(
+        terraformShowPlan({
+          ...options(fixture, fake),
+          limits: { ...LIMITS, timeoutMs: 50 },
+        }),
+        (error: unknown) => assertFailure(error, "TERRAFORM_SHOW_TIMEOUT"),
+      );
+      assert.ok(Date.now() - started < 1_000);
+    });
+  });
+
+  await t.test("successful parent with detached descendant", async () => {
+    await withTemp(async (fixture) => {
+      const pidFile = join(fixture.root, "descendant.pid");
+      const fake = executable(fixture.root, [
+        `(while :; do :; done) >/dev/null 2>&1 &`,
+        `printf '%s' "$!" > '${pidFile}'`,
+        `printf '%s' '{"format_version":"1.2","complete":true,"errored":false}'`,
+      ].join("\n"));
+      await terraformShowPlan(options(fixture, fake));
+      const pid = Number((await readFile(pidFile, "utf8")).trim());
+      assert.equal(Number.isInteger(pid), true);
+      await new Promise<void>((resolve, reject) => {
+        const deadline = Date.now() + 1_000;
+        const check = (): void => {
+          try {
+            process.kill(pid, 0);
+            if (Date.now() >= deadline) {
+              reject(new Error("descendant process survived Terraform show"));
+            } else {
+              setTimeout(check, 10);
+            }
+          } catch {
+            resolve();
+          }
+        };
+        check();
+      });
+    });
+  });
+});
+
 test("invalid UTF-8 and unsafe executable or snapshot paths fail closed", async (t) => {
   await t.test("invalid UTF-8", async () => {
     await withTemp(async (fixture) => {
@@ -200,5 +255,18 @@ test("Terraform show resource limits have fixed upper and lower bounds", async (
         (error: unknown) => assertFailure(error, "INVALID_TERRAFORM_SHOW_LIMIT"),
       );
     }
+  });
+});
+
+test("NUL-bearing paths cannot escape the structured failure boundary", async () => {
+  await withTemp(async (fixture) => {
+    const fake = executable(fixture.root, "exit 0");
+    await assert.rejects(
+      terraformShowPlan({
+        ...options(fixture, fake),
+        envDir: `${fixture.envDir}\0secret-path`,
+      }),
+      (error: unknown) => assertFailure(error, "UNRESOLVED_TERRAFORM_SHOW_PATH"),
+    );
   });
 });
