@@ -59,6 +59,39 @@ class RestCollectorSecurityTest(unittest.TestCase):
             self.assertEqual(headers["Authorization"], "Bearer token")
             self.assertIsNone(body)
 
+    def test_sandbox_settings_uses_single_object_zia_endpoint(self):
+        calls = []
+
+        def opener(method, url, headers, body):
+            calls.append((method, url, headers, body))
+            return 200, json.dumps({
+                "fileHashesToBeBlocked": [
+                    "d41d8cd98f00b204e9800998ecf8427e"
+                ]
+            }).encode("utf-8")
+
+        self.assertEqual(
+            rest.fetch_resource(
+                "zia_sandbox_behavioral_analysis",
+                "oneapi",
+                {"cloud": "production"},
+                "token",
+                opener,
+            ),
+            [{
+                "fileHashesToBeBlocked": [
+                    "d41d8cd98f00b204e9800998ecf8427e"
+                ]
+            }],
+        )
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], "GET")
+        self.assertEqual(
+            calls[0][1],
+            "https://api.zsapi.net/zia/api/v1/"
+            "behavioralAnalysisAdvancedSettings",
+        )
+
     def test_paginate_zia_requires_configured_envelope_key(self):
         opener = _JsonOpener({
             "totalCount": 1,

@@ -20,6 +20,10 @@
       "reason": "Live validation returned HTTP 403 for this fetch path on the tested tenant; treat as entitlement/scope-gated unless a tenant with Extranet entitlement proves otherwise.",
       "status": "entitlement-gated"
     },
+    "zia_sandbox_behavioral_analysis": {
+      "reason": "The provider-adjacent v2.1.17 importer classifies NOT_SUBSCRIBED and the API message 'Custom File Hash feature is not enabled for your org' as entitlement gates. The collector keeps other errors fail-closed instead of treating every HTTP 400 response as optional.",
+      "status": "entitlement-gated"
+    },
     "zpa_emergency_access_user": {
       "reason": "Live validation returned HTTP 401 for emergency access users on the tested tenant after the plural endpoint fix; treat as entitlement/scope-gated unless an entitled tenant proves otherwise.",
       "status": "entitlement-gated"
@@ -58,61 +62,17 @@
     ],
     "zia_advanced_settings": [
       {
-        "path": "dns_resolution_on_transparent_proxy_i_pv6_apps",
-        "reason": "Live pipeline strict transform returned this provider-missing path; held out of acknowledged_drops pending per-type read/write verification."
-      },
-      {
-        "path": "dns_resolution_on_transparent_proxy_i_pv6_exempt_apps",
-        "reason": "Live pipeline strict transform returned this provider-missing path; held out of acknowledged_drops pending per-type read/write verification."
-      },
-      {
-        "path": "dns_resolution_on_transparent_proxy_i_pv6_exempt_url_categories",
-        "reason": "Live pipeline strict transform returned this provider-missing path; held out of acknowledged_drops pending per-type read/write verification."
-      },
-      {
-        "path": "dns_resolution_on_transparent_proxy_i_pv6_url_categories",
-        "reason": "Live pipeline strict transform returned this provider-missing path; held out of acknowledged_drops pending per-type read/write verification."
-      },
-      {
         "path": "domain_fronting_bypass_apps",
         "reason": "Live pipeline strict transform returned this provider-missing path; held out of acknowledged_drops pending per-type read/write verification."
       },
       {
         "path": "domain_fronting_exempted_url_categories",
         "reason": "Live pipeline strict transform returned this provider-missing path; held out of acknowledged_drops pending per-type read/write verification."
-      },
-      {
-        "path": "enable_i_pv6_dns_optimization_on_all_transparent_proxy",
-        "reason": "Live pipeline strict transform returned this provider-missing path; held out of acknowledged_drops pending per-type read/write verification."
-      },
-      {
-        "path": "enable_i_pv6_dns_resolution_on_transparent_proxy",
-        "reason": "Live pipeline strict transform returned this provider-missing path; held out of acknowledged_drops pending per-type read/write verification."
-      },
-      {
-        "path": "zscaler_client_connector1_and_pac_road_warrior_in_firewall",
-        "reason": "Live pipeline strict transform returned this provider-missing path; held out of acknowledged_drops pending per-type read/write verification."
       }
     ],
     "zia_advanced_threat_settings": [
       {
-        "path": "active_x_blocked",
-        "reason": "Live pipeline strict transform returned this provider-missing path; held out of acknowledged_drops pending per-type read/write verification."
-      },
-      {
-        "path": "active_x_capture",
-        "reason": "Live pipeline strict transform returned this provider-missing path; held out of acknowledged_drops pending per-type read/write verification."
-      },
-      {
         "path": "alert_for_unknown_or_suspicious_c2_traffic",
-        "reason": "Live pipeline strict transform returned this provider-missing path; held out of acknowledged_drops pending per-type read/write verification."
-      },
-      {
-        "path": "webspam_blocked",
-        "reason": "Live pipeline strict transform returned this provider-missing path; held out of acknowledged_drops pending per-type read/write verification."
-      },
-      {
-        "path": "webspam_capture",
         "reason": "Live pipeline strict transform returned this provider-missing path; held out of acknowledged_drops pending per-type read/write verification."
       },
       {
@@ -215,16 +175,6 @@
       },
       {
         "path": "view_only",
-        "reason": "Live pipeline strict transform returned this provider-missing path; held out of acknowledged_drops pending per-type read/write verification."
-      }
-    ],
-    "zia_end_user_notification": [
-      {
-        "path": "display_comp_logo",
-        "reason": "Live pipeline strict transform returned this provider-missing path; held out of acknowledged_drops pending per-type read/write verification."
-      },
-      {
-        "path": "display_comp_name",
         "reason": "Live pipeline strict transform returned this provider-missing path; held out of acknowledged_drops pending per-type read/write verification."
       }
     ],

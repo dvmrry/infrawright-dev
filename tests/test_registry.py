@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 from engine import packs
+from engine.adoption_status import disposition_for, known_hold_paths
 from engine.collectors.rest import pagination_styles
 from engine.headroom_report import classify_resource, provider_resources
 from engine.registry import (
@@ -116,6 +117,20 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(e["product"], "zpa")
         self.assertEqual(e["path"], "segmentGroup")
         self.assertEqual(e["pagination"], "zpa")
+
+        singleton = fetch_entry("zia_sandbox_behavioral_analysis")
+        self.assertEqual(singleton["product"], "zia")
+        self.assertEqual(
+            singleton["path"], "behavioralAnalysisAdvancedSettings"
+        )
+        self.assertEqual(singleton["pagination"], "single")
+        self.assertNotIn("optional_http_statuses", singleton)
+
+        # The provider merges /security and /security/advanced. Until the
+        # collector has an object-merge primitive, a single fetch would be
+        # lossy and must remain unavailable.
+        with self.assertRaises(KeyError):
+            fetch_entry("zia_security_settings")
 
     def test_zia_http_header_fetch_entries_are_flat_unpaginated_lists(self):
         expected = {
@@ -251,6 +266,8 @@ class PackRegistryValidationTest(unittest.TestCase):
             "zia_end_user_notification": "enduser_notification",
             "zia_ftp_control_policy": "ftp_control",
             "zia_mobile_malware_protection_policy": "mobile_settings",
+            "zia_sandbox_behavioral_analysis": "sandbox_settings",
+            "zia_security_settings": "all_urls",
             "zia_url_filtering_and_cloud_app_settings": "app_setting",
         }
         registry = load_registry()
@@ -258,6 +275,29 @@ class PackRegistryValidationTest(unittest.TestCase):
             adopt = registry[resource_type]["adopt"]
             self.assertEqual(adopt["constant_key"], constant)
             self.assertEqual(adopt["import_id"], constant)
+
+    def test_resolved_zia_name_holds_are_removed_precisely(self):
+        self.assertEqual(
+            known_hold_paths("zia_advanced_settings"),
+            [
+                "domain_fronting_bypass_apps",
+                "domain_fronting_exempted_url_categories",
+            ],
+        )
+        self.assertEqual(
+            known_hold_paths("zia_advanced_threat_settings"),
+            [
+                "alert_for_unknown_or_suspicious_c2_traffic",
+                "wpad_blocked",
+            ],
+        )
+        self.assertEqual(known_hold_paths("zia_end_user_notification"), [])
+
+    def test_sandbox_entitlement_diagnostic_is_explicit_and_fail_closed(self):
+        disposition = disposition_for("zia_sandbox_behavioral_analysis")
+        self.assertEqual(disposition["status"], "entitlement-gated")
+        self.assertIn("Custom File Hash feature", disposition["reason"])
+        self.assertIn("fail-closed", disposition["reason"])
 
     def test_all_supported_pagination_values_validate(self):
         for pagination in sorted(pagination_styles()):

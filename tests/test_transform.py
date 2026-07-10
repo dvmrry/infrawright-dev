@@ -1009,6 +1009,104 @@ class QuirkClosureTest(unittest.TestCase):
         )
         self.assertEqual(drops, [])
 
+    def test_zia_advanced_threat_acronym_fields_survive_projection(self):
+        raw = [{
+            "webspamBlocked": True,
+            "webspamCapture": False,
+            "activeXBlocked": True,
+            "activeXCapture": False,
+        }]
+        items, _, drops = transform_items(
+            raw,
+            "zia_advanced_threat_settings",
+            load_override("zia_advanced_threat_settings"),
+        )
+        self.assertEqual(items["advanced_threat_settings"], {
+            "activex_blocked": True,
+            "activex_capture": False,
+            "web_spam_blocked": True,
+            "web_spam_capture": False,
+        })
+        self.assertEqual(drops, [])
+
+    def test_zia_advanced_settings_ipv6_fields_survive_projection(self):
+        raw = [{
+            "enableIPv6DnsResolutionOnTransparentProxy": True,
+            "enableIPv6DnsOptimizationOnAllTransparentProxy": False,
+            "dnsResolutionOnTransparentProxyIPv6ExemptUrlCategories": ["NEWS"],
+            "dnsResolutionOnTransparentProxyIPv6ExemptApps": ["APP_A"],
+            "dnsResolutionOnTransparentProxyIPv6UrlCategories": ["ANY"],
+            "dnsResolutionOnTransparentProxyIPv6Apps": ["APP_B"],
+            "zscalerClientConnector1AndPacRoadWarriorInFirewall": True,
+        }]
+        items, _, drops = transform_items(
+            raw,
+            "zia_advanced_settings",
+            load_override("zia_advanced_settings"),
+        )
+        self.assertEqual(items["advanced_settings"], {
+            "dns_resolution_on_transparent_proxy_ipv6_apps": ["APP_B"],
+            "dns_resolution_on_transparent_proxy_ipv6_exempt_apps": ["APP_A"],
+            "dns_resolution_on_transparent_proxy_ipv6_exempt_url_categories": [
+                "NEWS"
+            ],
+            "dns_resolution_on_transparent_proxy_ipv6_url_categories": ["ANY"],
+            "enable_ipv6_dns_optimization_on_all_transparent_proxy": False,
+            "enable_ipv6_dns_resolution_on_transparent_proxy": True,
+            "zscaler_client_connector_1_and_pac_road_warrior_in_firewall": True,
+        })
+        self.assertEqual(drops, [])
+
+    def test_zia_end_user_notification_company_fields_survive_projection(self):
+        raw = [{"displayCompName": True, "displayCompLogo": False}]
+        items, _, drops = transform_items(
+            raw,
+            "zia_end_user_notification",
+            load_override("zia_end_user_notification"),
+        )
+        self.assertEqual(items["enduser_notification"], {
+            "display_company_logo": False,
+            "display_company_name": True,
+        })
+        self.assertEqual(drops, [])
+
+    def test_zia_new_singleton_metadata_keys_imports_without_emitting_id(self):
+        cases = [
+            (
+                "zia_sandbox_behavioral_analysis",
+                [{"fileHashesToBeBlocked": ["d41d8cd98f00b204e9800998ecf8427e"]}],
+                "sandbox_settings",
+                {"file_hashes_to_be_blocked": [
+                    "d41d8cd98f00b204e9800998ecf8427e"
+                ]},
+            ),
+            (
+                "zia_security_settings",
+                [{
+                    "whitelistUrls": ["allowed.example"],
+                    "blacklistUrls": ["blocked.example"],
+                }],
+                "all_urls",
+                {
+                    "whitelist_urls": ["allowed.example"],
+                    "blacklist_urls": ["blocked.example"],
+                },
+            ),
+        ]
+        for resource_type, raw, constant, expected in cases:
+            with self.subTest(resource_type=resource_type):
+                override = load_override(resource_type)
+                items, originals, drops = transform_items(
+                    raw, resource_type, override
+                )
+                self.assertEqual(items, {constant: expected})
+                self.assertEqual(originals[constant]["id"], constant)
+                self.assertEqual(drops, [])
+                self.assertIn(
+                    'id = "%s"' % constant,
+                    render_imports(resource_type, originals, override),
+                )
+
     def test_failopen_inverted_bools(self):
         # ZCC failopen API: 0 = ENABLED (provider boolToInvertedInt).
         from engine.transform import load_override, transform_items
@@ -1035,6 +1133,25 @@ class QuirkClosureTest(unittest.TestCase):
         self.assertNotIn("rule_order", it)
         self.assertNotIn("microtenant_id", it)
         self.assertEqual(it["app_server_groups"], [{"id": ["s1", "s2"]}])
+
+    def test_service_edge_group_does_not_claim_external_membership(self):
+        from engine.transform import load_override, transform_items
+
+        raw = [{
+            "id": "group-1",
+            "name": "Edge Group",
+            "serviceEdges": [{"id": "edge-1"}, {"id": "edge-2"}],
+            "trustedNetworks": [{"id": "network-1"}],
+        }]
+        ov = load_override("zpa_service_edge_group")
+        items, _, drops = transform_items(raw, "zpa_service_edge_group", ov)
+
+        self.assertNotIn("service_edges", items["edge_group"])
+        self.assertEqual(
+            items["edge_group"]["trusted_networks"],
+            [{"id": ["network-1"]}],
+        )
+        self.assertEqual(drops, [])
 
     def test_policy_style_value_map(self):
         from engine.transform import load_override, transform_items

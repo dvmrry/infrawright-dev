@@ -2,5 +2,9 @@
   "defaults": {
     "id": "enduser_notification"
   },
-  "key_field": "id"
+  "key_field": "id",
+  "renames": {
+    "display_comp_logo": "display_company_logo",
+    "display_comp_name": "display_company_name"
+  }
 }

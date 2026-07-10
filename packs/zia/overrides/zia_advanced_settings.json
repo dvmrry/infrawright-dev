@@ -2,5 +2,14 @@
   "defaults": {
     "id": "advanced_settings"
   },
-  "key_field": "id"
+  "key_field": "id",
+  "renames": {
+    "dns_resolution_on_transparent_proxy_i_pv6_apps": "dns_resolution_on_transparent_proxy_ipv6_apps",
+    "dns_resolution_on_transparent_proxy_i_pv6_exempt_apps": "dns_resolution_on_transparent_proxy_ipv6_exempt_apps",
+    "dns_resolution_on_transparent_proxy_i_pv6_exempt_url_categories": "dns_resolution_on_transparent_proxy_ipv6_exempt_url_categories",
+    "dns_resolution_on_transparent_proxy_i_pv6_url_categories": "dns_resolution_on_transparent_proxy_ipv6_url_categories",
+    "enable_i_pv6_dns_optimization_on_all_transparent_proxy": "enable_ipv6_dns_optimization_on_all_transparent_proxy",
+    "enable_i_pv6_dns_resolution_on_transparent_proxy": "enable_ipv6_dns_resolution_on_transparent_proxy",
+    "zscaler_client_connector1_and_pac_road_warrior_in_firewall": "zscaler_client_connector_1_and_pac_road_warrior_in_firewall"
+  }
 }

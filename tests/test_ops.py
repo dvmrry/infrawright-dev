@@ -217,8 +217,6 @@ class OpsReferenceOrderTransformIntegrationTest(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="ops-reference-transform-")
         os.chdir(self.tmp)
         self.saved_dep = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
-        self.saved_pack_references = packs.references
-        self.saved_pack_lookup_sources = packs.lookup_sources
         self.tenant = "tenant"
         dep = os.path.join(self.tmp, "deployment.json")
         _write_json(dep, {
@@ -236,22 +234,9 @@ class OpsReferenceOrderTransformIntegrationTest(unittest.TestCase):
             },
         })
         os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
-        packs.references = lambda: {
-            "zpa_application_segment": {
-                "segment_group_id": {
-                    "referent": "zpa_segment_group",
-                    "name_field": "name",
-                },
-            },
-        }
-        packs.lookup_sources = lambda: {
-            "zpa_segment_group": {"name_field": "name"},
-        }
 
     def tearDown(self):
         os.chdir(self.cwd)
-        packs.references = self.saved_pack_references
-        packs.lookup_sources = self.saved_pack_lookup_sources
         if self.saved_dep is None:
             os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
         else:
@@ -312,6 +297,13 @@ class OpsReferenceOrderTransformIntegrationTest(unittest.TestCase):
             expression,
             'module.zpa_segment_group.items["segment_one"].id',
         )
+
+    def test_access_rule_does_not_claim_inspection_profile_dependency(self):
+        access_rule_refs = packs.references().get(
+            "zpa_policy_access_rule",
+            {},
+        )
+        self.assertNotIn("zpn_inspection_profile_id", access_rule_refs)
 
 
 class OpsEnvDiscoveryTest(unittest.TestCase):

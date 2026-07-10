@@ -468,6 +468,14 @@
     "product": "zia"
   },
   "zia_sandbox_behavioral_analysis": {
+    "adopt": {
+      "constant_key": "sandbox_settings",
+      "import_id": "sandbox_settings"
+    },
+    "fetch": {
+      "pagination": "single",
+      "path": "behavioralAnalysisAdvancedSettings"
+    },
     "generate": true,
     "product": "zia"
   },
@@ -488,6 +496,10 @@
     "product": "zia"
   },
   "zia_security_settings": {
+    "adopt": {
+      "constant_key": "all_urls",
+      "import_id": "all_urls"
+    },
     "generate": true,
     "product": "zia"
   },
