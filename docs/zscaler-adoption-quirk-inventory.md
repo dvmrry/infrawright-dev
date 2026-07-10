@@ -31,22 +31,32 @@ projects provider-observed state and then applies only projection policy:
 `projection_sync`, `projection_fill`, and `projection_omit_if`
 ([engine/state_project.py](../engine/state_project.py#L199-L202)).
 
-That means every semantic transform override is a candidate oracle-path question,
-but not every transform override is an oracle-path gap. The discriminator is
-whether the Terraform provider read already normalizes the raw API value into
-schema/config shape before `terraform show -json` reaches the oracle path.
+That means every semantic transform override is a candidate oracle-path
+question, but not every transform override is an oracle-path gap. A clean first
+plan is structural rather than proof of normalization: `project_item` copies
+each present provider-state input into generated config
+([engine/state_project.py](../engine/state_project.py#L48-L83)), so config and
+post-Read state initially agree whether the provider stored a normalized or a
+raw value.
 
-Use this three-class taxonomy:
+Use this four-class taxonomy when that mirror can still be wrong:
 
-1. Read omissions: provider read drops a value that write still needs. These are
-   real oracle gaps. `cbi_profile` is the known example.
-2. Read sentinels: provider read returns a write-rejected sentinel. These are
-   real oracle gaps. Examples include already-handled `end=0` and
-   `size_quota=0` sentinel omission policy.
-3. Value transforms: transform-path compensations for raw API shape, such as
-   `divide`, `invert_bool`, and `value_map`. These are oracle gaps only when
-   provider read does not normalize. Mature ZIA provider reads may already do
-   the conversion; the young ZCC provider is the likelier residue.
+1. Semantic projection mismatch: provider state is internally consistent but
+   is not the intended config representation. `zia_dlp_engines.name` is the
+   current concrete gate: provider Read stores raw `name`, while transform maps
+   `predefinedEngineName` to required `name`.
+2. Validation asymmetry: provider Read stores a value that explicit config
+   rejects. The current lab gate is `size_quota=0` / `time_quota=0`: both rule
+   resources validate explicit non-zero ranges while transform omits zero.
+3. Refresh/apply instability: first plan is clean, but a later apply or refresh
+   can rewrite mirrored values, ordering, or back-references. These require
+   multi-apply tests rather than first-plan evidence.
+4. Representational divergence: transform and adopt can be plan-equivalent but
+   emit different tfvars bytes (for example omitted versus explicit zero or
+   empty values), creating downstream delivery/drift churn.
+
+Read omissions and read sentinels remain useful projection-policy mechanisms,
+but they are not an exhaustive taxonomy of oracle gaps.
 
 ## Local Semantic Override Inventory
 
@@ -56,10 +66,10 @@ pure metadata such as `sample`, `import_id`, `key_field`, `ranges`, and
 
 | Resource | Semantic transforms | Oracle-path concern |
 |---|---|---|
-| `zia_url_filtering_rules` | `defaults.url_categories=["ANY"]`, `divide.size_quota=1024`, `drop_if_default.size_quota=0`, `drop_if_default.time_quota=0`, `skip_if.predefined=true`, `strip_prefix.source_countries="COUNTRY_"` ([source](../packs/zia/overrides/zia_url_filtering_rules.json#L30-L69)) | High for read omissions/sentinels; value conversion only if provider read fails to normalize. |
-| `zia_cloud_app_control_rule` | `divide.size_quota=1024`, `drop_if_default.size_quota=0`, `drop_if_default.time_quota=0`, `skip_if.default_rule=true`, `skip_if.predefined=true` ([source](../packs/zia/overrides/zia_cloud_app_control_rule.json#L29-L58)) | Medium/high: verify provider-read normalization before treating `divide` as a gap. |
-| `zcc_failopen_policy` | `invert_bool` for `active`, `enable_web_sec_on_proxy_unreachable`, `enable_web_sec_on_tunnel_failure`, `enable_captive_portal_detection`, `enable_fail_open` ([source](../packs/zcc/overrides/zcc_failopen_policy.json#L9-L15)) | High: no upstream prior art; beta-provider read normalization is the key unknown. |
-| `zpa_application_segment` | `drop_if_default.microtenant_id="0"`, `drop_if_default.policy_style="NONE"`, `value_map.policy_style.NONE=false`, `value_map.policy_style.DUAL_POLICY_EVAL=true`, `merge_blocks.server_groups` ([source](../packs/zpa/overrides/zpa_application_segment.json#L37-L50)) | Medium/high: `value_map` is a gap only if provider read does not normalize. |
+| `zia_url_filtering_rules` | `defaults.url_categories=["ANY"]`, `divide.size_quota=1024`, `drop_if_default.size_quota=0`, `drop_if_default.time_quota=0`, `skip_if.predefined=true`, `strip_prefix.source_countries="COUNTRY_"` ([source](../packs/zia/overrides/zia_url_filtering_rules.json#L30-L69)) | High: provider Read normalizes quota units and `ANY`, but explicit-zero validation, sub-1024 KB truncation, and transform/adopt byte parity remain gates. |
+| `zia_cloud_app_control_rule` | `divide.size_quota=1024`, `drop_if_default.size_quota=0`, `drop_if_default.time_quota=0`, `skip_if.default_rule=true`, `skip_if.predefined=true` ([source](../packs/zia/overrides/zia_cloud_app_control_rule.json#L29-L58)) | High: same explicit-zero validation and representational-divergence gates as URL filtering. |
+| `zcc_failopen_policy` | `invert_bool` for `active`, `enable_web_sec_on_proxy_unreachable`, `enable_web_sec_on_tunnel_failure`, `enable_captive_portal_detection`, `enable_fail_open` ([source](../packs/zcc/overrides/zcc_failopen_policy.json#L9-L15)) | Medium/high: the five named fields normalize symmetrically; `enable_strict_enforcement_prompt` still needs an out-of-domain-value gate because transform treats non-zero as true while provider tests equality to `1`. |
+| `zpa_application_segment` | `drop_if_default.microtenant_id="0"`, `drop_if_default.policy_style="NONE"`, `value_map.policy_style.NONE=false`, `value_map.policy_style.DUAL_POLICY_EVAL=true`, `merge_blocks.server_groups` ([source](../packs/zpa/overrides/zpa_application_segment.json#L37-L50)) | Medium/high: `policy_style` normalizes, `microtenant_id` is mirrored raw, and `drop_if_default.policy_style="NONE"` is dead because `value_map` runs first. Later back-reference/order behavior remains a multi-apply concern. |
 | `zpa_policy_access_rule` | nested `drop_if_default` for `microtenant_id`, drops operand drift fields, `html_escape_fields.custom_msg`, `merge_blocks.app_server_groups`, `merge_blocks.app_connector_groups`, `skip_if.default_rule=true` ([source](../packs/zpa/overrides/zpa_policy_access_rule.json#L72-L95)) | Medium/high: nested microtenant/default pruning and custom HTML behavior are local-only. |
 | `zpa_app_connector_group` | `drop_if_default.microtenant_id="0"`, `no_html_unescape`, `renames.signing_cert_id=enrollment_cert_id` ([source](../packs/zpa/overrides/zpa_app_connector_group.json#L25-L42)) | Medium: signing cert rename is local-only and already regression-worthy. |
 | `zcc_trusted_network` | 7 API-to-schema renames plus CSV splitting for 7 list fields ([source](../packs/zcc/overrides/zcc_trusted_network.json#L11-L28)) | Medium: renames align with schema, but `split_csv` is semantic. |
@@ -68,7 +78,7 @@ pure metadata such as `sample`, `import_id`, `key_field`, `ranges`, and
 | `zpa_application_server` | `drop_if_default.microtenant_id="0"` ([source](../packs/zpa/overrides/zpa_application_server.json#L9-L12)) | Medium: same microtenant stub class. |
 | `zpa_microtenant_controller` | `skip_if.id="0"` | Medium: upstream corroborates controller-only default skip. |
 | `zia_ssl_inspection_rules` | `skip_if.default_rule=true`, `skip_if.predefined=true` | Medium: upstream has name-based default lists too. |
-| `zia_dlp_engines` | `renames.predefined_engine_name=name` | Low/medium: rename, not known oracle-value transform. |
+| `zia_dlp_engines` | `renames.predefined_engine_name=name` | High: provider Read stores raw `name`, while transform deliberately promotes `predefined_engine_name`; predefined engines can therefore adopt a wrong-but-first-plan-clean name. Resolve the intended name contract before adding policy. |
 | `zia_location_management` | `renames.ipv6_dns64_prefix=ipv6_dns_64prefix` | Low/medium. |
 | `zia_url_categories` | `sort_lists.urls` | Low/medium: set/list canonicalization. |
 | `zia_url_filtering_and_cloud_app_settings` | singleton default id plus 6 prompt-setting renames | Low/medium. |
@@ -135,16 +145,20 @@ The main provider-read normalization probes are:
    zia file READ: `if len(resp.URLCategories) == 0 { d.Set("url_categories",
    []string{"ANY"}) }`. The oracle sees ["ANY"] by construction.
 
-### Provider Read Normalization Finding
+### Provider Read And Oracle Mirroring Finding
 
-For the four audited cases above, transform-path value overrides (`divide`,
-`invert_bool`, `value_map`, and the URL-category default) compensate for the
-raw API while the adopt/oracle path reads config-space values through the
-pinned provider. Those four cases are therefore not oracle gaps. Do not
-generalize that result to unaudited value transforms: each still needs its
-provider READ path checked. Among the audited cases, the only confirmed
-oracle-gap classes remain read-omits (handled by `projection_fill`) and
-read-sentinels (handled by `projection_omit_if`).
+The four audited provider READ paths above do normalize quota units, failopen
+booleans, `policy_style`, and empty URL categories into their provider config
+representations. That explains those specific state values, but it is not the
+general reason the first oracle plan is clean. The oracle mirrors every present
+provider input from post-Read state into config, so raw values such as
+`microtenant_id="0"` can also plan clean on the first pass.
+
+Therefore a first-plan no-op proves config/state equality at that moment, not
+semantic correctness, transform/adopt artifact parity, config validation of an
+explicit mirrored value, or stability after apply and refresh. The named DLP
+engine and quota cases above remain explicit evidence gates. A general
+transform-to-projection bridge would not resolve those distinctions.
 
 `microtenant_id="0"` is not a provider-read normalization case, but it is also
 not a current oracle gap. Provider source proves raw pass-through: zpa 4.4.6
@@ -274,7 +288,7 @@ appears.
 1. Fix and test numeric `id==0` reference-list sentinel handling. Implemented
    in #144; keep the tenant semantics gate below before treating this as proven
    for every field.
-2. Verify provider-read normalization for value transforms. Prioritize
+2. Verify provider-read behavior for value transforms. Prioritize
    `zcc_failopen_policy` inverted booleans first, then
    `zpa_application_segment.policy_style`, then mature-ZIA `size_quota`
    conversions. DONE via pinned provider source (2026-07-09) for all three
@@ -291,8 +305,13 @@ appears.
 6. Decide whether to continue per-quirk projection policy or design an
    override-to-projection bridge. Do not bridge blindly: transforms have
    different oracle relevance, and some are intentionally transform-only.
-   DECIDED: no bridge; per-quirk projection policy stays, and the provider
-   read normalization finding removes most of the anticipated tail.
+   DECIDED: no bridge; per-quirk projection policy stays. The oracle mirror
+   model means parity and later-plan behavior must be tested explicitly rather
+   than inferred from a clean first plan.
+7. Add a transform/adopt parity harness that renders both tfvars paths for the
+   same logical resource and reports semantic and byte-level differences.
+   Treat differences as evidence gates, not automatic failures, until the
+   provider contract classifies them.
 
 ## Post-#144 Evidence Status
 
