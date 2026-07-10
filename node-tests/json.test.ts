@@ -48,6 +48,13 @@ test("control parser rejects duplicate keys and unsafe integers", () => {
   });
 });
 
+test("JSON parsers reject adversarial nesting before recursive parsing", () => {
+  const nested = `${"[".repeat(129)}0${"]".repeat(129)}`;
+  assert.throws(() => parseControlJson(nested), /nesting exceeds/);
+  assert.throws(() => parseDataJsonLosslessly(nested), /nesting exceeds/);
+  assert.doesNotThrow(() => parseControlJson('{"text":"[[[{{{"}'));
+});
+
 test("data parser preserves numeric lexemes beyond JavaScript precision", () => {
   const source = "{\"a\":9007199254740992,\"b\":9007199254740993,\"f\":-0.0}";
   const parsed = parseDataJsonLosslessly(source);
