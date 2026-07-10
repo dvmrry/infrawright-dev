@@ -60,9 +60,14 @@
       ],
       "properties": {
         "tenant": {
-          "type": [
-            "string",
-            "null"
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+            }
           ]
         },
         "selectors": {
@@ -138,7 +143,8 @@
       ],
       "properties": {
         "tenant": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
         },
         "label": {
           "type": "string"

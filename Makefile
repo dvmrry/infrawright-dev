@@ -8,6 +8,7 @@ DEPLOYMENT ?= deployment.json
 export INFRAWRIGHT_DEPLOYMENT ?= $(DEPLOYMENT)
 DEMO_DEPLOYMENT ?= demo/deployment.json
 MODULE_DIR ?= $(shell INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(PYTHON) -m engine.deployment module-dir)
+OPTIONAL_TENANT_ARG = $(if $(filter undefined,$(origin TENANT)),,--tenant "$(TENANT)")
 
 -include local.mk
 ifneq ($(strip $(OVERLAY)),)
@@ -120,7 +121,7 @@ provider-probe: ## Run provider readiness probe (RECIPE=<recipe.json> [WORK_DIR=
 	$(PYTHON) -m engine.provider_probe "$(RECIPE)" $(if $(WORK_DIR),--work-dir "$(WORK_DIR)") $(if $(OUT),--out "$(OUT)") $(if $(MARKDOWN),--markdown "$(MARKDOWN)")
 
 roots: ## Emit root topology JSON ([TENANT=<label>] [RESOURCE=<type|provider>])
-	@$(PYTHON) -m engine.ops roots --json $(if $(TENANT),--tenant "$(TENANT)") $(RESOURCE)
+	@$(PYTHON) -m engine.ops roots --json $(OPTIONAL_TENANT_ARG) $(RESOURCE)
 
 stage-imports: ## Copy import/moved blocks into env roots (TENANT=<label> [RESOURCE=<type|provider>] [STATE_AWARE=1] [BACKEND_CONFIG=<file>])
 	$(PYTHON) -m engine.ops stage-imports --tenant "$(TENANT)" $(if $(STATE_AWARE),--state-aware) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(RESOURCE)
@@ -132,13 +133,13 @@ plan: ## Terraform plan for tenant roots (TENANT=<label> [RESOURCE=<type|provide
 	$(PYTHON) -m engine.ops plan --tenant "$(TENANT)" $(if $(IMPORTS_ONLY),--imports-only) $(if $(SAVE),--save) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(RESOURCE)
 
 clean-plans: ## Delete saved tfplan artifacts ([TENANT=<label>] [RESOURCE=<type|provider>])
-	$(PYTHON) -m engine.ops clean-plans $(if $(TENANT),--tenant "$(TENANT)") $(RESOURCE)
+	$(PYTHON) -m engine.ops clean-plans $(OPTIONAL_TENANT_ARG) $(RESOURCE)
 
 assert-clean: ## Exit 0 only when every saved plan is no-op/import-only ([TENANT=<label>] [RESOURCE=<type|provider>] [BACKEND_CONFIG=<file>] [REPORT=<file>])
-	@$(PYTHON) -m engine.ops assert-clean $(if $(TENANT),--tenant "$(TENANT)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(REPORT),--report "$(REPORT)") $(RESOURCE)
+	@$(PYTHON) -m engine.ops assert-clean $(OPTIONAL_TENANT_ARG) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(REPORT),--report "$(REPORT)") $(RESOURCE)
 
 assert-adoptable: ## Classify saved plans with optional consumer drift policy ([TENANT=<label>] [RESOURCE=<type|provider>] [POLICY=<file>] [BACKEND_CONFIG=<file>] [REPORT=<file>])
-	@$(PYTHON) -m engine.ops assert-adoptable $(if $(TENANT),--tenant "$(TENANT)") $(if $(POLICY),--policy "$(POLICY)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(REPORT),--report "$(REPORT)") $(RESOURCE)
+	@$(PYTHON) -m engine.ops assert-adoptable $(OPTIONAL_TENANT_ARG) $(if $(POLICY),--policy "$(POLICY)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(REPORT),--report "$(REPORT)") $(RESOURCE)
 
 apply: ## Apply saved plans ([TENANT=<label>] [RESOURCE=<type|provider>] [POLICY=<file>] [BACKEND_CONFIG=<file>] [ALLOW_DESTROY=1] [ALLOW_NON_MAIN=1] [ALLOW_PLAN_CHANGES=1])
-	$(PYTHON) -m engine.ops apply $(if $(TENANT),--tenant "$(TENANT)") $(if $(POLICY),--policy "$(POLICY)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(ALLOW_DESTROY),--allow-destroy) $(if $(ALLOW_NON_MAIN),--allow-non-main) $(if $(ALLOW_PLAN_CHANGES),--allow-plan-changes) $(if $(MAIN_BRANCH),--main-branch "$(MAIN_BRANCH)") $(RESOURCE)
+	$(PYTHON) -m engine.ops apply $(OPTIONAL_TENANT_ARG) $(if $(POLICY),--policy "$(POLICY)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(ALLOW_DESTROY),--allow-destroy) $(if $(ALLOW_NON_MAIN),--allow-non-main) $(if $(ALLOW_PLAN_CHANGES),--allow-plan-changes) $(if $(MAIN_BRANCH),--main-branch "$(MAIN_BRANCH)") $(RESOURCE)

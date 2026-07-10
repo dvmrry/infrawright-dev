@@ -26,6 +26,73 @@ def _run_make(args, **kwargs):
 
 
 class MakefileOverlayTest(unittest.TestCase):
+    def test_optional_tenant_targets_reject_explicit_empty_make_value(self):
+        with tempfile.TemporaryDirectory() as td:
+            deployment_path = os.path.join(td, "deployment.json")
+            with open(deployment_path, "w", encoding="utf-8") as f:
+                json.dump({}, f)
+            env = os.environ.copy()
+            env.pop("INFRAWRIGHT_DEPLOYMENT", None)
+            for target in (
+                    "roots", "clean-plans", "assert-clean",
+                    "assert-adoptable", "apply"):
+                with self.subTest(target=target):
+                    proc = subprocess.run(
+                        [
+                            "make",
+                            "-C",
+                            ROOT,
+                            "--no-print-directory",
+                            "OVERLAY=%s" % os.path.join(td, "missing"),
+                            "DEPLOYMENT=%s" % deployment_path,
+                            "TENANT=",
+                            target,
+                        ],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        universal_newlines=True,
+                        env=env,
+                    )
+                    self.assertNotEqual(proc.returncode, 0)
+                    self.assertIn("TENANT must match", proc.stderr)
+                    self.assertNotIn("Traceback", proc.stderr)
+
+    def test_roots_make_rejects_non_object_deployment_in_all_scopes(self):
+        with tempfile.TemporaryDirectory() as td:
+            deployment_path = os.path.join(td, "deployment.json")
+            missing_overlay = os.path.join(td, "missing")
+            env = os.environ.copy()
+            env.pop("INFRAWRIGHT_DEPLOYMENT", None)
+            for value in ([], "deployment", None, 7):
+                with self.subTest(value=value):
+                    with open(deployment_path, "w", encoding="utf-8") as f:
+                        json.dump(value, f)
+                    for tenant_arg in (None, "TENANT=tenant"):
+                        args = [
+                            "make",
+                            "-C",
+                            ROOT,
+                            "--no-print-directory",
+                            "OVERLAY=%s" % missing_overlay,
+                            "DEPLOYMENT=%s" % deployment_path,
+                        ]
+                        if tenant_arg:
+                            args.append(tenant_arg)
+                        args.append("roots")
+                        proc = subprocess.run(
+                            args,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            universal_newlines=True,
+                            env=env,
+                        )
+                        self.assertNotEqual(proc.returncode, 0)
+                        self.assertEqual(proc.stdout, "")
+                        self.assertIn(
+                            "must contain a JSON object", proc.stderr
+                        )
+                        self.assertNotIn("Traceback", proc.stderr)
+
     def test_overlay_makefile_target_can_be_called(self):
         with tempfile.TemporaryDirectory() as td:
             sentinel = os.path.join(td, "sentinel.txt")

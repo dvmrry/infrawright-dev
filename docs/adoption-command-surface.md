@@ -90,6 +90,8 @@ roots do not need to exist. It includes logical root labels, sorted members,
 provider ownership, the resource-to-root map, and tenant artifact directories
 when `TENANT` is supplied. Its schema is
 [`docs/schemas/root-topology.schema.json`](schemas/root-topology.schema.json).
+Malformed deployment JSON, including a non-object top level, and explicit empty
+tenant values fail before any topology JSON is emitted.
 
 Write a saved-plan assessment alongside the existing human output with:
 
@@ -105,6 +107,11 @@ exact saved-plan SHA-256, plan/Terraform format versions, drift-policy SHA-256,
 and validated `tfplan.sources` fingerprint. A blocked classification writes
 the report before returning the existing non-zero gate result. `REPORT=-`
 writes JSON to stdout. Human stderr and exit semantics remain unchanged.
+Policy bytes are parsed and hashed from one read. Each saved plan is hashed
+before and after `terraform show`, and the plan, fingerprint, and current plan
+sources (plus policy, when supplied) are rechecked immediately before report
+publication. A concurrent change writes an error assessment and fails the gate
+instead of publishing a successful classification bound to different evidence.
 
 The assessment schema is
 [`docs/schemas/saved-plan-assessment.schema.json`](schemas/saved-plan-assessment.schema.json).

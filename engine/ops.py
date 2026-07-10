@@ -243,7 +243,7 @@ def _selected_root_specs(selectors=None):
 
 def root_topology(tenant=None, selectors=None):
     """Return the stable logical root topology contract."""
-    if tenant:
+    if tenant is not None:
         validate_tenant(tenant)
     roots = []
     resource_roots = {}
@@ -256,10 +256,13 @@ def root_topology(tenant=None, selectors=None):
             "label": label,
             "provider": provider,
             "members": members,
-            "env_dir": env_root_for_label(tenant, label) if tenant else None,
+            "env_dir": (
+                env_root_for_label(tenant, label)
+                if tenant is not None else None
+            ),
         })
     directories = None
-    if tenant:
+    if tenant is not None:
         directories = {
             "config": deployment.config_dir(tenant),
             "imports": deployment.imports_dir(tenant),
@@ -783,6 +786,7 @@ def _assert_saved_plan_fresh(env_dir, tenant, member_types, root_label=None,
     )
     if saved != current:
         raise RuntimeError(_stale_plan_error(env_dir))
+    return saved
 
 
 def _remove_saved_plan_artifacts(env_dir):
@@ -1029,9 +1033,6 @@ def _write_json_contract(path, data):
 
 def _new_assessment_report(mode, opts):
     policy = opts.get("policy") if mode == "assert-adoptable" else None
-    policy_sha256 = None
-    if policy and os.path.isfile(policy):
-        policy_sha256 = _file_sha256(policy)
     return {
         "kind": PLAN_ASSESSMENT_CONTRACT,
         "schema_version": PLAN_ASSESSMENT_SCHEMA_VERSION,
@@ -1040,7 +1041,7 @@ def _new_assessment_report(mode, opts):
             "tenant": opts.get("tenant"),
             "selectors": list(opts.get("selectors") or []),
             "policy": policy,
-            "policy_sha256": policy_sha256,
+            "policy_sha256": None,
         },
         "summary": {
             "status": "error",
@@ -1112,22 +1113,87 @@ def _matching_guidance(findings, annotations):
     return out
 
 
-def _append_root_assessment(report, tenant, label, path, member_types,
-                            plan, result, guidance=None):
+def _append_root_assessment(report, tenant, label, member_types, plan, result,
+                            plan_sha256, plan_fingerprint, guidance=None):
     report["roots"].append({
         "tenant": tenant,
         "label": label,
         "members": sorted(member_types),
         "status": result["status"],
         "plan": {
-            "sha256": _file_sha256(os.path.join(path, "tfplan")),
+            "sha256": plan_sha256,
             "format_version": plan.get("format_version"),
             "terraform_version": plan.get("terraform_version"),
         },
-        "plan_fingerprint": _load_plan_fingerprint(path),
+        "plan_fingerprint": plan_fingerprint,
         "findings": _normalize_findings(plan, result["findings"]),
         "guidance": list(guidance or []),
     })
+
+
+def _capture_assessment_plan(path, tenant, label, member_types,
+                             backend_config=None):
+    """Read plan JSON while binding it to stable plan/source evidence."""
+    saved_fingerprint = _assert_saved_plan_fresh(
+        path,
+        tenant,
+        member_types,
+        root_label=label,
+        backend_config=backend_config,
+    )
+    plan_path = os.path.join(path, "tfplan")
+    plan_sha256 = _file_sha256(plan_path)
+    plan = _show_plan_json(path)
+    if _file_sha256(plan_path) != plan_sha256:
+        raise RuntimeError(_stale_plan_error(
+            path, "saved plan changed while terraform show was reading it"
+        ))
+    evidence = {
+        "path": path,
+        "tenant": tenant,
+        "label": label,
+        "member_types": list(member_types),
+        "backend_config": backend_config,
+        "plan_sha256": plan_sha256,
+        "plan_fingerprint": saved_fingerprint,
+    }
+    _recheck_assessment_plan(evidence)
+    return plan, evidence
+
+
+def _recheck_assessment_plan(evidence):
+    """Fail if any plan evidence changed after it was classified."""
+    path = evidence["path"]
+    plan_path = os.path.join(path, "tfplan")
+    if _file_sha256(plan_path) != evidence["plan_sha256"]:
+        raise RuntimeError(_stale_plan_error(
+            path, "saved plan changed during assessment"
+        ))
+    saved_fingerprint = _assert_saved_plan_fresh(
+        path,
+        evidence["tenant"],
+        evidence["member_types"],
+        root_label=evidence["label"],
+        backend_config=evidence["backend_config"],
+    )
+    if saved_fingerprint != evidence["plan_fingerprint"]:
+        raise RuntimeError(_stale_plan_error(
+            path, "plan fingerprint changed during assessment"
+        ))
+    if _file_sha256(plan_path) != evidence["plan_sha256"]:
+        raise RuntimeError(_stale_plan_error(
+            path, "saved plan changed during assessment"
+        ))
+
+
+def _recheck_assessment_inputs(evidence, policy_path=None,
+                               policy_sha256=None):
+    for root_evidence in evidence:
+        _recheck_assessment_plan(root_evidence)
+    if policy_path and _file_sha256(policy_path) != policy_sha256:
+        raise RuntimeError(
+            "%s changed during saved-plan assessment" % policy_path
+        )
 
 
 def _finish_assessment_report(report, clean, tolerated, blocked):
@@ -1358,20 +1424,17 @@ def cmd_assert_clean(opts):
     from engine.plan_eval import CLEAN, classify_plan
 
     report = _new_assessment_report("assert-clean", opts)
+    evidence = []
     checked = 0
     dirty = 0
     clean = 0
     try:
         for tenant, label, path, member_types in selected_env_roots(
                 opts.get("tenant"), opts["selectors"], require_plan=True):
-            _assert_saved_plan_fresh(
-                path,
-                tenant,
-                member_types,
-                root_label=label,
+            plan, root_evidence = _capture_assessment_plan(
+                path, tenant, label, member_types,
                 backend_config=opts.get("backend_config"),
             )
-            plan = _show_plan_json(path)
             result = classify_plan(plan)
             changes = sum(
                 1 for finding in result["findings"]
@@ -1387,8 +1450,11 @@ def cmd_assert_clean(opts):
             else:
                 clean += 1
             _append_root_assessment(
-                report, tenant, label, path, member_types, plan, result
+                report, tenant, label, member_types, plan, result,
+                root_evidence["plan_sha256"],
+                root_evidence["plan_fingerprint"],
             )
+            evidence.append(root_evidence)
     except (OSError, RuntimeError, ValueError,
             subprocess.CalledProcessError) as exc:
         _write_assessment_error(
@@ -1401,6 +1467,13 @@ def cmd_assert_clean(opts):
             report, opts.get("report"), "no_saved_plans", message
         )
         raise RuntimeError(message)
+    try:
+        _recheck_assessment_inputs(evidence)
+    except (OSError, RuntimeError, ValueError) as exc:
+        _write_assessment_error(
+            report, opts.get("report"), "assessment_error", str(exc)
+        )
+        raise
     _finish_assessment_report(report, clean, 0, dirty)
     _write_json_contract(opts.get("report"), report)
     if dirty:
@@ -1418,13 +1491,25 @@ def cmd_assert_adoptable(opts):
     from engine.plan_eval import BLOCKED, CLEAN, TOLERATED, classify_plan
 
     report = _new_assessment_report("assert-adoptable", opts)
+    policy_path = opts.get("policy")
+    policy_sha256 = None
     try:
-        policy = DriftPolicy.load(opts.get("policy"))
+        if policy_path:
+            with open(policy_path, "rb") as f:
+                policy_bytes = f.read()
+            policy_sha256 = hashlib.sha256(policy_bytes).hexdigest()
+            report["request"]["policy_sha256"] = policy_sha256
+            policy = DriftPolicy(
+                json.loads(policy_bytes.decode("utf-8")), source=policy_path
+            )
+        else:
+            policy = DriftPolicy(None)
     except (OSError, ValueError) as exc:
         _write_assessment_error(
             report, opts.get("report"), "policy_error", str(exc)
         )
         raise
+    evidence = []
     checked = 0
     clean = 0
     blocked = 0
@@ -1433,14 +1518,10 @@ def cmd_assert_adoptable(opts):
     try:
         for tenant, label, path, member_types in selected_env_roots(
                 opts.get("tenant"), opts["selectors"], require_plan=True):
-            _assert_saved_plan_fresh(
-                path,
-                tenant,
-                member_types,
-                root_label=label,
+            plan, root_evidence = _capture_assessment_plan(
+                path, tenant, label, member_types,
                 backend_config=opts.get("backend_config"),
             )
-            plan = _show_plan_json(path)
             result = classify_plan(plan, policy=policy)
             checked += 1
             checked_types.update(member_types)
@@ -1466,9 +1547,12 @@ def cmd_assert_adoptable(opts):
             elif result["status"] == CLEAN:
                 clean += 1
             _append_root_assessment(
-                report, tenant, label, path, member_types, plan, result,
+                report, tenant, label, member_types, plan, result,
+                root_evidence["plan_sha256"],
+                root_evidence["plan_fingerprint"],
                 guidance=matched_guidance,
             )
+            evidence.append(root_evidence)
     except (OSError, RuntimeError, ValueError,
             subprocess.CalledProcessError) as exc:
         _write_assessment_error(
@@ -1492,6 +1576,17 @@ def cmd_assert_adoptable(opts):
             "STALE DRIFT POLICY: %s %s %s matched no path\n"
             % (rt, mode, path)
         )
+    try:
+        _recheck_assessment_inputs(
+            evidence,
+            policy_path=policy_path,
+            policy_sha256=policy_sha256,
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        _write_assessment_error(
+            report, opts.get("report"), "assessment_error", str(exc)
+        )
+        raise
     _finish_assessment_report(report, clean, tolerated, blocked)
     _write_json_contract(opts.get("report"), report)
     if blocked:
@@ -1689,9 +1784,9 @@ def _parse(argv, allow_optional_tenant=False, allow_report=False):
         else:
             opts["selectors"].append(arg)
         i += 1
-    if not allow_optional_tenant and not opts["tenant"]:
+    if not allow_optional_tenant and opts["tenant"] is None:
         raise ValueError("--tenant is required")
-    if opts["tenant"]:
+    if opts["tenant"] is not None:
         validate_tenant(opts["tenant"])
     return opts
 
@@ -1717,7 +1812,7 @@ def _parse_roots(argv):
         else:
             opts["selectors"].append(arg)
         i += 1
-    if opts["tenant"]:
+    if opts["tenant"] is not None:
         validate_tenant(opts["tenant"])
     return opts
 

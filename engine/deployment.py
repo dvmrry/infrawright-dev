@@ -39,7 +39,10 @@ def _load():
         text = f.read()
     if not text.strip():
         return {}
-    return json.loads(text)  # malformed -> ValueError propagates (fail loud)
+    data = json.loads(text)  # malformed -> ValueError propagates (fail loud)
+    if not isinstance(data, dict):
+        raise ValueError("%s must contain a JSON object" % path)
+    return data
 
 
 def overlay():

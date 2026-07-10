@@ -91,6 +91,29 @@ class OpsContractSchemaTest(unittest.TestCase):
                     version,
                 )
 
+    def test_published_contracts_reject_empty_tenant_shapes(self):
+        with open(
+                "docs/schemas/root-topology.schema.json",
+                encoding="utf-8") as f:
+            topology = json.load(f)
+        tenant_variants = topology["properties"]["tenant"]["oneOf"]
+        self.assertEqual(tenant_variants[1]["type"], "string")
+        self.assertTrue(tenant_variants[1]["pattern"])
+        self.assertTrue(topology["allOf"])
+
+        with open(
+                "docs/schemas/saved-plan-assessment.schema.json",
+                encoding="utf-8") as f:
+            assessment = json.load(f)
+        request_tenant = assessment["$defs"]["request"]["properties"][
+            "tenant"
+        ]["oneOf"]
+        self.assertTrue(request_tenant[1]["pattern"])
+        root_tenant = assessment["$defs"]["rootAssessment"]["properties"][
+            "tenant"
+        ]
+        self.assertTrue(root_tenant["pattern"])
+
     def test_contract_options_are_scoped_to_contract_commands(self):
         opts = ops._parse(
             ["--tenant", "tenant", "--report", "assessment.json", "zpa"],
@@ -109,6 +132,54 @@ class OpsContractSchemaTest(unittest.TestCase):
                 "json": True,
             },
         )
+
+    def test_explicit_empty_tenant_is_rejected_for_all_contract_commands(self):
+        with self.assertRaisesRegex(ValueError, "TENANT must match"):
+            ops._parse_roots(["--json", "--tenant", ""])
+        for allow_optional in (False, True):
+            with self.subTest(allow_optional=allow_optional):
+                with self.assertRaisesRegex(ValueError, "TENANT must match"):
+                    ops._parse(
+                        ["--tenant", ""],
+                        allow_optional_tenant=allow_optional,
+                        allow_report=True,
+                    )
+        with self.assertRaisesRegex(ValueError, "TENANT must match"):
+            ops.root_topology(tenant="")
+
+    def test_roots_cli_rejects_non_object_deployment_without_output_or_traceback(self):
+        saved_dep = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
+        try:
+            with tempfile.TemporaryDirectory(prefix="ops-roots-deployment-") as td:
+                deployment_path = os.path.join(td, "deployment.json")
+                for value in ([], "deployment", None, 7):
+                    with self.subTest(value=value):
+                        with open(deployment_path, "w", encoding="utf-8") as f:
+                            json.dump(value, f)
+                        os.environ["INFRAWRIGHT_DEPLOYMENT"] = deployment_path
+                        for tenant_args in ([], ["--tenant", "tenant"]):
+                            stdout = io.StringIO()
+                            stderr = io.StringIO()
+                            old_stdout = sys.stdout
+                            old_stderr = sys.stderr
+                            try:
+                                sys.stdout = stdout
+                                sys.stderr = stderr
+                                self.assertEqual(
+                                    ops.main(["roots", "--json"] + tenant_args),
+                                    2,
+                                )
+                            finally:
+                                sys.stdout = old_stdout
+                                sys.stderr = old_stderr
+                            self.assertEqual(stdout.getvalue(), "")
+                            self.assertIn("must contain a JSON object", stderr.getvalue())
+                            self.assertNotIn("Traceback", stderr.getvalue())
+        finally:
+            if saved_dep is None:
+                os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
+            else:
+                os.environ["INFRAWRIGHT_DEPLOYMENT"] = saved_dep
 
 
 class OpsReferenceOrderTest(unittest.TestCase):
@@ -793,6 +864,139 @@ class OpsGroupedRootCommandTest(unittest.TestCase):
             "findings": [],
             "guidance": [],
         }])
+
+    def _run_clean_report_with_append_mutation(self, root, mutation,
+                                               policy_path=None):
+        report_path = os.path.join(self.tmp, "reports", "mutated.json")
+        old_show = ops._show_plan_json
+        old_append = ops._append_root_assessment
+        old_stderr = sys.stderr
+
+        def append_then_mutate(*args, **kwargs):
+            result = old_append(*args, **kwargs)
+            mutation()
+            return result
+
+        try:
+            ops._show_plan_json = lambda env_dir: {
+                "format_version": "1.0",
+                "resource_changes": [],
+            }
+            ops._append_root_assessment = append_then_mutate
+            sys.stderr = io.StringIO()
+            with self.assertRaises(RuntimeError):
+                if policy_path is None:
+                    ops.cmd_assert_clean({
+                        "tenant": "tenant",
+                        "selectors": ["zpa_segment_group"],
+                        "report": report_path,
+                    })
+                else:
+                    ops.cmd_assert_adoptable({
+                        "tenant": "tenant",
+                        "selectors": ["zpa_segment_group"],
+                        "policy": policy_path,
+                        "report": report_path,
+                    })
+        finally:
+            ops._show_plan_json = old_show
+            ops._append_root_assessment = old_append
+            sys.stderr = old_stderr
+        with open(report_path, encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_assessment_rejects_plan_mutation_after_classification(self):
+        root = self._write_group_root(with_plan=True)
+        plan_path = os.path.join(root, "tfplan")
+        original_sha256 = ops._file_sha256(plan_path)
+
+        def mutate():
+            with open(plan_path, "w", encoding="utf-8") as f:
+                f.write("replacement")
+
+        report = self._run_clean_report_with_append_mutation(root, mutate)
+        self.assertEqual(report["summary"]["status"], "error")
+        self.assertEqual(report["error"]["kind"], "assessment_error")
+        self.assertIn("saved plan changed", report["error"]["message"])
+        self.assertEqual(report["roots"][0]["plan"]["sha256"], original_sha256)
+
+    def test_assessment_rejects_fingerprint_replacement_after_validation(self):
+        root = self._write_group_root(with_plan=True)
+        original_fingerprint = ops._load_plan_fingerprint(root)
+
+        def mutate():
+            ops._write_plan_fingerprint_data(root, {
+                "version": ops.PLAN_FINGERPRINT_VERSION,
+                "sha256": "0" * 64,
+            })
+
+        report = self._run_clean_report_with_append_mutation(root, mutate)
+        self.assertEqual(report["summary"]["status"], "error")
+        self.assertIn("saved plan is stale", report["error"]["message"])
+        self.assertEqual(
+            report["roots"][0]["plan_fingerprint"], original_fingerprint
+        )
+
+    def test_assessment_rechecks_plan_sources_before_publishing(self):
+        root = self._write_group_root(with_plan=True)
+        source_path = os.path.join(root, "main.tf")
+
+        def mutate():
+            with open(source_path, "a", encoding="utf-8") as f:
+                f.write("\n# changed during assessment\n")
+
+        report = self._run_clean_report_with_append_mutation(root, mutate)
+        self.assertEqual(report["summary"]["status"], "error")
+        self.assertIn("saved plan is stale", report["error"]["message"])
+
+    def test_assessment_hashes_policy_bytes_it_parsed_and_rejects_replacement(self):
+        root = self._write_group_root(with_plan=True)
+        policy_path = os.path.join(self.tmp, "policy.json")
+        with open(policy_path, "w", encoding="utf-8") as f:
+            f.write('{"version":1,"resource_types":{}}\n')
+        original_sha256 = ops._file_sha256(policy_path)
+
+        def mutate():
+            with open(policy_path, "w", encoding="utf-8") as f:
+                f.write('{"version":1,"resource_types":{"changed":{}}}\n')
+
+        report = self._run_clean_report_with_append_mutation(
+            root, mutate, policy_path=policy_path
+        )
+        self.assertEqual(report["summary"]["status"], "error")
+        self.assertIn("changed during", report["error"]["message"])
+        self.assertEqual(
+            report["request"]["policy_sha256"], original_sha256
+        )
+
+    def test_assessment_rejects_plan_mutation_during_terraform_show(self):
+        root = self._write_group_root(with_plan=True)
+        report_path = os.path.join(self.tmp, "reports", "show-race.json")
+        plan_path = os.path.join(root, "tfplan")
+        old_show = ops._show_plan_json
+        old_stderr = sys.stderr
+
+        def show_and_mutate(env_dir):
+            with open(plan_path, "w", encoding="utf-8") as f:
+                f.write("replacement")
+            return {"format_version": "1.0", "resource_changes": []}
+
+        try:
+            ops._show_plan_json = show_and_mutate
+            sys.stderr = io.StringIO()
+            with self.assertRaisesRegex(RuntimeError, "terraform show"):
+                ops.cmd_assert_clean({
+                    "tenant": "tenant",
+                    "selectors": ["zpa_segment_group"],
+                    "report": report_path,
+                })
+        finally:
+            ops._show_plan_json = old_show
+            sys.stderr = old_stderr
+        with open(report_path, encoding="utf-8") as f:
+            report = json.load(f)
+        self.assertEqual(report["summary"]["status"], "error")
+        self.assertEqual(report["roots"], [])
 
     def test_assert_clean_writes_error_report_when_no_saved_plan_exists(self):
         report_path = os.path.join(self.tmp, "reports", "error.json")

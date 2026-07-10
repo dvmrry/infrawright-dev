@@ -21,9 +21,14 @@
       "const": 1
     },
     "tenant": {
-      "type": [
-        "string",
-        "null"
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+        }
       ]
     },
     "selectors": {
@@ -72,6 +77,49 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "tenant": {
+            "type": "null"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "directories": {
+            "type": "null"
+          },
+          "roots": {
+            "items": {
+              "properties": {
+                "env_dir": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "directories": {
+            "type": "object"
+          },
+          "roots": {
+            "items": {
+              "properties": {
+                "env_dir": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "root": {
       "type": "object",
