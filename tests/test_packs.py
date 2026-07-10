@@ -158,6 +158,14 @@ class PackContractTest(unittest.TestCase):
     def test_recursive_runtime_inputs_require_a_component_owner(self):
         os.makedirs(os.path.join(self.tmp, "_shared"))
         os.makedirs(os.path.join(self.tmp, "owned"))
+        with open(
+                os.path.join(self.tmp, "_shared", "pack.json"),
+                "w", encoding="utf-8") as f:
+            json.dump({"provider_sources": {"ghost": "example/ghost"}}, f)
+        with open(
+                os.path.join(self.tmp, "_shared", "registry.json"),
+                "w", encoding="utf-8") as f:
+            json.dump({"ghost_resource": {"product": "ghost"}}, f)
         for path in (
                 os.path.join(self.tmp, "adoption_status.json"),
                 os.path.join(self.tmp, "_shared", "adoption_status.json"),
@@ -170,6 +178,8 @@ class PackContractTest(unittest.TestCase):
             packs.adoption_status_paths(),
             [os.path.join(self.tmp, "owned", "adoption_status.json")],
         )
+        self.assertEqual(packs.provider_sources(), {})
+        self.assertEqual(packs.registry_paths(), [])
 
 
 if __name__ == "__main__":

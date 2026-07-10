@@ -51,7 +51,9 @@ copied directory, so an exact profile must reject that stale directory instead
 of omitting its tests while continuing to load its data. Recursively discovered
 runtime inputs must live below one of those component directories; loose
 `adoption_status.json` inputs at the pack root or directly under `_shared` are
-ignored because no profile component owns them. A top-level or shared
+ignored because no profile component owns them. The reserved `_shared` root is
+also not itself a pack: loose `pack.json` and `registry.json` files directly
+inside it are ignored. A top-level or shared
 `schema-extract` directory is itself a component and must appear in the exact
 profile/catalog or validation fails.
 

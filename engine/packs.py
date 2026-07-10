@@ -82,6 +82,8 @@ def _manifests():
         root = packs_root()
         if os.path.isdir(root):
             for name in sorted(os.listdir(root)):
+                if name == "_shared":
+                    continue
                 path = os.path.join(root, name, "pack.json")
                 if os.path.isfile(path):
                     with open(path, encoding="utf-8") as f:
@@ -381,6 +383,8 @@ def registry_paths():
     root = packs_root()
     if os.path.isdir(root):
         for name in sorted(os.listdir(root)):
+            if name == "_shared":
+                continue
             p = os.path.join(root, name, "registry.json")
             if os.path.isfile(p):
                 out.append(p)
