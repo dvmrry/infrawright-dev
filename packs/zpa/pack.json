@@ -19,6 +19,9 @@
       }
     }
   },
+  "requires_shared": [
+    "zscaler"
+  ],
   "scope_segments": {
     "zpa": "ZPA_CUSTOMER_ID"
   },

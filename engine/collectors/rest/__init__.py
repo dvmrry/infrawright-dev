@@ -43,8 +43,7 @@ def manifest_entry(resource_type):
 
 
 def obfuscate_api_key(api_key, timestamp):
-    from packs.zia import collector
-    return collector.obfuscate_api_key(api_key, timestamp)
+    return _provider_collector("zia").obfuscate_api_key(api_key, timestamp)
 
 
 from urllib.parse import quote as _quote, urlencode
@@ -216,44 +215,46 @@ def paginate_zcc_v2(opener, url, headers, query, per_page=100, max_pages=100000)
     return items
 
 
+def _shared_collector():
+    from engine import packs
+    return packs.shared_module("zscaler", "collector")
+
+
+def _provider_collector(provider):
+    from engine import packs
+    return packs.collector_for(provider)
+
+
 def _oneapi_gateway(cloud):
-    from packs._shared.zscaler import collector
-    return collector._oneapi_gateway(cloud)
+    return _shared_collector()._oneapi_gateway(cloud)
 
 
 def _zpa_legacy_base_or_none(cloud):
-    from packs.zpa import collector
-    return collector._zpa_legacy_base_or_none(cloud)
+    return _provider_collector("zpa")._zpa_legacy_base_or_none(cloud)
 
 
 def _legacy_zpa_base(cloud):
-    from packs.zpa import collector
-    return collector._legacy_zpa_base(cloud)
+    return _provider_collector("zpa")._legacy_zpa_base(cloud)
 
 
 def _legacy_zia_base(cloud):
-    from packs.zia import collector
-    return collector._legacy_zia_base(cloud)
+    return _provider_collector("zia")._legacy_zia_base(cloud)
 
 
 def host_overrides(env):
-    from packs._shared.zscaler import collector
-    return collector.host_overrides(env)
+    return _shared_collector().host_overrides(env)
 
 
 def _gateway_for(ctx):
-    from packs._shared.zscaler import collector
-    return collector._gateway_for(ctx)
+    return _shared_collector()._gateway_for(ctx)
 
 
 def _zia_legacy_base_for(ctx):
-    from packs.zia import collector
-    return collector._zia_legacy_base_for(ctx)
+    return _provider_collector("zia")._zia_legacy_base_for(ctx)
 
 
 def _zpa_legacy_base_for(ctx):
-    from packs.zpa import collector
-    return collector._zpa_legacy_base_for(ctx)
+    return _provider_collector("zpa")._zpa_legacy_base_for(ctx)
 
 
 def compose_url(auth_mode, product, path, ctx):
@@ -465,8 +466,7 @@ def auth_mode_from_env(env):
 
 
 def _zslogin_host(vanity, cloud):
-    from packs._shared.zscaler import collector
-    return collector._zslogin_host(vanity, cloud)
+    return _shared_collector()._zslogin_host(vanity, cloud)
 
 
 def acquire_token(auth_mode, product, env, ctx, opener, now_ms=None):
@@ -491,19 +491,34 @@ def diag_hosts(env):
     ZPA_LEGACY_BASE_URL) so --diag probes the hosts a real fetch will
     actually dial. ZCC is OneAPI-only — no separate host.
     """
+    from engine import packs
+    products = set(packs.product_tokens())
     if auth_mode_from_env(env) == "oneapi":
+        if not products.intersection(("zcc", "zia", "zpa", "ztc")):
+            return []
         vanity = env.get("ZSCALER_VANITY_DOMAIN") or "<vanity>"
         cloud = env.get("ZSCALER_CLOUD", "")
         login = _zslogin_host(vanity, cloud)
         gateway = _oneapi_gateway(cloud)
         return sorted({_host_of(login), _host_of(gateway)})
+    if not products.intersection(("zia", "zpa")):
+        return []
     overrides = host_overrides(env)
-    cloud = env.get("ZIA_CLOUD", "") or env.get("ZSCALER_CLOUD", "") or "<cloud>"
-    zia = overrides["zia_legacy_base"] or "https://zsapi.%s.net" % cloud
-    zpa = (overrides["zpa_legacy_base"]
-           or _zpa_legacy_base_or_none(env.get("ZPA_CLOUD", ""))
-           or "https://config.<zpa-cloud>")
-    return sorted({_host_of(zia), _host_of(zpa)})
+    hosts = set()
+    if "zia" in products:
+        cloud = (
+            env.get("ZIA_CLOUD", "")
+            or env.get("ZSCALER_CLOUD", "")
+            or "<cloud>"
+        )
+        zia = overrides["zia_legacy_base"] or "https://zsapi.%s.net" % cloud
+        hosts.add(_host_of(zia))
+    if "zpa" in products:
+        zpa = (overrides["zpa_legacy_base"]
+               or _zpa_legacy_base_or_none(env.get("ZPA_CLOUD", ""))
+               or "https://config.<zpa-cloud>")
+        hosts.add(_host_of(zpa))
+    return sorted(hosts)
 
 
 def _safe_base(derive, override):

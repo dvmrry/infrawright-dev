@@ -8,6 +8,9 @@
     "ztc": "zscaler/ztc"
   },
   "references": {},
+  "requires_shared": [
+    "zscaler"
+  ],
   "scope_segments": {},
   "vendor": "zscaler"
 }

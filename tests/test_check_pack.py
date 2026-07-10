@@ -136,11 +136,66 @@ class CheckPackCliTest(unittest.TestCase):
 
     def test_duplicate_registry_resource_type_fails_all_pack_validation(self):
         with tempfile.TemporaryDirectory() as td:
-            _write_pack(td, "one", registry=_registry("sample_resource"))
-            _write_pack(td, "two", registry=_registry("sample_resource"))
+            _write_pack(td, "one", pack={
+                "provider_prefixes": {"one_": "one"},
+            }, registry=_registry("sample_resource"))
+            _write_pack(td, "two", pack={
+                "provider_prefixes": {"two_": "two"},
+            }, registry=_registry("sample_resource"))
             proc = self._run(packs_root=td)
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("duplicate resource type 'sample_resource'", proc.stderr)
+
+    def test_declared_shared_dependency_is_required(self):
+        with tempfile.TemporaryDirectory() as td:
+            _write_pack(td, "sample", pack={
+                "provider_prefixes": {"sample_": "sample"},
+                "requires_shared": ["common"],
+            })
+            missing = self._run(packs_root=td)
+            os.makedirs(os.path.join(td, "_shared", "common"))
+            present = self._run(packs_root=td)
+
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn(
+            "pack sample requires missing shared component common",
+            missing.stderr,
+        )
+        self.assertEqual(present.returncode, 0, present.stderr)
+        self.assertEqual(present.stdout, "validated packs: sample\n")
+
+    def test_duplicate_provider_ownership_fails_pack_validation(self):
+        with tempfile.TemporaryDirectory() as td:
+            _write_pack(td, "a_pack", pack={
+                "provider_prefixes": {"a_": "sample"},
+            })
+            _write_pack(td, "b_pack", pack={
+                "provider_prefixes": {"b_": "sample"},
+            })
+            proc = self._run(packs_root=td)
+
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn(
+            "provider 'sample' is declared by multiple packs: a_pack, b_pack",
+            proc.stderr,
+        )
+
+    def test_collector_pack_directory_must_be_importable(self):
+        with tempfile.TemporaryDirectory() as td:
+            _write_pack(td, "bad-name", pack={
+                "provider_prefixes": {"sample_": "sample"},
+            })
+            with open(
+                    os.path.join(td, "bad-name", "collector.py"),
+                    "w", encoding="utf-8") as f:
+                f.write("# collector\n")
+            proc = self._run(packs_root=td)
+
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn(
+            "pack bad-name cannot expose a Python collector",
+            proc.stderr,
+        )
 
     def test_make_target_invokes_check_pack_command(self):
         proc = subprocess.run(

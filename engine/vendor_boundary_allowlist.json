@@ -338,7 +338,7 @@
     },
     {
       "path": "engine/collectors/rest/__init__.py",
-      "pattern": "from packs.zia import collector",
+      "pattern": "return _provider_collector(\"zia\").obfuscate_api_key(api_key, timestamp)",
       "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
       "token": "zia"
     },
@@ -452,7 +452,7 @@
     },
     {
       "path": "engine/collectors/rest/__init__.py",
-      "pattern": "from packs._shared.zscaler import collector",
+      "pattern": "return packs.shared_module(\"zscaler\", \"collector\")",
       "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
       "token": "zscaler"
     },
@@ -464,13 +464,7 @@
     },
     {
       "path": "engine/collectors/rest/__init__.py",
-      "pattern": "from packs.zpa import collector",
-      "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
-      "token": "zpa"
-    },
-    {
-      "path": "engine/collectors/rest/__init__.py",
-      "pattern": "return collector._zpa_legacy_base_or_none(cloud)",
+      "pattern": "return _provider_collector(\"zpa\")._zpa_legacy_base_or_none(cloud)",
       "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
       "token": "zpa"
     },
@@ -482,13 +476,7 @@
     },
     {
       "path": "engine/collectors/rest/__init__.py",
-      "pattern": "from packs.zpa import collector",
-      "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
-      "token": "zpa"
-    },
-    {
-      "path": "engine/collectors/rest/__init__.py",
-      "pattern": "return collector._legacy_zpa_base(cloud)",
+      "pattern": "return _provider_collector(\"zpa\")._legacy_zpa_base(cloud)",
       "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
       "token": "zpa"
     },
@@ -500,27 +488,9 @@
     },
     {
       "path": "engine/collectors/rest/__init__.py",
-      "pattern": "from packs.zia import collector",
+      "pattern": "return _provider_collector(\"zia\")._legacy_zia_base(cloud)",
       "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
       "token": "zia"
-    },
-    {
-      "path": "engine/collectors/rest/__init__.py",
-      "pattern": "return collector._legacy_zia_base(cloud)",
-      "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
-      "token": "zia"
-    },
-    {
-      "path": "engine/collectors/rest/__init__.py",
-      "pattern": "from packs._shared.zscaler import collector",
-      "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
-      "token": "zscaler"
-    },
-    {
-      "path": "engine/collectors/rest/__init__.py",
-      "pattern": "from packs._shared.zscaler import collector",
-      "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
-      "token": "zscaler"
     },
     {
       "path": "engine/collectors/rest/__init__.py",
@@ -530,13 +500,7 @@
     },
     {
       "path": "engine/collectors/rest/__init__.py",
-      "pattern": "from packs.zia import collector",
-      "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
-      "token": "zia"
-    },
-    {
-      "path": "engine/collectors/rest/__init__.py",
-      "pattern": "return collector._zia_legacy_base_for(ctx)",
+      "pattern": "return _provider_collector(\"zia\")._zia_legacy_base_for(ctx)",
       "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
       "token": "zia"
     },
@@ -548,13 +512,7 @@
     },
     {
       "path": "engine/collectors/rest/__init__.py",
-      "pattern": "from packs.zpa import collector",
-      "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
-      "token": "zpa"
-    },
-    {
-      "path": "engine/collectors/rest/__init__.py",
-      "pattern": "return collector._zpa_legacy_base_for(ctx)",
+      "pattern": "return _provider_collector(\"zpa\")._zpa_legacy_base_for(ctx)",
       "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
       "token": "zpa"
     },
@@ -656,9 +614,33 @@
     },
     {
       "path": "engine/collectors/rest/__init__.py",
-      "pattern": "from packs._shared.zscaler import collector",
+      "pattern": "if not products.intersection((\"zcc\", \"zia\", \"zpa\", \"ztc\")):",
       "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
-      "token": "zscaler"
+      "token": "zcc"
+    },
+    {
+      "path": "engine/collectors/rest/__init__.py",
+      "pattern": "if not products.intersection((\"zcc\", \"zia\", \"zpa\", \"ztc\")):",
+      "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
+      "token": "zia"
+    },
+    {
+      "path": "engine/collectors/rest/__init__.py",
+      "pattern": "if not products.intersection((\"zcc\", \"zia\", \"zpa\", \"ztc\")):",
+      "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
+      "token": "zpa"
+    },
+    {
+      "path": "engine/collectors/rest/__init__.py",
+      "pattern": "if not products.intersection((\"zia\", \"zpa\")):",
+      "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
+      "token": "zia"
+    },
+    {
+      "path": "engine/collectors/rest/__init__.py",
+      "pattern": "if not products.intersection((\"zia\", \"zpa\")):",
+      "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
+      "token": "zpa"
     },
     {
       "path": "engine/collectors/rest/__init__.py",
@@ -692,13 +674,13 @@
     },
     {
       "path": "engine/collectors/rest/__init__.py",
-      "pattern": "cloud = env.get(\"ZIA_CLOUD\", \"\") or env.get(\"ZSCALER_CLOUD\", \"\") or \"<cloud>\"",
+      "pattern": "            env.get(\"ZIA_CLOUD\", \"\")",
       "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
       "token": "zia"
     },
     {
       "path": "engine/collectors/rest/__init__.py",
-      "pattern": "cloud = env.get(\"ZIA_CLOUD\", \"\") or env.get(\"ZSCALER_CLOUD\", \"\") or \"<cloud>\"",
+      "pattern": "            or env.get(\"ZSCALER_CLOUD\", \"\")",
       "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
       "token": "zscaler"
     },
@@ -752,13 +734,13 @@
     },
     {
       "path": "engine/collectors/rest/__init__.py",
-      "pattern": "return sorted({_host_of(zia), _host_of(zpa)})",
+      "pattern": "hosts.add(_host_of(zia))",
       "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
       "token": "zia"
     },
     {
       "path": "engine/collectors/rest/__init__.py",
-      "pattern": "return sorted({_host_of(zia), _host_of(zpa)})",
+      "pattern": "hosts.add(_host_of(zpa))",
       "reason": "Transitional shared REST collector contains provider-specific Zscaler paths until collector extraction is scoped separately.",
       "token": "zpa"
     },

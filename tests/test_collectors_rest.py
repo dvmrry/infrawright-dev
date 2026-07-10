@@ -1,9 +1,121 @@
 import json
 import os
+import shutil
+import tempfile
 import unittest
 
+from engine import packs
 from engine.collectors import rest
 from packs._shared.zscaler import collector as zscaler
+
+
+def _write_text(path, content):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+def _write_external_collector_root(root, marker):
+    _write_text(
+        os.path.join(root, "zia", "pack.json"),
+        json.dumps({
+            "provider_prefixes": {"zia_": "zia"},
+            "requires_shared": ["zscaler"],
+        }),
+    )
+    _write_text(
+        os.path.join(root, "zia", "registry.json"),
+        json.dumps({
+            "zia_sample": {
+                "product": "zia",
+                "fetch": {"pagination": "single", "path": "sample"},
+            },
+        }),
+    )
+    _write_text(os.path.join(root, "zia", "__init__.py"), "")
+    _write_text(
+        os.path.join(root, "zia", "collector.py"),
+        "def _legacy_zia_base(cloud):\n"
+        "    return %r\n"
+        "def obfuscate_api_key(api_key, timestamp):\n"
+        "    return %r\n"
+        % ("provider-" + marker, "obfuscated-" + marker),
+    )
+    _write_text(
+        os.path.join(root, "_shared", "zscaler", "__init__.py"), ""
+    )
+    _write_text(
+        os.path.join(root, "_shared", "zscaler", "collector.py"),
+        "MARKER = %r\n" % marker
+        + "def host_overrides(env):\n"
+        "    return {\"marker\": MARKER, \"zia_legacy_base\": None, "
+        "\"zpa_legacy_base\": None}\n"
+        "def _oneapi_gateway(cloud):\n"
+        "    return \"https://gateway-%s.example\" % MARKER\n"
+        "def _gateway_for(ctx):\n"
+        "    return _oneapi_gateway(ctx.get(\"cloud\", \"\"))\n"
+        "def _zslogin_host(vanity, cloud):\n"
+        "    return \"https://login-%s.example\" % MARKER\n",
+    )
+
+
+class ExternalPackRootAuthorityTest(unittest.TestCase):
+    def setUp(self):
+        self.previous = os.environ.get("INFRAWRIGHT_PACKS")
+        self.roots = []
+
+    def tearDown(self):
+        if self.previous is None:
+            os.environ.pop("INFRAWRIGHT_PACKS", None)
+        else:
+            os.environ["INFRAWRIGHT_PACKS"] = self.previous
+        packs.reset()
+        for root in self.roots:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def _root(self, marker):
+        root = tempfile.mkdtemp(prefix="external-collector-")
+        self.roots.append(root)
+        _write_external_collector_root(root, marker)
+        return root
+
+    def _assert_active_helpers(self, marker):
+        self.assertEqual(
+            rest.obfuscate_api_key("key", "timestamp"),
+            "obfuscated-" + marker,
+        )
+        self.assertEqual(
+            rest._legacy_zia_base("cloud"), "provider-" + marker
+        )
+        self.assertEqual(rest.host_overrides({})["marker"], marker)
+        lines = rest.debug_config(
+            {}, {"cloud": "", "customer_id": ""}, "oneapi", {"zia"}
+        )
+        self.assertIn(
+            "fetch: gateway = https://gateway-%s.example" % marker,
+            lines,
+        )
+        self.assertEqual(
+            rest.diag_hosts({}),
+            ["gateway-%s.example" % marker, "login-%s.example" % marker],
+        )
+        self.assertEqual(
+            rest.diag_hosts({
+                "ZSCALER_USE_LEGACY_CLIENT": "1",
+                "ZIA_CLOUD": "external",
+            }),
+            ["zsapi.external.net"],
+        )
+
+    def test_helpers_use_external_root_before_loader_and_after_root_change(self):
+        first = self._root("one")
+        os.environ["INFRAWRIGHT_PACKS"] = first
+        packs.reset()
+        self._assert_active_helpers("one")
+
+        second = self._root("two")
+        os.environ["INFRAWRIGHT_PACKS"] = second
+        self._assert_active_helpers("two")
 
 
 class _JsonOpener(object):

@@ -34,6 +34,9 @@
       }
     }
   },
+  "requires_shared": [
+    "zscaler"
+  ],
   "scope_segments": {},
   "unescape_products": [],
   "vendor": "zscaler"

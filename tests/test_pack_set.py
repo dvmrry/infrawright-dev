@@ -25,10 +25,10 @@ class PackSetTest(unittest.TestCase):
             "shared": list(shared or []),
         }
 
-    def _pack(self, root, name):
+    def _pack(self, root, name, data=None):
         path = os.path.join(root, name)
         os.makedirs(path)
-        self._write(path, "pack.json", {})
+        self._write(path, "pack.json", data if data is not None else {})
 
     def _shared(self, root, name):
         os.makedirs(os.path.join(root, "_shared", name))
@@ -94,6 +94,37 @@ class PackSetTest(unittest.TestCase):
             result = pack_set.check_requirements(requirements, root=root)
             self.assertTrue(result["available"])
             self.assertEqual(result["missing"], {"packs": [], "shared": []})
+
+    def test_exact_profile_rejects_pack_with_missing_shared_dependency(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._pack(root, "one", {"requires_shared": ["common"]})
+            profile = self._write(
+                root, "profile.json", self._profile(packs=["one"])
+            )
+
+            with self.assertRaisesRegex(
+                    pack_set.PackSetError,
+                    "pack one requires missing shared component common"):
+                pack_set.validate_active_pack_set(profile, root=root)
+
+    def test_exact_profile_rejects_duplicate_provider_ownership(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._pack(root, "a_pack", {
+                "provider_prefixes": {"a_": "sample"},
+            })
+            self._pack(root, "b_pack", {
+                "provider_prefixes": {"b_": "sample"},
+            })
+            profile = self._write(
+                root, "profile.json",
+                self._profile(packs=["a_pack", "b_pack"]),
+            )
+
+            with self.assertRaisesRegex(
+                    pack_set.PackSetError,
+                    "provider 'sample' is declared by multiple packs: "
+                    "a_pack, b_pack"):
+                pack_set.validate_active_pack_set(profile, root=root)
 
     def test_requirements_cli_uses_distinct_unavailable_status(self):
         with tempfile.TemporaryDirectory() as root:

@@ -159,6 +159,12 @@ def validate_active_pack_set(profile_path, root=None, catalog_path=None):
             )
     if errors:
         raise PackSetError("pack set mismatch; %s" % "; ".join(errors))
+    try:
+        packs.validate_shared_dependencies(
+            pack_names=profile["packs"], root=root
+        )
+    except ValueError as exc:
+        raise PackSetError(str(exc))
     return {"profile": profile, "active": active}
 
 
