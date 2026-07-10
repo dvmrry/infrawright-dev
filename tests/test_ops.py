@@ -217,8 +217,6 @@ class OpsReferenceOrderTransformIntegrationTest(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="ops-reference-transform-")
         os.chdir(self.tmp)
         self.saved_dep = os.environ.get("INFRAWRIGHT_DEPLOYMENT")
-        self.saved_pack_references = packs.references
-        self.saved_pack_lookup_sources = packs.lookup_sources
         self.tenant = "tenant"
         dep = os.path.join(self.tmp, "deployment.json")
         _write_json(dep, {
@@ -236,22 +234,9 @@ class OpsReferenceOrderTransformIntegrationTest(unittest.TestCase):
             },
         })
         os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
-        packs.references = lambda: {
-            "zpa_application_segment": {
-                "segment_group_id": {
-                    "referent": "zpa_segment_group",
-                    "name_field": "name",
-                },
-            },
-        }
-        packs.lookup_sources = lambda: {
-            "zpa_segment_group": {"name_field": "name"},
-        }
 
     def tearDown(self):
         os.chdir(self.cwd)
-        packs.references = self.saved_pack_references
-        packs.lookup_sources = self.saved_pack_lookup_sources
         if self.saved_dep is None:
             os.environ.pop("INFRAWRIGHT_DEPLOYMENT", None)
         else:
@@ -311,6 +296,65 @@ class OpsReferenceOrderTransformIntegrationTest(unittest.TestCase):
         self.assertEqual(
             expression,
             'module.zpa_segment_group.items["segment_one"].id',
+        )
+
+    def test_inspection_profile_binding_uses_committed_pack_graph(self):
+        dep = os.path.join(self.tmp, "deployment.json")
+        _write_json(dep, {
+            "overlay": self.tmp,
+            "roots": {
+                "zpa": {
+                    "groups": {
+                        "zpa_policy": [
+                            "zpa_inspection_profile",
+                            "zpa_policy_access_rule",
+                        ],
+                    },
+                    "bind_references": True,
+                },
+            },
+        })
+        inputs = {
+            "zpa_inspection_profile": self._write_input(
+                "zpa_inspection_profile.json",
+                [{"id": "profile-1", "name": "Inspection One"}],
+            ),
+            "zpa_policy_access_rule": self._write_input(
+                "zpa_policy_access_rule.json",
+                [{
+                    "id": "rule-1",
+                    "name": "Access One",
+                    "zpnInspectionProfileId": "profile-1",
+                }],
+            ),
+        }
+
+        ordered = ops.reference_order([
+            "zpa_policy_access_rule",
+            "zpa_inspection_profile",
+        ])
+        self.assertEqual(ordered, [
+            "zpa_inspection_profile",
+            "zpa_policy_access_rule",
+        ])
+        for resource_type in ordered:
+            self.assertEqual(
+                transform.main([resource_type, inputs[resource_type], self.tenant]),
+                0,
+            )
+
+        generated_path = os.path.join(
+            self.tmp,
+            "config",
+            self.tenant,
+            "zpa_policy_access_rule.generated.expressions.json",
+        )
+        with open(generated_path, encoding="utf-8") as f:
+            generated = json.load(f)
+        self.assertEqual(
+            generated["resources"]["zpa_policy_access_rule.access_one"]
+            ["zpn_inspection_profile_id"]["expression"],
+            'module.zpa_inspection_profile.items["inspection_one"].id',
         )
 
 

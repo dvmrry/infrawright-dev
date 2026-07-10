@@ -1,5 +1,12 @@
 {
-  "lookup_sources": {},
+  "lookup_sources": {
+    "zpa_inspection_profile": {
+      "name_field": "name"
+    },
+    "zpa_segment_group": {
+      "name_field": "name"
+    }
+  },
   "pin": "4.4.6",
   "provider_prefixes": {
     "zpa_": "zpa"
@@ -7,7 +14,20 @@
   "provider_sources": {
     "zpa": "zscaler/zpa"
   },
-  "references": {},
+  "references": {
+    "zpa_application_segment": {
+      "segment_group_id": {
+        "name_field": "name",
+        "referent": "zpa_segment_group"
+      }
+    },
+    "zpa_policy_access_rule": {
+      "zpn_inspection_profile_id": {
+        "name_field": "name",
+        "referent": "zpa_inspection_profile"
+      }
+    }
+  },
   "scope_segments": {
     "zpa": "ZPA_CUSTOMER_ID"
   },
