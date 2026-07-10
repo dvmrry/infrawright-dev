@@ -144,21 +144,33 @@ therefore not an oracle-gap class. The only confirmed oracle-gap classes
 remain read-omits (handled by `projection_fill`) and read-sentinels (handled
 by `projection_omit_if`).
 
-`microtenant_id="0"` is explicitly NOT resolved by this finding. Provider
-source proves only raw pass-through: zpa 4.4.6
+`microtenant_id="0"` is not a provider-read normalization case, but it is also
+not a current oracle gap. Provider source proves raw pass-through: zpa 4.4.6
 [resource_zpa_application_segment.go](https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_application_segment.go)
-READ sets `microtenant_id` raw, including `"0"`. That does not prove that
-OMITTING `"0"` from config is plan-neutral, which is what transform's
-`drop_if_default` assumes. The pinned zpa schema declares
+READ sets `microtenant_id` raw, including `"0"`. The oracle projects optional
+input attributes directly from post-read state
+([engine/state_project.py](../engine/state_project.py#L48-L83)), so the current
+path carries that value into config instead of applying transform's
+`drop_if_default`. The operator-reported tenant result was consistent with this
+mechanism, but no sanitized run record is retained in the repository.
+
+The pinned zpa schema still makes this a useful guardrail. It declares
 `zpa_application_segment.microtenant_id` as `optional` and NOT `computed`
-([packs/zpa/schemas/provider/zpa.json](../packs/zpa/schemas/provider/zpa.json)),
-so a null config value against a `"0"` state value would be expected to plan a
-change rather than be suppressed. This is unique to the app segment: every
-other dropped `microtenant_id` path is `optional` plus `computed` and is
-expected to plan clean when omitted (see tenant gate 4 below for the full
-per-resource breakdown). Treat the app segment case as a candidate
-oracle/plan gap, not a cosmetic divergence, until a pinned import/show/plan
-test proves otherwise.
+([resource_zpa_application_segment.go#L231-L234](https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_application_segment.go#L231-L234);
+local dump
+[packs/zpa/schemas/provider/zpa.json](../packs/zpa/schemas/provider/zpa.json)),
+so a future oracle policy that omits the attribute could turn a `"0"` state
+value into a planned change. This is unique to the app segment. The other seven
+dropped field paths are `zpa_server_group.microtenant_id`,
+`zpa_segment_group.microtenant_id`, `zpa_application_server.microtenant_id`,
+`zpa_app_connector_group.microtenant_id`,
+`zpa_policy_access_rule.microtenant_id`,
+`zpa_policy_access_rule.conditions[].microtenant_id`, and
+`zpa_policy_access_rule.conditions[].operands[].microtenant_id`; all are
+`optional` plus `computed` and are expected to plan clean when omitted
+([resource_zpa_server_group.go#L96-L100](https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_server_group.go#L96-L100)).
+Do not add a `projection_omit` or equivalent policy for the app-segment path
+without a pinned import/show/plan test.
 
 ## Numeric Zero Phantom Reference
 
@@ -280,52 +292,32 @@ appears.
    DECIDED: no bridge; per-quirk projection policy stays, and the provider
    read normalization finding removes most of the anticipated tail.
 
-## Post-#144 Deferred Items
+## Post-#144 Evidence Status
 
-These are not code blockers for #144. They are the evidence gates and follow-ups
-to keep on the checklist before relying on the new behavior broadly or extending
-it to more resources.
+Provider-source conclusions and live-tenant validation are separate evidence
+levels. The live statuses below came from an operator-provided photo handoff of
+a private tenant run; commands, versions, sanitized outputs, and raw artifacts
+were not retained in the repository. `Reported` therefore records useful
+direction but does not satisfy the reproducible evidence-capture bar in
+[Integration Validation](integration-validation.md#evidence-capture). These
+items are not code blockers for #144, but reported, partial, and blocked rows
+remain gates before relying on the affected behavior broadly.
 
-The `size_quota`, failopen-inversion, `policy_style`, and `url_categories`
-value-transform items were resolved offline via pinned provider source on
-2026-07-09. The remaining tenant gates are the DNS order split, the `[0]`
-none-vs-all semantics, the `microtenant_id="0"` omission test below, and the
-previously-gated generate-config-out behaviors.
+| Evidence item | Status | Current evidence | Remaining gate or caveat |
+| --- | --- | --- | --- |
+| `zia_firewall_dns_rule.order <= 0` skip | Reported partial on `zs2` | The operator reported the gate confirmed on `zs2`; the retained summary explicitly records only that real managed DNS rules had positive `order` values. | Retain a sanitized two-population inventory proving every `order <= 0` item is predefined/system and no managed item is non-positive. The result remains tenant-specific; another tenant could still permit a managed `order: 0`. |
+| Numeric reference-list `[0]` semantics | Reported blocked on ZCC provider bug | #144 maps a pure-sentinel `[0]` to `[]`, but the private run could not reach provider import. | Retain the exact provider version, import command, and sanitized diagnostic; after that bug is fixed, prove per affected field that zero means none/sentinel rather than any/all. |
+| `-generate-config-out`: `url_categories=["ANY"]` | Reported partial / targeted run needed | The operator reported that ordinary category values round-tripped through the oracle. Pinned provider source independently supplies `ANY` when readback is empty. | Run and retain a true category-less match-any case; ordinary-category evidence does not prove the empty-input case. |
+| `-generate-config-out`: non-zero `size_quota` | Source-confirmed / targeted live run needed | Pinned provider source resolves the bytes-to-MB read/write conversion; the private run did not exercise a non-zero quota. | Import a rule with a known non-zero quota and retain API, provider-state, generated-config, and clean re-plan unit summaries. |
+| ZCC failopen inverted booleans | Source-confirmed / reported blocked live | Pinned provider source proves symmetric inversion for the five configured fields; the private run was blocked before import. | Retain the exact ZCC provider version and sanitized import diagnostic, then rerun live oracle confirmation. |
+| `zpa_application_segment.policy_style` | Source-confirmed / reported live | Pinned provider source proves config-space boolean readback, and the operator reported the oracle path agreed. | Retain a sanitized live summary if tenant evidence is needed beyond the source-backed conclusion. |
+| `-generate-config-out`: `cbi_profile` projection | Reported partial / exception open | The operator reported projection working for the observed URL-filtering cases except a private-run case labeled PI-3. | PI-3 has no retained diagnostic in this repository. Record its resource, command, versions, and sanitized failure before diagnosing and rerunning it. |
+| `zpa_application_segment.microtenant_id="0"` | Confirmed by current code path / reported live | Provider source proves raw readback; the oracle code mirrors present optional inputs from post-read state. The operator reported no special `"0"` omission/default handling was needed. | Preserve the no-omission guardrail above; retain a sanitized live summary if the tenant observation is used as acceptance evidence. |
 
-1. DNS rule order split: in a dev tenant, dump `zia_firewall_dns_rule` order
-   values and confirm predefined/system rules have `order <= 0` while real
-   managed rules have `order >= 1`. If a real managed DNS rule can carry
-   `order: 0`, the local `skip_if_lte` predicate is too broad.
-2. Numeric reference-list zero semantics: for affected fields such as
-   `zcc_forwarding_profile.trusted_network_ids` and
-   `trusted_network_ids_selected`, confirm `[0]` means none/sentinel rather
-   than any/all. The #144 rewrite intentionally maps pure-sentinel `[0]` to
-   `[]`; that is correct only when zero is not an any/all selector.
-3. Optional matcher typo hardening: #144 added matcher shape validation and a
-   rename-conflict guard, but it does not yet validate skip field names against
-   a schema or raw-field vocabulary. A typo such as `{"ordr": 0}` fails open by
-   keeping the item, so it is safe, but a future schema-aware validator could
-   catch it earlier.
-4. `microtenant_id="0"` omission: prove with a pinned import/show/plan test
-   whether omitting `microtenant_id` from config plans clean against a state
-   value of `"0"`. Test scope: `zpa_application_segment` only. Six override
-   files drop `microtenant_id="0"` (`zpa_application_segment`,
-   `zpa_server_group`, `zpa_segment_group`, `zpa_application_server`,
-   `zpa_app_connector_group`, and `zpa_policy_access_rule` including its
-   nested `conditions` and `conditions.operands` paths), but zpa 4.4.6
-   declares every one of those attributes `Optional` plus `Computed` except
-   `zpa_application_segment.microtenant_id`, which is `Optional` only
-   ([resource_zpa_application_segment.go#L231-L234](https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_application_segment.go#L231-L234);
-   contrast
-   [resource_zpa_server_group.go#L96-L100](https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_server_group.go#L96-L100);
-   local dump
-   [packs/zpa/schemas/provider/zpa.json](../packs/zpa/schemas/provider/zpa.json)
-   agrees for all eight field paths). An `Optional`-plus-`Computed` attribute
-   omitted from config keeps its prior state value and plans clean, so those
-   drops are expected cosmetic by schema semantics. Only the app segment
-   attribute lacks `Computed`, so the expected result there is a planned
-   change, which would make transform's `drop_if_default` a real divergence
-   for `zpa_application_segment` rather than cosmetic.
+One non-tenant follow-up remains: #144 validates matcher shape and rename
+conflicts, but it does not validate skip field names against a schema or raw
+field vocabulary. A typo such as `{"ordr": 0}` fails open by keeping the item,
+so it is safe; a future schema-aware validator could catch it earlier.
 
 ## Acceptance Bar
 
