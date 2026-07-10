@@ -29,6 +29,8 @@ def _discover_pack_names(root):
         return []
     out = []
     for name in sorted(os.listdir(root)):
+        if name == "_shared":
+            continue
         pack_path = os.path.join(root, name, "pack.json")
         if os.path.isfile(pack_path):
             out.append(name)

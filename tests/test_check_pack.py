@@ -83,6 +83,16 @@ class CheckPackCliTest(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("unknown key rename", proc.stderr)
 
+    def test_reserved_shared_root_is_not_an_authoring_pack(self):
+        with tempfile.TemporaryDirectory() as td:
+            _write_json(os.path.join(td, "_shared", "pack.json"), {
+                "provider_sources": {"ghost": "example/ghost"},
+            })
+            proc = self._run(packs_root=td)
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout, "validated packs: none\n")
+
     def test_invalid_registry_metadata_fails(self):
         with tempfile.TemporaryDirectory() as td:
             data = _registry()
