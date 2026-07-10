@@ -98,6 +98,7 @@ def validate_packs(pack=None):
     registries = []
     for name in names:
         registries.append(_validate_one(root, name))
+    packs.validate_shared_dependencies(pack_names=names, root=root)
     if pack is None:
         registry.check_duplicate_resource_types(registries)
     return names

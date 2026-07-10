@@ -142,6 +142,24 @@ class CheckPackCliTest(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("duplicate resource type 'sample_resource'", proc.stderr)
 
+    def test_declared_shared_dependency_is_required(self):
+        with tempfile.TemporaryDirectory() as td:
+            _write_pack(td, "sample", pack={
+                "provider_prefixes": {"sample_": "sample"},
+                "requires_shared": ["common"],
+            })
+            missing = self._run(packs_root=td)
+            os.makedirs(os.path.join(td, "_shared", "common"))
+            present = self._run(packs_root=td)
+
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn(
+            "pack sample requires missing shared component common",
+            missing.stderr,
+        )
+        self.assertEqual(present.returncode, 0, present.stderr)
+        self.assertEqual(present.stdout, "validated packs: sample\n")
+
     def test_make_target_invokes_check_pack_command(self):
         proc = subprocess.run(
             ["make", "-C", ROOT, "-n", "PACK=zia", "check-pack"],

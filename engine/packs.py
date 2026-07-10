@@ -1,16 +1,19 @@
 """Pack discovery and manifest merge.
 
 The engine carries zero vendor knowledge. Each pack under packs/<name>/
-ships a pack.json manifest (provider prefixes, registry sources, unescape
-products, scope segments) plus its data (registry.json, overrides/,
-schemas/, adoption_status.json). This module discovers packs and exposes
-the merged tables the engine reads data from.
+ships a pack.json manifest (provider prefixes, registry sources, shared-code
+dependencies, unescape products, scope segments) plus its data (registry.json,
+overrides/, schemas/, adoption_status.json, and optional collector code). This
+module discovers packs and exposes the merged tables and collector loader the
+engine uses.
 
 Stdlib-only, Python 3.6-floor.
 """
 import importlib
 import json
 import os
+import re
+import sys
 
 from engine import manifest_checks
 
@@ -22,6 +25,10 @@ _DEFAULT_PACKS_ROOT = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packs")
 
 _MANIFESTS = None
+_MANIFESTS_ROOT = None
+_PACK_NAMESPACE_ROOT = None
+_COMPONENT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+_IMPORTABLE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 PACK_METADATA_KEYS = set([
     "absent_defaults",
@@ -33,6 +40,7 @@ PACK_METADATA_KEYS = set([
     "provider_prefixes",
     "provider_sources",
     "references",
+    "requires_shared",
     "scope_segments",
     "sensitive_required",
     "unescape_products",
@@ -55,7 +63,7 @@ PACK_DICT_KEYS = set([
 ])
 
 PACK_STRING_KEYS = set(["pin", "vendor"])
-PACK_LIST_KEYS = set(["unescape_products"])
+PACK_LIST_KEYS = set(["requires_shared", "unescape_products"])
 
 
 def packs_root():
@@ -71,27 +79,44 @@ PACKS_ROOT = _DEFAULT_PACKS_ROOT
 def reset():
     """Drop cached manifests so a later pack change (or an INFRAWRIGHT_PACKS
     swap in tests) is re-discovered. Mirrors registry.reload_registry()."""
-    global _MANIFESTS
+    global _MANIFESTS, _MANIFESTS_ROOT, _PACK_NAMESPACE_ROOT
     _MANIFESTS = None
+    _MANIFESTS_ROOT = None
+    _PACK_NAMESPACE_ROOT = None
+    _purge_pack_modules()
+    importlib.invalidate_caches()
+
+
+def _purge_pack_modules():
+    for name in list(sys.modules):
+        if name.startswith("packs."):
+            del sys.modules[name]
+
+
+def _discover_manifests(root):
+    found = []
+    if not os.path.isdir(root):
+        return found
+    for name in sorted(os.listdir(root)):
+        if name == "_shared":
+            continue
+        path = os.path.join(root, name, "pack.json")
+        if not os.path.isfile(path):
+            continue
+        with open(path, encoding="utf-8") as f:
+            manifest = json.load(f)
+        validate_pack_metadata(manifest, path=path)
+        manifest["_name"] = name
+        found.append(manifest)
+    return found
 
 
 def _manifests():
-    global _MANIFESTS
-    if _MANIFESTS is None:
-        found = []
-        root = packs_root()
-        if os.path.isdir(root):
-            for name in sorted(os.listdir(root)):
-                if name == "_shared":
-                    continue
-                path = os.path.join(root, name, "pack.json")
-                if os.path.isfile(path):
-                    with open(path, encoding="utf-8") as f:
-                        manifest = json.load(f)
-                    validate_pack_metadata(manifest, path=path)
-                    manifest["_name"] = name
-                    found.append(manifest)
-        _MANIFESTS = found
+    global _MANIFESTS, _MANIFESTS_ROOT
+    root = os.path.abspath(packs_root())
+    if _MANIFESTS is None or _MANIFESTS_ROOT != root:
+        _MANIFESTS = _discover_manifests(root)
+        _MANIFESTS_ROOT = root
     return _MANIFESTS
 
 
@@ -122,6 +147,21 @@ def _validate_unescape_products(value, path):
     for idx, item in enumerate(value):
         if not isinstance(item, str) or not item:
             raise ValueError("%s[%d] must be a non-empty string" % (path, idx))
+
+
+def _validate_requires_shared(value, path):
+    seen = set()
+    for idx, item in enumerate(value):
+        if not isinstance(item, str) or not _COMPONENT_NAME_RE.match(item):
+            raise ValueError(
+                "%s[%d] must be a lowercase shared-component name"
+                % (path, idx)
+            )
+        if item in seen:
+            raise ValueError("%s duplicates %r" % (path, item))
+        seen.add(item)
+    if value != sorted(value):
+        raise ValueError("%s must be sorted" % path)
 
 
 def _validate_lookup_sources(value, path):
@@ -229,6 +269,10 @@ def validate_pack_metadata(data, path=None):
         _validate_unescape_products(
             data["unescape_products"], "%s.unescape_products" % path
         )
+    if "requires_shared" in data:
+        _validate_requires_shared(
+            data["requires_shared"], "%s.requires_shared" % path
+        )
     if "lookup_sources" in data:
         _validate_lookup_sources(
             data["lookup_sources"], "%s.lookup_sources" % path
@@ -320,13 +364,74 @@ def bare_name(resource_type):
     return resource_type
 
 
+def _manifest_for_provider(provider):
+    for manifest in _manifests():
+        if provider in manifest.get("provider_prefixes", {}).values():
+            return manifest
+    raise RuntimeError("no pack declares provider %r" % provider)
+
+
+def _configure_pack_namespace():
+    global _PACK_NAMESPACE_ROOT
+    root = os.path.abspath(packs_root())
+    if _PACK_NAMESPACE_ROOT == root:
+        return
+    _purge_pack_modules()
+    namespace = importlib.import_module("packs")
+    namespace.__path__ = [root]
+    importlib.invalidate_caches()
+    _PACK_NAMESPACE_ROOT = root
+
+
+def _load_manifests_from_root(root):
+    root = os.path.abspath(root)
+    if root == os.path.abspath(packs_root()):
+        return _manifests()
+    return _discover_manifests(root)
+
+
+def validate_shared_dependencies(pack_names=None, root=None):
+    """Require every selected pack's declared shared component to exist."""
+    root = os.path.abspath(root or packs_root())
+    selected = set(pack_names) if pack_names is not None else None
+    for manifest in _load_manifests_from_root(root):
+        name = manifest["_name"]
+        if selected is not None and name not in selected:
+            continue
+        for dependency in manifest.get("requires_shared", []):
+            path = os.path.join(root, "_shared", dependency)
+            if not os.path.isdir(path):
+                raise ValueError(
+                    "pack %s requires missing shared component %s under %s"
+                    % (name, dependency, os.path.join(root, "_shared"))
+                )
+
+
 def collector_for(provider):
     """Collector module for a provider pack.
 
-    Provider collectors live at packs/<provider>/collector.py and expose the
-    small auth/URL contract consumed by engine.collectors.rest.
+    Provider collectors live in the pack that declares ``provider`` and expose
+    the small auth/URL contract consumed by engine.collectors.rest. Imports are
+    resolved only from the effective pack root, including shared components.
     """
-    return importlib.import_module("packs.%s.collector" % provider)
+    manifest = _manifest_for_provider(provider)
+    pack_name = manifest["_name"]
+    validate_shared_dependencies(pack_names=[pack_name])
+    collector_path = os.path.join(
+        packs_root(), pack_name, "collector.py"
+    )
+    if not os.path.isfile(collector_path):
+        raise RuntimeError(
+            "pack %s declares provider %r but has no collector.py under %s"
+            % (pack_name, provider, os.path.dirname(collector_path))
+        )
+    if not _IMPORTABLE_NAME_RE.match(pack_name):
+        raise RuntimeError(
+            "pack %s cannot expose a Python collector: its directory name "
+            "is not an importable identifier" % pack_name
+        )
+    _configure_pack_namespace()
+    return importlib.import_module("packs.%s.collector" % pack_name)
 
 
 # --- per-resource resolution (provider-first) -------------------------------
@@ -336,10 +441,7 @@ def collector_for(provider):
 
 def pack_dir_for_provider(provider):
     """Directory of the pack whose manifest declares `provider`."""
-    for m in _manifests():
-        if provider in m.get("provider_prefixes", {}).values():
-            return os.path.join(packs_root(), m["_name"])
-    raise RuntimeError("no pack declares provider %r" % provider)
+    return os.path.join(packs_root(), _manifest_for_provider(provider)["_name"])
 
 
 def vendor_of(provider):

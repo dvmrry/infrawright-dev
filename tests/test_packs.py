@@ -24,6 +24,25 @@ def _write_pack(root, name, manifest, with_registry=False):
             json.dump({}, f)
 
 
+def _write_text(path, content):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+def _write_collector(root, pack_name, pack_marker, shared_marker):
+    _write_text(os.path.join(root, pack_name, "__init__.py"), "")
+    _write_text(
+        os.path.join(root, pack_name, "collector.py"),
+        "from packs._shared.common import MARKER as SHARED_MARKER\n"
+        "PACK_MARKER = %r\n" % pack_marker,
+    )
+    _write_text(
+        os.path.join(root, "_shared", "common", "__init__.py"),
+        "MARKER = %r\n" % shared_marker,
+    )
+
+
 class PackContractTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -181,6 +200,88 @@ class PackContractTest(unittest.TestCase):
         self.assertEqual(packs.provider_sources(), {})
         self.assertEqual(packs.registry_paths(), [])
 
+    def test_external_root_is_authoritative_for_collector_and_shared_imports(self):
+        _write_pack(self.tmp, "distribution", {
+            "provider_prefixes": {"sample_": "sample"},
+            "requires_shared": ["common"],
+        })
+        _write_collector(self.tmp, "distribution", "pack-one", "shared-one")
+        packs.reset()
+
+        collector = packs.collector_for("sample")
+
+        self.assertEqual(collector.PACK_MARKER, "pack-one")
+        self.assertEqual(collector.SHARED_MARKER, "shared-one")
+        self.assertTrue(
+            os.path.abspath(collector.__file__).startswith(
+                os.path.abspath(self.tmp) + os.sep
+            )
+        )
+
+    def test_changing_external_root_reloads_manifests_and_collector_modules(self):
+        _write_pack(self.tmp, "distribution", {
+            "provider_prefixes": {"sample_": "sample"},
+            "requires_shared": ["common"],
+        })
+        _write_collector(self.tmp, "distribution", "pack-one", "shared-one")
+        packs.reset()
+        first = packs.collector_for("sample")
+
+        other = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, other, True)
+        _write_pack(other, "distribution", {
+            "provider_prefixes": {"sample_": "sample"},
+            "requires_shared": ["common"],
+        })
+        _write_collector(other, "distribution", "pack-two", "shared-two")
+        os.environ["INFRAWRIGHT_PACKS"] = other
+
+        second = packs.collector_for("sample")
+
+        self.assertIsNot(first, second)
+        self.assertEqual(second.PACK_MARKER, "pack-two")
+        self.assertEqual(second.SHARED_MARKER, "shared-two")
+        self.assertTrue(
+            os.path.abspath(second.__file__).startswith(
+                os.path.abspath(other) + os.sep
+            )
+        )
+
+    def test_missing_declared_shared_component_fails_before_collector_import(self):
+        _write_pack(self.tmp, "distribution", {
+            "provider_prefixes": {"sample_": "sample"},
+            "requires_shared": ["zscaler"],
+        })
+        packs.reset()
+
+        with self.assertRaisesRegex(
+                ValueError,
+                "pack distribution requires missing shared component zscaler"):
+            packs.collector_for("sample")
+
+    def test_external_root_cannot_fall_back_to_bundled_collector(self):
+        _write_pack(self.tmp, "zia", {
+            "provider_prefixes": {"zia_": "zia"},
+        })
+        packs.reset()
+
+        with self.assertRaisesRegex(
+                RuntimeError,
+                "pack zia declares provider 'zia' but has no collector.py"):
+            packs.collector_for("zia")
+
+    def test_requires_shared_rejects_invalid_duplicate_and_unsorted_names(self):
+        cases = [
+            (["Bad"], "must be a lowercase shared-component name"),
+            (["common", "common"], "duplicates 'common'"),
+            (["two", "one"], "must be sorted"),
+        ]
+        for value, message in cases:
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, message):
+                    packs.validate_pack_metadata(
+                        {"requires_shared": value}, path="sample/pack.json"
+                    )
 
 if __name__ == "__main__":
     unittest.main()

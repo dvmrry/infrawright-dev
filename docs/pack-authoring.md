@@ -15,7 +15,12 @@ packs/<name>/
 ```
 
 Set `INFRAWRIGHT_PACKS=/path/to/packs` to validate or run against a different
-packs root. This uses the same discovery behavior as the engine.
+packs root. The effective root is authoritative for manifest discovery,
+registries, pack data, provider collector modules, and collector imports below
+`packs._shared`; collector code cannot fall back to the checkout's bundled
+packs. Changing the environment variable in a long-running Python process
+switches roots on the next pack lookup. Call `engine.packs.reset()` after
+editing code or metadata in place at the same root.
 
 For a deliberately reduced pack root, pair that setting with an exact
 `PACK_PROFILE`. See [Pack Distributions And Modular Checks](pack-distributions.md)
@@ -51,6 +56,7 @@ provider_config
 provider_prefixes
 provider_sources
 references
+requires_shared
 scope_segments
 sensitive_required
 unescape_products
@@ -66,6 +72,7 @@ Simple type rules:
 | `provider_prefixes` | object of string -> string |
 | `provider_sources` | object of string -> string |
 | `scope_segments` | object of string -> string |
+| `requires_shared` | sorted list of lowercase shared-component names |
 | `unescape_products` | list of strings |
 | `lookup_sources` | object |
 | `references` | object |
@@ -88,6 +95,13 @@ Nested required keys when the group is present:
 Detailed diagnostic rule semantics are validated by their lane-specific
 validators. The pack structural validator only checks the containing vocabulary
 and simple types.
+
+`requires_shared` declares runtime code dependencies under
+`<packs-root>/_shared/<name>`. Pack validation, exact pack-profile validation,
+and collector loading fail when a declared component is absent. Distribution
+profiles and example/test requirements should list those components explicitly
+in their `shared` arrays so the required closure remains visible. The four
+Zscaler provider packs, for example, each declare `requires_shared: ["zscaler"]`.
 
 ## `registry.json`
 
@@ -330,8 +344,13 @@ silently change:
 - drift policy
 - plan classification
 - Terraform/OpenTofu execution behavior
-- collector behavior
+- generic collector behavior
 
-Collectors remain separate from generic pack metadata in the current system.
-Provider-specific collector code may live in a pack, but `pack.json` and
-`registry.json` do not define out-of-tree collector loading.
+Provider-specific collector behavior remains code, not declarative metadata.
+A collector-bearing pack directory must be a valid Python identifier and place
+its implementation at `packs/<name>/collector.py`. The pack that declares a
+provider token in `provider_prefixes` owns that provider's collector; its
+directory name does not need to equal the provider token. Absolute imports such
+as `packs._shared.<component>` resolve from the same effective pack root.
+`requires_shared` declares that code dependency without defining or changing
+its behavior.

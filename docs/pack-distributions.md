@@ -39,9 +39,16 @@ make PACK_PROFILE=packsets/zscaler.json check
 ```
 
 Copy `packs/{zcc,zia,zpa,ztc}` and `packs/_shared/zscaler` into that root. A
-future external-loader change will make independently distributed pack roots
-fully authoritative for Python collectors as well; until then, selected roots
-are supported within a checkout of this repository.
+selected or independently distributed root is authoritative for Python
+collectors and their `packs._shared` imports as well as metadata and registry
+data; it cannot silently import a missing collector from this checkout.
+
+Packs declare runtime shared-code dependencies with `requires_shared` in
+`pack.json`. Exact profile validation and `check-pack` enforce that dependency
+closure. Therefore every profile containing a Zscaler provider pack also names
+the `zscaler` shared component. A downstream profile that drops unrelated packs
+remains valid, but dropping a component required by a retained pack fails
+before tests or collection begin.
 
 Every top-level directory other than `_shared` counts as an installed pack,
 even when it has no `pack.json`; every directory immediately below `_shared`
