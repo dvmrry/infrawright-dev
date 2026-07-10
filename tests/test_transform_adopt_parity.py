@@ -169,6 +169,17 @@ class TransformAdoptParityTest(unittest.TestCase):
                 parity.ParityFixtureError, "GitHub blob ref pinned"):
             parity.validate_fixture(fixture)
 
+    def test_fixture_provider_source_requires_a_file_path(self):
+        fixture = copy.deepcopy(_fixture_named(
+            "zia_dlp_engines_predefined_name"
+        ))
+        fixture["provenance"]["sources"][0] = (
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26"
+        )
+        with self.assertRaisesRegex(
+                parity.ParityFixtureError, "GitHub blob ref pinned"):
+            parity.validate_fixture(fixture)
+
     def test_fixture_provenance_local_sources_must_exist(self):
         fixture = copy.deepcopy(_fixture_named(
             "zcc_failopen_policy_inversion"
@@ -237,6 +248,62 @@ class TransformAdoptParityTest(unittest.TestCase):
         )
         self.assertEqual(
             result["summary"]["unaccounted_byte_differences"], 1
+        )
+
+    def test_partial_comparator_miss_requires_review(self):
+        fixture = copy.deepcopy(_fixture_named(
+            "zia_dlp_engines_predefined_name"
+        ))
+        fixture["expected_differences"][0]["disposition"] = "accepted"
+        fixture["provider_state"]["101"]["values"]["description"] = (
+            "Different provider description"
+        )
+        complete = parity.compare_fixture(fixture)
+        known = next(
+            entry for entry in complete["differences"]
+            if entry["path"] == "/items/predefined_engine/name"
+        )
+        reported_only = [{
+            "path": known["path"],
+            "transform": known["transform"],
+            "adopt": known["adopt"],
+        }]
+        with mock.patch.object(
+                parity, "_json_differences", return_value=reported_only):
+            result = parity.compare_fixture(fixture)
+        self.assertEqual(result["result"], "review_required")
+        self.assertEqual(result["summary"]["accepted"], 1)
+        self.assertEqual(result["summary"]["unclassified"], 0)
+        self.assertEqual(
+            result["summary"]["unaccounted_byte_differences"], 1
+        )
+
+    def test_reported_differences_reconstruct_list_changes(self):
+        transform_payload = {
+            "items": {"one": {"values": [1, 2, 3]}},
+        }
+        adopt_payload = {
+            "items": {"one": {"values": [1, 4]}},
+        }
+        differences = parity._json_differences(
+            transform_payload, adopt_payload
+        )
+        self.assertEqual(
+            parity._apply_reported_differences(
+                transform_payload, differences
+            ),
+            adopt_payload,
+        )
+
+        extended = {
+            "items": {"one": {"values": [1, 2, 3, 4]}},
+        }
+        differences = parity._json_differences(adopt_payload, extended)
+        self.assertEqual(
+            parity._apply_reported_differences(
+                adopt_payload, differences
+            ),
+            extended,
         )
 
     def test_json_pointer_escapes_object_keys(self):

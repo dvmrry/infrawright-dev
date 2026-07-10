@@ -8,6 +8,7 @@ requires every difference to match an exact, value-bound classification.
 This module is diagnostic-only. It does not import provider state, change
 projection policy, or decide which representation is correct.
 """
+import copy
 import hashlib
 import json
 import math
@@ -256,10 +257,16 @@ def _pinned_github_source(url, repository, version):
     if marker not in remainder:
         return False
     actual_repository, remainder = remainder.split(marker, 1)
+    if not actual_repository or "/" not in remainder:
+        return False
     if repository is not None and actual_repository != repository:
         return False
-    ref = remainder.split("/", 1)[0]
-    return ref in (version, "v%s" % version)
+    ref, source_path = remainder.split("/", 1)
+    return (
+        ref in (version, "v%s" % version)
+        and bool(source_path)
+        and not source_path.startswith("#")
+    )
 
 
 def _validate_expectations(expectations, allowed_evidence, where):
@@ -503,6 +510,121 @@ def _canonical_json(value):
     )
 
 
+def _pointer_tokens(pointer):
+    if pointer == "":
+        return []
+    if not isinstance(pointer, str) or not pointer.startswith("/"):
+        raise ParityFixtureError("difference path is not a JSON pointer")
+    return [
+        token.replace("~1", "/").replace("~0", "~")
+        for token in pointer[1:].split("/")
+    ]
+
+
+def _pointer_parent(root, tokens):
+    current = root
+    for token in tokens[:-1]:
+        if isinstance(current, dict):
+            if token not in current:
+                raise ParityFixtureError(
+                    "difference path parent %s is missing" % token
+                )
+            current = current[token]
+        elif isinstance(current, list):
+            try:
+                index = int(token)
+            except ValueError:
+                raise ParityFixtureError(
+                    "difference path list index %s is invalid" % token
+                )
+            if index < 0 or index >= len(current):
+                raise ParityFixtureError(
+                    "difference path list index %s is out of range" % token
+                )
+            current = current[index]
+        else:
+            raise ParityFixtureError(
+                "difference path traverses a scalar at %s" % token
+            )
+    return current, tokens[-1]
+
+
+def _set_pointer(root, pointer, value):
+    tokens = _pointer_tokens(pointer)
+    if not tokens:
+        return copy.deepcopy(value)
+    parent, token = _pointer_parent(root, tokens)
+    if isinstance(parent, dict):
+        parent[token] = copy.deepcopy(value)
+        return root
+    if isinstance(parent, list):
+        try:
+            index = int(token)
+        except ValueError:
+            raise ParityFixtureError(
+                "difference path list index %s is invalid" % token
+            )
+        if index == len(parent):
+            parent.append(copy.deepcopy(value))
+        elif 0 <= index < len(parent):
+            parent[index] = copy.deepcopy(value)
+        else:
+            raise ParityFixtureError(
+                "difference path list index %s is out of range" % token
+            )
+        return root
+    raise ParityFixtureError(
+        "difference path parent is not a container at %s" % pointer
+    )
+
+
+def _delete_pointer(root, pointer):
+    tokens = _pointer_tokens(pointer)
+    if not tokens:
+        raise ParityFixtureError("difference cannot delete the report root")
+    parent, token = _pointer_parent(root, tokens)
+    if isinstance(parent, dict):
+        if token not in parent:
+            raise ParityFixtureError(
+                "difference delete path %s is missing" % pointer
+            )
+        del parent[token]
+        return root
+    if isinstance(parent, list):
+        try:
+            index = int(token)
+        except ValueError:
+            raise ParityFixtureError(
+                "difference path list index %s is invalid" % token
+            )
+        if index < 0 or index >= len(parent):
+            raise ParityFixtureError(
+                "difference delete index %s is out of range" % token
+            )
+        del parent[index]
+        return root
+    raise ParityFixtureError(
+        "difference delete parent is not a container at %s" % pointer
+    )
+
+
+def _apply_reported_differences(transform_payload, differences):
+    reconstructed = copy.deepcopy(transform_payload)
+    for entry in differences:
+        if entry["adopt"]["present"]:
+            reconstructed = _set_pointer(
+                reconstructed,
+                entry["path"],
+                entry["adopt"]["value"],
+            )
+    for entry in reversed(differences):
+        if not entry["adopt"]["present"]:
+            reconstructed = _delete_pointer(
+                reconstructed, entry["path"]
+            )
+    return reconstructed
+
+
 def _difference_key(entry):
     return json.dumps(
         {
@@ -541,10 +663,14 @@ def compare_fixture(data):
     transform_rendered, transform_sha = _render_sha256(transform_items)
     adopt_rendered, adopt_sha = _render_sha256(adopt_items)
     byte_equal = transform_rendered == adopt_rendered
-    actual = _json_differences(
-        {"items": transform_items}, {"items": adopt_items}
+    transform_payload = {"items": transform_items}
+    adopt_payload = {"items": adopt_items}
+    actual = _json_differences(transform_payload, adopt_payload)
+    reconstructed = _apply_reported_differences(transform_payload, actual)
+    reconstructed_rendered = transform.render_tfvars(reconstructed["items"])
+    unaccounted_byte_difference = (
+        reconstructed_rendered != adopt_rendered
     )
-    unaccounted_byte_difference = bool(not byte_equal and not actual)
     expected = dict(
         (_difference_key(entry), entry)
         for entry in data["expected_differences"]

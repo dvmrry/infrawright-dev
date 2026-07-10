@@ -110,7 +110,9 @@ bindings, plan results, apply/refresh behavior, or later-plan stability. Those
 are separate extensions and must not be inferred from an equal result here.
 Scalar comparison uses canonical JSON encoding rather than Python numeric
 equality, so representations such as `-0.0` and `0.0` cannot report equal. A
-byte mismatch with no structured difference is independently fail-closed as an
+second completeness check reconstructs the adopt payload from the transform
+payload plus every reported difference and requires exact rendered-byte
+equality. A total or partial comparator miss is therefore fail-closed as an
 unaccounted render difference.
 
 ## Adding A Case
