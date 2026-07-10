@@ -15,6 +15,50 @@ class _JsonOpener(object):
 
 
 class RestCollectorSecurityTest(unittest.TestCase):
+    def test_zia_http_header_resources_use_flat_list_endpoints(self):
+        payloads = {
+            "httpHeaderActionProfile": [{"id": 11, "name": "Action"}],
+            "httpHeaderProfile": [{"id": 22, "name": "Match"}],
+        }
+        calls = []
+
+        def opener(method, url, headers, body):
+            calls.append((method, url, headers, body))
+            key = url.rsplit("/", 1)[-1]
+            return 200, json.dumps(payloads[key]).encode("utf-8")
+
+        expected = {
+            "zia_http_header_action_profile": payloads[
+                "httpHeaderActionProfile"
+            ],
+            "zia_http_header_profile": payloads["httpHeaderProfile"],
+        }
+        for resource_type, payload in sorted(expected.items()):
+            with self.subTest(resource_type=resource_type):
+                self.assertEqual(
+                    rest.fetch_resource(
+                        resource_type,
+                        "oneapi",
+                        {"cloud": "production"},
+                        "token",
+                        opener,
+                    ),
+                    payload,
+                )
+
+        self.assertEqual(
+            [call[1] for call in calls],
+            [
+                "https://api.zsapi.net/zia/api/v1/httpHeaderActionProfile",
+                "https://api.zsapi.net/zia/api/v1/httpHeaderProfile",
+            ],
+        )
+        for method, url, headers, body in calls:
+            self.assertEqual(method, "GET")
+            self.assertNotIn("?", url)
+            self.assertEqual(headers["Authorization"], "Bearer token")
+            self.assertIsNone(body)
+
     def test_paginate_zia_requires_configured_envelope_key(self):
         opener = _JsonOpener({
             "totalCount": 1,
