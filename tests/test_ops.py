@@ -140,6 +140,37 @@ class OpsContractSchemaTest(unittest.TestCase):
             ops.PLAN_FINGERPRINT_VERSION,
         )
 
+    def test_plan_root_schema_binds_state_to_artifact_presence(self):
+        with open(
+                "docs/schemas/plan-roots.schema.json",
+                encoding="utf-8") as f:
+            schema = json.load(f)
+        rules = schema["$defs"]["root"]["allOf"]
+        self.assertEqual([
+            rule["if"]["properties"]["artifact_state"]["const"]
+            for rule in rules
+        ], ["absent", "complete", "incomplete"])
+        absent = rules[0]["then"]["properties"]["artifacts"]["properties"]
+        complete = rules[1]["then"]["properties"]["artifacts"]["properties"]
+        for name in ("tfplan", "tfplan_sources"):
+            self.assertIs(
+                absent[name]["properties"]["exists"]["const"], False
+            )
+            self.assertIs(
+                complete[name]["properties"]["exists"]["const"], True
+            )
+        incomplete = rules[2]["then"]["properties"]["artifacts"]["oneOf"]
+        combinations = set()
+        for choice in incomplete:
+            properties = choice["properties"]
+            combinations.add((
+                properties["tfplan"]["properties"]["exists"]["const"],
+                properties["tfplan_sources"]["properties"]["exists"][
+                    "const"
+                ],
+            ))
+        self.assertEqual(combinations, set([(True, False), (False, True)]))
+
     def test_contract_options_are_scoped_to_contract_commands(self):
         opts = ops._parse(
             ["--tenant", "tenant", "--report", "assessment.json", "zpa"],
@@ -877,6 +908,88 @@ class OpsGroupedRootCommandTest(unittest.TestCase):
         self.assertEqual(
             relative_scope["affected_roots"][0]["label"], "zpa_custom"
         )
+
+    def test_external_overlay_path_spellings_scope_identically(self):
+        external = tempfile.mkdtemp(prefix="ops-external-overlay-")
+        self.addCleanup(lambda: shutil.rmtree(external, ignore_errors=True))
+        deployment_path = os.environ["INFRAWRIGHT_DEPLOYMENT"]
+        with open(deployment_path, encoding="utf-8") as f:
+            data = json.load(f)
+        data["overlay"] = external
+        _write_json(deployment_path, data)
+
+        absolute = os.path.join(
+            external,
+            "config",
+            "tenant",
+            "zpa_segment_group.auto.tfvars.json",
+        )
+        relative = os.path.relpath(absolute, os.getcwd())
+        alias_root = os.path.join(self.tmp, "external-alias")
+        os.symlink(external, alias_root)
+        alias = os.path.join(
+            alias_root,
+            "config",
+            "tenant",
+            "zpa_segment_group.auto.tfvars.json",
+        )
+        for spelling in (absolute, relative, alias):
+            with self.subTest(spelling=spelling):
+                scope = ops.changed_path_scope([spelling])
+                self.assertEqual(scope["unmatched_paths"], [])
+                self.assertEqual(
+                    scope["affected_resources"], ["zpa_segment_group"]
+                )
+                self.assertEqual(
+                    scope["affected_roots"][0]["label"], "zpa_custom"
+                )
+                self.assertEqual(scope["paths"], [os.path.normpath(spelling)])
+
+        unrelated = os.path.relpath(
+            os.path.join(
+                os.path.dirname(external),
+                "unrelated-external",
+                "config",
+                "tenant",
+                "zpa_segment_group.auto.tfvars.json",
+            ),
+            os.getcwd(),
+        )
+        self.assertEqual(
+            ops.changed_path_scope([unrelated])["unmatched_paths"],
+            [os.path.normpath(unrelated)],
+        )
+
+    def test_external_deployment_path_spellings_scope_identically(self):
+        external = tempfile.mkdtemp(prefix="ops-external-deployment-")
+        self.addCleanup(lambda: shutil.rmtree(external, ignore_errors=True))
+        absolute = os.path.join(external, "deployment.json")
+        _write_json(absolute, {
+            "roots": {
+                "zpa": {
+                    "groups": {
+                        "zpa_custom": [
+                            "zpa_segment_group",
+                            "zpa_server_group",
+                        ],
+                    },
+                },
+            },
+        })
+        relative = os.path.relpath(absolute, os.getcwd())
+        os.environ["INFRAWRIGHT_DEPLOYMENT"] = relative
+        alias = os.path.join(self.tmp, "deployment-alias.json")
+        os.symlink(absolute, alias)
+
+        expected_resources = ops.expand_resources()
+        for spelling in (relative, absolute, alias):
+            with self.subTest(spelling=spelling):
+                scope = ops.changed_path_scope([spelling])
+                self.assertEqual(scope["unmatched_paths"], [])
+                self.assertEqual(scope["affected_resources"], expected_resources)
+                self.assertEqual(
+                    scope["path_matches"][0]["kinds"], ["deployment"]
+                )
 
     def test_changed_paths_recognize_every_resource_artifact_suffix(self):
         cases = [

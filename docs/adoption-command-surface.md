@@ -121,7 +121,10 @@ affected resource. Input paths are normalized and sorted for deterministic
 output, and deleted paths remain scopeable because matching does not require
 them to exist.
 Like the other deployment-aware commands, relative paths are interpreted from
-the repository/deployment working directory.
+the repository/deployment working directory. Matching compares canonical
+absolute and realpath forms so equivalent absolute, `../`-relative, and symlink
+spellings scope identically, including for supported external overlays; emitted
+`paths` retain the caller's normalized spelling.
 
 The changed-path schema is
 [`docs/schemas/changed-path-scope.schema.json`](schemas/changed-path-scope.schema.json).

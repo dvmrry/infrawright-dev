@@ -96,7 +96,9 @@ class ArtifactsPathTest(unittest.TestCase):
             f.write(json.dumps({"overlay": "acme", "tfvars_format": "hcl"}))
         os.environ["INFRAWRIGHT_DEPLOYMENT"] = dep
         self.assertEqual(artifacts.CONFIG_SUFFIX, ".auto.tfvars.json")
-        self.assertEqual(artifacts.config_suffix(), ".auto.tfvars")
+        self.assertEqual(
+            artifacts.config_suffix(), artifacts.HCL_CONFIG_SUFFIX
+        )
         self.assertEqual(
             artifacts.config_file("tenant", "sample_resource"),
             os.path.join("acme", "config", "tenant",

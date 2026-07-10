@@ -22,6 +22,7 @@ from engine.artifacts import (
     CONFIG_SUFFIX,
     EXPRESSION_BINDINGS_SUFFIX,
     GENERATED_EXPRESSION_BINDINGS_SUFFIX,
+    HCL_CONFIG_SUFFIX,
     IMPORTS_SUFFIX,
     MOVES_SUFFIX,
     all_root_labels,
@@ -35,6 +36,7 @@ from engine.artifacts import (
     validate_tenant,
 )
 from engine.filter_imports import filter_imports
+from engine.lookup import LOOKUP_SUFFIX
 from engine.registry import derived_types
 
 
@@ -301,29 +303,23 @@ _CONFIG_PATH_SUFFIXES = (
     GENERATED_EXPRESSION_BINDINGS_SUFFIX,
     EXPRESSION_BINDINGS_SUFFIX,
     CONFIG_SUFFIX,
-    ".auto.tfvars",
-    ".lookup.json",
+    HCL_CONFIG_SUFFIX,
+    LOOKUP_SUFFIX,
 )
 _IMPORT_PATH_SUFFIXES = (IMPORTS_SUFFIX, MOVES_SUFFIX)
 
 
 def _path_forms(path):
     normalized = os.path.normpath(path)
-    forms = set([normalized])
-    if os.path.isabs(normalized):
-        absolute_forms = set([normalized, os.path.realpath(normalized)])
-        forms.update(absolute_forms)
-        cwd_forms = set([os.getcwd(), os.path.realpath(os.getcwd())])
-        for absolute in absolute_forms:
-            for cwd in cwd_forms:
-                try:
-                    relative = os.path.relpath(absolute, cwd)
-                except ValueError:
-                    continue
-                if relative and (
-                        relative != os.pardir
-                        and not relative.startswith(os.pardir + os.sep)):
-                    forms.add(os.path.normpath(relative))
+    absolute = (
+        normalized if os.path.isabs(normalized)
+        else os.path.abspath(normalized)
+    )
+    forms = set([
+        normalized,
+        os.path.normpath(absolute),
+        os.path.realpath(absolute),
+    ])
     return sorted(forms)
 
 

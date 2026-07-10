@@ -17,6 +17,7 @@ from engine import packs
 from engine.registry import derived_types, generated_types, load_registry
 
 CONFIG_SUFFIX = ".auto.tfvars.json"
+HCL_CONFIG_SUFFIX = ".auto.tfvars"
 EXPRESSION_BINDINGS_SUFFIX = ".expressions.json"
 GENERATED_EXPRESSION_BINDINGS_SUFFIX = ".generated.expressions.json"
 IMPORTS_SUFFIX = "_imports.tf"
@@ -235,7 +236,7 @@ def tfvars_var_name(resource_type):
 
 def config_suffix():
     if deployment.tfvars_format() == "hcl":
-        return ".auto.tfvars"
+        return HCL_CONFIG_SUFFIX
     return CONFIG_SUFFIX
 
 

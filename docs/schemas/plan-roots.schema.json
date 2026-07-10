@@ -130,7 +130,124 @@
             }
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "artifact_state": {
+                "const": "absent"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "artifacts": {
+                "properties": {
+                  "tfplan": {
+                    "properties": {
+                      "exists": {
+                        "const": false
+                      }
+                    }
+                  },
+                  "tfplan_sources": {
+                    "properties": {
+                      "exists": {
+                        "const": false
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "artifact_state": {
+                "const": "complete"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "artifacts": {
+                "properties": {
+                  "tfplan": {
+                    "properties": {
+                      "exists": {
+                        "const": true
+                      }
+                    }
+                  },
+                  "tfplan_sources": {
+                    "properties": {
+                      "exists": {
+                        "const": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "artifact_state": {
+                "const": "incomplete"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "artifacts": {
+                "oneOf": [
+                  {
+                    "properties": {
+                      "tfplan": {
+                        "properties": {
+                          "exists": {
+                            "const": true
+                          }
+                        }
+                      },
+                      "tfplan_sources": {
+                        "properties": {
+                          "exists": {
+                            "const": false
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "tfplan": {
+                        "properties": {
+                          "exists": {
+                            "const": false
+                          }
+                        }
+                      },
+                      "tfplan_sources": {
+                        "properties": {
+                          "exists": {
+                            "const": true
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }
