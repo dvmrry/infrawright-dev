@@ -3,7 +3,6 @@
 This is a metadata-only smoke test. It does not test behavior changes because the
 metadata is guidance/validation only.
 """
-import os
 import unittest
 
 from engine import packs
@@ -12,16 +11,9 @@ from engine import provider_config
 
 class PackAdoptionMetadataTest(unittest.TestCase):
     def setUp(self):
-        self._prev = os.environ.get("INFRAWRIGHT_PACKS")
-        if self._prev is not None:
-            del os.environ["INFRAWRIGHT_PACKS"]
         packs.reset()
 
     def tearDown(self):
-        if self._prev is None:
-            os.environ.pop("INFRAWRIGHT_PACKS", None)
-        else:
-            os.environ["INFRAWRIGHT_PACKS"] = self._prev
         packs.reset()
 
     def test_google_provider_config_metadata_validates(self):
@@ -41,7 +33,6 @@ class PackAdoptionMetadataTest(unittest.TestCase):
 
     def test_committed_provider_config_requirements_validate(self):
         reqs = packs.provider_config_requirements()
-        self.assertTrue(reqs)
         normalized = provider_config.validate_requirements(reqs)
         self.assertEqual(len(normalized), len(reqs))
 
@@ -123,16 +114,9 @@ class PackMetadataBehaviorInvariantTest(unittest.TestCase):
     """
 
     def setUp(self):
-        self._prev = os.environ.get("INFRAWRIGHT_PACKS")
-        if self._prev is not None:
-            del os.environ["INFRAWRIGHT_PACKS"]
         packs.reset()
 
     def tearDown(self):
-        if self._prev is None:
-            os.environ.pop("INFRAWRIGHT_PACKS", None)
-        else:
-            os.environ["INFRAWRIGHT_PACKS"] = self._prev
         packs.reset()
 
     def _provider_config_evidence(self, req):

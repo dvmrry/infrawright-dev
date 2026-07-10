@@ -1,0 +1,12 @@
+{
+  "kind": "infrawright.pack-requirements",
+  "version": 1,
+  "packs": [
+    "zcc",
+    "zia",
+    "zpa"
+  ],
+  "shared": [
+    "zscaler"
+  ]
+}

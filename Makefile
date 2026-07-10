@@ -2,6 +2,9 @@ PYTHON ?= python3
 TF ?= terraform
 OVERLAY ?= demo
 DEPLOYMENT ?= deployment.json
+PACK_PROFILE ?= packsets/full.json
+PACK_CATALOG ?= packsets/full.json
+DEMO_PACK_REQUIREMENTS ?= demo/pack-requirements.json
 # Every engine invocation must see the selected deployment. ?= keeps an
 # explicitly exported INFRAWRIGHT_DEPLOYMENT from the caller authoritative;
 # recipe-level overrides (check-demo, check-modules) still win per-command.
@@ -16,12 +19,23 @@ ifneq ($(strip $(OVERLAY)),)
 -include $(OVERLAY)/local.mk
 endif
 
-.PHONY: check-demo check-modules check-tfvars-fmt check-pack audit-vendor-boundary demo-contract check test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set audit-vendor-boundary demo-contract check check-all check-core test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
 	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1
-	@test -z "$$(git status --porcelain -- demo/config/demo demo/imports/demo)" || { \
-		echo "demo drift:"; git status --porcelain -- demo/config/demo demo/imports/demo; exit 1; }
+	@status="$$(git status --porcelain -- demo/config/demo demo/imports/demo)" || { \
+		echo "check-demo: unable to inspect demo drift" >&2; exit 1; }; \
+	test -z "$$status" || { echo "demo drift:"; echo "$$status"; exit 1; }
+
+check-examples: ## Validate examples whose declared pack requirements are installed
+	@set +e; output="$$( $(PYTHON) -m engine.pack_set --catalog "$(PACK_CATALOG)" --requirements "$(DEMO_PACK_REQUIREMENTS)" 2>&1 )"; status=$$?; set -e; \
+	if [ $$status -eq 0 ]; then \
+		echo "$$output"; $(MAKE) check-demo; \
+	elif [ $$status -eq 3 ]; then \
+		echo "check-examples: skip demo ($$output)"; \
+	else \
+		echo "$$output" >&2; exit $$status; \
+	fi
 
 check-modules: ## Generate every module into a temp deployment to catch generator regressions
 	@tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \
@@ -41,15 +55,20 @@ check-tfvars-fmt: ## Validate HCL tfvars formatting when deployment selects hcl
 check-pack: ## Validate pack.json and registry.json metadata ([PACK=<name>])
 	$(PYTHON) -m engine.check_pack $(if $(PACK),--pack "$(PACK)")
 
+check-pack-set: ## Require the installed pack root to match PACK_PROFILE exactly
+	$(PYTHON) -m engine.pack_set --catalog "$(PACK_CATALOG)" --profile "$(PACK_PROFILE)"
+
 audit-vendor-boundary: ## Audit vendor-specific tokens in engine source
 	$(PYTHON) -m engine.audit_vendor_boundary
 
 demo-contract: ## Credential-free demo artifact/module contract check
 	@echo "demo-contract: materializing demo overlay without credentials"
 	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1
-	@test -z "$$(git status --porcelain -- demo/config/demo demo/imports/demo)" || { \
+	@status="$$(git status --porcelain -- demo/config/demo demo/imports/demo)" || { \
+		echo "demo-contract: unable to inspect demo drift" >&2; exit 1; }; \
+	test -z "$$status" || { \
 		echo "demo-contract: demo config/import artifacts drifted:"; \
-		git status --porcelain -- demo/config/demo demo/imports/demo; exit 1; }
+		echo "$$status"; exit 1; }
 	@test -z "$$(find demo/imports/demo -name '*_moves.tf' -print)" || { \
 		echo "demo-contract: stale demo moved-block files found:"; \
 		find demo/imports/demo -name '*_moves.tf' -print; exit 1; }
@@ -58,10 +77,18 @@ demo-contract: ## Credential-free demo artifact/module contract check
 	echo "demo-contract: committed demo config/imports and generated modules are in sync"
 	@echo "demo-contract: live provider import/plan proof requires credentials and the adoption workflow"
 
-check: test check-demo check-modules check-tfvars-fmt check-pack audit-vendor-boundary ## Full gate: unit tests + demo + module generator smoke + tfvars fmt + pack metadata + vendor-boundary audit
+check: check-pack-set test check-examples check-modules check-tfvars-fmt check-pack audit-vendor-boundary ## Active-distribution gate: exact pack set + selected tests/examples + generators + metadata
 
-test: ## Run engine unit tests
-	$(PYTHON) -m unittest discover -s tests -t . -v
+check-all: ## Run the active-distribution gate against the complete upstream pack catalog
+	@INFRAWRIGHT_PACKS="$(CURDIR)/packs" $(MAKE) PACK_CATALOG="$(CURDIR)/packsets/full.json" PACK_PROFILE="$(CURDIR)/packsets/full.json" check
+
+check-core: ## Prove the pack-independent engine surface with an empty pack root
+	@root="$$(mktemp -d)"; trap 'rm -rf "$$root"' EXIT; \
+	INFRAWRIGHT_PACKS="$$root" $(MAKE) PACK_CATALOG="$(CURDIR)/packsets/full.json" PACK_PROFILE="$(CURDIR)/packsets/empty.json" \
+		test check-pack check-modules audit-vendor-boundary
+
+test: check-pack-set ## Run core tests plus tests whose declared pack requirements are installed
+	$(PYTHON) -m tests.run --catalog "$(PACK_CATALOG)" -v
 
 fetch: ## Pull API JSON into pulls/<tenant> (TENANT=<name> [RESOURCE="<type|provider> ..."])
 	@test -n "$(TENANT)" || { echo "usage: make fetch TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }

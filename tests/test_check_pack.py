@@ -44,9 +44,7 @@ def _registry(resource_type="sample_resource"):
 class CheckPackCliTest(unittest.TestCase):
     def _run(self, args=None, packs_root=None):
         env = os.environ.copy()
-        if packs_root is None:
-            env.pop("INFRAWRIGHT_PACKS", None)
-        else:
+        if packs_root is not None:
             env["INFRAWRIGHT_PACKS"] = packs_root
         return subprocess.run(
             [sys.executable, "-m", "engine.check_pack"] + list(args or []),
@@ -61,7 +59,6 @@ class CheckPackCliTest(unittest.TestCase):
         proc = self._run()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("validated packs:", proc.stdout)
-        self.assertIn("zia", proc.stdout)
         self.assertEqual(proc.stderr, "")
 
     def test_current_single_pack_validates(self):
@@ -85,6 +82,23 @@ class CheckPackCliTest(unittest.TestCase):
             proc = self._run(packs_root=td)
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("unknown key rename", proc.stderr)
+
+    def test_reserved_shared_root_is_not_an_authoring_pack(self):
+        with tempfile.TemporaryDirectory() as td:
+            _write_json(os.path.join(td, "_shared", "pack.json"), {
+                "provider_sources": {"ghost": "example/ghost"},
+            })
+            default = self._run(packs_root=td)
+            explicit = [
+                self._run(["--pack", "_shared"], packs_root=td),
+                self._run(["PACK=_shared"], packs_root=td),
+            ]
+
+        self.assertEqual(default.returncode, 0, default.stderr)
+        self.assertEqual(default.stdout, "validated packs: none\n")
+        for proc in explicit:
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("_shared is a reserved component root", proc.stderr)
 
     def test_invalid_registry_metadata_fails(self):
         with tempfile.TemporaryDirectory() as td:
