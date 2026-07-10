@@ -315,10 +315,17 @@ appears.
    DECIDED: no bridge; per-quirk projection policy stays. The oracle mirror
    model means parity and later-plan behavior must be tested explicitly rather
    than inferred from a clean first plan.
-7. Add a transform/adopt parity harness that renders both tfvars paths for the
-   same logical resource and reports semantic and byte-level differences.
-   Treat differences as evidence gates, not automatic failures, until the
-   provider contract classifies them.
+7. The initial credential-free transform/adopt parity harness is implemented in
+   [Transform/Adopt Parity Diagnostic](transform-adopt-parity.md). It runs the
+   real local transform and oracle-projection paths against paired, sanitized
+   source-derived fixtures, reports semantic and canonical-JSON byte parity,
+   and binds every classification to the exact path and values. The first
+   baseline covers ZCC failopen inversion, the DLP predefined-name mismatch,
+   URL-filtering zero quotas plus `url_categories=["ANY"]`, and ZPA
+   `microtenant_id="0"` plus `policy_style`. The named mismatches remain
+   fail-closed evidence gates. Broader resource coverage, retained sanitized
+   live fixtures, HCL/artifact parity, and later-plan behavior remain follow-up
+   work.
 
 ## Post-#144 Evidence Status
 

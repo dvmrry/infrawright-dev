@@ -21,7 +21,15 @@ from engine.registry import derive_entry
 from engine.state_project import project_item
 
 
-def adopt_items(raw_items, resource_type, policy=None):
+def adopt_items(raw_items, resource_type, policy=None, state_loader=None):
+    """Adopt raw items through provider-observed state.
+
+    ``state_loader`` is an injectable equivalent of ``import_state`` used by
+    credential-free parity fixtures. Production callers leave it unset and
+    retain the existing live import behavior.
+    """
+    if state_loader is None:
+        state_loader = import_state
     meta = adoption_entry(resource_type)
     key_to_identity = {}
     key_to_import_id = {}
@@ -68,7 +76,7 @@ def adopt_items(raw_items, resource_type, policy=None):
     if not key_to_import_id:
         return {}, key_to_identity
 
-    oracle = import_state(
+    oracle = state_loader(
         resource_type, key_to_import_id, policy=policy, raw_items=key_to_raw)
     items = {}
     for key in sorted(oracle):

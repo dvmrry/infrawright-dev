@@ -1,0 +1,58 @@
+{
+  "expected_differences": [],
+  "fixture_version": 1,
+  "name": "zcc_failopen_policy_inversion",
+  "provenance": {
+    "dependency_sources": [
+      {
+        "name": "zscaler/zscaler-sdk-go",
+        "url": "https://github.com/zscaler/zscaler-sdk-go/blob/v3.8.37/zscaler/zcc/services/failopen_policy/failopen_policy.go#L16-L30",
+        "version": "3.8.37"
+      }
+    ],
+    "local_sources": [
+      "packs/zcc/overrides/zcc_failopen_policy.json",
+      "packs/zcc/schemas/provider/zcc.json"
+    ],
+    "note": "Minimal source-derived equality control for the five inverted fields and the non-inverted strict-enforcement field.",
+    "provider_version": "0.1.0-beta.1",
+    "sanitized": true,
+    "sources": [
+      "https://github.com/zscaler/terraform-provider-zcc/blob/v0.1.0-beta.1/internal/framework/resources/failopen_policy.go#L312-L388"
+    ],
+    "status": "source_derived"
+  },
+  "provider_state": {
+    "policy-001": {
+      "sensitive_values": {},
+      "values": {
+        "active": false,
+        "captive_portal_web_sec_disable_minutes": 5,
+        "enable_captive_portal_detection": false,
+        "enable_fail_open": false,
+        "enable_strict_enforcement_prompt": false,
+        "enable_web_sec_on_proxy_unreachable": false,
+        "enable_web_sec_on_tunnel_failure": false,
+        "strict_enforcement_prompt_delay_minutes": 0,
+        "strict_enforcement_prompt_message": "",
+        "tunnel_failure_retry_count": 3
+      }
+    }
+  },
+  "raw_items": [
+    {
+      "active": "1",
+      "captivePortalWebSecDisableMinutes": 5,
+      "enableCaptivePortalDetection": 1,
+      "enableFailOpen": 1,
+      "enableStrictEnforcementPrompt": 0,
+      "enableWebSecOnProxyUnreachable": "1",
+      "enableWebSecOnTunnelFailure": "1",
+      "id": "policy-001",
+      "strictEnforcementPromptDelayMinutes": 0,
+      "strictEnforcementPromptMessage": "",
+      "tunnelFailureRetryCount": 3
+    }
+  ],
+  "resource_type": "zcc_failopen_policy"
+}
