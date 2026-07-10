@@ -91,8 +91,10 @@ provider ownership, the resource-to-root map, and tenant artifact directories
 when `TENANT` is supplied. Its schema is
 [`docs/schemas/root-topology.schema.json`](schemas/root-topology.schema.json).
 Root provider ownership is safe to derive from the first member because
-deployment validation rejects mixed-provider roots. All reported directories
-and root paths are repository-relative so contracts are checkout-independent.
+deployment validation rejects mixed-provider roots. Reported directories and
+root paths preserve the active deployment overlay: relative overlays produce
+repository-relative paths, while supported absolute overlays produce absolute
+paths. Consumers must not assume topology paths are checkout-independent.
 Malformed deployment JSON, including a non-object top level, and explicit empty
 tenant values fail before any topology JSON is emitted.
 

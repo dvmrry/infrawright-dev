@@ -123,6 +123,12 @@ class OpsContractSchemaTest(unittest.TestCase):
             "schema-space",
             guidance["properties"]["matched_plan_path"]["description"],
         )
+        self.assertEqual(
+            assessment["$defs"]["fingerprint"]["properties"]["version"][
+                "const"
+            ],
+            ops.PLAN_FINGERPRINT_VERSION,
+        )
 
     def test_contract_options_are_scoped_to_contract_commands(self):
         opts = ops._parse(
@@ -737,6 +743,27 @@ class OpsGroupedRootCommandTest(unittest.TestCase):
             },
         })
         self.assertIn("selecting zpa_segment_group selects whole root", stderr.getvalue())
+
+    def test_roots_preserves_absolute_deployment_overlay_paths(self):
+        deployment_path = os.environ["INFRAWRIGHT_DEPLOYMENT"]
+        with open(deployment_path, encoding="utf-8") as f:
+            data = json.load(f)
+        absolute_overlay = os.path.join(self.tmp, "external-overlay")
+        data["overlay"] = absolute_overlay
+        _write_json(deployment_path, data)
+
+        topology = ops.root_topology(
+            tenant="tenant", selectors=["zpa_segment_group"]
+        )
+        self.assertEqual(topology["directories"], {
+            "config": os.path.join(absolute_overlay, "config", "tenant"),
+            "imports": os.path.join(absolute_overlay, "imports", "tenant"),
+            "envs": os.path.join(absolute_overlay, "envs", "tenant"),
+        })
+        self.assertEqual(
+            topology["roots"][0]["env_dir"],
+            os.path.join(absolute_overlay, "envs", "tenant", "zpa_custom"),
+        )
 
     def test_plan_fails_loud_on_partial_member_configs(self):
         self._write_group_root()

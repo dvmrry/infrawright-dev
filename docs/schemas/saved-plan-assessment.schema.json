@@ -219,8 +219,7 @@
       ],
       "properties": {
         "version": {
-          "type": "integer",
-          "minimum": 1
+          "const": 2
         },
         "sha256": {
           "type": "string",
