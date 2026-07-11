@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from engine import adoption_catalog
 
@@ -36,6 +37,19 @@ class AdoptionCatalogTest(unittest.TestCase):
             committed, adoption_catalog.render_catalog("zcc")
         )
         self.assertTrue(committed.endswith("\n"))
+
+    def test_unrelated_global_lookup_metadata_cannot_change_zcc_catalog(self):
+        expected = adoption_catalog.render_catalog("zcc")
+        unrelated_global_lookups = {
+            "zcc_device_cleanup": {"name_field": "unrelated_name"},
+            "zcc_trusted_network": {"name_field": "poisoned_name"},
+        }
+        with mock.patch.object(
+                adoption_catalog.packs,
+                "lookup_sources",
+                return_value=unrelated_global_lookups):
+            actual = adoption_catalog.render_catalog("zcc")
+        self.assertEqual(actual, expected)
 
     def test_catalog_is_the_closed_five_resource_slice(self):
         catalog = self._catalog()

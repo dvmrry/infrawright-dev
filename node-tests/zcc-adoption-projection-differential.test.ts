@@ -44,8 +44,11 @@ type ExpectedOutcome =
   | "projection_error";
 
 interface Observation {
+  readonly address: string;
   readonly key: string;
   readonly import_id: string;
+  readonly provider_name: string;
+  readonly resource_type: ResourceType;
   readonly values: unknown;
   readonly sensitive_values?: unknown;
 }
@@ -228,8 +231,11 @@ async function loadCases(): Promise<readonly DifferentialCase[]> {
     expected: "success",
     raw_items: sourceFixture.raw_items,
     observed_states: [{
+      address: "zcc_failopen_policy.iw_a535a60194bc40a4",
       key: "policy_001",
       import_id: "policy-001",
+      provider_name: "registry.terraform.io/zscaler/zcc",
+      resource_type: "zcc_failopen_policy",
       values: state?.values,
       sensitive_values: state?.sensitive_values,
     }],

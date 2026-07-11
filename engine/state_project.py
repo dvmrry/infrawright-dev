@@ -29,6 +29,7 @@ def project_item(
     sensitive, absent, or optional fields. Post-projection policy then applies
     projection_sync, projection_fill, and projection_omit_if in that order.
     """
+    _validate_sensitive_mask_shape(sensitive_values)
     block = load_resource(resource_type)["block"]
     sensitive_values = sensitive_values or {}
     out = _project_block(
@@ -43,6 +44,32 @@ def project_item(
     if policy:
         _apply_projection_policy(resource_type, out, policy, raw_item=raw_item)
     return out
+
+
+def _validate_sensitive_mask_shape(sensitive_values):
+    """Require Terraform's recursive bool/object/list sensitivity grammar.
+
+    The root resource mask is never a list. Nested lists mirror repeated or
+    list-shaped blocks. Validate the entire tree, including computed-only
+    paths, before schema projection so malformed scalars cannot be mistaken
+    for an all-false mask.
+    """
+    stack = [(sensitive_values, (), True)]
+    while stack:
+        value, path, root = stack.pop()
+        if value is None or isinstance(value, bool):
+            continue
+        if isinstance(value, dict):
+            for key, child in value.items():
+                stack.append((child, path + (key,), False))
+            continue
+        if isinstance(value, list) and not root:
+            for idx, child in enumerate(value):
+                stack.append((child, path + (idx,), False))
+            continue
+        raise ProjectionError(
+            "unsupported sensitive mask shape at %s" % _fmt_path(path)
+        )
 
 
 def _project_block(values, sens, block, path, resource_top, resource_type, policy):
@@ -128,19 +155,26 @@ def _project_block(values, sens, block, path, resource_top, resource_type, polic
                 raise ProjectionError(
                     "state path %s is not a list" % _fmt_path(child_path)
                 )
-            out[name] = [
-                _project_block(
-                    v,
-                    _list_sens(sens_child, idx),
-                    inner,
-                    child_path + (idx,),
-                    resource_top=False,
-                    resource_type=resource_type,
-                    policy=policy,
+            projected = []
+            for idx, member in enumerate(value):
+                member_path = child_path + (idx,)
+                if not isinstance(member, dict):
+                    raise ProjectionError(
+                        "state path %s is not an object"
+                        % _fmt_path(member_path)
+                    )
+                projected.append(
+                    _project_block(
+                        member,
+                        _list_sens(sens_child, idx),
+                        inner,
+                        member_path,
+                        resource_top=False,
+                        resource_type=resource_type,
+                        policy=policy,
+                    )
                 )
-                for idx, v in enumerate(value)
-                if isinstance(v, dict)
-            ]
+            out[name] = projected
     return out
 
 

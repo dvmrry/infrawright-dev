@@ -84,11 +84,19 @@ def _validate_fetch_resources(resources):
         )
 
 
-def _provider_metadata(product):
+def _pack_manifest(product):
     pack_dir = os.path.abspath(packs.pack_dir_for_provider(product))
     manifest_path = os.path.join(pack_dir, "pack.json")
     with open(manifest_path, encoding="utf-8") as f:
         manifest = json.load(f)
+    if not isinstance(manifest, dict):
+        raise ValueError(
+            "adoption catalog pack manifest must contain an object"
+        )
+    return manifest
+
+
+def _provider_metadata(product, manifest):
     owners = set((manifest.get("provider_prefixes") or {}).values())
     if product not in owners:
         raise ValueError(
@@ -417,9 +425,9 @@ def _projection(block, path, resource_top=False):
     }
 
 
-def _resource(resource_type):
+def _resource(resource_type, lookup_sources):
     block = load_resource(resource_type)["block"]
-    lookup_source = packs.lookup_sources().get(resource_type)
+    lookup_source = lookup_sources.get(resource_type)
     if lookup_source is not None:
         name_field = lookup_source.get("name_field")
         if not isinstance(name_field, str) or not _FIELD_NAME_RE.match(
@@ -479,11 +487,20 @@ def adoption_catalog(product):
     _validate_product(product)
     resources = _fetch_resources(product)
     source_files, sources_sha256 = _source_digest(_source_paths(resources))
+    manifest = _pack_manifest(product)
+    lookup_sources = manifest.get("lookup_sources") or {}
+    if not isinstance(lookup_sources, dict):
+        raise ValueError(
+            "adoption catalog pack lookup_sources must contain an object"
+        )
     return {
         "kind": ADOPTION_CATALOG_CONTRACT,
         "product": product,
-        "provider": _provider_metadata(product),
-        "resources": [_resource(resource_type) for resource_type in resources],
+        "provider": _provider_metadata(product, manifest),
+        "resources": [
+            _resource(resource_type, lookup_sources)
+            for resource_type in resources
+        ],
         "schema_version": ADOPTION_CATALOG_SCHEMA_VERSION,
         "source_files": source_files,
         "sources_sha256": sources_sha256,

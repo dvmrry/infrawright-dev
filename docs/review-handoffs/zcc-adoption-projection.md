@@ -29,6 +29,8 @@
   `node-src/contracts/validators.ts`,
   `node-src/domain/zcc-adoption-catalog.ts`, and
   `node-src/domain/zcc-adoption-projection.ts`.
+- Shared hostile-graph validation and the Python projection source of truth:
+  `node-src/json/supported-json-graph.ts` and `engine/state_project.py`.
 - Private artifact compiler and shared bootstrap render helpers:
   `node-src/domain/zcc-adoption-artifacts.ts` and
   `node-src/domain/zcc-pull-artifacts.ts`.
@@ -36,14 +38,15 @@
   `node-tests/fixtures/zcc-adoption-projection-corpus.v1.json`,
   `node-tests/zcc-adoption-projection-differential.test.ts`,
   `node-tests/zcc-adoption-artifacts.test.ts`, and
-  `tests/test_adoption_catalog.py`.
+  `node-tests/zcc-adoption-projection-security.test.ts`,
+  `tests/test_adoption_catalog.py`, and `tests/test_state_project.py`.
 - Test routing and vendor audit metadata:
   `tests/pack-test-requirements.json` and
   `engine/vendor_boundary_allowlist.json`.
 - Files intentionally left untouched: process request/response schemas and
-  dispatch, Terraform subprocess code, Python adoption behavior, pack
-  registry/overrides/provider schema, filesystem materializers, and release
-  bundle entry points.
+  dispatch, Terraform subprocess/oracle transaction code, Python adoption
+  identity behavior, pack registry/overrides/provider schema, filesystem
+  materializers, and release bundle entry points.
 
 ## Source Inputs Consulted
 
@@ -81,13 +84,24 @@
 - Node derives keys/import IDs without applying raw-transform HTML or value
   overrides, exactly matching Python adoption identity semantics.
 - Node requires an exact key and import-ID join before reading provider-state
-  values, projects only writable schema fields, omits absent/null optional
-  fields, rejects missing required fields, and rejects dynamic sensitive masks
-  only on writable paths.
+  values. Each observation must also match the selected resource type, pinned
+  provider registry identity, and the exact SHA1-derived Terraform scratch
+  address used by the Python oracle.
+- Raw items and provider observations are descriptor-read once into inert,
+  deeply frozen, acyclic, depth-bounded plain-JSON snapshots before identity
+  or projection code can consume them.
+- Node projects only writable schema fields, omits absent/null optional fields,
+  rejects missing required fields, rejects malformed repeated block members,
+  and validates the complete dynamic-sensitive-mask grammar before projecting
+  writable or computed-only paths.
+- Python `state_project` now shares the fail-closed repeated-member and
+  sensitive-mask behavior so the compatibility oracle cannot silently discard
+  malformed provider evidence.
 - The private compiler emits exact Python JSON tfvars, import blocks, and the
   trusted-network lookup sidecar for bootstrap JSON mode.
 - Refactored raw-pull bootstrap helpers must remain byte-for-byte unchanged.
-- No public CLI/process behavior changes in this slice.
+- No public CLI/process contract or valid-input behavior changes in this slice;
+  malformed provider-state evidence now fails closed instead of being ignored.
 
 ## Invariants Claimed
 
@@ -98,13 +112,17 @@
   kernel equivalence only and are never labeled live/provider evidence; the
   source-derived fail-open fixture remains visibly distinct.
 - Source precedence/provenance: Python pack metadata and the pinned provider
-  schema remain the authoring source; Node accepts only the exact embedded
-  catalog.
+  schema remain the authoring source; lookup metadata comes only from the
+  hashed ZCC manifest, and Node accepts only the exact embedded catalog.
 - Ambiguity: missing, extra, duplicate, or key/import-mismatched observations
   fail before projection.
 - Sensitive state: values under writable sensitive masks never reach emitted
-  artifacts or diagnostics; computed-only sensitive masks are ignored exactly
-  as Python ignores computed-only fields.
+  artifacts or diagnostics. Malformed masks, including otherwise valid JSON
+  scalar nodes or a root list, fail before projection; computed-only mask
+  structure is still validated before its value is intentionally ignored.
+- Provider evidence: resource type, provider name, config key, import ID, and
+  scratch address must all agree before state values are read. Repeated nested
+  members can no longer disappear from either Python or Node output.
 - Adoption safety: projection results are immutable and bound to resource and
   catalog source digest; the artifact compiler invokes the projection kernel
   internally and verifies the binding before rendering.
@@ -122,9 +140,36 @@
 - Focused Python/Node projection differential.
 - Focused all-five adoption artifact byte differential.
 - Existing raw-pull artifact tests after shared-renderer refactoring.
-- `npm run check`: 462 tests, 461 passed, 1 platform skip, 0 failed.
-- `make test`: 1357 passed, 0 failed.
+- `npm run check`: 470 tests, 469 passed, 1 platform skip, 0 failed.
+- `make test`: 1362 passed, 0 failed.
 - `git diff --check`
+
+## Review Remediation
+
+- Finding: raw items, provider values, and sensitive masks could reach recursive
+  code without a bounded inert snapshot. Root cause: the adoption compiler did
+  not reuse the pull compiler's hostile-graph boundary. Fix: extract the legacy
+  pull preflight without changing its behavior and add a stricter descriptor-
+  read snapshot for adoption. Regression coverage includes cycles, 20,000-deep
+  graphs, accessors, non-plain objects, stateful proxies, and secret-safe errors.
+- Finding: a malformed sensitive mask could be interpreted as all-false. Root
+  cause: Python and Node helpers defaulted unsupported scalar/root shapes to an
+  empty object. Fix: validate the same recursive bool/object/list/null grammar
+  in both engines before projection. Differential and hostile tests cover
+  scalar nodes and root lists while retaining false/null/empty/list controls.
+- Finding: caller labels alone could join state from another resource. Root
+  cause: observations lacked Terraform resource identity. Fix: bind resource
+  type, canonical provider name, and exact scratch address in addition to the
+  independently derived key/import ID; cross-resource/provider/address tests
+  fail before any state value is read.
+- Finding: malformed repeated block members were silently filtered and a null
+  ID could rescue an empty non-ASCII key only in Node. Fix: both engines reject
+  malformed repeated members, and Node now treats null fallback IDs as absent.
+  Both behaviors are locked by the Python/Node differential corpus.
+- Finding: lookup metadata was read from the globally merged pack view even
+  though the catalog digest covered only ZCC sources. Fix: read it exclusively
+  from hashed `packs/zcc/pack.json`; a poisoned-global-pack regression proves
+  unrelated packs cannot change the generated catalog.
 
 ## Known Deferrals
 

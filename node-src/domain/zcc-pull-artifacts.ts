@@ -5,6 +5,7 @@ import { LosslessNumber } from "lossless-json";
 
 import { renderPythonLosslessArtifactJson } from "../json/python-lossless-artifact.js";
 import { sortedStrings } from "../json/python-compatible.js";
+import { supportedJsonGraph } from "../json/supported-json-graph.js";
 import { ProcessFailure } from "./errors.js";
 import {
   transformPullItems,
@@ -557,85 +558,6 @@ function immutableCopy(value: unknown): unknown {
   return value;
 }
 
-function rawGraphIsSupported(value: unknown): boolean {
-  type Visit = {
-    readonly kind: "enter";
-    readonly value: unknown;
-    readonly depth: number;
-  } | {
-    readonly kind: "leave";
-    readonly value: object;
-  };
-  const ancestors = new Set<object>();
-  const stack: Visit[] = [{ kind: "enter", value, depth: 1 }];
-  while (stack.length > 0) {
-    const visit = stack.pop();
-    if (visit === undefined) {
-      return false;
-    }
-    if (visit.kind === "leave") {
-      ancestors.delete(visit.value);
-      continue;
-    }
-    const current = visit.value;
-    if (typeof current === "string") {
-      if (!current.isWellFormed()) {
-        return false;
-      }
-      continue;
-    }
-    if (
-      current instanceof LosslessNumber
-      || typeof current !== "object"
-      || current === null
-    ) {
-      continue;
-    }
-    if (visit.depth > MAX_PULL_GRAPH_DEPTH || ancestors.has(current)) {
-      return false;
-    }
-    if (!Array.isArray(current)) {
-      const prototype = Object.getPrototypeOf(current) as unknown;
-      if (prototype !== Object.prototype && prototype !== null) {
-        return false;
-      }
-    }
-    ancestors.add(current);
-    stack.push({ kind: "leave", value: current });
-    if (Array.isArray(current)) {
-      for (let index = current.length - 1; index >= 0; index -= 1) {
-        const descriptor = Object.getOwnPropertyDescriptor(current, String(index));
-        if (descriptor === undefined || !("value" in descriptor)) {
-          return false;
-        }
-        stack.push({
-          kind: "enter",
-          value: descriptor.value,
-          depth: visit.depth + 1,
-        });
-      }
-      continue;
-    }
-    const keys = Object.keys(current);
-    for (let index = keys.length - 1; index >= 0; index -= 1) {
-      const key = keys[index];
-      if (key === undefined || !key.isWellFormed()) {
-        return false;
-      }
-      const descriptor = Object.getOwnPropertyDescriptor(current, key);
-      if (descriptor === undefined || !("value" in descriptor)) {
-        return false;
-      }
-      stack.push({
-        kind: "enter",
-        value: descriptor.value,
-        depth: visit.depth + 1,
-      });
-    }
-  }
-  return true;
-}
-
 function compileZccPullArtifactSetWithPolicy(
   options: {
     readonly catalog: TransformCatalog;
@@ -647,7 +569,10 @@ function compileZccPullArtifactSetWithPolicy(
   policy: { readonly allowDuplicateImportIds: boolean },
 ): ZccPullArtifactSet {
   try {
-    if (!rawGraphIsSupported(options.rawItems)) {
+    if (!supportedJsonGraph(options.rawItems, {
+      maxDepth: MAX_PULL_GRAPH_DEPTH,
+      requirePlainJson: false,
+    })) {
       fail(
         "INVALID_ZCC_PULL_DATA",
         "pull data exceeds the supported JSON graph contract",

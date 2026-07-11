@@ -1,7 +1,10 @@
+import { createHash } from "node:crypto";
+
 import { LosslessNumber } from "lossless-json";
 
 import { isJsonRecord, pythonJsonEqual } from "../json/python-equality.js";
 import { sortedStrings } from "../json/python-compatible.js";
+import { snapshotPlainJsonGraph } from "../json/supported-json-graph.js";
 import type {
   ZccAdoptionCatalog,
   ZccAdoptionCatalogResource,
@@ -13,8 +16,15 @@ import { ProcessFailure } from "./errors.js";
 import { snakeName, slugifyTransformKey } from "./pull-transform.js";
 
 type JsonRecord = Record<string, unknown>;
+const MAX_ADOPTION_GRAPH_DEPTH = 128;
 
 export interface ZccAdoptionStateObservation {
+  /** The selected provider resource type for this state object. */
+  readonly resource_type: string;
+  /** Terraform's exact scratch resource instance address. */
+  readonly address: string;
+  /** Terraform's canonical provider registry identity. */
+  readonly provider_name: string;
   /** The config key derived from the corresponding raw API identity. */
   readonly key: string;
   /** The import identifier expected for that config key. */
@@ -49,6 +59,24 @@ export interface ZccAdoptionProjectionResult extends ZccAdoptionIdentities {
 
 function fail(code: string, message: string): never {
   throw new ProcessFailure({ code, category: "domain", message });
+}
+
+function snapshotSupportedAdoptionGraph(value: unknown): unknown {
+  try {
+    const snapshot = snapshotPlainJsonGraph(value, {
+      maxDepth: MAX_ADOPTION_GRAPH_DEPTH,
+    });
+    if (snapshot.ok) {
+      return snapshot.value;
+    }
+  } catch {
+    // Hostile descriptors and proxies are an invalid graph, never an internal
+    // diagnostic. Do not retain or stringify the thrown value.
+  }
+  fail(
+    "INVALID_ZCC_ADOPTION_INPUT",
+    "adoption input exceeds the supported plain JSON graph contract",
+  );
 }
 
 function hasOwn(record: object, key: string): boolean {
@@ -349,10 +377,10 @@ function deriveKey(
     return slug;
   }
   const fallback = pathValue(item, "id");
-  if (fallback === MISSING) {
+  if (fallback === MISSING || fallback === null) {
     return fail(
       "ZCC_ADOPTION_IDENTITY_FAILED",
-      "derived adoption key is empty and the identity has no id fallback",
+      "derived adoption key is empty and the identity has no non-null id fallback",
     );
   }
   return `id_${slugifyTransformKey(pythonScalarString(fallback, "adoption id fallback"))}`;
@@ -406,9 +434,12 @@ export function deriveZccAdoptionIdentities(options: {
   readonly resourceType: string;
   readonly rawItems: readonly unknown[];
 }): ZccAdoptionIdentities {
+  const rawItems = snapshotSupportedAdoptionGraph(
+    options.rawItems,
+  ) as readonly unknown[];
   const catalog = requireSupportedZccAdoptionCatalog(options.catalog);
   const resource = catalogResource(catalog, options.resourceType);
-  if (!Array.isArray(options.rawItems)) {
+  if (!Array.isArray(rawItems)) {
     return fail(
       "INVALID_ZCC_ADOPTION_INPUT",
       "raw adoption input must be a JSON list",
@@ -416,7 +447,7 @@ export function deriveZccAdoptionIdentities(options: {
   }
 
   const candidates: JsonRecord[] = [];
-  for (const raw of options.rawItems) {
+  for (const raw of rawItems) {
     const item = identityItem(raw, resource);
     if (!shouldSkip(item, resource.identity)) {
       candidates.push(item);
@@ -473,6 +504,44 @@ function anySensitive(value: unknown): boolean {
     return Object.keys(value).some((key) => anySensitive(value[key]));
   }
   return false;
+}
+
+function assertSensitiveMaskShape(value: unknown): void {
+  const stack: { readonly root: boolean; readonly value: unknown }[] = [{
+    root: true,
+    value,
+  }];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === undefined) {
+      return fail(
+        "ZCC_ADOPTION_PROJECTION_FAILED",
+        "provider sensitive-value mask has an unsupported shape",
+      );
+    }
+    if (
+      current.value === null
+      || typeof current.value === "boolean"
+    ) {
+      continue;
+    }
+    if (isPlainDataRecord(current.value)) {
+      for (const key of Object.keys(current.value)) {
+        stack.push({ root: false, value: current.value[key] });
+      }
+      continue;
+    }
+    if (Array.isArray(current.value) && !current.root) {
+      for (const child of current.value) {
+        stack.push({ root: false, value: child });
+      }
+      continue;
+    }
+    return fail(
+      "ZCC_ADOPTION_PROJECTION_FAILED",
+      "provider sensitive-value mask has an unsupported shape",
+    );
+  }
 }
 
 function sensitiveAttribute(mask: unknown, name: string): boolean {
@@ -625,18 +694,19 @@ function projectBlock(
         `provider state path ${childPath} is not a list`,
       );
     }
-    output[name] = value.flatMap((entry, index) => {
+    output[name] = value.map((entry, index) => {
       if (!isPlainDataRecord(entry)) {
-        // Preserve Python's provider-state projection behavior: malformed
-        // non-object repeated members are ignored rather than interpreted.
-        return [];
+        return fail(
+          "ZCC_ADOPTION_PROJECTION_FAILED",
+          `repeated provider state block member is not an object at ${childPath}[${index}]`,
+        );
       }
-      return [projectBlock(
+      return projectBlock(
         entry,
         listSensitiveMask(childSensitive, index),
         contract.projection,
         `${childPath}[${index}]`,
-      )];
+      );
     });
   }
   return output;
@@ -645,6 +715,8 @@ function projectBlock(
 function joinedObservations(
   identities: ZccAdoptionIdentities,
   observations: readonly ZccAdoptionStateObservation[],
+  resourceType: string,
+  providerName: string,
 ): ReadonlyMap<string, ZccAdoptionStateObservation> {
   if (!Array.isArray(observations)) {
     return fail(
@@ -660,6 +732,36 @@ function joinedObservations(
         "each provider state observation must be an object",
       );
     }
+    if (typeof observation.resource_type !== "string") {
+      return fail(
+        "INVALID_ZCC_ADOPTION_INPUT",
+        "provider state observation resource_type must be a string",
+      );
+    }
+    if (observation.resource_type !== resourceType) {
+      return fail(
+        "ZCC_ADOPTION_STATE_JOIN_FAILED",
+        "provider state observation resource type does not match the selected resource",
+      );
+    }
+    if (typeof observation.provider_name !== "string") {
+      return fail(
+        "INVALID_ZCC_ADOPTION_INPUT",
+        "provider state observation provider_name must be a string",
+      );
+    }
+    if (observation.provider_name !== providerName) {
+      return fail(
+        "ZCC_ADOPTION_STATE_JOIN_FAILED",
+        "provider state observation provider does not match the selected provider",
+      );
+    }
+    if (typeof observation.address !== "string") {
+      return fail(
+        "INVALID_ZCC_ADOPTION_INPUT",
+        "provider state observation address must be a string",
+      );
+    }
     if (typeof observation.key !== "string" || observation.key === "") {
       return fail(
         "INVALID_ZCC_ADOPTION_INPUT",
@@ -670,6 +772,16 @@ function joinedObservations(
       return fail(
         "INVALID_ZCC_ADOPTION_INPUT",
         "provider state observation import_id must be a string",
+      );
+    }
+    const instanceName = createHash("sha1")
+      .update(observation.key, "utf8")
+      .digest("hex")
+      .slice(0, 16);
+    if (observation.address !== `${resourceType}.iw_${instanceName}`) {
+      return fail(
+        "ZCC_ADOPTION_STATE_JOIN_FAILED",
+        "provider state observation address does not match its derived key",
       );
     }
     if (byKey.has(observation.key)) {
@@ -724,14 +836,35 @@ export function compileZccAdoptionProjection(options: {
   readonly rawItems: readonly unknown[];
   readonly observedStates: readonly ZccAdoptionStateObservation[];
 }): ZccAdoptionProjectionResult {
+  const rawItems = snapshotSupportedAdoptionGraph(
+    options.rawItems,
+  ) as readonly unknown[];
+  const observedStates = snapshotSupportedAdoptionGraph(
+    options.observedStates,
+  ) as readonly ZccAdoptionStateObservation[];
   const catalog = requireSupportedZccAdoptionCatalog(options.catalog);
   const resource = catalogResource(catalog, options.resourceType);
   const identities = deriveZccAdoptionIdentities({
     catalog,
-    rawItems: options.rawItems,
+    rawItems,
     resourceType: options.resourceType,
   });
-  const observations = joinedObservations(identities, options.observedStates);
+  const observations = joinedObservations(
+    identities,
+    observedStates,
+    resource.type,
+    `registry.terraform.io/${catalog.provider.source}`,
+  );
+  for (const key of sortedStrings(Object.keys(identities.import_ids))) {
+    const observation = observations.get(key);
+    if (observation !== undefined) {
+      assertSensitiveMaskShape(
+        observation.sensitive_values === undefined
+          ? {}
+          : observation.sensitive_values,
+      );
+    }
+  }
   const items = new Map<string, JsonRecord>();
   for (const key of sortedStrings(Object.keys(identities.import_ids))) {
     const observation = observations.get(key);

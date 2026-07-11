@@ -10,8 +10,11 @@
       "name": "synthetic-device-cleanup-big-integral-null-and-computed-only",
       "observed_states": [
         {
+          "address": "zcc_device_cleanup.iw_ef783dbb29830372",
           "import_id": "900719925474099312345678901",
           "key": "900719925474099312345678901",
+          "provider_name": "registry.terraform.io/zscaler/zcc",
+          "resource_type": "zcc_device_cleanup",
           "sensitive_values": {
             "id": true
           },
@@ -39,8 +42,11 @@
       "name": "synthetic-forwarding-nested-list-and-single-shapes-html-unicode",
       "observed_states": [
         {
+          "address": "zcc_forwarding_profile.iw_1a91c6bbb418d05d",
           "import_id": "fp-1",
           "key": "a_amp_b",
+          "provider_name": "registry.terraform.io/zscaler/zcc",
+          "resource_type": "zcc_forwarding_profile",
           "sensitive_values": {},
           "values": {
             "active": true,
@@ -71,8 +77,11 @@
           }
         },
         {
+          "address": "zcc_forwarding_profile.iw_c9ddad6c6c6d1541",
           "import_id": "fp-2",
           "key": "shape_two",
+          "provider_name": "registry.terraform.io/zscaler/zcc",
+          "resource_type": "zcc_forwarding_profile",
           "sensitive_values": {},
           "values": {
             "forwarding_profile_actions": [
@@ -108,8 +117,11 @@
       "name": "synthetic-trusted-network-raw-identity-versus-provider-name",
       "observed_states": [
         {
+          "address": "zcc_trusted_network.iw_23a898a355fdb740",
           "import_id": "tn-1",
           "key": "raw_identity_amp",
+          "provider_name": "registry.terraform.io/zscaler/zcc",
+          "resource_type": "zcc_trusted_network",
           "sensitive_values": {},
           "values": {
             "active": true,
@@ -139,8 +151,11 @@
       "name": "synthetic-web-privacy-optional-null-and-absent",
       "observed_states": [
         {
+          "address": "zcc_web_privacy.iw_7e36d028b78655ad",
           "import_id": "privacy-1",
           "key": "privacy_1",
+          "provider_name": "registry.terraform.io/zscaler/zcc",
+          "resource_type": "zcc_web_privacy",
           "sensitive_values": {},
           "values": {
             "active": null,
@@ -212,15 +227,21 @@
       "name": "synthetic-extra-observation",
       "observed_states": [
         {
+          "address": "zcc_web_privacy.iw_91a07e17b26890a4",
           "import_id": "expected-1",
           "key": "expected_1",
+          "provider_name": "registry.terraform.io/zscaler/zcc",
+          "resource_type": "zcc_web_privacy",
           "values": {
             "collect_user_info": false
           }
         },
         {
+          "address": "zcc_web_privacy.iw_972ce98708772cac",
           "import_id": "UNREFERENCED-SECRET-IMPORT-ID",
           "key": "unexpected_secret_key",
+          "provider_name": "registry.terraform.io/zscaler/zcc",
+          "resource_type": "zcc_web_privacy",
           "values": {
             "collect_user_info": true
           }
@@ -241,8 +262,11 @@
       "name": "synthetic-mismatched-observation-import-id",
       "observed_states": [
         {
+          "address": "zcc_web_privacy.iw_1a4c53432d3bff9a",
           "import_id": "MISMATCHED-SECRET-IMPORT-ID",
           "key": "expected_2",
+          "provider_name": "registry.terraform.io/zscaler/zcc",
+          "resource_type": "zcc_web_privacy",
           "values": {
             "collect_user_info": false
           }
@@ -263,15 +287,21 @@
       "name": "synthetic-duplicate-observation-key",
       "observed_states": [
         {
+          "address": "zcc_web_privacy.iw_0f4d3636b2edb31e",
           "import_id": "observation-1",
           "key": "observation_1",
+          "provider_name": "registry.terraform.io/zscaler/zcc",
+          "resource_type": "zcc_web_privacy",
           "values": {
             "collect_user_info": false
           }
         },
         {
+          "address": "zcc_web_privacy.iw_0f4d3636b2edb31e",
           "import_id": "observation-1-copy",
           "key": "observation_1",
+          "provider_name": "registry.terraform.io/zscaler/zcc",
+          "resource_type": "zcc_web_privacy",
           "values": {
             "collect_user_info": true
           }
@@ -289,15 +319,21 @@
       "name": "synthetic-duplicate-observation-import-id",
       "observed_states": [
         {
+          "address": "zcc_web_privacy.iw_afa34e2d113b588f",
           "import_id": "observation-a",
           "key": "observation_a",
+          "provider_name": "registry.terraform.io/zscaler/zcc",
+          "resource_type": "zcc_web_privacy",
           "values": {
             "collect_user_info": false
           }
         },
         {
+          "address": "zcc_web_privacy.iw_1809821c5cc5e696",
           "import_id": "observation-a",
           "key": "observation_b",
+          "provider_name": "registry.terraform.io/zscaler/zcc",
+          "resource_type": "zcc_web_privacy",
           "values": {
             "collect_user_info": true
           }
@@ -315,11 +351,47 @@
     },
     {
       "expected": "projection_error",
+      "name": "synthetic-malformed-repeated-block-member-fails-closed",
+      "observed_states": [
+        {
+          "address": "zcc_forwarding_profile.iw_dfcaff983f947d46",
+          "import_id": "malformed-repeated-1",
+          "key": "malformed_repeated",
+          "provider_name": "registry.terraform.io/zscaler/zcc",
+          "resource_type": "zcc_forwarding_profile",
+          "sensitive_values": {},
+          "values": {
+            "forwarding_profile_actions": [
+              {
+                "action_type": 1
+              },
+              "MALFORMED-REPEATED-MEMBER-SECRET"
+            ],
+            "name": "Malformed Repeated"
+          }
+        }
+      ],
+      "raw_items": [
+        {
+          "id": "malformed-repeated-1",
+          "name": "Malformed Repeated"
+        }
+      ],
+      "resource_type": "zcc_forwarding_profile",
+      "secret_tokens": [
+        "MALFORMED-REPEATED-MEMBER-SECRET"
+      ]
+    },
+    {
+      "expected": "projection_error",
       "name": "synthetic-missing-required-forwarding-name",
       "observed_states": [
         {
+          "address": "zcc_forwarding_profile.iw_e7098d5d5ec6cf5c",
           "import_id": "required-1",
           "key": "raw_required_name",
+          "provider_name": "registry.terraform.io/zscaler/zcc",
+          "resource_type": "zcc_forwarding_profile",
           "sensitive_values": {},
           "values": {
             "active": true,
@@ -337,11 +409,40 @@
     },
     {
       "expected": "projection_error",
+      "name": "synthetic-scalar-sensitive-mask-fails-closed",
+      "observed_states": [
+        {
+          "address": "zcc_failopen_policy.iw_bf0003e6399a068f",
+          "import_id": "scalar-mask",
+          "key": "scalar_mask",
+          "provider_name": "registry.terraform.io/zscaler/zcc",
+          "resource_type": "zcc_failopen_policy",
+          "sensitive_values": "SCALAR-SENSITIVE-MASK-SECRET",
+          "values": {
+            "enable_fail_open": false
+          }
+        }
+      ],
+      "raw_items": [
+        {
+          "id": "scalar-mask"
+        }
+      ],
+      "resource_type": "zcc_failopen_policy",
+      "secret_tokens": [
+        "SCALAR-SENSITIVE-MASK-SECRET"
+      ]
+    },
+    {
+      "expected": "projection_error",
       "name": "synthetic-dynamic-top-level-sensitive-mask",
       "observed_states": [
         {
+          "address": "zcc_failopen_policy.iw_85dda5c3e5c21749",
           "import_id": "sensitive-1",
           "key": "sensitive_1",
+          "provider_name": "registry.terraform.io/zscaler/zcc",
+          "resource_type": "zcc_failopen_policy",
           "sensitive_values": {
             "strict_enforcement_prompt_message": true
           },
@@ -362,12 +463,27 @@
       ]
     },
     {
+      "expected": "identity_error",
+      "name": "synthetic-non-ascii-name-with-null-id-has-no-fallback",
+      "observed_states": [],
+      "raw_items": [
+        {
+          "id": null,
+          "name": "東京"
+        }
+      ],
+      "resource_type": "zcc_forwarding_profile"
+    },
+    {
       "expected": "projection_error",
       "name": "synthetic-dynamic-nested-sensitive-mask",
       "observed_states": [
         {
+          "address": "zcc_forwarding_profile.iw_5f80ef429693ab63",
           "import_id": "nested-sensitive-1",
           "key": "nested_sensitive",
+          "provider_name": "registry.terraform.io/zscaler/zcc",
+          "resource_type": "zcc_forwarding_profile",
           "sensitive_values": {
             "forwarding_profile_actions": [
               {

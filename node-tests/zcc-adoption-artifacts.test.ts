@@ -199,8 +199,11 @@ async function loadSuccessCases(): Promise<readonly SuccessCase[]> {
     resource_type: "zcc_failopen_policy",
     raw_items: failopen.raw_items,
     observed_states: [{
+      address: "zcc_failopen_policy.iw_a535a60194bc40a4",
       key: "policy_001",
       import_id: "policy-001",
+      provider_name: "registry.terraform.io/zscaler/zcc",
+      resource_type: "zcc_failopen_policy",
       values: state?.values,
       sensitive_values: state?.sensitive_values,
     }],
@@ -295,8 +298,11 @@ test("adoption imports preserve Python HCL escaping and unbounded integer IDs", 
     resource_type: "zcc_forwarding_profile",
     raw_items: [{ id: importId, name: "Escaping 東京" }],
     observed_states: [{
+      address: "zcc_forwarding_profile.iw_bef0d9f5eae9666e",
       key: "escaping",
       import_id: importId,
+      provider_name: "registry.terraform.io/zscaler/zcc",
+      resource_type: "zcc_forwarding_profile",
       values: { name: "Escaping 東京" },
     }],
   });
