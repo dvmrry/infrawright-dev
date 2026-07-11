@@ -28,13 +28,26 @@ import {
   validateZccPullParitySemantics,
 } from "./zcc-pull-parity-semantics.js";
 
-const ajv = new Ajv2020({
-  allErrors: true,
+const AJV_OPTIONS = {
   coerceTypes: false,
   ownProperties: true,
   removeAdditional: false,
   strict: true,
   useDefaults: false,
+} as const;
+
+const ajv = new Ajv2020({
+  ...AJV_OPTIONS,
+  allErrors: true,
+});
+
+// Request diagnostics are caller-facing and must remain bounded by the request
+// rather than multiplying one malformed array into hundreds of thousands of
+// Ajv errors. Other validators retain all-errors behavior for controlled
+// internal artifacts and test diagnostics.
+const requestAjv = new Ajv2020({
+  ...AJV_OPTIONS,
+  allErrors: false,
 });
 
 ajv.addKeyword({
@@ -69,7 +82,7 @@ ajv.addSchema(transformCatalogSchema);
 ajv.addSchema(zccPullArtifactSetSchema);
 ajv.addSchema(zccPullArtifactParitySchema);
 
-export const validateProcessRequest: ValidateFunction = ajv.compile(
+export const validateProcessRequest: ValidateFunction = requestAjv.compile(
   processRequestSchema,
 );
 export const validateProcessResponse: ValidateFunction = ajv.compile(
@@ -110,9 +123,18 @@ function errorMessage(error: ErrorObject): string {
 export function schemaErrorDetails(
   errors: readonly ErrorObject[] | null | undefined,
 ): ErrorDetail[] {
-  return (errors ?? []).map((error) => ({
+  const allErrors = errors ?? [];
+  const details = allErrors.slice(0, 64).map((error) => ({
     path: error.instancePath || "/",
     code: error.keyword,
     message: errorMessage(error),
   }));
+  if (allErrors.length > details.length) {
+    details.push({
+      path: "/",
+      code: "schema_errors_truncated",
+      message: "additional schema errors were omitted",
+    });
+  }
+  return details;
 }
