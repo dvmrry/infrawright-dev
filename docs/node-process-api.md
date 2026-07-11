@@ -27,6 +27,10 @@ downstream pipeline needs Node 24 but does not run `npm install`:
 node dist/infrawright.mjs < request.json > response.json
 ```
 
+The internal saved-plan classifier requires Terraform 1.8 or newer because it
+fails closed unless the plan's `complete` contract field is present and true.
+The migration compatibility baseline is currently Terraform 1.15.4.
+
 The host reads exactly one request from stdin and writes exactly one response
 plus a trailing newline to stdout. Expected errors are structured responses;
 stderr is reserved for failures that prevent a protocol response.
@@ -188,8 +192,37 @@ float-bearing output contract is migrated.
 ## Current Boundary
 
 These slices support only Zscaler root topology, changed-path scoping, and
-materialized plan-root enumeration.
+materialized plan-root enumeration as public process operations.
+
+The Node source tree also contains the internal saved-plan classification
+kernel. It is not yet imported into the bundled process executable:
+
+- strict v1 drift-policy validation for every policy lane, plus matching and
+  stale-entry tracking for `plan_tolerate`;
+- lossless Terraform-number comparison with Python-compatible JSON equality;
+- Python-compatible finding order, path order, import, replacement, update,
+  unknown-value, and partial-tolerance behavior for valid plan documents; and
+- a fail-closed entry point that accepts only supported Terraform JSON format
+  `1.x`, complete and non-errored plans, structurally valid change records,
+  known action sequences, valid import markers, no non-no-op output changes,
+  no action invocations, and no failed checks before classification.
+
+The valid-plan comparison intentionally hardens four Python edge cases:
+drift-policy versions must be the JSON number `1` rather than `true`, policy
+indexes use ASCII digits, create actions remain blocked even when an import
+marker is present, and identity or sensitivity metadata changes produce
+un-tolerable synthetic finding paths. Genuine Terraform 1.8+ imports are
+no-op changes with a nested import marker and remain clean.
+
+The unchecked compatibility kernel is private. There is deliberately no
+process operation that accepts caller-supplied plan JSON: until evidence
+capture lands, such input would not be bound to a saved plan, source
+fingerprint, or policy. The validator is intentionally stricter than the
+Python helper on malformed shapes that Python can accidentally treat as an
+empty or clean plan.
+
 Python remains authoritative for all mutating adoption behavior, Terraform
-orchestration, saved-plan gates, and raw pack catalog production. Downstream
-should dual-run these operations and retain the Python result as the cutover
-oracle until its deployment corpus is byte-clean.
+orchestration, saved-plan evidence capture and reports, gate exit semantics,
+and raw pack catalog production. Downstream should dual-run the public Node
+operations and retain the Python result as the cutover oracle until its
+deployment corpus is byte-clean.
