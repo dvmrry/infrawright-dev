@@ -347,6 +347,23 @@ test("assessment process emits clean and blocked Zscaler reports with gate exits
       assert.equal(String(result.stderr), "");
       const response = JSON.parse(String(result.stdout));
       assert.equal(validateProcessResponse(response), true);
+      const forged = structuredClone(response);
+      forged.result.summary.checked = 999;
+      forged.result.summary.clean = 999;
+      assert.equal(validateProcessResponse(forged), false);
+      assert.ok(validateProcessResponse.errors?.some((error) => {
+        return error.keyword === "x-infrawright-report-semantics"
+          && error.instancePath === "/result/summary/checked";
+      }));
+      const duplicate = structuredClone(response);
+      duplicate.result.roots.push(structuredClone(duplicate.result.roots[0]));
+      duplicate.result.summary.checked = 2;
+      duplicate.result.summary.clean = 2;
+      assert.equal(validateProcessResponse(duplicate), false);
+      assert.ok(validateProcessResponse.errors?.some((error) => {
+        return error.keyword === "x-infrawright-report-semantics"
+          && error.instancePath === "/result/roots/1";
+      }));
       assert.equal(response.status, "ok");
       assert.equal(response.operation, "assess_saved_plans");
       assert.equal(response.result.kind, "infrawright.saved_plan_assessment");

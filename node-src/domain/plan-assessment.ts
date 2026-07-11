@@ -441,6 +441,11 @@ async function recheckAssessmentContext(
     await recheckSavedPlanAssessmentContext(options.context, options.roots);
   }
   await recheckAssessmentControlFiles(controlFiles);
+  // End on topology rather than the trailing control read. This second pass
+  // catches a root that materializes while the control-file sandwich closes.
+  if (options.context !== undefined) {
+    await recheckSavedPlanAssessmentContext(options.context, options.roots);
+  }
 }
 
 function showLimits(
@@ -543,6 +548,8 @@ async function runSavedPlanAssessment<T>(
     policySha256 = boundPolicy.file?.sha256 ?? null;
     remainingTime(deadline);
     reportKind = "assessment_error";
+    await recheckAssessmentContext(capturedOptions);
+    remainingTime(deadline);
     if (capturedOptions.roots.length === 0) {
       fail("NO_SAVED_PLANS", "no saved plans were selected for assessment");
     }
@@ -678,7 +685,7 @@ async function runSavedPlanAssessment<T>(
       });
     }
     await recheckBoundDriftPolicy(boundPolicy, new ReadBudget(policyLimits));
-    await recheckAssessmentControlFiles(controlFiles);
+    await recheckAssessmentContext(capturedOptions);
     remainingTime(deadline);
 
     const core = assessmentCore(assessed, policySha256, stalePolicy);

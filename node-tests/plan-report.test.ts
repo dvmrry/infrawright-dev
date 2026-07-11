@@ -269,7 +269,7 @@ test("error report recomputes partial counts and leaves the source core unchange
   assert.equal(validateSavedPlanAssessment(error), true);
 });
 
-test("assessment schema rejects contradictory status, roots, counts, and errors", () => {
+test("assessment validator rejects contradictory report semantics", () => {
   const clean = buildSavedPlanAssessmentReport({
     mode: "assert-adoptable",
     request: { tenant: "tenant", selectors: [], policy: "policy.json" },
@@ -296,6 +296,130 @@ test("assessment schema rejects contradictory status, roots, counts, and errors"
     blocked: 0,
   };
   assert.equal(validateSavedPlanAssessment(cleanWithoutRoots), false);
+
+  const cleanWithForgedCounts = JSON.parse(JSON.stringify(clean));
+  cleanWithForgedCounts.summary.checked = 999;
+  cleanWithForgedCounts.summary.clean = 999;
+  assert.equal(validateSavedPlanAssessment(cleanWithForgedCounts), false);
+
+  const errorWithForgedCounts = JSON.parse(JSON.stringify(error));
+  errorWithForgedCounts.summary.checked = 999;
+  errorWithForgedCounts.summary.clean = 0;
+  errorWithForgedCounts.summary.blocked = 777;
+  assert.equal(validateSavedPlanAssessment(errorWithForgedCounts), false);
+
+  const duplicatedRoot = JSON.parse(JSON.stringify(clean));
+  duplicatedRoot.roots.push(structuredClone(duplicatedRoot.roots[0]));
+  duplicatedRoot.summary.checked = 2;
+  duplicatedRoot.summary.clean = 2;
+  assert.equal(validateSavedPlanAssessment(duplicatedRoot), false);
+
+  const reusedMember = JSON.parse(JSON.stringify(clean));
+  const secondRoot = structuredClone(reusedMember.roots[0]);
+  secondRoot.label = "other_root";
+  reusedMember.roots.push(secondRoot);
+  reusedMember.summary.checked = 2;
+  reusedMember.summary.clean = 2;
+  assert.equal(validateSavedPlanAssessment(reusedMember), false);
+
+  for (const members of [[], ["zpa_sample", "zpa_sample"]]) {
+    const invalidMembers = JSON.parse(JSON.stringify(clean));
+    invalidMembers.roots[0].members = members;
+    assert.equal(validateSavedPlanAssessment(invalidMembers), false);
+  }
+
+  const mismatchedTenant = JSON.parse(JSON.stringify(clean));
+  mismatchedTenant.roots[0].tenant = "other";
+  assert.equal(validateSavedPlanAssessment(mismatchedTenant), false);
+
+  const staleUnknownType = JSON.parse(JSON.stringify(clean));
+  staleUnknownType.stale_policy[0].resource_type = "zpa_other";
+  assert.equal(validateSavedPlanAssessment(staleUnknownType), false);
+
+  const duplicateStale = JSON.parse(JSON.stringify(clean));
+  duplicateStale.stale_policy.push(structuredClone(duplicateStale.stale_policy[0]));
+  assert.equal(validateSavedPlanAssessment(duplicateStale), false);
+
+  const cleanWithBlockedFinding = JSON.parse(JSON.stringify(clean));
+  cleanWithBlockedFinding.roots[0].findings = [{
+    status: "blocked",
+    source: "resource_changes",
+    address: "zpa_sample.this",
+    resource_type: "zpa_sample",
+    actions: ["update"],
+    paths: ["name"],
+  }];
+  assert.equal(validateSavedPlanAssessment(cleanWithBlockedFinding), false);
+
+  const cleanWithGuidance = JSON.parse(JSON.stringify(clean));
+  cleanWithGuidance.roots[0].guidance = [{
+    lane: "absent_default",
+    source: "resource_changes",
+    address: "zpa_sample.this",
+    finding_path: "name",
+    matched_plan_path: "name",
+    status_effect: "informational only; plan remains blocked",
+  }];
+  assert.equal(validateSavedPlanAssessment(cleanWithGuidance), false);
+
+  const blockedWithUnjoinedGuidance = buildSavedPlanAssessmentReport({
+    mode: "assert-adoptable",
+    request: { tenant: "tenant", selectors: [], policy: "policy.json" },
+    core: core("blocked"),
+    guidance: [{
+      tenant: "tenant",
+      label: "zpa_custom",
+      entries: [{
+        lane: "absent_default",
+        source: "resource_changes",
+        address: 'zpa_sample.this["one"]',
+        finding_path: "rules[0].map.key.quote\"slash\\",
+        matched_plan_path: "rules[].map.key.quote\"slash\\",
+        status_effect: "informational only; plan remains blocked",
+      }],
+    }],
+  });
+  const unjoinedGuidance = JSON.parse(JSON.stringify(blockedWithUnjoinedGuidance));
+  unjoinedGuidance.roots[0].guidance[0].finding_path = "other";
+  assert.equal(validateSavedPlanAssessment(unjoinedGuidance), false);
+  const leakedSortKey = JSON.parse(JSON.stringify(blockedWithUnjoinedGuidance));
+  leakedSortKey.roots[0].guidance[0].sort_key = ["internal"];
+  assert.equal(validateSavedPlanAssessment(leakedSortKey), false);
+
+  const normalWithUnboundPolicyEvidence = JSON.parse(JSON.stringify(clean));
+  normalWithUnboundPolicyEvidence.request.policy = null;
+  assert.equal(validateSavedPlanAssessment(normalWithUnboundPolicyEvidence), false);
+
+  const stalePolicyWithoutPolicy = JSON.parse(JSON.stringify(clean));
+  stalePolicyWithoutPolicy.request.policy = null;
+  stalePolicyWithoutPolicy.request.policy_sha256 = null;
+  assert.equal(validateSavedPlanAssessment(stalePolicyWithoutPolicy), false);
+
+  for (const kind of ["no_saved_plans", "policy_error"]) {
+    const impossiblePhase = JSON.parse(JSON.stringify(error));
+    impossiblePhase.error.kind = kind;
+    assert.equal(validateSavedPlanAssessment(impossiblePhase), false);
+  }
+
+  const policyErrorWithoutPolicy = JSON.parse(JSON.stringify(error));
+  policyErrorWithoutPolicy.roots = [];
+  policyErrorWithoutPolicy.summary = {
+    status: "error",
+    checked: 0,
+    clean: 0,
+    tolerated: 0,
+    blocked: 0,
+  };
+  policyErrorWithoutPolicy.stale_policy = [];
+  policyErrorWithoutPolicy.error.kind = "policy_error";
+  policyErrorWithoutPolicy.request.policy = null;
+  policyErrorWithoutPolicy.request.policy_sha256 = null;
+  assert.equal(validateSavedPlanAssessment(policyErrorWithoutPolicy), false);
+
+  const noPlansWithoutCompletedPolicy = structuredClone(policyErrorWithoutPolicy);
+  noPlansWithoutCompletedPolicy.error.kind = "no_saved_plans";
+  noPlansWithoutCompletedPolicy.request.policy = "policy.json";
+  assert.equal(validateSavedPlanAssessment(noPlansWithoutCompletedPolicy), false);
 
   const errorWithoutDetail = JSON.parse(JSON.stringify(error));
   delete errorWithoutDetail.error;

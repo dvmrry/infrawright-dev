@@ -3,6 +3,8 @@
   "$id": "https://infrawright.local/schemas/saved-plan-assessment.schema.json",
   "title": "Infrawright Saved Plan Assessment",
   "type": "object",
+  "$comment": "x-infrawright-report-semantics is a required Infrawright vocabulary assertion. Structural JSON Schema validation alone is insufficient: implementations must also enforce unique root identity and membership, request/root and guidance/finding joins, root statuses derived from findings, aggregate counts/status derived from roots, and policy/stale-policy evidence coherence.",
+  "x-infrawright-report-semantics": true,
   "additionalProperties": false,
   "required": [
     "kind",
@@ -352,12 +354,16 @@
           "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
         },
         "label": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$"
         },
         "members": {
           "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
           "items": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
           }
         },
         "status": {
@@ -507,10 +513,7 @@
           "type": "string"
         },
         "address": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "string"
         },
         "finding_path": {
           "type": "string",
@@ -535,13 +538,15 @@
       ],
       "properties": {
         "resource_type": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
         },
         "mode": {
           "const": "plan_tolerate"
         },
         "path": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         }
       }
     },

@@ -333,14 +333,18 @@ rechecks, and constructs the saved-plan assessment v1 document synchronously
 inside that final evidence window. Later-root failures retain already assessed
 roots in an error report; invalid-policy and no-plan failures produce the same
 zero-root error shapes and policy-hash precedence as Python. Reports are
-validated against the published schema, and normal summary/root statuses are
-derived from findings rather than trusted from caller-supplied counts.
+validated against the published structural schema and its required
+`x-infrawright-report-semantics` assertion. That semantic pass derives each root
+status from findings, derives exact summary counts and status from roots, and
+checks unique root membership, request/guidance/stale-policy joins, and policy
+evidence coherence instead of trusting redundant report fields.
 
 The public operation parses the deployment and root catalog from the same
 bounded stable bytes it binds into the transaction. A missing deployment is a
 bound absent state; creation or replacement during assessment fails closed.
 The transaction rechecks both controls around Terraform work and re-materializes
-the selected root/path tuples at entry and immediately before report
+the selected root/path tuples at entry, after policy loading even for the
+zero-root case, and as the final awaited operation before synchronous report
 construction. This catches deployment format/grouping changes, catalog changes,
 and plans appearing or disappearing while an assessment is running.
 
