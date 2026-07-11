@@ -61,6 +61,7 @@ function requestIdentity(value: unknown): {
     | "assess_saved_plans"
     | "compile_pull_artifacts"
     | "compare_pull_artifacts"
+    | "materialize_pull_artifacts"
     | null;
 } {
   if (!isObject(value)) {
@@ -79,6 +80,7 @@ function requestIdentity(value: unknown): {
       || value.operation === "assess_saved_plans"
       || value.operation === "compile_pull_artifacts"
       || value.operation === "compare_pull_artifacts"
+      || value.operation === "materialize_pull_artifacts"
       ? value.operation
       : null,
   };
@@ -94,6 +96,7 @@ function errorResponse(options: {
     | "assess_saved_plans"
     | "compile_pull_artifacts"
     | "compare_pull_artifacts"
+    | "materialize_pull_artifacts"
     | null;
 }): ProcessErrorResponse {
   return {
@@ -191,11 +194,17 @@ async function main(): Promise<void> {
       });
     }
     const configuredTerraform = process.env.INFRAWRIGHT_TERRAFORM_EXECUTABLE;
+    const configuredMaterializeRoot =
+      process.env.INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT;
     const response = await executeRequest(parsed as ProcessRequest, {
       terraformExecutable: configuredTerraform === undefined
         || configuredTerraform.length === 0
         ? null
         : configuredTerraform,
+      materializeOutputRoot: configuredMaterializeRoot === undefined
+        || configuredMaterializeRoot.length === 0
+        ? null
+        : configuredMaterializeRoot,
     });
     if (emit(response)) {
       process.exitCode = successExitCode(response);

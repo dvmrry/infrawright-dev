@@ -274,6 +274,33 @@ jobs:
       - name: Whitespace hygiene
         run: git diff --check
 
+  node-materializer-posix:
+    name: Node materializer (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install pinned build dependencies
+        run: npm ci --ignore-scripts
+      - name: Build focused materializer tests
+        run: npm run build:test
+      - name: Exercise retry-forward publication and public parity
+        run: >-
+          node --test
+          .node-test/node-tests/zcc-pull-materializer.test.js
+          .node-test/node-tests/zcc-pull-materializer-process.test.js
+          .node-test/node-tests/zcc-pull-materialization-semantics.test.js
+
   check:
     runs-on: ubuntu-latest
     steps:

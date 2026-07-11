@@ -14,6 +14,7 @@ import savedPlanAssessmentSchema from "../../docs/schemas/saved-plan-assessment.
 import transformCatalogSchema from "../../docs/schemas/transform-catalog.schema.json" with { type: "json" };
 import zccPullArtifactSetSchema from "../../docs/schemas/zcc-pull-artifact-set.schema.json" with { type: "json" };
 import zccPullArtifactParitySchema from "../../docs/schemas/zcc-pull-artifact-parity.schema.json" with { type: "json" };
+import zccPullArtifactMaterializationSchema from "../../docs/schemas/zcc-pull-artifact-materialization.schema.json" with { type: "json" };
 import type { ErrorDetail } from "../domain/errors.js";
 import {
   ASSESSMENT_SEMANTICS_KEYWORD,
@@ -27,6 +28,12 @@ import {
   ZCC_PULL_PARITY_SEMANTICS_KEYWORD,
   validateZccPullParitySemantics,
 } from "./zcc-pull-parity-semantics.js";
+import {
+  ZCC_PULL_MATERIALIZATION_SEMANTICS_KEYWORD,
+  ZCC_PULL_MATERIALIZATION_REQUEST_SEMANTICS_KEYWORD,
+  validateZccPullMaterializationRequestSemantics,
+  validateZccPullMaterializationSemantics,
+} from "./zcc-pull-materialization-semantics.js";
 
 const AJV_OPTIONS = {
   coerceTypes: false,
@@ -74,6 +81,30 @@ ajv.addKeyword({
   validate: validateZccPullParitySemantics,
 });
 
+ajv.addKeyword({
+  keyword: ZCC_PULL_MATERIALIZATION_SEMANTICS_KEYWORD,
+  schemaType: "boolean",
+  type: "object",
+  errors: true,
+  validate: validateZccPullMaterializationSemantics,
+});
+
+requestAjv.addKeyword({
+  keyword: ZCC_PULL_PARITY_SEMANTICS_KEYWORD,
+  schemaType: "boolean",
+  type: "object",
+  errors: true,
+  validate: validateZccPullParitySemantics,
+});
+
+requestAjv.addKeyword({
+  keyword: ZCC_PULL_MATERIALIZATION_REQUEST_SEMANTICS_KEYWORD,
+  schemaType: "boolean",
+  type: "object",
+  errors: true,
+  validate: validateZccPullMaterializationRequestSemantics,
+});
+
 ajv.addSchema(rootTopologySchema);
 ajv.addSchema(changedPathScopeSchema);
 ajv.addSchema(planRootsSchema);
@@ -81,6 +112,8 @@ ajv.addSchema(savedPlanAssessmentSchema);
 ajv.addSchema(transformCatalogSchema);
 ajv.addSchema(zccPullArtifactSetSchema);
 ajv.addSchema(zccPullArtifactParitySchema);
+ajv.addSchema(zccPullArtifactMaterializationSchema);
+requestAjv.addSchema(zccPullArtifactParitySchema);
 
 export const validateProcessRequest: ValidateFunction = requestAjv.compile(
   processRequestSchema,
@@ -112,6 +145,8 @@ export const validateZccPullArtifactSet: ValidateFunction = ajv.getSchema(
 export const validateZccPullArtifactParity: ValidateFunction = ajv.getSchema(
   zccPullArtifactParitySchema.$id,
 ) as ValidateFunction;
+export const validateZccPullArtifactMaterialization: ValidateFunction =
+  ajv.getSchema(zccPullArtifactMaterializationSchema.$id) as ValidateFunction;
 
 function errorMessage(error: ErrorObject): string {
   if (error.keyword === "additionalProperties") {

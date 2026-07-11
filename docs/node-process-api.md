@@ -7,9 +7,10 @@ HTTP service.
 
 The first slices port the read-only root-topology, changed-path scoping,
 materialized plan-root enumeration, exact-catalog Zscaler saved-plan
-assessment, and ZCC bootstrap artifact compilation and comparison operations.
-They establish the process protocol, deterministic JSON boundary, packaging,
-and differential validation pattern that later adoption operations will follow.
+assessment, and the strict ZCC bootstrap compile, compare, and retry-forward
+materialization operations. They establish the process protocol, deterministic
+JSON boundary, packaging, and differential validation pattern that later
+adoption operations will follow.
 
 ## Runtime and Distribution
 
@@ -232,8 +233,8 @@ yet derive identity-keyed `moved {}` blocks. HCL tfvars and a forwarding
 profile grouped with its trusted-network referent while generated reference
 binding is enabled are also refused. Those cases remain on Python until their
 versioned artifact contracts and differentials land. A pipeline must validate
-the response, require `result.status == "ready"`, and atomically materialize
-the returned descriptors itself.
+the response and require `result.status == "ready"`. It may retain the result
+as evidence; canonical writes belong to the materialization operation below.
 
 ### ZCC materialized artifact comparison
 
@@ -284,6 +285,87 @@ inapplicable stale lookup, HCL deployments, and same-root generated reference
 bindings. Materialized artifacts must be regular non-symlink files and their
 aggregate bytes are bounded. The operation performs no write or deletion.
 
+### ZCC retry-forward artifact materialization
+
+The first write operation accepts the exact standalone, ready
+`infrawright.zcc_pull_artifact_parity` v1 result from a successful comparison
+as `input.assertion`. The remaining input is fixed:
+
+```json
+{
+  "mode": "bootstrap",
+  "publication": "create_or_verify_exact",
+  "tenant": "prod",
+  "resource_type": "zcc_trusted_network",
+  "assertion": {
+    "kind": "infrawright.zcc_pull_artifact_parity",
+    "schema_version": 1
+  }
+}
+```
+
+The abbreviated assertion above must be replaced by the complete comparison
+result; it must never be hand-built from individual paths or digests. The
+operation recompiles from the current bound pull, deployment, and catalog,
+constructs fresh clean parity evidence, and requires exact equality with the
+assertion before creating directories or files. A non-ready assertion is not a
+valid request. The assertion is unsigned and undated: protected pipeline
+storage is what establishes that it came from the intended Python comparison
+lane.
+
+Write authority is never granted by request or deployment data alone. Launch
+the host with `INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT` set to an absolute,
+existing, canonical, non-symlink directory other than `/`. Every final and
+unsupported artifact path must resolve beneath that trusted root. Deployments
+using an external overlay set this variable to the approved physical overlay
+root. Relative artifact descriptors remain relative to the compiler-bound
+canonical workspace; the output root is a containment authority, not a path
+rebase. For example, an `artifacts` deployment overlay is resolved once as
+`<workspace>/artifacts`, not as `<output-root>/artifacts`.
+Missing or malformed output-root configuration is a host I/O failure and exits
+`1`; it is never treated as request data.
+
+Publication is create-or-verify-exact and retry-forward. A target may be absent
+or an exact regular non-symlink copy of the candidate. Existing exact files are
+reused only when they form a valid publication prefix; mismatches, special
+files, symlinks, moves, HCL alternates, generated bindings, and stale lookup
+files fail closed before staging. Missing files are staged and synced in their
+final parents, then made visible with a no-overwrite hard link in the order
+imports, applicable lookup, and tfvars. Tfvars is last so a successful config
+leaf is the final publication step. File and directory creation modes match the
+Python writer (`0666` and `0777`, subject to umask), and aggregate candidate
+content is limited to 32 MiB. Each authority-relative target is limited to 64
+components and 4,096 UTF-8 bytes, with each component limited to 255 UTF-8
+bytes, before filesystem traversal begins.
+
+This is not an atomic artifact-set transaction. Each file becomes visible
+atomically, but config and imports live in different directories. A crash or an
+error after the first publication may leave an exact prefix; the operation
+reports an indeterminate I/O failure and does not risk path-based rollback. A
+serialized retry against unchanged inputs verifies that prefix and completes
+the missing suffix. Pipelines must not run Terraform, Python writers, or a
+second materializer concurrently, and must consume the set only after exit
+`0`. Portable Node APIs do not provide descriptor-relative publication, so
+parent identity rechecks are race detection in a trusted runner—not a security
+boundary against a hostile same-UID process replacing ancestor paths.
+
+A handled failure before the first link removes every staging alias whose
+identity can be safely established, but may leave empty operation-created
+directories. If an alias cannot be rebound for safe cleanup, the operation
+returns `MATERIALIZATION_CLEANUP_FAILED` and may leave that alias rather than
+risk deleting a replacement. Abrupt process or host termination can likewise
+leave random `.infrawright-*.tmp` aliases containing complete staged bytes.
+Those names are never consumed as final artifacts and a later run uses new
+exclusive names; the trusted runner should remove abandoned aliases only after
+it has established that no materializer is active.
+
+Success returns `infrawright.zcc_pull_artifact_materialization` v1 with sorted
+`created` and `reused` artifact names plus fresh digest-only verification. It
+contains no artifact bytes and adds no output-authority or staging-path fields.
+The embedded verification retains its deployment-derived logical artifact
+paths, which may be absolute when the deployment itself uses an absolute
+overlay.
+
 `context.workspace` must be absolute. The other context paths may be absolute
 or workspace-relative. The process never consults
 `INFRAWRIGHT_DEPLOYMENT`, `INFRAWRIGHT_PACKS`, or its current directory.
@@ -297,16 +379,18 @@ hostnames, durations, or other nondeterministic fields are emitted.
 Exit status is:
 
 - `0`: successful read operation, ready bootstrap artifacts, exact materialized
-  parity, or a clean/tolerated assessment;
+  parity, complete retry-forward publication, or a clean/tolerated assessment;
 - `3`: schema-valid review-required bootstrap artifacts, a materialized parity
   difference, or a blocked assessment;
 - `2`: malformed request, deployment, catalog, or domain selection;
-- `1`: a schema-valid assessment error, or an I/O/internal host failure.
+- `1`: a schema-valid assessment error, indeterminate publication, or another
+  I/O/internal host failure.
 
 The strict contracts are published in
 `docs/schemas/process-request.schema.json` and
 `docs/schemas/process-response.schema.json`. The standalone comparison result
-is `docs/schemas/zcc-pull-artifact-parity.schema.json`.
+is `docs/schemas/zcc-pull-artifact-parity.schema.json`; the content-free write
+receipt is `docs/schemas/zcc-pull-artifact-materialization.schema.json`.
 
 ## Transition Catalogs
 
@@ -391,17 +475,19 @@ float-bearing output contract is migrated.
 
 These slices support Zscaler root topology, changed-path scoping, materialized
 plan-root enumeration, exact-catalog saved-plan assessment, and immutable ZCC
-bootstrap artifact compilation and materialized-byte comparison as public
-process operations.
+bootstrap artifact compilation, materialized-byte comparison, and asserted
+retry-forward publication as public process operations.
 
 The ZCC compiler ports raw-item projection and exact tfvars/import/lookup byte
 rendering for `zcc_device_cleanup`, `zcc_failopen_policy`,
 `zcc_forwarding_profile`, `zcc_trusted_network`, and `zcc_web_privacy`. Python
-remains the independent differential oracle and the only in-repository artifact
-writer at this stage. Node returns an immutable candidate set and can now prove
-digest-only parity against materialized Python output without changing it. The
-repository differential runs the actual Python writer and public Node comparer
-for all five supported ZCC resources.
+remains the independent differential oracle. Node returns an immutable
+candidate set, proves digest-only parity against materialized Python output,
+and may publish only this exact five-resource JSON/bootstrap profile after a
+complete ready parity assertion is supplied from the protected comparison
+lane. The repository differential runs the actual Python writer, public Node
+comparer, and public Node materializer for all five supported ZCC resources and
+checks their resulting bytes exactly.
 
 The bundled Zscaler assessment operation uses the internal saved-plan
 assessment kernel, which provides:
@@ -521,10 +607,12 @@ discovery. Those collectors, Python-compatible float rendering for guidance
 values, and a versioned guidance catalog must land before assessment can accept
 anything beyond the exact current Zscaler catalog.
 
-Python remains authoritative for all mutating adoption behavior, Terraform
-orchestration, generic guidance collection, and raw pack catalog production.
-Downstream should run the public Node assessment beside Python and run
-`compare_pull_artifacts` immediately after each authoritative Python ZCC
-transform. Retain Python as the cutover oracle until the deployment and
-raw-pull corpus reports byte-clean parity; a later ready-only materializer will
-use that evidence rather than silently promoting corpus-bounded assumptions.
+Python remains authoritative for refresh, import-oracle adoption, move and
+generated-binding production, HCL artifacts, Terraform orchestration, generic
+guidance collection, and raw pack catalog production. Downstream should run
+the public Node assessment beside Python and run `compare_pull_artifacts`
+immediately after each authoritative Python ZCC transform. Retain Python as the
+cutover oracle until the deployment and raw-pull corpus reports byte-clean
+parity. The Node materializer is a gated consumer of that evidence, not a way
+to bypass it: use it only for the documented exact bootstrap profile, from a
+serialized protected lane, and only after an exit-`0` receipt.
