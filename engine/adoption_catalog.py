@@ -503,8 +503,10 @@ def adoption_catalog(product):
     resources = _fetch_resources(product)
     source_files, sources_sha256 = _source_digest(_source_paths(resources))
     manifest = _pack_manifest(product)
-    lookup_sources = manifest.get("lookup_sources") or {}
-    if not isinstance(lookup_sources, dict):
+    lookup_sources = manifest.get("lookup_sources")
+    if lookup_sources is None:
+        lookup_sources = {}
+    elif not isinstance(lookup_sources, dict):
         raise ValueError(
             "adoption catalog pack lookup_sources must contain an object"
         )

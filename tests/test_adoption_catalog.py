@@ -60,6 +60,20 @@ class AdoptionCatalogTest(unittest.TestCase):
                 {"zcc_trusted_network": "not-an-object"},
             )
 
+    def test_catalog_lookup_sources_root_must_be_an_object(self):
+        for lookup_sources in ([], "", 0, False):
+            with self.subTest(lookup_sources=lookup_sources):
+                manifest = adoption_catalog._pack_manifest("zcc")
+                manifest["lookup_sources"] = lookup_sources
+                with mock.patch.object(
+                        adoption_catalog,
+                        "_pack_manifest",
+                        return_value=manifest):
+                    with self.assertRaisesRegex(
+                            ValueError,
+                            "pack lookup_sources must contain an object"):
+                        adoption_catalog.adoption_catalog("zcc")
+
     def test_lookup_name_field_must_be_a_projected_attribute(self):
         with self.assertRaisesRegex(
                 ValueError,

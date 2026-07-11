@@ -184,6 +184,8 @@
   from hashed `packs/zcc/pack.json`; a poisoned-global-pack regression proves
   unrelated packs cannot change the generated catalog. Lookup entries must
   also be objects whose normalized `name_field` is a projected attribute.
+  Root `lookup_sources` metadata now defaults only when absent/null; every
+  present non-object value, including falsy values, fails catalog generation.
 
 ## Known Deferrals
 
