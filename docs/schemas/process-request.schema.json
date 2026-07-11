@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://infrawright.local/schemas/process-request.schema.json",
   "title": "Infrawright Process Request",
-  "$comment": "x-infrawright-zcc-pull-materialization-request-semantics is a required Infrawright vocabulary assertion for materialize_pull_artifacts inputs. Structural JSON Schema validation alone is insufficient: implementations must also bind the requested tenant and resource_type to the ready parity assertion before operation I/O.",
+  "$comment": "Custom Infrawright request semantics are required for assertion-bearing operations. Structural JSON Schema validation alone is insufficient: implementations must bind requested coordinates and raw contexts to their complete assertions before operation I/O.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -32,6 +32,7 @@
         "plan_roots",
         "assess_saved_plans",
         "compile_pull_artifacts",
+        "seed_pull_refresh_parity",
         "compare_pull_artifacts",
         "materialize_pull_artifacts"
       ]
@@ -54,6 +55,9 @@
           "$ref": "#/$defs/compilePullArtifactsInput"
         },
         {
+          "$ref": "#/$defs/seedPullRefreshParityInput"
+        },
+        {
           "$ref": "#/$defs/comparePullArtifactsInput"
         },
         {
@@ -63,6 +67,16 @@
     }
   },
   "oneOf": [
+    {
+      "properties": {
+        "operation": {
+          "const": "seed_pull_refresh_parity"
+        },
+        "input": {
+          "$ref": "#/$defs/seedPullRefreshParityInput"
+        }
+      }
+    },
     {
       "properties": {
         "operation": {
@@ -300,6 +314,12 @@
       }
     },
     "comparePullArtifactsInput": {
+      "oneOf": [
+        { "$ref": "#/$defs/compareBootstrapPullArtifactsInput" },
+        { "$ref": "#/$defs/compareRefreshPullArtifactsInput" }
+      ]
+    },
+    "compareBootstrapPullArtifactsInput": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -326,6 +346,57 @@
             "zcc_forwarding_profile",
             "zcc_trusted_network",
             "zcc_web_privacy"
+          ]
+        }
+      }
+    },
+    "parityReferenceContext": {
+      "$ref": "#/$defs/context"
+    },
+    "seedPullRefreshParityInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode", "reference", "tenant", "resource_type", "reference_context"
+      ],
+      "properties": {
+        "mode": { "const": "refresh" },
+        "reference": { "const": "materialized_twin" },
+        "tenant": {
+          "type": "string",
+          "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+        },
+        "resource_type": {
+          "$ref": "zcc-pull-artifact-set.schema.json#/$defs/resourceType"
+        },
+        "reference_context": { "$ref": "#/$defs/parityReferenceContext" }
+      }
+    },
+    "compareRefreshPullArtifactsInput": {
+      "type": "object",
+      "x-infrawright-zcc-pull-refresh-parity-request-semantics": true,
+      "additionalProperties": false,
+      "required": [
+        "mode", "reference", "tenant", "resource_type", "reference_context", "seed"
+      ],
+      "properties": {
+        "mode": { "const": "refresh" },
+        "reference": { "const": "materialized_twin" },
+        "tenant": {
+          "type": "string",
+          "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+        },
+        "resource_type": {
+          "$ref": "zcc-pull-artifact-set.schema.json#/$defs/resourceType"
+        },
+        "reference_context": { "$ref": "#/$defs/parityReferenceContext" },
+        "seed": {
+          "allOf": [
+            { "$ref": "zcc-pull-refresh-parity-seed.schema.json" },
+            {
+              "type": "object",
+              "properties": { "status": { "const": "ready" } }
+            }
           ]
         }
       }

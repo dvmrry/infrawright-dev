@@ -60,6 +60,7 @@ function requestIdentity(value: unknown): {
     | "plan_roots"
     | "assess_saved_plans"
     | "compile_pull_artifacts"
+    | "seed_pull_refresh_parity"
     | "compare_pull_artifacts"
     | "materialize_pull_artifacts"
     | null;
@@ -79,6 +80,7 @@ function requestIdentity(value: unknown): {
       || value.operation === "plan_roots"
       || value.operation === "assess_saved_plans"
       || value.operation === "compile_pull_artifacts"
+      || value.operation === "seed_pull_refresh_parity"
       || value.operation === "compare_pull_artifacts"
       || value.operation === "materialize_pull_artifacts"
       ? value.operation
@@ -95,6 +97,7 @@ function errorResponse(options: {
     | "plan_roots"
     | "assess_saved_plans"
     | "compile_pull_artifacts"
+    | "seed_pull_refresh_parity"
     | "compare_pull_artifacts"
     | "materialize_pull_artifacts"
     | null;
@@ -159,6 +162,7 @@ function emitFallback(code: string, message: string): false {
 function successExitCode(response: ProcessSuccessResponse): number {
   if (
     response.operation === "compile_pull_artifacts"
+    || response.operation === "seed_pull_refresh_parity"
     || response.operation === "compare_pull_artifacts"
   ) {
     return response.result.status === "review_required" ? 3 : 0;

@@ -11,6 +11,7 @@ import {
 import {
   copyAssessmentControlFiles,
   recheckAssessmentControlFiles,
+  type BoundAssessmentControlFile,
 } from "./control-evidence.js";
 import {
   loadBoundAssessmentDeployment,
@@ -57,6 +58,7 @@ import {
   type StableReadHooks,
 } from "../io/bounded-files.js";
 import { parseZccPullDataJson } from "../json/zcc-pull-data.js";
+import { sortedStrings } from "../json/python-compatible.js";
 
 const PULL_READ_LIMITS: BoundedReadLimits = {
   maxFiles: 1,
@@ -89,6 +91,21 @@ export interface ZccPullOperationHooks {
   readonly afterRefreshCompiled?: () => void | Promise<void>;
 }
 
+export interface ZccParityTargetParentBinding {
+  readonly path: string;
+  readonly identity: {
+    readonly dev: bigint;
+    readonly ino: bigint;
+  };
+  readonly ancestors: readonly {
+    readonly path: string;
+    readonly identity: {
+      readonly dev: bigint;
+      readonly ino: bigint;
+    };
+  }[];
+}
+
 function fail(
   code: string,
   message: string,
@@ -112,11 +129,21 @@ function resolvedPath(workspace: string, candidate: string): string {
     : path.resolve(workspace, candidate);
 }
 
-async function canonicalWorkspace(workspace: string): Promise<string> {
+async function canonicalWorkspace(
+  workspace: string,
+  strictParity = false,
+): Promise<string> {
   try {
     const canonical = await realpath(workspace);
     const metadata = await stat(canonical);
-    if (!metadata.isDirectory()) {
+    if (
+      !metadata.isDirectory()
+      || (strictParity && (
+        canonical !== workspace
+        || workspace !== path.resolve(workspace)
+        || workspace === path.parse(workspace).root
+      ))
+    ) {
       return fail("INVALID_WORKSPACE", "context.workspace must resolve to a directory");
     }
     return canonical;
@@ -125,6 +152,234 @@ async function canonicalWorkspace(workspace: string): Promise<string> {
       throw error;
     }
     return fail("INVALID_WORKSPACE", "context.workspace could not be resolved");
+  }
+}
+
+export async function preflightZccParityInputPath(options: {
+  readonly filePath: string;
+  readonly workspace: string;
+  readonly required: boolean;
+}): Promise<void> {
+  const lexical = path.resolve(options.filePath);
+  const physical = pythonPosixRealpath(lexical);
+  if (
+    lexical !== options.filePath
+    || physical !== lexical
+    || !containedPath(physical, options.workspace)
+  ) {
+    return fail(
+      "INVALID_REFRESH_PARITY_ISOLATION",
+      "refresh parity inputs must be canonical and workspace-contained",
+    );
+  }
+  try {
+    const metadata = await lstat(lexical);
+    if (!metadata.isFile() || metadata.isSymbolicLink()) {
+      return fail(
+        "INVALID_REFRESH_PARITY_ISOLATION",
+        "refresh parity inputs must be regular non-symlink files",
+      );
+    }
+  } catch (error: unknown) {
+    if (!options.required && errorCode(error) === "ENOENT") {
+      return;
+    }
+    if (error instanceof ProcessFailure) {
+      throw error;
+    }
+    return fail(
+      "INVALID_REFRESH_PARITY_ISOLATION",
+      "refresh parity input preflight failed",
+    );
+  }
+}
+
+export async function preflightZccParityArtifactTarget(options: {
+  readonly workspace: string;
+  readonly deployment: Awaited<ReturnType<typeof loadBoundAssessmentDeployment>>["deployment"];
+  readonly target: ZccArtifactTarget;
+  readonly requireMaterializedBaseline?: boolean;
+}): Promise<readonly ZccParityTargetParentBinding[]> {
+  const overlay = options.deployment.overlay;
+  if (typeof overlay !== "string") {
+    return fail(
+      "INVALID_REFRESH_PARITY_ISOLATION",
+      "refresh parity deployment authority is invalid",
+    );
+  }
+  const lexicalAuthority = overlay === "."
+    ? options.workspace
+    : resolvedPath(options.workspace, overlay);
+  let authority: string;
+  try {
+    authority = await realpath(lexicalAuthority);
+    const metadata = await lstat(lexicalAuthority);
+    if (
+      authority !== lexicalAuthority
+      || authority === path.parse(authority).root
+      || !metadata.isDirectory()
+      || metadata.isSymbolicLink()
+    ) {
+      return fail(
+        "INVALID_REFRESH_PARITY_ISOLATION",
+        "refresh parity artifact authority is invalid",
+      );
+    }
+  } catch (error: unknown) {
+    if (error instanceof ProcessFailure) {
+      throw error;
+    }
+    return fail(
+      "INVALID_REFRESH_PARITY_ISOLATION",
+      "refresh parity artifact authority is invalid",
+    );
+  }
+  if (
+    authority !== options.workspace
+    && containedPath(options.workspace, authority)
+  ) {
+    return fail(
+      "INVALID_REFRESH_PARITY_ISOLATION",
+      "refresh parity artifact authority is invalid",
+    );
+  }
+  const paths = compareArtifactPaths(options.workspace, options.target);
+  const allTargets = [
+    paths.tfvars,
+    paths.imports,
+    ...(paths.lookup === null ? [] : [paths.lookup]),
+    ...paths.unsupported.map((artifact) => artifact.absolutePath),
+  ].filter((value): value is string => value !== null);
+  if (
+    new Set(allTargets).size !== allTargets.length
+    || allTargets.some((target) => !containedPath(target, authority))
+  ) {
+    return fail(
+      "INVALID_REFRESH_PARITY_ISOLATION",
+      "refresh parity artifact targets are invalid",
+    );
+  }
+  const parentPaths = sortedStrings(new Set(allTargets.map((target) => path.dirname(target))));
+  const parents: ZccParityTargetParentBinding[] = [];
+  for (const parentPath of parentPaths) {
+    try {
+      const canonical = await realpath(parentPath);
+      const metadata = await lstat(parentPath, { bigint: true });
+      if (
+        canonical !== parentPath
+        || !metadata.isDirectory()
+        || metadata.isSymbolicLink()
+        || !containedPath(parentPath, authority)
+      ) {
+        return fail(
+          "INVALID_REFRESH_PARITY_ISOLATION",
+          "refresh parity artifact parents are invalid",
+        );
+      }
+      parents.push({
+        path: parentPath,
+        identity: { dev: metadata.dev, ino: metadata.ino },
+        ancestors: await (async () => {
+          const relative = path.relative(authority, parentPath);
+          const components = relative === "" ? [] : relative.split(path.sep);
+          const chain: {
+            path: string;
+            identity: { dev: bigint; ino: bigint };
+          }[] = [];
+          let current = authority;
+          for (const component of ["", ...components]) {
+            if (component !== "") {
+              current = path.join(current, component);
+            }
+            const ancestor = await lstat(current, { bigint: true });
+            if (!ancestor.isDirectory() || ancestor.isSymbolicLink()) {
+              return fail(
+                "INVALID_REFRESH_PARITY_ISOLATION",
+                "refresh parity artifact ancestry is invalid",
+              );
+            }
+            chain.push({
+              path: current,
+              identity: { dev: ancestor.dev, ino: ancestor.ino },
+            });
+          }
+          return chain;
+        })(),
+      });
+    } catch (error: unknown) {
+      if (error instanceof ProcessFailure) {
+        throw error;
+      }
+      return fail(
+        "INVALID_REFRESH_PARITY_ISOLATION",
+        "refresh parity artifact parents are invalid",
+      );
+    }
+  }
+  if (options.requireMaterializedBaseline !== false) {
+    for (const requiredPath of [
+      paths.tfvars,
+      paths.imports,
+      ...(paths.lookup === null ? [] : [paths.lookup]),
+    ]) {
+      try {
+        const metadata = await lstat(requiredPath);
+        if (!metadata.isFile() || metadata.isSymbolicLink()) {
+          throw new Error("not regular");
+        }
+      } catch {
+        return fail(
+          "INVALID_REFRESH_PARITY_ISOLATION",
+          "refresh parity requires a fully materialized run-one baseline",
+        );
+      }
+    }
+  }
+  return parents;
+}
+
+export async function recheckZccParityTargetParents(
+  parents: readonly ZccParityTargetParentBinding[],
+): Promise<void> {
+  for (const parent of parents) {
+    for (const ancestor of parent.ancestors) {
+      try {
+        const metadata = await lstat(ancestor.path, { bigint: true });
+        if (
+          !metadata.isDirectory()
+          || metadata.isSymbolicLink()
+          || metadata.dev !== ancestor.identity.dev
+          || metadata.ino !== ancestor.identity.ino
+          || await realpath(ancestor.path) !== ancestor.path
+        ) {
+          throw new Error("changed");
+        }
+      } catch {
+        return fail(
+          "REFRESH_PARITY_TARGET_PARENT_CHANGED",
+          "refresh parity artifact parent changed",
+          "io",
+        );
+      }
+    }
+    try {
+      const metadata = await lstat(parent.path, { bigint: true });
+      if (
+        !metadata.isDirectory()
+        || metadata.isSymbolicLink()
+        || metadata.dev !== parent.identity.dev
+        || metadata.ino !== parent.identity.ino
+        || await realpath(parent.path) !== parent.path
+      ) {
+        throw new Error("changed");
+      }
+    } catch {
+      return fail(
+        "REFRESH_PARITY_TARGET_PARENT_CHANGED",
+        "refresh parity artifact parent changed",
+        "io",
+      );
+    }
   }
 }
 
@@ -634,7 +889,7 @@ function oneRoot(
   return root;
 }
 
-function resolveArtifactTarget(options: {
+export function resolveZccArtifactTarget(options: {
   readonly tenant: string;
   readonly resourceType: string;
   readonly deployment: Awaited<ReturnType<typeof loadBoundAssessmentDeployment>>["deployment"];
@@ -725,9 +980,14 @@ async function recheckSource(options: {
   readonly lexicalWorkspace: string;
   readonly canonicalWorkspace: string;
   readonly expected: { readonly sha256: string; readonly size: bigint };
+  readonly expectedIdentity?: { readonly dev: bigint; readonly ino: bigint };
+  readonly strictParity?: boolean;
 }): Promise<void> {
   try {
-    const workspace = await canonicalWorkspace(options.lexicalWorkspace);
+    const workspace = await canonicalWorkspace(
+      options.lexicalWorkspace,
+      options.strictParity === true,
+    );
     if (workspace !== options.canonicalWorkspace) {
       return fail("RAW_PULL_CHANGED", "raw pull changed during compilation", "io");
     }
@@ -738,13 +998,31 @@ async function recheckSource(options: {
     if (source !== options.canonicalSource) {
       return fail("RAW_PULL_CHANGED", "raw pull changed during compilation", "io");
     }
+    const before = await lstat(source, { bigint: true });
+    if (
+      !before.isFile()
+      || (options.strictParity === true && before.isSymbolicLink())
+      || (
+        options.expectedIdentity !== undefined
+        && (
+          before.dev !== options.expectedIdentity.dev
+          || before.ino !== options.expectedIdentity.ino
+        )
+      )
+    ) {
+      return fail("RAW_PULL_CHANGED", "raw pull changed during compilation", "io");
+    }
     const current = await sha256StableFile(
       source,
       new ReadBudget(PULL_READ_LIMITS),
+      { followSymlinks: options.strictParity !== true },
     );
+    const after = await lstat(source, { bigint: true });
     if (
       current.sha256 !== options.expected.sha256
       || current.size !== options.expected.size
+      || after.dev !== before.dev
+      || after.ino !== before.ino
     ) {
       return fail("RAW_PULL_CHANGED", "raw pull changed during compilation", "io");
     }
@@ -765,18 +1043,80 @@ interface ZccPullArtifactsOperationOptions {
   readonly hooks?: ZccPullOperationHooks;
 }
 
+export interface ZccPullRefreshCompilationTransaction {
+  readonly result: ZccPullRefreshArtifactSet;
+  readonly binding: {
+    readonly lexicalWorkspace: string;
+    readonly canonicalWorkspace: string;
+    readonly deploymentPath: string;
+    readonly catalogPath: string;
+    readonly deployment: Awaited<ReturnType<typeof loadBoundAssessmentDeployment>>["deployment"];
+    readonly controls: readonly BoundAssessmentControlFile[];
+    readonly target: ZccArtifactTarget;
+    readonly source: {
+      readonly logicalPath: string;
+      readonly canonicalPath: string;
+      readonly sha256: string;
+      readonly size: bigint;
+      readonly identity: { readonly dev: bigint; readonly ino: bigint };
+    };
+    readonly targetParents: readonly ZccParityTargetParentBinding[];
+    readonly baselineInputs: BoundZccRefreshInputs;
+  };
+  readonly recheckInputs: () => Promise<void>;
+}
+
+export interface ZccPullRefreshParityPrepared {
+  readonly request: {
+    readonly workspace: string;
+    readonly deploymentPath: string;
+    readonly catalogPath: string;
+    readonly tenant: string;
+    readonly resourceType: string;
+  };
+  readonly workspace: string;
+  readonly deployment: Awaited<ReturnType<typeof loadBoundAssessmentDeployment>>["deployment"];
+  readonly controls: readonly BoundAssessmentControlFile[];
+  readonly target: ZccArtifactTarget;
+  readonly targetParents: readonly ZccParityTargetParentBinding[];
+  readonly source: {
+    readonly logicalPath: string;
+    readonly lexicalPath: string;
+    readonly identity: { readonly dev: bigint; readonly ino: bigint };
+  };
+}
+
+interface CompiledZccPullTransaction {
+  readonly candidate: ZccPullArtifactSet;
+  readonly policy: BoundZccPullArtifactPolicy;
+  readonly pathBase: string;
+  readonly binding: {
+    readonly lexicalWorkspace: string;
+    readonly canonicalWorkspace: string;
+    readonly deploymentPath: string;
+    readonly catalogPath: string;
+    readonly deployment: Awaited<ReturnType<typeof loadBoundAssessmentDeployment>>["deployment"];
+    readonly controls: readonly BoundAssessmentControlFile[];
+    readonly target: ZccArtifactTarget;
+    readonly source: {
+      readonly logicalPath: string;
+      readonly canonicalPath: string;
+      readonly sha256: string;
+      readonly size: bigint;
+      readonly identity: { readonly dev: bigint; readonly ino: bigint };
+    };
+    readonly targetParents: readonly ZccParityTargetParentBinding[];
+  };
+  readonly recheckInputs: () => Promise<void>;
+}
+
 export interface ZccPullMaterializationOperationHooks
   extends ZccPullOperationHooks, ZccPullMaterializationHooks {}
 
 async function compileZccPullArtifactsWithPolicy(
   options: ZccPullArtifactsOperationOptions,
   artifactPolicy: ZccPullArtifactPolicy,
-): Promise<{
-  readonly candidate: ZccPullArtifactSet;
-  readonly policy: BoundZccPullArtifactPolicy;
-  readonly pathBase: string;
-  readonly recheckInputs: () => Promise<void>;
-}> {
+): Promise<CompiledZccPullTransaction> {
   const hooks = options.hooks === undefined
     ? undefined
     : Object.freeze({
@@ -802,6 +1142,12 @@ async function compileZccPullArtifactsWithPolicy(
   }
   validateTenant(request.tenant);
   const workspace = await canonicalWorkspace(request.workspace);
+  const relativeSource = pythonPosixJoin(
+    "pulls",
+    request.tenant,
+    `${request.resourceType}.json`,
+  );
+  const lexicalSource = path.resolve(workspace, relativeSource);
   const boundCatalog = await loadBoundAssessmentRootCatalog(request.catalogPath);
   requireSupportedZscalerCompileCatalog(boundCatalog.catalog);
   const boundDeployment = await loadBoundAssessmentDeployment(request.deploymentPath);
@@ -809,12 +1155,13 @@ async function compileZccPullArtifactsWithPolicy(
     boundCatalog.file,
     boundDeployment.file,
   ]);
-  const target = resolveArtifactTarget({
+  const target = resolveZccArtifactTarget({
     tenant: request.tenant,
     resourceType: request.resourceType,
     deployment: boundDeployment.deployment,
     catalog: boundCatalog.catalog,
   });
+  const targetParents: readonly ZccParityTargetParentBinding[] = [];
   const boundPolicy = await bindArtifactPolicy({
     workspace,
     target,
@@ -824,12 +1171,6 @@ async function compileZccPullArtifactsWithPolicy(
       : { priorImportsRead: hooks.priorImportsRead }),
   });
 
-  const relativeSource = pythonPosixJoin(
-    "pulls",
-    request.tenant,
-    `${request.resourceType}.json`,
-  );
-  const lexicalSource = path.resolve(workspace, relativeSource);
   const canonicalSource = await canonicalPullSource({
     lexicalPath: lexicalSource,
     workspace,
@@ -837,9 +1178,9 @@ async function compileZccPullArtifactsWithPolicy(
   const source = await readBoundedUtf8File(
     canonicalSource,
     new ReadBudget(PULL_READ_LIMITS),
-    hooks?.sourceRead === undefined
-      ? {}
-      : { hooks: hooks.sourceRead },
+    {
+      ...(hooks?.sourceRead === undefined ? {} : { hooks: hooks.sourceRead }),
+    },
   );
   let rawItems: readonly unknown[];
   try {
@@ -881,6 +1222,8 @@ async function compileZccPullArtifactsWithPolicy(
       lexicalWorkspace: request.workspace,
       canonicalWorkspace: workspace,
       expected: source.digest,
+      expectedIdentity: source.identity,
+      strictParity: false,
     });
     try {
       await recheckAssessmentControlFiles(controls);
@@ -888,10 +1231,232 @@ async function compileZccPullArtifactsWithPolicy(
       return fail("COMPILE_CONTROL_CHANGED", "compile control input changed", "io");
     }
     await recheckArtifactPolicy(boundPolicy);
+    await recheckZccParityTargetParents(targetParents);
   };
   await hooks?.beforeFinalRecheck?.();
   await recheckInputs();
-  return { candidate: result, policy: boundPolicy, pathBase: workspace, recheckInputs };
+  return {
+    candidate: result,
+    policy: boundPolicy,
+    pathBase: workspace,
+    binding: {
+      lexicalWorkspace: request.workspace,
+      canonicalWorkspace: workspace,
+      deploymentPath: request.deploymentPath,
+      catalogPath: request.catalogPath,
+      deployment: boundDeployment.deployment,
+      controls,
+      target,
+      source: {
+        logicalPath: relativeSource,
+        canonicalPath: canonicalSource,
+        sha256: source.digest.sha256,
+        size: source.digest.size,
+        identity: source.identity,
+      },
+      targetParents,
+    },
+    recheckInputs,
+  };
+}
+
+/** Strictly prepare both parity sides before either baseline or raw pull is read. */
+export async function prepareZccPullRefreshParity(options: {
+  readonly workspace: string;
+  readonly deploymentPath: string;
+  readonly catalogPath: string;
+  readonly tenant: string;
+  readonly resourceType: string;
+  readonly requireMaterializedBaseline?: boolean;
+}): Promise<ZccPullRefreshParityPrepared> {
+  const request = Object.freeze({
+    workspace: options.workspace,
+    deploymentPath: options.deploymentPath,
+    catalogPath: options.catalogPath,
+    tenant: options.tenant,
+    resourceType: options.resourceType,
+  });
+  if (!path.isAbsolute(request.workspace)) {
+    return fail("INVALID_WORKSPACE", "context.workspace must be an absolute path");
+  }
+  validateTenant(request.tenant);
+  const workspace = await canonicalWorkspace(request.workspace, true);
+  const relativeSource = pythonPosixJoin(
+    "pulls",
+    request.tenant,
+    `${request.resourceType}.json`,
+  );
+  const lexicalSource = path.resolve(workspace, relativeSource);
+  await preflightZccParityInputPath({
+    filePath: request.catalogPath,
+    workspace,
+    required: true,
+  });
+  await preflightZccParityInputPath({
+    filePath: request.deploymentPath,
+    workspace,
+    required: false,
+  });
+  await preflightZccParityInputPath({
+    filePath: lexicalSource,
+    workspace,
+    required: true,
+  });
+  const sourceMetadata = await lstat(lexicalSource, { bigint: true });
+  const boundCatalog = await loadBoundAssessmentRootCatalog(
+    request.catalogPath,
+    { followSymlinks: false },
+  );
+  requireSupportedZscalerCompileCatalog(boundCatalog.catalog);
+  const boundDeployment = await loadBoundAssessmentDeployment(
+    request.deploymentPath,
+    { followSymlinks: false },
+  );
+  const controls = copyAssessmentControlFiles([
+    boundCatalog.file,
+    boundDeployment.file,
+  ]);
+  const target = resolveZccArtifactTarget({
+    tenant: request.tenant,
+    resourceType: request.resourceType,
+    deployment: boundDeployment.deployment,
+    catalog: boundCatalog.catalog,
+  });
+  const targetParents = await preflightZccParityArtifactTarget({
+    workspace,
+    deployment: boundDeployment.deployment,
+    target,
+    ...(options.requireMaterializedBaseline === undefined
+      ? {}
+      : { requireMaterializedBaseline: options.requireMaterializedBaseline }),
+  });
+  return Object.freeze({
+    request,
+    workspace,
+    deployment: boundDeployment.deployment,
+    controls,
+    target,
+    targetParents,
+    source: {
+      logicalPath: relativeSource,
+      lexicalPath: lexicalSource,
+      identity: { dev: sourceMetadata.dev, ino: sourceMetadata.ino },
+    },
+  });
+}
+
+async function compilePreparedZccPullRefreshCandidate(options: {
+  readonly prepared: ZccPullRefreshParityPrepared;
+  readonly hooks?: ZccPullOperationHooks;
+}): Promise<CompiledZccPullTransaction> {
+  const hooks = options.hooks === undefined
+    ? undefined
+    : Object.freeze({
+        sourceRead: options.hooks.sourceRead === undefined
+          ? undefined
+          : Object.freeze({ ...options.hooks.sourceRead }),
+        priorImportsRead: options.hooks.priorImportsRead === undefined
+          ? undefined
+          : Object.freeze({ ...options.hooks.priorImportsRead }),
+        afterInputsBound: options.hooks.afterInputsBound,
+        beforeFinalRecheck: options.hooks.beforeFinalRecheck,
+        afterRefreshCompiled: options.hooks.afterRefreshCompiled,
+      });
+  const prepared = options.prepared;
+  const boundPolicy = await bindArtifactPolicy({
+    workspace: prepared.workspace,
+    target: prepared.target,
+    policy: { kind: "refresh_prior_imports" },
+    ...(hooks?.priorImportsRead === undefined
+      ? {}
+      : { priorImportsRead: hooks.priorImportsRead }),
+  });
+  const source = await readBoundedUtf8File(
+    prepared.source.lexicalPath,
+    new ReadBudget(PULL_READ_LIMITS),
+    {
+      followSymlinks: false,
+      ...(hooks?.sourceRead === undefined ? {} : { hooks: hooks.sourceRead }),
+    },
+  );
+  if (
+    source.identity.dev !== prepared.source.identity.dev
+    || source.identity.ino !== prepared.source.identity.ino
+  ) {
+    return fail("RAW_PULL_CHANGED", "raw pull changed during compilation", "io");
+  }
+  let rawItems: readonly unknown[];
+  try {
+    rawItems = parseZccPullDataJson(source.text);
+  } catch (error: unknown) {
+    if (error instanceof ProcessFailure) {
+      throw error;
+    }
+    return fail("INVALID_PULL_DATA", "raw pull is not supported JSON item data");
+  }
+  await hooks?.afterInputsBound?.();
+  let candidate: ZccPullArtifactSet;
+  try {
+    candidate = compileZccPullRefreshCandidateArtifactSet({
+      catalog: loadZccTransformCatalog(),
+      catalogSha256: ZCC_TRANSFORM_CATALOG_SHA256,
+      rawItems,
+      target: prepared.target,
+      source: {
+        path: prepared.source.logicalPath,
+        sha256: source.digest.sha256,
+        size_bytes: Number(source.digest.size),
+      },
+    });
+  } catch (error: unknown) {
+    if (error instanceof ProcessFailure) {
+      throw error;
+    }
+    return fail("INVALID_PULL_DATA", "raw pull could not be compiled");
+  }
+  const recheckInputs = async (): Promise<void> => {
+    await recheckSource({
+      canonicalSource: prepared.source.lexicalPath,
+      lexicalSource: prepared.source.lexicalPath,
+      lexicalWorkspace: prepared.request.workspace,
+      canonicalWorkspace: prepared.workspace,
+      expected: source.digest,
+      expectedIdentity: source.identity,
+      strictParity: true,
+    });
+    try {
+      await recheckAssessmentControlFiles(prepared.controls);
+    } catch {
+      return fail("COMPILE_CONTROL_CHANGED", "compile control input changed", "io");
+    }
+    await recheckArtifactPolicy(boundPolicy);
+    await recheckZccParityTargetParents(prepared.targetParents);
+  };
+  await hooks?.beforeFinalRecheck?.();
+  await recheckInputs();
+  return {
+    candidate,
+    policy: boundPolicy,
+    pathBase: prepared.workspace,
+    binding: {
+      lexicalWorkspace: prepared.request.workspace,
+      canonicalWorkspace: prepared.workspace,
+      deploymentPath: prepared.request.deploymentPath,
+      catalogPath: prepared.request.catalogPath,
+      deployment: prepared.deployment,
+      controls: prepared.controls,
+      target: prepared.target,
+      source: {
+        logicalPath: prepared.source.logicalPath,
+        canonicalPath: prepared.source.lexicalPath,
+        sha256: source.digest.sha256,
+        size: source.digest.size,
+        identity: source.identity,
+      },
+      targetParents: prepared.targetParents,
+    },
+    recheckInputs,
+  };
 }
 
 /** Bind, compile, and finally recheck every input without writing artifacts. */
@@ -909,11 +1474,37 @@ export async function compileZccPullArtifactsOperation(
 export async function compileZccPullRefreshArtifactsOperation(
   options: ZccPullArtifactsOperationOptions,
 ): Promise<ZccPullRefreshArtifactSet> {
+  return (await compileZccPullRefreshArtifactsTransaction(options)).result;
+}
+
+/** Internal transaction seam used by the two-workspace parity protocol. */
+export async function compileZccPullRefreshArtifactsTransaction(
+  options: ZccPullArtifactsOperationOptions,
+): Promise<ZccPullRefreshCompilationTransaction> {
   const afterRefreshCompiled = options.hooks?.afterRefreshCompiled;
   const result = await compileZccPullArtifactsWithPolicy(
     options,
     { kind: "refresh_prior_imports" },
   );
+  return finishZccPullRefreshTransaction(result, afterRefreshCompiled);
+}
+
+/** Compile from a strict preparation shared with the opposite parity twin. */
+export async function compilePreparedZccPullRefreshArtifactsTransaction(
+  prepared: ZccPullRefreshParityPrepared,
+  hooks?: ZccPullOperationHooks,
+): Promise<ZccPullRefreshCompilationTransaction> {
+  const result = await compilePreparedZccPullRefreshCandidate({
+    prepared,
+    ...(hooks === undefined ? {} : { hooks }),
+  });
+  return finishZccPullRefreshTransaction(result, hooks?.afterRefreshCompiled);
+}
+
+async function finishZccPullRefreshTransaction(
+  result: CompiledZccPullTransaction,
+  afterRefreshCompiled?: () => void | Promise<void>,
+): Promise<ZccPullRefreshCompilationTransaction> {
   if (result.policy.kind !== "refresh_prior_imports") {
     return fail("INTERNAL_ERROR", "refresh artifact policy is unresolved", "internal");
   }
@@ -936,7 +1527,14 @@ export async function compileZccPullRefreshArtifactsOperation(
   });
   await afterRefreshCompiled?.();
   await result.recheckInputs();
-  return refresh;
+  return {
+    result: refresh,
+    binding: {
+      ...result.binding,
+      baselineInputs: inputs,
+    },
+    recheckInputs: result.recheckInputs,
+  };
 }
 
 /** Compare trusted candidate digests with stable materialized artifact reads. */

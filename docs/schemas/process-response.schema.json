@@ -46,6 +46,9 @@
           "const": "compile_pull_artifacts"
         },
         {
+          "const": "seed_pull_refresh_parity"
+        },
+        {
           "const": "compare_pull_artifacts"
         },
         {
@@ -89,6 +92,12 @@
           "$ref": "zcc-pull-refresh-artifact-set.schema.json"
         },
         {
+          "$ref": "zcc-pull-refresh-parity-seed.schema.json"
+        },
+        {
+          "$ref": "zcc-pull-refresh-parity.schema.json"
+        },
+        {
           "$ref": "zcc-pull-artifact-parity.schema.json"
         },
         {
@@ -121,6 +130,26 @@
       },
       "then": {
         "oneOf": [
+          {
+            "properties": {
+              "request_id": {
+                "type": "string"
+              },
+              "operation": {
+                "const": "seed_pull_refresh_parity"
+              },
+              "diagnostics": {
+                "type": "array",
+                "maxItems": 0
+              },
+              "result": {
+                "$ref": "zcc-pull-refresh-parity-seed.schema.json"
+              },
+              "error": {
+                "type": "null"
+              }
+            }
+          },
           {
             "properties": {
               "request_id": {
@@ -229,7 +258,10 @@
                 "maxItems": 0
               },
               "result": {
-                "$ref": "zcc-pull-artifact-parity.schema.json"
+                "oneOf": [
+                  { "$ref": "zcc-pull-artifact-parity.schema.json" },
+                  { "$ref": "zcc-pull-refresh-parity.schema.json" }
+                ]
               },
               "error": {
                 "type": "null"

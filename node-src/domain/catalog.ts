@@ -70,11 +70,14 @@ export async function loadRootCatalog(path: string): Promise<RootCatalog> {
   return rootCatalogFromText(await readRequiredUtf8(path, "root catalog"));
 }
 
-export async function loadBoundAssessmentRootCatalog(path: string): Promise<{
+export async function loadBoundAssessmentRootCatalog(
+  path: string,
+  options?: { readonly followSymlinks?: boolean },
+): Promise<{
   readonly catalog: RootCatalog;
   readonly file: BoundAssessmentControlFile;
 }> {
-  const source = await bindRequiredAssessmentControlText(path);
+  const source = await bindRequiredAssessmentControlText(path, options);
   if (source.text === null) {
     throw new ProcessFailure({
       code: "READ_FAILED",

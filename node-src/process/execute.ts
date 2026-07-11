@@ -9,6 +9,8 @@ import {
   validateZccPullArtifactMaterialization,
   validateZccPullArtifactSet,
   validateZccPullRefreshArtifactSet,
+  validateZccPullRefreshParity,
+  validateZccPullRefreshParitySeed,
   validateZccPullArtifactParity,
 } from "../contracts/validators.js";
 import {
@@ -33,6 +35,10 @@ import {
   compileZccPullRefreshArtifactsOperation,
   materializeZccPullArtifactsOperation,
 } from "../domain/zcc-pull-operation.js";
+import {
+  compareZccPullRefreshParityOperation,
+  seedZccPullRefreshParityOperation,
+} from "../domain/zcc-pull-refresh-parity.js";
 import type {
   ProcessRequest,
   ProcessSuccessResponse,
@@ -87,14 +93,41 @@ function copyRequest(request: ProcessRequest): ProcessRequest {
     };
   }
   if (request.operation === "compare_pull_artifacts") {
+    if (request.input.mode === "refresh") {
+      return {
+        ...base,
+        operation: "compare_pull_artifacts",
+        input: {
+          mode: "refresh",
+          reference: "materialized_twin",
+          tenant: request.input.tenant,
+          resource_type: request.input.resource_type,
+          reference_context: { ...request.input.reference_context },
+          seed: structuredClone(request.input.seed),
+        },
+      };
+    }
     return {
       ...base,
       operation: "compare_pull_artifacts",
+      input: {
+        mode: "bootstrap",
+        reference: "materialized",
+        tenant: request.input.tenant,
+        resource_type: request.input.resource_type,
+      },
+    };
+  }
+  if (request.operation === "seed_pull_refresh_parity") {
+    return {
+      ...base,
+      operation: "seed_pull_refresh_parity",
       input: {
         mode: request.input.mode,
         reference: request.input.reference,
         tenant: request.input.tenant,
         resource_type: request.input.resource_type,
+        reference_context: { ...request.input.reference_context },
       },
     };
   }
@@ -190,25 +223,36 @@ export async function executeRequest(
     };
   }
   if (request.operation === "compare_pull_artifacts") {
-    const result = await compareZccPullArtifactsOperation({
-      workspace: request.context.workspace,
-      deploymentPath: resolveContextPath(
-        request.context.workspace,
-        request.context.deployment,
-      ),
-      catalogPath: resolveContextPath(
-        request.context.workspace,
-        request.context.root_catalog,
-      ),
-      tenant: request.input.tenant,
-      resourceType: request.input.resource_type,
-    });
-    if (!validateZccPullArtifactParity(result)) {
+    const result = request.input.mode === "refresh"
+      ? await compareZccPullRefreshParityOperation({
+          context: request.context,
+          referenceContext: request.input.reference_context,
+          tenant: request.input.tenant,
+          resourceType: request.input.resource_type,
+          seed: request.input.seed,
+        })
+      : await compareZccPullArtifactsOperation({
+          workspace: request.context.workspace,
+          deploymentPath: resolveContextPath(
+            request.context.workspace,
+            request.context.deployment,
+          ),
+          catalogPath: resolveContextPath(
+            request.context.workspace,
+            request.context.root_catalog,
+          ),
+          tenant: request.input.tenant,
+          resourceType: request.input.resource_type,
+        });
+    const validateResult = request.input.mode === "refresh"
+      ? validateZccPullRefreshParity
+      : validateZccPullArtifactParity;
+    if (!validateResult(result)) {
       throw new ProcessFailure({
         code: "INVALID_OPERATION_RESULT",
         category: "internal",
         message: "compare_pull_artifacts produced a result outside its versioned schema",
-        details: schemaErrorDetails(validateZccPullArtifactParity.errors),
+        details: schemaErrorDetails(validateResult.errors),
       });
     }
     return {
@@ -216,6 +260,32 @@ export async function executeRequest(
       schema_version: 1,
       request_id: request.request_id,
       operation: "compare_pull_artifacts",
+      status: "ok",
+      diagnostics: [],
+      result,
+      error: null,
+    };
+  }
+  if (request.operation === "seed_pull_refresh_parity") {
+    const result = await seedZccPullRefreshParityOperation({
+      context: request.context,
+      referenceContext: request.input.reference_context,
+      tenant: request.input.tenant,
+      resourceType: request.input.resource_type,
+    });
+    if (!validateZccPullRefreshParitySeed(result)) {
+      throw new ProcessFailure({
+        code: "INVALID_OPERATION_RESULT",
+        category: "internal",
+        message: "seed_pull_refresh_parity produced a result outside its versioned schema",
+        details: schemaErrorDetails(validateZccPullRefreshParitySeed.errors),
+      });
+    }
+    return {
+      kind: "infrawright.process_response",
+      schema_version: 1,
+      request_id: request.request_id,
+      operation: "seed_pull_refresh_parity",
       status: "ok",
       diagnostics: [],
       result,
