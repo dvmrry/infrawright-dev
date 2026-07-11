@@ -312,6 +312,23 @@ export async function readBoundedUtf8File(
   budget: ReadBudget,
   options: StableReadOptions = {},
 ): Promise<{ readonly text: string; readonly digest: StableFileDigest }> {
+  const content = await readBoundedFileBytes(filePath, budget, options);
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+      content.bytes,
+    );
+  } catch {
+    return fail("INVALID_UTF8", "input file is not valid UTF-8", "domain");
+  }
+  return { text, digest: content.digest };
+}
+
+export async function readBoundedFileBytes(
+  filePath: string,
+  budget: ReadBudget,
+  options: StableReadOptions = {},
+): Promise<{ readonly bytes: Buffer; readonly digest: StableFileDigest }> {
   const result = await consumeStableFile({
     filePath,
     budget,
@@ -321,16 +338,8 @@ export async function readBoundedUtf8File(
   if (result.size > BigInt(bufferConstants.MAX_STRING_LENGTH)) {
     return fail("FILE_LIMIT_EXCEEDED", "input file exceeds the decoder size limit");
   }
-  let text: string;
-  try {
-    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
-      Buffer.concat(result.chunks),
-    );
-  } catch {
-    return fail("INVALID_UTF8", "input file is not valid UTF-8", "domain");
-  }
   return {
-    text,
+    bytes: Buffer.concat(result.chunks),
     digest: { sha256: result.sha256, size: result.size },
   };
 }

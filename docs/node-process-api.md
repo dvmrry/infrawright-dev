@@ -194,8 +194,8 @@ float-bearing output contract is migrated.
 These slices support only Zscaler root topology, changed-path scoping, and
 materialized plan-root enumeration as public process operations.
 
-The Node source tree also contains the internal saved-plan classification
-kernel. It is not yet imported into the bundled process executable:
+The Node source tree also contains the internal saved-plan assessment kernel.
+It is not yet imported into the bundled process executable:
 
 - strict v1 drift-policy validation for every policy lane, plus matching and
   stale-entry tracking for `plan_tolerate`;
@@ -215,18 +215,16 @@ un-tolerable synthetic finding paths. Genuine Terraform 1.8+ imports are
 no-op changes with a nested import marker and remain clean.
 
 The unchecked compatibility kernel is private. There is deliberately no
-process operation that accepts caller-supplied plan JSON: until evidence
-capture lands, such input would not be bound to a saved plan, source
-fingerprint, or policy. The validator is intentionally stricter than the
-Python helper on malformed shapes that Python can accidentally treat as an
-empty or clean plan.
+process operation that accepts caller-supplied plan JSON: public assessment
+must remain bound to a saved plan, source fingerprint, and policy. The
+validator is intentionally stricter than the Python helper on malformed shapes
+that Python can accidentally treat as an empty or clean plan.
 
-The next internal slice implements that evidence boundary without exposing it
-as a process operation. It reproduces fingerprint v2 byte-for-byte, including
+The evidence boundary reproduces fingerprint v2 byte-for-byte, including
 the generated-root HCL scanner, local-module tree ordering, root inputs,
 var-file basenames, and backend/key payload. A saved plan is accepted only with
 an exact `{version:2,sha256}` `tfplan.sources` file that matches current inputs.
-The plan is copied into a caller-owned, mode-0700 private directory as a random
+The plan is copied into a mode-0700 private directory as a random
 mode-0600 snapshot; the original, snapshot, fingerprint file, and recomputed
 source fingerprint are bound and rechecked before and after assessment.
 Cleanup scrubs snapshot bytes through a descriptor whose device/inode identity
@@ -243,7 +241,7 @@ substitute either file. A PR-controlled plan/sidecar pair is not trusted
 evidence. Cryptographic planner attestation is a separate future contract, not
 something an additional attacker-writable digest could provide.
 
-All evidence reads have explicit operation-wide ceilings for file count,
+All evidence traversals have explicit per-pass ceilings for file count,
 directory count, directory entries, depth, individual bytes, and total bytes.
 Reads fail when a file mutates or is replaced, and plan/sources diagnostics do
 not include paths or content. The Node port intentionally hardens Python's
@@ -253,9 +251,8 @@ Fingerprint traversal otherwise retains Python v2 symlink semantics so digest
 bytes remain compatible. Filesystem entries whose raw names are not valid
 UTF-8 are detected through byte-mode enumeration and fail closed instead of
 being silently skipped; JavaScript cannot address those POSIX byte names
-losslessly. The public assessment operation will create the
-trusted temporary directory and own cleanup; callers cannot supply a snapshot
-path or raw plan JSON.
+losslessly. The assessment transaction creates the trusted temporary directory
+and owns cleanup; callers cannot supply a snapshot path or raw plan JSON.
 
 The internal Terraform-show adapter accepts only an absolute, non-symlinked
 executable and a private regular-file snapshot. It invokes a fixed
@@ -270,8 +267,41 @@ filesystem paths, and plan values never enter an error
 diagnostic. Final evidence rechecks remain mandatory because the adapter alone
 does not claim the root or snapshot stayed unchanged around execution.
 
+The internal transaction resolves materialized roots, binds an optional drift
+policy, classifies every selected plan, performs final plan/source/policy
+rechecks, and constructs the saved-plan assessment v1 document synchronously
+inside that final evidence window. Later-root failures retain already assessed
+roots in an error report; invalid-policy and no-plan failures produce the same
+zero-root error shapes and policy-hash precedence as Python. Reports are
+validated against the published schema, and normal summary/root statuses are
+derived from findings rather than trusted from caller-supplied counts.
+
+The transaction snapshots library inputs before its first await, accepts at
+most 1,000 roots, prevents retained plan snapshots from exceeding 2 GiB, and
+has a ten-minute default/one-hour hard execution ceiling. Caller-supplied read
+limits may only tighten the fixed source, plan, and policy ceilings. Individual
+evidence traversals receive fresh budgets so repeated final checks can reread
+the same bounded tree; transaction root, retained-byte, and deadline caps bound
+the aggregate operation. Report-safe retained metadata is separately capped at
+100,000 findings, 250,000 concrete paths, and 8 MiB of address/path/action text.
+
+The report omits raw plan documents, before/after leaf values, Terraform
+stdout/stderr, credentials, and filesystem paths from failures. It deliberately
+retains Terraform resource addresses and concrete changed-path segments for
+machine joins and Python compatibility. For-each keys and map-key path segments
+can therefore contain tenant-sensitive metadata; assessment reports must be
+handled as protected pipeline artifacts rather than public logs.
+
+Generic guidance collection is not yet part of the Node transaction. The
+report adapter validates already joined guidance against concrete and
+normalized paths, canonicalizes order, and deduplicates it, but the Python
+collectors still own provider-config, absent/default, and dynamic-schema
+discovery. Those collectors, Python-compatible float rendering for guidance
+values, process-envelope semantics for blocked-but-valid gates, and gate exit
+codes must land before assessment becomes a public process operation.
+
 Python remains authoritative for all mutating adoption behavior, Terraform
-orchestration, saved-plan evidence capture and reports, gate exit semantics,
-and raw pack catalog production. Downstream should dual-run the public Node
-operations and retain the Python result as the cutover oracle until its
-deployment corpus is byte-clean.
+orchestration, the public saved-plan gate/report command, gate exit semantics,
+guidance collection, and raw pack catalog production. Downstream should
+dual-run the public Node operations and retain the Python result as the cutover
+oracle until its deployment corpus is byte-clean.

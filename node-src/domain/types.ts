@@ -26,6 +26,7 @@ export interface RootProviderConfig {
 export interface Deployment {
   readonly overlay: unknown;
   readonly module_dir?: unknown;
+  readonly tfvars_format?: unknown;
   readonly roots: Readonly<Record<string, RootProviderConfig>>;
 }
 

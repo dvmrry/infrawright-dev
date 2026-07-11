@@ -333,7 +333,7 @@
           "type": "string"
         },
         "mode": {
-          "type": "string"
+          "const": "plan_tolerate"
         },
         "path": {
           "type": "string"
@@ -349,7 +349,11 @@
       ],
       "properties": {
         "kind": {
-          "type": "string"
+          "enum": [
+            "assessment_error",
+            "no_saved_plans",
+            "policy_error"
+          ]
         },
         "message": {
           "type": "string"
