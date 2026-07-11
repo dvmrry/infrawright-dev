@@ -95,11 +95,13 @@ adoption workflow above and requires real provider credentials.
 
 The Zscaler runtime is undergoing a differential migration to Node 24. Its
 machine-only process operations emit root-topology, changed-path scope,
-plan-root, exact-catalog saved-plan assessment, and immutable ZCC bootstrap
-artifact-set contracts, all differentially compared with Python in CI. The
-bootstrap compiler covers the five fetch-backed ZCC resources and returns exact
-tfvars/import/lookup bytes without writing them. Build the no-install bundle
-with `npm ci --ignore-scripts && npm run check && npm run build`; see
+plan-root, exact-catalog saved-plan assessment, immutable ZCC bootstrap artifact
+sets, and read-only ZCC raw-transform refresh results, all differentially
+compared with Python in CI. The refresh differential proves Python run-two
+tfvars/import/lookup/move bytes; materialization remains bootstrap-only. The
+compilers cover the five fetch-backed ZCC resources without writing them. Build
+the no-install bundle with
+`npm ci --ignore-scripts && npm run check && npm run build`; see
 [Node Process API Migration](docs/node-process-api.md) for the request contract,
 current boundary, refusal cases, and downstream dual-run guidance.
 

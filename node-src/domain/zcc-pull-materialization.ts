@@ -728,6 +728,9 @@ function unsupportedPaths(
   const moves = imports.endsWith("_imports.tf")
     ? `${imports.slice(0, -"_imports.tf".length)}_moves.tf`
     : `${imports}.moves`;
+  const pendingMoves = imports.endsWith("_imports.tf")
+    ? `${imports.slice(0, -"_imports.tf".length)}_moves.pending.json`
+    : `${imports}.moves.pending.json`;
   const alternateHcl = tfvars.endsWith(".json")
     ? tfvars.slice(0, -".json".length)
     : `${tfvars}.hcl`;
@@ -741,7 +744,13 @@ function unsupportedPaths(
         `${candidate.resource_type}.lookup.json`,
       )
     : null;
-  return [moves, alternateHcl, generated, ...(staleLookup === null ? [] : [staleLookup])]
+  return [
+    moves,
+    pendingMoves,
+    alternateHcl,
+    generated,
+    ...(staleLookup === null ? [] : [staleLookup]),
+  ]
     .map((target) => resolveAuthorizedPath(outputRoot, pathBase, target));
 }
 

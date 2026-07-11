@@ -78,6 +78,28 @@ function verifyDescriptor(
   assert.equal(artifact.encoding, "utf-8");
 }
 
+function replaceArtifactContent(
+  artifact: ZccPullArtifactSet["artifacts"]["tfvars"],
+  content: string,
+): void {
+  const mutable = artifact as unknown as {
+    content: string;
+    sha256: string;
+    size_bytes: number;
+  };
+  mutable.content = content;
+  mutable.sha256 = createHash("sha256").update(content, "utf8").digest("hex");
+  mutable.size_bytes = Buffer.byteLength(content, "utf8");
+}
+
+function validationRules(value: unknown): readonly string[] {
+  assert.equal(validateZccPullArtifactSet(value), false);
+  return (validateZccPullArtifactSet.errors ?? []).map((error) => {
+    const params = error.params as { readonly rule?: unknown };
+    return String(params.rule ?? error.keyword);
+  });
+}
+
 test("all committed ZCC demos compile to exact Python tfvars and import bytes", async () => {
   const resources = [
     "zcc_failopen_policy",
@@ -252,8 +274,101 @@ test("JSON and imports preserve Python Unicode and HCL escaping", () => {
   assert.match(escaped.artifacts.imports.content, /\$\$\{name\}%%\{ if true \}/);
 });
 
+test("escaped lone-surrogate pull values fail closed without value leakage", () => {
+  const marker = "pull-secret-value";
+  for (const fixture of [
+    {
+      resourceType: "zcc_forwarding_profile",
+      raw: `[{"id":"profile-1","name":"\\ud800${marker}"}]`,
+    },
+    {
+      resourceType: "zcc_device_cleanup",
+      raw: `[{"id":"\\udfff${marker}","active":"1"}]`,
+    },
+  ] as const) {
+    assert.throws(
+      () => compile(fixture.resourceType, parseZccPullDataJson(fixture.raw)),
+      (error: unknown) => error instanceof ProcessFailure
+        && error.code === "INVALID_ZCC_PULL_DATA"
+        && !error.message.includes(marker)
+        && !JSON.stringify(error.details).includes(marker),
+      fixture.resourceType,
+    );
+  }
+});
+
+test("direct compiler rejects cyclic and over-depth raw graphs structurally", () => {
+  const marker = "raw-graph-private-value";
+  const cyclic: Record<string, unknown> = { id: "cycle", name: marker };
+  cyclic.self = cyclic;
+  const deepRoot: Record<string, unknown> = { id: "deep", name: marker };
+  let cursor = deepRoot;
+  for (let index = 0; index < 20_000; index += 1) {
+    const child: Record<string, unknown> = {};
+    cursor.child = child;
+    cursor = child;
+  }
+  for (const rawItems of [[cyclic], [deepRoot]]) {
+    assert.throws(
+      () => compile("zcc_forwarding_profile", rawItems),
+      (error: unknown) => error instanceof ProcessFailure
+        && error.code === "INVALID_ZCC_PULL_DATA"
+        && !(error instanceof RangeError)
+        && !error.message.includes(marker)
+        && !JSON.stringify(error.details).includes(marker),
+    );
+  }
+});
+
+test("artifact validation rejects decoded surrogate keys and values generically", () => {
+  const marker = "decoded-private-value";
+  const badTfvars = structuredClone(compile(
+    "zcc_forwarding_profile",
+    parseZccPullDataJson('[{"id":"1","name":"Profile"}]'),
+  ));
+  replaceArtifactContent(
+    badTfvars.artifacts.tfvars,
+    "{\n  \"items\": {\n    \"\\ud800" + marker + "\": {}\n  }\n}\n",
+  );
+  assert.ok(validationRules(badTfvars).includes("decoded_unicode"));
+  assert.equal(JSON.stringify(validateZccPullArtifactSet.errors).includes(marker), false);
+
+  const badLookup = structuredClone(compile(
+    "zcc_trusted_network",
+    parseZccPullDataJson('[{"id":"1","networkName":"Network"}]'),
+  ));
+  assert.notEqual(badLookup.artifacts.lookup, null);
+  if (badLookup.artifacts.lookup !== null) {
+    replaceArtifactContent(
+      badLookup.artifacts.lookup,
+      "{\n"
+      + "  \"by_id\": {\n"
+      + `    \"1\": \"\\udfff${marker}\"\n`
+      + "  },\n"
+      + "  \"key_by_id\": {\n"
+      + "    \"1\": \"network\"\n"
+      + "  }\n"
+      + "}\n",
+    );
+  }
+  assert.ok(validationRules(badLookup).includes("decoded_unicode"));
+  assert.equal(JSON.stringify(validateZccPullArtifactSet.errors).includes(marker), false);
+});
+
 test("blank and duplicate import identities fail closed without values", () => {
   const duplicateSecret = "same-secret-import-id";
+  assert.throws(
+    () => compile(
+      "zcc_forwarding_profile",
+      parseZccPullDataJson(JSON.stringify([
+        { id: duplicateSecret, name: "First distinct key" },
+        { id: duplicateSecret, name: "Second distinct key" },
+      ])),
+    ),
+    (error: unknown) => error instanceof ProcessFailure
+      && error.code === "INVALID_ZCC_PULL_DATA"
+      && !error.message.includes(duplicateSecret),
+  );
   const duplicate = parseZccPullDataJson(JSON.stringify([
     { id: duplicateSecret, networkName: "First distinct key" },
     { id: duplicateSecret, networkName: "Second distinct key" },

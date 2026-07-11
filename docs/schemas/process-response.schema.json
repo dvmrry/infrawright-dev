@@ -86,6 +86,9 @@
           "$ref": "zcc-pull-artifact-set.schema.json"
         },
         {
+          "$ref": "zcc-pull-refresh-artifact-set.schema.json"
+        },
+        {
           "$ref": "zcc-pull-artifact-parity.schema.json"
         },
         {
@@ -199,7 +202,14 @@
                 "maxItems": 0
               },
               "result": {
-                "$ref": "zcc-pull-artifact-set.schema.json"
+                "oneOf": [
+                  {
+                    "$ref": "zcc-pull-artifact-set.schema.json"
+                  },
+                  {
+                    "$ref": "zcc-pull-refresh-artifact-set.schema.json"
+                  }
+                ]
               },
               "error": {
                 "type": "null"

@@ -264,6 +264,19 @@ function requireMaterializeError(
   assert.notEqual(response.error, null);
 }
 
+function publicReadyAssertion(
+  fixture: Fixture,
+  resourceType: ZccPullResourceType,
+): ZccPullArtifactParity {
+  pythonMaterialize(fixture, resourceType);
+  const comparison = invoke(compareRequest(fixture, resourceType));
+  assert.equal(comparison.status, 0, comparison.stdout);
+  assert.equal(comparison.stderr, "");
+  requireCompareSuccess(comparison.response);
+  assert.equal(comparison.response.result.status, "ready");
+  return comparison.response.result;
+}
+
 function artifactPaths(
   fixture: Fixture,
   resourceType: ZccPullResourceType,
@@ -428,6 +441,97 @@ test("public materializer reproduces Python bytes for all exact ZCC resources", 
       "relative overlay must not be applied twice",
     );
     assert.deepEqual(temporaryAliases(target.outputRoot), []);
+  });
+});
+
+test("public materializer refuses a reserved pending-move artifact before publication", async () => {
+  await withFixturePair((oracle, target) => {
+    const resourceType = "zcc_device_cleanup";
+    const assertion = publicReadyAssertion(oracle, resourceType);
+    const paths = artifactPaths(target, resourceType);
+    assert.notEqual(paths.imports, null);
+    const pendingMoves = (paths.imports as string).replace(
+      /_imports\.tf$/,
+      "_moves.pending.json",
+    );
+    mkdirSync(path.dirname(pendingMoves), { recursive: true });
+    writeFileSync(pendingMoves, '{"state":"pending"}\n');
+
+    const invocation = invoke(
+      materializeRequest(target, resourceType, assertion),
+      target.outputRoot,
+    );
+    assert.equal(invocation.status, 2, invocation.stdout);
+    assert.equal(invocation.stderr, "");
+    assert.equal(validateProcessResponse(invocation.response), true);
+    requireMaterializeError(invocation.response);
+    assert.equal(
+      invocation.response.error.code,
+      "UNSUPPORTED_MATERIALIZATION_RESIDUE",
+    );
+    assert.equal(readFileSync(pendingMoves, "utf8"), '{"state":"pending"}\n');
+    assert.throws(() => lstatSync(paths.imports as string));
+    assert.throws(() => lstatSync(paths.tfvars as string));
+    assert.deepEqual(temporaryAliases(target.outputRoot), []);
+  });
+});
+
+test("public materializer rejects lone-surrogate compiler inputs before writes", async (t) => {
+  const marker = "materializer-secret-value";
+
+  await t.test("raw pull value", async () => {
+    await withFixturePair((oracle, target) => {
+      const resourceType = "zcc_forwarding_profile";
+      const assertion = publicReadyAssertion(oracle, resourceType);
+      writeFileSync(
+        target.pullPath(resourceType),
+        `[{"id":"profile-1","name":"\\ud800${marker}"}]\n`,
+      );
+      const invocation = invoke(
+        materializeRequest(target, resourceType, assertion),
+        target.outputRoot,
+      );
+      assert.equal(invocation.status, 2, invocation.stdout);
+      requireMaterializeError(invocation.response);
+      assert.equal(invocation.response.error.code, "INVALID_ZCC_PULL_DATA");
+      assert.equal(invocation.stdout.includes(marker), false);
+      assert.deepEqual(readdirSync(target.outputRoot), []);
+    });
+  });
+
+  await t.test("deployment overlay", async () => {
+    await withFixturePair((oracle, target) => {
+      const resourceType = "zcc_device_cleanup";
+      const assertion = publicReadyAssertion(oracle, resourceType);
+      writeFileSync(
+        target.deploymentPath,
+        `{"overlay":"\\udfff${marker}","roots":{}}\n`,
+      );
+      const invocation = invoke(
+        materializeRequest(target, resourceType, assertion),
+        target.outputRoot,
+      );
+      assert.equal(invocation.status, 2, invocation.stdout);
+      requireMaterializeError(invocation.response);
+      assert.equal(invocation.response.error.code, "INVALID_ZCC_ARTIFACT_TARGET");
+      assert.equal(invocation.stdout.includes(marker), false);
+      assert.deepEqual(readdirSync(target.outputRoot), []);
+    });
+  });
+
+  await t.test("process context path", async () => {
+    await withFixturePair((oracle, target) => {
+      const resourceType = "zcc_device_cleanup";
+      const assertion = publicReadyAssertion(oracle, resourceType);
+      const request = materializeRequest(target, resourceType, assertion);
+      (request.context as { deployment: string }).deployment = `\ud800${marker}`;
+      const invocation = invoke(request, target.outputRoot);
+      assert.equal(invocation.status, 2, invocation.stdout);
+      requireMaterializeError(invocation.response);
+      assert.equal(invocation.response.error.code, "INVALID_CONTEXT_PATH");
+      assert.equal(invocation.stdout.includes(marker), false);
+      assert.deepEqual(readdirSync(target.outputRoot), []);
+    });
   });
 });
 

@@ -88,6 +88,7 @@ const ROOT_MEMBER = /^zcc_[a-z0-9_]+$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const PYTHON_WHITESPACE_ONLY =
   /^[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*$/u;
+const MAX_PULL_GRAPH_DEPTH = 128;
 export const ZCC_TRANSFORM_CATALOG_SHA256 =
   "3900a4d12cd49af7bc8d80248b9c184fa8047ca1987654965a81de87c600937a";
 const ZCC_RESOURCE_TYPES = new Set<string>([
@@ -139,6 +140,7 @@ function assertPath(pathValue: string, basename: string, label: string): void {
   if (
     pathValue.length === 0
     || pathValue.includes("\0")
+    || !pathValue.isWellFormed()
     || path.posix.basename(pathValue) !== basename
   ) {
     fail(
@@ -325,6 +327,7 @@ function renderImportId(
 function renderImportIdentities(
   resource: TransformCatalogResource,
   originals: PullTransformResult["originals"],
+  allowDuplicateImportIds: boolean,
 ): ReadonlyMap<string, string> {
   const identities = new Map<string, string>();
   const seen = new Set<string>();
@@ -340,7 +343,7 @@ function renderImportIdentities(
         "pull import identity must not be empty or whitespace",
       );
     }
-    if (seen.has(importId)) {
+    if (!allowDuplicateImportIds && seen.has(importId)) {
       return fail(
         "INVALID_ZCC_PULL_DATA",
         "pull import identities must be unique",
@@ -353,7 +356,7 @@ function renderImportIdentities(
 }
 
 function hclStringLiteral(value: string): string {
-  if (value.includes("\0")) {
+  if (value.includes("\0") || !value.isWellFormed()) {
     return fail(
       "INVALID_ZCC_PULL_DATA",
       "pull import identity contains an unsupported character",
@@ -400,6 +403,7 @@ function lookupIdentity(value: unknown): string | null {
 function renderLookup(
   resource: TransformCatalogResource,
   result: PullTransformResult,
+  allowDuplicateImportIds: boolean,
 ): string | null {
   if (resource.lookup_source === null) {
     return null;
@@ -421,7 +425,7 @@ function renderLookup(
     if (ident === null) {
       continue;
     }
-    if (seen.has(ident)) {
+    if (!allowDuplicateImportIds && seen.has(ident)) {
       return fail(
         "INVALID_ZCC_PULL_DATA",
         "pull lookup identities must be unique",
@@ -459,6 +463,12 @@ function textArtifact(
   mediaType: ZccTextArtifact["media_type"],
   content: string,
 ): ZccTextArtifact {
+  if (!content.isWellFormed()) {
+    return fail(
+      "INVALID_ZCC_PULL_DATA",
+      "compiled artifact contains unsupported Unicode",
+    );
+  }
   const bytes = Buffer.from(content, "utf8");
   return {
     path: pathValue,
@@ -484,18 +494,112 @@ function immutableCopy(value: unknown): unknown {
   return value;
 }
 
-/**
- * Compile one already-fetched ZCC pull into an immutable bootstrap artifact
- * set.  This operation is intentionally pure: it does not read previous
- * imports, write files, derive moves/bindings, or support HCL tfvars.
- */
-export function compileZccPullArtifactSet(options: {
-  readonly catalog: TransformCatalog;
-  readonly catalogSha256: string;
-  readonly rawItems: readonly unknown[];
-  readonly target: ZccArtifactTarget;
-  readonly source: ZccPullSource;
-}): ZccPullArtifactSet {
+function rawGraphIsSupported(value: unknown): boolean {
+  type Visit = {
+    readonly kind: "enter";
+    readonly value: unknown;
+    readonly depth: number;
+  } | {
+    readonly kind: "leave";
+    readonly value: object;
+  };
+  const ancestors = new Set<object>();
+  const stack: Visit[] = [{ kind: "enter", value, depth: 1 }];
+  while (stack.length > 0) {
+    const visit = stack.pop();
+    if (visit === undefined) {
+      return false;
+    }
+    if (visit.kind === "leave") {
+      ancestors.delete(visit.value);
+      continue;
+    }
+    const current = visit.value;
+    if (typeof current === "string") {
+      if (!current.isWellFormed()) {
+        return false;
+      }
+      continue;
+    }
+    if (
+      current instanceof LosslessNumber
+      || typeof current !== "object"
+      || current === null
+    ) {
+      continue;
+    }
+    if (visit.depth > MAX_PULL_GRAPH_DEPTH || ancestors.has(current)) {
+      return false;
+    }
+    if (!Array.isArray(current)) {
+      const prototype = Object.getPrototypeOf(current) as unknown;
+      if (prototype !== Object.prototype && prototype !== null) {
+        return false;
+      }
+    }
+    ancestors.add(current);
+    stack.push({ kind: "leave", value: current });
+    if (Array.isArray(current)) {
+      for (let index = current.length - 1; index >= 0; index -= 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(current, String(index));
+        if (descriptor === undefined || !("value" in descriptor)) {
+          return false;
+        }
+        stack.push({
+          kind: "enter",
+          value: descriptor.value,
+          depth: visit.depth + 1,
+        });
+      }
+      continue;
+    }
+    const keys = Object.keys(current);
+    for (let index = keys.length - 1; index >= 0; index -= 1) {
+      const key = keys[index];
+      if (key === undefined || !key.isWellFormed()) {
+        return false;
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(current, key);
+      if (descriptor === undefined || !("value" in descriptor)) {
+        return false;
+      }
+      stack.push({
+        kind: "enter",
+        value: descriptor.value,
+        depth: visit.depth + 1,
+      });
+    }
+  }
+  return true;
+}
+
+function compileZccPullArtifactSetWithPolicy(
+  options: {
+    readonly catalog: TransformCatalog;
+    readonly catalogSha256: string;
+    readonly rawItems: readonly unknown[];
+    readonly target: ZccArtifactTarget;
+    readonly source: ZccPullSource;
+  },
+  policy: { readonly allowDuplicateImportIds: boolean },
+): ZccPullArtifactSet {
+  try {
+    if (!rawGraphIsSupported(options.rawItems)) {
+      fail(
+        "INVALID_ZCC_PULL_DATA",
+        "pull data exceeds the supported JSON graph contract",
+      );
+    }
+  } catch (error: unknown) {
+    if (error instanceof ProcessFailure && error.code === "INVALID_ZCC_PULL_DATA") {
+      throw error;
+    }
+    return fail(
+      "INVALID_ZCC_PULL_DATA",
+      "pull data exceeds the supported JSON graph contract",
+    );
+  }
+
   const catalog = requireSupportedZccTransformCatalog(options.catalog);
   if (options.catalogSha256 !== ZCC_TRANSFORM_CATALOG_SHA256) {
     fail(
@@ -527,12 +631,21 @@ export function compileZccPullArtifactSet(options: {
       rawItems: options.rawItems,
       resourceType: options.target.resourceType,
     });
-    // Validate every import identity before rendering any artifact. Besides
-    // making imports unambiguous, this prevents a lookup sidecar from silently
-    // collapsing distinct Terraform keys onto one provider object.
-    importIdentities = renderImportIdentities(resource, result.originals);
+    // Bootstrap requires globally unique identities. Refresh retains Python's
+    // duplicate desired-ID evidence so move derivation can classify it as
+    // duplicate_from. Lookup resources follow Python's sorted last-key-wins
+    // collapse only on that refresh path; strict modes still refuse it.
+    importIdentities = renderImportIdentities(
+      resource,
+      result.originals,
+      policy.allowDuplicateImportIds,
+    );
     importsContent = renderImports(resource, importIdentities);
-    lookupContent = renderLookup(resource, result);
+    lookupContent = renderLookup(
+      resource,
+      result,
+      policy.allowDuplicateImportIds,
+    );
     tfvarsContent = renderPythonLosslessArtifactJson(safeRecord([
       [options.target.variableName, result.items],
     ]));
@@ -593,4 +706,33 @@ export function compileZccPullArtifactSet(options: {
     },
   };
   return immutableCopy(artifactSet) as ZccPullArtifactSet;
+}
+
+/**
+ * Compile one already-fetched ZCC pull into an immutable bootstrap artifact
+ * set. This strict entry point rejects duplicate provider import identities.
+ */
+export function compileZccPullArtifactSet(options: {
+  readonly catalog: TransformCatalog;
+  readonly catalogSha256: string;
+  readonly rawItems: readonly unknown[];
+  readonly target: ZccArtifactTarget;
+  readonly source: ZccPullSource;
+}): ZccPullArtifactSet {
+  return compileZccPullArtifactSetWithPolicy(options, {
+    allowDuplicateImportIds: false,
+  });
+}
+
+/** @internal Compile the desired side of refresh before move classification. */
+export function compileZccPullRefreshCandidateArtifactSet(options: {
+  readonly catalog: TransformCatalog;
+  readonly catalogSha256: string;
+  readonly rawItems: readonly unknown[];
+  readonly target: ZccArtifactTarget;
+  readonly source: ZccPullSource;
+}): ZccPullArtifactSet {
+  return compileZccPullArtifactSetWithPolicy(options, {
+    allowDuplicateImportIds: true,
+  });
 }

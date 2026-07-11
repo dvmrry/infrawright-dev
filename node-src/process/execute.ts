@@ -8,6 +8,7 @@ import {
   validateSavedPlanAssessment,
   validateZccPullArtifactMaterialization,
   validateZccPullArtifactSet,
+  validateZccPullRefreshArtifactSet,
   validateZccPullArtifactParity,
 } from "../contracts/validators.js";
 import {
@@ -29,6 +30,7 @@ import { requireSupportedAssessmentCatalog } from "../domain/zscaler-assessment.
 import {
   compareZccPullArtifactsOperation,
   compileZccPullArtifactsOperation,
+  compileZccPullRefreshArtifactsOperation,
   materializeZccPullArtifactsOperation,
 } from "../domain/zcc-pull-operation.js";
 import type {
@@ -128,6 +130,19 @@ export async function executeRequest(
 ): Promise<ProcessSuccessResponse> {
   request = copyRequest(request);
   const terraformExecutable = dependencies.terraformExecutable;
+  if (
+    [
+      request.context.workspace,
+      request.context.deployment,
+      request.context.root_catalog,
+    ].some((candidate) => candidate.includes("\0") || !candidate.isWellFormed())
+  ) {
+    throw new ProcessFailure({
+      code: "INVALID_CONTEXT_PATH",
+      category: "request",
+      message: "process context paths must contain supported Unicode",
+    });
+  }
   if (!path.isAbsolute(request.context.workspace)) {
     throw new ProcessFailure({
       code: "INVALID_WORKSPACE",
@@ -136,7 +151,7 @@ export async function executeRequest(
     });
   }
   if (request.operation === "compile_pull_artifacts") {
-    const result = await compileZccPullArtifactsOperation({
+    const options = {
       workspace: request.context.workspace,
       deploymentPath: resolveContextPath(
         request.context.workspace,
@@ -148,13 +163,19 @@ export async function executeRequest(
       ),
       tenant: request.input.tenant,
       resourceType: request.input.resource_type,
-    });
-    if (!validateZccPullArtifactSet(result)) {
+    };
+    const result = request.input.mode === "refresh"
+      ? await compileZccPullRefreshArtifactsOperation(options)
+      : await compileZccPullArtifactsOperation(options);
+    const validateResult = request.input.mode === "refresh"
+      ? validateZccPullRefreshArtifactSet
+      : validateZccPullArtifactSet;
+    if (!validateResult(result)) {
       throw new ProcessFailure({
         code: "INVALID_OPERATION_RESULT",
         category: "internal",
         message: "compile_pull_artifacts produced a result outside its versioned schema",
-        details: schemaErrorDetails(validateZccPullArtifactSet.errors),
+        details: schemaErrorDetails(validateResult.errors),
       });
     }
     return {

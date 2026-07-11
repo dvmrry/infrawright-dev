@@ -332,6 +332,7 @@ test("mismatches, special targets, and every unsupported residue fail before sta
     "symlink",
     "directory",
     "moves",
+    "pending-moves",
     "hcl",
     "generated",
     "stale-lookup",
@@ -349,6 +350,11 @@ test("mismatches, special targets, and every unsupported residue fail before sta
           mkdirSync(imports);
         } else if (kind === "moves") {
           writeFileSync(imports.replace(/_imports\.tf$/, "_moves.tf"), "moved {}\n");
+        } else if (kind === "pending-moves") {
+          writeFileSync(
+            imports.replace(/_imports\.tf$/, "_moves.pending.json"),
+            '{"state":"pending"}\n',
+          );
         } else {
           const tfvars = targetPath(fixture, candidate.artifacts.tfvars);
           const residue = kind === "hcl"
@@ -366,7 +372,13 @@ test("mismatches, special targets, and every unsupported residue fail before sta
           materializeZccPullArtifactsOperation(
             operationOptions(fixture, cleanAssertion(candidate)),
           ),
-          ["moves", "hcl", "generated", "stale-lookup"].includes(kind)
+          [
+            "moves",
+            "pending-moves",
+            "hcl",
+            "generated",
+            "stale-lookup",
+          ].includes(kind)
             ? "UNSUPPORTED_MATERIALIZATION_RESIDUE"
             : kind === "symlink"
               ? "MATERIALIZATION_TARGET_UNSAFE"

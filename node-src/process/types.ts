@@ -10,6 +10,7 @@ import type {
   SavedPlanAssessmentReport,
 } from "../domain/plan-report.js";
 import type { ZccPullArtifactSet } from "../domain/zcc-pull-artifacts.js";
+import type { ZccPullRefreshArtifactSet } from "../domain/zcc-pull-refresh.js";
 import type { ZccPullArtifactMaterialization } from "../domain/zcc-pull-materialization.js";
 import type { ZccPullArtifactParity } from "../domain/zcc-pull-parity.js";
 
@@ -71,7 +72,7 @@ export interface CompilePullArtifactsProcessRequest {
   readonly operation: "compile_pull_artifacts";
   readonly context: RootsProcessRequest["context"];
   readonly input: {
-    readonly mode: "bootstrap";
+    readonly mode: "bootstrap" | "refresh";
     readonly tenant: string;
     readonly resource_type:
       | "zcc_device_cleanup"
@@ -172,16 +173,21 @@ export interface AssessSavedPlansProcessSuccessResponse {
   readonly error: null;
 }
 
-export interface CompilePullArtifactsProcessSuccessResponse {
+export interface CompilePullArtifactsProcessSuccessResponse<
+  Result extends ZccPullArtifactSet | ZccPullRefreshArtifactSet = ZccPullArtifactSet,
+> {
   readonly kind: "infrawright.process_response";
   readonly schema_version: 1;
   readonly request_id: string;
   readonly operation: "compile_pull_artifacts";
   readonly status: "ok";
   readonly diagnostics: readonly [];
-  readonly result: ZccPullArtifactSet;
+  readonly result: Result;
   readonly error: null;
 }
+
+export type CompilePullArtifactsRefreshProcessSuccessResponse =
+  CompilePullArtifactsProcessSuccessResponse<ZccPullRefreshArtifactSet>;
 
 export interface ComparePullArtifactsProcessSuccessResponse {
   readonly kind: "infrawright.process_response";
@@ -210,7 +216,9 @@ export type ProcessSuccessResponse =
   | ScopePathsProcessSuccessResponse
   | PlanRootsProcessSuccessResponse
   | AssessSavedPlansProcessSuccessResponse
-  | CompilePullArtifactsProcessSuccessResponse
+  | CompilePullArtifactsProcessSuccessResponse<
+      ZccPullArtifactSet | ZccPullRefreshArtifactSet
+    >
   | ComparePullArtifactsProcessSuccessResponse
   | MaterializePullArtifactsProcessSuccessResponse;
 

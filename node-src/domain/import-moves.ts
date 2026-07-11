@@ -97,10 +97,10 @@ export function renderHclQuotedString(value: string): string {
       "generated HCL string values must be strings",
     );
   }
-  if (value.includes("\0")) {
+  if (value.includes("\0") || !value.isWellFormed()) {
     return fail(
       "INVALID_HCL_QUOTED_STRING",
-      "generated HCL string values cannot contain NUL bytes",
+      "generated HCL string values contain an unsupported character",
     );
   }
   const escaped = value

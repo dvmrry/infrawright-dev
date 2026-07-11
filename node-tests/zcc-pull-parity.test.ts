@@ -274,6 +274,11 @@ test("compare policy refuses unsupported bootstrap-adjacent artifacts", async (t
       code: "UNSUPPORTED_COMPARE_MOVES",
     },
     {
+      name: "pending moves",
+      relativePath: `imports/${TENANT}/zcc_device_cleanup_moves.pending.json`,
+      code: "UNSUPPORTED_PENDING_MOVES",
+    },
+    {
       name: "HCL alternate",
       relativePath: `config/${TENANT}/zcc_device_cleanup.auto.tfvars`,
       code: "UNSUPPORTED_COMPARE_HCL_ARTIFACT",
