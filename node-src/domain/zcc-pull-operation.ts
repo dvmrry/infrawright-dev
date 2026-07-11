@@ -2,6 +2,10 @@ import { lstat, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
 import {
+  schemaErrorDetails,
+  validateZccPullArtifactParity,
+} from "../contracts/validators.js";
+import {
   loadBoundAssessmentRootCatalog,
 } from "./catalog.js";
 import {
@@ -28,6 +32,11 @@ import {
   type ZccPullArtifactDigest,
   type ZccPullArtifactParity,
 } from "./zcc-pull-parity.js";
+import {
+  materializeReadyZccPullArtifacts,
+  type ZccPullArtifactMaterialization,
+  type ZccPullMaterializationHooks,
+} from "./zcc-pull-materialization.js";
 import { requireSupportedZscalerCompileCatalog } from "./zscaler-assessment.js";
 import {
   ReadBudget,
@@ -135,7 +144,12 @@ type BootstrapArtifactKind = "imports" | "moves";
 
 type ZccPullArtifactPolicy =
   | { readonly kind: "bootstrap_absent" }
-  | { readonly kind: "compare_materialized" };
+  | { readonly kind: "compare_materialized" }
+  | { readonly kind: "candidate_only" };
+
+interface BoundCandidateOnlyArtifactPolicy {
+  readonly kind: "candidate_only";
+}
 
 interface BoundBootstrapArtifactPolicy {
   readonly kind: "bootstrap_absent";
@@ -173,7 +187,8 @@ interface BoundCompareArtifactPolicy {
 
 type BoundZccPullArtifactPolicy =
   | BoundBootstrapArtifactPolicy
-  | BoundCompareArtifactPolicy;
+  | BoundCompareArtifactPolicy
+  | BoundCandidateOnlyArtifactPolicy;
 
 function bootstrapCode(kind: BootstrapArtifactKind, suffix: string): string {
   return `BOOTSTRAP_${kind.toUpperCase()}_${suffix}`;
@@ -364,6 +379,9 @@ async function bindArtifactPolicy(options: {
   readonly target: ZccArtifactTarget;
   readonly policy: ZccPullArtifactPolicy;
 }): Promise<BoundZccPullArtifactPolicy> {
+  if (options.policy.kind === "candidate_only") {
+    return { kind: "candidate_only" };
+  }
   const paths = compareArtifactPaths(options.workspace, options.target);
   if (options.policy.kind === "bootstrap_absent") {
     const moves = paths.unsupported.find(
@@ -477,6 +495,9 @@ async function recheckMaterializedArtifact(
 async function recheckArtifactPolicy(
   policy: BoundZccPullArtifactPolicy,
 ): Promise<void> {
+  if (policy.kind === "candidate_only") {
+    return;
+  }
   if (policy.kind === "bootstrap_absent") {
     if (pythonPosixRealpath(policy.importsAbsolute) !== policy.initialImportsPhysical) {
       return fail("BOOTSTRAP_IMPORTS_CHANGED", "bootstrap import target changed", "io");
@@ -647,12 +668,17 @@ interface ZccPullArtifactsOperationOptions {
   readonly hooks?: ZccPullOperationHooks;
 }
 
+export interface ZccPullMaterializationOperationHooks
+  extends ZccPullOperationHooks, ZccPullMaterializationHooks {}
+
 async function compileZccPullArtifactsWithPolicy(
   options: ZccPullArtifactsOperationOptions,
   artifactPolicy: ZccPullArtifactPolicy,
 ): Promise<{
   readonly candidate: ZccPullArtifactSet;
   readonly policy: BoundZccPullArtifactPolicy;
+  readonly pathBase: string;
+  readonly recheckInputs: () => Promise<void>;
 }> {
   const request = {
     workspace: options.workspace,
@@ -732,21 +758,24 @@ async function compileZccPullArtifactsWithPolicy(
     return fail("INVALID_PULL_DATA", "raw pull could not be compiled");
   }
 
+  const recheckInputs = async (): Promise<void> => {
+    await recheckSource({
+      canonicalSource,
+      lexicalSource,
+      lexicalWorkspace: request.workspace,
+      canonicalWorkspace: workspace,
+      expected: source.digest,
+    });
+    try {
+      await recheckAssessmentControlFiles(controls);
+    } catch {
+      return fail("COMPILE_CONTROL_CHANGED", "compile control input changed", "io");
+    }
+    await recheckArtifactPolicy(boundPolicy);
+  };
   await options.hooks?.beforeFinalRecheck?.();
-  await recheckSource({
-    canonicalSource,
-    lexicalSource,
-    lexicalWorkspace: request.workspace,
-    canonicalWorkspace: workspace,
-    expected: source.digest,
-  });
-  try {
-    await recheckAssessmentControlFiles(controls);
-  } catch {
-    return fail("COMPILE_CONTROL_CHANGED", "compile control input changed", "io");
-  }
-  await recheckArtifactPolicy(boundPolicy);
-  return { candidate: result, policy: boundPolicy };
+  await recheckInputs();
+  return { candidate: result, policy: boundPolicy, pathBase: workspace, recheckInputs };
 }
 
 /** Bind, compile, and finally recheck every input without writing artifacts. */
@@ -774,5 +803,51 @@ export async function compareZccPullArtifactsOperation(
   return compareZccPullArtifactDigests({
     candidate: result.candidate,
     materialized: materializedDigests(result.policy),
+  });
+}
+
+/** Recompile, bind, and publish one independently asserted ready bootstrap set. */
+export async function materializeZccPullArtifactsOperation(options: {
+  readonly workspace: string;
+  readonly deploymentPath: string;
+  readonly catalogPath: string;
+  readonly tenant: string;
+  readonly resourceType: string;
+  readonly assertion: ZccPullArtifactParity;
+  readonly outputRoot: string;
+  readonly hooks?: ZccPullMaterializationOperationHooks;
+}): Promise<ZccPullArtifactMaterialization> {
+  if (!validateZccPullArtifactParity(options.assertion)) {
+    throw new ProcessFailure({
+      code: "INVALID_MATERIALIZATION_ASSERTION",
+      category: "domain",
+      message: "the parity assertion failed its versioned contract",
+      details: schemaErrorDetails(validateZccPullArtifactParity.errors),
+    });
+  }
+  const hooks = options.hooks === undefined
+    ? undefined
+    : Object.freeze({ ...options.hooks });
+  const request = {
+    workspace: options.workspace,
+    deploymentPath: options.deploymentPath,
+    catalogPath: options.catalogPath,
+    tenant: options.tenant,
+    resourceType: options.resourceType,
+    ...(hooks === undefined ? {} : { hooks }),
+  };
+  const assertion = structuredClone(options.assertion);
+  const outputRoot = options.outputRoot;
+  const result = await compileZccPullArtifactsWithPolicy(
+    request,
+    { kind: "candidate_only" },
+  );
+  return materializeReadyZccPullArtifacts({
+    outputRoot,
+    pathBase: result.pathBase,
+    candidate: result.candidate,
+    assertion,
+    recheckInputs: result.recheckInputs,
+    ...(hooks === undefined ? {} : { hooks }),
   });
 }
