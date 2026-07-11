@@ -28,6 +28,7 @@ import { ProcessFailure } from "../node-src/domain/errors.js";
 import type { ZccPullResourceType } from "../node-src/domain/zcc-pull-artifacts.js";
 import { zccRefreshEvidenceDigest } from "../node-src/domain/zcc-pull-refresh-fingerprints.js";
 import {
+  materializeReadyZccPullRefresh,
   type ZccPullRefreshMaterialization,
 } from "../node-src/domain/zcc-pull-refresh-materialization.js";
 import {
@@ -612,6 +613,54 @@ test("marker replacement immediately before removal is detected and never unlink
   }
 });
 
+test("no-move marker remains until the final immutable-input and payload recheck", async () => {
+  const resourceType = "zcc_device_cleanup";
+  const scenario = await prepareScenario(resourceType, [], raw(resourceType));
+  try {
+    const sourcePath = pullPath(scenario.candidate, resourceType);
+    const sourceBytes = readFileSync(sourcePath);
+    const markerPath = artifactPaths(scenario.candidate, resourceType).pending_moves;
+    const error = await expectFailure(publish(scenario, {
+      beforeMarkerRemove: () => {
+        writeFileSync(sourcePath, '[{"active":"0","id":"changed"}]\n');
+      },
+    }));
+    assert.equal(error.code, "REFRESH_MATERIALIZATION_INDETERMINATE");
+    assert.equal(error.retryable, true);
+    assert.equal(existsSync(markerPath), true);
+    writeFileSync(sourcePath, sourceBytes);
+    const retry = await publish(scenario);
+    assert.equal(retry.status, "complete");
+    assert.equal(existsSync(markerPath), false);
+  } finally {
+    cleanupScenario(scenario);
+  }
+});
+
+test("no-move marker remains when the final payload CAS detects mutation", async () => {
+  const resourceType = "zcc_device_cleanup";
+  const scenario = await prepareScenario(resourceType, [], raw(resourceType));
+  try {
+    const paths = artifactPaths(scenario.candidate, resourceType);
+    const expectedTfvars = scenario.referenceFinal.tfvars;
+    assert.notEqual(expectedTfvars, null);
+    const error = await expectFailure(publish(scenario, {
+      beforeMarkerRemove: () => {
+        writeFileSync(paths.tfvars, '{"foreign":"payload"}\n');
+      },
+    }));
+    assert.equal(error.code, "REFRESH_MATERIALIZATION_INDETERMINATE");
+    assert.equal(error.retryable, true);
+    assert.equal(existsSync(paths.pending_moves), true);
+    writeFileSync(paths.tfvars, expectedTfvars as Buffer);
+    const retry = await publish(scenario);
+    assert.equal(retry.status, "complete");
+    assert.equal(existsSync(paths.pending_moves), false);
+  } finally {
+    cleanupScenario(scenario);
+  }
+});
+
 test("pre-fence failure removes all staging aliases and preserves the baseline", async () => {
   const resourceType = "zcc_trusted_network";
   const scenario = await prepareScenario(resourceType, [], raw(resourceType));
@@ -790,6 +839,38 @@ test("a retry with an exact pre-existing marker survives a post-publish failure"
   }
 });
 
+test("an exact pre-existing marker does not mask a permanent pre-publication failure", async () => {
+  const resourceType = "zcc_device_cleanup";
+  const scenario = await prepareScenario(resourceType, [], raw(resourceType));
+  try {
+    const first = await expectFailure(publish(scenario, {
+      afterMarkerSync: () => {
+        throw new Error("first-private-value");
+      },
+    }));
+    assert.equal(first.code, "REFRESH_MATERIALIZATION_INDETERMINATE");
+
+    const paths = artifactPaths(scenario.candidate, resourceType);
+    const sourcePath = pullPath(scenario.candidate, resourceType);
+    const sourceBytes = readFileSync(sourcePath);
+    const markerBytes = readFileSync(paths.pending_moves);
+    const second = await expectFailure(publish(scenario, {
+      afterBound: () => {
+        writeFileSync(sourcePath, '[{"active":"0","id":"changed"}]\n');
+      },
+    }));
+    assert.equal(second.code, "RAW_PULL_CHANGED");
+    assert.equal(second.retryable, false);
+    assert.equal(readFileSync(paths.pending_moves).equals(markerBytes), true);
+
+    writeFileSync(sourcePath, sourceBytes);
+    const retry = await publish(scenario);
+    assert.equal(retry.status, "complete");
+  } finally {
+    cleanupScenario(scenario);
+  }
+});
+
 test("desired-import retry retains move evidence instead of rederiving it away", async () => {
   const resourceType = "zcc_forwarding_profile";
   const scenario = await prepareScenario(
@@ -860,6 +941,23 @@ test("inert snapshot rejects a rotating assertion getter before operation I/O", 
   } finally {
     cleanupScenario(scenario);
   }
+});
+
+test("core materializer rejects outer accessors without invoking them", async () => {
+  let getterCalls = 0;
+  const options = Object.create(null) as Record<string, unknown>;
+  Object.defineProperty(options, "candidate", {
+    enumerable: true,
+    get: () => {
+      getterCalls += 1;
+      return null;
+    },
+  });
+  const error = await expectFailure(materializeReadyZccPullRefresh(
+    options as unknown as Parameters<typeof materializeReadyZccPullRefresh>[0],
+  ));
+  assert.equal(error.code, "INVALID_MATERIALIZATION_INPUT");
+  assert.equal(getterCalls, 0);
 });
 
 test("outer assertion rehash cannot bless tampered nested transition evidence", async () => {

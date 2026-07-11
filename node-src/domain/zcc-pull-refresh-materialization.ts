@@ -535,7 +535,7 @@ async function bindParents(
 async function recheckParent(
   binding: DirectoryBinding,
   identityOnly: boolean,
-): Promise<void> {
+): Promise<MetadataBinding> {
   try {
     const current = await lstat(binding.absolutePath, { bigint: true });
     const metadata = metadataOf(current);
@@ -552,6 +552,7 @@ async function recheckParent(
         "io",
       );
     }
+    return metadata;
   } catch (error: unknown) {
     if (error instanceof ProcessFailure) {
       throw error;
@@ -565,9 +566,7 @@ async function recheckParent(
 }
 
 async function refreshParent(binding: DirectoryBinding): Promise<void> {
-  await recheckParent(binding, true);
-  const current = await lstat(binding.absolutePath, { bigint: true });
-  binding.metadata = metadataOf(current);
+  binding.metadata = await recheckParent(binding, true);
 }
 
 async function syncParent(parentPath: string): Promise<void> {
@@ -1419,6 +1418,32 @@ function ownFunction<T extends (...args: never[]) => unknown>(
   return descriptor.value as T;
 }
 
+function inertOptionsRecord(value: unknown): Readonly<Record<string, unknown>> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return fail("INVALID_MATERIALIZATION_INPUT", "refresh materialization input must be an object");
+  }
+  const prototype = Object.getPrototypeOf(value) as unknown;
+  if (prototype !== Object.prototype && prototype !== null) {
+    return fail("INVALID_MATERIALIZATION_INPUT", "refresh materialization input must be plain data");
+  }
+  return value as Readonly<Record<string, unknown>>;
+}
+
+function ownDataValue(
+  value: Readonly<Record<string, unknown>>,
+  key: string,
+  optional = false,
+): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  if (descriptor === undefined && optional) {
+    return undefined;
+  }
+  if (descriptor === undefined || !("value" in descriptor)) {
+    return fail("INVALID_MATERIALIZATION_INPUT", "refresh materialization input must be inert data");
+  }
+  return descriptor.value;
+}
+
 function snapshotHooks(value: unknown): ZccPullRefreshMaterializationHooks | undefined {
   if (value === undefined) {
     return undefined;
@@ -1550,6 +1575,23 @@ function exactClassification(
   return sameJson(left, right);
 }
 
+function verifyPublishedPayloadStates(
+  current: Readonly<Record<ArtifactRole, BoundContent>>,
+  specs: Readonly<Record<ArtifactRole, ArtifactSpec>>,
+): void {
+  for (const role of ["lookup", "moves", "tfvars", "imports"] as const) {
+    if (!sameState(current[role].state, specs[role].desired)) {
+      return fail("REFRESH_MATERIALIZATION_FINAL_VERIFICATION_FAILED", "refresh payloads are not exactly desired", "io");
+    }
+  }
+  if (
+    current.alternate_hcl.state.state !== "absent"
+    || current.generated_bindings.state.state !== "absent"
+  ) {
+    return fail("REFRESH_MATERIALIZATION_FINAL_VERIFICATION_FAILED", "refresh reserved artifacts are invalid", "io");
+  }
+}
+
 /**
  * Durably publish one ready ZCC refresh assertion. Payloads advance in the
  * fixed lookup -> moves -> tfvars -> imports order behind an immutable marker.
@@ -1566,14 +1608,22 @@ export async function materializeReadyZccPullRefresh(options: {
 }): Promise<ZccPullRefreshMaterialization> {
   // Snapshot all caller-owned data and callback references before the first
   // await; a retained caller reference must not retarget an asserted write.
-  const candidate = snapshotCandidate(options.candidate);
-  const assertion = snapshotZccPullRefreshMaterializationAssertion(options.assertion);
-  const expectedBinding = snapshotBinding(options.expectedBinding);
-  const outputRoot = options.outputRoot;
-  const pathBase = options.pathBase;
-  const currentBinding = options.currentBinding;
-  const recheckImmutableInputs = options.recheckImmutableInputs;
-  const hooks = snapshotHooks(options.hooks);
+  const input = inertOptionsRecord(options as unknown);
+  const candidate = snapshotCandidate(ownDataValue(input, "candidate"));
+  const assertion = snapshotZccPullRefreshMaterializationAssertion(
+    ownDataValue(input, "assertion"),
+  );
+  const expectedBinding = snapshotBinding(ownDataValue(input, "expectedBinding"));
+  const outputRoot = ownDataValue(input, "outputRoot");
+  const pathBase = ownDataValue(input, "pathBase");
+  const currentBinding = ownFunction<
+    () => Promise<ZccPullRefreshParityBindingEvidence>
+  >(input, "currentBinding");
+  const recheckImmutableInputs = ownFunction<() => Promise<void>>(
+    input,
+    "recheckImmutableInputs",
+  );
+  const hooks = snapshotHooks(ownDataValue(input, "hooks", true));
   if (
     typeof outputRoot !== "string"
     || typeof pathBase !== "string"
@@ -1774,6 +1824,15 @@ export async function materializeReadyZccPullRefresh(options: {
         if (markerParent === undefined) {
           return fail("INTERNAL_ERROR", "pending marker parent binding is missing", "internal");
         }
+        await recheckExternalBindings({ expectedBinding, currentBinding, recheckImmutableInputs });
+        for (const parent of parents.values()) {
+          await recheckParent(parent, true);
+        }
+        const beforeMarkerRemoval = await readAllStates(specs);
+        verifyPublishedPayloadStates(beforeMarkerRemoval, specs);
+        if (markerObservation(beforeMarkerRemoval.pending_moves, expectedMarkerBytes) !== "exact") {
+          return fail("REFRESH_MATERIALIZATION_TARGET_CHANGED", "pending transition changed before removal", "io");
+        }
         await verifyExactState(
           specs.pending_moves,
           stateFor(expectedMarkerBytes),
@@ -1782,8 +1841,8 @@ export async function materializeReadyZccPullRefresh(options: {
         await recheckParent(markerParent, true);
         try {
           await unlink(specs.pending_moves.absolutePath);
-        mutationCount += 1;
-        durableBoundary = true;
+          mutationCount += 1;
+          durableBoundary = true;
         } catch {
           return fail("REFRESH_MATERIALIZATION_MARKER_REMOVE_FAILED", "pending transition could not be removed", "io");
         }
@@ -1801,19 +1860,13 @@ export async function materializeReadyZccPullRefresh(options: {
       await recheckParent(parent, true);
     }
     const final = await readAllStates(specs);
-    for (const role of ["lookup", "moves", "tfvars", "imports"] as const) {
-      if (!sameState(final[role].state, specs[role].desired)) {
-        return fail("REFRESH_MATERIALIZATION_FINAL_VERIFICATION_FAILED", "refresh payloads are not exactly desired", "io");
-      }
-    }
+    verifyPublishedPayloadStates(final, specs);
     if (
-      final.alternate_hcl.state.state !== "absent"
-      || final.generated_bindings.state.state !== "absent"
-      || (hasMoves
+      hasMoves
         ? markerObservation(final.pending_moves, expectedMarkerBytes) !== "exact"
-        : final.pending_moves.state.state !== "absent")
+        : final.pending_moves.state.state !== "absent"
     ) {
-      return fail("REFRESH_MATERIALIZATION_FINAL_VERIFICATION_FAILED", "refresh fence or reserved artifacts are invalid", "io");
+      return fail("REFRESH_MATERIALIZATION_FINAL_VERIFICATION_FAILED", "refresh fence is invalid", "io");
     }
     const result: ZccPullRefreshMaterialization = {
       kind: "infrawright.zcc_pull_refresh_materialization",
@@ -1863,7 +1916,7 @@ export async function materializeReadyZccPullRefresh(options: {
     return Object.freeze(result);
   } catch (error: unknown) {
     const clean = await cleanupStages(stages, parents);
-    if (mutationCount > 0 || markerLinkedByThisRun || durableBoundary) {
+    if (mutationCount > 0 || markerLinkedByThisRun) {
       return fail(
         "REFRESH_MATERIALIZATION_INDETERMINATE",
         "refresh materialization stopped after crossing a durable boundary; retry to finish forward",
@@ -1880,6 +1933,14 @@ export async function materializeReadyZccPullRefresh(options: {
     }
     if (error instanceof ProcessFailure) {
       throw error;
+    }
+    if (durableBoundary) {
+      return fail(
+        "REFRESH_MATERIALIZATION_INDETERMINATE",
+        "refresh materialization stopped after crossing a durable boundary; retry to finish forward",
+        "io",
+        true,
+      );
     }
     return fail("REFRESH_MATERIALIZATION_FAILED", "refresh materialization failed safely", "io");
   }

@@ -122,7 +122,7 @@
 - Commands:
   - `npm run build:test`
   - `node --test .node-test/node-tests/zcc-pull-refresh-transition.test.js .node-test/node-tests/zcc-pull-refresh-materialization-semantics.test.js .node-test/node-tests/zcc-pull-refresh-materializer.test.js`
-- Relevant output summary: build/test compilation passed; 25 focused tests
+- Relevant output summary: typecheck and build/test compilation passed; 29 focused tests
   passed, 0 failed. The classifier test covers all 16 baseline-equality masks,
   all `3^4` baseline/desired/foreign observation vectors, all three marker
   states, each common-role mutation, both reserved roles, precedence, and
@@ -131,7 +131,9 @@
   durable prefix, pre/post-sync crash boundaries, exact-marker retry,
   desired-import retry, foreign/reserved/early states, no-clobber marker races,
   marker-removal swap, staging mutation/replacement, cleanup, inert getters,
-  rehashed assertion tampering, and actual process success/error exits.
+  final input and payload CAS before marker removal, precise permanent-error
+  propagation with a pre-existing marker, rehashed assertion tampering, and
+  actual process success/error exits.
 - Tests not run and why: the broad Node/Python suite and GitHub CI are deferred
   until after fresh-context adversarial review, per the requested checkpoint.
 
@@ -149,6 +151,13 @@
   JSON ZCC profile already covered by independent Python-byte parity.
 - Follow-up owner or trigger: subsequent parity slices; Python remains the
   oracle until downstream dual-run evidence is complete.
+- Deferred work: abrupt subprocess/host-termination recovery fixtures in
+  addition to the exhaustive thrown-boundary crash-prefix tests.
+- Reason it is safe to defer: source ordering, fsync boundaries, the exhaustive
+  classifier, and every durable prefix are independently reviewed and covered;
+  the fixture is extra platform evidence, not a missing recovery branch.
+- Follow-up owner or trigger: add it to the final ZCC cutover gate instead of
+  expanding this publisher slice further.
 
 ## Review Focus
 
