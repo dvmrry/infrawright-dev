@@ -92,7 +92,9 @@
             "type": "null"
           },
           "roots": {
+            "type": "array",
             "items": {
+              "type": "object",
               "properties": {
                 "env_dir": {
                   "type": "null"
@@ -108,7 +110,9 @@
             "type": "object"
           },
           "roots": {
+            "type": "array",
             "items": {
+              "type": "object",
               "properties": {
                 "env_dir": {
                   "type": "string"

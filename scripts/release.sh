@@ -45,16 +45,33 @@ fi
 git -C "$DEV_ROOT" archive "$TAG" | tar -x -C "$STAGE"
 echo "staged $TAG tree: $(find "$STAGE" -type f ! -path '*/.git/*' | wc -l | tr -d ' ') files"
 
-# 3. Self-containment guard — a release missing the shared pack or engine is broken.
+# 3. Build the portable Node process bundle inside the tracked release tree.
+#    npm is a release-time dependency only; downstream runs the bundled file
+#    with Node 24 and does not install packages.
+NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || true)"
+test "$NODE_MAJOR" = 24 || {
+  echo "FATAL: release requires Node 24 to build the process bundle"; exit 2;
+}
+(
+  cd "$STAGE"
+  npm ci --ignore-scripts
+  npm run check
+  npm run build
+  rm -rf node_modules .node-test
+  shasum -a 256 dist/infrawright.mjs > dist/infrawright.mjs.sha256
+)
+
+# 4. Self-containment guard — a release missing the shared pack or engine is broken.
 #    (This is the exact failure mode a fresh clone would hit; catch it before publish.)
-for must in packs/_shared/zscaler/collector.py engine/transform.py packs/zia/registry.json LICENSE README.md; do
+for must in packs/_shared/zscaler/collector.py engine/transform.py packs/zia/registry.json catalogs/zscaler-root-catalog.v1.json dist/infrawright.mjs dist/infrawright.mjs.sha256 LICENSE README.md; do
   test -f "$STAGE/$must" || { echo "FATAL: release is missing $must — aborting"; exit 2; }
 done
 echo "self-containment guard: OK"
 
-# 4. One clean commit + tag on the public repo. No push (that's your call).
+# 5. One clean commit + tag on the public repo. No push (that's your call).
 cd "$STAGE"
 git add -A
+git add -f dist/infrawright.mjs dist/infrawright.mjs.sha256
 git commit -q -m "infrawright $TAG"
 git tag -f "$TAG" >/dev/null
 

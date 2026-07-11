@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infrawright.local/schemas/process-request.schema.json",
+  "title": "Infrawright Process Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_version",
+    "request_id",
+    "operation",
+    "context",
+    "input"
+  ],
+  "properties": {
+    "kind": {
+      "const": "infrawright.process_request"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "operation": {
+      "const": "roots"
+    },
+    "context": {
+      "$ref": "#/$defs/context"
+    },
+    "input": {
+      "$ref": "#/$defs/rootsInput"
+    }
+  },
+  "$defs": {
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workspace",
+        "deployment",
+        "root_catalog"
+      ],
+      "properties": {
+        "workspace": {
+          "type": "string",
+          "minLength": 1
+        },
+        "deployment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "root_catalog": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "rootsInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tenant",
+        "selectors"
+      ],
+      "properties": {
+        "tenant": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "selectors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

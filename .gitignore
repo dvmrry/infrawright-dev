@@ -10,6 +10,9 @@ crash.log
 crash.*.log
 pulls/
 bin/
+dist/
+.node-test/
+node_modules/
 .DS_Store
 /demo/modules/
 /modules/
