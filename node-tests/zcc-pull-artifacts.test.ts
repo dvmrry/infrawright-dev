@@ -174,6 +174,45 @@ test("empty pulls emit complete bootstrap artifacts, including empty lookup", ()
   }
 });
 
+test("trusted-network artifact validation preserves lexical root overlays", () => {
+  const resourceType = "zcc_trusted_network";
+  for (const prefix of ["/", "//", "///"]) {
+    const result = compileZccPullArtifactSet({
+      catalog: loadZccTransformCatalog(),
+      catalogSha256: ZCC_TRANSFORM_CATALOG_SHA256,
+      rawItems: [],
+      target: {
+        ...target(resourceType),
+        configPath: `${prefix}config/demo/${resourceType}.auto.tfvars.json`,
+        importsPath: `${prefix}imports/demo/${resourceType}_imports.tf`,
+        lookupPath: `${prefix}config/demo/${resourceType}.lookup.json`,
+      },
+      source: {
+        path: `pulls/demo/${resourceType}.json`,
+        sha256: SOURCE_DIGEST,
+        size_bytes: 0,
+      },
+    });
+    assert.equal(
+      result.artifacts.tfvars.path,
+      `${prefix}config/demo/${resourceType}.auto.tfvars.json`,
+    );
+    assert.equal(
+      result.artifacts.imports.path,
+      `${prefix}imports/demo/${resourceType}_imports.tf`,
+    );
+    assert.equal(
+      result.artifacts.lookup?.path,
+      `${prefix}config/demo/${resourceType}.lookup.json`,
+    );
+    assert.equal(
+      validateZccPullArtifactSet(result),
+      true,
+      JSON.stringify(validateZccPullArtifactSet.errors),
+    );
+  }
+});
+
 test("explicit grouping namespaces only the tfvars variable", () => {
   const result = compile(
     "zcc_forwarding_profile",

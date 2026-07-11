@@ -10,6 +10,7 @@ import type {
   SavedPlanAssessmentReport,
 } from "../domain/plan-report.js";
 import type { ZccPullArtifactSet } from "../domain/zcc-pull-artifacts.js";
+import type { ZccPullArtifactParity } from "../domain/zcc-pull-parity.js";
 
 export interface RootsProcessRequest {
   readonly kind: "infrawright.process_request";
@@ -80,12 +81,27 @@ export interface CompilePullArtifactsProcessRequest {
   };
 }
 
+export interface ComparePullArtifactsProcessRequest {
+  readonly kind: "infrawright.process_request";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "compare_pull_artifacts";
+  readonly context: RootsProcessRequest["context"];
+  readonly input: {
+    readonly mode: "bootstrap";
+    readonly reference: "materialized";
+    readonly tenant: string;
+    readonly resource_type: CompilePullArtifactsProcessRequest["input"]["resource_type"];
+  };
+}
+
 export type ProcessRequest =
   | RootsProcessRequest
   | ScopePathsProcessRequest
   | PlanRootsProcessRequest
   | AssessSavedPlansProcessRequest
-  | CompilePullArtifactsProcessRequest;
+  | CompilePullArtifactsProcessRequest
+  | ComparePullArtifactsProcessRequest;
 
 export interface ProcessError {
   readonly code: string;
@@ -150,12 +166,24 @@ export interface CompilePullArtifactsProcessSuccessResponse {
   readonly error: null;
 }
 
+export interface ComparePullArtifactsProcessSuccessResponse {
+  readonly kind: "infrawright.process_response";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "compare_pull_artifacts";
+  readonly status: "ok";
+  readonly diagnostics: readonly [];
+  readonly result: ZccPullArtifactParity;
+  readonly error: null;
+}
+
 export type ProcessSuccessResponse =
   | RootsProcessSuccessResponse
   | ScopePathsProcessSuccessResponse
   | PlanRootsProcessSuccessResponse
   | AssessSavedPlansProcessSuccessResponse
-  | CompilePullArtifactsProcessSuccessResponse;
+  | CompilePullArtifactsProcessSuccessResponse
+  | ComparePullArtifactsProcessSuccessResponse;
 
 export interface ProcessErrorResponse {
   readonly kind: "infrawright.process_response";
@@ -167,6 +195,7 @@ export interface ProcessErrorResponse {
     | "plan_roots"
     | "assess_saved_plans"
     | "compile_pull_artifacts"
+    | "compare_pull_artifacts"
     | null;
   readonly status: "error";
   readonly diagnostics: readonly [];

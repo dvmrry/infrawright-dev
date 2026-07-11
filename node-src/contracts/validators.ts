@@ -13,6 +13,7 @@ import rootTopologySchema from "../../docs/schemas/root-topology.schema.json" wi
 import savedPlanAssessmentSchema from "../../docs/schemas/saved-plan-assessment.schema.json" with { type: "json" };
 import transformCatalogSchema from "../../docs/schemas/transform-catalog.schema.json" with { type: "json" };
 import zccPullArtifactSetSchema from "../../docs/schemas/zcc-pull-artifact-set.schema.json" with { type: "json" };
+import zccPullArtifactParitySchema from "../../docs/schemas/zcc-pull-artifact-parity.schema.json" with { type: "json" };
 import type { ErrorDetail } from "../domain/errors.js";
 import {
   ASSESSMENT_SEMANTICS_KEYWORD,
@@ -22,6 +23,10 @@ import {
   ZCC_PULL_ARTIFACT_SEMANTICS_KEYWORD,
   validateZccPullArtifactSemantics,
 } from "./zcc-pull-artifact-semantics.js";
+import {
+  ZCC_PULL_PARITY_SEMANTICS_KEYWORD,
+  validateZccPullParitySemantics,
+} from "./zcc-pull-parity-semantics.js";
 
 const ajv = new Ajv2020({
   allErrors: true,
@@ -48,12 +53,21 @@ ajv.addKeyword({
   validate: validateZccPullArtifactSemantics,
 });
 
+ajv.addKeyword({
+  keyword: ZCC_PULL_PARITY_SEMANTICS_KEYWORD,
+  schemaType: "boolean",
+  type: "object",
+  errors: true,
+  validate: validateZccPullParitySemantics,
+});
+
 ajv.addSchema(rootTopologySchema);
 ajv.addSchema(changedPathScopeSchema);
 ajv.addSchema(planRootsSchema);
 ajv.addSchema(savedPlanAssessmentSchema);
 ajv.addSchema(transformCatalogSchema);
 ajv.addSchema(zccPullArtifactSetSchema);
+ajv.addSchema(zccPullArtifactParitySchema);
 
 export const validateProcessRequest: ValidateFunction = ajv.compile(
   processRequestSchema,
@@ -81,6 +95,9 @@ export const validateTransformCatalog: ValidateFunction = ajv.getSchema(
 ) as ValidateFunction;
 export const validateZccPullArtifactSet: ValidateFunction = ajv.getSchema(
   zccPullArtifactSetSchema.$id,
+) as ValidateFunction;
+export const validateZccPullArtifactParity: ValidateFunction = ajv.getSchema(
+  zccPullArtifactParitySchema.$id,
 ) as ValidateFunction;
 
 function errorMessage(error: ErrorObject): string {

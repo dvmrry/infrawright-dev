@@ -1,0 +1,465 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infrawright.local/schemas/zcc-pull-artifact-parity.schema.json",
+  "title": "Infrawright ZCC Bootstrap Pull Artifact Parity",
+  "type": "object",
+  "x-infrawright-zcc-pull-parity-semantics": true,
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_version",
+    "mode",
+    "reference",
+    "product",
+    "resource_type",
+    "tenant",
+    "source",
+    "catalog",
+    "root",
+    "candidate",
+    "parity",
+    "status"
+  ],
+  "properties": {
+    "kind": {
+      "const": "infrawright.zcc_pull_artifact_parity"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "mode": {
+      "const": "bootstrap"
+    },
+    "reference": {
+      "const": "materialized"
+    },
+    "product": {
+      "const": "zcc"
+    },
+    "resource_type": {
+      "$ref": "#/$defs/resourceType"
+    },
+    "tenant": {
+      "type": "string",
+      "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "catalog": {
+      "$ref": "#/$defs/catalog"
+    },
+    "root": {
+      "$ref": "#/$defs/root"
+    },
+    "candidate": {
+      "$ref": "#/$defs/candidate"
+    },
+    "parity": {
+      "$ref": "#/$defs/parity"
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "review_required"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "candidate": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "ready"
+              }
+            }
+          },
+          "parity": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "equal"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "const": "ready"
+          }
+        }
+      },
+      "else": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "const": "review_required"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "resource_type": {
+            "const": "zcc_trusted_network"
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "parity": {
+            "type": "object",
+            "properties": {
+              "artifacts": {
+                "type": "object",
+                "properties": {
+                  "lookup": {
+                    "$ref": "#/$defs/applicableComparison"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "type": "object",
+        "properties": {
+          "parity": {
+            "type": "object",
+            "properties": {
+              "artifacts": {
+                "type": "object",
+                "properties": {
+                  "lookup": {
+                    "$ref": "#/$defs/notApplicableComparison"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "resourceType": {
+      "enum": [
+        "zcc_device_cleanup",
+        "zcc_failopen_policy",
+        "zcc_forwarding_profile",
+        "zcc_trusted_network",
+        "zcc_web_privacy"
+      ]
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "digest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "size_bytes"
+      ],
+      "properties": {
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 33554432
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "schema_version",
+        "sha256",
+        "sources_sha256"
+      ],
+      "properties": {
+        "kind": {
+          "const": "infrawright.transform_catalog"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "sha256": {
+          "const": "3900a4d12cd49af7bc8d80248b9c184fa8047ca1987654965a81de87c600937a"
+        },
+        "sources_sha256": {
+          "const": "90452e9199dcc4dbf578e9f3af21ae2fb35517eb5d3af0f1a193f2e5ed92ed11"
+        }
+      }
+    },
+    "root": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "members",
+        "variable_name"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^zcc_[a-z0-9_]+$"
+          }
+        },
+        "variable_name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "unexpected_drops"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ready",
+            "review_required"
+          ]
+        },
+        "unexpected_drops": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "unexpected_drops": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "ready"
+              }
+            }
+          },
+          "else": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "review_required"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "applicableComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "expected",
+        "observed",
+        "status"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected": {
+          "$ref": "#/$defs/digest"
+        },
+        "observed": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/digest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "enum": [
+            "match",
+            "mismatch",
+            "missing"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "missing"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "observed": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "type": "object",
+            "properties": {
+              "observed": {
+                "$ref": "#/$defs/digest"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "notApplicableComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "expected",
+        "observed",
+        "status"
+      ],
+      "properties": {
+        "path": {
+          "type": "null"
+        },
+        "expected": {
+          "type": "null"
+        },
+        "observed": {
+          "type": "null"
+        },
+        "status": {
+          "const": "not_applicable"
+        }
+      }
+    },
+    "parity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "matched",
+        "mismatched",
+        "missing",
+        "artifacts"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "equal",
+            "different"
+          ]
+        },
+        "matched": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "mismatched": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "missing": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tfvars",
+            "imports",
+            "lookup"
+          ],
+          "properties": {
+            "tfvars": {
+              "$ref": "#/$defs/applicableComparison"
+            },
+            "imports": {
+              "$ref": "#/$defs/applicableComparison"
+            },
+            "lookup": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/applicableComparison"
+                },
+                {
+                  "$ref": "#/$defs/notApplicableComparison"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

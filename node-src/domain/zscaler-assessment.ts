@@ -3,6 +3,26 @@ import zscalerCatalog from "../../catalogs/zscaler-root-catalog.v1.json" with { 
 import { ProcessFailure } from "./errors.js";
 import type { RootCatalog } from "./types.js";
 import { pythonJsonEqual } from "../json/python-equality.js";
+import { sortedStrings } from "../json/python-compatible.js";
+
+const embeddedResources = zscalerCatalog.resources as readonly {
+  readonly generated: boolean;
+  readonly provider: string;
+  readonly type: string;
+}[];
+
+/** Exact generated ZCC member set accepted by the bundled root catalog. */
+export const SUPPORTED_ZCC_ROOT_MEMBERS: readonly string[] = Object.freeze(
+  sortedStrings(embeddedResources
+    .filter((resource) => resource.provider === "zcc" && resource.generated)
+    .map((resource) => resource.type)),
+);
+
+/** Every generated label reserved by the exact bundled all-Zscaler catalog. */
+export const SUPPORTED_ZSCALER_GENERATED_ROOT_LABELS: readonly string[] =
+  Object.freeze(sortedStrings(embeddedResources
+    .filter((resource) => resource.generated)
+    .map((resource) => resource.type)));
 
 function supportedZscalerCatalog(catalog: RootCatalog): boolean {
   return pythonJsonEqual(catalog, zscalerCatalog);
