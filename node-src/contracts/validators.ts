@@ -12,11 +12,16 @@ import rootCatalogSchema from "../../docs/schemas/root-catalog.schema.json" with
 import rootTopologySchema from "../../docs/schemas/root-topology.schema.json" with { type: "json" };
 import savedPlanAssessmentSchema from "../../docs/schemas/saved-plan-assessment.schema.json" with { type: "json" };
 import transformCatalogSchema from "../../docs/schemas/transform-catalog.schema.json" with { type: "json" };
+import zccPullArtifactSetSchema from "../../docs/schemas/zcc-pull-artifact-set.schema.json" with { type: "json" };
 import type { ErrorDetail } from "../domain/errors.js";
 import {
   ASSESSMENT_SEMANTICS_KEYWORD,
   validateAssessmentSemantics,
 } from "./saved-plan-assessment-semantics.js";
+import {
+  ZCC_PULL_ARTIFACT_SEMANTICS_KEYWORD,
+  validateZccPullArtifactSemantics,
+} from "./zcc-pull-artifact-semantics.js";
 
 const ajv = new Ajv2020({
   allErrors: true,
@@ -35,11 +40,20 @@ ajv.addKeyword({
   validate: validateAssessmentSemantics,
 });
 
+ajv.addKeyword({
+  keyword: ZCC_PULL_ARTIFACT_SEMANTICS_KEYWORD,
+  schemaType: "boolean",
+  type: "object",
+  errors: true,
+  validate: validateZccPullArtifactSemantics,
+});
+
 ajv.addSchema(rootTopologySchema);
 ajv.addSchema(changedPathScopeSchema);
 ajv.addSchema(planRootsSchema);
 ajv.addSchema(savedPlanAssessmentSchema);
 ajv.addSchema(transformCatalogSchema);
+ajv.addSchema(zccPullArtifactSetSchema);
 
 export const validateProcessRequest: ValidateFunction = ajv.compile(
   processRequestSchema,
@@ -64,6 +78,9 @@ export const validateSavedPlanAssessment: ValidateFunction = ajv.getSchema(
 ) as ValidateFunction;
 export const validateTransformCatalog: ValidateFunction = ajv.getSchema(
   transformCatalogSchema.$id,
+) as ValidateFunction;
+export const validateZccPullArtifactSet: ValidateFunction = ajv.getSchema(
+  zccPullArtifactSetSchema.$id,
 ) as ValidateFunction;
 
 function errorMessage(error: ErrorObject): string {

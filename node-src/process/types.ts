@@ -9,6 +9,7 @@ import type {
   AssessmentMode,
   SavedPlanAssessmentReport,
 } from "../domain/plan-report.js";
+import type { ZccPullArtifactSet } from "../domain/zcc-pull-artifacts.js";
 
 export interface RootsProcessRequest {
   readonly kind: "infrawright.process_request";
@@ -61,11 +62,30 @@ export interface AssessSavedPlansProcessRequest {
   };
 }
 
+export interface CompilePullArtifactsProcessRequest {
+  readonly kind: "infrawright.process_request";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "compile_pull_artifacts";
+  readonly context: RootsProcessRequest["context"];
+  readonly input: {
+    readonly mode: "bootstrap";
+    readonly tenant: string;
+    readonly resource_type:
+      | "zcc_device_cleanup"
+      | "zcc_failopen_policy"
+      | "zcc_forwarding_profile"
+      | "zcc_trusted_network"
+      | "zcc_web_privacy";
+  };
+}
+
 export type ProcessRequest =
   | RootsProcessRequest
   | ScopePathsProcessRequest
   | PlanRootsProcessRequest
-  | AssessSavedPlansProcessRequest;
+  | AssessSavedPlansProcessRequest
+  | CompilePullArtifactsProcessRequest;
 
 export interface ProcessError {
   readonly code: string;
@@ -119,11 +139,23 @@ export interface AssessSavedPlansProcessSuccessResponse {
   readonly error: null;
 }
 
+export interface CompilePullArtifactsProcessSuccessResponse {
+  readonly kind: "infrawright.process_response";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "compile_pull_artifacts";
+  readonly status: "ok";
+  readonly diagnostics: readonly [];
+  readonly result: ZccPullArtifactSet;
+  readonly error: null;
+}
+
 export type ProcessSuccessResponse =
   | RootsProcessSuccessResponse
   | ScopePathsProcessSuccessResponse
   | PlanRootsProcessSuccessResponse
-  | AssessSavedPlansProcessSuccessResponse;
+  | AssessSavedPlansProcessSuccessResponse
+  | CompilePullArtifactsProcessSuccessResponse;
 
 export interface ProcessErrorResponse {
   readonly kind: "infrawright.process_response";
@@ -134,6 +166,7 @@ export interface ProcessErrorResponse {
     | "scope_paths"
     | "plan_roots"
     | "assess_saved_plans"
+    | "compile_pull_artifacts"
     | null;
   readonly status: "error";
   readonly diagnostics: readonly [];

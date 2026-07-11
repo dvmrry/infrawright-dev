@@ -415,6 +415,30 @@ def unescape_products_for_provider(provider):
     return tuple(manifest.get("unescape_products", []))
 
 
+def lookup_sources_for_provider(provider):
+    """Lookup-source metadata from only the pack that owns ``provider``."""
+    manifest = _manifest_for_provider(provider)
+    return dict(
+        (resource_type, dict(source))
+        for resource_type, source in manifest.get("lookup_sources", {}).items()
+    )
+
+
+def references_for_provider(provider):
+    """Reference metadata from only the pack that owns ``provider``."""
+    manifest = _manifest_for_provider(provider)
+    return dict(
+        (
+            resource_type,
+            dict(
+                (field, dict(reference))
+                for field, reference in fields.items()
+            ),
+        )
+        for resource_type, fields in manifest.get("references", {}).items()
+    )
+
+
 def _configure_pack_namespace():
     global _PACK_NAMESPACE_ROOT
     root = os.path.abspath(packs_root())

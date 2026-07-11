@@ -75,7 +75,7 @@ def _matches_default(val, default):
 
 def filter_item(item, block, path, drops, merge_blocks=frozenset(),
                 override_drops=frozenset(), override_drop_defaults=None,
-                resource_top=False):
+                resource_top=False, acknowledged_drops=frozenset()):
     """Keep only schema-input attrs and blocks, recursively.
 
     Computed-only and unknown keys are dropped and their paths recorded in
@@ -130,17 +130,21 @@ def filter_item(item, block, path, drops, merge_blocks=frozenset(),
                         single = elems[0]
                     else:
                         single = _merge_block_elements(
-                            elems, inner_block, child_path, drops
+                            elems, inner_block, child_path, drops,
+                            acknowledged_drops
                         )
                 if isinstance(single, dict):
-                    if _is_null_object(single):
+                    if _is_null_object(
+                            single, inner_block, child_path,
+                            acknowledged_drops):
                         # provider-mirror: the "not configured" stub is
                         # absence of data, omitted silently.
                         continue
                     out[key] = filter_item(
                         single, inner_block, child_path, drops,
                         override_drops=override_drops,
-                        override_drop_defaults=override_drop_defaults)
+                        override_drop_defaults=override_drop_defaults,
+                        acknowledged_drops=acknowledged_drops)
                 else:
                     drops.append(child_path)
             else:
@@ -148,7 +152,9 @@ def filter_item(item, block, path, drops, merge_blocks=frozenset(),
                 if isinstance(value, list):
                     elems = [
                         v for v in value
-                        if isinstance(v, dict) and not _is_null_object(v)
+                        if isinstance(v, dict) and not _is_null_object(
+                            v, inner_block, inner_path, acknowledged_drops
+                        )
                     ]
                     if key in merge_blocks and len(elems) > 1:
                         # Schema-lies-flatten-merges: the provider declares
@@ -159,31 +165,37 @@ def filter_item(item, block, path, drops, merge_blocks=frozenset(),
                         # then keep the single-element LIST shape the
                         # generated list(object) type expects.
                         merged = _merge_block_elements(
-                            elems, inner_block, child_path, drops
+                            elems, inner_block, inner_path, drops,
+                            acknowledged_drops
                         )
                         out[key] = [
                             filter_item(
                                 merged, inner_block, inner_path, drops,
                                 override_drops=override_drops,
-                                override_drop_defaults=override_drop_defaults)
+                                override_drop_defaults=override_drop_defaults,
+                                acknowledged_drops=acknowledged_drops)
                             ]
                         continue
                     out[key] = [
                         filter_item(
                             v, inner_block, inner_path, drops,
                             override_drops=override_drops,
-                            override_drop_defaults=override_drop_defaults)
+                            override_drop_defaults=override_drop_defaults,
+                            acknowledged_drops=acknowledged_drops)
                         for v in elems
                     ]
                 elif isinstance(value, dict):
-                    if _is_null_object(value):
+                    if _is_null_object(
+                            value, inner_block, inner_path,
+                            acknowledged_drops):
                         out[key] = []
                     else:
                         out[key] = [
                             filter_item(
                                 value, inner_block, inner_path, drops,
                                 override_drops=override_drops,
-                                override_drop_defaults=override_drop_defaults)
+                                override_drop_defaults=override_drop_defaults,
+                                acknowledged_drops=acknowledged_drops)
                         ]
                 else:
                     drops.append(child_path)
@@ -201,7 +213,8 @@ def filter_item(item, block, path, drops, merge_blocks=frozenset(),
 _NULL_STUB_VALUES = (0, "0", "", None)
 
 
-def _is_null_object(obj):
+def _is_null_object(obj, block=None, path="",
+                    acknowledged_drops=frozenset()):
     """True for the ZIA/ZPA "not configured" block stub.
 
     The APIs emit id-bearing stubs for unset block fields — extranet
@@ -213,14 +226,31 @@ def _is_null_object(obj):
 
     Conservative shape: an id-ish key ('id', or every key ending in
     'id') whose value is 0/"0"/""/None/[], and every other member also
-    zero-ish. Any boolean member (even False) marks the block as real
-    settings, never a stub.
+    zero-ish. When the nested schema is available, every key must also be a
+    stub identity key, schema-known, or explicitly acknowledged at its full
+    report path. This closed-shape check ensures a newly added nullable API
+    field reaches the normal drop reporter instead of making the whole object
+    look absent.
+    Any boolean member (even False) marks the block as real settings, never
+    a stub.
     """
     if not isinstance(obj, dict) or not obj:
         return False
     keys = list(obj)
     if "id" not in obj and not all(k.endswith("id") for k in keys):
         return False
+    if block is not None:
+        known = set((block.get("attributes") or {}).keys())
+        known.update((block.get("block_types") or {}).keys())
+        for key in keys:
+            key_path = path + "." + key if path else key
+            # `id` is the provider's universal stub discriminator even when
+            # an individual nested schema omits it. Other id-suffixed keys
+            # still need schema or acknowledgement evidence.
+            identity_key = key == "id"
+            if (key not in known and not identity_key
+                    and key_path not in acknowledged_drops):
+                return False
     for value in obj.values():
         if isinstance(value, bool):
             return False
@@ -230,7 +260,8 @@ def _is_null_object(obj):
     return True
 
 
-def _merge_block_elements(elems, block, path, drops):
+def _merge_block_elements(elems, block, path, drops,
+                          acknowledged_drops=frozenset()):
     """Collapse N raw elements of a single-instance block into one dict,
     mirroring the provider's own flattener: list/set-typed members union
     across elements (scalars wrap; empty strings mean empty and are
@@ -240,11 +271,19 @@ def _merge_block_elements(elems, block, path, drops):
     cls = classify_attributes(block)
     inputs = set(cls["required"] + cls["optional"])
     attrs = block.get("attributes") or {}
+    known = set(attrs)
+    known.update((block.get("block_types") or {}).keys())
     merged = {}
     for elem in elems:
         for k in sorted(elem):
             v = elem[k]
             if v is None:
+                member_path = path + "." + k if path else k
+                identity_key = k == "id"
+                if (k not in known and not identity_key
+                        and member_path not in acknowledged_drops
+                        and member_path not in drops):
+                    drops.append(member_path)
                 continue
             enc = attr_type(attrs[k]) if k in attrs else None
             if isinstance(enc, list) and len(enc) == 2 and enc[0] in ("list", "set"):
@@ -730,6 +769,9 @@ def transform_items(raw_items, resource_type, override):
                 for k, v in (override.get("drop_if_default") or {}).items()
                 if "." in k),
             resource_top=True,
+            acknowledged_drops=frozenset(
+                override.get("acknowledged_drops") or []
+            ),
         )
         items[key] = coerce_item(filtered, block)
         originals[key] = normalized

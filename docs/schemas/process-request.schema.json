@@ -29,7 +29,8 @@
         "roots",
         "scope_paths",
         "plan_roots",
-        "assess_saved_plans"
+        "assess_saved_plans",
+        "compile_pull_artifacts"
       ]
     },
     "context": {
@@ -45,6 +46,9 @@
         },
         {
           "$ref": "#/$defs/assessmentInput"
+        },
+        {
+          "$ref": "#/$defs/compilePullArtifactsInput"
         }
       ]
     }
@@ -87,6 +91,16 @@
         },
         "input": {
           "$ref": "#/$defs/rootsInput"
+        }
+      }
+    },
+    {
+      "properties": {
+        "operation": {
+          "const": "compile_pull_artifacts"
+        },
+        "input": {
+          "$ref": "#/$defs/compilePullArtifactsInput"
         }
       }
     }
@@ -225,6 +239,33 @@
           }
         }
       ]
+    },
+    "compilePullArtifactsInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "tenant",
+        "resource_type"
+      ],
+      "properties": {
+        "mode": {
+          "const": "bootstrap"
+        },
+        "tenant": {
+          "type": "string",
+          "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+        },
+        "resource_type": {
+          "enum": [
+            "zcc_device_cleanup",
+            "zcc_failopen_policy",
+            "zcc_forwarding_profile",
+            "zcc_trusted_network",
+            "zcc_web_privacy"
+          ]
+        }
+      }
     }
   }
 }

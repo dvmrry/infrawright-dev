@@ -226,6 +226,43 @@ class FilterTest(unittest.TestCase):
         )
         self.assertIn("conflicting", drops[0])
 
+    def test_single_block_merge_reports_unknown_nullable_member_once(self):
+        rs = load_resource("zcc_forwarding_profile")
+        item = {
+            "unified_tunnel": [{
+                "system_proxy_data": [
+                    {"proxy_server_address": None},
+                    {"future_secret": None},
+                ],
+            }],
+        }
+        drops = []
+        out = filter_item(item, rs["block"], "", drops)
+        self.assertEqual(
+            out["unified_tunnel"][0]["system_proxy_data"], {}
+        )
+        self.assertEqual(
+            drops,
+            ["unified_tunnel[].system_proxy_data.future_secret"],
+        )
+
+    def test_single_block_merge_skips_known_nullable_members(self):
+        rs = load_resource("zcc_forwarding_profile")
+        item = {
+            "unified_tunnel": [{
+                "system_proxy_data": [
+                    {"proxy_server_address": None},
+                    {"pac_url": None},
+                ],
+            }],
+        }
+        drops = []
+        out = filter_item(item, rs["block"], "", drops)
+        self.assertEqual(
+            out["unified_tunnel"][0]["system_proxy_data"], {}
+        )
+        self.assertEqual(drops, [])
+
     def test_max_items_one_block_merges_id_group_elements(self):
         # The ZIA ID-group pattern: the API returns N {id, name} elements
         # for a max_items=1 set block whose only input member is id (a set
@@ -869,6 +906,40 @@ class NullObjectStubTest(unittest.TestCase):
         item = {"server_groups": [{"id": 0}, {"id": "216199"}]}
         out = filter_item(item, rs["block"], "", [])
         self.assertEqual(out["server_groups"], [{"id": "216199"}])
+
+    def test_acknowledged_zcc_stub_stays_silent(self):
+        raw = [{
+            "id": "stub-id",
+            "name": "Stub Gate",
+            "unifiedTunnel": [{"id": "0"}],
+        }]
+        items, _, drops = transform_items(
+            raw,
+            "zcc_forwarding_profile",
+            load_override("zcc_forwarding_profile"),
+        )
+        self.assertEqual(items["stub_gate"]["unified_tunnel"], [])
+        self.assertEqual(drops, [])
+
+    def test_unknown_nullable_stub_member_reaches_drop_report(self):
+        for key, expected_path in (
+                ("futureSecret", "unified_tunnel[].future_secret"),
+                ("futureId", "unified_tunnel[].future_id")):
+            with self.subTest(key=key):
+                raw = [{
+                    "id": "stub-id",
+                    "name": "Stub Gate",
+                    "unifiedTunnel": [{"id": "0", key: None}],
+                }]
+                items, _, drops = transform_items(
+                    raw,
+                    "zcc_forwarding_profile",
+                    load_override("zcc_forwarding_profile"),
+                )
+                self.assertEqual(
+                    items["stub_gate"]["unified_tunnel"], [{}]
+                )
+                self.assertEqual(drops, [expected_path])
 
     def test_bool_member_marks_block_real(self):
         from engine.transform import _is_null_object
