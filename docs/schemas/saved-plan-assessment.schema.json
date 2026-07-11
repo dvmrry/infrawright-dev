@@ -48,6 +48,211 @@
       "$ref": "#/$defs/error"
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "summary": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "error"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/$defs/error"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "error": false,
+          "roots": {
+            "type": "array",
+            "minItems": 1
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "checked": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "summary": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "clean"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "summary": {
+            "type": "object",
+            "properties": {
+              "clean": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "tolerated": {
+                "type": "integer",
+                "const": 0
+              },
+              "blocked": {
+                "type": "integer",
+                "const": 0
+              }
+            }
+          },
+          "roots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "const": "clean"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "summary": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "clean_with_tolerated_drift"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "summary": {
+            "type": "object",
+            "properties": {
+              "tolerated": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "blocked": {
+                "type": "integer",
+                "const": 0
+              }
+            }
+          },
+          "roots": {
+            "type": "array",
+            "contains": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "const": "clean_with_tolerated_drift"
+                }
+              }
+            },
+            "not": {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "const": "blocked"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "summary": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "blocked"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "summary": {
+            "type": "object",
+            "properties": {
+              "blocked": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "roots": {
+            "type": "array",
+            "contains": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "const": "blocked"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "assert-clean"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "request": {
+            "type": "object",
+            "properties": {
+              "policy": {
+                "type": "null"
+              },
+              "policy_sha256": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "request": {
       "type": "object",

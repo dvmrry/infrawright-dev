@@ -268,3 +268,43 @@ test("error report recomputes partial counts and leaves the source core unchange
   });
   assert.equal(validateSavedPlanAssessment(error), true);
 });
+
+test("assessment schema rejects contradictory status, roots, counts, and errors", () => {
+  const clean = buildSavedPlanAssessmentReport({
+    mode: "assert-adoptable",
+    request: { tenant: "tenant", selectors: [], policy: "policy.json" },
+    core: core("clean"),
+  });
+  const error = buildSavedPlanAssessmentErrorReport({
+    mode: "assert-adoptable",
+    request: { tenant: "tenant", selectors: [], policy: "policy.json" },
+    partial: core("clean"),
+    error: { kind: "assessment_error", message: "fixture" },
+  });
+
+  const cleanWithError = JSON.parse(JSON.stringify(clean));
+  cleanWithError.error = { kind: "assessment_error", message: "contradiction" };
+  assert.equal(validateSavedPlanAssessment(cleanWithError), false);
+
+  const cleanWithoutRoots = JSON.parse(JSON.stringify(clean));
+  cleanWithoutRoots.roots = [];
+  cleanWithoutRoots.summary = {
+    status: "clean",
+    checked: 999,
+    clean: 999,
+    tolerated: 0,
+    blocked: 0,
+  };
+  assert.equal(validateSavedPlanAssessment(cleanWithoutRoots), false);
+
+  const errorWithoutDetail = JSON.parse(JSON.stringify(error));
+  delete errorWithoutDetail.error;
+  assert.equal(validateSavedPlanAssessment(errorWithoutDetail), false);
+
+  const blockedWithoutBlockedRoot = JSON.parse(JSON.stringify(clean));
+  blockedWithoutBlockedRoot.summary.status = "blocked";
+  blockedWithoutBlockedRoot.summary.clean = 0;
+  blockedWithoutBlockedRoot.summary.blocked = 1;
+  assert.equal(validateSavedPlanAssessment(blockedWithoutBlockedRoot), false);
+
+});

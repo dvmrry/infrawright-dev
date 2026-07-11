@@ -1,4 +1,8 @@
 import { ProcessFailure } from "./errors.js";
+import {
+  bindOptionalAssessmentControlText,
+  type BoundAssessmentControlFile,
+} from "./control-evidence.js";
 import type { Deployment, RootProviderConfig } from "./types.js";
 import { readOptionalUtf8 } from "../io/files.js";
 import { parseControlJson } from "../json/control.js";
@@ -154,8 +158,7 @@ function validateDeployment(value: unknown): Deployment {
   };
 }
 
-export async function loadDeployment(path: string): Promise<Deployment> {
-  const text = await readOptionalUtf8(path, "deployment");
+function deploymentFromText(text: string | null): Deployment {
   if (text === null || text.trim().length === 0) {
     return { overlay: ".", roots: {} };
   }
@@ -171,4 +174,19 @@ export async function loadDeployment(path: string): Promise<Deployment> {
       message: "deployment is not valid JSON",
     });
   }
+}
+
+export async function loadDeployment(path: string): Promise<Deployment> {
+  return deploymentFromText(await readOptionalUtf8(path, "deployment"));
+}
+
+export async function loadBoundAssessmentDeployment(path: string): Promise<{
+  readonly deployment: Deployment;
+  readonly file: BoundAssessmentControlFile;
+}> {
+  const source = await bindOptionalAssessmentControlText(path);
+  return {
+    deployment: deploymentFromText(source.text),
+    file: source.file,
+  };
 }

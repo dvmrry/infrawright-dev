@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import { ProcessFailure } from "./errors.js";
+import type { BoundAssessmentControlFile } from "./control-evidence.js";
 import { pythonPosixJoin } from "./paths.js";
 import { planRoots } from "./plan-roots.js";
 import type {
@@ -19,7 +20,16 @@ export interface ResolveSavedPlanAssessmentOptions {
   readonly terraformExecutable: string;
   readonly backendConfig: string | null;
   readonly policyPath: string | null;
+  readonly controlFiles?: readonly BoundAssessmentControlFile[];
   readonly terraformShowLimits?: TerraformShowLimits;
+}
+
+export interface SavedPlanAssessmentContext {
+  readonly workspace: string;
+  readonly deployment: Deployment;
+  readonly catalog: RootCatalog;
+  readonly tenant: string | null;
+  readonly selectors: readonly string[];
 }
 
 function fail(code: string, message: string): never {
@@ -102,6 +112,115 @@ function configDirectory(deployment: Deployment, tenant: string): string {
     : pythonPosixJoin(deployment.overlay, "config", tenant);
 }
 
+export function copySavedPlanAssessmentContext(
+  context: SavedPlanAssessmentContext,
+): SavedPlanAssessmentContext {
+  return {
+    workspace: context.workspace,
+    deployment: copyDeployment(context.deployment),
+    catalog: copyCatalog(context.catalog),
+    tenant: context.tenant,
+    selectors: [...context.selectors],
+  };
+}
+
+async function materializeSavedPlanAssessmentRoots(
+  supplied: SavedPlanAssessmentContext,
+): Promise<{
+  readonly roots: readonly SavedPlanAssessmentRootInput[];
+  readonly diagnostics: readonly WholeRootDiagnostic[];
+}> {
+  const context = copySavedPlanAssessmentContext(supplied);
+  if (!path.isAbsolute(context.workspace)) {
+    return fail("INVALID_WORKSPACE", "assessment workspace must be absolute");
+  }
+  const materialized = await planRoots({
+    workspace: context.workspace,
+    deployment: context.deployment,
+    catalog: context.catalog,
+    tenant: context.tenant,
+    selectors: context.selectors,
+  });
+  const selected = materialized.result.roots.filter((root) => {
+    return root.artifacts.tfplan.exists;
+  });
+  const suffix = selected.length === 0
+    ? null
+    : tfvarsSuffix(context.deployment);
+  const roots = selected.map((root): SavedPlanAssessmentRootInput => {
+    const configDir = configDirectory(context.deployment, root.tenant);
+    return {
+      tenant: root.tenant,
+      label: root.label,
+      members: [...root.members],
+      envDir: resolve(context.workspace, root.env_dir),
+      savedPlanPath: resolve(context.workspace, root.artifacts.tfplan.path),
+      fingerprintPath: resolve(
+        context.workspace,
+        root.artifacts.tfplan_sources.path,
+      ),
+      varFiles: root.members.map((member) => resolve(
+        context.workspace,
+        pythonPosixJoin(configDir, `${member}${suffix as string}`),
+      )),
+    };
+  });
+  return {
+    roots,
+    diagnostics: materialized.diagnostics.map((diagnostic) => ({
+      ...diagnostic,
+      selected_members: [...diagnostic.selected_members],
+      additional_members: [...diagnostic.additional_members],
+    })),
+  };
+}
+
+function sameStrings(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return left.length === right.length
+    && left.every((value, index) => value === right[index]);
+}
+
+function sameAssessmentRoots(
+  left: readonly SavedPlanAssessmentRootInput[],
+  right: readonly SavedPlanAssessmentRootInput[],
+): boolean {
+  return left.length === right.length && left.every((root, index) => {
+    const other = right[index];
+    return other !== undefined
+      && root.tenant === other.tenant
+      && root.label === other.label
+      && sameStrings(root.members, other.members)
+      && root.envDir === other.envDir
+      && root.savedPlanPath === other.savedPlanPath
+      && root.fingerprintPath === other.fingerprintPath
+      && sameStrings(root.varFiles, other.varFiles);
+  });
+}
+
+export async function recheckSavedPlanAssessmentContext(
+  context: SavedPlanAssessmentContext,
+  expectedRoots: readonly SavedPlanAssessmentRootInput[],
+): Promise<void> {
+  let current: readonly SavedPlanAssessmentRootInput[];
+  try {
+    current = (await materializeSavedPlanAssessmentRoots(context)).roots;
+  } catch {
+    return fail(
+      "ASSESSMENT_CONTEXT_CHANGED",
+      "saved-plan assessment context changed during assessment",
+    );
+  }
+  if (!sameAssessmentRoots(expectedRoots, current)) {
+    return fail(
+      "ASSESSMENT_CONTEXT_CHANGED",
+      "saved-plan assessment context changed during assessment",
+    );
+  }
+}
+
 /** Resolve public topology/artifact inputs into the narrow assessment core. */
 export interface ResolvedSavedPlanAssessment {
   readonly assessment: SavedPlanAssessmentOptions;
@@ -111,72 +230,44 @@ export interface ResolvedSavedPlanAssessment {
 export async function resolveSavedPlanAssessment(
   options: ResolveSavedPlanAssessmentOptions,
 ): Promise<ResolvedSavedPlanAssessment> {
-  const captured = {
+  const context = copySavedPlanAssessmentContext({
     workspace: options.workspace,
-    deployment: copyDeployment(options.deployment),
-    catalog: copyCatalog(options.catalog),
+    deployment: options.deployment,
+    catalog: options.catalog,
     tenant: options.tenant,
-    selectors: [...options.selectors],
+    selectors: options.selectors,
+  });
+  const captured = {
+    context,
     terraformExecutable: options.terraformExecutable,
     backendConfig: options.backendConfig,
     policyPath: options.policyPath,
+    controlFiles: (options.controlFiles ?? []).map((file) => ({
+      path: file.path,
+      digest: file.digest === null ? null : { ...file.digest },
+    })),
     ...(options.terraformShowLimits === undefined
       ? {}
       : { terraformShowLimits: { ...options.terraformShowLimits } }),
   };
-  if (!path.isAbsolute(captured.workspace)) {
-    return fail("INVALID_WORKSPACE", "assessment workspace must be absolute");
-  }
-  const materialized = await planRoots({
-    workspace: captured.workspace,
-    deployment: captured.deployment,
-    catalog: captured.catalog,
-    tenant: captured.tenant,
-    selectors: captured.selectors,
-  });
-  const selected = materialized.result.roots.filter((root) => {
-    return root.artifacts.tfplan.exists;
-  });
-  const suffix = selected.length === 0
-    ? null
-    : tfvarsSuffix(captured.deployment);
-  const roots: SavedPlanAssessmentRootInput[] = selected.map((root) => {
-    const configDir = configDirectory(captured.deployment, root.tenant);
-    return {
-      tenant: root.tenant,
-      label: root.label,
-      members: root.members,
-      envDir: resolve(captured.workspace, root.env_dir),
-      savedPlanPath: resolve(captured.workspace, root.artifacts.tfplan.path),
-      fingerprintPath: resolve(
-        captured.workspace,
-        root.artifacts.tfplan_sources.path,
-      ),
-      varFiles: root.members.map((member) => resolve(
-        captured.workspace,
-        pythonPosixJoin(configDir, `${member}${suffix as string}`),
-      )),
-    };
-  });
+  const materialized = await materializeSavedPlanAssessmentRoots(context);
   return {
     assessment: {
       terraformExecutable: captured.terraformExecutable,
-      roots,
+      roots: materialized.roots,
       backendConfig: captured.backendConfig === null
         ? null
-        : resolve(captured.workspace, captured.backendConfig),
+        : resolve(context.workspace, captured.backendConfig),
       policyPath: captured.policyPath === null
         ? null
-        : resolve(captured.workspace, captured.policyPath),
+        : resolve(context.workspace, captured.policyPath),
+      controlFiles: captured.controlFiles,
+      context,
       ...(captured.terraformShowLimits === undefined
         ? {}
         : { terraformShowLimits: captured.terraformShowLimits }),
     },
-    diagnostics: materialized.diagnostics.map((diagnostic) => ({
-      ...diagnostic,
-      selected_members: [...diagnostic.selected_members],
-      additional_members: [...diagnostic.additional_members],
-    })),
+    diagnostics: materialized.diagnostics,
   };
 }
 

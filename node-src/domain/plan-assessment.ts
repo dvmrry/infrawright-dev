@@ -3,6 +3,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { ProcessFailure } from "./errors.js";
+import {
+  copyAssessmentControlFiles,
+  recheckAssessmentControlFiles,
+  type BoundAssessmentControlFile,
+} from "./control-evidence.js";
+import {
+  copySavedPlanAssessmentContext,
+  recheckSavedPlanAssessmentContext,
+  type SavedPlanAssessmentContext,
+} from "./plan-assessment-inputs.js";
 import type { StalePolicyEntry } from "./drift-policy.js";
 import {
   cleanupSavedPlanEvidence,
@@ -60,6 +70,8 @@ export interface SavedPlanAssessmentOptions {
   readonly roots: readonly SavedPlanAssessmentRootInput[];
   readonly backendConfig: string | null;
   readonly policyPath: string | null;
+  readonly controlFiles?: readonly BoundAssessmentControlFile[];
+  readonly context?: SavedPlanAssessmentContext;
   readonly sourceLimits?: BoundedReadLimits;
   readonly savedPlanLimits?: BoundedReadLimits;
   readonly policyLimits?: BoundedReadLimits;
@@ -259,6 +271,10 @@ function copyAssessmentOptions(
     }),
     backendConfig: options.backendConfig,
     policyPath: options.policyPath,
+    controlFiles: copyAssessmentControlFiles(options.controlFiles ?? []),
+    ...(options.context === undefined
+      ? {}
+      : { context: copySavedPlanAssessmentContext(options.context) }),
     sourceLimits: copyReadLimits(
       options.sourceLimits ?? DEFAULT_BOUNDED_READ_LIMITS,
     ),
@@ -416,6 +432,17 @@ function remainingTime(deadline: number): number {
   return remaining;
 }
 
+async function recheckAssessmentContext(
+  options: SavedPlanAssessmentOptions,
+): Promise<void> {
+  const controlFiles = options.controlFiles ?? [];
+  await recheckAssessmentControlFiles(controlFiles);
+  if (options.context !== undefined) {
+    await recheckSavedPlanAssessmentContext(options.context, options.roots);
+  }
+  await recheckAssessmentControlFiles(controlFiles);
+}
+
 function showLimits(
   configured: TerraformShowLimits | undefined,
   deadline: number,
@@ -505,6 +532,9 @@ async function runSavedPlanAssessment<T>(
         "saved-plan read limits cannot exceed the hard transaction ceilings",
       );
     }
+    const controlFiles = capturedOptions.controlFiles ?? [];
+    await recheckAssessmentContext(capturedOptions);
+    remainingTime(deadline);
     reportKind = "policy_error";
     const boundPolicy = await loadBoundDriftPolicy(
       capturedOptions.policyPath,
@@ -574,6 +604,8 @@ async function runSavedPlanAssessment<T>(
         limits: showLimits(capturedOptions.terraformShowLimits, deadline),
       });
       remainingTime(deadline);
+      await recheckAssessmentControlFiles(controlFiles);
+      remainingTime(deadline);
       await recheckSavedPlanEvidence({
         evidence: captured,
         fingerprintBudget: new ReadBudget(sourceLimits),
@@ -636,6 +668,17 @@ async function runSavedPlanAssessment<T>(
       });
     }
     await recheckBoundDriftPolicy(boundPolicy, new ReadBudget(policyLimits));
+    await recheckAssessmentContext(capturedOptions);
+    for (const captured of evidence) {
+      remainingTime(deadline);
+      await recheckSavedPlanEvidence({
+        evidence: captured,
+        fingerprintBudget: new ReadBudget(sourceLimits),
+        savedPlanBudget: new ReadBudget(savedPlanLimits),
+      });
+    }
+    await recheckBoundDriftPolicy(boundPolicy, new ReadBudget(policyLimits));
+    await recheckAssessmentControlFiles(controlFiles);
     remainingTime(deadline);
 
     const core = assessmentCore(assessed, policySha256, stalePolicy);

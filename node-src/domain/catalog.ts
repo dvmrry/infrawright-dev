@@ -1,4 +1,8 @@
 import { ProcessFailure } from "./errors.js";
+import {
+  bindRequiredAssessmentControlText,
+  type BoundAssessmentControlFile,
+} from "./control-evidence.js";
 import type { RootCatalog } from "./types.js";
 import { validateRootCatalog, schemaErrorDetails } from "../contracts/validators.js";
 import { readRequiredUtf8 } from "../io/files.js";
@@ -19,10 +23,10 @@ function assertSortedUnique(values: readonly string[], label: string): void {
   }
 }
 
-export async function loadRootCatalog(path: string): Promise<RootCatalog> {
+function rootCatalogFromText(text: string): RootCatalog {
   let parsed: unknown;
   try {
-    parsed = parseControlJson(await readRequiredUtf8(path, "root catalog"));
+    parsed = parseControlJson(text);
   } catch (error: unknown) {
     if (error instanceof ProcessFailure) {
       throw error;
@@ -59,4 +63,27 @@ export async function loadRootCatalog(path: string): Promise<RootCatalog> {
     });
   }
   return catalog;
+}
+
+
+export async function loadRootCatalog(path: string): Promise<RootCatalog> {
+  return rootCatalogFromText(await readRequiredUtf8(path, "root catalog"));
+}
+
+export async function loadBoundAssessmentRootCatalog(path: string): Promise<{
+  readonly catalog: RootCatalog;
+  readonly file: BoundAssessmentControlFile;
+}> {
+  const source = await bindRequiredAssessmentControlText(path);
+  if (source.text === null) {
+    throw new ProcessFailure({
+      code: "READ_FAILED",
+      category: "io",
+      message: "unable to read root catalog",
+    });
+  }
+  return {
+    catalog: rootCatalogFromText(source.text),
+    file: source.file,
+  };
 }

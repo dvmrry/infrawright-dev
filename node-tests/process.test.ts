@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -502,6 +503,236 @@ test("assessment process requires host Terraform and the exact Zscaler catalog",
       assert.equal(response.result.error.kind, "no_saved_plans");
     });
   });
+});
+
+test("assessment process binds deployment and catalog controls through show", async (t) => {
+  const plan = assessmentPlan({
+    actions: ["no-op"],
+    before: {},
+    after: {},
+  });
+
+  await t.test("deployment mutation", async () => {
+    await withAssessmentFixture(plan, ({ request, terraform, workspace }) => {
+      const deploymentPath = path.join(workspace, "deployment.json");
+      writeFileSync(terraform, [
+        "#!/bin/sh",
+        `printf '%s' ${shellLiteral(JSON.stringify({
+          overlay: ".",
+          roots: {},
+          tfvars_format: "hcl",
+        }))} > ${shellLiteral(deploymentPath)}`,
+        `printf '%s' ${shellLiteral(plan)}`,
+        "",
+      ].join("\n"), { mode: 0o700 });
+      const result = invoke(JSON.stringify(request), WORKSPACE, {
+        INFRAWRIGHT_TERRAFORM_EXECUTABLE: terraform,
+      });
+      assert.equal(result.status, 1, String(result.stderr));
+      const response = JSON.parse(String(result.stdout));
+      assert.equal(validateProcessResponse(response), true);
+      assert.equal(response.status, "ok");
+      assert.equal(response.result.summary.status, "error");
+      assert.equal(response.result.error.kind, "assessment_error");
+      assert.match(response.result.error.message, /control input changed/);
+      assert.equal(String(result.stdout).includes(workspace), false);
+    });
+  });
+
+  await t.test("catalog mutation", async () => {
+    await withAssessmentFixture(plan, ({ request, terraform, workspace }) => {
+      const sourceCatalogPath = path.join(
+        WORKSPACE,
+        "catalogs/zscaler-root-catalog.v1.json",
+      );
+      const catalogPath = path.join(workspace, "catalog.json");
+      const changedCatalog = JSON.parse(readFileSync(sourceCatalogPath, "utf8"));
+      writeFileSync(catalogPath, readFileSync(sourceCatalogPath));
+      changedCatalog.sources_sha256 = "0".repeat(64);
+      writeFileSync(terraform, [
+        "#!/bin/sh",
+        `printf '%s' ${shellLiteral(JSON.stringify(changedCatalog))} > ${shellLiteral(catalogPath)}`,
+        `printf '%s' ${shellLiteral(plan)}`,
+        "",
+      ].join("\n"), { mode: 0o700 });
+      const changedRequest = {
+        ...request,
+        context: {
+          ...(request.context as Record<string, unknown>),
+          root_catalog: catalogPath,
+        },
+      };
+      const result = invoke(JSON.stringify(changedRequest), WORKSPACE, {
+        INFRAWRIGHT_TERRAFORM_EXECUTABLE: terraform,
+      });
+      assert.equal(result.status, 1, String(result.stderr));
+      const response = JSON.parse(String(result.stdout));
+      assert.equal(validateProcessResponse(response), true);
+      assert.equal(response.status, "ok");
+      assert.equal(response.result.summary.status, "error");
+      assert.equal(response.result.error.kind, "assessment_error");
+      assert.match(response.result.error.message, /control input changed/);
+      assert.equal(String(result.stdout).includes(workspace), false);
+    });
+  });
+
+  await t.test("missing deployment created during show", async () => {
+    await withAssessmentFixture(plan, ({ request, terraform, workspace }) => {
+      const deploymentPath = path.join(workspace, "deployment.json");
+      rmSync(deploymentPath);
+      writeFileSync(terraform, [
+        "#!/bin/sh",
+        `printf '%s' ${shellLiteral(JSON.stringify({
+          overlay: ".",
+          roots: {},
+          tfvars_format: "hcl",
+        }))} > ${shellLiteral(deploymentPath)}`,
+        `printf '%s' ${shellLiteral(plan)}`,
+        "",
+      ].join("\n"), { mode: 0o700 });
+      const result = invoke(JSON.stringify(request), WORKSPACE, {
+        INFRAWRIGHT_TERRAFORM_EXECUTABLE: terraform,
+      });
+      assert.equal(result.status, 1, String(result.stderr));
+      const response = JSON.parse(String(result.stdout));
+      assert.equal(response.result.summary.status, "error");
+      assert.match(response.result.error.message, /control input changed/);
+    });
+  });
+
+  await t.test("dangling deployment symlink retains missing-file semantics", async () => {
+    await withAssessmentFixture(plan, ({ request, terraform, workspace }) => {
+      const deploymentPath = path.join(workspace, "deployment.json");
+      const targetPath = path.join(workspace, "deployment-target.json");
+      rmSync(deploymentPath);
+      symlinkSync(targetPath, deploymentPath);
+      const result = invoke(JSON.stringify(request), WORKSPACE, {
+        INFRAWRIGHT_TERRAFORM_EXECUTABLE: terraform,
+      });
+      assert.equal(result.status, 0, String(result.stderr));
+      const response = JSON.parse(String(result.stdout));
+      assert.equal(response.result.summary.status, "clean");
+    });
+  });
+
+  await t.test("dangling deployment target created during show", async () => {
+    await withAssessmentFixture(plan, ({ request, terraform, workspace }) => {
+      const deploymentPath = path.join(workspace, "deployment.json");
+      const targetPath = path.join(workspace, "deployment-target.json");
+      rmSync(deploymentPath);
+      symlinkSync(targetPath, deploymentPath);
+      writeFileSync(terraform, [
+        "#!/bin/sh",
+        `printf '%s' ${shellLiteral(JSON.stringify({
+          overlay: ".",
+          roots: {},
+          tfvars_format: "hcl",
+        }))} > ${shellLiteral(targetPath)}`,
+        `printf '%s' ${shellLiteral(plan)}`,
+        "",
+      ].join("\n"), { mode: 0o700 });
+      const result = invoke(JSON.stringify(request), WORKSPACE, {
+        INFRAWRIGHT_TERRAFORM_EXECUTABLE: terraform,
+      });
+      assert.equal(result.status, 1, String(result.stderr));
+      const response = JSON.parse(String(result.stdout));
+      assert.equal(response.result.summary.status, "error");
+      assert.match(response.result.error.message, /control input changed/);
+    });
+  });
+
+  await t.test("newly materialized selected plan changes assessment context", async () => {
+    await withAssessmentFixture(plan, ({ request, terraform, workspace }) => {
+      const addedPlan = path.join(
+        workspace,
+        "envs",
+        "tenant",
+        "zpa_segment_group",
+        "tfplan",
+      );
+      mkdirSync(path.dirname(addedPlan), { recursive: true });
+      writeFileSync(terraform, [
+        "#!/bin/sh",
+        `printf '%s' 'new plan' > ${shellLiteral(addedPlan)}`,
+        `printf '%s' ${shellLiteral(plan)}`,
+        "",
+      ].join("\n"), { mode: 0o700 });
+      const expandedRequest = {
+        ...request,
+        input: {
+          ...(request.input as Record<string, unknown>),
+          selectors: ["zpa"],
+        },
+      };
+      const result = invoke(JSON.stringify(expandedRequest), WORKSPACE, {
+        INFRAWRIGHT_TERRAFORM_EXECUTABLE: terraform,
+      });
+      assert.equal(result.status, 1, String(result.stderr));
+      const response = JSON.parse(String(result.stdout));
+      assert.equal(response.result.summary.status, "error");
+      assert.match(response.result.error.message, /context changed/);
+      assert.equal(String(result.stdout).includes(addedPlan), false);
+    });
+  });
+
+  await t.test("bound control decoding preserves legacy BOM behavior", async () => {
+    await withAssessmentFixture(plan, ({ request, terraform, workspace }) => {
+      const bom = Buffer.from([0xef, 0xbb, 0xbf]);
+      const deploymentPath = path.join(workspace, "deployment.json");
+      writeFileSync(
+        deploymentPath,
+        Buffer.concat([bom, readFileSync(deploymentPath)]),
+      );
+      const sourceCatalogPath = path.join(
+        WORKSPACE,
+        "catalogs/zscaler-root-catalog.v1.json",
+      );
+      const catalogPath = path.join(workspace, "catalog.json");
+      writeFileSync(
+        catalogPath,
+        Buffer.concat([bom, readFileSync(sourceCatalogPath)]),
+      );
+      const changedRequest = {
+        ...request,
+        context: {
+          ...(request.context as Record<string, unknown>),
+          root_catalog: catalogPath,
+        },
+      };
+      const result = invoke(JSON.stringify(changedRequest), WORKSPACE, {
+        INFRAWRIGHT_TERRAFORM_EXECUTABLE: terraform,
+      });
+      assert.equal(result.status, 0, String(result.stderr));
+      const response = JSON.parse(String(result.stdout));
+      assert.equal(response.result.summary.status, "clean");
+    });
+  });
+});
+
+test("assessment process defines selector errors before invalid-policy reports", async () => {
+  await withAssessmentFixture(assessmentPlan({
+    actions: ["no-op"],
+    before: {},
+    after: {},
+  }), ({ request, terraform, policyPath }) => {
+    assert.notEqual(policyPath, null);
+    writeFileSync(policyPath as string, "{");
+    const invalidRequest = {
+      ...request,
+      input: {
+        ...(request.input as Record<string, unknown>),
+        selectors: ["not_a_resource"],
+      },
+    };
+    const result = invoke(JSON.stringify(invalidRequest), WORKSPACE, {
+      INFRAWRIGHT_TERRAFORM_EXECUTABLE: terraform,
+    });
+    assert.equal(result.status, 2, String(result.stderr));
+    const response = JSON.parse(String(result.stdout));
+    assert.equal(response.status, "error");
+    assert.equal(response.result, null);
+    assert.equal(response.error.code, "UNKNOWN_RESOURCE_SELECTOR");
+  }, { version: 1, resource_types: {} });
 });
 
 test("plan_roots rejects unknown selectors before reading deployment", () => {

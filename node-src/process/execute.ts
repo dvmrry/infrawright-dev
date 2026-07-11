@@ -7,8 +7,15 @@ import {
   validateRootTopology,
   validateSavedPlanAssessment,
 } from "../contracts/validators.js";
-import { loadRootCatalog } from "../domain/catalog.js";
-import { loadDeployment } from "../domain/deployment.js";
+import {
+  loadBoundAssessmentRootCatalog,
+  loadRootCatalog,
+} from "../domain/catalog.js";
+import {
+  loadBoundAssessmentDeployment,
+  loadDeployment,
+} from "../domain/deployment.js";
+import type { BoundAssessmentControlFile } from "../domain/control-evidence.js";
 import { ProcessFailure } from "../domain/errors.js";
 import { expandCatalogResources, rootTopology } from "../domain/roots.js";
 import { changedPathScope } from "../domain/scope-paths.js";
@@ -81,10 +88,18 @@ export async function executeRequest(
       message: "context.workspace must be an absolute path",
     });
   }
-  const catalog = await loadRootCatalog(resolveContextPath(
+  const catalogPath = resolveContextPath(
     request.context.workspace,
     request.context.root_catalog,
-  ));
+  );
+  const boundCatalog = request.operation === "assess_saved_plans"
+    ? await loadBoundAssessmentRootCatalog(catalogPath)
+    : null;
+  const catalog = boundCatalog === null
+    ? await loadRootCatalog(catalogPath)
+    : boundCatalog.catalog;
+  const catalogControl: BoundAssessmentControlFile | null =
+    boundCatalog?.file ?? null;
   if (
     (request.operation === "plan_roots"
       || request.operation === "assess_saved_plans")
@@ -102,10 +117,18 @@ export async function executeRequest(
       });
     }
   }
-  const deployment = await loadDeployment(resolveContextPath(
+  const deploymentPath = resolveContextPath(
     request.context.workspace,
     request.context.deployment,
-  ));
+  );
+  const boundDeployment = request.operation === "assess_saved_plans"
+    ? await loadBoundAssessmentDeployment(deploymentPath)
+    : null;
+  const deployment = boundDeployment === null
+    ? await loadDeployment(deploymentPath)
+    : boundDeployment.deployment;
+  const deploymentControl: BoundAssessmentControlFile | null =
+    boundDeployment?.file ?? null;
   if (request.operation === "assess_saved_plans") {
     const trustedTerraform = terraformExecutable;
     if (trustedTerraform === null) {
@@ -113,6 +136,13 @@ export async function executeRequest(
         code: "TERRAFORM_NOT_CONFIGURED",
         category: "io",
         message: "saved-plan assessment requires trusted Terraform configuration",
+      });
+    }
+    if (catalogControl === null || deploymentControl === null) {
+      throw new ProcessFailure({
+        code: "MISSING_ASSESSMENT_CONTROL_BINDING",
+        category: "internal",
+        message: "saved-plan assessment control inputs were not bound",
       });
     }
     const resolved = await resolveSavedPlanAssessment({
@@ -124,6 +154,7 @@ export async function executeRequest(
       terraformExecutable: trustedTerraform,
       backendConfig: request.input.backend_config,
       policyPath: request.input.policy,
+      controlFiles: [catalogControl, deploymentControl],
     });
     const outcome = await assessSavedPlansReport({
       assessment: resolved.assessment,

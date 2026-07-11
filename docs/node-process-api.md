@@ -175,6 +175,11 @@ is `result.summary.status`, including `blocked` or `error`. Stdout is the only
 report transport. A pipeline must capture stdout on every exit, validate the
 response, and atomically promote its own artifact if desired.
 
+Request shape, catalog identity, and selector validity are checked before
+policy loading and report production. If a request contains both an invalid
+selection and an invalid policy, the selector/domain error is therefore the
+defined process result (exit `2`), not Python CLI policy-error precedence.
+
 `context.workspace` must be absolute. The other context paths may be absolute
 or workspace-relative. The process never consults
 `INFRAWRIGHT_DEPLOYMENT`, `INFRAWRIGHT_PACKS`, or its current directory.
@@ -330,6 +335,14 @@ roots in an error report; invalid-policy and no-plan failures produce the same
 zero-root error shapes and policy-hash precedence as Python. Reports are
 validated against the published schema, and normal summary/root statuses are
 derived from findings rather than trusted from caller-supplied counts.
+
+The public operation parses the deployment and root catalog from the same
+bounded stable bytes it binds into the transaction. A missing deployment is a
+bound absent state; creation or replacement during assessment fails closed.
+The transaction rechecks both controls around Terraform work and re-materializes
+the selected root/path tuples at entry and immediately before report
+construction. This catches deployment format/grouping changes, catalog changes,
+and plans appearing or disappearing while an assessment is running.
 
 The transaction snapshots library inputs before its first await, accepts at
 most 1,000 roots, prevents retained plan snapshots from exceeding 2 GiB, and
