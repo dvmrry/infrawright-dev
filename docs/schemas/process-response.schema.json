@@ -40,6 +40,9 @@
           "const": "plan_roots"
         },
         {
+          "const": "assess_saved_plans"
+        },
+        {
           "type": "null"
         }
       ]
@@ -66,6 +69,9 @@
         },
         {
           "$ref": "plan-roots.schema.json"
+        },
+        {
+          "$ref": "saved-plan-assessment.schema.json"
         },
         {
           "type": "null"
@@ -140,6 +146,22 @@
               },
               "result": {
                 "$ref": "plan-roots.schema.json"
+              },
+              "error": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "request_id": {
+                "type": "string"
+              },
+              "operation": {
+                "const": "assess_saved_plans"
+              },
+              "result": {
+                "$ref": "saved-plan-assessment.schema.json"
               },
               "error": {
                 "type": "null"

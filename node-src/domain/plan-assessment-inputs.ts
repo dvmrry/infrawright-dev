@@ -7,7 +7,7 @@ import type {
   SavedPlanAssessmentOptions,
   SavedPlanAssessmentRootInput,
 } from "./plan-assessment.js";
-import type { Deployment, RootCatalog } from "./types.js";
+import type { Deployment, RootCatalog, WholeRootDiagnostic } from "./types.js";
 import type { TerraformShowLimits } from "../io/terraform-show.js";
 
 export interface ResolveSavedPlanAssessmentOptions {
@@ -103,9 +103,14 @@ function configDirectory(deployment: Deployment, tenant: string): string {
 }
 
 /** Resolve public topology/artifact inputs into the narrow assessment core. */
-export async function resolveSavedPlanAssessmentOptions(
+export interface ResolvedSavedPlanAssessment {
+  readonly assessment: SavedPlanAssessmentOptions;
+  readonly diagnostics: readonly WholeRootDiagnostic[];
+}
+
+export async function resolveSavedPlanAssessment(
   options: ResolveSavedPlanAssessmentOptions,
-): Promise<SavedPlanAssessmentOptions> {
+): Promise<ResolvedSavedPlanAssessment> {
   const captured = {
     workspace: options.workspace,
     deployment: copyDeployment(options.deployment),
@@ -154,16 +159,29 @@ export async function resolveSavedPlanAssessmentOptions(
     };
   });
   return {
-    terraformExecutable: captured.terraformExecutable,
-    roots,
-    backendConfig: captured.backendConfig === null
-      ? null
-      : resolve(captured.workspace, captured.backendConfig),
-    policyPath: captured.policyPath === null
-      ? null
-      : resolve(captured.workspace, captured.policyPath),
-    ...(captured.terraformShowLimits === undefined
-      ? {}
-      : { terraformShowLimits: captured.terraformShowLimits }),
+    assessment: {
+      terraformExecutable: captured.terraformExecutable,
+      roots,
+      backendConfig: captured.backendConfig === null
+        ? null
+        : resolve(captured.workspace, captured.backendConfig),
+      policyPath: captured.policyPath === null
+        ? null
+        : resolve(captured.workspace, captured.policyPath),
+      ...(captured.terraformShowLimits === undefined
+        ? {}
+        : { terraformShowLimits: captured.terraformShowLimits }),
+    },
+    diagnostics: materialized.diagnostics.map((diagnostic) => ({
+      ...diagnostic,
+      selected_members: [...diagnostic.selected_members],
+      additional_members: [...diagnostic.additional_members],
+    })),
   };
+}
+
+export async function resolveSavedPlanAssessmentOptions(
+  options: ResolveSavedPlanAssessmentOptions,
+): Promise<SavedPlanAssessmentOptions> {
+  return (await resolveSavedPlanAssessment(options)).assessment;
 }

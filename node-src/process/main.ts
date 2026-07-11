@@ -14,9 +14,11 @@ import type {
   ProcessErrorResponse,
   ProcessRequest,
   ProcessResponse,
+  ProcessSuccessResponse,
 } from "./types.js";
 
 const MAX_REQUEST_BYTES = 1024 * 1024;
+const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -52,7 +54,12 @@ async function readRequest(): Promise<string> {
 
 function requestIdentity(value: unknown): {
   requestId: string | null;
-  operation: "roots" | "scope_paths" | "plan_roots" | null;
+  operation:
+    | "roots"
+    | "scope_paths"
+    | "plan_roots"
+    | "assess_saved_plans"
+    | null;
 } {
   if (!isObject(value)) {
     return { requestId: null, operation: null };
@@ -67,6 +74,7 @@ function requestIdentity(value: unknown): {
     operation: value.operation === "roots"
       || value.operation === "scope_paths"
       || value.operation === "plan_roots"
+      || value.operation === "assess_saved_plans"
       ? value.operation
       : null,
   };
@@ -75,7 +83,12 @@ function requestIdentity(value: unknown): {
 function errorResponse(options: {
   failure: ProcessFailure;
   requestId: string | null;
-  operation: "roots" | "scope_paths" | "plan_roots" | null;
+  operation:
+    | "roots"
+    | "scope_paths"
+    | "plan_roots"
+    | "assess_saved_plans"
+    | null;
 }): ProcessErrorResponse {
   return {
     kind: "infrawright.process_response",
@@ -99,26 +112,49 @@ function exitCode(failure: ProcessFailure): number {
   return failure.category === "request" || failure.category === "domain" ? 2 : 1;
 }
 
-function emit(response: ProcessResponse): void {
+function emit(response: ProcessResponse): boolean {
   if (!validateProcessResponse(response)) {
-    const fallback = errorResponse({
-      failure: new ProcessFailure({
-        code: "INVALID_PROCESS_RESPONSE",
-        category: "internal",
-        message: "process response failed its versioned schema",
-      }),
-      requestId: null,
-      operation: null,
-    });
-    process.stdout.write(
-      renderPythonCompatibleJson(fallback as unknown as JsonValue),
+    return emitFallback(
+      "INVALID_PROCESS_RESPONSE",
+      "process response failed its versioned schema",
     );
-    process.exitCode = 1;
-    return;
   }
+  const text = renderPythonCompatibleJson(response as unknown as JsonValue);
+  if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) {
+    return emitFallback(
+      "PROCESS_RESPONSE_TOO_LARGE",
+      "process response exceeds the 32 MiB limit",
+    );
+  }
+  process.stdout.write(text);
+  return true;
+}
+
+function emitFallback(code: string, message: string): false {
+  const fallback = errorResponse({
+    failure: new ProcessFailure({
+      code,
+      category: "internal",
+      message,
+    }),
+    requestId: null,
+    operation: null,
+  });
   process.stdout.write(
-    renderPythonCompatibleJson(response as unknown as JsonValue),
+    renderPythonCompatibleJson(fallback as unknown as JsonValue),
   );
+  process.exitCode = 1;
+  return false;
+}
+
+function successExitCode(response: ProcessSuccessResponse): number {
+  if (response.operation !== "assess_saved_plans") {
+    return 0;
+  }
+  if (response.result.summary.status === "error") {
+    return 1;
+  }
+  return response.result.summary.status === "blocked" ? 3 : 0;
 }
 
 async function main(): Promise<void> {
@@ -142,7 +178,16 @@ async function main(): Promise<void> {
         details: schemaErrorDetails(validateProcessRequest.errors),
       });
     }
-    emit(await executeRequest(parsed as ProcessRequest));
+    const configuredTerraform = process.env.INFRAWRIGHT_TERRAFORM_EXECUTABLE;
+    const response = await executeRequest(parsed as ProcessRequest, {
+      terraformExecutable: configuredTerraform === undefined
+        || configuredTerraform.length === 0
+        ? null
+        : configuredTerraform,
+    });
+    if (emit(response)) {
+      process.exitCode = successExitCode(response);
+    }
   } catch (error: unknown) {
     const identity = requestIdentity(parsed);
     const failure = error instanceof ProcessFailure
@@ -152,12 +197,14 @@ async function main(): Promise<void> {
           category: "internal",
           message: "internal process failure",
         });
-    emit(errorResponse({
+    const emitted = emit(errorResponse({
       failure,
       requestId: identity.requestId,
       operation: identity.operation,
     }));
-    process.exitCode = exitCode(failure);
+    if (emitted) {
+      process.exitCode = exitCode(failure);
+    }
   }
 }
 

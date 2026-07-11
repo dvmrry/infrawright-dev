@@ -21,6 +21,7 @@ const ajv = new Ajv2020({
 ajv.addSchema(rootTopologySchema);
 ajv.addSchema(changedPathScopeSchema);
 ajv.addSchema(planRootsSchema);
+ajv.addSchema(savedPlanAssessmentSchema);
 
 export const validateProcessRequest: ValidateFunction = ajv.compile(
   processRequestSchema,
@@ -40,9 +41,9 @@ export const validateChangedPathScope: ValidateFunction = ajv.getSchema(
 export const validatePlanRoots: ValidateFunction = ajv.getSchema(
   planRootsSchema.$id,
 ) as ValidateFunction;
-export const validateSavedPlanAssessment: ValidateFunction = ajv.compile(
-  savedPlanAssessmentSchema,
-);
+export const validateSavedPlanAssessment: ValidateFunction = ajv.getSchema(
+  savedPlanAssessmentSchema.$id,
+) as ValidateFunction;
 
 function errorMessage(error: ErrorObject): string {
   if (error.keyword === "additionalProperties") {

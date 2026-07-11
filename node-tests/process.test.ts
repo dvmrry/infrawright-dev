@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +16,11 @@ import {
   validateProcessRequest,
   validateProcessResponse,
 } from "../node-src/contracts/validators.js";
+import { planFingerprintV2 } from "../node-src/domain/plan-fingerprint.js";
+import {
+  renderPythonCompatibleJson,
+  type JsonValue,
+} from "../node-src/json/python-compatible.js";
 
 const WORKSPACE = process.cwd();
 const PROCESS_MAIN = path.join(
@@ -16,12 +28,228 @@ const PROCESS_MAIN = path.join(
   ".node-test/node-src/process/main.js",
 );
 
-function invoke(input: string | Buffer, cwd = WORKSPACE) {
+function invoke(
+  input: string | Buffer,
+  cwd = WORKSPACE,
+  environment: Readonly<Record<string, string>> = {},
+) {
+  const env = { ...process.env };
+  delete env.INFRAWRIGHT_TERRAFORM_EXECUTABLE;
+  Object.assign(env, environment);
   return spawnSync(process.execPath, [PROCESS_MAIN], {
     cwd,
     input,
+    env,
     encoding: Buffer.isBuffer(input) ? undefined : "utf8",
   });
+}
+
+function assessmentPlan(change: object): string {
+  return JSON.stringify({
+    format_version: "1.2",
+    terraform_version: "1.15.4",
+    complete: true,
+    errored: false,
+    resource_changes: [{
+      address: 'zpa_application_segment.this["one"]',
+      type: "zpa_application_segment",
+      change,
+    }],
+    output_changes: {},
+  });
+}
+
+function shellLiteral(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+async function withAssessmentFixture(
+  planJson: string,
+  callback: (fixture: {
+    readonly workspace: string;
+    readonly terraform: string;
+    readonly request: Record<string, unknown>;
+    readonly envDir: string;
+    readonly varFile: string;
+    readonly planPath: string;
+    readonly planJson: string;
+    readonly policyPath: string | null;
+  }) => void | Promise<void>,
+  policy: object | null = null,
+): Promise<void> {
+  const workspace = mkdtempSync(path.join(os.tmpdir(), "infrawright-process-assess-"));
+  try {
+    const resourceType = "zpa_application_segment";
+    const envDir = path.join(workspace, "envs", "tenant", resourceType);
+    const moduleDir = path.join(workspace, "modules", resourceType);
+    const configDir = path.join(workspace, "config", "tenant");
+    mkdirSync(envDir, { recursive: true });
+    mkdirSync(moduleDir, { recursive: true });
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(path.join(workspace, "deployment.json"), JSON.stringify({
+      overlay: ".",
+      roots: {},
+    }));
+    writeFileSync(path.join(moduleDir, "main.tf"), "# module\n");
+    writeFileSync(path.join(envDir, "main.tf"), [
+      `module "${resourceType}" {`,
+      `  source = "../../../modules/${resourceType}"`,
+      `  items = var.${resourceType}_items`,
+      "}",
+      "",
+    ].join("\n"));
+    const varFile = path.join(configDir, `${resourceType}.auto.tfvars.json`);
+    writeFileSync(varFile, "{}\n");
+    const planPath = path.join(envDir, "tfplan");
+    writeFileSync(planPath, "opaque plan bytes\n", {
+      mode: 0o600,
+    });
+    writeFileSync(
+      path.join(envDir, "tfplan.sources"),
+      `${JSON.stringify(await planFingerprintV2({
+        envDir,
+        varFiles: [varFile],
+        memberTypes: [resourceType],
+        backendConfig: null,
+        backendKey: null,
+      }))}\n`,
+    );
+    const terraform = path.join(workspace, "terraform-fake");
+    writeFileSync(
+      terraform,
+      `#!/bin/sh\nprintf '%s' ${shellLiteral(planJson)}\n`,
+      { mode: 0o700 },
+    );
+    chmodSync(terraform, 0o700);
+    const policyPath = policy === null ? null : path.join(workspace, "policy.json");
+    if (policyPath !== null) {
+      writeFileSync(policyPath, JSON.stringify(policy));
+    }
+    await callback({
+      workspace,
+      terraform,
+      envDir,
+      varFile,
+      planPath,
+      planJson,
+      policyPath,
+      request: {
+        kind: "infrawright.process_request",
+        schema_version: 1,
+        request_id: "assessment",
+        operation: "assess_saved_plans",
+        context: {
+          workspace,
+          deployment: "deployment.json",
+          root_catalog: path.join(
+            WORKSPACE,
+            "catalogs/zscaler-root-catalog.v1.json",
+          ),
+        },
+        input: {
+          mode: policy === null ? "assert-clean" : "assert-adoptable",
+          tenant: "tenant",
+          selectors: ["zpa/application_segment"],
+          backend_config: null,
+          policy: policy === null ? null : "policy.json",
+        },
+      },
+    });
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+}
+
+const PYTHON_ASSESSMENT_REPORT = String.raw`
+import hashlib
+import json
+import sys
+from engine import ops
+from engine.drift_policy import DriftPolicy
+from engine.plan_eval import classify_plan
+
+i = json.load(sys.stdin)
+plan = json.loads(i["plan_json"])
+policy = DriftPolicy(None)
+policy_sha = None
+if i["policy_path"] is not None:
+    with open(i["policy_path"], "rb") as f:
+        policy_bytes = f.read()
+    policy_sha = hashlib.sha256(policy_bytes).hexdigest()
+    policy = DriftPolicy(json.loads(policy_bytes.decode("utf-8")))
+result = classify_plan(plan, policy=policy)
+report = ops._new_assessment_report(i["mode"], {
+    "tenant": "tenant",
+    "selectors": ["zpa/application_segment"],
+    "policy": None if i["mode"] == "assert-clean" else "policy.json",
+})
+report["request"]["policy_sha256"] = policy_sha
+with open(i["plan_path"], "rb") as f:
+    plan_sha = hashlib.sha256(f.read()).hexdigest()
+fingerprint = ops._plan_fingerprint(
+    i["env_dir"], [i["var_file"]], ["zpa_application_segment"],
+    backend_config=None, backend_key=None,
+)
+ops._append_root_assessment(
+    report, "tenant", "zpa_application_segment",
+    ["zpa_application_segment"], plan, result, plan_sha, fingerprint,
+    guidance=[],
+)
+for resource_type, mode, path in policy.stale_entries(
+        resource_types={"zpa_application_segment"},
+        modes=("plan_tolerate",)):
+    report["stale_policy"].append({
+        "resource_type": resource_type,
+        "mode": mode,
+        "path": path,
+    })
+counts = {
+    "clean": 1 if result["status"] == "clean" else 0,
+    "tolerated": 1 if result["status"] == "clean_with_tolerated_drift" else 0,
+    "blocked": 1 if result["status"] == "blocked" else 0,
+}
+ops._finish_assessment_report(
+    report, counts["clean"], counts["tolerated"], counts["blocked"])
+sys.stdout.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
+`;
+
+function pythonAssessmentReport(fixture: {
+  readonly envDir: string;
+  readonly varFile: string;
+  readonly planPath: string;
+  readonly planJson: string;
+  readonly policyPath: string | null;
+}, mode: "assert-clean" | "assert-adoptable"): {
+  readonly report: unknown;
+  readonly bytes: string;
+} {
+  const result = spawnSync("python3", ["-c", PYTHON_ASSESSMENT_REPORT], {
+    input: JSON.stringify({
+      env_dir: fixture.envDir,
+      var_file: fixture.varFile,
+      plan_path: fixture.planPath,
+      plan_json: fixture.planJson,
+      policy_path: fixture.policyPath,
+      mode,
+    }),
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return {
+    report: JSON.parse(result.stdout),
+    bytes: result.stdout,
+  };
+}
+
+function assertPythonAssessmentParity(
+  actual: unknown,
+  expected: { readonly report: unknown; readonly bytes: string },
+): void {
+  assert.deepEqual(actual, expected.report);
+  assert.equal(
+    renderPythonCompatibleJson(actual as JsonValue),
+    expected.bytes,
+  );
 }
 
 test("process host emits one structured roots response", () => {
@@ -102,6 +330,178 @@ test("process host emits one structured plan_roots response", () => {
   assert.equal(response.operation, "plan_roots");
   assert.equal(response.result.kind, "infrawright.plan_roots");
   assert.deepEqual(response.result.roots, []);
+});
+
+test("assessment process emits clean and blocked Zscaler reports with gate exits", async (t) => {
+  await t.test("clean", async () => {
+    await withAssessmentFixture(assessmentPlan({
+      actions: ["no-op"],
+      before: { status: "same" },
+      after: { status: "same" },
+    }), (fixture) => {
+      const result = invoke(JSON.stringify(fixture.request), WORKSPACE, {
+        INFRAWRIGHT_TERRAFORM_EXECUTABLE: fixture.terraform,
+      });
+      assert.equal(result.status, 0, String(result.stderr));
+      assert.equal(String(result.stderr), "");
+      const response = JSON.parse(String(result.stdout));
+      assert.equal(validateProcessResponse(response), true);
+      assert.equal(response.status, "ok");
+      assert.equal(response.operation, "assess_saved_plans");
+      assert.equal(response.result.kind, "infrawright.saved_plan_assessment");
+      assert.equal(response.result.summary.status, "clean");
+      assert.deepEqual(response.result.roots[0].guidance, []);
+      assertPythonAssessmentParity(
+        response.result,
+        pythonAssessmentReport(fixture, "assert-clean"),
+      );
+    });
+  });
+
+  await t.test("blocked", async () => {
+    await withAssessmentFixture(assessmentPlan({
+      actions: ["update"],
+      before: { status: "old" },
+      after: { status: "new" },
+    }), (fixture) => {
+      const result = invoke(JSON.stringify(fixture.request), WORKSPACE, {
+        INFRAWRIGHT_TERRAFORM_EXECUTABLE: fixture.terraform,
+      });
+      assert.equal(result.status, 3, String(result.stderr));
+      assert.equal(String(result.stderr), "");
+      const response = JSON.parse(String(result.stdout));
+      assert.equal(validateProcessResponse(response), true);
+      assert.equal(response.status, "ok");
+      assert.equal(response.result.summary.status, "blocked");
+      assert.deepEqual(response.result.roots[0].guidance, []);
+      assertPythonAssessmentParity(
+        response.result,
+        pythonAssessmentReport(fixture, "assert-clean"),
+      );
+    });
+  });
+});
+
+test("assessment process emits tolerated and error reports without losing stdout", async (t) => {
+  const policy = {
+    version: 1,
+    resource_types: {
+      zpa_application_segment: {
+        plan_tolerate: [{
+          path: "status",
+          reason: "fixture",
+          approved_by: "unit",
+        }, {
+          path: "unused",
+          reason: "stale fixture",
+          approved_by: "unit",
+        }],
+      },
+    },
+  };
+  await t.test("tolerated", async () => {
+    await withAssessmentFixture(assessmentPlan({
+      actions: ["update"],
+      before: { status: "old" },
+      after: { status: "new" },
+    }), (fixture) => {
+      const result = invoke(JSON.stringify(fixture.request), WORKSPACE, {
+        INFRAWRIGHT_TERRAFORM_EXECUTABLE: fixture.terraform,
+      });
+      assert.equal(result.status, 0, String(result.stderr));
+      const response = JSON.parse(String(result.stdout));
+      assert.equal(validateProcessResponse(response), true);
+      assert.equal(
+        response.result.summary.status,
+        "clean_with_tolerated_drift",
+      );
+      assert.match(response.result.request.policy_sha256, /^[0-9a-f]{64}$/);
+      assert.deepEqual(response.result.stale_policy, [{
+        resource_type: "zpa_application_segment",
+        mode: "plan_tolerate",
+        path: "unused",
+      }]);
+      assertPythonAssessmentParity(
+        response.result,
+        pythonAssessmentReport(fixture, "assert-adoptable"),
+      );
+    }, policy);
+  });
+
+  await t.test("assessment error", async () => {
+    await withAssessmentFixture("invalid-json", ({ request, terraform }) => {
+      const result = invoke(JSON.stringify(request), WORKSPACE, {
+        INFRAWRIGHT_TERRAFORM_EXECUTABLE: terraform,
+      });
+      assert.equal(result.status, 1, String(result.stderr));
+      assert.equal(String(result.stderr), "");
+      const response = JSON.parse(String(result.stdout));
+      assert.equal(validateProcessResponse(response), true);
+      assert.equal(response.status, "ok");
+      assert.equal(response.result.summary.status, "error");
+      assert.equal(response.result.error.kind, "assessment_error");
+    });
+  });
+});
+
+test("assessment process requires host Terraform and the exact Zscaler catalog", async (t) => {
+  await withAssessmentFixture(assessmentPlan({
+    actions: ["no-op"],
+    before: {},
+    after: {},
+  }), async ({ request, terraform, workspace }) => {
+    await t.test("missing host configuration", () => {
+      const result = invoke(JSON.stringify(request));
+      assert.equal(result.status, 1);
+      const response = JSON.parse(String(result.stdout));
+      assert.equal(response.status, "error");
+      assert.equal(response.result, null);
+      assert.equal(response.error.code, "TERRAFORM_NOT_CONFIGURED");
+    });
+
+    await t.test("unsupported catalog", () => {
+      const expectedPath = path.join(
+        WORKSPACE,
+        "catalogs/zscaler-root-catalog.v1.json",
+      );
+      const changed = JSON.parse(readFileSync(expectedPath, "utf8"));
+      changed.sources_sha256 = "0".repeat(64);
+      const changedPath = path.join(workspace, "changed-catalog.json");
+      writeFileSync(changedPath, JSON.stringify(changed));
+      const changedRequest = {
+        ...request,
+        context: {
+          ...(request.context as Record<string, unknown>),
+          root_catalog: changedPath,
+        },
+      };
+      const result = invoke(JSON.stringify(changedRequest), WORKSPACE, {
+        INFRAWRIGHT_TERRAFORM_EXECUTABLE: terraform,
+      });
+      assert.equal(result.status, 2);
+      const response = JSON.parse(String(result.stdout));
+      assert.equal(response.status, "error");
+      assert.equal(response.error.code, "UNSUPPORTED_ASSESSMENT_CATALOG");
+    });
+
+    await t.test("no saved plans remains a versioned assessment error", () => {
+      const missingRequest = {
+        ...request,
+        input: {
+          ...(request.input as Record<string, unknown>),
+          tenant: "missing",
+        },
+      };
+      const result = invoke(JSON.stringify(missingRequest), WORKSPACE, {
+        INFRAWRIGHT_TERRAFORM_EXECUTABLE: terraform,
+      });
+      assert.equal(result.status, 1);
+      const response = JSON.parse(String(result.stdout));
+      assert.equal(response.status, "ok");
+      assert.equal(response.result.summary.status, "error");
+      assert.equal(response.result.error.kind, "no_saved_plans");
+    });
+  });
 });
 
 test("plan_roots rejects unknown selectors before reading deployment", () => {
@@ -255,6 +655,45 @@ test("request schema binds each operation to its input shape", () => {
     ...base,
     operation: "scope_paths",
     input: { tenant: null, selectors: [] },
+  }), false);
+  assert.equal(validateProcessRequest({
+    ...base,
+    operation: "assess_saved_plans",
+    input: { tenant: null, selectors: [] },
+  }), false);
+  assert.equal(validateProcessRequest({
+    ...base,
+    operation: "assess_saved_plans",
+    input: {
+      mode: "assert-clean",
+      tenant: null,
+      selectors: [],
+      backend_config: null,
+      policy: null,
+      terraform_executable: "/request-controlled/code",
+    },
+  }), false);
+  assert.equal(validateProcessRequest({
+    ...base,
+    operation: "assess_saved_plans",
+    input: {
+      mode: "assert-clean",
+      tenant: null,
+      selectors: [],
+      backend_config: null,
+      policy: null,
+    },
+  }), true);
+  assert.equal(validateProcessRequest({
+    ...base,
+    operation: "assess_saved_plans",
+    input: {
+      mode: "assert-clean",
+      tenant: null,
+      selectors: [],
+      backend_config: null,
+      policy: "not-allowed-for-clean.json",
+    },
   }), false);
 });
 

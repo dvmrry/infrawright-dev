@@ -134,6 +134,97 @@ jobs:
           assert len(response["result"]["roots"]) == 1
           assert response["result"]["roots"][0]["artifact_state"] == "complete"
           PY
+          python3 - "$GITHUB_WORKSPACE" "$root" <<'PY'
+          import json
+          import os
+          import stat
+          import sys
+
+          from engine import ops
+
+          workspace, root = sys.argv[1:]
+          resource_type = "zpa_application_segment"
+          overlay = os.path.join(root, "artifacts")
+          env_dir = os.path.join(
+              overlay, "envs", "prod", resource_type)
+          module_dir = os.path.join(overlay, "modules", resource_type)
+          config_dir = os.path.join(overlay, "config", "prod")
+          os.makedirs(env_dir, exist_ok=True)
+          os.makedirs(module_dir, exist_ok=True)
+          os.makedirs(config_dir, exist_ok=True)
+          with open(os.path.join(module_dir, "main.tf"), "w", encoding="utf-8") as f:
+              f.write("# module\n")
+          with open(os.path.join(env_dir, "main.tf"), "w", encoding="utf-8") as f:
+              f.write(
+                  'module "%s" {\n'
+                  '  source = "../../../modules/%s"\n'
+                  '  items = var.%s_items\n'
+                  '}\n' % (resource_type, resource_type, resource_type)
+              )
+          var_file = os.path.join(
+              config_dir, resource_type + ".auto.tfvars.json")
+          with open(var_file, "w", encoding="utf-8") as f:
+              f.write("{}\n")
+          with open(os.path.join(env_dir, "tfplan"), "wb") as f:
+              f.write(b"opaque plan bytes\n")
+          ops._write_plan_fingerprint(
+              env_dir, [var_file], [resource_type])
+          terraform = os.path.join(root, "terraform-fake")
+          plan = json.dumps({
+              "format_version": "1.2",
+              "terraform_version": "1.15.4",
+              "complete": True,
+              "errored": False,
+              "resource_changes": [{
+                  "address": resource_type + '.this["one"]',
+                  "type": resource_type,
+                  "change": {
+                      "actions": ["no-op"],
+                      "before": {"status": "same"},
+                      "after": {"status": "same"},
+                  },
+              }],
+              "output_changes": {},
+          }, separators=(",", ":"))
+          with open(terraform, "w", encoding="utf-8") as f:
+              f.write("#!/bin/sh\nprintf '%s' '%s'\n" % (
+                  "%s", plan.replace("'", "'\\''")))
+          os.chmod(terraform, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+          with open(os.path.join(root, "assessment-request.json"), "w", encoding="utf-8") as f:
+              json.dump({
+                  "kind": "infrawright.process_request",
+                  "schema_version": 1,
+                  "request_id": "ci-assessment-smoke",
+                  "operation": "assess_saved_plans",
+                  "context": {
+                      "workspace": workspace,
+                      "deployment": os.path.join(root, "deployment.json"),
+                      "root_catalog": "catalogs/zscaler-root-catalog.v1.json",
+                  },
+                  "input": {
+                      "mode": "assert-clean",
+                      "tenant": "prod",
+                      "selectors": ["zpa/application_segment"],
+                      "backend_config": None,
+                      "policy": None,
+                  },
+              }, f)
+          PY
+          (cd "$root" && \
+            INFRAWRIGHT_TERRAFORM_EXECUTABLE="$root/terraform-fake" \
+            node infrawright.mjs < assessment-request.json > assessment-response.json)
+          python3 - "$root/assessment-response.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as f:
+              response = json.load(f)
+          assert response["status"] == "ok", response
+          assert response["operation"] == "assess_saved_plans", response
+          assert response["result"]["kind"] == "infrawright.saved_plan_assessment"
+          assert response["result"]["summary"]["status"] == "clean"
+          assert response["result"]["roots"][0]["guidance"] == []
+          PY
       - name: Whitespace hygiene
         run: git diff --check
 

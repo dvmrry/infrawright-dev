@@ -5,6 +5,10 @@ import type {
   WholeRootDiagnostic,
 } from "../domain/types.js";
 import type { ErrorCategory, ErrorDetail } from "../domain/errors.js";
+import type {
+  AssessmentMode,
+  SavedPlanAssessmentReport,
+} from "../domain/plan-report.js";
 
 export interface RootsProcessRequest {
   readonly kind: "infrawright.process_request";
@@ -42,10 +46,26 @@ export interface PlanRootsProcessRequest {
   readonly input: RootsProcessRequest["input"];
 }
 
+export interface AssessSavedPlansProcessRequest {
+  readonly kind: "infrawright.process_request";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "assess_saved_plans";
+  readonly context: RootsProcessRequest["context"];
+  readonly input: {
+    readonly mode: AssessmentMode;
+    readonly tenant: string | null;
+    readonly selectors: readonly string[];
+    readonly backend_config: string | null;
+    readonly policy: string | null;
+  };
+}
+
 export type ProcessRequest =
   | RootsProcessRequest
   | ScopePathsProcessRequest
-  | PlanRootsProcessRequest;
+  | PlanRootsProcessRequest
+  | AssessSavedPlansProcessRequest;
 
 export interface ProcessError {
   readonly code: string;
@@ -88,16 +108,33 @@ export interface PlanRootsProcessSuccessResponse {
   readonly error: null;
 }
 
+export interface AssessSavedPlansProcessSuccessResponse {
+  readonly kind: "infrawright.process_response";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "assess_saved_plans";
+  readonly status: "ok";
+  readonly diagnostics: readonly WholeRootDiagnostic[];
+  readonly result: SavedPlanAssessmentReport;
+  readonly error: null;
+}
+
 export type ProcessSuccessResponse =
   | RootsProcessSuccessResponse
   | ScopePathsProcessSuccessResponse
-  | PlanRootsProcessSuccessResponse;
+  | PlanRootsProcessSuccessResponse
+  | AssessSavedPlansProcessSuccessResponse;
 
 export interface ProcessErrorResponse {
   readonly kind: "infrawright.process_response";
   readonly schema_version: 1;
   readonly request_id: string | null;
-  readonly operation: "roots" | "scope_paths" | "plan_roots" | null;
+  readonly operation:
+    | "roots"
+    | "scope_paths"
+    | "plan_roots"
+    | "assess_saved_plans"
+    | null;
   readonly status: "error";
   readonly diagnostics: readonly [];
   readonly result: null;
