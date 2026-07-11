@@ -4,6 +4,7 @@
   "title": "Infrawright Process Request",
   "$comment": "Custom Infrawright request semantics are required for assertion-bearing operations. Structural JSON Schema validation alone is insufficient: implementations must bind requested coordinates and raw contexts to their complete assertions before operation I/O.",
   "type": "object",
+  "x-infrawright-zcc-pull-refresh-materialization-request-semantics": true,
   "additionalProperties": false,
   "required": [
     "kind",
@@ -402,6 +403,16 @@
       }
     },
     "materializePullArtifactsInput": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/materializeBootstrapPullArtifactsInput"
+        },
+        {
+          "$ref": "#/$defs/materializeRefreshPullArtifactsInput"
+        }
+      ]
+    },
+    "materializeBootstrapPullArtifactsInput": {
       "type": "object",
       "x-infrawright-zcc-pull-materialization-request-semantics": true,
       "additionalProperties": false,
@@ -436,6 +447,63 @@
           "allOf": [
             {
               "$ref": "zcc-pull-artifact-parity.schema.json"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "const": "ready"
+                },
+                "candidate": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "const": "ready"
+                    }
+                  }
+                },
+                "parity": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "const": "equal"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "materializeRefreshPullArtifactsInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "publication",
+        "tenant",
+        "resource_type",
+        "assertion"
+      ],
+      "properties": {
+        "mode": {
+          "const": "refresh"
+        },
+        "publication": {
+          "const": "replace_or_verify_exact_imports_last"
+        },
+        "tenant": {
+          "type": "string",
+          "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+        },
+        "resource_type": {
+          "$ref": "zcc-pull-artifact-set.schema.json#/$defs/resourceType"
+        },
+        "assertion": {
+          "allOf": [
+            {
+              "$ref": "zcc-pull-refresh-parity.schema.json"
             },
             {
               "type": "object",

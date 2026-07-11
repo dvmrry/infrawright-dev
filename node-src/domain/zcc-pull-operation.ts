@@ -1066,6 +1066,21 @@ export interface ZccPullRefreshCompilationTransaction {
   readonly recheckInputs: () => Promise<void>;
 }
 
+/**
+ * Immutable raw-transform half of a refresh publication transaction. Unlike
+ * `ZccPullRefreshCompilationTransaction`, this lane never reads prior imports
+ * and therefore remains usable after imports has become the desired value.
+ */
+export interface ZccPullRefreshRawCandidateTransaction {
+  readonly result: ZccPullArtifactSet;
+  readonly pathBase: string;
+  readonly binding: Omit<
+    ZccPullRefreshCompilationTransaction["binding"],
+    "baselineInputs"
+  >;
+  readonly recheckImmutableInputs: () => Promise<void>;
+}
+
 export interface ZccPullRefreshParityPrepared {
   readonly request: {
     readonly workspace: string;
@@ -1456,6 +1471,111 @@ async function compilePreparedZccPullRefreshCandidate(options: {
       targetParents: prepared.targetParents,
     },
     recheckInputs,
+  };
+}
+
+/**
+ * Compile only the deterministic raw transform from one strict preparation.
+ * No materialized artifact is read or treated as a precondition in this lane.
+ */
+export async function compilePreparedZccPullRefreshRawCandidate(
+  prepared: ZccPullRefreshParityPrepared,
+  hooks?: ZccPullOperationHooks,
+): Promise<ZccPullRefreshRawCandidateTransaction> {
+  const copiedHooks = hooks === undefined
+    ? undefined
+    : Object.freeze({
+        sourceRead: hooks.sourceRead === undefined
+          ? undefined
+          : Object.freeze({ ...hooks.sourceRead }),
+        afterInputsBound: hooks.afterInputsBound,
+        beforeFinalRecheck: hooks.beforeFinalRecheck,
+      });
+  const source = await readBoundedUtf8File(
+    prepared.source.lexicalPath,
+    new ReadBudget(PULL_READ_LIMITS),
+    {
+      followSymlinks: false,
+      ...(copiedHooks?.sourceRead === undefined
+        ? {}
+        : { hooks: copiedHooks.sourceRead }),
+    },
+  );
+  if (
+    source.identity.dev !== prepared.source.identity.dev
+    || source.identity.ino !== prepared.source.identity.ino
+  ) {
+    return fail("RAW_PULL_CHANGED", "raw pull changed during compilation", "io");
+  }
+  let rawItems: readonly unknown[];
+  try {
+    rawItems = parseZccPullDataJson(source.text);
+  } catch (error: unknown) {
+    if (error instanceof ProcessFailure) {
+      throw error;
+    }
+    return fail("INVALID_PULL_DATA", "raw pull is not supported JSON item data");
+  }
+  await copiedHooks?.afterInputsBound?.();
+  let candidate: ZccPullArtifactSet;
+  try {
+    candidate = compileZccPullRefreshCandidateArtifactSet({
+      catalog: loadZccTransformCatalog(),
+      catalogSha256: ZCC_TRANSFORM_CATALOG_SHA256,
+      rawItems,
+      target: prepared.target,
+      source: {
+        path: prepared.source.logicalPath,
+        sha256: source.digest.sha256,
+        size_bytes: Number(source.digest.size),
+      },
+    });
+  } catch (error: unknown) {
+    if (error instanceof ProcessFailure) {
+      throw error;
+    }
+    return fail("INVALID_PULL_DATA", "raw pull could not be compiled");
+  }
+  const recheckImmutableInputs = async (): Promise<void> => {
+    await recheckSource({
+      canonicalSource: prepared.source.lexicalPath,
+      lexicalSource: prepared.source.lexicalPath,
+      lexicalWorkspace: prepared.request.workspace,
+      canonicalWorkspace: prepared.workspace,
+      expected: source.digest,
+      expectedIdentity: source.identity,
+      strictParity: true,
+    });
+    try {
+      await recheckAssessmentControlFiles(prepared.controls);
+    } catch {
+      return fail("COMPILE_CONTROL_CHANGED", "compile control input changed", "io");
+    }
+    await recheckZccParityTargetParents(prepared.targetParents);
+  };
+  await copiedHooks?.beforeFinalRecheck?.();
+  await recheckImmutableInputs();
+  return {
+    result: candidate,
+    pathBase: prepared.workspace,
+    binding: {
+      lexicalWorkspace: prepared.request.workspace,
+      canonicalWorkspace: prepared.workspace,
+      deploymentPath: prepared.request.deploymentPath,
+      catalogPath: prepared.request.catalogPath,
+      deployment: prepared.deployment,
+      controls: prepared.controls,
+      target: prepared.target,
+      source: {
+        logicalPath: prepared.source.logicalPath,
+        canonicalPath: prepared.source.lexicalPath,
+        sha256: source.digest.sha256,
+        size: source.digest.size,
+        identity: source.identity,
+      },
+      targetParents: prepared.targetParents,
+    },
+    recheckImmutableInputs,
   };
 }
 
