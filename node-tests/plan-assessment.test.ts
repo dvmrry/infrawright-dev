@@ -276,6 +276,71 @@ test("assessment snapshots caller-owned arrays and limits before yielding", asyn
   });
 });
 
+test("assessment snapshots caller-owned materialization context before yielding", async () => {
+  await withFixture(async (fixture) => {
+    const varFile = join(
+      fixture.root,
+      "config",
+      "tenant",
+      "zpa_sample.auto.tfvars.json",
+    );
+    mkdirSync(dirname(varFile), { recursive: true });
+    writeFileSync(varFile, "{}\n");
+    const assessmentRoot = {
+      ...fixture.assessmentRoot,
+      varFiles: [varFile],
+    };
+    writeFileSync(
+      fixture.fingerprintPath,
+      `${JSON.stringify(await planFingerprintV2({
+        envDir: fixture.envDir,
+        varFiles: [varFile],
+        memberTypes: assessmentRoot.members,
+        backendConfig: null,
+        backendKey: null,
+      }))}\n`,
+    );
+    const context = {
+      workspace: fixture.root,
+      deployment: { overlay: ".", roots: {} },
+      catalog: {
+        kind: "infrawright.root_catalog" as const,
+        schema_version: 1 as const,
+        declared_providers: ["zpa"],
+        resources: [{
+          type: "zpa_sample",
+          product: "zpa",
+          provider: "zpa",
+          bare_name: "sample",
+          slug_label: null,
+          generated: true,
+          derived: false,
+        }],
+        source_files: [] as string[],
+        sources_sha256: "0".repeat(64),
+      },
+      tenant: "tenant",
+      selectors: [] as string[],
+    };
+    const fake = executable(fixture.root, `printf '%s' ${shellLiteral(plan({
+      actions: ["no-op"],
+      before: {},
+      after: {},
+    }))}`);
+    const pending = assessSavedPlans({
+      ...options(fixture, fake),
+      roots: [assessmentRoot],
+      context,
+    });
+    context.deployment.overlay = "mutated";
+    context.catalog.resources[0]!.type = "zpa_mutated";
+    context.selectors.push("zpa/mutated");
+    const result = await pending;
+    assert.equal(result.status, "clean");
+    assert.deepEqual(result.roots[0]?.members, ["zpa_sample"]);
+  });
+});
+
 test("assessment rejects an excessive root set before filesystem work", async () => {
   const roots = Array.from(
     { length: MAX_SAVED_PLAN_ASSESSMENT_ROOTS + 1 },

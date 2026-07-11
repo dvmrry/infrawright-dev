@@ -28,7 +28,8 @@
       "enum": [
         "roots",
         "scope_paths",
-        "plan_roots"
+        "plan_roots",
+        "assess_saved_plans"
       ]
     },
     "context": {
@@ -41,6 +42,9 @@
         },
         {
           "$ref": "#/$defs/scopePathsInput"
+        },
+        {
+          "$ref": "#/$defs/assessmentInput"
         }
       ]
     }
@@ -53,6 +57,16 @@
         },
         "input": {
           "$ref": "#/$defs/rootsInput"
+        }
+      }
+    },
+    {
+      "properties": {
+        "operation": {
+          "const": "assess_saved_plans"
+        },
+        "input": {
+          "$ref": "#/$defs/assessmentInput"
         }
       }
     },
@@ -143,6 +157,74 @@
           }
         }
       }
+    },
+    "assessmentInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "tenant",
+        "selectors",
+        "backend_config",
+        "policy"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "assert-clean",
+            "assert-adoptable"
+          ]
+        },
+        "tenant": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+            }
+          ]
+        },
+        "selectors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "backend_config": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "policy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "assert-clean"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "policy": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

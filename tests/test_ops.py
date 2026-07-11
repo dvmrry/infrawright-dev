@@ -124,6 +124,7 @@ class OpsContractSchemaTest(unittest.TestCase):
         ]
         self.assertTrue(root_tenant["pattern"])
         guidance = assessment["$defs"]["guidance"]
+        self.assertTrue(assessment["x-infrawright-report-semantics"])
         self.assertIn("finding_path", guidance["required"])
         self.assertIn(
             "Concrete plan-space",

@@ -95,8 +95,8 @@ adoption workflow above and requires real provider credentials.
 
 The Zscaler runtime is beginning a differential migration to Node 24. Its first
 machine-only process operations emit the existing root-topology, changed-path
-scope, and plan-root contracts and are byte-compared with Python in CI. Build
-the no-install bundle with
+scope, plan-root, and exact-catalog Zscaler saved-plan assessment contracts and
+are differentially compared with Python in CI. Build the no-install bundle with
 `npm ci --ignore-scripts && npm run check && npm run build`; see
 [Node Process API Migration](docs/node-process-api.md) for the request contract,
 current boundary, and downstream dual-run guidance.

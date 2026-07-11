@@ -5,10 +5,11 @@ library behind one machine-only process host. Pipelines and supervised agents
 are the audience. This is not a human command-line interface and it is not an
 HTTP service.
 
-The first slices port the read-only root-topology, changed-path scoping, and
-materialized plan-root enumeration operations. They establish the process
-protocol, deterministic JSON boundary, packaging, and differential validation
-pattern that later adoption operations will follow.
+The first slices port the read-only root-topology, changed-path scoping,
+materialized plan-root enumeration, and exact-catalog Zscaler saved-plan
+assessment operations. They establish the process protocol, deterministic JSON
+boundary, packaging, and differential validation pattern that later adoption
+operations will follow.
 
 ## Runtime and Distribution
 
@@ -122,6 +123,63 @@ together, then rerun the engine assessment before using it. Unknown directories
 and stale labels are ignored; selection of one grouped member returns the whole
 materialized root and a structured diagnostic.
 
+### Zscaler saved-plan assessment
+
+Launch the host with the trusted Terraform binary configured out of band:
+
+```sh
+INFRAWRIGHT_TERRAFORM_EXECUTABLE=/opt/terraform/terraform \
+  node dist/infrawright.mjs < request.json > response.json
+```
+
+The request cannot nominate an executable and the host never searches `PATH`:
+
+```json
+{
+  "kind": "infrawright.process_request",
+  "schema_version": 1,
+  "request_id": "adoption-126",
+  "operation": "assess_saved_plans",
+  "context": {
+    "workspace": "/workspace/deployment",
+    "deployment": "deployment.json",
+    "root_catalog": "catalogs/zscaler-root-catalog.v1.json"
+  },
+  "input": {
+    "mode": "assert-adoptable",
+    "tenant": "prod",
+    "selectors": [
+      "zpa/application_segment"
+    ],
+    "backend_config": "backend.hcl",
+    "policy": "drift-policy.json"
+  }
+}
+```
+
+Terraform, the workspace, the restored plan pair, and any provider/plugin cache
+are executable or assessment-authoritative inputs and must come from the trusted
+planning lane, not PR-controlled request data.
+
+`backend_config` and `policy` may be absolute or workspace-relative data paths.
+`assert-clean` requires `policy: null`. The operation accepts only the exact
+embedded all-Zscaler catalog. Its source identity covers the current zcc, zia,
+zpa, and ztc manifests/registries, and CI proves those packs have no
+provider-config, absent/default, or dynamic-schema guidance rules. Any catalog
+change or newly declared guidance fails closed until the public profile is
+reviewed again.
+
+The response result is `infrawright.saved_plan_assessment` v1. Envelope
+`status: "ok"` means a schema-valid assessment was produced; the gate outcome
+is `result.summary.status`, including `blocked` or `error`. Stdout is the only
+report transport. A pipeline must capture stdout on every exit, validate the
+response, and atomically promote its own artifact if desired.
+
+Request shape, catalog identity, and selector validity are checked before
+policy loading and report production. If a request contains both an invalid
+selection and an invalid policy, the selector/domain error is therefore the
+defined process result (exit `2`), not Python CLI policy-error precedence.
+
 `context.workspace` must be absolute. The other context paths may be absolute
 or workspace-relative. The process never consults
 `INFRAWRIGHT_DEPLOYMENT`, `INFRAWRIGHT_PACKS`, or its current directory.
@@ -134,9 +192,10 @@ hostnames, durations, or other nondeterministic fields are emitted.
 
 Exit status is:
 
-- `0`: successful operation;
+- `0`: successful non-assessment operation, or a clean/tolerated assessment;
+- `3`: a schema-valid blocked assessment;
 - `2`: malformed request, deployment, catalog, or domain selection;
-- `1`: I/O or internal operation failure.
+- `1`: a schema-valid assessment error, or an I/O/internal host failure.
 
 The strict contracts are published in
 `docs/schemas/process-request.schema.json` and
@@ -191,11 +250,12 @@ float-bearing output contract is migrated.
 
 ## Current Boundary
 
-These slices support only Zscaler root topology, changed-path scoping, and
-materialized plan-root enumeration as public process operations.
+These slices support Zscaler root topology, changed-path scoping, materialized
+plan-root enumeration, and exact-catalog saved-plan assessment as public
+process operations.
 
-The Node source tree also contains the internal saved-plan assessment kernel.
-It is not yet imported into the bundled process executable:
+The bundled Zscaler assessment operation uses the internal saved-plan
+assessment kernel, which provides:
 
 - strict v1 drift-policy validation for every policy lane, plus matching and
   stale-entry tracking for `plan_tolerate`;
@@ -273,8 +333,20 @@ rechecks, and constructs the saved-plan assessment v1 document synchronously
 inside that final evidence window. Later-root failures retain already assessed
 roots in an error report; invalid-policy and no-plan failures produce the same
 zero-root error shapes and policy-hash precedence as Python. Reports are
-validated against the published schema, and normal summary/root statuses are
-derived from findings rather than trusted from caller-supplied counts.
+validated against the published structural schema and its required
+`x-infrawright-report-semantics` assertion. That semantic pass derives each root
+status from findings, derives exact summary counts and status from roots, and
+checks unique root membership, request/guidance/stale-policy joins, and policy
+evidence coherence instead of trusting redundant report fields.
+
+The public operation parses the deployment and root catalog from the same
+bounded stable bytes it binds into the transaction. A missing deployment is a
+bound absent state; creation or replacement during assessment fails closed.
+The transaction rechecks both controls around Terraform work and re-materializes
+the selected root/path tuples at entry, after policy loading even for the
+zero-root case, and as the final awaited operation before synchronous report
+construction. This catches deployment format/grouping changes, catalog changes,
+and plans appearing or disappearing while an assessment is running.
 
 The transaction snapshots library inputs before its first await, accepts at
 most 1,000 roots, prevents retained plan snapshots from exceeding 2 GiB, and
@@ -297,11 +369,11 @@ report adapter validates already joined guidance against concrete and
 normalized paths, canonicalizes order, and deduplicates it, but the Python
 collectors still own provider-config, absent/default, and dynamic-schema
 discovery. Those collectors, Python-compatible float rendering for guidance
-values, process-envelope semantics for blocked-but-valid gates, and gate exit
-codes must land before assessment becomes a public process operation.
+values, and a versioned guidance catalog must land before assessment can accept
+anything beyond the exact current Zscaler catalog.
 
 Python remains authoritative for all mutating adoption behavior, Terraform
-orchestration, the public saved-plan gate/report command, gate exit semantics,
-guidance collection, and raw pack catalog production. Downstream should
-dual-run the public Node operations and retain the Python result as the cutover
-oracle until its deployment corpus is byte-clean.
+orchestration, generic guidance collection, and raw pack catalog production.
+Downstream should dual-run the public Node assessment against Python and retain
+the Python result as the cutover oracle until its deployment corpus is
+byte-clean.
