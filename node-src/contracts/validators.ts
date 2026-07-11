@@ -13,6 +13,7 @@ import rootTopologySchema from "../../docs/schemas/root-topology.schema.json" wi
 import savedPlanAssessmentSchema from "../../docs/schemas/saved-plan-assessment.schema.json" with { type: "json" };
 import transformCatalogSchema from "../../docs/schemas/transform-catalog.schema.json" with { type: "json" };
 import zccPullArtifactSetSchema from "../../docs/schemas/zcc-pull-artifact-set.schema.json" with { type: "json" };
+import zccPullRefreshArtifactSetSchema from "../../docs/schemas/zcc-pull-refresh-artifact-set.schema.json" with { type: "json" };
 import zccPullArtifactParitySchema from "../../docs/schemas/zcc-pull-artifact-parity.schema.json" with { type: "json" };
 import zccPullArtifactMaterializationSchema from "../../docs/schemas/zcc-pull-artifact-materialization.schema.json" with { type: "json" };
 import type { ErrorDetail } from "../domain/errors.js";
@@ -24,6 +25,10 @@ import {
   ZCC_PULL_ARTIFACT_SEMANTICS_KEYWORD,
   validateZccPullArtifactSemantics,
 } from "./zcc-pull-artifact-semantics.js";
+import {
+  ZCC_PULL_REFRESH_SEMANTICS_KEYWORD,
+  validateZccPullRefreshSemantics,
+} from "./zcc-pull-refresh-semantics.js";
 import {
   ZCC_PULL_PARITY_SEMANTICS_KEYWORD,
   validateZccPullParitySemantics,
@@ -74,6 +79,14 @@ ajv.addKeyword({
 });
 
 ajv.addKeyword({
+  keyword: ZCC_PULL_REFRESH_SEMANTICS_KEYWORD,
+  schemaType: "boolean",
+  type: "object",
+  errors: true,
+  validate: validateZccPullRefreshSemantics,
+});
+
+ajv.addKeyword({
   keyword: ZCC_PULL_PARITY_SEMANTICS_KEYWORD,
   schemaType: "boolean",
   type: "object",
@@ -111,6 +124,7 @@ ajv.addSchema(planRootsSchema);
 ajv.addSchema(savedPlanAssessmentSchema);
 ajv.addSchema(transformCatalogSchema);
 ajv.addSchema(zccPullArtifactSetSchema);
+ajv.addSchema(zccPullRefreshArtifactSetSchema);
 ajv.addSchema(zccPullArtifactParitySchema);
 ajv.addSchema(zccPullArtifactMaterializationSchema);
 requestAjv.addSchema(zccPullArtifactParitySchema);
@@ -141,6 +155,9 @@ export const validateTransformCatalog: ValidateFunction = ajv.getSchema(
 ) as ValidateFunction;
 export const validateZccPullArtifactSet: ValidateFunction = ajv.getSchema(
   zccPullArtifactSetSchema.$id,
+) as ValidateFunction;
+export const validateZccPullRefreshArtifactSet: ValidateFunction = ajv.getSchema(
+  zccPullRefreshArtifactSetSchema.$id,
 ) as ValidateFunction;
 export const validateZccPullArtifactParity: ValidateFunction = ajv.getSchema(
   zccPullArtifactParitySchema.$id,

@@ -76,6 +76,36 @@ function prefixedPath(prefix: string, suffix: string): string {
   return `${prefix}${suffix}`;
 }
 
+function decodedStringsAreWellFormed(value: unknown): boolean {
+  const stack: unknown[] = [value];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (typeof current === "string") {
+      if (!current.isWellFormed()) {
+        return false;
+      }
+      continue;
+    }
+    if (Array.isArray(current)) {
+      for (let index = current.length - 1; index >= 0; index -= 1) {
+        stack.push(current[index]);
+      }
+      continue;
+    }
+    const currentRecord = record(current);
+    if (currentRecord === null) {
+      continue;
+    }
+    for (const key of Object.keys(currentRecord)) {
+      if (!key.isWellFormed()) {
+        return false;
+      }
+      stack.push(ownValue(currentRecord, key));
+    }
+  }
+  return true;
+}
+
 export interface ZccPullArtifactSemanticValidator {
   (
     schema: unknown,
@@ -237,9 +267,22 @@ export const validateZccPullArtifactSemantics:
     ): boolean => {
       if (
         typeof descriptor.content !== "string"
+        || typeof descriptor.path !== "string"
         || typeof descriptor.size_bytes !== "number"
         || typeof descriptor.sha256 !== "string"
       ) {
+        return false;
+      }
+      if (
+        !descriptor.content.isWellFormed()
+        || !descriptor.path.isWellFormed()
+        || descriptor.path.includes("\0")
+      ) {
+        push(
+          instancePath,
+          "artifact_unicode",
+          "artifact content and path must use supported Unicode paths",
+        );
         return false;
       }
       const sizeBytes = Buffer.byteLength(descriptor.content, "utf8");
@@ -359,6 +402,14 @@ export const validateZccPullArtifactSemantics:
       }
       try {
         const parsed = parseDataJsonLosslessly(descriptor.content);
+        if (!decodedStringsAreWellFormed(parsed)) {
+          push(
+            `${instancePath}/content`,
+            "decoded_unicode",
+            "decoded JSON keys and values must use supported Unicode",
+          );
+          return null;
+        }
         if (renderPythonLosslessArtifactJson(parsed) !== descriptor.content) {
           push(
             `${instancePath}/content`,

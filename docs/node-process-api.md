@@ -7,10 +7,10 @@ HTTP service.
 
 The first slices port the read-only root-topology, changed-path scoping,
 materialized plan-root enumeration, exact-catalog Zscaler saved-plan
-assessment, and the strict ZCC bootstrap compile, compare, and retry-forward
-materialization operations. They establish the process protocol, deterministic
-JSON boundary, packaging, and differential validation pattern that later
-adoption operations will follow.
+assessment, the strict ZCC bootstrap compile, compare, and retry-forward
+materialization operations, and a read-only ZCC refresh compiler. They establish
+the process protocol, deterministic JSON boundary, packaging, and differential
+validation pattern that later adoption operations will follow.
 
 ## Runtime and Distribution
 
@@ -46,6 +46,14 @@ Schema-error details are bounded diagnostics, not an exhaustive list. Request
 validation stops after a bounded failure set and all schema-to-error conversion
 is capped, so a malformed request below the 1 MiB input limit cannot amplify
 into an oversized response or lose its request identity and exit-`2` contract.
+
+Request and response schemas validate separate JSON documents, so they cannot
+by themselves prove their cross-document mode join. A client must retain the
+validated request and require `compile_pull_artifacts` mode/result agreement:
+`bootstrap` maps only to `infrawright.zcc_pull_artifact_set` with result mode
+`bootstrap`, while `refresh` maps only to
+`infrawright.zcc_pull_refresh_artifact_set` with result mode `refresh`. Reject a
+standalone-valid response whose result kind or mode does not match the request.
 
 ## Version 1 Requests
 
@@ -227,14 +235,118 @@ and full transform-catalog digests. `status: "review_required"` means the
 transform encountered unacknowledged API paths and produces exit `3`; the
 candidate bytes remain evidence for review and must not be promoted.
 
-`mode: "bootstrap"` is deliberately narrower than Python refresh behavior.
-Existing imports or move artifacts are refused because the Node port does not
-yet derive identity-keyed `moved {}` blocks. HCL tfvars and a forwarding
-profile grouped with its trusted-network referent while generated reference
-binding is enabled are also refused. Those cases remain on Python until their
-versioned artifact contracts and differentials land. A pipeline must validate
-the response and require `result.status == "ready"`. It may retain the result
-as evidence; canonical writes belong to the materialization operation below.
+`mode: "bootstrap"` is deliberately narrower than refresh behavior. Existing
+imports, move artifacts, or in-flight pending-move markers are refused. HCL
+tfvars and a forwarding profile grouped with its trusted-network referent while
+generated reference binding is enabled are also refused. A pipeline must
+validate the response and require `result.status == "ready"`. It may retain the
+result as evidence; canonical writes belong to the materialization operation
+below.
+
+### ZCC read-only refresh compilation
+
+Refresh mode compiles the current pull and binds an existing canonical imports
+file as rename evidence. It returns a deterministic desired artifact set but
+does not write, replace, or delete any file:
+
+```json
+{
+  "kind": "infrawright.process_request",
+  "schema_version": 1,
+  "request_id": "zcc-refresh-128",
+  "operation": "compile_pull_artifacts",
+  "context": {
+    "workspace": "/workspace/deployment",
+    "deployment": "deployment.json",
+    "root_catalog": "catalogs/zscaler-root-catalog.v1.json"
+  },
+  "input": {
+    "mode": "refresh",
+    "tenant": "prod",
+    "resource_type": "zcc_trusted_network"
+  }
+}
+```
+
+The supported resources, raw-pull path, catalogs, JSON tfvars profile, source
+limits, and generated-binding exclusions are the same as bootstrap. Unlike
+bootstrap, refresh requires the deployment-derived
+`<resource_type>_imports.tf` to be a present, regular, non-symlink file whose
+complete bytes are the exact canonical Infrawright-generated import grammar.
+An empty canonical imports file is valid. The existing tfvars and applicable
+lookup files may be present or absent; each state is bound. Non-applicable
+lookup files must be absent. Each present baseline artifact is limited to 32
+MiB and each baseline read or recheck pass has a 96 MiB aggregate ceiling.
+
+Refresh also requires the deployment-derived move file, reserved
+`<resource_type>_moves.pending.json` marker, HCL tfvars alternate, and generated
+expression bindings to be absent. These are transition preconditions, not
+cleanup requests. An existing move file means a prior rename transition has
+not been explicitly completed; the compiler refuses it rather than deleting or
+silently superseding it. The deployment, root catalog, pull, all present and
+absent baseline artifacts, physical file identities, and unsupported adjacent
+states are rebound after compilation. Baseline appearance, disappearance,
+identity replacement, or byte mutation is an I/O failure. The raw pull is
+rebound by canonical path, digest, and size; an identical-byte replacement at
+that path is equivalent source evidence. Deployment-derived external overlays
+are supported, but the raw pull remains contained inside `context.workspace`.
+
+The result is `infrawright.zcc_pull_refresh_artifact_set` v1. `baseline`
+contains content-free path/state/digest/size evidence for prior tfvars,
+imports, and lookup plus the required absent states. `desired` contains exact
+tfvars, imports, applicable lookup, and safe move bytes, or an explicit absent
+state for each inapplicable target. `moves.safe` records unambiguous
+same-import-ID key changes; `moves.suppressed` records `ambiguous`,
+`duplicate_from`, `key_swap`, and `destination_occupied` candidates without
+re-emitting provider import IDs. Additions and removals are not inferred to be
+renames. Bootstrap, comparison, parity, and materialization continue to require
+unique desired import IDs. Refresh alone retains Python run-two output when one
+prior address fans out to duplicate desired IDs: it emits both ordered
+`duplicate_from` suppressions, emits no move file, and requires review. For
+trusted networks, the lookup sidecar also preserves Python's deterministic
+key-sorted, last-key-wins collapse for the duplicate ID; that collapsed lookup
+is review evidence, not a promotion-safe uniqueness claim.
+
+`status: "ready"` means only that the raw transform found no unacknowledged API
+surface and rename derivation found no suppressed candidate. Safe moves can be
+ready. This status does **not** establish pull completeness, provider-read or
+adoption-oracle parity, plan cleanliness, destroy safety, apply readiness, or
+that a previously staged move has been applied. Downstream must still
+materialize through a future assertion-bound transition operation, plan, and run
+the saved-plan gate. A suppression or unexpected drop produces a complete
+review artifact with exit `3`; it must not be promoted automatically.
+
+`baseline.fingerprint_sha256` hashes compact canonical JSON encoded as UTF-8.
+The normative encoding is equivalent to Python
+`json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))`:
+object keys use Unicode code-point order, non-ASCII Unicode is written
+unescaped, JSON control characters use their required escapes, and no optional
+whitespace or trailing newline is present. Inputs must be acyclic inert JSON,
+use well-formed Unicode, safe integers without negative zero, and remain within
+the 128-container depth bound. The domain is
+`infrawright.zcc_refresh_baseline_fingerprint` version `1`. Its `states` object
+contains the seven baseline states except the fingerprint itself.
+`transition_sha256` uses the same canonical encoding and the domain
+`infrawright.zcc_refresh_transition` version `1`; it covers product, resource,
+tenant, source, catalog, root, the complete baseline (including its
+fingerprint), unexpected drops, move decisions, and content-free desired
+artifact descriptors. These hashes bind baseline states, decisions, and
+content-free descriptors and make transitions reproducible; complete semantic
+validation separately binds each desired artifact's bytes to its size and
+digest. The hashes are not signatures and do not authenticate who produced the
+baseline or candidate; retain them in protected pipeline storage.
+
+This slice ports the raw `engine.transform` run-two compiler only. It does not
+port import-oracle adoption, provider reads, generated bindings, HCL tfvars,
+materialization, apply, or move acknowledgement. In particular, Python's
+current stage/apply cleanup removes the environment-root copy of a move file,
+not necessarily this source artifact. A later write contract must bind and
+revalidate the accepted refresh assertion, publish the desired set, and
+explicitly mark a move transition applied before clearing its source move file
+and pending marker. Until then, use refresh mode only for differential evidence
+and do not manually delete a refused move artifact to force progress. The
+Python Make wrapper can skip a missing pull; the Node operation treats its
+derived pull as required and returns an error.
 
 ### ZCC materialized artifact comparison
 
@@ -378,10 +490,11 @@ hostnames, durations, or other nondeterministic fields are emitted.
 
 Exit status is:
 
-- `0`: successful read operation, ready bootstrap artifacts, exact materialized
-  parity, complete retry-forward publication, or a clean/tolerated assessment;
-- `3`: schema-valid review-required bootstrap artifacts, a materialized parity
-  difference, or a blocked assessment;
+- `0`: successful read operation, ready bootstrap or refresh artifacts, exact
+  materialized parity, complete retry-forward publication, or a clean/tolerated
+  assessment;
+- `3`: schema-valid review-required bootstrap or refresh artifacts, a
+  materialized parity difference, or a blocked assessment;
 - `2`: malformed request, deployment, catalog, or domain selection;
 - `1`: a schema-valid assessment error, indeterminate publication, or another
   I/O/internal host failure.
@@ -389,8 +502,10 @@ Exit status is:
 The strict contracts are published in
 `docs/schemas/process-request.schema.json` and
 `docs/schemas/process-response.schema.json`. The standalone comparison result
-is `docs/schemas/zcc-pull-artifact-parity.schema.json`; the content-free write
-receipt is `docs/schemas/zcc-pull-artifact-materialization.schema.json`.
+is `docs/schemas/zcc-pull-artifact-parity.schema.json`; the refresh assertion is
+`docs/schemas/zcc-pull-refresh-artifact-set.schema.json`; the content-free
+write receipt is
+`docs/schemas/zcc-pull-artifact-materialization.schema.json`.
 
 ## Transition Catalogs
 
@@ -474,9 +589,9 @@ float-bearing output contract is migrated.
 ## Current Boundary
 
 These slices support Zscaler root topology, changed-path scoping, materialized
-plan-root enumeration, exact-catalog saved-plan assessment, and immutable ZCC
-bootstrap artifact compilation, materialized-byte comparison, and asserted
-retry-forward publication as public process operations.
+plan-root enumeration, exact-catalog saved-plan assessment, immutable ZCC
+bootstrap and refresh artifact compilation, materialized-byte comparison, and
+asserted retry-forward bootstrap publication as public process operations.
 
 The ZCC compiler ports raw-item projection and exact tfvars/import/lookup byte
 rendering for `zcc_device_cleanup`, `zcc_failopen_policy`,
@@ -487,7 +602,12 @@ and may publish only this exact five-resource JSON/bootstrap profile after a
 complete ready parity assertion is supplied from the protected comparison
 lane. The repository differential runs the actual Python writer, public Node
 comparer, and public Node materializer for all five supported ZCC resources and
-checks their resulting bytes exactly.
+checks their resulting bytes exactly. A separate run-two differential lets
+Python write the baseline and refreshed outputs, then proves the read-only Node
+refresh result for all five resources and adversarial rename cases, including
+HTML/Unicode/CSV normalization, grouped variable names, escaped HCL strings,
+key swaps, occupied destinations, ambiguous identities, and mixed safe and
+suppressed moves.
 
 The bundled Zscaler assessment operation uses the internal saved-plan
 assessment kernel, which provides:
@@ -607,12 +727,14 @@ discovery. Those collectors, Python-compatible float rendering for guidance
 values, and a versioned guidance catalog must land before assessment can accept
 anything beyond the exact current Zscaler catalog.
 
-Python remains authoritative for refresh, import-oracle adoption, move and
-generated-binding production, HCL artifacts, Terraform orchestration, generic
-guidance collection, and raw pack catalog production. Downstream should run
-the public Node assessment beside Python and run `compare_pull_artifacts`
-immediately after each authoritative Python ZCC transform. Retain Python as the
+Python remains authoritative for refresh materialization and move lifecycle,
+import-oracle adoption, generated-binding production, HCL artifacts, Terraform
+orchestration, generic guidance collection, and raw pack catalog production.
+The Node refresh operation is an exact read-only raw-transform candidate
+compiler, not an apply or adoption decision. Downstream should dual-run it
+against Python run-two outputs and run `compare_pull_artifacts` immediately
+after each authoritative Python ZCC bootstrap transform. Retain Python as the
 cutover oracle until the deployment and raw-pull corpus reports byte-clean
-parity. The Node materializer is a gated consumer of that evidence, not a way
-to bypass it: use it only for the documented exact bootstrap profile, from a
-serialized protected lane, and only after an exit-`0` receipt.
+parity. The Node materializer is a gated consumer of bootstrap evidence, not a
+way to bypass it: use it only for the documented exact bootstrap profile, from
+a serialized protected lane, and only after an exit-`0` receipt.

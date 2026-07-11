@@ -57,7 +57,7 @@ interface Fixture {
   readonly pullPath: (resourceType: ZccPullResourceType) => string;
   readonly artifactPath: (
     resourceType: ZccPullResourceType,
-    kind: "imports" | "moves",
+    kind: "imports" | "moves" | "pending-moves",
   ) => string;
 }
 
@@ -101,7 +101,9 @@ async function withFixture(
           workspace,
           "imports",
           TENANT,
-          `${resourceType}_${kind}.tf`,
+          kind === "pending-moves"
+            ? `${resourceType}_moves.pending.json`
+            : `${resourceType}_${kind}.tf`,
         );
       },
     });
@@ -226,6 +228,7 @@ test("compile_pull_artifacts publicly compiles every exact ZCC bootstrap resourc
       );
 
       const result = invocation.response.result;
+      assert.equal(result.mode, compileRequest.input.mode);
       assert.equal(result.resource_type, resourceType);
       assert.equal(result.tenant, TENANT);
       assert.equal(result.status, "ready");
@@ -450,10 +453,11 @@ test("trusted-network provider identities fail closed without value leakage", as
   });
 });
 
-test("bootstrap refuses prior imports and moves artifacts", async (t) => {
+test("bootstrap refuses prior imports, moves, and pending-move artifacts", async (t) => {
   for (const fixtureCase of [
     { kind: "imports", code: "BOOTSTRAP_IMPORTS_EXIST" },
     { kind: "moves", code: "BOOTSTRAP_MOVES_EXIST" },
+    { kind: "pending-moves", code: "UNSUPPORTED_PENDING_MOVES" },
   ] as const) {
     await t.test(fixtureCase.kind, async () => {
       await withFixture((fixture) => {
@@ -621,6 +625,21 @@ test("direct operation rechecks raw, control, and bootstrap precondition races",
           writeFileSync(importsPath, "# process-secret-value\n");
         },
       }), "BOOTSTRAP_IMPORTS_EXIST");
+    });
+  });
+
+  await t.test("pending moves appears before commit", async () => {
+    await withFixture(async (fixture) => {
+      await expectOperationFailure(run(fixture, {
+        beforeFinalRecheck: () => {
+          const pendingPath = fixture.artifactPath(
+            "zcc_device_cleanup",
+            "pending-moves",
+          );
+          mkdirSync(path.dirname(pendingPath), { recursive: true });
+          writeFileSync(pendingPath, '{"state":"pending"}\n');
+        },
+      }), "BOOTSTRAP_PENDING_MOVES_CHANGED");
     });
   });
 });

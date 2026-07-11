@@ -22,6 +22,7 @@ import { loadZccTransformCatalog } from "./transform-catalog.js";
 import type { RootTopologyRoot } from "./types.js";
 import {
   compileZccPullArtifactSet,
+  compileZccPullRefreshCandidateArtifactSet,
   ZCC_TRANSFORM_CATALOG_SHA256,
   type ZccArtifactTarget,
   type ZccPullArtifactSet,
@@ -37,6 +38,16 @@ import {
   type ZccPullArtifactMaterialization,
   type ZccPullMaterializationHooks,
 } from "./zcc-pull-materialization.js";
+import {
+  compileZccPullRefreshArtifactSet,
+  type ZccPullRefreshArtifactSet,
+} from "./zcc-pull-refresh.js";
+import {
+  bindZccRefreshInputs,
+  recheckZccRefreshInputs,
+  zccRefreshBaselineInput,
+  type BoundZccRefreshInputs,
+} from "./zcc-pull-refresh-inputs.js";
 import { requireSupportedZscalerCompileCatalog } from "./zscaler-assessment.js";
 import {
   ReadBudget,
@@ -68,10 +79,14 @@ const MATERIALIZED_ARTIFACT_READ_LIMITS: BoundedReadLimits = {
 export interface ZccPullOperationHooks {
   /** Test seam for descriptor/path mutation during the stable source read. */
   readonly sourceRead?: StableReadHooks;
-  /** Test seam after all inputs and the bootstrap absence precondition are bound. */
+  /** Test seam for descriptor/path mutation during the prior-imports read. */
+  readonly priorImportsRead?: StableReadHooks;
+  /** Test seam after all inputs and the selected mode preconditions are bound. */
   readonly afterInputsBound?: () => void | Promise<void>;
   /** Test seam immediately before the final transaction recheck. */
   readonly beforeFinalRecheck?: () => void | Promise<void>;
+  /** Test seam after refresh derivation and before its final CAS recheck. */
+  readonly afterRefreshCompiled?: () => void | Promise<void>;
 }
 
 function fail(
@@ -145,6 +160,7 @@ type BootstrapArtifactKind = "imports" | "moves";
 type ZccPullArtifactPolicy =
   | { readonly kind: "bootstrap_absent" }
   | { readonly kind: "compare_materialized" }
+  | { readonly kind: "refresh_prior_imports" }
   | { readonly kind: "candidate_only" };
 
 interface BoundCandidateOnlyArtifactPolicy {
@@ -157,6 +173,8 @@ interface BoundBootstrapArtifactPolicy {
   readonly movesAbsolute: string;
   readonly initialImportsPhysical: string;
   readonly initialMovesPhysical: string;
+  readonly pendingMovesAbsolute: string;
+  readonly initialPendingMovesPhysical: string;
 }
 
 interface BoundMaterializedArtifact {
@@ -185,9 +203,15 @@ interface BoundCompareArtifactPolicy {
   readonly unsupported: readonly UnsupportedCompareArtifact[];
 }
 
+interface BoundRefreshArtifactPolicy {
+  readonly kind: "refresh_prior_imports";
+  readonly inputs: BoundZccRefreshInputs;
+}
+
 type BoundZccPullArtifactPolicy =
   | BoundBootstrapArtifactPolicy
   | BoundCompareArtifactPolicy
+  | BoundRefreshArtifactPolicy
   | BoundCandidateOnlyArtifactPolicy;
 
 function bootstrapCode(kind: BootstrapArtifactKind, suffix: string): string {
@@ -335,6 +359,13 @@ function compareArtifactPaths(
         target.importsPath.slice(0, -"_imports.tf".length) + "_moves.tf",
       )
     : target.importsPath;
+  const pendingMoves = target.importsPath.endsWith("_imports.tf")
+    ? resolvedPath(
+        workspace,
+        target.importsPath.slice(0, -"_imports.tf".length)
+          + "_moves.pending.json",
+      )
+    : target.importsPath;
   const generatedBindings = resolvedPath(
     workspace,
     pythonPosixJoin(
@@ -352,6 +383,11 @@ function compareArtifactPaths(
         absolutePath: moves,
         code: "UNSUPPORTED_COMPARE_MOVES",
         message: "bootstrap comparison does not support materialized move artifacts",
+      },
+      {
+        absolutePath: pendingMoves,
+        code: "UNSUPPORTED_PENDING_MOVES",
+        message: "pull artifact compilation refuses an in-flight move transition",
       },
       {
         absolutePath: alternateHcl,
@@ -378,6 +414,7 @@ async function bindArtifactPolicy(options: {
   readonly workspace: string;
   readonly target: ZccArtifactTarget;
   readonly policy: ZccPullArtifactPolicy;
+  readonly priorImportsRead?: StableReadHooks;
 }): Promise<BoundZccPullArtifactPolicy> {
   if (options.policy.kind === "candidate_only") {
     return { kind: "candidate_only" };
@@ -387,19 +424,40 @@ async function bindArtifactPolicy(options: {
     const moves = paths.unsupported.find(
       (artifact) => artifact.code === "UNSUPPORTED_COMPARE_MOVES",
     );
-    if (moves === undefined) {
-      return fail("INTERNAL_ERROR", "bootstrap move target is unresolved", "internal");
+    const pendingMoves = paths.unsupported.find(
+      (artifact) => artifact.code === "UNSUPPORTED_PENDING_MOVES",
+    );
+    if (moves === undefined || pendingMoves === undefined) {
+      return fail("INTERNAL_ERROR", "bootstrap move targets are unresolved", "internal");
     }
     const initialImportsPhysical = pythonPosixRealpath(paths.imports);
     const initialMovesPhysical = pythonPosixRealpath(moves.absolutePath);
+    const initialPendingMovesPhysical = pythonPosixRealpath(
+      pendingMoves.absolutePath,
+    );
     await assertAbsent(paths.imports, "imports");
     await assertAbsent(moves.absolutePath, "moves");
+    await assertCompareArtifactAbsent(pendingMoves);
     return {
       kind: "bootstrap_absent",
       importsAbsolute: paths.imports,
       movesAbsolute: moves.absolutePath,
       initialImportsPhysical,
       initialMovesPhysical,
+      pendingMovesAbsolute: pendingMoves.absolutePath,
+      initialPendingMovesPhysical,
+    };
+  }
+  if (options.policy.kind === "refresh_prior_imports") {
+    return {
+      kind: "refresh_prior_imports",
+      inputs: await bindZccRefreshInputs({
+        workspace: options.workspace,
+        target: options.target,
+        ...(options.priorImportsRead === undefined
+          ? {}
+          : { priorImportsRead: options.priorImportsRead }),
+      }),
     };
   }
   for (const artifact of paths.unsupported) {
@@ -505,8 +563,35 @@ async function recheckArtifactPolicy(
     if (pythonPosixRealpath(policy.movesAbsolute) !== policy.initialMovesPhysical) {
       return fail("BOOTSTRAP_MOVES_CHANGED", "bootstrap move target changed", "io");
     }
+    if (
+      pythonPosixRealpath(policy.pendingMovesAbsolute)
+      !== policy.initialPendingMovesPhysical
+    ) {
+      return fail(
+        "BOOTSTRAP_PENDING_MOVES_CHANGED",
+        "bootstrap pending-move target changed",
+        "io",
+      );
+    }
     await assertAbsent(policy.importsAbsolute, "imports");
     await assertAbsent(policy.movesAbsolute, "moves");
+    try {
+      await assertCompareArtifactAbsent({
+        absolutePath: policy.pendingMovesAbsolute,
+        code: "UNSUPPORTED_PENDING_MOVES",
+        message: "pull artifact compilation refuses an in-flight move transition",
+      });
+    } catch {
+      return fail(
+        "BOOTSTRAP_PENDING_MOVES_CHANGED",
+        "bootstrap pending-move target changed",
+        "io",
+      );
+    }
+    return;
+  }
+  if (policy.kind === "refresh_prior_imports") {
+    await recheckZccRefreshInputs(policy.inputs);
     return;
   }
   for (const artifact of policy.unsupported) {
@@ -562,7 +647,7 @@ function resolveArtifactTarget(options: {
   if (format === "hcl") {
     return fail(
       "UNSUPPORTED_TFVARS_FORMAT",
-      "bootstrap pull artifact compilation supports JSON tfvars only",
+      "pull artifact compilation supports JSON tfvars only",
     );
   }
   const { topology } = rootTopology({
@@ -591,7 +676,7 @@ function resolveArtifactTarget(options: {
   ) {
     return fail(
       "UNSUPPORTED_GROUP_BINDINGS",
-      "bootstrap compilation does not yet support same-root generated reference bindings",
+      "pull artifact compilation does not support same-root generated reference bindings",
     );
   }
   const variableName = rootLabel === options.resourceType
@@ -605,7 +690,7 @@ function resolveArtifactTarget(options: {
     topology.directories.imports,
     `${options.resourceType}_imports.tf`,
   );
-  return {
+  const target: ZccArtifactTarget = {
     tenant: options.tenant,
     resourceType: options.resourceType,
     rootLabel,
@@ -620,6 +705,18 @@ function resolveArtifactTarget(options: {
           `${options.resourceType}.lookup.json`,
         ),
   };
+  const paths = [
+    target.configPath,
+    target.importsPath,
+    ...(target.lookupPath === null ? [] : [target.lookupPath]),
+  ];
+  if (paths.some((candidate) => candidate.includes("\0") || !candidate.isWellFormed())) {
+    return fail(
+      "INVALID_ZCC_ARTIFACT_TARGET",
+      "artifact target path contains unsupported Unicode",
+    );
+  }
+  return target;
 }
 
 async function recheckSource(options: {
@@ -680,6 +777,19 @@ async function compileZccPullArtifactsWithPolicy(
   readonly pathBase: string;
   readonly recheckInputs: () => Promise<void>;
 }> {
+  const hooks = options.hooks === undefined
+    ? undefined
+    : Object.freeze({
+        sourceRead: options.hooks.sourceRead === undefined
+          ? undefined
+          : Object.freeze({ ...options.hooks.sourceRead }),
+        priorImportsRead: options.hooks.priorImportsRead === undefined
+          ? undefined
+          : Object.freeze({ ...options.hooks.priorImportsRead }),
+        afterInputsBound: options.hooks.afterInputsBound,
+        beforeFinalRecheck: options.hooks.beforeFinalRecheck,
+        afterRefreshCompiled: options.hooks.afterRefreshCompiled,
+      });
   const request = {
     workspace: options.workspace,
     deploymentPath: options.deploymentPath,
@@ -709,6 +819,9 @@ async function compileZccPullArtifactsWithPolicy(
     workspace,
     target,
     policy: artifactPolicy,
+    ...(hooks?.priorImportsRead === undefined
+      ? {}
+      : { priorImportsRead: hooks.priorImportsRead }),
   });
 
   const relativeSource = pythonPosixJoin(
@@ -724,9 +837,9 @@ async function compileZccPullArtifactsWithPolicy(
   const source = await readBoundedUtf8File(
     canonicalSource,
     new ReadBudget(PULL_READ_LIMITS),
-    options.hooks?.sourceRead === undefined
+    hooks?.sourceRead === undefined
       ? {}
-      : { hooks: options.hooks.sourceRead },
+      : { hooks: hooks.sourceRead },
   );
   let rawItems: readonly unknown[];
   try {
@@ -737,10 +850,13 @@ async function compileZccPullArtifactsWithPolicy(
     }
     return fail("INVALID_PULL_DATA", "raw pull is not supported JSON item data");
   }
-  await options.hooks?.afterInputsBound?.();
+  await hooks?.afterInputsBound?.();
   let result: ZccPullArtifactSet;
   try {
-    result = compileZccPullArtifactSet({
+    const compileCandidate = artifactPolicy.kind === "refresh_prior_imports"
+      ? compileZccPullRefreshCandidateArtifactSet
+      : compileZccPullArtifactSet;
+    result = compileCandidate({
       catalog: loadZccTransformCatalog(),
       catalogSha256: ZCC_TRANSFORM_CATALOG_SHA256,
       rawItems,
@@ -773,7 +889,7 @@ async function compileZccPullArtifactsWithPolicy(
     }
     await recheckArtifactPolicy(boundPolicy);
   };
-  await options.hooks?.beforeFinalRecheck?.();
+  await hooks?.beforeFinalRecheck?.();
   await recheckInputs();
   return { candidate: result, policy: boundPolicy, pathBase: workspace, recheckInputs };
 }
@@ -787,6 +903,40 @@ export async function compileZccPullArtifactsOperation(
     { kind: "bootstrap_absent" },
   );
   return result.candidate;
+}
+
+/** Compile one read-only raw-transform refresh transition from prior imports. */
+export async function compileZccPullRefreshArtifactsOperation(
+  options: ZccPullArtifactsOperationOptions,
+): Promise<ZccPullRefreshArtifactSet> {
+  const afterRefreshCompiled = options.hooks?.afterRefreshCompiled;
+  const result = await compileZccPullArtifactsWithPolicy(
+    options,
+    { kind: "refresh_prior_imports" },
+  );
+  if (result.policy.kind !== "refresh_prior_imports") {
+    return fail("INTERNAL_ERROR", "refresh artifact policy is unresolved", "internal");
+  }
+  const inputs = result.policy.inputs;
+  const lookupBaseline = "digest" in inputs.lookup
+    ? zccRefreshBaselineInput(inputs.lookup)
+    : { path: inputs.lookup.logicalPath, state: "absent" as const };
+  const refresh = compileZccPullRefreshArtifactSet({
+    candidate: result.candidate,
+    baselineImports: {
+      path: inputs.imports.logicalPath,
+      content: inputs.imports.text,
+    },
+    baselineTfvars: zccRefreshBaselineInput(inputs.tfvars),
+    baselineLookup: lookupBaseline,
+    movesPath: inputs.moves.logicalPath,
+    pendingMovesPath: inputs.pendingMoves.logicalPath,
+    alternateHclPath: inputs.alternateHcl.logicalPath,
+    generatedBindingsPath: inputs.generatedBindings.logicalPath,
+  });
+  await afterRefreshCompiled?.();
+  await result.recheckInputs();
+  return refresh;
 }
 
 /** Compare trusted candidate digests with stable materialized artifact reads. */

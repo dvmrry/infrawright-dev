@@ -1,0 +1,440 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infrawright.local/schemas/zcc-pull-refresh-artifact-set.schema.json",
+  "title": "Infrawright ZCC Raw-Transform Refresh Artifact Set",
+  "$comment": "x-infrawright-zcc-pull-refresh-semantics is required. Structural validation alone does not establish baseline fingerprints, transition fingerprints, canonical artifact joins, or the ordering, joins, and exact bytes of reported move outputs. Prior import contents are intentionally absent, so standalone validation cannot rederive move identities or suppression reasons.",
+  "type": "object",
+  "x-infrawright-zcc-pull-refresh-semantics": true,
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_version",
+    "mode",
+    "product",
+    "resource_type",
+    "tenant",
+    "source",
+    "catalog",
+    "root",
+    "baseline",
+    "status",
+    "unexpected_drops",
+    "moves",
+    "desired",
+    "transition_sha256"
+  ],
+  "properties": {
+    "kind": {
+      "const": "infrawright.zcc_pull_refresh_artifact_set"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "mode": {
+      "const": "refresh"
+    },
+    "product": {
+      "const": "zcc"
+    },
+    "resource_type": {
+      "$ref": "zcc-pull-artifact-set.schema.json#/$defs/resourceType"
+    },
+    "tenant": {
+      "type": "string",
+      "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+    },
+    "source": {
+      "$ref": "zcc-pull-artifact-set.schema.json#/$defs/source"
+    },
+    "catalog": {
+      "$ref": "zcc-pull-artifact-set.schema.json#/$defs/catalog"
+    },
+    "root": {
+      "$ref": "zcc-pull-artifact-set.schema.json#/$defs/root"
+    },
+    "baseline": {
+      "$ref": "#/$defs/baseline"
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "review_required"
+      ]
+    },
+    "unexpected_drops": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "moves": {
+      "$ref": "#/$defs/moves"
+    },
+    "desired": {
+      "$ref": "#/$defs/desired"
+    },
+    "transition_sha256": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "unexpected_drops": {
+            "type": "array",
+            "maxItems": 0
+          },
+          "moves": {
+            "type": "object",
+            "properties": {
+              "suppressed": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "const": "ready"
+          }
+        }
+      },
+      "else": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "const": "review_required"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "resource_type": {
+            "const": "zcc_trusted_network"
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "desired": {
+            "type": "object",
+            "properties": {
+              "lookup": {
+                "$ref": "#/$defs/presentJsonArtifact"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "type": "object",
+        "properties": {
+          "baseline": {
+            "type": "object",
+            "properties": {
+              "lookup": {
+                "$ref": "#/$defs/absentArtifact"
+              }
+            }
+          },
+          "desired": {
+            "type": "object",
+            "properties": {
+              "lookup": {
+                "$ref": "#/$defs/absentArtifact"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "moves": {
+            "type": "object",
+            "properties": {
+              "safe": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "desired": {
+            "type": "object",
+            "properties": {
+              "moves": {
+                "$ref": "#/$defs/absentArtifact"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "type": "object",
+        "properties": {
+          "desired": {
+            "type": "object",
+            "properties": {
+              "moves": {
+                "$ref": "#/$defs/presentHclArtifact"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "absentArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "state"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "const": "absent"
+        }
+      }
+    },
+    "presentBaselineArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "state",
+        "sha256",
+        "size_bytes"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "const": "present"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "baselineState": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/absentArtifact"
+        },
+        {
+          "$ref": "#/$defs/presentBaselineArtifact"
+        }
+      ]
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tfvars",
+        "imports",
+        "lookup",
+        "moves",
+        "pending_moves",
+        "alternate_hcl",
+        "generated_bindings",
+        "fingerprint_sha256"
+      ],
+      "properties": {
+        "tfvars": {
+          "$ref": "#/$defs/baselineState"
+        },
+        "imports": {
+          "$ref": "#/$defs/presentBaselineArtifact"
+        },
+        "lookup": {
+          "$ref": "#/$defs/baselineState"
+        },
+        "moves": {
+          "$ref": "#/$defs/absentArtifact"
+        },
+        "pending_moves": {
+          "$ref": "#/$defs/absentArtifact"
+        },
+        "alternate_hcl": {
+          "$ref": "#/$defs/absentArtifact"
+        },
+        "generated_bindings": {
+          "$ref": "#/$defs/absentArtifact"
+        },
+        "fingerprint_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "move": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from_key",
+        "to_key"
+      ],
+      "properties": {
+        "from_key": {
+          "type": "string"
+        },
+        "to_key": {
+          "type": "string"
+        }
+      }
+    },
+    "suppression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from_key",
+        "to_key",
+        "reason"
+      ],
+      "properties": {
+        "from_key": {
+          "type": "string"
+        },
+        "to_key": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "ambiguous",
+            "duplicate_from",
+            "key_swap",
+            "destination_occupied"
+          ]
+        }
+      }
+    },
+    "moves": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "safe",
+        "suppressed"
+      ],
+      "properties": {
+        "safe": {
+          "type": "array",
+          "maxItems": 50000,
+          "items": {
+            "$ref": "#/$defs/move"
+          }
+        },
+        "suppressed": {
+          "type": "array",
+          "maxItems": 50000,
+          "items": {
+            "$ref": "#/$defs/suppression"
+          }
+        }
+      }
+    },
+    "presentJsonArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "artifact"
+      ],
+      "properties": {
+        "state": {
+          "const": "present"
+        },
+        "artifact": {
+          "$ref": "zcc-pull-artifact-set.schema.json#/$defs/jsonArtifact"
+        }
+      }
+    },
+    "presentHclArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "artifact"
+      ],
+      "properties": {
+        "state": {
+          "const": "present"
+        },
+        "artifact": {
+          "$ref": "zcc-pull-artifact-set.schema.json#/$defs/hclArtifact"
+        }
+      }
+    },
+    "desiredState": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/absentArtifact"
+        },
+        {
+          "$ref": "#/$defs/presentJsonArtifact"
+        },
+        {
+          "$ref": "#/$defs/presentHclArtifact"
+        }
+      ]
+    },
+    "desired": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tfvars",
+        "imports",
+        "lookup",
+        "moves"
+      ],
+      "properties": {
+        "tfvars": {
+          "$ref": "#/$defs/presentJsonArtifact"
+        },
+        "imports": {
+          "$ref": "#/$defs/presentHclArtifact"
+        },
+        "lookup": {
+          "$ref": "#/$defs/desiredState"
+        },
+        "moves": {
+          "$ref": "#/$defs/desiredState"
+        }
+      }
+    }
+  }
+}
