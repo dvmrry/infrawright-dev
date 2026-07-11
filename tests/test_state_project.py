@@ -120,6 +120,34 @@ class StateProjectTest(unittest.TestCase):
             [{"name": "one", "order": 0}, {"name": "two", "order": 1}],
         )
 
+    def test_repeated_block_preserves_valid_object_members_and_order(self):
+        out = project_item("sample_resource", {
+            "name": "Prod",
+            "rules": [
+                {"name": "first", "computed_rule": "ignored"},
+                {"name": "second", "order": 0},
+            ],
+        })
+
+        self.assertEqual(out["rules"], [
+            {"name": "first"},
+            {"name": "second", "order": 0},
+        ])
+
+    def test_repeated_block_rejects_null_and_scalar_members(self):
+        for member in (None, "not-an-object", 7, False):
+            with self.subTest(member=member):
+                with self.assertRaisesRegex(
+                        ProjectionError,
+                        r"state path rules\[1\] is not an object"):
+                    project_item("sample_resource", {
+                        "name": "Prod",
+                        "rules": [
+                            {"name": "valid-before-malformed"},
+                            member,
+                        ],
+                    })
+
     def test_projection_omit_removes_optional_paths(self):
         policy = DriftPolicy({
             "version": 1,
@@ -887,6 +915,52 @@ class StateProjectTest(unittest.TestCase):
             },
         )
         self.assertEqual(out["labels"], {"app": "grafana"})
+
+    def test_sensitive_mask_rejects_root_lists_and_scalar_nodes(self):
+        secret = "SENSITIVE-MASK-SECRET"
+        invalid_masks = [
+            [],
+            secret,
+            7,
+            {"description": secret},
+            {"description": []},
+            {"description": {}},
+            {"computed_only": {}},
+            {secret: []},
+            {"rules": [{"name": 9}]},
+            {"rules": []},
+            {"rules": [False, False]},
+        ]
+        for mask in invalid_masks:
+            with self.subTest(mask=mask):
+                with self.assertRaises(ProjectionError) as raised:
+                    project_item(
+                        "sample_resource",
+                        {
+                            "name": "Prod",
+                            "computed_only": "provider-value",
+                            "rules": [{"name": "one"}],
+                        },
+                        sensitive_values=mask,
+                    )
+                self.assertNotIn(secret, str(raised.exception))
+
+    def test_sensitive_mask_preserves_valid_false_null_empty_and_list_shapes(self):
+        for mask in (None, False, {}, {"rules": [False]}):
+            with self.subTest(mask=mask):
+                out = project_item(
+                    "sample_resource",
+                    {"name": "Prod", "rules": [{"name": "one"}]},
+                    sensitive_values=mask,
+                )
+                self.assertEqual(out["rules"], [{"name": "one"}])
+
+        out = project_item(
+            "sample_resource",
+            {"name": "Prod", "rules": []},
+            sensitive_values={"rules": []},
+        )
+        self.assertEqual(out["rules"], [])
 
 
 if __name__ == "__main__":
