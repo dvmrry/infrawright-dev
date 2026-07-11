@@ -399,7 +399,7 @@ export async function executeRequest(
     if (dependencies.materializeOutputRoot === null) {
       throw new ProcessFailure({
         code: "REFRESH_ACKNOWLEDGEMENT_OUTPUT_ROOT_NOT_CONFIGURED",
-        category: "domain",
+        category: "io",
         message: "refresh acknowledgement requires a trusted output root",
       });
     }

@@ -397,6 +397,7 @@ function invokeAcknowledgementHost(
   scenario: Scenario,
   publication: ZccPullRefreshMaterialization,
   allowExternalApplyAcknowledgement: boolean,
+  configureOutputRoot = true,
 ): { readonly status: number | null; readonly stderr: string; readonly stdout: string; readonly response: ProcessResponse } {
   const request = refreshAcknowledgementRequest(scenario, publication);
   assert.equal(
@@ -412,7 +413,9 @@ function invokeAcknowledgementHost(
     env: {
       ...process.env,
       INFRAWRIGHT_TERRAFORM_EXECUTABLE: "",
-      INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT: scenario.candidate.workspace,
+      INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT: configureOutputRoot
+        ? scenario.candidate.workspace
+        : "",
       INFRAWRIGHT_ALLOW_EXTERNAL_APPLY_ACK:
         allowExternalApplyAcknowledgement ? "1" : "",
     },
@@ -588,7 +591,7 @@ test("trusted acknowledgement retires the exact move then marker and is idempote
   }
 });
 
-test("acknowledgement retries from an exact move-retirement prefix", async () => {
+test("acknowledgement durably syncs an exact move-retirement crash prefix before advancing", async () => {
   const resourceType = "zcc_forwarding_profile";
   const scenario = await prepareScenario(
     resourceType,
@@ -614,6 +617,117 @@ test("acknowledgement retries from an exact move-retirement prefix", async () =>
     assert.deepEqual(retry.retirement.removed, ["pending_moves"]);
     assert.equal(existsSync(paths.pending_moves), false);
   } finally {
+    cleanupScenario(scenario);
+  }
+});
+
+test("acknowledgement durably syncs an already-retired crash prefix before success", async () => {
+  const resourceType = "zcc_forwarding_profile";
+  const scenario = await prepareScenario(
+    resourceType,
+    [{ id: "rename-id", name: "Before" }],
+    [{ id: "rename-id", name: "After" }],
+  );
+  try {
+    const publication = await publish(scenario);
+    const paths = artifactPaths(scenario.candidate, resourceType);
+    const failure = await expectFailure(acknowledge(scenario, publication, {
+      afterMarkerRemove: () => {
+        throw new Error("private-post-marker-value");
+      },
+    }));
+    assert.equal(failure.code, "REFRESH_ACKNOWLEDGEMENT_INDETERMINATE");
+    assert.equal(failure.retryable, true);
+    assert.equal(existsSync(paths.moves), false);
+    assert.equal(existsSync(paths.pending_moves), false);
+
+    const retry = await acknowledge(scenario, publication);
+    assert.equal(retry.retirement.initial, "already_retired");
+    assert.deepEqual(retry.retirement.removed, []);
+  } finally {
+    cleanupScenario(scenario);
+  }
+});
+
+test("acknowledgement detects injectable replacements at each final pathname-unlink boundary", async () => {
+  const resourceType = "zcc_forwarding_profile";
+  for (const target of ["moves", "pending_moves"] as const) {
+    const scenario = await prepareScenario(
+      resourceType,
+      [{ id: "rename-id", name: "Before" }],
+      [{ id: "rename-id", name: "After" }],
+    );
+    try {
+      const publication = await publish(scenario);
+      const paths = artifactPaths(scenario.candidate, resourceType);
+      const foreign = `foreign-${target}-private-value\n`;
+      let replaced = false;
+      const failure = await expectFailure(acknowledge(
+        scenario,
+        publication,
+        {
+          beforeUnlink: (role) => {
+            if (role !== target || replaced) {
+              return;
+            }
+            replaced = true;
+            unlinkSync(paths[target]);
+            writeFileSync(paths[target], foreign);
+          },
+        },
+      ));
+      assert.equal(replaced, true, target);
+      assert.equal(
+        failure.code,
+        "REFRESH_ACKNOWLEDGEMENT_INDETERMINATE",
+        target,
+      );
+      assert.equal(failure.retryable, true, target);
+      assert.equal(readFileSync(paths[target], "utf8"), foreign, target);
+      if (target === "moves") {
+        assert.equal(existsSync(paths.pending_moves), true, target);
+      } else {
+        assert.equal(existsSync(paths.moves), false, target);
+      }
+    } finally {
+      cleanupScenario(scenario);
+    }
+  }
+});
+
+test("acknowledgement parent sync rejects a pathname rebound after unlink", async () => {
+  const resourceType = "zcc_forwarding_profile";
+  const scenario = await prepareScenario(
+    resourceType,
+    [{ id: "rename-id", name: "Before" }],
+    [{ id: "rename-id", name: "After" }],
+  );
+  const paths = artifactPaths(scenario.candidate, resourceType);
+  const parent = path.dirname(paths.moves);
+  const escaped = `${parent}.escaped`;
+  try {
+    const publication = await publish(scenario);
+    let rebound = false;
+    const failure = await expectFailure(acknowledge(scenario, publication, {
+      afterMoveRemove: () => {
+        rebound = true;
+        renameSync(parent, escaped);
+        mkdirSync(parent);
+      },
+    }));
+    assert.equal(rebound, true);
+    assert.equal(failure.code, "REFRESH_ACKNOWLEDGEMENT_INDETERMINATE");
+    assert.equal(failure.retryable, true);
+
+    rmSync(parent, { recursive: true, force: true });
+    renameSync(escaped, parent);
+    const retry = await acknowledge(scenario, publication);
+    assert.equal(retry.retirement.initial, "retirement_prefix");
+    assert.deepEqual(retry.retirement.removed, ["pending_moves"]);
+  } finally {
+    if (existsSync(escaped) && !existsSync(parent)) {
+      renameSync(escaped, parent);
+    }
     cleanupScenario(scenario);
   }
 });
@@ -784,6 +898,37 @@ test("acknowledgement request semantics bind context, assertion, and publication
       const params = error.params as { readonly rule?: unknown };
       return params.rule === "publication_hash_join";
     }));
+
+    for (const field of ["sha256", "size_bytes"] as const) {
+      const markerMismatch = structuredClone(request) as unknown as {
+        input: {
+          publication: {
+            verification: {
+              artifacts: {
+                pending_moves: {
+                  sha256: string;
+                  size_bytes: number;
+                };
+              };
+            };
+          };
+        };
+      };
+      const pending = markerMismatch.input.publication.verification.artifacts
+        .pending_moves;
+      if (field === "sha256") {
+        pending.sha256 = pending.sha256.startsWith("0")
+          ? `1${pending.sha256.slice(1)}`
+          : `0${pending.sha256.slice(1)}`;
+      } else {
+        pending.size_bytes += 1;
+      }
+      assert.equal(validateProcessRequest(markerMismatch), false, field);
+      assert.ok((validateProcessRequest.errors ?? []).some((error) => {
+        const params = error.params as { readonly rule?: unknown };
+        return params.rule === "pending_marker_join";
+      }), field);
+    }
   } finally {
     cleanupScenario(scenario);
   }
@@ -1372,6 +1517,34 @@ test("process host gates and emits trusted refresh acknowledgement", async () =>
     assert.equal(existsSync(paths.pending_moves), true);
   } finally {
     cleanupScenario(denied);
+  }
+
+  const missingRoot = await prepareScenario(
+    resourceType,
+    [{ id: "rename-id", name: "Before" }],
+    [{ id: "rename-id", name: "After" }],
+  );
+  try {
+    const publication = await publish(missingRoot);
+    const invocation = invokeAcknowledgementHost(
+      missingRoot,
+      publication,
+      true,
+      false,
+    );
+    assert.equal(invocation.status, 1, invocation.stdout);
+    assert.equal(invocation.stderr, "");
+    assert.equal(invocation.response.status, "error");
+    assert.equal(
+      invocation.response.error?.code,
+      "REFRESH_ACKNOWLEDGEMENT_OUTPUT_ROOT_NOT_CONFIGURED",
+    );
+    assert.equal(invocation.response.error?.category, "io");
+    const paths = artifactPaths(missingRoot.candidate, resourceType);
+    assert.equal(existsSync(paths.moves), true);
+    assert.equal(existsSync(paths.pending_moves), true);
+  } finally {
+    cleanupScenario(missingRoot);
   }
 
   const allowed = await prepareScenario(

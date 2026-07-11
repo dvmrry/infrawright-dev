@@ -95,10 +95,10 @@ def write_outputs(resource_type, raw_items, tenant, policy):
     artifacts.assert_no_pending_moves(tenant, resource_type)
     config_dir = deployment.config_dir(tenant)
     imports_dir = deployment.imports_dir(tenant)
+    items, originals = adopt_items(raw_items, resource_type, policy=policy)
+    artifacts.assert_no_pending_moves(tenant, resource_type)
     os.makedirs(config_dir, exist_ok=True)
     os.makedirs(imports_dir, exist_ok=True)
-
-    items, originals = adopt_items(raw_items, resource_type, policy=policy)
     if resource_type in lookup.lookup_sources():
         # Sidecar entries merge identity (for the id) with the PROJECTED
         # provider-state item: display names come from provider state, while

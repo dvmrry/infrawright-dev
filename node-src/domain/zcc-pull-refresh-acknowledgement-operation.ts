@@ -173,6 +173,26 @@ function optionalHook(
   return candidate as () => void | Promise<void>;
 }
 
+function optionalBeforeUnlinkHook(
+  value: Readonly<Record<string, unknown>>,
+): NonNullable<ZccPullRefreshAcknowledgementOperationHooks["beforeUnlink"]>
+  | undefined {
+  const candidate = ownValue(value, "beforeUnlink", true);
+  if (candidate === undefined) {
+    return undefined;
+  }
+  if (typeof candidate !== "function") {
+    return fail(
+      "INVALID_REFRESH_ACKNOWLEDGEMENT_INPUT",
+      "refresh acknowledgement hooks must be functions",
+      "request",
+    );
+  }
+  return candidate as NonNullable<
+    ZccPullRefreshAcknowledgementOperationHooks["beforeUnlink"]
+  >;
+}
+
 function hooksSnapshot(
   value: unknown,
 ): ZccPullRefreshAcknowledgementOperationHooks | undefined {
@@ -180,11 +200,13 @@ function hooksSnapshot(
     return undefined;
   }
   const hooks = inertRecord(value);
+  const beforeUnlink = optionalBeforeUnlinkHook(hooks);
   const afterMoveRemove = optionalHook(hooks, "afterMoveRemove");
   const beforeMarkerRemove = optionalHook(hooks, "beforeMarkerRemove");
   const afterMarkerRemove = optionalHook(hooks, "afterMarkerRemove");
   const beforeFinalCas = optionalHook(hooks, "beforeFinalCas");
   return Object.freeze({
+    ...(beforeUnlink === undefined ? {} : { beforeUnlink }),
     ...(afterMoveRemove === undefined ? {} : { afterMoveRemove }),
     ...(beforeMarkerRemove === undefined ? {} : { beforeMarkerRemove }),
     ...(afterMarkerRemove === undefined ? {} : { afterMarkerRemove }),

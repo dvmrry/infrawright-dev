@@ -750,11 +750,19 @@ artifact states. It accepts only three retirement states:
 - both absent on an idempotent retry (`already_retired`).
 
 Any foreign state or marker-absent/move-present state fails without deletion.
-The operation unlinks only the exact move inode, syncs its parent, rechecks all
-inputs and payloads while the exact marker remains, then unlinks only the exact
-marker and syncs again. A failure after either deletion returns retryable
-`REFRESH_ACKNOWLEDGEMENT_INDETERMINATE`; the unchanged request finishes the
-remaining suffix. Final verification reads imports last.
+Immediately before each path-based unlink, the operation rechecks the bound
+regular file's content, metadata, and device/inode identity and rechecks its
+parent. Portable Node does not provide an unlink-by-open-descriptor primitive,
+so the remaining check-to-unlink interval is covered by the required
+serialized, single-writer runner boundary rather than claimed as an atomic
+inode guarantee. That is a caller-enforced concurrency precondition, not
+protection against a hostile or accidentally concurrent path replacement. The
+operation retires the move first, syncs its parent, rechecks all inputs and
+payloads while the exact marker remains, then verifies and retires the marker
+and syncs again. A failure after either deletion returns retryable
+`REFRESH_ACKNOWLEDGEMENT_INDETERMINATE`. An ordinary crash prefix finishes with
+the unchanged request; a detected foreign replacement requires operator
+reconciliation before retry. Final verification reads imports last.
 
 The content-free `infrawright.zcc_pull_refresh_acknowledgement` v1 result binds
 the assertion, original publication receipt digest, baseline, transition, and
@@ -768,14 +776,16 @@ the canonical pending marker exists. This prevents the legacy writer from
 deleting an unapplied move on a subsequent identical pull. Staging and
 unstaging remain available so the required apply sequence is not blocked.
 
-The result is `infrawright.zcc_pull_refresh_materialization` v1. It contains
-only the ordered roles advanced by this invocation, the initial/final
-transition states, the next action, assertion and transition hashes, and seven
+The preceding publication result is
+`infrawright.zcc_pull_refresh_materialization` v1. It contains only the ordered
+roles advanced by that publication invocation, the initial/final transition
+states, the next action, assertion and transition hashes, and seven
 content-free final artifact states. It never emits paths, bytes, import IDs,
 move keys, staging names, or the output authority. Consumers must validate the
 complete response, retain `awaiting_apply` receipts with the protected
-assertion, and treat the process as single-writer: Terraform, Python, cleanup,
-and another publisher must not run concurrently.
+assertion, and treat publication and acknowledgement as single-writer
+operations: Terraform, Python, cleanup, and another publisher or
+acknowledgement must not mutate the same artifact paths concurrently.
 
 `context.workspace` must be absolute. The other context paths may be absolute
 or workspace-relative. The process never consults

@@ -1870,6 +1870,81 @@ class MovedBlocksEndToEndTest(unittest.TestCase):
             with open(path, "rb") as f:
                 self.assertEqual(f.read(), expected)
 
+    def test_pending_move_appearing_after_transform_blocks_before_mutation(self):
+        import shutil
+        from engine.transform import main as transform_main
+
+        resource_type = "zcc_trusted_network"
+        tenant = self.TENANT + "pendingrace"
+        config_dir = os.path.dirname(artifacts.config_file(tenant, resource_type))
+        imports_dir = os.path.dirname(artifacts.imports_file(tenant, resource_type))
+        self.addCleanup(shutil.rmtree, config_dir, True)
+        self.addCleanup(shutil.rmtree, imports_dir, True)
+
+        existing = [
+            (
+                artifacts.config_file(tenant, resource_type),
+                b'old tfvars with SECRET-TFVARS\n',
+            ),
+            (
+                artifacts.imports_file(tenant, resource_type),
+                b'old imports with SECRET-IMPORTS\n',
+            ),
+            (
+                artifacts.moves_file(tenant, resource_type),
+                b'old moves with SECRET-MOVES\n',
+            ),
+        ]
+        for path, content in existing:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(content)
+        marker_path = artifacts.pending_moves_file(tenant, resource_type)
+        marker_bytes = b'{"secret":"SECRET-LATE-MARKER"}\n'
+        transform_called = []
+
+        def marker_after_transform(raw_items, actual_resource_type, override):
+            self.assertEqual(actual_resource_type, resource_type)
+            self.assertEqual(raw_items[0]["networkName"], "SECRET-RAW-NAME")
+            transform_called.append(True)
+            with open(marker_path, "wb") as f:
+                f.write(marker_bytes)
+            return {}, {}, []
+
+        original_transform_items = transform_mod.transform_items
+        transform_mod.transform_items = marker_after_transform
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                input_path = os.path.join(td, "in.json")
+                with open(input_path, "w", encoding="utf-8") as f:
+                    json.dump([{
+                        "id": 7,
+                        "networkName": "SECRET-RAW-NAME",
+                    }], f)
+                stderr = io.StringIO()
+                old_stderr = sys.stderr
+                try:
+                    sys.stderr = stderr
+                    code = transform_main([resource_type, input_path, tenant])
+                finally:
+                    sys.stderr = old_stderr
+        finally:
+            transform_mod.transform_items = original_transform_items
+
+        self.assertEqual(transform_called, [True])
+        self.assertEqual(code, 1)
+        message = stderr.getvalue()
+        self.assertIn("pending move transition for zcc_trusted_network", message)
+        self.assertIn(
+            "applied and acknowledged before transform or adopt", message
+        )
+        self.assertNotIn("SECRET", message)
+        for path, expected in existing:
+            with open(path, "rb") as f:
+                self.assertEqual(f.read(), expected)
+        with open(marker_path, "rb") as f:
+            self.assertEqual(f.read(), marker_bytes)
+
 
 class TransformDirectEntryValidationTest(unittest.TestCase):
     def _write_overlay_and_input(self, root, raw_items=None, tfvars_format=None,

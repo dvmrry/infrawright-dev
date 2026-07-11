@@ -77,9 +77,16 @@
 - Request hash, assertion hash, baseline fingerprint, transition fingerprint,
   complete publication receipt digest, desired artifact descriptors, current
   raw candidate, and control/source/parent bindings remain joined.
-- Only exact bound regular-file identities are unlinked. Move parent is synced
-  before marker retirement. The exact marker remains the recovery fence until
-  every input and payload is rechecked.
+- The canonical move and marker are revalidated as the exact expected regular
+  files immediately before their path-based unlinks. Portable Node has no
+  descriptor-relative unlink primitive, so the final check-to-unlink interval
+  relies on the documented trusted, serialized single-writer boundary rather
+  than an atomic inode guarantee. Bound directory handles are identity-checked
+  before and after synchronization.
+- Move-parent durability is re-established before marker retirement, including
+  on `retirement_prefix` retries. An `already_retired` retry synchronizes and
+  re-reads the absent entries before returning success. The exact marker remains
+  the recovery fence until every input and payload is rechecked.
 - Any error after a deletion by the current invocation is retryable and
   indeterminate; earlier deterministic errors remain precise.
 - Final verification reads imports last and emits only content-free states and
@@ -89,15 +96,15 @@
 
 - `npm run typecheck`
 - `npm run build:test`
-- `npm test`: 448 tests, 447 passed, 1 platform skip, 0 failed.
-- `python3 -m unittest tests.test_transform tests.test_adopt`: 189 passed.
+- `npm test`: 451 tests, 450 passed, 1 platform skip, 0 failed.
+- `python3 -m unittest tests.test_transform tests.test_adopt`: 191 passed.
 - `git diff --check`
-- Focused acknowledgement cases cover exact retirement, prefix retry,
-  idempotence, missing/foreign/replaced marker no-clobber, capability-before-I/O,
-  request/hash joins, result semantics, process success/error, receipt digest,
-  and content-free evidence.
-- Focused Python cases preserve exact sentinel artifacts and prove no oracle
-  call or secret-bearing error while a pending marker exists.
+- Focused acknowledgement cases cover retirement, durable prefix recovery,
+  idempotence, final-boundary move/marker replacement no-clobber, bound-parent
+  rebind detection, capability-before-I/O, exact pending-marker joins, result
+  semantics, process success/error, receipt digest, and content-free evidence.
+- Focused Python cases preserve exact sentinel artifacts and prove both early
+  and late-arriving markers stop mutation without secret-bearing diagnostics.
 
 ## Known Deferrals
 
@@ -111,6 +118,10 @@
   both are absent, replay is non-destructive and validates the retained caller
   assertion/receipt plus current desired artifacts before returning idempotent
   success.
+- The process is not a security boundary against a hostile same-UID process
+  racing pathname operations. Pipelines must serialize publisher,
+  acknowledgement, Terraform, Python, and cleanup mutations for the selected
+  artifact paths.
 
 ## Review Focus
 

@@ -1,9 +1,15 @@
+import { createHash } from "node:crypto";
+
 import type { ErrorObject } from "ajv/dist/2020.js";
 
 import {
   zccPullRefreshParityRequestSha,
   zccRefreshEvidenceDigest,
 } from "../domain/zcc-pull-refresh-fingerprints.js";
+import {
+  renderPythonCompatibleJson,
+  type JsonValue,
+} from "../json/python-compatible.js";
 
 export const ZCC_PULL_REFRESH_ACKNOWLEDGEMENT_REQUEST_SEMANTICS_KEYWORD =
   "x-infrawright-zcc-pull-refresh-acknowledgement-request-semantics";
@@ -51,6 +57,45 @@ function contentState(value: unknown): unknown {
     sha256: own(state, "sha256"),
     size_bytes: own(state, "size_bytes"),
   };
+}
+
+function pendingMarkerState(options: {
+  readonly tenant: unknown;
+  readonly resourceType: unknown;
+  readonly candidateRequestSha256: unknown;
+  readonly assertionSha256: unknown;
+  readonly baselineFingerprintSha256: unknown;
+  readonly transitionSha256: unknown;
+  readonly safeMoveCount: unknown;
+  readonly desiredMove: unknown;
+}): unknown {
+  const marker = {
+    kind: "infrawright.zcc_pull_refresh_pending_transition",
+    schema_version: 1,
+    mode: "refresh",
+    product: "zcc",
+    resource_type: options.resourceType,
+    tenant: options.tenant,
+    candidate_request_sha256: options.candidateRequestSha256,
+    assertion_sha256: options.assertionSha256,
+    baseline_fingerprint_sha256: options.baselineFingerprintSha256,
+    transition_sha256: options.transitionSha256,
+    safe_move_count: options.safeMoveCount,
+    desired_move: contentState(options.desiredMove),
+  };
+  try {
+    const bytes = Buffer.from(
+      renderPythonCompatibleJson(marker as unknown as JsonValue),
+      "utf8",
+    );
+    return {
+      state: "present",
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      size_bytes: bytes.length,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function stringList(value: unknown): readonly string[] | null {
@@ -176,8 +221,9 @@ export const validateZccPullRefreshAcknowledgementRequestSemantics:
       );
     }
 
+    let expectedRequestSha: string | null = null;
     try {
-      const expectedRequestSha = zccPullRefreshParityRequestSha({
+      expectedRequestSha = zccPullRefreshParityRequestSha({
         context: {
           workspace: own(context, "workspace") as string,
           deployment: own(context, "deployment") as string,
@@ -225,6 +271,28 @@ export const validateZccPullRefreshAcknowledgementRequestSemantics:
           "publication artifact evidence must match the asserted desired state",
         );
       }
+    }
+    const expectedMarker = expectedRequestSha === null
+      ? null
+      : pendingMarkerState({
+          tenant,
+          resourceType,
+          candidateRequestSha256: expectedRequestSha,
+          assertionSha256: own(assertion, "assertion_sha256"),
+          baselineFingerprintSha256: own(candidate, "baseline_fingerprint_sha256"),
+          transitionSha256: own(candidate, "transition_sha256"),
+          safeMoveCount: own(record(own(candidate, "moves")), "safe_count"),
+          desiredMove: own(desired, "moves"),
+        });
+    if (
+      expectedMarker === null
+      || !same(contentState(own(artifacts, "pending_moves")), expectedMarker)
+    ) {
+      push(
+        "/input/publication/verification/artifacts/pending_moves",
+        "pending_marker_join",
+        "publication pending-marker evidence must match the exact asserted transition marker",
+      );
     }
 
     if (errors.length === 0) {

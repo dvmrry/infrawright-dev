@@ -182,6 +182,9 @@ export type ZccPullRefreshRetirementInitial =
   | "already_retired";
 
 export interface ZccPullRefreshAcknowledgementHooks {
+  readonly beforeUnlink?: (
+    role: "moves" | "pending_moves",
+  ) => void | Promise<void>;
   readonly afterMoveRemove?: () => void | Promise<void>;
   readonly beforeMarkerRemove?: () => void | Promise<void>;
   readonly afterMarkerRemove?: () => void | Promise<void>;
@@ -647,6 +650,66 @@ async function syncParent(parentPath: string): Promise<void> {
     return fail(
       "REFRESH_MATERIALIZATION_SYNC_FAILED",
       "an artifact parent could not be synchronized",
+      "io",
+    );
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+}
+
+async function syncBoundAcknowledgementParent(
+  binding: DirectoryBinding,
+): Promise<void> {
+  let handle: FileHandle | null = null;
+  try {
+    await recheckParent(binding, true);
+    handle = await open(
+      binding.absolutePath,
+      constants.O_RDONLY | constants.O_NOFOLLOW,
+    );
+    const opened = await handle.stat({ bigint: true });
+    const openedMetadata = metadataOf(opened);
+    const beforePath = await lstat(binding.absolutePath, { bigint: true });
+    const beforePathMetadata = metadataOf(beforePath);
+    if (
+      !opened.isDirectory()
+      || !beforePath.isDirectory()
+      || beforePath.isSymbolicLink()
+      || !sameIdentity(binding.metadata, openedMetadata)
+      || !sameIdentity(openedMetadata, beforePathMetadata)
+    ) {
+      return fail(
+        "REFRESH_ACKNOWLEDGEMENT_PARENT_CHANGED",
+        "the bound acknowledgement directory changed before synchronization",
+        "io",
+      );
+    }
+    await handle.sync();
+    const afterSync = await handle.stat({ bigint: true });
+    const afterSyncMetadata = metadataOf(afterSync);
+    const afterPath = await lstat(binding.absolutePath, { bigint: true });
+    const afterPathMetadata = metadataOf(afterPath);
+    if (
+      !afterSync.isDirectory()
+      || !afterPath.isDirectory()
+      || afterPath.isSymbolicLink()
+      || !sameIdentity(binding.metadata, afterSyncMetadata)
+      || !sameIdentity(afterSyncMetadata, afterPathMetadata)
+    ) {
+      return fail(
+        "REFRESH_ACKNOWLEDGEMENT_PARENT_CHANGED",
+        "the bound acknowledgement directory changed during synchronization",
+        "io",
+      );
+    }
+    binding.metadata = afterPathMetadata;
+  } catch (error: unknown) {
+    if (error instanceof ProcessFailure) {
+      throw error;
+    }
+    return fail(
+      "REFRESH_ACKNOWLEDGEMENT_PARENT_SYNC_FAILED",
+      "the bound acknowledgement directory could not be synchronized",
       "io",
     );
   } finally {
@@ -1555,6 +1618,12 @@ function snapshotAcknowledgementHooks(
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return fail("INVALID_REFRESH_ACKNOWLEDGEMENT_INPUT", "refresh acknowledgement hooks are invalid");
   }
+  const beforeUnlink = ownFunction<
+    NonNullable<ZccPullRefreshAcknowledgementHooks["beforeUnlink"]>
+  >(
+    value,
+    "beforeUnlink",
+  );
   const afterMoveRemove = ownFunction<() => void | Promise<void>>(
     value,
     "afterMoveRemove",
@@ -1572,6 +1641,7 @@ function snapshotAcknowledgementHooks(
     "beforeFinalCas",
   );
   return Object.freeze({
+    ...(beforeUnlink === undefined ? {} : { beforeUnlink }),
     ...(afterMoveRemove === undefined ? {} : { afterMoveRemove }),
     ...(beforeMarkerRemove === undefined ? {} : { beforeMarkerRemove }),
     ...(afterMarkerRemove === undefined ? {} : { afterMarkerRemove }),
@@ -2216,22 +2286,42 @@ async function unlinkExactAcknowledgementArtifact(options: {
   readonly expected: ZccRefreshContentState;
   readonly bound: BoundContent;
   readonly parent: DirectoryBinding;
+  readonly beforeUnlink?: (
+    role: "moves" | "pending_moves",
+  ) => void | Promise<void>;
+  readonly afterRemove?: () => void | Promise<void>;
+  readonly onDestructiveBoundary: () => void;
   readonly onRemoved: () => void;
 }): Promise<void> {
-  if (options.bound.metadata === null || options.expected.state !== "present") {
+  if (
+    options.bound.metadata === null
+    || options.expected.state !== "present"
+    || (options.spec.role !== "moves" && options.spec.role !== "pending_moves")
+  ) {
     return fail(
       "INTERNAL_ERROR",
       "refresh acknowledgement unlink binding is incomplete",
       "internal",
     );
   }
+  const role = options.spec.role as "moves" | "pending_moves";
+  const beforeUnlink = options.beforeUnlink;
   const rebound = await verifyExactState(
     options.spec,
     options.expected,
     options.bound.metadata,
   );
   await recheckParent(options.parent, true);
+  options.onDestructiveBoundary();
+  await invokeAcknowledgementHook(
+    beforeUnlink === undefined
+      ? undefined
+      : () => beforeUnlink(role),
+  );
   await verifyExactState(options.spec, options.expected, rebound.metadata);
+  // Node exposes pathname unlink, not descriptor-relative unlinkat. The exact
+  // inode and bound parent are rechecked immediately before this call, but an
+  // untrusted external writer can still race in the final syscall window.
   try {
     await unlink(options.spec.absolutePath);
     options.onRemoved();
@@ -2242,8 +2332,8 @@ async function unlinkExactAcknowledgementArtifact(options: {
       "io",
     );
   }
-  await refreshParent(options.parent);
-  await syncParent(options.spec.parentPath);
+  await invokeAcknowledgementHook(options.afterRemove);
+  await syncBoundAcknowledgementParent(options.parent);
 }
 
 function verifyRetirementPrefix(options: {
@@ -2380,6 +2470,7 @@ export async function acknowledgeReadyZccPullRefresh(options: {
   });
   const removed: Array<"moves" | "pending_moves"> = [];
   let mutationCount = 0;
+  let destructiveBoundary = false;
   try {
     await recheckExternalBindings({
       expectedBinding,
@@ -2403,22 +2494,58 @@ export async function acknowledgeReadyZccPullRefresh(options: {
       );
     }
 
-    if (initial === "awaiting_apply") {
-      const moveParent = parents.get(specs.moves.parentPath);
-      if (moveParent === undefined) {
-        return fail("INTERNAL_ERROR", "refresh move parent binding is missing", "internal");
+    const moveParent = parents.get(specs.moves.parentPath);
+    const markerParent = parents.get(specs.pending_moves.parentPath);
+    if (moveParent === undefined || markerParent === undefined) {
+      return fail(
+        "INTERNAL_ERROR",
+        "refresh retirement parent binding is missing",
+        "internal",
+      );
+    }
+    if (initial === "retirement_prefix" || initial === "already_retired") {
+      // A previous process may have crashed after unlink but before syncing the
+      // directory entry. Re-establish durability for both artifact parents
+      // (once when they share a directory) before advancing or declaring the
+      // already-absent state retired.
+      const retryParents = specs.moves.parentPath === specs.pending_moves.parentPath
+        ? [moveParent]
+        : [moveParent, markerParent];
+      for (const parent of retryParents) {
+        await syncBoundAcknowledgementParent(parent);
       }
+      const durableRetryState = await readAllStates(specs, current);
+      if (initial === "retirement_prefix") {
+        verifyRetirementPrefix({
+          current: durableRetryState,
+          specs,
+          expectedMarkerBytes,
+        });
+      } else {
+        verifyRetiredState(durableRetryState, specs);
+      }
+    }
+
+    if (initial === "awaiting_apply") {
       await unlinkExactAcknowledgementArtifact({
         spec: specs.moves,
         expected: specs.moves.desired,
         bound: current.moves,
         parent: moveParent,
+        ...(hooks?.beforeUnlink === undefined
+          ? {}
+          : { beforeUnlink: hooks.beforeUnlink }),
+        ...(hooks?.afterMoveRemove === undefined
+          ? {}
+          : { afterRemove: hooks.afterMoveRemove }),
+        onDestructiveBoundary: () => {
+          destructiveBoundary = true;
+        },
         onRemoved: () => {
           mutationCount += 1;
         },
       });
       removed.push("moves");
-      await invokeAcknowledgementHook(hooks?.afterMoveRemove);
     }
 
     await recheckExternalBindings({
@@ -2451,21 +2578,25 @@ export async function acknowledgeReadyZccPullRefresh(options: {
         specs,
         expectedMarkerBytes,
       });
-      const markerParent = parents.get(specs.pending_moves.parentPath);
-      if (markerParent === undefined) {
-        return fail("INTERNAL_ERROR", "pending marker parent binding is missing", "internal");
-      }
       await unlinkExactAcknowledgementArtifact({
         spec: specs.pending_moves,
         expected: expectedMarkerState,
         bound: markerRebound.pending_moves,
         parent: markerParent,
+        ...(hooks?.beforeUnlink === undefined
+          ? {}
+          : { beforeUnlink: hooks.beforeUnlink }),
+        ...(hooks?.afterMarkerRemove === undefined
+          ? {}
+          : { afterRemove: hooks.afterMarkerRemove }),
+        onDestructiveBoundary: () => {
+          destructiveBoundary = true;
+        },
         onRemoved: () => {
           mutationCount += 1;
         },
       });
       removed.push("pending_moves");
-      await invokeAcknowledgementHook(hooks?.afterMarkerRemove);
     } else {
       verifyRetiredState(beforeMarker, specs);
     }
@@ -2528,10 +2659,10 @@ export async function acknowledgeReadyZccPullRefresh(options: {
     }
     return Object.freeze(result);
   } catch (error: unknown) {
-    if (mutationCount > 0) {
+    if (mutationCount > 0 || destructiveBoundary) {
       return fail(
         "REFRESH_ACKNOWLEDGEMENT_INDETERMINATE",
-        "refresh acknowledgement stopped after retiring an exact artifact; retry to finish forward",
+        "refresh acknowledgement stopped at a destructive retirement boundary; an artifact may have been retired or replaced, so reconcile the published transition before retrying",
         "io",
         true,
       );
