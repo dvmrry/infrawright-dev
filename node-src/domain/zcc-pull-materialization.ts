@@ -13,6 +13,7 @@ import path from "node:path";
 
 import {
   schemaErrorDetails,
+  validateZccPullArtifactSet,
   validateZccPullArtifactParity,
 } from "../contracts/validators.js";
 import { ProcessFailure } from "./errors.js";
@@ -194,6 +195,35 @@ function immutableCopy(value: unknown): unknown {
     return Object.freeze(result);
   }
   return value;
+}
+
+function snapshotMaterializationValues(options: {
+  readonly candidate: ZccPullArtifactSet;
+  readonly assertion: ZccPullArtifactParity;
+}): {
+  readonly candidate: ZccPullArtifactSet;
+  readonly assertion: ZccPullArtifactParity;
+} {
+  if (!validateZccPullArtifactSet(options.candidate)) {
+    throw new ProcessFailure({
+      code: "INVALID_ZCC_ARTIFACT_CANDIDATE",
+      category: "internal",
+      message: "compiled pull artifact candidate failed its versioned contract",
+      details: schemaErrorDetails(validateZccPullArtifactSet.errors),
+    });
+  }
+  if (!validateZccPullArtifactParity(options.assertion)) {
+    throw new ProcessFailure({
+      code: "INVALID_MATERIALIZATION_ASSERTION",
+      category: "domain",
+      message: "the parity assertion failed its versioned contract",
+      details: schemaErrorDetails(validateZccPullArtifactParity.errors),
+    });
+  }
+  return {
+    candidate: immutableCopy(options.candidate) as ZccPullArtifactSet,
+    assertion: immutableCopy(options.assertion) as ZccPullArtifactParity,
+  };
 }
 
 async function invokeHook(hook: (() => void | Promise<void>) | undefined): Promise<void> {
@@ -867,6 +897,10 @@ async function cleanupUnboundStage(
       return false;
     }
     try {
+      const opened = await handle.stat({ bigint: true });
+      if (opened.nlink !== 0n) {
+        return false;
+      }
       await refreshDirectory(parent);
       return true;
     } catch {
@@ -1034,7 +1068,10 @@ async function cleanupStages(
       }
     } catch (error: unknown) {
       if (errorCode(error) === "ENOENT") {
-        stage.aliasPresent = false;
+        // The bound inode may have been renamed to an unknown alias. Without
+        // a live descriptor there is no safe way to distinguish that from an
+        // unlink, so fail cleanup closed instead of claiming it was removed.
+        clean = false;
       } else {
         clean = false;
       }
@@ -1189,17 +1226,32 @@ export async function materializeReadyZccPullArtifacts(options: {
   readonly recheckInputs: () => Promise<void>;
   readonly hooks?: ZccPullMaterializationHooks;
 }): Promise<ZccPullArtifactMaterialization> {
-  const asserted = requireReadyAssertion({
+  // Library callers can retain and mutate their objects while this operation
+  // awaits filesystem work. Snapshot every data/function reference before the
+  // first await so publication remains bound to the assertion checked here.
+  const snapshot = snapshotMaterializationValues({
     candidate: options.candidate,
     assertion: options.assertion,
   });
-  const authority = await bindAuthority(options.outputRoot);
+  const candidate = snapshot.candidate;
+  const assertion = snapshot.assertion;
+  const outputRoot = options.outputRoot;
+  const pathBase = options.pathBase;
+  const recheckInputs = options.recheckInputs;
+  const hooks = options.hooks === undefined
+    ? undefined
+    : Object.freeze({ ...options.hooks });
+  const asserted = requireReadyAssertion({
+    candidate,
+    assertion,
+  });
+  const authority = await bindAuthority(outputRoot);
   const prepared = await prepareArtifacts({
     authority,
-    pathBase: options.pathBase,
-    candidate: options.candidate,
+    pathBase,
+    candidate,
   });
-  await invokeHook(options.hooks?.afterPreflight);
+  await invokeHook(hooks?.afterPreflight);
 
   const missing = prepared.artifacts.filter((artifact) => artifact.initial === null);
   const staged: StagedArtifact[] = [];
@@ -1208,19 +1260,19 @@ export async function materializeReadyZccPullArtifacts(options: {
     for (const directoryPath of new Set(missing.map((artifact) => artifact.parentPath))) {
       await ensureDirectory(authority, directoryPath);
     }
-    await invokeHook(options.hooks?.afterDirectoriesReady);
+    await invokeHook(hooks?.afterDirectoriesReady);
     for (const artifact of missing) {
       await stageArtifact(
         authority,
         artifact,
         staged,
-        options.hooks?.afterTempOpen,
+        hooks?.afterTempOpen,
         staged.length,
       );
     }
-    await invokeHook(options.hooks?.afterStaged);
-    await invokeHook(options.hooks?.beforePrepublishRecheck);
-    await options.recheckInputs();
+    await invokeHook(hooks?.afterStaged);
+    await invokeHook(hooks?.beforePrepublishRecheck);
+    await recheckInputs();
     await recheckPrepared({
       authority,
       artifacts: prepared.artifacts,
@@ -1234,7 +1286,7 @@ export async function materializeReadyZccPullArtifacts(options: {
         return fail("INTERNAL_ERROR", "staged artifact order is incomplete", "internal");
       }
       await invokeArtifactHook(
-        options.hooks?.beforePublish,
+        hooks?.beforePublish,
         stage.artifact.name,
         index,
       );
@@ -1244,17 +1296,17 @@ export async function materializeReadyZccPullArtifacts(options: {
         () => {
           published += 1;
         },
-        options.hooks?.afterLink,
+        hooks?.afterLink,
         index,
       );
       await invokeArtifactHook(
-        options.hooks?.afterPublish,
+        hooks?.afterPublish,
         stage.artifact.name,
         index,
       );
     }
-    await invokeHook(options.hooks?.beforePostpublishRecheck);
-    await options.recheckInputs();
+    await invokeHook(hooks?.beforePostpublishRecheck);
+    await recheckInputs();
     await recheckPrepared({
       authority,
       artifacts: prepared.artifacts,
@@ -1262,7 +1314,7 @@ export async function materializeReadyZccPullArtifacts(options: {
       stages: staged,
       requireComplete: true,
     });
-    const verification = cleanParity(options.candidate);
+    const verification = cleanParity(candidate);
     if (
       verification.status !== "ready"
       || safeJsonValue(verification) !== safeJsonValue(asserted)
@@ -1283,8 +1335,8 @@ export async function materializeReadyZccPullArtifacts(options: {
       schema_version: 1,
       mode: "bootstrap",
       product: "zcc",
-      resource_type: options.candidate.resource_type,
-      tenant: options.candidate.tenant,
+      resource_type: candidate.resource_type,
+      tenant: candidate.tenant,
       status: "complete",
       publication: {
         policy: "create_or_verify_exact",

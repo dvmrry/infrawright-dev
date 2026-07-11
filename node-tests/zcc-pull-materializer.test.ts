@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   copyFileSync,
   lstatSync,
@@ -32,6 +33,7 @@ import {
   compareZccPullArtifactDigests,
   type ZccPullArtifactParity,
 } from "../node-src/domain/zcc-pull-parity.js";
+import { materializeReadyZccPullArtifacts } from "../node-src/domain/zcc-pull-materialization.js";
 
 const REPOSITORY = process.cwd();
 const ROOT_CATALOG = path.join(
@@ -566,6 +568,103 @@ test("a failure before temp identity binding removes the exclusive alias", async
     assert.throws(() => lstatSync(paths.imports));
     assert.throws(() => lstatSync(paths.tfvars));
     assert.deepEqual(tempFiles(fixture.outputRoot), []);
+  });
+});
+
+test("renamed staging aliases fail cleanup closed instead of disappearing", async (t) => {
+  for (const phase of ["unbound", "bound"] as const) {
+    await t.test(phase, async () => {
+      await withFixture("zcc_device_cleanup", async (fixture) => {
+        const candidate = await compile(fixture);
+        let escaped = "";
+        const renameStage = (): void => {
+          const aliases = tempFiles(fixture.outputRoot);
+          assert.ok(aliases.length > 0);
+          const alias = aliases[0];
+          assert.notEqual(alias, undefined);
+          escaped = `${alias as string}.renamed`;
+          renameSync(alias as string, escaped);
+          throw new Error("materializer-secret-value");
+        };
+        const hooks = phase === "unbound"
+          ? { afterTempOpen: renameStage }
+          : { afterStaged: renameStage };
+        await expectFailure(
+          materializeZccPullArtifactsOperation(
+            operationOptions(fixture, cleanAssertion(candidate), hooks),
+          ),
+          "MATERIALIZATION_CLEANUP_FAILED",
+          ["materializer-secret-value", fixture.outputRoot],
+        );
+        assert.notEqual(escaped, "");
+        assert.equal(lstatSync(escaped).isFile(), true);
+        const paths = finalPaths(fixture, candidate);
+        assert.throws(() => lstatSync(paths.imports));
+        assert.throws(() => lstatSync(paths.tfvars));
+      });
+    });
+  }
+});
+
+test("direct materializer snapshots candidate, assertion, and hooks before await", async () => {
+  await withFixture("zcc_device_cleanup", async (fixture) => {
+    const original = await compile(fixture);
+    const candidate = structuredClone(original);
+    const assertion = structuredClone(cleanAssertion(candidate));
+    const originalAssertionSha = assertion.source.sha256;
+    const originalImports = candidate.artifacts.imports.content;
+    const mutableCandidate = candidate as unknown as {
+      artifacts: {
+        imports: { content: string; sha256: string; size_bytes: number };
+      };
+    };
+    const mutableAssertion = assertion as unknown as {
+      source: { sha256: string };
+    };
+    const hooks: ZccPullMaterializationOperationHooks = {
+      afterPreflight: () => {
+        const changed = "materializer-secret-value\n";
+        mutableCandidate.artifacts.imports.content = changed;
+        mutableCandidate.artifacts.imports.size_bytes = Buffer.byteLength(changed);
+        mutableCandidate.artifacts.imports.sha256 = createHash("sha256")
+          .update(changed)
+          .digest("hex");
+        mutableAssertion.source.sha256 = "0".repeat(64);
+      },
+    };
+    const result = await materializeReadyZccPullArtifacts({
+      outputRoot: fixture.outputRoot,
+      pathBase: realpathSync(fixture.workspace),
+      candidate,
+      assertion,
+      recheckInputs: async () => undefined,
+      hooks,
+    });
+    assert.equal(
+      readFileSync(targetPath(fixture, original.artifacts.imports), "utf8"),
+      originalImports,
+    );
+    assert.equal(result.verification.source.sha256, originalAssertionSha);
+    assert.equal(result.status, "complete");
+  });
+});
+
+test("integrated materializer snapshots its assertion before compilation awaits", async () => {
+  await withFixture("zcc_device_cleanup", async (fixture) => {
+    const candidate = await compile(fixture);
+    const assertion = structuredClone(cleanAssertion(candidate));
+    const mutableAssertion = assertion as unknown as {
+      source: { sha256: string };
+    };
+    const result = await materializeZccPullArtifactsOperation(
+      operationOptions(fixture, assertion, {
+        afterInputsBound: () => {
+          mutableAssertion.source.sha256 = "0".repeat(64);
+        },
+      }),
+    );
+    assert.equal(result.status, "complete");
+    assert.equal(result.verification.source.sha256, candidate.source.sha256);
   });
 });
 

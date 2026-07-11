@@ -2,6 +2,10 @@ import { lstat, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
 import {
+  schemaErrorDetails,
+  validateZccPullArtifactParity,
+} from "../contracts/validators.js";
+import {
   loadBoundAssessmentRootCatalog,
 } from "./catalog.js";
 import {
@@ -813,16 +817,37 @@ export async function materializeZccPullArtifactsOperation(options: {
   readonly outputRoot: string;
   readonly hooks?: ZccPullMaterializationOperationHooks;
 }): Promise<ZccPullArtifactMaterialization> {
+  if (!validateZccPullArtifactParity(options.assertion)) {
+    throw new ProcessFailure({
+      code: "INVALID_MATERIALIZATION_ASSERTION",
+      category: "domain",
+      message: "the parity assertion failed its versioned contract",
+      details: schemaErrorDetails(validateZccPullArtifactParity.errors),
+    });
+  }
+  const hooks = options.hooks === undefined
+    ? undefined
+    : Object.freeze({ ...options.hooks });
+  const request = {
+    workspace: options.workspace,
+    deploymentPath: options.deploymentPath,
+    catalogPath: options.catalogPath,
+    tenant: options.tenant,
+    resourceType: options.resourceType,
+    ...(hooks === undefined ? {} : { hooks }),
+  };
+  const assertion = structuredClone(options.assertion);
+  const outputRoot = options.outputRoot;
   const result = await compileZccPullArtifactsWithPolicy(
-    options,
+    request,
     { kind: "candidate_only" },
   );
   return materializeReadyZccPullArtifacts({
-    outputRoot: options.outputRoot,
+    outputRoot,
     pathBase: result.pathBase,
     candidate: result.candidate,
-    assertion: options.assertion,
+    assertion,
     recheckInputs: result.recheckInputs,
-    ...(options.hooks === undefined ? {} : { hooks: options.hooks }),
+    ...(hooks === undefined ? {} : { hooks }),
   });
 }
