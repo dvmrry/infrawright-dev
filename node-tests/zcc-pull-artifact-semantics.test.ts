@@ -80,7 +80,9 @@ function artifactSet(options: {
     : `${resource}_items`;
   const withPrefix = (suffix: string) => prefix.length === 0
     ? suffix
-    : `${prefix}/${suffix}`;
+    : prefix.endsWith("/")
+      ? `${prefix}${suffix}`
+      : `${prefix}/${suffix}`;
   const items = options.items ?? {
     first: { enabled: true, id: "1" },
   };
@@ -166,6 +168,12 @@ test("semantic validator accepts standalone, grouped, empty, and escaped sets", 
     rootLabel: "zcc_network_root",
     members: ["zcc_forwarding_profile", "zcc_trusted_network"],
   }));
+  for (const prefix of ["/", "//", "///"]) {
+    assertValid(artifactSet({
+      resource: "zcc_trusted_network",
+      prefix,
+    }));
+  }
   assertValid(artifactSet({
     resource: "zcc_trusted_network",
     items: {},
@@ -202,6 +210,24 @@ test("semantic validator pins provenance, source, root, and sorted drops", () =>
   const absent = artifactSet({ members: ["zcc_web_privacy"] });
   assert.ok(errorsFor(absent).includes("root_members"));
 
+  const generatedLabelGroup = artifactSet({
+    rootLabel: "zcc_failopen_policy",
+    members: ["zcc_failopen_policy", "zcc_trusted_network"],
+  });
+  assert.ok(errorsFor(generatedLabelGroup).includes("root_label"));
+
+  const crossProviderGeneratedLabel = artifactSet({
+    rootLabel: "zia_admin_users",
+    members: ["zcc_failopen_policy"],
+  });
+  assert.ok(errorsFor(crossProviderGeneratedLabel).includes("root_label"));
+
+  const unknownMember = artifactSet({
+    rootLabel: "zcc_group",
+    members: ["zcc_failopen_policy", "zcc_totally_fake"],
+  });
+  assert.ok(errorsFor(unknownMember).includes("root_members"));
+
   const badVariable = structuredClone(artifactSet());
   (badVariable.root as Record<string, unknown>).variable_name = "other";
   assert.ok(errorsFor(badVariable).includes("variable_name"));
@@ -230,6 +256,24 @@ test("semantic validator binds descriptor bytes and deployment layout", () => {
     .imports as Record<string, unknown>).path =
       "other/imports/tenant/zcc_failopen_policy_imports.tf";
   assert.ok(errorsFor(splitPrefix).includes("artifact_layout"));
+
+  const splitLexicalRoot = structuredClone(artifactSet({
+    resource: "zcc_trusted_network",
+    prefix: "//",
+  }));
+  ((splitLexicalRoot.artifacts as Record<string, unknown>)
+    .imports as Record<string, unknown>).path =
+      "/imports/tenant/zcc_trusted_network_imports.tf";
+  assert.ok(errorsFor(splitLexicalRoot).includes("artifact_layout"));
+
+  const splitLookupRoot = structuredClone(artifactSet({
+    resource: "zcc_trusted_network",
+    prefix: "//",
+  }));
+  ((splitLookupRoot.artifacts as Record<string, unknown>)
+    .lookup as Record<string, unknown>).path =
+      "/config/tenant/zcc_trusted_network.lookup.json";
+  assert.ok(errorsFor(splitLookupRoot).includes("artifact_layout"));
 });
 
 test("tfvars must be one object variable whose item values are objects", () => {

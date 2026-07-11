@@ -30,7 +30,8 @@
         "scope_paths",
         "plan_roots",
         "assess_saved_plans",
-        "compile_pull_artifacts"
+        "compile_pull_artifacts",
+        "compare_pull_artifacts"
       ]
     },
     "context": {
@@ -49,6 +50,9 @@
         },
         {
           "$ref": "#/$defs/compilePullArtifactsInput"
+        },
+        {
+          "$ref": "#/$defs/comparePullArtifactsInput"
         }
       ]
     }
@@ -101,6 +105,16 @@
         },
         "input": {
           "$ref": "#/$defs/compilePullArtifactsInput"
+        }
+      }
+    },
+    {
+      "properties": {
+        "operation": {
+          "const": "compare_pull_artifacts"
+        },
+        "input": {
+          "$ref": "#/$defs/comparePullArtifactsInput"
         }
       }
     }
@@ -251,6 +265,37 @@
       "properties": {
         "mode": {
           "const": "bootstrap"
+        },
+        "tenant": {
+          "type": "string",
+          "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+        },
+        "resource_type": {
+          "enum": [
+            "zcc_device_cleanup",
+            "zcc_failopen_policy",
+            "zcc_forwarding_profile",
+            "zcc_trusted_network",
+            "zcc_web_privacy"
+          ]
+        }
+      }
+    },
+    "comparePullArtifactsInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "reference",
+        "tenant",
+        "resource_type"
+      ],
+      "properties": {
+        "mode": {
+          "const": "bootstrap"
+        },
+        "reference": {
+          "const": "materialized"
         },
         "tenant": {
           "type": "string",

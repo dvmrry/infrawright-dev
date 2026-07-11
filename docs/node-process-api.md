@@ -7,9 +7,9 @@ HTTP service.
 
 The first slices port the read-only root-topology, changed-path scoping,
 materialized plan-root enumeration, exact-catalog Zscaler saved-plan
-assessment, and ZCC bootstrap artifact compilation operations. They establish
-the process protocol, deterministic JSON boundary, packaging, and differential
-validation pattern that later adoption operations will follow.
+assessment, and ZCC bootstrap artifact compilation and comparison operations.
+They establish the process protocol, deterministic JSON boundary, packaging,
+and differential validation pattern that later adoption operations will follow.
 
 ## Runtime and Distribution
 
@@ -230,6 +230,55 @@ versioned artifact contracts and differentials land. A pipeline must validate
 the response, require `result.status == "ready"`, and atomically materialize
 the returned descriptors itself.
 
+### ZCC materialized artifact comparison
+
+The comparison operation recompiles the candidate from the same bound source
+and controls, then compares its digests with artifacts already materialized at
+the deployment-derived paths. The request cannot supply candidate bytes,
+digests, or destinations:
+
+```json
+{
+  "kind": "infrawright.process_request",
+  "schema_version": 1,
+  "request_id": "zcc-parity-128",
+  "operation": "compare_pull_artifacts",
+  "context": {
+    "workspace": "/workspace/deployment",
+    "deployment": "deployment.json",
+    "root_catalog": "catalogs/zscaler-root-catalog.v1.json"
+  },
+  "input": {
+    "mode": "bootstrap",
+    "reference": "materialized",
+    "tenant": "prod",
+    "resource_type": "zcc_trusted_network"
+  }
+}
+```
+
+`reference: "materialized"` is intentionally factual: the filesystem cannot
+prove which implementation wrote the files. During migration, the pipeline
+must run the authoritative Python transform from the same raw pull immediately
+before comparison. The result is
+`infrawright.zcc_pull_artifact_parity` v1. It contains only paths, sizes, and
+SHA-256 digests—never candidate or observed artifact contents—and reports each
+tfvars, imports, and applicable lookup artifact as `match`, `mismatch`, or
+`missing`. Non-lookup resources report lookup as `not_applicable`.
+
+`status: "ready"` requires both a ready compiler candidate and exact byte
+parity. A valid mismatch, missing file, or review-required candidate returns a
+report with `status: "review_required"` and exit `3`. Source, deployment,
+catalog, and every present or absent artifact are rebound before the report is
+returned; concurrent appearance, disappearance, replacement, or byte mutation
+is an I/O failure rather than a stale comparison result.
+
+Comparison is the same narrow JSON/bootstrap profile as compilation. It
+refuses move files, HCL alternates, generated-expression artifacts, an
+inapplicable stale lookup, HCL deployments, and same-root generated reference
+bindings. Materialized artifacts must be regular non-symlink files and their
+aggregate bytes are bounded. The operation performs no write or deletion.
+
 `context.workspace` must be absolute. The other context paths may be absolute
 or workspace-relative. The process never consults
 `INFRAWRIGHT_DEPLOYMENT`, `INFRAWRIGHT_PACKS`, or its current directory.
@@ -242,16 +291,17 @@ hostnames, durations, or other nondeterministic fields are emitted.
 
 Exit status is:
 
-- `0`: successful read operation, ready bootstrap artifacts, or a
-  clean/tolerated assessment;
-- `3`: schema-valid review-required bootstrap artifacts or a blocked
-  assessment;
+- `0`: successful read operation, ready bootstrap artifacts, exact materialized
+  parity, or a clean/tolerated assessment;
+- `3`: schema-valid review-required bootstrap artifacts, a materialized parity
+  difference, or a blocked assessment;
 - `2`: malformed request, deployment, catalog, or domain selection;
 - `1`: a schema-valid assessment error, or an I/O/internal host failure.
 
 The strict contracts are published in
 `docs/schemas/process-request.schema.json` and
-`docs/schemas/process-response.schema.json`.
+`docs/schemas/process-response.schema.json`. The standalone comparison result
+is `docs/schemas/zcc-pull-artifact-parity.schema.json`.
 
 ## Transition Catalogs
 
@@ -336,14 +386,17 @@ float-bearing output contract is migrated.
 
 These slices support Zscaler root topology, changed-path scoping, materialized
 plan-root enumeration, exact-catalog saved-plan assessment, and immutable ZCC
-bootstrap artifact compilation as public process operations.
+bootstrap artifact compilation and materialized-byte comparison as public
+process operations.
 
 The ZCC compiler ports raw-item projection and exact tfvars/import/lookup byte
 rendering for `zcc_device_cleanup`, `zcc_failopen_policy`,
 `zcc_forwarding_profile`, `zcc_trusted_network`, and `zcc_web_privacy`. Python
 remains the independent differential oracle and the only in-repository artifact
-writer at this stage; Node returns an immutable candidate set for downstream
-atomic materialization.
+writer at this stage. Node returns an immutable candidate set and can now prove
+digest-only parity against materialized Python output without changing it. The
+repository differential runs the actual Python writer and public Node comparer
+for all five supported ZCC resources.
 
 The bundled Zscaler assessment operation uses the internal saved-plan
 assessment kernel, which provides:
@@ -465,6 +518,8 @@ anything beyond the exact current Zscaler catalog.
 
 Python remains authoritative for all mutating adoption behavior, Terraform
 orchestration, generic guidance collection, and raw pack catalog production.
-Downstream should dual-run both the public Node assessment and bootstrap
-compiler against their Python equivalents and retain Python as the cutover
-oracle until its deployment and raw-pull corpus is byte-clean.
+Downstream should run the public Node assessment beside Python and run
+`compare_pull_artifacts` immediately after each authoritative Python ZCC
+transform. Retain Python as the cutover oracle until the deployment and
+raw-pull corpus reports byte-clean parity; a later ready-only materializer will
+use that evidence rather than silently promoting corpus-bounded assumptions.

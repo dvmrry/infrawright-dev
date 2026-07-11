@@ -152,14 +152,15 @@ function layoutPrefix(pathValue: string, suffix: string): string | null {
   if (pathValue === suffix) {
     return "";
   }
-  const markedSuffix = `/${suffix}`;
-  return pathValue.endsWith(markedSuffix)
-    ? pathValue.slice(0, -markedSuffix.length)
-    : null;
+  if (!pathValue.endsWith(suffix)) {
+    return null;
+  }
+  const prefix = pathValue.slice(0, -suffix.length);
+  return prefix.endsWith("/") ? prefix : null;
 }
 
 function prefixedPath(prefix: string, suffix: string): string {
-  return prefix.length === 0 ? suffix : `${prefix}/${suffix}`;
+  return `${prefix}${suffix}`;
 }
 
 function validateSource(source: ZccPullSource): void {

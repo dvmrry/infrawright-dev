@@ -60,6 +60,7 @@ function requestIdentity(value: unknown): {
     | "plan_roots"
     | "assess_saved_plans"
     | "compile_pull_artifacts"
+    | "compare_pull_artifacts"
     | null;
 } {
   if (!isObject(value)) {
@@ -77,6 +78,7 @@ function requestIdentity(value: unknown): {
       || value.operation === "plan_roots"
       || value.operation === "assess_saved_plans"
       || value.operation === "compile_pull_artifacts"
+      || value.operation === "compare_pull_artifacts"
       ? value.operation
       : null,
   };
@@ -91,6 +93,7 @@ function errorResponse(options: {
     | "plan_roots"
     | "assess_saved_plans"
     | "compile_pull_artifacts"
+    | "compare_pull_artifacts"
     | null;
 }): ProcessErrorResponse {
   return {
@@ -151,7 +154,10 @@ function emitFallback(code: string, message: string): false {
 }
 
 function successExitCode(response: ProcessSuccessResponse): number {
-  if (response.operation === "compile_pull_artifacts") {
+  if (
+    response.operation === "compile_pull_artifacts"
+    || response.operation === "compare_pull_artifacts"
+  ) {
     return response.result.status === "review_required" ? 3 : 0;
   }
   if (response.operation !== "assess_saved_plans") {

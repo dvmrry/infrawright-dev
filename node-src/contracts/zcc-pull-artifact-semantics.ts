@@ -6,6 +6,10 @@ import { parseCanonicalImportBlocks } from "../json/canonical-import-blocks.js";
 import { parseDataJsonLosslessly } from "../json/control.js";
 import { renderPythonLosslessArtifactJson } from "../json/python-lossless-artifact.js";
 import { sortedStrings } from "../json/python-compatible.js";
+import {
+  SUPPORTED_ZCC_ROOT_MEMBERS,
+  SUPPORTED_ZSCALER_GENERATED_ROOT_LABELS,
+} from "../domain/zscaler-assessment.js";
 
 export const ZCC_PULL_ARTIFACT_SEMANTICS_KEYWORD =
   "x-infrawright-zcc-pull-artifact-semantics";
@@ -61,14 +65,15 @@ function layoutPrefix(pathValue: string, suffix: string): string | null {
   if (pathValue === suffix) {
     return "";
   }
-  const markedSuffix = `/${suffix}`;
-  return pathValue.endsWith(markedSuffix)
-    ? pathValue.slice(0, -markedSuffix.length)
-    : null;
+  if (!pathValue.endsWith(suffix)) {
+    return null;
+  }
+  const prefix = pathValue.slice(0, -suffix.length);
+  return prefix.endsWith("/") ? prefix : null;
 }
 
 function prefixedPath(prefix: string, suffix: string): string {
-  return prefix.length === 0 ? suffix : `${prefix}/${suffix}`;
+  return `${prefix}${suffix}`;
 }
 
 export interface ZccPullArtifactSemanticValidator {
@@ -169,6 +174,26 @@ export const validateZccPullArtifactSemantics:
           "/root/members",
           "root_members",
           "root members must include the compiled resource",
+        );
+      }
+      if (expectedMembers.some(
+        (member) => !SUPPORTED_ZCC_ROOT_MEMBERS.includes(member),
+      )) {
+        push(
+          "/root/members",
+          "root_members",
+          "root members must belong to the exact bundled ZCC catalog",
+        );
+      }
+      if (
+        typeof rootLabel === "string"
+        && SUPPORTED_ZSCALER_GENERATED_ROOT_LABELS.includes(rootLabel)
+        && (expectedMembers.length !== 1 || expectedMembers[0] !== rootLabel)
+      ) {
+        push(
+          "/root/label",
+          "root_label",
+          "a generated resource label can only denote its singleton root",
         );
       }
     }

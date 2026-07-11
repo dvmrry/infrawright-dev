@@ -46,6 +46,9 @@
           "const": "compile_pull_artifacts"
         },
         {
+          "const": "compare_pull_artifacts"
+        },
+        {
           "type": "null"
         }
       ]
@@ -78,6 +81,9 @@
         },
         {
           "$ref": "zcc-pull-artifact-set.schema.json"
+        },
+        {
+          "$ref": "zcc-pull-artifact-parity.schema.json"
         },
         {
           "type": "null"
@@ -188,6 +194,26 @@
               },
               "result": {
                 "$ref": "zcc-pull-artifact-set.schema.json"
+              },
+              "error": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "request_id": {
+                "type": "string"
+              },
+              "operation": {
+                "const": "compare_pull_artifacts"
+              },
+              "diagnostics": {
+                "type": "array",
+                "maxItems": 0
+              },
+              "result": {
+                "$ref": "zcc-pull-artifact-parity.schema.json"
               },
               "error": {
                 "type": "null"
