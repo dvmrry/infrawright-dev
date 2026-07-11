@@ -95,6 +95,30 @@ function digest(value: unknown): string {
     .digest("hex");
 }
 
+/** Hash one bounded, inert JSON value with the refresh canonical encoding. */
+export function zccRefreshEvidenceDigest(value: unknown): string {
+  return digest(value);
+}
+
+/** Bind the raw two-phase parity invocation coordinates before filesystem I/O. */
+export function zccPullRefreshParityRequestSha(options: {
+  readonly context: {
+    readonly workspace: string;
+    readonly deployment: string;
+    readonly root_catalog: string;
+  };
+  readonly tenant: string;
+  readonly resourceType: string;
+}): string {
+  return digest({
+    kind: "infrawright.zcc_pull_refresh_parity_request",
+    schema_version: 1,
+    context: options.context,
+    tenant: options.tenant,
+    resource_type: options.resourceType,
+  });
+}
+
 function record(value: unknown): Readonly<Record<string, unknown>> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return {};

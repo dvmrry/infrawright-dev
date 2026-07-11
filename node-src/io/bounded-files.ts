@@ -48,6 +48,11 @@ export interface StableFileDigest {
   readonly size: bigint;
 }
 
+export interface StableFileIdentity {
+  readonly dev: bigint;
+  readonly ino: bigint;
+}
+
 export interface StableFileSnapshot extends StableFileDigest {
   readonly path: string;
   readonly dev: bigint;
@@ -64,6 +69,7 @@ interface FileIdentity {
 
 interface ConsumedFile extends StableFileDigest {
   readonly chunks: readonly Buffer[];
+  readonly identity: StableFileIdentity;
 }
 
 function fail(
@@ -287,7 +293,12 @@ async function consumeStableFile(options: {
     ) {
       return fail("FILE_CHANGED", "input file changed while it was read");
     }
-    return { sha256: hasher.digest("hex"), size: consumed, chunks };
+    return {
+      sha256: hasher.digest("hex"),
+      size: consumed,
+      chunks,
+      identity: { dev: before.dev, ino: before.ino },
+    };
   } catch (error: unknown) {
     if (error instanceof ProcessFailure) {
       throw error;
@@ -311,7 +322,11 @@ export async function readBoundedUtf8File(
   filePath: string,
   budget: ReadBudget,
   options: StableReadOptions = {},
-): Promise<{ readonly text: string; readonly digest: StableFileDigest }> {
+): Promise<{
+  readonly text: string;
+  readonly digest: StableFileDigest;
+  readonly identity: StableFileIdentity;
+}> {
   const content = await readBoundedFileBytes(filePath, budget, options);
   let text: string;
   try {
@@ -321,14 +336,18 @@ export async function readBoundedUtf8File(
   } catch {
     return fail("INVALID_UTF8", "input file is not valid UTF-8", "domain");
   }
-  return { text, digest: content.digest };
+  return { text, digest: content.digest, identity: content.identity };
 }
 
 export async function readBoundedFileBytes(
   filePath: string,
   budget: ReadBudget,
   options: StableReadOptions = {},
-): Promise<{ readonly bytes: Buffer; readonly digest: StableFileDigest }> {
+): Promise<{
+  readonly bytes: Buffer;
+  readonly digest: StableFileDigest;
+  readonly identity: StableFileIdentity;
+}> {
   const result = await consumeStableFile({
     filePath,
     budget,
@@ -341,6 +360,7 @@ export async function readBoundedFileBytes(
   return {
     bytes: Buffer.concat(result.chunks),
     digest: { sha256: result.sha256, size: result.size },
+    identity: result.identity,
   };
 }
 

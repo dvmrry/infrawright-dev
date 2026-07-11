@@ -348,6 +348,148 @@ and do not manually delete a refused move artifact to force progress. The
 Python Make wrapper can skip a missing pull; the Node operation treats its
 derived pull as required and returns an error.
 
+### ZCC two-phase refresh parity
+
+Refresh byte parity uses two physically isolated, still-materialized twins so
+Node never has to infer what Python started from after Python overwrites the
+artifacts. The candidate twin is read-only for the complete workflow. The
+reference twin is touched only by the authoritative Python transform between
+the two Node calls.
+
+Before Python runs, request a compact seed:
+
+```json
+{
+  "kind": "infrawright.process_request",
+  "schema_version": 1,
+  "request_id": "zcc-refresh-seed-129",
+  "operation": "seed_pull_refresh_parity",
+  "context": {
+    "workspace": "/twins/candidate",
+    "deployment": "deployment.json",
+    "root_catalog": "catalog.json"
+  },
+  "input": {
+    "mode": "refresh",
+    "reference": "materialized_twin",
+    "tenant": "prod",
+    "resource_type": "zcc_trusted_network",
+    "reference_context": {
+      "workspace": "/twins/reference",
+      "deployment": "deployment.json",
+      "root_catalog": "catalog.json"
+    }
+  }
+}
+```
+
+Both workspaces and their artifact authorities must be existing canonical,
+non-root directories. Candidate physical regions may not equal, contain, be
+contained by, or share directory identities with reference regions. An
+authority may equal its own workspace, live beneath it, or be a physically
+disjoint external overlay; an authority may not contain its own workspace.
+All seven role targets must resolve beneath their own authority. Existing
+cross-twin artifact hard links are refused. Deployment and root-catalog
+controls must resolve inside their respective workspace. Symlink aliases for
+workspaces, authorities, controls, raw pulls, or artifacts are not accepted by
+this stricter twin protocol.
+
+Both twins must be complete run-one baselines before seeding: tfvars and
+imports are required for every supported ZCC resource, and the trusted-network
+lookup is additionally required for `zcc_trusted_network`. The host preflights
+both controls, the raw pull, every artifact target parent, and each target
+parent's authority-relative ancestor chain before reading any baseline or raw
+pull contents. Parent and ancestor device/inode identities are included in the
+opaque binding digest and rechecked, so replacing a directory with exact-copy
+artifact bytes still invalidates the transaction.
+
+The result is `infrawright.zcc_pull_refresh_parity_seed` v1. It is limited to
+256 KiB and contains only states, sizes, digests, counts, sorted difference
+labels, and opaque request/binding digests. It never contains artifact bytes,
+physical paths, provider import IDs, move keys, or move lists. Side-specific
+path-bearing baseline and transition hashes are retained only as candidate
+trace evidence; they are never compared across twins. Cross-twin comparison
+uses a domain-separated, role-tagged, path-neutral digest over the full refresh
+decisions plus content-free baseline and desired descriptors. Root-catalog
+digests and normalized deployment semantics must also agree; each twin's raw
+deployment bytes remain bound separately so distinct absolute overlay paths
+do not create a false difference. `status: "ready"` requires two
+ready compilers, zero suppressed moves, and no path-neutral or control
+differences. A complete ready seed exits `0`; a valid review seed exits `3` and
+must not be sent to the final comparison.
+
+Only after a ready seed is retained in protected pipeline storage should the
+pipeline run `python3 -m engine.transform` once against the reference twin.
+Any nonzero Python exit invalidates that twin: discard or restore it from the
+original baseline, create a **new** seed, and rerun. Never rerun Python in place
+after a failed or partial attempt. Python overwrites imports last, and a second
+run against already-advanced imports can erase rename moves. Python
+suppressed-move and dropped-field exit behavior is not numerically equivalent
+to Node readiness: compare bytes separately and require both a ready seed and
+Python exit `0` before continuing.
+
+After Python succeeds, embed the complete seed in refresh comparison:
+
+```json
+{
+  "kind": "infrawright.process_request",
+  "schema_version": 1,
+  "request_id": "zcc-refresh-compare-130",
+  "operation": "compare_pull_artifacts",
+  "context": {
+    "workspace": "/twins/candidate",
+    "deployment": "deployment.json",
+    "root_catalog": "catalog.json"
+  },
+  "input": {
+    "mode": "refresh",
+    "reference": "materialized_twin",
+    "tenant": "prod",
+    "resource_type": "zcc_trusted_network",
+    "reference_context": {
+      "workspace": "/twins/reference",
+      "deployment": "deployment.json",
+      "root_catalog": "catalog.json"
+    },
+    "seed": {
+      "kind": "infrawright.zcc_pull_refresh_parity_seed",
+      "schema_version": 1,
+      "status": "ready"
+    }
+  }
+}
+```
+
+The abbreviated seed must be replaced by the complete prior result. The host
+validates and snapshots the inert, acyclic, depth-bounded seed before any I/O.
+It joins the outer tenant, resource type, candidate context, and reference
+context to the seed's two request hashes before touching either filesystem,
+then preflights both sides, recompiles, and exactly rejoins the untouched
+candidate transition. It binds the reference roles `tfvars`, `lookup`,
+`moves`, `pending_moves`,
+`alternate_hcl`, and `generated_bindings` before binding `imports` last as the
+Python commit boundary. After a complete reference snapshot, its final CAS
+rechecks controls, raw source, target parents/ancestors, six artifact roles,
+and imports last. The untouched candidate transaction is the last awaited CAS;
+the report is then constructed synchronously. Cross-twin hard-link isolation
+is checked throughout. Special files, symlinks, oversized files, binding
+changes, and races are I/O failures rather than parity differences.
+
+The result is `infrawright.zcc_pull_refresh_parity` v1. It embeds the complete
+ready seed and reports every role as `match`, `mismatch`, `missing`, or
+`unexpected`, with derived counts, status, and an assertion digest. Expected
+absence is a first-class match; a present artifact in an absent role is
+`unexpected`. Exact seven-role parity exits `0`; a valid difference exits `3`;
+malformed, nonready, stale, replayed, or isolation-invalid seed joins exit `2`;
+I/O, race, and budget failures exit `1`.
+
+`reference: "materialized_twin"` is deliberately not `python`: the filesystem
+does not prove writer provenance. The process performs no write or deletion,
+and the two filesystems do not provide an atomic joint snapshot. The trusted
+pipeline must serialize Python and both Node calls. A successfully produced
+final assertion may be compared again read-only while all inputs remain
+unchanged; retrying Python requires a restored twin and a new seed.
+
 ### ZCC materialized artifact comparison
 
 The comparison operation recompiles the candidate from the same bound source
@@ -490,11 +632,12 @@ hostnames, durations, or other nondeterministic fields are emitted.
 
 Exit status is:
 
-- `0`: successful read operation, ready bootstrap or refresh artifacts, exact
-  materialized parity, complete retry-forward publication, or a clean/tolerated
-  assessment;
+- `0`: successful read operation, ready bootstrap or refresh artifacts, a ready
+  refresh seed, exact materialized/bootstrap or twin-refresh parity, complete
+  retry-forward publication, or a clean/tolerated assessment;
 - `3`: schema-valid review-required bootstrap or refresh artifacts, a
-  materialized parity difference, or a blocked assessment;
+  review-required refresh seed, a materialized parity difference, or a blocked
+  assessment;
 - `2`: malformed request, deployment, catalog, or domain selection;
 - `1`: a schema-valid assessment error, indeterminate publication, or another
   I/O/internal host failure.
@@ -502,9 +645,11 @@ Exit status is:
 The strict contracts are published in
 `docs/schemas/process-request.schema.json` and
 `docs/schemas/process-response.schema.json`. The standalone comparison result
-is `docs/schemas/zcc-pull-artifact-parity.schema.json`; the refresh assertion is
-`docs/schemas/zcc-pull-refresh-artifact-set.schema.json`; the content-free
-write receipt is
+is `docs/schemas/zcc-pull-artifact-parity.schema.json`; refresh compilation is
+`docs/schemas/zcc-pull-refresh-artifact-set.schema.json`; the two-phase refresh
+contracts are `docs/schemas/zcc-pull-refresh-parity-seed.schema.json` and
+`docs/schemas/zcc-pull-refresh-parity.schema.json`; the content-free write
+receipt is
 `docs/schemas/zcc-pull-artifact-materialization.schema.json`.
 
 ## Transition Catalogs
@@ -590,8 +735,9 @@ float-bearing output contract is migrated.
 
 These slices support Zscaler root topology, changed-path scoping, materialized
 plan-root enumeration, exact-catalog saved-plan assessment, immutable ZCC
-bootstrap and refresh artifact compilation, materialized-byte comparison, and
-asserted retry-forward bootstrap publication as public process operations.
+bootstrap and refresh artifact compilation, two-phase refresh byte parity,
+materialized bootstrap comparison, and asserted retry-forward bootstrap
+publication as public process operations.
 
 The ZCC compiler ports raw-item projection and exact tfvars/import/lookup byte
 rendering for `zcc_device_cleanup`, `zcc_failopen_policy`,

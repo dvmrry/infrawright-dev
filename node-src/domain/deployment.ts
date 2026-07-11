@@ -180,11 +180,14 @@ export async function loadDeployment(path: string): Promise<Deployment> {
   return deploymentFromText(await readOptionalUtf8(path, "deployment"));
 }
 
-export async function loadBoundAssessmentDeployment(path: string): Promise<{
+export async function loadBoundAssessmentDeployment(
+  path: string,
+  options?: { readonly followSymlinks?: boolean },
+): Promise<{
   readonly deployment: Deployment;
   readonly file: BoundAssessmentControlFile;
 }> {
-  const source = await bindOptionalAssessmentControlText(path);
+  const source = await bindOptionalAssessmentControlText(path, options);
   return {
     deployment: deploymentFromText(source.text),
     file: source.file,

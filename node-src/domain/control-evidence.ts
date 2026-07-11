@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises";
+import { lstat, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { ProcessFailure } from "./errors.js";
@@ -8,6 +8,7 @@ import {
   sha256StableFile,
   type BoundedReadLimits,
   type StableFileDigest,
+  type StableFileIdentity,
 } from "../io/bounded-files.js";
 
 const MAX_CONTROL_FILES = 8;
@@ -23,6 +24,8 @@ const CONTROL_READ_LIMITS: BoundedReadLimits = {
 export interface BoundAssessmentControlFile {
   readonly path: string;
   readonly digest: StableFileDigest | null;
+  readonly identity?: StableFileIdentity | null;
+  readonly followSymlinks?: boolean;
 }
 
 export interface BoundAssessmentControlText {
@@ -54,12 +57,13 @@ function validatePath(filePath: string): void {
 
 export async function bindRequiredAssessmentControlText(
   filePath: string,
+  options: { readonly followSymlinks?: boolean } = {},
 ): Promise<BoundAssessmentControlText> {
   validatePath(filePath);
   const source = await readBoundedFileBytes(
     filePath,
     new ReadBudget(CONTROL_READ_LIMITS),
-    { followSymlinks: true },
+    { followSymlinks: options.followSymlinks ?? true },
   );
   let text: string;
   try {
@@ -69,25 +73,43 @@ export async function bindRequiredAssessmentControlText(
   }
   return {
     text,
-    file: { path: filePath, digest: source.digest },
+    file: {
+      path: filePath,
+      digest: source.digest,
+      identity: source.identity,
+      ...(options.followSymlinks === false ? { followSymlinks: false } : {}),
+    },
   };
 }
 
 export async function bindOptionalAssessmentControlText(
   filePath: string,
+  options: { readonly followSymlinks?: boolean } = {},
 ): Promise<BoundAssessmentControlText> {
   validatePath(filePath);
   try {
-    return await bindRequiredAssessmentControlText(filePath);
+    return await bindRequiredAssessmentControlText(filePath, options);
   } catch (error: unknown) {
     if (!(error instanceof ProcessFailure) || error.code !== "READ_FAILED") {
       throw error;
     }
     try {
-      await stat(filePath);
+      if (options.followSymlinks === false) {
+        await lstat(filePath);
+      } else {
+        await stat(filePath);
+      }
     } catch (metadataError: unknown) {
       if (errorCode(metadataError) === "ENOENT") {
-        return { text: null, file: { path: filePath, digest: null } };
+        return {
+          text: null,
+          file: {
+            path: filePath,
+            digest: null,
+            identity: null,
+            ...(options.followSymlinks === false ? { followSymlinks: false } : {}),
+          },
+        };
       }
     }
     throw error;
@@ -129,13 +151,23 @@ export function copyAssessmentControlFiles(
     return {
       path: file.path,
       digest: file.digest === null ? null : { ...file.digest },
+      ...(file.identity === undefined
+        ? {}
+        : { identity: file.identity === null ? null : { ...file.identity } }),
+      ...(file.followSymlinks === undefined
+        ? {}
+        : { followSymlinks: file.followSymlinks }),
     };
   });
 }
 
-async function assertStillAbsent(filePath: string): Promise<void> {
+async function assertStillAbsent(filePath: string, followSymlinks: boolean): Promise<void> {
   try {
-    await stat(filePath);
+    if (followSymlinks) {
+      await stat(filePath);
+    } else {
+      await lstat(filePath);
+    }
   } catch (error: unknown) {
     if (errorCode(error) === "ENOENT") {
       return;
@@ -157,13 +189,35 @@ export async function recheckAssessmentControlFiles(
   const budget = new ReadBudget(CONTROL_READ_LIMITS);
   for (const file of files) {
     if (file.digest === null) {
-      await assertStillAbsent(file.path);
+      await assertStillAbsent(file.path, file.followSymlinks ?? true);
       continue;
+    }
+    const followSymlinks = file.followSymlinks ?? true;
+    let before: Awaited<ReturnType<typeof stat>>;
+    try {
+      before = followSymlinks
+        ? await stat(file.path, { bigint: true })
+        : await lstat(file.path, { bigint: true });
+      if (!before.isFile() || (!followSymlinks && before.isSymbolicLink())) {
+        throw new Error("not regular");
+      }
+      if (
+        file.identity !== undefined
+        && file.identity !== null
+        && (before.dev !== file.identity.dev || before.ino !== file.identity.ino)
+      ) {
+        throw new Error("identity changed");
+      }
+    } catch {
+      fail(
+        "ASSESSMENT_CONTROL_CHANGED",
+        "saved-plan assessment control input changed during assessment",
+      );
     }
     let current: StableFileDigest;
     try {
       current = await sha256StableFile(file.path, budget, {
-        followSymlinks: true,
+        followSymlinks,
       });
     } catch {
       fail(
@@ -175,6 +229,24 @@ export async function recheckAssessmentControlFiles(
       current.sha256 !== file.digest.sha256
       || current.size !== file.digest.size
     ) {
+      fail(
+        "ASSESSMENT_CONTROL_CHANGED",
+        "saved-plan assessment control input changed during assessment",
+      );
+    }
+    try {
+      const after = followSymlinks
+        ? await stat(file.path, { bigint: true })
+        : await lstat(file.path, { bigint: true });
+      if (
+        !after.isFile()
+        || (!followSymlinks && after.isSymbolicLink())
+        || after.dev !== before.dev
+        || after.ino !== before.ino
+      ) {
+        throw new Error("identity changed");
+      }
+    } catch {
       fail(
         "ASSESSMENT_CONTROL_CHANGED",
         "saved-plan assessment control input changed during assessment",

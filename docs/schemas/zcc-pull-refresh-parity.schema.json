@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infrawright.local/schemas/zcc-pull-refresh-parity.schema.json",
+  "title": "Infrawright ZCC Refresh Pull Artifact Parity",
+  "$comment": "x-infrawright-zcc-pull-refresh-parity-semantics is required. The assertion embeds the complete ready seed and compares seven digest/state roles without contents, import IDs, move keys, or physical paths.",
+  "type": "object",
+  "x-infrawright-zcc-pull-refresh-parity-semantics": true,
+  "additionalProperties": false,
+  "required": [
+    "kind", "schema_version", "mode", "reference", "product",
+    "resource_type", "tenant", "seed", "candidate", "parity", "status",
+    "assertion_sha256"
+  ],
+  "properties": {
+    "kind": { "const": "infrawright.zcc_pull_refresh_parity" },
+    "schema_version": { "const": 1 },
+    "mode": { "const": "refresh" },
+    "reference": { "const": "materialized_twin" },
+    "product": { "const": "zcc" },
+    "resource_type": { "$ref": "zcc-pull-artifact-set.schema.json#/$defs/resourceType" },
+    "tenant": {
+      "type": "string",
+      "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+    },
+    "seed": {
+      "allOf": [
+        { "$ref": "zcc-pull-refresh-parity-seed.schema.json" },
+        {
+          "type": "object",
+          "properties": { "status": { "const": "ready" } }
+        }
+      ]
+    },
+    "candidate": {
+      "$ref": "zcc-pull-refresh-parity-seed.schema.json#/$defs/candidateEvidence"
+    },
+    "parity": { "$ref": "#/$defs/parity" },
+    "status": { "enum": ["ready", "review_required"] },
+    "assertion_sha256": {
+      "$ref": "zcc-pull-refresh-parity-seed.schema.json#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expected", "observed", "status"],
+      "properties": {
+        "expected": {
+          "$ref": "zcc-pull-refresh-parity-seed.schema.json#/$defs/desiredState"
+        },
+        "observed": {
+          "$ref": "zcc-pull-refresh-parity-seed.schema.json#/$defs/state"
+        },
+        "status": { "enum": ["match", "mismatch", "missing", "unexpected"] }
+      }
+    },
+    "parity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status", "matched", "mismatched", "missing", "unexpected", "artifacts"
+      ],
+      "properties": {
+        "status": { "enum": ["equal", "different"] },
+        "matched": { "type": "integer", "minimum": 0, "maximum": 7 },
+        "mismatched": { "type": "integer", "minimum": 0, "maximum": 7 },
+        "missing": { "type": "integer", "minimum": 0, "maximum": 7 },
+        "unexpected": { "type": "integer", "minimum": 0, "maximum": 7 },
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tfvars", "imports", "lookup", "moves", "pending_moves",
+            "alternate_hcl", "generated_bindings"
+          ],
+          "properties": {
+            "tfvars": { "$ref": "#/$defs/entry" },
+            "imports": { "$ref": "#/$defs/entry" },
+            "lookup": { "$ref": "#/$defs/entry" },
+            "moves": { "$ref": "#/$defs/entry" },
+            "pending_moves": { "$ref": "#/$defs/entry" },
+            "alternate_hcl": { "$ref": "#/$defs/entry" },
+            "generated_bindings": { "$ref": "#/$defs/entry" }
+          }
+        }
+      }
+    }
+  }
+}

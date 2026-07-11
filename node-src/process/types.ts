@@ -13,6 +13,10 @@ import type { ZccPullArtifactSet } from "../domain/zcc-pull-artifacts.js";
 import type { ZccPullRefreshArtifactSet } from "../domain/zcc-pull-refresh.js";
 import type { ZccPullArtifactMaterialization } from "../domain/zcc-pull-materialization.js";
 import type { ZccPullArtifactParity } from "../domain/zcc-pull-parity.js";
+import type {
+  ZccPullRefreshParity,
+  ZccPullRefreshParitySeed,
+} from "../domain/zcc-pull-refresh-parity.js";
 
 export interface RootsProcessRequest {
   readonly kind: "infrawright.process_request";
@@ -83,7 +87,7 @@ export interface CompilePullArtifactsProcessRequest {
   };
 }
 
-export interface ComparePullArtifactsProcessRequest {
+export interface CompareBootstrapPullArtifactsProcessRequest {
   readonly kind: "infrawright.process_request";
   readonly schema_version: 1;
   readonly request_id: string;
@@ -94,6 +98,41 @@ export interface ComparePullArtifactsProcessRequest {
     readonly reference: "materialized";
     readonly tenant: string;
     readonly resource_type: CompilePullArtifactsProcessRequest["input"]["resource_type"];
+  };
+}
+
+export interface CompareRefreshPullArtifactsProcessRequest {
+  readonly kind: "infrawright.process_request";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "compare_pull_artifacts";
+  readonly context: RootsProcessRequest["context"];
+  readonly input: {
+    readonly mode: "refresh";
+    readonly reference: "materialized_twin";
+    readonly tenant: string;
+    readonly resource_type: CompilePullArtifactsProcessRequest["input"]["resource_type"];
+    readonly reference_context: RootsProcessRequest["context"];
+    readonly seed: ZccPullRefreshParitySeed;
+  };
+}
+
+export type ComparePullArtifactsProcessRequest =
+  | CompareBootstrapPullArtifactsProcessRequest
+  | CompareRefreshPullArtifactsProcessRequest;
+
+export interface SeedPullRefreshParityProcessRequest {
+  readonly kind: "infrawright.process_request";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "seed_pull_refresh_parity";
+  readonly context: RootsProcessRequest["context"];
+  readonly input: {
+    readonly mode: "refresh";
+    readonly reference: "materialized_twin";
+    readonly tenant: string;
+    readonly resource_type: CompilePullArtifactsProcessRequest["input"]["resource_type"];
+    readonly reference_context: RootsProcessRequest["context"];
   };
 }
 
@@ -118,6 +157,7 @@ export type ProcessRequest =
   | PlanRootsProcessRequest
   | AssessSavedPlansProcessRequest
   | CompilePullArtifactsProcessRequest
+  | SeedPullRefreshParityProcessRequest
   | ComparePullArtifactsProcessRequest
   | MaterializePullArtifactsProcessRequest;
 
@@ -189,14 +229,27 @@ export interface CompilePullArtifactsProcessSuccessResponse<
 export type CompilePullArtifactsRefreshProcessSuccessResponse =
   CompilePullArtifactsProcessSuccessResponse<ZccPullRefreshArtifactSet>;
 
-export interface ComparePullArtifactsProcessSuccessResponse {
+export interface ComparePullArtifactsProcessSuccessResponse<
+  Result extends ZccPullArtifactParity | ZccPullRefreshParity = ZccPullArtifactParity,
+> {
   readonly kind: "infrawright.process_response";
   readonly schema_version: 1;
   readonly request_id: string;
   readonly operation: "compare_pull_artifacts";
   readonly status: "ok";
   readonly diagnostics: readonly [];
-  readonly result: ZccPullArtifactParity;
+  readonly result: Result;
+  readonly error: null;
+}
+
+export interface SeedPullRefreshParityProcessSuccessResponse {
+  readonly kind: "infrawright.process_response";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "seed_pull_refresh_parity";
+  readonly status: "ok";
+  readonly diagnostics: readonly [];
+  readonly result: ZccPullRefreshParitySeed;
   readonly error: null;
 }
 
@@ -219,7 +272,10 @@ export type ProcessSuccessResponse =
   | CompilePullArtifactsProcessSuccessResponse<
       ZccPullArtifactSet | ZccPullRefreshArtifactSet
     >
-  | ComparePullArtifactsProcessSuccessResponse
+  | SeedPullRefreshParityProcessSuccessResponse
+  | ComparePullArtifactsProcessSuccessResponse<
+      ZccPullArtifactParity | ZccPullRefreshParity
+    >
   | MaterializePullArtifactsProcessSuccessResponse;
 
 export interface ProcessErrorResponse {
@@ -232,6 +288,7 @@ export interface ProcessErrorResponse {
     | "plan_roots"
     | "assess_saved_plans"
     | "compile_pull_artifacts"
+    | "seed_pull_refresh_parity"
     | "compare_pull_artifacts"
     | "materialize_pull_artifacts"
     | null;

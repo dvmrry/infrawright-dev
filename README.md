@@ -97,9 +97,11 @@ The Zscaler runtime is undergoing a differential migration to Node 24. Its
 machine-only process operations emit root-topology, changed-path scope,
 plan-root, exact-catalog saved-plan assessment, immutable ZCC bootstrap artifact
 sets, and read-only ZCC raw-transform refresh results, all differentially
-compared with Python in CI. The refresh differential proves Python run-two
-tfvars/import/lookup/move bytes; materialization remains bootstrap-only. The
-compilers cover the five fetch-backed ZCC resources without writing them. Build
+compared with Python in CI. The two-phase refresh parity contract seeds two
+isolated materialized twins before Python, then proves seven post-Python
+artifact roles without emitting contents, import IDs, move keys, or physical
+paths. Materialization remains bootstrap-only. The compilers cover the five
+fetch-backed ZCC resources without writing them. Build
 the no-install bundle with
 `npm ci --ignore-scripts && npm run check && npm run build`; see
 [Node Process API Migration](docs/node-process-api.md) for the request contract,
