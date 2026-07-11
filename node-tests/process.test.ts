@@ -12,8 +12,10 @@ import {
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import type { ErrorObject } from "ajv/dist/2020.js";
 
 import {
+  schemaErrorDetails,
   validateProcessRequest,
   validateProcessResponse,
 } from "../node-src/contracts/validators.js";
@@ -838,6 +840,61 @@ test("process host rejects malformed and schema-invalid requests structurally", 
     JSON.parse(String(duplicate.stdout)).error.code,
     "INVALID_JSON",
   );
+});
+
+test("malformed request diagnostics stay bounded and retain request identity", () => {
+  const request = JSON.stringify({
+    kind: "infrawright.process_request",
+    schema_version: 1,
+    request_id: "bounded-invalid",
+    operation: "compare_pull_artifacts",
+    context: {
+      workspace: WORKSPACE,
+      deployment: "deployment.json",
+      root_catalog: "catalogs/zscaler-root-catalog.v1.json",
+    },
+    input: {
+      mode: "bootstrap",
+      reference: "materialized",
+      tenant: "tenant",
+      resource_type: "zcc_failopen_policy",
+      paths: Array.from({ length: 180_000 }, () => 0),
+    },
+  });
+  assert.ok(Buffer.byteLength(request, "utf8") < 1024 * 1024);
+  assert.equal(validateProcessRequest(JSON.parse(request)), false);
+  const validationErrors = validateProcessRequest.errors ?? [];
+  assert.ok(validationErrors.length <= 16);
+  assert.equal(validationErrors.some((error) => {
+    return /^\/input\/paths\/(?:[1-9]|[0-9]{2,})$/.test(error.instancePath);
+  }), false);
+  const result = invoke(request);
+  assert.equal(result.status, 2, String(result.stderr));
+  assert.equal(String(result.stderr), "");
+  assert.ok(Buffer.byteLength(String(result.stdout), "utf8") < 64 * 1024);
+  const response = JSON.parse(String(result.stdout));
+  assert.equal(response.request_id, "bounded-invalid");
+  assert.equal(response.operation, "compare_pull_artifacts");
+  assert.equal(response.error.code, "INVALID_REQUEST");
+  assert.ok(response.error.details.length > 0);
+  assert.ok(response.error.details.length <= 65);
+});
+
+test("schema error detail conversion has a defensive hard cap", () => {
+  const errors: ErrorObject[] = Array.from({ length: 1_000 }, (_, index) => ({
+    instancePath: `/input/paths/${index}`,
+    schemaPath: "#/type",
+    keyword: "type",
+    params: { type: "string" },
+    message: "must be string",
+  }));
+  const details = schemaErrorDetails(errors);
+  assert.equal(details.length, 65);
+  assert.deepEqual(details.at(-1), {
+    path: "/",
+    code: "schema_errors_truncated",
+    message: "additional schema errors were omitted",
+  });
 });
 
 test("process host rejects invalid UTF-8 without replacement", () => {

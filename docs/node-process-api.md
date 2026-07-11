@@ -41,6 +41,11 @@ emit a whole-root note before a later invalid tenant is found, the process
 response contains only the structured error. Consumers must not depend on
 Python CLI stderr emitted before a failed operation.
 
+Schema-error details are bounded diagnostics, not an exhaustive list. Request
+validation stops after a bounded failure set and all schema-to-error conversion
+is capped, so a malformed request below the 1 MiB input limit cannot amplify
+into an oversized response or lose its request identity and exit-`2` contract.
+
 ## Version 1 Requests
 
 ### Roots
