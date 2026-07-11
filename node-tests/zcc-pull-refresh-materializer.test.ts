@@ -21,12 +21,21 @@ import test from "node:test";
 import {
   validateProcessRequest,
   validateProcessResponse,
+  validateZccPullRefreshAcknowledgement,
   validateZccPullRefreshMaterialization,
   validateZccPullRefreshPendingTransition,
 } from "../node-src/contracts/validators.js";
 import { ProcessFailure } from "../node-src/domain/errors.js";
 import type { ZccPullResourceType } from "../node-src/domain/zcc-pull-artifacts.js";
-import { zccRefreshEvidenceDigest } from "../node-src/domain/zcc-pull-refresh-fingerprints.js";
+import {
+  zccPullRefreshPublicationReceiptSha,
+  zccRefreshEvidenceDigest,
+} from "../node-src/domain/zcc-pull-refresh-fingerprints.js";
+import {
+  acknowledgeZccPullRefreshOperation,
+  type ZccPullRefreshAcknowledgement,
+  type ZccPullRefreshAcknowledgementOperationHooks,
+} from "../node-src/domain/zcc-pull-refresh-acknowledgement-operation.js";
 import {
   materializeReadyZccPullRefresh,
   type ZccPullRefreshMaterialization,
@@ -283,6 +292,29 @@ function publish(
   });
 }
 
+function acknowledge(
+  scenario: Scenario,
+  publication: ZccPullRefreshMaterialization,
+  hooks?: ZccPullRefreshAcknowledgementOperationHooks,
+  allowExternalApplyAcknowledgement = true,
+): Promise<ZccPullRefreshAcknowledgement> {
+  return acknowledgeZccPullRefreshOperation({
+    context: context(scenario.candidate),
+    tenant: TENANT,
+    resourceType: scenario.resourceType,
+    assertion: scenario.assertion,
+    publication,
+    policy: "retire_exact_after_external_acknowledgement",
+    acknowledgement: {
+      kind: "trusted_pipeline_assertion",
+      statement: "terraform_apply_succeeded",
+    },
+    outputRoot: scenario.candidate.workspace,
+    allowExternalApplyAcknowledgement,
+    ...(hooks === undefined ? {} : { hooks }),
+  });
+}
+
 function refreshMaterializeRequest(scenario: Scenario) {
   return {
     kind: "infrawright.process_request",
@@ -296,6 +328,31 @@ function refreshMaterializeRequest(scenario: Scenario) {
       tenant: TENANT,
       resource_type: scenario.resourceType,
       assertion: scenario.assertion,
+    },
+  } as const;
+}
+
+function refreshAcknowledgementRequest(
+  scenario: Scenario,
+  publication: ZccPullRefreshMaterialization,
+) {
+  return {
+    kind: "infrawright.process_request",
+    schema_version: 1,
+    request_id: `refresh-acknowledge-${scenario.resourceType}`,
+    operation: "acknowledge_pull_refresh",
+    context: context(scenario.candidate),
+    input: {
+      mode: "refresh",
+      policy: "retire_exact_after_external_acknowledgement",
+      tenant: TENANT,
+      resource_type: scenario.resourceType,
+      assertion: scenario.assertion,
+      publication,
+      acknowledgement: {
+        kind: "trusted_pipeline_assertion",
+        statement: "terraform_apply_succeeded",
+      },
     },
   } as const;
 }
@@ -318,6 +375,46 @@ function invokeHost(
       ...process.env,
       INFRAWRIGHT_TERRAFORM_EXECUTABLE: "",
       INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT: scenario.candidate.workspace,
+    },
+  });
+  assert.equal(run.signal, null, run.error?.message);
+  assert.doesNotThrow(() => JSON.parse(run.stdout), run.stderr);
+  const response = JSON.parse(run.stdout) as ProcessResponse;
+  assert.equal(
+    validateProcessResponse(response),
+    true,
+    JSON.stringify(validateProcessResponse.errors),
+  );
+  return {
+    status: run.status,
+    stderr: run.stderr,
+    stdout: run.stdout,
+    response,
+  };
+}
+
+function invokeAcknowledgementHost(
+  scenario: Scenario,
+  publication: ZccPullRefreshMaterialization,
+  allowExternalApplyAcknowledgement: boolean,
+): { readonly status: number | null; readonly stderr: string; readonly stdout: string; readonly response: ProcessResponse } {
+  const request = refreshAcknowledgementRequest(scenario, publication);
+  assert.equal(
+    validateProcessRequest(request),
+    true,
+    JSON.stringify(validateProcessRequest.errors),
+  );
+  const run = spawnSync(process.execPath, [PROCESS_MAIN], {
+    cwd: REPOSITORY,
+    input: JSON.stringify(request),
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+    env: {
+      ...process.env,
+      INFRAWRIGHT_TERRAFORM_EXECUTABLE: "",
+      INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT: scenario.candidate.workspace,
+      INFRAWRIGHT_ALLOW_EXTERNAL_APPLY_ACK:
+        allowExternalApplyAcknowledgement ? "1" : "",
     },
   });
   assert.equal(run.signal, null, run.error?.message);
@@ -442,6 +539,175 @@ test("a safe rename retains the exact move and marker and returns awaiting_apply
   }
 });
 
+test("trusted acknowledgement retires the exact move then marker and is idempotent", async () => {
+  const resourceType = "zcc_forwarding_profile";
+  const scenario = await prepareScenario(
+    resourceType,
+    [{ id: "rename-id", name: "Before" }],
+    [{ id: "rename-id", name: "After" }],
+  );
+  try {
+    const publication = await publish(scenario);
+    assert.equal(publication.status, "awaiting_apply");
+    const paths = artifactPaths(scenario.candidate, resourceType);
+    const result = await acknowledge(scenario, publication);
+    assert.equal(
+      validateZccPullRefreshAcknowledgement(result),
+      true,
+      JSON.stringify(validateZccPullRefreshAcknowledgement.errors),
+    );
+    assert.equal(result.status, "retired");
+    assert.equal(result.evidence.apply_observed_by_engine, false);
+    assert.equal(result.retirement.initial, "awaiting_apply");
+    assert.deepEqual(result.retirement.removed, ["moves", "pending_moves"]);
+    assert.equal(
+      result.verification.publication_receipt_sha256,
+      zccPullRefreshPublicationReceiptSha(publication),
+    );
+    assert.equal(existsSync(paths.moves), false);
+    assert.equal(existsSync(paths.pending_moves), false);
+    for (const role of ["tfvars", "imports", "lookup"] as const) {
+      assert.deepEqual(
+        artifactSnapshot(scenario.candidate, resourceType)[role],
+        scenario.referenceFinal[role],
+        role,
+      );
+    }
+
+    const retry = await acknowledge(scenario, publication);
+    assert.equal(retry.retirement.initial, "already_retired");
+    assert.deepEqual(retry.retirement.removed, []);
+
+    const invalid = structuredClone(result) as unknown as {
+      retirement: { removed: string[] };
+    };
+    invalid.retirement.removed.reverse();
+    assert.equal(validateZccPullRefreshAcknowledgement(invalid), false);
+  } finally {
+    cleanupScenario(scenario);
+  }
+});
+
+test("acknowledgement retries from an exact move-retirement prefix", async () => {
+  const resourceType = "zcc_forwarding_profile";
+  const scenario = await prepareScenario(
+    resourceType,
+    [{ id: "rename-id", name: "Before" }],
+    [{ id: "rename-id", name: "After" }],
+  );
+  try {
+    const publication = await publish(scenario);
+    const paths = artifactPaths(scenario.candidate, resourceType);
+    const markerBytes = readFileSync(paths.pending_moves);
+    const failure = await expectFailure(acknowledge(scenario, publication, {
+      afterMoveRemove: () => {
+        throw new Error("private-post-move-value");
+      },
+    }));
+    assert.equal(failure.code, "REFRESH_ACKNOWLEDGEMENT_INDETERMINATE");
+    assert.equal(failure.retryable, true);
+    assert.equal(existsSync(paths.moves), false);
+    assert.equal(readFileSync(paths.pending_moves).equals(markerBytes), true);
+
+    const retry = await acknowledge(scenario, publication);
+    assert.equal(retry.retirement.initial, "retirement_prefix");
+    assert.deepEqual(retry.retirement.removed, ["pending_moves"]);
+    assert.equal(existsSync(paths.pending_moves), false);
+  } finally {
+    cleanupScenario(scenario);
+  }
+});
+
+test("acknowledgement never unlinks a replaced marker", async () => {
+  const resourceType = "zcc_forwarding_profile";
+  const scenario = await prepareScenario(
+    resourceType,
+    [{ id: "rename-id", name: "Before" }],
+    [{ id: "rename-id", name: "After" }],
+  );
+  try {
+    const publication = await publish(scenario);
+    const paths = artifactPaths(scenario.candidate, resourceType);
+    const foreign = "foreign-marker-private-value\n";
+    const failure = await expectFailure(acknowledge(scenario, publication, {
+      beforeMarkerRemove: () => {
+        unlinkSync(paths.pending_moves);
+        writeFileSync(paths.pending_moves, foreign);
+      },
+    }));
+    assert.equal(failure.code, "REFRESH_ACKNOWLEDGEMENT_INDETERMINATE");
+    assert.equal(failure.retryable, true);
+    assert.equal(existsSync(paths.moves), false);
+    assert.equal(readFileSync(paths.pending_moves, "utf8"), foreign);
+  } finally {
+    cleanupScenario(scenario);
+  }
+});
+
+test("markerless and foreign acknowledgement states never retire exact moves", async () => {
+  const resourceType = "zcc_forwarding_profile";
+  for (const state of ["missing", "foreign"] as const) {
+    const scenario = await prepareScenario(
+      resourceType,
+      [{ id: "rename-id", name: "Before" }],
+      [{ id: "rename-id", name: "After" }],
+    );
+    try {
+      const publication = await publish(scenario);
+      const paths = artifactPaths(scenario.candidate, resourceType);
+      const moveBytes = readFileSync(paths.moves);
+      if (state === "missing") {
+        unlinkSync(paths.pending_moves);
+      } else {
+        writeFileSync(paths.pending_moves, "foreign-marker-private-value\n");
+      }
+      const failure = await expectFailure(acknowledge(scenario, publication));
+      assert.equal(
+        failure.code,
+        state === "missing"
+          ? "REFRESH_ACKNOWLEDGEMENT_MARKER_MISSING"
+          : "AMBIGUOUS_REFRESH_ACKNOWLEDGEMENT_STATE",
+      );
+      assert.equal(readFileSync(paths.moves).equals(moveBytes), true);
+      if (state === "foreign") {
+        assert.equal(
+          readFileSync(paths.pending_moves, "utf8"),
+          "foreign-marker-private-value\n",
+        );
+      }
+    } finally {
+      cleanupScenario(scenario);
+    }
+  }
+});
+
+test("external apply capability gates acknowledgement before filesystem preparation", async () => {
+  const resourceType = "zcc_forwarding_profile";
+  const scenario = await prepareScenario(
+    resourceType,
+    [{ id: "rename-id", name: "Before" }],
+    [{ id: "rename-id", name: "After" }],
+  );
+  try {
+    const publication = await publish(scenario);
+    const before = artifactSnapshot(scenario.candidate, resourceType);
+    rmSync(pullPath(scenario.candidate, resourceType));
+    const failure = await expectFailure(acknowledge(
+      scenario,
+      publication,
+      undefined,
+      false,
+    ));
+    assert.equal(failure.code, "EXTERNAL_APPLY_ACKNOWLEDGEMENT_REQUIRED");
+    assert.deepEqual(
+      artifactSnapshot(scenario.candidate, resourceType),
+      before,
+    );
+  } finally {
+    cleanupScenario(scenario);
+  }
+});
+
 test("refresh process request semantics bind context coordinates to the assertion", async () => {
   const resourceType = "zcc_device_cleanup";
   const scenario = await prepareScenario(resourceType, [], raw(resourceType));
@@ -473,6 +739,50 @@ test("refresh process request semantics bind context coordinates to the assertio
     assert.ok((validateProcessRequest.errors ?? []).some((error) => {
       const params = error.params as { readonly rule?: unknown };
       return params.rule === "request_hash_join";
+    }));
+  } finally {
+    cleanupScenario(scenario);
+  }
+});
+
+test("acknowledgement request semantics bind context, assertion, and publication", async () => {
+  const resourceType = "zcc_forwarding_profile";
+  const scenario = await prepareScenario(
+    resourceType,
+    [{ id: "rename-id", name: "Before" }],
+    [{ id: "rename-id", name: "After" }],
+  );
+  try {
+    const publication = await publish(scenario);
+    const request = refreshAcknowledgementRequest(scenario, publication);
+    assert.equal(
+      validateProcessRequest(request),
+      true,
+      JSON.stringify(validateProcessRequest.errors),
+    );
+
+    const replay = structuredClone(request) as unknown as {
+      context: { deployment: string };
+    };
+    replay.context.deployment = "./deployment.json";
+    assert.equal(validateProcessRequest(replay), false);
+    assert.ok((validateProcessRequest.errors ?? []).some((error) => {
+      const params = error.params as { readonly rule?: unknown };
+      return params.rule === "request_hash_join";
+    }));
+
+    const mismatched = structuredClone(request) as unknown as {
+      input: {
+        publication: {
+          verification: { transition_sha256: string };
+        };
+      };
+    };
+    mismatched.input.publication.verification.transition_sha256 = "f".repeat(64);
+    assert.equal(validateProcessRequest(mismatched), false);
+    assert.ok((validateProcessRequest.errors ?? []).some((error) => {
+      const params = error.params as { readonly rule?: unknown };
+      return params.rule === "publication_hash_join";
     }));
   } finally {
     cleanupScenario(scenario);
@@ -1037,5 +1347,55 @@ test("process host routes refresh success and fail-closed workspace errors", asy
     assert.equal(readFileSync(markerPath, "utf8"), `${privateValue}\n`);
   } finally {
     cleanupScenario(failure);
+  }
+});
+
+test("process host gates and emits trusted refresh acknowledgement", async () => {
+  const resourceType = "zcc_forwarding_profile";
+  const denied = await prepareScenario(
+    resourceType,
+    [{ id: "rename-id", name: "Before" }],
+    [{ id: "rename-id", name: "After" }],
+  );
+  try {
+    const publication = await publish(denied);
+    const invocation = invokeAcknowledgementHost(denied, publication, false);
+    assert.equal(invocation.status, 2, invocation.stdout);
+    assert.equal(invocation.stderr, "");
+    assert.equal(invocation.response.status, "error");
+    assert.equal(
+      invocation.response.error?.code,
+      "EXTERNAL_APPLY_ACKNOWLEDGEMENT_REQUIRED",
+    );
+    const paths = artifactPaths(denied.candidate, resourceType);
+    assert.equal(existsSync(paths.moves), true);
+    assert.equal(existsSync(paths.pending_moves), true);
+  } finally {
+    cleanupScenario(denied);
+  }
+
+  const allowed = await prepareScenario(
+    resourceType,
+    [{ id: "rename-id", name: "Before" }],
+    [{ id: "rename-id", name: "After" }],
+  );
+  try {
+    const publication = await publish(allowed);
+    const invocation = invokeAcknowledgementHost(allowed, publication, true);
+    assert.equal(invocation.status, 0, invocation.stdout);
+    assert.equal(invocation.stderr, "");
+    assert.equal(invocation.response.status, "ok");
+    assert.equal(
+      invocation.response.result?.kind,
+      "infrawright.zcc_pull_refresh_acknowledgement",
+    );
+    const result = invocation.response.result as ZccPullRefreshAcknowledgement;
+    assert.equal(result.status, "retired");
+    assert.equal(result.evidence.apply_observed_by_engine, false);
+    const paths = artifactPaths(allowed.candidate, resourceType);
+    assert.equal(existsSync(paths.moves), false);
+    assert.equal(existsSync(paths.pending_moves), false);
+  } finally {
+    cleanupScenario(allowed);
   }
 });

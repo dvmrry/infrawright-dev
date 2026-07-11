@@ -1155,6 +1155,11 @@ def main(argv=None):
     resource_type, input_path, tenant = argv
     artifacts.validate_tenant(tenant)
     artifacts.validate_resource_type(resource_type)
+    try:
+        artifacts.assert_no_pending_moves(tenant, resource_type)
+    except RuntimeError as exc:
+        sys.stderr.write("error: %s\n" % exc)
+        return 1
     override = load_override(resource_type)
     with open(input_path, encoding="utf-8") as f:
         raw_items = json.load(f)

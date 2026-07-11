@@ -63,6 +63,7 @@ function requestIdentity(value: unknown): {
     | "seed_pull_refresh_parity"
     | "compare_pull_artifacts"
     | "materialize_pull_artifacts"
+    | "acknowledge_pull_refresh"
     | null;
 } {
   if (!isObject(value)) {
@@ -83,6 +84,7 @@ function requestIdentity(value: unknown): {
       || value.operation === "seed_pull_refresh_parity"
       || value.operation === "compare_pull_artifacts"
       || value.operation === "materialize_pull_artifacts"
+      || value.operation === "acknowledge_pull_refresh"
       ? value.operation
       : null,
   };
@@ -100,6 +102,7 @@ function errorResponse(options: {
     | "seed_pull_refresh_parity"
     | "compare_pull_artifacts"
     | "materialize_pull_artifacts"
+    | "acknowledge_pull_refresh"
     | null;
 }): ProcessErrorResponse {
   return {
@@ -200,6 +203,8 @@ async function main(): Promise<void> {
     const configuredTerraform = process.env.INFRAWRIGHT_TERRAFORM_EXECUTABLE;
     const configuredMaterializeRoot =
       process.env.INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT;
+    const allowExternalApplyAcknowledgement =
+      process.env.INFRAWRIGHT_ALLOW_EXTERNAL_APPLY_ACK === "1";
     const response = await executeRequest(parsed as ProcessRequest, {
       terraformExecutable: configuredTerraform === undefined
         || configuredTerraform.length === 0
@@ -209,6 +214,7 @@ async function main(): Promise<void> {
         || configuredMaterializeRoot.length === 0
         ? null
         : configuredMaterializeRoot,
+      allowExternalApplyAcknowledgement,
     });
     if (emit(response)) {
       process.exitCode = successExitCode(response);

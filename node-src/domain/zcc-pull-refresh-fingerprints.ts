@@ -100,6 +100,15 @@ export function zccRefreshEvidenceDigest(value: unknown): string {
   return digest(value);
 }
 
+/** Bind the complete versioned refresh publication receipt for acknowledgement. */
+export function zccPullRefreshPublicationReceiptSha(receipt: unknown): string {
+  return zccRefreshEvidenceDigest({
+    kind: "infrawright.zcc_pull_refresh_publication_receipt_digest",
+    schema_version: 1,
+    publication: receipt,
+  });
+}
+
 /** Bind the raw two-phase parity invocation coordinates before filesystem I/O. */
 export function zccPullRefreshParityRequestSha(options: {
   readonly context: {

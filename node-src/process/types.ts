@@ -13,6 +13,7 @@ import type { ZccPullArtifactSet } from "../domain/zcc-pull-artifacts.js";
 import type { ZccPullRefreshArtifactSet } from "../domain/zcc-pull-refresh.js";
 import type { ZccPullArtifactMaterialization } from "../domain/zcc-pull-materialization.js";
 import type { ZccPullRefreshMaterialization } from "../domain/zcc-pull-refresh-materialization.js";
+import type { ZccPullRefreshAcknowledgement } from "../domain/zcc-pull-refresh-acknowledgement-operation.js";
 import type { ZccPullArtifactParity } from "../domain/zcc-pull-parity.js";
 import type {
   ZccPullRefreshParity,
@@ -171,6 +172,26 @@ export type MaterializePullArtifactsProcessRequest =
   | MaterializeBootstrapPullArtifactsProcessRequest
   | MaterializeRefreshPullArtifactsProcessRequest;
 
+export interface AcknowledgePullRefreshProcessRequest {
+  readonly kind: "infrawright.process_request";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "acknowledge_pull_refresh";
+  readonly context: RootsProcessRequest["context"];
+  readonly input: {
+    readonly mode: "refresh";
+    readonly policy: "retire_exact_after_external_acknowledgement";
+    readonly tenant: string;
+    readonly resource_type: CompilePullArtifactsProcessRequest["input"]["resource_type"];
+    readonly assertion: ZccPullRefreshParity;
+    readonly publication: ZccPullRefreshMaterialization;
+    readonly acknowledgement: {
+      readonly kind: "trusted_pipeline_assertion";
+      readonly statement: "terraform_apply_succeeded";
+    };
+  };
+}
+
 export type ProcessRequest =
   | RootsProcessRequest
   | ScopePathsProcessRequest
@@ -179,7 +200,8 @@ export type ProcessRequest =
   | CompilePullArtifactsProcessRequest
   | SeedPullRefreshParityProcessRequest
   | ComparePullArtifactsProcessRequest
-  | MaterializePullArtifactsProcessRequest;
+  | MaterializePullArtifactsProcessRequest
+  | AcknowledgePullRefreshProcessRequest;
 
 export interface ProcessError {
   readonly code: string;
@@ -287,6 +309,17 @@ export interface MaterializePullArtifactsProcessSuccessResponse<
   readonly error: null;
 }
 
+export interface AcknowledgePullRefreshProcessSuccessResponse {
+  readonly kind: "infrawright.process_response";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "acknowledge_pull_refresh";
+  readonly status: "ok";
+  readonly diagnostics: readonly [];
+  readonly result: ZccPullRefreshAcknowledgement;
+  readonly error: null;
+}
+
 export type ProcessSuccessResponse =
   | RootsProcessSuccessResponse
   | ScopePathsProcessSuccessResponse
@@ -301,7 +334,8 @@ export type ProcessSuccessResponse =
     >
   | MaterializePullArtifactsProcessSuccessResponse<
       ZccPullArtifactMaterialization | ZccPullRefreshMaterialization
-    >;
+    >
+  | AcknowledgePullRefreshProcessSuccessResponse;
 
 export interface ProcessErrorResponse {
   readonly kind: "infrawright.process_response";
@@ -316,6 +350,7 @@ export interface ProcessErrorResponse {
     | "seed_pull_refresh_parity"
     | "compare_pull_artifacts"
     | "materialize_pull_artifacts"
+    | "acknowledge_pull_refresh"
     | null;
   readonly status: "error";
   readonly diagnostics: readonly [];

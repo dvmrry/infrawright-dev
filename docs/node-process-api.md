@@ -10,8 +10,9 @@ materialized plan-root enumeration, exact-catalog Zscaler saved-plan
 assessment, the strict ZCC bootstrap compile, compare, and retry-forward
 materialization operations, a read-only ZCC refresh compiler, and an
 assertion-bound imports-last ZCC refresh publisher. They establish
-the process protocol, deterministic JSON boundary, packaging, and differential
-validation pattern that later adoption operations will follow.
+an explicit ZCC post-apply acknowledgement/retirement operation, the process
+protocol, deterministic JSON boundary, packaging, and differential validation
+pattern that later adoption operations will follow.
 
 ## Runtime and Distribution
 
@@ -683,6 +684,90 @@ successful publication receipt, not apply evidence and not permission to clear
 either file. Move retirement remains intentionally deferred until a separate
 contract binds successful Terraform apply evidence.
 
+### Trusted ZCC post-apply acknowledgement
+
+Safe-move publication is completed by a separate machine operation after the
+trusted pipeline has successfully applied the saved Terraform plan and removed
+the staged import/move files from the environment root:
+
+```json
+{
+  "kind": "infrawright.process_request",
+  "schema_version": 1,
+  "request_id": "refresh-ack-127",
+  "operation": "acknowledge_pull_refresh",
+  "context": {
+    "workspace": "/workspace/deployment",
+    "deployment": "deployment.json",
+    "root_catalog": "catalogs/zscaler-root-catalog.v1.json"
+  },
+  "input": {
+    "mode": "refresh",
+    "policy": "retire_exact_after_external_acknowledgement",
+    "tenant": "prod",
+    "resource_type": "zcc_forwarding_profile",
+    "assertion": {
+      "kind": "infrawright.zcc_pull_refresh_parity",
+      "schema_version": 1
+    },
+    "publication": {
+      "kind": "infrawright.zcc_pull_refresh_materialization",
+      "schema_version": 1
+    },
+    "acknowledgement": {
+      "kind": "trusted_pipeline_assertion",
+      "statement": "terraform_apply_succeeded"
+    }
+  }
+}
+```
+
+The abbreviated assertion and publication objects must be replaced by the
+complete ready/equal parity assertion and its complete `awaiting_apply`
+publication receipt. The host must independently set both
+`INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT` and
+`INFRAWRIGHT_ALLOW_EXTERNAL_APPLY_ACK=1`. The second variable is an explicit
+capability granted only to the trusted post-apply pipeline step; it is not
+request-controlled.
+
+This contract intentionally does **not** pretend to prove Terraform execution.
+The acknowledgement is a trusted caller statement, and the result records
+`apply_observed_by_engine: false`. An unsigned JSON receipt would not be
+stronger evidence, while executing Terraform here would also require the full
+credential, plan-policy, branch-policy, post-state, and crash-recovery surface
+of a future Node apply executor. That executor can later invoke the same
+retirement kernel after observing its own successful apply.
+
+Before deletion, the operation validates and joins both embedded contracts,
+recomputes the request/context binding, recompiles the current raw ZCC
+candidate, rechecks deployment/catalog/source/parent bindings, and verifies the
+exact published tfvars, imports, optional lookup, move, marker, and reserved
+artifact states. It accepts only three retirement states:
+
+- exact move plus exact marker (`awaiting_apply`);
+- move absent plus exact marker after an interrupted retirement
+  (`retirement_prefix`);
+- both absent on an idempotent retry (`already_retired`).
+
+Any foreign state or marker-absent/move-present state fails without deletion.
+The operation unlinks only the exact move inode, syncs its parent, rechecks all
+inputs and payloads while the exact marker remains, then unlinks only the exact
+marker and syncs again. A failure after either deletion returns retryable
+`REFRESH_ACKNOWLEDGEMENT_INDETERMINATE`; the unchanged request finishes the
+remaining suffix. Final verification reads imports last.
+
+The content-free `infrawright.zcc_pull_refresh_acknowledgement` v1 result binds
+the assertion, original publication receipt digest, baseline, transition, and
+seven final artifact states. It emits no paths, bytes, move keys, import IDs,
+state addresses, credentials, or apply output. It retires only the canonical
+publisher-owned move and marker; the pipeline remains responsible for staging,
+Terraform apply, and `unstage-imports` before acknowledgement.
+
+During this transition, Python `transform` and `adopt` refuse to operate while
+the canonical pending marker exists. This prevents the legacy writer from
+deleting an unapplied move on a subsequent identical pull. Staging and
+unstaging remain available so the required apply sequence is not blocked.
+
 The result is `infrawright.zcc_pull_refresh_materialization` v1. It contains
 only the ordered roles advanced by this invocation, the initial/final
 transition states, the next action, assertion and transition hashes, and seven
@@ -707,7 +792,8 @@ Exit status is:
 - `0`: successful read operation, ready bootstrap or refresh artifacts, a ready
   refresh seed, exact materialized/bootstrap or twin-refresh parity, complete
   retry-forward bootstrap publication, complete refresh publication, an
-  awaiting-apply refresh receipt, or a clean/tolerated assessment;
+  awaiting-apply refresh receipt, a retired trusted acknowledgement, or a
+  clean/tolerated assessment;
 - `3`: schema-valid review-required bootstrap or refresh artifacts, a
   review-required refresh seed, a materialized parity difference, or a blocked
   assessment;
@@ -726,7 +812,9 @@ receipt is
 `docs/schemas/zcc-pull-artifact-materialization.schema.json`; the refresh
 pending fence and write receipt are
 `docs/schemas/zcc-pull-refresh-pending-transition.schema.json` and
-`docs/schemas/zcc-pull-refresh-materialization.schema.json`.
+`docs/schemas/zcc-pull-refresh-materialization.schema.json`; the post-apply
+retirement receipt is
+`docs/schemas/zcc-pull-refresh-acknowledgement.schema.json`.
 
 ## Transition Catalogs
 

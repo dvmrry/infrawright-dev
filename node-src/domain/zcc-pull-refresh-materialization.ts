@@ -15,6 +15,7 @@ import { TextDecoder } from "node:util";
 import {
   schemaErrorDetails,
   validateZccPullArtifactSet,
+  validateZccPullRefreshAcknowledgement,
   validateZccPullRefreshArtifactSet,
   validateZccPullRefreshMaterialization,
   validateZccPullRefreshParity,
@@ -34,6 +35,7 @@ import {
   zccRefreshBaselineFingerprint,
   zccRefreshEvidenceDigest,
   zccRefreshTransitionFingerprint,
+  zccPullRefreshPublicationReceiptSha,
 } from "./zcc-pull-refresh-fingerprints.js";
 import {
   zccPullRefreshNeutralEvidence,
@@ -168,6 +170,53 @@ export interface ZccPullRefreshMaterialization {
   readonly verification: {
     readonly candidate_request_sha256: string;
     readonly assertion_sha256: string;
+    readonly baseline_fingerprint_sha256: string;
+    readonly transition_sha256: string;
+    readonly artifacts: Readonly<Record<ArtifactRole, ZccRefreshContentState>>;
+  };
+}
+
+export type ZccPullRefreshRetirementInitial =
+  | "awaiting_apply"
+  | "retirement_prefix"
+  | "already_retired";
+
+export interface ZccPullRefreshAcknowledgementHooks {
+  readonly afterMoveRemove?: () => void | Promise<void>;
+  readonly beforeMarkerRemove?: () => void | Promise<void>;
+  readonly afterMarkerRemove?: () => void | Promise<void>;
+  readonly beforeFinalCas?: () => void | Promise<void>;
+}
+
+export interface ZccPullRefreshExternalApplyAcknowledgement {
+  readonly kind: "trusted_pipeline_assertion";
+  readonly statement: "terraform_apply_succeeded";
+}
+
+export interface ZccPullRefreshAcknowledgement {
+  readonly kind: "infrawright.zcc_pull_refresh_acknowledgement";
+  readonly schema_version: 1;
+  readonly mode: "refresh";
+  readonly product: "zcc";
+  readonly resource_type: ZccPullArtifactSet["resource_type"];
+  readonly tenant: string;
+  readonly status: "retired";
+  readonly evidence: {
+    readonly kind: "trusted_pipeline_assertion";
+    readonly statement: "terraform_apply_succeeded";
+    readonly apply_observed_by_engine: false;
+  };
+  readonly retirement: {
+    readonly policy: "retire_exact_after_external_acknowledgement";
+    readonly initial: ZccPullRefreshRetirementInitial;
+    readonly removed: readonly ("moves" | "pending_moves")[];
+    readonly final: "retired";
+    readonly next_action: "none";
+  };
+  readonly verification: {
+    readonly candidate_request_sha256: string;
+    readonly assertion_sha256: string;
+    readonly publication_receipt_sha256: string;
     readonly baseline_fingerprint_sha256: string;
     readonly transition_sha256: string;
     readonly artifacts: Readonly<Record<ArtifactRole, ZccRefreshContentState>>;
@@ -316,6 +365,26 @@ export function snapshotZccPullRefreshMaterializationAssertion(
       category: "domain",
       message: "refresh parity assertion failed its versioned contract",
       details: schemaErrorDetails(validateZccPullRefreshParity.errors),
+    });
+  }
+  return snapshot;
+}
+
+/** Snapshot and validate the complete publication receipt before acknowledgement. */
+export function snapshotZccPullRefreshPublicationReceipt(
+  publication: unknown,
+): ZccPullRefreshMaterialization {
+  const snapshot = snapshotJson(publication, {
+    nodes: 0,
+    bytes: 0,
+    maxBytes: MAX_ASSERTION_BYTES,
+  }) as ZccPullRefreshMaterialization;
+  if (!validateZccPullRefreshMaterialization(snapshot)) {
+    throw new ProcessFailure({
+      code: "INVALID_REFRESH_PUBLICATION_RECEIPT",
+      category: "domain",
+      message: "refresh publication receipt failed its versioned contract",
+      details: schemaErrorDetails(validateZccPullRefreshMaterialization.errors),
     });
   }
   return snapshot;
@@ -1477,6 +1546,94 @@ function snapshotHooks(value: unknown): ZccPullRefreshMaterializationHooks | und
   });
 }
 
+function snapshotAcknowledgementHooks(
+  value: unknown,
+): ZccPullRefreshAcknowledgementHooks | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return fail("INVALID_REFRESH_ACKNOWLEDGEMENT_INPUT", "refresh acknowledgement hooks are invalid");
+  }
+  const afterMoveRemove = ownFunction<() => void | Promise<void>>(
+    value,
+    "afterMoveRemove",
+  );
+  const beforeMarkerRemove = ownFunction<() => void | Promise<void>>(
+    value,
+    "beforeMarkerRemove",
+  );
+  const afterMarkerRemove = ownFunction<() => void | Promise<void>>(
+    value,
+    "afterMarkerRemove",
+  );
+  const beforeFinalCas = ownFunction<() => void | Promise<void>>(
+    value,
+    "beforeFinalCas",
+  );
+  return Object.freeze({
+    ...(afterMoveRemove === undefined ? {} : { afterMoveRemove }),
+    ...(beforeMarkerRemove === undefined ? {} : { beforeMarkerRemove }),
+    ...(afterMarkerRemove === undefined ? {} : { afterMarkerRemove }),
+    ...(beforeFinalCas === undefined ? {} : { beforeFinalCas }),
+  });
+}
+
+function snapshotExternalApplyAcknowledgement(
+  value: unknown,
+): ZccPullRefreshExternalApplyAcknowledgement {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return fail(
+      "INVALID_REFRESH_ACKNOWLEDGEMENT_INPUT",
+      "external apply acknowledgement must be an object",
+    );
+  }
+  const prototype = Object.getPrototypeOf(value) as unknown;
+  const record = value as Readonly<Record<string, unknown>>;
+  const keys = Reflect.ownKeys(value);
+  if (
+    (prototype !== Object.prototype && prototype !== null)
+    || keys.length !== 2
+    || !keys.every((key) => typeof key === "string")
+    || !keys.includes("kind")
+    || !keys.includes("statement")
+  ) {
+    return fail(
+      "INVALID_REFRESH_ACKNOWLEDGEMENT_INPUT",
+      "external apply acknowledgement must contain exactly kind and statement",
+    );
+  }
+  const kind = ownDataValue(record, "kind");
+  const statement = ownDataValue(record, "statement");
+  if (
+    kind !== "trusted_pipeline_assertion"
+    || statement !== "terraform_apply_succeeded"
+  ) {
+    return fail(
+      "INVALID_REFRESH_ACKNOWLEDGEMENT_INPUT",
+      "external apply acknowledgement statement is unsupported",
+    );
+  }
+  return Object.freeze({ kind, statement });
+}
+
+async function invokeAcknowledgementHook(
+  hook: (() => void | Promise<void>) | undefined,
+): Promise<void> {
+  if (hook === undefined) {
+    return;
+  }
+  try {
+    await hook();
+  } catch {
+    return fail(
+      "REFRESH_ACKNOWLEDGEMENT_HOOK_FAILED",
+      "refresh acknowledgement test hook failed",
+      "internal",
+    );
+  }
+}
+
 function markerFor(options: {
   readonly candidate: ZccPullArtifactSet;
   readonly assertion: ZccPullRefreshParity;
@@ -1943,5 +2100,449 @@ export async function materializeReadyZccPullRefresh(options: {
       );
     }
     return fail("REFRESH_MATERIALIZATION_FAILED", "refresh materialization failed safely", "io");
+  }
+}
+
+function requireAcknowledgementReceipt(options: {
+  readonly candidate: ZccPullArtifactSet;
+  readonly assertion: ZccPullRefreshParity;
+  readonly publication: ZccPullRefreshMaterialization;
+  readonly expectedBinding: ZccPullRefreshParityBindingEvidence;
+  readonly specs: Readonly<Record<ArtifactRole, ArtifactSpec>>;
+  readonly expectedMarkerState: ZccRefreshContentState;
+}): void {
+  requireReadyInputs({
+    candidate: options.candidate,
+    assertion: options.assertion,
+    expectedBinding: options.expectedBinding,
+  });
+  const publication = options.publication;
+  const artifacts = publication.verification.artifacts;
+  if (
+    publication.status !== "awaiting_apply"
+    || publication.transition.final !== "committed"
+    || publication.transition.next_action !== "apply_moves_then_ack"
+    || publication.resource_type !== options.candidate.resource_type
+    || publication.tenant !== options.candidate.tenant
+    || publication.verification.candidate_request_sha256
+      !== options.expectedBinding.request_sha256
+    || publication.verification.assertion_sha256
+      !== options.assertion.assertion_sha256
+    || publication.verification.baseline_fingerprint_sha256
+      !== options.assertion.candidate.baseline_fingerprint_sha256
+    || publication.verification.transition_sha256
+      !== options.assertion.candidate.transition_sha256
+    || options.assertion.candidate.moves.safe_count <= 0
+    || options.specs.moves.desired.state !== "present"
+    || !sameState(artifacts.tfvars, options.specs.tfvars.desired)
+    || !sameState(artifacts.imports, options.specs.imports.desired)
+    || !sameState(artifacts.lookup, options.specs.lookup.desired)
+    || !sameState(artifacts.moves, options.specs.moves.desired)
+    || !sameState(artifacts.pending_moves, options.expectedMarkerState)
+    || artifacts.alternate_hcl.state !== "absent"
+    || artifacts.generated_bindings.state !== "absent"
+  ) {
+    return fail(
+      "REFRESH_ACKNOWLEDGEMENT_RECEIPT_MISMATCH",
+      "refresh acknowledgement request does not join its awaiting-apply receipt",
+    );
+  }
+}
+
+function verifyAcknowledgementPayloadStates(
+  current: Readonly<Record<ArtifactRole, BoundContent>>,
+  specs: Readonly<Record<ArtifactRole, ArtifactSpec>>,
+): void {
+  for (const role of ["lookup", "tfvars", "imports"] as const) {
+    if (!sameState(current[role].state, specs[role].desired)) {
+      return fail(
+        "REFRESH_ACKNOWLEDGEMENT_PAYLOAD_CHANGED",
+        "a published refresh payload changed before acknowledgement",
+        "io",
+      );
+    }
+  }
+  if (
+    current.alternate_hcl.state.state !== "absent"
+    || current.generated_bindings.state.state !== "absent"
+  ) {
+    return fail(
+      "REFRESH_ACKNOWLEDGEMENT_RESERVED_ARTIFACT",
+      "refresh acknowledgement found a reserved artifact",
+      "io",
+    );
+  }
+}
+
+function classifyAcknowledgementState(options: {
+  readonly current: Readonly<Record<ArtifactRole, BoundContent>>;
+  readonly specs: Readonly<Record<ArtifactRole, ArtifactSpec>>;
+  readonly expectedMarkerBytes: Buffer;
+}): ZccPullRefreshRetirementInitial {
+  verifyAcknowledgementPayloadStates(options.current, options.specs);
+  const move = options.current.moves.state;
+  const expectedMove = options.specs.moves.desired;
+  const marker = markerObservation(
+    options.current.pending_moves,
+    options.expectedMarkerBytes,
+  );
+  const moveIsExact = sameState(move, expectedMove);
+  const moveIsAbsent = move.state === "absent";
+  if (moveIsExact && marker === "exact") {
+    return "awaiting_apply";
+  }
+  if (moveIsAbsent && marker === "exact") {
+    return "retirement_prefix";
+  }
+  if (moveIsAbsent && marker === "absent") {
+    return "already_retired";
+  }
+  if (moveIsExact && marker === "absent") {
+    return fail(
+      "REFRESH_ACKNOWLEDGEMENT_MARKER_MISSING",
+      "refresh moves cannot be retired without their exact pending marker",
+      "io",
+    );
+  }
+  return fail(
+    "AMBIGUOUS_REFRESH_ACKNOWLEDGEMENT_STATE",
+    "refresh move or marker state is foreign to the acknowledged transition",
+    "io",
+  );
+}
+
+async function unlinkExactAcknowledgementArtifact(options: {
+  readonly spec: ArtifactSpec;
+  readonly expected: ZccRefreshContentState;
+  readonly bound: BoundContent;
+  readonly parent: DirectoryBinding;
+  readonly onRemoved: () => void;
+}): Promise<void> {
+  if (options.bound.metadata === null || options.expected.state !== "present") {
+    return fail(
+      "INTERNAL_ERROR",
+      "refresh acknowledgement unlink binding is incomplete",
+      "internal",
+    );
+  }
+  const rebound = await verifyExactState(
+    options.spec,
+    options.expected,
+    options.bound.metadata,
+  );
+  await recheckParent(options.parent, true);
+  await verifyExactState(options.spec, options.expected, rebound.metadata);
+  try {
+    await unlink(options.spec.absolutePath);
+    options.onRemoved();
+  } catch {
+    return fail(
+      "REFRESH_ACKNOWLEDGEMENT_RETIRE_FAILED",
+      "an exact refresh acknowledgement artifact could not be retired",
+      "io",
+    );
+  }
+  await refreshParent(options.parent);
+  await syncParent(options.spec.parentPath);
+}
+
+function verifyRetirementPrefix(options: {
+  readonly current: Readonly<Record<ArtifactRole, BoundContent>>;
+  readonly specs: Readonly<Record<ArtifactRole, ArtifactSpec>>;
+  readonly expectedMarkerBytes: Buffer;
+}): void {
+  verifyAcknowledgementPayloadStates(options.current, options.specs);
+  if (
+    options.current.moves.state.state !== "absent"
+    || markerObservation(options.current.pending_moves, options.expectedMarkerBytes)
+      !== "exact"
+  ) {
+    return fail(
+      "REFRESH_ACKNOWLEDGEMENT_PREFIX_CHANGED",
+      "refresh acknowledgement retirement prefix changed",
+      "io",
+    );
+  }
+}
+
+function verifyRetiredState(
+  current: Readonly<Record<ArtifactRole, BoundContent>>,
+  specs: Readonly<Record<ArtifactRole, ArtifactSpec>>,
+): void {
+  verifyAcknowledgementPayloadStates(current, specs);
+  if (
+    current.moves.state.state !== "absent"
+    || current.pending_moves.state.state !== "absent"
+  ) {
+    return fail(
+      "REFRESH_ACKNOWLEDGEMENT_FINAL_VERIFICATION_FAILED",
+      "refresh move retirement is incomplete",
+      "io",
+    );
+  }
+}
+
+/** Retire exact refresh move evidence after a trusted external apply assertion. */
+export async function acknowledgeReadyZccPullRefresh(options: {
+  readonly outputRoot: string;
+  readonly pathBase: string;
+  readonly candidate: ZccPullArtifactSet;
+  readonly assertion: ZccPullRefreshParity;
+  readonly publication: ZccPullRefreshMaterialization;
+  readonly policy: "retire_exact_after_external_acknowledgement";
+  readonly acknowledgement: ZccPullRefreshExternalApplyAcknowledgement;
+  readonly expectedBinding: ZccPullRefreshParityBindingEvidence;
+  readonly currentBinding: () => Promise<ZccPullRefreshParityBindingEvidence>;
+  readonly recheckImmutableInputs: () => Promise<void>;
+  readonly allowExternalApplyAcknowledgement: boolean;
+  readonly hooks?: ZccPullRefreshAcknowledgementHooks;
+}): Promise<ZccPullRefreshAcknowledgement> {
+  const input = inertOptionsRecord(options as unknown);
+  const candidate = snapshotCandidate(ownDataValue(input, "candidate"));
+  const assertion = snapshotZccPullRefreshMaterializationAssertion(
+    ownDataValue(input, "assertion"),
+  );
+  const publication = snapshotZccPullRefreshPublicationReceipt(
+    ownDataValue(input, "publication"),
+  );
+  const policy = ownDataValue(input, "policy");
+  const acknowledgement = snapshotExternalApplyAcknowledgement(
+    ownDataValue(input, "acknowledgement"),
+  );
+  const expectedBinding = snapshotBinding(ownDataValue(input, "expectedBinding"));
+  const outputRoot = ownDataValue(input, "outputRoot");
+  const pathBase = ownDataValue(input, "pathBase");
+  const currentBinding = ownFunction<
+    () => Promise<ZccPullRefreshParityBindingEvidence>
+  >(input, "currentBinding");
+  const recheckImmutableInputs = ownFunction<() => Promise<void>>(
+    input,
+    "recheckImmutableInputs",
+  );
+  const allowExternalApplyAcknowledgement = ownDataValue(
+    input,
+    "allowExternalApplyAcknowledgement",
+  );
+  const hooks = snapshotAcknowledgementHooks(
+    ownDataValue(input, "hooks", true),
+  );
+  if (
+    typeof outputRoot !== "string"
+    || typeof pathBase !== "string"
+    || policy !== "retire_exact_after_external_acknowledgement"
+    || currentBinding === undefined
+    || recheckImmutableInputs === undefined
+  ) {
+    return fail(
+      "INVALID_REFRESH_ACKNOWLEDGEMENT_INPUT",
+      "refresh acknowledgement input is invalid",
+    );
+  }
+  // This check deliberately precedes every filesystem call, including path
+  // canonicalization. It is a host capability, not apply evidence.
+  if (allowExternalApplyAcknowledgement !== true) {
+    return fail(
+      "EXTERNAL_APPLY_ACKNOWLEDGEMENT_REQUIRED",
+      "refresh retirement requires the trusted external-apply acknowledgement capability",
+    );
+  }
+  requireReadyInputs({ candidate, assertion, expectedBinding });
+  const root = await bindOutputRoot(outputRoot);
+  const specs = buildSpecs({ outputRoot, pathBase, candidate, assertion });
+  const baseline = baselineWithPaths(specs);
+  if (baseline.fingerprint_sha256 !== assertion.candidate.baseline_fingerprint_sha256) {
+    return fail(
+      "REFRESH_ACKNOWLEDGEMENT_ASSERTION_MISMATCH",
+      "asserted baseline fingerprint does not join acknowledgement paths",
+    );
+  }
+  const marker = markerFor({ candidate, assertion, expectedBinding, specs });
+  const expectedMarkerBytes = markerBytes(marker);
+  const expectedMarkerState = stateFor(expectedMarkerBytes);
+  requireAcknowledgementReceipt({
+    candidate,
+    assertion,
+    publication,
+    expectedBinding,
+    specs,
+    expectedMarkerState,
+  });
+  const publicationReceiptSha256 = zccPullRefreshPublicationReceiptSha(publication);
+  const parents = await bindParents(
+    root,
+    Object.values(specs).map((spec) => spec.absolutePath),
+  );
+  const initialCurrent = await readAllStates(specs);
+  const initial = classifyAcknowledgementState({
+    current: initialCurrent,
+    specs,
+    expectedMarkerBytes,
+  });
+  const removed: Array<"moves" | "pending_moves"> = [];
+  let mutationCount = 0;
+  try {
+    await recheckExternalBindings({
+      expectedBinding,
+      currentBinding,
+      recheckImmutableInputs,
+    });
+    for (const parent of parents.values()) {
+      await recheckParent(parent, false);
+    }
+    const current = await readAllStates(specs, initialCurrent);
+    const reboundInitial = classifyAcknowledgementState({
+      current,
+      specs,
+      expectedMarkerBytes,
+    });
+    if (reboundInitial !== initial) {
+      return fail(
+        "REFRESH_ACKNOWLEDGEMENT_STATE_CHANGED",
+        "refresh acknowledgement state changed after binding",
+        "io",
+      );
+    }
+
+    if (initial === "awaiting_apply") {
+      const moveParent = parents.get(specs.moves.parentPath);
+      if (moveParent === undefined) {
+        return fail("INTERNAL_ERROR", "refresh move parent binding is missing", "internal");
+      }
+      await unlinkExactAcknowledgementArtifact({
+        spec: specs.moves,
+        expected: specs.moves.desired,
+        bound: current.moves,
+        parent: moveParent,
+        onRemoved: () => {
+          mutationCount += 1;
+        },
+      });
+      removed.push("moves");
+      await invokeAcknowledgementHook(hooks?.afterMoveRemove);
+    }
+
+    await recheckExternalBindings({
+      expectedBinding,
+      currentBinding,
+      recheckImmutableInputs,
+    });
+    for (const parent of parents.values()) {
+      await recheckParent(parent, true);
+    }
+    const beforeMarker = await readAllStates(specs);
+    if (initial !== "already_retired") {
+      verifyRetirementPrefix({
+        current: beforeMarker,
+        specs,
+        expectedMarkerBytes,
+      });
+      await invokeAcknowledgementHook(hooks?.beforeMarkerRemove);
+      await recheckExternalBindings({
+        expectedBinding,
+        currentBinding,
+        recheckImmutableInputs,
+      });
+      for (const parent of parents.values()) {
+        await recheckParent(parent, true);
+      }
+      const markerRebound = await readAllStates(specs, beforeMarker);
+      verifyRetirementPrefix({
+        current: markerRebound,
+        specs,
+        expectedMarkerBytes,
+      });
+      const markerParent = parents.get(specs.pending_moves.parentPath);
+      if (markerParent === undefined) {
+        return fail("INTERNAL_ERROR", "pending marker parent binding is missing", "internal");
+      }
+      await unlinkExactAcknowledgementArtifact({
+        spec: specs.pending_moves,
+        expected: expectedMarkerState,
+        bound: markerRebound.pending_moves,
+        parent: markerParent,
+        onRemoved: () => {
+          mutationCount += 1;
+        },
+      });
+      removed.push("pending_moves");
+      await invokeAcknowledgementHook(hooks?.afterMarkerRemove);
+    } else {
+      verifyRetiredState(beforeMarker, specs);
+    }
+
+    await invokeAcknowledgementHook(hooks?.beforeFinalCas);
+    await recheckExternalBindings({
+      expectedBinding,
+      currentBinding,
+      recheckImmutableInputs,
+    });
+    for (const parent of parents.values()) {
+      await recheckParent(parent, true);
+    }
+    const final = await readAllStates(specs);
+    verifyRetiredState(final, specs);
+    const result: ZccPullRefreshAcknowledgement = {
+      kind: "infrawright.zcc_pull_refresh_acknowledgement" as const,
+      schema_version: 1 as const,
+      mode: "refresh" as const,
+      product: "zcc" as const,
+      resource_type: candidate.resource_type,
+      tenant: candidate.tenant,
+      status: "retired" as const,
+      evidence: Object.freeze({
+        kind: acknowledgement.kind,
+        statement: acknowledgement.statement,
+        apply_observed_by_engine: false as const,
+      }),
+      retirement: Object.freeze({
+        policy,
+        initial,
+        removed: Object.freeze([...removed]),
+        final: "retired" as const,
+        next_action: "none" as const,
+      }),
+      verification: Object.freeze({
+        candidate_request_sha256: expectedBinding.request_sha256,
+        assertion_sha256: assertion.assertion_sha256,
+        publication_receipt_sha256: publicationReceiptSha256,
+        baseline_fingerprint_sha256: assertion.candidate.baseline_fingerprint_sha256,
+        transition_sha256: assertion.candidate.transition_sha256,
+        artifacts: Object.freeze({
+          tfvars: final.tfvars.state,
+          imports: final.imports.state,
+          lookup: final.lookup.state,
+          moves: final.moves.state,
+          pending_moves: final.pending_moves.state,
+          alternate_hcl: final.alternate_hcl.state,
+          generated_bindings: final.generated_bindings.state,
+        }),
+      }),
+    };
+    if (!validateZccPullRefreshAcknowledgement(result)) {
+      throw new ProcessFailure({
+        code: "INVALID_REFRESH_ACKNOWLEDGEMENT_RESULT",
+        category: "internal",
+        message: "refresh acknowledgement result failed its versioned contract",
+        details: schemaErrorDetails(validateZccPullRefreshAcknowledgement.errors),
+      });
+    }
+    return Object.freeze(result);
+  } catch (error: unknown) {
+    if (mutationCount > 0) {
+      return fail(
+        "REFRESH_ACKNOWLEDGEMENT_INDETERMINATE",
+        "refresh acknowledgement stopped after retiring an exact artifact; retry to finish forward",
+        "io",
+        true,
+      );
+    }
+    if (error instanceof ProcessFailure) {
+      throw error;
+    }
+    return fail(
+      "REFRESH_ACKNOWLEDGEMENT_FAILED",
+      "refresh acknowledgement failed safely before retirement",
+      "io",
+    );
   }
 }

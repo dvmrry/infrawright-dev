@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from engine import adopt
+from engine import artifacts
 from engine import packs
 from engine import registry
 from engine.drift_policy import DriftPolicy
@@ -237,6 +238,53 @@ class AdoptCommandTest(unittest.TestCase):
                 encoding="utf-8",
         ) as f:
             self.assertEqual(f.read(), "")
+
+    def test_pending_move_transition_refuses_adopt_without_mutation(self):
+        input_path = os.path.join(self.tmp, "api.json")
+        _write_json(input_path, [{"id": "123", "name": "Renamed App"}])
+
+        def fail_import_state(resource_type, key_to_import_id,
+                              policy=None, raw_items=None):
+            raise AssertionError("pending adoption must stop before the oracle")
+
+        adopt.import_state = fail_import_state
+        paths_and_bytes = [
+            (
+                artifacts.config_file("tenant", "sample_resource"),
+                b'old tfvars with SECRET-TFVARS\n',
+            ),
+            (
+                artifacts.imports_file("tenant", "sample_resource"),
+                b'old imports with SECRET-IMPORTS\n',
+            ),
+            (
+                artifacts.moves_file("tenant", "sample_resource"),
+                b'old moves with SECRET-MOVES\n',
+            ),
+            (
+                artifacts.pending_moves_file("tenant", "sample_resource"),
+                b'{"secret":"SECRET-MARKER"}\n',
+            ),
+        ]
+        for path, content in paths_and_bytes:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(content)
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code = adopt.main(["sample_resource", input_path, "tenant"])
+
+        self.assertEqual(code, 1)
+        message = stderr.getvalue()
+        self.assertIn("pending move transition for sample_resource", message)
+        self.assertIn(
+            "applied and acknowledged before transform or adopt", message
+        )
+        self.assertNotIn("SECRET", message)
+        for path, expected in paths_and_bytes:
+            with open(path, "rb") as f:
+                self.assertEqual(f.read(), expected)
 
     def test_constant_key_singleton_adopts_without_identity_field(self):
         _write_json(os.path.join(self.tmp, "packs", "sample", "registry.json"), {

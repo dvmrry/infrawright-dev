@@ -5,6 +5,7 @@
   "$comment": "Custom Infrawright request semantics are required for assertion-bearing operations. Structural JSON Schema validation alone is insufficient: implementations must bind requested coordinates and raw contexts to their complete assertions before operation I/O.",
   "type": "object",
   "x-infrawright-zcc-pull-refresh-materialization-request-semantics": true,
+  "x-infrawright-zcc-pull-refresh-acknowledgement-request-semantics": true,
   "additionalProperties": false,
   "required": [
     "kind",
@@ -35,7 +36,8 @@
         "compile_pull_artifacts",
         "seed_pull_refresh_parity",
         "compare_pull_artifacts",
-        "materialize_pull_artifacts"
+        "materialize_pull_artifacts",
+        "acknowledge_pull_refresh"
       ]
     },
     "context": {
@@ -63,6 +65,9 @@
         },
         {
           "$ref": "#/$defs/materializePullArtifactsInput"
+        },
+        {
+          "$ref": "#/$defs/acknowledgePullRefreshInput"
         }
       ]
     }
@@ -145,6 +150,16 @@
         },
         "input": {
           "$ref": "#/$defs/materializePullArtifactsInput"
+        }
+      }
+    },
+    {
+      "properties": {
+        "operation": {
+          "const": "acknowledge_pull_refresh"
+        },
+        "input": {
+          "$ref": "#/$defs/acknowledgePullRefreshInput"
         }
       }
     }
@@ -530,6 +545,104 @@
               }
             }
           ]
+        }
+      }
+    },
+    "acknowledgePullRefreshInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "policy",
+        "tenant",
+        "resource_type",
+        "assertion",
+        "publication",
+        "acknowledgement"
+      ],
+      "properties": {
+        "mode": {
+          "const": "refresh"
+        },
+        "policy": {
+          "const": "retire_exact_after_external_acknowledgement"
+        },
+        "tenant": {
+          "type": "string",
+          "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+        },
+        "resource_type": {
+          "$ref": "zcc-pull-artifact-set.schema.json#/$defs/resourceType"
+        },
+        "assertion": {
+          "allOf": [
+            {
+              "$ref": "zcc-pull-refresh-parity.schema.json"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "const": "ready"
+                },
+                "candidate": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "const": "ready"
+                    }
+                  }
+                },
+                "parity": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "const": "equal"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "publication": {
+          "allOf": [
+            {
+              "$ref": "zcc-pull-refresh-materialization.schema.json"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "const": "awaiting_apply"
+                },
+                "transition": {
+                  "type": "object",
+                  "properties": {
+                    "final": {
+                      "const": "committed"
+                    },
+                    "next_action": {
+                      "const": "apply_moves_then_ack"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "acknowledgement": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "statement"],
+          "properties": {
+            "kind": {
+              "const": "trusted_pipeline_assertion"
+            },
+            "statement": {
+              "const": "terraform_apply_succeeded"
+            }
+          }
         }
       }
     }
