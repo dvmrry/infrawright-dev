@@ -52,7 +52,7 @@ async function readRequest(): Promise<string> {
 
 function requestIdentity(value: unknown): {
   requestId: string | null;
-  operation: "roots" | "scope_paths" | null;
+  operation: "roots" | "scope_paths" | "plan_roots" | null;
 } {
   if (!isObject(value)) {
     return { requestId: null, operation: null };
@@ -64,7 +64,9 @@ function requestIdentity(value: unknown): {
     : null;
   return {
     requestId,
-    operation: value.operation === "roots" || value.operation === "scope_paths"
+    operation: value.operation === "roots"
+      || value.operation === "scope_paths"
+      || value.operation === "plan_roots"
       ? value.operation
       : null,
   };
@@ -73,7 +75,7 @@ function requestIdentity(value: unknown): {
 function errorResponse(options: {
   failure: ProcessFailure;
   requestId: string | null;
-  operation: "roots" | "scope_paths" | null;
+  operation: "roots" | "scope_paths" | "plan_roots" | null;
 }): ProcessErrorResponse {
   return {
     kind: "infrawright.process_response",

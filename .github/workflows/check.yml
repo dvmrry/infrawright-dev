@@ -94,6 +94,46 @@ jobs:
               "zpa_application_segment",
           ]
           PY
+          mkdir -p "$root/artifacts/envs/prod/zpa_application_segment"
+          touch "$root/artifacts/envs/prod/zpa_application_segment/tfplan"
+          touch "$root/artifacts/envs/prod/zpa_application_segment/tfplan.sources"
+          python3 - "$GITHUB_WORKSPACE" "$root" > "$root/request.json" <<'PY'
+          import json
+          import os
+          import sys
+
+          workspace, root = sys.argv[1:]
+          deployment = os.path.join(root, "deployment.json")
+          with open(deployment, "w", encoding="utf-8") as f:
+              json.dump({"overlay": os.path.join(root, "artifacts")}, f)
+          json.dump({
+              "kind": "infrawright.process_request",
+              "schema_version": 1,
+              "request_id": "ci-plan-roots-smoke",
+              "operation": "plan_roots",
+              "context": {
+                  "workspace": workspace,
+                  "deployment": deployment,
+                  "root_catalog": "catalogs/zscaler-root-catalog.v1.json",
+              },
+              "input": {
+                  "tenant": "prod",
+                  "selectors": ["zpa/application_segment"],
+              },
+          }, sys.stdout)
+          PY
+          (cd "$root" && node infrawright.mjs < request.json > response.json)
+          python3 - "$root/response.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as f:
+              response = json.load(f)
+          assert response["status"] == "ok", response
+          assert response["result"]["kind"] == "infrawright.plan_roots"
+          assert len(response["result"]["roots"]) == 1
+          assert response["result"]["roots"][0]["artifact_state"] == "complete"
+          PY
       - name: Whitespace hygiene
         run: git diff --check
 

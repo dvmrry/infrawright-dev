@@ -1,5 +1,6 @@
 import type {
   ChangedPathScope,
+  PlanRoots,
   RootTopology,
   WholeRootDiagnostic,
 } from "../domain/types.js";
@@ -32,7 +33,19 @@ export interface ScopePathsProcessRequest {
   };
 }
 
-export type ProcessRequest = RootsProcessRequest | ScopePathsProcessRequest;
+export interface PlanRootsProcessRequest {
+  readonly kind: "infrawright.process_request";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "plan_roots";
+  readonly context: RootsProcessRequest["context"];
+  readonly input: RootsProcessRequest["input"];
+}
+
+export type ProcessRequest =
+  | RootsProcessRequest
+  | ScopePathsProcessRequest
+  | PlanRootsProcessRequest;
 
 export interface ProcessError {
   readonly code: string;
@@ -64,15 +77,27 @@ export interface ScopePathsProcessSuccessResponse {
   readonly error: null;
 }
 
+export interface PlanRootsProcessSuccessResponse {
+  readonly kind: "infrawright.process_response";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "plan_roots";
+  readonly status: "ok";
+  readonly diagnostics: readonly WholeRootDiagnostic[];
+  readonly result: PlanRoots;
+  readonly error: null;
+}
+
 export type ProcessSuccessResponse =
   | RootsProcessSuccessResponse
-  | ScopePathsProcessSuccessResponse;
+  | ScopePathsProcessSuccessResponse
+  | PlanRootsProcessSuccessResponse;
 
 export interface ProcessErrorResponse {
   readonly kind: "infrawright.process_response";
   readonly schema_version: 1;
   readonly request_id: string | null;
-  readonly operation: "roots" | "scope_paths" | null;
+  readonly operation: "roots" | "scope_paths" | "plan_roots" | null;
   readonly status: "error";
   readonly diagnostics: readonly [];
   readonly result: null;

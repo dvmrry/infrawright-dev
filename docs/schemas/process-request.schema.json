@@ -27,7 +27,8 @@
     "operation": {
       "enum": [
         "roots",
-        "scope_paths"
+        "scope_paths",
+        "plan_roots"
       ]
     },
     "context": {
@@ -44,27 +45,34 @@
       ]
     }
   },
-  "allOf": [
+  "oneOf": [
     {
-      "if": {
-        "properties": {
-          "operation": {
-            "const": "roots"
-          }
+      "properties": {
+        "operation": {
+          "const": "roots"
+        },
+        "input": {
+          "$ref": "#/$defs/rootsInput"
         }
-      },
-      "then": {
-        "properties": {
-          "input": {
-            "$ref": "#/$defs/rootsInput"
-          }
+      }
+    },
+    {
+      "properties": {
+        "operation": {
+          "const": "scope_paths"
+        },
+        "input": {
+          "$ref": "#/$defs/scopePathsInput"
         }
-      },
-      "else": {
-        "properties": {
-          "input": {
-            "$ref": "#/$defs/scopePathsInput"
-          }
+      }
+    },
+    {
+      "properties": {
+        "operation": {
+          "const": "plan_roots"
+        },
+        "input": {
+          "$ref": "#/$defs/rootsInput"
         }
       }
     }

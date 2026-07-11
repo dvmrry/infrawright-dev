@@ -143,8 +143,10 @@
           "then": {
             "properties": {
               "artifacts": {
+                "type": "object",
                 "properties": {
                   "tfplan": {
+                    "type": "object",
                     "properties": {
                       "exists": {
                         "const": false
@@ -152,6 +154,7 @@
                     }
                   },
                   "tfplan_sources": {
+                    "type": "object",
                     "properties": {
                       "exists": {
                         "const": false
@@ -174,8 +177,10 @@
           "then": {
             "properties": {
               "artifacts": {
+                "type": "object",
                 "properties": {
                   "tfplan": {
+                    "type": "object",
                     "properties": {
                       "exists": {
                         "const": true
@@ -183,6 +188,7 @@
                     }
                   },
                   "tfplan_sources": {
+                    "type": "object",
                     "properties": {
                       "exists": {
                         "const": true
@@ -205,10 +211,13 @@
           "then": {
             "properties": {
               "artifacts": {
+                "type": "object",
                 "oneOf": [
                   {
+                    "type": "object",
                     "properties": {
                       "tfplan": {
+                        "type": "object",
                         "properties": {
                           "exists": {
                             "const": true
@@ -216,6 +225,7 @@
                         }
                       },
                       "tfplan_sources": {
+                        "type": "object",
                         "properties": {
                           "exists": {
                             "const": false
@@ -225,8 +235,10 @@
                     }
                   },
                   {
+                    "type": "object",
                     "properties": {
                       "tfplan": {
+                        "type": "object",
                         "properties": {
                           "exists": {
                             "const": false
@@ -234,6 +246,7 @@
                         }
                       },
                       "tfplan_sources": {
+                        "type": "object",
                         "properties": {
                           "exists": {
                             "const": true

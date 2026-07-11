@@ -1,5 +1,6 @@
 import type {
   ChangedPathScope,
+  PlanRoots,
   RootTopology,
   WholeRootDiagnostic,
 } from "../domain/types.js";
@@ -20,4 +21,8 @@ export function renderLegacyRootDiagnostics(
 
 export function renderLegacyChangedPathScope(scope: ChangedPathScope): string {
   return renderPythonCompatibleJson(scope as unknown as JsonValue);
+}
+
+export function renderLegacyPlanRoots(planRoots: PlanRoots): string {
+  return renderPythonCompatibleJson(planRoots as unknown as JsonValue);
 }

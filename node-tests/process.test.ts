@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -74,6 +76,62 @@ test("process host emits one structured scope_paths response", () => {
   assert.equal(response.status, "ok");
   assert.deepEqual(response.diagnostics, []);
   assert.equal(response.result.kind, "infrawright.changed_path_scope");
+});
+
+test("process host emits one structured plan_roots response", () => {
+  const request = {
+    kind: "infrawright.process_request",
+    schema_version: 1,
+    request_id: "test-plan-roots",
+    operation: "plan_roots",
+    context: {
+      workspace: WORKSPACE,
+      deployment: "missing-deployment.json",
+      root_catalog: "catalogs/zscaler-root-catalog.v1.json",
+    },
+    input: {
+      tenant: "not-materialized",
+      selectors: ["zpa/application_segment"],
+    },
+  };
+  const result = invoke(JSON.stringify(request));
+  assert.equal(result.status, 0, String(result.stderr));
+  assert.equal(String(result.stderr), "");
+  const response = JSON.parse(String(result.stdout));
+  assert.equal(response.request_id, "test-plan-roots");
+  assert.equal(response.operation, "plan_roots");
+  assert.equal(response.result.kind, "infrawright.plan_roots");
+  assert.deepEqual(response.result.roots, []);
+});
+
+test("plan_roots rejects unknown selectors before reading deployment", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "infrawright-process-"));
+  try {
+    const deployment = path.join(directory, "deployment.json");
+    writeFileSync(deployment, "{");
+    const result = invoke(JSON.stringify({
+      kind: "infrawright.process_request",
+      schema_version: 1,
+      request_id: "plan-roots-order",
+      operation: "plan_roots",
+      context: {
+        workspace: WORKSPACE,
+        deployment,
+        root_catalog: "catalogs/zscaler-root-catalog.v1.json",
+      },
+      input: {
+        tenant: null,
+        selectors: ["not_a_resource"],
+      },
+    }));
+    assert.equal(result.status, 2);
+    assert.equal(
+      JSON.parse(String(result.stdout)).error.code,
+      "UNKNOWN_RESOURCE_SELECTOR",
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("scope_paths resolves relative contract paths from context.workspace", () => {
@@ -190,6 +248,11 @@ test("request schema binds each operation to its input shape", () => {
   }), false);
   assert.equal(validateProcessRequest({
     ...base,
+    operation: "plan_roots",
+    input: { paths: [] },
+  }), false);
+  assert.equal(validateProcessRequest({
+    ...base,
     operation: "scope_paths",
     input: { tenant: null, selectors: [] },
   }), false);
@@ -220,6 +283,24 @@ test("response schema binds scope_paths success to an empty diagnostic set", () 
       unmatched_paths: [],
       affected_resources: [],
       affected_roots: [],
+    },
+    error: null,
+  }), false);
+});
+
+test("response schema binds plan_roots to its result contract", () => {
+  assert.equal(validateProcessResponse({
+    kind: "infrawright.process_response",
+    schema_version: 1,
+    request_id: "cross-operation",
+    operation: "roots",
+    status: "ok",
+    diagnostics: [],
+    result: {
+      kind: "infrawright.plan_roots",
+      schema_version: 1,
+      request: { tenant: null, selectors: [] },
+      roots: [],
     },
     error: null,
   }), false);

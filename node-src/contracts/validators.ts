@@ -3,6 +3,7 @@ import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.
 import processRequestSchema from "../../docs/schemas/process-request.schema.json" with { type: "json" };
 import processResponseSchema from "../../docs/schemas/process-response.schema.json" with { type: "json" };
 import changedPathScopeSchema from "../../docs/schemas/changed-path-scope.schema.json" with { type: "json" };
+import planRootsSchema from "../../docs/schemas/plan-roots.schema.json" with { type: "json" };
 import rootCatalogSchema from "../../docs/schemas/root-catalog.schema.json" with { type: "json" };
 import rootTopologySchema from "../../docs/schemas/root-topology.schema.json" with { type: "json" };
 import type { ErrorDetail } from "../domain/errors.js";
@@ -18,6 +19,7 @@ const ajv = new Ajv2020({
 
 ajv.addSchema(rootTopologySchema);
 ajv.addSchema(changedPathScopeSchema);
+ajv.addSchema(planRootsSchema);
 
 export const validateProcessRequest: ValidateFunction = ajv.compile(
   processRequestSchema,
@@ -33,6 +35,9 @@ export const validateRootTopology: ValidateFunction = ajv.getSchema(
 ) as ValidateFunction;
 export const validateChangedPathScope: ValidateFunction = ajv.getSchema(
   changedPathScopeSchema.$id,
+) as ValidateFunction;
+export const validatePlanRoots: ValidateFunction = ajv.getSchema(
+  planRootsSchema.$id,
 ) as ValidateFunction;
 
 function errorMessage(error: ErrorObject): string {

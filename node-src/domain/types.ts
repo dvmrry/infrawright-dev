@@ -91,3 +91,31 @@ export interface ChangedPathScope {
   readonly affected_resources: readonly string[];
   readonly affected_roots: readonly AffectedRoot[];
 }
+
+export interface PlanRootArtifact {
+  readonly path: string;
+  readonly exists: boolean;
+}
+
+export interface MaterializedPlanRoot {
+  readonly tenant: string;
+  readonly label: string;
+  readonly provider: string | null;
+  readonly members: readonly string[];
+  readonly env_dir: string;
+  readonly artifact_state: "absent" | "complete" | "incomplete";
+  readonly artifacts: {
+    readonly tfplan: PlanRootArtifact;
+    readonly tfplan_sources: PlanRootArtifact;
+  };
+}
+
+export interface PlanRoots {
+  readonly kind: "infrawright.plan_roots";
+  readonly schema_version: 1;
+  readonly request: {
+    readonly tenant: string | null;
+    readonly selectors: readonly string[];
+  };
+  readonly roots: readonly MaterializedPlanRoot[];
+}

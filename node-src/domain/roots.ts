@@ -29,6 +29,15 @@ function domainError(message: string, code = "INVALID_ROOT_CONFIGURATION"): neve
   throw new ProcessFailure({ code, category: "domain", message });
 }
 
+export function validateTenant(tenant: string): void {
+  if (!VALID_TENANT.test(tenant) || tenant === "." || tenant === "..") {
+    domainError(
+      `TENANT must match [A-Za-z0-9_.-]+ and not be . or .. (got '${tenant}')`,
+      "INVALID_TENANT",
+    );
+  }
+}
+
 function indexCatalog(catalog: RootCatalog): CatalogIndex {
   const resources = new Map(
     catalog.resources.map((resource) => [resource.type, resource]),
@@ -269,6 +278,13 @@ function expandResources(
   return sortedStrings(selected);
 }
 
+export function expandCatalogResources(
+  catalog: RootCatalog,
+  selectors: readonly string[],
+): string[] {
+  return expandResources(selectors, indexCatalog(catalog));
+}
+
 function tenantPath(
   deployment: Deployment,
   tenant: string,
@@ -288,18 +304,8 @@ export function rootTopology(options: {
   tenant: string | null;
   selectors: readonly string[];
 }): { topology: RootTopology; diagnostics: WholeRootDiagnostic[] } {
-  if (
-    options.tenant !== null
-    && (
-      !VALID_TENANT.test(options.tenant)
-      || options.tenant === "."
-      || options.tenant === ".."
-    )
-  ) {
-    domainError(
-      `TENANT must match [A-Za-z0-9_.-]+ and not be . or .. (got '${options.tenant}')`,
-      "INVALID_TENANT",
-    );
+  if (options.tenant !== null) {
+    validateTenant(options.tenant);
   }
   const index = indexCatalog(options.catalog);
   const resolution = resolveRoots(options.deployment, index);
