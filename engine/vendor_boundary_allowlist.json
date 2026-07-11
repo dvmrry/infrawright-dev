@@ -259,6 +259,108 @@
       "token": "zia"
     },
     {
+      "path": "engine/transform_catalog.py",
+      "pattern": "\"\"\"Build the closed ZCC transform catalog consumed by the Node host.",
+      "reason": "The reviewed transition-catalog generator intentionally freezes the first ZCC-only Node migration slice; product expansion belongs in later generated catalogs.",
+      "token": "zcc"
+    },
+    {
+      "path": "engine/transform_catalog.py",
+      "pattern": "fetch-backed ZCC transforms without invoking Python at runtime.",
+      "reason": "The reviewed transition-catalog generator intentionally freezes the first ZCC-only Node migration slice; product expansion belongs in later generated catalogs.",
+      "token": "zcc"
+    },
+    {
+      "path": "engine/transform_catalog.py",
+      "pattern": "ZCC_PRODUCT = \"zcc\"",
+      "reason": "The reviewed transition-catalog generator intentionally freezes the first ZCC-only Node migration slice; product expansion belongs in later generated catalogs.",
+      "token": "zcc"
+    },
+    {
+      "path": "engine/transform_catalog.py",
+      "pattern": "ZCC_FETCH_RESOURCES = (",
+      "reason": "The reviewed transition-catalog generator intentionally freezes the first ZCC-only Node migration slice; product expansion belongs in later generated catalogs.",
+      "token": "zcc"
+    },
+    {
+      "path": "engine/transform_catalog.py",
+      "pattern": "\"zcc_device_cleanup\",",
+      "reason": "The reviewed transition-catalog generator intentionally freezes the first ZCC-only Node migration slice; product expansion belongs in later generated catalogs.",
+      "token": "zcc"
+    },
+    {
+      "path": "engine/transform_catalog.py",
+      "pattern": "\"zcc_failopen_policy\",",
+      "reason": "The reviewed transition-catalog generator intentionally freezes the first ZCC-only Node migration slice; product expansion belongs in later generated catalogs.",
+      "token": "zcc"
+    },
+    {
+      "path": "engine/transform_catalog.py",
+      "pattern": "\"zcc_forwarding_profile\",",
+      "reason": "The reviewed transition-catalog generator intentionally freezes the first ZCC-only Node migration slice; product expansion belongs in later generated catalogs.",
+      "token": "zcc"
+    },
+    {
+      "path": "engine/transform_catalog.py",
+      "pattern": "\"zcc_trusted_network\",",
+      "reason": "The reviewed transition-catalog generator intentionally freezes the first ZCC-only Node migration slice; product expansion belongs in later generated catalogs.",
+      "token": "zcc"
+    },
+    {
+      "path": "engine/transform_catalog.py",
+      "pattern": "\"zcc_web_privacy\",",
+      "reason": "The reviewed transition-catalog generator intentionally freezes the first ZCC-only Node migration slice; product expansion belongs in later generated catalogs.",
+      "token": "zcc"
+    },
+    {
+      "path": "engine/transform_catalog.py",
+      "pattern": "if product != ZCC_PRODUCT:",
+      "reason": "The reviewed transition-catalog generator intentionally freezes the first ZCC-only Node migration slice; product expansion belongs in later generated catalogs.",
+      "token": "zcc"
+    },
+    {
+      "path": "engine/transform_catalog.py",
+      "pattern": "% (product, ZCC_PRODUCT)",
+      "reason": "The reviewed transition-catalog generator intentionally freezes the first ZCC-only Node migration slice; product expansion belongs in later generated catalogs.",
+      "token": "zcc"
+    },
+    {
+      "path": "engine/transform_catalog.py",
+      "pattern": "expected = set(ZCC_FETCH_RESOURCES)",
+      "reason": "The reviewed transition-catalog generator intentionally freezes the first ZCC-only Node migration slice; product expansion belongs in later generated catalogs.",
+      "token": "zcc"
+    },
+    {
+      "path": "engine/transform_catalog.py",
+      "pattern": "\"fetch-backed ZCC resource set changed (%s); update and review \"",
+      "reason": "The reviewed transition-catalog generator intentionally freezes the first ZCC-only Node migration slice; product expansion belongs in later generated catalogs.",
+      "token": "zcc"
+    },
+    {
+      "path": "engine/transform_catalog.py",
+      "pattern": "packs.unescape_products_for_provider(ZCC_PRODUCT)",
+      "reason": "The reviewed transition-catalog generator intentionally freezes the first ZCC-only Node migration slice; product expansion belongs in later generated catalogs.",
+      "token": "zcc"
+    },
+    {
+      "path": "engine/transform_catalog.py",
+      "pattern": "pack_dir = os.path.abspath(packs.pack_dir_for_provider(ZCC_PRODUCT))",
+      "reason": "The reviewed transition-catalog generator intentionally freezes the first ZCC-only Node migration slice; product expansion belongs in later generated catalogs.",
+      "token": "zcc"
+    },
+    {
+      "path": "engine/transform_catalog.py",
+      "pattern": "packs.schema_path_for(ZCC_PRODUCT),",
+      "reason": "The reviewed transition-catalog generator intentionally freezes the first ZCC-only Node migration slice; product expansion belongs in later generated catalogs.",
+      "token": "zcc"
+    },
+    {
+      "path": "engine/transform_catalog.py",
+      "pattern": "\"\"\"Return the closed, deterministic ZCC transform contract.\"\"\"",
+      "reason": "The reviewed transition-catalog generator intentionally freezes the first ZCC-only Node migration slice; product expansion belongs in later generated catalogs.",
+      "token": "zcc"
+    },
+    {
       "path": "engine/transform.py",
       "pattern": "# Inverted boolean APIs (ZCC failopen: 0 = ENABLED, per the",
       "reason": "Legacy transform compatibility contains Zscaler-specific provider/API shape notes; behavior is outside this audit PR.",

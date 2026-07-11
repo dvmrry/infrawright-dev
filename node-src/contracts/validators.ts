@@ -11,6 +11,7 @@ import planRootsSchema from "../../docs/schemas/plan-roots.schema.json" with { t
 import rootCatalogSchema from "../../docs/schemas/root-catalog.schema.json" with { type: "json" };
 import rootTopologySchema from "../../docs/schemas/root-topology.schema.json" with { type: "json" };
 import savedPlanAssessmentSchema from "../../docs/schemas/saved-plan-assessment.schema.json" with { type: "json" };
+import transformCatalogSchema from "../../docs/schemas/transform-catalog.schema.json" with { type: "json" };
 import type { ErrorDetail } from "../domain/errors.js";
 import {
   ASSESSMENT_SEMANTICS_KEYWORD,
@@ -38,6 +39,7 @@ ajv.addSchema(rootTopologySchema);
 ajv.addSchema(changedPathScopeSchema);
 ajv.addSchema(planRootsSchema);
 ajv.addSchema(savedPlanAssessmentSchema);
+ajv.addSchema(transformCatalogSchema);
 
 export const validateProcessRequest: ValidateFunction = ajv.compile(
   processRequestSchema,
@@ -59,6 +61,9 @@ export const validatePlanRoots: ValidateFunction = ajv.getSchema(
 ) as ValidateFunction;
 export const validateSavedPlanAssessment: ValidateFunction = ajv.getSchema(
   savedPlanAssessmentSchema.$id,
+) as ValidateFunction;
+export const validateTransformCatalog: ValidateFunction = ajv.getSchema(
+  transformCatalogSchema.$id,
 ) as ValidateFunction;
 
 function errorMessage(error: ErrorObject): string {

@@ -403,6 +403,18 @@ def _manifest_for_provider(provider):
     raise RuntimeError("no pack declares provider %r" % provider)
 
 
+def unescape_products_for_provider(provider):
+    """HTML-unescape prefixes declared by the pack that owns ``provider``.
+
+    Unlike unescape_products(), this intentionally excludes declarations from
+    unrelated installed packs.  Consumers whose provenance names one owning
+    pack can therefore derive behavior solely from that pack's validated
+    manifest.
+    """
+    manifest = _manifest_for_provider(provider)
+    return tuple(manifest.get("unescape_products", []))
+
+
 def _configure_pack_namespace():
     global _PACK_NAMESPACE_ROOT
     root = os.path.abspath(packs_root())
