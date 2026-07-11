@@ -6,10 +6,10 @@ are the audience. This is not a human command-line interface and it is not an
 HTTP service.
 
 The first slices port the read-only root-topology, changed-path scoping,
-materialized plan-root enumeration, and exact-catalog Zscaler saved-plan
-assessment operations. They establish the process protocol, deterministic JSON
-boundary, packaging, and differential validation pattern that later adoption
-operations will follow.
+materialized plan-root enumeration, exact-catalog Zscaler saved-plan
+assessment, and ZCC bootstrap artifact compilation operations. They establish
+the process protocol, deterministic JSON boundary, packaging, and differential
+validation pattern that later adoption operations will follow.
 
 ## Runtime and Distribution
 
@@ -180,6 +180,56 @@ policy loading and report production. If a request contains both an invalid
 selection and an invalid policy, the selector/domain error is therefore the
 defined process result (exit `2`), not Python CLI policy-error precedence.
 
+### ZCC bootstrap artifact compilation
+
+The first adoption-facing operation compiles one already-fetched ZCC pull into
+an immutable artifact set. It performs no provider request and writes no file:
+
+```json
+{
+  "kind": "infrawright.process_request",
+  "schema_version": 1,
+  "request_id": "zcc-bootstrap-127",
+  "operation": "compile_pull_artifacts",
+  "context": {
+    "workspace": "/workspace/deployment",
+    "deployment": "deployment.json",
+    "root_catalog": "catalogs/zscaler-root-catalog.v1.json"
+  },
+  "input": {
+    "mode": "bootstrap",
+    "tenant": "prod",
+    "resource_type": "zcc_trusted_network"
+  }
+}
+```
+
+The source path is derived, never supplied:
+`pulls/<tenant>/<resource_type>.json`. The operation accepts exactly
+`zcc_device_cleanup`, `zcc_failopen_policy`, `zcc_forwarding_profile`,
+`zcc_trusted_network`, and `zcc_web_privacy`, the exact embedded ZCC transform
+catalog, the exact all-Zscaler root catalog, integral JSON number tokens, and
+JSON tfvars deployments. The raw pull is limited to 4 MiB and its path, bytes,
+deployment, and root catalog are bound and rechecked before a result is
+returned.
+
+The result is `infrawright.zcc_pull_artifact_set` v1. It embeds, but does not
+materialize, exact paths and UTF-8 bytes for the tfvars file, import blocks,
+and the trusted-network lookup sidecar when applicable. Every descriptor binds
+its bytes with a size and SHA-256 digest; the result also records the raw-pull
+and full transform-catalog digests. `status: "review_required"` means the
+transform encountered unacknowledged API paths and produces exit `3`; the
+candidate bytes remain evidence for review and must not be promoted.
+
+`mode: "bootstrap"` is deliberately narrower than Python refresh behavior.
+Existing imports or move artifacts are refused because the Node port does not
+yet derive identity-keyed `moved {}` blocks. HCL tfvars and a forwarding
+profile grouped with its trusted-network referent while generated reference
+binding is enabled are also refused. Those cases remain on Python until their
+versioned artifact contracts and differentials land. A pipeline must validate
+the response, require `result.status == "ready"`, and atomically materialize
+the returned descriptors itself.
+
 `context.workspace` must be absolute. The other context paths may be absolute
 or workspace-relative. The process never consults
 `INFRAWRIGHT_DEPLOYMENT`, `INFRAWRIGHT_PACKS`, or its current directory.
@@ -192,8 +242,10 @@ hostnames, durations, or other nondeterministic fields are emitted.
 
 Exit status is:
 
-- `0`: successful non-assessment operation, or a clean/tolerated assessment;
-- `3`: a schema-valid blocked assessment;
+- `0`: successful read operation, ready bootstrap artifacts, or a
+  clean/tolerated assessment;
+- `3`: schema-valid review-required bootstrap artifacts or a blocked
+  assessment;
 - `2`: malformed request, deployment, catalog, or domain selection;
 - `1`: a schema-valid assessment error, or an I/O/internal host failure.
 
@@ -230,15 +282,16 @@ python3 -m engine.transform_catalog \
   --out catalogs/zcc-transform-catalog.v1.json
 ```
 
-That catalog binds the validated provider projection, the reachable transform
-overrides, and the complete Python `html.unescape` compatibility tables. The
-pure Node transform kernel accepts only the embedded catalog's exact semantics;
-it does not rediscover schemas or overrides. This checkpoint is library-only:
-there is no process operation, filesystem materialization, provider execution,
-HTTP, or credential handling until the artifact-set contract lands. Raw items
-must come from `parseDataJsonLosslessly`; native JavaScript numbers are rejected
-because they cannot distinguish JSON `1` from `1.0`, and this first checkpoint
-accepts integral numeric tokens only.
+That catalog binds the validated provider projection, reachable transform
+overrides, strict import-ID segments, lookup/reference metadata, and complete
+Python `html.unescape` compatibility tables. The pure Node transform kernel
+accepts only the embedded catalog's exact semantics; it does not rediscover
+schemas or overrides. The public compiler adds a bound filesystem adapter and
+versioned artifact-set result, but still performs no materialization, provider
+execution, HTTP, or credential handling. Raw items pass through the lossless
+pull parser; native JavaScript numbers are rejected because they cannot
+distinguish JSON `1` from `1.0`, and this checkpoint accepts integral numeric
+tokens only.
 
 Catalog regeneration structurally gates changes to the declarative provider
 projection, reachable overrides, and serialized compatibility tables: any such
@@ -282,13 +335,15 @@ float-bearing output contract is migrated.
 ## Current Boundary
 
 These slices support Zscaler root topology, changed-path scoping, materialized
-plan-root enumeration, and exact-catalog saved-plan assessment as public
-process operations.
+plan-root enumeration, exact-catalog saved-plan assessment, and immutable ZCC
+bootstrap artifact compilation as public process operations.
 
-The internal ZCC transform checkpoint additionally ports raw-item projection
-for `zcc_device_cleanup`, `zcc_failopen_policy`, `zcc_forwarding_profile`,
-`zcc_trusted_network`, and `zcc_web_privacy`. Python remains the independent
-differential oracle and the only artifact writer at this stage.
+The ZCC compiler ports raw-item projection and exact tfvars/import/lookup byte
+rendering for `zcc_device_cleanup`, `zcc_failopen_policy`,
+`zcc_forwarding_profile`, `zcc_trusted_network`, and `zcc_web_privacy`. Python
+remains the independent differential oracle and the only in-repository artifact
+writer at this stage; Node returns an immutable candidate set for downstream
+atomic materialization.
 
 The bundled Zscaler assessment operation uses the internal saved-plan
 assessment kernel, which provides:
@@ -410,6 +465,6 @@ anything beyond the exact current Zscaler catalog.
 
 Python remains authoritative for all mutating adoption behavior, Terraform
 orchestration, generic guidance collection, and raw pack catalog production.
-Downstream should dual-run the public Node assessment against Python and retain
-the Python result as the cutover oracle until its deployment corpus is
-byte-clean.
+Downstream should dual-run both the public Node assessment and bootstrap
+compiler against their Python equivalents and retain Python as the cutover
+oracle until its deployment and raw-pull corpus is byte-clean.

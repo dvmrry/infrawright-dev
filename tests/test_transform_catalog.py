@@ -90,11 +90,37 @@ class TransformCatalogTest(unittest.TestCase):
         trusted = resources["zcc_trusted_network"]
         self.assertEqual(trusted["renames"]["network_name"], "name")
         self.assertIn("dns_server_ips", trusted["split_csv"])
+        self.assertEqual(trusted["lookup_source"], {"name_field": "name"})
+        forwarding_references = forwarding["references"]
+        self.assertEqual(
+            forwarding_references,
+            {
+                "trusted_network_ids": {
+                    "name_field": "network_name",
+                    "referent": "zcc_trusted_network",
+                },
+                "trusted_network_ids_selected": {
+                    "name_field": "network_name",
+                    "referent": "zcc_trusted_network",
+                },
+            },
+        )
         for resource in resources.values():
+            self.assertEqual(
+                resource["import_id"],
+                {
+                    "segments": [{"field": "id"}],
+                    "template": "{id}",
+                },
+            )
             self.assertEqual(
                 resource["projection"]["silently_ignored_attributes"],
                 ["id"],
             )
+            if resource["type"] != "zcc_trusted_network":
+                self.assertIsNone(resource["lookup_source"])
+            if resource["type"] != "zcc_forwarding_profile":
+                self.assertEqual(resource["references"], {})
 
     def test_python_html_unescape_tables_are_complete_and_stable(self):
         compatibility = self._catalog()["python_compatibility"][
@@ -212,7 +238,12 @@ class TransformCatalogTest(unittest.TestCase):
             with self.assertRaisesRegex(
                     ValueError,
                     "zcc_failopen_policy.invert_bool duplicates 'active'"):
-                transform_catalog._resource("zcc_failopen_policy")
+                transform_catalog._resource(
+                    "zcc_failopen_policy",
+                    set(transform_catalog.ZCC_FETCH_RESOURCES),
+                    {},
+                    {},
+                )
 
     def test_string_list_override_values_must_be_non_empty_strings(self):
         with self.assertRaisesRegex(
@@ -229,6 +260,105 @@ class TransformCatalogTest(unittest.TestCase):
             ),
             ["second", "first"],
         )
+
+    def test_import_id_segments_are_deterministic_and_merge_literals(self):
+        compiled = transform_catalog._compile_import_id(
+            "zcc_device_cleanup",
+            {"import_id": "prefix-{{x}}-{id}-suffix"},
+            {"id"},
+        )
+        self.assertEqual(
+            compiled,
+            {
+                "segments": [
+                    {"literal": "prefix-{x}-"},
+                    {"field": "id"},
+                    {"literal": "-suffix"},
+                ],
+                "template": "prefix-{{x}}-{id}-suffix",
+            },
+        )
+
+    def test_import_id_template_rejects_unfrozen_formatter_features(self):
+        cases = [
+            "{}",
+            "{0}",
+            "{id!r}",
+            "{id:>3}",
+            "{id.value}",
+            "{id[0]}",
+            "{camelCase}",
+            "{missing}",
+            "{id",
+        ]
+        for template in cases:
+            with self.subTest(template=template):
+                with self.assertRaisesRegex(ValueError, "import_id template"):
+                    transform_catalog._compile_import_id(
+                        "zcc_device_cleanup",
+                        {"import_id": template},
+                        {"id"},
+                    )
+
+    def test_import_id_fields_follow_normalized_original_names(self):
+        block = {
+            "attributes": {
+                "id": {"type": "string", "computed": True},
+                "old_name": {"type": "string", "optional": True},
+            }
+        }
+        available = transform_catalog._normalized_original_fields(
+            block, {"renames": {"old_name": "new_name"}}
+        )
+        self.assertEqual(available, {"id", "new_name"})
+        with self.assertRaisesRegex(ValueError, "unavailable"):
+            transform_catalog._compile_import_id(
+                "zcc_device_cleanup",
+                {"import_id": "{old_name}"},
+                available,
+            )
+
+    def test_reference_metadata_fails_closed_on_invalid_topology(self):
+        projection = {
+            "attributes": {"trusted_network_ids": ["list", "number"]},
+            "blocks": {},
+            "silently_ignored_attributes": ["id"],
+        }
+        valid_reference = {
+            "referent": "zcc_trusted_network",
+            "name_field": "network_name",
+        }
+        with self.assertRaisesRegex(ValueError, "absent from its projection"):
+            transform_catalog._resource_references(
+                "zcc_forwarding_profile",
+                {"zcc_forwarding_profile": {"missing": valid_reference}},
+                {"zcc_trusted_network": {"name_field": "name"}},
+                projection,
+                set(transform_catalog.ZCC_FETCH_RESOURCES),
+            )
+        with self.assertRaisesRegex(ValueError, "unsupported referent"):
+            transform_catalog._resource_references(
+                "zcc_forwarding_profile",
+                {"zcc_forwarding_profile": {
+                    "trusted_network_ids": {
+                        "referent": "zcc_future_resource",
+                        "name_field": "network_name",
+                    },
+                }},
+                {},
+                projection,
+                set(transform_catalog.ZCC_FETCH_RESOURCES),
+            )
+        with self.assertRaisesRegex(ValueError, "without lookup_source"):
+            transform_catalog._resource_references(
+                "zcc_forwarding_profile",
+                {"zcc_forwarding_profile": {
+                    "trusted_network_ids": valid_reference,
+                }},
+                {},
+                projection,
+                set(transform_catalog.ZCC_FETCH_RESOURCES),
+            )
 
     def test_unsupported_projection_encoding_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "unsupported type encoding"):
@@ -265,6 +395,17 @@ class TransformCatalogTest(unittest.TestCase):
                 json.dump({
                     "provider_prefixes": {"other_": "other"},
                     "unescape_products": ["zcc_"],
+                    "lookup_sources": {
+                        "zcc_device_cleanup": {"name_field": "id"},
+                    },
+                    "references": {
+                        "zcc_failopen_policy": {
+                            "active": {
+                                "name_field": "id",
+                                "referent": "zcc_device_cleanup",
+                            },
+                        },
+                    },
                 }, f)
             os.environ["INFRAWRIGHT_PACKS"] = tmp
             packs.reset()
@@ -272,6 +413,14 @@ class TransformCatalogTest(unittest.TestCase):
                 self.assertEqual(packs.unescape_products(), ("zcc_",))
                 self.assertEqual(
                     packs.unescape_products_for_provider("zcc"), ()
+                )
+                self.assertIn("zcc_device_cleanup", packs.lookup_sources())
+                self.assertEqual(
+                    packs.lookup_sources_for_provider("zcc"), {}
+                )
+                self.assertIn("zcc_failopen_policy", packs.references())
+                self.assertEqual(
+                    packs.references_for_provider("zcc"), {}
                 )
                 self.assertEqual(
                     transform_catalog._html_unescape_passes(

@@ -11,6 +11,8 @@ import html
 import html.entities
 import json
 import os
+import re
+import string
 import sys
 
 from engine import packs
@@ -50,6 +52,7 @@ _SUPPORTED_OVERRIDE_KEYS = frozenset([
     "split_csv",
 ])
 _PRIMITIVE_ENCODINGS = frozenset(["bool", "number", "string"])
+_FIELD_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 def _validate_product(product):
@@ -215,9 +218,131 @@ def _html_unescape_passes(resource_type, override):
     return 2 if enabled and not override.get("no_html_unescape") else 0
 
 
-def _resource(resource_type):
+def _normalized_original_fields(block, override):
+    fields = set((block.get("attributes") or {}).keys())
+    for field in override.get("acknowledged_drops") or []:
+        if "." not in field and "[" not in field:
+            fields.add(field)
+    for old, new in (override.get("renames") or {}).items():
+        fields.discard(old)
+        fields.add(new)
+    return fields
+
+
+def _append_import_literal(segments, literal):
+    if not literal:
+        return
+    if segments and "literal" in segments[-1]:
+        segments[-1]["literal"] += literal
+    else:
+        segments.append({"literal": literal})
+
+
+def _compile_import_id(resource_type, override, available_fields):
+    template = override.get("import_id", "{id}")
+    if not isinstance(template, str) or not template:
+        raise ValueError(
+            "%s import_id must be a non-empty string" % resource_type
+        )
+    segments = []
+    try:
+        parsed = string.Formatter().parse(template)
+        for literal, field, format_spec, conversion in parsed:
+            _append_import_literal(segments, literal)
+            if field is None:
+                continue
+            if not field:
+                raise ValueError("positional or empty replacement field")
+            if conversion is not None:
+                raise ValueError("conversions are unsupported")
+            if format_spec:
+                raise ValueError("format specs are unsupported")
+            if not _FIELD_NAME_RE.match(field):
+                raise ValueError(
+                    "field %r must be a snake_case top-level name" % field
+                )
+            if field not in available_fields:
+                raise ValueError(
+                    "field %r is unavailable in normalized originals" % field
+                )
+            segments.append({"field": field})
+    except ValueError as exc:
+        raise ValueError(
+            "%s import_id template %r is unsupported: %s"
+            % (resource_type, template, exc)
+        )
+    if not segments:
+        raise ValueError(
+            "%s import_id template must produce at least one segment"
+            % resource_type
+        )
+    return {"segments": segments, "template": template}
+
+
+def _lookup_source(resource_type, metadata, projection):
+    source = metadata.get(resource_type)
+    if source is None:
+        return None
+    name_field = source.get("name_field")
+    if (
+        not isinstance(name_field, str)
+        or not _FIELD_NAME_RE.match(name_field)
+    ):
+        raise ValueError(
+            "%s lookup_source.name_field must be a snake_case field"
+            % resource_type
+        )
+    if name_field not in projection["attributes"]:
+        raise ValueError(
+            "%s lookup_source.name_field %r is absent from its projection"
+            % (resource_type, name_field)
+        )
+    return {"name_field": name_field}
+
+
+def _resource_references(
+        resource_type, metadata, lookup_sources, projection, resource_types):
+    references = {}
+    for field, reference in sorted((metadata.get(resource_type) or {}).items()):
+        if field not in projection["attributes"]:
+            raise ValueError(
+                "%s reference field %r is absent from its projection"
+                % (resource_type, field)
+            )
+        referent = reference.get("referent")
+        if referent not in resource_types:
+            raise ValueError(
+                "%s reference field %r has unsupported referent %r"
+                % (resource_type, field, referent)
+            )
+        if referent not in lookup_sources:
+            raise ValueError(
+                "%s reference field %r targets %s without lookup_source"
+                % (resource_type, field, referent)
+            )
+        name_field = reference.get("name_field")
+        if (
+            not isinstance(name_field, str)
+            or not _FIELD_NAME_RE.match(name_field)
+        ):
+            raise ValueError(
+                "%s reference field %r name_field must be snake_case"
+                % (resource_type, field)
+            )
+        references[field] = {
+            "name_field": name_field,
+            "referent": referent,
+        }
+    return references
+
+
+def _resource(resource_type, resource_types, lookup_sources, references):
     override = load_override(resource_type)
     key_fields = _supported_override(resource_type, override)
+    block = load_resource(resource_type)["block"]
+    projection = _projection(
+        block, resource_type, resource_top=True
+    )
     return {
         "acknowledged_drops": _override_string_list(
             resource_type, override, "acknowledged_drops"
@@ -228,11 +353,22 @@ def _resource(resource_type):
         "invert_bool": _override_string_list(
             resource_type, override, "invert_bool"
         ),
-        "key_fields": key_fields,
-        "projection": _projection(
-            load_resource(resource_type)["block"],
+        "import_id": _compile_import_id(
             resource_type,
-            resource_top=True,
+            override,
+            _normalized_original_fields(block, override),
+        ),
+        "key_fields": key_fields,
+        "lookup_source": _lookup_source(
+            resource_type, lookup_sources, projection
+        ),
+        "projection": projection,
+        "references": _resource_references(
+            resource_type,
+            references,
+            lookup_sources,
+            projection,
+            resource_types,
         ),
         "renames": dict(sorted((override.get("renames") or {}).items())),
         "split_csv": _override_string_list(
@@ -307,14 +443,25 @@ def transform_catalog(product):
     """Return the closed, deterministic ZCC transform contract."""
     _validate_product(product)
     resources = _fetch_resources(product)
+    resource_types = frozenset(resources)
     source_files, sources_sha256 = _source_digest(_source_paths(resources))
+    lookup_sources = packs.lookup_sources_for_provider(product)
+    references = packs.references_for_provider(product)
     return {
         "kind": TRANSFORM_CATALOG_CONTRACT,
         "product": product,
         "python_compatibility": {
             "html_unescape": _python_html_unescape_compatibility(),
         },
-        "resources": [_resource(resource_type) for resource_type in resources],
+        "resources": [
+            _resource(
+                resource_type,
+                resource_types,
+                lookup_sources,
+                references,
+            )
+            for resource_type in resources
+        ],
         "schema_version": TRANSFORM_CATALOG_SCHEMA_VERSION,
         "source_files": source_files,
         "sources_sha256": sources_sha256,

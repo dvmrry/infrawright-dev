@@ -134,6 +134,52 @@ jobs:
           assert len(response["result"]["roots"]) == 1
           assert response["result"]["roots"][0]["artifact_state"] == "complete"
           PY
+          bootstrap="$root/bootstrap-workspace"
+          mkdir -p "$bootstrap/pulls/prod"
+          cp "$GITHUB_WORKSPACE/catalogs/zscaler-root-catalog.v1.json" \
+            "$bootstrap/zscaler-root-catalog.v1.json"
+          printf '%s\n' '[{"id":"1"}]' \
+            > "$bootstrap/pulls/prod/zcc_failopen_policy.json"
+          python3 - "$bootstrap" > "$root/request.json" <<'PY'
+          import json
+          import os
+          import sys
+
+          workspace = sys.argv[1]
+          with open(os.path.join(workspace, "deployment.json"), "w", encoding="utf-8") as f:
+              json.dump({"overlay": "artifacts"}, f)
+          json.dump({
+              "kind": "infrawright.process_request",
+              "schema_version": 1,
+              "request_id": "ci-zcc-bootstrap-smoke",
+              "operation": "compile_pull_artifacts",
+              "context": {
+                  "workspace": workspace,
+                  "deployment": "deployment.json",
+                  "root_catalog": "zscaler-root-catalog.v1.json",
+              },
+              "input": {
+                  "mode": "bootstrap",
+                  "tenant": "prod",
+                  "resource_type": "zcc_failopen_policy",
+              },
+          }, sys.stdout)
+          PY
+          (cd "$root" && node infrawright.mjs < request.json > response.json)
+          python3 - "$root/response.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as f:
+              response = json.load(f)
+          assert response["status"] == "ok", response
+          assert response["operation"] == "compile_pull_artifacts", response
+          assert response["result"]["kind"] == "infrawright.zcc_pull_artifact_set"
+          assert response["result"]["status"] == "ready"
+          assert response["result"]["artifacts"]["tfvars"]["content"] == (
+              '{\n  "items": {\n    "1": {}\n  }\n}\n'
+          )
+          PY
           python3 - "$GITHUB_WORKSPACE" "$root" <<'PY'
           import json
           import os

@@ -2408,10 +2408,19 @@
         "id"
       ],
       "html_unescape_passes": 2,
+      "import_id": {
+        "segments": [
+          {
+            "field": "id"
+          }
+        ],
+        "template": "{id}"
+      },
       "invert_bool": [],
       "key_fields": [
         "id"
       ],
+      "lookup_source": null,
       "projection": {
         "attributes": {
           "active": "bool",
@@ -2425,6 +2434,7 @@
           "id"
         ]
       },
+      "references": {},
       "renames": {},
       "split_csv": [],
       "type": "zcc_device_cleanup"
@@ -2437,6 +2447,14 @@
         "id"
       ],
       "html_unescape_passes": 2,
+      "import_id": {
+        "segments": [
+          {
+            "field": "id"
+          }
+        ],
+        "template": "{id}"
+      },
       "invert_bool": [
         "active",
         "enable_captive_portal_detection",
@@ -2447,6 +2465,7 @@
       "key_fields": [
         "id"
       ],
+      "lookup_source": null,
       "projection": {
         "attributes": {
           "active": "bool",
@@ -2465,6 +2484,7 @@
           "id"
         ]
       },
+      "references": {},
       "renames": {},
       "split_csv": [],
       "type": "zcc_failopen_policy"
@@ -2476,10 +2496,19 @@
         "unified_tunnel[].send_trusted_network_result_to_zpa"
       ],
       "html_unescape_passes": 0,
+      "import_id": {
+        "segments": [
+          {
+            "field": "id"
+          }
+        ],
+        "template": "{id}"
+      },
       "invert_bool": [],
       "key_fields": [
         "name"
       ],
+      "lookup_source": null,
       "projection": {
         "attributes": {
           "active": "bool",
@@ -2663,6 +2692,16 @@
           "id"
         ]
       },
+      "references": {
+        "trusted_network_ids": {
+          "name_field": "network_name",
+          "referent": "zcc_trusted_network"
+        },
+        "trusted_network_ids_selected": {
+          "name_field": "network_name",
+          "referent": "zcc_trusted_network"
+        }
+      },
       "renames": {},
       "split_csv": [],
       "type": "zcc_forwarding_profile"
@@ -2677,10 +2716,21 @@
         "zpa_id"
       ],
       "html_unescape_passes": 2,
+      "import_id": {
+        "segments": [
+          {
+            "field": "id"
+          }
+        ],
+        "template": "{id}"
+      },
       "invert_bool": [],
       "key_fields": [
         "name"
       ],
+      "lookup_source": {
+        "name_field": "name"
+      },
       "projection": {
         "attributes": {
           "active": "bool",
@@ -2722,6 +2772,7 @@
           "id"
         ]
       },
+      "references": {},
       "renames": {
         "dns_servers": "dns_server_ips",
         "hostnames": "hostname",
@@ -2748,10 +2799,19 @@
         "name"
       ],
       "html_unescape_passes": 2,
+      "import_id": {
+        "segments": [
+          {
+            "field": "id"
+          }
+        ],
+        "template": "{id}"
+      },
       "invert_bool": [],
       "key_fields": [
         "id"
       ],
+      "lookup_source": null,
       "projection": {
         "attributes": {
           "active": "bool",
@@ -2773,6 +2833,7 @@
           "id"
         ]
       },
+      "references": {},
       "renames": {},
       "split_csv": [],
       "type": "zcc_web_privacy"

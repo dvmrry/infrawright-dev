@@ -6,6 +6,7 @@ import {
   validatePlanRoots,
   validateRootTopology,
   validateSavedPlanAssessment,
+  validateZccPullArtifactSet,
 } from "../contracts/validators.js";
 import {
   loadBoundAssessmentRootCatalog,
@@ -23,6 +24,7 @@ import { planRoots } from "../domain/plan-roots.js";
 import { resolveSavedPlanAssessment } from "../domain/plan-assessment-inputs.js";
 import { assessSavedPlansReport } from "../domain/plan-assessment.js";
 import { requireSupportedAssessmentCatalog } from "../domain/zscaler-assessment.js";
+import { compileZccPullArtifactsOperation } from "../domain/zcc-pull-operation.js";
 import type {
   ProcessRequest,
   ProcessSuccessResponse,
@@ -65,6 +67,17 @@ function copyRequest(request: ProcessRequest): ProcessRequest {
       },
     };
   }
+  if (request.operation === "compile_pull_artifacts") {
+    return {
+      ...base,
+      operation: "compile_pull_artifacts",
+      input: {
+        mode: request.input.mode,
+        tenant: request.input.tenant,
+        resource_type: request.input.resource_type,
+      },
+    };
+  }
   return {
     ...base,
     operation: request.operation,
@@ -87,6 +100,39 @@ export async function executeRequest(
       category: "request",
       message: "context.workspace must be an absolute path",
     });
+  }
+  if (request.operation === "compile_pull_artifacts") {
+    const result = await compileZccPullArtifactsOperation({
+      workspace: request.context.workspace,
+      deploymentPath: resolveContextPath(
+        request.context.workspace,
+        request.context.deployment,
+      ),
+      catalogPath: resolveContextPath(
+        request.context.workspace,
+        request.context.root_catalog,
+      ),
+      tenant: request.input.tenant,
+      resourceType: request.input.resource_type,
+    });
+    if (!validateZccPullArtifactSet(result)) {
+      throw new ProcessFailure({
+        code: "INVALID_OPERATION_RESULT",
+        category: "internal",
+        message: "compile_pull_artifacts produced a result outside its versioned schema",
+        details: schemaErrorDetails(validateZccPullArtifactSet.errors),
+      });
+    }
+    return {
+      kind: "infrawright.process_response",
+      schema_version: 1,
+      request_id: request.request_id,
+      operation: "compile_pull_artifacts",
+      status: "ok",
+      diagnostics: [],
+      result,
+      error: null,
+    };
   }
   const catalogPath = resolveContextPath(
     request.context.workspace,

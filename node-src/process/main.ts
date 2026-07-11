@@ -59,6 +59,7 @@ function requestIdentity(value: unknown): {
     | "scope_paths"
     | "plan_roots"
     | "assess_saved_plans"
+    | "compile_pull_artifacts"
     | null;
 } {
   if (!isObject(value)) {
@@ -75,6 +76,7 @@ function requestIdentity(value: unknown): {
       || value.operation === "scope_paths"
       || value.operation === "plan_roots"
       || value.operation === "assess_saved_plans"
+      || value.operation === "compile_pull_artifacts"
       ? value.operation
       : null,
   };
@@ -88,6 +90,7 @@ function errorResponse(options: {
     | "scope_paths"
     | "plan_roots"
     | "assess_saved_plans"
+    | "compile_pull_artifacts"
     | null;
 }): ProcessErrorResponse {
   return {
@@ -148,6 +151,9 @@ function emitFallback(code: string, message: string): false {
 }
 
 function successExitCode(response: ProcessSuccessResponse): number {
+  if (response.operation === "compile_pull_artifacts") {
+    return response.result.status === "review_required" ? 3 : 0;
+  }
   if (response.operation !== "assess_saved_plans") {
     return 0;
   }

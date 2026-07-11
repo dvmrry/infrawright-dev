@@ -21,6 +21,15 @@ export interface TransformProjection {
   readonly silently_ignored_attributes: readonly string[];
 }
 
+export type TransformImportIdSegment =
+  | { readonly literal: string }
+  | { readonly field: string };
+
+export interface TransformReference {
+  readonly referent: string;
+  readonly name_field: string;
+}
+
 export interface TransformCatalogResource {
   readonly type: string;
   readonly key_fields: readonly string[];
@@ -30,6 +39,14 @@ export interface TransformCatalogResource {
   readonly renames: Readonly<Record<string, string>>;
   readonly split_csv: readonly string[];
   readonly projection: TransformProjection;
+  readonly import_id: {
+    readonly template: string;
+    readonly segments: readonly TransformImportIdSegment[];
+  };
+  readonly lookup_source: {
+    readonly name_field: string;
+  } | null;
+  readonly references: Readonly<Record<string, TransformReference>>;
 }
 
 export interface TransformHtmlUnescapeCompatibility {

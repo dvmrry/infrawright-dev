@@ -93,15 +93,15 @@ the generated demo module tree. It does not run live provider import or
 Terraform/OpenTofu plan; the live plan contract begins with the primary
 adoption workflow above and requires real provider credentials.
 
-The Zscaler runtime is beginning a differential migration to Node 24. Its first
-machine-only process operations emit the existing root-topology, changed-path
-scope, plan-root, and exact-catalog Zscaler saved-plan assessment contracts and
-are differentially compared with Python in CI. Build the no-install bundle with
-`npm ci --ignore-scripts && npm run check && npm run build`; see
+The Zscaler runtime is undergoing a differential migration to Node 24. Its
+machine-only process operations emit root-topology, changed-path scope,
+plan-root, exact-catalog saved-plan assessment, and immutable ZCC bootstrap
+artifact-set contracts, all differentially compared with Python in CI. The
+bootstrap compiler covers the five fetch-backed ZCC resources and returns exact
+tfvars/import/lookup bytes without writing them. Build the no-install bundle
+with `npm ci --ignore-scripts && npm run check && npm run build`; see
 [Node Process API Migration](docs/node-process-api.md) for the request contract,
-current boundary, and downstream dual-run guidance. An internal checkpoint also
-differentially ports the five fetch-backed ZCC raw transforms behind an exact
-generated catalog; it is not exposed as a process operation yet.
+current boundary, refusal cases, and downstream dual-run guidance.
 
 ## Layout
 

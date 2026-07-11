@@ -326,13 +326,35 @@ function nullStubValue(value: unknown): boolean {
   return integer !== null && BigInt(integer) === 0n;
 }
 
-function isNullObject(value: unknown): boolean {
+function isNullObject(
+  value: unknown,
+  projection: TransformProjection,
+  path: string,
+  acknowledgedDrops: ReadonlySet<string>,
+): boolean {
   if (!isPlainJsonRecord(value) || Object.keys(value).length === 0) {
     return false;
   }
   const keys = Object.keys(value);
   if (!hasOwn(value, "id") && !keys.every((key) => key.endsWith("id"))) {
     return false;
+  }
+  const ignored = new Set(projection.silently_ignored_attributes);
+  for (const key of keys) {
+    const currentPath = childPath(path, key);
+    // `id` is the provider's universal stub discriminator even when an
+    // individual nested schema omits it. Other id-suffixed keys still need
+    // schema or acknowledgement evidence.
+    const identityKey = key === "id";
+    if (
+      projection.attributes[key] === undefined
+      && projection.blocks[key] === undefined
+      && !ignored.has(key)
+      && !identityKey
+      && !acknowledgedDrops.has(currentPath)
+    ) {
+      return false;
+    }
   }
   return keys.every((key) => nullStubValue(value[key]));
 }
@@ -346,12 +368,26 @@ function mergeSingleBlockElements(
   projection: TransformProjection,
   path: string,
   drops: string[],
+  acknowledgedDrops: ReadonlySet<string>,
 ): TransformRecord {
   const entries = new Map<string, unknown>();
+  const ignored = new Set(projection.silently_ignored_attributes);
   for (const element of elements) {
     for (const key of sortedStrings(Object.keys(element))) {
       const value = element[key];
       if (value === null) {
+        const memberPath = childPath(path, key);
+        const identityKey = key === "id";
+        if (
+          projection.attributes[key] === undefined
+          && projection.blocks[key] === undefined
+          && !ignored.has(key)
+          && !identityKey
+          && !acknowledgedDrops.has(memberPath)
+          && !drops.includes(memberPath)
+        ) {
+          drops.push(memberPath);
+        }
         continue;
       }
       const encoding = projection.attributes[key];
@@ -382,6 +418,7 @@ function filterItem(
   projection: TransformProjection,
   path: string,
   drops: string[],
+  acknowledgedDrops: ReadonlySet<string>,
 ): TransformRecord {
   const output: Array<readonly [string, unknown]> = [];
   const ignored = new Set(projection.silently_ignored_attributes);
@@ -417,13 +454,25 @@ function filterItem(
               block.projection,
               currentPath,
               drops,
+              acknowledgedDrops,
             );
         }
         if (isPlainJsonRecord(single)) {
-          if (!isNullObject(single)) {
+          if (!isNullObject(
+            single,
+            block.projection,
+            currentPath,
+            acknowledgedDrops,
+          )) {
             output.push([
               key,
-              filterItem(single, block.projection, currentPath, drops),
+              filterItem(
+                single,
+                block.projection,
+                currentPath,
+                drops,
+                acknowledgedDrops,
+              ),
             ]);
           }
         } else {
@@ -441,22 +490,44 @@ function filterItem(
               `block ${currentPath}[${index}] must be a JSON object`,
             );
           }
-          if (!isNullObject(entry)) {
+          if (!isNullObject(
+            entry,
+            block.projection,
+            manyPath,
+            acknowledgedDrops,
+          )) {
             elements.push(entry);
           }
         }
         output.push([
           key,
           elements.map((entry) => {
-            return filterItem(entry, block.projection, manyPath, drops);
+            return filterItem(
+              entry,
+              block.projection,
+              manyPath,
+              drops,
+              acknowledgedDrops,
+            );
           }),
         ]);
       } else if (isPlainJsonRecord(value)) {
         output.push([
           key,
-          isNullObject(value)
+          isNullObject(
+            value,
+            block.projection,
+            manyPath,
+            acknowledgedDrops,
+          )
             ? []
-            : [filterItem(value, block.projection, manyPath, drops)],
+            : [filterItem(
+              value,
+              block.projection,
+              manyPath,
+              drops,
+              acknowledgedDrops,
+            )],
         ]);
       } else {
         drops.push(currentPath);
@@ -582,6 +653,7 @@ export function transformPullItems(options: {
   const items = new Map<string, Readonly<Record<string, unknown>>>();
   const originals = new Map<string, Readonly<Record<string, unknown>>>();
   const drops: string[] = [];
+  const acknowledged = new Set(resource.acknowledged_drops);
 
   for (const raw of options.rawItems) {
     const snakeRaw = snakeKeys(raw);
@@ -601,12 +673,12 @@ export function transformPullItems(options: {
       resource.projection,
       "",
       drops,
+      acknowledged,
     );
     items.set(key, coerceItem(filtered, resource.projection));
     originals.set(key, normalized);
   }
 
-  const acknowledged = new Set(resource.acknowledged_drops);
   const reportedDrops = sortedStrings(
     new Set(drops.filter((drop) => !acknowledged.has(drop))),
   );

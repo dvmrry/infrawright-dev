@@ -135,6 +135,79 @@ test("transform maps are prototype-safe and drops use Python string ordering", (
   assert.equal((Object.prototype as Record<string, unknown>).polluted, undefined);
 });
 
+test("null stubs suppress only closed schema-known or acknowledged shapes", () => {
+  const catalog = loadZccTransformCatalog();
+  const transform = (unifiedTunnel: readonly unknown[]) => {
+    return transformPullItems({
+      catalog,
+      rawItems: [{
+        id: "stub-id",
+        name: "Stub Gate",
+        unifiedTunnel,
+      }],
+      resourceType: "zcc_forwarding_profile",
+    });
+  };
+
+  const legitimate = transform([{ id: "0" }]);
+  assert.deepEqual(legitimate.items.stub_gate?.unified_tunnel, []);
+  assert.deepEqual(legitimate.drops, []);
+
+  for (const [key, expectedPath] of [
+    ["futureSecret", "unified_tunnel[].future_secret"],
+    ["futureId", "unified_tunnel[].future_id"],
+  ] as const) {
+    const extended = transform([{ id: "0", [key]: null }]);
+    assert.equal(
+      stringifyLosslessJson(extended.items.stub_gate?.unified_tunnel),
+      "[{}]",
+    );
+    assert.deepEqual(extended.drops, [expectedPath]);
+  }
+});
+
+test("single-block merging reports unknown nullable members exactly once", () => {
+  const catalog = loadZccTransformCatalog();
+  const transform = (systemProxyData: readonly unknown[]) => {
+    return transformPullItems({
+      catalog,
+      rawItems: [{
+        id: "merge-id",
+        name: "Merge Gate",
+        unifiedTunnel: [{ systemProxyData }],
+      }],
+      resourceType: "zcc_forwarding_profile",
+    });
+  };
+
+  const extended = transform([
+    { proxyServerAddress: null },
+    { futureSecret: null },
+  ]);
+  assert.equal(
+    stringifyLosslessJson(
+      extended.items.merge_gate?.unified_tunnel,
+    ),
+    '[{"system_proxy_data":{}}]',
+  );
+  assert.deepEqual(
+    extended.drops,
+    ["unified_tunnel[].system_proxy_data.future_secret"],
+  );
+
+  const legitimate = transform([
+    { proxyServerAddress: null },
+    { pacUrl: null },
+  ]);
+  assert.equal(
+    stringifyLosslessJson(
+      legitimate.items.merge_gate?.unified_tunnel,
+    ),
+    '[{"system_proxy_data":{}}]',
+  );
+  assert.deepEqual(legitimate.drops, []);
+});
+
 test("transform requires lossless raw numbers and rejects unfrozen floats", () => {
   const catalog = loadZccTransformCatalog();
   const run = (autoPurgeDays: unknown): void => {

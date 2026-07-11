@@ -226,7 +226,10 @@
         "html_unescape_passes",
         "acknowledged_drops",
         "invert_bool",
+        "import_id",
+        "lookup_source",
         "renames",
+        "references",
         "split_csv",
         "projection"
       ],
@@ -268,6 +271,19 @@
             "$ref": "#/$defs/fieldName"
           }
         },
+        "import_id": {
+          "$ref": "#/$defs/importId"
+        },
+        "lookup_source": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/lookupSource"
+            }
+          ]
+        },
         "renames": {
           "type": "object",
           "propertyNames": {
@@ -275,6 +291,15 @@
           },
           "additionalProperties": {
             "$ref": "#/$defs/fieldName"
+          }
+        },
+        "references": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/fieldName"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/reference"
           }
         },
         "split_csv": {
@@ -286,6 +311,90 @@
         },
         "projection": {
           "$ref": "#/$defs/projection"
+        }
+      }
+    },
+    "importId": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "template",
+        "segments"
+      ],
+      "properties": {
+        "template": {
+          "type": "string",
+          "minLength": 1
+        },
+        "segments": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/importIdSegment"
+          }
+        }
+      }
+    },
+    "importIdSegment": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "literal"
+          ],
+          "properties": {
+            "literal": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "field"
+          ],
+          "properties": {
+            "field": {
+              "$ref": "#/$defs/fieldName"
+            }
+          }
+        }
+      ]
+    },
+    "lookupSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name_field"
+      ],
+      "properties": {
+        "name_field": {
+          "$ref": "#/$defs/fieldName"
+        }
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "referent",
+        "name_field"
+      ],
+      "properties": {
+        "referent": {
+          "enum": [
+            "zcc_device_cleanup",
+            "zcc_failopen_policy",
+            "zcc_forwarding_profile",
+            "zcc_trusted_network",
+            "zcc_web_privacy"
+          ]
+        },
+        "name_field": {
+          "$ref": "#/$defs/fieldName"
         }
       }
     },
