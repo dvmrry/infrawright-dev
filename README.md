@@ -93,9 +93,9 @@ the generated demo module tree. It does not run live provider import or
 Terraform/OpenTofu plan; the live plan contract begins with the primary
 adoption workflow above and requires real provider credentials.
 
-The Zscaler runtime is beginning a differential migration to Node 24. The first
-machine-only process operation emits the existing root-topology contract and is
-byte-compared with Python in CI. Build its no-install bundle with
+The Zscaler runtime is beginning a differential migration to Node 24. Its first
+machine-only process operations emit the existing root-topology and changed-path
+scope contracts and are byte-compared with Python in CI. Build the no-install bundle with
 `npm ci --ignore-scripts && npm run check && npm run build`; see
 [Node Process API Migration](docs/node-process-api.md) for the request contract,
 current boundary, and downstream dual-run guidance.

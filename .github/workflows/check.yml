@@ -59,6 +59,41 @@ jobs:
           assert response["status"] == "ok", response
           assert response["result"]["kind"] == "infrawright.root_topology"
           PY
+          python3 - "$GITHUB_WORKSPACE" > "$root/request.json" <<'PY'
+          import json
+          import sys
+
+          workspace = sys.argv[1]
+          json.dump({
+              "kind": "infrawright.process_request",
+              "schema_version": 1,
+              "request_id": "ci-scope-smoke",
+              "operation": "scope_paths",
+              "context": {
+                  "workspace": workspace,
+                  "deployment": "missing-deployment.json",
+                  "root_catalog": "catalogs/zscaler-root-catalog.v1.json",
+              },
+              "input": {
+                  "paths": [
+                      "config/prod/zpa_application_segment.auto.tfvars.json",
+                  ],
+              },
+          }, sys.stdout)
+          PY
+          (cd "$root" && node infrawright.mjs < request.json > response.json)
+          python3 - "$root/response.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as f:
+              response = json.load(f)
+          assert response["status"] == "ok", response
+          assert response["result"]["kind"] == "infrawright.changed_path_scope"
+          assert response["result"]["affected_resources"] == [
+              "zpa_application_segment",
+          ]
+          PY
       - name: Whitespace hygiene
         run: git diff --check
 

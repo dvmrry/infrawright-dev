@@ -2,15 +2,17 @@ import path from "node:path";
 
 import {
   schemaErrorDetails,
+  validateChangedPathScope,
   validateRootTopology,
 } from "../contracts/validators.js";
 import { loadRootCatalog } from "../domain/catalog.js";
 import { loadDeployment } from "../domain/deployment.js";
 import { ProcessFailure } from "../domain/errors.js";
 import { rootTopology } from "../domain/roots.js";
+import { changedPathScope } from "../domain/scope-paths.js";
 import type {
+  ProcessRequest,
   ProcessSuccessResponse,
-  RootsProcessRequest,
 } from "./types.js";
 
 function resolveContextPath(workspace: string, candidate: string): string {
@@ -20,7 +22,7 @@ function resolveContextPath(workspace: string, candidate: string): string {
 }
 
 export async function executeRequest(
-  request: RootsProcessRequest,
+  request: ProcessRequest,
 ): Promise<ProcessSuccessResponse> {
   if (!path.isAbsolute(request.context.workspace)) {
     throw new ProcessFailure({
@@ -37,6 +39,36 @@ export async function executeRequest(
     request.context.workspace,
     request.context.deployment,
   ));
+  if (request.operation === "scope_paths") {
+    const result = changedPathScope({
+      paths: request.input.paths,
+      workspace: request.context.workspace,
+      deploymentPath: resolveContextPath(
+        request.context.workspace,
+        request.context.deployment,
+      ),
+      deployment,
+      catalog,
+    });
+    if (!validateChangedPathScope(result)) {
+      throw new ProcessFailure({
+        code: "INVALID_OPERATION_RESULT",
+        category: "internal",
+        message: "scope_paths produced a result outside its versioned schema",
+        details: schemaErrorDetails(validateChangedPathScope.errors),
+      });
+    }
+    return {
+      kind: "infrawright.process_response",
+      schema_version: 1,
+      request_id: request.request_id,
+      operation: "scope_paths",
+      status: "ok",
+      diagnostics: [],
+      result,
+      error: null,
+    };
+  }
   const { topology, diagnostics } = rootTopology({
     catalog,
     deployment,

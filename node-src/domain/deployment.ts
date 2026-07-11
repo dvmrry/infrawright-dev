@@ -12,7 +12,13 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function pythonTruthy(value: unknown): boolean {
-  if (value === null || value === false || value === 0 || value === "") {
+  if (
+    value === undefined
+    || value === null
+    || value === false
+    || value === 0
+    || value === ""
+  ) {
     return false;
   }
   if (Array.isArray(value)) {
@@ -134,8 +140,12 @@ function validateDeployment(value: unknown): Deployment {
     roots = output;
   }
   const overlay = Object.hasOwn(value, "overlay") ? value.overlay : undefined;
+  const moduleDir = Object.hasOwn(value, "module_dir")
+    ? value.module_dir
+    : undefined;
   return {
     overlay: pythonTruthy(overlay) ? overlay : ".",
+    ...(pythonTruthy(moduleDir) ? { module_dir: moduleDir } : {}),
     roots,
   };
 }

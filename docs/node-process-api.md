@@ -5,9 +5,10 @@ library behind one machine-only process host. Pipelines and supervised agents
 are the audience. This is not a human command-line interface and it is not an
 HTTP service.
 
-The first slice ports the read-only root-topology operation. It establishes the
-process protocol, deterministic JSON boundary, packaging, and differential
-validation pattern that later adoption operations will follow.
+The first slices port the read-only root-topology and changed-path scoping
+operations. They establish the process protocol, deterministic JSON boundary,
+packaging, and differential validation pattern that later adoption operations
+will follow.
 
 ## Runtime and Distribution
 
@@ -30,7 +31,9 @@ The host reads exactly one request from stdin and writes exactly one response
 plus a trailing newline to stdout. Expected errors are structured responses;
 stderr is reserved for failures that prevent a protocol response.
 
-## Version 1 Roots Request
+## Version 1 Requests
+
+### Roots
 
 ```json
 {
@@ -52,15 +55,42 @@ stderr is reserved for failures that prevent a protocol response.
 }
 ```
 
+### Changed-path scoping
+
+```json
+{
+  "kind": "infrawright.process_request",
+  "schema_version": 1,
+  "request_id": "delivery-124",
+  "operation": "scope_paths",
+  "context": {
+    "workspace": "/workspace/deployment",
+    "deployment": "deployment.json",
+    "root_catalog": "catalogs/zscaler-root-catalog.v1.json"
+  },
+  "input": {
+    "paths": [
+      "config/prod/zpa_application_segment.auto.tfvars.json"
+    ]
+  }
+}
+```
+
+The result is the existing `infrawright.changed_path_scope` v1 contract. It
+maps recognized deployment, config, import, environment-root, and module paths
+to affected resources and complete logical roots. Unknown paths remain in
+`unmatched_paths`; downstream owns the fail, full-scope, or ignore policy.
+Paths need not exist, so deleted files and VCS-supplied paths scope correctly.
+
 `context.workspace` must be absolute. The other context paths may be absolute
 or workspace-relative. The process never consults
 `INFRAWRIGHT_DEPLOYMENT`, `INFRAWRIGHT_PACKS`, or its current directory.
 
-A successful response wraps the existing `infrawright.root_topology` v1
-document in `infrawright.process_response` v1. A grouped selection also carries
-a structured `WHOLE_ROOT_SELECTION` diagnostic. Consumers join responses to
-invocations with `request_id`; no timestamps, hostnames, durations, or other
-nondeterministic fields are emitted.
+A successful response wraps the operation's existing v1 result document in
+`infrawright.process_response` v1. A grouped roots selection also carries a
+structured `WHOLE_ROOT_SELECTION` diagnostic; `scope_paths` has no diagnostics.
+Consumers join responses to invocations with `request_id`; no timestamps,
+hostnames, durations, or other nondeterministic fields are emitted.
 
 Exit status is:
 
@@ -104,8 +134,9 @@ Zscaler catalog and deployment fixtures, then compare:
 - the published JSON schema.
 
 Coverage includes the default topology, exact and product selectors,
-duplicates, explicit grouped roots, null and concrete tenants, and relative
-overlay paths containing doubled separators and `..`. Each subsequent ported
+duplicates, explicit grouped roots, null and concrete tenants, every scoped
+artifact suffix, deleted leaves, and absolute, relative, and symlink-alias
+spellings for external overlays and deployment files. Each subsequent ported
 operation must add its own Python-produced differential corpus before cutover.
 
 Protocol/config JSON rejects duplicate keys, non-finite numbers, and integers
@@ -117,8 +148,8 @@ float-bearing output contract is migrated.
 
 ## Current Boundary
 
-This slice supports only Zscaler root topology. Python remains authoritative
-for all mutating adoption behavior, Terraform orchestration, saved-plan gates,
-and raw pack catalog production. Downstream should dual-run this operation and
-retain the Python result as the cutover oracle until its deployment corpus is
-byte-clean.
+These slices support only Zscaler root topology and changed-path scoping.
+Python remains authoritative for all mutating adoption behavior, Terraform
+orchestration, saved-plan gates, and raw pack catalog production. Downstream
+should dual-run these operations and retain the Python result as the cutover
+oracle until its deployment corpus is byte-clean.

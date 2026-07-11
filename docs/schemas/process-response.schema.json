@@ -34,6 +34,9 @@
           "const": "roots"
         },
         {
+          "const": "scope_paths"
+        },
+        {
           "type": "null"
         }
       ]
@@ -54,6 +57,9 @@
       "oneOf": [
         {
           "$ref": "root-topology.schema.json"
+        },
+        {
+          "$ref": "changed-path-scope.schema.json"
         },
         {
           "type": "null"
@@ -81,20 +87,44 @@
         }
       },
       "then": {
-        "properties": {
-          "request_id": {
-            "type": "string"
+        "oneOf": [
+          {
+            "properties": {
+              "request_id": {
+                "type": "string"
+              },
+              "operation": {
+                "const": "roots"
+              },
+              "result": {
+                "$ref": "root-topology.schema.json"
+              },
+              "error": {
+                "type": "null"
+              }
+            }
           },
-          "operation": {
-            "const": "roots"
-          },
-          "result": {
-            "$ref": "root-topology.schema.json"
-          },
-          "error": {
-            "type": "null"
+          {
+            "properties": {
+              "request_id": {
+                "type": "string"
+              },
+              "operation": {
+                "const": "scope_paths"
+              },
+              "diagnostics": {
+                "type": "array",
+                "maxItems": 0
+              },
+              "result": {
+                "$ref": "changed-path-scope.schema.json"
+              },
+              "error": {
+                "type": "null"
+              }
+            }
           }
-        }
+        ]
       },
       "else": {
         "properties": {

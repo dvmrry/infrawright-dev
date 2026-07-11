@@ -3,7 +3,10 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
 
-import { validateProcessResponse } from "../node-src/contracts/validators.js";
+import {
+  validateProcessRequest,
+  validateProcessResponse,
+} from "../node-src/contracts/validators.js";
 
 const WORKSPACE = process.cwd();
 const PROCESS_MAIN = path.join(
@@ -11,9 +14,9 @@ const PROCESS_MAIN = path.join(
   ".node-test/node-src/process/main.js",
 );
 
-function invoke(input: string | Buffer) {
+function invoke(input: string | Buffer, cwd = WORKSPACE) {
   return spawnSync(process.execPath, [PROCESS_MAIN], {
-    cwd: WORKSPACE,
+    cwd,
     input,
     encoding: Buffer.isBuffer(input) ? undefined : "utf8",
   });
@@ -45,6 +48,53 @@ test("process host emits one structured roots response", () => {
   assert.equal(response.error, null);
   assert.equal(response.result.kind, "infrawright.root_topology");
   assert.ok(String(result.stdout).endsWith("\n"));
+});
+
+test("process host emits one structured scope_paths response", () => {
+  const request = {
+    kind: "infrawright.process_request",
+    schema_version: 1,
+    request_id: "test-scope-paths",
+    operation: "scope_paths",
+    context: {
+      workspace: WORKSPACE,
+      deployment: "missing-deployment.json",
+      root_catalog: "catalogs/zscaler-root-catalog.v1.json",
+    },
+    input: {
+      paths: ["config/prod/zpa_application_segment.auto.tfvars.json"],
+    },
+  };
+  const result = invoke(JSON.stringify(request));
+  assert.equal(result.status, 0, String(result.stderr));
+  assert.equal(String(result.stderr), "");
+  const response = JSON.parse(String(result.stdout));
+  assert.equal(response.request_id, "test-scope-paths");
+  assert.equal(response.operation, "scope_paths");
+  assert.equal(response.status, "ok");
+  assert.deepEqual(response.diagnostics, []);
+  assert.equal(response.result.kind, "infrawright.changed_path_scope");
+});
+
+test("scope_paths resolves relative contract paths from context.workspace", () => {
+  const request = {
+    kind: "infrawright.process_request",
+    schema_version: 1,
+    request_id: "workspace-scoping",
+    operation: "scope_paths",
+    context: {
+      workspace: WORKSPACE,
+      deployment: "missing-deployment.json",
+      root_catalog: "catalogs/zscaler-root-catalog.v1.json",
+    },
+    input: {
+      paths: ["config/prod/zpa_application_segment.auto.tfvars.json"],
+    },
+  };
+  const result = invoke(JSON.stringify(request), path.dirname(WORKSPACE));
+  assert.equal(result.status, 0, String(result.stderr));
+  const response = JSON.parse(String(result.stdout));
+  assert.deepEqual(response.result.affected_resources, ["zpa_application_segment"]);
 });
 
 test("process host rejects malformed and schema-invalid requests structurally", () => {
@@ -118,5 +168,59 @@ test("response schema forbids success diagnostics on errors", () => {
       retryable: false,
       details: [],
     },
+  }), false);
+});
+
+test("request schema binds each operation to its input shape", () => {
+  const context = {
+    workspace: WORKSPACE,
+    deployment: "deployment.json",
+    root_catalog: "catalog.json",
+  };
+  const base = {
+    kind: "infrawright.process_request",
+    schema_version: 1,
+    request_id: "shape",
+    context,
+  };
+  assert.equal(validateProcessRequest({
+    ...base,
+    operation: "roots",
+    input: { paths: [] },
+  }), false);
+  assert.equal(validateProcessRequest({
+    ...base,
+    operation: "scope_paths",
+    input: { tenant: null, selectors: [] },
+  }), false);
+});
+
+test("response schema binds scope_paths success to an empty diagnostic set", () => {
+  assert.equal(validateProcessResponse({
+    kind: "infrawright.process_response",
+    schema_version: 1,
+    request_id: "scope-diagnostic",
+    operation: "scope_paths",
+    status: "ok",
+    diagnostics: [
+      {
+        level: "note",
+        code: "WHOLE_ROOT_SELECTION",
+        message: "not valid for scope_paths",
+        selected_members: ["one"],
+        root: "group",
+        additional_members: ["two"],
+      },
+    ],
+    result: {
+      kind: "infrawright.changed_path_scope",
+      schema_version: 1,
+      paths: [],
+      path_matches: [],
+      unmatched_paths: [],
+      affected_resources: [],
+      affected_roots: [],
+    },
+    error: null,
   }), false);
 });
