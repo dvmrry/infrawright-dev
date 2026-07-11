@@ -6,7 +6,10 @@ import {
 } from "../contracts/validators.js";
 import { isJsonRecord, pythonJsonEqual } from "../json/python-equality.js";
 import { sortedStrings } from "../json/python-compatible.js";
+import { snapshotPlainJsonGraph } from "../json/supported-json-graph.js";
 import { ProcessFailure } from "./errors.js";
+
+const MAX_ADOPTION_CATALOG_GRAPH_DEPTH = 128;
 
 export type ZccAdoptionPrimitiveEncoding = "bool" | "number" | "string";
 export type ZccAdoptionValueEncoding =
@@ -182,10 +185,28 @@ function immutableContractCopy(value: unknown): unknown {
 }
 
 function validatedCatalog(candidate: unknown): ZccAdoptionCatalog {
-  if (!validateZccAdoptionCatalog(candidate)) {
+  let snapshot: unknown;
+  try {
+    const result = snapshotPlainJsonGraph(candidate, {
+      maxDepth: MAX_ADOPTION_CATALOG_GRAPH_DEPTH,
+    });
+    if (!result.ok) {
+      return invalidCatalog(
+        "ZCC adoption catalog has an unsupported JSON graph",
+        [],
+      );
+    }
+    snapshot = result.value;
+  } catch {
+    return invalidCatalog(
+      "ZCC adoption catalog has an unsupported JSON graph",
+      [],
+    );
+  }
+  if (!validateZccAdoptionCatalog(snapshot)) {
     invalidCatalog("ZCC adoption catalog does not match schema version 1");
   }
-  const catalog = candidate as ZccAdoptionCatalog;
+  const catalog = snapshot as ZccAdoptionCatalog;
   assertZccCatalogInvariants(catalog);
   return immutableContractCopy(catalog) as ZccAdoptionCatalog;
 }

@@ -39,6 +39,7 @@
   `node-tests/zcc-adoption-projection-differential.test.ts`,
   `node-tests/zcc-adoption-artifacts.test.ts`, and
   `node-tests/zcc-adoption-projection-security.test.ts`,
+  `node-tests/zcc-pull-artifacts.test.ts`,
   `tests/test_adoption_catalog.py`, and `tests/test_state_project.py`.
 - Test routing and vendor audit metadata:
   `tests/pack-test-requirements.json` and
@@ -89,10 +90,15 @@
   address used by the Python oracle.
 - Raw items and provider observations are descriptor-read once into inert,
   deeply frozen, acyclic, depth-bounded plain-JSON snapshots before identity
-  or projection code can consume them.
+  or projection code can consume them. Proxy objects (including callable
+  proxies) are rejected without invoking traps, so one input branch cannot
+  mutate a sibling mask while the snapshot is being built.
+- Caller-supplied adoption catalogs pass through the same inert graph boundary
+  before schema validation, invariant checks, or equality comparison.
 - Node projects only writable schema fields, omits absent/null optional fields,
   rejects missing required fields, rejects malformed repeated block members,
-  and validates the complete dynamic-sensitive-mask grammar before projecting
+  and validates the complete dynamic-sensitive-mask grammar against the
+  corresponding provider-value shape and list cardinality before projecting
   writable or computed-only paths.
 - Python `state_project` now shares the fail-closed repeated-member and
   sensitive-mask behavior so the compatibility oracle cannot silently discard
@@ -118,8 +124,10 @@
   fail before projection.
 - Sensitive state: values under writable sensitive masks never reach emitted
   artifacts or diagnostics. Malformed masks, including otherwise valid JSON
-  scalar nodes or a root list, fail before projection; computed-only mask
-  structure is still validated before its value is intentionally ignored.
+  scalar nodes, a root list, scalar/collection shape mismatches, unknown value
+  members, or list-cardinality mismatches, fail before projection; computed-
+  only mask structure is still validated before its value is intentionally
+  ignored.
 - Provider evidence: resource type, provider name, config key, import ID, and
   scratch address must all agree before state values are read. Repeated nested
   members can no longer disappear from either Python or Node output.
@@ -140,8 +148,8 @@
 - Focused Python/Node projection differential.
 - Focused all-five adoption artifact byte differential.
 - Existing raw-pull artifact tests after shared-renderer refactoring.
-- `npm run check`: 470 tests, 469 passed, 1 platform skip, 0 failed.
-- `make test`: 1362 passed, 0 failed.
+- `npm run check`: 473 tests, 472 passed, 1 platform skip, 0 failed.
+- `make test`: 1364 passed, 0 failed.
 - `git diff --check`
 
 ## Review Remediation
@@ -149,14 +157,19 @@
 - Finding: raw items, provider values, and sensitive masks could reach recursive
   code without a bounded inert snapshot. Root cause: the adoption compiler did
   not reuse the pull compiler's hostile-graph boundary. Fix: extract the legacy
-  pull preflight without changing its behavior and add a stricter descriptor-
-  read snapshot for adoption. Regression coverage includes cycles, 20,000-deep
-  graphs, accessors, non-plain objects, stateful proxies, and secret-safe errors.
+  pull preflight and add a stricter descriptor-read snapshot for adoption.
+  Object and callable proxies are detected without invoking traps, including a
+  regression where a proxy attempts to erase an initially true sibling mask.
+  Caller catalogs use the same boundary before AJV/equality. Coverage also
+  includes cycles, 20,000-deep graphs, accessors, non-plain objects, sparse
+  arrays, and secret-safe errors.
 - Finding: a malformed sensitive mask could be interpreted as all-false. Root
   cause: Python and Node helpers defaulted unsupported scalar/root shapes to an
   empty object. Fix: validate the same recursive bool/object/list/null grammar
-  in both engines before projection. Differential and hostile tests cover
-  scalar nodes and root lists while retaining false/null/empty/list controls.
+  against the provider-value tree in both engines before projection. Masks now
+  require matching scalar/container shapes, known value members, and exact list
+  cardinality. Differential and hostile tests retain valid false/null/empty and
+  aligned-list controls.
 - Finding: caller labels alone could join state from another resource. Root
   cause: observations lacked Terraform resource identity. Fix: bind resource
   type, canonical provider name, and exact scratch address in addition to the
@@ -169,7 +182,8 @@
 - Finding: lookup metadata was read from the globally merged pack view even
   though the catalog digest covered only ZCC sources. Fix: read it exclusively
   from hashed `packs/zcc/pack.json`; a poisoned-global-pack regression proves
-  unrelated packs cannot change the generated catalog.
+  unrelated packs cannot change the generated catalog. Lookup entries must
+  also be objects whose normalized `name_field` is a projected attribute.
 
 ## Known Deferrals
 

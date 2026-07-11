@@ -427,20 +427,35 @@ def _projection(block, path, resource_top=False):
 
 def _resource(resource_type, lookup_sources):
     block = load_resource(resource_type)["block"]
+    projection = _projection(block, resource_type, resource_top=True)
     lookup_source = lookup_sources.get(resource_type)
     if lookup_source is not None:
+        if not isinstance(lookup_source, dict):
+            raise ValueError(
+                "%s lookup source must contain an object" % resource_type
+            )
         name_field = lookup_source.get("name_field")
-        if not isinstance(name_field, str) or not _FIELD_NAME_RE.match(
-                snake(name_field)):
+        normalized_name_field = (
+            snake(name_field) if isinstance(name_field, str) else None
+        )
+        if (
+            normalized_name_field is None
+            or not _FIELD_NAME_RE.match(normalized_name_field)
+        ):
             raise ValueError(
                 "%s lookup source has an unsupported name_field"
                 % resource_type
             )
-        lookup_source = {"name_field": snake(name_field)}
+        if normalized_name_field not in projection["attributes"]:
+            raise ValueError(
+                "%s lookup source name_field %r is not a projected attribute"
+                % (resource_type, normalized_name_field)
+            )
+        lookup_source = {"name_field": normalized_name_field}
     return {
         "identity": _identity(resource_type, block),
         "lookup_source": lookup_source,
-        "projection": _projection(block, resource_type, resource_top=True),
+        "projection": projection,
         "type": resource_type,
     }
 

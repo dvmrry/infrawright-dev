@@ -1,11 +1,13 @@
+import { types as utilTypes } from "node:util";
+
 import { LosslessNumber } from "lossless-json";
 
 export interface SupportedJsonGraphOptions {
   readonly maxDepth: number;
   /**
-   * Preserve the original pull-compiler preflight when false.  Strict callers
-   * set this to true to require an acyclic graph made only from JSON scalars,
-   * dense arrays, and descriptor-safe plain records.
+   * False retains the pull compiler's legacy scalar domain. All callers still
+   * require proxy-free, acyclic, dense arrays and descriptor-safe plain
+   * records; strict callers additionally require finite JSON scalar values.
    */
   readonly requirePlainJson: boolean;
 }
@@ -149,9 +151,9 @@ function strictRecordChildren(
 /**
  * Iteratively validate graph shape before any recursive clone/projection.
  *
- * The false `requirePlainJson` mode is intentionally byte-for-byte compatible
- * with the former ZCC pull artifact preflight.  It remains available only so
- * extracting this helper does not silently tighten that existing boundary.
+ * The false `requirePlainJson` mode preserves accepted parsed JSON while also
+ * rejecting non-JSON proxy/accessor/hidden-property containers before later
+ * pull transformation can observe them.
  */
 export function supportedJsonGraph(
   value: unknown,
@@ -175,6 +177,15 @@ export function supportedJsonGraph(
       continue;
     }
     const current = visit.value;
+    if (
+      (
+        (typeof current === "object" && current !== null)
+        || typeof current === "function"
+      )
+      && utilTypes.isProxy(current)
+    ) {
+      return false;
+    }
     if (typeof current === "string") {
       if (!current.isWellFormed()) {
         return false;
@@ -203,43 +214,13 @@ export function supportedJsonGraph(
     }
 
     let children: readonly { readonly key: string; readonly value: unknown }[];
-    if (options.requirePlainJson) {
-      const strictChildren = Array.isArray(current)
-        ? strictArrayShape(current)?.children ?? null
-        : strictRecordChildren(current);
-      if (strictChildren === null) {
-        return false;
-      }
-      children = strictChildren;
-    } else if (Array.isArray(current)) {
-      const legacyChildren: { key: string; value: unknown }[] = [];
-      for (let index = 0; index < current.length; index += 1) {
-        const key = String(index);
-        const descriptor = Object.getOwnPropertyDescriptor(current, key);
-        if (descriptor === undefined || !("value" in descriptor)) {
-          return false;
-        }
-        legacyChildren.push({ key, value: descriptor.value });
-      }
-      children = legacyChildren;
-    } else {
-      const prototype = Object.getPrototypeOf(current) as unknown;
-      if (prototype !== Object.prototype && prototype !== null) {
-        return false;
-      }
-      const legacyChildren: { key: string; value: unknown }[] = [];
-      for (const key of Object.keys(current)) {
-        if (!key.isWellFormed()) {
-          return false;
-        }
-        const descriptor = Object.getOwnPropertyDescriptor(current, key);
-        if (descriptor === undefined || !("value" in descriptor)) {
-          return false;
-        }
-        legacyChildren.push({ key, value: descriptor.value });
-      }
-      children = legacyChildren;
+    const strictChildren = Array.isArray(current)
+      ? strictArrayShape(current)?.children ?? null
+      : strictRecordChildren(current);
+    if (strictChildren === null) {
+      return false;
     }
+    children = strictChildren;
 
     ancestors.add(current);
     stack.push({ kind: "leave", value: current });
@@ -294,6 +275,15 @@ export function snapshotPlainJsonGraph(
       continue;
     }
     const current = visit.value;
+    if (
+      (
+        (typeof current === "object" && current !== null)
+        || typeof current === "function"
+      )
+      && utilTypes.isProxy(current)
+    ) {
+      return { ok: false };
+    }
     if (typeof current === "string") {
       if (!current.isWellFormed()) {
         return { ok: false };
@@ -315,7 +305,6 @@ export function snapshotPlainJsonGraph(
     if (typeof current !== "object") {
       return { ok: false };
     }
-
     const lossless = snapshotLosslessNumber(current);
     if (lossless !== null) {
       visit.assign(lossless);

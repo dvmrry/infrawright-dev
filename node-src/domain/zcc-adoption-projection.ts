@@ -506,8 +506,13 @@ function anySensitive(value: unknown): boolean {
   return false;
 }
 
-function assertSensitiveMaskShape(value: unknown): void {
-  const stack: { readonly root: boolean; readonly value: unknown }[] = [{
+function assertSensitiveMaskShape(mask: unknown, value: unknown): void {
+  const stack: {
+    readonly mask: unknown;
+    readonly root: boolean;
+    readonly value: unknown;
+  }[] = [{
+    mask,
     root: true,
     value,
   }];
@@ -520,20 +525,49 @@ function assertSensitiveMaskShape(value: unknown): void {
       );
     }
     if (
-      current.value === null
-      || typeof current.value === "boolean"
+      current.mask === null
+      || typeof current.mask === "boolean"
     ) {
       continue;
     }
-    if (isPlainDataRecord(current.value)) {
-      for (const key of Object.keys(current.value)) {
-        stack.push({ root: false, value: current.value[key] });
+    if (isPlainDataRecord(current.mask)) {
+      if (!isPlainDataRecord(current.value)) {
+        return fail(
+          "ZCC_ADOPTION_PROJECTION_FAILED",
+          "provider sensitive-value mask does not match provider state shape",
+        );
+      }
+      for (const key of Object.keys(current.mask)) {
+        if (!hasOwn(current.value, key)) {
+          return fail(
+            "ZCC_ADOPTION_PROJECTION_FAILED",
+            "provider sensitive-value mask does not match provider state shape",
+          );
+        }
+        stack.push({
+          mask: current.mask[key],
+          root: false,
+          value: current.value[key],
+        });
       }
       continue;
     }
-    if (Array.isArray(current.value) && !current.root) {
-      for (const child of current.value) {
-        stack.push({ root: false, value: child });
+    if (Array.isArray(current.mask) && !current.root) {
+      if (
+        !Array.isArray(current.value)
+        || current.mask.length !== current.value.length
+      ) {
+        return fail(
+          "ZCC_ADOPTION_PROJECTION_FAILED",
+          "provider sensitive-value mask does not match provider state shape",
+        );
+      }
+      for (let index = 0; index < current.mask.length; index += 1) {
+        stack.push({
+          mask: current.mask[index],
+          root: false,
+          value: current.value[index],
+        });
       }
       continue;
     }
@@ -862,6 +896,7 @@ export function compileZccAdoptionProjection(options: {
         observation.sensitive_values === undefined
           ? {}
           : observation.sensitive_values,
+        observation.values,
       );
     }
   }

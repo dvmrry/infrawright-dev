@@ -172,6 +172,8 @@ test("plain-JSON scalar and root-list sensitive masks fail value-safely", () => 
     secret,
     7,
     { collect_user_info: secret },
+    { collect_user_info: [] },
+    { collect_user_info: {} },
     { computed_only: [{ nested: 9 }] },
   ];
   for (const sensitiveValues of invalidMasks) {
@@ -186,6 +188,33 @@ test("plain-JSON scalar and root-list sensitive masks fail value-safely", () => 
           values: { collect_user_info: false },
         })],
         resourceType: "zcc_web_privacy",
+      }),
+      "ZCC_ADOPTION_PROJECTION_FAILED",
+      secret,
+    );
+  }
+
+  for (const sensitiveValues of [
+    { forwarding_profile_actions: [] },
+    { forwarding_profile_actions: [false, false] },
+  ]) {
+    expectFailure(
+      () => compile({
+        rawItems: [{ id: "mask-cardinality", name: "Mask Cardinality" }],
+        observedStates: [observation({
+          importId: "mask-cardinality",
+          key: "mask_cardinality",
+          resourceType: "zcc_forwarding_profile",
+          sensitiveValues,
+          values: {
+            forwarding_profile_actions: [{
+              action_type: 1,
+              custom_pac: secret,
+            }],
+            name: "Mask Cardinality",
+          },
+        })],
+        resourceType: "zcc_forwarding_profile",
       }),
       "ZCC_ADOPTION_PROJECTION_FAILED",
       secret,
@@ -228,36 +257,102 @@ test("valid false, null, empty-object, and nested-list masks remain supported", 
       .length,
     1,
   );
+
+  const emptyNested = compile({
+    rawItems: [{ id: "empty-mask", name: "Empty Mask" }],
+    observedStates: [observation({
+      importId: "empty-mask",
+      key: "empty_mask",
+      resourceType: "zcc_forwarding_profile",
+      sensitiveValues: { forwarding_profile_actions: [] },
+      values: { forwarding_profile_actions: [], name: "Empty Mask" },
+    })],
+    resourceType: "zcc_forwarding_profile",
+  });
+  assert.deepEqual(
+    emptyNested.items.empty_mask?.forwarding_profile_actions,
+    [],
+  );
 });
 
-test("projection consumes the inert snapshot, not a stateful proxy", () => {
-  let descriptorReads = 0;
-  const values = new Proxy({ collect_user_info: false }, {
-    getOwnPropertyDescriptor(target, property) {
-      if (property === "collect_user_info") {
-        descriptorReads += 1;
-        return {
-          configurable: true,
-          enumerable: true,
-          value: descriptorReads === 1 ? false : true,
-          writable: true,
-        };
-      }
-      return Reflect.getOwnPropertyDescriptor(target, property);
+test("cross-branch proxies cannot erase a true sensitive sibling mask", () => {
+  const secret = "PROXY-CROSS-BRANCH-SECRET-MUST-NOT-LEAK";
+  const proxyThatWouldClear = (
+    target: Record<string, unknown>,
+    mask: Record<string, unknown>,
+    calls: { count: number },
+  ): Record<string, unknown> => new Proxy(target, {
+    get(targetValue, property, receiver) {
+      calls.count += 1;
+      mask.collect_user_info = false;
+      return Reflect.get(targetValue, property, receiver);
+    },
+    getOwnPropertyDescriptor(targetValue, property) {
+      calls.count += 1;
+      mask.collect_user_info = false;
+      return Reflect.getOwnPropertyDescriptor(targetValue, property);
+    },
+    getPrototypeOf(targetValue) {
+      calls.count += 1;
+      mask.collect_user_info = false;
+      return Reflect.getPrototypeOf(targetValue);
+    },
+    ownKeys(targetValue) {
+      calls.count += 1;
+      mask.collect_user_info = false;
+      return Reflect.ownKeys(targetValue);
     },
   });
-  const result = compile({
-    rawItems: [{ id: "snapshot" }],
-    observedStates: [observation({
-      importId: "snapshot",
-      key: "snapshot",
+
+  const valuesMask = { collect_user_info: true };
+  const valuesCalls = { count: 0 };
+  const valuesProxy = proxyThatWouldClear(
+    { collect_user_info: secret },
+    valuesMask,
+    valuesCalls,
+  );
+  expectFailure(
+    () => compile({
+      rawItems: [{ id: "proxy-values" }],
+      observedStates: [observation({
+        importId: "proxy-values",
+        key: "proxy_values",
+        resourceType: "zcc_web_privacy",
+        sensitiveValues: valuesMask,
+        values: valuesProxy,
+      })],
       resourceType: "zcc_web_privacy",
-      values,
-    })],
-    resourceType: "zcc_web_privacy",
-  });
-  assert.equal(result.items.snapshot?.collect_user_info, false);
-  assert.equal(descriptorReads, 1);
+    }),
+    "INVALID_ZCC_ADOPTION_INPUT",
+    secret,
+  );
+  assert.equal(valuesCalls.count, 0);
+  assert.equal(valuesMask.collect_user_info, true);
+
+  const rawMask = { collect_user_info: true };
+  const rawCalls = { count: 0 };
+  const rawProxy = proxyThatWouldClear(
+    { id: "proxy-raw", private_note: secret },
+    rawMask,
+    rawCalls,
+  );
+  expectFailure(
+    () => compile({
+      rawItems: [rawProxy],
+      observedStates: [observation({
+        importId: "proxy-raw",
+        key: "proxy_raw",
+        resourceType: "zcc_web_privacy",
+        sensitiveValues: rawMask,
+        values: { collect_user_info: secret },
+      })],
+      resourceType: "zcc_web_privacy",
+    }),
+    "INVALID_ZCC_ADOPTION_INPUT",
+    secret,
+  );
+  assert.equal(rawCalls.count, 0);
+  assert.equal(rawMask.collect_user_info, true);
 });
 
 test("state identity joins bind resource, provider, and scratch address", () => {

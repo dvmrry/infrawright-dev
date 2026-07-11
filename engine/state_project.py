@@ -29,7 +29,7 @@ def project_item(
     sensitive, absent, or optional fields. Post-projection policy then applies
     projection_sync, projection_fill, and projection_omit_if in that order.
     """
-    _validate_sensitive_mask_shape(sensitive_values)
+    _validate_sensitive_mask_shape(sensitive_values, state_values)
     block = load_resource(resource_type)["block"]
     sensitive_values = sensitive_values or {}
     out = _project_block(
@@ -46,30 +46,35 @@ def project_item(
     return out
 
 
-def _validate_sensitive_mask_shape(sensitive_values):
-    """Require Terraform's recursive bool/object/list sensitivity grammar.
+def _validate_sensitive_mask_shape(sensitive_values, state_values):
+    """Require Terraform's value-aligned sensitivity-mask grammar.
 
     The root resource mask is never a list. Nested lists mirror repeated or
-    list-shaped blocks. Validate the entire tree, including computed-only
-    paths, before schema projection so malformed scalars cannot be mistaken
-    for an all-false mask.
+    list-shaped state and have exactly the same cardinality. Object masks may
+    name only state object members. Validate the entire tree, including
+    computed-only paths, before schema projection so malformed collection
+    masks cannot be mistaken for an all-false scalar mask.
     """
-    stack = [(sensitive_values, (), True)]
+    stack = [(sensitive_values, state_values, True)]
     while stack:
-        value, path, root = stack.pop()
-        if value is None or isinstance(value, bool):
+        mask, value, root = stack.pop()
+        if mask is None or isinstance(mask, bool):
             continue
-        if isinstance(value, dict):
-            for key, child in value.items():
-                stack.append((child, path + (key,), False))
+        if isinstance(mask, dict):
+            if not isinstance(value, dict):
+                raise ProjectionError("unsupported sensitive mask shape")
+            for key, child_mask in mask.items():
+                if key not in value:
+                    raise ProjectionError("unsupported sensitive mask shape")
+                stack.append((child_mask, value[key], False))
             continue
-        if isinstance(value, list) and not root:
-            for idx, child in enumerate(value):
-                stack.append((child, path + (idx,), False))
+        if isinstance(mask, list) and not root:
+            if not isinstance(value, list) or len(mask) != len(value):
+                raise ProjectionError("unsupported sensitive mask shape")
+            for idx, child_mask in enumerate(mask):
+                stack.append((child_mask, value[idx], False))
             continue
-        raise ProjectionError(
-            "unsupported sensitive mask shape at %s" % _fmt_path(path)
-        )
+        raise ProjectionError("unsupported sensitive mask shape")
 
 
 def _project_block(values, sens, block, path, resource_top, resource_type, policy):

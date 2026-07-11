@@ -435,6 +435,34 @@
     },
     {
       "expected": "projection_error",
+      "name": "synthetic-list-mask-on-scalar-value-fails-closed",
+      "observed_states": [
+        {
+          "address": "zcc_failopen_policy.iw_b223133738d67f90",
+          "import_id": "shape-mask",
+          "key": "shape_mask",
+          "provider_name": "registry.terraform.io/zscaler/zcc",
+          "resource_type": "zcc_failopen_policy",
+          "sensitive_values": {
+            "enable_fail_open": []
+          },
+          "values": {
+            "enable_fail_open": "MASK-SHAPE-SECRET"
+          }
+        }
+      ],
+      "raw_items": [
+        {
+          "id": "shape-mask"
+        }
+      ],
+      "resource_type": "zcc_failopen_policy",
+      "secret_tokens": [
+        "MASK-SHAPE-SECRET"
+      ]
+    },
+    {
+      "expected": "projection_error",
       "name": "synthetic-dynamic-top-level-sensitive-mask",
       "observed_states": [
         {

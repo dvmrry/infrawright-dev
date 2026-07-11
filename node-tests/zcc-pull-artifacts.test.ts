@@ -320,6 +320,54 @@ test("direct compiler rejects cyclic and over-depth raw graphs structurally", ()
   }
 });
 
+test("direct compiler rejects proxies, accessors, and sparse arrays without traps", () => {
+  const marker = "raw-hostile-container-private-value";
+  let trapCalls = 0;
+  const proxiedItem = new Proxy({ id: "proxy", name: marker }, {
+    getPrototypeOf(target) {
+      trapCalls += 1;
+      return Reflect.getPrototypeOf(target);
+    },
+    ownKeys(target) {
+      trapCalls += 1;
+      return Reflect.ownKeys(target);
+    },
+  });
+  const callableProxy = new Proxy(() => marker, {
+    getPrototypeOf(target) {
+      trapCalls += 1;
+      return Reflect.getPrototypeOf(target);
+    },
+  });
+  let getterCalls = 0;
+  const accessorItem: Record<string, unknown> = { id: "accessor" };
+  Object.defineProperty(accessorItem, "name", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return marker;
+    },
+  });
+  const sparseItems = new Array<unknown>(1);
+
+  for (const rawItems of [
+    [proxiedItem],
+    [callableProxy],
+    [accessorItem],
+    sparseItems,
+  ]) {
+    assert.throws(
+      () => compile("zcc_forwarding_profile", rawItems),
+      (error: unknown) => error instanceof ProcessFailure
+        && error.code === "INVALID_ZCC_PULL_DATA"
+        && !error.message.includes(marker)
+        && !JSON.stringify(error.details).includes(marker),
+    );
+  }
+  assert.equal(trapCalls, 0);
+  assert.equal(getterCalls, 0);
+});
+
 test("artifact validation rejects decoded surrogate keys and values generically", () => {
   const marker = "decoded-private-value";
   const badTfvars = structuredClone(compile(

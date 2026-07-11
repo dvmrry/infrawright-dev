@@ -51,6 +51,24 @@ class AdoptionCatalogTest(unittest.TestCase):
             actual = adoption_catalog.render_catalog("zcc")
         self.assertEqual(actual, expected)
 
+    def test_lookup_source_entry_must_be_an_object(self):
+        with self.assertRaisesRegex(
+                ValueError,
+                "zcc_trusted_network lookup source must contain an object"):
+            adoption_catalog._resource(
+                "zcc_trusted_network",
+                {"zcc_trusted_network": "not-an-object"},
+            )
+
+    def test_lookup_name_field_must_be_a_projected_attribute(self):
+        with self.assertRaisesRegex(
+                ValueError,
+                "name_field 'id' is not a projected attribute"):
+            adoption_catalog._resource(
+                "zcc_trusted_network",
+                {"zcc_trusted_network": {"name_field": "id"}},
+            )
+
     def test_catalog_is_the_closed_five_resource_slice(self):
         catalog = self._catalog()
         self.assertEqual(catalog["kind"], "infrawright.adoption_catalog")

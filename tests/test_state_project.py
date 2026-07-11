@@ -923,21 +923,30 @@ class StateProjectTest(unittest.TestCase):
             secret,
             7,
             {"description": secret},
-            {"computed_only": 7},
+            {"description": []},
+            {"description": {}},
+            {"computed_only": {}},
+            {secret: []},
             {"rules": [{"name": 9}]},
+            {"rules": []},
+            {"rules": [False, False]},
         ]
         for mask in invalid_masks:
             with self.subTest(mask=mask):
                 with self.assertRaises(ProjectionError) as raised:
                     project_item(
                         "sample_resource",
-                        {"name": "Prod", "rules": [{"name": "one"}]},
+                        {
+                            "name": "Prod",
+                            "computed_only": "provider-value",
+                            "rules": [{"name": "one"}],
+                        },
                         sensitive_values=mask,
                     )
                 self.assertNotIn(secret, str(raised.exception))
 
     def test_sensitive_mask_preserves_valid_false_null_empty_and_list_shapes(self):
-        for mask in (None, False, {}, {"rules": []}, {"rules": [False]}):
+        for mask in (None, False, {}, {"rules": [False]}):
             with self.subTest(mask=mask):
                 out = project_item(
                     "sample_resource",
@@ -945,6 +954,13 @@ class StateProjectTest(unittest.TestCase):
                     sensitive_values=mask,
                 )
                 self.assertEqual(out["rules"], [{"name": "one"}])
+
+        out = project_item(
+            "sample_resource",
+            {"name": "Prod", "rules": []},
+            sensitive_values={"rules": []},
+        )
+        self.assertEqual(out["rules"], [])
 
 
 if __name__ == "__main__":

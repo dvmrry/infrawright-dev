@@ -13,6 +13,7 @@ import {
   type ZccAdoptionArtifactSet,
 } from "../node-src/domain/zcc-adoption-artifacts.js";
 import { loadZccAdoptionCatalog } from "../node-src/domain/zcc-adoption-catalog.js";
+import { ProcessFailure } from "../node-src/domain/errors.js";
 import {
   type ZccAdoptionStateObservation,
 } from "../node-src/domain/zcc-adoption-projection.js";
@@ -54,6 +55,9 @@ interface PythonArtifacts {
   readonly lookup: string | null;
 }
 
+// Credential-free artifact parity runs Python identity, projection, and
+// renderers over injected sanitized observations. It is not a live import;
+// observation resource/provider/address binding has separate Node-only tests.
 const PYTHON_ARTIFACT_ORACLE = String.raw`
 import json
 import sys
@@ -263,6 +267,38 @@ test("exported adoption catalog digest matches the committed bytes", async () =>
     createHash("sha256").update(bytes).digest("hex"),
     ZCC_ADOPTION_CATALOG_SHA256,
   );
+});
+
+test("artifact compilation rejects a proxied catalog before traps", () => {
+  let trapCalls = 0;
+  const catalog = loadZccAdoptionCatalog();
+  const proxy = new Proxy(catalog, {
+    get(targetValue, property, receiver) {
+      trapCalls += 1;
+      return Reflect.get(targetValue, property, receiver);
+    },
+    getPrototypeOf(targetValue) {
+      trapCalls += 1;
+      return Reflect.getPrototypeOf(targetValue);
+    },
+  });
+  assert.throws(
+    () => compileZccAdoptionArtifactSet({
+      catalog: proxy,
+      catalogSha256: ZCC_ADOPTION_CATALOG_SHA256,
+      observedStates: [],
+      rawItems: [],
+      source: {
+        path: "pulls/demo/zcc_device_cleanup.json",
+        sha256: SOURCE_DIGEST,
+        size_bytes: 0,
+      },
+      target: target("zcc_device_cleanup"),
+    }),
+    (error: unknown) => error instanceof ProcessFailure
+      && error.code === "INVALID_ZCC_ADOPTION_CATALOG",
+  );
+  assert.equal(trapCalls, 0);
 });
 
 test("trusted-network lookup keeps raw identity key and provider display name", async () => {

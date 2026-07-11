@@ -8,6 +8,9 @@ import {
   requireSupportedZccAdoptionCatalog,
   type ZccAdoptionProjection,
 } from "../node-src/domain/zcc-adoption-catalog.js";
+import {
+  compileZccAdoptionProjection,
+} from "../node-src/domain/zcc-adoption-projection.js";
 
 function copyEmbedded(): Record<string, unknown> {
   return JSON.parse(JSON.stringify(embeddedCatalog)) as Record<string, unknown>;
@@ -238,4 +241,76 @@ test("prototype-like map keys remain own data and cannot bypass the gate", () =>
     expectFailure("UNSUPPORTED_ZCC_ADOPTION_CATALOG"),
   );
   assert.equal(({} as { polluted?: unknown }).polluted, undefined);
+});
+
+test("hostile catalog graphs collapse before validation without values or traps", () => {
+  const secret = "CATALOG-GRAPH-SECRET-MUST-NOT-LEAK";
+  const assertInvalid = (candidate: unknown): void => {
+    let failure: unknown;
+    try {
+      requireSupportedZccAdoptionCatalog(candidate);
+    } catch (error: unknown) {
+      failure = error;
+    }
+    assert.ok(failure instanceof ProcessFailure);
+    assert.equal(failure.code, "INVALID_ZCC_ADOPTION_CATALOG");
+    assert.equal(failure instanceof RangeError, false);
+    assert.equal(JSON.stringify({
+      details: failure.details,
+      message: failure.message,
+    }).includes(secret), false);
+  };
+
+  const cyclic = copyEmbedded();
+  cyclic.private_note = secret;
+  cyclic.self = cyclic;
+  assertInvalid(cyclic);
+
+  const deep = copyEmbedded();
+  let cursor: Record<string, unknown> = deep;
+  for (let index = 0; index < 20_000; index += 1) {
+    const child: Record<string, unknown> = {};
+    cursor.child = child;
+    cursor = child;
+  }
+  cursor.private_note = secret;
+  assertInvalid(deep);
+
+  let getterCalls = 0;
+  const accessor = copyEmbedded();
+  delete accessor.provider;
+  Object.defineProperty(accessor, "provider", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return { name: secret };
+    },
+  });
+  assertInvalid(accessor);
+  assert.equal(getterCalls, 0);
+
+  let trapCalls = 0;
+  const proxy = new Proxy(copyEmbedded(), {
+    getPrototypeOf(target) {
+      trapCalls += 1;
+      return Reflect.getPrototypeOf(target);
+    },
+    ownKeys(target) {
+      trapCalls += 1;
+      return Reflect.ownKeys(target);
+    },
+  });
+  assertInvalid(proxy);
+  assert.equal(trapCalls, 0);
+
+  assert.throws(
+    () => compileZccAdoptionProjection({
+      catalog: proxy as unknown as ReturnType<typeof loadZccAdoptionCatalog>,
+      observedStates: [],
+      rawItems: [],
+      resourceType: "zcc_device_cleanup",
+    }),
+    expectFailure("INVALID_ZCC_ADOPTION_CATALOG"),
+  );
+  assert.equal(trapCalls, 0);
 });

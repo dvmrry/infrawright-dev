@@ -98,7 +98,11 @@ interface PythonCaseResult {
   readonly result: PythonSuccess | PythonFailure;
 }
 
-const PYTHON_ORACLE = String.raw`
+// Credential-free parity only: this runs Python identity and projection with
+// injected sanitized observations, not Terraform or a live provider oracle.
+// Node-only resource/provider/scratch-address binding is covered separately
+// by zcc-adoption-projection-security.test.ts.
+const PYTHON_IDENTITY_PROJECTION_ORACLE = String.raw`
 import json
 import sys
 
@@ -247,7 +251,7 @@ async function loadCases(): Promise<readonly DifferentialCase[]> {
 function pythonResults(
   cases: readonly DifferentialCase[],
 ): readonly PythonCaseResult[] {
-  const child = spawnSync("python3", ["-c", PYTHON_ORACLE], {
+  const child = spawnSync("python3", ["-c", PYTHON_IDENTITY_PROJECTION_ORACLE], {
     cwd: WORKSPACE,
     encoding: "utf8",
     input: stringifyLosslessJson({ cases: cases.map((fixture) => ({
@@ -284,7 +288,7 @@ const ERROR_CODES: Readonly<Record<Exclude<ExpectedOutcome, "success">, string>>
   projection_error: "ZCC_ADOPTION_PROJECTION_FAILED",
 };
 
-test("Node ZCC adoption projection matches real Python adopt_items exactly", async () => {
+test("credential-free Node identity/projection matches Python adopt_items", async () => {
   const cases = await loadCases();
   const expected = pythonResults(cases);
   assert.equal(expected.length, cases.length);
