@@ -221,6 +221,55 @@ fingerprint, or policy. The validator is intentionally stricter than the
 Python helper on malformed shapes that Python can accidentally treat as an
 empty or clean plan.
 
+The next internal slice implements that evidence boundary without exposing it
+as a process operation. It reproduces fingerprint v2 byte-for-byte, including
+the generated-root HCL scanner, local-module tree ordering, root inputs,
+var-file basenames, and backend/key payload. A saved plan is accepted only with
+an exact `{version:2,sha256}` `tfplan.sources` file that matches current inputs.
+The plan is copied into a caller-owned, mode-0700 private directory as a random
+mode-0600 snapshot; the original, snapshot, fingerprint file, and recomputed
+source fingerprint are bound and rechecked before and after assessment.
+Cleanup scrubs snapshot bytes through a descriptor whose device/inode identity
+was bound at capture time; it never path-unlinks a caller-influenceable file.
+The operation-owned temporary directory then removes the empty artifact.
+
+This binding detects staleness and in-process filesystem races; it is not an
+authenticity proof against a principal that can replace plan artifacts. The v2
+sidecar fingerprints plan inputs and does not attest the plan bytes or planner
+identity. Pipelines must create `tfplan` and `tfplan.sources` in one trusted
+planning step, store and restore them as an inseparable artifact through
+authenticated CI storage, and assess them where untrusted changes cannot
+substitute either file. A PR-controlled plan/sidecar pair is not trusted
+evidence. Cryptographic planner attestation is a separate future contract, not
+something an additional attacker-writable digest could provide.
+
+All evidence reads have explicit operation-wide ceilings for file count,
+directory count, directory entries, depth, individual bytes, and total bytes.
+Reads fail when a file mutates or is replaced, and plan/sources diagnostics do
+not include paths or content. The Node port intentionally hardens Python's
+unbounded and best-effort filesystem behavior: undecodable UTF-8, unreadable
+directories, excessive trees, special files, and mutation races fail closed.
+Fingerprint traversal otherwise retains Python v2 symlink semantics so digest
+bytes remain compatible. Filesystem entries whose raw names are not valid
+UTF-8 are detected through byte-mode enumeration and fail closed instead of
+being silently skipped; JavaScript cannot address those POSIX byte names
+losslessly. The public assessment operation will create the
+trusted temporary directory and own cleanup; callers cannot supply a snapshot
+path or raw plan JSON.
+
+The internal Terraform-show adapter accepts only an absolute, non-symlinked
+executable and a private regular-file snapshot. It invokes a fixed
+`terraform -chdir=<root> show -json <snapshot>` argv without a shell, replaces
+the child environment with fixed locale/checkpoint values (so `TF_CLI_ARGS*`
+and credentials cannot alter the call), enforces hard timeout/stdout/stderr
+ceilings, discards stderr, and preflights stdout before lossless parsing. The
+current Zscaler cutover boundary accepts at most 8 MiB of JSON, 100,000
+structural tokens, 4 MiB of string content, and a 1 MiB scalar token; the same
+deadline covers child execution, decode, preflight, and parse. Child output,
+filesystem paths, and plan values never enter an error
+diagnostic. Final evidence rechecks remain mandatory because the adapter alone
+does not claim the root or snapshot stayed unchanged around execution.
+
 Python remains authoritative for all mutating adoption behavior, Terraform
 orchestration, saved-plan evidence capture and reports, gate exit semantics,
 and raw pack catalog production. Downstream should dual-run the public Node

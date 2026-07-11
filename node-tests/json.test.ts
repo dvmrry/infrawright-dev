@@ -10,6 +10,7 @@ import {
 } from "../node-src/json/control.js";
 import {
   renderPythonCompatibleJson,
+  sortedStrings,
   type JsonValue,
 } from "../node-src/json/python-compatible.js";
 
@@ -83,4 +84,14 @@ test("initial compatibility renderer refuses floats instead of changing bytes", 
     () => renderPythonCompatibleJson({ value: -0 } as JsonValue),
     /safe integers only/,
   );
+});
+
+test("Python string ordering handles a large common-prefix set without sort-key retention", () => {
+  const prefix = "😀".repeat(120);
+  const values = Array.from({ length: 25_000 }, (_, index) => {
+    return `${prefix}${String(24_999 - index).padStart(5, "0")}`;
+  });
+  const sorted = sortedStrings(values);
+  assert.equal(sorted[0], `${prefix}00000`);
+  assert.equal(sorted.at(-1), `${prefix}24999`);
 });
