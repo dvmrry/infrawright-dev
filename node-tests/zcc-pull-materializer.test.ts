@@ -606,46 +606,77 @@ test("renamed staging aliases fail cleanup closed instead of disappearing", asyn
   }
 });
 
-test("direct materializer snapshots candidate, assertion, and hooks before await", async () => {
+test("direct materializer snapshots candidate and path base before its first await", async () => {
   await withFixture("zcc_device_cleanup", async (fixture) => {
     const original = await compile(fixture);
     const candidate = structuredClone(original);
     const assertion = structuredClone(cleanAssertion(candidate));
-    const originalAssertionSha = assertion.source.sha256;
     const originalImports = candidate.artifacts.imports.content;
     const mutableCandidate = candidate as unknown as {
       artifacts: {
         imports: { content: string; sha256: string; size_bytes: number };
       };
     };
-    const mutableAssertion = assertion as unknown as {
-      source: { sha256: string };
-    };
-    const hooks: ZccPullMaterializationOperationHooks = {
-      afterPreflight: () => {
-        const changed = "materializer-secret-value\n";
-        mutableCandidate.artifacts.imports.content = changed;
-        mutableCandidate.artifacts.imports.size_bytes = Buffer.byteLength(changed);
-        mutableCandidate.artifacts.imports.sha256 = createHash("sha256")
-          .update(changed)
-          .digest("hex");
-        mutableAssertion.source.sha256 = "0".repeat(64);
-      },
-    };
-    const result = await materializeReadyZccPullArtifacts({
+    const options = {
       outputRoot: fixture.outputRoot,
       pathBase: realpathSync(fixture.workspace),
       candidate,
       assertion,
       recheckInputs: async () => undefined,
-      hooks,
-    });
+    };
+    const operation = materializeReadyZccPullArtifacts(options);
+
+    // These mutations run after the async function reaches bindAuthority's
+    // first await. Without the transaction-entry snapshot, prepareArtifacts
+    // would publish the changed bytes under the changed path base.
+    const changed = "materializer-secret-value\n";
+    mutableCandidate.artifacts.imports.content = changed;
+    mutableCandidate.artifacts.imports.size_bytes = Buffer.byteLength(changed);
+    mutableCandidate.artifacts.imports.sha256 = createHash("sha256")
+      .update(changed)
+      .digest("hex");
+    const redirected = path.join(realpathSync(fixture.workspace), "redirected");
+    options.pathBase = redirected;
+
+    const result = await operation;
+    assert.equal(result.status, "complete");
+    assert.equal(result.verification.source.sha256, assertion.source.sha256);
+    assert.throws(() => lstatSync(redirected));
     assert.equal(
       readFileSync(targetPath(fixture, original.artifacts.imports), "utf8"),
       originalImports,
     );
-    assert.equal(result.verification.source.sha256, originalAssertionSha);
+  });
+});
+
+test("direct materializer snapshots hook and recheck function references", async () => {
+  await withFixture("zcc_device_cleanup", async (fixture) => {
+    const candidate = await compile(fixture);
+    const hooks: {
+      afterPreflight?: () => void;
+    } = {};
+    let originalRechecks = 0;
+    const options = {
+      outputRoot: fixture.outputRoot,
+      pathBase: realpathSync(fixture.workspace),
+      candidate,
+      assertion: cleanAssertion(candidate),
+      recheckInputs: async () => {
+        originalRechecks += 1;
+      },
+      hooks,
+    };
+    const operation = materializeReadyZccPullArtifacts(options);
+    hooks.afterPreflight = () => {
+      throw new Error("materializer-secret-value");
+    };
+    options.recheckInputs = async () => {
+      throw new Error("materializer-secret-value");
+    };
+
+    const result = await operation;
     assert.equal(result.status, "complete");
+    assert.equal(originalRechecks, 2);
   });
 });
 
