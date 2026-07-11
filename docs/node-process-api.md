@@ -201,7 +201,7 @@ The strict contracts are published in
 `docs/schemas/process-request.schema.json` and
 `docs/schemas/process-response.schema.json`.
 
-## Transition Catalog
+## Transition Catalogs
 
 The Node operation consumes a versioned `infrawright.root_catalog` instead of
 loading raw packs. This boundary is deliberate: Python currently validates
@@ -220,6 +220,37 @@ python3 -m engine.root_catalog \
 CI regenerates it logically and fails if its bytes differ. Node performs no
 Python call at runtime. A later migration slice will replace the producer only
 after the full pack-validation contract has been ported.
+
+The raw-pull migration uses a second, narrower authoring-time boundary for the
+five fetch-backed ZCC resources:
+
+```sh
+python3 -m engine.transform_catalog \
+  --product zcc \
+  --out catalogs/zcc-transform-catalog.v1.json
+```
+
+That catalog binds the validated provider projection, the reachable transform
+overrides, and the complete Python `html.unescape` compatibility tables. The
+pure Node transform kernel accepts only the embedded catalog's exact semantics;
+it does not rediscover schemas or overrides. This checkpoint is library-only:
+there is no process operation, filesystem materialization, provider execution,
+HTTP, or credential handling until the artifact-set contract lands. Raw items
+must come from `parseDataJsonLosslessly`; native JavaScript numbers are rejected
+because they cannot distinguish JSON `1` from `1.0`, and this first checkpoint
+accepts integral numeric tokens only.
+
+Catalog regeneration structurally gates changes to the declarative provider
+projection, reachable overrides, and serialized compatibility tables: any such
+change produces reviewed catalog bytes. It does not prove universal parity
+between the imperative Python and TypeScript helpers. That parity is bounded by
+the committed differential corpus until downstream dual-running is byte-clean.
+
+`engine.transform_catalog` serializes the `html.unescape` tables supplied by
+the Python interpreter that runs the generator. Node consumes those committed
+bytes instead of consulting its own HTML or Unicode tables. If regeneration
+under a different Python standard library produces different tables, the
+catalog diff is a reviewed contract change; it is never accepted silently.
 
 ## Compatibility Gate
 
@@ -253,6 +284,11 @@ float-bearing output contract is migrated.
 These slices support Zscaler root topology, changed-path scoping, materialized
 plan-root enumeration, and exact-catalog saved-plan assessment as public
 process operations.
+
+The internal ZCC transform checkpoint additionally ports raw-item projection
+for `zcc_device_cleanup`, `zcc_failopen_policy`, `zcc_forwarding_profile`,
+`zcc_trusted_network`, and `zcc_web_privacy`. Python remains the independent
+differential oracle and the only artifact writer at this stage.
 
 The bundled Zscaler assessment operation uses the internal saved-plan
 assessment kernel, which provides:

@@ -313,6 +313,12 @@
       "packs": ["zcc", "zia", "zpa"],
       "shared": ["zscaler"],
       "reason": "The parity fixtures are source-pinned to the committed Zscaler packs."
+    },
+    {
+      "prefix": "tests.test_transform_catalog.",
+      "packs": ["zcc"],
+      "shared": [],
+      "reason": "The generated transform contract is derived from the committed ZCC registry, provider schema, and overrides."
     }
   ]
 }

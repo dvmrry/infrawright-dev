@@ -99,7 +99,9 @@ scope, plan-root, and exact-catalog Zscaler saved-plan assessment contracts and
 are differentially compared with Python in CI. Build the no-install bundle with
 `npm ci --ignore-scripts && npm run check && npm run build`; see
 [Node Process API Migration](docs/node-process-api.md) for the request contract,
-current boundary, and downstream dual-run guidance.
+current boundary, and downstream dual-run guidance. An internal checkpoint also
+differentially ports the five fetch-backed ZCC raw transforms behind an exact
+generated catalog; it is not exposed as a process operation yet.
 
 ## Layout
 

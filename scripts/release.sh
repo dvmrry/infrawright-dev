@@ -63,7 +63,7 @@ test "$NODE_MAJOR" = 24 || {
 
 # 4. Self-containment guard — a release missing the shared pack or engine is broken.
 #    (This is the exact failure mode a fresh clone would hit; catch it before publish.)
-for must in packs/_shared/zscaler/collector.py engine/transform.py packs/zia/registry.json catalogs/zscaler-root-catalog.v1.json dist/infrawright.mjs dist/infrawright.mjs.sha256 LICENSE README.md; do
+for must in packs/_shared/zscaler/collector.py engine/transform.py packs/zia/registry.json catalogs/zscaler-root-catalog.v1.json catalogs/zcc-transform-catalog.v1.json dist/infrawright.mjs dist/infrawright.mjs.sha256 LICENSE README.md; do
   test -f "$STAGE/$must" || { echo "FATAL: release is missing $must — aborting"; exit 2; }
 done
 echo "self-containment guard: OK"

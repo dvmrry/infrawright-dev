@@ -6,13 +6,15 @@ realistic API response shapes.
 
 ## Source
 
-Data copied verbatim from Zscaler's public
+Rows with cassette provenance were copied verbatim from Zscaler's public
 [zscaler-sdk-python](https://github.com/zscaler/zscaler-sdk-python) integration-test
 VCR cassettes (`tests/integration/{zia,zpa}/cassettes/*.yaml`), retrieved
-2026-06-10, MIT licence.
+2026-06-10 under the MIT licence. Rows marked `synthetic` are clean-room inputs
+shaped from the cited provider schema or evidence source.
 
-The values are Zscaler's own test-sanitized recordings — no real tenant data.
-IDs, names, and cross-references are consistent within the cassettes (e.g.
+The cassette values are Zscaler's own test-sanitized recordings, and the
+synthetic rows contain no tenant data. IDs, names, and cross-references remain
+consistent within each cassette-derived fixture (for example,
 `tests-appsegment-vcr0001`, customer id `216196257331281920`).
 
 ## Per-file provenance
@@ -34,6 +36,7 @@ IDs, names, and cross-references are consistent within the cassettes (e.g.
 | `zpa_application_server.json` | `zpa/cassettes/TestApplicationServer.yaml` | `/server` |
 | `zpa_microtenant_controller.json` | synthetic — shaped from provider schema and DAV-25 clean-room drop report | `/microtenants` |
 | `zpa_policy_access_rule.json` | `zpa/cassettes/TestAccessPolicyRule.yaml` + `TestAccessPolicyRuleV2.yaml` | `policySet/rules/policyType/ACCESS_POLICY` |
+| `zcc_device_cleanup.json` | synthetic — shaped from ZCC provider schema | `zcc/papi/public/v1/getDeviceCleanupInfo` |
 | `zcc_forwarding_profile.json` | synthetic — shaped from ZCC provider schema | `zcc/papi/public/v1/webForwardingProfile/listByCompany` |
 | `zcc_trusted_network.json` | synthetic — shaped from ZCC provider schema | `zcc/papi/public/v2/trusted-networks` |
 | `zcc_failopen_policy.json` | synthetic — shaped from ZCC provider schema | `zcc/papi/public/v1/webFailOpenPolicy/listByCompany` |
