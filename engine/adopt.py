@@ -92,12 +92,13 @@ def adopt_items(raw_items, resource_type, policy=None, state_loader=None):
 
 
 def write_outputs(resource_type, raw_items, tenant, policy):
+    artifacts.assert_no_pending_moves(tenant, resource_type)
     config_dir = deployment.config_dir(tenant)
     imports_dir = deployment.imports_dir(tenant)
+    items, originals = adopt_items(raw_items, resource_type, policy=policy)
+    artifacts.assert_no_pending_moves(tenant, resource_type)
     os.makedirs(config_dir, exist_ok=True)
     os.makedirs(imports_dir, exist_ok=True)
-
-    items, originals = adopt_items(raw_items, resource_type, policy=policy)
     if resource_type in lookup.lookup_sources():
         # Sidecar entries merge identity (for the id) with the PROJECTED
         # provider-state item: display names come from provider state, while
@@ -160,6 +161,11 @@ def main(argv=None):
     resource_type, input_path, tenant = argv
     artifacts.validate_tenant(tenant)
     artifacts.validate_resource_type(resource_type)
+    try:
+        artifacts.assert_no_pending_moves(tenant, resource_type)
+    except RuntimeError as exc:
+        sys.stderr.write("error: %s\n" % exc)
+        return 1
     policy = DriftPolicy.load_for_adoption(policy_path)
     try:
         with open(input_path, encoding="utf-8") as f:

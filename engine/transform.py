@@ -1155,6 +1155,11 @@ def main(argv=None):
     resource_type, input_path, tenant = argv
     artifacts.validate_tenant(tenant)
     artifacts.validate_resource_type(resource_type)
+    try:
+        artifacts.assert_no_pending_moves(tenant, resource_type)
+    except RuntimeError as exc:
+        sys.stderr.write("error: %s\n" % exc)
+        return 1
     override = load_override(resource_type)
     with open(input_path, encoding="utf-8") as f:
         raw_items = json.load(f)
@@ -1176,6 +1181,11 @@ def main(argv=None):
     derive = derive_entry(resource_type)
     if derive is not None:
         items = derive_reorder(raw_items, derive)
+        try:
+            artifacts.assert_no_pending_moves(tenant, resource_type)
+        except RuntimeError as exc:
+            sys.stderr.write("error: %s\n" % exc)
+            return 1
         os.makedirs(config_dir, exist_ok=True)
         tfvars_path = write_deployment_tfvars(resource_type, items, tenant)
         sys.stderr.write(
@@ -1185,6 +1195,11 @@ def main(argv=None):
     _warn_if_slim(raw_items, load_resource(resource_type)["block"], resource_type)
     items, originals, drops = transform_items(raw_items, resource_type, override)
     imports_dir = deployment.imports_dir(tenant)
+    try:
+        artifacts.assert_no_pending_moves(tenant, resource_type)
+    except RuntimeError as exc:
+        sys.stderr.write("error: %s\n" % exc)
+        return 1
     os.makedirs(config_dir, exist_ok=True)
     os.makedirs(imports_dir, exist_ok=True)
     if resource_type in lookup.lookup_sources():

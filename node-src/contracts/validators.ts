@@ -20,6 +20,7 @@ import zccPullRefreshParitySeedSchema from "../../docs/schemas/zcc-pull-refresh-
 import zccPullRefreshParitySchema from "../../docs/schemas/zcc-pull-refresh-parity.schema.json" with { type: "json" };
 import zccPullRefreshMaterializationSchema from "../../docs/schemas/zcc-pull-refresh-materialization.schema.json" with { type: "json" };
 import zccPullRefreshPendingTransitionSchema from "../../docs/schemas/zcc-pull-refresh-pending-transition.schema.json" with { type: "json" };
+import zccPullRefreshAcknowledgementSchema from "../../docs/schemas/zcc-pull-refresh-acknowledgement.schema.json" with { type: "json" };
 import type { ErrorDetail } from "../domain/errors.js";
 import {
   ASSESSMENT_SEMANTICS_KEYWORD,
@@ -59,6 +60,12 @@ import {
   validateZccPullRefreshMaterializationSemantics,
   validateZccPullRefreshPendingTransitionSemantics,
 } from "./zcc-pull-refresh-materialization-semantics.js";
+import {
+  ZCC_PULL_REFRESH_ACKNOWLEDGEMENT_REQUEST_SEMANTICS_KEYWORD,
+  ZCC_PULL_REFRESH_ACKNOWLEDGEMENT_SEMANTICS_KEYWORD,
+  validateZccPullRefreshAcknowledgementRequestSemantics,
+  validateZccPullRefreshAcknowledgementSemantics,
+} from "./zcc-pull-refresh-acknowledgement-semantics.js";
 
 const AJV_OPTIONS = {
   coerceTypes: false,
@@ -130,6 +137,14 @@ requestAjv.addKeyword({
   validate: validateZccPullRefreshMaterializationRequestSemantics,
 });
 
+requestAjv.addKeyword({
+  keyword: ZCC_PULL_REFRESH_ACKNOWLEDGEMENT_REQUEST_SEMANTICS_KEYWORD,
+  schemaType: "boolean",
+  type: "object",
+  errors: true,
+  validate: validateZccPullRefreshAcknowledgementRequestSemantics,
+});
+
 ajv.addKeyword({
   keyword: ZCC_PULL_ARTIFACT_SEMANTICS_KEYWORD,
   schemaType: "boolean",
@@ -152,6 +167,22 @@ ajv.addKeyword({
   type: "object",
   errors: true,
   validate: validateZccPullRefreshMaterializationSemantics,
+});
+
+requestAjv.addKeyword({
+  keyword: ZCC_PULL_REFRESH_MATERIALIZATION_SEMANTICS_KEYWORD,
+  schemaType: "boolean",
+  type: "object",
+  errors: true,
+  validate: validateZccPullRefreshMaterializationSemantics,
+});
+
+ajv.addKeyword({
+  keyword: ZCC_PULL_REFRESH_ACKNOWLEDGEMENT_SEMANTICS_KEYWORD,
+  schemaType: "boolean",
+  type: "object",
+  errors: true,
+  validate: validateZccPullRefreshAcknowledgementSemantics,
 });
 
 ajv.addKeyword({
@@ -223,10 +254,12 @@ ajv.addSchema(zccPullRefreshParitySeedSchema);
 ajv.addSchema(zccPullRefreshParitySchema);
 ajv.addSchema(zccPullRefreshPendingTransitionSchema);
 ajv.addSchema(zccPullRefreshMaterializationSchema);
+ajv.addSchema(zccPullRefreshAcknowledgementSchema);
 requestAjv.addSchema(zccPullArtifactParitySchema);
 requestAjv.addSchema(zccPullArtifactSetSchema);
 requestAjv.addSchema(zccPullRefreshParitySeedSchema);
 requestAjv.addSchema(zccPullRefreshParitySchema);
+requestAjv.addSchema(zccPullRefreshMaterializationSchema);
 
 export const validateProcessRequest: ValidateFunction = requestAjv.compile(
   processRequestSchema,
@@ -273,6 +306,8 @@ export const validateZccPullRefreshPendingTransition: ValidateFunction =
   ajv.getSchema(zccPullRefreshPendingTransitionSchema.$id) as ValidateFunction;
 export const validateZccPullRefreshMaterialization: ValidateFunction =
   ajv.getSchema(zccPullRefreshMaterializationSchema.$id) as ValidateFunction;
+export const validateZccPullRefreshAcknowledgement: ValidateFunction =
+  ajv.getSchema(zccPullRefreshAcknowledgementSchema.$id) as ValidateFunction;
 
 function errorMessage(error: ErrorObject): string {
   if (error.keyword === "additionalProperties") {

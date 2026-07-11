@@ -22,6 +22,7 @@ EXPRESSION_BINDINGS_SUFFIX = ".expressions.json"
 GENERATED_EXPRESSION_BINDINGS_SUFFIX = ".generated.expressions.json"
 IMPORTS_SUFFIX = "_imports.tf"
 MOVES_SUFFIX = "_moves.tf"
+PENDING_MOVES_SUFFIX = "_moves.pending.json"
 VALID_TENANT = re.compile(r"^[A-Za-z0-9_.-]+$")
 VALID_ROOT_LABEL = re.compile(r"^[a-z0-9_]+$")
 
@@ -269,6 +270,21 @@ def moves_file(tenant, resource_type):
     return os.path.join(
         deployment.imports_dir(tenant), resource_type + MOVES_SUFFIX
     )
+
+
+def pending_moves_file(tenant, resource_type):
+    return os.path.join(
+        deployment.imports_dir(tenant), resource_type + PENDING_MOVES_SUFFIX
+    )
+
+
+def assert_no_pending_moves(tenant, resource_type):
+    """Refuse artifact writers while a Node move transition is in flight."""
+    if os.path.lexists(pending_moves_file(tenant, resource_type)):
+        raise RuntimeError(
+            "pending move transition for %s must be applied and acknowledged "
+            "before transform or adopt can run" % resource_type
+        )
 
 
 def env_root(tenant, resource_type):

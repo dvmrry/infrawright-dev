@@ -55,6 +55,9 @@
           "const": "materialize_pull_artifacts"
         },
         {
+          "const": "acknowledge_pull_refresh"
+        },
+        {
           "type": "null"
         }
       ]
@@ -105,6 +108,9 @@
         },
         {
           "$ref": "zcc-pull-refresh-materialization.schema.json"
+        },
+        {
+          "$ref": "zcc-pull-refresh-acknowledgement.schema.json"
         },
         {
           "type": "null"
@@ -292,6 +298,26 @@
                     "$ref": "zcc-pull-refresh-materialization.schema.json"
                   }
                 ]
+              },
+              "error": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "request_id": {
+                "type": "string"
+              },
+              "operation": {
+                "const": "acknowledge_pull_refresh"
+              },
+              "diagnostics": {
+                "type": "array",
+                "maxItems": 0
+              },
+              "result": {
+                "$ref": "zcc-pull-refresh-acknowledgement.schema.json"
               },
               "error": {
                 "type": "null"

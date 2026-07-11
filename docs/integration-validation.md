@@ -39,6 +39,7 @@ make stage-imports TENANT=<tenant> RESOURCE=<resource-or-provider>
 make plan TENANT=<tenant> RESOURCE=<resource-or-provider> SAVE=1
 make assert-adoptable TENANT=<tenant> RESOURCE=<resource-or-provider> POLICY=<file>
 make apply TENANT=<tenant> RESOURCE=<resource-or-provider> POLICY=<file>
+make unstage-imports TENANT=<tenant> RESOURCE=<resource-or-provider>
 ```
 
 Use the same `POLICY=<file>` for `assert-adoptable` and `apply`. Apply
@@ -48,6 +49,13 @@ import-only, or explicitly policy-tolerated saved plans.
 When using a remote backend, also pass the same `BACKEND_CONFIG=<file>` to
 `plan`, `assert-adoptable` (or `assert-clean`), and `apply`. The saved-plan
 fingerprint treats a missing or changed backend config as stale.
+
+For a Node ZCC refresh that returned `awaiting_apply`, call the versioned
+`acknowledge_pull_refresh` process operation only after the apply and unstage
+steps succeed. The acknowledgement requires the complete parity assertion,
+the complete publication receipt, `INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT`, and
+the host-only `INFRAWRIGHT_ALLOW_EXTERNAL_APPLY_ACK=1` capability. It is an
+explicit trusted-pipeline statement, not independent Terraform apply proof.
 
 Useful inspection and cleanup commands:
 

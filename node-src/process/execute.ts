@@ -12,6 +12,7 @@ import {
   validateZccPullRefreshParity,
   validateZccPullRefreshParitySeed,
   validateZccPullArtifactParity,
+  validateZccPullRefreshAcknowledgement,
   validateZccPullRefreshMaterialization,
 } from "../contracts/validators.js";
 import {
@@ -41,6 +42,10 @@ import {
   seedZccPullRefreshParityOperation,
 } from "../domain/zcc-pull-refresh-parity.js";
 import { materializeZccPullRefreshOperation } from "../domain/zcc-pull-refresh-publisher-operation.js";
+import {
+  acknowledgeZccPullRefreshOperation,
+} from "../domain/zcc-pull-refresh-acknowledgement-operation.js";
+import { zccPullRefreshPublicationReceiptSha } from "../domain/zcc-pull-refresh-fingerprints.js";
 import type {
   ProcessRequest,
   ProcessSuccessResponse,
@@ -159,6 +164,24 @@ function copyRequest(request: ProcessRequest): ProcessRequest {
       },
     };
   }
+  if (request.operation === "acknowledge_pull_refresh") {
+    return {
+      ...base,
+      operation: "acknowledge_pull_refresh",
+      input: {
+        mode: request.input.mode,
+        policy: request.input.policy,
+        tenant: request.input.tenant,
+        resource_type: request.input.resource_type,
+        assertion: structuredClone(request.input.assertion),
+        publication: structuredClone(request.input.publication),
+        acknowledgement: {
+          kind: request.input.acknowledgement.kind,
+          statement: request.input.acknowledgement.statement,
+        },
+      },
+    };
+  }
   return {
     ...base,
     operation: request.operation,
@@ -174,6 +197,7 @@ export async function executeRequest(
   dependencies: {
     readonly terraformExecutable: string | null;
     readonly materializeOutputRoot: string | null;
+    readonly allowExternalApplyAcknowledgement?: boolean;
   },
 ): Promise<ProcessSuccessResponse> {
   request = copyRequest(request);
@@ -356,6 +380,63 @@ export async function executeRequest(
       schema_version: 1,
       request_id: request.request_id,
       operation: "materialize_pull_artifacts",
+      status: "ok",
+      diagnostics: [],
+      result,
+      error: null,
+    };
+  }
+  if (request.operation === "acknowledge_pull_refresh") {
+    const allowExternalApplyAcknowledgement =
+      dependencies.allowExternalApplyAcknowledgement === true;
+    if (!allowExternalApplyAcknowledgement) {
+      throw new ProcessFailure({
+        code: "EXTERNAL_APPLY_ACKNOWLEDGEMENT_REQUIRED",
+        category: "domain",
+        message: "refresh retirement requires the trusted external-apply acknowledgement capability",
+      });
+    }
+    if (dependencies.materializeOutputRoot === null) {
+      throw new ProcessFailure({
+        code: "REFRESH_ACKNOWLEDGEMENT_OUTPUT_ROOT_NOT_CONFIGURED",
+        category: "io",
+        message: "refresh acknowledgement requires a trusted output root",
+      });
+    }
+    const result = await acknowledgeZccPullRefreshOperation({
+      context: request.context,
+      tenant: request.input.tenant,
+      resourceType: request.input.resource_type,
+      assertion: request.input.assertion,
+      publication: request.input.publication,
+      acknowledgement: request.input.acknowledgement,
+      policy: request.input.policy,
+      outputRoot: dependencies.materializeOutputRoot,
+      allowExternalApplyAcknowledgement,
+    });
+    if (!validateZccPullRefreshAcknowledgement(result)) {
+      throw new ProcessFailure({
+        code: "INVALID_OPERATION_RESULT",
+        category: "internal",
+        message: "acknowledge_pull_refresh produced a result outside its versioned schema",
+        details: schemaErrorDetails(validateZccPullRefreshAcknowledgement.errors),
+      });
+    }
+    const expectedReceiptSha = zccPullRefreshPublicationReceiptSha(
+      request.input.publication,
+    );
+    if (result.verification.publication_receipt_sha256 !== expectedReceiptSha) {
+      throw new ProcessFailure({
+        code: "INVALID_OPERATION_RESULT",
+        category: "internal",
+        message: "acknowledge_pull_refresh did not bind the publication receipt",
+      });
+    }
+    return {
+      kind: "infrawright.process_response",
+      schema_version: 1,
+      request_id: request.request_id,
+      operation: "acknowledge_pull_refresh",
       status: "ok",
       diagnostics: [],
       result,
