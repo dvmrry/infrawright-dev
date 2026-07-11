@@ -62,6 +62,7 @@ test("Node ZCC transform matches the raw-schema Python oracle", async () => {
   const corpusText = await readFile(CORPUS_PATH, "utf8");
   const corpus = parseLosslessJson(corpusText) as Corpus;
   const demoTypes = [
+    "zcc_device_cleanup",
     "zcc_failopen_policy",
     "zcc_forwarding_profile",
     "zcc_trusted_network",

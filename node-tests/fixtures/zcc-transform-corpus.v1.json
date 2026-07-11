@@ -42,6 +42,44 @@
       }
     },
     {
+      "name": "device-cleanup-unsupported-bool-strings-and-bare-bigints",
+      "resource_type": "zcc_device_cleanup",
+      "raw_items": [
+        {
+          "id": 9007199254740993,
+          "active": "yes",
+          "deviceExceedLimit": 900719925474099312345
+        },
+        {
+          "id": "no-case",
+          "active": "no"
+        }
+      ],
+      "expected": {
+        "items": {
+          "9007199254740993": {
+            "active": "yes",
+            "device_exceed_limit": 900719925474099312345
+          },
+          "no_case": {
+            "active": "no"
+          }
+        },
+        "originals": {
+          "9007199254740993": {
+            "id": 9007199254740993,
+            "active": "yes",
+            "device_exceed_limit": 900719925474099312345
+          },
+          "no_case": {
+            "id": "no-case",
+            "active": "no"
+          }
+        },
+        "drops": []
+      }
+    },
+    {
       "name": "failopen-inversion-and-strict-prompt",
       "resource_type": "zcc_failopen_policy",
       "raw_items": [

@@ -240,6 +240,18 @@ must come from `parseDataJsonLosslessly`; native JavaScript numbers are rejected
 because they cannot distinguish JSON `1` from `1.0`, and this first checkpoint
 accepts integral numeric tokens only.
 
+Catalog regeneration structurally gates changes to the declarative provider
+projection, reachable overrides, and serialized compatibility tables: any such
+change produces reviewed catalog bytes. It does not prove universal parity
+between the imperative Python and TypeScript helpers. That parity is bounded by
+the committed differential corpus until downstream dual-running is byte-clean.
+
+`engine.transform_catalog` serializes the `html.unescape` tables supplied by
+the Python interpreter that runs the generator. Node consumes those committed
+bytes instead of consulting its own HTML or Unicode tables. If regeneration
+under a different Python standard library produces different tables, the
+catalog diff is a reviewed contract change; it is never accepted silently.
+
 ## Compatibility Gate
 
 The process envelope is intentionally new, so byte compatibility is measured
