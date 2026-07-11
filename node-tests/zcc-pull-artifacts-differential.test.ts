@@ -91,7 +91,7 @@ function target(fixture: DifferentialCase): ZccArtifactTarget {
 
 async function cases(): Promise<DifferentialCase[]> {
   const output: DifferentialCase[] = [];
-  for (const resourceType of RESOURCES.slice(1)) {
+  for (const resourceType of RESOURCES) {
     output.push({
       name: `demo-${resourceType}`,
       resource_type: resourceType,
@@ -107,18 +107,24 @@ async function cases(): Promise<DifferentialCase[]> {
     "utf8",
   )) as {
     readonly cases: readonly {
+      readonly name: string;
       readonly resource_type: string;
       readonly raw_items: readonly unknown[];
     }[];
   };
-  const device = corpus.cases.find(
-    (fixture) => fixture.resource_type === "zcc_device_cleanup",
+  const deviceBoolStringsAndBareBigints = corpus.cases.find(
+    (fixture) => fixture.name
+      === "device-cleanup-unsupported-bool-strings-and-bare-bigints",
   );
-  assert.notEqual(device, undefined);
+  assert.notEqual(deviceBoolStringsAndBareBigints, undefined);
+  assert.equal(
+    deviceBoolStringsAndBareBigints?.resource_type,
+    "zcc_device_cleanup",
+  );
   output.push({
-    name: "device-large-integer",
+    name: "adversarial-device-cleanup-unsupported-bool-strings-and-bare-bigints",
     resource_type: "zcc_device_cleanup",
-    raw_items: device?.raw_items ?? [],
+    raw_items: deviceBoolStringsAndBareBigints?.raw_items ?? [],
     variable_name: "items",
   });
   for (const resourceType of RESOURCES) {

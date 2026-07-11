@@ -941,6 +941,41 @@ class NullObjectStubTest(unittest.TestCase):
                 )
                 self.assertEqual(drops, [expected_path])
 
+    def test_unknown_nullable_stub_member_reports_across_providers(self):
+        cases = (
+            (
+                "zia_location_management",
+                {
+                    "id": 1,
+                    "name": "HQ",
+                    "extranet": [{"id": 0, "futureSecret": None}],
+                },
+                "hq",
+                "extranet",
+                [{"id": 0}],
+                ["extranet[].future_secret"],
+            ),
+            (
+                "zpa_application_segment",
+                {
+                    "id": "1",
+                    "name": "App",
+                    "serverGroups": [{"id": 0, "futureSecret": None}],
+                },
+                "app",
+                "server_groups",
+                [{"id": ["0"]}],
+                ["server_groups[].future_secret"],
+            ),
+        )
+        for resource, raw, item_key, field, projected, expected_drops in cases:
+            with self.subTest(resource=resource):
+                items, _, drops = transform_items(
+                    [raw], resource, load_override(resource)
+                )
+                self.assertEqual(items[item_key][field], projected)
+                self.assertEqual(drops, expected_drops)
+
     def test_bool_member_marks_block_real(self):
         from engine.transform import _is_null_object
         self.assertFalse(_is_null_object({"id": 0, "enabled": False}))
