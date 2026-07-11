@@ -8,7 +8,8 @@ HTTP service.
 The first slices port the read-only root-topology, changed-path scoping,
 materialized plan-root enumeration, exact-catalog Zscaler saved-plan
 assessment, the strict ZCC bootstrap compile, compare, and retry-forward
-materialization operations, and a read-only ZCC refresh compiler. They establish
+materialization operations, a read-only ZCC refresh compiler, and an
+assertion-bound imports-last ZCC refresh publisher. They establish
 the process protocol, deterministic JSON boundary, packaging, and differential
 validation pattern that later adoption operations will follow.
 
@@ -336,16 +337,13 @@ validation separately binds each desired artifact's bytes to its size and
 digest. The hashes are not signatures and do not authenticate who produced the
 baseline or candidate; retain them in protected pipeline storage.
 
-This slice ports the raw `engine.transform` run-two compiler only. It does not
-port import-oracle adoption, provider reads, generated bindings, HCL tfvars,
-materialization, apply, or move acknowledgement. In particular, Python's
-current stage/apply cleanup removes the environment-root copy of a move file,
-not necessarily this source artifact. A later write contract must bind and
-revalidate the accepted refresh assertion, publish the desired set, and
-explicitly mark a move transition applied before clearing its source move file
-and pending marker. Until then, use refresh mode only for differential evidence
-and do not manually delete a refused move artifact to force progress. The
-Python Make wrapper can skip a missing pull; the Node operation treats its
+The compiler itself remains read-only and does not port import-oracle adoption,
+provider reads, generated bindings, HCL tfvars, apply, or move acknowledgement.
+The assertion-bound publisher described below is the only supported promotion
+path. It deliberately retains a safe move file and its pending-transition
+marker until a later apply-and-acknowledge contract can prove that Terraform
+consumed the move. Do not manually delete either artifact to force progress.
+The Python Make wrapper can skip a missing pull; the Node operation treats its
 derived pull as required and returns an error.
 
 ### ZCC two-phase refresh parity
@@ -620,6 +618,80 @@ The embedded verification retains its deployment-derived logical artifact
 paths, which may be absolute when the deployment itself uses an absolute
 overlay.
 
+### ZCC assertion-bound refresh materialization
+
+Refresh publication uses the same process operation with a distinct, fixed
+input contract:
+
+```json
+{
+  "mode": "refresh",
+  "publication": "replace_or_verify_exact_imports_last",
+  "tenant": "prod",
+  "resource_type": "zcc_trusted_network",
+  "assertion": {
+    "kind": "infrawright.zcc_pull_refresh_parity",
+    "schema_version": 1
+  }
+}
+```
+
+The abbreviated assertion must be replaced by the complete, ready result from
+the two-phase refresh parity workflow. The request tenant, resource, and
+context hash must join the assertion before operation I/O. The operation then
+recompiles the current candidate from bound inputs and requires its raw source,
+catalog, root, baseline fingerprint, desired descriptors, move decision, and
+transition fingerprint to join the protected assertion. It does not accept a
+caller-authored artifact list or derive authority from the request.
+
+`INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT` is the same trusted host-only write
+authority used by bootstrap materialization. Existing artifact targets must be
+exactly the asserted baseline or desired state. The HCL alternate and generated
+expression bindings must remain absent. A foreign payload, foreign pending
+marker, mutated baseline-equals-desired role, non-prefix payload vector, or
+reserved artifact is an ambiguous workspace and fails closed without being
+repaired or overwritten.
+
+The payload order is `lookup`, `moves`, `tfvars`, then `imports`, after removing
+roles whose baseline and desired bytes are identical. Imports is the final
+payload operation and final verification read. It is not by itself a commit
+signal because an imports file may be identical across a valid refresh. Before
+the first changed payload becomes visible, the publisher durably creates the
+exact content-free `<resource>_moves.pending.json` fence with an exclusive
+no-overwrite link and syncs its parent. Each changed payload is staged and
+synced before visibility, then its parent is synced. Present-to-present payload
+replacement uses a same-parent rename under the documented serialized trusted
+runner model; absent-to-present publication uses an exclusive no-overwrite
+link.
+
+The only valid in-flight vector is a desired prefix followed by a baseline
+suffix in that effective order. A crash after the marker fence or any payload
+publication may therefore leave durable partial progress; an unchanged,
+serialized retry verifies the exact marker and prefix before advancing only the
+remaining suffix. A markerless partial prefix is ambiguous. A markerless
+all-desired state is accepted only for a no-move transition; when moves are
+desired it cannot prove whether the move transition was published and fails
+closed. Exact hard-linked files are not rejected merely for link count two,
+because a crash can occur after canonical link creation but before the random
+staging alias is removed.
+
+A no-move transition removes only the exact marker after all payload and input
+rechecks, syncs the marker parent, and returns `status: "complete"`. A safe-move
+transition retains both the move file and exact marker and returns
+`status: "awaiting_apply"` with `next_action: "apply_moves_then_ack"`. That is a
+successful publication receipt, not apply evidence and not permission to clear
+either file. Move retirement remains intentionally deferred until a separate
+contract binds successful Terraform apply evidence.
+
+The result is `infrawright.zcc_pull_refresh_materialization` v1. It contains
+only the ordered roles advanced by this invocation, the initial/final
+transition states, the next action, assertion and transition hashes, and seven
+content-free final artifact states. It never emits paths, bytes, import IDs,
+move keys, staging names, or the output authority. Consumers must validate the
+complete response, retain `awaiting_apply` receipts with the protected
+assertion, and treat the process as single-writer: Terraform, Python, cleanup,
+and another publisher must not run concurrently.
+
 `context.workspace` must be absolute. The other context paths may be absolute
 or workspace-relative. The process never consults
 `INFRAWRIGHT_DEPLOYMENT`, `INFRAWRIGHT_PACKS`, or its current directory.
@@ -634,7 +706,8 @@ Exit status is:
 
 - `0`: successful read operation, ready bootstrap or refresh artifacts, a ready
   refresh seed, exact materialized/bootstrap or twin-refresh parity, complete
-  retry-forward publication, or a clean/tolerated assessment;
+  retry-forward bootstrap publication, complete refresh publication, an
+  awaiting-apply refresh receipt, or a clean/tolerated assessment;
 - `3`: schema-valid review-required bootstrap or refresh artifacts, a
   review-required refresh seed, a materialized parity difference, or a blocked
   assessment;
@@ -650,7 +723,10 @@ is `docs/schemas/zcc-pull-artifact-parity.schema.json`; refresh compilation is
 contracts are `docs/schemas/zcc-pull-refresh-parity-seed.schema.json` and
 `docs/schemas/zcc-pull-refresh-parity.schema.json`; the content-free write
 receipt is
-`docs/schemas/zcc-pull-artifact-materialization.schema.json`.
+`docs/schemas/zcc-pull-artifact-materialization.schema.json`; the refresh
+pending fence and write receipt are
+`docs/schemas/zcc-pull-refresh-pending-transition.schema.json` and
+`docs/schemas/zcc-pull-refresh-materialization.schema.json`.
 
 ## Transition Catalogs
 
@@ -736,17 +812,18 @@ float-bearing output contract is migrated.
 These slices support Zscaler root topology, changed-path scoping, materialized
 plan-root enumeration, exact-catalog saved-plan assessment, immutable ZCC
 bootstrap and refresh artifact compilation, two-phase refresh byte parity,
-materialized bootstrap comparison, and asserted retry-forward bootstrap
-publication as public process operations.
+materialized bootstrap comparison, asserted retry-forward bootstrap
+publication, and asserted imports-last refresh publication as public process
+operations.
 
 The ZCC compiler ports raw-item projection and exact tfvars/import/lookup byte
 rendering for `zcc_device_cleanup`, `zcc_failopen_policy`,
 `zcc_forwarding_profile`, `zcc_trusted_network`, and `zcc_web_privacy`. Python
 remains the independent differential oracle. Node returns an immutable
 candidate set, proves digest-only parity against materialized Python output,
-and may publish only this exact five-resource JSON/bootstrap profile after a
-complete ready parity assertion is supplied from the protected comparison
-lane. The repository differential runs the actual Python writer, public Node
+and may publish only this exact five-resource JSON bootstrap or refresh profile
+after a complete ready parity assertion is supplied from the protected
+comparison lane. The repository differential runs the actual Python writer, public Node
 comparer, and public Node materializer for all five supported ZCC resources and
 checks their resulting bytes exactly. A separate run-two differential lets
 Python write the baseline and refreshed outputs, then proves the read-only Node

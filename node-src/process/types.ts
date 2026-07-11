@@ -12,6 +12,7 @@ import type {
 import type { ZccPullArtifactSet } from "../domain/zcc-pull-artifacts.js";
 import type { ZccPullRefreshArtifactSet } from "../domain/zcc-pull-refresh.js";
 import type { ZccPullArtifactMaterialization } from "../domain/zcc-pull-materialization.js";
+import type { ZccPullRefreshMaterialization } from "../domain/zcc-pull-refresh-materialization.js";
 import type { ZccPullArtifactParity } from "../domain/zcc-pull-parity.js";
 import type {
   ZccPullRefreshParity,
@@ -136,7 +137,7 @@ export interface SeedPullRefreshParityProcessRequest {
   };
 }
 
-export interface MaterializePullArtifactsProcessRequest {
+export interface MaterializeBootstrapPullArtifactsProcessRequest {
   readonly kind: "infrawright.process_request";
   readonly schema_version: 1;
   readonly request_id: string;
@@ -150,6 +151,25 @@ export interface MaterializePullArtifactsProcessRequest {
     readonly assertion: ZccPullArtifactParity;
   };
 }
+
+export interface MaterializeRefreshPullArtifactsProcessRequest {
+  readonly kind: "infrawright.process_request";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "materialize_pull_artifacts";
+  readonly context: RootsProcessRequest["context"];
+  readonly input: {
+    readonly mode: "refresh";
+    readonly publication: "replace_or_verify_exact_imports_last";
+    readonly tenant: string;
+    readonly resource_type: CompilePullArtifactsProcessRequest["input"]["resource_type"];
+    readonly assertion: ZccPullRefreshParity;
+  };
+}
+
+export type MaterializePullArtifactsProcessRequest =
+  | MaterializeBootstrapPullArtifactsProcessRequest
+  | MaterializeRefreshPullArtifactsProcessRequest;
 
 export type ProcessRequest =
   | RootsProcessRequest
@@ -253,14 +273,17 @@ export interface SeedPullRefreshParityProcessSuccessResponse {
   readonly error: null;
 }
 
-export interface MaterializePullArtifactsProcessSuccessResponse {
+export interface MaterializePullArtifactsProcessSuccessResponse<
+  Result extends ZccPullArtifactMaterialization | ZccPullRefreshMaterialization =
+    ZccPullArtifactMaterialization,
+> {
   readonly kind: "infrawright.process_response";
   readonly schema_version: 1;
   readonly request_id: string;
   readonly operation: "materialize_pull_artifacts";
   readonly status: "ok";
   readonly diagnostics: readonly [];
-  readonly result: ZccPullArtifactMaterialization;
+  readonly result: Result;
   readonly error: null;
 }
 
@@ -276,7 +299,9 @@ export type ProcessSuccessResponse =
   | ComparePullArtifactsProcessSuccessResponse<
       ZccPullArtifactParity | ZccPullRefreshParity
     >
-  | MaterializePullArtifactsProcessSuccessResponse;
+  | MaterializePullArtifactsProcessSuccessResponse<
+      ZccPullArtifactMaterialization | ZccPullRefreshMaterialization
+    >;
 
 export interface ProcessErrorResponse {
   readonly kind: "infrawright.process_response";

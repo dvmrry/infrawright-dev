@@ -104,6 +104,9 @@
           "$ref": "zcc-pull-artifact-materialization.schema.json"
         },
         {
+          "$ref": "zcc-pull-refresh-materialization.schema.json"
+        },
+        {
           "type": "null"
         }
       ]
@@ -281,7 +284,14 @@
                 "maxItems": 0
               },
               "result": {
-                "$ref": "zcc-pull-artifact-materialization.schema.json"
+                "oneOf": [
+                  {
+                    "$ref": "zcc-pull-artifact-materialization.schema.json"
+                  },
+                  {
+                    "$ref": "zcc-pull-refresh-materialization.schema.json"
+                  }
+                ]
               },
               "error": {
                 "type": "null"

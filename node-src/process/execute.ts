@@ -12,6 +12,7 @@ import {
   validateZccPullRefreshParity,
   validateZccPullRefreshParitySeed,
   validateZccPullArtifactParity,
+  validateZccPullRefreshMaterialization,
 } from "../contracts/validators.js";
 import {
   loadBoundAssessmentRootCatalog,
@@ -39,6 +40,7 @@ import {
   compareZccPullRefreshParityOperation,
   seedZccPullRefreshParityOperation,
 } from "../domain/zcc-pull-refresh-parity.js";
+import { materializeZccPullRefreshOperation } from "../domain/zcc-pull-refresh-publisher-operation.js";
 import type {
   ProcessRequest,
   ProcessSuccessResponse,
@@ -132,12 +134,25 @@ function copyRequest(request: ProcessRequest): ProcessRequest {
     };
   }
   if (request.operation === "materialize_pull_artifacts") {
+    if (request.input.mode === "refresh") {
+      return {
+        ...base,
+        operation: "materialize_pull_artifacts",
+        input: {
+          mode: "refresh",
+          publication: "replace_or_verify_exact_imports_last",
+          tenant: request.input.tenant,
+          resource_type: request.input.resource_type,
+          assertion: structuredClone(request.input.assertion),
+        },
+      };
+    }
     return {
       ...base,
       operation: "materialize_pull_artifacts",
       input: {
-        mode: request.input.mode,
-        publication: request.input.publication,
+        mode: "bootstrap",
+        publication: "create_or_verify_exact",
         tenant: request.input.tenant,
         resource_type: request.input.resource_type,
         assertion: structuredClone(request.input.assertion),
@@ -300,28 +315,39 @@ export async function executeRequest(
         message: "artifact materialization requires a trusted output root",
       });
     }
-    const result = await materializeZccPullArtifactsOperation({
-      workspace: request.context.workspace,
-      deploymentPath: resolveContextPath(
-        request.context.workspace,
-        request.context.deployment,
-      ),
-      catalogPath: resolveContextPath(
-        request.context.workspace,
-        request.context.root_catalog,
-      ),
-      tenant: request.input.tenant,
-      resourceType: request.input.resource_type,
-      assertion: request.input.assertion,
-      outputRoot: dependencies.materializeOutputRoot,
-    });
-    if (!validateZccPullArtifactMaterialization(result)) {
+    const result = request.input.mode === "refresh"
+      ? await materializeZccPullRefreshOperation({
+          context: request.context,
+          tenant: request.input.tenant,
+          resourceType: request.input.resource_type,
+          assertion: request.input.assertion,
+          outputRoot: dependencies.materializeOutputRoot,
+        })
+      : await materializeZccPullArtifactsOperation({
+          workspace: request.context.workspace,
+          deploymentPath: resolveContextPath(
+            request.context.workspace,
+            request.context.deployment,
+          ),
+          catalogPath: resolveContextPath(
+            request.context.workspace,
+            request.context.root_catalog,
+          ),
+          tenant: request.input.tenant,
+          resourceType: request.input.resource_type,
+          assertion: request.input.assertion,
+          outputRoot: dependencies.materializeOutputRoot,
+        });
+    const validateResult = request.input.mode === "refresh"
+      ? validateZccPullRefreshMaterialization
+      : validateZccPullArtifactMaterialization;
+    if (!validateResult(result)) {
       throw new ProcessFailure({
         code: "INVALID_OPERATION_RESULT",
         category: "internal",
         message: "materialize_pull_artifacts produced a result outside its versioned schema",
         details: schemaErrorDetails(
-          validateZccPullArtifactMaterialization.errors,
+          validateResult.errors,
         ),
       });
     }

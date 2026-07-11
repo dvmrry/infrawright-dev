@@ -76,7 +76,7 @@ export type ZccPullRefreshParityDesiredState =
       readonly size_bytes: number;
     };
 
-interface ZccPullRefreshNeutralEvidence {
+export interface ZccPullRefreshNeutralEvidence {
   readonly source: {
     readonly sha256: string;
     readonly size_bytes: number;
@@ -111,7 +111,7 @@ interface ZccPullRefreshNeutralEvidence {
   readonly evidence_sha256: string;
 }
 
-interface ZccPullRefreshParityBindingEvidence {
+export interface ZccPullRefreshParityBindingEvidence {
   readonly request_sha256: string;
   readonly binding_sha256: string;
   readonly deployment_semantics_sha256: string;
@@ -541,7 +541,9 @@ function decisionProjection(refresh: ZccPullRefreshArtifactSet): unknown {
   };
 }
 
-function neutralEvidence(refresh: ZccPullRefreshArtifactSet): ZccPullRefreshNeutralEvidence {
+export function zccPullRefreshNeutralEvidence(
+  refresh: ZccPullRefreshArtifactSet,
+): ZccPullRefreshNeutralEvidence {
   const projection = decisionProjection(refresh) as {
     readonly source: ZccPullRefreshNeutralEvidence["source"];
     readonly catalog: ZccPullRefreshNeutralEvidence["catalog"];
@@ -643,12 +645,14 @@ interface PhysicalIsolationSnapshot {
   readonly presentArtifactIdentities: readonly FileIdentity[];
 }
 
-type SnapshotBinding = Omit<
+export type ZccPullRefreshParitySnapshotBinding = Omit<
   ZccPullRefreshCompilationTransaction["binding"],
   "baselineInputs"
 > & {
   readonly baselineInputs?: ZccPullRefreshCompilationTransaction["binding"]["baselineInputs"];
 };
+
+type SnapshotBinding = ZccPullRefreshParitySnapshotBinding;
 
 async function directoryIdentity(directory: string, code: string): Promise<FileIdentity> {
   try {
@@ -948,6 +952,45 @@ async function transactionSnapshot(
   };
 }
 
+/**
+ * Recompute the content-free binding evidence used by a refresh parity
+ * assertion. This deliberately excludes materialized artifact bytes so it
+ * remains stable while an asserted transition is durably published.
+ */
+export async function snapshotZccPullRefreshBindingEvidence(options: {
+  readonly context: ZccPullRefreshParityContext;
+  readonly tenant: string;
+  readonly resourceType: ZccPullResourceType;
+  readonly binding: ZccPullRefreshParitySnapshotBinding;
+}): Promise<ZccPullRefreshParityBindingEvidence> {
+  const input = inertRecord(options as unknown);
+  const context = contextSnapshot(ownValue(input, "context"));
+  const tenant = primitiveString(ownValue(input, "tenant"));
+  const rawResourceType = primitiveString(ownValue(input, "resourceType"));
+  if (![
+    "zcc_device_cleanup",
+    "zcc_failopen_policy",
+    "zcc_forwarding_profile",
+    "zcc_trusted_network",
+    "zcc_web_privacy",
+  ].includes(rawResourceType)) {
+    return fail("INVALID_REFRESH_PARITY_INPUT", "unsupported ZCC parity resource");
+  }
+  const resourceType = rawResourceType as ZccPullResourceType;
+  const primitive: PrimitiveRequest = {
+    candidate: context,
+    reference: context,
+    tenant,
+    resourceType,
+  };
+  const binding = ownValue(input, "binding") as ZccPullRefreshParitySnapshotBinding;
+  return (await transactionSnapshot(
+    primitive,
+    "candidate",
+    binding,
+  )).request;
+}
+
 function identityKey(identity: FileIdentity): string {
   return `${identity.dev.toString()}:${identity.ino.toString()}`;
 }
@@ -1078,7 +1121,7 @@ function differences(
 
 function candidateEvidence(refresh: ZccPullRefreshArtifactSet): ZccPullRefreshParitySeed["candidate"] {
   return {
-    ...neutralEvidence(refresh),
+    ...zccPullRefreshNeutralEvidence(refresh),
     baseline_fingerprint_sha256: refresh.baseline.fingerprint_sha256,
     transition_sha256: refresh.transition_sha256,
   };
@@ -1189,7 +1232,7 @@ export async function seedZccPullRefreshParityOperation(options: {
   assertIsolated(finalCandidateSnapshot, finalReferenceSnapshot);
 
   const candidate = candidateEvidence(candidateTransaction.result);
-  const referenceTwin = neutralEvidence(referenceTransaction.result);
+  const referenceTwin = zccPullRefreshNeutralEvidence(referenceTransaction.result);
   const delta = differences(candidate, referenceTwin);
   if (
     finalCandidateSnapshot.request.deployment_semantics_sha256
