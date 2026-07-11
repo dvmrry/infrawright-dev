@@ -3,6 +3,12 @@
   "version": 1,
   "rules": [
     {
+      "prefix": "tests.test_adoption_catalog.",
+      "packs": ["zcc"],
+      "shared": [],
+      "reason": "The generated adoption contract is derived from the committed ZCC registry, provider schema, and overrides."
+    },
+    {
       "prefix": "tests.test_adoption_inventory_report.CLISmokeTest.test_cli_json_output.",
       "packs": ["cloudflare"],
       "shared": [],

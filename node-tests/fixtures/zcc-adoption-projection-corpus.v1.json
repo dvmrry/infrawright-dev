@@ -1,0 +1,402 @@
+{
+  "fixture_version": 1,
+  "provenance": {
+    "note": "Credential-free clean-room inputs shaped from the committed ZCC provider schema. These cases are synthetic and sanitized; they are not live provider or tenant evidence.",
+    "status": "synthetic_sanitized"
+  },
+  "cases": [
+    {
+      "expected": "success",
+      "name": "synthetic-device-cleanup-big-integral-null-and-computed-only",
+      "observed_states": [
+        {
+          "import_id": "900719925474099312345678901",
+          "key": "900719925474099312345678901",
+          "sensitive_values": {
+            "id": true
+          },
+          "values": {
+            "active": true,
+            "auto_purge_days": 900719925474099312345678902,
+            "auto_removal_days": 60,
+            "device_exceed_limit": 5,
+            "force_remove_type": null,
+            "id": "computed-only-device-id"
+          }
+        }
+      ],
+      "raw_items": [
+        {
+          "active": true,
+          "autoPurgeDays": 30,
+          "id": 900719925474099312345678901
+        }
+      ],
+      "resource_type": "zcc_device_cleanup"
+    },
+    {
+      "expected": "success",
+      "name": "synthetic-forwarding-nested-list-and-single-shapes-html-unicode",
+      "observed_states": [
+        {
+          "import_id": "fp-1",
+          "key": "a_amp_b",
+          "sensitive_values": {},
+          "values": {
+            "active": true,
+            "enable_all_default_adapters_tn": null,
+            "forwarding_profile_actions": [
+              {
+                "action_type": 1,
+                "custom_pac": "function FindProxyForURL() { return \"DIRECT\"; }",
+                "system_proxy_data": {
+                  "enable_proxy_server": true,
+                  "proxy_server_address": "proxy.example.test",
+                  "proxy_server_port": "8080"
+                }
+              }
+            ],
+            "forwarding_profile_zpa_actions": [
+              {
+                "action_type": 2,
+                "partner_info": {
+                  "allow_tls_fallback": false,
+                  "primary_transport": 1
+                }
+              }
+            ],
+            "id": "computed-only-fp-1",
+            "name": "A & B 東京 😀",
+            "unified_tunnel": []
+          }
+        },
+        {
+          "import_id": "fp-2",
+          "key": "shape_two",
+          "sensitive_values": {},
+          "values": {
+            "forwarding_profile_actions": [
+              {
+                "action_type": 3,
+                "system_proxy_data": [
+                  {
+                    "enable_auto_detect": true,
+                    "pac_url": "https://pac.example.test/proxy.pac"
+                  }
+                ]
+              }
+            ],
+            "id": "computed-only-fp-2",
+            "name": "Shape Two"
+          }
+        }
+      ],
+      "raw_items": [
+        {
+          "id": "fp-1",
+          "name": "A &amp; B 東京 😀"
+        },
+        {
+          "id": "fp-2",
+          "name": "Shape Two"
+        }
+      ],
+      "resource_type": "zcc_forwarding_profile"
+    },
+    {
+      "expected": "success",
+      "name": "synthetic-trusted-network-raw-identity-versus-provider-name",
+      "observed_states": [
+        {
+          "import_id": "tn-1",
+          "key": "raw_identity_amp",
+          "sensitive_values": {},
+          "values": {
+            "active": true,
+            "condition_type": "1",
+            "dns_server_ips": null,
+            "id": "computed-only-tn-1",
+            "name": "Provider & Identity 東京 😀",
+            "trusted_gateway_ips": [
+              "192.0.2.1"
+            ]
+          }
+        }
+      ],
+      "raw_items": [
+        {
+          "active": true,
+          "conditionType": 1,
+          "id": "tn-1",
+          "networkName": "Raw Identity &amp; 東京 😀",
+          "trustedGateways": "192.0.2.1"
+        }
+      ],
+      "resource_type": "zcc_trusted_network"
+    },
+    {
+      "expected": "success",
+      "name": "synthetic-web-privacy-optional-null-and-absent",
+      "observed_states": [
+        {
+          "import_id": "privacy-1",
+          "key": "privacy_1",
+          "sensitive_values": {},
+          "values": {
+            "active": null,
+            "collect_user_info": false,
+            "id": "computed-only-privacy-id"
+          }
+        }
+      ],
+      "raw_items": [
+        {
+          "id": "privacy-1",
+          "name": "Synthetic privacy singleton"
+        }
+      ],
+      "resource_type": "zcc_web_privacy"
+    },
+    {
+      "expected": "success",
+      "name": "synthetic-empty-pull-does-not-require-observations",
+      "observed_states": [],
+      "raw_items": [],
+      "resource_type": "zcc_device_cleanup"
+    },
+    {
+      "expected": "identity_error",
+      "name": "synthetic-duplicate-derived-key",
+      "observed_states": [],
+      "raw_items": [
+        {
+          "id": "key-1",
+          "name": "Same!"
+        },
+        {
+          "id": "key-2",
+          "name": "Same?"
+        }
+      ],
+      "resource_type": "zcc_forwarding_profile"
+    },
+    {
+      "expected": "identity_error",
+      "name": "synthetic-duplicate-derived-import-id",
+      "observed_states": [],
+      "raw_items": [
+        {
+          "id": "duplicate-import",
+          "name": "First"
+        },
+        {
+          "id": "duplicate-import",
+          "name": "Second"
+        }
+      ],
+      "resource_type": "zcc_forwarding_profile"
+    },
+    {
+      "expected": "state_join_error",
+      "name": "synthetic-missing-observation",
+      "observed_states": [],
+      "raw_items": [
+        {
+          "id": "missing-1"
+        }
+      ],
+      "resource_type": "zcc_web_privacy"
+    },
+    {
+      "expected": "state_join_error",
+      "name": "synthetic-extra-observation",
+      "observed_states": [
+        {
+          "import_id": "expected-1",
+          "key": "expected_1",
+          "values": {
+            "collect_user_info": false
+          }
+        },
+        {
+          "import_id": "UNREFERENCED-SECRET-IMPORT-ID",
+          "key": "unexpected_secret_key",
+          "values": {
+            "collect_user_info": true
+          }
+        }
+      ],
+      "raw_items": [
+        {
+          "id": "expected-1"
+        }
+      ],
+      "resource_type": "zcc_web_privacy",
+      "secret_tokens": [
+        "UNREFERENCED-SECRET-IMPORT-ID"
+      ]
+    },
+    {
+      "expected": "state_join_error",
+      "name": "synthetic-mismatched-observation-import-id",
+      "observed_states": [
+        {
+          "import_id": "MISMATCHED-SECRET-IMPORT-ID",
+          "key": "expected_2",
+          "values": {
+            "collect_user_info": false
+          }
+        }
+      ],
+      "raw_items": [
+        {
+          "id": "expected-2"
+        }
+      ],
+      "resource_type": "zcc_web_privacy",
+      "secret_tokens": [
+        "MISMATCHED-SECRET-IMPORT-ID"
+      ]
+    },
+    {
+      "expected": "state_join_error",
+      "name": "synthetic-duplicate-observation-key",
+      "observed_states": [
+        {
+          "import_id": "observation-1",
+          "key": "observation_1",
+          "values": {
+            "collect_user_info": false
+          }
+        },
+        {
+          "import_id": "observation-1-copy",
+          "key": "observation_1",
+          "values": {
+            "collect_user_info": true
+          }
+        }
+      ],
+      "raw_items": [
+        {
+          "id": "observation-1"
+        }
+      ],
+      "resource_type": "zcc_web_privacy"
+    },
+    {
+      "expected": "state_join_error",
+      "name": "synthetic-duplicate-observation-import-id",
+      "observed_states": [
+        {
+          "import_id": "observation-a",
+          "key": "observation_a",
+          "values": {
+            "collect_user_info": false
+          }
+        },
+        {
+          "import_id": "observation-a",
+          "key": "observation_b",
+          "values": {
+            "collect_user_info": true
+          }
+        }
+      ],
+      "raw_items": [
+        {
+          "id": "observation-a"
+        },
+        {
+          "id": "observation-b"
+        }
+      ],
+      "resource_type": "zcc_web_privacy"
+    },
+    {
+      "expected": "projection_error",
+      "name": "synthetic-missing-required-forwarding-name",
+      "observed_states": [
+        {
+          "import_id": "required-1",
+          "key": "raw_required_name",
+          "sensitive_values": {},
+          "values": {
+            "active": true,
+            "id": "computed-only-required-1"
+          }
+        }
+      ],
+      "raw_items": [
+        {
+          "id": "required-1",
+          "name": "Raw Required Name"
+        }
+      ],
+      "resource_type": "zcc_forwarding_profile"
+    },
+    {
+      "expected": "projection_error",
+      "name": "synthetic-dynamic-top-level-sensitive-mask",
+      "observed_states": [
+        {
+          "import_id": "sensitive-1",
+          "key": "sensitive_1",
+          "sensitive_values": {
+            "strict_enforcement_prompt_message": true
+          },
+          "values": {
+            "id": "computed-only-sensitive-1",
+            "strict_enforcement_prompt_message": "TOP-LEVEL-SENSITIVE-DO-NOT-LEAK"
+          }
+        }
+      ],
+      "raw_items": [
+        {
+          "id": "sensitive-1"
+        }
+      ],
+      "resource_type": "zcc_failopen_policy",
+      "secret_tokens": [
+        "TOP-LEVEL-SENSITIVE-DO-NOT-LEAK"
+      ]
+    },
+    {
+      "expected": "projection_error",
+      "name": "synthetic-dynamic-nested-sensitive-mask",
+      "observed_states": [
+        {
+          "import_id": "nested-sensitive-1",
+          "key": "nested_sensitive",
+          "sensitive_values": {
+            "forwarding_profile_actions": [
+              {
+                "custom_pac": true
+              }
+            ]
+          },
+          "values": {
+            "forwarding_profile_actions": [
+              {
+                "action_type": 1,
+                "custom_pac": "NESTED-SENSITIVE-DO-NOT-LEAK"
+              }
+            ],
+            "id": "computed-only-nested-sensitive-1",
+            "name": "Nested Sensitive"
+          }
+        }
+      ],
+      "raw_items": [
+        {
+          "id": "nested-sensitive-1",
+          "name": "Nested Sensitive"
+        }
+      ],
+      "resource_type": "zcc_forwarding_profile",
+      "secret_tokens": [
+        "NESTED-SENSITIVE-DO-NOT-LEAK"
+      ]
+    }
+  ]
+}

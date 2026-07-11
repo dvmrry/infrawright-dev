@@ -179,7 +179,7 @@ function validateSource(source: ZccPullSource): void {
 
 function validateTarget(
   target: ZccArtifactTarget,
-  resource: TransformCatalogResource,
+  resource: Pick<TransformCatalogResource, "type" | "lookup_source">,
 ): void {
   if (!TENANT.test(target.tenant)) {
     fail("INVALID_ZCC_ARTIFACT_TARGET", "artifact target tenant is invalid");
@@ -270,6 +270,35 @@ function validateTarget(
         "lookup target must share the canonical deployment layout",
       );
     }
+  }
+}
+
+/** @internal Validate the shared bootstrap source/target layout contract. */
+export function validateZccBootstrapArtifactMetadata(options: {
+  readonly lookupSource: { readonly name_field: string } | null;
+  readonly resourceType: string;
+  readonly source: ZccPullSource;
+  readonly target: ZccArtifactTarget;
+}): void {
+  if (options.target.resourceType !== options.resourceType) {
+    fail(
+      "INVALID_ZCC_ARTIFACT_TARGET",
+      "artifact target resource does not match the compiled resource",
+    );
+  }
+  validateSource(options.source);
+  validateTarget(options.target, {
+    lookup_source: options.lookupSource,
+    type: options.resourceType,
+  });
+  if (
+    options.source.path
+    !== `pulls/${options.target.tenant}/${options.target.resourceType}.json`
+  ) {
+    fail(
+      "INVALID_ZCC_PULL_SOURCE",
+      "pull source path must use the canonical tenant and resource layout",
+    );
   }
 }
 
@@ -373,8 +402,9 @@ function hclStringLiteral(value: string): string {
   return `"${escaped}"`;
 }
 
-function renderImports(
-  resource: TransformCatalogResource,
+/** @internal Render exact Python-compatible bootstrap import blocks. */
+export function renderZccBootstrapImports(
+  resourceType: string,
   identities: ReadonlyMap<string, string>,
 ): string {
   const blocks: string[] = [];
@@ -385,7 +415,7 @@ function renderImports(
     }
     blocks.push(
       `import {\n`
-      + `  to = module.${resource.type}.${resource.type}.this[${hclStringLiteral(key)}]\n`
+      + `  to = module.${resourceType}.${resourceType}.this[${hclStringLiteral(key)}]\n`
       + `  id = ${hclStringLiteral(importId)}\n`
       + `}\n`,
     );
@@ -400,20 +430,36 @@ function lookupIdentity(value: unknown): string | null {
   return pythonScalarString(value);
 }
 
-function renderLookup(
-  resource: TransformCatalogResource,
-  result: PullTransformResult,
-  allowDuplicateImportIds: boolean,
-): string | null {
-  if (resource.lookup_source === null) {
-    return null;
+/** @internal Render the shared provider-identity/projected-value lookup shape. */
+export function renderZccLookupSidecar(options: {
+  readonly allowDuplicateImportIds: boolean;
+  readonly identities: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  readonly items: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  readonly nameField: string;
+}): string {
+  const {
+    allowDuplicateImportIds,
+    identities,
+    items,
+    nameField,
+  } = options;
+  const itemKeys = sortedStrings(Object.keys(items));
+  const identityKeys = sortedStrings(Object.keys(identities));
+  if (
+    itemKeys.length !== identityKeys.length
+    || itemKeys.some((key, index) => key !== identityKeys[index])
+  ) {
+    return fail(
+      "INVALID_ZCC_PULL_DATA",
+      "pull lookup identities do not exactly match projected items",
+    );
   }
   const byId = safeRecord([]);
   const keyById = safeRecord([]);
   const seen = new Set<string>();
-  for (const key of sortedStrings(Object.keys(result.items))) {
-    const original = result.originals[key];
-    const item = result.items[key];
+  for (const key of itemKeys) {
+    const original = identities[key];
+    const item = items[key];
     if (original === undefined || item === undefined) {
       return fail("INVALID_ZCC_PULL_DATA", "pull lookup survivor is incomplete");
     }
@@ -432,7 +478,7 @@ function renderLookup(
       );
     }
     seen.add(ident);
-    const rawName = merged[resource.lookup_source.name_field];
+    const rawName = merged[nameField];
     const display = typeof rawName === "string" && !PYTHON_WHITESPACE_ONLY.test(rawName)
       ? rawName
       : "<unknown>";
@@ -458,7 +504,24 @@ function renderLookup(
   return renderPythonLosslessArtifactJson(payload);
 }
 
-function textArtifact(
+function renderLookup(
+  resource: TransformCatalogResource,
+  result: PullTransformResult,
+  allowDuplicateImportIds: boolean,
+): string | null {
+  if (resource.lookup_source === null) {
+    return null;
+  }
+  return renderZccLookupSidecar({
+    allowDuplicateImportIds,
+    identities: result.originals,
+    items: result.items,
+    nameField: resource.lookup_source.name_field,
+  });
+}
+
+/** @internal Bind deterministic text bytes to their artifact descriptor. */
+export function createZccTextArtifact(
   pathValue: string,
   mediaType: ZccTextArtifact["media_type"],
   content: string,
@@ -608,17 +671,12 @@ function compileZccPullArtifactSetWithPolicy(
     );
   }
   const resource = catalogResource(catalog, options.target.resourceType);
-  validateSource(options.source);
-  validateTarget(options.target, resource);
-  if (
-    options.source.path
-    !== `pulls/${options.target.tenant}/${options.target.resourceType}.json`
-  ) {
-    fail(
-      "INVALID_ZCC_PULL_SOURCE",
-      "pull source path must use the canonical tenant and resource layout",
-    );
-  }
+  validateZccBootstrapArtifactMetadata({
+    lookupSource: resource.lookup_source,
+    resourceType: resource.type,
+    source: options.source,
+    target: options.target,
+  });
 
   let result: PullTransformResult;
   let importIdentities: ReadonlyMap<string, string>;
@@ -640,7 +698,7 @@ function compileZccPullArtifactSetWithPolicy(
       result.originals,
       policy.allowDuplicateImportIds,
     );
-    importsContent = renderImports(resource, importIdentities);
+    importsContent = renderZccBootstrapImports(resource.type, importIdentities);
     lookupContent = renderLookup(
       resource,
       result,
@@ -686,19 +744,19 @@ function compileZccPullArtifactSetWithPolicy(
     status: result.drops.length === 0 ? "ready" : "review_required",
     unexpected_drops: [...result.drops],
     artifacts: {
-      tfvars: textArtifact(
+      tfvars: createZccTextArtifact(
         options.target.configPath,
         "application/json",
         tfvarsContent,
       ),
-      imports: textArtifact(
+      imports: createZccTextArtifact(
         options.target.importsPath,
         "text/x-hcl",
         importsContent,
       ),
       lookup: lookupContent === null || options.target.lookupPath === null
         ? null
-        : textArtifact(
+        : createZccTextArtifact(
             options.target.lookupPath,
             "application/json",
             lookupContent,
