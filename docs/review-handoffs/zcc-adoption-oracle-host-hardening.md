@@ -20,12 +20,12 @@
 
 ## Base / Head
 
-- Base: `fc962f81dd637e40d869e320359a16beb8999e9c` (`origin/main` at branch
-  creation).
+- Base: `65d14708cf375a7b616548e8f5f7ad202c29eddc` (`origin/main` after
+  merged PR #181 at the final review checkpoint).
 - Head: the checked-out review checkpoint on
   `feature/node-zcc-oracle-host-hardening`; resolve with `git rev-parse HEAD`.
 - Diff command:
-  `git diff fc962f81dd637e40d869e320359a16beb8999e9c...HEAD`.
+  `git diff 65d14708cf375a7b616548e8f5f7ad202c29eddc...HEAD`.
 
 ## Files Changed
 
@@ -162,14 +162,16 @@
   - `npm run typecheck`
   - `npm run build:test`
   - explicit provider-lock, oracle core, adapter, integration, and bundle tests:
-    95 passed, 0 failed.
+    102 passed, 0 failed, including both retained ZIA and ZPA private-bundle
+    exclusion suites.
 - Full Node 24.15.0 / Unicode 16.0:
-  - `npm run check`: 639 total, 638 passed, 1 existing platform skip, 0 failed.
+  - `npm run typecheck`, `npm run build:test`, and explicit full test run:
+    646 total, 645 passed, 1 existing platform skip, 0 failed.
 - Full Node 24.14.0 / Unicode 17.0:
-  - explicit `.node-test/node-tests/*.test.js`: 639 total, 638 passed,
+  - explicit `.node-test/node-tests/*.test.js`: 646 total, 645 passed,
     1 existing platform skip, 0 failed.
 - Full Python:
-  - `make test`: 1,383 total, 1,382 passed, 1 optional external-provider skip,
+  - `make test`: 1,394 total, 1,393 passed, 1 optional external-provider skip,
     0 failed.
 - Provider authority:
   - four-platform `terraform providers lock`: all four selected archives
@@ -181,7 +183,7 @@
   - `npm run build`: passed.
   - `python3 -m engine.audit_vendor_boundary`: 187 allowed matches,
     0 violations.
-  - exact ZCC adoption-catalog and transform-catalog checks: passed.
+  - exact ZCC adoption/transform and rebased ZPA cohort catalog checks: passed.
   - `git diff --check`: passed.
 - Tests not run and why:
   - live ZCC tenant import/adoption: no tenant credentials or authority were
@@ -190,6 +192,9 @@
 ## Adversarial Review Remediation
 
 - Review checkpoint: `26465a701316591f6d4b5d4dfd321c17d039a702`.
+  Its rebased implementation checkpoint is
+  `284bbfd9221f8d084cdd3d66957378812c4d5f69`; the changed-surface fix is the
+  following commit on this branch.
 - Blocking finding: a runner timeout was recorded as the primary failure, but
   a subsequent protected-file recheck could throw command/show protection
   failure before the timeout was rethrown. The domain wrapper then converted
@@ -207,14 +212,17 @@
   - exact detail shape and absence of credentials, import IDs, mutation bytes,
     and scratch paths.
 - Verification: focused command/show/core regressions passed 19/19 before the
-  complete 95-test hardening/build-exclusion suite and full gates were rerun.
+  complete 102-test hardening/build-exclusion suite and full gates were rerun.
 - Non-blocking documentation correction: claims now say every **nonempty**
   transaction writes the provider lock; empty identity sets intentionally
   remain effect-free.
 - Non-blocking cleanup-test risk: the non-abortable `fs.rm` limitation and
   job-parent sweep remain explicitly deferred above. The fixed 30-second
-  adapter wait is implemented, while a deterministic concrete late-rm timeout
-  seam is not added to production solely for testing.
+  adapter wait is implemented. A deterministic concrete late-rm test would
+  require exposing a filesystem/timer injector on the currently closed host
+  adapter, which would expand the trusted surface and could itself permit
+  caller-selected timing. That production seam is not added solely for a mock
+  of a primitive Node cannot cancel.
 
 ## Known Deferrals
 
