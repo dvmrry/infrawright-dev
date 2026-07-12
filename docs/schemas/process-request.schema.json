@@ -6,6 +6,7 @@
   "type": "object",
   "x-infrawright-zcc-pull-refresh-materialization-request-semantics": true,
   "x-infrawright-zcc-pull-refresh-acknowledgement-request-semantics": true,
+  "x-infrawright-zcc-pull-collection-parity-request-semantics": true,
   "additionalProperties": false,
   "required": [
     "kind",
@@ -41,11 +42,15 @@
         "compare_pull_artifacts",
         "materialize_pull_artifacts",
         "acknowledge_pull_refresh",
-        "collect_zcc_pull"
+        "collect_zcc_pull",
+        "compare_zcc_pull_collection"
       ]
     },
     "context": {
-      "$ref": "#/$defs/context"
+      "oneOf": [
+        { "$ref": "#/$defs/context" },
+        { "$ref": "#/$defs/zccPullCollectionParityContext" }
+      ]
     },
     "input": {
       "oneOf": [
@@ -78,20 +83,62 @@
         },
         {
           "$ref": "#/$defs/collectZccPullInput"
+        },
+        {
+          "$ref": "#/$defs/compareZccPullCollectionInput"
         }
       ]
     }
   },
-  "oneOf": [
+  "allOf": [
     {
-      "properties": {
-        "operation": {
-          "const": "collect_zcc_pull"
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": { "const": "compare_zcc_pull_collection" }
         },
-        "input": {
-          "$ref": "#/$defs/collectZccPullInput"
+        "required": ["operation"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "context": { "$ref": "#/$defs/zccPullCollectionParityContext" },
+          "input": { "$ref": "#/$defs/compareZccPullCollectionInput" }
+        }
+      },
+      "else": {
+        "type": "object",
+        "properties": {
+          "context": { "$ref": "#/$defs/context" }
         }
       }
+    }
+  ],
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "enum": ["collect_zcc_pull", "compare_zcc_pull_collection"]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "collect_zcc_pull" }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "input": { "$ref": "#/$defs/collectZccPullInput" }
+            }
+          }
+        }
+      ]
     },
     {
       "properties": {
@@ -236,6 +283,20 @@
           "type": "string",
           "minLength": 1
         }
+      }
+    },
+    "zccPullCollectionParityContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_workspace",
+        "python_before_workspace",
+        "python_after_workspace"
+      ],
+      "properties": {
+        "node_workspace": { "type": "string", "minLength": 1 },
+        "python_before_workspace": { "type": "string", "minLength": 1 },
+        "python_after_workspace": { "type": "string", "minLength": 1 }
       }
     },
     "rootsInput": {
@@ -398,6 +459,57 @@
         },
         "resource_type": {
           "$ref": "zcc-pull-artifact-set.schema.json#/$defs/resourceType"
+        }
+      }
+    },
+    "compareZccPullCollectionInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference", "tenant", "receipts"],
+      "properties": {
+        "reference": { "const": "python_stability_window" },
+        "tenant": {
+          "type": "string",
+          "maxLength": 255,
+          "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+        },
+        "receipts": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "prefixItems": [
+            {
+              "allOf": [
+                { "$ref": "zcc-pull-collection.schema.json" },
+                { "type": "object", "properties": { "resource_type": { "const": "zcc_device_cleanup" } } }
+              ]
+            },
+            {
+              "allOf": [
+                { "$ref": "zcc-pull-collection.schema.json" },
+                { "type": "object", "properties": { "resource_type": { "const": "zcc_failopen_policy" } } }
+              ]
+            },
+            {
+              "allOf": [
+                { "$ref": "zcc-pull-collection.schema.json" },
+                { "type": "object", "properties": { "resource_type": { "const": "zcc_forwarding_profile" } } }
+              ]
+            },
+            {
+              "allOf": [
+                { "$ref": "zcc-pull-collection.schema.json" },
+                { "type": "object", "properties": { "resource_type": { "const": "zcc_trusted_network" } } }
+              ]
+            },
+            {
+              "allOf": [
+                { "$ref": "zcc-pull-collection.schema.json" },
+                { "type": "object", "properties": { "resource_type": { "const": "zcc_web_privacy" } } }
+              ]
+            }
+          ],
+          "items": false
         }
       }
     },

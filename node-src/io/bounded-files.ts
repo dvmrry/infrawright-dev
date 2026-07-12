@@ -240,6 +240,7 @@ async function consumeStableFile(options: {
   collect?: boolean;
   onChunk?: (chunk: Buffer, length: number) => void | Promise<void>;
 }): Promise<ConsumedFile> {
+  let readBuffer: Buffer | null = null;
   const handle = await openStableFile(
     options.filePath,
     options.readOptions?.followSymlinks ?? false,
@@ -262,6 +263,7 @@ async function consumeStableFile(options: {
     const hasher = createHash("sha256");
     const chunks: Buffer[] = [];
     const buffer = Buffer.allocUnsafe(READ_CHUNK_BYTES);
+    readBuffer = buffer;
     let consumed = 0n;
     while (true) {
       const result = await handle.read(buffer, 0, buffer.length, null);
@@ -305,6 +307,7 @@ async function consumeStableFile(options: {
     }
     return fail("READ_FAILED", "unable to read input file");
   } finally {
+    readBuffer?.fill(0);
     await handle.close().catch(() => undefined);
   }
 }
@@ -357,8 +360,16 @@ export async function readBoundedFileBytes(
   if (result.size > BigInt(bufferConstants.MAX_STRING_LENGTH)) {
     return fail("FILE_LIMIT_EXCEEDED", "input file exceeds the decoder size limit");
   }
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.concat(result.chunks);
+  } finally {
+    for (const chunk of result.chunks) {
+      chunk.fill(0);
+    }
+  }
   return {
-    bytes: Buffer.concat(result.chunks),
+    bytes,
     digest: { sha256: result.sha256, size: result.size },
     identity: result.identity,
   };

@@ -70,6 +70,9 @@
           "const": "collect_zcc_pull"
         },
         {
+          "const": "compare_zcc_pull_collection"
+        },
+        {
           "type": "null"
         }
       ]
@@ -137,6 +140,9 @@
           "$ref": "zcc-pull-collection.schema.json"
         },
         {
+          "$ref": "zcc-pull-collection-parity.schema.json"
+        },
+        {
           "type": "null"
         }
       ]
@@ -163,6 +169,26 @@
       },
       "then": {
         "oneOf": [
+          {
+            "properties": {
+              "request_id": {
+                "type": "string"
+              },
+              "operation": {
+                "const": "compare_zcc_pull_collection"
+              },
+              "diagnostics": {
+                "type": "array",
+                "maxItems": 0
+              },
+              "result": {
+                "$ref": "zcc-pull-collection-parity.schema.json"
+              },
+              "error": {
+                "type": "null"
+              }
+            }
+          },
           {
             "properties": {
               "request_id": {

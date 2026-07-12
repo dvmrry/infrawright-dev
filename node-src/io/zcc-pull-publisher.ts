@@ -204,14 +204,14 @@ export async function recheckPreparedZccPullPublication(
   }
 }
 
-interface BoundDirectory {
+export interface BoundDirectory {
   readonly path: string;
   readonly handle: FileHandle;
   readonly dev: bigint;
   readonly ino: bigint;
 }
 
-async function bindDirectory(directoryPath: string): Promise<BoundDirectory> {
+export async function bindDirectory(directoryPath: string): Promise<BoundDirectory> {
   const handle = await open(
     directoryPath,
     constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
@@ -239,7 +239,7 @@ async function bindDirectory(directoryPath: string): Promise<BoundDirectory> {
   }
 }
 
-async function verifyDirectory(directory: BoundDirectory): Promise<void> {
+export async function verifyDirectory(directory: BoundDirectory): Promise<void> {
   const [handleStat, pathStat, canonical] = await Promise.all([
     directory.handle.stat({ bigint: true }),
     lstat(directory.path, { bigint: true }),
