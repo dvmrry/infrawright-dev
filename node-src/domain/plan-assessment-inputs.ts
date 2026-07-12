@@ -10,6 +10,7 @@ import type {
 } from "./plan-assessment.js";
 import type { Deployment, RootCatalog, WholeRootDiagnostic } from "./types.js";
 import type { TerraformShowLimits } from "../io/terraform-show.js";
+import { sameStringSequence } from "../json/python-compatible.js";
 
 export interface ResolveSavedPlanAssessmentOptions {
   readonly workspace: string;
@@ -175,14 +176,6 @@ async function materializeSavedPlanAssessmentRoots(
   };
 }
 
-function sameStrings(
-  left: readonly string[],
-  right: readonly string[],
-): boolean {
-  return left.length === right.length
-    && left.every((value, index) => value === right[index]);
-}
-
 function sameAssessmentRoots(
   left: readonly SavedPlanAssessmentRootInput[],
   right: readonly SavedPlanAssessmentRootInput[],
@@ -192,11 +185,11 @@ function sameAssessmentRoots(
     return other !== undefined
       && root.tenant === other.tenant
       && root.label === other.label
-      && sameStrings(root.members, other.members)
+      && sameStringSequence(root.members, other.members)
       && root.envDir === other.envDir
       && root.savedPlanPath === other.savedPlanPath
       && root.fingerprintPath === other.fingerprintPath
-      && sameStrings(root.varFiles, other.varFiles);
+      && sameStringSequence(root.varFiles, other.varFiles);
   });
 }
 

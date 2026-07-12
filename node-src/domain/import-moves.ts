@@ -1,4 +1,5 @@
 import { ProcessFailure } from "./errors.js";
+import { comparePythonStrings } from "../json/python-compatible.js";
 
 const RESOURCE_TYPE = /^[a-z][a-z0-9_]*$/;
 const MAX_GENERATED_IMPORT_PAIRS = 50_000;
@@ -52,32 +53,16 @@ function requireResourceType(resourceType: string): void {
   }
 }
 
-function compareCodePoints(left: string, right: string): number {
-  let leftIndex = 0;
-  let rightIndex = 0;
-  while (leftIndex < left.length && rightIndex < right.length) {
-    const leftPoint = left.codePointAt(leftIndex) ?? 0;
-    const rightPoint = right.codePointAt(rightIndex) ?? 0;
-    if (leftPoint !== rightPoint) {
-      return leftPoint - rightPoint;
-    }
-    leftIndex += leftPoint > 0xffff ? 2 : 1;
-    rightIndex += rightPoint > 0xffff ? 2 : 1;
-  }
-  return (leftIndex < left.length ? 1 : 0)
-    - (rightIndex < right.length ? 1 : 0);
-}
-
 function comparePairs(
   left: GeneratedImportPair,
   right: GeneratedImportPair,
 ): number {
-  return compareCodePoints(left.key, right.key);
+  return comparePythonStrings(left.key, right.key);
 }
 
 function compareMoves(left: ImportMove, right: ImportMove): number {
-  return compareCodePoints(left.oldKey, right.oldKey)
-    || compareCodePoints(left.newKey, right.newKey);
+  return comparePythonStrings(left.oldKey, right.oldKey)
+    || comparePythonStrings(left.newKey, right.newKey);
 }
 
 function compareSuppressions(
@@ -85,8 +70,8 @@ function compareSuppressions(
   right: ImportMoveSuppression,
 ): number {
   return compareMoves(left, right)
-    || compareCodePoints(left.importId, right.importId)
-    || compareCodePoints(left.reason, right.reason);
+    || comparePythonStrings(left.importId, right.importId)
+    || comparePythonStrings(left.reason, right.reason);
 }
 
 /** Match engine.transform.hcl_string_literal for generated import addresses. */
@@ -347,7 +332,7 @@ function keysByImportId(
     }
   }
   for (const keys of grouped.values()) {
-    keys.sort(compareCodePoints);
+    keys.sort(comparePythonStrings);
   }
   return grouped;
 }
@@ -380,7 +365,7 @@ export function deriveImportMoves(
   const newById = keysByImportId(newEntries);
 
   const candidates: Array<ImportMove & { readonly importId: string }> = [];
-  for (const importId of [...newById.keys()].sort(compareCodePoints)) {
+  for (const importId of [...newById.keys()].sort(comparePythonStrings)) {
     const oldKeys = oldById.get(importId) ?? [];
     const newKeys = newById.get(importId) ?? [];
     for (const oldKey of oldKeys) {

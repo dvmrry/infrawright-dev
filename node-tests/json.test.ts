@@ -9,10 +9,21 @@ import {
   parseDataJsonLosslessly,
 } from "../node-src/json/control.js";
 import {
+  comparePythonStrings,
   renderPythonCompatibleJson,
+  sameStringSequence,
   sortedStrings,
   type JsonValue,
 } from "../node-src/json/python-compatible.js";
+
+test("shared Python string semantics preserve exact sequence and code-point order", () => {
+  assert.equal(sameStringSequence(["a", "a", "b"], ["a", "a", "b"]), true);
+  assert.equal(sameStringSequence(["a"], ["a", "b"]), false);
+  assert.equal(sameStringSequence(["a", "b"], ["b", "a"]), false);
+  assert.equal(sameStringSequence(["a", "a"], ["a", "b"]), false);
+  assert.ok(comparePythonStrings("\ue000", "\u{10000}") < 0);
+  assert.ok(comparePythonStrings("\u{10000}", "\ue000") > 0);
+});
 
 test("integer-only compatibility renderer matches Python bytes", () => {
   const value = {
