@@ -196,6 +196,32 @@
     The structurally exact fake-Terraform differential is merge evidence only,
     not live-provider qualification.
 
+## Adversarial Review Remediation
+
+- Review checkpoint:
+  `7fbbd94026c88fbe391d6460588cd39c92880b0a`.
+- Blocking finding: the fake Terraform fixture parsed provider-state evidence
+  with native `JSON.parse` and re-emitted it through native `JSON.stringify`.
+  That rounded `auto_purge_days: 900719925474099312345678902` to an exponent
+  form before either Python or Node observed the state, so the all-five
+  operation differential did not prove its claimed lossless provider-number
+  path.
+- Root cause: raw pull evidence used the lossless parser, but the independently
+  built state map used ordinary JavaScript numbers and object serialization.
+- Fix: build provider `values` and `sensitive_values` as pre-rendered lossless
+  JSON fragments, retain both valid-ID and malformed-ID fragments, and
+  concatenate only the state resource/envelope JSON around those fragments.
+  Plan/provider/missing-resource failure scenarios remain independently
+  selectable.
+- Regression: in both singleton and grouped Python-before/Node/Python-after
+  runs, all three tfvars artifacts must contain the exact decimal token
+  `900719925474099312345678902` and must not contain an exponent-form
+  `auto_purge_days` value.
+- Verification: the focused public operation, concrete adapter, oracle core,
+  projection differential, and Terraform-show suites passed 101/101 on both
+  Node 24.15/Unicode 16 and Node 24.14/Unicode 17; typecheck and whitespace
+  checks also passed.
+
 ## Known Deferrals
 
 - Live credentialed ZCC import/read for all five resources on the exact pinned

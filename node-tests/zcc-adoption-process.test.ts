@@ -58,8 +58,9 @@ const RESOURCES = [
 interface ResourceEvidence {
   readonly rawText: string;
   readonly states: Readonly<Record<string, {
-    readonly sensitive_values: unknown;
-    readonly values: Readonly<Record<string, unknown>>;
+    readonly sensitiveJson: string;
+    readonly valuesJson: string;
+    readonly wrongIdValuesJson: string;
   }>>;
 }
 
@@ -83,15 +84,14 @@ type FakeBehavior =
   | "bad-state-provider"
   | "missing-state-resource";
 
+function renderLosslessJson(value: unknown): string {
+  const rendered = stringifyLosslessJson(value);
+  assert.notEqual(rendered, undefined);
+  return rendered as string;
+}
+
 function evidence(): Readonly<Record<ZccPullResourceType, ResourceEvidence>> {
   const lossless = parseDataJsonLosslessly(readFileSync(CORPUS, "utf8")) as {
-    readonly cases: readonly {
-      readonly expected: string;
-      readonly resource_type: ZccPullResourceType;
-      readonly raw_items: readonly unknown[];
-    }[];
-  };
-  const ordinary = JSON.parse(readFileSync(CORPUS, "utf8")) as {
     readonly cases: readonly {
       readonly expected: string;
       readonly resource_type: ZccPullResourceType;
@@ -115,29 +115,33 @@ function evidence(): Readonly<Record<ZccPullResourceType, ResourceEvidence>> {
         && entry.resource_type === resourceType
         && entry.raw_items.length > 0;
     });
-    const ordinaryCase = ordinary.cases.find((entry) => {
-      return entry.expected === "success"
-        && entry.resource_type === resourceType
-        && entry.raw_items.length > 0;
-    });
     assert.notEqual(losslessCase, undefined, resourceType);
-    assert.notEqual(ordinaryCase, undefined, resourceType);
     const states = Object.create(null) as Record<string, {
-      sensitive_values: unknown;
-      values: Readonly<Record<string, unknown>>;
+      sensitiveJson: string;
+      valuesJson: string;
+      wrongIdValuesJson: string;
     }>;
-    for (const observation of ordinaryCase?.observed_states ?? []) {
+    for (const observation of losslessCase?.observed_states ?? []) {
       states[observation.import_id] = {
-        sensitive_values: observation.sensitive_values ?? {},
-        values: { ...observation.values, id: observation.import_id },
+        sensitiveJson: renderLosslessJson(
+          observation.sensitive_values ?? {},
+        ),
+        valuesJson: renderLosslessJson({
+          ...observation.values,
+          id: observation.import_id,
+        }),
+        wrongIdValuesJson: renderLosslessJson({
+          ...observation.values,
+          id: "wrong-id",
+        }),
       };
     }
     output[resourceType] = {
-      rawText: `${stringifyLosslessJson(losslessCase?.raw_items)}\n`,
+      rawText: `${renderLosslessJson(losslessCase?.raw_items)}\n`,
       states,
     };
   }
-  const failopen = JSON.parse(readFileSync(FAILOPEN, "utf8")) as {
+  const failopen = parseDataJsonLosslessly(readFileSync(FAILOPEN, "utf8")) as {
     readonly raw_items: readonly unknown[];
     readonly provider_state: Readonly<Record<string, {
       readonly sensitive_values?: unknown;
@@ -145,17 +149,22 @@ function evidence(): Readonly<Record<ZccPullResourceType, ResourceEvidence>> {
     }>>;
   };
   const failopenStates = Object.create(null) as Record<string, {
-    sensitive_values: unknown;
-    values: Readonly<Record<string, unknown>>;
+    sensitiveJson: string;
+    valuesJson: string;
+    wrongIdValuesJson: string;
   }>;
   for (const [importId, state] of Object.entries(failopen.provider_state)) {
     failopenStates[importId] = {
-      sensitive_values: state.sensitive_values ?? {},
-      values: { ...state.values, id: importId },
+      sensitiveJson: renderLosslessJson(state.sensitive_values ?? {}),
+      valuesJson: renderLosslessJson({ ...state.values, id: importId }),
+      wrongIdValuesJson: renderLosslessJson({
+        ...state.values,
+        id: "wrong-id",
+      }),
     };
   }
   output.zcc_failopen_policy = {
-    rawText: `${JSON.stringify(failopen.raw_items)}\n`,
+    rawText: `${renderLosslessJson(failopen.raw_items)}\n`,
     states: failopenStates,
   };
   return Object.freeze(output);
@@ -236,17 +245,18 @@ function writeFake(options: {
     "    let resources = imported.map((entry) => {",
     "      const state = stateMap[entry.resourceType]?.[entry.importId];",
     "      if (!state) process.exit(75);",
-    "      return {",
-    "        address: entry.address, mode: 'managed', type: entry.resourceType, provider_name: provider,",
-    "        values: { ...state.values, id: behavior === 'bad-state-id' ? 'wrong-id' : entry.importId },",
-    "        sensitive_values: state.sensitive_values,",
-    "      };",
+    "      const valuesJson = behavior === 'bad-state-id' ? state.wrongIdValuesJson : state.valuesJson;",
+    "      return '{'",
+    "        + '\"address\":' + JSON.stringify(entry.address)",
+    "        + ',\"mode\":\"managed\"'",
+    "        + ',\"type\":' + JSON.stringify(entry.resourceType)",
+    "        + ',\"provider_name\":' + JSON.stringify(provider)",
+    "        + ',\"values\":' + valuesJson",
+    "        + ',\"sensitive_values\":' + state.sensitiveJson",
+    "        + '}';",
     "    });",
     "    if (behavior === 'missing-state-resource') resources = resources.slice(1);",
-    "    process.stdout.write(JSON.stringify({",
-    "      format_version: '1.0', terraform_version: '1.15.4', checks: [],",
-    "      values: { outputs: {}, root_module: { resources, child_modules: [] } },",
-    "    }));",
+    "    process.stdout.write('{\"format_version\":\"1.0\",\"terraform_version\":\"1.15.4\",\"checks\":[],\"values\":{\"outputs\":{},\"root_module\":{\"resources\":[' + resources.join(',') + '],\"child_modules\":[]}}}');",
     "  }",
     "} else { process.exit(73); }",
   ].join("\n");
@@ -890,6 +900,27 @@ test("bundled all-five executor matches Python before and after in grouped and s
           before.lookup,
           `${grouped}:${resourceType}:lookup`,
         );
+        if (resourceType === "zcc_device_cleanup") {
+          const exactProviderInteger = "900719925474099312345678902";
+          for (const [side, content] of [
+            ["node", invocation.response.result.artifacts.tfvars.content],
+            ["python-before", before.tfvars],
+            ["python-after", after.tfvars],
+          ] as const) {
+            assert.equal(
+              content?.includes(
+                `"auto_purge_days": ${exactProviderInteger}`,
+              ),
+              true,
+              `${grouped}:${side}:exact-provider-integer`,
+            );
+            assert.doesNotMatch(
+              content ?? "",
+              /"auto_purge_days": [^,\n]*[eE][+-]?[0-9]+/,
+              `${grouped}:${side}:rounded-provider-integer`,
+            );
+          }
+        }
         for (const descriptor of [
           invocation.response.result.artifacts.tfvars,
           invocation.response.result.artifacts.imports,
