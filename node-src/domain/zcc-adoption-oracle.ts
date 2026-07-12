@@ -15,6 +15,12 @@ import {
   type ZccAdoptionCatalogResource,
 } from "./zcc-adoption-catalog.js";
 import {
+  ZCC_ADOPTION_PLAN_FORMAT_VERSION,
+  ZCC_ADOPTION_STATE_FORMAT_VERSION,
+  ZCC_ADOPTION_TERRAFORM_VERSION,
+  zccAdoptionProviderLock,
+} from "./zcc-adoption-provider-lock.js";
+import {
   deriveZccAdoptionIdentities,
   type ZccAdoptionIdentities,
   type ZccAdoptionStateObservation,
@@ -105,6 +111,7 @@ interface ScratchPaths {
   readonly directory: string;
   readonly generatedConfig: string;
   readonly imports: string;
+  readonly lock: string;
   readonly plan: string;
   readonly root: string;
   readonly state: string;
@@ -272,11 +279,8 @@ function expectedImports(
 
 function renderRoot(catalog: ZccAdoptionCatalog): string {
   const provider = catalog.provider;
-  // The strict plan gate depends on complete, errored, and applyable, which
-  // Terraform's JSON contract exposes together from 1.8 onward. This floor is
-  // intentionally tighter than the legacy Python oracle's >= 1.5 root.
   return "terraform {\n"
-    + '  required_version = ">= 1.8"\n'
+    + `  required_version = "= ${ZCC_ADOPTION_TERRAFORM_VERSION}"\n`
     + "  required_providers {\n"
     + `    ${provider.name} = {\n`
     + `      source = ${hclStringLiteral(provider.source)}\n`
@@ -314,6 +318,7 @@ function scratchPaths(directory: string): ScratchPaths {
     directory,
     generatedConfig: path.join(directory, "generated.tf"),
     imports: path.join(directory, "imports.tf"),
+    lock: path.join(directory, ".terraform.lock.hcl"),
     plan: path.join(directory, "oracle.tfplan"),
     root: path.join(directory, "main.tf"),
     state: path.join(directory, "terraform.tfstate"),
@@ -337,6 +342,11 @@ async function writeScratchRoot(
       content: renderImports(imports),
       mode: 0o600,
     });
+    await adapters.files.writeText({
+      path: paths.lock,
+      content: zccAdoptionProviderLock(),
+      mode: 0o600,
+    });
   } catch {
     throw failure(
       "ZCC_ADOPTION_ORACLE_WRITE_FAILED",
@@ -352,7 +362,13 @@ async function runCommand(
 ): Promise<void> {
   try {
     await adapters.command.run(request);
-  } catch {
+  } catch (error: unknown) {
+    if (
+      error instanceof ProcessFailure
+      && error.code === "ZCC_ADOPTION_ORACLE_TIMEOUT"
+    ) {
+      throw error;
+    }
     const code = request.stage === "init"
       ? "ZCC_ADOPTION_ORACLE_INIT_FAILED"
       : request.stage === "plan"
@@ -379,7 +395,13 @@ async function showJson(
       throw new TypeError("unsupported Terraform JSON graph");
     }
     return snapshot.value;
-  } catch {
+  } catch (error: unknown) {
+    if (
+      error instanceof ProcessFailure
+      && error.code === "ZCC_ADOPTION_ORACLE_TIMEOUT"
+    ) {
+      throw error;
+    }
     throw failure(
       request.stage === "show-plan"
         ? "ZCC_ADOPTION_ORACLE_PLAN_SHOW_FAILED"
@@ -421,8 +443,8 @@ function assertImportOnlyPlan(
   );
   if (
     !isJsonRecord(candidate)
-    || typeof candidate.format_version !== "string"
-    || !/^1\.[0-9]+$/.test(candidate.format_version)
+    || candidate.format_version !== ZCC_ADOPTION_PLAN_FORMAT_VERSION
+    || candidate.terraform_version !== ZCC_ADOPTION_TERRAFORM_VERSION
     || candidate.complete !== true
     || candidate.errored !== false
     || candidate.applyable !== true
@@ -480,8 +502,8 @@ function exactRootStateObservations(
   );
   if (
     !isJsonRecord(candidate)
-    || typeof candidate.format_version !== "string"
-    || !/^1\.[0-9]+$/.test(candidate.format_version)
+    || candidate.format_version !== ZCC_ADOPTION_STATE_FORMAT_VERSION
+    || candidate.terraform_version !== ZCC_ADOPTION_TERRAFORM_VERSION
     || !isJsonRecord(candidate.values)
     || !optionalEmptyRecord(candidate.values.outputs)
     || !optionalEmptyArray(candidate.checks)
@@ -615,12 +637,18 @@ export async function runZccAdoptionOracle(
     await writeScratchRoot(adapters, paths, catalog, imports);
 
     const sensitiveTokens = Object.freeze(imports.map((entry) => entry.importId));
-    const rootInputs = Object.freeze([paths.root, paths.imports]);
+    const rootInputs = Object.freeze([paths.root, paths.imports, paths.lock]);
     await runCommand(adapters, {
       stage: "init",
       executable: request.terraformExecutable,
       cwd: paths.directory,
-      argv: Object.freeze(["init", "-input=false", "-no-color"]),
+      argv: Object.freeze([
+        "init",
+        "-backend=false",
+        "-input=false",
+        "-no-color",
+        "-lockfile=readonly",
+      ]),
       sensitiveTokens: Object.freeze([]),
       protectedPaths: rootInputs,
     });
@@ -643,6 +671,7 @@ export async function runZccAdoptionOracle(
     const plannedFiles = Object.freeze([
       paths.root,
       paths.imports,
+      paths.lock,
       paths.generatedConfig,
       paths.plan,
     ]);

@@ -11,12 +11,17 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import test from "node:test";
 
 import { ZCC_ADOPTION_CATALOG_SHA256 } from "../node-src/domain/zcc-adoption-artifacts.js";
 import { loadZccAdoptionCatalog } from "../node-src/domain/zcc-adoption-catalog.js";
 import { runZccAdoptionOracle } from "../node-src/domain/zcc-adoption-oracle.js";
-import { createZccAdoptionOracleAdapters } from "../node-src/io/zcc-adoption-oracle-adapters.js";
+import { ProcessFailure } from "../node-src/domain/errors.js";
+import {
+  createZccAdoptionOracleAdapters,
+  ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS,
+} from "../node-src/io/zcc-adoption-oracle-adapters.js";
 
 interface Invocation {
   readonly argv: readonly string[];
@@ -34,6 +39,7 @@ test("private oracle core and concrete adapter complete one exact transaction", 
   mkdirSync(tempRoot, { mode: 0o700 });
   const script = [
     `#!${process.execPath}`,
+    'import { createHash } from "node:crypto";',
     'import { appendFileSync, readFileSync, writeFileSync } from "node:fs";',
     `const log = ${JSON.stringify(invocationLog)};`,
     "const argv = process.argv.slice(2);",
@@ -47,6 +53,11 @@ test("private oracle core and concrete adapter complete one exact transaction", 
     "  return { address, importId };",
     "};",
     "if (argv[0] === 'init') {",
+    "  const lock = readFileSync('.terraform.lock.hcl', 'utf8');",
+    "  const lockSha = createHash('sha256').update(lock, 'utf8').digest('hex');",
+    "  if (lockSha !== '9a097955041338130f344c525e10a3f34513eef307678df5e80abcf604ee60fa') process.exit(74);",
+    "  const root = readFileSync('main.tf', 'utf8');",
+    "  if (!root.includes('required_version = \"= 1.15.4\"')) process.exit(75);",
     "  process.exit(0);",
     "} else if (argv[0] === 'plan') {",
     "  const generated = argv.find((value) => value.startsWith('-generate-config-out='))?.slice(21);",
@@ -61,8 +72,8 @@ test("private oracle core and concrete adapter complete one exact transaction", 
     "  const common = { address, mode: 'managed', type: 'zcc_web_privacy', provider_name: 'registry.terraform.io/zscaler/zcc' };",
     "  const snapshot = argv[3] ?? '';",
     "  const output = snapshot.endsWith('oracle.tfplan')",
-    "    ? { format_version: '1.2', applyable: true, complete: true, errored: false, resource_changes: [{ ...common, change: { actions: ['no-op'], importing: { id: importId } } }] }",
-    "    : { format_version: '1.0', values: { root_module: { resources: [{ ...common, values: { active: true, collect_user_info: false, id: importId }, sensitive_values: {} }] } } };",
+    "    ? { format_version: '1.2', terraform_version: '1.15.4', applyable: true, complete: true, errored: false, resource_changes: [{ ...common, change: { actions: ['no-op'], importing: { id: importId } } }] }",
+    "    : { format_version: '1.0', terraform_version: '1.15.4', values: { root_module: { resources: [{ ...common, values: { active: true, collect_user_info: false, id: importId }, sensitive_values: {} }] } } };",
     "  process.stdout.write(JSON.stringify(output));",
     "} else {",
     "  process.exit(73);",
@@ -98,16 +109,6 @@ test("private oracle core and concrete adapter complete one exact transaction", 
       terraformExecutable: fake,
       tempRoot,
       environment: {},
-      commandLimits: {
-        timeoutMs: 2_000,
-        maxStdoutBytes: 64 * 1024,
-        maxStderrBytes: 4 * 1024,
-      },
-      showLimits: {
-        timeoutMs: 2_000,
-        maxStdoutBytes: 64 * 1024,
-        maxStderrBytes: 4 * 1024,
-      },
     }));
 
     assert.equal(result.resource_type, "zcc_web_privacy");
@@ -128,6 +129,13 @@ test("private oracle core and concrete adapter complete one exact transaction", 
       "apply",
       expectShowPrefix(invocations[4]),
     ]);
+    assert.deepEqual(invocations[0]?.argv, [
+      "init",
+      "-backend=false",
+      "-input=false",
+      "-no-color",
+      "-lockfile=readonly",
+    ]);
     const transactionDirectories = new Set(invocations.map((entry) => entry.cwd));
     assert.equal(transactionDirectories.size, 1);
     const transactionDirectory = invocations[0]?.cwd;
@@ -145,6 +153,79 @@ test("private oracle core and concrete adapter complete one exact transaction", 
     } else {
       process.env.TF_CLI_ARGS = poison;
     }
+    rmSync(lexicalRoot, { force: true, recursive: true });
+  }
+});
+
+test("cumulative host deadline rejects a stage overrun and cleanup gets its own window", async (t) => {
+  const lexicalRoot = mkdtempSync(path.join(tmpdir(), "zcc-oracle-timeout-"));
+  chmodSync(lexicalRoot, 0o700);
+  const root = realpathSync(lexicalRoot);
+  const tempRoot = path.join(root, "private");
+  const invocationLog = path.join(root, "invocations.jsonl");
+  const fake = path.join(root, "terraform-fake");
+  mkdirSync(tempRoot, { mode: 0o700 });
+  const script = [
+    `#!${process.execPath}`,
+    'import { appendFileSync } from "node:fs";',
+    `const log = ${JSON.stringify(invocationLog)};`,
+    "const argv = process.argv.slice(2);",
+    "appendFileSync(log, JSON.stringify({ argv, cwd: process.cwd(), environment: process.env }) + '\\n');",
+    "process.exit(argv[0] === 'init' ? 0 : 76);",
+  ].join("\n");
+  writeFileSync(fake, script, { mode: 0o700 });
+  chmodSync(fake, 0o700);
+
+  t.mock.method(performance, "now", () => {
+    return existsSync(invocationLog)
+      ? ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS
+      : 0;
+  });
+  try {
+    let failure: unknown;
+    try {
+      await runZccAdoptionOracle({
+        catalog: loadZccAdoptionCatalog(),
+        catalogSha256: ZCC_ADOPTION_CATALOG_SHA256,
+        rawItems: [{ id: "timeout-secret-id" }],
+        source: {
+          path: "pulls/demo/zcc_web_privacy.json",
+          sha256: "b".repeat(64),
+          size_bytes: 1,
+        },
+        target: {
+          tenant: "demo",
+          resourceType: "zcc_web_privacy",
+          rootLabel: "zcc_web_privacy",
+          rootMembers: ["zcc_web_privacy"],
+          variableName: "items",
+          configPath: "config/demo/zcc_web_privacy.auto.tfvars.json",
+          importsPath: "imports/demo/zcc_web_privacy_imports.tf",
+          lookupPath: null,
+        },
+        terraformExecutable: fake,
+      }, createZccAdoptionOracleAdapters({
+        terraformExecutable: fake,
+        tempRoot,
+        environment: {},
+      }));
+    } catch (error: unknown) {
+      failure = error;
+    }
+    assert.ok(failure instanceof ProcessFailure);
+    assert.equal(failure.code, "ZCC_ADOPTION_ORACLE_TIMEOUT");
+    assert.equal(JSON.stringify(failure).includes("timeout-secret-id"), false);
+
+    const invocations = readFileSync(invocationLog, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Invocation);
+    assert.equal(invocations.length, 1);
+    assert.equal(invocations[0]?.argv[0], "init");
+    const transactionDirectory = invocations[0]?.cwd ?? "";
+    assert.equal(existsSync(transactionDirectory), false);
+    assert.equal(existsSync(tempRoot), true);
+  } finally {
     rmSync(lexicalRoot, { force: true, recursive: true });
   }
 });

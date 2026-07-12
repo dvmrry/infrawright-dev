@@ -26,6 +26,31 @@ execution it actually controls. It MUST generate a fresh random 32-byte key
 internally for each report and MUST NOT accept the key, evidence class, or
 build bindings as caller assertions across the public request boundary.
 
+## Private executor baseline
+
+The private exact-five ZCC adoption executor supports HashiCorp Terraform
+`1.15.4` only. This is not an OpenTofu or generic Terraform compatibility
+contract. Its generated root pins `required_version = "= 1.15.4"`; the saved
+plan gate requires top-level JSON format `1.2` and the state gate requires
+format `1.0`, and both require `terraform_version` `1.15.4`.
+
+Provider installation is bound to the reviewed
+`registry.terraform.io/zscaler/zcc` `0.1.0-beta.1` archive set. Every
+transaction writes the exact committed multi-platform `.terraform.lock.hcl`
+and runs `init -lockfile=readonly`. The retained lock was generated with
+Terraform 1.15.4 for Linux and macOS on amd64 and arm64 from Terraform Registry
+discovery and partner-signed upstream SHA256SUMS. The runtime embeds the exact
+lock bytes and verifies their SHA-256 before use. It does not accept a caller
+lock, archive hash, provider version, plugin cache, or CLI configuration.
+
+One fixed host-owned 300-second monotonic deadline covers `init`, the
+generated-config plan, plan show and parsing, apply, and state show and parsing.
+Each stage receives only the remaining budget; neither the oracle request nor
+the adapter factory exposes a timeout. Verified scratch cleanup always uses a
+separate fixed 30-second window. All timeout and cleanup diagnostics are
+content-free and preserve the existing rule that credentials, provider state,
+import identifiers, and Terraform output never enter errors.
+
 ## Build-binding bytes
 
 The three build fields are hashes of immutable runner artifacts, not Git refs,

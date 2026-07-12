@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   chmodSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -15,6 +16,7 @@ import {
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import test from "node:test";
 
 import type {
@@ -22,31 +24,20 @@ import type {
   ZccAdoptionOracleShowRequest,
 } from "../node-src/domain/zcc-adoption-oracle.js";
 import { ProcessFailure } from "../node-src/domain/errors.js";
+import { zccAdoptionProviderLock } from "../node-src/domain/zcc-adoption-provider-lock.js";
 import {
   createZccAdoptionOracleAdapters,
-  DEFAULT_ZCC_ADOPTION_ORACLE_COMMAND_LIMITS,
-  DEFAULT_ZCC_ADOPTION_ORACLE_SHOW_LIMITS,
+  ZCC_ADOPTION_ORACLE_CLEANUP_TIMEOUT_MS,
+  ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS,
   type ZccAdoptionOracleAdapterFactoryOptions,
 } from "../node-src/io/zcc-adoption-oracle-adapters.js";
 
 const PREFIX = "infrawright-zcc-oracle-";
-const COMMAND_LIMITS = {
-  timeoutMs: 2_000,
-  maxStdoutBytes: 64 * 1024,
-  maxStderrBytes: 4 * 1024,
-} as const;
-const SHOW_LIMITS = {
-  timeoutMs: 2_000,
-  maxStdoutBytes: 64 * 1024,
-  maxStderrBytes: 4 * 1024,
-} as const;
-
 type FakeMode = "normal" | "nonzero" | "stdout" | "stderr" | "timeout";
 
 interface Fixture {
   readonly fake: string;
   readonly invocationLog: string;
-  readonly pluginCache: string;
   readonly root: string;
   readonly tempRoot: string;
 }
@@ -55,6 +46,7 @@ interface ScratchPaths {
   readonly directory: string;
   readonly generatedConfig: string;
   readonly imports: string;
+  readonly lock: string;
   readonly plan: string;
   readonly root: string;
   readonly state: string;
@@ -74,10 +66,8 @@ async function withFixture(
   chmodSync(lexicalRoot, 0o700);
   const root = realpathSync(lexicalRoot);
   const tempRoot = path.join(root, "private");
-  const pluginCache = path.join(root, "plugin-cache");
   const invocationLog = path.join(root, "invocations.jsonl");
   mkdirSync(tempRoot, { mode: 0o700 });
-  mkdirSync(pluginCache, { mode: 0o755 });
   const fake = path.join(root, "terraform-fake");
   const script = [
     `#!${process.execPath}`,
@@ -93,12 +83,10 @@ async function withFixture(
     "  process.exit(29);",
     "}",
     "if (first === 'init' && mode === 'stdout') {",
-    "  process.stdout.write('stdout-overflow-secret'.repeat(10000));",
-    "  process.exit(0);",
+    "  process.stdout.write('stdout-overflow-secret'.repeat(500000));",
     "}",
     "if (first === 'init' && mode === 'stderr') {",
-    "  process.stderr.write('stderr-overflow-secret'.repeat(10000));",
-    "  process.exit(0);",
+    "  process.stderr.write('stderr-overflow-secret'.repeat(100000));",
     "}",
     "if (first === 'init' && mode === 'timeout') {",
     "  setInterval(() => {}, 1000);",
@@ -119,7 +107,7 @@ async function withFixture(
   writeFileSync(fake, script, { mode: 0o700 });
   chmodSync(fake, 0o700);
   try {
-    await callback({ fake, invocationLog, pluginCache, root, tempRoot });
+    await callback({ fake, invocationLog, root, tempRoot });
   } finally {
     rmSync(lexicalRoot, { force: true, recursive: true });
   }
@@ -141,9 +129,6 @@ function options(
       HTTPS_PROXY: "https://proxy.invalid",
       NO_PROXY: "127.0.0.1",
     },
-    pluginCacheDirectory: fixture.pluginCache,
-    commandLimits: COMMAND_LIMITS,
-    showLimits: SHOW_LIMITS,
     ...overrides,
   };
 }
@@ -153,6 +138,7 @@ function pathsFor(directory: string): ScratchPaths {
     directory,
     generatedConfig: path.join(directory, "generated.tf"),
     imports: path.join(directory, "imports.tf"),
+    lock: path.join(directory, ".terraform.lock.hcl"),
     plan: path.join(directory, "oracle.tfplan"),
     root: path.join(directory, "main.tf"),
     state: path.join(directory, "terraform.tfstate"),
@@ -176,6 +162,11 @@ async function begin(
     content: 'import { id = "sensitive-import-id" }\n',
     mode: 0o600,
   });
+  await adapters.files.writeText({
+    path: paths.lock,
+    content: zccAdoptionProviderLock(),
+    mode: 0o600,
+  });
   return { adapters, paths };
 }
 
@@ -185,7 +176,13 @@ function commandRequest(
   stage: ZccAdoptionOracleCommandRequest["stage"],
 ): ZccAdoptionOracleCommandRequest {
   const argv = stage === "init"
-    ? ["init", "-input=false", "-no-color"]
+    ? [
+        "init",
+        "-backend=false",
+        "-input=false",
+        "-no-color",
+        "-lockfile=readonly",
+      ]
     : stage === "plan"
       ? [
           "plan",
@@ -203,8 +200,14 @@ function commandRequest(
           paths.plan,
         ];
   const protectedPaths = stage === "init" || stage === "plan"
-    ? [paths.root, paths.imports]
-    : [paths.root, paths.imports, paths.generatedConfig, paths.plan];
+    ? [paths.root, paths.imports, paths.lock]
+    : [
+        paths.root,
+        paths.imports,
+        paths.lock,
+        paths.generatedConfig,
+        paths.plan,
+      ];
   return {
     stage,
     executable: fixture.fake,
@@ -229,10 +232,17 @@ function showRequest(
     snapshotPath,
     sensitiveTokens: ["sensitive-import-id"],
     protectedPaths: stage === "show-plan"
-      ? [paths.root, paths.imports, paths.generatedConfig, paths.plan]
+      ? [
+          paths.root,
+          paths.imports,
+          paths.lock,
+          paths.generatedConfig,
+          paths.plan,
+        ]
       : [
           paths.root,
           paths.imports,
+          paths.lock,
           paths.generatedConfig,
           paths.plan,
           paths.state,
@@ -285,6 +295,7 @@ test("runs exact argv in one private transaction with a complete stripped enviro
       assert.equal(lstatSync(paths.directory).mode & 0o777, 0o700);
       assert.equal(lstatSync(paths.root).mode & 0o777, 0o600);
       assert.equal(lstatSync(paths.imports).mode & 0o777, 0o600);
+      assert.equal(lstatSync(paths.lock).mode & 0o777, 0o600);
 
       await adapters.command.run(commandRequest(fixture, paths, "init"));
       await adapters.command.run(commandRequest(fixture, paths, "plan"));
@@ -304,7 +315,13 @@ test("runs exact argv in one private transaction with a complete stripped enviro
 
       const records = invocationRecords(fixture);
       assert.deepEqual(records.map((record) => record.argv), [
-        ["init", "-input=false", "-no-color"],
+        [
+          "init",
+          "-backend=false",
+          "-input=false",
+          "-no-color",
+          "-lockfile=readonly",
+        ],
         [
           "plan",
           "-input=false",
@@ -332,7 +349,6 @@ test("runs exact argv in one private transaction with a complete stripped enviro
         HOME: path.join(paths.directory, ".home"),
         TMPDIR: path.join(paths.directory, ".tmp"),
         TF_DATA_DIR: path.join(paths.directory, ".terraform-data"),
-        TF_PLUGIN_CACHE_DIR: fixture.pluginCache,
       };
       for (const record of records) {
         assert.equal(record.cwd, paths.directory);
@@ -404,6 +420,24 @@ test("binds plan and state snapshots and rejects later same-inode mutation", asy
         adapters.show.readJson(showRequest(fixture, paths, "show-state")),
         "ZCC_ORACLE_FILE_CHANGED",
       );
+    } finally {
+      await adapters.temporary.remove(paths.directory);
+    }
+  });
+});
+
+test("provider lock drift fails before Terraform init", async () => {
+  await withFixture("normal", async (fixture) => {
+    const { adapters, paths } = await begin(fixture);
+    try {
+      writeFileSync(paths.lock, "mutated provider archive authority\n", {
+        mode: 0o600,
+      });
+      await captureFailure(
+        adapters.command.run(commandRequest(fixture, paths, "init")),
+        "ZCC_ORACLE_FILE_CHANGED",
+      );
+      assert.equal(existsSync(fixture.invocationLog), false);
     } finally {
       await adapters.temporary.remove(paths.directory);
     }
@@ -573,35 +607,36 @@ test("rejects non-private or symlinked temp authorities and caller TF poisoning"
   });
 });
 
-test("timeout, output limits, and nonzero exits preserve value-safe diagnostics", async (t) => {
+test("timeout, fixed output limits, and nonzero exits preserve value-safe diagnostics", async (t) => {
   const cases = [
     {
       mode: "nonzero" as const,
       code: "TERRAFORM_COMMAND_FAILED",
-      commandLimits: COMMAND_LIMITS,
     },
     {
       mode: "stdout" as const,
       code: "TERRAFORM_COMMAND_STDOUT_LIMIT",
-      commandLimits: { ...COMMAND_LIMITS, maxStdoutBytes: 32 },
     },
     {
       mode: "stderr" as const,
       code: "TERRAFORM_COMMAND_STDERR_LIMIT",
-      commandLimits: { ...COMMAND_LIMITS, maxStderrBytes: 32 },
     },
     {
       mode: "timeout" as const,
-      code: "TERRAFORM_COMMAND_TIMEOUT",
-      commandLimits: { ...COMMAND_LIMITS, timeoutMs: 75 },
+      code: "ZCC_ADOPTION_ORACLE_TIMEOUT",
     },
   ];
   for (const item of cases) {
-    await t.test(item.mode, async () => {
+    await t.test(item.mode, async (subtest) => {
       await withFixture(item.mode, async (fixture) => {
-        const { adapters, paths } = await begin(fixture, {
-          commandLimits: item.commandLimits,
-        });
+        let now = 0;
+        if (item.mode === "timeout") {
+          subtest.mock.method(performance, "now", () => now);
+        }
+        const { adapters, paths } = await begin(fixture);
+        if (item.mode === "timeout") {
+          now = ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS - 1;
+        }
         try {
           const failure = await captureFailure(
             adapters.command.run(commandRequest(fixture, paths, "init")),
@@ -631,36 +666,46 @@ test("timeout, output limits, and nonzero exits preserve value-safe diagnostics"
   }
 });
 
-test("private oracle timeouts match Python while callers may only tighten them", async () => {
-  assert.equal(DEFAULT_ZCC_ADOPTION_ORACLE_COMMAND_LIMITS.timeoutMs, 300_000);
-  assert.equal(DEFAULT_ZCC_ADOPTION_ORACLE_SHOW_LIMITS.timeoutMs, 300_000);
+test("host owns one transaction deadline and a separate cleanup deadline", async (t) => {
+  assert.equal(ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS, 300_000);
+  assert.equal(ZCC_ADOPTION_ORACLE_CLEANUP_TIMEOUT_MS, 30_000);
 
   await withFixture("normal", async (fixture) => {
-    assert.doesNotThrow(() => createZccAdoptionOracleAdapters(options(fixture, {
-      commandLimits: DEFAULT_ZCC_ADOPTION_ORACLE_COMMAND_LIMITS,
-      showLimits: DEFAULT_ZCC_ADOPTION_ORACLE_SHOW_LIMITS,
-    })));
-
-    for (const [field, limits] of [
-      ["commandLimits", {
-        ...DEFAULT_ZCC_ADOPTION_ORACLE_COMMAND_LIMITS,
-        timeoutMs: 300_001,
-      }],
-      ["showLimits", {
-        ...DEFAULT_ZCC_ADOPTION_ORACLE_SHOW_LIMITS,
-        timeoutMs: 300_001,
-      }],
+    for (const field of [
+      "commandLimits",
+      "showLimits",
+      "timeoutMs",
+      "pluginCacheDirectory",
     ] as const) {
       assert.throws(
-        () => createZccAdoptionOracleAdapters(options(fixture, {
-          [field]: limits,
-        })),
+        () => createZccAdoptionOracleAdapters({
+          ...options(fixture),
+          [field]: field === "pluginCacheDirectory" ? fixture.root : 1,
+        } as unknown as ZccAdoptionOracleAdapterFactoryOptions),
         (error: unknown) => {
           assert.ok(error instanceof ProcessFailure);
-          assert.equal(error.code, "INVALID_ZCC_ORACLE_ADAPTER_LIMITS");
+          assert.equal(error.code, "INVALID_ZCC_ORACLE_ADAPTER_OPTIONS");
           return true;
         },
       );
+    }
+
+    let now = 0;
+    t.mock.method(performance, "now", () => now);
+    const { adapters, paths } = await begin(fixture);
+    try {
+      await adapters.command.run(commandRequest(fixture, paths, "init"));
+      now = ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS;
+      await captureFailure(
+        adapters.command.run(commandRequest(fixture, paths, "plan")),
+        "ZCC_ADOPTION_ORACLE_TIMEOUT",
+      );
+      assert.deepEqual(
+        invocationRecords(fixture).map((record) => record.argv[0]),
+        ["init"],
+      );
+    } finally {
+      await adapters.temporary.remove(paths.directory);
     }
   });
 });

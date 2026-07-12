@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 .terraform/
 .terraform.lock.hcl
+!catalogs/zcc-adoption-provider-lock/.terraform.lock.hcl
 **/tfplan
 *.tfplan
 *.tfstate

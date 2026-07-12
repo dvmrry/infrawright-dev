@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "provider": "registry.terraform.io/zscaler/zcc",
+  "provider_version": "0.1.0-beta.1",
+  "terraform_version": "1.15.4",
+  "terraform_platform": "darwin_arm64",
+  "generated_at_utc": "2026-07-12",
+  "command": [
+    "terraform",
+    "providers",
+    "lock",
+    "-platform=linux_amd64",
+    "-platform=linux_arm64",
+    "-platform=darwin_amd64",
+    "-platform=darwin_arm64"
+  ],
+  "platforms": [
+    "darwin_amd64",
+    "darwin_arm64",
+    "linux_amd64",
+    "linux_arm64"
+  ],
+  "registry_signing_key_id": "289EF1F15F4B3846",
+  "lock_sha256": "9a097955041338130f344c525e10a3f34513eef307678df5e80abcf604ee60fa",
+  "official_shasums_sha256": "d86c9f2630d33d0ee76c2d7b4351a3480901ed92f71406164d54aaf5d1fea04d",
+  "platform_archive_sha256": {
+    "darwin_amd64": "5d95076e03ba54d53a2e118f16f07d6c2bad41301555eca6ae8436bb387fe909",
+    "darwin_arm64": "43eb063c2685b2978895fd507ee0463b4f80299502625ed408c50d31a10fb705",
+    "linux_amd64": "7172966d27ea1fe135842bdd0e7e2f449a4756b8158b3e4335e3e7357cca9ac0",
+    "linux_arm64": "b28ab8954f8ca6f620736c470976985ad53a036b5334b8de52b65d5fcf7b5ddb"
+  },
+  "source": "Terraform Registry discovery and partner-signed upstream SHA256SUMS"
+}
