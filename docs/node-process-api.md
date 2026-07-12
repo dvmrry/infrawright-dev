@@ -918,6 +918,27 @@ adjusted to the Python 3.12/3.13 Unicode 15.0/15.1 behavior with compact
 generated deltas and exhaustive live-Python differentials; every other runtime
 Unicode version fails closed.
 
+A private migration differential now binds exactly three ZIA transforms to a
+separate compact catalog:
+
+```sh
+python3 -m engine.transform_catalog \
+  --product zia \
+  --resource zia_admin_roles \
+  --resource zia_traffic_forwarding_static_ip \
+  --resource zia_url_categories \
+  --out catalogs/zia-transform-cohort.v1.json
+```
+
+The catalog digest covers the committed ZIA pack, registry, provider schema,
+and the two present override files. It captures finite-float projection,
+schema-set ordering, map-value coercion, and the URL-category `sort_lists`
+override. A committed corpus compares the complete Node transform result and
+rendered tfvars bytes with live `engine.transform` output. This remains a pure
+source-to-value seam: it accepts already-pulled JSON and adds no process
+operation, collector, publisher, Terraform execution, adoption/oracle path,
+HTTP client, or release-bundle surface.
+
 Catalog regeneration structurally gates changes to the declarative provider
 projection, reachable overrides, and serialized compatibility tables: any such
 change produces reviewed catalog bytes. It does not prove universal parity

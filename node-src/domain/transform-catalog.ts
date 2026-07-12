@@ -38,6 +38,7 @@ export interface TransformCatalogResource {
   readonly acknowledged_drops: readonly string[];
   readonly invert_bool: readonly string[];
   readonly renames: Readonly<Record<string, string>>;
+  readonly sort_lists?: readonly string[];
   readonly split_csv: readonly string[];
   readonly projection: TransformProjection;
   readonly import_id: {
@@ -119,9 +120,11 @@ function assertZccCatalogInvariants(catalog: TransformCatalog): void {
  * such as `__proto__` and `constructor` as ordinary own keys and prevents a
  * caller from changing the catalog after it has passed the semantic gate.
  */
-function immutableContractCopy(value: unknown): unknown {
+export function immutableTransformContractCopy(value: unknown): unknown {
   if (Array.isArray(value)) {
-    return Object.freeze(value.map((item) => immutableContractCopy(item)));
+    return Object.freeze(
+      value.map((item) => immutableTransformContractCopy(item)),
+    );
   }
   if (isJsonRecord(value)) {
     const output: Record<string, unknown> = Object.create(null) as Record<
@@ -129,7 +132,7 @@ function immutableContractCopy(value: unknown): unknown {
       unknown
     >;
     for (const key of Object.keys(value)) {
-      output[key] = immutableContractCopy(value[key]);
+      output[key] = immutableTransformContractCopy(value[key]);
     }
     return Object.freeze(output);
   }
@@ -142,7 +145,7 @@ function validatedCatalog(candidate: unknown): TransformCatalog {
   }
   const catalog = candidate as TransformCatalog;
   assertZccCatalogInvariants(catalog);
-  return immutableContractCopy(catalog) as TransformCatalog;
+  return immutableTransformContractCopy(catalog) as TransformCatalog;
 }
 
 // Capture the committed data once.  Runtime consumers never discover pack,

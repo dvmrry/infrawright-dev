@@ -743,6 +743,15 @@ function applyReachableOverrides(
         .filter((part) => part !== "");
     }
   }
+  for (const field of sortedStrings(resource.sort_lists ?? [])) {
+    const value = output[field];
+    if (
+      Array.isArray(value)
+      && value.every((item) => typeof item === "string")
+    ) {
+      output[field] = [...value].sort(comparePythonStrings);
+    }
+  }
   for (const field of sortedStrings(resource.invert_bool)) {
     if (hasOwn(output, field)) {
       const coerced = coerceBoolean(output[field]);
