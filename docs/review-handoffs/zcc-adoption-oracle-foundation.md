@@ -220,7 +220,14 @@
   whole-transaction deadline with a separate cleanup budget.
 - A shared plugin cache is a separately trusted host authority, not protected
   transaction evidence. It must be prewarmed/protected from untrusted writes,
-  and live Terraform initialization using it must be serialized.
+  live Terraform initialization using it must be serialized, and the public
+  host must bind an immutable dependency lock or provider-archive hashes before
+  any run can become live evidence. Source address and version alone do not
+  identify provider bytes.
+- Plan and state gates currently accept future `1.x` Terraform JSON format
+  revisions. Before public or live exposure, pin the exact reviewed plan/state
+  format versions or reject every unknown evidence-bearing container so a
+  future format cannot silently weaken the closed gates.
 - Cleanup becomes non-retryable once the adapter is spent. The public process
   host must own a dedicated per-request parent and sweep it at job teardown.
 
@@ -231,7 +238,9 @@
 - Whether generated config, plan, and state are bound immediately enough to
   prevent show from establishing trust in an attacker-replaced output.
 - Whether directory/file checks, cleanup, process-group reaping, environment
-  stripping, timeout/error precedence, and output zeroing hold on every path.
+  stripping, timeout/error precedence, bounded output handling, and scrubbing
+  of runner-owned buffers hold on every path. GC-managed show copies are not
+  claimed to be synchronously zeroed and must never enter reports or errors.
 - Whether the one-resource transaction can apply a saved plan whose generated
   config and exact import set were both verified, without reading caller paths.
 - Whether HMAC domain separation, canonical value encoding, report semantics,
