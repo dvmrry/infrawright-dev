@@ -85,21 +85,27 @@ const CASES: readonly ResourceCase[] = [
   },
   {
     resourceType: "zcc_forwarding_profile",
-    rawItems: [{ id: "profile-1", name: "Forwarding Profile" }],
+    rawItems: [{
+      id: "900719925474099312345678902",
+      name: "Forwarding Profile",
+    }],
     values: {
       active: true,
-      id: "profile-1",
+      id: "900719925474099312345678902",
       name: "Forwarding Profile",
       trusted_network_ids: [new LosslessNumber("900719925474099312345678901")],
     },
   },
   {
     resourceType: "zcc_trusted_network",
-    rawItems: [{ id: "network-1", networkName: "Trusted Network" }],
+    rawItems: [{
+      id: "900719925474099312345678903",
+      networkName: "Trusted Network",
+    }],
     values: {
       active: true,
       condition_type: "DNS",
-      id: "network-1",
+      id: "900719925474099312345678903",
       name: "Trusted Network",
     },
   },
@@ -497,13 +503,14 @@ test("Terraform 1.15.4 structural import evidence traverses the oracle gates", a
 });
 
 test("root raises the Terraform floor while imports remain Python-byte-identical", async () => {
+  const importId = 'quote"\\line\nrow\rcol\t${name}%{ if true }';
   const resourceCase: ResourceCase = {
     resourceType: "zcc_forwarding_profile",
     rawItems: [{
-      id: 'quote"\\line\nrow\rcol\t${name}%{ if true }',
+      id: importId,
       name: "Escaping",
     }],
-    values: { id: "opaque", name: "Escaping" },
+    values: { id: importId, name: "Escaping" },
   };
   const fake = new FakeOracle(resourceCase);
   await runZccAdoptionOracle(request(resourceCase), fake.adapters());
@@ -717,6 +724,22 @@ test("state extraction accepts only the exact root managed resource join", async
       assert.notEqual(resource, undefined);
       resource!.type = SECRET;
     }],
+    ["missing returned provider identity", (state) => {
+      const values = state.values as Record<string, unknown>;
+      const root = values.root_module as Record<string, unknown>;
+      const resource = (root.resources as Record<string, unknown>[])[0];
+      assert.notEqual(resource, undefined);
+      const providerValues = resource!.values as Record<string, unknown>;
+      delete providerValues.id;
+    }],
+    ["wrong returned provider identity", (state) => {
+      const values = state.values as Record<string, unknown>;
+      const root = values.root_module as Record<string, unknown>;
+      const resource = (root.resources as Record<string, unknown>[])[0];
+      assert.notEqual(resource, undefined);
+      const providerValues = resource!.values as Record<string, unknown>;
+      providerValues.id = SECRET;
+    }],
     ["data mode", (state) => {
       const values = state.values as Record<string, unknown>;
       const root = values.root_module as Record<string, unknown>;
@@ -806,11 +829,17 @@ test("object and top-level true sensitive masks fail only at projection", async 
 });
 
 test("input and show graphs are frozen across injected mutation hooks", async () => {
-  const mutableRaw = { id: "profile-1", name: "Original Profile" };
+  const mutableRaw = {
+    id: "900719925474099312345678904",
+    name: "Original Profile",
+  };
   const resourceCase: ResourceCase = {
     resourceType: "zcc_forwarding_profile",
     rawItems: [mutableRaw],
-    values: { id: "profile-1", name: "Original Profile" },
+    values: {
+      id: "900719925474099312345678904",
+      name: "Original Profile",
+    },
   };
   const mutableRequest = request(resourceCase) as {
     catalog: ZccAdoptionOracleRequest["catalog"];

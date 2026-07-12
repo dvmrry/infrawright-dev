@@ -157,8 +157,9 @@ export interface ZccAdoptionOracleParityReport {
     readonly mismatched: number;
     readonly unstable_reference: number;
     readonly not_applicable: 4;
-    readonly projection_qualification: "qualified" | "not_qualified";
-    readonly executor_qualification: "qualified" | "not_qualified";
+    /** V1 is comparison-only until a host-bound successor contract exists. */
+    readonly projection_qualification: "not_qualified";
+    readonly executor_qualification: "not_qualified";
   };
   /**
    * Plain SHA-256 of the complete already-redacted report body. This is an
@@ -756,16 +757,6 @@ export function buildZccAdoptionOracleParity(
   const allLiveInputsPresent = committedResources.every((resource) => {
     return resource.inputPresent;
   });
-  const allEqual = mismatched === 0 && unstable === 0;
-  const stableIndependentReference =
-    evidenceClass !== "live_independent_executor"
-    || builds.python_stability === "stable";
-  const projectionQualified = evidenceClass !== "simulation"
-    && allLiveInputsPresent
-    && allEqual
-    && stableIndependentReference;
-  const executorQualified = evidenceClass === "live_independent_executor"
-    && projectionQualified;
   const catalog = loadZccAdoptionCatalog();
   const body = {
     kind: "infrawright.zcc_adoption_oracle_parity" as const,
@@ -799,12 +790,10 @@ export function buildZccAdoptionOracleParity(
       mismatched,
       unstable_reference: unstable,
       not_applicable: 4 as const,
-      projection_qualification: projectionQualified
-        ? "qualified" as const
-        : "not_qualified" as const,
-      executor_qualification: executorQualified
-        ? "qualified" as const
-        : "not_qualified" as const,
+      // The inputs and build hashes are caller assertions at this private
+      // seam. V1 records comparisons but never upgrades them to qualification.
+      projection_qualification: "not_qualified" as const,
+      executor_qualification: "not_qualified" as const,
     },
   };
   const report = {
@@ -1054,13 +1043,6 @@ export function validateZccAdoptionOracleParityReport(
       : mismatched > 0
         ? "different"
         : "equal";
-    const allEqual = mismatched === 0 && unstable === 0;
-    const projectionQualified = evidenceClass !== "simulation"
-      && summary.live_input_coverage === "complete"
-      && allEqual
-      && buildStable;
-    const executorQualified = evidenceClass === "live_independent_executor"
-      && projectionQualified;
     if (
       summary.status !== expectedStatus
       || summary.total_roles !== 30
@@ -1071,12 +1053,8 @@ export function validateZccAdoptionOracleParityReport(
       || summary.not_applicable !== notApplicable
       || notApplicable !== 4
       || matched + mismatched + unstable !== 26
-      || summary.projection_qualification !== (
-        projectionQualified ? "qualified" : "not_qualified"
-      )
-      || summary.executor_qualification !== (
-        executorQualified ? "qualified" : "not_qualified"
-      )
+      || summary.projection_qualification !== "not_qualified"
+      || summary.executor_qualification !== "not_qualified"
     ) {
       return false;
     }

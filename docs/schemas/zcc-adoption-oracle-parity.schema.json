@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://infrawright.local/schemas/zcc-adoption-oracle-parity.schema.json",
   "title": "Infrawright ZCC Adoption Oracle Parity",
-  "$comment": "This report is a closed, secret-safe commitment contract produced and consumed only inside one trusted process or an authenticated CI artifact channel. Tenant-derived identities, provider observations, projections, and artifact bytes appear only as domain-separated HMAC-SHA256 commitments made with a fresh process-held 32-byte key. Public catalog/build bindings and the digest of this already-redacted report use plain SHA-256. The semantic validator and report digest detect structural or accidental corruption; they do not authenticate the evidence or its producer, and this contract defines no signing or key-distribution system. Semantic validation must additionally derive comparison statuses, counts, reference stability, qualification, exact five-resource scope, aggregate live-input coverage, and trusted-network-only lookup applicability. Aggregate live-input coverage discloses one bit for the complete five-resource run and never per-resource presence. This contract proves projection and executor parity only; it cannot qualify cutover because it contains no downstream saved-plan or adoption-gate result. A later downstream-gate aggregator owns cutover qualification. A future public operation must derive the evidence class and public build hashes from its own execution, and generate a fresh random 32-byte commitment key internally.",
+  "$comment": "This report is a closed, secret-safe comparison contract produced and consumed only inside one trusted process or an authenticated CI artifact channel. Tenant-derived identities, provider observations, projections, and artifact bytes appear only as domain-separated HMAC-SHA256 commitments made with a fresh process-held 32-byte key. Public catalog/build bindings and the digest of this already-redacted report use plain SHA-256. The semantic validator and report digest detect structural or accidental corruption; they do not authenticate the evidence or its producer, and this contract defines no signing or key-distribution system. Semantic validation derives comparison statuses, counts, reference stability, exact five-resource scope, and trusted-network-only lookup applicability. It validates the claimed aggregate live-input coverage enum but cannot independently derive that redacted coverage bit. Aggregate coverage discloses one bit for the complete five-resource run and never per-resource presence. Version 1 is comparison-only: both qualification fields are always not_qualified because evidence class and build bindings remain caller assertions at this private seam. A host-bound successor schema is required before any projection, executor, or cutover qualification claim. A future public operation must derive the evidence class and public build hashes from its own execution and generate a fresh random 32-byte commitment key internally.",
   "type": "object",
   "x-infrawright-zcc-adoption-oracle-parity-semantics": true,
   "additionalProperties": false,
@@ -436,10 +436,10 @@
         },
         "not_applicable": { "const": 4 },
         "projection_qualification": {
-          "enum": ["qualified", "not_qualified"]
+          "const": "not_qualified"
         },
         "executor_qualification": {
-          "enum": ["qualified", "not_qualified"]
+          "const": "not_qualified"
         }
       }
     }

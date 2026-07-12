@@ -3,8 +3,8 @@
 This document is normative for
 `infrawright.zcc_adoption_oracle_parity` schema version `1`. The JSON Schema
 closes the report shape; this document freezes the value encoding, commitment
-framing, digest, trust boundary, and qualification rules that JSON Schema
-cannot express.
+framing, digest, trust boundary, and comparison rules that JSON Schema cannot
+express.
 
 ## Trust and authority
 
@@ -44,8 +44,7 @@ image tags, paths, version strings, or caller-authored metadata:
 The future host owns creation and retention of the Python runner archive and
 MUST bind each digest before starting its executor. Version 1 does not define a
 portable archive-construction format; byte-identical archives are the required
-identity within one report. This intentionally makes live qualification
-unavailable until the protected host can supply immutable runner artifacts.
+identity within one report.
 
 ## Input cardinality and aggregate disclosure
 
@@ -65,11 +64,10 @@ it discloses only one aggregate bit as `summary.live_input_coverage`:
   cardinality; and
 - `not_applicable` is required for simulation evidence.
 
-This aggregate bit is the minimum presence disclosure required to derive live
-qualification without revealing which resource was empty. Semantic validation
-can check that qualification follows the aggregate claim, but, without tenant
-inputs or the commitment key, cannot independently prove that the trusted
-producer derived the bit honestly.
+This aggregate bit is the minimum presence disclosure retained for a future
+host-bound comparison without revealing which resource was empty. Without
+tenant inputs or the commitment key, semantic validation cannot independently
+prove that the trusted producer derived the bit honestly.
 
 ## Canonical value encoding
 
@@ -133,13 +131,14 @@ characters.
 complete report body with `report_sha256` omitted. It is an unkeyed integrity
 checksum, not a signature. The semantic validator additionally re-derives the
 closed five-resource order, lookup applicability, comparison and resource
-statuses, role counts, Python build stability, aggregate status, and
-qualification.
+statuses, role counts, Python build stability, and aggregate status.
 
-Projection qualification requires live evidence, complete aggregate input
-coverage, no mismatch or unstable role, and a stable Python reference when an
-after pass is present. Executor qualification additionally requires
-`live_independent_executor`. This report never qualifies downstream cutover.
+Version 1 is comparison-only. `evidence_class` and build hashes remain caller
+assertions at this private seam, so `projection_qualification` and
+`executor_qualification` MUST both be `not_qualified` for every report. A
+host-bound successor schema must derive its evidence class, runner bindings,
+and fresh HMAC key from controlled execution before it can introduce any
+projection, executor, or downstream cutover qualification claim.
 
 ## Fixed known-answer vectors
 

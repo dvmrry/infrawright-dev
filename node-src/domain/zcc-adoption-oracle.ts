@@ -514,6 +514,7 @@ function exactRootStateObservations(
       || hasOwn(resource, "deposed_key")
       || (resource.tainted !== undefined && resource.tainted !== false)
       || !isJsonRecord(resource.values)
+      || resource.values.id !== expectedImport.importId
       || !hasOwn(resource, "sensitive_values")
       || (
         !isJsonRecord(resource.sensitive_values)

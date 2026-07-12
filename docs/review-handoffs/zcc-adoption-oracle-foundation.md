@@ -51,7 +51,11 @@
 - Provider schema: `packs/zcc/schemas/provider/zcc.json` through the existing
   versioned adoption catalog.
 - Provider source/version: `zscaler/zcc` `0.1.0-beta.1`, already pinned by the
-  catalog and pack; no provider-source behavior is newly inferred here.
+  catalog and pack. Its five resource implementations were checked directly:
+  `internal/framework/resources/device_cleanup.go`, `failopen_policy.go`,
+  `forwarding_profile.go`, `trusted_network.go`, and `web_privacy.go`. Each
+  importer/read mapper retains the resolved API identity as the computed string
+  `id`; numeric forwarding/trusted-network IDs are rendered in base-10.
 - Pack metadata: the committed `catalogs/zcc-adoption-catalog.v1.json` and its
   hashed ZCC source set.
 - Existing Python transaction: `engine/import_oracle.py`,
@@ -96,9 +100,11 @@
 - The parity builder commits every tenant-derived comparison role with a fresh
   caller-held, domain-separated HMAC-SHA256 key. Only public catalog/build
   bindings and the digest of the already redacted report use plain SHA-256.
-- Shared live evidence may qualify projection only. A stable independent
-  Python-before/Node/Python-after run may additionally qualify the executor.
-  Simulation qualifies neither, and this contract never qualifies cutover.
+- Version 1 records simulation, shared-observation, and independent-executor
+  comparisons but qualifies none of them because evidence class/build bindings
+  remain caller assertions. A host-bound successor schema must derive those
+  authorities before it can qualify projection or executor; cutover remains a
+  later downstream-gate decision.
 - No public process behavior changes and no live provider result is claimed.
 
 ## Invariants Claimed
@@ -114,8 +120,11 @@
   the sole resource/provider/identity authority; the executor does not infer
   provider behavior or read mutable pack metadata.
 - Ambiguity: resource, provider, address, import ID, observation, lookup
-  applicability, and report/build stability must join exactly or qualification
+  applicability, and report/build stability must join exactly or the comparison
   fails.
+- Provider-returned identity: every one of the five pinned resources exposes a
+  computed string `id`; final state must return exactly the requested catalog-
+  derived import ID before its values can become an observation.
 - Secret safety: child stdout is captured only for bounded show JSON; stderr is
   counted and discarded. Errors contain no paths, credentials, import IDs,
   state values, artifact bytes, or child diagnostics. The parity report
@@ -126,13 +135,13 @@
 - Adoption safety: generated configuration is never trusted as an input until
   bound after plan; the saved plan is applied only after the import-only gate;
   state is projected only after the exact root-state gate.
-- Qualification safety: unequal or zero survivor/observation counts make live
-  input presence empty; simulation and shared-observation evidence cannot be
-  promoted to independent executor or cutover evidence.
+- Qualification safety: unequal survivor/observation counts fail, aggregate
+  zero coverage remains visible only as one bit, and every v1 qualification
+  field is fail-closed `not_qualified` until a host-bound successor lands.
 
 ## Tests Run
 
-- `npm run check`: 576 total, 575 passed, 1 platform skip, 0 failed.
+- `npm run check`: 578 total, 577 passed, 1 platform skip, 0 failed.
 - `make test`: 1,365 passed, 0 failed.
 - Focused Terraform runner/show/oracle/adapter/parity suites, including repeated
   process-group tests and output replacement races.
@@ -158,6 +167,12 @@
   cardinality mismatch to ordinary emptiness. Fix: reject every survivor versus
   observation count mismatch and expose only the aggregate live coverage bit
   required to derive qualification. Simulation reports use `not_applicable`.
+- Finding: caller-asserted evidence class and build hashes could mint a
+  syntactically `qualified` live report before the protected host existed. Fix:
+  make v1 comparison-only and require both qualification fields to remain
+  `not_qualified`; a host-bound successor schema must derive all authority.
+  Schema and semantic regressions independently tamper both qualification
+  fields.
 - Finding: a zero-exit trusted command could bind an output that existed before
   its producing stage. Fix: require generated config/plan/state absence before
   plan/apply, with precreated-output regressions.
@@ -165,6 +180,12 @@
   Fix: add a fake-Terraform integration that drives init, plan, show, apply,
   state show, artifact compilation, stripped environment, and verified cleanup
   through the real combined boundary.
+- Finding: final observations copied the requested import ID into their own
+  metadata without independently checking provider-returned state identity.
+  Fix: require `values.id` to equal the catalog-derived import ID for every one
+  of the five pinned resources, with missing/wrong-ID regressions. Forwarding
+  profile and trusted-network cases use provider-realistic unbounded decimal
+  identity strings rather than opaque placeholders.
 - Finding: Terraform plan/state tests used only synthetic envelopes. Fix:
   retain an exact offline Terraform 1.15.4 built-in import envelope, explicitly
   scoped to Terraform-core structure and never cited as ZCC/provider/live

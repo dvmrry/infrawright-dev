@@ -235,7 +235,7 @@ test("schema and semantic validator accept the deeply immutable exact report", (
   }, TypeError);
 });
 
-test("evidence classes derive projection and executor qualification only", () => {
+test("v1 records evidence classes but never qualifies caller assertions", () => {
   const simulation = build("simulation");
   assert.equal(simulation.summary.status, "equal");
   assert.equal(simulation.summary.live_input_coverage, "not_applicable");
@@ -245,15 +245,15 @@ test("evidence classes derive projection and executor qualification only", () =>
 
   const shared = build("live_shared_observation");
   assert.equal(shared.summary.live_input_coverage, "complete");
-  assert.equal(shared.summary.projection_qualification, "qualified");
+  assert.equal(shared.summary.projection_qualification, "not_qualified");
   assert.equal(shared.summary.executor_qualification, "not_qualified");
   assert.equal("cutover_qualification" in shared.summary, false);
 
   const independent = build("live_independent_executor");
   assert.equal(independent.summary.live_input_coverage, "complete");
   assert.equal(independent.bindings.builds.python_stability, "stable");
-  assert.equal(independent.summary.projection_qualification, "qualified");
-  assert.equal(independent.summary.executor_qualification, "qualified");
+  assert.equal(independent.summary.projection_qualification, "not_qualified");
+  assert.equal(independent.summary.executor_qualification, "not_qualified");
   assert.equal("cutover_qualification" in independent.summary, false);
 
   const emptyLive = buildZccAdoptionOracleParity(buildOptions({
@@ -302,10 +302,10 @@ test("every evidence class rejects survivor and observation cardinality mismatch
 
   const validShared = build("live_shared_observation");
   assert.equal(validShared.summary.live_input_coverage, "complete");
-  assert.equal(validShared.summary.projection_qualification, "qualified");
+  assert.equal(validShared.summary.projection_qualification, "not_qualified");
   const validIndependent = build("live_independent_executor");
   assert.equal(validIndependent.summary.live_input_coverage, "complete");
-  assert.equal(validIndependent.summary.executor_qualification, "qualified");
+  assert.equal(validIndependent.summary.executor_qualification, "not_qualified");
 });
 
 test("low-entropy values are keyed, domain-separated, and key-specific", () => {
@@ -423,6 +423,23 @@ test("semantic validation rejects summary, role, digest, and scope tampering", (
   };
   digest.report_sha256 = SHA_C;
   assert.equal(validateZccAdoptionOracleParityReport(digest), false);
+
+  const qualification = structuredClone(report) as unknown as {
+    summary: { projection_qualification: string };
+  };
+  qualification.summary.projection_qualification = "qualified";
+  assert.equal(validateSchema(qualification), false);
+  assert.equal(validateZccAdoptionOracleParityReport(qualification), false);
+
+  const executorQualification = structuredClone(report) as unknown as {
+    summary: { executor_qualification: string };
+  };
+  executorQualification.summary.executor_qualification = "qualified";
+  assert.equal(validateSchema(executorQualification), false);
+  assert.equal(
+    validateZccAdoptionOracleParityReport(executorQualification),
+    false,
+  );
 
   const reordered = structuredClone(report) as unknown as {
     resources: ZccAdoptionOracleParityReport["resources"][number][];

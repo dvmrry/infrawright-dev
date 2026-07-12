@@ -937,10 +937,12 @@ This executor is not yet a public process operation and is not included in the
 release bundle until a protected request adapter supplies those authorities.
 That adapter must impose one host-owned remaining-time budget across the whole
 transaction rather than exposing the current sum of per-stage ceilings.
-Likewise, the versioned secret-safe parity report can qualify projection parity
-from a shared live observation and executor parity from a stable
-Python-before/Node/Python-after run, but deliberately cannot claim downstream
-cutover. No live tenant or provider parity is claimed by the committed tests.
+Likewise, the versioned secret-safe v1 parity report records shared-observation
+and stable Python-before/Node/Python-after comparisons but deliberately leaves
+both qualification fields fail-closed. A host-bound successor must derive its
+runner authority before it can qualify projection or executor, and only a later
+downstream gate may claim cutover. No live tenant or provider parity is claimed
+by the committed tests.
 
 The ZCC compiler ports raw-item projection and exact tfvars/import/lookup byte
 rendering for `zcc_device_cleanup`, `zcc_failopen_policy`,
