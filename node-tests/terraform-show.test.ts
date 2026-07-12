@@ -71,6 +71,8 @@ test("runs a fixed Terraform show invocation with a stripped environment", async
   await withTemp(async (fixture) => {
     const fake = executable(fixture.root, [
       'if [ "${TF_CLI_ARGS_show+x}" = x ]; then exit 31; fi',
+      'if [ "$CHECKPOINT_DISABLE" != 1 ]; then exit 35; fi',
+      'if [ "$LANG" != C ] || [ "$LC_ALL" != C ]; then exit 36; fi',
       `if [ "$1" != "-chdir=${fixture.envDir}" ]; then exit 32; fi`,
       'if [ "$2" != show ] || [ "$3" != -json ]; then exit 33; fi',
       `if [ "$4" != "${fixture.planPath}" ]; then exit 34; fi`,
@@ -87,6 +89,81 @@ test("runs a fixed Terraform show invocation with a stripped environment", async
     } finally {
       delete process.env.TF_CLI_ARGS_show;
     }
+  });
+});
+
+test("uses one snapshotted complete scratch environment without inherited TF state", async () => {
+  await withTemp(async (fixture) => {
+    const scratch = join(fixture.root, "scratch");
+    mkdirSync(scratch);
+    const environment: Record<string, string> = {
+      TF_DATA_DIR: scratch,
+      TMPDIR: scratch,
+      SHOW_MARKER: "original-marker",
+    };
+    const limits = { ...LIMITS };
+    const fake = executable(fixture.root, [
+      `if [ "$TF_DATA_DIR" != '${scratch}' ]; then exit 41; fi`,
+      `if [ "$TMPDIR" != '${scratch}' ]; then exit 42; fi`,
+      'if [ "$SHOW_MARKER" != original-marker ]; then exit 43; fi',
+      'if [ "${CHECKPOINT_DISABLE+x}" = x ]; then exit 44; fi',
+      'if [ "${LANG+x}" = x ] || [ "${LC_ALL+x}" = x ]; then exit 45; fi',
+      'if [ "${HOME+x}" = x ]; then exit 46; fi',
+      'if [ "${TF_CLI_ARGS_show+x}" = x ] || [ "${TF_LOG+x}" = x ]; then exit 47; fi',
+      `printf '%s' '{"format_version":"1.2","complete":true,`
+        + `"errored":false,"value":9007199254740993}'`,
+    ].join("\n"));
+    const showOptions = {
+      ...options(fixture, fake),
+      environment,
+      limits,
+    };
+    const parentPoison = {
+      TF_CLI_ARGS_show: process.env.TF_CLI_ARGS_show,
+      TF_LOG: process.env.TF_LOG,
+    };
+    process.env.TF_CLI_ARGS_show = "-destroy";
+    process.env.TF_LOG = "TRACE";
+    try {
+      const command = terraformShowPlan(showOptions);
+      environment.TF_DATA_DIR = join(fixture.root, "mutated-scratch");
+      environment.SHOW_MARKER = "mutated-marker";
+      environment.TF_CLI_ARGS_show = "mutated-poison";
+      limits.maxStdoutBytes = 1;
+      showOptions.environment = { SHOW_MARKER: "replacement-map" };
+
+      const plan = await command;
+      assert.equal(
+        (plan as { value: { toString(): string } }).value.toString(),
+        "9007199254740993",
+      );
+    } finally {
+      for (const [key, value] of Object.entries(parentPoison)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
+  });
+});
+
+test("invalid supplied environments stay inside the Terraform show failure contract", async () => {
+  await withTemp(async (fixture) => {
+    const fake = executable(fixture.root, "exit 0");
+    const failure = await terraformShowPlan({
+      ...options(fixture, fake),
+      environment: new Proxy({}, {
+        ownKeys: () => {
+          throw new Error("environment-secret");
+        },
+      }),
+    }).catch((error: unknown) => error);
+    assertFailure(failure, "INVALID_TERRAFORM_SHOW_ENVIRONMENT");
+    const diagnostic = [String(failure), JSON.stringify(failure)].join("\n");
+    assert.equal(diagnostic.includes("environment-secret"), false);
+    assert.equal(diagnostic.includes(fixture.root), false);
   });
 });
 
