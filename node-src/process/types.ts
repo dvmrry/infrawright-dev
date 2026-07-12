@@ -14,6 +14,7 @@ import type { ZccPullRefreshArtifactSet } from "../domain/zcc-pull-refresh.js";
 import type { ZccPullArtifactMaterialization } from "../domain/zcc-pull-materialization.js";
 import type { ZccPullRefreshMaterialization } from "../domain/zcc-pull-refresh-materialization.js";
 import type { ZccPullRefreshAcknowledgement } from "../domain/zcc-pull-refresh-acknowledgement-operation.js";
+import type { ZccAdoptionArtifactSet } from "../domain/zcc-adoption-artifacts.js";
 import type { ZccPullArtifactParity } from "../domain/zcc-pull-parity.js";
 import type {
   ZccPullRefreshParity,
@@ -86,6 +87,19 @@ export interface CompilePullArtifactsProcessRequest {
       | "zcc_forwarding_profile"
       | "zcc_trusted_network"
       | "zcc_web_privacy";
+  };
+}
+
+export interface CompileAdoptionArtifactsProcessRequest {
+  readonly kind: "infrawright.process_request";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "compile_adoption_artifacts";
+  readonly context: RootsProcessRequest["context"];
+  readonly input: {
+    readonly mode: "bootstrap";
+    readonly tenant: string;
+    readonly resource_type: CompilePullArtifactsProcessRequest["input"]["resource_type"];
   };
 }
 
@@ -198,6 +212,7 @@ export type ProcessRequest =
   | PlanRootsProcessRequest
   | AssessSavedPlansProcessRequest
   | CompilePullArtifactsProcessRequest
+  | CompileAdoptionArtifactsProcessRequest
   | SeedPullRefreshParityProcessRequest
   | ComparePullArtifactsProcessRequest
   | MaterializePullArtifactsProcessRequest
@@ -271,6 +286,17 @@ export interface CompilePullArtifactsProcessSuccessResponse<
 export type CompilePullArtifactsRefreshProcessSuccessResponse =
   CompilePullArtifactsProcessSuccessResponse<ZccPullRefreshArtifactSet>;
 
+export interface CompileAdoptionArtifactsProcessSuccessResponse {
+  readonly kind: "infrawright.process_response";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "compile_adoption_artifacts";
+  readonly status: "ok";
+  readonly diagnostics: readonly [];
+  readonly result: ZccAdoptionArtifactSet;
+  readonly error: null;
+}
+
 export interface ComparePullArtifactsProcessSuccessResponse<
   Result extends ZccPullArtifactParity | ZccPullRefreshParity = ZccPullArtifactParity,
 > {
@@ -328,6 +354,7 @@ export type ProcessSuccessResponse =
   | CompilePullArtifactsProcessSuccessResponse<
       ZccPullArtifactSet | ZccPullRefreshArtifactSet
     >
+  | CompileAdoptionArtifactsProcessSuccessResponse
   | SeedPullRefreshParityProcessSuccessResponse
   | ComparePullArtifactsProcessSuccessResponse<
       ZccPullArtifactParity | ZccPullRefreshParity
@@ -347,6 +374,7 @@ export interface ProcessErrorResponse {
     | "plan_roots"
     | "assess_saved_plans"
     | "compile_pull_artifacts"
+    | "compile_adoption_artifacts"
     | "seed_pull_refresh_parity"
     | "compare_pull_artifacts"
     | "materialize_pull_artifacts"

@@ -10,10 +10,10 @@ materialized plan-root enumeration, exact-catalog Zscaler saved-plan
 assessment, the strict ZCC bootstrap compile, compare, and retry-forward
 materialization operations, a read-only ZCC refresh compiler, and an
 assertion-bound imports-last ZCC refresh publisher. They establish
-an explicit ZCC post-apply acknowledgement/retirement operation and a private
-ZCC import-oracle executor foundation. Together these establish the process
-protocol, deterministic JSON boundary, packaging, and differential validation
-pattern that later adoption operations will follow.
+an explicit ZCC post-apply acknowledgement/retirement operation and a public,
+read-only provider-observed ZCC adoption compiler. Together these establish the
+process protocol, deterministic JSON boundary, packaging, and differential
+validation pattern for later migration slices.
 
 ## Runtime and Distribution
 
@@ -87,6 +87,9 @@ validated request and require `compile_pull_artifacts` mode/result agreement:
 `bootstrap`, while `refresh` maps only to
 `infrawright.zcc_pull_refresh_artifact_set` with result mode `refresh`. Reject a
 standalone-valid response whose result kind or mode does not match the request.
+The same retained-request rule applies to `compile_adoption_artifacts`, which
+maps only `bootstrap` to `infrawright.zcc_adoption_artifact_set` and must match
+the requested tenant and resource type.
 
 ## Version 1 Requests
 
@@ -275,6 +278,60 @@ generated reference binding is enabled are also refused. A pipeline must
 validate the response and require `result.status == "ready"`. It may retain the
 result as evidence; canonical writes belong to the materialization operation
 below.
+
+### ZCC provider-observed adoption compilation
+
+`compile_adoption_artifacts` uses the same derived pull, deployment, root
+catalog, JSON layout, no-generated-binding rule, and bootstrap absence gates as
+the raw compiler, then runs the pinned provider import/read oracle. It is a
+separate operation because provider observation and raw transformation are
+different evidence classes:
+
+```json
+{
+  "kind": "infrawright.process_request",
+  "schema_version": 1,
+  "request_id": "zcc-adoption-128",
+  "operation": "compile_adoption_artifacts",
+  "context": {
+    "workspace": "/workspace/deployment",
+    "deployment": "deployment.json",
+    "root_catalog": "catalogs/zscaler-root-catalog.v1.json"
+  },
+  "input": {
+    "mode": "bootstrap",
+    "tenant": "prod",
+    "resource_type": "zcc_trusted_network"
+  }
+}
+```
+
+The request cannot select a source path, executable, credentials, provider
+state, catalog, dependency lock, timeout, temporary root, or output root. The
+host supplies one closed authority out of band:
+
+- `INFRAWRIGHT_TERRAFORM_EXECUTABLE` selects the trusted canonical Terraform
+  1.15.4 executable;
+- `INFRAWRIGHT_ZCC_ADOPTION_TEMP_ROOT` selects an existing canonical private
+  job-owned scratch parent; and
+- only the fixed Zscaler credential plus proxy/certificate environment
+  allowlist is copied into the child. Inherited Terraform CLI arguments and
+  plugin-cache configuration are excluded.
+
+For a nonempty pull, the operation runs the exact import-only plan and state
+transaction described in Current Boundary. The pull, deployment, root catalog,
+and absent imports/moves/pending marker are checked before the oracle and again
+after successful oracle cleanup. An empty identity set returns complete empty
+artifacts without touching Terraform or the temporary authority. No caller
+artifact is written, replaced, or deleted in either case.
+
+The result is `infrawright.zcc_adoption_artifact_set` v1 with exact
+tfvars/import/lookup paths, bytes, sizes, and digests. Success means only that
+this candidate was compiled from provider-observed state under the pinned
+transaction. It does **not** establish Python byte parity, saved-plan
+cleanliness, destroy safety, apply readiness, live-tenant qualification, or
+cutover readiness. Pipelines must retain Python as the independent oracle until
+those separate evidence gates pass; publication remains a separate operation.
 
 ### ZCC read-only refresh compilation
 
@@ -1022,18 +1079,18 @@ These slices support Zscaler root topology, changed-path scoping, materialized
 plan-root enumeration, exact-catalog saved-plan assessment, immutable ZCC
 bootstrap and refresh artifact compilation, two-phase refresh byte parity,
 materialized bootstrap comparison, asserted retry-forward bootstrap
-publication, and asserted imports-last refresh publication as public process
-operations.
+publication, asserted imports-last refresh publication, and provider-observed
+ZCC bootstrap adoption compilation as public process operations.
 
-The source tree also contains a private, single-use ZCC adoption-oracle
-transaction for the exact five-resource catalog. It renders only the pinned
-provider root and import blocks, runs bounded `init`, import-only `plan`, saved
-plan `apply`, and lossless `show` stages in an operation-owned mode-0700
-directory, then compiles the existing immutable bootstrap artifacts from exact
-provider-state observations. This lane supports HashiCorp Terraform 1.15.4
-exactly; it is not an OpenTofu or generic-Terraform compatibility claim. The
-plan and state gates accept only Terraform JSON format `1.2` and `1.0`,
-respectively, and also require `terraform_version` `1.15.4`. Every nonempty
+The bundled, single-use ZCC adoption-oracle transaction covers the exact
+five-resource catalog. It renders only the pinned provider root and import
+blocks, runs bounded `init`, import-only `plan`, saved plan `apply`, and
+lossless `show` stages in an operation-owned mode-0700 directory, then compiles
+the existing immutable bootstrap artifacts from exact provider-state
+observations. This lane supports HashiCorp Terraform 1.15.4 exactly; it is not
+an OpenTofu or generic-Terraform compatibility claim. The plan and state gates
+accept only Terraform JSON format `1.2` and `1.0`, respectively, and also
+require `terraform_version` `1.15.4`. Every nonempty
 transaction gets one host-owned 300-second monotonic deadline across `init`,
 generated-config plan, both shows, apply, state validation, and artifact
 compilation. Each subprocess receives only the budget remaining immediately
@@ -1064,11 +1121,10 @@ disclosing a path, value, credential, import identifier, state value, or child
 diagnostic. Before deadline exhaustion, the same integrity failure retains its
 ordinary fail-closed precedence.
 
-This executor is not yet a public process operation and is not included in the
-release bundle until a protected request adapter supplies those authorities.
-The remaining blocker is the protected public request/response adapter, not
-executor timing or provider-byte authority. Likewise, the versioned
-secret-safe v1 parity report records shared-observation
+The public `compile_adoption_artifacts` adapter now supplies those authorities,
+derives and binds the caller-workspace inputs, and exposes only the projected
+artifact candidate. The versioned secret-safe v1 parity report separately
+records shared-observation
 and stable Python-before/Node/Python-after comparisons but deliberately leaves
 both qualification fields fail-closed. A host-bound successor must derive its
 runner authority before it can qualify projection or executor, and only a later
@@ -1216,11 +1272,11 @@ values, and a versioned guidance catalog must land before assessment can accept
 anything beyond the exact current Zscaler catalog.
 
 Python remains authoritative for refresh materialization and move lifecycle,
-public import-oracle adoption, generated-binding production, HCL artifacts,
-generic guidance collection, and raw pack catalog production. The private Node
-oracle now owns a bounded Terraform transaction for its exact five-resource
-ZCC scope, but it remains unbundled and unqualified by live parity until the
-protected process operation and independent evidence lane land.
+generated-binding production, HCL artifacts, generic guidance collection, raw
+pack catalog production, and adoption cutover qualification. The bundled Node
+operation now owns a bounded Terraform transaction for its exact five-resource
+ZCC scope and returns a provider-observed candidate, but it remains unqualified
+by live parity and cannot replace the independent Python/downstream gates.
 The Node refresh operation is an exact read-only raw-transform candidate
 compiler, not an apply or adoption decision. Downstream should dual-run it
 against Python run-two outputs and run `compare_pull_artifacts` immediately

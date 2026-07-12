@@ -4,6 +4,7 @@ import {
   validateProcessResponse,
 } from "../contracts/validators.js";
 import { ProcessFailure } from "../domain/errors.js";
+import { ZCC_ADOPTION_ORACLE_HOST_ENVIRONMENT_NAMES } from "../io/zcc-adoption-oracle-adapters.js";
 import { parseControlJson } from "../json/control.js";
 import {
   renderPythonCompatibleJson,
@@ -60,6 +61,7 @@ function requestIdentity(value: unknown): {
     | "plan_roots"
     | "assess_saved_plans"
     | "compile_pull_artifacts"
+    | "compile_adoption_artifacts"
     | "seed_pull_refresh_parity"
     | "compare_pull_artifacts"
     | "materialize_pull_artifacts"
@@ -81,6 +83,7 @@ function requestIdentity(value: unknown): {
       || value.operation === "plan_roots"
       || value.operation === "assess_saved_plans"
       || value.operation === "compile_pull_artifacts"
+      || value.operation === "compile_adoption_artifacts"
       || value.operation === "seed_pull_refresh_parity"
       || value.operation === "compare_pull_artifacts"
       || value.operation === "materialize_pull_artifacts"
@@ -99,6 +102,7 @@ function errorResponse(options: {
     | "plan_roots"
     | "assess_saved_plans"
     | "compile_pull_artifacts"
+    | "compile_adoption_artifacts"
     | "seed_pull_refresh_parity"
     | "compare_pull_artifacts"
     | "materialize_pull_artifacts"
@@ -203,6 +207,15 @@ async function main(): Promise<void> {
     const configuredTerraform = process.env.INFRAWRIGHT_TERRAFORM_EXECUTABLE;
     const configuredMaterializeRoot =
       process.env.INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT;
+    const configuredAdoptionTempRoot =
+      process.env.INFRAWRIGHT_ZCC_ADOPTION_TEMP_ROOT;
+    const adoptionEnvironment = Object.create(null) as Record<string, string>;
+    for (const name of ZCC_ADOPTION_ORACLE_HOST_ENVIRONMENT_NAMES) {
+      const value = process.env[name];
+      if (value !== undefined) {
+        adoptionEnvironment[name] = value;
+      }
+    }
     const allowExternalApplyAcknowledgement =
       process.env.INFRAWRIGHT_ALLOW_EXTERNAL_APPLY_ACK === "1";
     const response = await executeRequest(parsed as ProcessRequest, {
@@ -215,6 +228,16 @@ async function main(): Promise<void> {
         ? null
         : configuredMaterializeRoot,
       allowExternalApplyAcknowledgement,
+      zccAdoptionOracle: configuredTerraform === undefined
+        || configuredTerraform.length === 0
+        || configuredAdoptionTempRoot === undefined
+        || configuredAdoptionTempRoot.length === 0
+        ? null
+        : Object.freeze({
+            terraformExecutable: configuredTerraform,
+            tempRoot: configuredAdoptionTempRoot,
+            environment: Object.freeze(adoptionEnvironment),
+          }),
     });
     if (emit(response)) {
       process.exitCode = successExitCode(response);

@@ -40,7 +40,7 @@ export const ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS = 300_000;
 /** Cleanup is outside the transaction deadline and gets one bounded final window. */
 export const ZCC_ADOPTION_ORACLE_CLEANUP_TIMEOUT_MS = 30_000;
 
-const SUPPLIED_ENVIRONMENT_NAMES = new Set([
+export const ZCC_ADOPTION_ORACLE_HOST_ENVIRONMENT_NAMES = Object.freeze([
   "ZSCALER_CLIENT_ID",
   "ZSCALER_CLIENT_SECRET",
   "ZSCALER_PRIVATE_KEY",
@@ -52,7 +52,11 @@ const SUPPLIED_ENVIRONMENT_NAMES = new Set([
   "NO_PROXY",
   "SSL_CERT_FILE",
   "SSL_CERT_DIR",
-]);
+] as const);
+
+const SUPPLIED_ENVIRONMENT_NAMES = new Set<string>(
+  ZCC_ADOPTION_ORACLE_HOST_ENVIRONMENT_NAMES,
+);
 
 const FACTORY_OPTION_NAMES = new Set([
   "terraformExecutable",

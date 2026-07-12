@@ -16,8 +16,10 @@ export const ZCC_PULL_ARTIFACT_SEMANTICS_KEYWORD =
 
 const TRUSTED_NETWORK = "zcc_trusted_network";
 const MAX_ARTIFACT_BYTES = 32 * 1024 * 1024;
-const CATALOG_SHA256 =
+const TRANSFORM_CATALOG_SHA256 =
   "3900a4d12cd49af7bc8d80248b9c184fa8047ca1987654965a81de87c600937a";
+const ADOPTION_CATALOG_SHA256 =
+  "ba1690397bbe84e6284affee2cfe8300f0ebb230714c332d6ff93d04a42181e7";
 const CATALOG_SOURCES_SHA256 =
   "90452e9199dcc4dbf578e9f3af21ae2fb35517eb5d3af0f1a193f2e5ed92ed11";
 const PYTHON_WHITESPACE_ONLY =
@@ -162,8 +164,12 @@ export const validateZccPullArtifactSemantics:
     const rootLabel = root.label;
     const variableName = root.variable_name;
 
+    const expectedCatalogSha = artifactSet.kind
+      === "infrawright.zcc_adoption_artifact_set"
+      ? ADOPTION_CATALOG_SHA256
+      : TRANSFORM_CATALOG_SHA256;
     if (
-      catalog.sha256 !== CATALOG_SHA256
+      catalog.sha256 !== expectedCatalogSha
       || catalog.sources_sha256 !== CATALOG_SOURCES_SHA256
     ) {
       push(

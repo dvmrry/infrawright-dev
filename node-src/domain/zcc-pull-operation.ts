@@ -1034,7 +1034,7 @@ async function recheckSource(options: {
   }
 }
 
-interface ZccPullArtifactsOperationOptions {
+export interface ZccPullArtifactsOperationOptions {
   readonly workspace: string;
   readonly deploymentPath: string;
   readonly catalogPath: string;
@@ -1125,26 +1125,62 @@ interface CompiledZccPullTransaction {
   readonly recheckInputs: () => Promise<void>;
 }
 
+/**
+ * Stable, read-only bootstrap input authority shared by the raw-transform and
+ * provider-observed adoption operations. Raw pull values remain private to the
+ * in-process operation and are never represented by a process request.
+ */
+export interface BoundZccBootstrapPullOperationInputs {
+  readonly rawItems: readonly unknown[];
+  readonly source: {
+    readonly path: string;
+    readonly sha256: string;
+    readonly size_bytes: number;
+  };
+  readonly target: ZccArtifactTarget;
+  readonly recheckInputs: () => Promise<void>;
+}
+
 export interface ZccPullMaterializationOperationHooks
   extends ZccPullOperationHooks, ZccPullMaterializationHooks {}
 
-async function compileZccPullArtifactsWithPolicy(
-  options: ZccPullArtifactsOperationOptions,
-  artifactPolicy: ZccPullArtifactPolicy,
-): Promise<CompiledZccPullTransaction> {
-  const hooks = options.hooks === undefined
+interface BoundZccPullOperationInput {
+  readonly rawItems: readonly unknown[];
+  readonly policy: BoundZccPullArtifactPolicy;
+  readonly pathBase: string;
+  readonly binding: CompiledZccPullTransaction["binding"];
+  readonly recheckInputs: () => Promise<void>;
+}
+
+function copyZccPullOperationHooks(
+  hooks: ZccPullOperationHooks | undefined,
+): ZccPullOperationHooks | undefined {
+  return hooks === undefined
     ? undefined
     : Object.freeze({
-        sourceRead: options.hooks.sourceRead === undefined
-          ? undefined
-          : Object.freeze({ ...options.hooks.sourceRead }),
-        priorImportsRead: options.hooks.priorImportsRead === undefined
-          ? undefined
-          : Object.freeze({ ...options.hooks.priorImportsRead }),
-        afterInputsBound: options.hooks.afterInputsBound,
-        beforeFinalRecheck: options.hooks.beforeFinalRecheck,
-        afterRefreshCompiled: options.hooks.afterRefreshCompiled,
+        ...(hooks.sourceRead === undefined
+          ? {}
+          : { sourceRead: Object.freeze({ ...hooks.sourceRead }) }),
+        ...(hooks.priorImportsRead === undefined
+          ? {}
+          : { priorImportsRead: Object.freeze({ ...hooks.priorImportsRead }) }),
+        ...(hooks.afterInputsBound === undefined
+          ? {}
+          : { afterInputsBound: hooks.afterInputsBound }),
+        ...(hooks.beforeFinalRecheck === undefined
+          ? {}
+          : { beforeFinalRecheck: hooks.beforeFinalRecheck }),
+        ...(hooks.afterRefreshCompiled === undefined
+          ? {}
+          : { afterRefreshCompiled: hooks.afterRefreshCompiled }),
       });
+}
+
+async function bindZccPullOperationInput(
+  options: ZccPullArtifactsOperationOptions,
+  artifactPolicy: ZccPullArtifactPolicy,
+): Promise<BoundZccPullOperationInput> {
+  const hooks = copyZccPullOperationHooks(options.hooks);
   const request = {
     workspace: options.workspace,
     deploymentPath: options.deploymentPath,
@@ -1207,28 +1243,6 @@ async function compileZccPullArtifactsWithPolicy(
     return fail("INVALID_PULL_DATA", "raw pull is not supported JSON item data");
   }
   await hooks?.afterInputsBound?.();
-  let result: ZccPullArtifactSet;
-  try {
-    const compileCandidate = artifactPolicy.kind === "refresh_prior_imports"
-      ? compileZccPullRefreshCandidateArtifactSet
-      : compileZccPullArtifactSet;
-    result = compileCandidate({
-      catalog: loadZccTransformCatalog(),
-      catalogSha256: ZCC_TRANSFORM_CATALOG_SHA256,
-      rawItems,
-      target,
-      source: {
-        path: relativeSource,
-        sha256: source.digest.sha256,
-        size_bytes: Number(source.digest.size),
-      },
-    });
-  } catch (error: unknown) {
-    if (error instanceof ProcessFailure) {
-      throw error;
-    }
-    return fail("INVALID_PULL_DATA", "raw pull could not be compiled");
-  }
 
   const recheckInputs = async (): Promise<void> => {
     await recheckSource({
@@ -1248,10 +1262,8 @@ async function compileZccPullArtifactsWithPolicy(
     await recheckArtifactPolicy(boundPolicy);
     await recheckZccParityTargetParents(targetParents);
   };
-  await hooks?.beforeFinalRecheck?.();
-  await recheckInputs();
   return {
-    candidate: result,
+    rawItems,
     policy: boundPolicy,
     pathBase: workspace,
     binding: {
@@ -1273,6 +1285,72 @@ async function compileZccPullArtifactsWithPolicy(
     },
     recheckInputs,
   };
+}
+
+async function compileZccPullArtifactsWithPolicy(
+  options: ZccPullArtifactsOperationOptions,
+  artifactPolicy: ZccPullArtifactPolicy,
+): Promise<CompiledZccPullTransaction> {
+  const hooks = copyZccPullOperationHooks(options.hooks);
+  const bound = await bindZccPullOperationInput(options, artifactPolicy);
+  let result: ZccPullArtifactSet;
+  try {
+    const compileCandidate = artifactPolicy.kind === "refresh_prior_imports"
+      ? compileZccPullRefreshCandidateArtifactSet
+      : compileZccPullArtifactSet;
+    result = compileCandidate({
+      catalog: loadZccTransformCatalog(),
+      catalogSha256: ZCC_TRANSFORM_CATALOG_SHA256,
+      rawItems: bound.rawItems,
+      target: bound.binding.target,
+      source: {
+        path: bound.binding.source.logicalPath,
+        sha256: bound.binding.source.sha256,
+        size_bytes: Number(bound.binding.source.size),
+      },
+    });
+  } catch (error: unknown) {
+    if (error instanceof ProcessFailure) {
+      throw error;
+    }
+    return fail("INVALID_PULL_DATA", "raw pull could not be compiled");
+  }
+
+  await hooks?.beforeFinalRecheck?.();
+  await bound.recheckInputs();
+  return {
+    candidate: result,
+    policy: bound.policy,
+    pathBase: bound.pathBase,
+    binding: bound.binding,
+    recheckInputs: bound.recheckInputs,
+  };
+}
+
+/** Bind one bootstrap pull and its exact absent-artifact preconditions. */
+export async function bindZccBootstrapPullOperationInputs(
+  options: ZccPullArtifactsOperationOptions,
+): Promise<BoundZccBootstrapPullOperationInputs> {
+  const hooks = copyZccPullOperationHooks(options.hooks);
+  const bound = await bindZccPullOperationInput(
+    options,
+    { kind: "bootstrap_absent" },
+  );
+  await hooks?.beforeFinalRecheck?.();
+  await bound.recheckInputs();
+  return Object.freeze({
+    rawItems: bound.rawItems,
+    source: Object.freeze({
+      path: bound.binding.source.logicalPath,
+      sha256: bound.binding.source.sha256,
+      size_bytes: Number(bound.binding.source.size),
+    }),
+    target: Object.freeze({
+      ...bound.binding.target,
+      rootMembers: Object.freeze([...bound.binding.target.rootMembers]),
+    }),
+    recheckInputs: bound.recheckInputs,
+  });
 }
 
 /** Strictly prepare both parity sides before either baseline or raw pull is read. */
