@@ -157,7 +157,7 @@ test("private oracle core and concrete adapter complete one exact transaction", 
   }
 });
 
-test("cumulative host deadline rejects a stage overrun and cleanup gets its own window", async (t) => {
+test("core preserves timeout over simultaneous protection failure and still cleans up", async (t) => {
   const lexicalRoot = mkdtempSync(path.join(tmpdir(), "zcc-oracle-timeout-"));
   chmodSync(lexicalRoot, 0o700);
   const root = realpathSync(lexicalRoot);
@@ -167,19 +167,26 @@ test("cumulative host deadline rejects a stage overrun and cleanup gets its own 
   mkdirSync(tempRoot, { mode: 0o700 });
   const script = [
     `#!${process.execPath}`,
-    'import { appendFileSync } from "node:fs";',
+    'import { appendFileSync, writeFileSync } from "node:fs";',
     `const log = ${JSON.stringify(invocationLog)};`,
     "const argv = process.argv.slice(2);",
     "appendFileSync(log, JSON.stringify({ argv, cwd: process.cwd(), environment: process.env }) + '\\n');",
-    "process.exit(argv[0] === 'init' ? 0 : 76);",
+    "if (argv[0] === 'init') {",
+    "  writeFileSync('.terraform.lock.hcl', 'core-protection-secret');",
+    "  setInterval(() => {}, 1000);",
+    "} else {",
+    "  process.exit(76);",
+    "}",
   ].join("\n");
   writeFileSync(fake, script, { mode: 0o700 });
   chmodSync(fake, 0o700);
 
+  let nowCalls = 0;
   t.mock.method(performance, "now", () => {
-    return existsSync(invocationLog)
-      ? ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS
-      : 0;
+    nowCalls += 1;
+    return nowCalls === 1
+      ? 0
+      : ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS - 1_000;
   });
   try {
     let failure: unknown;
@@ -214,7 +221,14 @@ test("cumulative host deadline rejects a stage overrun and cleanup gets its own 
     }
     assert.ok(failure instanceof ProcessFailure);
     assert.equal(failure.code, "ZCC_ADOPTION_ORACLE_TIMEOUT");
+    assert.deepEqual(failure.details, [{
+      path: "protection",
+      code: "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+      message: "protected files also changed around the timed-out Terraform command",
+    }]);
     assert.equal(JSON.stringify(failure).includes("timeout-secret-id"), false);
+    assert.equal(JSON.stringify(failure).includes("core-protection-secret"), false);
+    assert.equal(JSON.stringify(failure).includes(tempRoot), false);
 
     const invocations = readFileSync(invocationLog, "utf8")
       .split("\n")

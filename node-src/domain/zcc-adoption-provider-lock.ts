@@ -67,7 +67,7 @@ export function requireZccAdoptionProviderLock(candidate: unknown): string {
 
 requireZccAdoptionProviderLock(EMBEDDED_ZCC_ADOPTION_PROVIDER_LOCK);
 
-/** Exact reviewed lock bytes written into every private oracle transaction. */
+/** Exact reviewed lock bytes written into every nonempty private transaction. */
 export function zccAdoptionProviderLock(): string {
   return requireZccAdoptionProviderLock(EMBEDDED_ZCC_ADOPTION_PROVIDER_LOCK);
 }

@@ -162,11 +162,11 @@
   - `npm run typecheck`
   - `npm run build:test`
   - explicit provider-lock, oracle core, adapter, integration, and bundle tests:
-    92 passed, 0 failed.
+    95 passed, 0 failed.
 - Full Node 24.15.0 / Unicode 16.0:
-  - `npm run check`: 636 total, 635 passed, 1 existing platform skip, 0 failed.
+  - `npm run check`: 639 total, 638 passed, 1 existing platform skip, 0 failed.
 - Full Node 24.14.0 / Unicode 17.0:
-  - explicit `.node-test/node-tests/*.test.js`: 636 total, 635 passed,
+  - explicit `.node-test/node-tests/*.test.js`: 639 total, 638 passed,
     1 existing platform skip, 0 failed.
 - Full Python:
   - `make test`: 1,383 total, 1,382 passed, 1 optional external-provider skip,
@@ -186,6 +186,35 @@
 - Tests not run and why:
   - live ZCC tenant import/adoption: no tenant credentials or authority were
     used, and this slice must not claim live provider parity.
+
+## Adversarial Review Remediation
+
+- Review checkpoint: `26465a701316591f6d4b5d4dfd321c17d039a702`.
+- Blocking finding: a runner timeout was recorded as the primary failure, but
+  a subsequent protected-file recheck could throw command/show protection
+  failure before the timeout was rethrown. The domain wrapper then converted
+  that replacement into an ordinary stage failure.
+- Root cause: post-stage integrity checking had implicit unconditional
+  precedence over the already-classified transaction timeout.
+- Fix: make the precedence explicit. `ZCC_ADOPTION_ORACLE_TIMEOUT` remains the
+  primary code; a simultaneous command/show integrity failure is appended as
+  one generic `protection` detail. Non-timeout integrity failures retain their
+  existing protection/stage behavior.
+- Regression tests:
+  - concrete command timeout plus lock mutation;
+  - concrete show timeout plus lock mutation;
+  - full core/concrete-adapter timeout plus lock mutation and verified cleanup;
+  - exact detail shape and absence of credentials, import IDs, mutation bytes,
+    and scratch paths.
+- Verification: focused command/show/core regressions passed 19/19 before the
+  complete 95-test hardening/build-exclusion suite and full gates were rerun.
+- Non-blocking documentation correction: claims now say every **nonempty**
+  transaction writes the provider lock; empty identity sets intentionally
+  remain effect-free.
+- Non-blocking cleanup-test risk: the non-abortable `fs.rm` limitation and
+  job-parent sweep remain explicitly deferred above. The fixed 30-second
+  adapter wait is implemented, while a deterministic concrete late-rm timeout
+  seam is not added to production solely for testing.
 
 ## Known Deferrals
 

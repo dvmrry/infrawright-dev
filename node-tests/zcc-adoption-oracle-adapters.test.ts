@@ -33,7 +33,14 @@ import {
 } from "../node-src/io/zcc-adoption-oracle-adapters.js";
 
 const PREFIX = "infrawright-zcc-oracle-";
-type FakeMode = "normal" | "nonzero" | "stdout" | "stderr" | "timeout";
+type FakeMode =
+  | "normal"
+  | "nonzero"
+  | "stdout"
+  | "stderr"
+  | "timeout"
+  | "timeout-mutate-command"
+  | "timeout-mutate-show";
 
 interface Fixture {
   readonly fake: string;
@@ -88,7 +95,8 @@ async function withFixture(
     "if (first === 'init' && mode === 'stderr') {",
     "  process.stderr.write('stderr-overflow-secret'.repeat(100000));",
     "}",
-    "if (first === 'init' && mode === 'timeout') {",
+    "if (first === 'init' && (mode === 'timeout' || mode === 'timeout-mutate-command')) {",
+    "  if (mode === 'timeout-mutate-command') writeFileSync('.terraform.lock.hcl', 'command-protection-secret');",
     "  setInterval(() => {}, 1000);",
     "} else if (first === 'plan') {",
     "  const generated = argv.find((value) => value.startsWith('-generate-config-out='))?.slice(21);",
@@ -101,7 +109,12 @@ async function withFixture(
     "  writeFileSync('terraform.tfstate', 'opaque state bytes\\n', { mode: 0o666 });",
     "  chmodSync('terraform.tfstate', 0o644);",
     "} else if (first.startsWith('-chdir=') && argv[1] === 'show') {",
-    "  process.stdout.write(JSON.stringify({ format_version: '1.2', complete: true, errored: false }));",
+    "  if (mode === 'timeout-mutate-show') {",
+    "    writeFileSync('.terraform.lock.hcl', 'show-protection-secret');",
+    "    setInterval(() => {}, 1000);",
+    "  } else {",
+    "    process.stdout.write(JSON.stringify({ format_version: '1.2', complete: true, errored: false }));",
+    "  }",
     "}",
   ].join("\n");
   writeFileSync(fake, script, { mode: 0o700 });
@@ -708,6 +721,65 @@ test("host owns one transaction deadline and a separate cleanup deadline", async
       await adapters.temporary.remove(paths.directory);
     }
   });
+});
+
+test("timeout remains primary when command or show protection also fails", async (t) => {
+  for (const item of [
+    {
+      mode: "timeout-mutate-command" as const,
+      detailCode: "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+      detailMessage: "protected files also changed around the timed-out Terraform command",
+    },
+    {
+      mode: "timeout-mutate-show" as const,
+      detailCode: "ZCC_ORACLE_SHOW_PROTECTION_FAILED",
+      detailMessage: "protected files also changed around the timed-out Terraform show",
+    },
+  ]) {
+    await t.test(item.mode, async (subtest) => {
+      await withFixture(item.mode, async (fixture) => {
+        let now = 0;
+        subtest.mock.method(performance, "now", () => now);
+        const { adapters, paths } = await begin(fixture);
+        try {
+          if (item.mode === "timeout-mutate-show") {
+            await adapters.command.run(commandRequest(fixture, paths, "init"));
+            await adapters.command.run(commandRequest(fixture, paths, "plan"));
+          }
+          now = ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS - 1_000;
+          const operation = item.mode === "timeout-mutate-command"
+            ? adapters.command.run(commandRequest(fixture, paths, "init"))
+            : adapters.show.readJson(showRequest(fixture, paths, "show-plan"));
+          const failure = await captureFailure(
+            operation,
+            "ZCC_ADOPTION_ORACLE_TIMEOUT",
+          );
+          assert.deepEqual(failure.details, [{
+            path: "protection",
+            code: item.detailCode,
+            message: item.detailMessage,
+          }]);
+          const diagnostic = [
+            String(failure),
+            JSON.stringify(failure),
+            failure.stack ?? "",
+          ].join("\n");
+          for (const secret of [
+            "command-protection-secret",
+            "show-protection-secret",
+            "sensitive-import-id",
+            "provider-secret-value",
+            fixture.tempRoot,
+          ]) {
+            assert.equal(diagnostic.includes(secret), false);
+          }
+        } finally {
+          await adapters.temporary.remove(paths.directory);
+        }
+        assert.equal(existsSync(paths.directory), false);
+      });
+    });
+  }
 });
 
 test("cleanup removes the tree after a failed command and adapters remain spent", async () => {

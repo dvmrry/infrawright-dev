@@ -753,6 +753,26 @@ export function createZccAdoptionOracleAdapters(
     message: "ZCC adoption oracle transaction exceeded its execution deadline",
   });
 
+  const withProtectionFailure = (
+    primary: ProcessFailure,
+    code: "ZCC_ORACLE_COMMAND_PROTECTION_FAILED"
+      | "ZCC_ORACLE_SHOW_PROTECTION_FAILED",
+    message: string,
+  ): ProcessFailure => new ProcessFailure({
+    code: primary.code,
+    category: primary.category,
+    message: primary.message,
+    retryable: primary.retryable,
+    details: [
+      ...primary.details,
+      {
+        path: "protection",
+        code,
+        message,
+      },
+    ],
+  });
+
   const remainingTransactionBudget = (): number => {
     if (transactionDeadline === null) {
       return fail(
@@ -1117,6 +1137,16 @@ export function createZccAdoptionOracleAdapters(
     try {
       await bindOrRecheck(protectedPaths, stage, active.paths);
     } catch {
+      if (
+        primary instanceof ProcessFailure
+        && primary.code === "ZCC_ADOPTION_ORACLE_TIMEOUT"
+      ) {
+        throw withProtectionFailure(
+          primary,
+          "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+          "protected files also changed around the timed-out Terraform command",
+        );
+      }
       return fail(
         "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
         "ZCC oracle protected files changed around a Terraform command",
@@ -1176,6 +1206,16 @@ export function createZccAdoptionOracleAdapters(
     try {
       await bindOrRecheck(protectedPaths, request.stage, active.paths);
     } catch {
+      if (
+        primary instanceof ProcessFailure
+        && primary.code === "ZCC_ADOPTION_ORACLE_TIMEOUT"
+      ) {
+        throw withProtectionFailure(
+          primary,
+          "ZCC_ORACLE_SHOW_PROTECTION_FAILED",
+          "protected files also changed around the timed-out Terraform show",
+        );
+      }
       return fail(
         "ZCC_ORACLE_SHOW_PROTECTION_FAILED",
         "ZCC oracle protected files changed around Terraform show",

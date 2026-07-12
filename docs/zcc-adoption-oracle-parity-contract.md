@@ -35,7 +35,7 @@ plan gate requires top-level JSON format `1.2` and the state gate requires
 format `1.0`, and both require `terraform_version` `1.15.4`.
 
 Provider installation is bound to the reviewed
-`registry.terraform.io/zscaler/zcc` `0.1.0-beta.1` archive set. Every
+`registry.terraform.io/zscaler/zcc` `0.1.0-beta.1` archive set. Every nonempty
 transaction writes the exact committed multi-platform `.terraform.lock.hcl`
 and runs `init -lockfile=readonly`. The retained lock was generated with
 Terraform 1.15.4 for Linux and macOS on amd64 and arm64 from Terraform Registry
@@ -50,6 +50,10 @@ the adapter factory exposes a timeout. Verified scratch cleanup always uses a
 separate fixed 30-second window. All timeout and cleanup diagnostics are
 content-free and preserve the existing rule that credentials, provider state,
 import identifiers, and Terraform output never enter errors.
+
+When timeout and post-stage protection failure coincide, timeout remains the
+primary code and the protection failure appears only as one generic,
+value-free detail.
 
 ## Build-binding bytes
 
