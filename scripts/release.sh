@@ -59,11 +59,13 @@ test "$NODE_MAJOR" = 24 || {
   npm run build
   rm -rf node_modules .node-test
   shasum -a 256 dist/infrawright.mjs > dist/infrawright.mjs.sha256
+  shasum -a 256 dist/infrawright-zcc-collector-child.mjs \
+    > dist/infrawright-zcc-collector-child.mjs.sha256
 )
 
 # 4. Self-containment guard — a release missing the shared pack or engine is broken.
 #    (This is the exact failure mode a fresh clone would hit; catch it before publish.)
-for must in packs/_shared/zscaler/collector.py engine/transform.py packs/zia/registry.json catalogs/zscaler-root-catalog.v1.json catalogs/zcc-transform-catalog.v1.json dist/infrawright.mjs dist/infrawright.mjs.sha256 LICENSE README.md; do
+for must in packs/_shared/zscaler/collector.py engine/transform.py packs/zia/registry.json catalogs/zscaler-root-catalog.v1.json catalogs/zcc-transform-catalog.v1.json dist/infrawright.mjs dist/infrawright.mjs.sha256 dist/infrawright-zcc-collector-child.mjs dist/infrawright-zcc-collector-child.mjs.sha256 LICENSE README.md; do
   test -f "$STAGE/$must" || { echo "FATAL: release is missing $must — aborting"; exit 2; }
 done
 echo "self-containment guard: OK"
@@ -71,7 +73,11 @@ echo "self-containment guard: OK"
 # 5. One clean commit + tag on the public repo. No push (that's your call).
 cd "$STAGE"
 git add -A
-git add -f dist/infrawright.mjs dist/infrawright.mjs.sha256
+git add -f \
+  dist/infrawright.mjs \
+  dist/infrawright.mjs.sha256 \
+  dist/infrawright-zcc-collector-child.mjs \
+  dist/infrawright-zcc-collector-child.mjs.sha256
 git commit -q -m "infrawright $TAG"
 git tag -f "$TAG" >/dev/null
 

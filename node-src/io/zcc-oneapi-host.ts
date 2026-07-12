@@ -20,8 +20,11 @@ import { ProcessFailure } from "../domain/errors.js";
 import {
   collectZccOneApiResource,
   ZCC_COLLECTOR_RESPONSE_LIMIT_BYTES,
-  type ZccCollectedArtifact,
 } from "../domain/zcc-collector.js";
+import {
+  ZCC_COLLECTION_HOST_ENVIRONMENT_NAMES,
+  type ZccCollectedArtifact,
+} from "../domain/zcc-collection-contract.js";
 import {
   zccCollectorResource,
   type ZccCollectorResourceType,
@@ -41,20 +44,8 @@ const ZCC_ONEAPI_MAX_ENVIRONMENT_VALUE_BYTES = 64 * 1024;
 const ZCC_ONEAPI_NETWORK_TIMEOUT_MS = 30_000;
 const ZCC_ONEAPI_MAX_HEADER_BYTES = 16 * 1024;
 
-export const ZCC_ONEAPI_HOST_ENVIRONMENT_NAMES = Object.freeze([
-  "ZSCALER_CLIENT_ID",
-  "ZSCALER_CLIENT_SECRET",
-  "ZSCALER_VANITY_DOMAIN",
-  "ZSCALER_CLOUD",
-  "HTTP_PROXY",
-  "http_proxy",
-  "HTTPS_PROXY",
-  "https_proxy",
-  "NO_PROXY",
-  "no_proxy",
-  "REQUESTS_CA_BUNDLE",
-  "SSL_CERT_FILE",
-] as const);
+export const ZCC_ONEAPI_HOST_ENVIRONMENT_NAMES =
+  ZCC_COLLECTION_HOST_ENVIRONMENT_NAMES;
 
 const HOST_ENVIRONMENT_NAMES = new Set<string>(
   ZCC_ONEAPI_HOST_ENVIRONMENT_NAMES,

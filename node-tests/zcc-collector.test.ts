@@ -769,7 +769,7 @@ test("trusted transport failure lookup is runtime-closed against forged codes", 
   assert.equal(JSON.stringify(timeout).includes(privateValue), false);
 });
 
-test("production bundle excludes the private collector kernel and catalog", () => {
+test("production parent excludes private collector implementation and endpoints", () => {
   const build = buildSync({
     bundle: true,
     entryPoints: ["node-src/process/main.ts"],
@@ -807,12 +807,13 @@ test("production bundle excludes the private collector kernel and catalog", () =
     "infrawright.zcc_collected_pull",
     "getDeviceCleanupInfo",
     "trustedNetworkContracts",
-    "ZCC_COLLECTOR_TRANSPORT_FAILURE",
-    "ZCC_ONEAPI_AUTH_TRANSPORT_FAILED",
-    "ZCC_ONEAPI_DIAGNOSTICS_UNSAFE",
     "EnvHttpProxyAgent",
     "oauth2/v1/token",
   ]) {
     assert.equal(bundle.includes(marker), false, marker);
   }
+  // Closed failure codes are intentionally present in the public parent so it
+  // can reconstruct secret-free semantics from the child `{code}` envelope.
+  assert.equal(bundle.includes("ZCC_COLLECTOR_TRANSPORT_FAILURE"), true);
+  assert.equal(bundle.includes("ZCC_ONEAPI_DIAGNOSTICS_UNSAFE"), true);
 });

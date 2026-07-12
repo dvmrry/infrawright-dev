@@ -11,6 +11,9 @@ import {
   type ZccCollectorCatalogResource,
   type ZccCollectorResourceType,
 } from "./zcc-collector-catalog.js";
+import type { ZccCollectedArtifact } from "./zcc-collection-contract.js";
+
+export type { ZccCollectedArtifact } from "./zcc-collection-contract.js";
 
 export const ZCC_COLLECTOR_RESPONSE_LIMIT_BYTES = 4 * 1024 * 1024;
 const MAX_BODY_BYTES = ZCC_COLLECTOR_RESPONSE_LIMIT_BYTES;
@@ -189,24 +192,6 @@ function trustedTransportFailure(error: unknown): ProcessFailure | null {
     message: contract.message,
     retryable: contract.retryable,
   });
-}
-
-export interface ZccCollectedArtifact {
-  readonly canonical_json: string;
-  readonly metadata: {
-    readonly catalog_sources_sha256: string;
-    readonly data_requests: number;
-    readonly encoding: "utf-8";
-    readonly item_count: number;
-    readonly kind: "infrawright.zcc_collected_pull";
-    readonly media_type: "application/json";
-    readonly product: "zcc";
-    readonly resource_type: ZccCollectorResourceType;
-    readonly schema_version: 1;
-    readonly sha256: string;
-    readonly size_bytes: number;
-    readonly transport_attempts: number;
-  };
 }
 
 function fail(

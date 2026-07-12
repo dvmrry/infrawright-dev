@@ -5,6 +5,7 @@ import {
 } from "../contracts/validators.js";
 import { ProcessFailure } from "../domain/errors.js";
 import { ZCC_ADOPTION_ORACLE_HOST_ENVIRONMENT_NAMES } from "../io/zcc-adoption-oracle-adapters.js";
+import { ZCC_COLLECTION_HOST_ENVIRONMENT_NAMES } from "../domain/zcc-collection-contract.js";
 import { parseControlJson } from "../json/control.js";
 import {
   renderPythonCompatibleJson,
@@ -68,6 +69,7 @@ function requestIdentity(value: unknown): {
     | "compare_pull_artifacts"
     | "materialize_pull_artifacts"
     | "acknowledge_pull_refresh"
+    | "collect_zcc_pull"
     | null;
 } {
   if (!isObject(value)) {
@@ -92,6 +94,7 @@ function requestIdentity(value: unknown): {
       || value.operation === "compare_pull_artifacts"
       || value.operation === "materialize_pull_artifacts"
       || value.operation === "acknowledge_pull_refresh"
+      || value.operation === "collect_zcc_pull"
       ? value.operation
       : null,
   };
@@ -113,6 +116,7 @@ function errorResponse(options: {
     | "compare_pull_artifacts"
     | "materialize_pull_artifacts"
     | "acknowledge_pull_refresh"
+    | "collect_zcc_pull"
     | null;
 }): ProcessErrorResponse {
   return {
@@ -216,11 +220,20 @@ async function main(): Promise<void> {
       process.env.INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT;
     const configuredAdoptionTempRoot =
       process.env.INFRAWRIGHT_ZCC_ADOPTION_TEMP_ROOT;
+    const configuredZccPullOutputRoot =
+      process.env.INFRAWRIGHT_ZCC_PULL_OUTPUT_ROOT;
     const adoptionEnvironment = Object.create(null) as Record<string, string>;
     for (const name of ZCC_ADOPTION_ORACLE_HOST_ENVIRONMENT_NAMES) {
       const value = process.env[name];
       if (value !== undefined) {
         adoptionEnvironment[name] = value;
+      }
+    }
+    const zccCollectionEnvironment = Object.create(null) as Record<string, string>;
+    for (const name of ZCC_COLLECTION_HOST_ENVIRONMENT_NAMES) {
+      const value = process.env[name];
+      if (value !== undefined) {
+        zccCollectionEnvironment[name] = value;
       }
     }
     const allowExternalApplyAcknowledgement =
@@ -235,6 +248,11 @@ async function main(): Promise<void> {
         ? null
         : configuredMaterializeRoot,
       allowExternalApplyAcknowledgement,
+      zccPullOutputRoot: configuredZccPullOutputRoot === undefined
+        || configuredZccPullOutputRoot.length === 0
+        ? null
+        : configuredZccPullOutputRoot,
+      zccCollectionEnvironment: Object.freeze(zccCollectionEnvironment),
       zccAdoptionOracle: configuredTerraform === undefined
         || configuredTerraform.length === 0
         || configuredAdoptionTempRoot === undefined

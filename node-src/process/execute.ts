@@ -17,6 +17,7 @@ import {
   validateZccPullArtifactParity,
   validateZccPullRefreshAcknowledgement,
   validateZccPullRefreshMaterialization,
+  validateZccPullCollection,
 } from "../contracts/validators.js";
 import {
   loadBoundAssessmentRootCatalog,
@@ -61,6 +62,9 @@ import {
   zccAdoptionParityOperationResultErrors,
 } from "../contracts/zcc-adoption-operation-semantics.js";
 import { withPublisherGuard } from "../io/publisher-guard.js";
+import { collectZccPullOperation } from "../domain/zcc-pull-collection.js";
+import type { ZccCollectionChildRunnerOptions } from "../io/zcc-collection-child-runner.js";
+import { zccPullCollectionOperationResultErrors } from "../contracts/zcc-pull-collection-semantics.js";
 import type {
   ProcessRequest,
   ProcessSuccessResponse,
@@ -109,6 +113,18 @@ function copyRequest(request: ProcessRequest): ProcessRequest {
       operation: "compile_pull_artifacts",
       input: {
         mode: request.input.mode,
+        tenant: request.input.tenant,
+        resource_type: request.input.resource_type,
+      },
+    };
+  }
+  if (request.operation === "collect_zcc_pull") {
+    return {
+      ...base,
+      operation: "collect_zcc_pull",
+      input: {
+        mode: "oneapi",
+        publication: "replace_or_verify_exact",
         tenant: request.input.tenant,
         resource_type: request.input.resource_type,
       },
@@ -250,6 +266,9 @@ export async function executeRequest(
     readonly materializeOutputRoot: string | null;
     readonly allowExternalApplyAcknowledgement?: boolean;
     readonly zccAdoptionOracle?: ZccAdoptionOracleHostAuthority | null;
+    readonly zccPullOutputRoot?: string | null;
+    readonly zccCollectionEnvironment?: Readonly<Record<string, string>>;
+    readonly zccCollectionChildRunner?: ZccCollectionChildRunnerOptions;
   },
 ): Promise<ProcessSuccessResponse> {
   request = copyRequest(request);
@@ -283,6 +302,42 @@ export async function executeRequest(
       category: "request",
       message: "context.workspace must be an absolute path",
     });
+  }
+  if (request.operation === "collect_zcc_pull") {
+    const result = await collectZccPullOperation({
+      workspace: request.context.workspace,
+      outputRoot: dependencies.zccPullOutputRoot ?? null,
+      tenant: request.input.tenant,
+      resourceType: request.input.resource_type,
+      environment: Object.freeze({
+        ...(dependencies.zccCollectionEnvironment ?? {}),
+      }),
+      ...(dependencies.zccCollectionChildRunner === undefined
+        ? {}
+        : { childRunner: dependencies.zccCollectionChildRunner }),
+    });
+    const bindingErrors = zccPullCollectionOperationResultErrors(request, result);
+    if (!validateZccPullCollection(result) || bindingErrors.length > 0) {
+      throw new ProcessFailure({
+        code: "INVALID_OPERATION_RESULT",
+        category: "internal",
+        message: "collect_zcc_pull produced a result outside its versioned schema",
+        details: [
+          ...schemaErrorDetails(validateZccPullCollection.errors),
+          ...schemaErrorDetails(bindingErrors),
+        ],
+      });
+    }
+    return {
+      kind: "infrawright.process_response",
+      schema_version: 1,
+      request_id: request.request_id,
+      operation: "collect_zcc_pull",
+      status: "ok",
+      diagnostics: [],
+      result,
+      error: null,
+    };
   }
   if (request.operation === "compile_pull_artifacts") {
     const options = {
