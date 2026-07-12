@@ -323,7 +323,7 @@ test("unsupported resources and unsafe numeric inputs fail closed", () => {
   );
 });
 
-test("production bundle keeps generic seams but excludes private product contracts", () => {
+test("production bundle exposes public ZCC adoption but excludes private ZIA contracts", () => {
   const build = buildSync({
     bundle: true,
     entryPoints: ["node-src/process/main.ts"],
@@ -340,14 +340,25 @@ test("production bundle keeps generic seams but excludes private product contrac
     "docs/schemas/transform-resource-cohort.schema.json",
     "node-src/domain/zia-transform-cohort-validator.ts",
     "node-src/domain/zia-transform-cohort.ts",
-    "node-src/domain/zcc-adoption-provider-lock.ts",
-    "node-src/domain/zcc-adoption-oracle.ts",
-    "node-src/io/zcc-adoption-oracle-adapters.ts",
   ]) {
     assert.equal(
       inputs.some((input) => input.endsWith(privateInput)),
       false,
       privateInput,
+    );
+  }
+  for (const publicInput of [
+    "catalogs/zcc-adoption-catalog.v1.json",
+    "docs/schemas/zcc-adoption-artifact-set.schema.json",
+    "node-src/domain/zcc-adoption-provider-lock.ts",
+    "node-src/domain/zcc-adoption-oracle.ts",
+    "node-src/domain/zcc-adoption-operation.ts",
+    "node-src/io/zcc-adoption-oracle-adapters.ts",
+  ]) {
+    assert.equal(
+      inputs.some((input) => input.endsWith(publicInput)),
+      true,
+      publicInput,
     );
   }
 
@@ -362,10 +373,16 @@ test("production bundle keeps generic seams but excludes private product contrac
     "https://infrawright.local/schemas/transform-resource-cohort.schema.json",
     "zia/overrides/zia_traffic_forwarding_static_ip.json",
     "zia/overrides/zia_url_categories.json",
+  ]) {
+    assert.equal(bundle.includes(privateMarker), false, privateMarker);
+  }
+  for (const publicMarker of [
+    "compile_adoption_artifacts",
+    "infrawright.zcc_adoption_artifact_set",
     "9a097955041338130f344c525e10a3f34513eef307678df5e80abcf604ee60fa",
     "ZCC_ADOPTION_ORACLE_TIMEOUT",
     "h1:3Vp8Z76hEGPoZpwE0nSSqHwaJc1j+zX6KndDI2dAfsE=",
   ]) {
-    assert.equal(bundle.includes(privateMarker), false, privateMarker);
+    assert.equal(bundle.includes(publicMarker), true, publicMarker);
   }
 });

@@ -27,11 +27,11 @@ export const ZCC_ADOPTION_CATALOG_SHA256 =
   "ba1690397bbe84e6284affee2cfe8300f0ebb230714c332d6ff93d04a42181e7";
 
 /**
- * Private in-process bootstrap output for provider-observed ZCC adoption.
+ * Read-only bootstrap output for provider-observed ZCC adoption.
  *
- * This deliberately has no process operation or filesystem behavior. Provider
- * state stays inside the library boundary; only projected, non-sensitive
- * bootstrap bytes are represented here.
+ * The public process operation exposes only this projected, non-sensitive
+ * candidate. Provider state remains inside the library boundary and this
+ * contract itself has no filesystem behavior.
  */
 export interface ZccAdoptionArtifactSet {
   readonly kind: "infrawright.zcc_adoption_artifact_set";
@@ -283,7 +283,7 @@ function renderZccAdoptionArtifactSet(options: {
  *
  * No credentials, filesystem effects, or subprocesses cross this seam. Raw
  * provider state remains an in-process library input and is discarded before
- * the artifact set is returned; it is never accepted by a process operation.
+ * the artifact set is returned; it is never accepted by a process request.
  */
 export function compileZccAdoptionArtifactSet(options: {
   readonly catalog: ZccAdoptionCatalog;

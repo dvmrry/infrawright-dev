@@ -6,6 +6,7 @@ import {
   validatePlanRoots,
   validateRootTopology,
   validateSavedPlanAssessment,
+  validateZccAdoptionArtifactSet,
   validateZccPullArtifactMaterialization,
   validateZccPullArtifactSet,
   validateZccPullRefreshArtifactSet,
@@ -46,6 +47,9 @@ import {
   acknowledgeZccPullRefreshOperation,
 } from "../domain/zcc-pull-refresh-acknowledgement-operation.js";
 import { zccPullRefreshPublicationReceiptSha } from "../domain/zcc-pull-refresh-fingerprints.js";
+import { compileZccAdoptionArtifactsOperation } from "../domain/zcc-adoption-operation.js";
+import type { ZccAdoptionOracleHostAuthority } from "../domain/zcc-adoption-operation.js";
+import { zccAdoptionOperationResultErrors } from "../contracts/zcc-adoption-operation-semantics.js";
 import { withPublisherGuard } from "../io/publisher-guard.js";
 import type {
   ProcessRequest,
@@ -95,6 +99,17 @@ function copyRequest(request: ProcessRequest): ProcessRequest {
       operation: "compile_pull_artifacts",
       input: {
         mode: request.input.mode,
+        tenant: request.input.tenant,
+        resource_type: request.input.resource_type,
+      },
+    };
+  }
+  if (request.operation === "compile_adoption_artifacts") {
+    return {
+      ...base,
+      operation: "compile_adoption_artifacts",
+      input: {
+        mode: "bootstrap",
         tenant: request.input.tenant,
         resource_type: request.input.resource_type,
       },
@@ -199,10 +214,21 @@ export async function executeRequest(
     readonly terraformExecutable: string | null;
     readonly materializeOutputRoot: string | null;
     readonly allowExternalApplyAcknowledgement?: boolean;
+    readonly zccAdoptionOracle?: ZccAdoptionOracleHostAuthority | null;
   },
 ): Promise<ProcessSuccessResponse> {
   request = copyRequest(request);
   const terraformExecutable = dependencies.terraformExecutable;
+  const zccAdoptionOracle = dependencies.zccAdoptionOracle === undefined
+      || dependencies.zccAdoptionOracle === null
+    ? null
+    : Object.freeze({
+        terraformExecutable: dependencies.zccAdoptionOracle.terraformExecutable,
+        tempRoot: dependencies.zccAdoptionOracle.tempRoot,
+        environment: Object.freeze({
+          ...dependencies.zccAdoptionOracle.environment,
+        }),
+      });
   if (
     [
       request.context.workspace,
@@ -256,6 +282,44 @@ export async function executeRequest(
       schema_version: 1,
       request_id: request.request_id,
       operation: "compile_pull_artifacts",
+      status: "ok",
+      diagnostics: [],
+      result,
+      error: null,
+    };
+  }
+  if (request.operation === "compile_adoption_artifacts") {
+    const result = await compileZccAdoptionArtifactsOperation({
+      workspace: request.context.workspace,
+      deploymentPath: resolveContextPath(
+        request.context.workspace,
+        request.context.deployment,
+      ),
+      catalogPath: resolveContextPath(
+        request.context.workspace,
+        request.context.root_catalog,
+      ),
+      tenant: request.input.tenant,
+      resourceType: request.input.resource_type,
+      hostAuthority: zccAdoptionOracle,
+    });
+    const bindingErrors = zccAdoptionOperationResultErrors(request, result);
+    if (!validateZccAdoptionArtifactSet(result) || bindingErrors.length > 0) {
+      throw new ProcessFailure({
+        code: "INVALID_OPERATION_RESULT",
+        category: "internal",
+        message: "compile_adoption_artifacts produced a result outside its versioned contract",
+        details: [
+          ...schemaErrorDetails(validateZccAdoptionArtifactSet.errors),
+          ...schemaErrorDetails(bindingErrors),
+        ],
+      });
+    }
+    return {
+      kind: "infrawright.process_response",
+      schema_version: 1,
+      request_id: request.request_id,
+      operation: "compile_adoption_artifacts",
       status: "ok",
       diagnostics: [],
       result,
