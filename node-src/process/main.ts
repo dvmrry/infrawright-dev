@@ -62,6 +62,7 @@ function requestIdentity(value: unknown): {
     | "assess_saved_plans"
     | "compile_pull_artifacts"
     | "compile_adoption_artifacts"
+    | "compare_adoption_artifacts"
     | "seed_pull_refresh_parity"
     | "compare_pull_artifacts"
     | "materialize_pull_artifacts"
@@ -84,6 +85,7 @@ function requestIdentity(value: unknown): {
       || value.operation === "assess_saved_plans"
       || value.operation === "compile_pull_artifacts"
       || value.operation === "compile_adoption_artifacts"
+      || value.operation === "compare_adoption_artifacts"
       || value.operation === "seed_pull_refresh_parity"
       || value.operation === "compare_pull_artifacts"
       || value.operation === "materialize_pull_artifacts"
@@ -103,6 +105,7 @@ function errorResponse(options: {
     | "assess_saved_plans"
     | "compile_pull_artifacts"
     | "compile_adoption_artifacts"
+    | "compare_adoption_artifacts"
     | "seed_pull_refresh_parity"
     | "compare_pull_artifacts"
     | "materialize_pull_artifacts"
@@ -171,6 +174,7 @@ function successExitCode(response: ProcessSuccessResponse): number {
     response.operation === "compile_pull_artifacts"
     || response.operation === "seed_pull_refresh_parity"
     || response.operation === "compare_pull_artifacts"
+    || response.operation === "compare_adoption_artifacts"
   ) {
     return response.result.status === "review_required" ? 3 : 0;
   }

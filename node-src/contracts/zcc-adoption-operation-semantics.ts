@@ -1,7 +1,11 @@
 import type { ErrorObject } from "ajv/dist/2020.js";
 
 import type { ZccAdoptionArtifactSet } from "../domain/zcc-adoption-artifacts.js";
-import type { CompileAdoptionArtifactsProcessRequest } from "../process/types.js";
+import type { ZccAdoptionArtifactParity } from "../domain/zcc-adoption-artifact-parity.js";
+import type {
+  CompareAdoptionArtifactsProcessRequest,
+  CompileAdoptionArtifactsProcessRequest,
+} from "../process/types.js";
 
 const KEYWORD = "x-infrawright-zcc-adoption-operation-result-semantics";
 
@@ -45,6 +49,43 @@ export function zccAdoptionOperationResultErrors(
       "/resource_type",
       "resource_type",
       "adoption result resource must match the request",
+    ));
+  }
+  return errors;
+}
+
+/** Join the comparison request coordinates to its distinct parity result. */
+export function zccAdoptionParityOperationResultErrors(
+  request: CompareAdoptionArtifactsProcessRequest,
+  result: ZccAdoptionArtifactParity,
+): readonly ErrorObject[] {
+  const errors: ErrorObject[] = [];
+  if (
+    request.operation !== "compare_adoption_artifacts"
+    || request.input.mode !== "bootstrap"
+    || request.input.reference !== "materialized"
+    || result.kind !== "infrawright.zcc_adoption_artifact_parity"
+    || result.mode !== request.input.mode
+    || result.reference !== request.input.reference
+  ) {
+    errors.push(semanticError(
+      "/",
+      "operation_mode_reference",
+      "adoption parity kind, mode, and reference must match the request",
+    ));
+  }
+  if (result.tenant !== request.input.tenant) {
+    errors.push(semanticError(
+      "/tenant",
+      "tenant",
+      "adoption parity tenant must match the request",
+    ));
+  }
+  if (result.resource_type !== request.input.resource_type) {
+    errors.push(semanticError(
+      "/resource_type",
+      "resource_type",
+      "adoption parity resource must match the request",
     ));
   }
   return errors;

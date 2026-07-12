@@ -11,7 +11,8 @@ assessment, the strict ZCC bootstrap compile, compare, and retry-forward
 materialization operations, a read-only ZCC refresh compiler, and an
 assertion-bound imports-last ZCC refresh publisher. They establish
 an explicit ZCC post-apply acknowledgement/retirement operation and a public,
-read-only provider-observed ZCC adoption compiler. Together these establish the
+read-only provider-observed ZCC adoption compiler and digest-only adoption
+parity operation. Together these establish the
 process protocol, deterministic JSON boundary, packaging, and differential
 validation pattern for later migration slices.
 
@@ -89,7 +90,10 @@ validated request and require `compile_pull_artifacts` mode/result agreement:
 standalone-valid response whose result kind or mode does not match the request.
 The same retained-request rule applies to `compile_adoption_artifacts`, which
 maps only `bootstrap` to `infrawright.zcc_adoption_artifact_set` and must match
-the requested tenant and resource type.
+the requested tenant and resource type. `compare_adoption_artifacts` maps only
+`bootstrap` plus `reference: "materialized"` to
+`infrawright.zcc_adoption_artifact_parity`; mode, reference, tenant, and
+resource must all agree with the retained request.
 
 ## Version 1 Requests
 
@@ -332,6 +336,63 @@ transaction. It does **not** establish Python byte parity, saved-plan
 cleanliness, destroy safety, apply readiness, live-tenant qualification, or
 cutover readiness. Pipelines must retain Python as the independent oracle until
 those separate evidence gates pass; publication remains a separate operation.
+
+### ZCC provider-observed adoption parity
+
+`compare_adoption_artifacts` runs the same hardened provider-observation
+transaction against the same bound pull, but compares the resulting candidate
+with stable materialized bootstrap artifacts instead of returning either side's
+bytes:
+
+```json
+{
+  "kind": "infrawright.process_request",
+  "schema_version": 1,
+  "request_id": "zcc-adoption-parity-129",
+  "operation": "compare_adoption_artifacts",
+  "context": {
+    "workspace": "/workspace/deployment",
+    "deployment": "deployment.json",
+    "root_catalog": "catalogs/zscaler-root-catalog.v1.json"
+  },
+  "input": {
+    "mode": "bootstrap",
+    "reference": "materialized",
+    "tenant": "prod",
+    "resource_type": "zcc_trusted_network"
+  }
+}
+```
+
+The externally materialized reference is expected to come from the retained
+Python adoption lane. Production Node never launches Python and does not infer
+which writer created the files. Before Terraform runs, it binds the canonical
+tfvars and imports paths plus the trusted-network lookup path, including each
+file's presence, identity, size, and SHA-256. A missing applicable reference is
+a comparison result, not an I/O error. A lookup for any other resource is an
+unsupported stale artifact.
+
+This comparison policy is intentionally separate from the compile operation's
+bootstrap-absence policy: existing imports are reference evidence here and
+remain forbidden for `compile_adoption_artifacts`. HCL tfvars, generated
+bindings, moves, pending transitions, non-applicable lookup files, unsupported
+resources, and grouped same-root generated bindings still fail closed. Pull,
+deployment, root catalog, reference files, and required absent states are all
+rechecked after successful oracle cleanup. The operation writes, replaces, and
+deletes no caller artifact.
+
+The result is `infrawright.zcc_adoption_artifact_parity` v1. For each applicable
+role it reports only candidate/reference logical paths, byte sizes, SHA-256s,
+and `equal` or `different`; non-applicable lookup is explicit. It contains no
+artifact contents, provider state, import IDs, credentials, child diagnostics,
+or scratch paths. Exact equality returns `status: "ready"` and exit `0`.
+Missing or unequal reference bytes return a complete
+`status: "review_required"` report and exit `3`. I/O, domain, timeout, and
+provider-contract failures remain structured errors, not parity mismatches.
+
+Ready proves byte equality with the bound external reference only. It does not
+prove plan cleanliness, apply safety, live-tenant qualification, reference
+provenance, or cutover readiness, and it never materializes the candidate.
 
 ### ZCC read-only refresh compilation
 

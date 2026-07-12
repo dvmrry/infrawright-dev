@@ -350,6 +350,9 @@ test("production bundle exposes public ZCC adoption but excludes private ZIA con
   for (const publicInput of [
     "catalogs/zcc-adoption-catalog.v1.json",
     "docs/schemas/zcc-adoption-artifact-set.schema.json",
+    "docs/schemas/zcc-adoption-artifact-parity.schema.json",
+    "node-src/contracts/zcc-adoption-parity-semantics.ts",
+    "node-src/domain/zcc-adoption-artifact-parity.ts",
     "node-src/domain/zcc-adoption-provider-lock.ts",
     "node-src/domain/zcc-adoption-oracle.ts",
     "node-src/domain/zcc-adoption-operation.ts",
@@ -378,7 +381,9 @@ test("production bundle exposes public ZCC adoption but excludes private ZIA con
   }
   for (const publicMarker of [
     "compile_adoption_artifacts",
+    "compare_adoption_artifacts",
     "infrawright.zcc_adoption_artifact_set",
+    "infrawright.zcc_adoption_artifact_parity",
     "9a097955041338130f344c525e10a3f34513eef307678df5e80abcf604ee60fa",
     "ZCC_ADOPTION_ORACLE_TIMEOUT",
     "h1:3Vp8Z76hEGPoZpwE0nSSqHwaJc1j+zX6KndDI2dAfsE=",

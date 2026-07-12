@@ -35,6 +35,7 @@
         "assess_saved_plans",
         "compile_pull_artifacts",
         "compile_adoption_artifacts",
+        "compare_adoption_artifacts",
         "seed_pull_refresh_parity",
         "compare_pull_artifacts",
         "materialize_pull_artifacts",
@@ -141,6 +142,16 @@
         },
         "input": {
           "$ref": "#/$defs/compileAdoptionArtifactsInput"
+        }
+      }
+    },
+    {
+      "properties": {
+        "operation": {
+          "const": "compare_adoption_artifacts"
+        },
+        "input": {
+          "$ref": "#/$defs/compareAdoptionArtifactsInput"
         }
       }
     },
@@ -351,6 +362,31 @@
       "properties": {
         "mode": {
           "const": "bootstrap"
+        },
+        "tenant": {
+          "type": "string",
+          "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+        },
+        "resource_type": {
+          "$ref": "zcc-pull-artifact-set.schema.json#/$defs/resourceType"
+        }
+      }
+    },
+    "compareAdoptionArtifactsInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "reference",
+        "tenant",
+        "resource_type"
+      ],
+      "properties": {
+        "mode": {
+          "const": "bootstrap"
+        },
+        "reference": {
+          "const": "materialized"
         },
         "tenant": {
           "type": "string",

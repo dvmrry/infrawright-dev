@@ -11,6 +11,7 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -22,15 +23,21 @@ import { stringify as stringifyLosslessJson } from "lossless-json";
 import {
   validateProcessRequest,
   validateProcessResponse,
+  validateZccAdoptionArtifactParity,
   validateZccAdoptionArtifactSet,
 } from "../node-src/contracts/validators.js";
-import { compileZccAdoptionArtifactsOperation } from "../node-src/domain/zcc-adoption-operation.js";
+import {
+  compareZccAdoptionArtifactsOperation,
+  compileZccAdoptionArtifactsOperation,
+} from "../node-src/domain/zcc-adoption-operation.js";
 import { ProcessFailure } from "../node-src/domain/errors.js";
 import { parseDataJsonLosslessly } from "../node-src/json/control.js";
 import type { ZccPullResourceType } from "../node-src/domain/zcc-pull-artifacts.js";
 import type {
   CompileAdoptionArtifactsProcessRequest,
   CompileAdoptionArtifactsProcessSuccessResponse,
+  CompareAdoptionArtifactsProcessRequest,
+  CompareAdoptionArtifactsProcessSuccessResponse,
   ProcessErrorResponse,
   ProcessResponse,
 } from "../node-src/process/types.js";
@@ -347,6 +354,29 @@ function request(
   };
 }
 
+function compareRequest(
+  fixture: Fixture,
+  resourceType: ZccPullResourceType,
+): CompareAdoptionArtifactsProcessRequest {
+  return {
+    kind: "infrawright.process_request",
+    schema_version: 1,
+    request_id: `compare-adopt-${resourceType}`,
+    operation: "compare_adoption_artifacts",
+    context: {
+      workspace: fixture.workspace,
+      deployment: "deployment.json",
+      root_catalog: "catalog.json",
+    },
+    input: {
+      mode: "bootstrap",
+      reference: "materialized",
+      tenant: TENANT,
+      resource_type: resourceType,
+    },
+  };
+}
+
 function invoke(
   compileRequest: unknown,
   authority: { readonly fake: string; readonly tempRoot: string } | null,
@@ -390,10 +420,28 @@ function requireSuccess(
   assert.notEqual(response.result, null);
 }
 
+function requireCompareSuccess(
+  response: ProcessResponse,
+): asserts response is CompareAdoptionArtifactsProcessSuccessResponse {
+  assert.equal(response.operation, "compare_adoption_artifacts");
+  assert.equal(response.status, "ok");
+  assert.equal(response.error, null);
+  assert.notEqual(response.result, null);
+}
+
 function requireError(
   response: ProcessResponse,
 ): asserts response is ProcessErrorResponse {
   assert.equal(response.operation, "compile_adoption_artifacts");
+  assert.equal(response.status, "error");
+  assert.notEqual(response.error, null);
+  assert.equal(response.result, null);
+}
+
+function requireCompareError(
+  response: ProcessResponse,
+): asserts response is ProcessErrorResponse {
+  assert.equal(response.operation, "compare_adoption_artifacts");
   assert.equal(response.status, "error");
   assert.notEqual(response.error, null);
   assert.equal(response.result, null);
@@ -843,6 +891,28 @@ function readPythonArtifacts(
   };
 }
 
+function singletonReferencePath(
+  fixture: Fixture,
+  resourceType: ZccPullResourceType,
+  role: "tfvars" | "imports" | "lookup",
+): string {
+  if (role === "imports") {
+    return path.join(
+      fixture.workspace,
+      "imports",
+      TENANT,
+      `${resourceType}_imports.tf`,
+    );
+  }
+  const suffix = role === "tfvars" ? ".auto.tfvars.json" : ".lookup.json";
+  return path.join(
+    fixture.workspace,
+    "config",
+    TENANT,
+    `${resourceType}${suffix}`,
+  );
+}
+
 test("bundled all-five executor matches Python before and after in grouped and singleton roots", () => {
   for (const grouped of [false, true]) {
     const fixture = createFixture();
@@ -939,5 +1009,514 @@ test("bundled all-five executor matches Python before and after in grouped and s
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }
+  }
+});
+
+test("public adoption comparer request is closed and host authority stays out of band", () => {
+  const fixture = createFixture();
+  try {
+    const valid = compareRequest(fixture, "zcc_web_privacy");
+    assert.equal(validateProcessRequest(valid), true);
+    for (const [location, field] of [
+      ["input", "candidate"],
+      ["input", "provider_state"],
+      ["input", "source_path"],
+      ["input", "terraform_executable"],
+      ["input", "credentials"],
+      ["input", "timeout"],
+      ["input", "catalog_sha256"],
+      ["context", "temp_root"],
+      ["context", "output_root"],
+    ] as const) {
+      const copy = structuredClone(valid) as unknown as Record<
+        string,
+        Record<string, unknown>
+      >;
+      copy[location]![field] = "caller-selected-secret";
+      assert.equal(validateProcessRequest(copy), false, `${location}.${field}`);
+    }
+    const missing = invoke(valid, null, {
+      ZSCALER_CLIENT_SECRET: "credential-secret",
+    });
+    assert.equal(missing.status, 1);
+    requireCompareError(missing.response);
+    assert.equal(missing.response.error.code, "ZCC_ADOPTION_HOST_NOT_CONFIGURED");
+    assert.equal(missing.stdout.includes("credential-secret"), false);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("empty materialized adoption comparison is effect-free and provider-free", () => {
+  const fixture = createFixture();
+  try {
+    const pull = path.join(
+      fixture.workspace,
+      "pulls",
+      TENANT,
+      "zcc_web_privacy.json",
+    );
+    writeFileSync(pull, "[]\n");
+    pythonAdopt(fixture.workspace, fixture.fake, "zcc_web_privacy");
+    rmSync(fixture.log, { force: true });
+    const invocation = invoke(
+      compareRequest(fixture, "zcc_web_privacy"),
+      { fake: "/not/a/real/terraform", tempRoot: "/not/a/real/temp-root" },
+    );
+    assert.equal(invocation.status, 0, invocation.stdout);
+    requireCompareSuccess(invocation.response);
+    assert.equal(invocation.response.result.status, "ready");
+    assert.equal(existsSync(fixture.log), false);
+    assert.equal(invocation.stdout.includes("content"), false);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("bundled comparer proves all five Python references in singleton and grouped roots", () => {
+  for (const grouped of [false, true]) {
+    const fixture = createFixture({ deployment: deployment(grouped) });
+    try {
+      for (const resourceType of RESOURCES) {
+        pythonAdopt(fixture.workspace, fixture.fake, resourceType);
+      }
+      for (const resourceType of RESOURCES) {
+        const artifactRoot = grouped
+          ? path.join(fixture.workspace, "stack")
+          : fixture.workspace;
+        const materializedPaths = [
+          path.join(
+            artifactRoot,
+            "config",
+            TENANT,
+            `${resourceType}.auto.tfvars.json`,
+          ),
+          path.join(
+            artifactRoot,
+            "imports",
+            TENANT,
+            `${resourceType}_imports.tf`,
+          ),
+          ...(resourceType === "zcc_trusted_network"
+            ? [path.join(
+                artifactRoot,
+                "config",
+                TENANT,
+                `${resourceType}.lookup.json`,
+              )]
+            : []),
+        ];
+        const before = materializedPaths.map((artifactPath) => {
+          const metadata = statSync(artifactPath, { bigint: true });
+          return {
+            content: readFileSync(artifactPath),
+            dev: metadata.dev,
+            ino: metadata.ino,
+            mtimeNs: metadata.mtimeNs,
+          };
+        });
+        const invocation = invoke(
+          compareRequest(fixture, resourceType),
+          { fake: fixture.fake, tempRoot: fixture.tempRoot },
+          { ZSCALER_CLIENT_SECRET: "credential-secret" },
+        );
+        assert.equal(invocation.status, 0, `${grouped}:${resourceType}:${invocation.stdout}`);
+        assert.equal(invocation.stderr, "");
+        assert.equal(validateProcessResponse(invocation.response), true);
+        requireCompareSuccess(invocation.response);
+        assert.equal(
+          validateZccAdoptionArtifactParity(invocation.response.result),
+          true,
+          JSON.stringify(validateZccAdoptionArtifactParity.errors),
+        );
+        assert.equal(invocation.response.result.status, "ready");
+        assert.equal(invocation.response.result.parity.status, "equal");
+        assert.equal(
+          invocation.response.result.parity.equal,
+          resourceType === "zcc_trusted_network" ? 3 : 2,
+        );
+        assert.equal(invocation.response.result.parity.different, 0);
+        assert.equal(
+          invocation.response.result.parity.artifacts.lookup.status,
+          resourceType === "zcc_trusted_network" ? "equal" : "not_applicable",
+        );
+        const crossPairedPull = structuredClone(invocation.response) as unknown as {
+          operation: string;
+        };
+        crossPairedPull.operation = "compare_pull_artifacts";
+        assert.equal(validateProcessResponse(crossPairedPull), false);
+        const crossPairedCompile = structuredClone(invocation.response) as unknown as {
+          operation: string;
+        };
+        crossPairedCompile.operation = "compile_adoption_artifacts";
+        assert.equal(validateProcessResponse(crossPairedCompile), false);
+        assert.equal(invocation.stdout.includes("content"), false);
+        assert.equal(invocation.stdout.includes("credential-secret"), false);
+        assert.equal(invocation.stdout.includes("900719925474099312345678902"), false);
+        assert.deepEqual(readdirSync(fixture.tempRoot), []);
+        for (const [index, artifactPath] of materializedPaths.entries()) {
+          const metadata = statSync(artifactPath, { bigint: true });
+          assert.deepEqual(readFileSync(artifactPath), before[index]?.content);
+          assert.equal(metadata.dev, before[index]?.dev);
+          assert.equal(metadata.ino, before[index]?.ino);
+          assert.equal(metadata.mtimeNs, before[index]?.mtimeNs);
+        }
+        for (const entry of [
+          invocation.response.result.parity.artifacts.tfvars,
+          invocation.response.result.parity.artifacts.imports,
+          ...(invocation.response.result.parity.artifacts.lookup.status
+              === "not_applicable"
+            ? []
+            : [invocation.response.result.parity.artifacts.lookup]),
+        ]) {
+          assert.notEqual(entry.candidate, null);
+          assert.notEqual(entry.reference, null);
+          assert.equal(entry.candidate?.path, entry.reference?.path);
+          assert.equal(entry.candidate?.sha256, entry.reference?.sha256);
+          assert.equal(entry.candidate?.size_bytes, entry.reference?.size_bytes);
+        }
+      }
+      const exactIntegerReference = readFileSync(
+        path.join(
+          fixture.workspace,
+          grouped ? "stack/config" : "config",
+          TENANT,
+          "zcc_device_cleanup.auto.tfvars.json",
+        ),
+        "utf8",
+      );
+      assert.match(
+        exactIntegerReference,
+        /"auto_purge_days": 900719925474099312345678902/,
+      );
+      assert.doesNotMatch(
+        exactIntegerReference,
+        /"auto_purge_days": [^,\n]*[eE][+-]?[0-9]+/,
+      );
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("missing and mismatched materialized roles return content-free review status", () => {
+  const cases = [
+    ["zcc_web_privacy", "tfvars", "missing"],
+    ["zcc_web_privacy", "tfvars", "mismatch"],
+    ["zcc_web_privacy", "imports", "missing"],
+    ["zcc_web_privacy", "imports", "mismatch"],
+    ["zcc_trusted_network", "lookup", "missing"],
+    ["zcc_trusted_network", "lookup", "mismatch"],
+  ] as const satisfies readonly [
+    ZccPullResourceType,
+    "tfvars" | "imports" | "lookup",
+    "missing" | "mismatch",
+  ][];
+  for (const [resourceType, role, state] of cases) {
+    const fixture = createFixture();
+    try {
+      pythonAdopt(fixture.workspace, fixture.fake, resourceType);
+      const target = singletonReferencePath(fixture, resourceType, role);
+      if (state === "missing") {
+        rmSync(target);
+      } else {
+        writeFileSync(target, "materialized-reference-secret\n");
+      }
+      const invocation = invoke(
+        compareRequest(fixture, resourceType),
+        { fake: fixture.fake, tempRoot: fixture.tempRoot },
+      );
+      assert.equal(invocation.status, 3, `${resourceType}:${role}:${state}`);
+      requireCompareSuccess(invocation.response);
+      assert.equal(invocation.response.result.status, "review_required");
+      assert.equal(invocation.response.result.parity.status, "different");
+      const entry = invocation.response.result.parity.artifacts[role];
+      assert.equal(entry.status, "different");
+      assert.notEqual(entry.reference, null);
+      assert.equal(
+        entry.reference?.sha256,
+        state === "missing" ? null : createHash("sha256")
+          .update("materialized-reference-secret\n")
+          .digest("hex"),
+      );
+      assert.equal(invocation.stdout.includes("materialized-reference-secret"), false);
+      assert.equal(invocation.stdout.includes("content"), false);
+      assert.deepEqual(readdirSync(fixture.tempRoot), []);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("lookup applicability and unsupported bootstrap-adjacent artifacts fail closed", () => {
+  const stale = createFixture();
+  try {
+    pythonAdopt(stale.workspace, stale.fake, "zcc_web_privacy");
+    const staleLookup = singletonReferencePath(
+      stale,
+      "zcc_web_privacy",
+      "lookup",
+    );
+    writeFileSync(staleLookup, "stale-lookup-secret\n");
+    const invocation = invoke(
+      compareRequest(stale, "zcc_web_privacy"),
+      { fake: stale.fake, tempRoot: stale.tempRoot },
+    );
+    assert.equal(invocation.status, 2);
+    requireCompareError(invocation.response);
+    assert.equal(invocation.response.error.code, "UNSUPPORTED_COMPARE_LOOKUP_ARTIFACT");
+    assert.equal(invocation.stdout.includes("stale-lookup-secret"), false);
+  } finally {
+    rmSync(stale.root, { recursive: true, force: true });
+  }
+
+  for (const [suffix, expectedCode] of [
+    ["_moves.tf", "UNSUPPORTED_COMPARE_MOVES"],
+    ["_moves.pending.json", "UNSUPPORTED_PENDING_MOVES"],
+  ] as const) {
+    const fixture = createFixture();
+    try {
+      pythonAdopt(fixture.workspace, fixture.fake, "zcc_web_privacy");
+      const adjacent = path.join(
+        fixture.workspace,
+        "imports",
+        TENANT,
+        `zcc_web_privacy${suffix}`,
+      );
+      writeFileSync(adjacent, "unsupported-adjacent-secret\n");
+      const invocation = invoke(
+        compareRequest(fixture, "zcc_web_privacy"),
+        { fake: fixture.fake, tempRoot: fixture.tempRoot },
+      );
+      requireCompareError(invocation.response);
+      assert.equal(invocation.response.error.code, expectedCode);
+      assert.equal(invocation.stdout.includes("unsupported-adjacent-secret"), false);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+
+  for (const [relativePath, expectedCode] of [
+    [
+      `config/${TENANT}/zcc_web_privacy.auto.tfvars`,
+      "UNSUPPORTED_COMPARE_HCL_ARTIFACT",
+    ],
+    [
+      `config/${TENANT}/zcc_web_privacy.generated.expressions.json`,
+      "UNSUPPORTED_COMPARE_GENERATED_BINDINGS",
+    ],
+  ] as const) {
+    const fixture = createFixture();
+    try {
+      pythonAdopt(fixture.workspace, fixture.fake, "zcc_web_privacy");
+      const adjacent = path.join(fixture.workspace, relativePath);
+      writeFileSync(adjacent, "unsupported-adjacent-secret\n");
+      const invocation = invoke(
+        compareRequest(fixture, "zcc_web_privacy"),
+        { fake: fixture.fake, tempRoot: fixture.tempRoot },
+      );
+      requireCompareError(invocation.response);
+      assert.equal(invocation.response.error.code, expectedCode);
+      assert.equal(invocation.stdout.includes("unsupported-adjacent-secret"), false);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+
+  const hcl = createFixture({
+    deployment: { overlay: ".", tfvars_format: "hcl", roots: {} },
+  });
+  try {
+    const invocation = invoke(
+      compareRequest(hcl, "zcc_web_privacy"),
+      { fake: hcl.fake, tempRoot: hcl.tempRoot },
+    );
+    requireCompareError(invocation.response);
+    assert.equal(invocation.response.error.code, "UNSUPPORTED_TFVARS_FORMAT");
+    assert.equal(existsSync(hcl.log), false);
+  } finally {
+    rmSync(hcl.root, { recursive: true, force: true });
+  }
+
+  const bound = createFixture({
+    deployment: {
+      overlay: ".",
+      roots: {
+        zcc: {
+          strategy: "explicit",
+          bind_references: true,
+          groups: {
+            zcc_bootstrap: [
+              "zcc_forwarding_profile",
+              "zcc_trusted_network",
+            ],
+          },
+        },
+      },
+    },
+  });
+  try {
+    const invocation = invoke(
+      compareRequest(bound, "zcc_forwarding_profile"),
+      { fake: bound.fake, tempRoot: bound.tempRoot },
+    );
+    requireCompareError(invocation.response);
+    assert.equal(invocation.response.error.code, "UNSUPPORTED_GROUP_BINDINGS");
+    assert.equal(existsSync(bound.log), false);
+  } finally {
+    rmSync(bound.root, { recursive: true, force: true });
+  }
+});
+
+test("comparison rechecks source, controls, and materialized references after oracle cleanup", () => {
+  const cases = [
+    {
+      name: "pull",
+      target: (fixture: Fixture) => path.join(
+        fixture.workspace,
+        "pulls",
+        TENANT,
+        "zcc_web_privacy.json",
+      ),
+      code: "RAW_PULL_CHANGED",
+    },
+    {
+      name: "deployment",
+      target: (fixture: Fixture) => fixture.deploymentPath,
+      code: "COMPILE_CONTROL_CHANGED",
+    },
+    {
+      name: "catalog",
+      target: (fixture: Fixture) => fixture.catalogPath,
+      code: "COMPILE_CONTROL_CHANGED",
+    },
+    {
+      name: "tfvars",
+      target: (fixture: Fixture) => singletonReferencePath(
+        fixture,
+        "zcc_web_privacy",
+        "tfvars",
+      ),
+      code: "COMPARE_ARTIFACT_CHANGED",
+    },
+    {
+      name: "imports",
+      target: (fixture: Fixture) => singletonReferencePath(
+        fixture,
+        "zcc_web_privacy",
+        "imports",
+      ),
+      code: "COMPARE_ARTIFACT_CHANGED",
+    },
+  ] as const;
+  for (const mutation of cases) {
+    const fixture = createFixture();
+    try {
+      pythonAdopt(fixture.workspace, fixture.fake, "zcc_web_privacy");
+      writeFake({
+        executable: fixture.fake,
+        log: fixture.log,
+        mutation: {
+          path: mutation.target(fixture),
+          content: "comparison-race-secret",
+        },
+      });
+      const invocation = invoke(
+        compareRequest(fixture, "zcc_web_privacy"),
+        { fake: fixture.fake, tempRoot: fixture.tempRoot },
+      );
+      assert.equal(invocation.status, 1, mutation.name);
+      requireCompareError(invocation.response);
+      assert.equal(invocation.response.error.code, mutation.code, mutation.name);
+      assert.equal(invocation.stdout.includes("comparison-race-secret"), false);
+      assert.deepEqual(readdirSync(fixture.tempRoot), []);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+
+  const lookup = createFixture();
+  try {
+    pythonAdopt(lookup.workspace, lookup.fake, "zcc_trusted_network");
+    writeFake({
+      executable: lookup.fake,
+      log: lookup.log,
+      mutation: {
+        path: singletonReferencePath(
+          lookup,
+          "zcc_trusted_network",
+          "lookup",
+        ),
+        content: "comparison-lookup-race-secret",
+      },
+    });
+    const invocation = invoke(
+      compareRequest(lookup, "zcc_trusted_network"),
+      { fake: lookup.fake, tempRoot: lookup.tempRoot },
+    );
+    assert.equal(invocation.status, 1);
+    requireCompareError(invocation.response);
+    assert.equal(invocation.response.error.code, "COMPARE_ARTIFACT_CHANGED");
+    assert.equal(invocation.stdout.includes("comparison-lookup-race-secret"), false);
+    assert.deepEqual(readdirSync(lookup.tempRoot), []);
+  } finally {
+    rmSync(lookup.root, { recursive: true, force: true });
+  }
+});
+
+test("comparison preserves oracle error and timeout precedence with verified cleanup", async (t) => {
+  for (const [behavior, expectedCode, expectedExit] of [
+    ["fail-init", "ZCC_ADOPTION_ORACLE_INIT_FAILED", 1],
+    ["bad-plan-envelope", "ZCC_ADOPTION_ORACLE_PLAN_REJECTED", 2],
+    ["bad-state-provider", "ZCC_ADOPTION_ORACLE_STATE_REJECTED", 2],
+    ["missing-state-resource", "ZCC_ADOPTION_ORACLE_STATE_REJECTED", 2],
+  ] as const) {
+    const fixture = createFixture();
+    try {
+      pythonAdopt(fixture.workspace, fixture.fake, "zcc_web_privacy");
+      writeFake({ executable: fixture.fake, log: fixture.log, behavior });
+      const invocation = invoke(
+        compareRequest(fixture, "zcc_web_privacy"),
+        { fake: fixture.fake, tempRoot: fixture.tempRoot },
+      );
+      assert.equal(invocation.status, expectedExit, behavior);
+      requireCompareError(invocation.response);
+      assert.equal(invocation.response.error.code, expectedCode, behavior);
+      assert.equal(invocation.stdout.includes("provider-child-secret"), false);
+      assert.deepEqual(readdirSync(fixture.tempRoot), []);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+
+  const timeout = createFixture();
+  pythonAdopt(timeout.workspace, timeout.fake, "zcc_web_privacy");
+  let calls = 0;
+  t.mock.method(performance, "now", () => {
+    calls += 1;
+    return calls === 1 ? 0 : 300_000;
+  });
+  try {
+    await assert.rejects(
+      compareZccAdoptionArtifactsOperation({
+        workspace: timeout.workspace,
+        deploymentPath: timeout.deploymentPath,
+        catalogPath: timeout.catalogPath,
+        tenant: TENANT,
+        resourceType: "zcc_web_privacy",
+        hostAuthority: {
+          terraformExecutable: timeout.fake,
+          tempRoot: timeout.tempRoot,
+          environment: { ZSCALER_CLIENT_SECRET: "credential-secret" },
+        },
+      }),
+      (error: unknown) => error instanceof ProcessFailure
+        && error.code === "ZCC_ADOPTION_ORACLE_TIMEOUT"
+        && !JSON.stringify(error).includes("credential-secret")
+        && !JSON.stringify(error).includes(timeout.tempRoot),
+    );
+    assert.deepEqual(readdirSync(timeout.tempRoot), []);
+  } finally {
+    rmSync(timeout.root, { recursive: true, force: true });
   }
 });

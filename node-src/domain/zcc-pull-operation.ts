@@ -1141,6 +1141,19 @@ export interface BoundZccBootstrapPullOperationInputs {
   readonly recheckInputs: () => Promise<void>;
 }
 
+/**
+ * Stable comparison authority for provider-observed adoption.
+ *
+ * Unlike the bootstrap compiler binder, this lane intentionally permits and
+ * snapshots the canonical materialized artifacts. It still rejects every
+ * adjacent artifact class that the bootstrap comparison contract does not
+ * understand.
+ */
+export interface BoundZccAdoptionComparisonInputs
+  extends BoundZccBootstrapPullOperationInputs {
+  readonly materialized: ZccMaterializedPullArtifactDigests;
+}
+
 export interface ZccPullMaterializationOperationHooks
   extends ZccPullOperationHooks, ZccPullMaterializationHooks {}
 
@@ -1349,6 +1362,36 @@ export async function bindZccBootstrapPullOperationInputs(
       ...bound.binding.target,
       rootMembers: Object.freeze([...bound.binding.target.rootMembers]),
     }),
+    recheckInputs: bound.recheckInputs,
+  });
+}
+
+/** Bind a bootstrap pull and its stable materialized reference without compiling it. */
+export async function bindZccAdoptionComparisonInputs(
+  options: ZccPullArtifactsOperationOptions,
+): Promise<BoundZccAdoptionComparisonInputs> {
+  const hooks = copyZccPullOperationHooks(options.hooks);
+  const bound = await bindZccPullOperationInput(
+    options,
+    { kind: "compare_materialized" },
+  );
+  if (bound.policy.kind !== "compare_materialized") {
+    return fail("INTERNAL_ERROR", "comparison artifact policy is unresolved", "internal");
+  }
+  await hooks?.beforeFinalRecheck?.();
+  await bound.recheckInputs();
+  return Object.freeze({
+    rawItems: bound.rawItems,
+    source: Object.freeze({
+      path: bound.binding.source.logicalPath,
+      sha256: bound.binding.source.sha256,
+      size_bytes: Number(bound.binding.source.size),
+    }),
+    target: Object.freeze({
+      ...bound.binding.target,
+      rootMembers: Object.freeze([...bound.binding.target.rootMembers]),
+    }),
+    materialized: Object.freeze(materializedDigests(bound.policy)),
     recheckInputs: bound.recheckInputs,
   });
 }
