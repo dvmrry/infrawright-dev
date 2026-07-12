@@ -219,8 +219,10 @@
   the selected distribution.
 - Fix: declare the two ZIA regeneration gates as requiring `zia`, the existing
   ZCC byte-regeneration cross-check as requiring `zcc`, and the cross-product
-  validation as requiring both. The four committed-artifact or pure-helper
-  assertions remain pack-independent and continue to run in every profile.
+  validation as requiring only `zcc`: its duplicate-ZIA branch exits before
+  registry access, while its wrong-product branch loads only the committed ZCC
+  fixture. The four committed-artifact or pure-helper assertions remain
+  pack-independent and continue to run in every profile.
   This uses existing per-test selection instead of runtime skips or weakened
   assertions. A module-level ZIA rule plus nested ZCC rules is not used because
   the current pre-import selector would correctly omit the module but then
@@ -236,6 +238,10 @@
   Full `make test` ran 1,383 tests: 1,382 passed and one optional source test
   skipped. Focused Python selector/cohort tests passed 15/15 and focused Node
   ZIA parity passed 6/6.
+- Changed-surface recheck: the cross-product validation itself passes against a
+  physically ZCC-only pack root. ZCC-only selection now runs 905 tests; empty
+  remains 867, ZIA remains 894, and Zscaler remains 1,364. Full `make test`
+  remains 1,383 total with the same optional skip.
 
 ## Known Deferrals
 

@@ -141,7 +141,7 @@ class TestRunnerSelectionTest(unittest.TestCase):
 
         expected = {
             "empty": ([], []),
-            "zcc": (["zcc"], [methods[2]]),
+            "zcc": (["zcc"], methods[2:]),
             "zia": (["zia"], methods[:2]),
             "zscaler": (["zcc", "zia"], methods),
         }

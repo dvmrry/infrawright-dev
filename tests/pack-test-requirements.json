@@ -346,9 +346,9 @@
     },
     {
       "prefix": "tests.test_zia_transform_cohort_catalog.ZiaTransformCohortCatalogTest.test_selection_rejects_duplicates_and_wrong_product.",
-      "packs": ["zcc", "zia"],
+      "packs": ["zcc"],
       "shared": [],
-      "reason": "The cross-product validation names both committed ZIA and ZCC registry resources."
+      "reason": "The wrong-product branch loads a committed ZCC registry resource; the duplicate-input branch exits before registry access."
     },
     {
       "prefix": "tests.test_zpa_provider_evidence.",
