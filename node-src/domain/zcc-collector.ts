@@ -28,6 +28,26 @@ const UTF8_DECODER = new TextDecoder("utf-8", {
   // json.loads on an already-decoded string.
   ignoreBOM: true,
 });
+const TYPED_ARRAY_PROTOTYPE = Object.getPrototypeOf(
+  Uint8Array.prototype,
+) as object;
+const TYPED_ARRAY_BUFFER_GETTER = Object.getOwnPropertyDescriptor(
+  TYPED_ARRAY_PROTOTYPE,
+  "buffer",
+)?.get;
+const TYPED_ARRAY_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
+  TYPED_ARRAY_PROTOTYPE,
+  "byteLength",
+)?.get;
+const ARRAY_BUFFER_DETACHED_GETTER = Object.getOwnPropertyDescriptor(
+  ArrayBuffer.prototype,
+  "detached",
+)?.get;
+const ARRAY_BUFFER_RESIZABLE_GETTER = Object.getOwnPropertyDescriptor(
+  ArrayBuffer.prototype,
+  "resizable",
+)?.get;
+const TYPED_ARRAY_SET = Uint8Array.prototype.set;
 
 export interface ZccOneApiEndpoints {
   readonly audience: "https://api.zscaler.com";
@@ -87,8 +107,8 @@ function inertRecord(value: unknown, code: string): Readonly<Record<string, unkn
   if (
     typeof value !== "object"
     || value === null
-    || Array.isArray(value)
     || utilTypes.isProxy(value)
+    || Array.isArray(value)
   ) {
     return fail(code, "ZCC collector input must be plain inert data");
   }
@@ -97,6 +117,16 @@ function inertRecord(value: unknown, code: string): Readonly<Record<string, unkn
     return fail(code, "ZCC collector input must be plain inert data");
   }
   return value as Readonly<Record<string, unknown>>;
+}
+
+function intrinsicGetter<T>(
+  getter: ((this: unknown) => unknown) | undefined,
+  receiver: unknown,
+): T {
+  if (getter === undefined) {
+    throw new TypeError("required Node 24 intrinsic is unavailable");
+  }
+  return Reflect.apply(getter, receiver, []) as T;
 }
 
 function inertKeys(
@@ -232,7 +262,7 @@ function dataRequest(
   });
 }
 
-/** Pure retry schedule matching the Python collector's 429 policy. */
+/** Pure bounded retry schedule for the collector's accepted decimal syntax. */
 export function zccCollectorRetryDelayMs(
   attempt: number,
   retryAfter: string | null | undefined,
@@ -275,7 +305,54 @@ class ResponseBudget {
   }
 }
 
-function snapshotResponse(value: unknown): {
+function snapshotTransportBody(body: unknown): Uint8Array {
+  const code = "INVALID_ZCC_COLLECTOR_RESPONSE";
+  if (
+    typeof body !== "object"
+    || body === null
+    || utilTypes.isProxy(body)
+    || !utilTypes.isUint8Array(body)
+  ) {
+    return fail(code, "ZCC transport response is invalid");
+  }
+  const prototype = Object.getPrototypeOf(body) as unknown;
+  if (prototype !== Uint8Array.prototype && prototype !== Buffer.prototype) {
+    return fail(code, "ZCC transport response is invalid");
+  }
+
+  const backing = intrinsicGetter<unknown>(TYPED_ARRAY_BUFFER_GETTER, body);
+  if (
+    utilTypes.isSharedArrayBuffer(backing)
+    || !utilTypes.isArrayBuffer(backing)
+  ) {
+    return fail(code, "ZCC transport response is invalid");
+  }
+  if (
+    intrinsicGetter<boolean>(ARRAY_BUFFER_DETACHED_GETTER, backing)
+    || intrinsicGetter<boolean>(ARRAY_BUFFER_RESIZABLE_GETTER, backing)
+  ) {
+    return fail(code, "ZCC transport response is invalid");
+  }
+
+  const byteLength = intrinsicGetter<number>(
+    TYPED_ARRAY_BYTE_LENGTH_GETTER,
+    body,
+  );
+  if (!Number.isSafeInteger(byteLength) || byteLength < 0) {
+    return fail(code, "ZCC transport response is invalid");
+  }
+  if (byteLength > MAX_BODY_BYTES) {
+    return fail(
+      "ZCC_COLLECTOR_RESPONSE_LIMIT",
+      "ZCC response exceeds the body limit",
+    );
+  }
+  const copy = new Uint8Array(byteLength);
+  Reflect.apply(TYPED_ARRAY_SET, copy, [body]);
+  return copy;
+}
+
+function uncheckedSnapshotResponse(value: unknown): {
   readonly body: Uint8Array;
   readonly retryAfter: string | null | undefined;
   readonly status: number;
@@ -302,14 +379,6 @@ function snapshotResponse(value: unknown): {
     !Number.isSafeInteger(status)
     || (status as number) < 100
     || (status as number) > 599
-    || !(
-      Buffer.isBuffer(body)
-      || (
-        body instanceof Uint8Array
-        && !utilTypes.isProxy(body)
-        && Object.getPrototypeOf(body) === Uint8Array.prototype
-      )
-    )
     || (
       retryAfter !== undefined
       && retryAfter !== null
@@ -322,14 +391,35 @@ function snapshotResponse(value: unknown): {
   ) {
     return fail(code, "ZCC transport response is invalid");
   }
-  if (body.byteLength > MAX_BODY_BYTES) {
-    return fail("ZCC_COLLECTOR_RESPONSE_LIMIT", "ZCC response exceeds the body limit");
-  }
   return Object.freeze({
-    body: Uint8Array.from(body),
+    body: snapshotTransportBody(body),
     retryAfter: retryAfter as string | null | undefined,
     status: status as number,
   });
+}
+
+function snapshotResponse(value: unknown): {
+  readonly body: Uint8Array;
+  readonly retryAfter: string | null | undefined;
+  readonly status: number;
+} {
+  try {
+    return uncheckedSnapshotResponse(value);
+  } catch (error: unknown) {
+    if (
+      error instanceof ProcessFailure
+      && error.code === "ZCC_COLLECTOR_RESPONSE_LIMIT"
+    ) {
+      return fail(
+        "ZCC_COLLECTOR_RESPONSE_LIMIT",
+        "ZCC response exceeds the body limit",
+      );
+    }
+    return fail(
+      "INVALID_ZCC_COLLECTOR_RESPONSE",
+      "ZCC transport response is invalid",
+    );
+  }
 }
 
 function parseResponseBody(body: Uint8Array): unknown {

@@ -442,6 +442,187 @@ test("body, overall, item, and canonical output size limits are fail-closed", as
   );
 });
 
+test("response snapshots use typed-array slots without caller hooks", async () => {
+  const privateValue = "snapshot-private-value-314159";
+  for (const source of [
+    Buffer.from("[]", "utf8"),
+    new Uint8Array(Buffer.from("[]", "utf8")),
+  ]) {
+    let trapCalls = 0;
+    const body = new Proxy(source, {
+      get() {
+        trapCalls += 1;
+        throw new ProcessFailure({
+          category: "io",
+          code: "PRIVATE_PROXY_GET",
+          details: [{
+            code: "PRIVATE",
+            message: privateValue,
+            path: privateValue,
+          }],
+          message: privateValue,
+        });
+      },
+      getOwnPropertyDescriptor() {
+        trapCalls += 1;
+        throw new Error(privateValue);
+      },
+      getPrototypeOf() {
+        trapCalls += 1;
+        throw new Error(privateValue);
+      },
+      ownKeys() {
+        trapCalls += 1;
+        throw new Error(privateValue);
+      },
+    });
+    const failure = await captureFailure(
+      () => collectZccOneApiResource({
+        cloud: "",
+        resourceType: "zcc_device_cleanup",
+        sleep: () => undefined,
+        transport: () => ({
+          body: body as unknown as Uint8Array,
+          status: 200,
+        }),
+      }),
+      "INVALID_ZCC_COLLECTOR_RESPONSE",
+    );
+    assert.equal(trapCalls, 0);
+    assert.equal(JSON.stringify({
+      details: failure.details,
+      message: failure.message,
+      stack: failure.stack,
+    }).includes(privateValue), false);
+  }
+
+  for (const body of [
+    Buffer.from("[]", "utf8"),
+    new Uint8Array(Buffer.from("[]", "utf8")),
+  ]) {
+    let hookCalls = 0;
+    Object.defineProperty(body, "byteLength", {
+      configurable: true,
+      get() {
+        hookCalls += 1;
+        throw new ProcessFailure({
+          category: "io",
+          code: "PRIVATE_BYTE_LENGTH",
+          message: privateValue,
+        });
+      },
+    });
+    Object.defineProperty(body, Symbol.iterator, {
+      configurable: true,
+      get() {
+        hookCalls += 1;
+        throw new ProcessFailure({
+          category: "io",
+          code: "PRIVATE_ITERATOR",
+          message: privateValue,
+        });
+      },
+    });
+    const result = await collectZccOneApiResource({
+      cloud: "",
+      resourceType: "zcc_device_cleanup",
+      sleep: () => undefined,
+      transport: () => ({ body, status: 200 }),
+    });
+    assert.equal(result.canonical_json, "[]\n");
+    assert.equal(hookCalls, 0);
+  }
+
+  const zeroLength = new Uint8Array(0);
+  let iteratorCalls = 0;
+  Object.defineProperty(zeroLength, Symbol.iterator, {
+    configurable: true,
+    value() {
+      return {
+        next() {
+          iteratorCalls += 1;
+          if (iteratorCalls > 1) {
+            throw new Error(privateValue);
+          }
+          return { done: false, value: 0 };
+        },
+      };
+    },
+  });
+  const zeroFailure = await captureFailure(
+    () => collectZccOneApiResource({
+      cloud: "",
+      resourceType: "zcc_device_cleanup",
+      sleep: () => undefined,
+      transport: () => ({ body: zeroLength, status: 200 }),
+    }),
+    "INVALID_ZCC_COLLECTOR_RESPONSE",
+  );
+  assert.equal(iteratorCalls, 0);
+  assert.equal(JSON.stringify({
+    details: zeroFailure.details,
+    message: zeroFailure.message,
+    stack: zeroFailure.stack,
+  }).includes(privateValue), false);
+});
+
+test("response snapshots reject unstable typed-array backings", async () => {
+  const detachedBuffer = new ArrayBuffer(2);
+  const detachedView = new Uint8Array(detachedBuffer);
+  structuredClone(detachedBuffer, { transfer: [detachedBuffer] });
+
+  const resizableBuffer = new ArrayBuffer(2, { maxByteLength: 4 });
+  const sharedBuffer = new SharedArrayBuffer(2);
+  for (const body of [
+    detachedView,
+    new Uint8Array(resizableBuffer),
+    new Uint8Array(sharedBuffer),
+  ]) {
+    await captureFailure(
+      () => collectZccOneApiResource({
+        cloud: "",
+        resourceType: "zcc_device_cleanup",
+        sleep: () => undefined,
+        transport: () => ({ body, status: 200 }),
+      }),
+      "INVALID_ZCC_COLLECTOR_RESPONSE",
+    );
+  }
+});
+
+test("revoked proxy entry inputs fail with static declared errors", async () => {
+  const privateValue = "revoked-input-private-value-271828";
+  const endpointInput = Proxy.revocable({
+    cloud: privateValue,
+    vanityDomain: privateValue,
+  }, {});
+  endpointInput.revoke();
+  const endpointFailure = await captureFailure(
+    () => deriveZccOneApiEndpoints(endpointInput.proxy),
+    "INVALID_ZCC_ONEAPI_ENDPOINT_INPUT",
+  );
+
+  const collectorInput = Proxy.revocable({
+    cloud: privateValue,
+    resourceType: privateValue,
+    sleep: () => undefined,
+    transport: () => response("[]"),
+  }, {});
+  collectorInput.revoke();
+  const collectorFailure = await captureFailure(
+    () => collectZccOneApiResource(collectorInput.proxy),
+    "INVALID_ZCC_COLLECTOR_INPUT",
+  );
+
+  for (const failure of [endpointFailure, collectorFailure]) {
+    assert.equal(JSON.stringify({
+      details: failure.details,
+      message: failure.message,
+      stack: failure.stack,
+    }).includes(privateValue), false);
+  }
+});
+
 test("large integer tokens, Unicode, and HTML entities remain byte-lossless", async () => {
   const source = '[{"html":"&amp; <b>&#x1F600;</b>","id":900719925474099312345678901234567890,"name":"München 😀"}]';
   const result = await collectZccOneApiResource({

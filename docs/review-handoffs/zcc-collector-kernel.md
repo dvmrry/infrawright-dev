@@ -154,7 +154,9 @@
 - Commands:
   - `npm run typecheck`
   - `npm run check` with Node `v24.15.0`, Unicode `16.0`
-  - bundled Node `v24.14.0`, Unicode `17.0`: `npm run check`
+  - bundled Node `v24.14.0`, Unicode `17.0`: `npm run typecheck`,
+    `npm run build:test`, then
+    `node --test --test-concurrency=2 .node-test/node-tests/*.test.js`
   - `npm run build`
   - `node --test .node-test/node-tests/zcc-collector.test.js`
   - `python3 -m unittest tests.test_zcc_collector_catalog -v`
@@ -164,9 +166,9 @@
     `make PACK_PROFILE=packsets/<profile>.json check`
   - `git diff --check`
 - Relevant output summary:
-  - full Node on each runtime: 685 total, 684 passed, one existing platform
+  - full Node on each runtime: 688 total, 687 passed, one existing platform
     skip, zero failed;
-  - collector/catalog focus: 11/11 Node and 6/6 Python passed;
+  - collector/catalog focus: 14/14 Node on each runtime and 6/6 Python passed;
   - full Python: 1,400 total, 1,399 passed, one opt-in external provider-source
     skip, zero failed;
   - full distribution gates: generated modules validated, JSON tfvars format
@@ -175,14 +177,21 @@
     skip; Zscaler 1,380 passed plus one existing skip;
   - Python canonical-byte differential passed for all five existing fixtures;
   - 50,000-item/51-page boundary, 429 scheduling/exhaustion, malformed and
-    bounded response matrix, large IDs, Unicode/HTML, and value-free failures
-    passed.
+    bounded response matrix, large IDs, Unicode/HTML, proxy/accessor/revoked
+    inputs, unstable byte views, and value-free failures passed.
 - Tests not run and why:
   - no live credentialed ZCC tenant call was authorized or available;
   - no real Node transport exists in this intentionally pure slice.
 
 ## Known Deferrals
 
+- The retry parser intentionally retains its already-reviewed decimal-token
+  grammar. Python `float()` also accepts non-HTTP spellings such as `Infinity`,
+  `nan`, and `1_0`; Node treats those spellings as fallback metadata. These
+  tokens are not valid HTTP `delta-seconds`, and this remediation does not
+  change retry behavior. A future compatibility decision should either freeze
+  the current accepted grammar explicitly or differential-test the broader
+  Python parser surface.
 - Real HTTP/Undici transport, OAuth request body/token exchange, bearer header,
   credential/environment authority, and token lifetime/refresh.
 - Node 24 `proxyEnv`, additive corporate CA trust, redirect policy, abort
@@ -244,3 +253,31 @@
     expansion;
   - proxy/accessor/hidden/symbol response fields and secret-bearing adapter
     failures.
+
+## Adversarial Review Remediation
+
+- Reviewed head: `bbc405940192e0c62a8ba2544969c1d916d6721e`.
+- Blocking finding 1: caller-owned response bodies could reach proxy traps,
+  overridable `byteLength`, iterable copying, detached views, and unnormalized
+  exceptions before the 4 MiB snapshot bound.
+- Remediation 1: response snapshots now reject proxies before branding or
+  reflection, admit only exact Buffer/Uint8Array prototypes, read the backing
+  buffer and byte length through captured typed-array intrinsics, reject
+  shared, detached, and resizable backing stores, enforce the intrinsic length
+  before allocation, and copy with the intrinsic typed-array `set` operation.
+  The complete snapshot boundary maps every exception to a fresh, static
+  `INVALID_ZCC_COLLECTOR_RESPONSE` or intentional
+  `ZCC_COLLECTOR_RESPONSE_LIMIT` failure.
+- Blocking finding 2: revoked option proxies reached `Array.isArray` and
+  escaped as raw TypeError values.
+- Remediation 2: inert record validation rejects proxies before array checks or
+  reflection. Both exported entry points now retain their declared static
+  `INVALID_ZCC_*` taxonomy for revoked proxies.
+- Added regressions: proxy Buffer and Uint8Array traps; own `byteLength` and
+  `Symbol.iterator` accessors; a zero-length view with a hostile unbounded
+  iterator; detached, resizable, and shared backing stores; positive Buffer and
+  Uint8Array snapshots; revoked endpoint and collector inputs; and
+  message/details/stack disclosure checks.
+- Replay request: review the exact post-remediation `HEAD`, with particular
+  attention to intrinsic-slot use, pre-allocation bounds, exception
+  normalization, and the new adversarial tests. No retry behavior changed.
