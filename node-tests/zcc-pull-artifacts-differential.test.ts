@@ -165,6 +165,20 @@ async function cases(): Promise<DifferentialCase[]> {
     }],
     variable_name: "items",
   });
+  output.push({
+    name: "python-lower-snake-and-slug-edges",
+    resource_type: "zcc_forwarding_profile",
+    raw_items: [{
+      id: "edge-lower-1",
+      name: "\u0130",
+      "A\u0897\u03a3Noise": true,
+      "A\u1acf\u03a3Noise": true,
+      "\u0295\u03a3Noise": true,
+      "\ua7ceNoise": true,
+      "\ua7cbNoise": true,
+    }],
+    variable_name: "items",
+  });
   return output;
 }
 
