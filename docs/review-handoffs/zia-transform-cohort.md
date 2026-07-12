@@ -28,7 +28,7 @@
   `catalogs/zia-transform-cohort.v1.json`.
 - Private catalog contract and validator:
   `docs/schemas/transform-resource-cohort.schema.json`,
-  `node-src/contracts/validators.ts`, and
+  `node-src/domain/zia-transform-cohort-validator.ts`, and
   `node-src/domain/zia-transform-cohort.ts`.
 - Existing internal product-neutral kernel seam:
   `node-src/domain/pull-transform.ts` and
@@ -39,8 +39,9 @@
   `tests/test_zia_transform_cohort_catalog.py`.
 - Boundary documentation: `docs/node-process-api.md` and this handoff.
 - Files intentionally left untouched: `engine/transform.py`, the shared public
-  `docs/schemas/transform-catalog.schema.json`, process request/response
-  schemas and dispatch, collectors, HTTP/auth, file materializers/publishers,
+  `docs/schemas/transform-catalog.schema.json`, shared
+  `node-src/contracts/validators.ts`, process request/response schemas and
+  dispatch, collectors, HTTP/auth, file materializers/publishers,
   import/move/lookup artifact compilers, adoption/oracle code, Terraform
   execution, pack metadata/provider schema/overrides, and release scripts.
 
@@ -84,7 +85,9 @@
 
 - Expected behavior change: private callers can transform already-pulled JSON
   for exactly the three selected ZIA resource types using the committed
-  catalog and exact catalog-byte assertion.
+  catalog's exact semantics. Differently serialized semantic copies validate
+  and resolve to the canonical embedded snapshot; serialized-byte freshness is
+  an authoring-time gate only.
 - `zia_traffic_forwarding_static_ip` preserves finite lossless float semantics;
   `zia_url_categories` canonicalizes provider `set(string)` fields and applies
   its authored all-string `urls` sort; `zia_admin_roles` coerces string-map
@@ -114,19 +117,21 @@
   evidence matcher or readiness classification is changed.
 - Source precedence/provenance must remain explicit: Python pack/registry/
   provider-schema/override loaders remain authoritative at authoring time;
-  Node accepts only the embedded semantic contract plus its exact committed
-  byte digest.
-- Ambiguity must stay classified instead of being coerced to success: wrong
-  catalog bytes/semantics, resource types outside the exact three, unsupported
-  schema encodings, native JavaScript numeric input, non-finite lossless
-  numeric input, malformed set members, and unexpected fields fail or report
-  explicitly.
+  Node schema-validates and accepts only exact semantic copies of the embedded
+  contract, then returns the canonical embedded snapshot. Generator freshness
+  and the test-only known digest bind committed bytes separately.
+- Ambiguity must stay classified instead of being coerced to success: malformed
+  or semantically changed catalogs, resource types outside the exact three,
+  unsupported schema encodings, native JavaScript numeric input, non-finite
+  lossless numeric input, malformed set members, and unexpected fields fail or
+  report explicitly.
 - Provider-readiness counts must stay explainable: N/A; no counts change.
 - Adoption safety invariants: no adoption/oracle operation is introduced and no
   provider or Terraform process runs.
 - Public closure: `transformPullItems` still accepts only the exact embedded
   ZCC catalog. The ZIA function is not imported by process dispatch or the
-  release bundle.
+  release bundle, and its schema is not registered with the shared process AJV
+  validator graph.
 - Default authoring closure: default `engine.transform_catalog` generation
   still rejects extra computed-only top-level attributes and every override
   key outside its original encoded vocabulary. Cohort-only allowances are
@@ -145,14 +150,40 @@
 - `python3 -m engine.transform_catalog --product zcc --check
   catalogs/zcc-transform-catalog.v1.json`: exact byte gate passed.
 - Explicit three-resource ZIA `--check`: exact byte gate passed.
-- Committed ZIA catalog SHA-256 matches the pinned Node constant.
+- Committed ZIA catalog SHA-256 matches the test-only authoring fixture.
 - The existing shared ZCC transform schema has zero diff from the base.
 - No process-dispatch or release-script path imports the ZIA cohort.
 - Focused real-Python differential: complete transform result and embedded
   `render_tfvars` bytes match for all six committed cases.
+- Findings 2/3 remediation: `npm run typecheck` and `npm run build` passed;
+  the focused Node semantic/byte/differential/bundle suite passed 5/5; the
+  focused Python ZIA/ZCC catalog suites passed 27/27; both catalog freshness
+  checks and the vendor-boundary audit passed.
 - `git diff --check`: passed.
 - Tests not run and why: no live tenant/provider/Terraform tests are applicable
   to this pure private transform slice.
+
+## Initial Review Findings / Remediation
+
+- Finding 2: the first checkpoint accepted a caller-supplied
+  `catalogSha256`, but the caller could assert the known value independently of
+  the object supplied. Remediation: remove the parameter and production
+  constant. Runtime closure is now exactly the contract it can prove: AJV
+  validation plus semantic equality with the embedded catalog, returning only
+  the canonical embedded snapshot. A regression accepts a minified semantic
+  copy, while mutated semantics still fail. Exact generator bytes and the
+  known SHA-256 remain authoring-time tests.
+- Finding 3: the first checkpoint registered the private cohort schema in
+  `node-src/contracts/validators.ts`, making it reachable from the production
+  process bundle even though no operation used it. Remediation: a local AJV
+  instance, imported only by `zia-transform-cohort.ts`, reuses the established
+  transform-schema definitions and validates the private schema. The shared
+  validator returns to its base state. A real esbuild production-entry test
+  proves the cohort module, validator, catalog, schema, kind, schema ID, and
+  unique source markers are absent from both the bundle graph and output.
+- Finding 1 concerns shared snake-case semantics. It is deliberately not
+  addressed on this checkpoint; it will land separately, after which this
+  branch must rebase and receive a changed-surface review.
 
 ## Known Deferrals
 
@@ -183,9 +214,11 @@
 - Compare all-string versus mixed `urls` ordering, provider-set Unicode/null/
   duplicate/scalar behavior, map scalar/large-integer/prototype-like keys, and
   finite float spelling directly to live Python output.
-- Verify the catalog SHA assertion and exact semantic gate reject independent
-  mutations, and that an unsupported fourth ZIA type cannot enter the kernel.
+- Verify authoring-time byte freshness is not presented as runtime evidence;
+  the exact semantic gate must canonicalize differently serialized copies,
+  reject mutations, and keep an unsupported fourth ZIA type out of the kernel.
 - Confirm native/non-finite numbers and malformed collection members fail
   closed without adding a public parser or process boundary.
-- Confirm no production import path reaches `zia-transform-cohort.ts`, and the
-  release bundle remains unchanged.
+- Confirm the shared validator has no cohort import/registration and the real
+  production-entry bundle contains none of the private cohort inputs or unique
+  markers.

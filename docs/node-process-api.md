@@ -939,6 +939,12 @@ source-to-value seam: it accepts already-pulled JSON and adds no process
 operation, collector, publisher, Terraform execution, adoption/oracle path,
 HTTP client, or release-bundle surface.
 
+The private runtime gate is semantic, not a caller-attested byte check: it
+schema-validates a candidate, requires exact equality with the embedded
+contract, and returns the canonical embedded snapshot. Catalog regeneration,
+the committed-file freshness check, and its test-only known SHA-256 retain the
+exact serialized-byte gate at authoring time.
+
 Catalog regeneration structurally gates changes to the declarative provider
 projection, reachable overrides, and serialized compatibility tables: any such
 change produces reviewed catalog bytes. It does not prove universal parity

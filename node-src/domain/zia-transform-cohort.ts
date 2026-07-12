@@ -1,9 +1,5 @@
 import embeddedCatalogJson from "../../catalogs/zia-transform-cohort.v1.json" with { type: "json" };
 
-import {
-  schemaErrorDetails,
-  validateTransformResourceCohort,
-} from "../contracts/validators.js";
 import { pythonJsonEqual } from "../json/python-equality.js";
 import { sortedStrings } from "../json/python-compatible.js";
 import { ProcessFailure } from "./errors.js";
@@ -16,6 +12,10 @@ import {
   type TransformCatalog,
   type TransformCatalogResource,
 } from "./transform-catalog.js";
+import {
+  privateZiaTransformCohortErrorDetails,
+  validatePrivateZiaTransformCohort,
+} from "./zia-transform-cohort-validator.js";
 
 export type ZiaTransformCohortResourceType =
   | "zia_admin_roles"
@@ -30,9 +30,6 @@ export interface ZiaTransformCohortCatalog {
   readonly source_files: readonly string[];
   readonly sources_sha256: string;
 }
-
-export const ZIA_TRANSFORM_COHORT_SHA256 =
-  "f6046978afeb80eab82fad183892011cec61aa076bc640efefa4a3ca7b04caf0";
 
 const ZIA_RESOURCE_TYPES = [
   "zia_admin_roles",
@@ -56,7 +53,7 @@ function invalidCatalog(message: string): never {
     code: "INVALID_ZIA_TRANSFORM_COHORT",
     category: "domain",
     message,
-    details: schemaErrorDetails(validateTransformResourceCohort.errors),
+    details: privateZiaTransformCohortErrorDetails(),
   });
 }
 
@@ -71,7 +68,7 @@ function assertSortedUnique(values: readonly string[], label: string): void {
 }
 
 function validatedCatalog(candidate: unknown): ZiaTransformCohortCatalog {
-  if (!validateTransformResourceCohort(candidate)) {
+  if (!validatePrivateZiaTransformCohort(candidate)) {
     invalidCatalog("ZIA transform cohort does not match schema version 1");
   }
   const catalog = candidate as ZiaTransformCohortCatalog;
@@ -121,18 +118,10 @@ export function requireSupportedZiaTransformCohortCatalog(
  */
 export function transformZiaCohortItems(options: {
   readonly catalog: ZiaTransformCohortCatalog;
-  readonly catalogSha256: string;
   readonly rawItems: readonly unknown[];
   readonly resourceType: string;
 }): PullTransformResult {
   const catalog = requireSupportedZiaTransformCohortCatalog(options.catalog);
-  if (options.catalogSha256 !== ZIA_TRANSFORM_COHORT_SHA256) {
-    throw new ProcessFailure({
-      code: "UNSUPPORTED_ZIA_TRANSFORM_COHORT",
-      category: "domain",
-      message: "transform requires the exact committed ZIA cohort bytes",
-    });
-  }
   const resource = catalog.resources.find((entry) => {
     return entry.type === options.resourceType;
   });

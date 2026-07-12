@@ -12,7 +12,6 @@ import rootCatalogSchema from "../../docs/schemas/root-catalog.schema.json" with
 import rootTopologySchema from "../../docs/schemas/root-topology.schema.json" with { type: "json" };
 import savedPlanAssessmentSchema from "../../docs/schemas/saved-plan-assessment.schema.json" with { type: "json" };
 import transformCatalogSchema from "../../docs/schemas/transform-catalog.schema.json" with { type: "json" };
-import transformResourceCohortSchema from "../../docs/schemas/transform-resource-cohort.schema.json" with { type: "json" };
 import zccAdoptionCatalogSchema from "../../docs/schemas/zcc-adoption-catalog.schema.json" with { type: "json" };
 import zccPullArtifactSetSchema from "../../docs/schemas/zcc-pull-artifact-set.schema.json" with { type: "json" };
 import zccPullRefreshArtifactSetSchema from "../../docs/schemas/zcc-pull-refresh-artifact-set.schema.json" with { type: "json" };
@@ -248,7 +247,6 @@ ajv.addSchema(changedPathScopeSchema);
 ajv.addSchema(planRootsSchema);
 ajv.addSchema(savedPlanAssessmentSchema);
 ajv.addSchema(transformCatalogSchema);
-ajv.addSchema(transformResourceCohortSchema);
 ajv.addSchema(zccAdoptionCatalogSchema);
 ajv.addSchema(zccPullArtifactSetSchema);
 ajv.addSchema(zccPullRefreshArtifactSetSchema);
@@ -288,9 +286,6 @@ export const validateSavedPlanAssessment: ValidateFunction = ajv.getSchema(
 ) as ValidateFunction;
 export const validateTransformCatalog: ValidateFunction = ajv.getSchema(
   transformCatalogSchema.$id,
-) as ValidateFunction;
-export const validateTransformResourceCohort: ValidateFunction = ajv.getSchema(
-  transformResourceCohortSchema.$id,
 ) as ValidateFunction;
 export const validateZccAdoptionCatalog: ValidateFunction = ajv.getSchema(
   zccAdoptionCatalogSchema.$id,

@@ -5,15 +5,14 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
+import { buildSync } from "esbuild";
 import { LosslessNumber } from "lossless-json";
 
-import { validateTransformResourceCohort } from "../node-src/contracts/validators.js";
 import { ProcessFailure } from "../node-src/domain/errors.js";
 import {
   loadZiaTransformCohortCatalog,
   requireSupportedZiaTransformCohortCatalog,
   transformZiaCohortItems,
-  ZIA_TRANSFORM_COHORT_SHA256,
 } from "../node-src/domain/zia-transform-cohort.js";
 import { parseDataJsonLosslessly } from "../node-src/json/control.js";
 import { renderPythonLosslessArtifactJson } from "../node-src/json/python-lossless-artifact.js";
@@ -27,6 +26,8 @@ const FIXTURE_PATH = path.join(
   WORKSPACE,
   "node-tests/fixtures/zia-transform-cohort.v1.json",
 );
+const EXPECTED_CATALOG_SHA256 =
+  "f6046978afeb80eab82fad183892011cec61aa076bc640efefa4a3ca7b04caf0";
 
 const PYTHON_ORACLE = String.raw`
 import json
@@ -84,7 +85,6 @@ function copyCatalog(): Record<string, unknown> {
 function transformCase(fixtureCase: FixtureCase) {
   return transformZiaCohortItems({
     catalog: loadZiaTransformCohortCatalog(),
-    catalogSha256: ZIA_TRANSFORM_COHORT_SHA256,
     rawItems: fixtureCase.raw_items,
     resourceType: fixtureCase.resource_type,
   });
@@ -94,10 +94,9 @@ test("embedded ZIA cohort is exact, source-bound, closed, and immutable", () => 
   const text = readFileSync(CATALOG_PATH, "utf8");
   assert.equal(
     createHash("sha256").update(text).digest("hex"),
-    ZIA_TRANSFORM_COHORT_SHA256,
+    EXPECTED_CATALOG_SHA256,
   );
   const catalog = loadZiaTransformCohortCatalog();
-  assert.equal(validateTransformResourceCohort(catalog), true);
   assert.deepEqual(
     catalog.resources.map((resource) => resource.type),
     [
@@ -116,16 +115,14 @@ test("embedded ZIA cohort is exact, source-bound, closed, and immutable", () => 
   }, TypeError);
 });
 
-test("catalog byte and semantic gates fail closed", () => {
-  assert.throws(
-    () => transformZiaCohortItems({
-      catalog: loadZiaTransformCohortCatalog(),
-      catalogSha256: "0".repeat(64),
-      rawItems: [],
-      resourceType: "zia_admin_roles",
-    }),
-    expectProcessFailure("UNSUPPORTED_ZIA_TRANSFORM_COHORT"),
+test("catalog semantics fail closed while serialization stays authoring-only", () => {
+  const committed = readFileSync(CATALOG_PATH, "utf8");
+  const minified = JSON.stringify(JSON.parse(committed));
+  assert.notEqual(`${minified}\n`, committed);
+  const accepted = requireSupportedZiaTransformCohortCatalog(
+    JSON.parse(minified),
   );
+  assert.equal(accepted, loadZiaTransformCohortCatalog());
 
   const mutated = copyCatalog();
   mutated.sources_sha256 = "0".repeat(64);
@@ -231,7 +228,6 @@ test("unsupported resources and unsafe numeric inputs fail closed", () => {
   assert.throws(
     () => transformZiaCohortItems({
       catalog: loadZiaTransformCohortCatalog(),
-      catalogSha256: ZIA_TRANSFORM_COHORT_SHA256,
       rawItems: [],
       resourceType: "zia_url_filtering_rules",
     }),
@@ -242,7 +238,6 @@ test("unsupported resources and unsafe numeric inputs fail closed", () => {
     assert.throws(
       () => transformZiaCohortItems({
         catalog: loadZiaTransformCohortCatalog(),
-        catalogSha256: ZIA_TRANSFORM_COHORT_SHA256,
         rawItems: [{
           id: "17",
           ipAddress: "192.0.2.17",
@@ -257,7 +252,6 @@ test("unsupported resources and unsafe numeric inputs fail closed", () => {
   assert.throws(
     () => transformZiaCohortItems({
       catalog: loadZiaTransformCohortCatalog(),
-      catalogSha256: ZIA_TRANSFORM_COHORT_SHA256,
       rawItems: [{
         configuredName: "Malformed Set",
         dbCategorizedUrls: [{}],
@@ -267,4 +261,40 @@ test("unsupported resources and unsafe numeric inputs fail closed", () => {
     }),
     /set\(string\) coercion produced a non-string provider value/,
   );
+});
+
+test("private cohort contracts are absent from the production process bundle", () => {
+  const build = buildSync({
+    bundle: true,
+    entryPoints: ["node-src/process/main.ts"],
+    format: "esm",
+    logLevel: "silent",
+    metafile: true,
+    platform: "node",
+    target: "node24",
+    write: false,
+  });
+  const inputs = Object.keys(build.metafile?.inputs ?? {});
+  for (const privateInput of [
+    "catalogs/zia-transform-cohort.v1.json",
+    "docs/schemas/transform-resource-cohort.schema.json",
+    "node-src/domain/zia-transform-cohort-validator.ts",
+    "node-src/domain/zia-transform-cohort.ts",
+  ]) {
+    assert.equal(
+      inputs.some((input) => input.endsWith(privateInput)),
+      false,
+      privateInput,
+    );
+  }
+
+  const bundle = build.outputFiles?.[0]?.text ?? "";
+  for (const privateMarker of [
+    "infrawright.transform_resource_cohort",
+    "https://infrawright.local/schemas/transform-resource-cohort.schema.json",
+    "zia/overrides/zia_traffic_forwarding_static_ip.json",
+    "zia/overrides/zia_url_categories.json",
+  ]) {
+    assert.equal(bundle.includes(privateMarker), false, privateMarker);
+  }
 });
