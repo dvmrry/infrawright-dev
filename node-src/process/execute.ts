@@ -18,6 +18,7 @@ import {
   validateZccPullRefreshAcknowledgement,
   validateZccPullRefreshMaterialization,
   validateZccPullCollection,
+  validateZccPullCollectionParity,
 } from "../contracts/validators.js";
 import {
   loadBoundAssessmentRootCatalog,
@@ -65,6 +66,10 @@ import { withPublisherGuard } from "../io/publisher-guard.js";
 import { collectZccPullOperation } from "../domain/zcc-pull-collection.js";
 import type { ZccCollectionChildRunnerOptions } from "../io/zcc-collection-child-runner.js";
 import { zccPullCollectionOperationResultErrors } from "../contracts/zcc-pull-collection-semantics.js";
+import { compareZccPullCollectionOperation } from "../domain/zcc-pull-collection-parity.js";
+import {
+  zccPullCollectionParityOperationResultErrors,
+} from "../contracts/zcc-pull-collection-parity-semantics.js";
 import type {
   ProcessRequest,
   ProcessSuccessResponse,
@@ -77,6 +82,24 @@ function resolveContextPath(workspace: string, candidate: string): string {
 }
 
 function copyRequest(request: ProcessRequest): ProcessRequest {
+  if (request.operation === "compare_zcc_pull_collection") {
+    return {
+      kind: request.kind,
+      schema_version: request.schema_version,
+      request_id: request.request_id,
+      operation: "compare_zcc_pull_collection",
+      context: {
+        node_workspace: request.context.node_workspace,
+        python_before_workspace: request.context.python_before_workspace,
+        python_after_workspace: request.context.python_after_workspace,
+      },
+      input: {
+        reference: "python_stability_window",
+        tenant: request.input.tenant,
+        receipts: structuredClone(request.input.receipts),
+      },
+    };
+  }
   const base = {
     kind: request.kind,
     schema_version: request.schema_version,
@@ -283,6 +306,36 @@ export async function executeRequest(
           ...dependencies.zccAdoptionOracle.environment,
         }),
       });
+  if (request.operation === "compare_zcc_pull_collection") {
+    const result = await compareZccPullCollectionOperation({
+      context: request.context,
+      reference: request.input.reference,
+      tenant: request.input.tenant,
+      receipts: request.input.receipts,
+    });
+    const bindingErrors = zccPullCollectionParityOperationResultErrors(request, result);
+    if (!validateZccPullCollectionParity(result) || bindingErrors.length > 0) {
+      throw new ProcessFailure({
+        code: "INVALID_OPERATION_RESULT",
+        category: "internal",
+        message: "compare_zcc_pull_collection produced a result outside its versioned contract",
+        details: [
+          ...schemaErrorDetails(validateZccPullCollectionParity.errors),
+          ...schemaErrorDetails(bindingErrors),
+        ],
+      });
+    }
+    return {
+      kind: "infrawright.process_response",
+      schema_version: 1,
+      request_id: request.request_id,
+      operation: "compare_zcc_pull_collection",
+      status: "ok",
+      diagnostics: [],
+      result,
+      error: null,
+    };
+  }
   if (
     [
       request.context.workspace,

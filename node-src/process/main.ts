@@ -70,6 +70,7 @@ function requestIdentity(value: unknown): {
     | "materialize_pull_artifacts"
     | "acknowledge_pull_refresh"
     | "collect_zcc_pull"
+    | "compare_zcc_pull_collection"
     | null;
 } {
   if (!isObject(value)) {
@@ -95,6 +96,7 @@ function requestIdentity(value: unknown): {
       || value.operation === "materialize_pull_artifacts"
       || value.operation === "acknowledge_pull_refresh"
       || value.operation === "collect_zcc_pull"
+      || value.operation === "compare_zcc_pull_collection"
       ? value.operation
       : null,
   };
@@ -117,6 +119,7 @@ function errorResponse(options: {
     | "materialize_pull_artifacts"
     | "acknowledge_pull_refresh"
     | "collect_zcc_pull"
+    | "compare_zcc_pull_collection"
     | null;
 }): ProcessErrorResponse {
   return {
@@ -182,7 +185,11 @@ function successExitCode(response: ProcessSuccessResponse): number {
     || response.operation === "seed_pull_refresh_parity"
     || response.operation === "compare_pull_artifacts"
     || response.operation === "compare_adoption_artifacts"
+    || response.operation === "compare_zcc_pull_collection"
   ) {
+    if (response.operation === "compare_zcc_pull_collection") {
+      return response.result.status === "equal" ? 0 : 3;
+    }
     return response.result.status === "review_required" ? 3 : 0;
   }
   if (response.operation !== "assess_saved_plans") {

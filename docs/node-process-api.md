@@ -13,9 +13,10 @@ assertion-bound imports-last ZCC refresh publisher. They establish
 an explicit ZCC post-apply acknowledgement/retirement operation and a public,
 read-only provider-observed ZCC adoption compiler and digest-only adoption
 parity operation, plus a protected-assertion provider-observed adoption
-materializer. Together these establish the
-process protocol, deterministic JSON boundary, packaging, and differential
-validation pattern for later migration slices.
+materializer. The exact-five ZCC pull collection comparer adds a bounded
+Python-before/Node/Python-after stability window for raw collection bytes.
+Together these establish the process protocol, deterministic JSON boundary,
+packaging, and differential validation pattern for later migration slices.
 
 ## Runtime and Distribution
 
@@ -101,6 +102,10 @@ the requested tenant and resource type. `compare_adoption_artifacts` maps only
 `bootstrap` plus `reference: "materialized"` to
 `infrawright.zcc_adoption_artifact_parity`; mode, reference, tenant, and
 resource must all agree with the retained request.
+`compare_zcc_pull_collection` maps only `python_stability_window` to
+`infrawright.zcc_pull_collection_parity`; the retained request must match the
+result tenant, frozen collector-source digest, exact five resources, logical
+paths, and every Node receipt tuple.
 `materialize_adoption_artifacts` maps only bootstrap
 `create_or_verify_exact` to
 `infrawright.zcc_adoption_artifact_materialization`; mode, policy, tenant, and
@@ -358,6 +363,83 @@ join the collection receipt's `artifact.path`, `artifact.sha256`, and
 `artifact.size_bytes` to the compiler result's corresponding source fields.
 That join proves the compiled result describes the collected bytes rather than
 a same-path replacement published between requests.
+
+### ZCC pull collection stability-window comparison
+
+`compare_zcc_pull_collection` is a read-only artifact comparison operation for
+a protected ADO Python-before/Node/Python-after lane. It does not execute
+Python, make provider requests, capture a transcript, publish an artifact, or
+accept a caller-selected evidence class. Its request context contains exactly:
+
+- `python_before_workspace`
+- `node_workspace`
+- `python_after_workspace`
+
+Each value must be an existing canonical absolute non-root directory. The
+three directories must be pairwise non-nested and physically disjoint. The
+input contains exactly `reference: "python_stability_window"`, one ASCII tenant
+of at most 255 characters, and five complete `infrawright.zcc_pull_collection`
+receipts in the frozen catalog order. The request cannot supply a file path,
+URL, build/runtime identity, hash outside those receipts, status, count,
+qualification conclusion, or partial resource scope.
+
+The protected ADO lane is:
+
+1. Collect all five resources with authoritative Python into a private first
+   workspace and require Python exit `0` plus exact-five file completeness.
+2. Collect the same five resources through public `collect_zcc_pull`, in
+   frozen order, into a private second workspace and retain the five validated
+   collection receipts.
+3. Collect all five resources with authoritative Python again into a private
+   third workspace and require Python exit `0` plus exact-five completeness.
+4. Invoke `compare_zcc_pull_collection` with those three workspaces and the
+   five Node receipts. Do not mutate, restore, or reuse any workspace until the
+   comparer exits.
+
+For every workspace the comparer derives only
+`pulls/<tenant>/<resource_type>.json`. It requires all 15 paths to be regular
+non-symlink files no larger than 4 MiB; reads use fatal UTF-8, duplicate-key-
+closed lossless JSON, an exact top-level list, at most 50,000 items, and exact
+Python canonical bytes. Before reading a file, the transaction binds open
+handles and full device/inode/size/mtime/ctime versions for each workspace
+root, its `pulls` directory, and its tenant directory: nine directory bindings
+in total. It rejects reused physical identities across those nine directories
+and all 15 files, joins the Node files to every receipt coordinate and tuple,
+then re-reads and rechecks the complete window. After all asynchronous reads,
+one final synchronous, no-yield checkpoint revalidates every directory handle,
+path, canonical name, and version plus every file path, canonical name, and
+version; report construction is synchronous after that checkpoint.
+
+These checks close same-event-loop callback scheduling gaps and fail closed on
+observed replacement or mutation. They do not create an atomic filesystem
+snapshot against any concurrent writer, including another process or worker
+thread, so the three private job-owned workspaces must remain quiescent until
+the comparer exits. The bounded reader
+clears scratch and untransferred collected chunks on abnormal exits; its UTF-8
+helper also clears the byte snapshot it owns after decoding. The raw-byte
+helper transfers ownership of its returned buffer to its caller. These are
+best-effort mutable-buffer controls; JavaScript strings retain the runtime's
+ordinary lifetime.
+
+The standalone result is `infrawright.zcc_pull_collection_parity` v1. It binds
+the fixed `catalog_sources_sha256` and emits only the tenant, logical resource
+paths, before/Node/after `{sha256,size_bytes,item_count}` tuples, derived
+resource statuses, and derived top-level counts/status. A resource is
+`unstable_reference` whenever Python-before differs from Python-after in any
+tuple field, regardless of the Node tuple. Otherwise it is `equal` only when
+Node matches the stable Python tuple and `different` when it does not. Any
+unstable resource gives the whole report `unstable_reference`; otherwise any
+difference gives `different`. Exact equality exits `0`; either finding exits
+`3`. Request/domain failures exit `2`; I/O/internal failures exit `1`.
+
+Empty lists can compare equal, but the report deliberately makes no live-shape
+coverage, authentication, runtime identity, executor qualification, or
+cutover claim. Its SHA-256 values are content joins, not report authenticity.
+ADO must provide the integrity and provenance of the three protected
+workspaces, retained requests/receipts, process bundle, and stored report using
+its authenticated artifact handling and access controls. Downstream must
+validate both the standalone schema/custom semantics and the process request-
+result joins; parsing a structurally valid report alone is insufficient.
 
 ### ZCC bootstrap artifact compilation
 
@@ -1204,8 +1286,8 @@ Exit status is:
   adoption publication, complete refresh publication, an awaiting-apply refresh
   receipt, a retired trusted acknowledgement, or a clean/tolerated assessment;
 - `3`: schema-valid review-required bootstrap or refresh artifacts, a
-  review-required refresh seed, a materialized parity difference, or a blocked
-  assessment;
+  review-required refresh seed, a materialized parity difference, a ZCC pull
+  collection difference or unstable Python reference, or a blocked assessment;
 - `2`: malformed request, deployment, catalog, or domain selection;
 - `1`: a schema-valid assessment error, indeterminate publication, or another
   I/O/internal host failure.

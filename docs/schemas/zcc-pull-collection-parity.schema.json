@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infrawright.local/schemas/zcc-pull-collection-parity.schema.json",
+  "title": "ZCC Pull Collection Parity",
+  "$comment": "Structural validation is insufficient: consumers must also run the custom x-infrawright-zcc-pull-collection-parity-semantics checks. This report compares artifacts only; it is not authenticated provenance or cutover qualification.",
+  "type": "object",
+  "x-infrawright-zcc-pull-collection-parity-semantics": true,
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_version",
+    "reference",
+    "product",
+    "catalog_sources_sha256",
+    "tenant",
+    "status",
+    "counts",
+    "resources"
+  ],
+  "properties": {
+    "kind": { "const": "infrawright.zcc_pull_collection_parity" },
+    "schema_version": { "const": 1 },
+    "reference": { "const": "python_stability_window" },
+    "product": { "const": "zcc" },
+    "catalog_sources_sha256": {
+      "const": "d4b8cbef8294e8cb7fd5b17b6efb120b5f8bdc09de8c10e506763547748b11fc"
+    },
+    "tenant": {
+      "type": "string",
+      "maxLength": 255,
+      "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+    },
+    "status": {
+      "enum": ["equal", "different", "unstable_reference"]
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "equal", "different", "unstable_reference"],
+      "properties": {
+        "total": { "const": 5 },
+        "equal": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "different": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "unstable_reference": { "type": "integer", "minimum": 0, "maximum": 5 }
+      }
+    },
+    "resources": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "prefixItems": [
+        { "$ref": "#/$defs/deviceCleanup" },
+        { "$ref": "#/$defs/failopenPolicy" },
+        { "$ref": "#/$defs/forwardingProfile" },
+        { "$ref": "#/$defs/trustedNetwork" },
+        { "$ref": "#/$defs/webPrivacy" }
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "tuple": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "size_bytes", "item_count"],
+      "properties": {
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "size_bytes": { "type": "integer", "minimum": 0, "maximum": 4194304 },
+        "item_count": { "type": "integer", "minimum": 0, "maximum": 50000 }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource_type", "path", "before", "node", "after", "status"],
+      "properties": {
+        "resource_type": {
+          "$ref": "zcc-pull-artifact-set.schema.json#/$defs/resourceType"
+        },
+        "path": { "type": "string", "pattern": "^pulls/[^/]+/zcc_[a-z_]+\\.json$" },
+        "before": { "$ref": "#/$defs/tuple" },
+        "node": { "$ref": "#/$defs/tuple" },
+        "after": { "$ref": "#/$defs/tuple" },
+        "status": { "enum": ["equal", "different", "unstable_reference"] }
+      }
+    },
+    "deviceCleanup": {
+      "allOf": [
+        { "$ref": "#/$defs/resource" },
+        { "type": "object", "properties": { "resource_type": { "const": "zcc_device_cleanup" } } }
+      ]
+    },
+    "failopenPolicy": {
+      "allOf": [
+        { "$ref": "#/$defs/resource" },
+        { "type": "object", "properties": { "resource_type": { "const": "zcc_failopen_policy" } } }
+      ]
+    },
+    "forwardingProfile": {
+      "allOf": [
+        { "$ref": "#/$defs/resource" },
+        { "type": "object", "properties": { "resource_type": { "const": "zcc_forwarding_profile" } } }
+      ]
+    },
+    "trustedNetwork": {
+      "allOf": [
+        { "$ref": "#/$defs/resource" },
+        { "type": "object", "properties": { "resource_type": { "const": "zcc_trusted_network" } } }
+      ]
+    },
+    "webPrivacy": {
+      "allOf": [
+        { "$ref": "#/$defs/resource" },
+        { "type": "object", "properties": { "resource_type": { "const": "zcc_web_privacy" } } }
+      ]
+    }
+  }
+}

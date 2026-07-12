@@ -240,6 +240,9 @@ async function consumeStableFile(options: {
   collect?: boolean;
   onChunk?: (chunk: Buffer, length: number) => void | Promise<void>;
 }): Promise<ConsumedFile> {
+  let readBuffer: Buffer | null = null;
+  const chunks: Buffer[] = [];
+  let chunksTransferred = false;
   const handle = await openStableFile(
     options.filePath,
     options.readOptions?.followSymlinks ?? false,
@@ -260,8 +263,8 @@ async function consumeStableFile(options: {
     await options.readOptions?.hooks?.afterOpen?.();
 
     const hasher = createHash("sha256");
-    const chunks: Buffer[] = [];
     const buffer = Buffer.allocUnsafe(READ_CHUNK_BYTES);
+    readBuffer = buffer;
     let consumed = 0n;
     while (true) {
       const result = await handle.read(buffer, 0, buffer.length, null);
@@ -293,18 +296,26 @@ async function consumeStableFile(options: {
     ) {
       return fail("FILE_CHANGED", "input file changed while it was read");
     }
-    return {
+    const result = {
       sha256: hasher.digest("hex"),
       size: consumed,
       chunks,
       identity: { dev: before.dev, ino: before.ino },
     };
+    chunksTransferred = true;
+    return result;
   } catch (error: unknown) {
     if (error instanceof ProcessFailure) {
       throw error;
     }
     return fail("READ_FAILED", "unable to read input file");
   } finally {
+    readBuffer?.fill(0);
+    if (!chunksTransferred) {
+      for (const chunk of chunks) {
+        chunk.fill(0);
+      }
+    }
     await handle.close().catch(() => undefined);
   }
 }
@@ -328,17 +339,26 @@ export async function readBoundedUtf8File(
   readonly identity: StableFileIdentity;
 }> {
   const content = await readBoundedFileBytes(filePath, budget, options);
-  let text: string;
   try {
-    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
-      content.bytes,
-    );
-  } catch {
-    return fail("INVALID_UTF8", "input file is not valid UTF-8", "domain");
+    let text: string;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+        content.bytes,
+      );
+    } catch {
+      return fail("INVALID_UTF8", "input file is not valid UTF-8", "domain");
+    }
+    return { text, digest: content.digest, identity: content.identity };
+  } finally {
+    content.bytes.fill(0);
   }
-  return { text, digest: content.digest, identity: content.identity };
 }
 
+/**
+ * Return a bounded stable byte snapshot. The returned `bytes` buffer is
+ * intentionally caller-owned; callers handling sensitive content must clear
+ * it when their own processing is complete.
+ */
 export async function readBoundedFileBytes(
   filePath: string,
   budget: ReadBudget,
@@ -355,10 +375,21 @@ export async function readBoundedFileBytes(
     collect: true,
   });
   if (result.size > BigInt(bufferConstants.MAX_STRING_LENGTH)) {
+    for (const chunk of result.chunks) {
+      chunk.fill(0);
+    }
     return fail("FILE_LIMIT_EXCEEDED", "input file exceeds the decoder size limit");
   }
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.concat(result.chunks);
+  } finally {
+    for (const chunk of result.chunks) {
+      chunk.fill(0);
+    }
+  }
   return {
-    bytes: Buffer.concat(result.chunks),
+    bytes,
     digest: { sha256: result.sha256, size: result.size },
     identity: result.identity,
   };

@@ -23,6 +23,7 @@ import type {
   ZccPullRefreshParitySeed,
 } from "../domain/zcc-pull-refresh-parity.js";
 import type { ZccPullCollectionReceipt } from "../domain/zcc-pull-collection.js";
+import type { ZccPullCollectionParity } from "../domain/zcc-pull-collection-parity.js";
 
 export interface RootsProcessRequest {
   readonly kind: "infrawright.process_request";
@@ -104,6 +105,23 @@ export interface CollectZccPullProcessRequest {
     readonly publication: "replace_or_verify_exact";
     readonly tenant: string;
     readonly resource_type: CompilePullArtifactsProcessRequest["input"]["resource_type"];
+  };
+}
+
+export interface CompareZccPullCollectionProcessRequest {
+  readonly kind: "infrawright.process_request";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "compare_zcc_pull_collection";
+  readonly context: {
+    readonly node_workspace: string;
+    readonly python_before_workspace: string;
+    readonly python_after_workspace: string;
+  };
+  readonly input: {
+    readonly reference: "python_stability_window";
+    readonly tenant: string;
+    readonly receipts: readonly ZccPullCollectionReceipt[];
   };
 }
 
@@ -265,7 +283,8 @@ export type ProcessRequest =
   | ComparePullArtifactsProcessRequest
   | MaterializePullArtifactsProcessRequest
   | AcknowledgePullRefreshProcessRequest
-  | CollectZccPullProcessRequest;
+  | CollectZccPullProcessRequest
+  | CompareZccPullCollectionProcessRequest;
 
 export interface ProcessError {
   readonly code: string;
@@ -340,6 +359,17 @@ export interface CollectZccPullProcessSuccessResponse {
   readonly status: "ok";
   readonly diagnostics: readonly [];
   readonly result: ZccPullCollectionReceipt;
+  readonly error: null;
+}
+
+export interface CompareZccPullCollectionProcessSuccessResponse {
+  readonly kind: "infrawright.process_response";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "compare_zcc_pull_collection";
+  readonly status: "ok";
+  readonly diagnostics: readonly [];
+  readonly result: ZccPullCollectionParity;
   readonly error: null;
 }
 
@@ -447,7 +477,8 @@ export type ProcessSuccessResponse =
       ZccPullArtifactMaterialization | ZccPullRefreshMaterialization
     >
   | AcknowledgePullRefreshProcessSuccessResponse
-  | CollectZccPullProcessSuccessResponse;
+  | CollectZccPullProcessSuccessResponse
+  | CompareZccPullCollectionProcessSuccessResponse;
 
 export interface ProcessErrorResponse {
   readonly kind: "infrawright.process_response";
@@ -467,6 +498,7 @@ export interface ProcessErrorResponse {
     | "materialize_pull_artifacts"
     | "acknowledge_pull_refresh"
     | "collect_zcc_pull"
+    | "compare_zcc_pull_collection"
     | null;
   readonly status: "error";
   readonly diagnostics: readonly [];
