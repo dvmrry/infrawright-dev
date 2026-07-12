@@ -1,0 +1,151 @@
+{
+  "fixture_version": 1,
+  "provenance": {
+    "status": "terraform_core_structural_only",
+    "scope": "Terraform import plan/state JSON structure only; this is not ZCC provider, tenant, credential, projection, or live-adoption evidence.",
+    "terraform_version": "1.15.4",
+    "platform": "darwin_arm64",
+    "provider": "terraform.io/builtin/terraform",
+    "resource_type": "terraform_data",
+    "import_id": "structural-fixture-id",
+    "external_provider_downloads": false,
+    "credentials_used": false,
+    "environment": [
+      "PATH=/run/current-system/sw/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+      "HOME=<caller home>",
+      "CHECKPOINT_DISABLE=1",
+      "TF_IN_AUTOMATION=1",
+      "LANG=C",
+      "LC_ALL=C"
+    ],
+    "commands": [
+      "terraform init -backend=false -input=false -no-color",
+      "terraform plan -input=false -no-color -lock=false -generate-config-out=generated.tf -out=fixture.tfplan",
+      "terraform show -json fixture.tfplan",
+      "terraform apply -input=false -no-color -lock=false fixture.tfplan",
+      "terraform show -json terraform.tfstate"
+    ],
+    "input_hcl": "terraform {\n  required_version = \">= 1.8\"\n}\n\nimport {\n  to = terraform_data.fixture\n  id = \"structural-fixture-id\"\n}\n"
+  },
+  "plan": {
+    "format_version": "1.2",
+    "terraform_version": "1.15.4",
+    "planned_values": {
+      "root_module": {
+        "resources": [
+          {
+            "address": "terraform_data.fixture",
+            "mode": "managed",
+            "type": "terraform_data",
+            "name": "fixture",
+            "provider_name": "terraform.io/builtin/terraform",
+            "schema_version": 0,
+            "values": {
+              "id": "structural-fixture-id",
+              "input": null,
+              "output": null,
+              "triggers_replace": null
+            },
+            "sensitive_values": {}
+          }
+        ]
+      }
+    },
+    "resource_changes": [
+      {
+        "address": "terraform_data.fixture",
+        "mode": "managed",
+        "type": "terraform_data",
+        "name": "fixture",
+        "provider_name": "terraform.io/builtin/terraform",
+        "change": {
+          "actions": [
+            "no-op"
+          ],
+          "before": {
+            "id": "structural-fixture-id",
+            "input": null,
+            "output": null,
+            "triggers_replace": null
+          },
+          "after": {
+            "id": "structural-fixture-id",
+            "input": null,
+            "output": null,
+            "triggers_replace": null
+          },
+          "after_unknown": {},
+          "before_sensitive": {},
+          "after_sensitive": {},
+          "importing": {
+            "id": "structural-fixture-id"
+          },
+          "generated_config": "resource \"terraform_data\" \"fixture\" {\n  input            = null\n  triggers_replace = null\n}"
+        }
+      }
+    ],
+    "prior_state": {
+      "format_version": "1.0",
+      "terraform_version": "1.15.4",
+      "values": {
+        "root_module": {
+          "resources": [
+            {
+              "address": "terraform_data.fixture",
+              "mode": "managed",
+              "type": "terraform_data",
+              "name": "fixture",
+              "provider_name": "terraform.io/builtin/terraform",
+              "schema_version": 0,
+              "values": {
+                "id": "structural-fixture-id",
+                "input": null,
+                "output": null,
+                "triggers_replace": null
+              },
+              "sensitive_values": {}
+            }
+          ]
+        }
+      }
+    },
+    "configuration": {
+      "provider_config": {
+        "terraform": {
+          "name": "terraform",
+          "full_name": "terraform.io/builtin/terraform"
+        }
+      },
+      "root_module": {}
+    },
+    "timestamp": "2026-07-11T23:45:37Z",
+    "applyable": true,
+    "complete": true,
+    "errored": false
+  },
+  "state": {
+    "format_version": "1.0",
+    "terraform_version": "1.15.4",
+    "values": {
+      "root_module": {
+        "resources": [
+          {
+            "address": "terraform_data.fixture",
+            "mode": "managed",
+            "type": "terraform_data",
+            "name": "fixture",
+            "provider_name": "terraform.io/builtin/terraform",
+            "schema_version": 0,
+            "values": {
+              "id": "structural-fixture-id",
+              "input": null,
+              "output": null,
+              "triggers_replace": null
+            },
+            "sensitive_values": {}
+          }
+        ]
+      }
+    }
+  }
+}

@@ -10,7 +10,8 @@ materialized plan-root enumeration, exact-catalog Zscaler saved-plan
 assessment, the strict ZCC bootstrap compile, compare, and retry-forward
 materialization operations, a read-only ZCC refresh compiler, and an
 assertion-bound imports-last ZCC refresh publisher. They establish
-an explicit ZCC post-apply acknowledgement/retirement operation, the process
+an explicit ZCC post-apply acknowledgement/retirement operation and a private
+ZCC import-oracle executor foundation. Together these establish the process
 protocol, deterministic JSON boundary, packaging, and differential validation
 pattern that later adoption operations will follow.
 
@@ -914,6 +915,33 @@ materialized bootstrap comparison, asserted retry-forward bootstrap
 publication, and asserted imports-last refresh publication as public process
 operations.
 
+The source tree also contains a private, single-use ZCC adoption-oracle
+transaction for the exact five-resource catalog. It renders only the pinned
+provider root and import blocks, runs bounded `init`, import-only `plan`, saved
+plan `apply`, and lossless `show` stages in an operation-owned mode-0700
+directory, then compiles the existing immutable bootstrap artifacts from exact
+provider-state observations. The transaction requires Terraform 1.8 or newer,
+rejects any non-exact import-only plan or root state, and always attempts
+verified cleanup. Its private command and show stages each use the legacy
+oracle's 300-second default ceiling so beta-provider retries do not create a
+Node-only failure; an all-nonempty resource transaction can therefore consume
+up to five independently bounded Terraform subprocess windows. Its concrete
+adapter accepts only a trusted canonical
+Terraform executable, a private scratch authority, an optional separately
+trusted plugin cache, and a closed Zscaler/proxy/certificate environment
+allowlist; it never merges `process.env`. A configured plugin cache is a host
+authority, not transaction-owned evidence: the host must prewarm and protect
+it from untrusted writes and serialize Terraform initialization that shares it.
+
+This executor is not yet a public process operation and is not included in the
+release bundle until a protected request adapter supplies those authorities.
+That adapter must impose one host-owned remaining-time budget across the whole
+transaction rather than exposing the current sum of per-stage ceilings.
+Likewise, the versioned secret-safe parity report can qualify projection parity
+from a shared live observation and executor parity from a stable
+Python-before/Node/Python-after run, but deliberately cannot claim downstream
+cutover. No live tenant or provider parity is claimed by the committed tests.
+
 The ZCC compiler ports raw-item projection and exact tfvars/import/lookup byte
 rendering for `zcc_device_cleanup`, `zcc_failopen_policy`,
 `zcc_forwarding_profile`, `zcc_trusted_network`, and `zcc_web_privacy`. Python
@@ -993,15 +1021,21 @@ and owns cleanup; callers cannot supply a snapshot path or raw plan JSON.
 The internal Terraform-show adapter accepts only an absolute, non-symlinked
 executable and a private regular-file snapshot. It invokes a fixed
 `terraform -chdir=<root> show -json <snapshot>` argv without a shell, replaces
-the child environment with fixed locale/checkpoint values (so `TF_CLI_ARGS*`
-and credentials cannot alter the call), enforces hard timeout/stdout/stderr
-ceilings, discards stderr, and preflights stdout before lossless parsing. The
+the child environment with either its fixed locale/checkpoint defaults or the
+oracle adapter's complete closed environment (never inherited `TF_CLI_ARGS*`),
+enforces bounded timeout/stdout/stderr ceilings, discards stderr, and preflights
+stdout before lossless parsing. The
 current Zscaler cutover boundary accepts at most 8 MiB of JSON, 100,000
 structural tokens, 4 MiB of string content, and a 1 MiB scalar token; the same
 deadline covers child execution, decode, preflight, and parse. Child output,
 filesystem paths, and plan values never enter an error
 diagnostic. Final evidence rechecks remain mandatory because the adapter alone
 does not claim the root or snapshot stayed unchanged around execution.
+Terraform and its provider are trusted executables. POSIX runs use a detached
+process group that is killed and reaped on every outcome; a descendant that
+deliberately creates a new session can escape that in-process group and must be
+contained by the pipeline job/container before this executor is exposed as a
+generic public facility.
 
 The internal transaction resolves materialized roots, binds an optional drift
 policy, classifies every selected plan, performs final plan/source/policy
@@ -1049,8 +1083,11 @@ values, and a versioned guidance catalog must land before assessment can accept
 anything beyond the exact current Zscaler catalog.
 
 Python remains authoritative for refresh materialization and move lifecycle,
-import-oracle adoption, generated-binding production, HCL artifacts, Terraform
-orchestration, generic guidance collection, and raw pack catalog production.
+public import-oracle adoption, generated-binding production, HCL artifacts,
+generic guidance collection, and raw pack catalog production. The private Node
+oracle now owns a bounded Terraform transaction for its exact five-resource
+ZCC scope, but it remains unbundled and unqualified by live parity until the
+protected process operation and independent evidence lane land.
 The Node refresh operation is an exact read-only raw-transform candidate
 compiler, not an apply or adoption decision. Downstream should dual-run it
 against Python run-two outputs and run `compare_pull_artifacts` immediately

@@ -1,10 +1,13 @@
-import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { lstat } from "node:fs/promises";
 import path from "node:path";
-import type { Readable } from "node:stream";
 
 import { ProcessFailure } from "../domain/errors.js";
 import { parseDataJsonLosslessly } from "../json/control.js";
+import {
+  runTerraformCommand,
+  snapshotTerraformCommandEnvironment,
+  snapshotTerraformCommandLimits,
+} from "./terraform-command.js";
 
 export interface TerraformShowLimits {
   readonly timeoutMs: number;
@@ -18,9 +21,11 @@ export const DEFAULT_TERRAFORM_SHOW_LIMITS: TerraformShowLimits = {
   maxStderrBytes: 1024 * 1024,
 };
 
-const MAX_TERRAFORM_SHOW_TIMEOUT_MS = 10 * 60 * 1000;
-const MAX_TERRAFORM_SHOW_STDOUT_BYTES = 8 * 1024 * 1024;
-const MAX_TERRAFORM_SHOW_STDERR_BYTES = 16 * 1024 * 1024;
+const DEFAULT_TERRAFORM_SHOW_ENVIRONMENT = Object.freeze({
+  CHECKPOINT_DISABLE: "1",
+  LANG: "C",
+  LC_ALL: "C",
+});
 const MAX_TERRAFORM_JSON_STRUCTURE_TOKENS = 100_000;
 const MAX_TERRAFORM_JSON_STRING_CHARACTERS = 4 * 1024 * 1024;
 const MAX_TERRAFORM_JSON_SCALAR_CHARACTERS = 1024 * 1024;
@@ -29,6 +34,8 @@ export interface TerraformShowOptions {
   readonly terraformExecutable: string;
   readonly envDir: string;
   readonly snapshotPath: string;
+  /** Complete child environment; never merged with process.env. */
+  readonly environment?: Readonly<Record<string, string>>;
   readonly limits?: TerraformShowLimits;
 }
 
@@ -40,19 +47,27 @@ function fail(
   throw new ProcessFailure({ code, category, message });
 }
 
-function validateLimits(limits: TerraformShowLimits): void {
-  if (
-    !Number.isSafeInteger(limits.timeoutMs)
-    || limits.timeoutMs <= 0
-    || limits.timeoutMs > MAX_TERRAFORM_SHOW_TIMEOUT_MS
-    || !Number.isSafeInteger(limits.maxStdoutBytes)
-    || limits.maxStdoutBytes <= 0
-    || limits.maxStdoutBytes > MAX_TERRAFORM_SHOW_STDOUT_BYTES
-    || !Number.isSafeInteger(limits.maxStderrBytes)
-    || limits.maxStderrBytes <= 0
-    || limits.maxStderrBytes > MAX_TERRAFORM_SHOW_STDERR_BYTES
-  ) {
-    fail("INVALID_TERRAFORM_SHOW_LIMIT", "Terraform show limits must be positive");
+function snapshotShowLimits(value: TerraformShowLimits): TerraformShowLimits {
+  try {
+    return snapshotTerraformCommandLimits(value);
+  } catch {
+    return fail(
+      "INVALID_TERRAFORM_SHOW_LIMIT",
+      "Terraform show limits must be positive",
+    );
+  }
+}
+
+function snapshotShowEnvironment(
+  value: Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> {
+  try {
+    return snapshotTerraformCommandEnvironment(value);
+  } catch {
+    return fail(
+      "INVALID_TERRAFORM_SHOW_ENVIRONMENT",
+      "Terraform show environment is not allowed",
+    );
   }
 }
 
@@ -152,6 +167,77 @@ async function requireRegularFile(
   }
 }
 
+function mapTerraformCommandFailure(error: unknown): never {
+  const code = error instanceof ProcessFailure ? error.code : "";
+  switch (code) {
+    case "TERRAFORM_COMMAND_TIMEOUT":
+      return fail(
+        "TERRAFORM_SHOW_TIMEOUT",
+        "Terraform show exceeded its execution deadline",
+        "io",
+      );
+    case "TERRAFORM_COMMAND_STDOUT_LIMIT":
+      return fail(
+        "TERRAFORM_SHOW_STDOUT_LIMIT",
+        "Terraform show exceeded its output limit",
+        "io",
+      );
+    case "TERRAFORM_COMMAND_STDERR_LIMIT":
+      return fail(
+        "TERRAFORM_SHOW_STDERR_LIMIT",
+        "Terraform show exceeded its diagnostic-output limit",
+        "io",
+      );
+    case "TERRAFORM_COMMAND_STDOUT_FAILED":
+      return fail(
+        "TERRAFORM_SHOW_STDOUT_FAILED",
+        "unable to read Terraform show output",
+        "io",
+      );
+    case "TERRAFORM_COMMAND_STDERR_FAILED":
+      return fail(
+        "TERRAFORM_SHOW_STDERR_FAILED",
+        "unable to read Terraform show diagnostic output",
+        "io",
+      );
+    case "UNTRUSTED_TERRAFORM_EXECUTABLE":
+      return fail(
+        "UNTRUSTED_TERRAFORM_EXECUTABLE",
+        "trusted Terraform input is not an allowed regular file",
+        "io",
+      );
+    case "UNRESOLVED_TERRAFORM_COMMAND_PATH":
+      return fail(
+        "UNRESOLVED_TERRAFORM_SHOW_PATH",
+        "Terraform show requires resolved absolute paths",
+      );
+    case "INVALID_TERRAFORM_COMMAND_LIMIT":
+      return fail(
+        "INVALID_TERRAFORM_SHOW_LIMIT",
+        "Terraform show limits must be positive",
+      );
+    case "INVALID_TERRAFORM_COMMAND_ENVIRONMENT":
+      return fail(
+        "INVALID_TERRAFORM_SHOW_ENVIRONMENT",
+        "Terraform show environment is not allowed",
+      );
+    case "TERRAFORM_COMMAND_FAILED":
+      return fail(
+        "TERRAFORM_SHOW_FAILED",
+        "Terraform could not render the saved plan",
+      );
+    case "TERRAFORM_COMMAND_SPAWN_FAILED":
+    case "INVALID_TERRAFORM_COMMAND_ARGUMENTS":
+    case "INVALID_TERRAFORM_COMMAND_OUTPUT":
+    default:
+      return fail(
+        "TERRAFORM_SHOW_SPAWN_FAILED",
+        "unable to start Terraform show",
+        "io",
+      );
+  }
+}
+
 /**
  * Render a private saved-plan snapshot with a fixed, non-shell Terraform call.
  * Child output is never copied into a diagnostic.
@@ -159,163 +245,66 @@ async function requireRegularFile(
 export async function terraformShowPlan(
   options: TerraformShowOptions,
 ): Promise<unknown> {
+  const terraformExecutable = options.terraformExecutable;
+  const envDir = options.envDir;
+  const snapshotPath = options.snapshotPath;
   if (
-    options.terraformExecutable.includes("\0")
-    || options.envDir.includes("\0")
-    || options.snapshotPath.includes("\0")
+    terraformExecutable.includes("\0")
+    || envDir.includes("\0")
+    || snapshotPath.includes("\0")
     ||
-    !path.isAbsolute(options.terraformExecutable)
-    || !path.isAbsolute(options.envDir)
-    || !path.isAbsolute(options.snapshotPath)
+    !path.isAbsolute(terraformExecutable)
+    || !path.isAbsolute(envDir)
+    || !path.isAbsolute(snapshotPath)
   ) {
     return fail(
       "UNRESOLVED_TERRAFORM_SHOW_PATH",
       "Terraform show requires resolved absolute paths",
     );
   }
-  const limits = options.limits ?? DEFAULT_TERRAFORM_SHOW_LIMITS;
-  validateLimits(limits);
+  const limits = snapshotShowLimits(
+    options.limits ?? DEFAULT_TERRAFORM_SHOW_LIMITS,
+  );
+  const environment = snapshotShowEnvironment(
+    options.environment ?? DEFAULT_TERRAFORM_SHOW_ENVIRONMENT,
+  );
+  const commandCwd = envDir;
   const deadline = Date.now() + limits.timeoutMs;
   await requireRegularFile(
-    options.terraformExecutable,
+    terraformExecutable,
     "UNTRUSTED_TERRAFORM_EXECUTABLE",
     true,
   );
-  await requireRegularFile(options.snapshotPath, "INVALID_PLAN_SNAPSHOT", false);
+  await requireRegularFile(snapshotPath, "INVALID_PLAN_SNAPSHOT", false);
 
   checkDeadline(deadline);
-  let stdout = await new Promise<Buffer>((resolve, reject) => {
-    const detached = process.platform !== "win32";
-    let child: ChildProcessByStdio<null, Readable, Readable>;
-    try {
-      child = spawn(
-        options.terraformExecutable,
-        [
-          `-chdir=${options.envDir}`,
-          "show",
-          "-json",
-          options.snapshotPath,
-        ],
-        {
-          detached,
-          env: {
-            CHECKPOINT_DISABLE: "1",
-            LANG: "C",
-            LC_ALL: "C",
-          },
-          shell: false,
-          stdio: ["ignore", "pipe", "pipe"],
-          windowsHide: true,
-        },
-      );
-    } catch {
-      reject(new ProcessFailure({
-        code: "TERRAFORM_SHOW_SPAWN_FAILED",
-        category: "io",
-        message: "unable to start Terraform show",
-      }));
-      return;
-    }
-    const output = Buffer.allocUnsafe(limits.maxStdoutBytes);
-    let stdoutBytes = 0;
-    let stderrBytes = 0;
-    let terminalFailure: ProcessFailure | null = null;
-    let closed = false;
-
-    const killProcessTree = (): void => {
-      if (detached && child.pid !== undefined) {
-        try {
-          process.kill(-child.pid, "SIGKILL");
-          return;
-        } catch {
-          // The process group may already be empty; fall back to the direct PID.
-        }
-      }
-      child.kill("SIGKILL");
-    };
-    const terminate = (failure: ProcessFailure): void => {
-      if (terminalFailure === null) {
-        terminalFailure = failure;
-        killProcessTree();
-      }
-    };
-    const timer = setTimeout(() => {
-      terminate(new ProcessFailure({
-        code: "TERRAFORM_SHOW_TIMEOUT",
-        category: "io",
-        message: "Terraform show exceeded its execution deadline",
-      }));
-    }, Math.max(1, deadline - Date.now()));
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      const nextSize = stdoutBytes + chunk.length;
-      if (nextSize > limits.maxStdoutBytes) {
-        terminate(new ProcessFailure({
-          code: "TERRAFORM_SHOW_STDOUT_LIMIT",
-          category: "io",
-          message: "Terraform show exceeded its output limit",
-        }));
-        return;
-      }
-      chunk.copy(output, stdoutBytes);
-      stdoutBytes = nextSize;
+  const remainingTimeoutMs = deadline - Date.now();
+  if (remainingTimeoutMs <= 0) {
+    deadlineFailure();
+  }
+  let stdout: Buffer;
+  try {
+    const result = await runTerraformCommand({
+      terraformExecutable,
+      argv: [
+        `-chdir=${envDir}`,
+        "show",
+        "-json",
+        snapshotPath,
+      ],
+      cwd: commandCwd,
+      environment,
+      limits: {
+        timeoutMs: remainingTimeoutMs,
+        maxStdoutBytes: limits.maxStdoutBytes,
+        maxStderrBytes: limits.maxStderrBytes,
+      },
+      output: "capture",
     });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderrBytes += chunk.length;
-      if (stderrBytes > limits.maxStderrBytes) {
-        terminate(new ProcessFailure({
-          code: "TERRAFORM_SHOW_STDERR_LIMIT",
-          category: "io",
-          message: "Terraform show exceeded its diagnostic-output limit",
-        }));
-      }
-    });
-    child.stdout.on("error", () => {
-      terminate(new ProcessFailure({
-        code: "TERRAFORM_SHOW_STDOUT_FAILED",
-        category: "io",
-        message: "unable to read Terraform show output",
-      }));
-    });
-    child.stderr.on("error", () => {
-      terminate(new ProcessFailure({
-        code: "TERRAFORM_SHOW_STDERR_FAILED",
-        category: "io",
-        message: "unable to read Terraform show diagnostic output",
-      }));
-    });
-    child.on("error", () => {
-      terminate(new ProcessFailure({
-        code: "TERRAFORM_SHOW_SPAWN_FAILED",
-        category: "io",
-        message: "unable to start Terraform show",
-      }));
-    });
-    child.on("close", (code) => {
-      if (closed) {
-        return;
-      }
-      closed = true;
-      clearTimeout(timer);
-      // A provider or wrapper descendant may outlive Terraform while retaining
-      // inherited pipes or continuing work. Reap the isolated POSIX group on
-      // every exit, including successful parent exit.
-      if (detached) {
-        killProcessTree();
-      }
-      if (terminalFailure !== null) {
-        reject(terminalFailure);
-      } else if (code !== 0) {
-        reject(new ProcessFailure({
-          code: "TERRAFORM_SHOW_FAILED",
-          category: "domain",
-          message: "Terraform could not render the saved plan",
-        }));
-      } else {
-        resolve(output.subarray(0, stdoutBytes));
-      }
-    });
-  });
+    stdout = result.stdout;
+  } catch (error: unknown) {
+    return mapTerraformCommandFailure(error);
+  }
 
   let text: string;
   try {
