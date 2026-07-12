@@ -43,9 +43,21 @@ function losslessNumberIsJson(value: LosslessNumber): boolean {
   return JSON_NUMBER.test(value.toString());
 }
 
-function snapshotLosslessNumber(value: object): LosslessNumber | null {
+function snapshotLosslessNumber(
+  value: object,
+  maximumTokenBytes = Number.MAX_SAFE_INTEGER,
+): { readonly snapshot: LosslessNumber; readonly tokenBytes: number } | null {
   if (Object.getPrototypeOf(value) !== LosslessNumber.prototype) {
     return null;
+  }
+  let enumerableOwnKeys = 0;
+  for (const key in value) {
+    if (Object.hasOwn(value, key)) {
+      enumerableOwnKeys += 1;
+      if (enumerableOwnKeys > 2) {
+        return null;
+      }
+    }
   }
   const keys = Reflect.ownKeys(value);
   if (
@@ -66,11 +78,19 @@ function snapshotLosslessNumber(value: object): LosslessNumber | null {
     || !("value" in token)
     || token.enumerable !== true
     || typeof token.value !== "string"
+    || token.value.length > maximumTokenBytes
     || !JSON_NUMBER.test(token.value)
   ) {
     return null;
   }
-  return Object.freeze(new LosslessNumber(token.value));
+  const tokenBytes = Buffer.byteLength(token.value, "utf8");
+  if (tokenBytes > maximumTokenBytes) {
+    return null;
+  }
+  return {
+    snapshot: Object.freeze(new LosslessNumber(token.value)),
+    tokenBytes,
+  };
 }
 
 interface StrictArrayShape {
@@ -124,12 +144,27 @@ function strictArrayShape(
 
 function strictRecordChildren(
   value: object,
+  maximumChildren?: number,
 ): readonly { readonly key: string; readonly value: unknown }[] | null {
   const prototype = Object.getPrototypeOf(value) as unknown;
   if (prototype !== Object.prototype && prototype !== null) {
     return null;
   }
+  if (maximumChildren !== undefined) {
+    let enumerableOwnKeys = 0;
+    for (const key in value) {
+      if (Object.hasOwn(value, key)) {
+        enumerableOwnKeys += 1;
+        if (enumerableOwnKeys > maximumChildren) {
+          return null;
+        }
+      }
+    }
+  }
   const ownKeys = Reflect.ownKeys(value);
+  if (maximumChildren !== undefined && ownKeys.length > maximumChildren) {
+    return null;
+  }
   const children: { key: string; value: unknown }[] = [];
   for (const key of ownKeys) {
     if (typeof key !== "string" || !key.isWellFormed()) {
@@ -333,9 +368,13 @@ export function snapshotPlainJsonGraph(
     if (typeof current !== "object") {
       return { ok: false };
     }
-    const lossless = snapshotLosslessNumber(current);
+    const lossless = snapshotLosslessNumber(
+      current,
+      maxStringBytes - stringBytes,
+    );
     if (lossless !== null) {
-      visit.assign(lossless);
+      stringBytes += lossless.tokenBytes;
+      visit.assign(lossless.snapshot);
       continue;
     }
     if (visit.depth > options.maxDepth || ancestors.has(current)) {
@@ -358,7 +397,7 @@ export function snapshotPlainJsonGraph(
       : null;
     const children = Array.isArray(current)
       ? arrayShape?.children ?? null
-      : strictRecordChildren(current);
+      : strictRecordChildren(current, maxProperties - properties);
     if (children === null) {
       return { ok: false };
     }

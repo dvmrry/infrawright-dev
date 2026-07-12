@@ -852,7 +852,9 @@ above still applies to unreported namespace entries.
 The exported direct compiler also treats its options as hostile input. It
 descriptor-checks the one-to-five receipt array before copying it, then caps
 the snapshot at depth 16, 512 nodes, 512 properties, and 1 MiB of aggregate
-UTF-8 key/value strings. Oversized graphs fail before filesystem work.
+UTF-8 key/value strings. Lossless numeric tokens are charged to the same string
+budget, and wide arrays/ordinary records are refused before child-descriptor
+copies are built. Oversized graphs fail before filesystem work.
 
 Success exits `0`. Request/domain refusals exit `2`; filesystem, stability, or
 internal failures exit `1`. The operation has no review-required result and

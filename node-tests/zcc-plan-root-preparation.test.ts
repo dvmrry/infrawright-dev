@@ -686,7 +686,29 @@ test("standalone semantics reject every redundant candidate tamper", async (t) =
     error: null,
   }), false);
 
-  const overBudget: any = structuredClone(outcome.result);
+  const nullTopology: any = structuredClone(outcome.result);
+  nullTopology.topology.tenant = null;
+  nullTopology.topology.directories = null;
+  nullTopology.topology.roots[0].env_dir = null;
+  assert.equal(validateZccPlanRootPreparation(nullTopology), false);
+  assert.equal(
+    validateZccPlanRootPreparation.errors?.some((error) => {
+      return (error.params as { rule?: string }).rule === "tenant_directory_join";
+    }),
+    true,
+  );
+  assert.equal(validateProcessResponse({
+    kind: "infrawright.process_response",
+    schema_version: 1,
+    request_id: "null-topology",
+    operation: "compile_plan_root_preparation",
+    status: "ok",
+    diagnostics: [],
+    result: nullTopology,
+    error: null,
+  }), false);
+
+  const overBudget: any = structuredClone(nullTopology);
   overBudget.sources[0].provider_observed_source.path = "x".repeat(
     MAX_ZCC_PLAN_ROOT_CANDIDATE_JSON_BYTES + 1,
   );
@@ -694,6 +716,12 @@ test("standalone semantics reject every redundant candidate tamper", async (t) =
   assert.equal(
     validateZccPlanRootPreparation.errors?.some((error) => {
       return (error.params as { rule?: string }).rule === "candidate_byte_budget";
+    }),
+    true,
+  );
+  assert.equal(
+    validateZccPlanRootPreparation.errors?.some((error) => {
+      return (error.params as { rule?: string }).rule === "tenant_directory_join";
     }),
     true,
   );

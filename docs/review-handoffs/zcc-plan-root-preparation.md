@@ -131,6 +131,14 @@
     identity;
   - the direct receipt snapshot now preflights one-to-five entries and enforces
     depth/node/property/string-byte ceilings before filesystem access.
+- The first remediation re-review found two remaining snapshot accounting
+  bypasses plus one nullable-topology semantic bypass. The follow-up patch:
+  - charges `LosslessNumber` token bytes before regex/reconstruction and
+    preflights wide ordinary records before descriptor/child collection;
+  - rejects candidate topology with null tenant directories instead of
+    returning early from the custom semantic keyword;
+  - adds direct numeric-token, wide-record, standalone-null-topology, and
+    process-response-null-topology regressions.
 - Fable xHigh approved the original range with nits. Its actionable diagnostic
   nit is also fixed: a present local backend marker now reports
   `PLAN_ROOT_BACKEND_MARKER_MISMATCH`, not the unrelated sidecar refusal. The
@@ -204,7 +212,7 @@
   - `make check-pack check-pack-set`, `npm run build`, JSON parse of every
     published schema, `bash -n scripts/release.sh`, and `git diff --check`.
 - Relevant output summary:
-  - focused remediation surface on Node 24.15: 33/33 passed, including four
+  - focused remediation surface on Node 24.15: 34/34 passed, including four
     live Python/Terraform-1.15.4 differentials;
   - adjacent Node 24.15: 97 total, 96 passed, zero failed, one existing
     Linux-only skip;

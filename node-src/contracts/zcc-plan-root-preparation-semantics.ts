@@ -126,25 +126,6 @@ export interface ZccPlanRootSemanticValidator {
 /** Bind redundant ordering, counts, digests, topology, and exact candidate bytes. */
 export const validateZccPlanRootPreparationSemantics:
   ZccPlanRootSemanticValidator = (_schema, data, _parentSchema, dataContext) => {
-    const result = record(data);
-    const root = record(result?.root);
-    const artifacts = record(root?.artifacts);
-    const main = record(artifacts?.main_tf);
-    const topology = record(result?.topology);
-    const directories = record(topology?.directories);
-    const summary = record(result?.summary);
-    if (
-      result === null
-      || root === null
-      || artifacts === null
-      || main === null
-      || topology === null
-      || directories === null
-      || summary === null
-    ) {
-      delete validateZccPlanRootPreparationSemantics.errors;
-      return true;
-    }
     const errors: ErrorObject[] = [];
     const push = (instancePath: string, rule: string, message: string): void => {
       errors.push(semanticError(
@@ -157,7 +138,7 @@ export const validateZccPlanRootPreparationSemantics:
     try {
       if (
         pythonCompatibleJsonByteLength(
-          result as JsonValue,
+          data as JsonValue,
           MAX_ZCC_PLAN_ROOT_CANDIDATE_JSON_BYTES,
         ) > MAX_ZCC_PLAN_ROOT_CANDIDATE_JSON_BYTES
       ) {
@@ -166,6 +147,36 @@ export const validateZccPlanRootPreparationSemantics:
     } catch {
       push("", "candidate_byte_budget", "candidate cannot be measured as versioned JSON");
     }
+    const result = record(data);
+    const root = record(result?.root);
+    const artifacts = record(root?.artifacts);
+    const main = record(artifacts?.main_tf);
+    const topology = record(result?.topology);
+    const candidateDirectories = record(topology?.directories);
+    const summary = record(result?.summary);
+    if (
+      result === null
+      || root === null
+      || artifacts === null
+      || main === null
+      || topology === null
+      || summary === null
+    ) {
+      if (errors.length === 0) {
+        delete validateZccPlanRootPreparationSemantics.errors;
+        return true;
+      }
+      validateZccPlanRootPreparationSemantics.errors = errors;
+      return false;
+    }
+    const directories = candidateDirectories ?? Object.create(null) as JsonRecord;
+    if (candidateDirectories === null) {
+      push(
+        "/topology/directories",
+        "tenant_directory_join",
+        "candidate topology must contain tenant directories",
+      );
+    }
     const members = strings(root.members);
     const sources = Array.isArray(result.sources) ? result.sources.map(record) : null;
     const modules = Array.isArray(result.modules) ? result.modules.map(record) : null;
@@ -173,8 +184,12 @@ export const validateZccPlanRootPreparationSemantics:
       ? artifacts.staged_imports.map(record)
       : null;
     if (members === null || sources === null || modules === null || staged === null) {
-      delete validateZccPlanRootPreparationSemantics.errors;
-      return true;
+      if (errors.length === 0) {
+        delete validateZccPlanRootPreparationSemantics.errors;
+        return true;
+      }
+      validateZccPlanRootPreparationSemantics.errors = errors;
+      return false;
     }
     if (
       staged.reduce((total, artifact) => {

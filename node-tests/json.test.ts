@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-import { stringify as stringifyLosslessly } from "lossless-json";
+import { LosslessNumber, stringify as stringifyLosslessly } from "lossless-json";
 
 import {
   parseControlJson,
@@ -16,6 +16,7 @@ import {
   sortedStrings,
   type JsonValue,
 } from "../node-src/json/python-compatible.js";
+import { snapshotPlainJsonGraph } from "../node-src/json/supported-json-graph.js";
 
 test("shared Python string semantics preserve exact sequence and code-point order", () => {
   assert.equal(sameStringSequence(["a", "a", "b"], ["a", "a", "b"]), true);
@@ -124,4 +125,23 @@ test("Python string ordering handles a large common-prefix set without sort-key 
   const sorted = sortedStrings(values);
   assert.equal(sorted[0], `${prefix}00000`);
   assert.equal(sorted.at(-1), `${prefix}24999`);
+});
+
+test("plain JSON snapshots enforce numeric-token and wide-record budgets", () => {
+  const numeric = new LosslessNumber("9".repeat(100_000));
+  assert.deepEqual(snapshotPlainJsonGraph([numeric, numeric], {
+    maxDepth: 16,
+    maxNodes: 512,
+    maxProperties: 512,
+    maxStringBytes: 8,
+  }), { ok: false });
+  const wide = Object.fromEntries(Array.from({ length: 513 }, (_, index) => {
+    return [`key_${index}`, null];
+  }));
+  assert.deepEqual(snapshotPlainJsonGraph(wide, {
+    maxDepth: 16,
+    maxNodes: 512,
+    maxProperties: 512,
+    maxStringBytes: 1024 * 1024,
+  }), { ok: false });
 });

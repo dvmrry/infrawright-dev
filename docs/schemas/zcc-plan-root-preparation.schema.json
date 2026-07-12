@@ -61,7 +61,25 @@
         "root_catalog": { "$ref": "#/$defs/digest" }
       }
     },
-    "topology": { "$ref": "root-topology.schema.json" },
+    "topology": {
+      "allOf": [
+        { "$ref": "root-topology.schema.json" },
+        {
+          "type": "object",
+          "properties": {
+            "tenant": { "$ref": "#/$defs/tenant" },
+            "directories": { "type": "object" },
+            "roots": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": { "env_dir": { "type": "string" } }
+              }
+            }
+          }
+        }
+      ]
+    },
     "backend_marker": {
       "type": "object",
       "additionalProperties": false,
