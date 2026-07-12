@@ -1,9 +1,11 @@
-"""Build the closed ZCC transform catalog consumed by the Node host.
+"""Build closed transform catalogs consumed by the Node host.
 
 The existing Python pack, override, and provider-schema loaders remain the
 authoritative authoring surface during the migration.  This module compiles
-the deliberately narrow, versioned subset needed to reproduce the five
-fetch-backed ZCC transforms without invoking Python at runtime.
+the deliberately narrow, versioned subsets needed to reproduce reviewed
+transforms without invoking Python at runtime.  The default contract remains
+the exact existing five-resource catalog; explicit resource selection emits
+a compact product cohort for private migration differentials.
 """
 import argparse
 import hashlib
@@ -29,6 +31,7 @@ from engine.transform import load_override
 
 
 TRANSFORM_CATALOG_CONTRACT = "infrawright.transform_catalog"
+TRANSFORM_RESOURCE_COHORT_CONTRACT = "infrawright.transform_resource_cohort"
 TRANSFORM_CATALOG_SCHEMA_VERSION = 1
 ZCC_PRODUCT = "zcc"
 ZCC_FETCH_RESOURCES = (
@@ -51,6 +54,8 @@ _SUPPORTED_OVERRIDE_KEYS = frozenset([
     "renames",
     "split_csv",
 ])
+_COHORT_ENCODED_OVERRIDE_KEYS = frozenset(["sort_lists"])
+_COHORT_AUTHORING_ONLY_OVERRIDE_KEYS = frozenset(["sample"])
 _PRIMITIVE_ENCODINGS = frozenset(["bool", "number", "string"])
 _FIELD_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -109,22 +114,29 @@ def _catalog_encoding(encoding, path):
     raise ValueError("%s has unsupported type encoding %r" % (path, encoding))
 
 
-def _projection(block, path, resource_top=False):
+def _projection(
+        block, path, resource_top=False,
+        allow_reported_top_computed=False):
     classification = (
         resource_input_attrs(block)
         if resource_top else classify_attributes(block)
     )
-    silently_ignored = sorted(classification["computed_only"])
+    computed_only = sorted(classification["computed_only"])
+    silently_ignored = ["id"] if "id" in computed_only else []
     if resource_top:
-        if silently_ignored != ["id"]:
+        if not allow_reported_top_computed and computed_only != ["id"]:
             raise ValueError(
                 "%s must silently ignore only the computed top-level id; "
-                "found %r" % (path, silently_ignored)
+                "found %r" % (path, computed_only)
             )
-    elif silently_ignored:
+        if allow_reported_top_computed and "id" not in computed_only:
+            raise ValueError(
+                "%s must expose a computed top-level id" % path
+            )
+    elif computed_only:
         raise ValueError(
             "%s has unsupported computed-only nested attributes %r"
-            % (path, silently_ignored)
+            % (path, computed_only)
         )
 
     attributes = {}
@@ -166,16 +178,21 @@ def _projection(block, path, resource_top=False):
     }
 
 
-def _supported_override(resource_type, override):
-    unsupported = sorted(set(override) - _SUPPORTED_OVERRIDE_KEYS)
+def _supported_override(
+        resource_type, override, additional_keys=frozenset()):
+    supported = _SUPPORTED_OVERRIDE_KEYS | frozenset(additional_keys)
+    unsupported = sorted(set(override) - supported)
     if unsupported:
         raise ValueError(
             "%s uses unsupported transform override key %r; extend and "
             "review the transform catalog contract before regenerating"
             % (resource_type, unsupported[0])
         )
-    for field in ("acknowledged_drops", "invert_bool", "split_csv"):
+    for field in (
+            "acknowledged_drops", "invert_bool", "split_csv"):
         _override_string_list(resource_type, override, field)
+    if "sort_lists" in additional_keys:
+        _override_string_list(resource_type, override, "sort_lists")
     key_field = override.get("key_field", "name")
     key_fields = key_field if isinstance(key_field, list) else [key_field]
     if not key_fields or any(
@@ -213,9 +230,11 @@ def _override_string_list(resource_type, override, field):
     return sorted(value)
 
 
-def _html_unescape_passes(resource_type, override):
+def _html_unescape_passes(
+        resource_type, override, product=None):
+    owner = product or packs.provider_of(resource_type)
     enabled = resource_type.startswith(
-        packs.unescape_products_for_provider(ZCC_PRODUCT)
+        packs.unescape_products_for_provider(owner)
     )
     return 2 if enabled and not override.get("no_html_unescape") else 0
 
@@ -338,19 +357,39 @@ def _resource_references(
     return references
 
 
-def _resource(resource_type, resource_types, lookup_sources, references):
+def _resource(
+        resource_type, resource_types, lookup_sources, references,
+        product=None, cohort=False):
     override = load_override(resource_type)
-    key_fields = _supported_override(resource_type, override)
+    additional_keys = frozenset()
+    if cohort:
+        # `sample` is consumed only by engine.gen_module when rendering module
+        # examples; engine.transform.apply_overrides never reads it. Keep the
+        # source file in the cohort digest, but explicitly exclude this
+        # authoring-only value from the runtime contract rather than silently
+        # admitting it into the encoded override vocabulary.
+        override = dict(
+            (key, value)
+            for key, value in override.items()
+            if key not in _COHORT_AUTHORING_ONLY_OVERRIDE_KEYS
+        )
+        additional_keys = _COHORT_ENCODED_OVERRIDE_KEYS
+    key_fields = _supported_override(
+        resource_type, override, additional_keys=additional_keys
+    )
     block = load_resource(resource_type)["block"]
     projection = _projection(
-        block, resource_type, resource_top=True
+        block,
+        resource_type,
+        resource_top=True,
+        allow_reported_top_computed=cohort,
     )
-    return {
+    resource = {
         "acknowledged_drops": _override_string_list(
             resource_type, override, "acknowledged_drops"
         ),
         "html_unescape_passes": _html_unescape_passes(
-            resource_type, override
+            resource_type, override, product=product
         ),
         "invert_bool": _override_string_list(
             resource_type, override, "invert_bool"
@@ -378,6 +417,13 @@ def _resource(resource_type, resource_types, lookup_sources, references):
         ),
         "type": resource_type,
     }
+    sort_lists = (
+        _override_string_list(resource_type, override, "sort_lists")
+        if cohort else []
+    )
+    if sort_lists:
+        resource["sort_lists"] = sort_lists
+    return resource
 
 
 def _python_html_unescape_compatibility():
@@ -404,16 +450,24 @@ def _python_html_unescape_compatibility():
     }
 
 
-def _source_paths(resources):
-    pack_dir = os.path.abspath(packs.pack_dir_for_provider(ZCC_PRODUCT))
+def _source_paths(
+        resources, product=None, allow_missing_overrides=False):
+    if not resources:
+        raise ValueError("transform catalog requires at least one resource")
+    owner = product or packs.provider_of(resources[0])
+    pack_dir = os.path.abspath(packs.pack_dir_for_provider(owner))
     paths = [
         os.path.join(pack_dir, "pack.json"),
         os.path.join(pack_dir, "registry.json"),
-        packs.schema_path_for(ZCC_PRODUCT),
+        packs.schema_path_for(owner),
     ]
-    paths.extend(
+    override_paths = [
         os.path.join(pack_dir, "overrides", resource_type + ".json")
         for resource_type in resources
+    ]
+    paths.extend(
+        path for path in override_paths
+        if not allow_missing_overrides or os.path.isfile(path)
     )
     missing = [path for path in paths if not os.path.isfile(path)]
     if missing:
@@ -470,21 +524,92 @@ def transform_catalog(product):
     }
 
 
-def render_catalog(product):
+def _selected_resources(product, resources):
+    if not isinstance(product, str) or not product:
+        raise ValueError("transform cohort product must be a non-empty string")
+    if not resources:
+        raise ValueError("transform cohort requires at least one resource")
+    if len(resources) != len(set(resources)):
+        raise ValueError("transform cohort resources must be unique")
+    selected = sorted(resources)
+    registry = load_registry()
+    for resource_type in selected:
+        entry = registry.get(resource_type)
+        if not isinstance(entry, dict):
+            raise ValueError(
+                "transform cohort resource %r is absent from the registry"
+                % resource_type
+            )
+        if entry.get("product") != product:
+            raise ValueError(
+                "transform cohort resource %s belongs to product %r, not %r"
+                % (resource_type, entry.get("product"), product)
+            )
+        if "fetch" not in entry:
+            raise ValueError(
+                "transform cohort resource %s is not fetch-backed"
+                % resource_type
+            )
+    return selected
+
+
+def transform_resource_cohort(product, resources):
+    """Return a compact, deterministic contract for explicit resources."""
+    selected = _selected_resources(product, resources)
+    resource_types = frozenset(selected)
+    source_files, sources_sha256 = _source_digest(
+        _source_paths(
+            selected,
+            product=product,
+            allow_missing_overrides=True,
+        )
+    )
+    lookup_sources = packs.lookup_sources_for_provider(product)
+    references = packs.references_for_provider(product)
+    return {
+        "kind": TRANSFORM_RESOURCE_COHORT_CONTRACT,
+        "product": product,
+        "resources": [
+            _resource(
+                resource_type,
+                resource_types,
+                lookup_sources,
+                references,
+                product=product,
+                cohort=True,
+            )
+            for resource_type in selected
+        ],
+        "schema_version": TRANSFORM_CATALOG_SCHEMA_VERSION,
+        "source_files": source_files,
+        "sources_sha256": sources_sha256,
+    }
+
+
+def render_catalog(product, resources=None):
+    catalog = (
+        transform_catalog(product)
+        if resources is None
+        else transform_resource_cohort(product, resources)
+    )
     return json.dumps(
-        transform_catalog(product), indent=2, sort_keys=True
+        catalog, indent=2, sort_keys=True
     ) + "\n"
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="python -m engine.transform_catalog")
     parser.add_argument("--product", required=True)
+    parser.add_argument(
+        "--resource", action="append", dest="resources",
+        help="emit a compact explicit-resource cohort (repeatable)",
+    )
     output = parser.add_mutually_exclusive_group()
     output.add_argument("--out")
     output.add_argument("--check")
     args = parser.parse_args(argv)
     try:
-        text = render_catalog(args.product)
+        text = render_catalog(args.product, resources=args.resources)
         if args.check:
             with open(args.check, encoding="utf-8") as f:
                 actual = f.read()

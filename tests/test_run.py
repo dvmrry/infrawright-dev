@@ -110,6 +110,70 @@ class TestRunnerSelectionTest(unittest.TestCase):
                 "requirements.json",
             )
 
+    def test_committed_zia_cohort_source_gates_compose_by_profile(self):
+        rules = run.load_requirements(os.path.join(
+            os.path.dirname(__file__), "pack-test-requirements.json"
+        ))
+        module = "tests.test_zia_transform_cohort_catalog"
+        class_name = ".ZiaTransformCohortCatalogTest."
+        methods = [
+            "test_cli_resource_selection_is_an_exact_byte_gate",
+            "test_committed_catalog_matches_exact_rendered_bytes",
+            "test_default_zcc_generation_remains_byte_identical",
+            "test_selection_rejects_duplicates_and_wrong_product",
+        ]
+        source_rules = [
+            rule for rule in rules
+            if rule["prefix"].startswith(module + class_name)
+        ]
+        self.assertEqual(len(source_rules), 4)
+
+        class NamedTest(unittest.TestCase):
+            def __init__(self, test_id):
+                unittest.TestCase.__init__(self, "runTest")
+                self._test_id = test_id
+
+            def runTest(self):
+                pass
+
+            def id(self):
+                return self._test_id
+
+        expected = {
+            "empty": ([], []),
+            "zcc": (["zcc"], methods[2:]),
+            "zia": (["zia"], methods[:2]),
+            "zscaler": (["zcc", "zia"], methods),
+        }
+        for profile, (packs, selected_methods) in sorted(expected.items()):
+            with self.subTest(profile=profile):
+                suite = unittest.TestSuite([
+                    NamedTest(module + class_name + method)
+                    for method in methods
+                ])
+                selection = run.select_tests(
+                    suite,
+                    source_rules,
+                    {"packs": packs, "shared": []},
+                )
+                selected = sorted(
+                    test.id().rsplit(".", 1)[-1]
+                    for test in selection["selected"]
+                )
+                self.assertEqual(selected, sorted(selected_methods))
+                self.assertEqual(
+                    len(selection["omitted"]),
+                    len(methods) - len(selected_methods),
+                )
+
+        artifact_only = run.requirements_for(
+            module + class_name
+            + "test_catalog_is_the_closed_source_bound_cohort",
+            rules,
+        )
+        self.assertEqual(artifact_only["packs"], [])
+        self.assertEqual(artifact_only["shared"], [])
+
     def test_committed_mixed_ops_classes_have_per_test_provider_requirements(self):
         rules = run.load_requirements(os.path.join(
             os.path.dirname(__file__), "pack-test-requirements.json"

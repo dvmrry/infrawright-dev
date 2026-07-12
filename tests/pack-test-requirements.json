@@ -327,6 +327,30 @@
       "reason": "The generated transform contract is derived from the committed ZCC registry, provider schema, and overrides."
     },
     {
+      "prefix": "tests.test_zia_transform_cohort_catalog.ZiaTransformCohortCatalogTest.test_cli_resource_selection_is_an_exact_byte_gate.",
+      "packs": ["zia"],
+      "shared": [],
+      "reason": "The CLI freshness gate regenerates from the committed ZIA registry, provider schema, and overrides."
+    },
+    {
+      "prefix": "tests.test_zia_transform_cohort_catalog.ZiaTransformCohortCatalogTest.test_committed_catalog_matches_exact_rendered_bytes.",
+      "packs": ["zia"],
+      "shared": [],
+      "reason": "The byte freshness gate regenerates from the committed ZIA registry, provider schema, and overrides."
+    },
+    {
+      "prefix": "tests.test_zia_transform_cohort_catalog.ZiaTransformCohortCatalogTest.test_default_zcc_generation_remains_byte_identical.",
+      "packs": ["zcc"],
+      "shared": [],
+      "reason": "This cross-check regenerates the committed ZCC transform contract."
+    },
+    {
+      "prefix": "tests.test_zia_transform_cohort_catalog.ZiaTransformCohortCatalogTest.test_selection_rejects_duplicates_and_wrong_product.",
+      "packs": ["zcc"],
+      "shared": [],
+      "reason": "The wrong-product branch loads a committed ZCC registry resource; the duplicate-input branch exits before registry access."
+    },
+    {
       "prefix": "tests.test_zpa_provider_evidence.",
       "packs": ["zpa"],
       "shared": [],
