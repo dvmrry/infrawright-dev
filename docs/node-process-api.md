@@ -959,6 +959,36 @@ bytes instead of consulting its own HTML or Unicode tables. If regeneration
 under a different Python standard library produces different tables, the
 catalog diff is a reviewed contract change; it is never accepted silently.
 
+A private ZPA differential cohort now exercises that same pure kernel for
+already-pulled JSON from `zpa_pra_console_controller` and
+`zpa_pra_portal_controller`. Its compact catalog is regenerated with:
+
+```sh
+python3 tools/zpa_transform_cohort_catalog.py \
+  --out catalogs/zpa-transform-cohort-catalog.v1.json
+```
+
+The catalog binds the ZPA 4.4.6 schema and provider-evidence bytes, asserts
+that neither selected resource has acquired an override, and reuses the exact
+committed Python HTML-compatibility table. It is not a process operation: it
+performs no collection, HTTP, publication, Terraform, adoption, or generated
+configuration. Every generated-configuration qualification remains
+`terraform_runtime_evidence_required`.
+
+Catalog authoring uses this checkout as one source authority. The ZPA wrapper
+reads and hashes fixed repository inputs and invokes the generic cohort
+compiler in a fresh Python process with `INFRAWRIGHT_PACKS` forced to this
+checkout's `packs/`; ambient pack roots and already-primed registry/schema
+caches cannot supply semantics attributed to the committed source digest.
+
+The first cohort intentionally does not include the initially preferred
+application resources. `zpa_app_connector_group` and
+`zpa_application_server` require `drop_if_default`; the connector group also
+has range policy. `zpa_application_segment` additionally needs object-list
+attributes, merged blocks, and an enum-to-boolean value map. Those resources
+must wait for independently reviewed kernel semantics rather than gaining
+resource-specific shortcuts in this slice.
+
 ## Compatibility Gate
 
 The process envelope is intentionally new, so byte compatibility is measured

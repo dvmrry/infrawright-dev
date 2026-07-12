@@ -355,6 +355,12 @@
       "packs": ["zpa"],
       "shared": [],
       "reason": "The evidence audit derives the exact fetch set and state-shape summaries from the committed ZPA registry and provider schema."
+    },
+    {
+      "prefix": "tests.test_zpa_transform_cohort_catalog.",
+      "packs": ["zpa"],
+      "shared": [],
+      "reason": "The private two-resource transform cohort is generated from the committed ZPA registry, provider schema, and provider evidence."
     }
   ]
 }
