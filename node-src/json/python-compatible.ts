@@ -26,6 +26,14 @@ export function comparePythonStrings(
   return (leftIndex < left.length ? 1 : 0) - (rightIndex < right.length ? 1 : 0);
 }
 
+export function sameStringSequence(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return left.length === right.length
+    && left.every((value, index) => value === right[index]);
+}
+
 export function sortedStrings(values: Iterable<string>): string[] {
   return Array.from(values).sort(comparePythonStrings);
 }

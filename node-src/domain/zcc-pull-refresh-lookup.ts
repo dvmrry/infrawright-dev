@@ -1,6 +1,9 @@
 import { parseGeneratedImports } from "./import-moves.js";
 import { parseDataJsonLosslessly } from "../json/control.js";
-import { sortedStrings } from "../json/python-compatible.js";
+import {
+  sameStringSequence,
+  sortedStrings,
+} from "../json/python-compatible.js";
 
 const PYTHON_WHITESPACE_ONLY =
   /^[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*$/u;
@@ -19,14 +22,6 @@ function record(value: unknown): JsonRecord | null {
 
 function ownValue(value: JsonRecord, key: string): unknown {
   return Object.getOwnPropertyDescriptor(value, key)?.value;
-}
-
-function sameStrings(
-  left: readonly string[],
-  right: readonly string[],
-): boolean {
-  return left.length === right.length
-    && left.every((value, index) => value === right[index]);
 }
 
 /**
@@ -67,7 +62,10 @@ export function matchesPythonCollapsedRefreshLookup(options: {
     const envelope = record(parseDataJsonLosslessly(options.lookupContent));
     if (
       envelope === null
-      || !sameStrings(sortedStrings(Object.keys(envelope)), ["by_id", "key_by_id"])
+      || !sameStringSequence(
+        sortedStrings(Object.keys(envelope)),
+        ["by_id", "key_by_id"],
+      )
     ) {
       return false;
     }
@@ -82,8 +80,8 @@ export function matchesPythonCollapsedRefreshLookup(options: {
     }
     const expectedIds = sortedStrings(expectedKeys.keys());
     if (
-      !sameStrings(sortedStrings(Object.keys(byId)), expectedIds)
-      || !sameStrings(sortedStrings(Object.keys(keyById)), expectedIds)
+      !sameStringSequence(sortedStrings(Object.keys(byId)), expectedIds)
+      || !sameStringSequence(sortedStrings(Object.keys(keyById)), expectedIds)
     ) {
       return false;
     }

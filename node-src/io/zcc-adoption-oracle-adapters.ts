@@ -29,6 +29,7 @@ import {
   terraformShowPlan,
   type TerraformShowLimits,
 } from "./terraform-show.js";
+import { sameStringSequence } from "../json/python-compatible.js";
 
 const SCRATCH_PREFIX = "infrawright-zcc-oracle-";
 const MAX_SCRATCH_FILE_BYTES = 256 * 1024 * 1024;
@@ -706,11 +707,6 @@ function snapshotStringArray(
   return Object.freeze(result);
 }
 
-function sameStrings(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length
-    && left.every((value, index) => value === right[index]);
-}
-
 function expectedCommandArgv(
   stage: ZccAdoptionOracleCommandRequest["stage"],
   paths: TransactionPaths,
@@ -844,7 +840,7 @@ export function createZccAdoptionOracleAdapters(
     activePaths: TransactionPaths,
   ): Promise<void> => {
     const expected = expectedProtectedPaths(stage, activePaths);
-    if (!sameStrings(protectedPaths, expected)) {
+    if (!sameStringSequence(protectedPaths, expected)) {
       return fail(
         "INVALID_ZCC_ORACLE_PROTECTED_PATHS",
         "ZCC oracle protected path set is not exact",
@@ -1127,7 +1123,7 @@ export function createZccAdoptionOracleAdapters(
       (stage !== "init" && stage !== "plan" && stage !== "apply")
       || request.executable !== options.terraformExecutable
       || request.cwd !== active.paths.directory
-      || !sameStrings(argv, expectedCommandArgv(stage, active.paths))
+      || !sameStringSequence(argv, expectedCommandArgv(stage, active.paths))
     ) {
       return fail(
         "INVALID_ZCC_ORACLE_COMMAND",
@@ -1188,7 +1184,7 @@ export function createZccAdoptionOracleAdapters(
       || request.executable !== options.terraformExecutable
       || request.cwd !== active.paths.directory
       || request.snapshotPath !== snapshotPath
-      || !sameStrings(argv, ["show", "-json", snapshotPath])
+      || !sameStringSequence(argv, ["show", "-json", snapshotPath])
     ) {
       return fail(
         "INVALID_ZCC_ORACLE_SHOW",
