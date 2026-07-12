@@ -5,6 +5,7 @@ import { build } from "esbuild";
 
 const CHILD_OUT = "dist/infrawright-zcc-collector-child.mjs";
 const PARENT_OUT = "dist/infrawright.mjs";
+const ZIA_URL_CATEGORIES_OUT = "dist/infrawright-zia-url-categories.mjs";
 
 function inputNames(result) {
   return Object.keys(result.metafile?.inputs ?? {}).map((name) => {
@@ -118,8 +119,38 @@ rejectInputs("parent", inputNames(parentBuild), [
   "node_modules/undici/",
 ]);
 
+const ziaBuild = await build({
+  bundle: true,
+  entryPoints: ["node-src/zia-url-categories-main.ts"],
+  format: "esm",
+  outfile: ZIA_URL_CATEGORIES_OUT,
+  platform: "node",
+  target: "node24",
+  metafile: true,
+  write: false,
+  banner: {
+    js: "#!/usr/bin/env node\nimport { createRequire as __infrawrightCreateRequire } from 'node:module'; const require = __infrawrightCreateRequire(import.meta.url);",
+  },
+});
+const zia = ziaBuild.outputFiles?.find((file) => file.path.endsWith(
+  "infrawright-zia-url-categories.mjs",
+));
+if (zia === undefined) throw new Error("ZIA URL-categories bundle output is missing");
+rejectInputs("ZIA URL-categories", inputNames(ziaBuild), [
+  "node-src/process/main.ts",
+  "node-src/process/execute.ts",
+  "node-src/contracts/validators.ts",
+  "node-src/io/publisher-guard.ts",
+  "node-src/io/zcc-pull-publisher.ts",
+  "node-src/domain/zcc-adoption-",
+  "node-src/domain/zcc-plan-root-",
+  "node-src/domain/zcc-pull-",
+  "docs/schemas/",
+]);
+
 const childTemp = `${CHILD_OUT}.tmp-${process.pid}`;
 const parentTemp = `${PARENT_OUT}.tmp-${process.pid}`;
+const ziaTemp = `${ZIA_URL_CATEGORIES_OUT}.tmp-${process.pid}`;
 try {
   await writeFile(childTemp, child.contents, { mode: 0o755 });
   await rename(childTemp, CHILD_OUT);
@@ -129,9 +160,13 @@ try {
   await writeFile(parentTemp, parent.contents, { mode: 0o755 });
   await rename(parentTemp, PARENT_OUT);
   await chmod(PARENT_OUT, 0o755);
+  await writeFile(ziaTemp, zia.contents, { mode: 0o755 });
+  await rename(ziaTemp, ZIA_URL_CATEGORIES_OUT);
+  await chmod(ZIA_URL_CATEGORIES_OUT, 0o755);
 } finally {
   await Promise.all([
     unlink(childTemp).catch(() => undefined),
     unlink(parentTemp).catch(() => undefined),
+    unlink(ziaTemp).catch(() => undefined),
   ]);
 }

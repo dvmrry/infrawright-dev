@@ -14,7 +14,10 @@ import {
 import {
   pythonHtmlUnescapePasses,
 } from "./python-html-unescape.js";
-import { pythonLower151 } from "../json/python-lower-151.js";
+import {
+  slugifyTransformKey,
+  snakeName,
+} from "./python-identifiers.js";
 import type {
   TransformCatalog,
   TransformCatalogResource,
@@ -119,12 +122,7 @@ function cloneJson(value: unknown): unknown {
   throw new TypeError("transform input must contain JSON values only");
 }
 
-export function snakeName(name: string): string {
-  const half = name.replace(/([^\n])([A-Z][a-z]+)/gu, "$1_$2");
-  return pythonLower151(
-    half.replace(/([a-z0-9])([A-Z])/gu, "$1_$2"),
-  );
-}
+export { snakeName, slugifyTransformKey } from "./python-identifiers.js";
 
 function snakeKeys(value: unknown, path = "$raw"): unknown {
   if (Array.isArray(value)) {
@@ -152,12 +150,6 @@ function snakeKeys(value: unknown, path = "$raw"): unknown {
     return output;
   }
   return cloneJson(value);
-}
-
-export function slugifyTransformKey(value: string): string {
-  return pythonLower151(value)
-    .replace(/[^a-z0-9]+/gu, "_")
-    .replace(/^_+|_+$/gu, "");
 }
 
 function losslessIntegerToken(value: unknown): string | null {
