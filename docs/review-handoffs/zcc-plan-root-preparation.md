@@ -139,6 +139,12 @@
     returning early from the custom semantic keyword;
   - adds direct numeric-token, wide-record, standalone-null-topology, and
     process-response-null-topology regressions.
+- Fresh final Sol review of `c5c697e...ae4681b` returned **Approve with nits**
+  and the independent serialization/snapshot specialist returned **Approve**.
+  Their direct probes confirmed cumulative numeric-token accounting and
+  pre-descriptor wide-array/record refusal. A requested Fable xHigh rerun of
+  the same patch returned only its local session-limit message, so no Fable
+  verdict is claimed for the remediation range.
 - Fable xHigh approved the original range with nits. Its actionable diagnostic
   nit is also fixed: a present local backend marker now reports
   `PLAN_ROOT_BACKEND_MARKER_MISMATCH`, not the unrelated sidecar refusal. The
@@ -214,9 +220,9 @@
 - Relevant output summary:
   - focused remediation surface on Node 24.15: 34/34 passed, including four
     live Python/Terraform-1.15.4 differentials;
-  - adjacent Node 24.15: 97 total, 96 passed, zero failed, one existing
+  - adjacent Node 24.15: 98 total, 97 passed, zero failed, one existing
     Linux-only skip;
-  - changed Node 24.14 surface: 65/65 passed;
+  - changed Node 24.14 surface: 66/66 passed;
   - targeted Python: 117/117 passed;
   - physically pruned empty: 867/867 passed;
   - physically pruned Zscaler: 1,381 selected, 1,380 passed, zero failed, one
