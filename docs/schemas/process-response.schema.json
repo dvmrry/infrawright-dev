@@ -49,6 +49,9 @@
           "const": "compile_adoption_artifacts"
         },
         {
+          "const": "compile_plan_root_preparation"
+        },
+        {
           "const": "compare_adoption_artifacts"
         },
         {
@@ -117,6 +120,9 @@
         },
         {
           "$ref": "zcc-adoption-artifact-materialization.schema.json"
+        },
+        {
+          "$ref": "zcc-plan-root-preparation.schema.json"
         },
         {
           "$ref": "zcc-pull-refresh-parity-seed.schema.json"
@@ -263,6 +269,22 @@
               },
               "result": {
                 "$ref": "zcc-adoption-artifact-parity.schema.json"
+              },
+              "error": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "request_id": {
+                "type": "string"
+              },
+              "operation": {
+                "const": "compile_plan_root_preparation"
+              },
+              "result": {
+                "$ref": "zcc-plan-root-preparation.schema.json"
               },
               "error": {
                 "type": "null"

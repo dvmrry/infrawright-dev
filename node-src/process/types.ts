@@ -24,6 +24,7 @@ import type {
 } from "../domain/zcc-pull-refresh-parity.js";
 import type { ZccPullCollectionReceipt } from "../domain/zcc-pull-collection.js";
 import type { ZccPullCollectionParity } from "../domain/zcc-pull-collection-parity.js";
+import type { ZccPlanRootPreparationCandidate } from "../domain/zcc-plan-root-preparation.js";
 
 export interface RootsProcessRequest {
   readonly kind: "infrawright.process_request";
@@ -135,6 +136,22 @@ export interface CompileAdoptionArtifactsProcessRequest {
     readonly mode: "bootstrap";
     readonly tenant: string;
     readonly resource_type: CompilePullArtifactsProcessRequest["input"]["resource_type"];
+  };
+}
+
+export interface CompilePlanRootPreparationProcessRequest {
+  readonly kind: "infrawright.process_request";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "compile_plan_root_preparation";
+  readonly context: RootsProcessRequest["context"];
+  readonly input: {
+    readonly profile: "zcc_exact_five_adoption_json_no_bindings_v1";
+    readonly mode: "bootstrap";
+    readonly tenant: string;
+    readonly resource_type: CompilePullArtifactsProcessRequest["input"]["resource_type"];
+    readonly backend: "local" | "azurerm";
+    readonly materializations: readonly ZccAdoptionArtifactMaterialization[];
   };
 }
 
@@ -277,6 +294,7 @@ export type ProcessRequest =
   | AssessSavedPlansProcessRequest
   | CompilePullArtifactsProcessRequest
   | CompileAdoptionArtifactsProcessRequest
+  | CompilePlanRootPreparationProcessRequest
   | CompareAdoptionArtifactsProcessRequest
   | MaterializeAdoptionArtifactsProcessRequest
   | SeedPullRefreshParityProcessRequest
@@ -387,6 +405,17 @@ export interface CompileAdoptionArtifactsProcessSuccessResponse {
   readonly error: null;
 }
 
+export interface CompilePlanRootPreparationProcessSuccessResponse {
+  readonly kind: "infrawright.process_response";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "compile_plan_root_preparation";
+  readonly status: "ok";
+  readonly diagnostics: readonly WholeRootDiagnostic[];
+  readonly result: ZccPlanRootPreparationCandidate;
+  readonly error: null;
+}
+
 export interface CompareAdoptionArtifactsProcessSuccessResponse {
   readonly kind: "infrawright.process_response";
   readonly schema_version: 1;
@@ -467,6 +496,7 @@ export type ProcessSuccessResponse =
       ZccPullArtifactSet | ZccPullRefreshArtifactSet
     >
   | CompileAdoptionArtifactsProcessSuccessResponse
+  | CompilePlanRootPreparationProcessSuccessResponse
   | CompareAdoptionArtifactsProcessSuccessResponse
   | MaterializeAdoptionArtifactsProcessSuccessResponse
   | SeedPullRefreshParityProcessSuccessResponse
@@ -491,6 +521,7 @@ export interface ProcessErrorResponse {
     | "assess_saved_plans"
     | "compile_pull_artifacts"
     | "compile_adoption_artifacts"
+    | "compile_plan_root_preparation"
     | "compare_adoption_artifacts"
     | "materialize_adoption_artifacts"
     | "seed_pull_refresh_parity"
