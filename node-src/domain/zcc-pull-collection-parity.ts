@@ -1,5 +1,10 @@
 import path from "node:path";
 import { types as utilTypes } from "node:util";
+import {
+  fstatSync,
+  lstatSync,
+  realpathSync,
+} from "node:fs";
 import { lstat, realpath } from "node:fs/promises";
 
 import {
@@ -12,7 +17,6 @@ import {
 } from "../io/bounded-files.js";
 import {
   bindDirectory,
-  verifyDirectory,
   type BoundDirectory,
 } from "../io/zcc-pull-publisher.js";
 import { parseZccPullDataJson } from "../json/zcc-pull-data.js";
@@ -79,13 +83,23 @@ export interface CompareZccPullCollectionOptions {
   /** Trusted test seam. Public process requests cannot supply hooks. */
   readonly hooks?: {
     readonly afterInputsBound?: () => void | Promise<void>;
+    readonly afterArtifactRechecked?: (index: number) => void | Promise<void>;
   };
+}
+
+type DirectoryLevel = "workspace" | "pulls" | "tenant";
+
+interface BoundParityDirectory {
+  readonly level: DirectoryLevel;
+  readonly path: string;
+  readonly directory: BoundDirectory;
+  readonly version: FileVersion;
 }
 
 interface BoundWorkspace {
   readonly role: "before" | "node" | "after";
   readonly path: string;
-  readonly directory: BoundDirectory;
+  readonly directories: readonly BoundParityDirectory[];
 }
 
 interface BoundArtifact {
@@ -317,56 +331,6 @@ function regionsOverlap(left: string, right: string): boolean {
   return contains(leftToRight) || contains(rightToLeft);
 }
 
-async function bindWorkspace(
-  role: BoundWorkspace["role"],
-  candidate: string,
-): Promise<BoundWorkspace> {
-  if (
-    candidate.includes("\0")
-    || !candidate.isWellFormed()
-    || !path.isAbsolute(candidate)
-    || path.resolve(candidate) !== candidate
-    || path.parse(candidate).root === candidate
-  ) {
-    return fail(
-      "INVALID_ZCC_PULL_COLLECTION_PARITY_ISOLATION",
-      "collection parity workspaces must be canonical non-root absolute directories",
-      "request",
-    );
-  }
-  try {
-    return { role, path: candidate, directory: await bindDirectory(candidate) };
-  } catch {
-    return fail(
-      "INVALID_ZCC_PULL_COLLECTION_PARITY_ISOLATION",
-      "collection parity workspaces must be canonical non-symlink directories",
-      "request",
-    );
-  }
-}
-
-function assertWorkspaceIsolation(workspaces: readonly BoundWorkspace[]): void {
-  for (let left = 0; left < workspaces.length; left += 1) {
-    for (let right = left + 1; right < workspaces.length; right += 1) {
-      const first = workspaces[left];
-      const second = workspaces[right];
-      if (
-        first === undefined
-        || second === undefined
-        || regionsOverlap(first.path, second.path)
-        || (first.directory.dev === second.directory.dev
-          && first.directory.ino === second.directory.ino)
-      ) {
-        return fail(
-          "INVALID_ZCC_PULL_COLLECTION_PARITY_ISOLATION",
-          "collection parity workspaces must be pairwise physically disjoint",
-          "request",
-        );
-      }
-    }
-  }
-}
-
 function readLimits() {
   return {
     maxFiles: TOTAL_FILES,
@@ -400,6 +364,244 @@ function sameFileVersion(left: FileVersion, right: FileVersion): boolean {
     && left.size === right.size
     && left.mtimeNs === right.mtimeNs
     && left.ctimeNs === right.ctimeNs;
+}
+
+function identityKey(value: Pick<FileVersion, "dev" | "ino">): string {
+  return `${value.dev}:${value.ino}`;
+}
+
+async function captureDirectoryVersion(
+  directory: BoundDirectory,
+): Promise<FileVersion> {
+  const [handleStat, pathStat, canonical] = await Promise.all([
+    directory.handle.stat({ bigint: true }),
+    lstat(directory.path, { bigint: true }),
+    realpath(directory.path),
+  ]);
+  const handleVersion = fileVersion(handleStat);
+  const pathVersion = fileVersion(pathStat);
+  if (
+    canonical !== directory.path
+    || !handleStat.isDirectory()
+    || !pathStat.isDirectory()
+    || pathStat.isSymbolicLink()
+    || handleVersion.dev !== directory.dev
+    || handleVersion.ino !== directory.ino
+    || !sameFileVersion(handleVersion, pathVersion)
+  ) {
+    throw new Error("directory binding changed");
+  }
+  return handleVersion;
+}
+
+async function bindParityDirectory(
+  level: DirectoryLevel,
+  directoryPath: string,
+): Promise<BoundParityDirectory> {
+  let directory: BoundDirectory | undefined;
+  try {
+    directory = await bindDirectory(directoryPath);
+    return {
+      level,
+      path: directoryPath,
+      directory,
+      version: await captureDirectoryVersion(directory),
+    };
+  } catch {
+    await directory?.handle.close().catch(() => undefined);
+    if (level === "workspace") {
+      return fail(
+        "INVALID_ZCC_PULL_COLLECTION_PARITY_ISOLATION",
+        "collection parity workspaces must be canonical non-symlink directories",
+        "request",
+      );
+    }
+    return fail(
+      "ZCC_PULL_COLLECTION_PARITY_READ_FAILED",
+      "collection parity input directories could not be read",
+      "io",
+    );
+  }
+}
+
+async function bindWorkspace(
+  role: BoundWorkspace["role"],
+  candidate: string,
+  tenant: string,
+): Promise<BoundWorkspace> {
+  if (
+    candidate.includes("\0")
+    || !candidate.isWellFormed()
+    || !path.isAbsolute(candidate)
+    || path.resolve(candidate) !== candidate
+    || path.parse(candidate).root === candidate
+  ) {
+    return fail(
+      "INVALID_ZCC_PULL_COLLECTION_PARITY_ISOLATION",
+      "collection parity workspaces must be canonical non-root absolute directories",
+      "request",
+    );
+  }
+  const directories: BoundParityDirectory[] = [];
+  try {
+    directories.push(await bindParityDirectory("workspace", candidate));
+    directories.push(await bindParityDirectory("pulls", path.join(candidate, "pulls")));
+    directories.push(await bindParityDirectory(
+      "tenant",
+      path.join(candidate, "pulls", tenant),
+    ));
+    return { role, path: candidate, directories };
+  } catch (error: unknown) {
+    await Promise.all(directories.map(async (bound) =>
+      bound.directory.handle.close().catch(() => undefined)));
+    throw error;
+  }
+}
+
+function allDirectories(
+  workspaces: readonly BoundWorkspace[],
+): readonly BoundParityDirectory[] {
+  return workspaces.flatMap((workspace) => workspace.directories);
+}
+
+function assertWorkspacePathIsolation(
+  workspaces: readonly (readonly [BoundWorkspace["role"], string])[],
+): void {
+  for (let left = 0; left < workspaces.length; left += 1) {
+    for (let right = left + 1; right < workspaces.length; right += 1) {
+      const first = workspaces[left];
+      const second = workspaces[right];
+      if (
+        first === undefined
+        || second === undefined
+        || regionsOverlap(first[1], second[1])
+      ) {
+        return fail(
+          "INVALID_ZCC_PULL_COLLECTION_PARITY_ISOLATION",
+          "collection parity workspaces must be pairwise disjoint",
+          "request",
+        );
+      }
+    }
+  }
+}
+
+function assertWorkspaceIsolation(workspaces: readonly BoundWorkspace[]): void {
+  const directoryIdentities = new Set<string>();
+  for (const workspace of workspaces) {
+    for (const bound of workspace.directories) {
+      const key = identityKey(bound.version);
+      if (directoryIdentities.has(key)) {
+        return fail(
+          "INVALID_ZCC_PULL_COLLECTION_PARITY_ISOLATION",
+          "collection parity directories must be physically distinct",
+          "request",
+        );
+      }
+      directoryIdentities.add(key);
+    }
+  }
+  for (let left = 0; left < workspaces.length; left += 1) {
+    for (let right = left + 1; right < workspaces.length; right += 1) {
+      const first = workspaces[left];
+      const second = workspaces[right];
+      if (
+        first === undefined
+        || second === undefined
+        || regionsOverlap(first.path, second.path)
+      ) {
+        return fail(
+          "INVALID_ZCC_PULL_COLLECTION_PARITY_ISOLATION",
+          "collection parity workspaces must be pairwise physically disjoint",
+          "request",
+        );
+      }
+    }
+  }
+}
+
+function assertArtifactIsolation(
+  workspaces: readonly BoundWorkspace[],
+  artifacts: ReadonlyMap<string, BoundArtifact>,
+): void {
+  const identities = new Set(
+    allDirectories(workspaces).map((bound) => identityKey(bound.version)),
+  );
+  for (const artifact of artifacts.values()) {
+    const key = identityKey(artifact.identity);
+    if (identities.has(key)) {
+      return fail(
+        "INVALID_ZCC_PULL_COLLECTION_PARITY_ISOLATION",
+        "collection parity inputs must be physically distinct",
+        "request",
+      );
+    }
+    identities.add(key);
+  }
+}
+
+async function verifyParityDirectory(bound: BoundParityDirectory): Promise<void> {
+  try {
+    const current = await captureDirectoryVersion(bound.directory);
+    if (!sameFileVersion(current, bound.version)) {
+      throw new Error("directory version changed");
+    }
+  } catch {
+    return fail(
+      "ZCC_PULL_COLLECTION_PARITY_INPUT_CHANGED",
+      "collection parity input directory changed during comparison",
+      "io",
+    );
+  }
+}
+
+async function verifyAllDirectories(
+  workspaces: readonly BoundWorkspace[],
+): Promise<void> {
+  for (const bound of allDirectories(workspaces)) {
+    await verifyParityDirectory(bound);
+  }
+}
+
+function finalSynchronousCheckpoint(
+  workspaces: readonly BoundWorkspace[],
+  artifacts: ReadonlyMap<string, BoundArtifact>,
+): void {
+  try {
+    for (const bound of allDirectories(workspaces)) {
+      const handleStat = fstatSync(bound.directory.handle.fd, { bigint: true });
+      const pathStat = lstatSync(bound.path, { bigint: true });
+      const handleVersion = fileVersion(handleStat);
+      const pathVersion = fileVersion(pathStat);
+      if (
+        realpathSync(bound.path) !== bound.path
+        || !handleStat.isDirectory()
+        || !pathStat.isDirectory()
+        || pathStat.isSymbolicLink()
+        || !sameFileVersion(handleVersion, bound.version)
+        || !sameFileVersion(pathVersion, bound.version)
+      ) {
+        throw new Error("directory version changed");
+      }
+    }
+    for (const artifact of artifacts.values()) {
+      const metadata = lstatSync(artifact.absolutePath, { bigint: true });
+      if (
+        realpathSync(artifact.absolutePath) !== artifact.absolutePath
+        || !metadata.isFile()
+        || metadata.isSymbolicLink()
+        || !sameFileVersion(fileVersion(metadata), artifact.identity)
+      ) {
+        throw new Error("artifact version changed");
+      }
+    }
+  } catch {
+    return fail(
+      "ZCC_PULL_COLLECTION_PARITY_INPUT_CHANGED",
+      "collection parity input changed during comparison",
+      "io",
+    );
+  }
 }
 
 async function currentFileVersion(
@@ -567,8 +769,8 @@ function statusFor(
 }
 
 function closeWorkspaces(workspaces: readonly BoundWorkspace[]): Promise<unknown[]> {
-  return Promise.all(workspaces.map(async (workspace) =>
-    workspace.directory.handle.close().catch(() => undefined)));
+  return Promise.all(allDirectories(workspaces).map(async (bound) =>
+    bound.directory.handle.close().catch(() => undefined)));
 }
 
 /** Compare exact-five Node pull bytes against a stable Python-before/after window. */
@@ -602,9 +804,12 @@ export async function compareZccPullCollectionOperation(
   const receipts = snapshotReceipts(dataValue(outer, "receipts"));
   const hooksDescriptor = Object.getOwnPropertyDescriptor(outer, "hooks");
   let afterInputsBound: (() => void | Promise<void>) | undefined;
+  let afterArtifactRechecked: (
+    (index: number) => void | Promise<void>
+  ) | undefined;
   if (hooksDescriptor !== undefined) {
     const hooks = dataRecord(hooksDescriptor.value);
-    exactKeys(hooks, [], ["afterInputsBound"]);
+    exactKeys(hooks, [], ["afterInputsBound", "afterArtifactRechecked"]);
     const hookDescriptor = Object.getOwnPropertyDescriptor(hooks, "afterInputsBound");
     if (hookDescriptor !== undefined) {
       if (!("value" in hookDescriptor) || typeof hookDescriptor.value !== "function") {
@@ -615,6 +820,25 @@ export async function compareZccPullCollectionOperation(
         );
       }
       afterInputsBound = hookDescriptor.value as () => void | Promise<void>;
+    }
+    const recheckHookDescriptor = Object.getOwnPropertyDescriptor(
+      hooks,
+      "afterArtifactRechecked",
+    );
+    if (recheckHookDescriptor !== undefined) {
+      if (
+        !("value" in recheckHookDescriptor)
+        || typeof recheckHookDescriptor.value !== "function"
+      ) {
+        return fail(
+          "INVALID_ZCC_PULL_COLLECTION_PARITY_INPUT",
+          "collection parity test hook is invalid",
+          "request",
+        );
+      }
+      afterArtifactRechecked = recheckHookDescriptor.value as (
+        index: number,
+      ) => void | Promise<void>;
     }
   }
   if (
@@ -635,25 +859,23 @@ export async function compareZccPullCollectionOperation(
     ["node", dataString(dataValue(context, "node_workspace"))],
     ["after", dataString(dataValue(context, "python_after_workspace"))],
   ] as const;
+  assertWorkspacePathIsolation(workspaceValues);
   const workspaces: BoundWorkspace[] = [];
   try {
     for (const [role, candidate] of workspaceValues) {
-      workspaces.push(await bindWorkspace(role, candidate));
+      workspaces.push(await bindWorkspace(role, candidate, tenant));
     }
     assertWorkspaceIsolation(workspaces);
+    await verifyAllDirectories(workspaces);
     const budget = new ReadBudget(readLimits());
     const artifacts = new Map<string, BoundArtifact>();
     for (const workspace of workspaces) {
-      await verifyDirectory(workspace.directory).catch(() => fail(
-        "ZCC_PULL_COLLECTION_PARITY_INPUT_CHANGED",
-        "collection parity workspace changed during comparison",
-        "io",
-      ));
       for (const resourceType of ZCC_COLLECTION_RESOURCE_TYPES) {
         const artifact = await readArtifact(workspace, tenant, resourceType, budget);
         artifacts.set(`${workspace.role}:${resourceType}`, artifact);
       }
     }
+    assertArtifactIsolation(workspaces, artifacts);
 
     for (const [index, resourceType] of ZCC_COLLECTION_RESOURCE_TYPES.entries()) {
       const node = artifacts.get(`node:${resourceType}`);
@@ -673,24 +895,16 @@ export async function compareZccPullCollectionOperation(
     }
 
     await afterInputsBound?.();
+    await verifyAllDirectories(workspaces);
     const recheckBudget = new ReadBudget(readLimits());
-    for (const workspace of workspaces) {
-      await verifyDirectory(workspace.directory).catch(() => fail(
-        "ZCC_PULL_COLLECTION_PARITY_INPUT_CHANGED",
-        "collection parity workspace changed during comparison",
-        "io",
-      ));
-    }
+    let artifactIndex = 0;
     for (const artifact of artifacts.values()) {
       await recheckArtifact(artifact, recheckBudget);
+      await afterArtifactRechecked?.(artifactIndex);
+      artifactIndex += 1;
     }
-    for (const workspace of workspaces) {
-      await verifyDirectory(workspace.directory).catch(() => fail(
-        "ZCC_PULL_COLLECTION_PARITY_INPUT_CHANGED",
-        "collection parity workspace changed during comparison",
-        "io",
-      ));
-    }
+    await verifyAllDirectories(workspaces);
+    finalSynchronousCheckpoint(workspaces, artifacts);
 
     const resources = ZCC_COLLECTION_RESOURCE_TYPES.map((resourceType) => {
       const before = artifacts.get(`before:${resourceType}`)?.tuple;

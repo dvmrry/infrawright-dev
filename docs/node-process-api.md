@@ -400,12 +400,26 @@ For every workspace the comparer derives only
 `pulls/<tenant>/<resource_type>.json`. It requires all 15 paths to be regular
 non-symlink files no larger than 4 MiB; reads use fatal UTF-8, duplicate-key-
 closed lossless JSON, an exact top-level list, at most 50,000 items, and exact
-Python canonical bytes. The transaction binds open directory identities and
-each file identity/digest/size, joins the Node files to all receipt coordinates
-and tuples, then re-reads and rechecks the complete window before producing a
-result. Replacement or mutation anywhere in the window fails closed. Mutable
-owned byte buffers are cleared on a best-effort basis after use; JavaScript
-strings retain the runtime's ordinary lifetime.
+Python canonical bytes. Before reading a file, the transaction binds open
+handles and full device/inode/size/mtime/ctime versions for each workspace
+root, its `pulls` directory, and its tenant directory: nine directory bindings
+in total. It rejects reused physical identities across those nine directories
+and all 15 files, joins the Node files to every receipt coordinate and tuple,
+then re-reads and rechecks the complete window. After all asynchronous reads,
+one final synchronous, no-yield checkpoint revalidates every directory handle,
+path, canonical name, and version plus every file path, canonical name, and
+version; report construction is synchronous after that checkpoint.
+
+These checks close same-event-loop callback scheduling gaps and fail closed on
+observed replacement or mutation. They do not create an atomic filesystem
+snapshot against any concurrent writer, including another process or worker
+thread, so the three private job-owned workspaces must remain quiescent until
+the comparer exits. The bounded reader
+clears scratch and untransferred collected chunks on abnormal exits; its UTF-8
+helper also clears the byte snapshot it owns after decoding. The raw-byte
+helper transfers ownership of its returned buffer to its caller. These are
+best-effort mutable-buffer controls; JavaScript strings retain the runtime's
+ordinary lifetime.
 
 The standalone result is `infrawright.zcc_pull_collection_parity` v1. It binds
 the fixed `catalog_sources_sha256` and emits only the tenant, logical resource
@@ -1272,8 +1286,8 @@ Exit status is:
   adoption publication, complete refresh publication, an awaiting-apply refresh
   receipt, a retired trusted acknowledgement, or a clean/tolerated assessment;
 - `3`: schema-valid review-required bootstrap or refresh artifacts, a
-  review-required refresh seed, a materialized parity difference, or a blocked
-  assessment;
+  review-required refresh seed, a materialized parity difference, a ZCC pull
+  collection difference or unstable Python reference, or a blocked assessment;
 - `2`: malformed request, deployment, catalog, or domain selection;
 - `1`: a schema-valid assessment error, indeterminate publication, or another
   I/O/internal host failure.

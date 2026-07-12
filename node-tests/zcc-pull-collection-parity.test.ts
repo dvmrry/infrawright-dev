@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -431,6 +432,29 @@ test("artifact symlinks are rejected even when their bytes are canonical", async
   });
 });
 
+test("artifact hardlinks cannot collapse independent comparison roles", async () => {
+  await withFixture(async (fixture) => {
+    const source = path.join(
+      fixture.before,
+      "pulls",
+      TENANT,
+      "zcc_trusted_network.json",
+    );
+    const target = path.join(
+      fixture.after,
+      "pulls",
+      TENANT,
+      "zcc_trusted_network.json",
+    );
+    rmSync(target);
+    linkSync(source, target);
+    await assert.rejects(
+      compareZccPullCollectionOperation(options(fixture)),
+      isFailure("INVALID_ZCC_PULL_COLLECTION_PARITY_ISOLATION"),
+    );
+  });
+});
+
 test("file replacement and workspace rollover between phases fail the final CAS", async () => {
   await withFixture(async (fixture) => {
     const target = path.join(
@@ -468,6 +492,72 @@ test("file replacement and workspace rollover between phases fail the final CAS"
       isFailure("ZCC_PULL_COLLECTION_PARITY_INPUT_CHANGED"),
     );
   });
+});
+
+test("move-away and restore of every directory level changes the bound input", async () => {
+  const targets = [
+    (fixture: Fixture): string => fixture.before,
+    (fixture: Fixture): string => path.join(fixture.before, "pulls"),
+    (fixture: Fixture): string => path.join(fixture.before, "pulls", TENANT),
+  ];
+  for (const selectTarget of targets) {
+    await withFixture(async (fixture) => {
+      const target = selectTarget(fixture);
+      const moved = `${target}-moved`;
+      await assert.rejects(
+        compareZccPullCollectionOperation({
+          ...options(fixture),
+          hooks: {
+            afterInputsBound: () => {
+              renameSync(target, moved);
+              renameSync(moved, target);
+            },
+          },
+        }),
+        isFailure("ZCC_PULL_COLLECTION_PARITY_INPUT_CHANGED"),
+      );
+    });
+  }
+});
+
+test("the final synchronous CAS catches mutation after an early artifact recheck", async () => {
+  const largeItems = {
+    ...itemSet(),
+    zcc_failopen_policy: [
+      { padding: "x".repeat(900 * 1024) },
+      { padding: "y".repeat(900 * 1024) },
+      { padding: "z".repeat(900 * 1024) },
+    ],
+  } as ItemSet;
+  await withFixture(async (fixture) => {
+    const firstArtifact = path.join(
+      fixture.before,
+      "pulls",
+      TENANT,
+      "zcc_device_cleanup.json",
+    );
+    let mutationRan = false;
+    await assert.rejects(
+      compareZccPullCollectionOperation({
+        ...options(fixture),
+        hooks: {
+          afterArtifactRechecked: (index) => {
+            if (index === 0) {
+              setImmediate(() => {
+                writeFileSync(
+                  firstArtifact,
+                  renderPythonLosslessArtifactJson([{ id: "late-mutation" }]),
+                );
+                mutationRan = true;
+              });
+            }
+          },
+        },
+      }),
+      isFailure("ZCC_PULL_COLLECTION_PARITY_INPUT_CHANGED"),
+    );
+    assert.equal(mutationRan, true);
+  }, largeItems);
 });
 
 test("standalone and process schemas reject semantic tampering and close extra fields", async () => {
@@ -586,7 +676,7 @@ test("results and failures contain no workspace, body, or secret sentinels", asy
   });
 });
 
-test("public process maps equal to 0, parity findings to 3, and invalid isolation to 2", async () => {
+test("public process maps success, parity, request, and I/O outcomes", async () => {
   await withFixture(async (fixture) => {
     const equalRequest = processRequest(fixture);
     const equal = invoke(equalRequest);
@@ -605,7 +695,28 @@ test("public process maps equal to 0, parity findings to 3, and invalid isolatio
     const differentRequest = processRequest(fixture);
     const different = invoke(differentRequest);
     assert.equal(different.status, 3, different.stderr);
-    assert.equal(JSON.parse(different.stdout).result.status, "different");
+    const differentResponse = JSON.parse(different.stdout);
+    assert.equal(validateProcessResponse(differentResponse), true);
+    assert.equal(differentResponse.result.status, "different");
+
+    const nodeTarget = path.join(
+      fixture.node,
+      "pulls",
+      TENANT,
+      "zcc_device_cleanup.json",
+    );
+    const afterTarget = path.join(
+      fixture.after,
+      "pulls",
+      TENANT,
+      "zcc_device_cleanup.json",
+    );
+    writeFileSync(afterTarget, readFileSync(nodeTarget));
+    const unstable = invoke(processRequest(fixture));
+    assert.equal(unstable.status, 3, unstable.stderr);
+    const unstableResponse = JSON.parse(unstable.stdout);
+    assert.equal(validateProcessResponse(unstableResponse), true);
+    assert.equal(unstableResponse.result.status, "unstable_reference");
 
     const invalid = structuredClone(differentRequest) as {
       context: {
@@ -620,5 +731,18 @@ test("public process maps equal to 0, parity findings to 3, and invalid isolatio
     const errorResponse = JSON.parse(rejected.stdout);
     assert.equal(errorResponse.error.code, "INVALID_ZCC_PULL_COLLECTION_PARITY_ISOLATION");
     assert.equal(validateProcessResponse(errorResponse), true);
+
+    const missingRequest = processRequest(fixture);
+    rmSync(path.join(
+      fixture.before,
+      "pulls",
+      TENANT,
+      "zcc_device_cleanup.json",
+    ));
+    const missing = invoke(missingRequest);
+    assert.equal(missing.status, 1, missing.stderr);
+    const missingResponse = JSON.parse(missing.stdout);
+    assert.equal(validateProcessResponse(missingResponse), true);
+    assert.equal(missingResponse.error.category, "io");
   });
 });

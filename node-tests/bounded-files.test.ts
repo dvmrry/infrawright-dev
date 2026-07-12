@@ -24,6 +24,7 @@ import test from "node:test";
 import { ProcessFailure } from "../node-src/domain/errors.js";
 import {
   ReadBudget,
+  readBoundedFileBytes,
   readBoundedUtf8File,
   sha256StableFile,
   snapshotStableFile,
@@ -61,6 +62,40 @@ async function failureCode(operation: Promise<unknown>): Promise<string> {
     return error.code;
   }
   assert.fail("operation unexpectedly succeeded");
+}
+
+async function observeZeroFills(
+  targetLength: number,
+  operation: (fills: () => number) => Promise<void>,
+): Promise<number> {
+  const originalFill = Buffer.prototype.fill;
+  let zeroFills = 0;
+  const spy = function(this: Buffer, ...args: unknown[]): Buffer {
+    const result = Reflect.apply(originalFill, this, args) as Buffer;
+    if (
+      this.length === targetLength
+      && args[0] === 0
+      && this.every((value) => value === 0)
+    ) {
+      zeroFills += 1;
+    }
+    return result;
+  };
+  Object.defineProperty(Buffer.prototype, "fill", {
+    configurable: true,
+    value: spy,
+    writable: true,
+  });
+  try {
+    await operation(() => zeroFills);
+    return zeroFills;
+  } finally {
+    Object.defineProperty(Buffer.prototype, "fill", {
+      configurable: true,
+      value: originalFill,
+      writable: true,
+    });
+  }
 }
 
 test("stable hashing and bounded UTF-8 reads share exact budgets", async (context) => {
@@ -217,6 +252,48 @@ test("path replacement is detected even when the opened bytes stay stable", asyn
     },
   });
   assert.equal(await failureCode(result), "FILE_CHANGED");
+});
+
+test("collected chunks are cleared when a final-stat hook aborts the read", async (context) => {
+  const directory = await temporaryDirectory();
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const source = path.join(directory, "source");
+  const content = Buffer.alloc(4097, 0x53);
+  await writeFile(source, content, { mode: 0o600 });
+  const fills = await observeZeroFills(content.length, async () => {
+    assert.equal(
+      await failureCode(readBoundedFileBytes(
+        source,
+        new ReadBudget(limits({ total: 8192n, file: 8192n })),
+        {
+          hooks: {
+            beforeFinalStat: () => {
+              throw new Error("forced final-stat failure");
+            },
+          },
+        },
+      )),
+      "READ_FAILED",
+    );
+  });
+  assert.equal(fills, 1);
+});
+
+test("UTF-8 helper clears its internally owned byte snapshot on decode failure", async (context) => {
+  const directory = await temporaryDirectory();
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const source = path.join(directory, "invalid-utf8");
+  const content = Buffer.from([0xff, 0x53, 0x45, 0x43, 0x52, 0x45, 0x54, 0x00, 0x01]);
+  await writeFile(source, content, { mode: 0o600 });
+  const fills = await observeZeroFills(content.length, async () => {
+    assert.equal(
+      await failureCode(readBoundedUtf8File(source, new ReadBudget(limits()))),
+      "INVALID_UTF8",
+    );
+  });
+  // One fill clears the intermediate collected chunk; the second clears the
+  // final byte buffer transferred to the UTF-8 convenience helper.
+  assert.equal(fills, 2);
 });
 
 test("snapshot binds bytes, digest, size, and private mode", async (context) => {

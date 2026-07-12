@@ -20,6 +20,21 @@
 - Diff command:
   `git diff 1ce9e3cf8f91456eb1f0c5691a99a2770b705774...HEAD`.
 
+## Adversarial Review Remediation
+
+- The first adversarial review inspected immutable head
+  `a5a71684e01dfffeb18108fc9e2c3a69837071b9` and requested changes.
+- This follow-up head addresses all four blocking groups from that review:
+  - bind and full-version-check all nine workspace/`pulls`/tenant directories,
+    and reject physical identity reuse across those directories and 15 files;
+  - add one common final synchronous checkpoint after every asynchronous
+    artifact reread;
+  - make bounded-reader byte ownership and abnormal-exit clearing explicit;
+  - exercise `unstable_reference` exit `3` and missing-input exit `1` in the
+    public process matrix.
+- This builder handoff does not self-approve the remediation. The immutable
+  follow-up head requires a fresh read-only adversarial review.
+
 ## Files Changed
 
 - Comparator and contracts:
@@ -36,10 +51,12 @@
 - Reused filesystem primitives:
   - `node-src/io/zcc-pull-publisher.ts` exports its existing internal stable
     directory binder/verifier without changing behavior;
-  - `node-src/io/bounded-files.ts` now best-effort clears its scratch and
-    intermediate collected byte buffers after reads.
+  - `node-src/io/bounded-files.ts` now retains collected-chunk ownership until
+    transfer, clears untransferred chunks on abnormal exits, and clears the
+    byte snapshot owned by the UTF-8 helper after decoding.
 - Documentation and tests:
   - `docs/node-process-api.md`
+  - `node-tests/bounded-files.test.ts`
   - `node-tests/zcc-pull-collection-parity.test.ts`
   - this handoff.
 - Files intentionally left untouched:
@@ -102,8 +119,14 @@
   - all 15 derived `pulls/<tenant>/<resource>.json` files must be regular,
     non-symlink, at most 4 MiB, fatal UTF-8, duplicate-key-closed lossless JSON
     lists, at most 50,000 items, and byte-exact Python canonical JSON;
-  - the operation binds and rechecks workspace handles plus file
-    device/inode/size/mtime/ctime/digest across the complete comparison window;
+  - the operation binds open handles and full
+    device/inode/size/mtime/ctime versions for the workspace, `pulls`, and
+    tenant directories in all three roles, then globally rejects reused
+    physical identities across all nine directories and 15 files;
+  - after all asynchronous content rechecks, one final synchronous no-yield
+    checkpoint rechecks all nine directory handle/path/canonical/version
+    bindings and all 15 file path/canonical/version bindings before synchronous
+    result construction;
   - Node file path/hash/size/count/catalog/resource/tenant coordinates must
     join every receipt;
   - Python-before/Python-after tuple inequality yields
@@ -145,55 +168,45 @@
     or caller hashes outside validated receipts are not accepted;
   - result/error envelopes contain no absolute paths, workspace names, raw
     bodies, credentials, URLs, or diagnostics;
-  - every mutable owned content buffer, including bounded-reader scratch and
-    intermediate chunks, is cleared best-effort. JavaScript strings make no
-    erasure claim;
+  - the bounded reader clears scratch and untransferred collected chunks on
+    abnormal exits. The UTF-8 helper clears its internally owned byte snapshot;
+    the raw-byte helper intentionally transfers ownership to its caller.
+    JavaScript strings make no erasure claim;
   - report digests are content joins, not authentication. Protected ADO
     artifact provenance remains an external requirement.
 
 ## Tests Run
 
 - Commands:
-  - focused typecheck/build and combined parity/collection suites;
-  - full Node 24.15 and 24.14 using
+  - `npm run typecheck` and `npm run build:test`;
+  - focused bounded-reader, collection parity, and pull-publication suites on
+    Node 24.15.0 and Node 24.14.0;
+  - full Node 24.15.0 using
     `node --test --test-concurrency=2 .node-test/node-tests/*.test.js`;
   - `npm run build` production parent/child graph checks;
-  - `make check-all`;
-  - physically pruned exact `empty`, `zcc`, and `zscaler` copies through
-    `make PACK_PROFILE=packsets/<profile>.json check`;
-  - explicit collector/adoption/transform/ZPA-cohort/root catalog byte checks;
-  - release-script syntax, release-required-file presence, production bundle
-    SHA-256 generation, JSON schema parse checks, and `git diff --check`.
+  - JSON parse every published schema, `bash -n scripts/release.sh`, and
+    `git diff --check`.
 - Relevant output summary:
-  - focused parity plus existing collection: 27/27 passed before final
-    hardening; final parity matrix is 13/13 within each full run;
-  - Node 24.15: 794 total, 793 passed, zero failed, one existing platform skip;
-  - Node 24.14: 794 total, 793 passed, zero failed, one existing platform skip;
-  - full Python: 1,400 total, 1,399 passed, zero failed, one opt-in external
-    provider-source skip;
-  - physically pruned: empty 867/867; ZCC 911/911; Zscaler 1,381 total,
-    1,380 passed, one existing external-source skip;
-  - full pack selection, demo drift, generated modules, JSON tfvars, pack
-    metadata, and vendor boundary passed; vendor audit retained 187 allowed
-    matches and zero violations;
-  - catalog checks, production two-bundle build/graph guards, release shell
-    syntax/required-file checks, checksums, schemas, and whitespace passed.
+  - focused Node 24.15.0: 44/44 passed;
+  - focused Node 24.14.0: 44/44 passed;
+  - full Node 24.15.0: 799 total, 798 passed, zero failed, one existing
+    platform skip;
+  - typecheck, test build, production two-bundle build/graph guards, release
+    shell syntax, schema JSON parsing, and whitespace passed.
 - Tests not run and why:
+  - full Node 24.14 was not repeated because the changed shared behavior passed
+    the exact 44-test focused set on that runtime; the requested full replay was
+    reserved for focused failure or runtime divergence;
+  - full Python and physically pruned pack-profile suites were not repeated
+    because the remediation changes only Node comparator/reader code, Node
+    tests, and documentation; no Python, pack, catalog, schema, or fixture file
+    changed;
   - no live credentialed tenant collection was authorized in this artifact-only
     slice;
   - no protected ADO job, corporate proxy/private CA, hosted CI, or external
     artifact-provenance system was available locally;
   - no live executor, runtime archive, transcript, HMAC, qualification, or
     cutover claim is made.
-- Intermediate corrected gate:
-  - the first uncapped wrapper replay exposed one request-diagnostic-count
-    regression after adding a separate operation branch (794 total, one fail,
-    one skip). The schema dispatch was collapsed without weakening the new
-    context/input join; the exact targeted regression passed, and both final
-    capped full-runtime replays above passed.
-  - the first rsync-only Zscaler-pruned harness omitted `.git`, so its demo test
-    could not execute `git status`. The Git-aware physical-pruning replay above
-    passed; this was a harness correction, not a product change.
 
 ## Known Deferrals
 
@@ -203,6 +216,10 @@
   - transcript capture/replay, Python execution, HMAC, immutable runtime
     archives, report authentication, batch comparison, materialization, broad
     cutover aggregation, and qualification claims.
+- The final no-yield checkpoint closes same-event-loop callback scheduling
+  gaps but is not an atomic snapshot against any concurrent writer, including
+  another process or worker thread. Protected ADO must keep all three private
+  workspaces quiescent until the comparison exits.
 - Reason it is safe to defer: this operation is read-only, exact-five,
   artifact-bound, closed to a stable Python reference window, and explicitly
   refuses to interpret equality as runtime/executor/cutover qualification.
@@ -222,8 +239,13 @@
     operation;
   - nested/same/symlink/root workspaces and symlinked artifact ancestors cannot
     alias evidence;
-  - mutate, replace, mutate-and-restore, or root rollover cannot survive the
-    final identity/digest/metadata CAS;
+  - cross-role hardlinks and reused descendant-directory identities cannot
+    alias evidence;
+  - mutate, replace, move-and-restore at workspace/`pulls`/tenant level, root
+    rollover, or mutation of an early-rechecked artifact during a later reread
+    cannot survive the final identity/version CAS;
+  - collected chunks are cleared when a read fails after collection, while the
+    UTF-8 helper clears its transferred byte snapshot on invalid decode;
   - `unstable_reference` always outranks a Node match;
   - direct exported operation inputs cannot use proxies/accessors/extras to
     launder retained status or hash claims.
