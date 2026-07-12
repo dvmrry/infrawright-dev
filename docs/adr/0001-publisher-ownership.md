@@ -55,6 +55,12 @@ intentional: same-root Node publication is rejected before credentials or
 workspace evidence are consumed, and the final candidate remains inside one
 serialized mutation invocation.
 
+Because the exact artifact layout is deployment-derived, exact authority is
+not proven until after the guarded binder returns. The materializer then uses
+the publisher's target resolver and requires the guarded root to equal the
+common imports/applicable-lookup/tfvars authority before provider execution.
+Final publisher preparation repeats the same authority check before mutation.
+
 The host retains open handles and device/inode bindings for both the authority
 directory and its guard. Before cleanup it rechecks both handles against their
 current pathnames and refuses to unlink a replaced guard or one reached through

@@ -385,7 +385,8 @@ async function recheckDirectories(authority: BoundAuthority): Promise<void> {
   }
 }
 
-function resolveAuthorizedPath(
+/** @internal Resolve one bootstrap target with the publisher's exact policy. */
+export function resolveZccBootstrapMaterializationTargetPath(
   outputRoot: string,
   pathBase: string,
   nominatedPath: string,
@@ -774,7 +775,11 @@ function unsupportedPaths(
     generated,
     ...(staleLookup === null ? [] : [staleLookup]),
   ]
-    .map((target) => resolveAuthorizedPath(outputRoot, pathBase, target));
+    .map((target) => resolveZccBootstrapMaterializationTargetPath(
+      outputRoot,
+      pathBase,
+      target,
+    ));
 }
 
 async function prepareArtifacts(options: {
@@ -786,7 +791,7 @@ async function prepareArtifacts(options: {
   readonly unsupported: readonly string[];
 }> {
   const artifacts = artifactBytes(options.candidate).map((entry) => {
-    const absolutePath = resolveAuthorizedPath(
+    const absolutePath = resolveZccBootstrapMaterializationTargetPath(
       options.authority.root.absolutePath,
       options.pathBase,
       entry.descriptor.path,

@@ -56,12 +56,13 @@ protected Python-reference workspace to obtain a complete exit-`0`
 `materialize_adoption_artifacts` in the target job-owned workspace. Configure
 the existing adoption-oracle host authority and set
 `INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT` to the exact canonical target overlay.
-The materializer re-runs the provider oracle under the publisher guard; its
-receipt is byte/publication evidence, not a live plan result. Only after its
-exit `0` may the serialized workflow continue with `gen-env`, `stage-imports`,
-`plan SAVE=1`, and `assert-adoptable`. Do not treat fake-provider or repository
-differentials as live-tenant qualification, and do not apply from the
-materialization receipt alone.
+The guard is acquired before target binding; once binding derives the artifact
+coordinates, exact-root authority is proved before the materializer re-runs
+the provider oracle. Its receipt is byte/publication evidence, not a live plan
+result. Only after its exit `0` may the serialized workflow continue with
+`gen-env`, `stage-imports`, `plan SAVE=1`, and `assert-adoptable`. Do not treat
+fake-provider or repository differentials as live-tenant qualification, and do
+not apply from the materialization receipt alone.
 
 Use the same `POLICY=<file>` for `assert-adoptable` and `apply`. Apply
 reclassifies saved plans before execution and should only proceed for clean,

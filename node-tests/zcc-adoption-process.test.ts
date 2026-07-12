@@ -1628,7 +1628,13 @@ test("public adoption materializer is closed, assertion-bound, and fails before 
 });
 
 test("public adoption materializer enforces guard, exact authority, and no replacement", () => {
-  for (const kind of ["busy", "ancestor", "foreign", "pending"] as const) {
+  for (const kind of [
+    "busy",
+    "ancestor",
+    "unrelated",
+    "foreign",
+    "pending",
+  ] as const) {
     const fixture = createFixture({ deployment: deployment(true) });
     try {
       pythonAdopt(fixture.workspace, fixture.fake, "zcc_trusted_network");
@@ -1643,6 +1649,15 @@ test("public adoption materializer enforces guard, exact authority, and no repla
       const target = cloneWorkspace(fixture, `materialize-${kind}-target`, deployment(true));
       const outputRoot = path.join(target, "stack");
       mkdirSync(outputRoot, { recursive: true });
+      const unrelatedRoot = path.join(fixture.root, "unrelated-output-root");
+      if (kind === "unrelated") {
+        mkdirSync(unrelatedRoot);
+      }
+      const guardedRoot = kind === "ancestor"
+        ? target
+        : kind === "unrelated"
+          ? unrelatedRoot
+          : outputRoot;
       const request = materializeRequest(
         fixture,
         target,
@@ -1674,13 +1689,15 @@ test("public adoption materializer enforces guard, exact authority, and no repla
         request,
         { fake: fixture.fake, tempRoot: fixture.tempRoot },
         {
-          INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT: kind === "ancestor"
-            ? target
-            : outputRoot,
+          INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT: guardedRoot,
           ZSCALER_CLIENT_SECRET: "credential-secret",
         },
       );
-      assert.equal(invocation.status, kind === "pending" ? 2 : 1, invocation.stdout);
+      assert.equal(
+        invocation.status,
+        kind === "pending" || kind === "unrelated" ? 2 : 1,
+        invocation.stdout,
+      );
       requireMaterializeError(invocation.response);
       assert.equal(
         invocation.response.error.code,
@@ -1688,22 +1705,36 @@ test("public adoption materializer enforces guard, exact authority, and no repla
           ? "OUTPUT_ROOT_BUSY"
           : kind === "ancestor"
             ? "OUTPUT_ROOT_NOT_ARTIFACT_AUTHORITY"
+            : kind === "unrelated"
+              ? "MATERIALIZATION_TARGET_OUTSIDE_AUTHORITY"
             : kind === "foreign"
               ? "MATERIALIZATION_TARGET_MISMATCH"
               : "UNSUPPORTED_MATERIALIZATION_RESIDUE",
       );
+      const providerCallsAfter = readFileSync(fixture.log, "utf8")
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .length;
+      if (kind === "busy" || kind === "ancestor" || kind === "unrelated") {
+        assert.equal(providerCallsAfter, providerCallsBefore, kind);
+      }
       if (kind === "busy") {
         assert.equal(invocation.response.error.retryable, true);
-        const providerCallsAfter = readFileSync(fixture.log, "utf8")
-          .trim()
-          .split("\n")
-          .filter(Boolean)
-          .length;
-        assert.equal(providerCallsAfter, providerCallsBefore);
         assert.equal(
           readFileSync(path.join(outputRoot, ".infrawright.publisher.lock"), "utf8"),
           "stale\n",
         );
+      }
+      if (kind === "ancestor" || kind === "unrelated") {
+        assert.equal(
+          existsSync(path.join(guardedRoot, ".infrawright.publisher.lock")),
+          false,
+          `${kind}: guard cleanup`,
+        );
+        assert.equal(existsSync(path.join(outputRoot, "config")), false, kind);
+        assert.equal(existsSync(path.join(outputRoot, "imports")), false, kind);
+        assert.equal(existsSync(imports), false, kind);
       }
       if (kind === "foreign") {
         assert.equal(readFileSync(imports, "utf8"), "foreign artifact bytes\n");

@@ -19,12 +19,16 @@ import {
   createZccAdoptionOracleAdapters,
   type ZccAdoptionOracleAdapterFactoryOptions,
 } from "../io/zcc-adoption-oracle-adapters.js";
+import { requireExactPublisherAuthority } from "../io/publisher-guard.js";
 import {
   materializeReadyZccAdoptionArtifacts,
   snapshotReadyZccAdoptionMaterializationAssertion,
   type ZccAdoptionArtifactMaterialization,
 } from "./zcc-adoption-materialization.js";
-import type { ZccPullMaterializationHooks } from "./zcc-pull-materialization.js";
+import {
+  resolveZccBootstrapMaterializationTargetPath,
+  type ZccPullMaterializationHooks,
+} from "./zcc-pull-materialization.js";
 
 export type ZccAdoptionOracleHostAuthority =
   ZccAdoptionOracleAdapterFactoryOptions;
@@ -151,6 +155,16 @@ export async function materializeZccAdoptionArtifactsOperation(
     ? undefined
     : Object.freeze({ ...options.materializationHooks });
   const bound = await bindZccAdoptionMaterializationInputs(options);
+  const materializationTargets = [
+    bound.target.importsPath,
+    ...(bound.target.lookupPath === null ? [] : [bound.target.lookupPath]),
+    bound.target.configPath,
+  ].map((targetPath) => resolveZccBootstrapMaterializationTargetPath(
+    outputRoot,
+    bound.pathBase,
+    targetPath,
+  ));
+  requireExactPublisherAuthority(outputRoot, materializationTargets);
   await beforeOracle?.();
   await bound.recheckInputs();
   const candidate = await runZccAdoptionOracle({

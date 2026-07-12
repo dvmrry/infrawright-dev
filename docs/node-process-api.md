@@ -448,6 +448,13 @@ retryable `OUTPUT_ROOT_BUSY` before the binder or provider oracle runs. The
 guard does not coordinate Python or Terraform; a job-owned physical root and a
 serialized external workflow remain required.
 
+Guard acquisition necessarily precedes target derivation. After the
+candidate-only binder resolves the deployment target, the operation resolves
+imports, applicable lookup, and tfvars with the publisher's path policy and
+proves that the guarded root is their unique exact authority before running the
+provider oracle. The publisher repeats that exact-authority check during final
+preparation; the early check is not publication authority by itself.
+
 The operation uses a candidate-only binder. Existing targets are neither
 bootstrap-absence preconditions nor comparison references: source,
 deployment, catalog, and derived target coordinates are bound, while the

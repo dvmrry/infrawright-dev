@@ -107,8 +107,9 @@
 - Expected behavior change:
   - one complete ready adoption parity assertion can authorize a distinct
     bootstrap create-or-verify-exact publication;
-  - both adoption-oracle host authority and exact output-root authority are
-    required before workspace I/O;
+  - both host capabilities are snapshotted and the output-root guard is
+    acquired before workspace I/O; the binder-derived exact output authority
+    is proved before provider use;
   - the publisher guard covers the complete binder, fresh oracle, and write;
   - the target source, deployment, catalog, provider observation, adoption
     catalog/root/layout, and artifact digests must reproduce the assertion;
@@ -156,6 +157,9 @@
   - exact-five, JSON, no-generated-binding, bootstrap-only scope;
   - provider oracle and assertion values are descriptor-safe inert snapshots;
   - the output-root guard is acquired before binder/oracle reads;
+  - the bound target is resolved with the publisher path policy and exact-root
+    authority is required before the fresh provider oracle, then required again
+    during final publisher preparation;
   - fixed publication order is imports, applicable lookup, tfvars;
   - each leaf is no-overwrite atomic while the set remains retry-forward;
   - post-link failure is retryable indeterminate and never rolls back by path;
@@ -183,9 +187,16 @@
     cohort, and the Zscaler root catalog
   - `npm run build`
   - `git diff --check`
+  - after accepted adversarial-review remediation: `npm run typecheck`,
+    `npm run build:test`, and the focused adoption materializer/process/
+    semantic, legacy pull materializer, and production-bundle suites with
+    `--test-concurrency=2`
 - Relevant output summary:
   - focused materializer/process/semantic and compatibility surface: 88/88
     passed;
+  - post-review exact-root remediation replay: the focused surface again passed
+    88/88, including unchanged fake-provider invocation count, absent artifact
+    directories, and successful guard cleanup for ancestor and unrelated roots;
   - each Node runtime: 717 total, 716 passed, one existing platform skip, zero
     failed;
   - Python: 1,400 total, 1,399 passed, one opt-in external-source skip;
@@ -197,6 +208,28 @@
 - Tests not run and why: live provider/tenant, ADO, and remote-backend plan/apply
   are outside this credential-free repository slice and remain downstream
   evidence.
+- Tests not repeated after the narrow remediation: the full Node/Python/pruned
+  distribution matrix. The accepted fix changes only pre-oracle authority
+  ordering, reuses the final publisher resolver/check, and has focused process,
+  publisher-compatibility, bundle, typecheck, and whitespace coverage; the
+  complete matrix above remains the builder evidence for the parent feature.
+
+## Accepted Review Remediation
+
+- Finding: an ancestor or unrelated guarded root reached the candidate binder
+  and fresh provider oracle before final publisher preparation rejected its
+  authority.
+- Root cause: exact authority was checked only inside `prepareArtifacts`, after
+  candidate construction.
+- Fix: immediately after candidate-only binding, resolve imports, applicable
+  lookup, and tfvars through the publisher's shared path policy and require the
+  configured root to be their unique exact authority. Final publisher
+  preparation retains the same check.
+- Regression: process tests cover canonical ancestor and unrelated roots,
+  assert no additional fake-provider invocation, assert no artifact path or
+  directory is created, and assert the transient guard is cleaned up.
+- Verification: focused replay and typecheck pass; return this changed surface
+  to the original fresh-context reviewer without builder self-approval.
 
 ## Known Deferrals
 
@@ -228,8 +261,9 @@
   - process request/result schemas and custom semantics
   - `node-src/process/execute.ts` guard scope.
 - Specific assumptions to attack:
-  - both host authorities are snapshotted and guard acquisition precedes every
-    workspace/oracle read;
+  - both host capabilities are snapshotted and guard acquisition precedes every
+    workspace/oracle read, while exact authority is derived after binding but
+    before provider use;
   - the compile and compare binders were not weakened;
   - candidate-only binding omits only target-as-evidence checks while source and
     controls remain CAS-bound through publication;
