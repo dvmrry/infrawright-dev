@@ -50,6 +50,19 @@ containing ancestor is not a second valid authority. The ADO path convention,
 publisher-guard behavior, and stale cleanup rules are defined in
 [ADR 0001](adr/0001-publisher-ownership.md).
 
+For the exact five-resource Node ZCC provider-observed bootstrap lane, use a
+protected Python-reference workspace to obtain a complete exit-`0`
+`compare_adoption_artifacts` assertion, then submit that assertion unchanged to
+`materialize_adoption_artifacts` in the target job-owned workspace. Configure
+the existing adoption-oracle host authority and set
+`INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT` to the exact canonical target overlay.
+The materializer re-runs the provider oracle under the publisher guard; its
+receipt is byte/publication evidence, not a live plan result. Only after its
+exit `0` may the serialized workflow continue with `gen-env`, `stage-imports`,
+`plan SAVE=1`, and `assert-adoptable`. Do not treat fake-provider or repository
+differentials as live-tenant qualification, and do not apply from the
+materialization receipt alone.
+
 Use the same `POLICY=<file>` for `assert-adoptable` and `apply`. Apply
 reclassifies saved plans before execution and should only proceed for clean,
 import-only, or explicitly policy-tolerated saved plans.

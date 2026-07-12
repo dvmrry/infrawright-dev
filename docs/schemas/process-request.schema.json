@@ -36,6 +36,7 @@
         "compile_pull_artifacts",
         "compile_adoption_artifacts",
         "compare_adoption_artifacts",
+        "materialize_adoption_artifacts",
         "seed_pull_refresh_parity",
         "compare_pull_artifacts",
         "materialize_pull_artifacts",
@@ -64,6 +65,9 @@
         },
         {
           "$ref": "#/$defs/comparePullArtifactsInput"
+        },
+        {
+          "$ref": "#/$defs/materializeAdoptionArtifactsInput"
         },
         {
           "$ref": "#/$defs/materializePullArtifactsInput"
@@ -152,6 +156,16 @@
         },
         "input": {
           "$ref": "#/$defs/compareAdoptionArtifactsInput"
+        }
+      }
+    },
+    {
+      "properties": {
+        "operation": {
+          "const": "materialize_adoption_artifacts"
+        },
+        "input": {
+          "$ref": "#/$defs/materializeAdoptionArtifactsInput"
         }
       }
     },
@@ -394,6 +408,56 @@
         },
         "resource_type": {
           "$ref": "zcc-pull-artifact-set.schema.json#/$defs/resourceType"
+        }
+      }
+    },
+    "materializeAdoptionArtifactsInput": {
+      "type": "object",
+      "x-infrawright-zcc-adoption-materialization-request-semantics": true,
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "publication",
+        "tenant",
+        "resource_type",
+        "assertion"
+      ],
+      "properties": {
+        "mode": {
+          "const": "bootstrap"
+        },
+        "publication": {
+          "const": "create_or_verify_exact"
+        },
+        "tenant": {
+          "type": "string",
+          "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+        },
+        "resource_type": {
+          "$ref": "zcc-pull-artifact-set.schema.json#/$defs/resourceType"
+        },
+        "assertion": {
+          "allOf": [
+            {
+              "$ref": "zcc-adoption-artifact-parity.schema.json"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "const": "ready"
+                },
+                "parity": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "const": "equal"
+                    }
+                  }
+                }
+              }
+            }
+          ]
         }
       }
     },

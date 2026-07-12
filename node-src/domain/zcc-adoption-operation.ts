@@ -6,6 +6,7 @@ import {
 import { runZccAdoptionOracle } from "./zcc-adoption-oracle.js";
 import { ProcessFailure } from "./errors.js";
 import {
+  bindZccAdoptionMaterializationInputs,
   bindZccAdoptionComparisonInputs,
   bindZccBootstrapPullOperationInputs,
   type ZccPullArtifactsOperationOptions,
@@ -18,6 +19,12 @@ import {
   createZccAdoptionOracleAdapters,
   type ZccAdoptionOracleAdapterFactoryOptions,
 } from "../io/zcc-adoption-oracle-adapters.js";
+import {
+  materializeReadyZccAdoptionArtifacts,
+  snapshotReadyZccAdoptionMaterializationAssertion,
+  type ZccAdoptionArtifactMaterialization,
+} from "./zcc-adoption-materialization.js";
+import type { ZccPullMaterializationHooks } from "./zcc-pull-materialization.js";
 
 export type ZccAdoptionOracleHostAuthority =
   ZccAdoptionOracleAdapterFactoryOptions;
@@ -33,6 +40,13 @@ export interface CompileZccAdoptionArtifactsOperationOptions
   extends ZccPullArtifactsOperationOptions {
   readonly hostAuthority: ZccAdoptionOracleHostAuthority | null;
   readonly adoptionHooks?: ZccAdoptionOperationHooks;
+}
+
+export interface MaterializeZccAdoptionArtifactsOperationOptions
+  extends CompileZccAdoptionArtifactsOperationOptions {
+  readonly assertion: ZccAdoptionArtifactParity;
+  readonly outputRoot: string;
+  readonly materializationHooks?: ZccPullMaterializationHooks;
 }
 
 function missingAuthority(): never {
@@ -109,5 +123,53 @@ export async function compareZccAdoptionArtifactsOperation(
   return compareZccAdoptionArtifactDigests({
     candidate,
     materialized: bound.materialized,
+  });
+}
+
+/**
+ * Re-observe one provider candidate and publish it only under an exact ready
+ * comparison assertion and independent host write authority.
+ */
+export async function materializeZccAdoptionArtifactsOperation(
+  options: MaterializeZccAdoptionArtifactsOperationOptions,
+): Promise<ZccAdoptionArtifactMaterialization> {
+  const authority = options.hostAuthority;
+  if (authority === null) {
+    return missingAuthority();
+  }
+  // Snapshot all caller-retained capabilities and values before the first
+  // workspace read. The concrete adapter factory closes the environment.
+  const terraformExecutable = authority.terraformExecutable;
+  const adapters = createZccAdoptionOracleAdapters(authority);
+  const assertion = snapshotReadyZccAdoptionMaterializationAssertion(
+    options.assertion,
+  );
+  const outputRoot = options.outputRoot;
+  const beforeOracle = options.adoptionHooks?.beforeOracle;
+  const afterOracle = options.adoptionHooks?.afterOracle;
+  const materializationHooks = options.materializationHooks === undefined
+    ? undefined
+    : Object.freeze({ ...options.materializationHooks });
+  const bound = await bindZccAdoptionMaterializationInputs(options);
+  await beforeOracle?.();
+  await bound.recheckInputs();
+  const candidate = await runZccAdoptionOracle({
+    catalog: loadZccAdoptionCatalog(),
+    catalogSha256: ZCC_ADOPTION_CATALOG_SHA256,
+    rawItems: bound.rawItems,
+    source: bound.source,
+    target: bound.target,
+    terraformExecutable,
+  }, adapters);
+
+  await afterOracle?.();
+  await bound.recheckInputs();
+  return materializeReadyZccAdoptionArtifacts({
+    outputRoot,
+    pathBase: bound.pathBase,
+    candidate,
+    assertion,
+    recheckInputs: bound.recheckInputs,
+    ...(materializationHooks === undefined ? {} : { hooks: materializationHooks }),
   });
 }

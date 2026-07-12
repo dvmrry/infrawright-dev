@@ -15,6 +15,7 @@ import transformCatalogSchema from "../../docs/schemas/transform-catalog.schema.
 import zccAdoptionCatalogSchema from "../../docs/schemas/zcc-adoption-catalog.schema.json" with { type: "json" };
 import zccAdoptionArtifactSetSchema from "../../docs/schemas/zcc-adoption-artifact-set.schema.json" with { type: "json" };
 import zccAdoptionArtifactParitySchema from "../../docs/schemas/zcc-adoption-artifact-parity.schema.json" with { type: "json" };
+import zccAdoptionArtifactMaterializationSchema from "../../docs/schemas/zcc-adoption-artifact-materialization.schema.json" with { type: "json" };
 import zccPullArtifactSetSchema from "../../docs/schemas/zcc-pull-artifact-set.schema.json" with { type: "json" };
 import zccPullRefreshArtifactSetSchema from "../../docs/schemas/zcc-pull-refresh-artifact-set.schema.json" with { type: "json" };
 import zccPullArtifactParitySchema from "../../docs/schemas/zcc-pull-artifact-parity.schema.json" with { type: "json" };
@@ -73,6 +74,12 @@ import {
   ZCC_ADOPTION_PARITY_SEMANTICS_KEYWORD,
   validateZccAdoptionParitySemantics,
 } from "./zcc-adoption-parity-semantics.js";
+import {
+  ZCC_ADOPTION_MATERIALIZATION_REQUEST_SEMANTICS_KEYWORD,
+  ZCC_ADOPTION_MATERIALIZATION_SEMANTICS_KEYWORD,
+  validateZccAdoptionMaterializationRequestSemantics,
+  validateZccAdoptionMaterializationSemantics,
+} from "./zcc-adoption-materialization-semantics.js";
 
 const AJV_OPTIONS = {
   coerceTypes: false,
@@ -216,6 +223,30 @@ ajv.addKeyword({
   validate: validateZccAdoptionParitySemantics,
 });
 
+requestAjv.addKeyword({
+  keyword: ZCC_ADOPTION_PARITY_SEMANTICS_KEYWORD,
+  schemaType: "boolean",
+  type: "object",
+  errors: true,
+  validate: validateZccAdoptionParitySemantics,
+});
+
+ajv.addKeyword({
+  keyword: ZCC_ADOPTION_MATERIALIZATION_SEMANTICS_KEYWORD,
+  schemaType: "boolean",
+  type: "object",
+  errors: true,
+  validate: validateZccAdoptionMaterializationSemantics,
+});
+
+requestAjv.addKeyword({
+  keyword: ZCC_ADOPTION_MATERIALIZATION_REQUEST_SEMANTICS_KEYWORD,
+  schemaType: "boolean",
+  type: "object",
+  errors: true,
+  validate: validateZccAdoptionMaterializationRequestSemantics,
+});
+
 ajv.addKeyword({
   keyword: ZCC_PULL_MATERIALIZATION_SEMANTICS_KEYWORD,
   schemaType: "boolean",
@@ -265,6 +296,7 @@ ajv.addSchema(zccAdoptionCatalogSchema);
 ajv.addSchema(zccPullArtifactSetSchema);
 ajv.addSchema(zccAdoptionArtifactSetSchema);
 ajv.addSchema(zccAdoptionArtifactParitySchema);
+ajv.addSchema(zccAdoptionArtifactMaterializationSchema);
 ajv.addSchema(zccPullRefreshArtifactSetSchema);
 ajv.addSchema(zccPullArtifactParitySchema);
 ajv.addSchema(zccPullArtifactMaterializationSchema);
@@ -275,6 +307,7 @@ ajv.addSchema(zccPullRefreshMaterializationSchema);
 ajv.addSchema(zccPullRefreshAcknowledgementSchema);
 requestAjv.addSchema(zccPullArtifactParitySchema);
 requestAjv.addSchema(zccPullArtifactSetSchema);
+requestAjv.addSchema(zccAdoptionArtifactParitySchema);
 requestAjv.addSchema(zccPullRefreshParitySeedSchema);
 requestAjv.addSchema(zccPullRefreshParitySchema);
 requestAjv.addSchema(zccPullRefreshMaterializationSchema);
@@ -312,6 +345,8 @@ export const validateZccAdoptionArtifactSet: ValidateFunction = ajv.getSchema(
 export const validateZccAdoptionArtifactParity: ValidateFunction = ajv.getSchema(
   zccAdoptionArtifactParitySchema.$id,
 ) as ValidateFunction;
+export const validateZccAdoptionArtifactMaterialization: ValidateFunction =
+  ajv.getSchema(zccAdoptionArtifactMaterializationSchema.$id) as ValidateFunction;
 export const validateZccPullArtifactSet: ValidateFunction = ajv.getSchema(
   zccPullArtifactSetSchema.$id,
 ) as ValidateFunction;

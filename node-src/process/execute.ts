@@ -7,6 +7,7 @@ import {
   validateRootTopology,
   validateSavedPlanAssessment,
   validateZccAdoptionArtifactParity,
+  validateZccAdoptionArtifactMaterialization,
   validateZccAdoptionArtifactSet,
   validateZccPullArtifactMaterialization,
   validateZccPullArtifactSet,
@@ -51,10 +52,12 @@ import { zccPullRefreshPublicationReceiptSha } from "../domain/zcc-pull-refresh-
 import {
   compareZccAdoptionArtifactsOperation,
   compileZccAdoptionArtifactsOperation,
+  materializeZccAdoptionArtifactsOperation,
 } from "../domain/zcc-adoption-operation.js";
 import type { ZccAdoptionOracleHostAuthority } from "../domain/zcc-adoption-operation.js";
 import {
   zccAdoptionOperationResultErrors,
+  zccAdoptionMaterializationOperationResultErrors,
   zccAdoptionParityOperationResultErrors,
 } from "../contracts/zcc-adoption-operation-semantics.js";
 import { withPublisherGuard } from "../io/publisher-guard.js";
@@ -131,6 +134,19 @@ function copyRequest(request: ProcessRequest): ProcessRequest {
         reference: "materialized",
         tenant: request.input.tenant,
         resource_type: request.input.resource_type,
+      },
+    };
+  }
+  if (request.operation === "materialize_adoption_artifacts") {
+    return {
+      ...base,
+      operation: "materialize_adoption_artifacts",
+      input: {
+        mode: "bootstrap",
+        publication: "create_or_verify_exact",
+        tenant: request.input.tenant,
+        resource_type: request.input.resource_type,
+        assertion: structuredClone(request.input.assertion),
       },
     };
   }
@@ -377,6 +393,69 @@ export async function executeRequest(
       schema_version: 1,
       request_id: request.request_id,
       operation: "compare_adoption_artifacts",
+      status: "ok",
+      diagnostics: [],
+      result,
+      error: null,
+    };
+  }
+  if (request.operation === "materialize_adoption_artifacts") {
+    if (zccAdoptionOracle === null) {
+      throw new ProcessFailure({
+        code: "ZCC_ADOPTION_HOST_NOT_CONFIGURED",
+        category: "io",
+        message: "the ZCC adoption oracle host authority is not configured",
+      });
+    }
+    if (dependencies.materializeOutputRoot === null) {
+      throw new ProcessFailure({
+        code: "MATERIALIZE_OUTPUT_ROOT_NOT_CONFIGURED",
+        category: "io",
+        message: "artifact materialization requires a trusted output root",
+      });
+    }
+    const outputRoot = dependencies.materializeOutputRoot;
+    const result = await withPublisherGuard(outputRoot, async () => {
+      return materializeZccAdoptionArtifactsOperation({
+        workspace: request.context.workspace,
+        deploymentPath: resolveContextPath(
+          request.context.workspace,
+          request.context.deployment,
+        ),
+        catalogPath: resolveContextPath(
+          request.context.workspace,
+          request.context.root_catalog,
+        ),
+        tenant: request.input.tenant,
+        resourceType: request.input.resource_type,
+        assertion: request.input.assertion,
+        hostAuthority: zccAdoptionOracle,
+        outputRoot,
+      });
+    });
+    const bindingErrors = zccAdoptionMaterializationOperationResultErrors(
+      request,
+      result,
+    );
+    if (
+      !validateZccAdoptionArtifactMaterialization(result)
+      || bindingErrors.length > 0
+    ) {
+      throw new ProcessFailure({
+        code: "INVALID_OPERATION_RESULT",
+        category: "internal",
+        message: "materialize_adoption_artifacts produced a result outside its versioned contract",
+        details: [
+          ...schemaErrorDetails(validateZccAdoptionArtifactMaterialization.errors),
+          ...schemaErrorDetails(bindingErrors),
+        ],
+      });
+    }
+    return {
+      kind: "infrawright.process_response",
+      schema_version: 1,
+      request_id: request.request_id,
+      operation: "materialize_adoption_artifacts",
       status: "ok",
       diagnostics: [],
       result,

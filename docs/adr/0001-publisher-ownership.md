@@ -38,6 +38,7 @@ Persistent Node mutations are:
 
 - bootstrap `materialize_pull_artifacts`;
 - refresh `materialize_pull_artifacts`;
+- bootstrap `materialize_adoption_artifacts`;
 - `acknowledge_pull_refresh`.
 
 Each process-host mutation acquires the root-level
@@ -46,6 +47,13 @@ immediately with `OUTPUT_ROOT_BUSY` if that pathname already exists. It never
 waits, and guard acquisition never removes a pre-existing lock. The guard is a
 transient host coordination file at the output-root boundary; it is not a
 generated artifact, refresh marker, parity input, or schema field.
+
+The provider-observed adoption materializer acquires the guard before its
+workspace binder and fresh provider oracle. Its bounded Terraform transaction
+can therefore hold the root for the full host-owned deadline. This is
+intentional: same-root Node publication is rejected before credentials or
+workspace evidence are consumed, and the final candidate remains inside one
+serialized mutation invocation.
 
 The host retains open handles and device/inode bindings for both the authority
 directory and its guard. Before cleanup it rechecks both handles against their

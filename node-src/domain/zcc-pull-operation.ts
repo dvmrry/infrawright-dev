@@ -1311,6 +1311,7 @@ interface CompiledZccPullTransaction {
  */
 export interface BoundZccBootstrapPullOperationInputs {
   readonly rawItems: readonly unknown[];
+  readonly pathBase: string;
   readonly source: {
     readonly path: string;
     readonly sha256: string;
@@ -1541,6 +1542,38 @@ export async function bindZccBootstrapPullOperationInputs(
   await bound.recheckInputs();
   return Object.freeze({
     rawItems: bound.rawItems,
+    pathBase: bound.pathBase,
+    source: Object.freeze({
+      path: bound.binding.source.logicalPath,
+      sha256: bound.binding.source.sha256,
+      size_bytes: Number(bound.binding.source.size),
+    }),
+    target: Object.freeze({
+      ...bound.binding.target,
+      rootMembers: Object.freeze([...bound.binding.target.rootMembers]),
+    }),
+    recheckInputs: bound.recheckInputs,
+  });
+}
+
+/**
+ * Bind one adoption-publication candidate without treating target artifacts as
+ * compile preconditions or comparison evidence. The publisher owns their
+ * independent create-or-verify authority checks.
+ */
+export async function bindZccAdoptionMaterializationInputs(
+  options: ZccPullArtifactsOperationOptions,
+): Promise<BoundZccBootstrapPullOperationInputs> {
+  const hooks = copyZccPullOperationHooks(options.hooks);
+  const bound = await bindZccPullOperationInput(
+    options,
+    { kind: "candidate_only" },
+  );
+  await hooks?.beforeFinalRecheck?.();
+  await bound.recheckInputs();
+  return Object.freeze({
+    rawItems: bound.rawItems,
+    pathBase: bound.pathBase,
     source: Object.freeze({
       path: bound.binding.source.logicalPath,
       sha256: bound.binding.source.sha256,
@@ -1570,6 +1603,7 @@ export async function bindZccAdoptionComparisonInputs(
   await bound.recheckInputs();
   return Object.freeze({
     rawItems: bound.rawItems,
+    pathBase: bound.pathBase,
     source: Object.freeze({
       path: bound.binding.source.logicalPath,
       sha256: bound.binding.source.sha256,

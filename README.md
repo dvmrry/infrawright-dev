@@ -98,15 +98,20 @@ machine-only process operations emit root-topology, changed-path scope,
 plan-root, exact-catalog saved-plan assessment, immutable ZCC bootstrap artifact
 sets, read-only ZCC raw-transform refresh results, and provider-observed ZCC
 bootstrap adoption candidates plus content-free comparison against externally
-materialized references expected from the retained Python lane. Adoption
+materialized references expected from the retained Python lane, and may publish
+one fresh candidate under the complete protected comparison assertion. Adoption
 compilation and comparison are read-only; comparison binds reference paths and
 bytes but does not attest which writer created them, and exposes only logical
-paths, sizes, and digests. Compilation exposes projected candidate bytes.
-Neither claims plan/apply readiness, live qualification, or cutover. These
-lanes are differentially compared with Python in CI. The two-phase refresh
+paths, sizes, and digests. Compilation exposes projected candidate bytes. The
+distinct adoption materializer is create-or-verify-exact, retry-forward, and
+content-free in its receipt. None claims plan/apply readiness, live
+qualification, or cutover. These lanes are differentially compared with Python
+in CI. The two-phase refresh
 parity contract seeds two isolated materialized twins before Python, then
 proves seven post-Python artifact roles without emitting contents, import IDs,
-move keys, or physical paths. Materialization remains bootstrap-only. The
+move keys, or physical paths. Provider-observed adoption materialization remains
+bootstrap-only; the raw-transform publisher also retains its separately
+asserted refresh protocol. The
 compilers cover the five
 fetch-backed ZCC resources without writing them. Build
 the no-install bundle with
