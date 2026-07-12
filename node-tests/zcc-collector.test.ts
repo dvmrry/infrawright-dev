@@ -12,6 +12,7 @@ import { ProcessFailure } from "../node-src/domain/errors.js";
 import {
   collectZccOneApiResource,
   deriveZccOneApiEndpoints,
+  throwZccCollectorTransportFailure,
   zccCollectorRetryDelayMs,
   type ZccCollectorDataRequest,
   type ZccCollectorTransportResponse,
@@ -724,6 +725,50 @@ test("transport, response-body, and clock diagnostics never relay private values
   }
 });
 
+test("trusted transport failure lookup is runtime-closed against forged codes", async () => {
+  const failure = await captureFailure(
+    () => collectZccOneApiResource({
+      cloud: "",
+      resourceType: "zcc_device_cleanup",
+      sleep: () => undefined,
+      transport: () => {
+        return throwZccCollectorTransportFailure(
+          "FORGED_PRIVATE_CODE" as never,
+        );
+      },
+    }),
+    "ZCC_COLLECTOR_TRANSPORT_FAILURE",
+    "io",
+  );
+  assert.equal(failure.message, "ZCC transport failed");
+
+  const privateValue = "private-timeout-cause";
+  const timeout = await captureFailure(
+    () => collectZccOneApiResource({
+      cloud: "",
+      resourceType: "zcc_failopen_policy",
+      sleep: () => {
+        throw new ProcessFailure({
+          category: "io",
+          code: "ZCC_ONEAPI_TRANSACTION_TIMEOUT",
+          details: [{
+            code: privateValue,
+            message: privateValue,
+            path: privateValue,
+          }],
+          message: privateValue,
+        });
+      },
+      transport: () => response("", 429),
+    }),
+    "ZCC_ONEAPI_TRANSACTION_TIMEOUT",
+    "io",
+  );
+  assert.equal(timeout.message, "ZCC OneAPI transaction exceeded its deadline");
+  assert.deepEqual(timeout.details, []);
+  assert.equal(JSON.stringify(timeout).includes(privateValue), false);
+});
+
 test("production bundle excludes the private collector kernel and catalog", () => {
   const build = buildSync({
     bundle: true,
@@ -740,6 +785,9 @@ test("production bundle excludes the private collector kernel and catalog", () =
     "catalogs/zcc-collector-catalog.v1.json",
     "node-src/domain/zcc-collector-catalog.ts",
     "node-src/domain/zcc-collector.ts",
+    "node-src/domain/zcc-oneapi-auth.ts",
+    "node-src/io/zcc-oneapi-host.ts",
+    "node-src/io/zcc-oneapi-transport.ts",
     "tools/zcc_collector_catalog.py",
   ]) {
     assert.equal(
@@ -748,6 +796,11 @@ test("production bundle excludes the private collector kernel and catalog", () =
       privateInput,
     );
   }
+  assert.equal(
+    inputs.some((input) => input.includes("node_modules/undici/")),
+    false,
+    "private Undici transport dependency",
+  );
   const bundle = build.outputFiles?.[0]?.text ?? "";
   for (const marker of [
     "infrawright.zcc_collector_catalog",
@@ -755,6 +808,10 @@ test("production bundle excludes the private collector kernel and catalog", () =
     "getDeviceCleanupInfo",
     "trustedNetworkContracts",
     "ZCC_COLLECTOR_TRANSPORT_FAILURE",
+    "ZCC_ONEAPI_AUTH_TRANSPORT_FAILED",
+    "ZCC_ONEAPI_DIAGNOSTICS_UNSAFE",
+    "EnvHttpProxyAgent",
+    "oauth2/v1/token",
   ]) {
     assert.equal(bundle.includes(marker), false, marker);
   }

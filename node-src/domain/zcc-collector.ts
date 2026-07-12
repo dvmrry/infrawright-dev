@@ -12,7 +12,8 @@ import {
   type ZccCollectorResourceType,
 } from "./zcc-collector-catalog.js";
 
-const MAX_BODY_BYTES = 4 * 1024 * 1024;
+export const ZCC_COLLECTOR_RESPONSE_LIMIT_BYTES = 4 * 1024 * 1024;
+const MAX_BODY_BYTES = ZCC_COLLECTOR_RESPONSE_LIMIT_BYTES;
 const MAX_OVERALL_BODY_BYTES = 4 * 1024 * 1024;
 const MAX_FINAL_BYTES = 4 * 1024 * 1024;
 const MAX_ITEMS = 50_000;
@@ -72,6 +73,123 @@ export type ZccCollectorTransport = (
 ) => ZccCollectorTransportResponse | Promise<ZccCollectorTransportResponse>;
 
 export type ZccCollectorSleep = (milliseconds: number) => void | Promise<void>;
+
+export type ZccCollectorTrustedTransportFailureCode =
+  | "INVALID_ZCC_ONEAPI_DATA_REQUEST"
+  | "ZCC_ONEAPI_AUTH_HTTP_STATUS"
+  | "ZCC_ONEAPI_AUTH_RATE_LIMITED"
+  | "ZCC_ONEAPI_AUTH_RESPONSE_INVALID"
+  | "ZCC_ONEAPI_AUTH_RESPONSE_LIMIT"
+  | "ZCC_ONEAPI_AUTH_TRANSPORT_FAILED"
+  | "ZCC_ONEAPI_DATA_RESPONSE_LIMIT"
+  | "ZCC_ONEAPI_DATA_TRANSPORT_FAILED"
+  | "ZCC_ONEAPI_DIAGNOSTICS_UNSAFE"
+  | "ZCC_ONEAPI_REDIRECT_REFUSED"
+  | "ZCC_ONEAPI_TRANSACTION_TIMEOUT";
+
+const TRUSTED_TRANSPORT_FAILURES: Readonly<Record<
+  ZccCollectorTrustedTransportFailureCode,
+  Readonly<{
+    readonly category: "domain" | "io";
+    readonly message: string;
+    readonly retryable: boolean;
+  }>
+>> = Object.freeze({
+  INVALID_ZCC_ONEAPI_DATA_REQUEST: Object.freeze({
+    category: "domain",
+    message: "ZCC OneAPI data request is outside the private authority",
+    retryable: false,
+  }),
+  ZCC_ONEAPI_AUTH_HTTP_STATUS: Object.freeze({
+    category: "io",
+    message: "ZCC OneAPI authentication returned an unsupported HTTP status",
+    retryable: false,
+  }),
+  ZCC_ONEAPI_AUTH_RATE_LIMITED: Object.freeze({
+    category: "io",
+    message: "ZCC OneAPI authentication remained rate limited",
+    retryable: true,
+  }),
+  ZCC_ONEAPI_AUTH_RESPONSE_INVALID: Object.freeze({
+    category: "io",
+    message: "ZCC OneAPI authentication returned an invalid response",
+    retryable: false,
+  }),
+  ZCC_ONEAPI_AUTH_RESPONSE_LIMIT: Object.freeze({
+    category: "io",
+    message: "ZCC OneAPI authentication response exceeded its limit",
+    retryable: false,
+  }),
+  ZCC_ONEAPI_AUTH_TRANSPORT_FAILED: Object.freeze({
+    category: "io",
+    message: "ZCC OneAPI authentication transport failed",
+    retryable: true,
+  }),
+  ZCC_ONEAPI_DATA_RESPONSE_LIMIT: Object.freeze({
+    category: "io",
+    message: "ZCC OneAPI data response exceeded its limit",
+    retryable: false,
+  }),
+  ZCC_ONEAPI_DATA_TRANSPORT_FAILED: Object.freeze({
+    category: "io",
+    message: "ZCC OneAPI data transport failed",
+    retryable: true,
+  }),
+  ZCC_ONEAPI_DIAGNOSTICS_UNSAFE: Object.freeze({
+    category: "io",
+    message: "ZCC OneAPI in-process diagnostics isolation is unavailable",
+    retryable: false,
+  }),
+  ZCC_ONEAPI_REDIRECT_REFUSED: Object.freeze({
+    category: "io",
+    message: "ZCC OneAPI redirect was refused",
+    retryable: false,
+  }),
+  ZCC_ONEAPI_TRANSACTION_TIMEOUT: Object.freeze({
+    category: "io",
+    message: "ZCC OneAPI transaction exceeded its deadline",
+    retryable: true,
+  }),
+});
+
+class TrustedTransportFailure extends Error {
+  constructor(readonly code: ZccCollectorTrustedTransportFailureCode) {
+    super("trusted private ZCC transport failure");
+    this.name = "TrustedTransportFailure";
+  }
+}
+
+/**
+ * Throw one closed, secret-free adapter failure. The kernel recreates the
+ * public ProcessFailure from its own table and never relays adapter text.
+ */
+export function throwZccCollectorTransportFailure(
+  code: ZccCollectorTrustedTransportFailureCode,
+): never {
+  throw new TrustedTransportFailure(code);
+}
+
+function trustedTransportFailure(error: unknown): ProcessFailure | null {
+  let code: ZccCollectorTrustedTransportFailureCode | null = null;
+  if (error instanceof TrustedTransportFailure) {
+    code = error.code;
+  } else if (
+    error instanceof ProcessFailure
+    && error.code === "ZCC_ONEAPI_TRANSACTION_TIMEOUT"
+  ) {
+    code = error.code;
+  }
+  if (code === null || !Object.hasOwn(TRUSTED_TRANSPORT_FAILURES, code)) {
+    return null;
+  }
+  const contract = TRUSTED_TRANSPORT_FAILURES[code];
+  return new ProcessFailure({
+    category: contract.category,
+    code,
+    message: contract.message,
+    retryable: contract.retryable,
+  });
+}
 
 export interface ZccCollectedArtifact {
   readonly canonical_json: string;
@@ -501,7 +619,11 @@ async function safeTransportCall(
   let rawResponse: unknown;
   try {
     rawResponse = await transport(request);
-  } catch {
+  } catch (error: unknown) {
+    const trusted = trustedTransportFailure(error);
+    if (trusted !== null) {
+      throw trusted;
+    }
     return fail("ZCC_COLLECTOR_TRANSPORT_FAILURE", "ZCC transport failed", "io");
   }
   return snapshotResponse(rawResponse);
@@ -513,7 +635,11 @@ async function sleepForRetry(
 ): Promise<void> {
   try {
     await sleep(milliseconds);
-  } catch {
+  } catch (error: unknown) {
+    const trusted = trustedTransportFailure(error);
+    if (trusted !== null) {
+      throw trusted;
+    }
     fail("ZCC_COLLECTOR_RETRY_CLOCK_FAILURE", "ZCC retry clock failed", "io");
   }
 }
