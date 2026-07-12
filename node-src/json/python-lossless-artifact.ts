@@ -1,11 +1,11 @@
 import { LosslessNumber } from "lossless-json";
 
 import { ProcessFailure } from "../domain/errors.js";
+import { canonicalPythonNumberToken } from "./python-number.js";
 import { sortedStrings } from "./python-compatible.js";
 
-const JSON_INTEGER_TOKEN = /^-?(?:0|[1-9][0-9]*)$/;
 const INVALID_ARTIFACT_JSON_MESSAGE =
-  "artifact JSON must contain plain integer-only JSON values";
+  "artifact JSON must contain plain JSON values with finite lossless numbers";
 
 function invalidArtifactJson(): never {
   throw new ProcessFailure({
@@ -30,11 +30,11 @@ function encodePythonString(value: string): string {
 
 function encodeNumber(value: number | LosslessNumber): string {
   if (value instanceof LosslessNumber) {
-    const token = value.toString();
-    if (!JSON_INTEGER_TOKEN.test(token)) {
+    const token = canonicalPythonNumberToken(value.toString());
+    if (token === null) {
       return invalidArtifactJson();
     }
-    return BigInt(token).toString(10);
+    return token;
   }
   if (!Number.isSafeInteger(value)) {
     return invalidArtifactJson();
@@ -163,9 +163,9 @@ function encode(
 /**
  * Match Python
  * `json.dumps(value, ensure_ascii=True, indent=2, sort_keys=True) + "\\n"`
- * for the lossless integer-only artifact contract. Unlike process-control
- * JSON, this renderer preserves arbitrary-size integral tokens produced by
- * pull parsing.
+ * for the finite lossless-number artifact contract. Unlike process-control
+ * JSON, this renderer preserves arbitrary-size integral tokens and reproduces
+ * Python's binary64 spelling for float lexemes produced by pull parsing.
  */
 export function renderPythonLosslessArtifactJson(value: unknown): string {
   try {

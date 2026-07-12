@@ -225,10 +225,10 @@ The source path is derived, never supplied:
 `pulls/<tenant>/<resource_type>.json`. The operation accepts exactly
 `zcc_device_cleanup`, `zcc_failopen_policy`, `zcc_forwarding_profile`,
 `zcc_trusted_network`, and `zcc_web_privacy`, the exact embedded ZCC transform
-catalog, the exact all-Zscaler root catalog, integral JSON number tokens, and
-JSON tfvars deployments. The raw pull is limited to 4 MiB and its path, bytes,
-deployment, and root catalog are bound and rechecked before a result is
-returned.
+catalog, the exact all-Zscaler root catalog, finite lossless JSON number
+tokens, and JSON tfvars deployments. The raw pull is limited to 4 MiB and its
+path, bytes, deployment, and root catalog are bound and rechecked before a
+result is returned.
 
 The result is `infrawright.zcc_pull_artifact_set` v1. It embeds, but does not
 materialize, exact paths and UTF-8 bytes for the tfvars file, import blocks,
@@ -864,8 +864,11 @@ schemas or overrides. The public compiler adds a bound filesystem adapter and
 versioned artifact-set result, but still performs no materialization, provider
 execution, HTTP, or credential handling. Raw items pass through the lossless
 pull parser; native JavaScript numbers are rejected because they cannot
-distinguish JSON `1` from `1.0`, and this checkpoint accepts integral numeric
-tokens only.
+distinguish JSON `1` from `1.0`. Arbitrary-size integer tokens remain exact;
+finite float lexemes use Python's binary64 value and JSON spelling. The
+product-neutral kernel contract also understands provider `set(string)` and
+`map(string)` encodings, while the public operation remains gated to the exact
+embedded five-resource ZCC catalog.
 
 Catalog regeneration structurally gates changes to the declarative provider
 projection, reachable overrides, and serialized compatibility tables: any such

@@ -3,7 +3,14 @@ import {
 } from "lossless-json";
 
 import { isJsonRecord, pythonJsonEqual } from "../json/python-equality.js";
-import { sortedStrings } from "../json/python-compatible.js";
+import {
+  comparePythonStrings,
+  sortedStrings,
+} from "../json/python-compatible.js";
+import {
+  canonicalPythonNumberToken,
+  pythonFiniteFloatToken,
+} from "../json/python-number.js";
 import {
   pythonHtmlUnescapePasses,
 } from "./python-html-unescape.js";
@@ -71,16 +78,15 @@ function cloneJson(value: unknown): unknown {
     return value;
   }
   if (value instanceof LosslessNumber) {
-    const token = value.toString();
-    if (!/^-?[0-9]+$/.test(token)) {
+    const token = canonicalPythonNumberToken(value.toString());
+    if (token === null) {
       throw new TypeError(
-        "transform accepts integral JSON numbers only; float compatibility is not yet frozen",
+        "transform accepts only finite losslessly parsed JSON numbers",
       );
     }
-    const canonical = BigInt(token).toString(10);
     // LosslessNumber instances are mutable objects. Copy even an already
     // canonical token so caller-owned raw input cannot mutate the result.
-    return new LosslessNumber(canonical);
+    return new LosslessNumber(token);
   }
   if (typeof value === "number") {
     throw new TypeError(
@@ -197,7 +203,7 @@ function deriveKey(item: TransformRecord, resource: TransformCatalogResource): s
 function unescapeDisplayFields(
   item: TransformRecord,
   resource: TransformCatalogResource,
-  catalog: TransformCatalog,
+  compatibility: TransformCatalog["python_compatibility"],
 ): void {
   for (const field of ["name", "description"] as const) {
     const value = item[field];
@@ -205,7 +211,7 @@ function unescapeDisplayFields(
       item[field] = pythonHtmlUnescapePasses(
         value,
         resource.html_unescape_passes,
-        catalog.python_compatibility.html_unescape,
+        compatibility.html_unescape,
       );
     }
   }
@@ -264,7 +270,11 @@ function coercePrimitive(
       return value ? "true" : "false";
     }
     if (value instanceof LosslessNumber) {
-      return identityComponent(value, "coercion input");
+      const token = canonicalPythonNumberToken(value.toString());
+      if (token === null) {
+        throw new TypeError("transform string coercion requires a finite JSON number");
+      }
+      return token;
     }
     return value;
   }
@@ -282,9 +292,15 @@ function coercePrimitive(
       );
     }
     if (isPythonFloatString(value)) {
-      throw new TypeError(
-        "transform numeric coercion accepts integers only; float compatibility is not yet frozen",
+      const token = pythonFiniteFloatToken(
+        Number(value.trim().replaceAll("_", "")),
       );
+      if (token === null) {
+        throw new TypeError(
+          "transform numeric coercion accepts finite numbers only",
+        );
+      }
+      return new LosslessNumber(token);
     }
     return value;
   }
@@ -299,17 +315,47 @@ function coerceValue(value: unknown, encoding: TransformValueEncoding): unknown 
   if (typeof encoding === "string") {
     return coercePrimitive(unwrapReference(value), encoding);
   }
+  const kind = encoding[0];
   const inner = encoding[1];
+  if (kind === "map") {
+    if (!isPlainJsonRecord(value)) {
+      return value;
+    }
+    return safeRecord(sortedStrings(Object.keys(value)).map((key) => {
+      return [key, coercePrimitive(unwrapReference(value[key]), inner)] as const;
+    }));
+  }
   if (value === "") {
     return [];
   }
+  let output: unknown[];
   if (Array.isArray(value)) {
-    return value.map((item) => coercePrimitive(unwrapReference(item), inner));
+    output = value.map((item) => coercePrimitive(unwrapReference(item), inner));
+  } else if (value === null) {
+    return value;
+  } else {
+    output = [coercePrimitive(unwrapReference(value), inner)];
   }
-  if (value === null) {
-    return null;
+  if (kind === "set") {
+    return output
+      .map((item, index) => {
+        if (item !== null && typeof item !== "string") {
+          throw new TypeError(
+            "set(string) coercion produced a non-string provider value",
+          );
+        }
+        return {
+          index,
+          item,
+          key: item ?? "",
+        };
+      })
+      .sort((left, right) => {
+        return comparePythonStrings(left.key, right.key) || left.index - right.index;
+      })
+      .map(({ item }) => item);
   }
-  return [coercePrimitive(unwrapReference(value), inner)];
+  return output;
 }
 
 function nullStubValue(value: unknown): boolean {
@@ -323,7 +369,11 @@ function nullStubValue(value: unknown): boolean {
     return true;
   }
   const integer = losslessIntegerToken(value);
-  return integer !== null && BigInt(integer) === 0n;
+  if (integer !== null) {
+    return BigInt(integer) === 0n;
+  }
+  return value instanceof LosslessNumber
+    && Number(value.toString()) === 0;
 }
 
 function isNullObject(
@@ -391,7 +441,10 @@ function mergeSingleBlockElements(
         continue;
       }
       const encoding = projection.attributes[key];
-      if (Array.isArray(encoding) && encoding[0] === "list") {
+      if (
+        Array.isArray(encoding)
+        && (encoding[0] === "list" || encoding[0] === "set")
+      ) {
         const current = entries.get(key);
         const bucket = Array.isArray(current) ? current : [];
         if (value !== "") {
@@ -641,7 +694,8 @@ function catalogResource(
  * reachable override vocabulary captured by the closed transform catalog.
  * Raw data must come from a lossless JSON parser: every JSON number token is
  * required to be a LosslessNumber so `1` cannot be confused with `1.0` after
- * JavaScript conversion.  Only integral tokens are accepted at checkpoint 1.
+ * JavaScript conversion. Finite float lexemes are canonicalized through the
+ * same binary64 model and spelling used by Python's JSON implementation.
  */
 export function transformPullItems(options: {
   readonly catalog: TransformCatalog;
@@ -650,6 +704,26 @@ export function transformPullItems(options: {
 }): PullTransformResult {
   const catalog = requireSupportedZccTransformCatalog(options.catalog);
   const resource = catalogResource(catalog, options.resourceType);
+  return transformPullItemsKernel({
+    compatibility: catalog.python_compatibility,
+    rawItems: options.rawItems,
+    resource,
+  });
+}
+
+/**
+ * Product-neutral pure transform seam. Callers must supply a structurally
+ * validated catalog resource; public operations retain the exact embedded-ZCC
+ * gate in `transformPullItems`.
+ *
+ * @internal Catalog differential and future product-catalog integration only.
+ */
+export function transformPullItemsKernel(options: {
+  readonly compatibility: TransformCatalog["python_compatibility"];
+  readonly rawItems: readonly unknown[];
+  readonly resource: TransformCatalogResource;
+}): PullTransformResult {
+  const { resource } = options;
   const items = new Map<string, Readonly<Record<string, unknown>>>();
   const originals = new Map<string, Readonly<Record<string, unknown>>>();
   const drops: string[] = [];
@@ -660,7 +734,7 @@ export function transformPullItems(options: {
     if (!isPlainJsonRecord(snakeRaw)) {
       throw new TypeError("each raw transform item must be a JSON object");
     }
-    unescapeDisplayFields(snakeRaw, resource, catalog);
+    unescapeDisplayFields(snakeRaw, resource, options.compatibility);
     const normalized = applyReachableOverrides(snakeRaw, resource);
     const key = deriveKey(normalized, resource);
     if (items.has(key)) {
