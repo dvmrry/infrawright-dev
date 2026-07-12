@@ -193,7 +193,7 @@
 
 - Review checkpoint: `26465a701316591f6d4b5d4dfd321c17d039a702`.
   Its rebased implementation checkpoint is
-  `284bbfd9221f8d084cdd3d66957378812c4d5f69`; the changed-surface fix is the
+  `284bbfd10fd3f7a2468ea796729d2c708c15fcca`; the changed-surface fix is the
   following commit on this branch.
 - Blocking finding: a runner timeout was recorded as the primary failure, but
   a subsequent protected-file recheck could throw command/show protection
