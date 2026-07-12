@@ -166,13 +166,15 @@
 - Finding: per-resource `input_presence` disclosed tenant presence and mapped
   cardinality mismatch to ordinary emptiness. Fix: reject every survivor versus
   observation count mismatch and expose only the aggregate live coverage bit
-  required to derive qualification. Simulation reports use `not_applicable`.
+  retained for a future host-bound successor. Simulation reports use
+  `not_applicable`.
 - Finding: caller-asserted evidence class and build hashes could mint a
   syntactically `qualified` live report before the protected host existed. Fix:
   make v1 comparison-only and require both qualification fields to remain
   `not_qualified`; a host-bound successor schema must derive all authority.
-  Schema and semantic regressions independently tamper both qualification
-  fields.
+  Schema regressions tamper both fields, and semantic regressions recompute the
+  unkeyed report digest after each forgery so rejection cannot pass merely on
+  stale-digest detection.
 - Finding: a zero-exit trusted command could bind an output that existed before
   its producing stage. Fix: require generated config/plan/state absence before
   plan/apply, with precreated-output regressions.

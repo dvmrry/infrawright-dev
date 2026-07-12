@@ -34,6 +34,34 @@ function bytes(value: string): Uint8Array {
   return Buffer.from(value, "utf8");
 }
 
+function canonicalClosedReportJson(value: unknown): string {
+  if (value === null || typeof value === "boolean") {
+    return value === null ? "null" : value ? "true" : "false";
+  }
+  if (typeof value === "string" || typeof value === "number") {
+    const encoded = JSON.stringify(value);
+    assert.notEqual(encoded, undefined);
+    return encoded!;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalClosedReportJson).join(",")}]`;
+  }
+  assert.equal(typeof value, "object");
+  assert.notEqual(value, null);
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => {
+    return `${canonicalClosedReportJson(key)}:${canonicalClosedReportJson(record[key])}`;
+  }).join(",")}}`;
+}
+
+function rehashClosedReport(report: Record<string, unknown>): void {
+  const body = { ...report };
+  delete body.report_sha256;
+  report.report_sha256 = createHash("sha256")
+    .update(canonicalClosedReportJson(body), "utf8")
+    .digest("hex");
+}
+
 function snapshot(options: {
   readonly resourceType: string;
   readonly marker?: string | undefined;
@@ -402,6 +430,12 @@ test("independent evidence fails closed on output or build instability", () => {
 
 test("semantic validation rejects summary, role, digest, and scope tampering", () => {
   const report = build("live_independent_executor");
+  const independentlyRehashed = structuredClone(report) as unknown as Record<
+    string,
+    unknown
+  >;
+  rehashClosedReport(independentlyRehashed);
+  assert.equal(independentlyRehashed.report_sha256, report.report_sha256);
 
   const summary = structuredClone(report) as unknown as {
     summary: { matched: number; mismatched: number };
@@ -429,6 +463,7 @@ test("semantic validation rejects summary, role, digest, and scope tampering", (
   };
   qualification.summary.projection_qualification = "qualified";
   assert.equal(validateSchema(qualification), false);
+  rehashClosedReport(qualification as unknown as Record<string, unknown>);
   assert.equal(validateZccAdoptionOracleParityReport(qualification), false);
 
   const executorQualification = structuredClone(report) as unknown as {
@@ -436,6 +471,9 @@ test("semantic validation rejects summary, role, digest, and scope tampering", (
   };
   executorQualification.summary.executor_qualification = "qualified";
   assert.equal(validateSchema(executorQualification), false);
+  rehashClosedReport(
+    executorQualification as unknown as Record<string, unknown>,
+  );
   assert.equal(
     validateZccAdoptionOracleParityReport(executorQualification),
     false,
