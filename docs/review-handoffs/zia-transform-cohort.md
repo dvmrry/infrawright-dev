@@ -9,9 +9,11 @@
   PR #175 and reproduce the real Python `engine.transform` result plus rendered
   tfvars bytes for finite floats, provider string sets, string maps, the
   URL-category list-sort override, and unexpected-drop reporting.
-- Keep the public process API, exact five-resource ZCC catalog/schema/bytes,
-  collectors, artifact publication, adoption/oracle, Terraform execution, and
-  release bundle unchanged.
+- Keep the public process API, exact five-resource ZCC behavior/catalog/schema/
+  bytes, collectors, artifact publication, adoption/oracle, and Terraform
+  execution unchanged. The release bundle legitimately gains the reviewed,
+  dormant generic `sort_lists` kernel capability, but no ZIA catalog, schema,
+  wrapper, validator, or product-specific marker.
 
 ## Base / Head
 
@@ -97,9 +99,10 @@
 - Expected report/count/coverage changes: N/A; no readiness report or count is
   changed.
 - Expected generated-output changes: only the new private catalog and fixture.
-- Expected no-op areas: Python transform/runtime output, all ZCC catalog bytes
-  and public operations, every non-selected resource, artifact layout, and
-  release contents.
+- Expected no-op areas: Python transform/runtime output, exact ZCC behavior and
+  catalog bytes, public process operations, every non-selected resource, and
+  artifact layout. Bundle contents change only for the dormant generic
+  `sort_lists` kernel branch; no ZIA-specific contract enters the bundle.
 - Reusable private extension points for a later product cohort are deliberately
   limited to: repeated `--resource` catalog authoring, the existing
   `TransformCatalogResource` plus `transformPullItemsKernel` value seam, and
@@ -179,8 +182,9 @@
   instance, imported only by `zia-transform-cohort.ts`, reuses the established
   transform-schema definitions and validates the private schema. The shared
   validator returns to its base state. A real esbuild production-entry test
-  proves the cohort module, validator, catalog, schema, kind, schema ID, and
-  unique source markers are absent from both the bundle graph and output.
+  acknowledges the bundled generic `sort_lists` branch while proving the ZIA
+  cohort module, validator, catalog, schema, kind, schema ID, and unique source
+  markers are absent from both the bundle graph and output.
 - Finding 1 concerns shared snake-case semantics. It is deliberately not
   addressed on this checkpoint; it will land separately, after which this
   branch must rebase and receive a changed-surface review.
@@ -220,5 +224,5 @@
 - Confirm native/non-finite numbers and malformed collection members fail
   closed without adding a public parser or process boundary.
 - Confirm the shared validator has no cohort import/registration and the real
-  production-entry bundle contains none of the private cohort inputs or unique
-  markers.
+  production-entry bundle contains the generic `sort_lists` branch but none of
+  the private cohort inputs or unique ZIA markers.

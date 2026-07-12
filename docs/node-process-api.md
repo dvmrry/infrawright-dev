@@ -937,7 +937,9 @@ override. A committed corpus compares the complete Node transform result and
 rendered tfvars bytes with live `engine.transform` output. This remains a pure
 source-to-value seam: it accepts already-pulled JSON and adds no process
 operation, collector, publisher, Terraform execution, adoption/oracle path,
-HTTP client, or release-bundle surface.
+or HTTP client. The product-neutral `sort_lists` kernel branch is necessarily
+present in the release bundle, but the private ZIA catalog, schema, validator,
+wrapper, and product-specific markers are not.
 
 The private runtime gate is semantic, not a caller-attested byte check: it
 schema-validates a candidate, requires exact equality with the embedded

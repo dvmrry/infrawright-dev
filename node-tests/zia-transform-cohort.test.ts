@@ -263,7 +263,7 @@ test("unsupported resources and unsafe numeric inputs fail closed", () => {
   );
 });
 
-test("private cohort contracts are absent from the production process bundle", () => {
+test("production bundle keeps the generic sort seam but excludes private ZIA contracts", () => {
   const build = buildSync({
     bundle: true,
     entryPoints: ["node-src/process/main.ts"],
@@ -289,6 +289,11 @@ test("private cohort contracts are absent from the production process bundle", (
   }
 
   const bundle = build.outputFiles?.[0]?.text ?? "";
+  assert.equal(
+    bundle.includes("sort_lists"),
+    true,
+    "the reviewed generic sort_lists kernel branch remains bundled",
+  );
   for (const privateMarker of [
     "infrawright.transform_resource_cohort",
     "https://infrawright.local/schemas/transform-resource-cohort.schema.json",
