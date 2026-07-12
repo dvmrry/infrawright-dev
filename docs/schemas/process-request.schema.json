@@ -40,7 +40,8 @@
         "seed_pull_refresh_parity",
         "compare_pull_artifacts",
         "materialize_pull_artifacts",
-        "acknowledge_pull_refresh"
+        "acknowledge_pull_refresh",
+        "collect_zcc_pull"
       ]
     },
     "context": {
@@ -74,11 +75,24 @@
         },
         {
           "$ref": "#/$defs/acknowledgePullRefreshInput"
+        },
+        {
+          "$ref": "#/$defs/collectZccPullInput"
         }
       ]
     }
   },
   "oneOf": [
+    {
+      "properties": {
+        "operation": {
+          "const": "collect_zcc_pull"
+        },
+        "input": {
+          "$ref": "#/$defs/collectZccPullInput"
+        }
+      }
+    },
     {
       "properties": {
         "operation": {
@@ -362,6 +376,28 @@
             "zcc_trusted_network",
             "zcc_web_privacy"
           ]
+        }
+      }
+    },
+    "collectZccPullInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "publication",
+        "tenant",
+        "resource_type"
+      ],
+      "properties": {
+        "mode": { "const": "oneapi" },
+        "publication": { "const": "replace_or_verify_exact" },
+        "tenant": {
+          "type": "string",
+          "maxLength": 255,
+          "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+        },
+        "resource_type": {
+          "$ref": "zcc-pull-artifact-set.schema.json#/$defs/resourceType"
         }
       }
     },

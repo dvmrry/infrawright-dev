@@ -25,6 +25,7 @@ import zccPullRefreshParitySchema from "../../docs/schemas/zcc-pull-refresh-pari
 import zccPullRefreshMaterializationSchema from "../../docs/schemas/zcc-pull-refresh-materialization.schema.json" with { type: "json" };
 import zccPullRefreshPendingTransitionSchema from "../../docs/schemas/zcc-pull-refresh-pending-transition.schema.json" with { type: "json" };
 import zccPullRefreshAcknowledgementSchema from "../../docs/schemas/zcc-pull-refresh-acknowledgement.schema.json" with { type: "json" };
+import zccPullCollectionSchema from "../../docs/schemas/zcc-pull-collection.schema.json" with { type: "json" };
 import type { ErrorDetail } from "../domain/errors.js";
 import {
   ASSESSMENT_SEMANTICS_KEYWORD,
@@ -80,6 +81,10 @@ import {
   validateZccAdoptionMaterializationRequestSemantics,
   validateZccAdoptionMaterializationSemantics,
 } from "./zcc-adoption-materialization-semantics.js";
+import {
+  ZCC_PULL_COLLECTION_SEMANTICS_KEYWORD,
+  validateZccPullCollectionSemantics,
+} from "./zcc-pull-collection-semantics.js";
 
 const AJV_OPTIONS = {
   coerceTypes: false,
@@ -101,6 +106,14 @@ const ajv = new Ajv2020({
 const requestAjv = new Ajv2020({
   ...AJV_OPTIONS,
   allErrors: false,
+});
+
+ajv.addKeyword({
+  keyword: ZCC_PULL_COLLECTION_SEMANTICS_KEYWORD,
+  schemaType: "boolean",
+  type: "object",
+  errors: true,
+  validate: validateZccPullCollectionSemantics,
 });
 
 ajv.addKeyword({
@@ -305,6 +318,7 @@ ajv.addSchema(zccPullRefreshParitySchema);
 ajv.addSchema(zccPullRefreshPendingTransitionSchema);
 ajv.addSchema(zccPullRefreshMaterializationSchema);
 ajv.addSchema(zccPullRefreshAcknowledgementSchema);
+ajv.addSchema(zccPullCollectionSchema);
 requestAjv.addSchema(zccPullArtifactParitySchema);
 requestAjv.addSchema(zccPullArtifactSetSchema);
 requestAjv.addSchema(zccAdoptionArtifactParitySchema);
@@ -370,6 +384,9 @@ export const validateZccPullRefreshMaterialization: ValidateFunction =
   ajv.getSchema(zccPullRefreshMaterializationSchema.$id) as ValidateFunction;
 export const validateZccPullRefreshAcknowledgement: ValidateFunction =
   ajv.getSchema(zccPullRefreshAcknowledgementSchema.$id) as ValidateFunction;
+export const validateZccPullCollection: ValidateFunction = ajv.getSchema(
+  zccPullCollectionSchema.$id,
+) as ValidateFunction;
 
 function errorMessage(error: ErrorObject): string {
   if (error.keyword === "additionalProperties") {

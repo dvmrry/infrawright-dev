@@ -67,6 +67,9 @@
           "const": "acknowledge_pull_refresh"
         },
         {
+          "const": "collect_zcc_pull"
+        },
+        {
           "type": "null"
         }
       ]
@@ -131,6 +134,9 @@
           "$ref": "zcc-pull-refresh-acknowledgement.schema.json"
         },
         {
+          "$ref": "zcc-pull-collection.schema.json"
+        },
+        {
           "type": "null"
         }
       ]
@@ -157,6 +163,26 @@
       },
       "then": {
         "oneOf": [
+          {
+            "properties": {
+              "request_id": {
+                "type": "string"
+              },
+              "operation": {
+                "const": "collect_zcc_pull"
+              },
+              "diagnostics": {
+                "type": "array",
+                "maxItems": 0
+              },
+              "result": {
+                "$ref": "zcc-pull-collection.schema.json"
+              },
+              "error": {
+                "type": "null"
+              }
+            }
+          },
           {
             "properties": {
               "request_id": {

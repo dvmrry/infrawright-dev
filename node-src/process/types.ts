@@ -22,6 +22,7 @@ import type {
   ZccPullRefreshParity,
   ZccPullRefreshParitySeed,
 } from "../domain/zcc-pull-refresh-parity.js";
+import type { ZccPullCollectionReceipt } from "../domain/zcc-pull-collection.js";
 
 export interface RootsProcessRequest {
   readonly kind: "infrawright.process_request";
@@ -89,6 +90,20 @@ export interface CompilePullArtifactsProcessRequest {
       | "zcc_forwarding_profile"
       | "zcc_trusted_network"
       | "zcc_web_privacy";
+  };
+}
+
+export interface CollectZccPullProcessRequest {
+  readonly kind: "infrawright.process_request";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "collect_zcc_pull";
+  readonly context: RootsProcessRequest["context"];
+  readonly input: {
+    readonly mode: "oneapi";
+    readonly publication: "replace_or_verify_exact";
+    readonly tenant: string;
+    readonly resource_type: CompilePullArtifactsProcessRequest["input"]["resource_type"];
   };
 }
 
@@ -249,7 +264,8 @@ export type ProcessRequest =
   | SeedPullRefreshParityProcessRequest
   | ComparePullArtifactsProcessRequest
   | MaterializePullArtifactsProcessRequest
-  | AcknowledgePullRefreshProcessRequest;
+  | AcknowledgePullRefreshProcessRequest
+  | CollectZccPullProcessRequest;
 
 export interface ProcessError {
   readonly code: string;
@@ -313,6 +329,17 @@ export interface CompilePullArtifactsProcessSuccessResponse<
   readonly status: "ok";
   readonly diagnostics: readonly [];
   readonly result: Result;
+  readonly error: null;
+}
+
+export interface CollectZccPullProcessSuccessResponse {
+  readonly kind: "infrawright.process_response";
+  readonly schema_version: 1;
+  readonly request_id: string;
+  readonly operation: "collect_zcc_pull";
+  readonly status: "ok";
+  readonly diagnostics: readonly [];
+  readonly result: ZccPullCollectionReceipt;
   readonly error: null;
 }
 
@@ -419,7 +446,8 @@ export type ProcessSuccessResponse =
   | MaterializePullArtifactsProcessSuccessResponse<
       ZccPullArtifactMaterialization | ZccPullRefreshMaterialization
     >
-  | AcknowledgePullRefreshProcessSuccessResponse;
+  | AcknowledgePullRefreshProcessSuccessResponse
+  | CollectZccPullProcessSuccessResponse;
 
 export interface ProcessErrorResponse {
   readonly kind: "infrawright.process_response";
@@ -438,6 +466,7 @@ export interface ProcessErrorResponse {
     | "compare_pull_artifacts"
     | "materialize_pull_artifacts"
     | "acknowledge_pull_refresh"
+    | "collect_zcc_pull"
     | null;
   readonly status: "error";
   readonly diagnostics: readonly [];

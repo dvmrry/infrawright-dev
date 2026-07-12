@@ -27,8 +27,12 @@ npm run check
 npm run build
 ```
 
-The build produces `dist/infrawright.mjs`, a bundled executable module. A
-downstream pipeline needs Node 24 but does not run `npm install`:
+The build produces the executable `dist/infrawright.mjs` parent and its exact
+integrity-bound sibling `dist/infrawright-zcc-collector-child.mjs`. Ship and
+relocate those two files together in the same directory. The parent verifies
+the sibling's embedded SHA-256 and size before sending credentials; every
+operation other than `collect_zcc_pull` remains usable if the sibling is
+absent. A downstream pipeline needs Node 24 but does not run `npm install`:
 
 ```sh
 node dist/infrawright.mjs < request.json > response.json
@@ -42,16 +46,18 @@ The migration compatibility baseline is currently Terraform 1.15.4.
 
 Concurrent jobs are supported through physically disjoint, job-owned
 workspaces and output roots. Every persistent Node mutation treats the complete
-canonical `INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT` as one publisher unit; different
-tenants or resources beneath that root are not independent writer lanes. The
-configured root must equal the common authority derived from the resolved
-config/import/lookup targets. A containing ancestor is rejected before artifact
-writes with non-retryable I/O code `OUTPUT_ROOT_NOT_ARTIFACT_AUTHORITY`.
-Bootstrap materialization, refresh materialization, and refresh
-acknowledgement acquire `.infrawright.publisher.lock` at the output-root
-boundary with exclusive no-follow creation. Contention fails immediately with
-retryable I/O code `OUTPUT_ROOT_BUSY`; the host never waits or auto-breaks an
-existing guard.
+canonical publication authority as one publisher unit; different tenants or
+resources beneath that authority are not independent writer lanes. Bootstrap
+and refresh mutations use `INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT`, which must
+equal the common authority derived from the resolved config/import/lookup
+targets. A containing ancestor is rejected before artifact writes with
+non-retryable I/O code `OUTPUT_ROOT_NOT_ARTIFACT_AUTHORITY`. ZCC pull collection
+uses `INFRAWRIGHT_ZCC_PULL_OUTPUT_ROOT`, which must equal the request's canonical
+workspace. Collection, bootstrap materialization, refresh materialization, and
+refresh acknowledgement acquire `.infrawright.publisher.lock` at their complete
+authority boundary with exclusive no-follow creation. Contention fails
+immediately with retryable I/O code `OUTPUT_ROOT_BUSY`; the host never waits or
+auto-breaks an existing guard.
 
 The host binds open handles and device/inode identities for the authority and
 guard. Cleanup refuses a guard-path replacement or root rollover with
@@ -238,6 +244,120 @@ Request shape, catalog identity, and selector validity are checked before
 policy loading and report production. If a request contains both an invalid
 selection and an invalid policy, the selector/domain error is therefore the
 defined process result (exit `2`), not Python CLI policy-error precedence.
+
+### Isolated ZCC OneAPI pull collection
+
+`collect_zcc_pull` is the first public network operation. It accepts one
+machine-only exact-five request, runs the private collector stack in the
+integrity-bound sibling process, validates the returned pull independently,
+and publishes the exact Python-compatible JSON bytes:
+
+```json
+{
+  "kind": "infrawright.process_request",
+  "schema_version": 1,
+  "request_id": "zcc-collect-127",
+  "operation": "collect_zcc_pull",
+  "context": {
+    "workspace": "/workspace/deployment",
+    "deployment": "deployment.json",
+    "root_catalog": "catalogs/zscaler-root-catalog.v1.json"
+  },
+  "input": {
+    "mode": "oneapi",
+    "publication": "replace_or_verify_exact",
+    "tenant": "prod",
+    "resource_type": "zcc_trusted_network"
+  }
+}
+```
+
+The request cannot supply a URL, endpoint, credential, CA, proxy, output path,
+timeout, child path, or catalog. The host snapshots only the fixed Zscaler
+credential, proxy, and certificate environment allowlist. It additionally
+requires `INFRAWRIGHT_ZCC_PULL_OUTPUT_ROOT` to be the same absolute canonical
+non-symlink directory as `context.workspace`. The sole artifact path is
+`pulls/<tenant>/<resource_type>.json`; `compile_pull_artifacts` consumes that
+path unchanged. The ASCII tenant component is limited to 255 bytes before the
+child starts, matching the publisher's filesystem-component contract.
+
+Before constructing the private request frame, the parent opens, sizes, hashes,
+and identity-rechecks the sibling child against the identity embedded in the
+parent bundle. It retains those exact verified bytes and executes them through
+stdin as `process.execPath --disable-sigusr1 --input-type=module -`; a later
+sibling-path replacement therefore cannot become the credential-bearing
+process. The spawn uses no shell or inherited `execArgv`, ignores stdout and
+stderr, fixes locale and timezone, and sends credentials only on bounded fd 3.
+The verified code uses stdin and a bounded result uses fd 4.
+The directional v1 frames have distinct eight-byte magic values plus one
+unsigned 32-bit big-endian payload length. Fatal UTF-8, duplicate JSON keys,
+wrong keys, trailing bytes, truncation, and the 512 KiB request or 10 MiB
+response bounds fail closed.
+
+The child checks the audited Node/Undici diagnostics inventory before reading
+fd 3. Static Undici modules necessarily load before that entry check; no
+credential or private frame has been read at that point. The child retains the
+private transport's checks before CA/credential work and before every request.
+The distribution build excludes public process/Ajv/publication/Terraform/
+adoption code, `child_process`, `cluster`, and Worker construction from the
+child graph, and excludes Undici/OAuth/endpoint/private collector
+implementations from the parent graph. Pinned Undici contributes exactly two
+audited `worker_threads` imports, both limited to `markAsUncloneable`; the build
+fails if that importer set or a Worker-construction surface changes.
+
+The parent starts one 310-second monotonic deadline before spawn. It covers
+child startup, bounded CA loading, the child's 300-second post-CA transaction,
+its separate five-second dispatcher cleanup, full framed output, and exit.
+Timeout sends `SIGKILL`, destroys all three pipes, then allows up to five additional
+seconds to observe child close; it returns retryable
+`ZCC_ONEAPI_TRANSACTION_TIMEOUT`. Temporary `SIGTERM`, `SIGINT`, and `SIGHUP`
+handlers synchronously kill the direct child, remove themselves, and redeliver
+the same signal to the parent. An uncatchable parent `SIGKILL` can still leave
+a descendant; the ADO job/container process tree remains the final cleanup
+boundary. If an uninterruptible child does not emit `close` within the bounded
+reap window, the parent unrefs it and returns static
+`ZCC_COLLECTION_CHILD_REAP_FAILED`; that residual process likewise remains the
+ADO job/container tree's cleanup responsibility.
+
+Only after a complete successful child response does the parent acquire the
+workspace publisher guard. It independently verifies strict base64, fatal
+UTF-8, canonical Python JSON bytes, exact resource and catalog joins, size,
+SHA-256, and item count. Publication stages and syncs in the final directory,
+uses a no-overwrite link for an absent target, exact reuse for identical bytes,
+or a same-directory atomic rename for different existing bytes, then reopens,
+re-reads, hashes, syncs, and identity-rechecks the final target. Handled failure
+after visibility is retryable; an unchanged retry reuses the exact result.
+If create or replace succeeds but publisher-guard release fails, the operation
+likewise reports retryable `ZCC_PULL_PUBLICATION_INDETERMINATE`; exact reuse
+without a visible write retains the ordinary guard-cleanup failure.
+The guard serializes cooperating writers for one workspace and does not claim
+to defeat a hostile same-UID path-replacement race.
+
+A handled failure removes each staging alias it can safely rebind. A crash,
+uncatchable termination, or cleanup failure can leave a complete random staging
+alias and a stale `.infrawright.publisher.lock`; the pipeline-owned workspace is
+the recovery boundary and the host never guesses that either observed path is
+safe to remove.
+
+Success returns `infrawright.zcc_pull_collection` v1 with only mode, product,
+tenant, resource, catalog-source digest, derived relative artifact path, media
+and encoding, digest, size, item count, and created/replaced/reused action. It
+contains no request counters, retry counters, URL, credential, proxy, CA,
+child/stage path, raw bytes, or child diagnostic. JavaScript strings and
+`process.env` values cannot be physically erased; both processes best-effort
+clear their mutable frame and pull buffers and make no stronger erasure claim.
+Request/domain failures exit `2`; I/O/internal failures exit `1`; collection
+never exits `3`. Exhausted data `429` and generic collector transport failures
+are retryable I/O results; unsupported HTTP status, invalid remote shape,
+response/item bounds, and retry-clock failures retain their closed static
+categories and are not retryable.
+
+Collection and compilation are separate operations and hold no cross-request
+lease. Before consuming a later `compile_pull_artifacts` result, downstream must
+join the collection receipt's `artifact.path`, `artifact.sha256`, and
+`artifact.size_bytes` to the compiler result's corresponding source fields.
+That join proves the compiled result describes the collected bytes rather than
+a same-path replacement published between requests.
 
 ### ZCC bootstrap artifact compilation
 
@@ -1079,10 +1199,10 @@ hostnames, durations, or other nondeterministic fields are emitted.
 Exit status is:
 
 - `0`: successful read operation, ready bootstrap or refresh artifacts, a ready
-  refresh seed, exact materialized/bootstrap or twin-refresh parity, complete
-  retry-forward bootstrap or provider-observed adoption publication, complete
-  refresh publication, an awaiting-apply refresh receipt, a retired trusted
-  acknowledgement, or a clean/tolerated assessment;
+  refresh seed, a complete ZCC pull collection, exact materialized/bootstrap or
+  twin-refresh parity, complete retry-forward bootstrap or provider-observed
+  adoption publication, complete refresh publication, an awaiting-apply refresh
+  receipt, a retired trusted acknowledgement, or a clean/tolerated assessment;
 - `3`: schema-valid review-required bootstrap or refresh artifacts, a
   review-required refresh seed, a materialized parity difference, or a blocked
   assessment;
@@ -1092,8 +1212,9 @@ Exit status is:
 
 The strict contracts are published in
 `docs/schemas/process-request.schema.json` and
-`docs/schemas/process-response.schema.json`. The standalone comparison result
-is `docs/schemas/zcc-pull-artifact-parity.schema.json`; provider-observed
+`docs/schemas/process-response.schema.json`. The standalone collection receipt
+is `docs/schemas/zcc-pull-collection.schema.json`; the standalone comparison
+result is `docs/schemas/zcc-pull-artifact-parity.schema.json`; provider-observed
 adoption comparison is
 `docs/schemas/zcc-adoption-artifact-parity.schema.json`; its content-free write
 receipt is

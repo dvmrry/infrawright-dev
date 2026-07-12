@@ -27,7 +27,52 @@ jobs:
         run: |
           root="$RUNNER_TEMP/infrawright-node-smoke"
           mkdir -p "$root"
-          cp dist/infrawright.mjs "$root/"
+          cp dist/infrawright.mjs dist/infrawright-zcc-collector-child.mjs "$root/"
+          collect_workspace="$root/collect-workspace"
+          mkdir -p "$collect_workspace"
+          python3 - "$collect_workspace" > "$root/collect-request.json" <<'PY'
+          import json
+          import os
+          import sys
+
+          workspace = os.path.realpath(sys.argv[1])
+          json.dump({
+              "kind": "infrawright.process_request",
+              "schema_version": 1,
+              "request_id": "ci-relocated-collection-smoke",
+              "operation": "collect_zcc_pull",
+              "context": {
+                  "workspace": workspace,
+                  "deployment": "unused.json",
+                  "root_catalog": "unused.json",
+              },
+              "input": {
+                  "mode": "oneapi",
+                  "publication": "replace_or_verify_exact",
+                  "tenant": "ci",
+                  "resource_type": "zcc_web_privacy",
+              },
+          }, sys.stdout)
+          PY
+          set +e
+          (cd "$root" && \
+            env -i LANG=C LC_ALL=C TZ=UTC \
+            INFRAWRIGHT_ZCC_PULL_OUTPUT_ROOT="$(realpath "$collect_workspace")" \
+            "$(command -v node)" infrawright.mjs \
+            < collect-request.json > collect-response.json)
+          collect_exit=$?
+          set -e
+          test "$collect_exit" = 1
+          python3 - "$root/collect-response.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as f:
+              response = json.load(f)
+          assert response["status"] == "error", response
+          assert response["error"]["code"] == "ZCC_ONEAPI_HOST_CONFIGURATION_INVALID", response
+          assert not (response["error"]["retryable"]), response
+          PY
           python3 - "$GITHUB_WORKSPACE" > "$root/request.json" <<'PY'
           import json
           import sys

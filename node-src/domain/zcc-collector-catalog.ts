@@ -4,14 +4,13 @@ import { isJsonRecord, pythonJsonEqual } from "../json/python-equality.js";
 import { sameStringSequence, sortedStrings } from "../json/python-compatible.js";
 import { snapshotPlainJsonGraph } from "../json/supported-json-graph.js";
 import { ProcessFailure } from "./errors.js";
+import {
+  ZCC_COLLECTION_RESOURCE_TYPES,
+  ZCC_COLLECTION_CATALOG_SOURCES_SHA256,
+  type ZccCollectionResourceType,
+} from "./zcc-collection-contract.js";
 
-const RESOURCE_TYPES = [
-  "zcc_device_cleanup",
-  "zcc_failopen_policy",
-  "zcc_forwarding_profile",
-  "zcc_trusted_network",
-  "zcc_web_privacy",
-] as const;
+const RESOURCE_TYPES = ZCC_COLLECTION_RESOURCE_TYPES;
 
 const SOURCE_FILES = [
   "engine/collectors/rest/__init__.py",
@@ -21,8 +20,7 @@ const SOURCE_FILES = [
   "packs/zcc/registry.json",
 ] as const;
 
-const SOURCES_SHA256 =
-  "d4b8cbef8294e8cb7fd5b17b6efb120b5f8bdc09de8c10e506763547748b11fc";
+const SOURCES_SHA256 = ZCC_COLLECTION_CATALOG_SOURCES_SHA256;
 
 const RESOURCE_CONTRACTS = {
   zcc_device_cleanup: {
@@ -57,7 +55,7 @@ const RESOURCE_CONTRACTS = {
   },
 } as const;
 
-export type ZccCollectorResourceType = typeof RESOURCE_TYPES[number];
+export type ZccCollectorResourceType = ZccCollectionResourceType;
 
 export interface ZccCollectorCatalogResource {
   readonly envelope: "trustedNetworkContracts" | null;
