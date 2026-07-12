@@ -327,6 +327,12 @@
       "reason": "The generated transform contract is derived from the committed ZCC registry, provider schema, and overrides."
     },
     {
+      "prefix": "tests.test_zcc_collector_catalog.",
+      "packs": ["zcc"],
+      "shared": ["zscaler"],
+      "reason": "The private exact-five collector contract is generated from the committed ZCC registry, pack metadata, and shared OneAPI collector semantics."
+    },
+    {
       "prefix": "tests.test_zia_transform_cohort_catalog.ZiaTransformCohortCatalogTest.test_cli_resource_selection_is_an_exact_byte_gate.",
       "packs": ["zia"],
       "shared": [],

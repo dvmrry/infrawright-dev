@@ -1,0 +1,68 @@
+{
+  "kind": "infrawright.zcc_collector_catalog",
+  "oneapi": {
+    "audience": "https://api.zscaler.com",
+    "cloud_gateway_template": "https://api.{cloud}.zsapi.net",
+    "cloud_token_host_template": "https://{vanity}.zslogin{cloud}.net",
+    "mode": "oneapi",
+    "production_gateway": "https://api.zsapi.net",
+    "production_token_host_template": "https://{vanity}.zslogin.net",
+    "token_path": "/oauth2/v1/token"
+  },
+  "product": "zcc",
+  "provider": {
+    "source": "zscaler/zcc",
+    "version": "0.1.0-beta.1"
+  },
+  "resources": [
+    {
+      "envelope": null,
+      "method": "GET",
+      "page_size": null,
+      "pagination": "single",
+      "path": "zcc/papi/public/v1/getDeviceCleanupInfo",
+      "type": "zcc_device_cleanup"
+    },
+    {
+      "envelope": null,
+      "method": "GET",
+      "page_size": 1000,
+      "pagination": "zia",
+      "path": "zcc/papi/public/v1/webFailOpenPolicy/listByCompany",
+      "type": "zcc_failopen_policy"
+    },
+    {
+      "envelope": null,
+      "method": "GET",
+      "page_size": 1000,
+      "pagination": "zia",
+      "path": "zcc/papi/public/v1/webForwardingProfile/listByCompany",
+      "type": "zcc_forwarding_profile"
+    },
+    {
+      "envelope": "trustedNetworkContracts",
+      "method": "GET",
+      "page_size": 1000,
+      "pagination": "zia",
+      "path": "zcc/papi/public/v1/webTrustedNetwork/listByCompany",
+      "type": "zcc_trusted_network"
+    },
+    {
+      "envelope": null,
+      "method": "GET",
+      "page_size": null,
+      "pagination": "single",
+      "path": "zcc/papi/public/v1/getWebPrivacyInfo",
+      "type": "zcc_web_privacy"
+    }
+  ],
+  "schema_version": 1,
+  "source_files": [
+    "engine/collectors/rest/__init__.py",
+    "packs/_shared/zscaler/collector.py",
+    "packs/zcc/collector.py",
+    "packs/zcc/pack.json",
+    "packs/zcc/registry.json"
+  ],
+  "sources_sha256": "d4b8cbef8294e8cb7fd5b17b6efb120b5f8bdc09de8c10e506763547748b11fc"
+}
