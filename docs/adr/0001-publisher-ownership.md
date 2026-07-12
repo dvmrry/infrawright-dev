@@ -26,10 +26,13 @@ permits two jobs to publish into the same physical output root.
 ### Ownership unit
 
 The complete canonical `INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT` has exactly one
-publisher at a time. The unit is deliberately not a resource, tenant, config
-directory, or individual file. One publication can span config and import
-directories, and resource transforms can consume lookup sidecars produced in
-reference order.
+publisher at a time. It must equal the common artifact-layout authority derived
+from the resolved config, import, and applicable lookup targets. A containing
+ancestor is not an equivalent authority and fails before artifact mutation with
+`OUTPUT_ROOT_NOT_ARTIFACT_AUTHORITY`. The unit is deliberately not a resource,
+tenant, config directory, or individual file. One publication can span config
+and import directories, and resource transforms can consume lookup sidecars
+produced in reference order.
 
 Persistent Node mutations are:
 
@@ -43,6 +46,14 @@ immediately with `OUTPUT_ROOT_BUSY` if that pathname already exists. It never
 waits, and guard acquisition never removes a pre-existing lock. The guard is a
 transient host coordination file at the output-root boundary; it is not a
 generated artifact, refresh marker, parity input, or schema field.
+
+The host retains open handles and device/inode bindings for both the authority
+directory and its guard. Before cleanup it rechecks both handles against their
+current pathnames and refuses to unlink a replaced guard or one reached through
+a replaced root. This closes deterministic replacement and root-rollover
+failures under the trusted single-writer model. Portable Node still cannot make
+the final pathname recheck plus `unlink` indivisible, so this is not a security
+boundary against a hostile same-UID process racing that final syscall.
 
 The guard covers one Node process invocation. The pipeline-owned workspace is
 the broader guarantee spanning Python transforms, Node publication, Terraform
@@ -74,6 +85,11 @@ Populate and run the complete workflow there. A relative deployment overlay
 stays under that workspace. An absolute overlay must also be placed beneath the
 same job-owned `$(Agent.TempDirectory)/infrawright/$(System.JobId)` authority;
 never reuse a machine-global overlay across jobs.
+
+Set `INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT` to the canonical deployment overlay
+itself: the workspace for overlay `.`, the resolved overlay directory for a
+relative overlay, or the exact external overlay directory for an absolute
+overlay. Do not configure the job root or another containing ancestor.
 
 The following is a reference shape, not a repository-owned pipeline:
 
@@ -134,6 +150,9 @@ prefixes, refresh markers, or abandoned publisher guards.
 - Two runs of the same branch are safe when their physical roots are disjoint.
 - A misconfigured shared absolute overlay fails fast instead of allowing two
   Node publishers to race.
+- A containing output-root alias cannot create a second lock namespace for the
+  same artifacts; it fails with `OUTPUT_ROOT_NOT_ARTIFACT_AUTHORITY` before any
+  artifact write.
 - The root-wide guard intentionally serializes different tenants/resources when
   they share one output root.
 - The guard does not replace crash recovery, atomic per-file publication,

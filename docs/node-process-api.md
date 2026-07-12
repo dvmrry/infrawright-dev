@@ -41,12 +41,22 @@ The migration compatibility baseline is currently Terraform 1.15.4.
 Concurrent jobs are supported through physically disjoint, job-owned
 workspaces and output roots. Every persistent Node mutation treats the complete
 canonical `INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT` as one publisher unit; different
-tenants or resources beneath that root are not independent writer lanes.
+tenants or resources beneath that root are not independent writer lanes. The
+configured root must equal the common authority derived from the resolved
+config/import/lookup targets. A containing ancestor is rejected before artifact
+writes with non-retryable I/O code `OUTPUT_ROOT_NOT_ARTIFACT_AUTHORITY`.
 Bootstrap materialization, refresh materialization, and refresh
 acknowledgement acquire `.infrawright.publisher.lock` at the output-root
 boundary with exclusive no-follow creation. Contention fails immediately with
 retryable I/O code `OUTPUT_ROOT_BUSY`; the host never waits or auto-breaks an
 existing guard.
+
+The host binds open handles and device/inode identities for the authority and
+guard. Cleanup refuses a guard-path replacement or root rollover with
+`PUBLISHER_GUARD_CLEANUP_FAILED` rather than unlinking the observed foreign
+path. The final path recheck and pathname `unlink` are not an indivisible kernel
+operation, so this remains trusted-runner race detection rather than a hostile
+same-UID security boundary.
 
 The guard is transient process coordination, not a generated artifact or
 refresh-state marker. The exact pending-move marker remains authoritative
@@ -639,7 +649,10 @@ The root-level `.infrawright.publisher.lock` is deliberately outside generated
 config/import paths and is never considered artifact residue. An existing lock
 produces `OUTPUT_ROOT_BUSY` whether its owner is active or stale. Remove a stale
 lock only after proving no publisher is active, or discard the complete
-job-owned workspace; guard acquisition never removes a pre-existing lock.
+job-owned workspace; guard acquisition never removes a pre-existing lock. For
+overlay `.`, the exact authority is the workspace. Relative and absolute
+overlays use their canonical overlay directory itself, not a containing output
+root.
 
 Success returns `infrawright.zcc_pull_artifact_materialization` v1 with sorted
 `created` and `reused` artifact names plus fresh digest-only verification. It

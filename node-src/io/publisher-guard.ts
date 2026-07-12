@@ -1,14 +1,33 @@
-import { constants } from "node:fs";
-import { lstat, open, realpath, unlink, type FileHandle } from "node:fs/promises";
+import { constants, type BigIntStats } from "node:fs";
+import {
+  lstat,
+  open,
+  realpath,
+  unlink,
+  type FileHandle,
+} from "node:fs/promises";
 import path from "node:path";
 
 import { ProcessFailure } from "../domain/errors.js";
 
 export const PUBLISHER_GUARD_BASENAME = ".infrawright.publisher.lock";
 
-interface Guard {
+interface Identity {
+  readonly dev: bigint;
+  readonly ino: bigint;
+}
+
+interface RootBinding {
   readonly path: string;
   readonly handle: FileHandle;
+  readonly identity: Identity;
+}
+
+interface Guard {
+  readonly root: RootBinding;
+  readonly path: string;
+  readonly handle: FileHandle;
+  readonly identity: Identity;
 }
 
 function failure(code: string, message: string, retryable = false): ProcessFailure {
@@ -20,7 +39,81 @@ function errorCode(error: unknown): string | null {
     && typeof error.code === "string" ? error.code : null;
 }
 
-async function lockPath(outputRoot: string): Promise<string> {
+function identity(metadata: BigIntStats): Identity {
+  return { dev: metadata.dev, ino: metadata.ino };
+}
+
+function sameIdentity(left: Identity, right: Identity): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+function containedPath(candidate: string, root: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative !== ""
+    && relative !== ".."
+    && !relative.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relative);
+}
+
+function commonArtifactAuthority(targets: readonly string[]): string | null {
+  if (targets.length === 0 || targets.some((target) => !path.isAbsolute(target))) {
+    return null;
+  }
+  const parents = targets.map((target) => path.dirname(target));
+  const first = parents[0];
+  if (first === undefined) {
+    return null;
+  }
+  let authority: string = first;
+  while (!parents.every((parent) => {
+    return parent === authority || containedPath(parent, authority);
+  })) {
+    const parent = path.dirname(authority);
+    if (parent === authority) {
+      return null;
+    }
+    authority = parent;
+  }
+  return authority;
+}
+
+/** Require the configured root to be the unique authority of the target set. */
+export function requireExactPublisherAuthority(
+  outputRoot: string,
+  targets: readonly string[],
+): void {
+  const authority = commonArtifactAuthority(targets);
+  if (
+    authority === null
+    || authority === path.parse(authority).root
+    || authority !== outputRoot
+  ) {
+    throw failure(
+      "OUTPUT_ROOT_NOT_ARTIFACT_AUTHORITY",
+      "output root must exactly match the artifact target authority",
+    );
+  }
+}
+
+async function verifyRoot(root: RootBinding): Promise<void> {
+  const [canonical, pathMetadata, handleMetadata] = await Promise.all([
+    realpath(root.path),
+    lstat(root.path, { bigint: true }),
+    root.handle.stat({ bigint: true }),
+  ]);
+  if (
+    canonical !== root.path
+    || !pathMetadata.isDirectory()
+    || pathMetadata.isSymbolicLink()
+    || !handleMetadata.isDirectory()
+    || !sameIdentity(root.identity, identity(pathMetadata))
+    || !sameIdentity(root.identity, identity(handleMetadata))
+  ) {
+    throw new Error("publisher root binding changed");
+  }
+}
+
+async function bindRoot(outputRoot: string): Promise<RootBinding> {
   if (
     !path.isAbsolute(outputRoot)
     || outputRoot.includes("\0")
@@ -33,29 +126,58 @@ async function lockPath(outputRoot: string): Promise<string> {
       "publisher guard requires a canonical output root",
     );
   }
+  let handle: FileHandle | null = null;
   try {
-    const [canonical, metadata] = await Promise.all([
-      realpath(outputRoot),
-      lstat(outputRoot),
-    ]);
-    if (
-      canonical !== outputRoot
-      || !metadata.isDirectory()
-      || metadata.isSymbolicLink()
-    ) {
-      throw new Error("invalid output root");
+    handle = await open(
+      outputRoot,
+      constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+    );
+    const metadata = await handle.stat({ bigint: true });
+    if (!metadata.isDirectory()) {
+      throw new Error("publisher root is not a directory");
     }
-  } catch {
+    const root = { path: outputRoot, handle, identity: identity(metadata) };
+    await verifyRoot(root);
+    return root;
+  } catch (error: unknown) {
+    await handle?.close().catch(() => undefined);
+    if (error instanceof ProcessFailure) {
+      throw error;
+    }
     throw failure(
       "PUBLISHER_GUARD_FAILED",
       "publisher guard could not bind the output root",
     );
   }
-  return path.join(outputRoot, PUBLISHER_GUARD_BASENAME);
+}
+
+async function verifyGuard(guard: Guard): Promise<void> {
+  const [pathMetadata, handleMetadata] = await Promise.all([
+    lstat(guard.path, { bigint: true }),
+    guard.handle.stat({ bigint: true }),
+    verifyRoot(guard.root),
+  ]);
+  if (
+    !pathMetadata.isFile()
+    || pathMetadata.isSymbolicLink()
+    || !handleMetadata.isFile()
+    || !sameIdentity(guard.identity, identity(pathMetadata))
+    || !sameIdentity(guard.identity, identity(handleMetadata))
+  ) {
+    throw new Error("publisher guard binding changed");
+  }
+}
+
+async function closeGuard(guard: Guard): Promise<void> {
+  await Promise.all([
+    guard.handle.close().catch(() => undefined),
+    guard.root.handle.close().catch(() => undefined),
+  ]);
 }
 
 async function acquire(outputRoot: string): Promise<Guard> {
-  const guardPath = await lockPath(outputRoot);
+  const root = await bindRoot(outputRoot);
+  const guardPath = path.join(outputRoot, PUBLISHER_GUARD_BASENAME);
   let handle: FileHandle;
   try {
     handle = await open(
@@ -67,6 +189,7 @@ async function acquire(outputRoot: string): Promise<Guard> {
       0o600,
     );
   } catch (error: unknown) {
+    await root.handle.close().catch(() => undefined);
     if (errorCode(error) === "EEXIST") {
       throw failure(
         "OUTPUT_ROOT_BUSY",
@@ -79,11 +202,39 @@ async function acquire(outputRoot: string): Promise<Guard> {
       "publisher guard could not be acquired",
     );
   }
-  return { path: guardPath, handle };
+  let guard: Guard | null = null;
+  try {
+    const metadata = await handle.stat({ bigint: true });
+    if (!metadata.isFile()) {
+      throw new Error("publisher guard is not a regular file");
+    }
+    guard = {
+      root,
+      path: guardPath,
+      handle,
+      identity: identity(metadata),
+    };
+    await verifyGuard(guard);
+    return guard;
+  } catch {
+    if (guard === null) {
+      await Promise.all([
+        handle.close().catch(() => undefined),
+        root.handle.close().catch(() => undefined),
+      ]);
+    } else {
+      await closeGuard(guard);
+    }
+    throw failure(
+      "PUBLISHER_GUARD_FAILED",
+      "publisher guard could not be bound safely",
+    );
+  }
 }
 
 async function release(guard: Guard): Promise<void> {
   try {
+    await verifyGuard(guard);
     await unlink(guard.path);
   } catch {
     throw failure(
@@ -91,12 +242,16 @@ async function release(guard: Guard): Promise<void> {
       "publisher guard could not be removed safely",
     );
   } finally {
-    await guard.handle.close().catch(() => undefined);
+    await closeGuard(guard);
   }
 }
 
-function cleanupFailure(primary: unknown, cleanup: ProcessFailure): ProcessFailure {
-  if (primary === null) {
+function cleanupFailure(
+  hasPrimary: boolean,
+  primary: unknown,
+  cleanup: ProcessFailure,
+): ProcessFailure {
+  if (!hasPrimary) {
     return cleanup;
   }
   const preserved = primary instanceof ProcessFailure
@@ -124,10 +279,12 @@ export async function withPublisherGuard<T>(
   mutation: () => Promise<T>,
 ): Promise<T> {
   const guard = await acquire(outputRoot);
-  let primary: unknown = null;
+  let hasPrimary = false;
+  let primary: unknown;
   try {
     return await mutation();
   } catch (error: unknown) {
+    hasPrimary = true;
     primary = error;
     throw error;
   } finally {
@@ -140,7 +297,7 @@ export async function withPublisherGuard<T>(
             "PUBLISHER_GUARD_CLEANUP_FAILED",
             "publisher guard could not be removed safely",
           );
-      throw cleanupFailure(primary, cleanup);
+      throw cleanupFailure(hasPrimary, primary, cleanup);
     }
   }
 }

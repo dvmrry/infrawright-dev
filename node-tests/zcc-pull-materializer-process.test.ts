@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
   copyFileSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -500,6 +501,40 @@ test("public bootstrap materialization refuses an active or stale publisher guar
     assert.equal(invocation.response.error.retryable, true);
     assert.equal(invocation.stdout.includes(privateValue.trim()), false);
     assert.equal(readFileSync(guardPath, "utf8"), privateValue);
+    const paths = artifactPaths(target, resourceType);
+    assert.throws(() => lstatSync(paths.imports as string));
+    assert.throws(() => lstatSync(paths.tfvars as string));
+  });
+});
+
+test("public bootstrap rejects a nested ancestor output authority", async () => {
+  await withFixturePair((oracle, target) => {
+    const resourceType = "zcc_device_cleanup";
+    const assertion = publicReadyAssertion(oracle, resourceType);
+    const guardPath = path.join(target.outputRoot, PUBLISHER_GUARD_BASENAME);
+    const privateValue = "exact-authority-publisher-private-value\n";
+    writeFileSync(guardPath, privateValue, { mode: 0o600 });
+    const ancestor = realpathSync(target.workspace);
+
+    const invocation = invoke(
+      materializeRequest(target, resourceType, assertion),
+      ancestor,
+    );
+    assert.equal(invocation.status, 1, invocation.stdout);
+    assert.equal(invocation.stderr, "");
+    requireMaterializeError(invocation.response);
+    assert.equal(
+      invocation.response.error.code,
+      "OUTPUT_ROOT_NOT_ARTIFACT_AUTHORITY",
+    );
+    assert.equal(invocation.response.error.category, "io");
+    assert.equal(invocation.response.error.retryable, false);
+    assert.equal(invocation.stdout.includes(privateValue.trim()), false);
+    assert.equal(readFileSync(guardPath, "utf8"), privateValue);
+    assert.equal(
+      existsSync(path.join(ancestor, PUBLISHER_GUARD_BASENAME)),
+      false,
+    );
     const paths = artifactPaths(target, resourceType);
     assert.throws(() => lstatSync(paths.imports as string));
     assert.throws(() => lstatSync(paths.tfvars as string));

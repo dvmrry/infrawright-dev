@@ -45,8 +45,9 @@ make unstage-imports TENANT=<tenant> RESOURCE=<resource-or-provider>
 Run this persistent-writer sequence in one job-owned physical workspace and
 serialize it for the complete materialization output root. Concurrent jobs,
 including runs of the same branch, require disjoint workspaces and output
-roots. The ADO path convention, publisher-guard behavior, and stale cleanup
-rules are defined in
+roots. Configure that root as the exact canonical deployment overlay; a
+containing ancestor is not a second valid authority. The ADO path convention,
+publisher-guard behavior, and stale cleanup rules are defined in
 [ADR 0001](adr/0001-publisher-ownership.md).
 
 Use the same `POLICY=<file>` for `assert-adoptable` and `apply`. Apply
