@@ -1,0 +1,312 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infrawright.local/schemas/zcc-plan-root-preparation.schema.json",
+  "title": "Infrawright ZCC Plan-Root Preparation Candidate",
+  "$comment": "A read-only, content-bearing candidate for one freshly derived exact-five ZCC whole root. Candidate-only explicitly denies validation, plan, apply, refresh, publication, readiness, and cutover claims. Module fingerprints are observed content bindings, not authenticated provenance. The custom semantic keyword caps the complete Python-compatible candidate JSON at 25165824 bytes; the enclosing process response is independently capped at 33554432 bytes.",
+  "type": "object",
+  "x-infrawright-zcc-plan-root-preparation-semantics": true,
+  "additionalProperties": false,
+  "required": [
+    "kind", "schema_version", "profile", "mode", "product", "tenant",
+    "selector", "backend", "status", "qualification", "renderer",
+    "controls", "topology", "backend_marker", "absent_sidecars", "sources",
+    "modules", "root", "summary"
+  ],
+  "properties": {
+    "kind": { "const": "infrawright.zcc_plan_root_preparation_candidate" },
+    "schema_version": { "const": 1 },
+    "profile": { "const": "zcc_exact_five_adoption_json_no_bindings_v1" },
+    "mode": { "const": "bootstrap" },
+    "product": { "const": "zcc" },
+    "tenant": { "$ref": "#/$defs/tenant" },
+    "selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource_type"],
+      "properties": { "resource_type": { "$ref": "#/$defs/resourceType" } }
+    },
+    "backend": { "enum": ["local", "azurerm"] },
+    "status": { "const": "candidate_only" },
+    "qualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["readiness", "validation", "plan", "apply", "refresh", "publication", "cutover"],
+      "properties": {
+        "readiness": { "const": "not_qualified" },
+        "validation": { "const": "not_performed" },
+        "plan": { "const": "not_performed" },
+        "apply": { "const": "not_performed" },
+        "refresh": { "const": "not_performed" },
+        "publication": { "const": "not_performed" },
+        "cutover": { "const": "not_qualified" }
+      }
+    },
+    "renderer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "python_source", "reference_terraform_version", "terraform_executed"],
+      "properties": {
+        "profile": { "const": "python_gen_env_terraform_1_15_4_fmt_compatible_v1" },
+        "python_source": { "const": "engine.gen_env" },
+        "reference_terraform_version": { "const": "1.15.4" },
+        "terraform_executed": { "const": false }
+      }
+    },
+    "controls": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deployment", "root_catalog"],
+      "properties": {
+        "deployment": { "$ref": "#/$defs/digest" },
+        "root_catalog": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "topology": {
+      "allOf": [
+        { "$ref": "root-topology.schema.json" },
+        {
+          "type": "object",
+          "properties": {
+            "tenant": { "$ref": "#/$defs/tenant" },
+            "directories": { "type": "object" },
+            "roots": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": { "env_dir": { "type": "string" } }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "backend_marker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "observed_state", "desired"],
+      "properties": {
+        "path": { "$ref": "#/$defs/logicalPath" },
+        "observed_state": { "enum": ["absent", "exact"] },
+        "desired": {
+          "oneOf": [
+            { "$ref": "#/$defs/textArtifact" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "absent_sidecars": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 35,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/logicalPath" }
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": { "$ref": "#/$defs/sourceBinding" }
+    },
+    "modules": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": { "$ref": "#/$defs/moduleBinding" }
+    },
+    "root": { "$ref": "#/$defs/root" },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selected", "roots", "members", "modules", "staged_imports"],
+      "properties": {
+        "selected": { "const": 1 },
+        "roots": { "const": 1 },
+        "members": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "modules": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "staged_imports": { "type": "integer", "minimum": 1, "maximum": 5 }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "type": "object", "properties": { "backend": { "const": "local" } } },
+      "then": {
+        "type": "object",
+        "properties": {
+          "backend_marker": {
+            "type": "object",
+            "properties": {
+              "observed_state": { "const": "absent" },
+              "desired": { "type": "null" }
+            }
+          }
+        }
+      },
+      "else": {
+        "type": "object",
+        "properties": {
+          "backend_marker": {
+            "type": "object",
+            "properties": {
+              "desired": {
+                "allOf": [
+                  { "$ref": "#/$defs/textArtifact" },
+                  { "type": "object", "properties": { "media_type": { "const": "text/plain" }, "content": { "const": "azurerm\n" } } }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "tenant": {
+      "type": "string",
+      "maxLength": 255,
+      "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+    },
+    "resourceType": {
+      "enum": [
+        "zcc_device_cleanup", "zcc_failopen_policy", "zcc_forwarding_profile",
+        "zcc_trusted_network", "zcc_web_privacy"
+      ]
+    },
+    "logicalPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$"
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "digest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {
+        "path": { "$ref": "#/$defs/logicalPath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "size_bytes": { "type": "integer", "minimum": 0, "maximum": 33554432 }
+      }
+    },
+    "textArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "media_type", "encoding", "sha256", "size_bytes", "content"],
+      "properties": {
+        "path": { "$ref": "#/$defs/logicalPath" },
+        "media_type": { "enum": ["text/x-hcl", "text/plain"] },
+        "encoding": { "const": "utf-8" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "size_bytes": { "type": "integer", "minimum": 0, "maximum": 33554432 },
+        "content": { "type": "string", "maxLength": 33554432 }
+      }
+    },
+    "hclArtifact": {
+      "allOf": [
+        { "$ref": "#/$defs/textArtifact" },
+        {
+          "type": "object",
+          "properties": {
+            "media_type": { "const": "text/x-hcl" },
+            "size_bytes": { "type": "integer", "minimum": 0, "maximum": 8388608 },
+            "content": { "type": "string", "maxLength": 8388608 }
+          }
+        }
+      ]
+    },
+    "sourceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource_type", "materialization_sha256", "provider_observed_source", "adoption_catalog", "materialized_artifacts"],
+      "properties": {
+        "resource_type": { "$ref": "#/$defs/resourceType" },
+        "materialization_sha256": { "$ref": "#/$defs/sha256" },
+        "provider_observed_source": { "$ref": "zcc-pull-artifact-set.schema.json#/$defs/source" },
+        "adoption_catalog": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "schema_version", "sha256", "sources_sha256"],
+          "properties": {
+            "kind": { "const": "infrawright.adoption_catalog" },
+            "schema_version": { "const": 1 },
+            "sha256": { "const": "ba1690397bbe84e6284affee2cfe8300f0ebb230714c332d6ff93d04a42181e7" },
+            "sources_sha256": { "const": "90452e9199dcc4dbf578e9f3af21ae2fb35517eb5d3af0f1a193f2e5ed92ed11" }
+          }
+        },
+        "materialized_artifacts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tfvars", "imports", "lookup"],
+          "properties": {
+            "tfvars": { "$ref": "#/$defs/digest" },
+            "imports": { "$ref": "#/$defs/digest" },
+            "lookup": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }
+          }
+        }
+      }
+    },
+    "moduleFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "$ref": "#/$defs/logicalPath" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "moduleBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource_type", "logical_path", "source", "fingerprint_version", "semantics", "module_provenance", "tree_sha256", "file_count", "files"],
+      "properties": {
+        "resource_type": { "$ref": "#/$defs/resourceType" },
+        "logical_path": { "$ref": "#/$defs/logicalPath" },
+        "source": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "fingerprint_version": { "const": 2 },
+        "semantics": { "const": "python_fingerprint_v2_observed" },
+        "module_provenance": { "const": "observed_unqualified" },
+        "tree_sha256": { "$ref": "#/$defs/sha256" },
+        "file_count": { "type": "integer", "minimum": 1, "maximum": 50000 },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50000,
+          "items": { "$ref": "#/$defs/moduleFile" }
+        }
+      }
+    },
+    "root": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "provider", "members", "env_dir", "artifacts"],
+      "properties": {
+        "label": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+        "provider": { "const": "zcc" },
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/resourceType" }
+        },
+        "env_dir": { "$ref": "#/$defs/logicalPath" },
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["main_tf", "staged_imports"],
+          "properties": {
+            "main_tf": { "$ref": "#/$defs/hclArtifact" },
+            "staged_imports": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 5,
+              "items": { "$ref": "#/$defs/hclArtifact" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -13,7 +13,8 @@ assertion-bound imports-last ZCC refresh publisher. They establish
 an explicit ZCC post-apply acknowledgement/retirement operation and a public,
 read-only provider-observed ZCC adoption compiler and digest-only adoption
 parity operation, plus a protected-assertion provider-observed adoption
-materializer. The exact-five ZCC pull collection comparer adds a bounded
+materializer and a read-only exact-five plan-root preparation candidate. The
+exact-five ZCC pull collection comparer adds a bounded
 Python-before/Node/Python-after stability window for raw collection bytes.
 Together these establish the process protocol, deterministic JSON boundary,
 packaging, and differential validation pattern for later migration slices.
@@ -110,6 +111,12 @@ paths, and every Node receipt tuple.
 `create_or_verify_exact` to
 `infrawright.zcc_adoption_artifact_materialization`; mode, policy, tenant, and
 resource must agree with both the retained request and embedded verification.
+`compile_plan_root_preparation` maps only the frozen exact-five JSON/no-bindings
+profile to `infrawright.zcc_plan_root_preparation_candidate`. Profile, tenant,
+selector, backend, complete sorted materialization receipts and their full
+source/root/artifact echoes, plus deployment/root-catalog control paths, must
+all agree with the retained request. Standalone result validation is not a
+substitute for this request-result join.
 
 ## Version 1 Requests
 
@@ -714,6 +721,146 @@ environment generation, import staging, a saved plan, `assert-adoptable`,
 apply, live-tenant qualification, or cutover. After exit `0`, the serialized
 external workflow still runs `gen-env`, `stage-imports`, `plan SAVE=1`, and
 `assert-adoptable` before any separately authorized apply.
+
+### ZCC read-only plan-root preparation candidate
+
+`compile_plan_root_preparation` is the first narrow bridge from complete
+provider-observed adoption materialization receipts to one singular Terraform
+root candidate. It is read-only: it does not generate a module, write an env
+file or backend marker, stage or retire imports, publish an artifact, initialize
+Terraform, refresh state, plan, apply, validate, or invoke Python or Terraform.
+
+```json
+{
+  "kind": "infrawright.process_request",
+  "schema_version": 1,
+  "request_id": "zcc-plan-root-131",
+  "operation": "compile_plan_root_preparation",
+  "context": {
+    "workspace": "/workspace/deployment",
+    "deployment": "deployment.json",
+    "root_catalog": "catalogs/zscaler-root-catalog.v1.json"
+  },
+  "input": {
+    "profile": "zcc_exact_five_adoption_json_no_bindings_v1",
+    "mode": "bootstrap",
+    "tenant": "prod",
+    "resource_type": "zcc_trusted_network",
+    "backend": "azurerm",
+    "materializations": [
+      {
+        "kind": "infrawright.zcc_adoption_artifact_materialization",
+        "schema_version": 1
+      }
+    ]
+  }
+}
+```
+
+Every abbreviated materialization above must be replaced with its complete
+`complete` receipt containing a `ready`/`equal` provider-observed verification.
+The selector is exactly one of `zcc_device_cleanup`, `zcc_failopen_policy`,
+`zcc_forwarding_profile`, `zcc_trusted_network`, or `zcc_web_privacy`; product,
+provider/bare-name, and alias selectors are not accepted. Selection still obeys
+whole-root topology. If the selected resource belongs to a group, every member
+must be inside that exact five-resource set and the sorted receipt array must
+cover all members exactly. A group with one unsupported member or one missing,
+duplicate, reordered, foreign-tenant, non-ready, refresh, or raw receipt is
+rejected before artifact or module reads.
+
+The context is closed over one canonical absolute workspace and canonical
+workspace-contained deployment and exact all-Zscaler root-catalog files. The
+deployment must select JSON tfvars and `roots.zcc.bind_references` must be false
+or absent, and its overlay must remain repository-relative so emitted artifact
+paths are checkout-independent. The returned `config`, `imports`, and `envs`
+directories must encode
+one identical deployment overlay and tenant, and the root env directory is
+exactly `<directories.envs>/<root-label>`. Canonical HCL tfvars alternates,
+operator or generated expression
+sidecars, the root `expression_bindings.tf`, canonical moves/pending markers,
+and stale env-root staged move files must all be absent. The operation exact-
+joins every receipt's tenant, resource, root label/member set/variable name,
+logical artifact paths, and digests to freshly derived topology and current
+regular materialized files. Canonical adoption imports are parsed with the
+bounded generated-import grammar before their exact bytes become staged
+candidate bytes.
+
+Backend choice is explicit and never inherited. `local` requires
+`envs/<tenant>/.backend` to be absent. `azurerm` accepts that marker only when
+absent or exactly `azurerm\n`, reports both its observed state and desired
+content, and still performs no write. A foreign marker fails closed.
+
+For each member, `module_dir` is derived with the Python deployment fallback,
+and its member root must be a present canonical directory inside the workspace.
+The result reports the existing plan-fingerprint-v2 traversal as
+`python_fingerprint_v2_observed` with `module_provenance:
+"observed_unqualified"`, the sorted file digests, and a tree digest. This is an
+observed content binding, not authenticated module provenance, a module-set
+manifest, release qualification, or proof that unvisited/ignored descendant
+namespace state stayed coherent. The operation requires a private, quiescent
+workspace; authenticated module provenance and stricter release-tree policy
+remain publication/qualification work.
+
+The no-bindings `main.tf` renderer is a frozen byte port of
+`engine.gen_env.render_env_main` after Terraform 1.15.4 formatting. The only
+format delta is the canonical `items  =` alignment, which Node renders directly.
+Module source paths containing HCL-sensitive quote, backslash, interpolation,
+or control characters fail closed. Focused differentials run real Python
+`engine.gen_env`, Terraform 1.15.4, and non-state-aware `cmd_stage_imports` for
+singleton/grouped and local/azurerm roots. Runtime compilation itself launches
+neither reference implementation.
+
+The result is `infrawright.zcc_plan_root_preparation_candidate` v1. It contains
+the singular topology; control, receipt-source, materialized-artifact, and
+observed-module digests; exact `main.tf` and per-member staged `_imports.tf`
+UTF-8 bytes; the backend-marker candidate; exact absent-sidecar evidence; and
+deterministic counts/order. Because import blocks contain adoption identifiers,
+the response is content-bearing private data and must remain inside the same
+protected artifact boundary as the materialization receipts.
+
+Every returned `main.tf` and staged import is labeled `text/x-hcl`; only the
+desired backend marker is `text/plain`. A staged import is limited to 8 MiB,
+all staged imports together to 16 MiB, and the complete Python-compatible
+candidate JSON to 24 MiB including escaped content and module metadata. The
+enclosing process response has an independent exact 32 MiB serialized limit.
+Size checks happen without first rendering an oversized response; a transport
+refusal preserves the validated request ID and operation in its structured
+error envelope.
+
+`status: "candidate_only"` and the fixed qualification object explicitly say
+readiness and cutover are not qualified and validation, plan, apply, refresh,
+and publication were not performed. A schema-valid candidate is therefore not
+authority to write files or run Terraform. The caller must independently
+authorize a future publisher and all validation/plan/apply/cutover gates.
+
+The compiler does not reconcile or qualify a pre-existing env-root `main.tf`,
+staged imports, dependency lock, arbitrary or nonmember `.tf`/`.tf.json` files,
+auto-tfvars, README, or smoke tests. README and smoke-test generation are
+deliberately outside this candidate; separately, unexpected Terraform and
+tfvars inputs are plan-affecting hygiene, not harmless documentation residue.
+A future publisher/qualification step must bind managed-output conflicts and
+reject or retire unexpected plan inputs before it writes or plans this root.
+
+Inputs are rebound after compilation. Controls and materialized artifacts use
+stable bounded reads and mutation-sensitive versions; required absences bind
+their nearest existing canonical authority. A final synchronous checkpoint
+after all asynchronous rechecks closes the result commit point for the
+workspace, controls, current artifacts, backend marker, absent paths, module
+roots, and reported module files. The observed-unqualified module limitation
+above still applies to unreported namespace entries.
+
+The exported direct compiler also treats its options as hostile input. It
+descriptor-checks the one-to-five receipt array before copying it, then caps
+the snapshot at depth 16, 512 nodes, 512 properties, and 1 MiB of aggregate
+UTF-8 key/value strings. Lossless numeric tokens are charged to the same string
+budget, and wide arrays/ordinary records are refused before child-descriptor
+copies are built. Oversized graphs fail before filesystem work.
+
+Success exits `0`. Request/domain refusals exit `2`; filesystem, stability, or
+internal failures exit `1`. The operation has no review-required result and
+never exits `3`. Error envelopes contain bounded codes and generic messages,
+not candidate contents, import identifiers, absolute materialized paths, or
+child diagnostics.
 
 ### ZCC read-only refresh compilation
 

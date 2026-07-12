@@ -12,15 +12,14 @@ import {
   type JsonValue,
 } from "../json/python-compatible.js";
 import { executeRequest } from "./execute.js";
+import { MAX_PROCESS_REQUEST_BYTES } from "./limits.js";
+import { prepareProcessResponseForEmission } from "./response-emission.js";
 import type {
   ProcessErrorResponse,
   ProcessRequest,
   ProcessResponse,
   ProcessSuccessResponse,
 } from "./types.js";
-
-const MAX_REQUEST_BYTES = 1024 * 1024;
-const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -34,7 +33,7 @@ async function readRequest(): Promise<string> {
       ? rawChunk
       : Buffer.from(rawChunk as Uint8Array);
     length += chunk.length;
-    if (length > MAX_REQUEST_BYTES) {
+    if (length > MAX_PROCESS_REQUEST_BYTES) {
       throw new ProcessFailure({
         code: "REQUEST_TOO_LARGE",
         category: "request",
@@ -63,6 +62,7 @@ function requestIdentity(value: unknown): {
     | "assess_saved_plans"
     | "compile_pull_artifacts"
     | "compile_adoption_artifacts"
+    | "compile_plan_root_preparation"
     | "compare_adoption_artifacts"
     | "materialize_adoption_artifacts"
     | "seed_pull_refresh_parity"
@@ -89,6 +89,7 @@ function requestIdentity(value: unknown): {
       || value.operation === "assess_saved_plans"
       || value.operation === "compile_pull_artifacts"
       || value.operation === "compile_adoption_artifacts"
+      || value.operation === "compile_plan_root_preparation"
       || value.operation === "compare_adoption_artifacts"
       || value.operation === "materialize_adoption_artifacts"
       || value.operation === "seed_pull_refresh_parity"
@@ -112,6 +113,7 @@ function errorResponse(options: {
     | "assess_saved_plans"
     | "compile_pull_artifacts"
     | "compile_adoption_artifacts"
+    | "compile_plan_root_preparation"
     | "compare_adoption_artifacts"
     | "materialize_adoption_artifacts"
     | "seed_pull_refresh_parity"
@@ -151,13 +153,17 @@ function emit(response: ProcessResponse): boolean {
       "process response failed its versioned schema",
     );
   }
-  const text = renderPythonCompatibleJson(response as unknown as JsonValue);
-  if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) {
-    return emitFallback(
-      "PROCESS_RESPONSE_TOO_LARGE",
-      "process response exceeds the 32 MiB limit",
-    );
+  const prepared = prepareProcessResponseForEmission(response);
+  if (prepared.oversized) {
+    process.stdout.write(renderPythonCompatibleJson(
+      prepared.response as unknown as JsonValue,
+    ));
+    process.exitCode = 1;
+    return false;
   }
+  const text = renderPythonCompatibleJson(
+    prepared.response as unknown as JsonValue,
+  );
   process.stdout.write(text);
   return true;
 }

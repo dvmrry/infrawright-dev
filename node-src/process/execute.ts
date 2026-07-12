@@ -19,6 +19,7 @@ import {
   validateZccPullRefreshMaterialization,
   validateZccPullCollection,
   validateZccPullCollectionParity,
+  validateZccPlanRootPreparation,
 } from "../contracts/validators.js";
 import {
   loadBoundAssessmentRootCatalog,
@@ -70,6 +71,8 @@ import { compareZccPullCollectionOperation } from "../domain/zcc-pull-collection
 import {
   zccPullCollectionParityOperationResultErrors,
 } from "../contracts/zcc-pull-collection-parity-semantics.js";
+import { compileZccPlanRootPreparation } from "../domain/zcc-plan-root-preparation.js";
+import { zccPlanRootPreparationOperationResultErrors } from "../contracts/zcc-plan-root-preparation-semantics.js";
 import type {
   ProcessRequest,
   ProcessSuccessResponse,
@@ -161,6 +164,20 @@ function copyRequest(request: ProcessRequest): ProcessRequest {
         mode: "bootstrap",
         tenant: request.input.tenant,
         resource_type: request.input.resource_type,
+      },
+    };
+  }
+  if (request.operation === "compile_plan_root_preparation") {
+    return {
+      ...base,
+      operation: "compile_plan_root_preparation",
+      input: {
+        profile: request.input.profile,
+        mode: "bootstrap",
+        tenant: request.input.tenant,
+        resource_type: request.input.resource_type,
+        backend: request.input.backend,
+        materializations: structuredClone(request.input.materializations),
       },
     };
   }
@@ -355,6 +372,50 @@ export async function executeRequest(
       category: "request",
       message: "context.workspace must be an absolute path",
     });
+  }
+  if (request.operation === "compile_plan_root_preparation") {
+    const outcome = await compileZccPlanRootPreparation({
+      workspace: request.context.workspace,
+      deploymentPath: resolveContextPath(
+        request.context.workspace,
+        request.context.deployment,
+      ),
+      catalogPath: resolveContextPath(
+        request.context.workspace,
+        request.context.root_catalog,
+      ),
+      profile: request.input.profile,
+      mode: request.input.mode,
+      tenant: request.input.tenant,
+      resourceType: request.input.resource_type,
+      backend: request.input.backend,
+      materializations: request.input.materializations,
+    });
+    const bindingErrors = zccPlanRootPreparationOperationResultErrors(
+      request,
+      outcome.result,
+    );
+    if (!validateZccPlanRootPreparation(outcome.result) || bindingErrors.length > 0) {
+      throw new ProcessFailure({
+        code: "INVALID_OPERATION_RESULT",
+        category: "internal",
+        message: "compile_plan_root_preparation produced a result outside its versioned contract",
+        details: [
+          ...schemaErrorDetails(validateZccPlanRootPreparation.errors),
+          ...schemaErrorDetails(bindingErrors),
+        ],
+      });
+    }
+    return {
+      kind: "infrawright.process_response",
+      schema_version: 1,
+      request_id: request.request_id,
+      operation: "compile_plan_root_preparation",
+      status: "ok",
+      diagnostics: outcome.diagnostics,
+      result: outcome.result,
+      error: null,
+    };
   }
   if (request.operation === "collect_zcc_pull") {
     const result = await collectZccPullOperation({

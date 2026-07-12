@@ -44,6 +44,87 @@ function encodeString(value: string): string {
   });
 }
 
+function encodedStringLength(value: string, maximum: number): number {
+  let length = 2;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (
+      code === 0x08
+      || code === 0x09
+      || code === 0x0a
+      || code === 0x0c
+      || code === 0x0d
+      || code === 0x22
+      || code === 0x5c
+    ) {
+      length += 2;
+    } else if (code < 0x20 || code >= 0x80) {
+      length += 6;
+    } else {
+      length += 1;
+    }
+    if (length > maximum) {
+      return maximum + 1;
+    }
+  }
+  return length;
+}
+
+function encodedLength(value: JsonValue, level: number, maximum: number): number {
+  if (value === null) {
+    return 4;
+  }
+  if (typeof value === "boolean") {
+    return value ? 4 : 5;
+  }
+  if (typeof value === "number") {
+    if (!Number.isSafeInteger(value) || Object.is(value, -0)) {
+      throw new TypeError(
+        "the initial Python-compatible renderer accepts safe integers only",
+      );
+    }
+    return String(value).length;
+  }
+  if (typeof value === "string") {
+    return encodedStringLength(value, maximum);
+  }
+  const currentIndent = level * 2;
+  const childIndent = currentIndent + 2;
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return 2;
+    }
+    let length = 4 + currentIndent + ((value.length - 1) * 2);
+    for (const item of value) {
+      length += childIndent + encodedLength(item, level + 1, maximum);
+      if (length > maximum) {
+        return maximum + 1;
+      }
+    }
+    return length;
+  }
+  const objectValue = value as JsonObject;
+  const keys = Object.keys(objectValue);
+  if (keys.length === 0) {
+    return 2;
+  }
+  let length = 4 + currentIndent + ((keys.length - 1) * 2);
+  for (const key of keys) {
+    const child = objectValue[key];
+    if (child === undefined) {
+      throw new TypeError("undefined is not a JSON value");
+    }
+    length += childIndent
+      + encodedStringLength(key, maximum)
+      + 2
+      + encodedLength(child, level + 1, maximum);
+    if (length > maximum) {
+      return maximum + 1;
+    }
+  }
+  return length;
+}
+
 function encode(value: JsonValue, level: number): string {
   if (value === null) {
     return "null";
@@ -91,4 +172,23 @@ function encode(value: JsonValue, level: number): string {
 /** Match json.dumps(..., indent=2, sort_keys=True) for integer-only contracts. */
 export function renderPythonCompatibleJson(value: JsonValue): string {
   return `${encode(value, 0)}\n`;
+}
+
+/**
+ * Measure the exact ASCII bytes emitted by renderPythonCompatibleJson.
+ * Returns maximumBytes + 1 as soon as the rendered value cannot fit.
+ */
+export function pythonCompatibleJsonByteLength(
+  value: JsonValue,
+  maximumBytes = Number.MAX_SAFE_INTEGER - 1,
+): number {
+  if (
+    !Number.isSafeInteger(maximumBytes)
+    || maximumBytes < 0
+    || maximumBytes >= Number.MAX_SAFE_INTEGER
+  ) {
+    throw new TypeError("maximumBytes must be a non-negative safe byte limit");
+  }
+  const body = encodedLength(value, 0, maximumBytes);
+  return body >= maximumBytes ? maximumBytes + 1 : body + 1;
 }

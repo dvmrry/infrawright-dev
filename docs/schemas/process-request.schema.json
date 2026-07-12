@@ -36,6 +36,7 @@
         "assess_saved_plans",
         "compile_pull_artifacts",
         "compile_adoption_artifacts",
+        "compile_plan_root_preparation",
         "compare_adoption_artifacts",
         "materialize_adoption_artifacts",
         "seed_pull_refresh_parity",
@@ -53,41 +54,7 @@
       ]
     },
     "input": {
-      "oneOf": [
-        {
-          "$ref": "#/$defs/rootsInput"
-        },
-        {
-          "$ref": "#/$defs/scopePathsInput"
-        },
-        {
-          "$ref": "#/$defs/assessmentInput"
-        },
-        {
-          "$ref": "#/$defs/compilePullArtifactsInput"
-        },
-        {
-          "$ref": "#/$defs/seedPullRefreshParityInput"
-        },
-        {
-          "$ref": "#/$defs/comparePullArtifactsInput"
-        },
-        {
-          "$ref": "#/$defs/materializeAdoptionArtifactsInput"
-        },
-        {
-          "$ref": "#/$defs/materializePullArtifactsInput"
-        },
-        {
-          "$ref": "#/$defs/acknowledgePullRefreshInput"
-        },
-        {
-          "$ref": "#/$defs/collectZccPullInput"
-        },
-        {
-          "$ref": "#/$defs/compareZccPullCollectionInput"
-        }
-      ]
+      "$comment": "Input shape is bound exactly once by the operation-discriminated oneOf below; duplicating the union here amplifies malformed-request diagnostics."
     }
   },
   "allOf": [
@@ -203,12 +170,44 @@
     {
       "properties": {
         "operation": {
-          "const": "compile_adoption_artifacts"
-        },
-        "input": {
-          "$ref": "#/$defs/compileAdoptionArtifactsInput"
+          "enum": [
+            "compile_adoption_artifacts",
+            "compile_plan_root_preparation"
+          ]
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "compile_adoption_artifacts" }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "input": { "$ref": "#/$defs/compileAdoptionArtifactsInput" }
+            }
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "operation": { "const": "compile_plan_root_preparation" }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "input": { "$ref": "#/$defs/compilePlanRootPreparationInput" }
+            }
+          }
+        }
+      ]
     },
     {
       "properties": {
@@ -531,6 +530,42 @@
         },
         "resource_type": {
           "$ref": "zcc-pull-artifact-set.schema.json#/$defs/resourceType"
+        }
+      }
+    },
+    "compilePlanRootPreparationInput": {
+      "type": "object",
+      "x-infrawright-zcc-plan-root-preparation-request-semantics": true,
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "mode",
+        "tenant",
+        "resource_type",
+        "backend",
+        "materializations"
+      ],
+      "properties": {
+        "profile": {
+          "const": "zcc_exact_five_adoption_json_no_bindings_v1"
+        },
+        "mode": { "const": "bootstrap" },
+        "tenant": {
+          "type": "string",
+          "maxLength": 255,
+          "pattern": "^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"
+        },
+        "resource_type": {
+          "$ref": "zcc-pull-artifact-set.schema.json#/$defs/resourceType"
+        },
+        "backend": { "enum": ["local", "azurerm"] },
+        "materializations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": {
+            "$ref": "zcc-adoption-artifact-materialization.schema.json"
+          }
         }
       }
     },
