@@ -36,6 +36,26 @@ The internal saved-plan classifier requires Terraform 1.8 or newer because it
 fails closed unless the plan's `complete` contract field is present and true.
 The migration compatibility baseline is currently Terraform 1.15.4.
 
+## Publisher Ownership
+
+Concurrent jobs are supported through physically disjoint, job-owned
+workspaces and output roots. Every persistent Node mutation treats the complete
+canonical `INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT` as one publisher unit; different
+tenants or resources beneath that root are not independent writer lanes.
+Bootstrap materialization, refresh materialization, and refresh
+acknowledgement acquire `.infrawright.publisher.lock` at the output-root
+boundary with exclusive no-follow creation. Contention fails immediately with
+retryable I/O code `OUTPUT_ROOT_BUSY`; the host never waits or auto-breaks an
+existing guard.
+
+The guard is transient process coordination, not a generated artifact or
+refresh-state marker. The exact pending-move marker remains authoritative
+between refresh publication and post-apply acknowledgement. Pipeline isolation
+spans the longer Python/Node/Terraform workflow, while the Node guard catches
+accidental overlapping process-host mutations inside that boundary. See
+[ADR 0001](adr/0001-publisher-ownership.md) for the ADO job-path convention,
+stale cleanup responsibility, and supported parallelism.
+
 The host reads exactly one request from stdin and writes exactly one response
 plus a trailing newline to stdout. Expected errors are structured responses;
 stderr is reserved for failures that prevent a protocol response.
@@ -597,11 +617,13 @@ atomically, but config and imports live in different directories. A crash or an
 error after the first publication may leave an exact prefix; the operation
 reports an indeterminate I/O failure and does not risk path-based rollback. A
 serialized retry against unchanged inputs verifies that prefix and completes
-the missing suffix. Pipelines must not run Terraform, Python writers, or a
-second materializer concurrently, and must consume the set only after exit
-`0`. Portable Node APIs do not provide descriptor-relative publication, so
-parent identity rechecks are race detection in a trusted runner—not a security
-boundary against a hostile same-UID process replacing ancestor paths.
+the missing suffix. Pipelines must not run Terraform or Python writers in the
+same output root concurrently and must consume the set only after exit `0`.
+The process host rejects a second persistent Node mutation with
+`OUTPUT_ROOT_BUSY`; disjoint output roots remain parallel-capable. Portable
+Node APIs do not provide descriptor-relative publication, so parent identity
+rechecks are race detection in a trusted runner—not a security boundary against
+a hostile same-UID process replacing ancestor paths.
 
 A handled failure before the first link removes every staging alias whose
 identity can be safely established, but may leave empty operation-created
@@ -612,6 +634,12 @@ leave random `.infrawright-*.tmp` aliases containing complete staged bytes.
 Those names are never consumed as final artifacts and a later run uses new
 exclusive names; the trusted runner should remove abandoned aliases only after
 it has established that no materializer is active.
+
+The root-level `.infrawright.publisher.lock` is deliberately outside generated
+config/import paths and is never considered artifact residue. An existing lock
+produces `OUTPUT_ROOT_BUSY` whether its owner is active or stale. Remove a stale
+lock only after proving no publisher is active, or discard the complete
+job-owned workspace; guard acquisition never removes a pre-existing lock.
 
 Success returns `infrawright.zcc_pull_artifact_materialization` v1 with sorted
 `created` and `reused` artifact names plus fresh digest-only verification. It

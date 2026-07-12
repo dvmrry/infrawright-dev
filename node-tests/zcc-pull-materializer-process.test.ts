@@ -34,6 +34,7 @@ import type {
   ProcessRequest,
   ProcessResponse,
 } from "../node-src/process/types.js";
+import { PUBLISHER_GUARD_BASENAME } from "../node-src/io/publisher-guard.js";
 
 const REPOSITORY = process.cwd();
 const PROCESS_MAIN = path.join(
@@ -472,7 +473,36 @@ test("public materializer refuses a reserved pending-move artifact before public
     assert.equal(readFileSync(pendingMoves, "utf8"), '{"state":"pending"}\n');
     assert.throws(() => lstatSync(paths.imports as string));
     assert.throws(() => lstatSync(paths.tfvars as string));
+    assert.throws(() => {
+      lstatSync(path.join(target.outputRoot, PUBLISHER_GUARD_BASENAME));
+    });
     assert.deepEqual(temporaryAliases(target.outputRoot), []);
+  });
+});
+
+test("public bootstrap materialization refuses an active or stale publisher guard", async () => {
+  await withFixturePair((oracle, target) => {
+    const resourceType = "zcc_device_cleanup";
+    const assertion = publicReadyAssertion(oracle, resourceType);
+    const guardPath = path.join(target.outputRoot, PUBLISHER_GUARD_BASENAME);
+    const privateValue = "prior-publisher-private-value\n";
+    writeFileSync(guardPath, privateValue, { mode: 0o600 });
+
+    const invocation = invoke(
+      materializeRequest(target, resourceType, assertion),
+      target.outputRoot,
+    );
+    assert.equal(invocation.status, 1, invocation.stdout);
+    assert.equal(invocation.stderr, "");
+    requireMaterializeError(invocation.response);
+    assert.equal(invocation.response.error.code, "OUTPUT_ROOT_BUSY");
+    assert.equal(invocation.response.error.category, "io");
+    assert.equal(invocation.response.error.retryable, true);
+    assert.equal(invocation.stdout.includes(privateValue.trim()), false);
+    assert.equal(readFileSync(guardPath, "utf8"), privateValue);
+    const paths = artifactPaths(target, resourceType);
+    assert.throws(() => lstatSync(paths.imports as string));
+    assert.throws(() => lstatSync(paths.tfvars as string));
   });
 });
 

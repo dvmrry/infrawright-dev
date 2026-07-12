@@ -49,6 +49,7 @@ import {
   materializeZccPullRefreshOperation,
   type ZccPullRefreshPublisherOperationHooks,
 } from "../node-src/domain/zcc-pull-refresh-publisher-operation.js";
+import { PUBLISHER_GUARD_BASENAME } from "../node-src/io/publisher-guard.js";
 import type { ProcessResponse } from "../node-src/process/types.js";
 
 const REPOSITORY = process.cwd();
@@ -1490,9 +1491,80 @@ test("process host routes refresh success and fail-closed workspace errors", asy
     );
     assert.equal(invocation.stdout.includes(privateValue), false);
     assert.equal(readFileSync(markerPath, "utf8"), `${privateValue}\n`);
+    assert.equal(
+      existsSync(path.join(failure.candidate.workspace, PUBLISHER_GUARD_BASENAME)),
+      false,
+    );
   } finally {
     cleanupScenario(failure);
   }
+});
+
+test("process host guards refresh publication and acknowledgement for the full output root", async (t) => {
+  await t.test("refresh publication", async () => {
+    const resourceType = "zcc_device_cleanup";
+    const scenario = await prepareScenario(resourceType, [], raw(resourceType));
+    try {
+      const before = artifactSnapshot(scenario.candidate, resourceType);
+      const guardPath = path.join(
+        scenario.candidate.workspace,
+        PUBLISHER_GUARD_BASENAME,
+      );
+      const privateValue = "stale-refresh-publisher-private-value\n";
+      writeFileSync(guardPath, privateValue, { mode: 0o600 });
+
+      const invocation = invokeHost(scenario);
+      assert.equal(invocation.status, 1, invocation.stdout);
+      assert.equal(invocation.stderr, "");
+      assert.equal(invocation.response.status, "error");
+      assert.equal(invocation.response.error?.code, "OUTPUT_ROOT_BUSY");
+      assert.equal(invocation.response.error?.retryable, true);
+      assert.equal(invocation.stdout.includes(privateValue.trim()), false);
+      assert.equal(readFileSync(guardPath, "utf8"), privateValue);
+      assert.deepEqual(artifactSnapshot(scenario.candidate, resourceType), before);
+    } finally {
+      cleanupScenario(scenario);
+    }
+  });
+
+  await t.test("refresh acknowledgement", async () => {
+    const resourceType = "zcc_forwarding_profile";
+    const scenario = await prepareScenario(
+      resourceType,
+      [{ id: "rename-id", name: "Before" }],
+      [{ id: "rename-id", name: "After" }],
+    );
+    try {
+      const publication = await publish(scenario);
+      assert.equal(publication.status, "awaiting_apply");
+      const paths = artifactPaths(scenario.candidate, resourceType);
+      const moveBytes = readFileSync(paths.moves);
+      const markerBytes = readFileSync(paths.pending_moves);
+      const guardPath = path.join(
+        scenario.candidate.workspace,
+        PUBLISHER_GUARD_BASENAME,
+      );
+      const privateValue = "stale-ack-publisher-private-value\n";
+      writeFileSync(guardPath, privateValue, { mode: 0o600 });
+
+      const invocation = invokeAcknowledgementHost(
+        scenario,
+        publication,
+        true,
+      );
+      assert.equal(invocation.status, 1, invocation.stdout);
+      assert.equal(invocation.stderr, "");
+      assert.equal(invocation.response.status, "error");
+      assert.equal(invocation.response.error?.code, "OUTPUT_ROOT_BUSY");
+      assert.equal(invocation.response.error?.retryable, true);
+      assert.equal(invocation.stdout.includes(privateValue.trim()), false);
+      assert.equal(readFileSync(guardPath, "utf8"), privateValue);
+      assert.deepEqual(readFileSync(paths.moves), moveBytes);
+      assert.deepEqual(readFileSync(paths.pending_moves), markerBytes);
+    } finally {
+      cleanupScenario(scenario);
+    }
+  });
 });
 
 test("process host gates and emits trusted refresh acknowledgement", async () => {

@@ -46,6 +46,7 @@ import {
   acknowledgeZccPullRefreshOperation,
 } from "../domain/zcc-pull-refresh-acknowledgement-operation.js";
 import { zccPullRefreshPublicationReceiptSha } from "../domain/zcc-pull-refresh-fingerprints.js";
+import { withPublisherGuard } from "../io/publisher-guard.js";
 import type {
   ProcessRequest,
   ProcessSuccessResponse,
@@ -339,29 +340,32 @@ export async function executeRequest(
         message: "artifact materialization requires a trusted output root",
       });
     }
-    const result = request.input.mode === "refresh"
-      ? await materializeZccPullRefreshOperation({
-          context: request.context,
-          tenant: request.input.tenant,
-          resourceType: request.input.resource_type,
-          assertion: request.input.assertion,
-          outputRoot: dependencies.materializeOutputRoot,
-        })
-      : await materializeZccPullArtifactsOperation({
-          workspace: request.context.workspace,
-          deploymentPath: resolveContextPath(
-            request.context.workspace,
-            request.context.deployment,
-          ),
-          catalogPath: resolveContextPath(
-            request.context.workspace,
-            request.context.root_catalog,
-          ),
-          tenant: request.input.tenant,
-          resourceType: request.input.resource_type,
-          assertion: request.input.assertion,
-          outputRoot: dependencies.materializeOutputRoot,
-        });
+    const outputRoot = dependencies.materializeOutputRoot;
+    const result = await withPublisherGuard(outputRoot, async () => {
+      return request.input.mode === "refresh"
+        ? materializeZccPullRefreshOperation({
+            context: request.context,
+            tenant: request.input.tenant,
+            resourceType: request.input.resource_type,
+            assertion: request.input.assertion,
+            outputRoot,
+          })
+        : materializeZccPullArtifactsOperation({
+            workspace: request.context.workspace,
+            deploymentPath: resolveContextPath(
+              request.context.workspace,
+              request.context.deployment,
+            ),
+            catalogPath: resolveContextPath(
+              request.context.workspace,
+              request.context.root_catalog,
+            ),
+            tenant: request.input.tenant,
+            resourceType: request.input.resource_type,
+            assertion: request.input.assertion,
+            outputRoot,
+          });
+    });
     const validateResult = request.input.mode === "refresh"
       ? validateZccPullRefreshMaterialization
       : validateZccPullArtifactMaterialization;
@@ -403,16 +407,19 @@ export async function executeRequest(
         message: "refresh acknowledgement requires a trusted output root",
       });
     }
-    const result = await acknowledgeZccPullRefreshOperation({
-      context: request.context,
-      tenant: request.input.tenant,
-      resourceType: request.input.resource_type,
-      assertion: request.input.assertion,
-      publication: request.input.publication,
-      acknowledgement: request.input.acknowledgement,
-      policy: request.input.policy,
-      outputRoot: dependencies.materializeOutputRoot,
-      allowExternalApplyAcknowledgement,
+    const outputRoot = dependencies.materializeOutputRoot;
+    const result = await withPublisherGuard(outputRoot, async () => {
+      return acknowledgeZccPullRefreshOperation({
+        context: request.context,
+        tenant: request.input.tenant,
+        resourceType: request.input.resource_type,
+        assertion: request.input.assertion,
+        publication: request.input.publication,
+        acknowledgement: request.input.acknowledgement,
+        policy: request.input.policy,
+        outputRoot,
+        allowExternalApplyAcknowledgement,
+      });
     });
     if (!validateZccPullRefreshAcknowledgement(result)) {
       throw new ProcessFailure({
