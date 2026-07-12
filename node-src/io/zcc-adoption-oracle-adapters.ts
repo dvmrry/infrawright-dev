@@ -102,6 +102,17 @@ interface FileBinding {
   readonly sha256: string;
 }
 
+type ProtectionFailureCode =
+  | "ZCC_ORACLE_COMMAND_PROTECTION_FAILED"
+  | "ZCC_ORACLE_SHOW_PROTECTION_FAILED"
+  | "ZCC_ORACLE_FINAL_PROTECTION_FAILED";
+
+interface ProtectedWorkOutcome {
+  readonly error: unknown;
+  readonly failed: boolean;
+  readonly timeout: ProcessFailure | null;
+}
+
 interface TransactionPaths {
   readonly directory: string;
   readonly generatedConfig: string;
@@ -755,25 +766,21 @@ export function createZccAdoptionOracleAdapters(
 
   const withProtectionFailure = (
     primary: ProcessFailure,
-    code: "ZCC_ORACLE_COMMAND_PROTECTION_FAILED"
-      | "ZCC_ORACLE_SHOW_PROTECTION_FAILED",
+    code: ProtectionFailureCode,
     message: string,
   ): ProcessFailure => new ProcessFailure({
     code: primary.code,
     category: primary.category,
     message: primary.message,
     retryable: primary.retryable,
-    details: [
-      ...primary.details,
-      {
-        path: "protection",
-        code,
-        message,
-      },
-    ],
+    details: [{
+      path: "protection",
+      code,
+      message,
+    }],
   });
 
-  const remainingTransactionBudget = (): number => {
+  const transactionRemaining = (): number => {
     if (transactionDeadline === null) {
       return fail(
         "ZCC_ORACLE_ADAPTER_NOT_ACTIVE",
@@ -781,11 +788,40 @@ export function createZccAdoptionOracleAdapters(
         "domain",
       );
     }
-    const remaining = Math.floor(transactionDeadline - performance.now());
+    return Math.floor(transactionDeadline - performance.now());
+  };
+
+  const observedTransactionTimeout = (): ProcessFailure | null => {
+    return transactionRemaining() <= 0 ? transactionTimeout() : null;
+  };
+
+  const remainingTransactionBudget = (): number => {
+    const remaining = transactionRemaining();
     if (remaining <= 0) {
       throw transactionTimeout();
     }
     return remaining;
+  };
+
+  const attemptProtectedWork = async (
+    work: () => Promise<void>,
+    priorTimeout: ProcessFailure | null = null,
+  ): Promise<ProtectedWorkOutcome> => {
+    const before = observedTransactionTimeout();
+    let failed = false;
+    let error: unknown = null;
+    try {
+      await work();
+    } catch (caught: unknown) {
+      failed = true;
+      error = caught;
+    }
+    const after = observedTransactionTimeout();
+    return {
+      error,
+      failed,
+      timeout: priorTimeout ?? before ?? after,
+    };
   };
 
   const boundedCleanup = async (work: () => Promise<void>): Promise<void> => {
@@ -1101,8 +1137,22 @@ export function createZccAdoptionOracleAdapters(
         "domain",
       );
     }
-    await bindOrRecheck(protectedPaths, stage, active.paths);
-    await requireProducedFilesAbsent(stage, active.paths);
+    const preflight = await attemptProtectedWork(async () => {
+      await bindOrRecheck(protectedPaths, stage, active.paths);
+      await requireProducedFilesAbsent(stage, active.paths);
+    });
+    if (preflight.timeout !== null) {
+      throw preflight.failed
+        ? withProtectionFailure(
+            preflight.timeout,
+            "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+            "protected files also changed before the timed-out Terraform command",
+          )
+        : preflight.timeout;
+    }
+    if (preflight.failed) {
+      throw preflight.error;
+    }
     const remainingTimeoutMs = remainingTransactionBudget();
     let primary: unknown = null;
     try {
@@ -1124,29 +1174,39 @@ export function createZccAdoptionOracleAdapters(
         ? transactionTimeout()
         : error;
     }
-    if (primary === null) {
-      try {
-        await bindProducedFiles(stage, active.paths);
-      } catch {
-        return fail(
-          "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
-          "ZCC oracle could not bind Terraform command outputs",
-        );
-      }
-    }
-    try {
-      await bindOrRecheck(protectedPaths, stage, active.paths);
-    } catch {
-      if (
-        primary instanceof ProcessFailure
+    let deadlinePrimary = primary instanceof ProcessFailure
         && primary.code === "ZCC_ADOPTION_ORACLE_TIMEOUT"
-      ) {
-        throw withProtectionFailure(
-          primary,
-          "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
-          "protected files also changed around the timed-out Terraform command",
-        );
-      }
+      ? primary
+      : null;
+    let produced: ProtectedWorkOutcome | null = null;
+    if (primary === null) {
+      produced = await attemptProtectedWork(
+        () => bindProducedFiles(stage, active.paths),
+        deadlinePrimary,
+      );
+      deadlinePrimary = produced.timeout;
+    }
+    const postflight = await attemptProtectedWork(
+      () => bindOrRecheck(protectedPaths, stage, active.paths),
+      deadlinePrimary,
+    );
+    deadlinePrimary = postflight.timeout;
+    if (deadlinePrimary !== null) {
+      throw (produced?.failed ?? false) || postflight.failed
+        ? withProtectionFailure(
+            deadlinePrimary,
+            "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+            "protected files also changed around the timed-out Terraform command",
+          )
+        : deadlinePrimary;
+    }
+    if (produced?.failed ?? false) {
+      return fail(
+        "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+        "ZCC oracle could not bind Terraform command outputs",
+      );
+    }
+    if (postflight.failed) {
       return fail(
         "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
         "ZCC oracle protected files changed around a Terraform command",
@@ -1155,7 +1215,6 @@ export function createZccAdoptionOracleAdapters(
     if (primary !== null) {
       throw primary;
     }
-    remainingTransactionBudget();
   };
 
   const readJson = async (
@@ -1181,7 +1240,21 @@ export function createZccAdoptionOracleAdapters(
         "domain",
       );
     }
-    await bindOrRecheck(protectedPaths, request.stage, active.paths);
+    const preflight = await attemptProtectedWork(
+      () => bindOrRecheck(protectedPaths, request.stage, active.paths),
+    );
+    if (preflight.timeout !== null) {
+      throw preflight.failed
+        ? withProtectionFailure(
+            preflight.timeout,
+            "ZCC_ORACLE_SHOW_PROTECTION_FAILED",
+            "protected files also changed before the timed-out Terraform show",
+          )
+        : preflight.timeout;
+    }
+    if (preflight.failed) {
+      throw preflight.error;
+    }
     const remainingTimeoutMs = remainingTransactionBudget();
     let result: unknown;
     let primary: unknown = null;
@@ -1203,19 +1276,24 @@ export function createZccAdoptionOracleAdapters(
         ? transactionTimeout()
         : error;
     }
-    try {
-      await bindOrRecheck(protectedPaths, request.stage, active.paths);
-    } catch {
-      if (
-        primary instanceof ProcessFailure
+    const deadlinePrimary = primary instanceof ProcessFailure
         && primary.code === "ZCC_ADOPTION_ORACLE_TIMEOUT"
-      ) {
-        throw withProtectionFailure(
-          primary,
-          "ZCC_ORACLE_SHOW_PROTECTION_FAILED",
-          "protected files also changed around the timed-out Terraform show",
-        );
-      }
+      ? primary
+      : null;
+    const postflight = await attemptProtectedWork(
+      () => bindOrRecheck(protectedPaths, request.stage, active.paths),
+      deadlinePrimary,
+    );
+    if (postflight.timeout !== null) {
+      throw postflight.failed
+        ? withProtectionFailure(
+            postflight.timeout,
+            "ZCC_ORACLE_SHOW_PROTECTION_FAILED",
+            "protected files also changed around the timed-out Terraform show",
+          )
+        : postflight.timeout;
+    }
+    if (postflight.failed) {
       return fail(
         "ZCC_ORACLE_SHOW_PROTECTION_FAILED",
         "ZCC oracle protected files changed around Terraform show",
@@ -1224,11 +1302,34 @@ export function createZccAdoptionOracleAdapters(
     if (primary !== null) {
       throw primary;
     }
-    remainingTransactionBudget();
     return result;
   };
 
+  const checkpointTransaction = async (): Promise<void> => {
+    const active = requireActive();
+    const protectedPaths = expectedProtectedPaths("show-state", active.paths);
+    const checkpoint = await attemptProtectedWork(
+      () => bindOrRecheck(protectedPaths, "show-state", active.paths),
+    );
+    if (checkpoint.timeout !== null) {
+      throw checkpoint.failed
+        ? withProtectionFailure(
+            checkpoint.timeout,
+            "ZCC_ORACLE_FINAL_PROTECTION_FAILED",
+            "protected files also changed before timed-out result acceptance",
+          )
+        : checkpoint.timeout;
+    }
+    if (checkpoint.failed) {
+      return fail(
+        "ZCC_ORACLE_FINAL_PROTECTION_FAILED",
+        "ZCC oracle protected files changed before result acceptance",
+      );
+    }
+  };
+
   return Object.freeze({
+    transaction: Object.freeze({ checkpoint: checkpointTransaction }),
     temporary: Object.freeze({
       create: createTemporary,
       remove: removeTemporary,

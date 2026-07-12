@@ -44,16 +44,22 @@ lock bytes and verifies their SHA-256 before use. It does not accept a caller
 lock, archive hash, provider version, plugin cache, or CLI configuration.
 
 One fixed host-owned 300-second monotonic deadline covers `init`, the
-generated-config plan, plan show and parsing, apply, and state show and parsing.
-Each stage receives only the remaining budget; neither the oracle request nor
-the adapter factory exposes a timeout. Verified scratch cleanup always uses a
-separate fixed 30-second window. All timeout and cleanup diagnostics are
-content-free and preserve the existing rule that credentials, provider state,
-import identifiers, and Terraform output never enter errors.
+generated-config plan, plan show and parsing, apply, state show and parsing,
+state-graph validation, and artifact compilation. Each child receives only the
+remaining budget; neither the oracle request nor the adapter factory exposes a
+timeout. Protection and output-binding work records deadline state before and
+after each host phase. A final zero-argument host checkpoint rechecks the exact
+show-state protected set and the monotonic deadline after compilation and
+before the result is accepted. Verified scratch cleanup always uses a separate
+fixed 30-second window. All timeout and cleanup diagnostics are content-free
+and preserve the existing rule that credentials, provider state, import
+identifiers, and Terraform output never enter errors.
 
-When timeout and post-stage protection failure coincide, timeout remains the
-primary code and the protection failure appears only as one generic,
-value-free detail.
+When timeout and a preflight, produced-file, post-stage, or final-checkpoint
+protection failure coincide, timeout remains the primary code and the
+protection failure appears only as one generic, value-free detail. An integrity
+failure observed before deadline exhaustion retains its ordinary fail-closed
+behavior.
 
 ## Build-binding bytes
 

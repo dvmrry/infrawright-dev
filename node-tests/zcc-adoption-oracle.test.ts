@@ -235,10 +235,14 @@ class FakeOracle {
   failShow: ZccAdoptionOracleShowStage | null = null;
   failCreate = false;
   failCleanup = false;
+  failCheckpoint = false;
   failWrite = false;
   directory = DIRECTORY;
+  transactionElapsedMs = 0;
   onCommand: ((request: ZccAdoptionOracleCommandRequest) => void) | null = null;
+  onCheckpoint: (() => void) | null = null;
   onCleanup: (() => void) | null = null;
+  onShow: ((request: ZccAdoptionOracleShowRequest) => void) | null = null;
 
   constructor(resourceCase: ResourceCase) {
     this.plan = planFor(resourceCase);
@@ -247,6 +251,22 @@ class FakeOracle {
 
   adapters(): ZccAdoptionOracleAdapters {
     return {
+      transaction: {
+        checkpoint: async () => {
+          this.events.push("transaction:checkpoint");
+          this.onCheckpoint?.();
+          if (this.transactionElapsedMs >= 300_000) {
+            throw new ProcessFailure({
+              code: "ZCC_ADOPTION_ORACLE_TIMEOUT",
+              category: "io",
+              message: "ZCC adoption oracle transaction exceeded its execution deadline",
+            });
+          }
+          if (this.failCheckpoint) {
+            throw new Error(SECRET);
+          }
+        },
+      },
       temporary: {
         create: async (prefix) => {
           this.events.push(`temp:create:${prefix}`);
@@ -292,6 +312,7 @@ class FakeOracle {
           if (this.failShow === show.stage) {
             throw new Error(SECRET);
           }
+          this.onShow?.(show);
           return show.stage === "show-plan" ? this.plan : this.state;
         },
       },
@@ -338,6 +359,7 @@ test("all five resources run the exact private transaction and compile artifacts
         "show:show-plan",
         "command:apply",
         "show:show-state",
+        "transaction:checkpoint",
         "temp:remove:<temp>",
       ],
       resourceCase.resourceType,
@@ -941,6 +963,11 @@ test("effect failures are stage-coded and value-free", async (t) => {
       (fake: FakeOracle) => { fake.failShow = "show-state"; },
       "ZCC_ADOPTION_ORACLE_STATE_SHOW_FAILED",
     ],
+    [
+      "final checkpoint",
+      (fake: FakeOracle) => { fake.failCheckpoint = true; },
+      "ZCC_ADOPTION_ORACLE_FINAL_CHECK_FAILED",
+    ],
   ] as const) {
     await t.test(name, async () => {
       const fake = new FakeOracle(resourceCase);
@@ -978,6 +1005,74 @@ test("the host transaction timeout survives stage mapping and still cleans up", 
     () => runZccAdoptionOracle(request(resourceCase), fake.adapters()),
     "ZCC_ADOPTION_ORACLE_TIMEOUT",
   );
+  assert.equal(fake.events.at(-1), `temp:remove:${DIRECTORY}`);
+});
+
+test("final host checkpoint charges post-show compilation to the deadline", async () => {
+  const resourceCase = CASES[4];
+  assert.notEqual(resourceCase, undefined);
+  if (resourceCase === undefined) {
+    return;
+  }
+  const fake = new FakeOracle(resourceCase);
+  fake.onShow = (show) => {
+    if (show.stage === "show-state") {
+      fake.transactionElapsedMs = 300_000;
+    }
+  };
+  const failure = await expectFailure(
+    () => runZccAdoptionOracle(request(resourceCase), fake.adapters()),
+    "ZCC_ADOPTION_ORACLE_TIMEOUT",
+  );
+  assert.deepEqual(failure.details, []);
+  assert.deepEqual(fake.events.slice(-3), [
+    "show:show-state",
+    "transaction:checkpoint",
+    `temp:remove:${DIRECTORY}`,
+  ]);
+});
+
+test("protection and cleanup failures cannot replace the transaction timeout", async () => {
+  const resourceCase = CASES[4];
+  assert.notEqual(resourceCase, undefined);
+  if (resourceCase === undefined) {
+    return;
+  }
+  const fake = new FakeOracle(resourceCase);
+  fake.failCleanup = true;
+  fake.onCommand = (command) => {
+    if (command.stage === "plan") {
+      throw new ProcessFailure({
+        code: "ZCC_ADOPTION_ORACLE_TIMEOUT",
+        category: "io",
+        message: "ZCC adoption oracle transaction exceeded its execution deadline",
+        details: [{
+          path: "protection",
+          code: "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+          message: "protected files also changed around the timed-out Terraform command",
+        }],
+      });
+    }
+  };
+  const failure = await expectFailure(
+    () => runZccAdoptionOracle(request(resourceCase), fake.adapters()),
+    "ZCC_ADOPTION_ORACLE_TIMEOUT",
+  );
+  assert.deepEqual(failure.details, [
+    {
+      path: "protection",
+      code: "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+      message: "protected files also changed around the timed-out Terraform command",
+    },
+    {
+      path: "cleanup",
+      code: "ZCC_ADOPTION_ORACLE_CLEANUP_FAILED",
+      message: "private oracle cleanup also failed",
+    },
+  ]);
+  const diagnostic = JSON.stringify(failure);
+  assert.equal(diagnostic.includes("privacy-1"), false);
+  assert.equal(diagnostic.includes(DIRECTORY), false);
   assert.equal(fake.events.at(-1), `temp:remove:${DIRECTORY}`);
 });
 

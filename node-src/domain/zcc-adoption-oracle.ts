@@ -82,6 +82,10 @@ export interface ZccAdoptionOracleWriteRequest {
 }
 
 export interface ZccAdoptionOracleAdapters {
+  readonly transaction: {
+    /** Final private host check before a compiled result may be accepted. */
+    readonly checkpoint: () => Promise<void>;
+  };
   readonly temporary: {
     readonly create: (prefix: string) => Promise<string>;
     readonly remove: (directory: string) => Promise<void>;
@@ -414,6 +418,26 @@ async function showJson(
   }
 }
 
+async function checkpointTransaction(
+  adapters: ZccAdoptionOracleAdapters,
+): Promise<void> {
+  try {
+    await adapters.transaction.checkpoint();
+  } catch (error: unknown) {
+    if (
+      error instanceof ProcessFailure
+      && error.code === "ZCC_ADOPTION_ORACLE_TIMEOUT"
+    ) {
+      throw error;
+    }
+    throw failure(
+      "ZCC_ADOPTION_ORACLE_FINAL_CHECK_FAILED",
+      "ZCC adoption oracle final host check failed",
+      "io",
+    );
+  }
+}
+
 function optionalEmptyArray(value: unknown): boolean {
   return value === undefined || (Array.isArray(value) && value.length === 0);
 }
@@ -716,11 +740,13 @@ export async function runZccAdoptionOracle(
       resource.type,
       providerName,
     );
-    result = compileArtifacts({
+    const candidate = compileArtifacts({
       catalog,
       observations,
       request,
     });
+    await checkpointTransaction(adapters);
+    result = candidate;
   } catch (error: unknown) {
     primary = error instanceof ProcessFailure
       ? error

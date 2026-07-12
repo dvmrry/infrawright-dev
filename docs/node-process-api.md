@@ -1035,10 +1035,14 @@ exactly; it is not an OpenTofu or generic-Terraform compatibility claim. The
 plan and state gates accept only Terraform JSON format `1.2` and `1.0`,
 respectively, and also require `terraform_version` `1.15.4`. Every nonempty
 transaction gets one host-owned 300-second monotonic deadline across `init`,
-generated-config plan, both shows, and apply. Each subprocess receives only
-the budget remaining immediately before it starts. Callers cannot select or
-tighten the timeout. Cleanup runs after success or failure under a separate
-fixed 30-second budget, so an exhausted transaction cannot consume its cleanup
+generated-config plan, both shows, apply, state validation, and artifact
+compilation. Each subprocess receives only the budget remaining immediately
+before it starts. Protection and output-binding phases record deadline state
+before and after their work. After artifact compilation, a zero-argument
+host-only checkpoint rechecks the exact final protected set and remaining
+monotonic budget before accepting the result. Callers cannot select or tighten
+the timeout. Cleanup runs after success or failure under a separate fixed
+30-second budget, so an exhausted transaction cannot consume its cleanup
 window.
 
 The concrete adapter accepts only a trusted canonical Terraform executable, a
@@ -1052,10 +1056,13 @@ upstream checksums. Root configuration, lock bytes, generated configuration,
 saved plan, and local state remain bound private inputs for the entire
 transaction.
 
-If deadline exhaustion and a protected-file mutation are both observed around
-one stage, `ZCC_ADOPTION_ORACLE_TIMEOUT` remains the primary failure. A single
-generic `protection` detail records the integrity failure without disclosing a
-path, value, credential, import identifier, state value, or child diagnostic.
+If deadline exhaustion and a protected-file mutation are both observed during
+preflight, produced-file binding, post-stage verification, or final result
+acceptance, `ZCC_ADOPTION_ORACLE_TIMEOUT` remains the primary failure. A
+single generic `protection` detail records the integrity failure without
+disclosing a path, value, credential, import identifier, state value, or child
+diagnostic. Before deadline exhaustion, the same integrity failure retains its
+ordinary fail-closed precedence.
 
 This executor is not yet a public process operation and is not included in the
 release bundle until a protected request adapter supplies those authorities.

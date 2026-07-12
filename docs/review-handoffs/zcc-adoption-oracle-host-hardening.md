@@ -113,9 +113,14 @@
   - generated roots require HashiCorp Terraform exactly `1.15.4`;
   - plan/state gates require exact `format_version` `1.2`/`1.0` and exact
     `terraform_version` `1.15.4`;
-  - init, plan, both show+parse stages, and apply share one monotonic 300-second
-    host deadline. Each runner receives only the remaining milliseconds and a
-    successful stage is rejected if post-stage binding crosses the deadline;
+  - init, plan, both show+parse stages, apply, state validation, and artifact
+    compilation share one monotonic 300-second host deadline. Each runner
+    receives only the remaining milliseconds; preflight, produced-file,
+    post-stage, and final protected-set checks record deadline state before and
+    after their work;
+  - a zero-argument internal host checkpoint rechecks the exact show-state
+    protected set and remaining monotonic budget after artifact compilation and
+    before result acceptance;
   - cleanup does not consume that budget and has a separate fixed 30 seconds;
   - callers can no longer provide command/show timeouts, output limits, or a
     plugin-cache authority.
@@ -146,7 +151,7 @@
   - one import-only plan and exact root-state join;
   - provider-returned `values.id` still equals the requested import ID;
   - generated config and plan are bound before apply; state is bound before
-    projection;
+    projection; all six final files remain bound through result acceptance;
   - no shell, inherited environment, CLI config, or shared plugin cache;
   - fixed bounded stdout/stderr with discarded child diagnostics;
   - credentials, state values, import IDs, lock contents, archive hashes, and
@@ -162,13 +167,13 @@
   - `npm run typecheck`
   - `npm run build:test`
   - explicit provider-lock, oracle core, adapter, integration, and bundle tests:
-    102 passed, 0 failed, including both retained ZIA and ZPA private-bundle
+    120 passed, 0 failed, including both retained ZIA and ZPA private-bundle
     exclusion suites.
 - Full Node 24.15.0 / Unicode 16.0:
   - `npm run typecheck`, `npm run build:test`, and explicit full test run:
-    646 total, 645 passed, 1 existing platform skip, 0 failed.
+    664 total, 663 passed, 1 existing platform skip, 0 failed.
 - Full Node 24.14.0 / Unicode 17.0:
-  - explicit `.node-test/node-tests/*.test.js`: 646 total, 645 passed,
+  - explicit `.node-test/node-tests/*.test.js`: 664 total, 663 passed,
     1 existing platform skip, 0 failed.
 - Full Python:
   - `make test`: 1,394 total, 1,393 passed, 1 optional external-provider skip,
@@ -224,6 +229,53 @@
   caller-selected timing. That production seam is not added solely for a mock
   of a primitive Node cannot cancel.
 
+### Second independent review remediation
+
+- Review checkpoint: `69b50c4fb1d191d387ace78a05a90694ca685b90`.
+- Blocking finding 1: deadline expiry detected by the host could still lose to
+  an integrity failure when a command/show runner had not itself reported a
+  timeout. Preflight checks ran before the first budget poll; a successful
+  child could cross the deadline and then fail produced-file binding or
+  post-stage recheck before the trailing poll.
+- Root cause 1: timeout precedence was composed only from a child timeout, not
+  from monotonic deadline observations surrounding every protection phase.
+- Fix 1: one internal combiner records monotonic expiry before and after
+  preflight, produced-file binding, and mandatory post-stage verification.
+  Post-child integrity work completes even after expiry is recorded. Any
+  recorded expiry is primary; one simultaneous integrity failure contributes
+  exactly one constant `protection` detail. Without expiry, the prior ordinary
+  integrity behavior is retained.
+- Regression tests 1:
+  - expired deadline plus command/show preflight mutation, with no child start;
+  - successful command/show child crossing plus post-stage mutation;
+  - successful plan crossing plus produced-file bind failure;
+  - ordinary preflight/bind/post protection failures before expiry;
+  - timeout plus protection plus cleanup failure, with exact value-free detail
+    order.
+- Blocking finding 2: graph snapshotting, state validation, projection, and
+  artifact compilation ran after the final show adapter deadline check, so
+  that CPU work could exhaust the transaction budget and still return success.
+- Root cause 2: there was no final host effect after compilation and before
+  assigning the candidate result.
+- Fix 2: add a private zero-argument `transaction.checkpoint` effect. The
+  concrete host derives and rechecks the exact final show-state protected set
+  under the same deadline combiner. The core compiles to a local candidate,
+  awaits the checkpoint, and only then accepts it. No request/schema, path,
+  clock, timeout, or caller option was added.
+- Regression tests 2:
+  - the fake host clock reaches exactly 300,000 ms immediately after final
+    show; checkpoint returns timeout, result is not accepted, and cleanup is
+    last;
+  - concrete final checkpoint covers stable-expired, mutated-expired, and
+    mutated-before-expiry cases with exact failure precedence and no value or
+    path leakage;
+  - non-timeout final-check failure remains value-free at the core boundary.
+- Verification: focused hardening/build-exclusion tests passed 120/120. Full
+  Node 24.15/Unicode 16 and bundled Node 24.14/Unicode 17 each passed 663/664
+  with the same existing platform skip. Python passed 1,393/1,394 with the
+  optional external-provider-source skip. Provider-lock generation/signature,
+  read-only init, catalog, build, vendor-boundary, and diff gates all passed.
+
 ## Known Deferrals
 
 - Public protected process operation, request/schema branch, response
@@ -257,8 +309,10 @@
 - Attack the exact Terraform/JSON gates: missing, old, future, or lookalike
   versions must fail before apply/projection.
 - Trace one transaction's monotonic deadline through prechecks, init, plan,
-  both show parsers, apply, post-stage bindings, and timeout mapping. Confirm
-  no stage receives a fresh 300 seconds and no caller option can select time.
+  both show parsers, apply, produced/post-stage bindings, state validation,
+  artifact compilation, the final protected-set checkpoint, and timeout
+  mapping. Confirm no stage receives a fresh 300 seconds and no caller option
+  can select time.
 - Verify cleanup is separate from the transaction budget, remains attempted on
   every timeout path, and cannot replace the primary failure with secret data.
 - Attack child environment closure for inherited Terraform CLI configuration,
