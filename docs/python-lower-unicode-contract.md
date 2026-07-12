@@ -3,15 +3,18 @@
 The Node transform and private adoption kernels must preserve the key and path
 bytes produced by Python `str.lower()`. Python 3.12 uses Unicode 15.0 and
 Python 3.13 uses Unicode 15.1; the lowercase mappings and Final Sigma property
-behavior used here are equivalent across those two runtimes. Node 24 currently
-uses Unicode 16.0, which added cased characters and changed the properties that
-decide whether U+03A3 lowercases to U+03C2 or U+03C3.
+behavior used here are equivalent across those two runtimes. Node 24 patch
+releases have shipped more than one Unicode table: Node 24.15.0 reports Unicode
+16.0/ICU 76.1, while Node 24.18.0 reports Unicode 17.0/ICU 78.3. Both added or
+changed characters and properties that affect whether U+03A3 lowercases to
+U+03C2 or U+03C3.
 
 `node-src/json/python-lower-151.ts` is therefore a deliberately narrow
 compatibility helper, not a general case-mapping library. It:
 
-- fails closed unless `process.versions.unicode` is exactly `16.0`;
-- preserves the 27 Unicode 16 lowercase sources that Unicode 15.1 leaves
+- selects a closed generated delta only when `process.versions.unicode` is
+  exactly `16.0` or `17.0`, and fails every other value;
+- preserves every newer-runtime lowercase source that Unicode 15.1 leaves
   unchanged;
 - applies unconditional full lowercase mappings one code point at a time;
 - implements Final Sigma explicitly with Unicode 15.1 `Cased` and
@@ -37,26 +40,38 @@ inputs. The generator verifies every digest before parsing a file.
 | 16.0.0 | [UnicodeData.txt](https://www.unicode.org/Public/16.0.0/ucd/UnicodeData.txt) | `ff58e5823bd095166564a006e47d111130813dcf8bf234ef79fa51a870edb48f` |
 | 16.0.0 | [SpecialCasing.txt](https://www.unicode.org/Public/16.0.0/ucd/SpecialCasing.txt) | `8d5de354eef79f2395a54c9c7dcebbaf3d30fc962d0f85611ea97aa973a0c451` |
 | 16.0.0 | [DerivedCoreProperties.txt](https://www.unicode.org/Public/16.0.0/ucd/DerivedCoreProperties.txt) | `39d35161f2954497f69e08bdb9e701493f476a3d30222de20028feda36c1dabd` |
+| 17.0.0 | [UnicodeData.txt](https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt) | `2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c` |
+| 17.0.0 | [SpecialCasing.txt](https://www.unicode.org/Public/17.0.0/ucd/SpecialCasing.txt) | `efc25faf19de21b92c1194c111c932e03d2a5eaf18194e33f1156e96de4c9588` |
+| 17.0.0 | [DerivedCoreProperties.txt](https://www.unicode.org/Public/17.0.0/ucd/DerivedCoreProperties.txt) | `24c7fed1195c482faaefd5c1e7eb821c5ee1fb6de07ecdbaa64b56a99da22c08` |
 
-The reviewed derivation has four nonempty deltas:
+The generated artifact is a closed record keyed exactly by the runtime's
+`process.versions.unicode`. Against Python Unicode 15.1, the reviewed deltas
+are:
 
-- 27 Unicode 16-only direct lowercase sources;
-- 52 Unicode 16-only `Cased` points;
-- 43 Unicode 16-only `Case_Ignorable` points; and
-- U+1171E as the sole Unicode 15.1-only `Case_Ignorable` point.
+- Unicode 16.0: 27 runtime-only direct lowercase sources, 52 runtime-only
+  `Cased` points, 43 runtime-only `Case_Ignorable` points, no Python-only
+  `Cased` points, and U+1171E as the sole Python-only `Case_Ignorable` point;
+- Unicode 17.0: 55 runtime-only direct lowercase sources, 107 runtime-only
+  `Cased` points, 88 runtime-only `Case_Ignorable` points, U+0295 as the sole
+  Python-only `Cased` point, and U+1171E as the sole Python-only
+  `Case_Ignorable` point; and
+- both runtimes: zero Python-only lowercase sources and zero changed common
+  lowercase mappings. The generator refuses either class until target mappings
+  are explicitly represented.
 
 The generated artifact is
-`node-src/generated/python-lower-15.1.ts`. The six multi-megabyte source files
+`node-src/generated/python-lower-15.1.ts`. The nine multi-megabyte source files
 are not vendored and no runtime Unicode package is installed.
 
 ## Regeneration And Check
 
-Acquire the six files separately and put them under a local root with this
+Acquire the nine files separately and put them under a local root with this
 layout:
 
 ```text
 <ucd-root>/15.1.0/{UnicodeData.txt,SpecialCasing.txt,DerivedCoreProperties.txt}
 <ucd-root>/16.0.0/{UnicodeData.txt,SpecialCasing.txt,DerivedCoreProperties.txt}
+<ucd-root>/17.0.0/{UnicodeData.txt,SpecialCasing.txt,DerivedCoreProperties.txt}
 ```
 
 Then regenerate or compare the committed bytes:
@@ -70,6 +85,20 @@ The tool contains no downloader and performs no network access. Normal build
 and test runs consume only the compact committed artifact. A Unicode source,
 runtime, or expected-cardinality change fails closed and requires a reviewed
 regeneration.
+
+## Node 24 Patch-Level Coverage
+
+The initial implementation guarded exactly Unicode 16.0 because that was the
+table exposed by the local Node 24.15.0 runtime. GitHub `setup-node` correctly
+resolved the newer Node 24.18.0 patch for the repository's broad Node 24 engine
+contract; that runtime exposes Unicode 17.0, and CI failed at the exact guard.
+The guard worked, but the supported-runtime evidence was incomplete.
+
+The remediation keeps the package contract at all Node 24 releases and adds a
+separately source-derived Unicode 17.0 delta. It does not pin an older Node
+patch or pretend one runtime has another table. The exhaustive test is run
+under the real Node 24.15.0/Unicode 16.0 and Node 24.18.0/Unicode 17.0 binaries;
+all unreviewed Unicode versions remain terminal.
 
 ## Exhaustive Differential Evidence
 

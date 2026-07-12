@@ -29,48 +29,130 @@ export const PYTHON_LOWER_151_UCD_SOURCES = {
       "sha256": "ff58e5823bd095166564a006e47d111130813dcf8bf234ef79fa51a870edb48f",
       "url": "https://www.unicode.org/Public/16.0.0/ucd/UnicodeData.txt"
     }
+  },
+  "17.0.0": {
+    "DerivedCoreProperties.txt": {
+      "sha256": "24c7fed1195c482faaefd5c1e7eb821c5ee1fb6de07ecdbaa64b56a99da22c08",
+      "url": "https://www.unicode.org/Public/17.0.0/ucd/DerivedCoreProperties.txt"
+    },
+    "SpecialCasing.txt": {
+      "sha256": "efc25faf19de21b92c1194c111c932e03d2a5eaf18194e33f1156e96de4c9588",
+      "url": "https://www.unicode.org/Public/17.0.0/ucd/SpecialCasing.txt"
+    },
+    "UnicodeData.txt": {
+      "sha256": "2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c",
+      "url": "https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt"
+    }
   }
 } as const;
 
-/** Unicode 16 lowercase sources that Python's Unicode 15.1 leaves unchanged. */
-export const UCD16_ONLY_LOWERCASE_SOURCE_RANGES = [
-  0x1c89, 0x1c89,
-  0xa7cb, 0xa7cc,
-  0xa7da, 0xa7da,
-  0xa7dc, 0xa7dc,
-  0x10d50, 0x10d65,
-] as const;
-
-/** Unicode 16 Cased points absent from Unicode 15.1. */
-export const UCD16_ONLY_CASED_RANGES = [
-  0x1c89, 0x1c8a,
-  0xa7cb, 0xa7cd,
-  0xa7da, 0xa7dc,
-  0x10d50, 0x10d65,
-  0x10d70, 0x10d85,
-] as const;
-
-/** Unicode 16 Case_Ignorable points absent from Unicode 15.1. */
-export const UCD16_ONLY_CASE_IGNORABLE_RANGES = [
-  0x897, 0x897,
-  0x10d4e, 0x10d4e,
-  0x10d69, 0x10d6d,
-  0x10d6f, 0x10d6f,
-  0x10efc, 0x10efc,
-  0x113bb, 0x113c0,
-  0x113ce, 0x113ce,
-  0x113d0, 0x113d0,
-  0x113d2, 0x113d2,
-  0x113e1, 0x113e2,
-  0x11f5a, 0x11f5a,
-  0x1611e, 0x16129,
-  0x1612d, 0x1612f,
-  0x16d40, 0x16d42,
-  0x16d6b, 0x16d6c,
-  0x1e5ee, 0x1e5ef,
-] as const;
-
-/** Unicode 15.1 Case_Ignorable points absent from Unicode 16. */
-export const UCD151_ONLY_CASE_IGNORABLE_RANGES = [
-  0x1171e, 0x1171e,
-] as const;
+/** Closed Node runtime deltas from Python's Unicode 15.1 contract. */
+export const PYTHON_LOWER_151_RUNTIME_DELTAS = {
+  "16.0": {
+    runtime_ucd_version: "16.0.0",
+    runtime_only_lowercase_source_ranges: [
+      0x1c89, 0x1c89,
+      0xa7cb, 0xa7cc,
+      0xa7da, 0xa7da,
+      0xa7dc, 0xa7dc,
+      0x10d50, 0x10d65,
+    ],
+    python_only_lowercase_source_ranges: [],
+    changed_common_lowercase_source_ranges: [],
+    runtime_only_cased_ranges: [
+      0x1c89, 0x1c8a,
+      0xa7cb, 0xa7cd,
+      0xa7da, 0xa7dc,
+      0x10d50, 0x10d65,
+      0x10d70, 0x10d85,
+    ],
+    python_only_cased_ranges: [],
+    runtime_only_case_ignorable_ranges: [
+      0x897, 0x897,
+      0x10d4e, 0x10d4e,
+      0x10d69, 0x10d6d,
+      0x10d6f, 0x10d6f,
+      0x10efc, 0x10efc,
+      0x113bb, 0x113c0,
+      0x113ce, 0x113ce,
+      0x113d0, 0x113d0,
+      0x113d2, 0x113d2,
+      0x113e1, 0x113e2,
+      0x11f5a, 0x11f5a,
+      0x1611e, 0x16129,
+      0x1612d, 0x1612f,
+      0x16d40, 0x16d42,
+      0x16d6b, 0x16d6c,
+      0x1e5ee, 0x1e5ef,
+    ],
+    python_only_case_ignorable_ranges: [
+      0x1171e, 0x1171e,
+    ],
+  },
+  "17.0": {
+    runtime_ucd_version: "17.0.0",
+    runtime_only_lowercase_source_ranges: [
+      0x1c89, 0x1c89,
+      0xa7cb, 0xa7cc,
+      0xa7ce, 0xa7ce,
+      0xa7d2, 0xa7d2,
+      0xa7d4, 0xa7d4,
+      0xa7da, 0xa7da,
+      0xa7dc, 0xa7dc,
+      0x10d50, 0x10d65,
+      0x16ea0, 0x16eb8,
+    ],
+    python_only_lowercase_source_ranges: [],
+    changed_common_lowercase_source_ranges: [],
+    runtime_only_cased_ranges: [
+      0x1c89, 0x1c8a,
+      0xa7cb, 0xa7cf,
+      0xa7d2, 0xa7d2,
+      0xa7d4, 0xa7d4,
+      0xa7da, 0xa7dc,
+      0xa7f1, 0xa7f1,
+      0x10d50, 0x10d65,
+      0x10d70, 0x10d85,
+      0x16ea0, 0x16eb8,
+      0x16ebb, 0x16ed3,
+    ],
+    python_only_cased_ranges: [
+      0x295, 0x295,
+    ],
+    runtime_only_case_ignorable_ranges: [
+      0x897, 0x897,
+      0x1acf, 0x1add,
+      0x1ae0, 0x1aeb,
+      0xa7f1, 0xa7f1,
+      0x10d4e, 0x10d4e,
+      0x10d69, 0x10d6d,
+      0x10d6f, 0x10d6f,
+      0x10ec5, 0x10ec5,
+      0x10efa, 0x10efc,
+      0x113bb, 0x113c0,
+      0x113ce, 0x113ce,
+      0x113d0, 0x113d0,
+      0x113d2, 0x113d2,
+      0x113e1, 0x113e2,
+      0x11b60, 0x11b60,
+      0x11b62, 0x11b64,
+      0x11b66, 0x11b66,
+      0x11dd9, 0x11dd9,
+      0x11f5a, 0x11f5a,
+      0x1611e, 0x16129,
+      0x1612d, 0x1612f,
+      0x16d40, 0x16d42,
+      0x16d6b, 0x16d6c,
+      0x16ff2, 0x16ff3,
+      0x1e5ee, 0x1e5ef,
+      0x1e6e3, 0x1e6e3,
+      0x1e6e6, 0x1e6e6,
+      0x1e6ee, 0x1e6ef,
+      0x1e6f5, 0x1e6f5,
+      0x1e6ff, 0x1e6ff,
+    ],
+    python_only_case_ignorable_ranges: [
+      0x1171e, 0x1171e,
+    ],
+  },
+} as const;

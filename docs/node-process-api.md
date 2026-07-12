@@ -913,9 +913,10 @@ embedded five-resource ZCC catalog.
 
 Transform snake-case and transform/adoption slug bytes use the pinned
 [Python lowercase compatibility contract](python-lower-unicode-contract.md).
-Node 24's Unicode 16 tables are adjusted to the Python 3.12/3.13 Unicode
-15.0/15.1 behavior with a compact generated delta and an exhaustive live-Python
-differential; a runtime Unicode-version change fails closed.
+The reviewed Unicode 16 and 17 tables shipped by Node 24 patch releases are
+adjusted to the Python 3.12/3.13 Unicode 15.0/15.1 behavior with compact
+generated deltas and exhaustive live-Python differentials; every other runtime
+Unicode version fails closed.
 
 Catalog regeneration structurally gates changes to the declarative provider
 projection, reachable overrides, and serialized compatibility tables: any such

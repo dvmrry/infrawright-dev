@@ -43,13 +43,54 @@ const SOURCES = Object.freeze({
       url: "https://www.unicode.org/Public/16.0.0/ucd/UnicodeData.txt",
     }),
   }),
+  "17.0.0": Object.freeze({
+    "DerivedCoreProperties.txt": Object.freeze({
+      sha256: "24c7fed1195c482faaefd5c1e7eb821c5ee1fb6de07ecdbaa64b56a99da22c08",
+      url: "https://www.unicode.org/Public/17.0.0/ucd/DerivedCoreProperties.txt",
+    }),
+    "SpecialCasing.txt": Object.freeze({
+      sha256: "efc25faf19de21b92c1194c111c932e03d2a5eaf18194e33f1156e96de4c9588",
+      url: "https://www.unicode.org/Public/17.0.0/ucd/SpecialCasing.txt",
+    }),
+    "UnicodeData.txt": Object.freeze({
+      sha256: "2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c",
+      url: "https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt",
+    }),
+  }),
+});
+
+const RUNTIME_CONTRACTS = Object.freeze({
+  "16.0": Object.freeze({
+    counts: Object.freeze({
+      changedCommonLowercaseSources: 0,
+      pythonOnlyCased: 0,
+      pythonOnlyCaseIgnorable: 1,
+      pythonOnlyLowercaseSources: 0,
+      runtimeOnlyCased: 52,
+      runtimeOnlyCaseIgnorable: 43,
+      runtimeOnlyLowercaseSources: 27,
+    }),
+    ucdVersion: "16.0.0",
+  }),
+  "17.0": Object.freeze({
+    counts: Object.freeze({
+      changedCommonLowercaseSources: 0,
+      pythonOnlyCased: 1,
+      pythonOnlyCaseIgnorable: 1,
+      pythonOnlyLowercaseSources: 0,
+      runtimeOnlyCased: 107,
+      runtimeOnlyCaseIgnorable: 88,
+      runtimeOnlyLowercaseSources: 55,
+    }),
+    ucdVersion: "17.0.0",
+  }),
 });
 
 function usage(stream) {
   stream.write(
     "usage: node tools/generate-python-lower-151.mjs "
       + "--ucd-root <directory> (--check | --write)\n\n"
-      + "The directory must contain 15.1.0/ and 16.0.0/ children with the "
+      + "The directory must contain 15.1.0/, 16.0.0/, and 17.0.0/ children with the "
       + "three pinned UCD files. This tool performs no downloads.\n",
   );
 }
@@ -232,73 +273,168 @@ function renderRanges(ranges) {
   return ranges.map(([first, last]) => `  ${hex(first)}, ${hex(last)},`).join("\n");
 }
 
+function renderRangeProperty(name, values) {
+  const rendered = renderRanges(compactRanges(values));
+  if (rendered === "") {
+    return `    ${name}: [],`;
+  }
+  return `    ${name}: [\n${rendered.replaceAll(/^/gm, "    ")}\n    ],`;
+}
+
+function runtimeDelta(
+  runtimeVersion,
+  contract,
+  lower15,
+  properties15,
+  sources,
+) {
+  const lowerRuntime = parseLowerMappings(
+    sources[contract.ucdVersion]["UnicodeData.txt"],
+    sources[contract.ucdVersion]["SpecialCasing.txt"],
+  );
+  const propertiesRuntime = parseDerivedProperties(
+    sources[contract.ucdVersion]["DerivedCoreProperties.txt"],
+  );
+  const runtimeOnlyLowercaseSources = difference(
+    new Set(lowerRuntime.keys()),
+    new Set(lower15.keys()),
+  );
+  const pythonOnlyLowercaseSources = difference(
+    new Set(lower15.keys()),
+    new Set(lowerRuntime.keys()),
+  );
+  const changedCommonLowercaseSources = new Set(
+    [...lower15.keys()].filter((codePoint) => {
+      const next = lowerRuntime.get(codePoint);
+      return next !== undefined && !sameMapping(lower15.get(codePoint), next);
+    }),
+  );
+  const runtimeOnlyCased = difference(
+    propertiesRuntime.get("Cased"),
+    properties15.get("Cased"),
+  );
+  const pythonOnlyCased = difference(
+    properties15.get("Cased"),
+    propertiesRuntime.get("Cased"),
+  );
+  const runtimeOnlyCaseIgnorable = difference(
+    propertiesRuntime.get("Case_Ignorable"),
+    properties15.get("Case_Ignorable"),
+  );
+  const pythonOnlyCaseIgnorable = difference(
+    properties15.get("Case_Ignorable"),
+    propertiesRuntime.get("Case_Ignorable"),
+  );
+
+  const counts = contract.counts;
+  assertSet(
+    `Unicode ${runtimeVersion} runtime-only lowercase sources`,
+    runtimeOnlyLowercaseSources,
+    counts.runtimeOnlyLowercaseSources,
+  );
+  assertSet(
+    `Unicode ${runtimeVersion} Python-only lowercase sources`,
+    pythonOnlyLowercaseSources,
+    counts.pythonOnlyLowercaseSources,
+  );
+  assertSet(
+    `Unicode ${runtimeVersion} changed common lowercase sources`,
+    changedCommonLowercaseSources,
+    counts.changedCommonLowercaseSources,
+  );
+  assertSet(
+    `Unicode ${runtimeVersion} runtime-only Cased points`,
+    runtimeOnlyCased,
+    counts.runtimeOnlyCased,
+  );
+  assertSet(
+    `Unicode ${runtimeVersion} Python-only Cased points`,
+    pythonOnlyCased,
+    counts.pythonOnlyCased,
+  );
+  assertSet(
+    `Unicode ${runtimeVersion} runtime-only Case_Ignorable points`,
+    runtimeOnlyCaseIgnorable,
+    counts.runtimeOnlyCaseIgnorable,
+  );
+  assertSet(
+    `Unicode ${runtimeVersion} Python-only Case_Ignorable points`,
+    pythonOnlyCaseIgnorable,
+    counts.pythonOnlyCaseIgnorable,
+  );
+  if (
+    pythonOnlyLowercaseSources.size !== 0
+    || changedCommonLowercaseSources.size !== 0
+  ) {
+    throw new Error(
+      `Unicode ${runtimeVersion} has Python lowercase mappings that require encoded targets`,
+    );
+  }
+  if (!pythonOnlyCaseIgnorable.has(0x1171e)) {
+    throw new Error(
+      `Unicode ${runtimeVersion} Python-only Case_Ignorable set does not contain U+1171E`,
+    );
+  }
+  if (
+    runtimeVersion === "17.0"
+    && (
+      pythonOnlyCased.size !== 1
+      || !pythonOnlyCased.has(0x0295)
+    )
+  ) {
+    throw new Error("Unicode 17.0 Python-only Cased set is not exactly U+0295");
+  }
+
+  return {
+    changedCommonLowercaseSources,
+    pythonOnlyCased,
+    pythonOnlyCaseIgnorable,
+    pythonOnlyLowercaseSources,
+    runtimeOnlyCased,
+    runtimeOnlyCaseIgnorable,
+    runtimeOnlyLowercaseSources,
+    ucdVersion: contract.ucdVersion,
+  };
+}
+
+function renderRuntimeDelta(runtimeVersion, delta) {
+  return `  ${JSON.stringify(runtimeVersion)}: {\n`
+    + `    runtime_ucd_version: ${JSON.stringify(delta.ucdVersion)},\n`
+    + `${renderRangeProperty("runtime_only_lowercase_source_ranges", delta.runtimeOnlyLowercaseSources)}\n`
+    + `${renderRangeProperty("python_only_lowercase_source_ranges", delta.pythonOnlyLowercaseSources)}\n`
+    + `${renderRangeProperty("changed_common_lowercase_source_ranges", delta.changedCommonLowercaseSources)}\n`
+    + `${renderRangeProperty("runtime_only_cased_ranges", delta.runtimeOnlyCased)}\n`
+    + `${renderRangeProperty("python_only_cased_ranges", delta.pythonOnlyCased)}\n`
+    + `${renderRangeProperty("runtime_only_case_ignorable_ranges", delta.runtimeOnlyCaseIgnorable)}\n`
+    + `${renderRangeProperty("python_only_case_ignorable_ranges", delta.pythonOnlyCaseIgnorable)}\n`
+    + `  },`;
+}
+
 function renderGenerated(sources) {
   const lower15 = parseLowerMappings(
     sources["15.1.0"]["UnicodeData.txt"],
     sources["15.1.0"]["SpecialCasing.txt"],
   );
-  const lower16 = parseLowerMappings(
-    sources["16.0.0"]["UnicodeData.txt"],
-    sources["16.0.0"]["SpecialCasing.txt"],
-  );
-  const lower16Only = difference(new Set(lower16.keys()), new Set(lower15.keys()));
-  const lower15Only = difference(new Set(lower15.keys()), new Set(lower16.keys()));
-  const changedLower = new Set(
-    [...lower15.keys()].filter((codePoint) => {
-      const next = lower16.get(codePoint);
-      return next !== undefined && !sameMapping(lower15.get(codePoint), next);
-    }),
-  );
-  assertSet("Unicode 16-only lowercase sources", lower16Only, 27);
-  assertSet("Unicode 15.1-only lowercase sources", lower15Only, 0);
-  assertSet("changed lowercase mappings", changedLower, 0);
-
   const properties15 = parseDerivedProperties(
     sources["15.1.0"]["DerivedCoreProperties.txt"],
   );
-  const properties16 = parseDerivedProperties(
-    sources["16.0.0"]["DerivedCoreProperties.txt"],
+  const deltas = Object.entries(RUNTIME_CONTRACTS).map(
+    ([runtimeVersion, contract]) => {
+      return [
+        runtimeVersion,
+        runtimeDelta(runtimeVersion, contract, lower15, properties15, sources),
+      ];
+    },
   );
-  const cased16Only = difference(
-    properties16.get("Cased"),
-    properties15.get("Cased"),
-  );
-  const cased15Only = difference(
-    properties15.get("Cased"),
-    properties16.get("Cased"),
-  );
-  const ignorable16Only = difference(
-    properties16.get("Case_Ignorable"),
-    properties15.get("Case_Ignorable"),
-  );
-  const ignorable15Only = difference(
-    properties15.get("Case_Ignorable"),
-    properties16.get("Case_Ignorable"),
-  );
-  assertSet("Unicode 16-only Cased points", cased16Only, 52);
-  assertSet("Unicode 15.1-only Cased points", cased15Only, 0);
-  assertSet("Unicode 16-only Case_Ignorable points", ignorable16Only, 43);
-  assertSet("Unicode 15.1-only Case_Ignorable points", ignorable15Only, 1);
-  if (!ignorable15Only.has(0x1171e)) {
-    throw new Error("the Unicode 15.1-only Case_Ignorable point is not U+1171E");
-  }
 
   const evidence = JSON.stringify(SOURCES, null, 2);
   return `// Generated by tools/generate-python-lower-151.mjs. DO NOT EDIT.\n`
     + `// Inputs are pinned official Unicode files; see docs/python-lower-unicode-contract.md.\n\n`
     + `export const PYTHON_LOWER_151_UCD_SOURCES = ${evidence} as const;\n\n`
-    + `/** Unicode 16 lowercase sources that Python's Unicode 15.1 leaves unchanged. */\n`
-    + `export const UCD16_ONLY_LOWERCASE_SOURCE_RANGES = [\n`
-    + `${renderRanges(compactRanges(lower16Only))}\n] as const;\n\n`
-    + `/** Unicode 16 Cased points absent from Unicode 15.1. */\n`
-    + `export const UCD16_ONLY_CASED_RANGES = [\n`
-    + `${renderRanges(compactRanges(cased16Only))}\n] as const;\n\n`
-    + `/** Unicode 16 Case_Ignorable points absent from Unicode 15.1. */\n`
-    + `export const UCD16_ONLY_CASE_IGNORABLE_RANGES = [\n`
-    + `${renderRanges(compactRanges(ignorable16Only))}\n] as const;\n\n`
-    + `/** Unicode 15.1 Case_Ignorable points absent from Unicode 16. */\n`
-    + `export const UCD151_ONLY_CASE_IGNORABLE_RANGES = [\n`
-    + `${renderRanges(compactRanges(ignorable15Only))}\n] as const;\n`;
+    + `/** Closed Node runtime deltas from Python's Unicode 15.1 contract. */\n`
+    + `export const PYTHON_LOWER_151_RUNTIME_DELTAS = {\n`
+    + `${deltas.map(([version, delta]) => renderRuntimeDelta(version, delta)).join("\n")}\n`
+    + `} as const;\n`;
 }
 
 const args = parseArgs(process.argv.slice(2));

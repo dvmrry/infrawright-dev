@@ -7,9 +7,9 @@
   newer Unicode tables.
 - Correct Python regex-dot parity in the first snake-case pass for CR, U+2028,
   U+2029, astral characters, and lone surrogates.
-- Freeze a small, source-derived Unicode 15.1 compatibility delta with no
-  runtime Unicode dependency and fail closed when the Node Unicode version
-  changes.
+- Freeze small, source-derived Unicode 16.0 and 17.0 runtime deltas from the
+  Unicode 15.1 contract with no runtime Unicode dependency; fail every
+  unreviewed Node Unicode version.
 - Preserve all ordinary ZCC outputs and the exact public five-resource catalog
   gate. Only previously divergent edge names/drop paths/identities should
   change.
@@ -65,6 +65,7 @@
   - Official Unicode 15.1.0 `UnicodeData.txt`, `SpecialCasing.txt`, and
     `DerivedCoreProperties.txt`.
   - Official Unicode 16.0.0 copies of the same three files.
+  - Official Unicode 17.0.0 copies of the same three files.
   - Exact official URLs and SHA-256s are embedded in the generator, generated
     artifact, and `docs/python-lower-unicode-contract.md`.
   - An additional nonproduction comparison of official Unicode 15.0.0 versus
@@ -79,12 +80,15 @@
 - Snapshots: None.
 - Demo or lab outputs: None retained.
 - Generated production data:
-  - `node-src/generated/python-lower-15.1.ts`, generated from the six pinned
+  - `node-src/generated/python-lower-15.1.ts`, generated from the nine pinned
     official inputs by `tools/generate-python-lower-151.mjs`.
-  - The artifact records source URLs/hashes and four compact inclusive-range
-    tables: 27 Unicode 16-only lowercase sources, 52 Unicode 16-only `Cased`
-    points, 43 Unicode 16-only `Case_Ignorable` points, and U+1171E as the sole
-    Unicode 15.1-only `Case_Ignorable` point.
+  - The artifact records source URLs/hashes and a closed runtime-delta record
+    keyed exactly `16.0` and `17.0`. Unicode 16.0 has 27 runtime-only lowercase
+    sources, 52 runtime-only `Cased`, and 43 runtime-only `Case_Ignorable`
+    points. Unicode 17.0 has 55, 107, and 88 respectively, plus U+0295 as one
+    Python-only `Cased` point. Both have U+1171E as the sole Python-only
+    `Case_Ignorable` point, zero Python-only lowercase sources, and zero changed
+    common lowercase mappings.
 - Artifact drift intentionally expected:
   - One new compact generated TypeScript artifact only. No existing catalog,
     schema, fixture, snapshot, demo, or golden artifact changes.
@@ -95,13 +99,14 @@
   - `snakeName` uses Python regex-dot semantics through
     `([^\n])([A-Z][a-z]+)` with Unicode code-point matching.
   - Snake-case and slug generation use the internal `pythonLower151` helper.
-  - The helper requires Node runtime Unicode `16.0`, preserves the 27 new
-    Unicode 16 lowercase sources, and evaluates Final Sigma with Unicode 15.1
-    `Cased`/`Case_Ignorable` semantics.
+  - The helper selects only the exact generated delta for actual Node runtime
+    Unicode `16.0` or `17.0`, preserves every newer direct lowercase source,
+    and evaluates Final Sigma with Unicode 15.1 `Cased`/`Case_Ignorable`
+    semantics.
   - A public ZCC unknown field starting with U+A7CB now reports the Python drop
     path containing U+A7CB instead of Node 24's U+0264 mapping.
-  - Final Sigma drop-path context uses the Python property set, including the
-    Unicode 16-only deltas and U+1171E reverse delta.
+  - Final Sigma drop-path context uses the Python property set, including both
+    runtime delta directions, U+0295, and U+1171E.
   - Private ZCC adoption identity keys retain Python slug expansion, fallback,
     and collision behavior.
 - Expected report/count/coverage changes:
@@ -114,6 +119,21 @@
   - Transform projection, ordering, numbers, HTML handling, imports, lookup,
     publication, refresh, adoption oracle state projection, and all request/
     response contracts.
+
+## CI Failure / Remediation
+
+- The initial checkpoint was built and exhaustively tested on local Node
+  24.15.0, which reports Unicode 16.0/ICU 76.1. Its exact Unicode 16.0 guard was
+  correct for that runtime.
+- GitHub `setup-node` resolved current Node 24.18.0, which reports Unicode
+  17.0/ICU 78.3. CI failed at the exact guard before silently using unreviewed
+  casing tables. This exposed an incomplete Node 24 patch-level runtime matrix,
+  not a failed Unicode 16 derivation.
+- The remediation retains the package's broad `>=24 <25` engine promise,
+  derives a separate pinned Unicode 17.0 delta, selects it from the actual
+  runtime version, and keeps all other versions terminal. No old Node patch is
+  pinned and no supported runtime is simulated by mutating
+  `process.versions.unicode`.
 
 ## Invariants Claimed
 
@@ -128,7 +148,8 @@
   - Every derivation input is an official pinned Unicode file with an exact
     digest. The generator refuses mismatched bytes and never downloads input.
 - Ambiguity must stay classified instead of being coerced to success:
-  - A Node runtime whose Unicode version is not exactly `16.0` fails closed.
+  - A Node runtime whose Unicode version is neither exactly `16.0` nor `17.0`
+    fails closed.
   - The exhaustive Python oracle accepts only Python 3.12/UCD 15.0 or Python
     3.13/UCD 15.1; every other Python/UCD pairing fails before comparison.
 - Provider-readiness counts must stay explainable: N/A.
@@ -137,7 +158,8 @@
   - Final Sigma scans `Case_Ignorable` before `Cased`; points carrying both
     properties cannot be mistaken for the nearest significant character.
   - Per-code-point lowercasing retains unconditional full mappings, including
-    U+0130 expansion, without delegating Final Sigma context to Unicode 16.
+    U+0130 expansion, without delegating Final Sigma context to the runtime's
+    newer Unicode tables.
   - Duplicate slugs still fail closed on transform and private adoption paths.
   - Unsupported runtime Unicode cannot silently remap identities or drop paths.
 
@@ -157,6 +179,9 @@
   - The new lowercase contract test under both live Python 3.13/UCD 15.1 and
     `/nix/store/65p6ipj712fb5igr9w1h5k5cb7bymj42-python3-3.12.13/bin/python3.12`
     (UCD 15.0).
+  - Focused exhaustive and public artifact differentials under actual local
+    Node 24.15.0/Unicode 16.0 and
+    `npx --yes node@24.18.0`/Unicode 17.0.
   - Negative exhaustive-oracle run under `/usr/bin/python3` 3.9/UCD 13.0.
   - A built-bundle public `compile_pull_artifacts` smoke using U+A7CB,
     U+0897/Final Sigma, and U+0130.
@@ -165,8 +190,9 @@
   - Full Node: 618 tests, 617 passed, 1 expected platform skip, 0 failed.
   - Full Python: 1,374 passed, 1 external pinned-provider-source skip, 0
     failed.
-  - Python 3.12 and 3.13 exhaustive runs both matched the independently
-    computed Node digest across every Unicode scalar and five contexts.
+  - Python 3.12 and 3.13 exhaustive runs matched the independently computed
+    Node digest across every Unicode scalar and five contexts. Both real Node
+    24.15.0/Unicode 16.0 and Node 24.18.0/Unicode 17.0 produce that same digest.
   - Deterministic framing is documented in
     `docs/python-lower-unicode-contract.md`; its known-answer SHA-256 is
     `93acb44d32a0d2dffc6d8151c78420d4f35aea2764a74cfa939b315eb68f5db1`.
@@ -191,7 +217,7 @@
     closed instead of predicting that delta.
   - No `upper`, `casefold`, locale-sensitive casing, normalization, grapheme,
     collation, or general Unicode utility is implemented.
-  - The six multi-megabyte UCD inputs remain external regeneration inputs and
+  - The nine multi-megabyte UCD inputs remain external regeneration inputs and
     are not vendored.
   - ZIA/ZPA private cohort integration remains on its own branches and is not
     mixed into this shared prerequisite.
@@ -217,9 +243,11 @@
     unconditional SpecialCasing lower mappings correctly.
   - Source hashes, cardinalities, and compact inclusive ranges match the pinned
     official files exactly.
-  - All 27 Unicode 16-only direct lowercase sources are preserved.
-  - UCD16-only `Cased` and `Case_Ignorable` points are subtracted, and U+1171E
-    is added back, before Final Sigma context is decided.
+  - All 27 Unicode 16-only and 55 Unicode 17-only direct lowercase sources are
+    preserved on their respective actual runtimes.
+  - Runtime-only `Cased` and `Case_Ignorable` points are subtracted; U+0295 is
+    added back for Unicode 17 `Cased`; and U+1171E is added back for both
+    runtimes' `Case_Ignorable` context before Final Sigma is decided.
   - `Case_Ignorable` is tested before `Cased` in both scan directions.
   - Per-code-point `toLowerCase` retains every unconditional full mapping and
     no context-sensitive default mapping other than Final Sigma is missed.
@@ -231,7 +259,7 @@
   - Exhaustive digest framing is unambiguous and both implementations build it
     independently in the exact order documented.
 - Source evidence the reviewer should verify:
-  - Download the six official files independently, verify their SHA-256s, and
+  - Download the nine official files independently, verify their SHA-256s, and
     run the generator in `--check` mode.
   - Compare the generated deltas directly rather than trusting the builder
     summary or known-answer digest.
@@ -244,9 +272,11 @@
 - Edge cases that could silently overclaim, remap, drop, or weaken evidence:
   - CR versus LF, U+2028/U+2029, astral values, and lone surrogates in the regex
     pass.
-  - U+A7CB and every direct-mapping range.
+  - U+A7CB, U+A7CE, U+16EA0, and every direct-mapping range on both real
+    runtimes.
   - U+0130 full expansion.
   - Final Sigma with Cased/Case_Ignorable points on both sides, especially a
-    point carrying both properties.
+    point carrying both properties, Unicode 17's U+0295 reverse Cased delta,
+    and its new U+1ACF Case_Ignorable delta.
   - Slug collisions/fallback and public unexpected-drop ordering/bytes.
   - Unsupported Node or Python Unicode versions.
