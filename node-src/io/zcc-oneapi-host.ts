@@ -28,6 +28,7 @@ import {
 } from "../domain/zcc-collector-catalog.js";
 import {
   createZccOneApiAuthenticatedTransport,
+  zccOneApiDiagnosticsSafe,
   type ZccOneApiHttpRequest,
   type ZccOneApiTransactionControl,
 } from "./zcc-oneapi-transport.js";
@@ -389,7 +390,6 @@ export function createZccOneApiTransaction(
 
 async function readBoundedCaBundle(
   filePath: string,
-  transaction: ZccOneApiTransactionControl,
 ): Promise<string> {
   let handle: FileHandle | null = null;
   try {
@@ -409,7 +409,6 @@ async function readBoundedCaBundle(
     const target = Buffer.allocUnsafe(ZCC_ONEAPI_CA_BUNDLE_LIMIT_BYTES + 1);
     let consumed = 0;
     while (consumed <= ZCC_ONEAPI_CA_BUNDLE_LIMIT_BYTES) {
-      transaction.checkpoint();
       const chunkSize = Math.min(64 * 1024, target.byteLength - consumed);
       const read = await handle.read(target, consumed, chunkSize, consumed);
       if (read.bytesRead === 0) {
@@ -424,17 +423,10 @@ async function readBoundedCaBundle(
         "io",
       );
     }
-    transaction.checkpoint();
     return new TextDecoder("utf-8", { fatal: true }).decode(
       target.subarray(0, consumed),
     );
   } catch (error: unknown) {
-    if (
-      error instanceof ProcessFailure
-      && error.code === "ZCC_ONEAPI_TRANSACTION_TIMEOUT"
-    ) {
-      throw error;
-    }
     return fail(
       "ZCC_ONEAPI_CA_BUNDLE_FAILED",
       "ZCC OneAPI CA bundle could not be loaded",
@@ -453,7 +445,6 @@ async function readBoundedCaBundle(
 
 async function trustedCaCertificates(
   environment: Readonly<Record<string, string>>,
-  transaction: ZccOneApiTransactionControl,
 ): Promise<readonly string[]> {
   try {
     const defaults = [...getCACertificates("default")];
@@ -461,7 +452,7 @@ async function trustedCaCertificates(
       || environment.SSL_CERT_FILE
       || "";
     if (customPath !== "") {
-      const custom = await readBoundedCaBundle(customPath, transaction);
+      const custom = await readBoundedCaBundle(customPath);
       const certificatePattern = /-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g;
       const certificates = [...custom.matchAll(certificatePattern)].map(
         (match) => match[0],
@@ -495,7 +486,6 @@ async function trustedCaCertificates(
     }
     const ca = Object.freeze(defaults);
     createSecureContext({ ca: [...ca], minVersion: "TLSv1.2" });
-    transaction.checkpoint();
     return ca;
   } catch (error: unknown) {
     if (error instanceof ProcessFailure) {
@@ -651,11 +641,26 @@ function staticPrimaryFailure(error: unknown): ProcessFailure {
   });
 }
 
+function assertZccOneApiHostDiagnosticsSafe(): void {
+  if (!zccOneApiDiagnosticsSafe()) {
+    return fail(
+      "ZCC_ONEAPI_DIAGNOSTICS_UNSAFE",
+      "ZCC OneAPI in-process diagnostics isolation is unavailable",
+      "io",
+    );
+  }
+}
+
 async function collectWithDependencies(
   input: ZccOneApiHostInput,
   dependencies: ZccOneApiHostDependencies,
 ): Promise<ZccCollectedArtifact> {
+  assertZccOneApiHostDiagnosticsSafe();
   const options = snapshotHostInput(input);
+  // Node filesystem promises cannot be interrupted reliably on mounted/FUSE
+  // filesystems. Keep CA input byte-bounded, but begin the abortable network
+  // transaction only after trust loading completes.
+  const ca = await trustedCaCertificates(options.environment);
   const transaction = createZccOneApiTransaction();
   let dispatcher: Dispatcher | null = null;
   let adapter: ReturnType<typeof createZccOneApiAuthenticatedTransport> | null = null;
@@ -663,7 +668,6 @@ async function collectWithDependencies(
   let result: ZccCollectedArtifact | null = null;
   let cleanup: ProcessFailure | null = null;
   try {
-    const ca = await trustedCaCertificates(options.environment, transaction);
     const proxy = snapshotZccOneApiProxyEnvironment(options.environment);
     const dispatcherOptions = zccOneApiDispatcherOptions(proxy, ca);
     try {
@@ -675,6 +679,7 @@ async function collectWithDependencies(
         "ZCC OneAPI host options are invalid",
       );
     }
+    assertZccOneApiHostDiagnosticsSafe();
     adapter = createZccOneApiAuthenticatedTransport({
       clientId: requiredEnvironment(options.environment, "ZSCALER_CLIENT_ID"),
       clientSecret: requiredEnvironment(

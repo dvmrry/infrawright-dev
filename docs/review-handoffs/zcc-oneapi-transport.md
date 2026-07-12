@@ -4,12 +4,15 @@
 
 - Add the first real Node 24 network boundary for the private exact-five ZCC
   collector kernel: OneAPI client-credentials OAuth, bounded authenticated GET
-  transport, corporate proxy/CA support, one overall deadline, and deterministic
-  dispatcher cleanup.
+  transport, corporate proxy/CA support, one post-CA network deadline, and
+  deterministic dispatcher cleanup.
 - Keep credentials exclusively in an explicit private host environment
-  snapshot. Never add them, the bearer token, proxy credentials, CA paths,
-  response bodies, URLs, or nested network causes to a process request/result,
-  artifact, file, log, or diagnostic.
+  snapshot. Returned failures, artifacts, files, and application-owned
+  diagnostics never render credentials, bearer tokens, proxy credentials, CA
+  paths, response bodies, URLs, or nested network causes. The audited Node 24
+  and pinned Undici process-global diagnostics channels are separately fail-
+  closed as described below; the remaining late-subscriber race blocks public
+  wiring.
 - Use a pinned Node-compatible HTTP library rather than hand-rolling HTTP,
   proxy tunneling, TLS, or connection pooling.
 - Keep the complete host/transport/auth surface private and excluded from the
@@ -76,7 +79,9 @@
   - `docs/adversarial-review.md`
   - `docs/review-handoff-template.md`
 - Other source evidence:
-  - Node 24 TLS certificate APIs and abort primitives;
+  - Node 24.14/24.15 TLS certificate APIs, abort primitives, and built-in
+    `net.client.socket` publication before connect callback registration; no
+    TLS-specific diagnostics channel exists in those audited runtimes;
   - Undici 7.28.0 `EnvHttpProxyAgent`, `ProxyAgent`, `Agent`, `Client`, request,
     dispatcher lifecycle, connector, body stream, and maximum-response source
     and type declarations;
@@ -118,10 +123,14 @@
   - proxy selection is snapshotted once with lowercase precedence, HTTPS-to-
     HTTP fallback only when HTTPS is absent, and explicit empty strings that
     prevent later ambient environment fallback;
-  - one 300-second monotonic abort authority covers CA loading, OAuth, request
-    and body waits, auth/data retry sleeps, refresh, kernel parsing/rendering,
-    and the final checkpoint. Dispatcher cleanup gets a separate five-second
-    close/destroy window.
+  - an active subscriber on any audited Node/Undici channel capable of
+    observing sockets, request identity, headers, or bodies fails closed before
+    host input/CA access, before credential/form construction, and before every
+    dispatch;
+  - after CA loading, one 300-second monotonic abort authority covers OAuth,
+    request and body waits, auth/data retry sleeps, refresh, kernel parsing/
+    rendering, and the final checkpoint. Dispatcher cleanup gets a separate
+    five-second close/destroy window.
 - Expected report/count/coverage changes: none. Private numeric adapter stats
   exist for tests only and are not added to the collected artifact contract.
 - Expected generated-output changes: none.
@@ -147,7 +156,14 @@
   coverage count changes.
 - Adoption safety invariants:
   - credentials, bearer tokens, proxy credentials, response/error bodies, CA
-    paths, URLs, and underlying cause messages cannot enter a returned failure;
+    paths, URLs, and underlying cause messages cannot enter a returned failure
+    or application-owned diagnostic;
+  - the host checks the independently frozen Node/Undici diagnostics inventory
+    before it reads hostile input or CA state; the adapter repeats the check
+    before credential/form construction and immediately before every auth/data
+    dispatch. The inventory includes Node core `net.client.socket`, which can
+    expose direct TLS writes or plaintext proxy CONNECT authorization. Current
+    subscribers therefore produce a static zero-request failure;
   - only the explicit environment allowlist is read; the modules never read
     `process.env`, and explicit empty proxy options prevent Undici from doing so;
   - `NODE_TLS_REJECT_UNAUTHORIZED` and other TLS-disable inputs are rejected;
@@ -165,12 +181,14 @@
     the retry-clock boundary is the timeout code, which is recreated from the
     kernel-owned static contract with details discarded;
   - JavaScript strings cannot be physically zeroized. The claim is no
-    persistence or externalization; credential and token references are
-    cleared after the private operation.
+    application-owned persistence or externalization; credential and token
+    references are cleared after the private operation. A same-isolate
+    subscriber installed after the last preflight can still observe a request
+    already in flight, so this slice is not a public isolation boundary.
 
 ## Tests Run
 
-- Commands completed before the final full matrix:
+- Commands completed for the original builder matrix at `c2de28c`:
   - `npm run typecheck`
   - `npm run build:test`
   - Node 24.15 focused:
@@ -181,7 +199,7 @@
   - Node 24.14 focused through `npx --yes node@24.14.0 --test ...`
   - `npm run build`
   - `git diff --check`
-- Final serialized matrix:
+- Original serialized matrix at `c2de28c`:
   - current Node 24.15:
     `node --test --test-concurrency=2 .node-test/node-tests/*.test.js`
   - Node 24.14:
@@ -200,9 +218,17 @@
     `make PACK_PROFILE=packsets/<profile>.json check` gate;
   - final `npm ci --ignore-scripts`, `npm run typecheck`, `npm run build`,
     `git diff --cached --check`, and `git diff --check`.
-- Relevant focused output summary:
-  - Node 24.15: 42/42 focused tests passed after all remediations;
-  - Node 24.14: 42/42 focused tests passed on the final exact focused set;
+- Post-review remediation commands:
+  - `npm run typecheck`
+  - `npm run build:test`
+  - the same exact focused four-file set on Node 24.15 and Node 24.14;
+  - `npm run build`
+  - `git diff --check`.
+- Relevant output summary:
+  - post-review Node 24.15: 50/50 focused tests passed;
+  - post-review Node 24.14: 50/50 focused tests passed;
+  - original Node 24.15: 42/42 focused tests passed;
+  - original Node 24.14: 42/42 focused tests passed;
   - full Node 24.15: 729 total, 728 passed, one existing platform skip;
   - full Node 24.14: 729 total, 728 passed, one existing platform skip;
   - full Python: 1,400 total, 1,399 passed, one opt-in external provider-source
@@ -216,6 +242,10 @@
   - typecheck, production build/private-bundle exclusion, and both whitespace
     checks passed;
   - exact form/header/authority, auth and data 429 ownership, one 401 replay,
+    concurrent late 401s with distinct and identical token strings,
+    an independently literal diagnostics inventory, planted subscribers before
+    host input/OAuth/Bearer dispatch, real direct-TLS and authenticated-proxy
+    OAuth round trips,
     fractional monotonic lifetime, redirect refusal, fatal UTF-8/duplicate JSON,
     status/body destruction, 64 KiB/4 MiB stream bounds, pre-copy oversized
     chunks, 20,000 accepted zero chunks, excessive-fragmentation rejection,
@@ -229,6 +259,22 @@
 
 ## Known Deferrals
 
+- The in-process diagnostics preflight is a bounded private safeguard, not an
+  isolation primitive. Node diagnostics channels are process-global; a
+  same-isolate subscriber installed after the final preflight can observe
+  later Undici events from an in-flight request. Public wiring remains blocked
+  until this host runs in a dedicated terminable child/isolate with preloads
+  and `NODE_OPTIONS` scrubbed and secrets delivered over bounded private input,
+  not command arguments or ambient environment.
+- The audited diagnostics inventory is coupled to Node 24.14/24.15 and exact
+  `undici@7.28.0`. Any Node update, Undici update, or interceptor change requires
+  a fresh underlying Node-plus-Undici channel audit before public wiring.
+- CA input is regular-file checked, opened nonblocking (so FIFO paths fail),
+  and limited to 4 MiB. Node filesystem promises for `open`, `stat`, `read`,
+  and `close` are not reliably abortable on mounted/FUSE filesystems, so CA
+  loading intentionally occurs before the 300-second network transaction.
+  Public wiring requires the same terminable outer isolation or a stronger
+  trusted-local-file precondition before claiming a whole-operation deadline.
 - Live ADO evidence for the actual corporate proxy, inspection CA, selected
   cloud/vanity token authority, and a redacted real token response shape.
 - A public process operation/schema and host-owned environment snapshot from
@@ -262,25 +308,34 @@
   - its internal ProxyAgent CONNECT client actually receives the custom
     connection/header/body bounds through `clientFactory`;
   - additive CA reaches direct `connect`, destination `requestTls`, and
-    `proxyTls`, while proxy credentials never enter diagnostics;
+    `proxyTls`, while proxy credentials never enter returned failures;
   - exact catalog URL authorization happens before token acquisition or bearer
     attachment and cannot be bypassed with alternate query ordering, symbols,
     accessors, proxies, or revoked proxies;
-  - token acquisition cannot leak the form/body/URL through nested Undici
-    errors, redirects, invalid responses, or cleanup failures;
-  - a 401 cannot replay more than once, auth cannot retry more than five 429s,
-    and data 429 cannot retry both inside and outside the kernel;
+  - token acquisition cannot leak the form/body/URL through returned nested
+    Undici errors, redirects, invalid responses, or cleanup failures;
+  - host/constructor/per-dispatch diagnostics preflights cover the independently
+    frozen inventory for audited Node 24.14/24.15 plus pinned Undici, including
+    Node core `net.client.socket`; direct TLS and proxy CONNECT paths are both
+    exercised, while the documented late-subscriber race remains an explicit
+    public-wiring blocker;
+  - a 401 cannot replay more than once, concurrent late 401s reuse the same
+    replacement lease by object identity even when the token string is
+    unchanged, auth cannot retry more than five 429s, and data 429 cannot retry
+    both inside and outside the kernel;
   - fractional `performance.now()` values remain valid and refresh at the
     intended 30-second boundary;
   - the response limit is enforced using intrinsic length before allocation/
     copy and cannot be bypassed through one huge chunk, later overflow,
     incorrect Content-Length, zero-length fragmentation, resizable/detached/
     shared buffers, or a stalled body;
-  - overall abort listener registration has no already-aborted race, and
+  - post-CA network abort listener registration has no already-aborted race, and
     kernel retry sleeps preserve the static timeout code without relaying the
     originating ProcessFailure;
-  - FIFO/custom CA inputs cannot block past the deadline and invalid PEM cannot
-    be silently accepted because default roots make the combined context valid;
+  - FIFO/custom CA inputs remain byte-bounded and invalid PEM cannot be silently
+    accepted: every custom certificate block is parsed independently, so valid
+    default roots cannot mask malformed custom PEM. Mounted/FUSE filesystem
+    stalls are explicitly outside the network deadline;
   - primary failure always wins over cleanup failure, while success never
     returns before verified close.
 - Source evidence the reviewer should verify:
@@ -288,13 +343,15 @@
   - embedded exact ZCC catalog paths and pagination;
   - Undici 7.28 EnvHttpProxyAgent environment fallback and ProxyAgent
     `clientFactory`/TLS routing source;
-  - Node 24 default CA and `X509Certificate` behavior.
+  - Node 24 default CA, `X509Certificate`, and `net.client.socket` publication
+    behavior.
 - Generated artifacts the reviewer should compare: none. Confirm all catalogs,
   schemas, fixtures, and Python outputs are unchanged.
 - Edge cases that could silently overclaim, remap, drop, or weaken evidence:
   - proxy credentials and malformed proxy URLs; NO_PROXY mutation; redirects;
     duplicate token keys; weird token control characters; token expiry races;
-    concurrent refresh; 401/429 interaction; oversized first/later chunks;
+    concurrent refresh with equal token strings; 401/429 interaction; late
+    diagnostics subscribers; oversized first/later chunks;
     zero-chunk streams; content-length mismatch; abort while registering a
     retry wait; FIFO/rotating CA files; cleanup close/destroy races; arbitrary
     thrown ProcessFailure codes/messages; and accidental process-main imports.
@@ -314,6 +371,27 @@
   - retry sleep had an abort-listener registration race;
   - the trusted error factory accepted an out-of-union runtime code without an
     own-table lookup.
-- Each item has a targeted regression in the focused 42-test set. This section
+- The final fresh adversarial review then found and the builder remediated:
+  - Undici 7.28 rejects any non-null `throwOnError` request option, so every
+    real request failed before dispatch; the option is removed and a local
+    TLS-through-proxy OAuth test reaches a real server;
+  - a second delayed 401 could force a third authentication after another
+    request had already installed a replacement lease; refresh now compares
+    lease identity and is covered with both distinct and identical token text;
+  - Undici publishes request objects, bodies, and serialized headers to
+    process-global diagnostics channels; current subscribers now fail before
+    host input and every credential-bearing boundary, with the remaining race
+    documented as a public-wiring blocker;
+  - Node core publishes outbound sockets through `net.client.socket` beneath
+    Undici, allowing a subscriber to observe direct TLS writes or plaintext
+    proxy CONNECT authorization; the Node channel is now frozen independently
+    in the test inventory and guarded at the same boundaries;
+  - an assigned response body could remain open when the post-request deadline
+    checkpoint failed; both auth and data paths now destroy that body before
+    preserving the static timeout failure;
+  - the transaction AbortSignal could not interrupt mounted/FUSE CA filesystem
+    operations; the 300-second guarantee now begins honestly after bounded CA
+    loading, pending terminable outer isolation.
+- Each item has a targeted regression in the focused test set. This section
   is orientation only; the required fresh reviewer must verify the final diff
   independently and must not treat the early partial audit as approval.

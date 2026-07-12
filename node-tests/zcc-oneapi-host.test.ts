@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { subscribe, unsubscribe } from "node:diagnostics_channel";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
-import { createServer as createNetServer, type Socket } from "node:net";
+import { createServer as createHttpsServer } from "node:https";
+import {
+  connect as connectTcp,
+  createServer as createNetServer,
+  type Socket,
+} from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { getCACertificates } from "node:tls";
+import type { Duplex } from "node:stream";
+import { connect as connectTls, getCACertificates } from "node:tls";
 import test from "node:test";
 
 import {
@@ -96,6 +103,39 @@ function fakeDispatcher(options: {
   } as unknown as Dispatcher;
 }
 
+function directTlsClient(port: number, certificate: Buffer): Client {
+  return new Client("https://tenant.zslogin.net", {
+    allowH2: false,
+    connect(options, callback): void {
+      const socket = connectTls({
+        ALPNProtocols: ["http/1.1"],
+        ca: certificate,
+        host: "127.0.0.1",
+        minVersion: "TLSv1.2",
+        port,
+        rejectUnauthorized: true,
+        servername: options.servername ?? "tenant.zslogin.net",
+      });
+      let settled = false;
+      const onError = (error: Error): void => {
+        if (!settled) {
+          settled = true;
+          callback(error, null);
+        }
+      };
+      socket.once("error", onError);
+      socket.once("secureConnect", () => {
+        if (!settled) {
+          settled = true;
+          socket.off("error", onError);
+          callback(null, socket);
+        }
+      });
+    },
+    pipelining: 1,
+  });
+}
+
 async function captureFailure(
   run: () => unknown | Promise<unknown>,
   code: string,
@@ -112,7 +152,10 @@ async function captureFailure(
 }
 
 async function listen(
-  server: ReturnType<typeof createHttpServer> | ReturnType<typeof createNetServer>,
+  server:
+    | ReturnType<typeof createHttpServer>
+    | ReturnType<typeof createHttpsServer>
+    | ReturnType<typeof createNetServer>,
 ): Promise<number> {
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -125,7 +168,10 @@ async function listen(
 }
 
 async function closeServer(
-  server: ReturnType<typeof createHttpServer> | ReturnType<typeof createNetServer>,
+  server:
+    | ReturnType<typeof createHttpServer>
+    | ReturnType<typeof createHttpsServer>
+    | ReturnType<typeof createNetServer>,
 ): Promise<void> {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 }
@@ -206,6 +252,87 @@ test("proxy values and credentials never enter validation diagnostics", async ()
   }
 });
 
+test("diagnostics preflight precedes host input, CA, dispatcher, and network", {
+  concurrency: false,
+}, async () => {
+  const secret = "hostile-ca-input-secret";
+  let inputReads = 0;
+  let dispatchers = 0;
+  let requests = 0;
+  const input = new Proxy({}, {
+    getOwnPropertyDescriptor() {
+      inputReads += 1;
+      throw new Error(secret);
+    },
+    ownKeys() {
+      inputReads += 1;
+      throw new Error(secret);
+    },
+  }) as ZccOneApiHostInput;
+  const listener = (): void => undefined;
+  subscribe("net.client.socket", listener);
+  try {
+    const failure = await captureFailure(
+      () => collectZccOneApiResourceWithOneApiForTest(input, {
+        createDispatcher: () => {
+          dispatchers += 1;
+          return fakeDispatcher();
+        },
+        httpRequest: async () => {
+          requests += 1;
+          return response("{}");
+        },
+      }),
+      "ZCC_ONEAPI_DIAGNOSTICS_UNSAFE",
+    );
+    assert.equal(failure.category, "io");
+    assert.equal(failure.retryable, false);
+    assert.equal(inputReads, 0);
+    assert.equal(dispatchers, 0);
+    assert.equal(requests, 0);
+    assert.equal(JSON.stringify(failure).includes(secret), false);
+  } finally {
+    unsubscribe("net.client.socket", listener);
+  }
+});
+
+test("subscriber planted by dispatcher keeps the diagnostics classification", {
+  concurrency: false,
+}, async () => {
+  let closeCalls = 0;
+  let requests = 0;
+  const listener = (): void => undefined;
+  let planted = false;
+  try {
+    const failure = await captureFailure(
+      () => collectZccOneApiResourceWithOneApiForTest(hostInput(), {
+        createDispatcher: () => {
+          planted = true;
+          subscribe("net.client.socket", listener);
+          return fakeDispatcher({
+            close: async () => {
+              closeCalls += 1;
+            },
+          });
+        },
+        httpRequest: async () => {
+          requests += 1;
+          return response("{}");
+        },
+      }),
+      "ZCC_ONEAPI_DIAGNOSTICS_UNSAFE",
+    );
+    assert.equal(failure.category, "io");
+    assert.equal(failure.retryable, false);
+    assert.equal(closeCalls, 1);
+    assert.equal(requests, 0);
+  } finally {
+    if (planted) {
+      unsubscribe("net.client.socket", listener);
+    }
+  }
+});
+
 test("dispatcher applies additive CA and strict TLS to every connection path", async () => {
   const ca = getCACertificates("default").slice(0, 2);
   const options = zccOneApiDispatcherOptions({
@@ -282,6 +409,171 @@ test("EnvHttpProxyAgent cannot re-read ambient proxy state after construction", 
     await agent.destroy();
     await closeServer(target);
     await closeServer(proxy);
+  }
+});
+
+test("net diagnostics block real direct and proxy OAuth before TLS succeeds", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "infrawright-oneapi-real-"));
+  t.after(async () => rm(root, { force: true, recursive: true }));
+  const keyPath = path.join(root, "server.key");
+  const certificatePath = path.join(root, "server.pem");
+  const generated = spawnSync("openssl", [
+    "req",
+    "-x509",
+    "-newkey",
+    "rsa:2048",
+    "-sha256",
+    "-nodes",
+    "-keyout",
+    keyPath,
+    "-out",
+    certificatePath,
+    "-days",
+    "1",
+    "-subj",
+    "/CN=tenant.zslogin.net",
+    "-addext",
+    "subjectAltName=DNS:tenant.zslogin.net",
+  ], { encoding: "utf8" });
+  assert.equal(generated.status, 0, generated.stderr);
+  const [key, certificate] = await Promise.all([
+    readFile(keyPath),
+    readFile(certificatePath),
+  ]);
+  let observed: {
+    readonly body: string;
+    readonly contentType: string | undefined;
+    readonly method: string | undefined;
+    readonly url: string | undefined;
+  } | null = null;
+  const target = createHttpsServer({ cert: certificate, key }, (request, reply) => {
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => chunks.push(chunk));
+    request.on("end", () => {
+      observed = {
+        body: Buffer.concat(chunks).toString("utf8"),
+        contentType: request.headers["content-type"],
+        method: request.method,
+        url: request.url,
+      };
+      reply.statusCode = 201;
+      reply.end("ignored private error body");
+    });
+  });
+  const tunnels = new Set<Duplex>();
+  const proxy = createHttpServer((_request, reply) => {
+    reply.statusCode = 405;
+    reply.end();
+  });
+  let proxyConnects = 0;
+  let proxyAuthorization: string | undefined;
+  const targetPort = await listen(target);
+  const directInput = hostInput({ REQUESTS_CA_BUNDLE: certificatePath });
+  let directDispatchers = 0;
+  const directListener = (): void => undefined;
+  subscribe("net.client.socket", directListener);
+  try {
+    await captureFailure(
+      () => collectZccOneApiResourceWithOneApiForTest(directInput, {
+        createDispatcher: () => {
+          directDispatchers += 1;
+          return directTlsClient(targetPort, certificate);
+        },
+      }),
+      "ZCC_ONEAPI_DIAGNOSTICS_UNSAFE",
+    );
+    assert.equal(directDispatchers, 0);
+    assert.equal(observed, null);
+  } finally {
+    unsubscribe("net.client.socket", directListener);
+  }
+  await captureFailure(
+    () => collectZccOneApiResourceWithOneApiForTest(directInput, {
+      createDispatcher: () => {
+        directDispatchers += 1;
+        return directTlsClient(targetPort, certificate);
+      },
+    }),
+    "ZCC_ONEAPI_AUTH_HTTP_STATUS",
+  );
+  assert.equal(directDispatchers, 1);
+  assert.notEqual(observed, null);
+  observed = null;
+  proxy.on("connect", (request, clientSocket, head) => {
+    proxyConnects += 1;
+    proxyAuthorization = request.headers["proxy-authorization"];
+    const upstream = connectTcp(targetPort, "127.0.0.1", () => {
+      clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      if (head.byteLength !== 0) {
+        upstream.write(head);
+      }
+      clientSocket.pipe(upstream);
+      upstream.pipe(clientSocket);
+    });
+    tunnels.add(clientSocket);
+    tunnels.add(upstream);
+    clientSocket.on("close", () => tunnels.delete(clientSocket));
+    upstream.on("close", () => tunnels.delete(upstream));
+    clientSocket.on("error", () => undefined);
+    upstream.on("error", () => clientSocket.destroy());
+  });
+  const proxyPort = await listen(proxy);
+  const proxySecret = "proxy-secret";
+  const proxiedInput = hostInput({
+    HTTPS_PROXY: `http://proxy-user:${proxySecret}@127.0.0.1:${proxyPort}`,
+    REQUESTS_CA_BUNDLE: certificatePath,
+  });
+  try {
+    const listener = (): void => undefined;
+    subscribe("net.client.socket", listener);
+    try {
+      const blocked = await captureFailure(
+        () => collectZccOneApiResourceWithOneApiForTest(proxiedInput, {}),
+        "ZCC_ONEAPI_DIAGNOSTICS_UNSAFE",
+      );
+      assert.equal(JSON.stringify(blocked).includes(proxySecret), false);
+      assert.equal(proxyConnects, 0);
+      assert.equal(observed, null);
+    } finally {
+      unsubscribe("net.client.socket", listener);
+    }
+    await captureFailure(
+      () => collectZccOneApiResourceWithOneApiForTest(proxiedInput, {}),
+      "ZCC_ONEAPI_AUTH_HTTP_STATUS",
+    );
+    assert.equal(proxyConnects, 1);
+    assert.equal(
+      proxyAuthorization,
+      `Basic ${Buffer.from(`proxy-user:${proxySecret}`).toString("base64")}`,
+    );
+    const captured = observed as {
+      readonly body: string;
+      readonly contentType: string | undefined;
+      readonly method: string | undefined;
+      readonly url: string | undefined;
+    } | null;
+    assert.notEqual(captured, null);
+    if (captured === null) {
+      assert.fail("local TLS server did not receive OAuth");
+    }
+    assert.equal(captured.method, "POST");
+    assert.equal(captured.url, "/oauth2/v1/token");
+    assert.equal(
+      captured.contentType,
+      "application/x-www-form-urlencoded",
+    );
+    assert.deepEqual([...new URLSearchParams(captured.body)], [
+      ["grant_type", "client_credentials"],
+      ["client_id", "client-id"],
+      ["client_secret", "client-secret"],
+      ["audience", "https://api.zscaler.com"],
+    ]);
+  } finally {
+    for (const socket of tunnels) {
+      socket.destroy();
+    }
+    await closeServer(proxy);
+    await closeServer(target);
   }
 });
 

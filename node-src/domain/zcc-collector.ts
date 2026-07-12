@@ -83,6 +83,7 @@ export type ZccCollectorTrustedTransportFailureCode =
   | "ZCC_ONEAPI_AUTH_TRANSPORT_FAILED"
   | "ZCC_ONEAPI_DATA_RESPONSE_LIMIT"
   | "ZCC_ONEAPI_DATA_TRANSPORT_FAILED"
+  | "ZCC_ONEAPI_DIAGNOSTICS_UNSAFE"
   | "ZCC_ONEAPI_REDIRECT_REFUSED"
   | "ZCC_ONEAPI_TRANSACTION_TIMEOUT";
 
@@ -133,6 +134,11 @@ const TRUSTED_TRANSPORT_FAILURES: Readonly<Record<
     category: "io",
     message: "ZCC OneAPI data transport failed",
     retryable: true,
+  }),
+  ZCC_ONEAPI_DIAGNOSTICS_UNSAFE: Object.freeze({
+    category: "io",
+    message: "ZCC OneAPI in-process diagnostics isolation is unavailable",
+    retryable: false,
   }),
   ZCC_ONEAPI_REDIRECT_REFUSED: Object.freeze({
     category: "io",

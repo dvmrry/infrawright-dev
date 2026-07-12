@@ -809,6 +809,7 @@ test("production bundle excludes the private collector kernel and catalog", () =
     "trustedNetworkContracts",
     "ZCC_COLLECTOR_TRANSPORT_FAILURE",
     "ZCC_ONEAPI_AUTH_TRANSPORT_FAILED",
+    "ZCC_ONEAPI_DIAGNOSTICS_UNSAFE",
     "EnvHttpProxyAgent",
     "oauth2/v1/token",
   ]) {

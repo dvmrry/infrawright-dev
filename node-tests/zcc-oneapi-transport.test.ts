@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { subscribe, unsubscribe } from "node:diagnostics_channel";
 import test from "node:test";
 
 import type { Dispatcher } from "undici";
@@ -11,6 +12,7 @@ import {
 } from "../node-src/domain/zcc-collector.js";
 import {
   createZccOneApiAuthenticatedTransport,
+  ZCC_ONEAPI_SENSITIVE_DIAGNOSTIC_CHANNELS,
   type ZccOneApiHttpRequest,
   type ZccOneApiHttpRequestOptions,
   type ZccOneApiHttpResponse,
@@ -28,6 +30,22 @@ const DATA_REQUEST: ZccCollectorDataRequest = Object.freeze({
   url: DATA_URL,
 });
 const FAKE_DISPATCHER = {} as Dispatcher;
+const EXPECTED_SENSITIVE_DIAGNOSTIC_CHANNELS = Object.freeze([
+  "net.client.socket",
+  "undici:request:create",
+  "undici:request:bodySent",
+  "undici:request:bodyChunkSent",
+  "undici:request:bodyChunkReceived",
+  "undici:request:headers",
+  "undici:request:trailers",
+  "undici:request:error",
+  "undici:request:pending-requests",
+  "undici:client:beforeConnect",
+  "undici:client:connected",
+  "undici:client:connectError",
+  "undici:client:sendHeaders",
+  "undici:proxy:connected",
+] as const);
 
 class TestBody implements ZccOneApiResponseBody {
   destroyed = 0;
@@ -175,6 +193,148 @@ async function capturePrivateCode(
   assert.equal((failure as { code?: unknown }).code, code);
   return failure;
 }
+
+test("sensitive network diagnostics subscribers fail before every dispatch", {
+  concurrency: false,
+}, async () => {
+  assert.deepEqual(
+    ZCC_ONEAPI_SENSITIVE_DIAGNOSTIC_CHANNELS,
+    EXPECTED_SENSITIVE_DIAGNOSTIC_CHANNELS,
+  );
+  for (const name of EXPECTED_SENSITIVE_DIAGNOSTIC_CHANNELS) {
+    let published = 0;
+    const listener = (): void => {
+      published += 1;
+    };
+    let requests = 0;
+    subscribe(name, listener);
+    try {
+      const failure = await capturePrivateCode(
+        () => adapterOptions(async () => {
+          requests += 1;
+          return tokenResponse();
+        }),
+        "ZCC_ONEAPI_DIAGNOSTICS_UNSAFE",
+      );
+      assert.equal(JSON.stringify(failure).includes("client-secret"), false);
+      assert.equal(requests, 0, name);
+      assert.equal(published, 0, name);
+    } finally {
+      unsubscribe(name, listener);
+    }
+
+    const { adapter, transaction } = adapterOptions(async () => {
+      requests += 1;
+      return tokenResponse();
+    });
+    subscribe(name, listener);
+    try {
+      const failure = await captureProcessFailure(
+        () => collectZccOneApiResource({
+          cloud: "",
+          resourceType: "zcc_device_cleanup",
+          sleep: transaction.sleep,
+          transport: adapter.transport,
+        }),
+        "ZCC_ONEAPI_DIAGNOSTICS_UNSAFE",
+      );
+      assert.equal(failure.category, "io");
+      assert.equal(failure.retryable, false);
+      assert.equal(requests, 0, name);
+      assert.equal(published, 0, name);
+      assert.equal(JSON.stringify(failure).includes("client-secret"), false);
+    } finally {
+      adapter.clearSecrets();
+      unsubscribe(name, listener);
+    }
+  }
+});
+
+test("a subscriber planted after form creation still blocks auth dispatch", {
+  concurrency: false,
+}, async () => {
+  let requests = 0;
+  const listener = (): void => undefined;
+  let planted = false;
+  let checkpoints = 0;
+  const transaction = testTransaction();
+  const adapter = createZccOneApiAuthenticatedTransport({
+    clientId: "client-id",
+    clientSecret: "client-secret",
+    cloud: "",
+    dispatcher: FAKE_DISPATCHER,
+    httpRequest: async () => {
+      requests += 1;
+      return tokenResponse();
+    },
+    resourceType: "zcc_device_cleanup",
+    transaction: {
+      ...transaction,
+      checkpoint(): void {
+        transaction.checkpoint();
+        checkpoints += 1;
+        if (!planted && checkpoints === 2) {
+          planted = true;
+          subscribe("undici:request:create", listener);
+        }
+      },
+    },
+    vanityDomain: "tenant",
+  });
+  try {
+    await captureProcessFailure(
+      () => collectZccOneApiResource({
+        cloud: "",
+        resourceType: "zcc_device_cleanup",
+        sleep: transaction.sleep,
+        transport: adapter.transport,
+      }),
+      "ZCC_ONEAPI_DIAGNOSTICS_UNSAFE",
+    );
+    assert.equal(requests, 0);
+  } finally {
+    adapter.clearSecrets();
+    if (planted) {
+      unsubscribe("undici:request:create", listener);
+    }
+  }
+});
+
+test("a subscriber planted after auth blocks the Bearer dispatch", {
+  concurrency: false,
+}, async () => {
+  let requests = 0;
+  const listener = (): void => undefined;
+  let planted = false;
+  const { adapter, transaction } = adapterOptions(async (url) => {
+    requests += 1;
+    assert.equal(url, TOKEN_URL);
+    planted = true;
+    subscribe("undici:client:sendHeaders", listener);
+    return tokenResponse();
+  });
+  try {
+    await captureProcessFailure(
+      () => collectZccOneApiResource({
+        cloud: "",
+        resourceType: "zcc_device_cleanup",
+        sleep: transaction.sleep,
+        transport: adapter.transport,
+      }),
+      "ZCC_ONEAPI_DIAGNOSTICS_UNSAFE",
+    );
+    assert.equal(requests, 1);
+    assert.deepEqual(adapter.stats(), {
+      auth_requests: 1,
+      wire_data_requests: 0,
+    });
+  } finally {
+    adapter.clearSecrets();
+    if (planted) {
+      unsubscribe("undici:client:sendHeaders", listener);
+    }
+  }
+});
 
 test("real adapter sends exact OAuth form and one authorized Bearer request", async () => {
   const calls: CapturedCall[] = [];
@@ -338,6 +498,73 @@ test("one data 401 refreshes and replays once without a loop", async () => {
     auth_requests: 2,
     wire_data_requests: 2,
   });
+});
+
+test("concurrent 401 waiters reuse one replacement lease by identity", async () => {
+  for (const sameTokenString of [false, true]) {
+    const calls: CapturedCall[] = [];
+    let authRequests = 0;
+    let dataRequests = 0;
+    let releaseSecondUnauthorized: (() => void) | null = null;
+    const secondUnauthorized = new Promise<void>((resolve) => {
+      releaseSecondUnauthorized = resolve;
+    });
+    const requester: ZccOneApiHttpRequest = async (url, options) => {
+      calls.push({ options, url });
+      if (url === TOKEN_URL) {
+        authRequests += 1;
+        return tokenResponse(
+          sameTokenString ? "stable-token" : `token-${authRequests}`,
+        );
+      }
+      dataRequests += 1;
+      if (dataRequests === 1) {
+        return httpResponse([], 401);
+      }
+      if (dataRequests === 2) {
+        await secondUnauthorized;
+        return httpResponse([], 401);
+      }
+      if (dataRequests === 3) {
+        releaseSecondUnauthorized?.();
+        return httpResponse([bytes("[]")]);
+      }
+      if (dataRequests === 4) {
+        return httpResponse([bytes("[]")]);
+      }
+      assert.fail("concurrent 401 flow made an unexpected wire request");
+    };
+    const { adapter } = adapterOptions(requester);
+    const results = await Promise.all([
+      adapter.transport(DATA_REQUEST),
+      adapter.transport(DATA_REQUEST),
+    ]);
+    assert.deepEqual(results.map((result) => result.status), [200, 200]);
+    assert.equal(authRequests, 2, String(sameTokenString));
+    assert.equal(dataRequests, 4, String(sameTokenString));
+    assert.deepEqual(
+      calls.filter((call) => call.url === DATA_URL).map((call) => {
+        return call.options.headers.authorization;
+      }),
+      sameTokenString
+        ? [
+          "Bearer stable-token",
+          "Bearer stable-token",
+          "Bearer stable-token",
+          "Bearer stable-token",
+        ]
+        : [
+          "Bearer token-1",
+          "Bearer token-1",
+          "Bearer token-2",
+          "Bearer token-2",
+        ],
+    );
+    assert.deepEqual(adapter.stats(), {
+      auth_requests: 2,
+      wire_data_requests: 4,
+    });
+  }
 });
 
 test("lazy lifetime refresh uses the fractional monotonic clock", async () => {
@@ -586,7 +813,52 @@ test("network failures and nested causes never relay credentials or tokens", asy
   assert.equal(second.message.includes(secret), false);
 });
 
-test("one overall deadline aborts request, body, auth-sleep, and kernel-sleep stalls", async () => {
+test("post-await deadline checkpoints destroy assigned response bodies", async () => {
+  for (const phase of ["auth", "data"] as const) {
+    const base = testTransaction();
+    let failNextCheckpoint = false;
+    let timedOut = false;
+    const transaction: TestTransaction = {
+      ...base,
+      checkpoint(): void {
+        if (timedOut || failNextCheckpoint) {
+          failNextCheckpoint = false;
+          timedOut = true;
+          throw new ProcessFailure({
+            category: "io",
+            code: "ZCC_ONEAPI_TRANSACTION_TIMEOUT",
+            message: "static timeout",
+          });
+        }
+        base.checkpoint();
+      },
+    };
+    const assigned = phase === "auth"
+      ? tokenResponse()
+      : httpResponse([bytes("[]")]);
+    const requester: ZccOneApiHttpRequest = async (url) => {
+      if (phase === "data" && url === TOKEN_URL) {
+        return tokenResponse();
+      }
+      failNextCheckpoint = true;
+      return assigned;
+    };
+    const { adapter } = adapterOptions(requester, transaction);
+    await captureProcessFailure(
+      () => collectZccOneApiResource({
+        cloud: "",
+        resourceType: "zcc_device_cleanup",
+        sleep: transaction.sleep,
+        transport: adapter.transport,
+      }),
+      "ZCC_ONEAPI_TRANSACTION_TIMEOUT",
+    );
+    assert.equal(assigned.body.destroyed, 1, phase);
+    adapter.clearSecrets();
+  }
+});
+
+test("one post-CA transaction aborts request, body, auth-sleep, and kernel-sleep stalls", async () => {
   const stalledRequest = async (
     _url: string,
     options: ZccOneApiHttpRequestOptions,

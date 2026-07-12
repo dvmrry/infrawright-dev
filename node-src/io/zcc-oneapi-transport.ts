@@ -1,3 +1,4 @@
+import { hasSubscribers } from "node:diagnostics_channel";
 import { types as utilTypes } from "node:util";
 
 import {
@@ -33,6 +34,22 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_AUTH_RETRIES = 5;
 const MAX_PAGED_REQUESTS = 51;
 const MAX_RESPONSE_CHUNKS = 32 * 1024;
+export const ZCC_ONEAPI_SENSITIVE_DIAGNOSTIC_CHANNELS = Object.freeze([
+  "net.client.socket",
+  "undici:request:create",
+  "undici:request:bodySent",
+  "undici:request:bodyChunkSent",
+  "undici:request:bodyChunkReceived",
+  "undici:request:headers",
+  "undici:request:trailers",
+  "undici:request:error",
+  "undici:request:pending-requests",
+  "undici:client:beforeConnect",
+  "undici:client:connected",
+  "undici:client:connectError",
+  "undici:client:sendHeaders",
+  "undici:proxy:connected",
+] as const);
 const UTF8_DECODER = new TextDecoder("utf-8", {
   fatal: true,
   ignoreBOM: true,
@@ -61,6 +78,21 @@ const TYPED_ARRAY_SET = Uint8Array.prototype.set;
 class ResponseLimitFailure extends Error {}
 class ResponseShapeFailure extends Error {}
 
+function assertZccOneApiDiagnosticsSafe(): void {
+  if (!zccOneApiDiagnosticsSafe()) {
+    return throwZccCollectorTransportFailure(
+      "ZCC_ONEAPI_DIAGNOSTICS_UNSAFE",
+    );
+  }
+}
+
+/** Snapshot whether the audited Node/Undici secret-bearing channels are unused. */
+export function zccOneApiDiagnosticsSafe(): boolean {
+  return ZCC_ONEAPI_SENSITIVE_DIAGNOSTIC_CHANNELS.every((name) => {
+    return !hasSubscribers(name);
+  });
+}
+
 export interface ZccOneApiTransactionControl {
   readonly signal: AbortSignal;
   checkpoint(): void;
@@ -86,7 +118,6 @@ export interface ZccOneApiHttpRequestOptions {
   readonly headersTimeout: number;
   readonly method: "GET" | "POST";
   readonly signal: AbortSignal;
-  readonly throwOnError: false;
 }
 
 export type ZccOneApiHttpRequest = (
@@ -240,6 +271,10 @@ const REAL_HTTP_REQUEST: ZccOneApiHttpRequest = async (url, options) => {
     ...options,
     headers: { ...options.headers },
   });
+  // Undici turns destroy-without-an-error into an AbortError. Error response
+  // bodies are deliberately destroyed, so retain a no-op listener to prevent
+  // that internal cleanup signal from becoming an uncaught process error.
+  response.body.on("error", () => undefined);
   return response as unknown as ZccOneApiHttpResponse;
 };
 
@@ -352,6 +387,7 @@ function emptyResponse(
 export function createZccOneApiAuthenticatedTransport(
   options: ZccOneApiTransportOptions,
 ): ZccOneApiAuthenticatedTransport {
+  assertZccOneApiDiagnosticsSafe();
   const endpoints = deriveZccOneApiEndpoints({
     cloud: options.cloud,
     vanityDomain: options.vanityDomain,
@@ -370,6 +406,7 @@ export function createZccOneApiAuthenticatedTransport(
   let wireDataRequests = 0;
 
   const acquireToken = async (): Promise<ZccOneApiTokenLease> => {
+    assertZccOneApiDiagnosticsSafe();
     const currentCredentials = credentials;
     if (currentCredentials === null) {
       return throwZccCollectorTransportFailure(
@@ -386,6 +423,7 @@ export function createZccOneApiAuthenticatedTransport(
     }
     for (let attempt = 0; attempt <= MAX_AUTH_RETRIES; attempt += 1) {
       transaction.checkpoint();
+      assertZccOneApiDiagnosticsSafe();
       let response: ZccOneApiHttpResponse;
       try {
         authRequests += 1;
@@ -401,10 +439,14 @@ export function createZccOneApiAuthenticatedTransport(
           headersTimeout: REQUEST_TIMEOUT_MS,
           method: "POST",
           signal: transaction.signal,
-          throwOnError: false,
         });
+      } catch (error: unknown) {
+        return failRequest("auth", error, transaction);
+      }
+      try {
         transaction.checkpoint();
       } catch (error: unknown) {
+        destroyResponseBody(response.body);
         return failRequest("auth", error, transaction);
       }
       let status: number;
@@ -486,14 +528,35 @@ export function createZccOneApiAuthenticatedTransport(
     }
   };
 
+  const tokenAfterUnauthorized = async (
+    stale: ZccOneApiTokenLease,
+  ): Promise<ZccOneApiTokenLease> => {
+    transaction.checkpoint();
+    // Another request may already have replaced this exact lease while the
+    // caller's 401 was in flight. Reuse that replacement (or its in-flight
+    // single-flight promise) rather than serially authenticating again.
+    if (lease !== null && lease !== stale) {
+      return token(false);
+    }
+    if (lease === stale) {
+      lease = null;
+    }
+    if (refreshPromise !== null) {
+      return refreshPromise;
+    }
+    return token(true);
+  };
+
   const sendData = async (
     request: ZccCollectorDataRequest,
     accessToken: string,
   ): Promise<ZccOneApiHttpResponse> => {
     transaction.checkpoint();
+    assertZccOneApiDiagnosticsSafe();
+    let response: ZccOneApiHttpResponse;
     try {
       wireDataRequests += 1;
-      const response = await httpRequest(request.url, {
+      response = await httpRequest(request.url, {
         bodyTimeout: REQUEST_TIMEOUT_MS,
         dispatcher,
         headers: {
@@ -504,13 +567,17 @@ export function createZccOneApiAuthenticatedTransport(
         headersTimeout: REQUEST_TIMEOUT_MS,
         method: "GET",
         signal: transaction.signal,
-        throwOnError: false,
       });
-      transaction.checkpoint();
-      return response;
     } catch (error: unknown) {
       return failRequest("data", error, transaction);
     }
+    try {
+      transaction.checkpoint();
+    } catch (error: unknown) {
+      destroyResponseBody(response.body);
+      return failRequest("data", error, transaction);
+    }
+    return response;
   };
 
   const responseForKernel = async (
@@ -560,10 +627,7 @@ export function createZccOneApiAuthenticatedTransport(
     }
     if (status === 401) {
       destroyResponseBody(response.body);
-      if (lease?.accessToken === initialLease.accessToken) {
-        lease = null;
-      }
-      const refreshed = await token(true);
+      const refreshed = await tokenAfterUnauthorized(initialLease);
       response = await sendData(request, refreshed.accessToken);
     }
     return responseForKernel(response);
