@@ -10,6 +10,7 @@ import {
 } from "../node-src/json/control.js";
 import {
   comparePythonStrings,
+  pythonCompatibleJsonByteLength,
   renderPythonCompatibleJson,
   sameStringSequence,
   sortedStrings,
@@ -50,6 +51,24 @@ test("integer-only compatibility renderer matches Python bytes", () => {
   assert.ok(python.stdout.indexOf('"10"') < python.stdout.indexOf('"2"'));
   assert.match(python.stdout, /\\u00e9/);
   assert.match(python.stdout, /\\ud83d\\ude00/);
+  assert.equal(
+    pythonCompatibleJsonByteLength(value as unknown as JsonValue),
+    Buffer.byteLength(python.stdout, "utf8"),
+  );
+  assert.equal(
+    pythonCompatibleJsonByteLength(
+      value as unknown as JsonValue,
+      Buffer.byteLength(python.stdout, "utf8"),
+    ),
+    Buffer.byteLength(python.stdout, "utf8"),
+  );
+  assert.equal(
+    pythonCompatibleJsonByteLength(
+      value as unknown as JsonValue,
+      Buffer.byteLength(python.stdout, "utf8") - 1,
+    ),
+    Buffer.byteLength(python.stdout, "utf8"),
+  );
 });
 
 test("control parser rejects duplicate keys and unsafe integers", () => {

@@ -15,7 +15,11 @@ import {
   sha256StableFile,
   type BoundedReadLimits,
 } from "../io/bounded-files.js";
-import { sortedStrings } from "../json/python-compatible.js";
+import {
+  pythonCompatibleJsonByteLength,
+  sortedStrings,
+  type JsonValue,
+} from "../json/python-compatible.js";
 import { snapshotPlainJsonGraph } from "../json/supported-json-graph.js";
 import { loadBoundAssessmentRootCatalog } from "./catalog.js";
 import {
@@ -49,11 +53,17 @@ import {
   zccPlanRootModuleSource,
   zccPlanRootSha256,
   zccPlanRootTreeSha256,
+  MAX_ZCC_PLAN_ROOT_CANDIDATE_JSON_BYTES,
+  MAX_ZCC_PLAN_ROOT_HCL_ARTIFACT_BYTES,
+  MAX_ZCC_PLAN_ROOT_STAGED_IMPORT_BYTES,
   ZCC_PLAN_ROOT_PREPARATION_PROFILE,
   ZCC_PLAN_ROOT_RENDERER_PROFILE,
   ZCC_PLAN_ROOT_RESOURCE_TYPES,
 } from "./zcc-plan-root-preparation-contract.js";
 export {
+  MAX_ZCC_PLAN_ROOT_CANDIDATE_JSON_BYTES,
+  MAX_ZCC_PLAN_ROOT_HCL_ARTIFACT_BYTES,
+  MAX_ZCC_PLAN_ROOT_STAGED_IMPORT_BYTES,
   renderZccPlanRootMain,
   zccPlanRootAbsentSidecarPaths,
   ZCC_PLAN_ROOT_PREPARATION_PROFILE,
@@ -62,6 +72,12 @@ export {
 } from "./zcc-plan-root-preparation-contract.js";
 
 const RESOURCE_TYPES = new Set<string>(ZCC_PLAN_ROOT_RESOURCE_TYPES);
+const MATERIALIZATION_SNAPSHOT_LIMITS = Object.freeze({
+  maxDepth: 16,
+  maxNodes: 512,
+  maxProperties: 512,
+  maxStringBytes: 1024 * 1024,
+});
 const ARTIFACT_READ_LIMITS: BoundedReadLimits = {
   maxFiles: 32,
   maxDirectories: 1,
@@ -355,9 +371,26 @@ function snapshotCompileOptions(
     "materializations",
     "hooks",
   ]));
+  const rawMaterializations = required(descriptors, "materializations");
+  if (
+    (
+      (typeof rawMaterializations === "object" && rawMaterializations !== null)
+      || typeof rawMaterializations === "function"
+    )
+    && utilTypes.isProxy(rawMaterializations)
+  ) {
+    return invalidOptions();
+  }
+  if (
+    !Array.isArray(rawMaterializations)
+    || rawMaterializations.length < 1
+    || rawMaterializations.length > 5
+  ) {
+    return invalidOptions();
+  }
   const materializations = snapshotPlainJsonGraph(
-    required(descriptors, "materializations"),
-    { maxDepth: 128 },
+    rawMaterializations,
+    MATERIALIZATION_SNAPSHOT_LIMITS,
   );
   if (!materializations.ok || !Array.isArray(materializations.value)) {
     return invalidOptions();
@@ -740,6 +773,17 @@ function nearestExistingAncestor(
 async function assertAbsent(
   workspace: string,
   logicalPath: string,
+  policy: {
+    readonly checkCode: string;
+    readonly checkMessage: string;
+    readonly presentCode: string;
+    readonly presentMessage: string;
+  } = {
+    checkCode: "PLAN_ROOT_ABSENCE_CHECK_FAILED",
+    checkMessage: "unable to inspect forbidden sidecar",
+    presentCode: "UNSUPPORTED_PLAN_ROOT_SIDECAR",
+    presentMessage: "plan-root preparation requires expression, HCL, and move sidecars to be absent",
+  },
 ): Promise<BoundAbsent> {
   const absolute = resolveLogical(workspace, logicalPath);
   try {
@@ -751,12 +795,9 @@ async function assertAbsent(
         ancestor: nearestExistingAncestor(workspace, absolute),
       };
     }
-    return fail("PLAN_ROOT_ABSENCE_CHECK_FAILED", "unable to inspect forbidden sidecar", "io");
+    return fail(policy.checkCode, policy.checkMessage, "io");
   }
-  return fail(
-    "UNSUPPORTED_PLAN_ROOT_SIDECAR",
-    "plan-root preparation requires expression, HCL, and move sidecars to be absent",
-  );
+  return fail(policy.presentCode, policy.presentMessage);
 }
 
 async function recheckAbsent(paths: readonly BoundAbsent[]): Promise<void> {
@@ -1085,7 +1126,7 @@ function requireRoot(
   return root;
 }
 
-function snapshotReceipts(
+function validateSnapshottedReceipts(
   receipts: readonly ZccAdoptionArtifactMaterialization[],
 ): ZccAdoptionArtifactMaterialization[] {
   if (
@@ -1127,7 +1168,7 @@ export async function compileZccPlanRootPreparation(
     );
   }
   validateTenant(options.tenant);
-  const receipts = snapshotReceipts(options.materializations);
+  const receipts = validateSnapshottedReceipts(options.materializations);
   const receiptTypes = receipts.map((receipt) => receipt.resource_type);
   if (!sameStrings(receiptTypes, sortedStrings(new Set(receiptTypes)))) {
     return fail(
@@ -1163,6 +1204,15 @@ export async function compileZccPlanRootPreparation(
   ) {
     return fail("UNSUPPORTED_PLAN_ROOT_TFVARS_FORMAT", "plan-root preparation supports JSON only");
   }
+  if (
+    typeof boundDeployment.deployment.overlay !== "string"
+    || path.posix.isAbsolute(boundDeployment.deployment.overlay)
+  ) {
+    return fail(
+      "UNSUPPORTED_PLAN_ROOT_OVERLAY",
+      "plan-root preparation requires a repository-relative deployment overlay",
+    );
+  }
   if (boundDeployment.deployment.roots.zcc?.bind_references === true) {
     return fail(
       "UNSUPPORTED_PLAN_ROOT_BINDINGS",
@@ -1196,6 +1246,22 @@ export async function compileZccPlanRootPreparation(
     );
   }
 
+  const importDigests = receipts.map((receipt) => {
+    return expectedDigest(receipt.verification.parity.artifacts.imports);
+  });
+  if (
+    importDigests.some((digest) => {
+      return digest.size_bytes > MAX_ZCC_PLAN_ROOT_HCL_ARTIFACT_BYTES;
+    })
+    || importDigests.reduce((total, digest) => total + digest.size_bytes, 0)
+      > MAX_ZCC_PLAN_ROOT_STAGED_IMPORT_BYTES
+  ) {
+    return fail(
+      "PLAN_ROOT_CANDIDATE_TOO_LARGE",
+      "staged imports exceed the plan-root candidate byte budget",
+    );
+  }
+
   const artifactBudget = new ReadBudget(ARTIFACT_READ_LIMITS);
   const sources: ZccPlanRootSourceBinding[] = [];
   const boundArtifacts: BoundArtifact[] = [];
@@ -1222,7 +1288,10 @@ export async function compileZccPlanRootPreparation(
       );
     }
     const tfvarsDigest = expectedDigest(receipt.verification.parity.artifacts.tfvars);
-    const importsDigest = expectedDigest(receipt.verification.parity.artifacts.imports);
+    const importsDigest = importDigests[index];
+    if (importsDigest === undefined) {
+      return fail("PLAN_ROOT_MATERIALIZATION_COVERAGE_MISMATCH", "receipt join changed");
+    }
     const lookupEntry = receipt.verification.parity.artifacts.lookup;
     const lookupDigest = lookupEntry.status === "not_applicable"
       ? null
@@ -1285,7 +1354,12 @@ export async function compileZccPlanRootPreparation(
   let boundMarker: BoundArtifact | null = null;
   let absentMarker: BoundAbsent | null = null;
   if (options.backend === "local") {
-    absentMarker = await assertAbsent(workspace.path, markerPath);
+    absentMarker = await assertAbsent(workspace.path, markerPath, {
+      checkCode: "PLAN_ROOT_BACKEND_MARKER_CHECK_FAILED",
+      checkMessage: "unable to inspect backend marker",
+      presentCode: "PLAN_ROOT_BACKEND_MARKER_MISMATCH",
+      presentMessage: "local backend requires the tenant backend marker to be absent",
+    });
   } else {
     try {
       await lstat(markerAbsolute);
@@ -1434,5 +1508,16 @@ export async function compileZccPlanRootPreparation(
       staged_imports: stagedImports.length,
     },
   };
+  if (
+    pythonCompatibleJsonByteLength(
+      result as unknown as JsonValue,
+      MAX_ZCC_PLAN_ROOT_CANDIDATE_JSON_BYTES,
+    ) > MAX_ZCC_PLAN_ROOT_CANDIDATE_JSON_BYTES
+  ) {
+    return fail(
+      "PLAN_ROOT_CANDIDATE_TOO_LARGE",
+      "plan-root candidate exceeds its serialized byte budget",
+    );
+  }
   return { result, diagnostics: topologyResult.diagnostics };
 }

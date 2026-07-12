@@ -8,10 +8,13 @@ import {
   zccPlanRootMaterializationSha256,
   zccPlanRootModuleSource,
   zccPlanRootTreeSha256,
+  MAX_ZCC_PLAN_ROOT_CANDIDATE_JSON_BYTES,
+  MAX_ZCC_PLAN_ROOT_STAGED_IMPORT_BYTES,
 } from "../domain/zcc-plan-root-preparation-contract.js";
 import type { ZccPlanRootPreparationCandidate } from "../domain/zcc-plan-root-preparation.js";
 import { parseGeneratedImports } from "../domain/import-moves.js";
 import {
+  pythonCompatibleJsonByteLength,
   renderPythonCompatibleJson,
   sortedStrings,
   type JsonValue,
@@ -81,6 +84,35 @@ function validTextArtifact(artifact: JsonRecord): boolean {
     && Buffer.byteLength(artifact.content, "utf8") === artifact.size_bytes;
 }
 
+function tenantDirectoryOverlay(
+  directory: string,
+  kind: "config" | "imports" | "envs",
+  tenant: string,
+): { readonly defaultOverlay: boolean; readonly prefix: string } | null {
+  const normalized = path.posix.normalize(directory);
+  if (directory !== normalized && directory !== `./${normalized}`) {
+    return null;
+  }
+  const relative = `${kind}/${tenant}`;
+  if (directory === relative) {
+    return { defaultOverlay: true, prefix: "" };
+  }
+  const suffix = `/${relative}`;
+  return directory.endsWith(suffix)
+    ? { defaultOverlay: false, prefix: directory.slice(0, -suffix.length) }
+    : null;
+}
+
+function sameTenantDirectoryOverlay(
+  left: ReturnType<typeof tenantDirectoryOverlay>,
+  right: ReturnType<typeof tenantDirectoryOverlay>,
+): boolean {
+  return left !== null
+    && right !== null
+    && left.defaultOverlay === right.defaultOverlay
+    && left.prefix === right.prefix;
+}
+
 export interface ZccPlanRootSemanticValidator {
   (
     schema: unknown,
@@ -122,6 +154,18 @@ export const validateZccPlanRootPreparationSemantics:
         message,
       ));
     };
+    try {
+      if (
+        pythonCompatibleJsonByteLength(
+          result as JsonValue,
+          MAX_ZCC_PLAN_ROOT_CANDIDATE_JSON_BYTES,
+        ) > MAX_ZCC_PLAN_ROOT_CANDIDATE_JSON_BYTES
+      ) {
+        push("", "candidate_byte_budget", "candidate exceeds its serialized byte budget");
+      }
+    } catch {
+      push("", "candidate_byte_budget", "candidate cannot be measured as versioned JSON");
+    }
     const members = strings(root.members);
     const sources = Array.isArray(result.sources) ? result.sources.map(record) : null;
     const modules = Array.isArray(result.modules) ? result.modules.map(record) : null;
@@ -131,6 +175,21 @@ export const validateZccPlanRootPreparationSemantics:
     if (members === null || sources === null || modules === null || staged === null) {
       delete validateZccPlanRootPreparationSemantics.errors;
       return true;
+    }
+    if (
+      staged.reduce((total, artifact) => {
+        return total + (
+          artifact !== null && typeof artifact.size_bytes === "number"
+            ? artifact.size_bytes
+            : 0
+        );
+      }, 0) > MAX_ZCC_PLAN_ROOT_STAGED_IMPORT_BYTES
+    ) {
+      push(
+        "/root/artifacts/staged_imports",
+        "staged_import_byte_budget",
+        "staged imports exceed their aggregate byte budget",
+      );
     }
     const orderedMembers = sortedStrings(new Set(members));
     if (!sameStrings(members, orderedMembers)) {
@@ -147,6 +206,40 @@ export const validateZccPlanRootPreparationSemantics:
     }
     if (!sameStrings(moduleTypes, members)) {
       push("/modules", "member_join", "module bindings must exactly follow root members");
+    }
+    if (
+      typeof result.tenant === "string"
+      && typeof directories.config === "string"
+      && typeof directories.imports === "string"
+      && typeof directories.envs === "string"
+    ) {
+      const overlays = [
+        tenantDirectoryOverlay(directories.config, "config", result.tenant),
+        tenantDirectoryOverlay(directories.imports, "imports", result.tenant),
+        tenantDirectoryOverlay(directories.envs, "envs", result.tenant),
+      ] as const;
+      if (
+        overlays.some((overlay) => overlay === null)
+        || !sameTenantDirectoryOverlay(overlays[0], overlays[1])
+        || !sameTenantDirectoryOverlay(overlays[0], overlays[2])
+      ) {
+        push(
+          "/topology/directories",
+          "tenant_directory_join",
+          "config, imports, and envs must be the same deployment overlay for the candidate tenant",
+        );
+      }
+    }
+    if (
+      typeof directories.envs === "string"
+      && typeof root.label === "string"
+      && root.env_dir !== path.posix.join(directories.envs, root.label)
+    ) {
+      push(
+        "/root/env_dir",
+        "tenant_directory_join",
+        "root env directory must be derived from the topology envs directory and root label",
+      );
     }
     for (const [index, source] of sources.entries()) {
       if (source === null) {
@@ -200,6 +293,9 @@ export const validateZccPlanRootPreparationSemantics:
     }
     if (!validTextArtifact(main)) {
       push("/root/artifacts/main_tf", "artifact_digest", "main.tf bytes must match their digest and size");
+    }
+    if (main.media_type !== "text/x-hcl") {
+      push("/root/artifacts/main_tf/media_type", "artifact_media_type", "main.tf must be emitted as text/x-hcl");
     }
     if (typeof root.env_dir === "string" && main.path !== path.posix.join(root.env_dir, "main.tf")) {
       push("/root/artifacts/main_tf/path", "artifact_path", "main.tf must be rooted in the selected env directory");
@@ -274,6 +370,9 @@ export const validateZccPlanRootPreparationSemantics:
       }
       if (!validTextArtifact(artifact)) {
         push(`/root/artifacts/staged_imports/${index}`, "artifact_digest", "staged import bytes must match their digest and size");
+      }
+      if (artifact.media_type !== "text/x-hcl") {
+        push(`/root/artifacts/staged_imports/${index}/media_type`, "artifact_media_type", "staged imports must be emitted as text/x-hcl");
       }
       const resourceType = members[index];
       const source = sources[index];
@@ -360,6 +459,7 @@ export const validateZccPlanRootPreparationSemantics:
     } else if (
       desired === null
       || desired.content !== "azurerm\n"
+      || desired.media_type !== "text/plain"
       || !validTextArtifact(desired)
       || desired.path !== marker?.path
     ) {

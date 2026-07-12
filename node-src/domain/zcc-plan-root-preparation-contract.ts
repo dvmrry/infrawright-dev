@@ -17,6 +17,9 @@ export const ZCC_PLAN_ROOT_PREPARATION_PROFILE =
   "zcc_exact_five_adoption_json_no_bindings_v1" as const;
 export const ZCC_PLAN_ROOT_RENDERER_PROFILE =
   "python_gen_env_terraform_1_15_4_fmt_compatible_v1" as const;
+export const MAX_ZCC_PLAN_ROOT_HCL_ARTIFACT_BYTES = 8 * 1024 * 1024;
+export const MAX_ZCC_PLAN_ROOT_STAGED_IMPORT_BYTES = 16 * 1024 * 1024;
+export const MAX_ZCC_PLAN_ROOT_CANDIDATE_JSON_BYTES = 24 * 1024 * 1024;
 export const ZCC_PLAN_ROOT_RESOURCE_TYPES = Object.freeze([
   "zcc_device_cleanup",
   "zcc_failopen_policy",

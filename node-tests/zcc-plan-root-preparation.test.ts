@@ -25,6 +25,9 @@ import { ProcessFailure } from "../node-src/domain/errors.js";
 import { renderGeneratedImports } from "../node-src/domain/import-moves.js";
 import {
   compileZccPlanRootPreparation,
+  MAX_ZCC_PLAN_ROOT_CANDIDATE_JSON_BYTES,
+  MAX_ZCC_PLAN_ROOT_HCL_ARTIFACT_BYTES,
+  MAX_ZCC_PLAN_ROOT_STAGED_IMPORT_BYTES,
   renderZccPlanRootMain,
   zccPlanRootTextArtifact,
   ZCC_PLAN_ROOT_PREPARATION_PROFILE,
@@ -33,6 +36,7 @@ import {
 import type { ZccAdoptionArtifactMaterialization } from "../node-src/domain/zcc-adoption-materialization.js";
 import type { ZccPullResourceType } from "../node-src/domain/zcc-pull-artifacts.js";
 import type { CompilePlanRootPreparationProcessRequest } from "../node-src/process/types.js";
+import { prepareProcessResponseForEmission } from "../node-src/process/response-emission.js";
 
 const REPO = process.cwd();
 const CATALOG = path.join(REPO, "catalogs/zscaler-root-catalog.v1.json");
@@ -358,6 +362,78 @@ test("rejects malformed direct callers before filesystem work", async () => {
   assert.equal(await failureCode(async () => {
     await compileZccPlanRootPreparation(accessor as never);
   }), "INVALID_PLAN_ROOT_INPUT");
+  const direct = {
+    workspace: "/not-inspected",
+    deploymentPath: "/not-inspected/deployment.json",
+    catalogPath: "/not-inspected/catalog.json",
+    profile: ZCC_PLAN_ROOT_PREPARATION_PROFILE,
+    mode: "bootstrap",
+    tenant: TENANT,
+    resourceType: "zcc_device_cleanup",
+    backend: "local",
+  } as const;
+  assert.equal(await failureCode(async () => {
+    await compileZccPlanRootPreparation({
+      ...direct,
+      materializations: new Array(100_000).fill(null),
+    } as never);
+  }), "INVALID_PLAN_ROOT_INPUT");
+  assert.equal(await failureCode(async () => {
+    await compileZccPlanRootPreparation({
+      ...direct,
+      materializations: [{ wide: new Array(513).fill(null) }],
+    } as never);
+  }), "INVALID_PLAN_ROOT_INPUT");
+  assert.equal(await failureCode(async () => {
+    await compileZccPlanRootPreparation({
+      ...direct,
+      materializations: [{ value: "x".repeat((1024 * 1024) + 1) }],
+    } as never);
+  }), "INVALID_PLAN_ROOT_INPUT");
+});
+
+test("uses backend-marker refusal taxonomy for a local marker", async (t) => {
+  const value = fixture();
+  t.after(() => rmSync(value.root, { recursive: true, force: true }));
+  const target = path.join(value.workspace, `envs/${TENANT}/.backend`);
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, "azurerm\n");
+  assert.equal(await failureCode(async () => {
+    await compileZccPlanRootPreparation(compileOptions(value));
+  }), "PLAN_ROOT_BACKEND_MARKER_MISMATCH");
+});
+
+test("preflights per-file and grouped staged-import byte budgets", async (t) => {
+  const singleton = fixture();
+  t.after(() => rmSync(singleton.root, { recursive: true, force: true }));
+  const oversized: any = structuredClone(singleton.receipts);
+  const singletonImports = oversized[0].verification.parity.artifacts.imports;
+  singletonImports.candidate.size_bytes = MAX_ZCC_PLAN_ROOT_HCL_ARTIFACT_BYTES + 1;
+  singletonImports.reference.size_bytes = MAX_ZCC_PLAN_ROOT_HCL_ARTIFACT_BYTES + 1;
+  assert.equal(validateZccAdoptionArtifactMaterialization(oversized[0]), true);
+  assert.equal(await failureCode(async () => {
+    await compileZccPlanRootPreparation({
+      ...compileOptions(singleton),
+      materializations: oversized,
+    });
+  }), "PLAN_ROOT_CANDIDATE_TOO_LARGE");
+
+  const grouped = fixture({ grouped: true });
+  t.after(() => rmSync(grouped.root, { recursive: true, force: true }));
+  const aggregate: any = structuredClone(grouped.receipts);
+  const each = Math.floor(MAX_ZCC_PLAN_ROOT_STAGED_IMPORT_BYTES / aggregate.length) + 1;
+  for (const item of aggregate) {
+    const imports = item.verification.parity.artifacts.imports;
+    imports.candidate.size_bytes = each;
+    imports.reference.size_bytes = each;
+    assert.equal(validateZccAdoptionArtifactMaterialization(item), true);
+  }
+  assert.equal(await failureCode(async () => {
+    await compileZccPlanRootPreparation({
+      ...compileOptions(grouped),
+      materializations: aggregate,
+    });
+  }), "PLAN_ROOT_CANDIDATE_TOO_LARGE");
 });
 
 test("rejects root expression bindings and stale staged moves", async (t) => {
@@ -374,6 +450,18 @@ test("rejects root expression bindings and stale staged moves", async (t) => {
       await compileZccPlanRootPreparation(compileOptions(value));
     }), "UNSUPPORTED_PLAN_ROOT_SIDECAR", relativePath);
   }
+});
+
+test("refuses absolute deployment overlays instead of emitting checkout-specific paths", async (t) => {
+  const value = fixture();
+  t.after(() => rmSync(value.root, { recursive: true, force: true }));
+  writeFileSync(value.deploymentPath, `${JSON.stringify({
+    overlay: path.join(value.workspace, "overlay"),
+    roots: {},
+  })}\n`);
+  assert.equal(await failureCode(async () => {
+    await compileZccPlanRootPreparation(compileOptions(value));
+  }), "UNSUPPORTED_PLAN_ROOT_OVERLAY");
 });
 
 test("final synchronous CAS catches mutation after every async recheck", async (t) => {
@@ -565,6 +653,10 @@ test("standalone semantics reject every redundant candidate tamper", async (t) =
   const outcome = await compileZccPlanRootPreparation(compileOptions(value));
   const cases: readonly [string, (candidate: any) => void][] = [
     ["main bytes", (candidate) => { candidate.root.artifacts.main_tf.content += "# foreign\n"; }],
+    ["main media type", (candidate) => { candidate.root.artifacts.main_tf.media_type = "text/plain"; }],
+    ["staged media type", (candidate) => {
+      candidate.root.artifacts.staged_imports[0].media_type = "text/plain";
+    }],
     ["sidecar set", (candidate) => { candidate.absent_sidecars.pop(); }],
     ["resource roots", (candidate) => { candidate.topology.resource_roots.foreign = candidate.root.label; }],
     ["module source", (candidate) => { candidate.modules[0].source = "./foreign"; }],
@@ -578,6 +670,33 @@ test("standalone semantics reject every redundant candidate tamper", async (t) =
     mutate(candidate);
     assert.equal(validateZccPlanRootPreparation(candidate), false, name);
   }
+
+  const foreignMarker: any = structuredClone(outcome.result);
+  foreignMarker.topology.directories.envs = "foreign-envs";
+  foreignMarker.backend_marker.path = "foreign-envs/.backend";
+  assert.equal(validateZccPlanRootPreparation(foreignMarker), false);
+  assert.equal(validateProcessResponse({
+    kind: "infrawright.process_response",
+    schema_version: 1,
+    request_id: "forged-plan-root",
+    operation: "compile_plan_root_preparation",
+    status: "ok",
+    diagnostics: [],
+    result: foreignMarker,
+    error: null,
+  }), false);
+
+  const overBudget: any = structuredClone(outcome.result);
+  overBudget.sources[0].provider_observed_source.path = "x".repeat(
+    MAX_ZCC_PLAN_ROOT_CANDIDATE_JSON_BYTES + 1,
+  );
+  assert.equal(validateZccPlanRootPreparation(overBudget), false);
+  assert.equal(
+    validateZccPlanRootPreparation.errors?.some((error) => {
+      return (error.params as { rule?: string }).rule === "candidate_byte_budget";
+    }),
+    true,
+  );
 
   const request = processRequest(value);
   const echoedSource: any = structuredClone(outcome.result);
@@ -698,6 +817,30 @@ test("public process exposes success and redacted refusal exit contracts", (t) =
   assert.equal(refused.status, 2, refused.stderr);
   assert.equal(refused.stdout.includes(secret), false);
   assert.equal(JSON.parse(refused.stdout).error.code, "INVALID_REQUEST");
+});
+
+test("response-size refusal preserves validated request identity", async (t) => {
+  const value = fixture();
+  t.after(() => rmSync(value.root, { recursive: true, force: true }));
+  const outcome = await compileZccPlanRootPreparation(compileOptions(value));
+  const success: any = {
+    kind: "infrawright.process_response",
+    schema_version: 1,
+    request_id: "bounded-plan-root",
+    operation: "compile_plan_root_preparation",
+    status: "ok",
+    diagnostics: outcome.diagnostics,
+    result: outcome.result,
+    error: null,
+  };
+  assert.equal(validateProcessResponse(success), true);
+  const prepared = prepareProcessResponseForEmission(success, 1);
+  assert.equal(prepared.oversized, true);
+  assert.equal(prepared.response.request_id, "bounded-plan-root");
+  assert.equal(prepared.response.operation, "compile_plan_root_preparation");
+  assert.equal(prepared.response.status, "error");
+  assert.equal(prepared.response.error?.code, "PROCESS_RESPONSE_TOO_LARGE");
+  assert.equal(validateProcessResponse(prepared.response), true);
 });
 
 test("production parent bundle reaches the read-only compiler", (t) => {

@@ -771,7 +771,12 @@ rejected before artifact or module reads.
 The context is closed over one canonical absolute workspace and canonical
 workspace-contained deployment and exact all-Zscaler root-catalog files. The
 deployment must select JSON tfvars and `roots.zcc.bind_references` must be false
-or absent. Canonical HCL tfvars alternates, operator or generated expression
+or absent, and its overlay must remain repository-relative so emitted artifact
+paths are checkout-independent. The returned `config`, `imports`, and `envs`
+directories must encode
+one identical deployment overlay and tenant, and the root env directory is
+exactly `<directories.envs>/<root-label>`. Canonical HCL tfvars alternates,
+operator or generated expression
 sidecars, the root `expression_bindings.tf`, canonical moves/pending markers,
 and stale env-root staged move files must all be absent. The operation exact-
 joins every receipt's tenant, resource, root label/member set/variable name,
@@ -813,6 +818,15 @@ deterministic counts/order. Because import blocks contain adoption identifiers,
 the response is content-bearing private data and must remain inside the same
 protected artifact boundary as the materialization receipts.
 
+Every returned `main.tf` and staged import is labeled `text/x-hcl`; only the
+desired backend marker is `text/plain`. A staged import is limited to 8 MiB,
+all staged imports together to 16 MiB, and the complete Python-compatible
+candidate JSON to 24 MiB including escaped content and module metadata. The
+enclosing process response has an independent exact 32 MiB serialized limit.
+Size checks happen without first rendering an oversized response; a transport
+refusal preserves the validated request ID and operation in its structured
+error envelope.
+
 `status: "candidate_only"` and the fixed qualification object explicitly say
 readiness and cutover are not qualified and validation, plan, apply, refresh,
 and publication were not performed. A schema-valid candidate is therefore not
@@ -834,6 +848,11 @@ after all asynchronous rechecks closes the result commit point for the
 workspace, controls, current artifacts, backend marker, absent paths, module
 roots, and reported module files. The observed-unqualified module limitation
 above still applies to unreported namespace entries.
+
+The exported direct compiler also treats its options as hostile input. It
+descriptor-checks the one-to-five receipt array before copying it, then caps
+the snapshot at depth 16, 512 nodes, 512 properties, and 1 MiB of aggregate
+UTF-8 key/value strings. Oversized graphs fail before filesystem work.
 
 Success exits `0`. Request/domain refusals exit `2`; filesystem, stability, or
 internal failures exit `1`. The operation has no review-required result and

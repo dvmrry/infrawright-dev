@@ -249,13 +249,33 @@ export function supportedJsonGraph(
  */
 export function snapshotPlainJsonGraph(
   value: unknown,
-  options: { readonly maxDepth: number },
+  options: {
+    readonly maxDepth: number;
+    readonly maxNodes?: number;
+    readonly maxProperties?: number;
+    readonly maxStringBytes?: number;
+  },
 ): PlainJsonGraphSnapshot {
-  if (!Number.isSafeInteger(options.maxDepth) || options.maxDepth < 1) {
+  const maxNodes = options.maxNodes ?? Number.MAX_SAFE_INTEGER;
+  const maxProperties = options.maxProperties ?? Number.MAX_SAFE_INTEGER;
+  const maxStringBytes = options.maxStringBytes ?? Number.MAX_SAFE_INTEGER;
+  if (
+    !Number.isSafeInteger(options.maxDepth)
+    || options.maxDepth < 1
+    || !Number.isSafeInteger(maxNodes)
+    || maxNodes < 1
+    || !Number.isSafeInteger(maxProperties)
+    || maxProperties < 0
+    || !Number.isSafeInteger(maxStringBytes)
+    || maxStringBytes < 0
+  ) {
     return { ok: false };
   }
   const root: { value?: unknown } = {};
   const ancestors = new Set<object>();
+  let nodes = 0;
+  let properties = 0;
+  let stringBytes = 0;
   const stack: SnapshotVisit[] = [{
     kind: "enter",
     value,
@@ -275,6 +295,10 @@ export function snapshotPlainJsonGraph(
       continue;
     }
     const current = visit.value;
+    nodes += 1;
+    if (nodes > maxNodes) {
+      return { ok: false };
+    }
     if (
       (
         (typeof current === "object" && current !== null)
@@ -285,7 +309,11 @@ export function snapshotPlainJsonGraph(
       return { ok: false };
     }
     if (typeof current === "string") {
-      if (!current.isWellFormed()) {
+      if (current.length > maxStringBytes - stringBytes) {
+        return { ok: false };
+      }
+      stringBytes += Buffer.byteLength(current, "utf8");
+      if (!current.isWellFormed() || stringBytes > maxStringBytes) {
         return { ok: false };
       }
       visit.assign(current);
@@ -313,6 +341,18 @@ export function snapshotPlainJsonGraph(
     if (visit.depth > options.maxDepth || ancestors.has(current)) {
       return { ok: false };
     }
+    if (Array.isArray(current)) {
+      const lengthDescriptor = Object.getOwnPropertyDescriptor(current, "length");
+      if (
+        lengthDescriptor === undefined
+        || !("value" in lengthDescriptor)
+        || !Number.isSafeInteger(lengthDescriptor.value)
+        || lengthDescriptor.value < 0
+        || lengthDescriptor.value > maxProperties - properties
+      ) {
+        return { ok: false };
+      }
+    }
     const arrayShape = Array.isArray(current)
       ? strictArrayShape(current)
       : null;
@@ -321,6 +361,19 @@ export function snapshotPlainJsonGraph(
       : strictRecordChildren(current);
     if (children === null) {
       return { ok: false };
+    }
+    properties += children.length;
+    if (properties > maxProperties) {
+      return { ok: false };
+    }
+    for (const child of children) {
+      if (child.key.length > maxStringBytes - stringBytes) {
+        return { ok: false };
+      }
+      stringBytes += Buffer.byteLength(child.key, "utf8");
+      if (stringBytes > maxStringBytes) {
+        return { ok: false };
+      }
     }
     const snapshot: unknown[] | Record<string, unknown> = Array.isArray(current)
       ? new Array(arrayShape?.length ?? 0) as unknown[]

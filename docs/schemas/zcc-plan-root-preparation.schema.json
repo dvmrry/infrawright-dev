@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://infrawright.local/schemas/zcc-plan-root-preparation.schema.json",
   "title": "Infrawright ZCC Plan-Root Preparation Candidate",
-  "$comment": "A read-only, content-bearing candidate for one freshly derived exact-five ZCC whole root. Candidate-only explicitly denies validation, plan, apply, refresh, publication, readiness, and cutover claims. Module fingerprints are observed content bindings, not authenticated provenance.",
+  "$comment": "A read-only, content-bearing candidate for one freshly derived exact-five ZCC whole root. Candidate-only explicitly denies validation, plan, apply, refresh, publication, readiness, and cutover claims. Module fingerprints are observed content bindings, not authenticated provenance. The custom semantic keyword caps the complete Python-compatible candidate JSON at 25165824 bytes; the enclosing process response is independently capped at 33554432 bytes.",
   "type": "object",
   "x-infrawright-zcc-plan-root-preparation-semantics": true,
   "additionalProperties": false,
@@ -185,6 +185,19 @@
         "content": { "type": "string", "maxLength": 33554432 }
       }
     },
+    "hclArtifact": {
+      "allOf": [
+        { "$ref": "#/$defs/textArtifact" },
+        {
+          "type": "object",
+          "properties": {
+            "media_type": { "const": "text/x-hcl" },
+            "size_bytes": { "type": "integer", "minimum": 0, "maximum": 8388608 },
+            "content": { "type": "string", "maxLength": 8388608 }
+          }
+        }
+      ]
+    },
     "sourceBinding": {
       "type": "object",
       "additionalProperties": false,
@@ -266,12 +279,12 @@
           "additionalProperties": false,
           "required": ["main_tf", "staged_imports"],
           "properties": {
-            "main_tf": { "$ref": "#/$defs/textArtifact" },
+            "main_tf": { "$ref": "#/$defs/hclArtifact" },
             "staged_imports": {
               "type": "array",
               "minItems": 1,
               "maxItems": 5,
-              "items": { "$ref": "#/$defs/textArtifact" }
+              "items": { "$ref": "#/$defs/hclArtifact" }
             }
           }
         }

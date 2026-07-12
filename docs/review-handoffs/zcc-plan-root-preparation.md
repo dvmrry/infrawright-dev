@@ -29,15 +29,20 @@
   - `node-src/domain/zcc-plan-root-preparation-contract.ts`
   - `node-src/domain/zcc-plan-root-preparation.ts`
   - `node-src/contracts/zcc-plan-root-preparation-semantics.ts`
+  - `node-src/json/python-compatible.ts`
+  - `node-src/json/supported-json-graph.ts`
   - `docs/schemas/zcc-plan-root-preparation.schema.json`
   - `node-src/contracts/validators.ts`
   - `node-src/process/types.ts`
   - `node-src/process/execute.ts`
   - `node-src/process/main.ts`
+  - `node-src/process/limits.ts`
+  - `node-src/process/response-emission.ts`
   - `docs/schemas/process-request.schema.json`
   - `docs/schemas/process-response.schema.json`
   - `docs/node-process-api.md`
   - `node-tests/zcc-plan-root-preparation.test.ts`
+  - `node-tests/json.test.ts`
   - `docs/review-handoffs/zcc-plan-root-preparation.md`
 - Files intentionally left untouched:
   - Python `engine.gen_env`, `engine.ops`, deployment, and catalog producers;
@@ -95,7 +100,7 @@
     module bindings, source/control joins, backend-marker state/intent, and
     absence evidence without writes;
   - any HCL tfvars mode, binding sidecar, move sidecar, stale lookup, receipt
-    disagreement, unsupported topology/member, unsafe path, module/control/
+    disagreement, absolute overlay, unsupported topology/member, unsafe path, module/control/
     artifact mutation, or noncanonical import content fails closed.
 - Expected report/count/coverage changes: one selected root; member, module, and
   staged-import counts are equal and mechanically derived in the range 1..5.
@@ -111,6 +116,30 @@
   uses two `if`/`then` branches to avoid amplifying malformed-request errors.
   Review should verify that this changes diagnostics only as intended and does
   not widen any complete process request.
+
+## Review Remediation
+
+- Fresh Sol review of `0ad438b...fa86480` requested changes for three contract
+  gaps. This working-tree patch closes all three:
+  - candidate semantics now bind the common deployment overlay/tenant,
+    `root.env_dir`, marker path, and fixed HCL media types; exact forged
+    topology and media-type regressions fail standalone and process-response
+    validation;
+  - staged HCL is capped at 8 MiB per file/16 MiB aggregate, the complete
+    escaped candidate at 24 MiB, and the complete response at 32 MiB using an
+    exact non-rendering byte counter; oversize transport errors retain request
+    identity;
+  - the direct receipt snapshot now preflights one-to-five entries and enforces
+    depth/node/property/string-byte ceilings before filesystem access.
+- Fable xHigh approved the original range with nits. Its actionable diagnostic
+  nit is also fixed: a present local backend marker now reports
+  `PLAN_ROOT_BACKEND_MARKER_MISMATCH`, not the unrelated sidecar refusal. The
+  misleading `snapshotReceipts` name is now
+  `validateSnapshottedReceipts`.
+- The Terraform 1.15.4 differential still skips visibly when that exact binary
+  is unavailable. Pinning a hosted CI lane remains follow-up infrastructure;
+  frozen byte fixtures and the locally executed exact-version differential
+  remain the in-slice gates.
 
 ## Invariants Claimed
 
@@ -134,6 +163,9 @@
   - request options, receipts, and hooks are snapshotted as inert exact graphs
     before filesystem I/O; proxies, accessors, extras, sparse/cyclic graphs,
     and unsupported primitives fail closed;
+  - the direct receipt graph is rejected before cloning unless it has one to
+    five entries, then is bounded to depth 16, 512 nodes/properties, and 1 MiB
+    of aggregate UTF-8 strings;
   - source receipts must be existing aggregate-validated materialization
     receipts, sorted and complete for the freshly expanded root;
   - controls, artifacts, backend marker, sidecar absences, module roots/files,
@@ -144,6 +176,9 @@
   - success intentionally contains candidate HCL/import contents; errors and
     diagnostics do not echo those contents, absolute paths, credentials, URLs,
     or raw provider data;
+  - emitted HCL media types, tenant-directory topology, and serialized
+    candidate/response byte ceilings are semantic contract checks, not caller
+    conventions;
   - the operation performs no write, provider call, Terraform subprocess,
     Python subprocess, validation, plan, apply, or publication.
 
@@ -151,6 +186,7 @@
 
 - Commands:
   - `npm run build:test` and focused Node 24.15 execution of
+    `.node-test/node-tests/json.test.js` plus
     `.node-test/node-tests/zcc-plan-root-preparation.test.js` with
     `--test-concurrency=2`;
   - adjacent process, materialization semantics, fingerprint, import
@@ -168,10 +204,11 @@
   - `make check-pack check-pack-set`, `npm run build`, JSON parse of every
     published schema, `bash -n scripts/release.sh`, and `git diff --check`.
 - Relevant output summary:
-  - focused Node 24.15: 22/22 passed;
-  - adjacent Node 24.15: 86 total, 85 passed, zero failed, one existing
+  - focused remediation surface on Node 24.15: 33/33 passed, including four
+    live Python/Terraform-1.15.4 differentials;
+  - adjacent Node 24.15: 97 total, 96 passed, zero failed, one existing
     Linux-only skip;
-  - changed Node 24.14 surface: 54/54 passed;
+  - changed Node 24.14 surface: 65/65 passed;
   - targeted Python: 117/117 passed;
   - physically pruned empty: 867/867 passed;
   - physically pruned Zscaler: 1,381 selected, 1,380 passed, zero failed, one
@@ -249,7 +286,7 @@
     Terraform differential outputs.
 - Edge cases that could silently overclaim, remap, drop, or weaken evidence:
   - same-directory `./.`, spaces, quotes/backslashes/control characters,
-    `${`/`%{`, absolute/external overlays, symlinked or replaced authorities,
+    `${`/`%{`, explicitly refused absolute/external overlays, symlinked or replaced authorities,
     32 MiB artifact boundaries, empty/oversized modules, stale lookups, any of
     the seven-per-member sidecars, partial grouped roots, forged receipt source
     echoes, coherent result relabeling, malformed imports, and mutation after
