@@ -10,6 +10,7 @@ import {
   type FileHandle,
 } from "node:fs/promises";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { types as utilTypes } from "node:util";
 
 import {
@@ -22,12 +23,10 @@ import { ProcessFailure } from "../domain/errors.js";
 import {
   DEFAULT_TERRAFORM_COMMAND_LIMITS,
   runTerraformCommand,
-  type TerraformCommandLimits,
 } from "./terraform-command.js";
 import {
   DEFAULT_TERRAFORM_SHOW_LIMITS,
   terraformShowPlan,
-  type TerraformShowLimits,
 } from "./terraform-show.js";
 import { sameStringSequence } from "../json/python-compatible.js";
 
@@ -36,20 +35,10 @@ const MAX_SCRATCH_FILE_BYTES = 256 * 1024 * 1024;
 const MAX_TEXT_FILE_BYTES = 4 * 1024 * 1024;
 const HASH_CHUNK_BYTES = 64 * 1024;
 
-/**
- * Match the legacy oracle's 300-second per-subprocess default for the private
- * provider lane. The generic runner and existing public show adapter retain
- * their shorter defaults; callers may only tighten these ZCC-specific bounds.
- */
-export const DEFAULT_ZCC_ADOPTION_ORACLE_COMMAND_LIMITS = Object.freeze({
-  ...DEFAULT_TERRAFORM_COMMAND_LIMITS,
-  timeoutMs: 300_000,
-});
-
-export const DEFAULT_ZCC_ADOPTION_ORACLE_SHOW_LIMITS = Object.freeze({
-  ...DEFAULT_TERRAFORM_SHOW_LIMITS,
-  timeoutMs: 300_000,
-});
+/** Fixed host policy; neither the private oracle request nor factory selects it. */
+export const ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS = 300_000;
+/** Cleanup is outside the transaction deadline and gets one bounded final window. */
+export const ZCC_ADOPTION_ORACLE_CLEANUP_TIMEOUT_MS = 30_000;
 
 const SUPPLIED_ENVIRONMENT_NAMES = new Set([
   "ZSCALER_CLIENT_ID",
@@ -69,9 +58,6 @@ const FACTORY_OPTION_NAMES = new Set([
   "terraformExecutable",
   "tempRoot",
   "environment",
-  "pluginCacheDirectory",
-  "commandLimits",
-  "showLimits",
 ]);
 
 type AdapterPhase = "fresh" | "creating" | "active" | "spent";
@@ -83,21 +69,12 @@ export interface ZccAdoptionOracleAdapterFactoryOptions {
   readonly tempRoot: string;
   /** Complete caller-supplied provider/proxy/certificate environment allowlist. */
   readonly environment: Readonly<Record<string, string>>;
-  /** Optional existing canonical shared Terraform provider cache. */
-  readonly pluginCacheDirectory?: string;
-  /** May only tighten the command runner's defaults. */
-  readonly commandLimits?: TerraformCommandLimits;
-  /** May only tighten the show parser's defaults. */
-  readonly showLimits?: TerraformShowLimits;
 }
 
 interface FrozenFactoryOptions {
   readonly terraformExecutable: string;
   readonly tempRoot: string;
   readonly environment: Readonly<Record<string, string>>;
-  readonly pluginCacheDirectory: string | null;
-  readonly commandLimits: TerraformCommandLimits;
-  readonly showLimits: TerraformShowLimits;
 }
 
 interface DirectoryBinding {
@@ -125,11 +102,23 @@ interface FileBinding {
   readonly sha256: string;
 }
 
+type ProtectionFailureCode =
+  | "ZCC_ORACLE_COMMAND_PROTECTION_FAILED"
+  | "ZCC_ORACLE_SHOW_PROTECTION_FAILED"
+  | "ZCC_ORACLE_FINAL_PROTECTION_FAILED";
+
+interface ProtectedWorkOutcome {
+  readonly error: unknown;
+  readonly failed: boolean;
+  readonly timeout: ProcessFailure | null;
+}
+
 interface TransactionPaths {
   readonly directory: string;
   readonly generatedConfig: string;
   readonly home: string;
   readonly imports: string;
+  readonly lock: string;
   readonly plan: string;
   readonly root: string;
   readonly state: string;
@@ -249,52 +238,6 @@ function snapshotEnvironment(value: unknown): Readonly<Record<string, string>> {
   return Object.freeze(result);
 }
 
-function snapshotLimits<T extends TerraformCommandLimits | TerraformShowLimits>(
-  value: unknown,
-  defaults: T,
-): T {
-  if (!plainRecord(value)) {
-    return fail(
-      "INVALID_ZCC_ORACLE_ADAPTER_LIMITS",
-      "ZCC oracle adapter limits are not allowed",
-      "domain",
-    );
-  }
-  const allowed = new Set(["timeoutMs", "maxStdoutBytes", "maxStderrBytes"]);
-  if (Reflect.ownKeys(value).some((key) => typeof key !== "string" || !allowed.has(key))) {
-    return fail(
-      "INVALID_ZCC_ORACLE_ADAPTER_LIMITS",
-      "ZCC oracle adapter limits are not allowed",
-      "domain",
-    );
-  }
-  const timeoutMs = dataProperty(value, "timeoutMs", true);
-  const maxStdoutBytes = dataProperty(value, "maxStdoutBytes", true);
-  const maxStderrBytes = dataProperty(value, "maxStderrBytes", true);
-  if (
-    !Number.isSafeInteger(timeoutMs)
-    || (timeoutMs as number) <= 0
-    || (timeoutMs as number) > defaults.timeoutMs
-    || !Number.isSafeInteger(maxStdoutBytes)
-    || (maxStdoutBytes as number) <= 0
-    || (maxStdoutBytes as number) > defaults.maxStdoutBytes
-    || !Number.isSafeInteger(maxStderrBytes)
-    || (maxStderrBytes as number) <= 0
-    || (maxStderrBytes as number) > defaults.maxStderrBytes
-  ) {
-    return fail(
-      "INVALID_ZCC_ORACLE_ADAPTER_LIMITS",
-      "ZCC oracle adapter limits may only tighten the defaults",
-      "domain",
-    );
-  }
-  return Object.freeze({
-    timeoutMs: timeoutMs as number,
-    maxStdoutBytes: maxStdoutBytes as number,
-    maxStderrBytes: maxStderrBytes as number,
-  }) as T;
-}
-
 function snapshotOptions(
   value: ZccAdoptionOracleAdapterFactoryOptions,
 ): FrozenFactoryOptions {
@@ -319,9 +262,6 @@ function snapshotOptions(
   const terraformExecutable = dataProperty(value, "terraformExecutable", true);
   const tempRoot = dataProperty(value, "tempRoot", true);
   const environment = snapshotEnvironment(dataProperty(value, "environment", true));
-  const pluginCacheDirectory = dataProperty(value, "pluginCacheDirectory", false);
-  const commandLimits = dataProperty(value, "commandLimits", false);
-  const showLimits = dataProperty(value, "showLimits", false);
   if (
     !validString(terraformExecutable)
     || !path.isAbsolute(terraformExecutable)
@@ -330,14 +270,6 @@ function snapshotOptions(
     || !path.isAbsolute(tempRoot)
     || path.resolve(tempRoot) !== tempRoot
     || path.parse(tempRoot).root === tempRoot
-    || (
-      pluginCacheDirectory !== undefined
-      && (
-        !validString(pluginCacheDirectory)
-        || !path.isAbsolute(pluginCacheDirectory)
-        || path.resolve(pluginCacheDirectory) !== pluginCacheDirectory
-      )
-    )
   ) {
     return fail(
       "INVALID_ZCC_ORACLE_ADAPTER_OPTIONS",
@@ -349,13 +281,6 @@ function snapshotOptions(
     terraformExecutable,
     tempRoot,
     environment,
-    pluginCacheDirectory: pluginCacheDirectory as string | undefined ?? null,
-    commandLimits: commandLimits === undefined
-      ? DEFAULT_ZCC_ADOPTION_ORACLE_COMMAND_LIMITS
-      : snapshotLimits(commandLimits, DEFAULT_ZCC_ADOPTION_ORACLE_COMMAND_LIMITS),
-    showLimits: showLimits === undefined
-      ? DEFAULT_ZCC_ADOPTION_ORACLE_SHOW_LIMITS
-      : snapshotLimits(showLimits, DEFAULT_ZCC_ADOPTION_ORACLE_SHOW_LIMITS),
   });
 }
 
@@ -653,6 +578,7 @@ function transactionPaths(directory: string): TransactionPaths {
     generatedConfig: path.join(directory, "generated.tf"),
     home: path.join(directory, ".home"),
     imports: path.join(directory, "imports.tf"),
+    lock: path.join(directory, ".terraform.lock.hcl"),
     plan: path.join(directory, "oracle.tfplan"),
     root: path.join(directory, "main.tf"),
     state: path.join(directory, "terraform.tfstate"),
@@ -712,7 +638,13 @@ function expectedCommandArgv(
   paths: TransactionPaths,
 ): readonly string[] {
   if (stage === "init") {
-    return ["init", "-input=false", "-no-color"];
+    return [
+      "init",
+      "-backend=false",
+      "-input=false",
+      "-no-color",
+      "-lockfile=readonly",
+    ];
   }
   if (stage === "plan") {
     return [
@@ -739,14 +671,21 @@ function expectedProtectedPaths(
   paths: TransactionPaths,
 ): readonly string[] {
   if (stage === "init" || stage === "plan") {
-    return [paths.root, paths.imports];
+    return [paths.root, paths.imports, paths.lock];
   }
   if (stage === "show-plan" || stage === "apply") {
-    return [paths.root, paths.imports, paths.generatedConfig, paths.plan];
+    return [
+      paths.root,
+      paths.imports,
+      paths.lock,
+      paths.generatedConfig,
+      paths.plan,
+    ];
   }
   return [
     paths.root,
     paths.imports,
+    paths.lock,
     paths.generatedConfig,
     paths.plan,
     paths.state,
@@ -784,7 +723,7 @@ export function createZccAdoptionOracleAdapters(
   let phase: AdapterPhase = "fresh";
   let tempRootBinding: DirectoryBinding | null = null;
   let transactionBinding: DirectoryBinding | null = null;
-  let pluginCacheBinding: DirectoryBinding | null = null;
+  let transactionDeadline: number | null = null;
   let paths: TransactionPaths | null = null;
   let environment: Readonly<Record<string, string>> | null = null;
   const privateDirectories: DirectoryBinding[] = [];
@@ -817,18 +756,90 @@ export function createZccAdoptionOracleAdapters(
     for (const directory of privateDirectories) {
       await recheckDirectory(directory, true);
     }
-    if (pluginCacheBinding !== null) {
-      const metadata = await lstat(pluginCacheBinding.absolutePath, { bigint: true });
-      const current = directoryBinding(pluginCacheBinding.absolutePath, metadata);
-      if (
-        !metadata.isDirectory()
-        || metadata.isSymbolicLink()
-        || !sameDirectory(pluginCacheBinding, current)
-      ) {
-        return fail(
-          "ZCC_ORACLE_DIRECTORY_CHANGED",
-          "ZCC oracle trusted plugin cache changed during the transaction",
-        );
+  };
+
+  const transactionTimeout = (): ProcessFailure => new ProcessFailure({
+    code: "ZCC_ADOPTION_ORACLE_TIMEOUT",
+    category: "io",
+    message: "ZCC adoption oracle transaction exceeded its execution deadline",
+  });
+
+  const withProtectionFailure = (
+    primary: ProcessFailure,
+    code: ProtectionFailureCode,
+    message: string,
+  ): ProcessFailure => new ProcessFailure({
+    code: primary.code,
+    category: primary.category,
+    message: primary.message,
+    retryable: primary.retryable,
+    details: [{
+      path: "protection",
+      code,
+      message,
+    }],
+  });
+
+  const transactionRemaining = (): number => {
+    if (transactionDeadline === null) {
+      return fail(
+        "ZCC_ORACLE_ADAPTER_NOT_ACTIVE",
+        "ZCC oracle adapter transaction is not active",
+        "domain",
+      );
+    }
+    return Math.floor(transactionDeadline - performance.now());
+  };
+
+  const observedTransactionTimeout = (): ProcessFailure | null => {
+    return transactionRemaining() <= 0 ? transactionTimeout() : null;
+  };
+
+  const remainingTransactionBudget = (): number => {
+    const remaining = transactionRemaining();
+    if (remaining <= 0) {
+      throw transactionTimeout();
+    }
+    return remaining;
+  };
+
+  const attemptProtectedWork = async (
+    work: () => Promise<void>,
+    priorTimeout: ProcessFailure | null = null,
+  ): Promise<ProtectedWorkOutcome> => {
+    const before = observedTransactionTimeout();
+    let failed = false;
+    let error: unknown = null;
+    try {
+      await work();
+    } catch (caught: unknown) {
+      failed = true;
+      error = caught;
+    }
+    const after = observedTransactionTimeout();
+    return {
+      error,
+      failed,
+      timeout: priorTimeout ?? before ?? after,
+    };
+  };
+
+  const boundedCleanup = async (work: () => Promise<void>): Promise<void> => {
+    let timer: NodeJS.Timeout | null = null;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        reject(new ProcessFailure({
+          code: "ZCC_ORACLE_CLEANUP_FAILED",
+          category: "io",
+          message: "ZCC oracle private transaction cleanup exceeded its deadline",
+        }));
+      }, ZCC_ADOPTION_ORACLE_CLEANUP_TIMEOUT_MS);
+    });
+    try {
+      await Promise.race([Promise.resolve().then(work), deadline]);
+    } finally {
+      if (timer !== null) {
+        clearTimeout(timer);
       }
     }
   };
@@ -943,25 +954,6 @@ export function createZccAdoptionOracleAdapters(
       }
       tempRootBinding = await bindDirectory(options.tempRoot, "root");
       await validateExecutable(options.terraformExecutable);
-      if (options.pluginCacheDirectory !== null) {
-        const relative = path.relative(options.tempRoot, options.pluginCacheDirectory);
-        const inverse = path.relative(options.pluginCacheDirectory, options.tempRoot);
-        if (
-          relative === ""
-          || (!relative.startsWith(`..${path.sep}`) && relative !== "..")
-          || inverse === ""
-          || (!inverse.startsWith(`..${path.sep}`) && inverse !== "..")
-        ) {
-          return fail(
-            "UNSAFE_ZCC_ORACLE_PLUGIN_CACHE",
-            "ZCC oracle plugin cache and scratch authority must be separate",
-          );
-        }
-        pluginCacheBinding = await bindDirectory(
-          options.pluginCacheDirectory,
-          "trusted",
-        );
-      }
       await recheckDirectory(tempRootBinding, false);
       created = await mkdtemp(path.join(options.tempRoot, prefix));
       await forceDirectoryMode(created);
@@ -986,16 +978,18 @@ export function createZccAdoptionOracleAdapters(
         TMPDIR: paths.temporary,
         TF_DATA_DIR: paths.terraformData,
       });
-      if (options.pluginCacheDirectory !== null) {
-        childEnvironment.TF_PLUGIN_CACHE_DIR = options.pluginCacheDirectory;
-      }
       environment = Object.freeze(childEnvironment);
+      transactionDeadline = performance.now()
+        + ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS;
       phase = "active";
       return created;
     } catch (error: unknown) {
       phase = "spent";
       if (created !== null) {
-        await rm(created, { force: true, recursive: true }).catch(() => undefined);
+        const cleanupPath = created;
+        await boundedCleanup(() => {
+          return rm(cleanupPath, { force: true, recursive: true });
+        }).catch(() => undefined);
       }
       if (error instanceof ProcessFailure) {
         throw error;
@@ -1010,29 +1004,37 @@ export function createZccAdoptionOracleAdapters(
   const removeTemporary = async (directory: string): Promise<void> => {
     const active = requireActive();
     phase = "spent";
+    transactionDeadline = null;
     let changed = directory !== active.paths.directory;
-    try {
-      if (transactionBinding === null || tempRootBinding === null) {
-        changed = true;
-      } else {
-        await recheckDirectory(transactionBinding, true).catch(() => {
-          changed = true;
-        });
-      }
-      await rm(active.paths.directory, { force: true, recursive: true });
+    const cleanup = async (): Promise<void> => {
       try {
-        await lstat(active.paths.directory);
-        changed = true;
-      } catch (error: unknown) {
-        if (errorCode(error) !== "ENOENT") {
+        if (transactionBinding === null || tempRootBinding === null) {
           changed = true;
+        } else {
+          await recheckDirectory(transactionBinding, true).catch(() => {
+            changed = true;
+          });
         }
-      }
-      if (tempRootBinding !== null) {
-        await recheckDirectory(tempRootBinding, false).catch(() => {
+        await rm(active.paths.directory, { force: true, recursive: true });
+        try {
+          await lstat(active.paths.directory);
           changed = true;
-        });
+        } catch (error: unknown) {
+          if (errorCode(error) !== "ENOENT") {
+            changed = true;
+          }
+        }
+        if (tempRootBinding !== null) {
+          await recheckDirectory(tempRootBinding, false).catch(() => {
+            changed = true;
+          });
+        }
+      } catch {
+        changed = true;
       }
+    };
+    try {
+      await boundedCleanup(cleanup);
     } catch {
       changed = true;
     }
@@ -1061,7 +1063,11 @@ export function createZccAdoptionOracleAdapters(
       || content.includes("\0")
       || !content.isWellFormed()
       || !containedDirectFile(requestedPath, active.paths)
-      || (requestedPath !== active.paths.root && requestedPath !== active.paths.imports)
+      || (
+        requestedPath !== active.paths.root
+        && requestedPath !== active.paths.imports
+        && requestedPath !== active.paths.lock
+      )
       || files.has(requestedPath)
     ) {
       return fail(
@@ -1131,8 +1137,23 @@ export function createZccAdoptionOracleAdapters(
         "domain",
       );
     }
-    await bindOrRecheck(protectedPaths, stage, active.paths);
-    await requireProducedFilesAbsent(stage, active.paths);
+    const preflight = await attemptProtectedWork(async () => {
+      await bindOrRecheck(protectedPaths, stage, active.paths);
+      await requireProducedFilesAbsent(stage, active.paths);
+    });
+    if (preflight.timeout !== null) {
+      throw preflight.failed
+        ? withProtectionFailure(
+            preflight.timeout,
+            "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+            "protected files also changed before the timed-out Terraform command",
+          )
+        : preflight.timeout;
+    }
+    if (preflight.failed) {
+      throw preflight.error;
+    }
+    const remainingTimeoutMs = remainingTransactionBudget();
     let primary: unknown = null;
     try {
       await runTerraformCommand({
@@ -1140,25 +1161,52 @@ export function createZccAdoptionOracleAdapters(
         argv,
         cwd: active.paths.directory,
         environment: active.environment,
-        limits: options.commandLimits,
+        limits: {
+          timeoutMs: remainingTimeoutMs,
+          maxStdoutBytes: DEFAULT_TERRAFORM_COMMAND_LIMITS.maxStdoutBytes,
+          maxStderrBytes: DEFAULT_TERRAFORM_COMMAND_LIMITS.maxStderrBytes,
+        },
         output: "discard",
       });
     } catch (error: unknown) {
-      primary = error;
+      primary = error instanceof ProcessFailure
+        && error.code === "TERRAFORM_COMMAND_TIMEOUT"
+        ? transactionTimeout()
+        : error;
     }
+    let deadlinePrimary = primary instanceof ProcessFailure
+        && primary.code === "ZCC_ADOPTION_ORACLE_TIMEOUT"
+      ? primary
+      : null;
+    let produced: ProtectedWorkOutcome | null = null;
     if (primary === null) {
-      try {
-        await bindProducedFiles(stage, active.paths);
-      } catch {
-        return fail(
-          "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
-          "ZCC oracle could not bind Terraform command outputs",
-        );
-      }
+      produced = await attemptProtectedWork(
+        () => bindProducedFiles(stage, active.paths),
+        deadlinePrimary,
+      );
+      deadlinePrimary = produced.timeout;
     }
-    try {
-      await bindOrRecheck(protectedPaths, stage, active.paths);
-    } catch {
+    const postflight = await attemptProtectedWork(
+      () => bindOrRecheck(protectedPaths, stage, active.paths),
+      deadlinePrimary,
+    );
+    deadlinePrimary = postflight.timeout;
+    if (deadlinePrimary !== null) {
+      throw (produced?.failed ?? false) || postflight.failed
+        ? withProtectionFailure(
+            deadlinePrimary,
+            "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+            "protected files also changed around the timed-out Terraform command",
+          )
+        : deadlinePrimary;
+    }
+    if (produced?.failed ?? false) {
+      return fail(
+        "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+        "ZCC oracle could not bind Terraform command outputs",
+      );
+    }
+    if (postflight.failed) {
       return fail(
         "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
         "ZCC oracle protected files changed around a Terraform command",
@@ -1192,7 +1240,22 @@ export function createZccAdoptionOracleAdapters(
         "domain",
       );
     }
-    await bindOrRecheck(protectedPaths, request.stage, active.paths);
+    const preflight = await attemptProtectedWork(
+      () => bindOrRecheck(protectedPaths, request.stage, active.paths),
+    );
+    if (preflight.timeout !== null) {
+      throw preflight.failed
+        ? withProtectionFailure(
+            preflight.timeout,
+            "ZCC_ORACLE_SHOW_PROTECTION_FAILED",
+            "protected files also changed before the timed-out Terraform show",
+          )
+        : preflight.timeout;
+    }
+    if (preflight.failed) {
+      throw preflight.error;
+    }
+    const remainingTimeoutMs = remainingTransactionBudget();
     let result: unknown;
     let primary: unknown = null;
     try {
@@ -1201,14 +1264,36 @@ export function createZccAdoptionOracleAdapters(
         envDir: active.paths.directory,
         snapshotPath,
         environment: active.environment,
-        limits: options.showLimits,
+        limits: {
+          timeoutMs: remainingTimeoutMs,
+          maxStdoutBytes: DEFAULT_TERRAFORM_SHOW_LIMITS.maxStdoutBytes,
+          maxStderrBytes: DEFAULT_TERRAFORM_SHOW_LIMITS.maxStderrBytes,
+        },
       });
     } catch (error: unknown) {
-      primary = error;
+      primary = error instanceof ProcessFailure
+        && error.code === "TERRAFORM_SHOW_TIMEOUT"
+        ? transactionTimeout()
+        : error;
     }
-    try {
-      await bindOrRecheck(protectedPaths, request.stage, active.paths);
-    } catch {
+    const deadlinePrimary = primary instanceof ProcessFailure
+        && primary.code === "ZCC_ADOPTION_ORACLE_TIMEOUT"
+      ? primary
+      : null;
+    const postflight = await attemptProtectedWork(
+      () => bindOrRecheck(protectedPaths, request.stage, active.paths),
+      deadlinePrimary,
+    );
+    if (postflight.timeout !== null) {
+      throw postflight.failed
+        ? withProtectionFailure(
+            postflight.timeout,
+            "ZCC_ORACLE_SHOW_PROTECTION_FAILED",
+            "protected files also changed around the timed-out Terraform show",
+          )
+        : postflight.timeout;
+    }
+    if (postflight.failed) {
       return fail(
         "ZCC_ORACLE_SHOW_PROTECTION_FAILED",
         "ZCC oracle protected files changed around Terraform show",
@@ -1220,7 +1305,31 @@ export function createZccAdoptionOracleAdapters(
     return result;
   };
 
+  const checkpointTransaction = async (): Promise<void> => {
+    const active = requireActive();
+    const protectedPaths = expectedProtectedPaths("show-state", active.paths);
+    const checkpoint = await attemptProtectedWork(
+      () => bindOrRecheck(protectedPaths, "show-state", active.paths),
+    );
+    if (checkpoint.timeout !== null) {
+      throw checkpoint.failed
+        ? withProtectionFailure(
+            checkpoint.timeout,
+            "ZCC_ORACLE_FINAL_PROTECTION_FAILED",
+            "protected files also changed before timed-out result acceptance",
+          )
+        : checkpoint.timeout;
+    }
+    if (checkpoint.failed) {
+      return fail(
+        "ZCC_ORACLE_FINAL_PROTECTION_FAILED",
+        "ZCC oracle protected files changed before result acceptance",
+      );
+    }
+  };
+
   return Object.freeze({
+    transaction: Object.freeze({ checkpoint: checkpointTransaction }),
     temporary: Object.freeze({
       create: createTemporary,
       remove: removeTemporary,

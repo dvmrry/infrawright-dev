@@ -12,6 +12,10 @@ import {
 } from "../node-src/domain/zcc-adoption-artifacts.js";
 import { loadZccAdoptionCatalog } from "../node-src/domain/zcc-adoption-catalog.js";
 import {
+  ZCC_ADOPTION_TERRAFORM_VERSION,
+  zccAdoptionProviderLock,
+} from "../node-src/domain/zcc-adoption-provider-lock.js";
+import {
   runZccAdoptionOracle,
   type ZccAdoptionOracleAdapters,
   type ZccAdoptionOracleCommandRequest,
@@ -174,6 +178,7 @@ function planFor(
 ): Record<string, unknown> {
   return {
     format_version: "1.2",
+    terraform_version: ZCC_ADOPTION_TERRAFORM_VERSION,
     complete: true,
     errored: false,
     applyable: true,
@@ -196,6 +201,7 @@ function stateFor(
 ): Record<string, unknown> {
   return {
     format_version: "1.0",
+    terraform_version: ZCC_ADOPTION_TERRAFORM_VERSION,
     values: {
       root_module: {
         resources: imports.map((entry) => ({
@@ -229,10 +235,14 @@ class FakeOracle {
   failShow: ZccAdoptionOracleShowStage | null = null;
   failCreate = false;
   failCleanup = false;
+  failCheckpoint = false;
   failWrite = false;
   directory = DIRECTORY;
+  transactionElapsedMs = 0;
   onCommand: ((request: ZccAdoptionOracleCommandRequest) => void) | null = null;
+  onCheckpoint: (() => void) | null = null;
   onCleanup: (() => void) | null = null;
+  onShow: ((request: ZccAdoptionOracleShowRequest) => void) | null = null;
 
   constructor(resourceCase: ResourceCase) {
     this.plan = planFor(resourceCase);
@@ -241,6 +251,22 @@ class FakeOracle {
 
   adapters(): ZccAdoptionOracleAdapters {
     return {
+      transaction: {
+        checkpoint: async () => {
+          this.events.push("transaction:checkpoint");
+          this.onCheckpoint?.();
+          if (this.transactionElapsedMs >= 300_000) {
+            throw new ProcessFailure({
+              code: "ZCC_ADOPTION_ORACLE_TIMEOUT",
+              category: "io",
+              message: "ZCC adoption oracle transaction exceeded its execution deadline",
+            });
+          }
+          if (this.failCheckpoint) {
+            throw new Error(SECRET);
+          }
+        },
+      },
       temporary: {
         create: async (prefix) => {
           this.events.push(`temp:create:${prefix}`);
@@ -286,6 +312,7 @@ class FakeOracle {
           if (this.failShow === show.stage) {
             throw new Error(SECRET);
           }
+          this.onShow?.(show);
           return show.stage === "show-plan" ? this.plan : this.state;
         },
       },
@@ -326,11 +353,13 @@ test("all five resources run the exact private transaction and compile artifacts
         "temp:create:infrawright-zcc-oracle-",
         "write:<temp>/main.tf",
         "write:<temp>/imports.tf",
+        "write:<temp>/.terraform.lock.hcl",
         "command:init",
         "command:plan",
         "show:show-plan",
         "command:apply",
         "show:show-state",
+        "transaction:checkpoint",
         "temp:remove:<temp>",
       ],
       resourceCase.resourceType,
@@ -502,7 +531,7 @@ test("Terraform 1.15.4 structural import evidence traverses the oracle gates", a
   assert.match(result.artifacts.tfvars.content, /collect_user_info/);
 });
 
-test("root raises the Terraform floor while imports remain Python-byte-identical", async () => {
+test("root pins reviewed Terraform while imports remain Python-byte-identical", async () => {
   const importId = 'quote"\\line\nrow\rcol\t${name}%{ if true }';
   const resourceCase: ResourceCase = {
     resourceType: "zcc_forwarding_profile",
@@ -518,7 +547,7 @@ test("root raises the Terraform floor while imports remain Python-byte-identical
   assert.equal(
     fake.writes[0]?.content,
     "terraform {\n"
-      + '  required_version = ">= 1.8"\n'
+      + '  required_version = "= 1.15.4"\n'
       + "  required_providers {\n"
       + "    zcc = {\n"
       + '      source = "zscaler/zcc"\n'
@@ -532,7 +561,7 @@ test("root raises the Terraform floor while imports remain Python-byte-identical
   );
   const imported = expectedImports(resourceCase)[0];
   assert.notEqual(imported, undefined);
-  // The root minimum intentionally differs from Python; the scratch-address
+  // The root baseline intentionally differs from Python; the scratch-address
   // and string escaping below remain byte-identical to render_import_blocks.
   assert.equal(
     fake.writes[1]?.content,
@@ -541,9 +570,17 @@ test("root raises the Terraform floor while imports remain Python-byte-identical
       + '  id = "quote\\"\\\\line\\nrow\\rcol\\t$${name}%%{ if true }"\n'
       + "}\n",
   );
+  assert.equal(fake.writes[2]?.path, `${DIRECTORY}/.terraform.lock.hcl`);
+  assert.equal(fake.writes[2]?.content, zccAdoptionProviderLock());
 
   assert.deepEqual(fake.commands.map((entry) => entry.argv), [
-    ["init", "-input=false", "-no-color"],
+    [
+      "init",
+      "-backend=false",
+      "-input=false",
+      "-no-color",
+      "-lockfile=readonly",
+    ],
     [
       "plan",
       "-input=false",
@@ -572,10 +609,12 @@ test("root raises the Terraform floor while imports remain Python-byte-identical
   assert.deepEqual(fake.commands[1]?.protectedPaths, [
     `${DIRECTORY}/main.tf`,
     `${DIRECTORY}/imports.tf`,
+    `${DIRECTORY}/.terraform.lock.hcl`,
   ]);
   assert.deepEqual(fake.shows[0]?.protectedPaths, [
     `${DIRECTORY}/main.tf`,
     `${DIRECTORY}/imports.tf`,
+    `${DIRECTORY}/.terraform.lock.hcl`,
     `${DIRECTORY}/generated.tf`,
     `${DIRECTORY}/oracle.tfplan`,
   ]);
@@ -619,6 +658,10 @@ test("every non-exact import plan shape is rejected before apply", async (t) => 
   const firstChange = (base.resource_changes as Record<string, unknown>[])[0];
   assert.notEqual(firstChange, undefined);
   const variants: readonly [string, (plan: Record<string, unknown>) => void][] = [
+    ["future format", (plan) => { plan.format_version = "1.3"; }],
+    ["old format", (plan) => { plan.format_version = "1.1"; }],
+    ["wrong Terraform", (plan) => { plan.terraform_version = "1.15.5"; }],
+    ["missing Terraform", (plan) => { delete plan.terraform_version; }],
     ["incomplete", (plan) => { plan.complete = false; }],
     ["errored", (plan) => { plan.errored = true; }],
     ["not applyable", (plan) => { plan.applyable = false; }],
@@ -694,6 +737,9 @@ test("state extraction accepts only the exact root managed resource join", async
     return;
   }
   const variants: readonly [string, (state: Record<string, unknown>) => void][] = [
+    ["future format", (state) => { state.format_version = "1.1"; }],
+    ["wrong Terraform", (state) => { state.terraform_version = "1.15.5"; }],
+    ["missing Terraform", (state) => { delete state.terraform_version; }],
     ["missing root resource", (state) => {
       const values = state.values as Record<string, unknown>;
       const root = values.root_module as Record<string, unknown>;
@@ -917,6 +963,11 @@ test("effect failures are stage-coded and value-free", async (t) => {
       (fake: FakeOracle) => { fake.failShow = "show-state"; },
       "ZCC_ADOPTION_ORACLE_STATE_SHOW_FAILED",
     ],
+    [
+      "final checkpoint",
+      (fake: FakeOracle) => { fake.failCheckpoint = true; },
+      "ZCC_ADOPTION_ORACLE_FINAL_CHECK_FAILED",
+    ],
   ] as const) {
     await t.test(name, async () => {
       const fake = new FakeOracle(resourceCase);
@@ -932,6 +983,97 @@ test("effect failures are stage-coded and value-free", async (t) => {
       }
     });
   }
+});
+
+test("the host transaction timeout survives stage mapping and still cleans up", async () => {
+  const resourceCase = CASES[4];
+  assert.notEqual(resourceCase, undefined);
+  if (resourceCase === undefined) {
+    return;
+  }
+  const fake = new FakeOracle(resourceCase);
+  fake.onCommand = (command) => {
+    if (command.stage === "plan") {
+      throw new ProcessFailure({
+        code: "ZCC_ADOPTION_ORACLE_TIMEOUT",
+        category: "io",
+        message: "ZCC adoption oracle transaction exceeded its execution deadline",
+      });
+    }
+  };
+  await expectFailure(
+    () => runZccAdoptionOracle(request(resourceCase), fake.adapters()),
+    "ZCC_ADOPTION_ORACLE_TIMEOUT",
+  );
+  assert.equal(fake.events.at(-1), `temp:remove:${DIRECTORY}`);
+});
+
+test("final host checkpoint charges post-show compilation to the deadline", async () => {
+  const resourceCase = CASES[4];
+  assert.notEqual(resourceCase, undefined);
+  if (resourceCase === undefined) {
+    return;
+  }
+  const fake = new FakeOracle(resourceCase);
+  fake.onShow = (show) => {
+    if (show.stage === "show-state") {
+      fake.transactionElapsedMs = 300_000;
+    }
+  };
+  const failure = await expectFailure(
+    () => runZccAdoptionOracle(request(resourceCase), fake.adapters()),
+    "ZCC_ADOPTION_ORACLE_TIMEOUT",
+  );
+  assert.deepEqual(failure.details, []);
+  assert.deepEqual(fake.events.slice(-3), [
+    "show:show-state",
+    "transaction:checkpoint",
+    `temp:remove:${DIRECTORY}`,
+  ]);
+});
+
+test("protection and cleanup failures cannot replace the transaction timeout", async () => {
+  const resourceCase = CASES[4];
+  assert.notEqual(resourceCase, undefined);
+  if (resourceCase === undefined) {
+    return;
+  }
+  const fake = new FakeOracle(resourceCase);
+  fake.failCleanup = true;
+  fake.onCommand = (command) => {
+    if (command.stage === "plan") {
+      throw new ProcessFailure({
+        code: "ZCC_ADOPTION_ORACLE_TIMEOUT",
+        category: "io",
+        message: "ZCC adoption oracle transaction exceeded its execution deadline",
+        details: [{
+          path: "protection",
+          code: "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+          message: "protected files also changed around the timed-out Terraform command",
+        }],
+      });
+    }
+  };
+  const failure = await expectFailure(
+    () => runZccAdoptionOracle(request(resourceCase), fake.adapters()),
+    "ZCC_ADOPTION_ORACLE_TIMEOUT",
+  );
+  assert.deepEqual(failure.details, [
+    {
+      path: "protection",
+      code: "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+      message: "protected files also changed around the timed-out Terraform command",
+    },
+    {
+      path: "cleanup",
+      code: "ZCC_ADOPTION_ORACLE_CLEANUP_FAILED",
+      message: "private oracle cleanup also failed",
+    },
+  ]);
+  const diagnostic = JSON.stringify(failure);
+  assert.equal(diagnostic.includes("privacy-1"), false);
+  assert.equal(diagnostic.includes(DIRECTORY), false);
+  assert.equal(fake.events.at(-1), `temp:remove:${DIRECTORY}`);
 });
 
 test("cleanup failure cannot mask a primary failure", async () => {

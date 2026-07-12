@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   chmodSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -15,6 +16,7 @@ import {
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import test from "node:test";
 
 import type {
@@ -22,31 +24,30 @@ import type {
   ZccAdoptionOracleShowRequest,
 } from "../node-src/domain/zcc-adoption-oracle.js";
 import { ProcessFailure } from "../node-src/domain/errors.js";
+import { zccAdoptionProviderLock } from "../node-src/domain/zcc-adoption-provider-lock.js";
 import {
   createZccAdoptionOracleAdapters,
-  DEFAULT_ZCC_ADOPTION_ORACLE_COMMAND_LIMITS,
-  DEFAULT_ZCC_ADOPTION_ORACLE_SHOW_LIMITS,
+  ZCC_ADOPTION_ORACLE_CLEANUP_TIMEOUT_MS,
+  ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS,
   type ZccAdoptionOracleAdapterFactoryOptions,
 } from "../node-src/io/zcc-adoption-oracle-adapters.js";
 
 const PREFIX = "infrawright-zcc-oracle-";
-const COMMAND_LIMITS = {
-  timeoutMs: 2_000,
-  maxStdoutBytes: 64 * 1024,
-  maxStderrBytes: 4 * 1024,
-} as const;
-const SHOW_LIMITS = {
-  timeoutMs: 2_000,
-  maxStdoutBytes: 64 * 1024,
-  maxStderrBytes: 4 * 1024,
-} as const;
-
-type FakeMode = "normal" | "nonzero" | "stdout" | "stderr" | "timeout";
+type FakeMode =
+  | "normal"
+  | "nonzero"
+  | "success-missing-plan"
+  | "success-mutate-command"
+  | "success-mutate-show"
+  | "stdout"
+  | "stderr"
+  | "timeout"
+  | "timeout-mutate-command"
+  | "timeout-mutate-show";
 
 interface Fixture {
   readonly fake: string;
   readonly invocationLog: string;
-  readonly pluginCache: string;
   readonly root: string;
   readonly tempRoot: string;
 }
@@ -55,6 +56,7 @@ interface ScratchPaths {
   readonly directory: string;
   readonly generatedConfig: string;
   readonly imports: string;
+  readonly lock: string;
   readonly plan: string;
   readonly root: string;
   readonly state: string;
@@ -74,10 +76,8 @@ async function withFixture(
   chmodSync(lexicalRoot, 0o700);
   const root = realpathSync(lexicalRoot);
   const tempRoot = path.join(root, "private");
-  const pluginCache = path.join(root, "plugin-cache");
   const invocationLog = path.join(root, "invocations.jsonl");
   mkdirSync(tempRoot, { mode: 0o700 });
-  mkdirSync(pluginCache, { mode: 0o755 });
   const fake = path.join(root, "terraform-fake");
   const script = [
     `#!${process.execPath}`,
@@ -93,33 +93,50 @@ async function withFixture(
     "  process.exit(29);",
     "}",
     "if (first === 'init' && mode === 'stdout') {",
-    "  process.stdout.write('stdout-overflow-secret'.repeat(10000));",
-    "  process.exit(0);",
+    "  process.stdout.write('stdout-overflow-secret'.repeat(500000));",
     "}",
     "if (first === 'init' && mode === 'stderr') {",
-    "  process.stderr.write('stderr-overflow-secret'.repeat(10000));",
-    "  process.exit(0);",
+    "  process.stderr.write('stderr-overflow-secret'.repeat(100000));",
     "}",
-    "if (first === 'init' && mode === 'timeout') {",
+    "if (first === 'init' && mode === 'success-mutate-command') {",
+    "  writeFileSync('.terraform.lock.hcl', 'command-crossing-secret');",
+    "  writeFileSync('.deadline-crossed', 'command-crossing-marker');",
+    "}",
+    "if (first === 'init' && (mode === 'timeout' || mode === 'timeout-mutate-command')) {",
+    "  if (mode === 'timeout-mutate-command') writeFileSync('.terraform.lock.hcl', 'command-protection-secret');",
     "  setInterval(() => {}, 1000);",
     "} else if (first === 'plan') {",
     "  const generated = argv.find((value) => value.startsWith('-generate-config-out='))?.slice(21);",
     "  const plan = argv.find((value) => value.startsWith('-out='))?.slice(5);",
     "  if (!generated || !plan) process.exit(31);",
     "  writeFileSync(generated, 'generated config bytes\\n', { mode: 0o666 });",
-    "  writeFileSync(plan, 'opaque plan bytes\\n', { mode: 0o666 });",
-    "  chmodSync(generated, 0o644); chmodSync(plan, 0o644);",
+    "  chmodSync(generated, 0o644);",
+    "  if (mode === 'success-missing-plan') {",
+    "    writeFileSync('.deadline-crossed', 'produced-binding-marker');",
+    "  } else {",
+    "    writeFileSync(plan, 'opaque plan bytes\\n', { mode: 0o666 });",
+    "    chmodSync(plan, 0o644);",
+    "  }",
     "} else if (first === 'apply') {",
     "  writeFileSync('terraform.tfstate', 'opaque state bytes\\n', { mode: 0o666 });",
     "  chmodSync('terraform.tfstate', 0o644);",
     "} else if (first.startsWith('-chdir=') && argv[1] === 'show') {",
-    "  process.stdout.write(JSON.stringify({ format_version: '1.2', complete: true, errored: false }));",
+    "  if (mode === 'timeout-mutate-show') {",
+    "    writeFileSync('.terraform.lock.hcl', 'show-protection-secret');",
+    "    setInterval(() => {}, 1000);",
+    "  } else {",
+    "    if (mode === 'success-mutate-show') {",
+    "      writeFileSync('.terraform.lock.hcl', 'show-crossing-secret');",
+    "      writeFileSync('.deadline-crossed', 'show-crossing-marker');",
+    "    }",
+    "    process.stdout.write(JSON.stringify({ format_version: '1.2', complete: true, errored: false }));",
+    "  }",
     "}",
   ].join("\n");
   writeFileSync(fake, script, { mode: 0o700 });
   chmodSync(fake, 0o700);
   try {
-    await callback({ fake, invocationLog, pluginCache, root, tempRoot });
+    await callback({ fake, invocationLog, root, tempRoot });
   } finally {
     rmSync(lexicalRoot, { force: true, recursive: true });
   }
@@ -141,9 +158,6 @@ function options(
       HTTPS_PROXY: "https://proxy.invalid",
       NO_PROXY: "127.0.0.1",
     },
-    pluginCacheDirectory: fixture.pluginCache,
-    commandLimits: COMMAND_LIMITS,
-    showLimits: SHOW_LIMITS,
     ...overrides,
   };
 }
@@ -153,6 +167,7 @@ function pathsFor(directory: string): ScratchPaths {
     directory,
     generatedConfig: path.join(directory, "generated.tf"),
     imports: path.join(directory, "imports.tf"),
+    lock: path.join(directory, ".terraform.lock.hcl"),
     plan: path.join(directory, "oracle.tfplan"),
     root: path.join(directory, "main.tf"),
     state: path.join(directory, "terraform.tfstate"),
@@ -176,6 +191,11 @@ async function begin(
     content: 'import { id = "sensitive-import-id" }\n',
     mode: 0o600,
   });
+  await adapters.files.writeText({
+    path: paths.lock,
+    content: zccAdoptionProviderLock(),
+    mode: 0o600,
+  });
   return { adapters, paths };
 }
 
@@ -185,7 +205,13 @@ function commandRequest(
   stage: ZccAdoptionOracleCommandRequest["stage"],
 ): ZccAdoptionOracleCommandRequest {
   const argv = stage === "init"
-    ? ["init", "-input=false", "-no-color"]
+    ? [
+        "init",
+        "-backend=false",
+        "-input=false",
+        "-no-color",
+        "-lockfile=readonly",
+      ]
     : stage === "plan"
       ? [
           "plan",
@@ -203,8 +229,14 @@ function commandRequest(
           paths.plan,
         ];
   const protectedPaths = stage === "init" || stage === "plan"
-    ? [paths.root, paths.imports]
-    : [paths.root, paths.imports, paths.generatedConfig, paths.plan];
+    ? [paths.root, paths.imports, paths.lock]
+    : [
+        paths.root,
+        paths.imports,
+        paths.lock,
+        paths.generatedConfig,
+        paths.plan,
+      ];
   return {
     stage,
     executable: fixture.fake,
@@ -229,10 +261,17 @@ function showRequest(
     snapshotPath,
     sensitiveTokens: ["sensitive-import-id"],
     protectedPaths: stage === "show-plan"
-      ? [paths.root, paths.imports, paths.generatedConfig, paths.plan]
+      ? [
+          paths.root,
+          paths.imports,
+          paths.lock,
+          paths.generatedConfig,
+          paths.plan,
+        ]
       : [
           paths.root,
           paths.imports,
+          paths.lock,
           paths.generatedConfig,
           paths.plan,
           paths.state,
@@ -285,6 +324,7 @@ test("runs exact argv in one private transaction with a complete stripped enviro
       assert.equal(lstatSync(paths.directory).mode & 0o777, 0o700);
       assert.equal(lstatSync(paths.root).mode & 0o777, 0o600);
       assert.equal(lstatSync(paths.imports).mode & 0o777, 0o600);
+      assert.equal(lstatSync(paths.lock).mode & 0o777, 0o600);
 
       await adapters.command.run(commandRequest(fixture, paths, "init"));
       await adapters.command.run(commandRequest(fixture, paths, "plan"));
@@ -304,7 +344,13 @@ test("runs exact argv in one private transaction with a complete stripped enviro
 
       const records = invocationRecords(fixture);
       assert.deepEqual(records.map((record) => record.argv), [
-        ["init", "-input=false", "-no-color"],
+        [
+          "init",
+          "-backend=false",
+          "-input=false",
+          "-no-color",
+          "-lockfile=readonly",
+        ],
         [
           "plan",
           "-input=false",
@@ -332,7 +378,6 @@ test("runs exact argv in one private transaction with a complete stripped enviro
         HOME: path.join(paths.directory, ".home"),
         TMPDIR: path.join(paths.directory, ".tmp"),
         TF_DATA_DIR: path.join(paths.directory, ".terraform-data"),
-        TF_PLUGIN_CACHE_DIR: fixture.pluginCache,
       };
       for (const record of records) {
         assert.equal(record.cwd, paths.directory);
@@ -404,6 +449,24 @@ test("binds plan and state snapshots and rejects later same-inode mutation", asy
         adapters.show.readJson(showRequest(fixture, paths, "show-state")),
         "ZCC_ORACLE_FILE_CHANGED",
       );
+    } finally {
+      await adapters.temporary.remove(paths.directory);
+    }
+  });
+});
+
+test("provider lock drift fails before Terraform init", async () => {
+  await withFixture("normal", async (fixture) => {
+    const { adapters, paths } = await begin(fixture);
+    try {
+      writeFileSync(paths.lock, "mutated provider archive authority\n", {
+        mode: 0o600,
+      });
+      await captureFailure(
+        adapters.command.run(commandRequest(fixture, paths, "init")),
+        "ZCC_ORACLE_FILE_CHANGED",
+      );
+      assert.equal(existsSync(fixture.invocationLog), false);
     } finally {
       await adapters.temporary.remove(paths.directory);
     }
@@ -573,35 +636,36 @@ test("rejects non-private or symlinked temp authorities and caller TF poisoning"
   });
 });
 
-test("timeout, output limits, and nonzero exits preserve value-safe diagnostics", async (t) => {
+test("timeout, fixed output limits, and nonzero exits preserve value-safe diagnostics", async (t) => {
   const cases = [
     {
       mode: "nonzero" as const,
       code: "TERRAFORM_COMMAND_FAILED",
-      commandLimits: COMMAND_LIMITS,
     },
     {
       mode: "stdout" as const,
       code: "TERRAFORM_COMMAND_STDOUT_LIMIT",
-      commandLimits: { ...COMMAND_LIMITS, maxStdoutBytes: 32 },
     },
     {
       mode: "stderr" as const,
       code: "TERRAFORM_COMMAND_STDERR_LIMIT",
-      commandLimits: { ...COMMAND_LIMITS, maxStderrBytes: 32 },
     },
     {
       mode: "timeout" as const,
-      code: "TERRAFORM_COMMAND_TIMEOUT",
-      commandLimits: { ...COMMAND_LIMITS, timeoutMs: 75 },
+      code: "ZCC_ADOPTION_ORACLE_TIMEOUT",
     },
   ];
   for (const item of cases) {
-    await t.test(item.mode, async () => {
+    await t.test(item.mode, async (subtest) => {
       await withFixture(item.mode, async (fixture) => {
-        const { adapters, paths } = await begin(fixture, {
-          commandLimits: item.commandLimits,
-        });
+        let now = 0;
+        if (item.mode === "timeout") {
+          subtest.mock.method(performance, "now", () => now);
+        }
+        const { adapters, paths } = await begin(fixture);
+        if (item.mode === "timeout") {
+          now = ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS - 1;
+        }
         try {
           const failure = await captureFailure(
             adapters.command.run(commandRequest(fixture, paths, "init")),
@@ -631,38 +695,348 @@ test("timeout, output limits, and nonzero exits preserve value-safe diagnostics"
   }
 });
 
-test("private oracle timeouts match Python while callers may only tighten them", async () => {
-  assert.equal(DEFAULT_ZCC_ADOPTION_ORACLE_COMMAND_LIMITS.timeoutMs, 300_000);
-  assert.equal(DEFAULT_ZCC_ADOPTION_ORACLE_SHOW_LIMITS.timeoutMs, 300_000);
+test("host owns one transaction deadline and a separate cleanup deadline", async (t) => {
+  assert.equal(ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS, 300_000);
+  assert.equal(ZCC_ADOPTION_ORACLE_CLEANUP_TIMEOUT_MS, 30_000);
 
   await withFixture("normal", async (fixture) => {
-    assert.doesNotThrow(() => createZccAdoptionOracleAdapters(options(fixture, {
-      commandLimits: DEFAULT_ZCC_ADOPTION_ORACLE_COMMAND_LIMITS,
-      showLimits: DEFAULT_ZCC_ADOPTION_ORACLE_SHOW_LIMITS,
-    })));
-
-    for (const [field, limits] of [
-      ["commandLimits", {
-        ...DEFAULT_ZCC_ADOPTION_ORACLE_COMMAND_LIMITS,
-        timeoutMs: 300_001,
-      }],
-      ["showLimits", {
-        ...DEFAULT_ZCC_ADOPTION_ORACLE_SHOW_LIMITS,
-        timeoutMs: 300_001,
-      }],
+    for (const field of [
+      "commandLimits",
+      "showLimits",
+      "timeoutMs",
+      "pluginCacheDirectory",
     ] as const) {
       assert.throws(
-        () => createZccAdoptionOracleAdapters(options(fixture, {
-          [field]: limits,
-        })),
+        () => createZccAdoptionOracleAdapters({
+          ...options(fixture),
+          [field]: field === "pluginCacheDirectory" ? fixture.root : 1,
+        } as unknown as ZccAdoptionOracleAdapterFactoryOptions),
         (error: unknown) => {
           assert.ok(error instanceof ProcessFailure);
-          assert.equal(error.code, "INVALID_ZCC_ORACLE_ADAPTER_LIMITS");
+          assert.equal(error.code, "INVALID_ZCC_ORACLE_ADAPTER_OPTIONS");
           return true;
         },
       );
     }
+
+    let now = 0;
+    t.mock.method(performance, "now", () => now);
+    const { adapters, paths } = await begin(fixture);
+    try {
+      await adapters.command.run(commandRequest(fixture, paths, "init"));
+      now = ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS;
+      await captureFailure(
+        adapters.command.run(commandRequest(fixture, paths, "plan")),
+        "ZCC_ADOPTION_ORACLE_TIMEOUT",
+      );
+      assert.deepEqual(
+        invocationRecords(fixture).map((record) => record.argv[0]),
+        ["init"],
+      );
+    } finally {
+      await adapters.temporary.remove(paths.directory);
+    }
   });
+});
+
+test("expired preflight integrity failures cannot replace command or show timeout", async (t) => {
+  for (const item of [
+    {
+      stage: "command" as const,
+      detailCode: "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+      detailMessage: "protected files also changed before the timed-out Terraform command",
+    },
+    {
+      stage: "show" as const,
+      detailCode: "ZCC_ORACLE_SHOW_PROTECTION_FAILED",
+      detailMessage: "protected files also changed before the timed-out Terraform show",
+    },
+  ]) {
+    await t.test(item.stage, async (subtest) => {
+      await withFixture("normal", async (fixture) => {
+        let now = 0;
+        subtest.mock.method(performance, "now", () => now);
+        const { adapters, paths } = await begin(fixture);
+        try {
+          if (item.stage === "show") {
+            await adapters.command.run(commandRequest(fixture, paths, "init"));
+            await adapters.command.run(commandRequest(fixture, paths, "plan"));
+          }
+          writeFileSync(paths.lock, "expired-preflight-secret", { mode: 0o600 });
+          now = ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS;
+          const failure = await captureFailure(
+            item.stage === "command"
+              ? adapters.command.run(commandRequest(fixture, paths, "init"))
+              : adapters.show.readJson(showRequest(fixture, paths, "show-plan")),
+            "ZCC_ADOPTION_ORACLE_TIMEOUT",
+          );
+          assert.deepEqual(failure.details, [{
+            path: "protection",
+            code: item.detailCode,
+            message: item.detailMessage,
+          }]);
+          const diagnostic = JSON.stringify(failure);
+          assert.equal(diagnostic.includes("expired-preflight-secret"), false);
+          assert.equal(diagnostic.includes("sensitive-import-id"), false);
+          assert.equal(diagnostic.includes(fixture.tempRoot), false);
+          if (item.stage === "command") {
+            assert.equal(existsSync(fixture.invocationLog), false);
+          } else {
+            assert.deepEqual(
+              invocationRecords(fixture).map((record) => record.argv[0]),
+              ["init", "plan"],
+            );
+          }
+        } finally {
+          await adapters.temporary.remove(paths.directory);
+        }
+      });
+    });
+  }
+});
+
+test("successful child deadline crossings retain timeout over protection failures", async (t) => {
+  for (const item of [
+    {
+      mode: "success-mutate-command" as const,
+      stage: "command" as const,
+      detailCode: "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+      detailMessage: "protected files also changed around the timed-out Terraform command",
+    },
+    {
+      mode: "success-mutate-show" as const,
+      stage: "show" as const,
+      detailCode: "ZCC_ORACLE_SHOW_PROTECTION_FAILED",
+      detailMessage: "protected files also changed around the timed-out Terraform show",
+    },
+  ]) {
+    await t.test(item.stage, async (subtest) => {
+      await withFixture(item.mode, async (fixture) => {
+        let marker = "";
+        subtest.mock.method(performance, "now", () => {
+          return marker.length > 0 && existsSync(marker)
+            ? ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS
+            : 0;
+        });
+        const { adapters, paths } = await begin(fixture);
+        marker = path.join(paths.directory, ".deadline-crossed");
+        try {
+          if (item.stage === "show") {
+            await adapters.command.run(commandRequest(fixture, paths, "init"));
+            await adapters.command.run(commandRequest(fixture, paths, "plan"));
+          }
+          const failure = await captureFailure(
+            item.stage === "command"
+              ? adapters.command.run(commandRequest(fixture, paths, "init"))
+              : adapters.show.readJson(showRequest(fixture, paths, "show-plan")),
+            "ZCC_ADOPTION_ORACLE_TIMEOUT",
+          );
+          assert.deepEqual(failure.details, [{
+            path: "protection",
+            code: item.detailCode,
+            message: item.detailMessage,
+          }]);
+          const diagnostic = JSON.stringify(failure);
+          for (const secret of [
+            "command-crossing-secret",
+            "show-crossing-secret",
+            "sensitive-import-id",
+            fixture.tempRoot,
+          ]) {
+            assert.equal(diagnostic.includes(secret), false);
+          }
+        } finally {
+          await adapters.temporary.remove(paths.directory);
+        }
+      });
+    });
+  }
+});
+
+test("deadline crossing plus produced-file bind failure remains timeout", async (t) => {
+  await withFixture("success-missing-plan", async (fixture) => {
+    let marker = "";
+    t.mock.method(performance, "now", () => {
+      return marker.length > 0 && existsSync(marker)
+        ? ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS
+        : 0;
+    });
+    const { adapters, paths } = await begin(fixture);
+    marker = path.join(paths.directory, ".deadline-crossed");
+    try {
+      await adapters.command.run(commandRequest(fixture, paths, "init"));
+      const failure = await captureFailure(
+        adapters.command.run(commandRequest(fixture, paths, "plan")),
+        "ZCC_ADOPTION_ORACLE_TIMEOUT",
+      );
+      assert.deepEqual(failure.details, [{
+        path: "protection",
+        code: "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+        message: "protected files also changed around the timed-out Terraform command",
+      }]);
+      const diagnostic = JSON.stringify(failure);
+      assert.equal(diagnostic.includes("produced-binding-marker"), false);
+      assert.equal(diagnostic.includes("sensitive-import-id"), false);
+      assert.equal(diagnostic.includes(fixture.tempRoot), false);
+    } finally {
+      await adapters.temporary.remove(paths.directory);
+    }
+  });
+});
+
+test("integrity failures retain ordinary precedence before the deadline", async (t) => {
+  for (const item of [
+    {
+      mode: "success-mutate-command" as const,
+      run: "command" as const,
+      code: "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+    },
+    {
+      mode: "success-mutate-show" as const,
+      run: "show" as const,
+      code: "ZCC_ORACLE_SHOW_PROTECTION_FAILED",
+    },
+    {
+      mode: "success-missing-plan" as const,
+      run: "plan" as const,
+      code: "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+    },
+  ]) {
+    await t.test(`${item.run}-${item.mode}`, async () => {
+      await withFixture(item.mode, async (fixture) => {
+        const { adapters, paths } = await begin(fixture);
+        try {
+          if (item.run !== "command") {
+            await adapters.command.run(commandRequest(fixture, paths, "init"));
+          }
+          if (item.run === "show") {
+            await adapters.command.run(commandRequest(fixture, paths, "plan"));
+          }
+          await captureFailure(
+            item.run === "command"
+              ? adapters.command.run(commandRequest(fixture, paths, "init"))
+              : item.run === "show"
+                ? adapters.show.readJson(showRequest(fixture, paths, "show-plan"))
+                : adapters.command.run(commandRequest(fixture, paths, "plan")),
+            item.code,
+          );
+        } finally {
+          await adapters.temporary.remove(paths.directory);
+        }
+      });
+    });
+  }
+});
+
+test("final host checkpoint binds evidence and enforces the transaction deadline", async (t) => {
+  for (const item of [
+    { mutation: false, expired: true, code: "ZCC_ADOPTION_ORACLE_TIMEOUT" },
+    { mutation: true, expired: true, code: "ZCC_ADOPTION_ORACLE_TIMEOUT" },
+    { mutation: true, expired: false, code: "ZCC_ORACLE_FINAL_PROTECTION_FAILED" },
+  ] as const) {
+    await t.test(
+      `${item.expired ? "expired" : "active"}-${item.mutation ? "mutated" : "stable"}`,
+      async (subtest) => {
+        await withFixture("normal", async (fixture) => {
+          let now = 0;
+          subtest.mock.method(performance, "now", () => now);
+          const { adapters, paths } = await begin(fixture);
+          try {
+            await adapters.command.run(commandRequest(fixture, paths, "init"));
+            await adapters.command.run(commandRequest(fixture, paths, "plan"));
+            await adapters.show.readJson(showRequest(fixture, paths, "show-plan"));
+            await adapters.command.run(commandRequest(fixture, paths, "apply"));
+            await adapters.show.readJson(showRequest(fixture, paths, "show-state"));
+            if (item.mutation) {
+              writeFileSync(paths.state, "final-checkpoint-secret", { mode: 0o600 });
+            }
+            if (item.expired) {
+              now = ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS;
+            }
+            const failure = await captureFailure(
+              adapters.transaction.checkpoint(),
+              item.code,
+            );
+            assert.deepEqual(
+              failure.details,
+              item.expired && item.mutation
+                ? [{
+                    path: "protection",
+                    code: "ZCC_ORACLE_FINAL_PROTECTION_FAILED",
+                    message: "protected files also changed before timed-out result acceptance",
+                  }]
+                : [],
+            );
+            const diagnostic = JSON.stringify(failure);
+            assert.equal(diagnostic.includes("final-checkpoint-secret"), false);
+            assert.equal(diagnostic.includes("sensitive-import-id"), false);
+            assert.equal(diagnostic.includes(fixture.tempRoot), false);
+          } finally {
+            await adapters.temporary.remove(paths.directory);
+          }
+        });
+      },
+    );
+  }
+});
+
+test("timeout remains primary when command or show protection also fails", async (t) => {
+  for (const item of [
+    {
+      mode: "timeout-mutate-command" as const,
+      detailCode: "ZCC_ORACLE_COMMAND_PROTECTION_FAILED",
+      detailMessage: "protected files also changed around the timed-out Terraform command",
+    },
+    {
+      mode: "timeout-mutate-show" as const,
+      detailCode: "ZCC_ORACLE_SHOW_PROTECTION_FAILED",
+      detailMessage: "protected files also changed around the timed-out Terraform show",
+    },
+  ]) {
+    await t.test(item.mode, async (subtest) => {
+      await withFixture(item.mode, async (fixture) => {
+        let now = 0;
+        subtest.mock.method(performance, "now", () => now);
+        const { adapters, paths } = await begin(fixture);
+        try {
+          if (item.mode === "timeout-mutate-show") {
+            await adapters.command.run(commandRequest(fixture, paths, "init"));
+            await adapters.command.run(commandRequest(fixture, paths, "plan"));
+          }
+          now = ZCC_ADOPTION_ORACLE_TRANSACTION_TIMEOUT_MS - 1_000;
+          const operation = item.mode === "timeout-mutate-command"
+            ? adapters.command.run(commandRequest(fixture, paths, "init"))
+            : adapters.show.readJson(showRequest(fixture, paths, "show-plan"));
+          const failure = await captureFailure(
+            operation,
+            "ZCC_ADOPTION_ORACLE_TIMEOUT",
+          );
+          assert.deepEqual(failure.details, [{
+            path: "protection",
+            code: item.detailCode,
+            message: item.detailMessage,
+          }]);
+          const diagnostic = [
+            String(failure),
+            JSON.stringify(failure),
+            failure.stack ?? "",
+          ].join("\n");
+          for (const secret of [
+            "command-protection-secret",
+            "show-protection-secret",
+            "sensitive-import-id",
+            "provider-secret-value",
+            fixture.tempRoot,
+          ]) {
+            assert.equal(diagnostic.includes(secret), false);
+          }
+        } finally {
+          await adapters.temporary.remove(paths.directory);
+        }
+        assert.equal(existsSync(paths.directory), false);
+      });
+    });
+  }
 });
 
 test("cleanup removes the tree after a failed command and adapters remain spent", async () => {
