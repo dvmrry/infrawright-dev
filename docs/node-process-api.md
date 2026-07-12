@@ -911,6 +911,12 @@ product-neutral kernel contract also understands provider `set(string)` and
 `map(string)` encodings, while the public operation remains gated to the exact
 embedded five-resource ZCC catalog.
 
+Transform snake-case and transform/adoption slug bytes use the pinned
+[Python lowercase compatibility contract](python-lower-unicode-contract.md).
+Node 24's Unicode 16 tables are adjusted to the Python 3.12/3.13 Unicode
+15.0/15.1 behavior with a compact generated delta and an exhaustive live-Python
+differential; a runtime Unicode-version change fails closed.
+
 Catalog regeneration structurally gates changes to the declarative provider
 projection, reachable overrides, and serialized compatibility tables: any such
 change produces reviewed catalog bytes. It does not prove universal parity
