@@ -17,11 +17,13 @@
 
 ## Base / Head
 
-- Base: `bfa764a4530042fd597a11a7264b74fc0bd558d9` (`origin/main`, merge
-  of PR #177).
+- Base: `60997716df14aa06270ff0d2c5d099bccce3a0f3` (`origin/main`, merge
+  of PR #179, including the PR #178 string consolidation and the reviewed
+  Python 3.12/3.13 lowercase compatibility contract).
 - Head: the review checkpoint on `feature/node-zia-transform-cohort`; resolve
   with `git rev-parse HEAD`.
-- Diff command: `git diff <base>...HEAD` using the base recorded above.
+- Diff command:
+  `git diff 60997716df14aa06270ff0d2c5d099bccce3a0f3...HEAD`.
 
 ## Files Changed
 
@@ -60,6 +62,7 @@
   `packs/zia/overrides/zia_traffic_forwarding_static_ip.json`, and
   `packs/zia/overrides/zia_url_categories.json`.
 - Existing docs or design records: `docs/node-process-api.md`,
+  `docs/python-lower-unicode-contract.md`,
   `docs/review-handoffs/zscaler-transform-contract-lift.md`, and the
   adversarial-review workflow/templates.
 - Other source evidence: `engine/transform.py` is invoked live as the
@@ -94,6 +97,10 @@
   `zia_url_categories` canonicalizes provider `set(string)` fields and applies
   its authored all-string `urls` sort; `zia_admin_roles` coerces string-map
   values and string-set members like Python.
+- Nested map keys and reported drop paths use the merged Python lowercase
+  contract. A dedicated live-Python differential covers the Node 24
+  Unicode-version edge U+A7CB inside `featurePermissions` and Python regex-dot
+  behavior for an unknown top-level `\u2028Future` key.
 - Non-`id` computed fields remain reported drops rather than silently ignored.
   Acknowledged API-only paths remain omitted from the returned drop report.
 - Expected report/count/coverage changes: N/A; no readiness report or count is
@@ -142,26 +149,32 @@
 
 ## Tests Run
 
-- Post-rebase `npm run check`: 612 total, 611 passed, one platform-specific
-  skip, zero failures. The first loaded-machine pass hit the repository's
-  timing-sensitive Terraform descendant-PID fixture; its isolated 18-test file
-  passed immediately and the complete rerun passed.
-- Post-rebase `make test`: 1,382 selected, 1,381 passed, one optional
-  external-source skip, zero failures.
-- `npm run build`: passed.
-- `python3 -m engine.audit_vendor_boundary`: zero violations.
+- `npm run check` under Node 24.15.0/Unicode 16.0: 624 total, 623 passed,
+  one platform-specific skip, zero failures.
+- The same complete compiled Node suite under
+  `npx --yes node@24.18.0`/Unicode 17.0: 624 total, 623 passed, one
+  platform-specific skip, zero failures.
+- `make test`: 1,382 selected, 1,381 passed, one optional external pinned-source
+  skip, zero failures.
+- `npm run typecheck` and `npm run build`: passed.
+- Focused ZIA Node suite: 6/6 passed. Both committed-corpus and dedicated
+  Unicode-edge tests invoke live `engine.transform`; complete result and
+  `render_tfvars` bytes match Python. The dedicated regression also asserts
+  U+A7CB is retained in `items`, `originals`, and tfvars, while unknown
+  `\u2028Future` reports the exact `\u2028_future` drop.
+- `python3 -m engine.audit_vendor_boundary`: 187 allowed matches, zero
+  violations.
 - `python3 -m engine.transform_catalog --product zcc --check
   catalogs/zcc-transform-catalog.v1.json`: exact byte gate passed.
 - Explicit three-resource ZIA `--check`: exact byte gate passed.
-- Committed ZIA catalog SHA-256 matches the test-only authoring fixture.
-- The existing shared ZCC transform schema has zero diff from the base.
-- No process-dispatch or release-script path imports the ZIA cohort.
-- Focused real-Python differential: complete transform result and embedded
-  `render_tfvars` bytes match for all six committed cases.
-- Findings 2/3 remediation: `npm run typecheck` and `npm run build` passed;
-  the focused Node semantic/byte/differential/bundle suite passed 5/5; the
-  focused Python ZIA/ZCC catalog suites passed 27/27; both catalog freshness
-  checks and the vendor-boundary audit passed.
+- `node tools/generate-python-lower-151.mjs --ucd-root
+  /tmp/infrawright-ucd --check`: generated lowercase compatibility table is
+  current against the retained official UCD 15.0/15.1/16.0/17.0 inputs.
+- Committed ZIA catalog SHA-256 matches the test-only authoring fixture. The
+  existing ZCC catalog, shared ZCC transform schema, and shared AJV validator
+  have zero diff from the recorded base.
+- The production-entry bundle regression confirms no private ZIA catalog,
+  schema, wrapper, validator, or product marker is reachable.
 - `git diff --check`: passed.
 - Tests not run and why: no live tenant/provider/Terraform tests are applicable
   to this pure private transform slice.
@@ -185,9 +198,13 @@
   acknowledges the bundled generic `sort_lists` branch while proving the ZIA
   cohort module, validator, catalog, schema, kind, schema ID, and unique source
   markers are absent from both the bundle graph and output.
-- Finding 1 concerns shared snake-case semantics. It is deliberately not
-  addressed on this checkpoint; it will land separately, after which this
-  branch must rebase and receive a changed-surface review.
+- Finding 1: shared snake/lower semantics landed independently in PR #179.
+  This branch is rebased onto that reviewed contract and does not duplicate its
+  generated Unicode tables or casing logic. The ZIA test now invokes live
+  Python for both requested changed-surface cases: U+A7CB nested map-key bytes
+  and U+2028 regex-dot drop-path bytes. The full suite passes under both actual
+  Node 24 Unicode 16 and 17 runtimes; this checkpoint now requires the fresh
+  changed-surface reconciliation review prescribed by the workflow.
 
 ## Known Deferrals
 
@@ -218,6 +235,10 @@
 - Compare all-string versus mixed `urls` ordering, provider-set Unicode/null/
   duplicate/scalar behavior, map scalar/large-integer/prototype-like keys, and
   finite float spelling directly to live Python output.
+- Recheck the prior shared-snake finding on the rebased surface: U+A7CB must
+  remain the exact nested `featurePermissions` key in items/originals/tfvars,
+  and unknown `\u2028Future` must report `\u2028_future`, under both supported
+  Node 24 Unicode runtimes.
 - Verify authoring-time byte freshness is not presented as runtime evidence;
   the exact semantic gate must canonicalize differently serialized copies,
   reject mutations, and keep an unsupported fourth ZIA type out of the kernel.

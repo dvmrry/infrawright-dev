@@ -224,6 +224,66 @@ test("representative and edge fixtures match real Python results and tfvars byte
   ]);
 });
 
+test("ZIA nested map keys and unknown drops retain live Python Unicode bytes", () => {
+  const fixtureCase: FixtureCase = {
+    name: "admin_roles_python_unicode_regressions",
+    resource_type: "zia_admin_roles",
+    raw_items: [{
+      id: "11",
+      name: "Python Unicode Contract",
+      featurePermissions: {
+        "\ua7cb": "python-key",
+      },
+      "\u2028Future": "must-report",
+    }],
+  };
+  const fixture: Fixture = {
+    kind: "infrawright.zia_transform_cohort_fixture",
+    schema_version: 1,
+    cases: [fixtureCase],
+  };
+  const source = JSON.stringify(fixture);
+  const result = transformCase(fixtureCase);
+  const tfvars = renderPythonLosslessArtifactJson({ items: result.items });
+  const actual = [{
+    name: fixtureCase.name,
+    result,
+    tfvars,
+  }];
+  const python = spawnSync("python3", ["-c", PYTHON_ORACLE], {
+    cwd: WORKSPACE,
+    encoding: "utf8",
+    input: source,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  assert.equal(python.status, 0, python.stderr);
+  assert.equal(python.stderr, "");
+  assert.equal(renderPythonLosslessArtifactJson(actual), python.stdout);
+
+  const item = result.items.python_unicode_contract;
+  const original = result.originals.python_unicode_contract;
+  assert.notEqual(item, undefined);
+  assert.notEqual(original, undefined);
+  assert.equal(
+    Object.hasOwn(item?.feature_permissions as object, "\ua7cb"),
+    true,
+  );
+  assert.equal(
+    Object.hasOwn(original?.feature_permissions as object, "\ua7cb"),
+    true,
+  );
+  assert.equal(
+    (item?.feature_permissions as Record<string, unknown>)["\ua7cb"],
+    "python-key",
+  );
+  assert.equal(
+    (original?.feature_permissions as Record<string, unknown>)["\ua7cb"],
+    "python-key",
+  );
+  assert.match(tfvars, /"\\ua7cb": "python-key"/u);
+  assert.deepEqual(result.drops, ["\u2028_future"]);
+});
+
 test("unsupported resources and unsafe numeric inputs fail closed", () => {
   assert.throws(
     () => transformZiaCohortItems({
