@@ -86,12 +86,12 @@ const CASES: readonly ResourceCase[] = [
   {
     resourceType: "zcc_forwarding_profile",
     rawItems: [{
-      id: "900719925474099312345678902",
+      id: "9007199254740993",
       name: "Forwarding Profile",
     }],
     values: {
       active: true,
-      id: "900719925474099312345678902",
+      id: "9007199254740993",
       name: "Forwarding Profile",
       trusted_network_ids: [new LosslessNumber("900719925474099312345678901")],
     },
@@ -99,13 +99,13 @@ const CASES: readonly ResourceCase[] = [
   {
     resourceType: "zcc_trusted_network",
     rawItems: [{
-      id: "900719925474099312345678903",
+      id: "9007199254740995",
       networkName: "Trusted Network",
     }],
     values: {
       active: true,
       condition_type: "DNS",
-      id: "900719925474099312345678903",
+      id: "9007199254740995",
       name: "Trusted Network",
     },
   },
@@ -830,14 +830,14 @@ test("object and top-level true sensitive masks fail only at projection", async 
 
 test("input and show graphs are frozen across injected mutation hooks", async () => {
   const mutableRaw = {
-    id: "900719925474099312345678904",
+    id: "9007199254740997",
     name: "Original Profile",
   };
   const resourceCase: ResourceCase = {
     resourceType: "zcc_forwarding_profile",
     rawItems: [mutableRaw],
     values: {
-      id: "900719925474099312345678904",
+      id: "9007199254740997",
       name: "Original Profile",
     },
   };

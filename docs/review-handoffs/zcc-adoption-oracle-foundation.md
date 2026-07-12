@@ -186,8 +186,8 @@
   metadata without independently checking provider-returned state identity.
   Fix: require `values.id` to equal the catalog-derived import ID for every one
   of the five pinned resources, with missing/wrong-ID regressions. Forwarding
-  profile and trusted-network cases use provider-realistic unbounded decimal
-  identity strings rather than opaque placeholders.
+  profile and trusted-network cases use provider-representable base-10 identity
+  strings above JavaScript's safe-integer range rather than opaque placeholders.
 - Finding: Terraform plan/state tests used only synthetic envelopes. Fix:
   retain an exact offline Terraform 1.15.4 built-in import envelope, explicitly
   scoped to Terraform-core structure and never cited as ZCC/provider/live
