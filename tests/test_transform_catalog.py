@@ -360,17 +360,24 @@ class TransformCatalogTest(unittest.TestCase):
                 set(transform_catalog.ZCC_FETCH_RESOURCES),
             )
 
-    def test_unsupported_projection_encoding_fails_closed(self):
-        with self.assertRaisesRegex(ValueError, "unsupported type encoding"):
-            transform_catalog._catalog_encoding(
-                ["map", "string"], "zcc_device_cleanup.sample"
-            )
+    def test_product_neutral_string_collection_encodings_are_supported(self):
+        for kind in ("set", "map"):
+            with self.subTest(kind=kind):
+                self.assertEqual(
+                    transform_catalog._catalog_encoding(
+                        [kind, "string"], "zcc_device_cleanup.sample"
+                    ),
+                    [kind, "string"],
+                )
 
-    def test_set_projection_encoding_fails_until_sorting_is_supported(self):
-        with self.assertRaisesRegex(ValueError, "unsupported type encoding"):
-            transform_catalog._catalog_encoding(
-                ["set", "string"], "zcc_device_cleanup.sample"
-            )
+    def test_unimplemented_collection_encodings_still_fail_closed(self):
+        for encoding in (["set", "number"], ["map", "bool"]):
+            with self.subTest(encoding=encoding):
+                with self.assertRaisesRegex(
+                        ValueError, "unsupported type encoding"):
+                    transform_catalog._catalog_encoding(
+                        encoding, "zcc_device_cleanup.sample"
+                    )
 
     def test_unknown_product_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "unsupported.*product"):

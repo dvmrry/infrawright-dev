@@ -153,19 +153,89 @@ test("safe native integers and integral lossless tokens render canonically", () 
   );
 });
 
-test("floats and unsafe native numbers fail without exposing values", () => {
+test("finite lossless floats match Python bytes across notation boundaries", () => {
+  const source = [
+    "0.0",
+    "-0.0",
+    "1e0",
+    "1e-4",
+    "1e-5",
+    "1e15",
+    "1e16",
+    "1e20",
+    "0.00009999999999999999",
+    "100000000000000.1",
+    "1.0000000000000002",
+    "1e-999",
+    "5e-324",
+    "1.7976931348623157e308",
+  ];
+  const python = spawnSync(
+    "python3",
+    [
+      "-c",
+      "import json,sys; value=json.loads(sys.stdin.read()); sys.stdout.write(json.dumps(value, indent=2)+'\\n')",
+    ],
+    { input: `[${source.join(",")}]`, encoding: "utf8" },
+  );
+  assert.equal(python.status, 0, python.stderr);
+  assert.equal(
+    renderPythonLosslessArtifactJson(
+      source.map((token) => new LosslessNumber(token)),
+    ),
+    python.stdout,
+  );
+});
+
+test("finite float spelling matches Python across deterministic binary64 values", () => {
+  const buffer = new ArrayBuffer(8);
+  const view = new DataView(buffer);
+  const mask = (1n << 64n) - 1n;
+  let state = 0x9e3779b97f4a7c15n;
+  const tokens: string[] = [];
+  for (let index = 0; index < 2_048; index += 1) {
+    state = (state * 6_364_136_223_846_793_005n + 1_442_695_040_888_963_407n) & mask;
+    view.setBigUint64(0, state, false);
+    const value = view.getFloat64(0, false);
+    if (!Number.isFinite(value)) {
+      continue;
+    }
+    let token = Object.is(value, -0) ? "-0.0" : String(value);
+    if (!/[.eE]/.test(token)) {
+      token += ".0";
+    }
+    tokens.push(token);
+  }
+  const python = spawnSync(
+    "python3",
+    [
+      "-c",
+      "import json,sys; value=json.loads(sys.stdin.read()); sys.stdout.write(json.dumps(value, separators=(',', ':')))",
+    ],
+    { input: `[${tokens.join(",")}]`, encoding: "utf8" },
+  );
+  assert.equal(python.status, 0, python.stderr);
+  const rendered = renderPythonLosslessArtifactJson(
+    tokens.map((token) => new LosslessNumber(token)),
+  );
+  assert.deepEqual(
+    JSON.parse(rendered),
+    JSON.parse(python.stdout),
+  );
+  // JSON.parse numeric equality alone would not catch exponent padding or
+  // fixed/scientific notation differences, so also compare compact tokens.
+  const compactNode = rendered.replace(/\s+/g, "");
+  assert.equal(compactNode, python.stdout);
+});
+
+test("native floats, non-finite lexemes, and unsafe native numbers fail", () => {
   expectInvalid(() => renderPythonLosslessArtifactJson(1.5));
   expectInvalid(() => renderPythonLosslessArtifactJson(Number.NaN));
   expectInvalid(() => renderPythonLosslessArtifactJson(Number.POSITIVE_INFINITY));
   expectInvalid(() => {
     renderPythonLosslessArtifactJson(Number.MAX_SAFE_INTEGER + 1);
   });
-  expectInvalid(() => {
-    renderPythonLosslessArtifactJson(new LosslessNumber("1.0"));
-  });
-  expectInvalid(() => {
-    renderPythonLosslessArtifactJson(new LosslessNumber("1e0"));
-  });
+  expectInvalid(() => renderPythonLosslessArtifactJson(new LosslessNumber("1e400")));
 });
 
 test("non-JSON containers, hidden state, and cycles fail closed", () => {

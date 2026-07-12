@@ -7,7 +7,7 @@ export type JsonValue =
   | readonly JsonValue[]
   | JsonObject;
 
-function compareCodePoints(
+export function comparePythonStrings(
   left: string,
   right: string,
 ): number {
@@ -27,7 +27,7 @@ function compareCodePoints(
 }
 
 export function sortedStrings(values: Iterable<string>): string[] {
-  return Array.from(values).sort(compareCodePoints);
+  return Array.from(values).sort(comparePythonStrings);
 }
 
 function encodeString(value: string): string {

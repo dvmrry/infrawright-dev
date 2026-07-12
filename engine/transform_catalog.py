@@ -104,6 +104,8 @@ def _catalog_encoding(encoding, path):
         kind, inner = encoding
         if kind == "list" and inner in _PRIMITIVE_ENCODINGS:
             return ["list", inner]
+        if kind in ("set", "map") and inner == "string":
+            return [kind, inner]
     raise ValueError("%s has unsupported type encoding %r" % (path, encoding))
 
 

@@ -158,6 +158,34 @@
             }
           ],
           "items": false
+        },
+        {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            {
+              "const": "set"
+            },
+            {
+              "const": "string"
+            }
+          ],
+          "items": false
+        },
+        {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            {
+              "const": "map"
+            },
+            {
+              "const": "string"
+            }
+          ],
+          "items": false
         }
       ]
     },

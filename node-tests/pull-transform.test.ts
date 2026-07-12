@@ -208,7 +208,7 @@ test("single-block merging reports unknown nullable members exactly once", () =>
   assert.deepEqual(legitimate.drops, []);
 });
 
-test("transform requires lossless raw numbers and rejects unfrozen floats", () => {
+test("transform requires lossless raw numbers and canonicalizes finite floats", () => {
   const catalog = loadZccTransformCatalog();
   const run = (autoPurgeDays: unknown): void => {
     transformPullItems({
@@ -220,10 +220,48 @@ test("transform requires lossless raw numbers and rejects unfrozen floats", () =
   assert.throws(() => run(1), /must be LosslessNumber/);
   assert.throws(() => run(1.5), /must be LosslessNumber/);
   assert.throws(() => run(-0), /must be LosslessNumber/);
-  assert.throws(() => run(new LosslessNumber("1e0")), /float compatibility/);
-  assert.throws(() => run("1.5"), /numeric coercion accepts integers only/);
   assert.throws(() => run(Number.MAX_SAFE_INTEGER + 1), /must be LosslessNumber/);
-  assert.throws(() => run("١٢"), /Unicode decimal strings/);
+  assert.throws(
+    () => run(new LosslessNumber("1e400")),
+    /finite losslessly parsed JSON numbers/,
+  );
+
+  for (const [input, expected] of [
+    ["1e0", "1.0"],
+    ["-0.0", "-0.0"],
+    ["1e-6", "1e-06"],
+    ["1e15", "1000000000000000.0"],
+    ["1e16", "1e+16"],
+  ] as const) {
+    const result = transformPullItems({
+      catalog,
+      rawItems: [{ id: `float-${input}`, autoPurgeDays: new LosslessNumber(input) }],
+      resourceType: "zcc_device_cleanup",
+    });
+    assert.equal(
+      (result.items[`float_${input.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "").toLowerCase()}`]
+        ?.auto_purge_days as LosslessNumber | undefined)?.toString(),
+      expected,
+    );
+  }
+
+  for (const [input, expected] of [
+    ["+1.", "1.0"],
+    [".5", "0.5"],
+    ["1e-6", "1e-06"],
+  ] as const) {
+    const result = transformPullItems({
+      catalog,
+      rawItems: [{ id: `string-${input}`, autoPurgeDays: input }],
+      resourceType: "zcc_device_cleanup",
+    });
+    const item = Object.values(result.items)[0];
+    assert.equal(
+      (item?.auto_purge_days as LosslessNumber | undefined)?.toString(),
+      expected,
+    );
+  }
+  assert.throws(() => run("Infinity"), /finite numbers only/);
 });
 
 test("lossless JSON negative zero canonicalizes to Python integer zero", () => {

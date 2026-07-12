@@ -8,7 +8,8 @@ import { ProcessFailure } from "./errors.js";
 export type TransformPrimitiveEncoding = "bool" | "number" | "string";
 export type TransformValueEncoding =
   | TransformPrimitiveEncoding
-  | readonly ["list", TransformPrimitiveEncoding];
+  | readonly ["list", TransformPrimitiveEncoding]
+  | readonly ["set" | "map", "string"];
 
 export interface TransformProjectionBlock {
   readonly cardinality: "many" | "single";

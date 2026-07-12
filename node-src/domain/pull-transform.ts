@@ -3,7 +3,14 @@ import {
 } from "lossless-json";
 
 import { isJsonRecord, pythonJsonEqual } from "../json/python-equality.js";
-import { sortedStrings } from "../json/python-compatible.js";
+import {
+  comparePythonStrings,
+  sortedStrings,
+} from "../json/python-compatible.js";
+import {
+  canonicalPythonNumberToken,
+  pythonFiniteFloatToken,
+} from "../json/python-number.js";
 import {
   pythonHtmlUnescapePasses,
 } from "./python-html-unescape.js";
@@ -17,6 +24,20 @@ import type {
 import { requireSupportedZccTransformCatalog } from "./transform-catalog.js";
 
 type TransformRecord = Record<string, unknown>;
+
+// Unicode 15.1 Decimal_Number zero code points, matching the Python 3.13
+// authoring oracle. Every Nd block is one contiguous run of ten values.
+const PYTHON_DECIMAL_ZEROS = [
+  0x30, 0x660, 0x6f0, 0x7c0, 0x966, 0x9e6, 0xa66, 0xae6,
+  0xb66, 0xbe6, 0xc66, 0xce6, 0xd66, 0xde6, 0xe50, 0xed0,
+  0xf20, 0x1040, 0x1090, 0x17e0, 0x1810, 0x1946, 0x19d0, 0x1a80,
+  0x1a90, 0x1b50, 0x1bb0, 0x1c40, 0x1c50, 0xa620, 0xa8d0, 0xa900,
+  0xa9d0, 0xa9f0, 0xaa50, 0xabf0, 0xff10, 0x104a0, 0x10d30, 0x11066,
+  0x110f0, 0x11136, 0x111d0, 0x112f0, 0x11450, 0x114d0, 0x11650, 0x116c0,
+  0x11730, 0x118e0, 0x11950, 0x11c50, 0x11d50, 0x11da0, 0x11f50, 0x16a60,
+  0x16ac0, 0x16b50, 0x1d7ce, 0x1d7d8, 0x1d7e2, 0x1d7ec, 0x1d7f6,
+  0x1e140, 0x1e2f0, 0x1e4f0, 0x1e950, 0x1fbf0,
+] as const;
 
 export interface PullTransformResult {
   readonly items: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
@@ -71,16 +92,15 @@ function cloneJson(value: unknown): unknown {
     return value;
   }
   if (value instanceof LosslessNumber) {
-    const token = value.toString();
-    if (!/^-?[0-9]+$/.test(token)) {
+    const token = canonicalPythonNumberToken(value.toString());
+    if (token === null) {
       throw new TypeError(
-        "transform accepts integral JSON numbers only; float compatibility is not yet frozen",
+        "transform accepts only finite losslessly parsed JSON numbers",
       );
     }
-    const canonical = BigInt(token).toString(10);
     // LosslessNumber instances are mutable objects. Copy even an already
     // canonical token so caller-owned raw input cannot mutate the result.
-    return new LosslessNumber(canonical);
+    return new LosslessNumber(token);
   }
   if (typeof value === "number") {
     throw new TypeError(
@@ -197,7 +217,7 @@ function deriveKey(item: TransformRecord, resource: TransformCatalogResource): s
 function unescapeDisplayFields(
   item: TransformRecord,
   resource: TransformCatalogResource,
-  catalog: TransformCatalog,
+  compatibility: TransformCatalog["python_compatibility"],
 ): void {
   for (const field of ["name", "description"] as const) {
     const value = item[field];
@@ -205,7 +225,7 @@ function unescapeDisplayFields(
       item[field] = pythonHtmlUnescapePasses(
         value,
         resource.html_unescape_passes,
-        catalog.python_compatibility.html_unescape,
+        compatibility.html_unescape,
       );
     }
   }
@@ -232,8 +252,71 @@ function coerceBoolean(value: unknown): unknown {
   return value;
 }
 
+function pythonDecimalDigit(codePoint: number): number | null {
+  let low = 0;
+  let high = PYTHON_DECIMAL_ZEROS.length - 1;
+  let zero = -1;
+  while (low <= high) {
+    const middle = (low + high) >>> 1;
+    const candidate = PYTHON_DECIMAL_ZEROS[middle] ?? 0;
+    if (candidate <= codePoint) {
+      zero = candidate;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  const value = codePoint - zero;
+  return zero >= 0 && value >= 0 && value <= 9 ? value : null;
+}
+
+function normalizePythonDecimalDigits(value: string): string {
+  let output = "";
+  for (const character of value) {
+    const digit = pythonDecimalDigit(character.codePointAt(0) ?? -1);
+    output += digit === null ? character : String(digit);
+  }
+  return output;
+}
+
+function isPythonNumericWhitespace(codePoint: number): boolean {
+  return (codePoint >= 0x09 && codePoint <= 0x0d)
+    || codePoint === 0x20
+    || codePoint === 0x85
+    || codePoint === 0xa0
+    || codePoint === 0x1680
+    || (codePoint >= 0x2000 && codePoint <= 0x200a)
+    || codePoint === 0x2028
+    || codePoint === 0x2029
+    || codePoint === 0x202f
+    || codePoint === 0x205f
+    || codePoint === 0x3000;
+}
+
+function trimPythonNumericWhitespace(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end) {
+    const codePoint = value.codePointAt(start) ?? -1;
+    if (!isPythonNumericWhitespace(codePoint)) {
+      break;
+    }
+    start += codePoint > 0xffff ? 2 : 1;
+  }
+  while (end > start) {
+    const last = value.charCodeAt(end - 1);
+    const width = last >= 0xdc00 && last <= 0xdfff ? 2 : 1;
+    const codePoint = value.codePointAt(end - width) ?? -1;
+    if (!isPythonNumericWhitespace(codePoint)) {
+      break;
+    }
+    end -= width;
+  }
+  return value.slice(start, end);
+}
+
 function parsePythonInteger(value: string): number | LosslessNumber | null {
-  const stripped = value.trim();
+  const stripped = normalizePythonDecimalDigits(trimPythonNumericWhitespace(value));
   if (!/^[+-]?[0-9](?:_?[0-9])*$/.test(stripped)) {
     return null;
   }
@@ -247,12 +330,12 @@ function parsePythonInteger(value: string): number | LosslessNumber | null {
   return new LosslessNumber(integer.toString(10));
 }
 
-function isPythonFloatString(value: string): boolean {
-  const stripped = value.trim().replaceAll("_", "");
-  if (!/^[+-]?(?:(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?|inf(?:inity)?|nan)$/i.test(stripped)) {
-    return false;
+function normalizedPythonFloatString(value: string): string | null {
+  const stripped = normalizePythonDecimalDigits(trimPythonNumericWhitespace(value));
+  if (!/^[+-]?(?:(?:[0-9](?:_?[0-9])*(?:\.(?:[0-9](?:_?[0-9])*)?)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?|inf(?:inity)?|nan)$/i.test(stripped)) {
+    return null;
   }
-  return true;
+  return stripped.replaceAll("_", "");
 }
 
 function coercePrimitive(
@@ -264,7 +347,11 @@ function coercePrimitive(
       return value ? "true" : "false";
     }
     if (value instanceof LosslessNumber) {
-      return identityComponent(value, "coercion input");
+      const token = canonicalPythonNumberToken(value.toString());
+      if (token === null) {
+        throw new TypeError("transform string coercion requires a finite JSON number");
+      }
+      return token;
     }
     return value;
   }
@@ -276,15 +363,17 @@ function coercePrimitive(
     if (integer !== null) {
       return integer;
     }
-    if (/[^\x00-\x7f]/u.test(value) && /\p{Decimal_Number}/u.test(value)) {
-      throw new TypeError(
-        "transform numeric coercion does not yet support Unicode decimal strings",
+    const floatText = normalizedPythonFloatString(value);
+    if (floatText !== null) {
+      const token = pythonFiniteFloatToken(
+        Number(floatText),
       );
-    }
-    if (isPythonFloatString(value)) {
-      throw new TypeError(
-        "transform numeric coercion accepts integers only; float compatibility is not yet frozen",
-      );
+      if (token === null) {
+        throw new TypeError(
+          "transform numeric coercion accepts finite numbers only",
+        );
+      }
+      return new LosslessNumber(token);
     }
     return value;
   }
@@ -299,17 +388,47 @@ function coerceValue(value: unknown, encoding: TransformValueEncoding): unknown 
   if (typeof encoding === "string") {
     return coercePrimitive(unwrapReference(value), encoding);
   }
+  const kind = encoding[0];
   const inner = encoding[1];
+  if (kind === "map") {
+    if (!isPlainJsonRecord(value)) {
+      return value;
+    }
+    return safeRecord(sortedStrings(Object.keys(value)).map((key) => {
+      return [key, coercePrimitive(unwrapReference(value[key]), inner)] as const;
+    }));
+  }
   if (value === "") {
     return [];
   }
+  let output: unknown[];
   if (Array.isArray(value)) {
-    return value.map((item) => coercePrimitive(unwrapReference(item), inner));
+    output = value.map((item) => coercePrimitive(unwrapReference(item), inner));
+  } else if (value === null) {
+    return value;
+  } else {
+    output = [coercePrimitive(unwrapReference(value), inner)];
   }
-  if (value === null) {
-    return null;
+  if (kind === "set") {
+    return output
+      .map((item, index) => {
+        if (item !== null && typeof item !== "string") {
+          throw new TypeError(
+            "set(string) coercion produced a non-string provider value",
+          );
+        }
+        return {
+          index,
+          item,
+          key: item ?? "",
+        };
+      })
+      .sort((left, right) => {
+        return comparePythonStrings(left.key, right.key) || left.index - right.index;
+      })
+      .map(({ item }) => item);
   }
-  return [coercePrimitive(unwrapReference(value), inner)];
+  return output;
 }
 
 function nullStubValue(value: unknown): boolean {
@@ -323,7 +442,11 @@ function nullStubValue(value: unknown): boolean {
     return true;
   }
   const integer = losslessIntegerToken(value);
-  return integer !== null && BigInt(integer) === 0n;
+  if (integer !== null) {
+    return BigInt(integer) === 0n;
+  }
+  return value instanceof LosslessNumber
+    && Number(value.toString()) === 0;
 }
 
 function isNullObject(
@@ -391,7 +514,10 @@ function mergeSingleBlockElements(
         continue;
       }
       const encoding = projection.attributes[key];
-      if (Array.isArray(encoding) && encoding[0] === "list") {
+      if (
+        Array.isArray(encoding)
+        && (encoding[0] === "list" || encoding[0] === "set")
+      ) {
         const current = entries.get(key);
         const bucket = Array.isArray(current) ? current : [];
         if (value !== "") {
@@ -641,7 +767,8 @@ function catalogResource(
  * reachable override vocabulary captured by the closed transform catalog.
  * Raw data must come from a lossless JSON parser: every JSON number token is
  * required to be a LosslessNumber so `1` cannot be confused with `1.0` after
- * JavaScript conversion.  Only integral tokens are accepted at checkpoint 1.
+ * JavaScript conversion. Finite float lexemes are canonicalized through the
+ * same binary64 model and spelling used by Python's JSON implementation.
  */
 export function transformPullItems(options: {
   readonly catalog: TransformCatalog;
@@ -650,6 +777,26 @@ export function transformPullItems(options: {
 }): PullTransformResult {
   const catalog = requireSupportedZccTransformCatalog(options.catalog);
   const resource = catalogResource(catalog, options.resourceType);
+  return transformPullItemsKernel({
+    compatibility: catalog.python_compatibility,
+    rawItems: options.rawItems,
+    resource,
+  });
+}
+
+/**
+ * Product-neutral pure transform seam. Callers must supply a structurally
+ * validated catalog resource; public operations retain the exact embedded-ZCC
+ * gate in `transformPullItems`.
+ *
+ * @internal Catalog differential and future product-catalog integration only.
+ */
+export function transformPullItemsKernel(options: {
+  readonly compatibility: TransformCatalog["python_compatibility"];
+  readonly rawItems: readonly unknown[];
+  readonly resource: TransformCatalogResource;
+}): PullTransformResult {
+  const { resource } = options;
   const items = new Map<string, Readonly<Record<string, unknown>>>();
   const originals = new Map<string, Readonly<Record<string, unknown>>>();
   const drops: string[] = [];
@@ -660,7 +807,7 @@ export function transformPullItems(options: {
     if (!isPlainJsonRecord(snakeRaw)) {
       throw new TypeError("each raw transform item must be a JSON object");
     }
-    unescapeDisplayFields(snakeRaw, resource, catalog);
+    unescapeDisplayFields(snakeRaw, resource, options.compatibility);
     const normalized = applyReachableOverrides(snakeRaw, resource);
     const key = deriveKey(normalized, resource);
     if (items.has(key)) {

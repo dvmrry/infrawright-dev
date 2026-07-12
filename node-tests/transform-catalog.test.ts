@@ -3,6 +3,7 @@ import test from "node:test";
 
 import embeddedCatalog from "../catalogs/zcc-transform-catalog.v1.json" with { type: "json" };
 import { ProcessFailure } from "../node-src/domain/errors.js";
+import { validateTransformCatalog } from "../node-src/contracts/validators.js";
 import {
   loadZccTransformCatalog,
   requireSupportedZccTransformCatalog,
@@ -78,6 +79,38 @@ test("catalog schema is closed and rejects malformed contracts", () => {
     () => requireSupportedZccTransformCatalog(missing),
     expectFailure("INVALID_TRANSFORM_CATALOG"),
   );
+});
+
+test("catalog schema admits only the lifted string collection encodings", () => {
+  for (const encoding of [["set", "string"], ["map", "string"]] as const) {
+    const candidate = copyEmbedded();
+    const resources = candidate.resources as Array<{
+      projection: { attributes: Record<string, unknown> };
+    }>;
+    const attributes = resources[0]?.projection.attributes;
+    assert.notEqual(attributes, undefined);
+    if (attributes !== undefined) {
+      attributes.active = [...encoding];
+    }
+    assert.equal(validateTransformCatalog(candidate), true);
+    assert.throws(
+      () => requireSupportedZccTransformCatalog(candidate),
+      expectFailure("UNSUPPORTED_TRANSFORM_CATALOG"),
+    );
+  }
+
+  for (const encoding of [["set", "number"], ["map", "bool"]] as const) {
+    const candidate = copyEmbedded();
+    const resources = candidate.resources as Array<{
+      projection: { attributes: Record<string, unknown> };
+    }>;
+    const attributes = resources[0]?.projection.attributes;
+    assert.notEqual(attributes, undefined);
+    if (attributes !== undefined) {
+      attributes.active = [...encoding];
+    }
+    assert.equal(validateTransformCatalog(candidate), false);
+  }
 });
 
 test("catalog gate rejects source, resource, projection, and compatibility mutations", () => {
