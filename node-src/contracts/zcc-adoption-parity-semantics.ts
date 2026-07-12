@@ -176,6 +176,7 @@ export const validateZccAdoptionParitySemantics:
 
     let equal = 0;
     let different = 0;
+    let invalidArtifactPath = false;
     const entries = ["tfvars", "imports", "lookup"] as const;
     for (const name of entries) {
       const entry = record(artifacts[name]);
@@ -185,6 +186,27 @@ export const validateZccAdoptionParitySemantics:
       const candidate = record(entry.candidate);
       const reference = record(entry.reference);
       if (candidate === null || reference === null) {
+        continue;
+      }
+      let invalidEntryPath = false;
+      for (const side of ["candidate", "reference"] as const) {
+        const logicalPath = side === "candidate"
+          ? candidate.path
+          : reference.path;
+        if (
+          typeof logicalPath === "string"
+          && (logicalPath.includes("\0") || !logicalPath.isWellFormed())
+        ) {
+          invalidArtifactPath = true;
+          invalidEntryPath = true;
+          push(
+            `/parity/artifacts/${name}/${side}/path`,
+            "path_characters",
+            "artifact paths must be well-formed and contain no NUL",
+          );
+        }
+      }
+      if (invalidEntryPath) {
         continue;
       }
       if (candidate.path !== reference.path) {
@@ -226,60 +248,64 @@ export const validateZccAdoptionParitySemantics:
         }
       }
     }
-    if (parity.equal !== equal || parity.different !== different) {
-      push(
-        "/parity",
-        "parity_counts",
-        "artifact equality counts must match the per-role statuses",
-      );
-    }
-    const parityStatus = different === 0 ? "equal" : "different";
-    if (parity.status !== parityStatus) {
-      push("/parity/status", "parity_status", "parity status is inconsistent");
-    }
-    const reportStatus = parityStatus === "equal" ? "ready" : "review_required";
-    if (report.status !== reportStatus) {
-      push("/status", "report_status", "report status is inconsistent");
+    if (!invalidArtifactPath) {
+      if (parity.equal !== equal || parity.different !== different) {
+        push(
+          "/parity",
+          "parity_counts",
+          "artifact equality counts must match the per-role statuses",
+        );
+      }
+      const parityStatus = different === 0 ? "equal" : "different";
+      if (parity.status !== parityStatus) {
+        push("/parity/status", "parity_status", "parity status is inconsistent");
+      }
+      const reportStatus = parityStatus === "equal" ? "ready" : "review_required";
+      if (report.status !== reportStatus) {
+        push("/status", "report_status", "report status is inconsistent");
+      }
     }
 
-    const tfvars = record(record(artifacts.tfvars)?.candidate);
-    const imports = record(record(artifacts.imports)?.candidate);
-    const lookup = record(record(artifacts.lookup)?.candidate);
-    const tfvarsPath = typeof tfvars?.path === "string" ? tfvars.path : null;
-    const importsPath = typeof imports?.path === "string" ? imports.path : null;
-    const configPrefix = tfvarsPath === null
-      ? null
-      : layoutPrefix(
-          tfvarsPath,
-          `config/${tenant}/${resourceType}.auto.tfvars.json`,
-        );
-    const importsPrefix = importsPath === null
-      ? null
-      : layoutPrefix(
-          importsPath,
-          `imports/${tenant}/${resourceType}_imports.tf`,
-        );
-    if (configPrefix === null || importsPrefix === null || configPrefix !== importsPrefix) {
-      push(
-        "/parity/artifacts",
-        "artifact_layout",
-        "artifact paths must share the canonical deployment layout",
-      );
-    }
-    if (resourceType === "zcc_trusted_network") {
-      const lookupPath = typeof lookup?.path === "string" ? lookup.path : null;
-      const lookupPrefix = lookupPath === null
+    if (!invalidArtifactPath) {
+      const tfvars = record(record(artifacts.tfvars)?.candidate);
+      const imports = record(record(artifacts.imports)?.candidate);
+      const lookup = record(record(artifacts.lookup)?.candidate);
+      const tfvarsPath = typeof tfvars?.path === "string" ? tfvars.path : null;
+      const importsPath = typeof imports?.path === "string" ? imports.path : null;
+      const configPrefix = tfvarsPath === null
         ? null
         : layoutPrefix(
-            lookupPath,
-            `config/${tenant}/${resourceType}.lookup.json`,
+            tfvarsPath,
+            `config/${tenant}/${resourceType}.auto.tfvars.json`,
           );
-      if (lookupPrefix === null || lookupPrefix !== configPrefix) {
+      const importsPrefix = importsPath === null
+        ? null
+        : layoutPrefix(
+            importsPath,
+            `imports/${tenant}/${resourceType}_imports.tf`,
+          );
+      if (configPrefix === null || importsPrefix === null || configPrefix !== importsPrefix) {
         push(
-          "/parity/artifacts/lookup/candidate/path",
+          "/parity/artifacts",
           "artifact_layout",
-          "lookup path must share the canonical deployment layout",
+          "artifact paths must share the canonical deployment layout",
         );
+      }
+      if (resourceType === "zcc_trusted_network") {
+        const lookupPath = typeof lookup?.path === "string" ? lookup.path : null;
+        const lookupPrefix = lookupPath === null
+          ? null
+          : layoutPrefix(
+              lookupPath,
+              `config/${tenant}/${resourceType}.lookup.json`,
+            );
+        if (lookupPrefix === null || lookupPrefix !== configPrefix) {
+          push(
+            "/parity/artifacts/lookup/candidate/path",
+            "artifact_layout",
+            "lookup path must share the canonical deployment layout",
+          );
+        }
       }
     }
 

@@ -153,6 +153,46 @@
   - `compile_adoption_artifacts` still rejects existing imports/moves/pending
     state and was not weakened to serve comparison.
 
+## Adversarial Review Remediation
+
+- Reviewed head before remediation:
+  `d5d37fda3a215e8262e745be860e50c01be38bfe`.
+- Contract-path finding:
+  - root cause: the standalone semantic validator derived layout and equality
+    without first applying the production constructor's NUL and well-formed
+    Unicode path invariant;
+  - fix: every applicable candidate and reference tfvars/imports/lookup path
+    now fails at its exact field before layout reasoning when it contains NUL
+    or an unpaired UTF-16 surrogate;
+  - regression: direct result and full process-response validation cover NUL,
+    lone high surrogate, lone low surrogate, each role and side independently,
+    all paths together, and a positive non-ASCII/astral deployment prefix.
+- Comparison-authority finding:
+  - root cause: stable file identity/digest rechecks did not bind the namespace
+    parents that give those files their deployment meaning, so a replaced
+    parent containing hard links to the original inodes could survive the
+    final file-only check;
+  - fix: comparison now binds the canonical overlay authority and every
+    existing non-symlink ancestor of applicable and required-absent artifact
+    parents. If a parent component is initially absent, it binds the first
+    absent component and requires it to remain absent. Parent checks sandwich
+    the existing file/absence recheck after oracle cleanup. Strict refresh
+    parent semantics remain unchanged;
+  - regression: post-cleanup parent replacement with exact hard links is
+    rejected for ordinary config and imports, trusted-network tfvars/lookup,
+    missing tfvars, missing trusted lookup, and unsupported-sidecar absence.
+    An unchanged missing parent remains a complete `review_required` result;
+    grouped roots retain their existing coverage and a disjoint absolute
+    overlay remains successful.
+- Documentation nits folded in remediation:
+  - the README now says Python is the expected retained reference lane while
+    writer identity is not attested;
+  - Current Boundary and the schema index now name the public adoption
+    comparison and its standalone v1 schema.
+- Replay request: independently rerun both original reproducers against the
+  post-remediation head and review only the changed semantic-validator,
+  comparison-binder, regression-test, and documentation surface.
+
 ## Tests Run
 
 - Commands:
@@ -171,8 +211,9 @@
   - `npm run build`
   - `git diff --check`
 - Relevant output summary:
-  - focused comparison/adoption/semantic/bundle surface: 25/25 passed;
-  - each Node runtime: 683 total, 682 passed, one existing platform skip;
+  - focused adoption parity/process surface: 23/23 passed;
+  - legacy pull-comparison compatibility surface: 20/20 passed;
+  - each Node runtime: 687 total, 686 passed, one existing platform skip;
   - Python: 1,394 total, 1,393 passed, one opt-in external-source skip;
   - pruned profiles: empty 867/867; ZPA 940 passed plus one opt-in skip;
     Zscaler 1,374 passed plus one opt-in skip;

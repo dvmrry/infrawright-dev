@@ -5,11 +5,13 @@ import {
   chmodSync,
   copyFileSync,
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   realpathSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -913,6 +915,24 @@ function singletonReferencePath(
   );
 }
 
+function replaceParentWithExactHardlinks(
+  parent: string,
+  retainedNames: readonly string[],
+): void {
+  const original = `${parent}.bound-original`;
+  renameSync(parent, original);
+  mkdirSync(parent, { mode: 0o700 });
+  for (const name of retainedNames) {
+    const source = path.join(original, name);
+    const target = path.join(parent, name);
+    const before = statSync(source, { bigint: true });
+    linkSync(source, target);
+    const after = statSync(target, { bigint: true });
+    assert.equal(after.dev, before.dev, name);
+    assert.equal(after.ino, before.ino, name);
+  }
+}
+
 test("bundled all-five executor matches Python before and after in grouped and singleton roots", () => {
   for (const grouped of [false, true]) {
     const fixture = createFixture();
@@ -1461,6 +1481,189 @@ test("comparison rechecks source, controls, and materialized references after or
     assert.deepEqual(readdirSync(lookup.tempRoot), []);
   } finally {
     rmSync(lookup.root, { recursive: true, force: true });
+  }
+});
+
+test("comparison rejects parent replacement despite exact hard-linked references", async () => {
+  const cases = [
+    {
+      name: "ordinary-config-with-unsupported-absence",
+      resourceType: "zcc_web_privacy",
+      parentKind: "config",
+      retainedNames: ["zcc_web_privacy.auto.tfvars.json"],
+      removeNames: [],
+      absentNames: [
+        "zcc_web_privacy.auto.tfvars",
+        "zcc_web_privacy.generated.expressions.json",
+        "zcc_web_privacy.lookup.json",
+      ],
+    },
+    {
+      name: "ordinary-imports",
+      resourceType: "zcc_web_privacy",
+      parentKind: "imports",
+      retainedNames: ["zcc_web_privacy_imports.tf"],
+      removeNames: [],
+      absentNames: [
+        "zcc_web_privacy_moves.tf",
+        "zcc_web_privacy_moves.pending.json",
+      ],
+    },
+    {
+      name: "trusted-tfvars-and-lookup",
+      resourceType: "zcc_trusted_network",
+      parentKind: "config",
+      retainedNames: [
+        "zcc_trusted_network.auto.tfvars.json",
+        "zcc_trusted_network.lookup.json",
+      ],
+      removeNames: [],
+      absentNames: [
+        "zcc_trusted_network.auto.tfvars",
+        "zcc_trusted_network.generated.expressions.json",
+      ],
+    },
+    {
+      name: "missing-tfvars",
+      resourceType: "zcc_web_privacy",
+      parentKind: "config",
+      retainedNames: [],
+      removeNames: ["zcc_web_privacy.auto.tfvars.json"],
+      absentNames: [
+        "zcc_web_privacy.auto.tfvars.json",
+        "zcc_web_privacy.auto.tfvars",
+        "zcc_web_privacy.generated.expressions.json",
+        "zcc_web_privacy.lookup.json",
+      ],
+    },
+    {
+      name: "missing-trusted-lookup",
+      resourceType: "zcc_trusted_network",
+      parentKind: "config",
+      retainedNames: ["zcc_trusted_network.auto.tfvars.json"],
+      removeNames: ["zcc_trusted_network.lookup.json"],
+      absentNames: [
+        "zcc_trusted_network.lookup.json",
+        "zcc_trusted_network.auto.tfvars",
+        "zcc_trusted_network.generated.expressions.json",
+      ],
+    },
+  ] as const satisfies readonly {
+    readonly name: string;
+    readonly resourceType: ZccPullResourceType;
+    readonly parentKind: "config" | "imports";
+    readonly retainedNames: readonly string[];
+    readonly removeNames: readonly string[];
+    readonly absentNames: readonly string[];
+  }[];
+
+  for (const regression of cases) {
+    const fixture = createFixture();
+    try {
+      pythonAdopt(fixture.workspace, fixture.fake, regression.resourceType);
+      const parent = path.join(
+        fixture.workspace,
+        regression.parentKind,
+        TENANT,
+      );
+      for (const name of regression.removeNames) {
+        rmSync(path.join(parent, name));
+      }
+      await assert.rejects(
+        compareZccAdoptionArtifactsOperation({
+          workspace: fixture.workspace,
+          deploymentPath: fixture.deploymentPath,
+          catalogPath: fixture.catalogPath,
+          tenant: TENANT,
+          resourceType: regression.resourceType,
+          hostAuthority: {
+            terraformExecutable: fixture.fake,
+            tempRoot: fixture.tempRoot,
+            environment: { ZSCALER_CLIENT_SECRET: "credential-secret" },
+          },
+          adoptionHooks: {
+            afterOracle() {
+              replaceParentWithExactHardlinks(parent, regression.retainedNames);
+              for (const name of regression.absentNames) {
+                assert.equal(existsSync(path.join(parent, name)), false, name);
+              }
+            },
+          },
+        }),
+        (error: unknown) => error instanceof ProcessFailure
+          && error.code === "COMPARE_ARTIFACT_PARENT_CHANGED"
+          && error.category === "io"
+          && !JSON.stringify(error).includes(parent),
+        regression.name,
+      );
+      assert.deepEqual(readdirSync(fixture.tempRoot), []);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("comparison preserves missing-parent review semantics", async () => {
+  const fixture = createFixture();
+  try {
+    pythonAdopt(fixture.workspace, fixture.fake, "zcc_web_privacy");
+    const missingParent = path.join(fixture.workspace, "config", TENANT);
+    rmSync(missingParent, { recursive: true });
+    const result = await compareZccAdoptionArtifactsOperation({
+      workspace: fixture.workspace,
+      deploymentPath: fixture.deploymentPath,
+      catalogPath: fixture.catalogPath,
+      tenant: TENANT,
+      resourceType: "zcc_web_privacy",
+      hostAuthority: {
+        terraformExecutable: fixture.fake,
+        tempRoot: fixture.tempRoot,
+        environment: { ZSCALER_CLIENT_SECRET: "credential-secret" },
+      },
+    });
+    assert.equal(result.status, "review_required");
+    assert.equal(result.parity.status, "different");
+    assert.equal(result.parity.artifacts.tfvars.status, "different");
+    assert.equal(result.parity.artifacts.tfvars.reference?.sha256, null);
+    assert.equal(existsSync(missingParent), false);
+    assert.deepEqual(readdirSync(fixture.tempRoot), []);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("comparison accepts a disjoint external artifact overlay", async () => {
+  const fixture = createFixture();
+  try {
+    const externalOverlay = path.join(fixture.root, "external-artifacts");
+    mkdirSync(externalOverlay, { mode: 0o700 });
+    writeFileSync(
+      fixture.deploymentPath,
+      `${JSON.stringify({ overlay: externalOverlay, roots: {} })}\n`,
+    );
+    pythonAdopt(fixture.workspace, fixture.fake, "zcc_web_privacy");
+    const result = await compareZccAdoptionArtifactsOperation({
+      workspace: fixture.workspace,
+      deploymentPath: fixture.deploymentPath,
+      catalogPath: fixture.catalogPath,
+      tenant: TENANT,
+      resourceType: "zcc_web_privacy",
+      hostAuthority: {
+        terraformExecutable: fixture.fake,
+        tempRoot: fixture.tempRoot,
+        environment: { ZSCALER_CLIENT_SECRET: "credential-secret" },
+      },
+    });
+    assert.equal(result.status, "ready");
+    assert.equal(result.parity.status, "equal");
+    assert.equal(
+      validateZccAdoptionArtifactParity(result),
+      true,
+      JSON.stringify(validateZccAdoptionArtifactParity.errors),
+    );
+    assert.deepEqual(readdirSync(fixture.tempRoot), []);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 

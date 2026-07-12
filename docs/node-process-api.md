@@ -367,10 +367,13 @@ bytes:
 The externally materialized reference is expected to come from the retained
 Python adoption lane. Production Node never launches Python and does not infer
 which writer created the files. Before Terraform runs, it binds the canonical
-tfvars and imports paths plus the trusted-network lookup path, including each
-file's presence, identity, size, and SHA-256. A missing applicable reference is
-a comparison result, not an I/O error. A lookup for any other resource is an
-unsupported stale artifact.
+overlay authority and parent ancestry for tfvars and imports plus the
+trusted-network lookup path, including each file's presence, identity, size,
+and SHA-256. Existing parent components are bound by identity; when a parent is
+missing, the first absent component is bound as required absence. Both are
+rechecked after oracle cleanup. A missing applicable reference is a comparison
+result, not an I/O error. A lookup for any other resource is an unsupported
+stale artifact.
 
 This comparison policy is intentionally separate from the compile operation's
 bootstrap-absence policy: existing imports are reference evidence here and
@@ -974,7 +977,9 @@ Exit status is:
 The strict contracts are published in
 `docs/schemas/process-request.schema.json` and
 `docs/schemas/process-response.schema.json`. The standalone comparison result
-is `docs/schemas/zcc-pull-artifact-parity.schema.json`; refresh compilation is
+is `docs/schemas/zcc-pull-artifact-parity.schema.json`; provider-observed
+adoption comparison is
+`docs/schemas/zcc-adoption-artifact-parity.schema.json`; refresh compilation is
 `docs/schemas/zcc-pull-refresh-artifact-set.schema.json`; the two-phase refresh
 contracts are `docs/schemas/zcc-pull-refresh-parity-seed.schema.json` and
 `docs/schemas/zcc-pull-refresh-parity.schema.json`; the content-free write
@@ -1141,7 +1146,8 @@ plan-root enumeration, exact-catalog saved-plan assessment, immutable ZCC
 bootstrap and refresh artifact compilation, two-phase refresh byte parity,
 materialized bootstrap comparison, asserted retry-forward bootstrap
 publication, asserted imports-last refresh publication, and provider-observed
-ZCC bootstrap adoption compilation as public process operations.
+ZCC bootstrap adoption compilation and materialized-reference comparison as
+public process operations.
 
 The bundled, single-use ZCC adoption-oracle transaction covers the exact
 five-resource catalog. It renders only the pinned provider root and import

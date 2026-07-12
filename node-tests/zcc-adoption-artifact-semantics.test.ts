@@ -175,6 +175,28 @@ function semanticRules(value: unknown): readonly string[] {
   });
 }
 
+function pathCharacterErrorPaths(
+  validator: typeof validateZccAdoptionArtifactParity,
+): readonly string[] {
+  return [...new Set((validator.errors ?? []).flatMap((error) => {
+    const params = error.params as { readonly rule?: unknown } | undefined;
+    return params?.rule === "path_characters" ? [error.instancePath] : [];
+  }))];
+}
+
+function parityResponse(result: unknown, requestId: string) {
+  return {
+    kind: "infrawright.process_response",
+    schema_version: 1,
+    request_id: requestId,
+    operation: "compare_adoption_artifacts",
+    status: "ok",
+    diagnostics: [],
+    result,
+    error: null,
+  };
+}
+
 test("adoption parity schema accepts only exact content-free joined coordinates", () => {
   const value = parity();
   assert.equal(
@@ -233,6 +255,92 @@ test("adoption parity schema accepts only exact content-free joined coordinates"
     status: "not_applicable",
   };
   assert.equal(validateZccAdoptionArtifactParity(wrongLookupApplicability), false);
+});
+
+test("applicable parity paths reject NUL and lone surrogates standalone and wrapped", () => {
+  const roles = ["tfvars", "imports", "lookup"] as const;
+  const sides = ["candidate", "reference"] as const;
+  const expected = roles.flatMap((role) => {
+    return sides.map((side) => `/parity/artifacts/${role}/${side}/path`);
+  }).sort();
+  for (const [name, prefix] of [
+    ["nul", "\0"],
+    ["lone-high-surrogate", "\ud800"],
+    ["lone-low-surrogate", "\udfff"],
+  ] as const) {
+    const result = structuredClone(parity()) as any;
+    for (const role of roles) {
+      for (const side of sides) {
+        result.parity.artifacts[role][side].path =
+          prefix + result.parity.artifacts[role][side].path;
+      }
+    }
+    assert.equal(validateZccAdoptionArtifactParity(result), false, name);
+    assert.deepEqual(
+      [...pathCharacterErrorPaths(validateZccAdoptionArtifactParity)].sort(),
+      expected,
+      name,
+    );
+
+    const response = parityResponse(result, `bad-path-${name}`);
+    assert.equal(validateProcessResponse(response), false, name);
+    assert.deepEqual(
+      [...pathCharacterErrorPaths(validateProcessResponse)].sort(),
+      expected.map((instancePath) => `/result${instancePath}`).sort(),
+      name,
+    );
+
+    for (const role of roles) {
+      for (const side of sides) {
+        const independent = structuredClone(parity()) as any;
+        independent.parity.artifacts[role][side].path =
+          prefix + independent.parity.artifacts[role][side].path;
+        const instancePath = `/parity/artifacts/${role}/${side}/path`;
+        assert.equal(
+          validateZccAdoptionArtifactParity(independent),
+          false,
+          `${name}:${role}:${side}:standalone`,
+        );
+        assert.deepEqual(
+          pathCharacterErrorPaths(validateZccAdoptionArtifactParity),
+          [instancePath],
+          `${name}:${role}:${side}:standalone`,
+        );
+        assert.equal(
+          validateProcessResponse(parityResponse(
+            independent,
+            `bad-path-${name}-${role}-${side}`,
+          )),
+          false,
+          `${name}:${role}:${side}:wrapped`,
+        );
+        assert.deepEqual(
+          pathCharacterErrorPaths(validateProcessResponse),
+          [`/result${instancePath}`],
+          `${name}:${role}:${side}:wrapped`,
+        );
+      }
+    }
+  }
+
+  const unicodePrefix = "d\u00e9ploiement/\ud83d\ude00/";
+  const validUnicode = structuredClone(parity()) as any;
+  for (const role of roles) {
+    for (const side of sides) {
+      validUnicode.parity.artifacts[role][side].path =
+        unicodePrefix + validUnicode.parity.artifacts[role][side].path;
+    }
+  }
+  assert.equal(
+    validateZccAdoptionArtifactParity(validUnicode),
+    true,
+    JSON.stringify(validateZccAdoptionArtifactParity.errors),
+  );
+  assert.equal(
+    validateProcessResponse(parityResponse(validUnicode, "valid-unicode-path")),
+    true,
+    JSON.stringify(validateProcessResponse.errors),
+  );
 });
 
 test("adoption parity operation binds request and rejects pull-result cross-pairs", () => {

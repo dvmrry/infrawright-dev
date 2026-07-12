@@ -106,6 +106,17 @@ export interface ZccParityTargetParentBinding {
   }[];
 }
 
+interface ZccComparisonTargetParentBinding {
+  readonly existingAncestors: readonly {
+    readonly path: string;
+    readonly identity: {
+      readonly dev: bigint;
+      readonly ino: bigint;
+    };
+  }[];
+  readonly firstAbsentPath: string | null;
+}
+
 function fail(
   code: string,
   message: string,
@@ -663,6 +674,174 @@ function compareArtifactPaths(
           }]),
     ],
   };
+}
+
+async function bindZccComparisonTargetParents(options: {
+  readonly workspace: string;
+  readonly deployment: Awaited<ReturnType<typeof loadBoundAssessmentDeployment>>["deployment"];
+  readonly target: ZccArtifactTarget;
+}): Promise<readonly ZccComparisonTargetParentBinding[]> {
+  const overlay = options.deployment.overlay;
+  if (typeof overlay !== "string") {
+    return fail(
+      "INVALID_COMPARE_ARTIFACT_AUTHORITY",
+      "comparison artifact authority is invalid",
+    );
+  }
+  const lexicalAuthority = overlay === "."
+    ? options.workspace
+    : resolvedPath(options.workspace, overlay);
+  let authority: string;
+  try {
+    authority = await realpath(lexicalAuthority);
+    const metadata = await lstat(lexicalAuthority);
+    if (
+      authority !== path.resolve(lexicalAuthority)
+      || !metadata.isDirectory()
+      || metadata.isSymbolicLink()
+    ) {
+      return fail(
+        "INVALID_COMPARE_ARTIFACT_AUTHORITY",
+        "comparison artifact authority is invalid",
+      );
+    }
+  } catch (error: unknown) {
+    if (error instanceof ProcessFailure) {
+      throw error;
+    }
+    return fail(
+      "INVALID_COMPARE_ARTIFACT_AUTHORITY",
+      "comparison artifact authority is invalid",
+    );
+  }
+  const paths = compareArtifactPaths(options.workspace, options.target);
+  const allTargets = [
+    paths.tfvars,
+    paths.imports,
+    ...(paths.lookup === null ? [] : [paths.lookup]),
+    ...paths.unsupported.map((artifact) => artifact.absolutePath),
+  ];
+  const physicalTargets = allTargets.map((target) => path.resolve(target));
+  if (
+    new Set(physicalTargets).size !== physicalTargets.length
+    || physicalTargets.some((target) => !containedPath(target, authority))
+  ) {
+    return fail(
+      "INVALID_COMPARE_ARTIFACT_AUTHORITY",
+      "comparison artifact targets are invalid",
+    );
+  }
+
+  const parentPaths = sortedStrings(new Set(
+    physicalTargets.map((target) => path.dirname(target)),
+  ));
+  const bindings: ZccComparisonTargetParentBinding[] = [];
+  for (const parentPath of parentPaths) {
+    const relative = path.relative(authority, parentPath);
+    if (
+      path.resolve(parentPath) !== parentPath
+      || !containedPath(parentPath, authority)
+      || path.isAbsolute(relative)
+    ) {
+      return fail(
+        "INVALID_COMPARE_ARTIFACT_AUTHORITY",
+        "comparison artifact parents are invalid",
+      );
+    }
+    const components = relative === "" ? [] : relative.split(path.sep);
+    const existingAncestors: {
+      path: string;
+      identity: { dev: bigint; ino: bigint };
+    }[] = [];
+    let firstAbsentPath: string | null = null;
+    let current = authority;
+    for (const component of ["", ...components]) {
+      if (component !== "") {
+        current = path.join(current, component);
+      }
+      try {
+        const metadata = await lstat(current, { bigint: true });
+        if (
+          !metadata.isDirectory()
+          || metadata.isSymbolicLink()
+          || await realpath(current) !== current
+        ) {
+          return fail(
+            "INVALID_COMPARE_ARTIFACT_AUTHORITY",
+            "comparison artifact ancestry is invalid",
+          );
+        }
+        existingAncestors.push({
+          path: current,
+          identity: { dev: metadata.dev, ino: metadata.ino },
+        });
+      } catch (error: unknown) {
+        if (errorCode(error) === "ENOENT") {
+          firstAbsentPath = current;
+          break;
+        }
+        if (error instanceof ProcessFailure) {
+          throw error;
+        }
+        return fail(
+          "INVALID_COMPARE_ARTIFACT_AUTHORITY",
+          "comparison artifact ancestry is invalid",
+        );
+      }
+    }
+    bindings.push(Object.freeze({
+      existingAncestors: Object.freeze(existingAncestors.map((ancestor) => {
+        return Object.freeze({
+          path: ancestor.path,
+          identity: Object.freeze({ ...ancestor.identity }),
+        });
+      })),
+      firstAbsentPath,
+    }));
+  }
+  return Object.freeze(bindings);
+}
+
+async function recheckZccComparisonTargetParents(
+  bindings: readonly ZccComparisonTargetParentBinding[],
+  checkInitialAbsence = true,
+): Promise<void> {
+  for (const binding of bindings) {
+    for (const ancestor of binding.existingAncestors) {
+      try {
+        const metadata = await lstat(ancestor.path, { bigint: true });
+        if (
+          !metadata.isDirectory()
+          || metadata.isSymbolicLink()
+          || metadata.dev !== ancestor.identity.dev
+          || metadata.ino !== ancestor.identity.ino
+          || await realpath(ancestor.path) !== ancestor.path
+        ) {
+          throw new Error("changed");
+        }
+      } catch {
+        return fail(
+          "COMPARE_ARTIFACT_PARENT_CHANGED",
+          "comparison artifact authority changed during comparison",
+          "io",
+        );
+      }
+    }
+    if (checkInitialAbsence && binding.firstAbsentPath !== null) {
+      try {
+        await lstat(binding.firstAbsentPath);
+      } catch (error: unknown) {
+        if (errorCode(error) === "ENOENT") {
+          continue;
+        }
+      }
+      return fail(
+        "COMPARE_ARTIFACT_PARENT_CHANGED",
+        "comparison artifact authority changed during comparison",
+        "io",
+      );
+    }
+  }
 }
 
 async function bindArtifactPolicy(options: {
@@ -1226,6 +1405,13 @@ async function bindZccPullOperationInput(
     catalog: boundCatalog.catalog,
   });
   const targetParents: readonly ZccParityTargetParentBinding[] = [];
+  const comparisonTargetParents = artifactPolicy.kind === "compare_materialized"
+    ? await bindZccComparisonTargetParents({
+        workspace,
+        deployment: boundDeployment.deployment,
+        target,
+      })
+    : [];
   const boundPolicy = await bindArtifactPolicy({
     workspace,
     target,
@@ -1272,7 +1458,9 @@ async function bindZccPullOperationInput(
     } catch {
       return fail("COMPILE_CONTROL_CHANGED", "compile control input changed", "io");
     }
+    await recheckZccComparisonTargetParents(comparisonTargetParents, false);
     await recheckArtifactPolicy(boundPolicy);
+    await recheckZccComparisonTargetParents(comparisonTargetParents);
     await recheckZccParityTargetParents(targetParents);
   };
   return {
