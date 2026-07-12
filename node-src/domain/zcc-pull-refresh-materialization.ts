@@ -21,6 +21,7 @@ import {
   validateZccPullRefreshParity,
   validateZccPullRefreshPendingTransition,
 } from "../contracts/validators.js";
+import { requireExactPublisherAuthority } from "../io/publisher-guard.js";
 import { ProcessFailure } from "./errors.js";
 import {
   deriveImportMoves,
@@ -1862,6 +1863,10 @@ export async function materializeReadyZccPullRefresh(options: {
   requireReadyInputs({ candidate, assertion, expectedBinding });
   const root = await bindOutputRoot(outputRoot);
   const specs = buildSpecs({ outputRoot, pathBase, candidate, assertion });
+  requireExactPublisherAuthority(
+    outputRoot,
+    Object.values(specs).map((spec) => spec.absolutePath),
+  );
   const parents = await bindParents(
     root,
     Object.values(specs).map((spec) => spec.absolutePath),
@@ -2439,6 +2444,10 @@ export async function acknowledgeReadyZccPullRefresh(options: {
   requireReadyInputs({ candidate, assertion, expectedBinding });
   const root = await bindOutputRoot(outputRoot);
   const specs = buildSpecs({ outputRoot, pathBase, candidate, assertion });
+  requireExactPublisherAuthority(
+    outputRoot,
+    Object.values(specs).map((spec) => spec.absolutePath),
+  );
   const baseline = baselineWithPaths(specs);
   if (baseline.fingerprint_sha256 !== assertion.candidate.baseline_fingerprint_sha256) {
     return fail(

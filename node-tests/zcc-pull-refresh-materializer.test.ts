@@ -49,6 +49,7 @@ import {
   materializeZccPullRefreshOperation,
   type ZccPullRefreshPublisherOperationHooks,
 } from "../node-src/domain/zcc-pull-refresh-publisher-operation.js";
+import { PUBLISHER_GUARD_BASENAME } from "../node-src/io/publisher-guard.js";
 import type { ProcessResponse } from "../node-src/process/types.js";
 
 const REPOSITORY = process.cwd();
@@ -359,6 +360,7 @@ function refreshAcknowledgementRequest(
 
 function invokeHost(
   scenario: Scenario,
+  outputRoot = scenario.candidate.workspace,
 ): { readonly status: number | null; readonly stderr: string; readonly stdout: string; readonly response: ProcessResponse } {
   const request = refreshMaterializeRequest(scenario);
   assert.equal(
@@ -374,7 +376,7 @@ function invokeHost(
     env: {
       ...process.env,
       INFRAWRIGHT_TERRAFORM_EXECUTABLE: "",
-      INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT: scenario.candidate.workspace,
+      INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT: outputRoot,
     },
   });
   assert.equal(run.signal, null, run.error?.message);
@@ -397,7 +399,7 @@ function invokeAcknowledgementHost(
   scenario: Scenario,
   publication: ZccPullRefreshMaterialization,
   allowExternalApplyAcknowledgement: boolean,
-  configureOutputRoot = true,
+  outputRoot: string | null = scenario.candidate.workspace,
 ): { readonly status: number | null; readonly stderr: string; readonly stdout: string; readonly response: ProcessResponse } {
   const request = refreshAcknowledgementRequest(scenario, publication);
   assert.equal(
@@ -413,9 +415,7 @@ function invokeAcknowledgementHost(
     env: {
       ...process.env,
       INFRAWRIGHT_TERRAFORM_EXECUTABLE: "",
-      INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT: configureOutputRoot
-        ? scenario.candidate.workspace
-        : "",
+      INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT: outputRoot ?? "",
       INFRAWRIGHT_ALLOW_EXTERNAL_APPLY_ACK:
         allowExternalApplyAcknowledgement ? "1" : "",
     },
@@ -1490,9 +1490,162 @@ test("process host routes refresh success and fail-closed workspace errors", asy
     );
     assert.equal(invocation.stdout.includes(privateValue), false);
     assert.equal(readFileSync(markerPath, "utf8"), `${privateValue}\n`);
+    assert.equal(
+      existsSync(path.join(failure.candidate.workspace, PUBLISHER_GUARD_BASENAME)),
+      false,
+    );
   } finally {
     cleanupScenario(failure);
   }
+});
+
+test("process host guards refresh publication and acknowledgement for the full output root", async (t) => {
+  await t.test("refresh publication", async () => {
+    const resourceType = "zcc_device_cleanup";
+    const scenario = await prepareScenario(resourceType, [], raw(resourceType));
+    try {
+      const before = artifactSnapshot(scenario.candidate, resourceType);
+      const guardPath = path.join(
+        scenario.candidate.workspace,
+        PUBLISHER_GUARD_BASENAME,
+      );
+      const privateValue = "stale-refresh-publisher-private-value\n";
+      writeFileSync(guardPath, privateValue, { mode: 0o600 });
+
+      const invocation = invokeHost(scenario);
+      assert.equal(invocation.status, 1, invocation.stdout);
+      assert.equal(invocation.stderr, "");
+      assert.equal(invocation.response.status, "error");
+      assert.equal(invocation.response.error?.code, "OUTPUT_ROOT_BUSY");
+      assert.equal(invocation.response.error?.retryable, true);
+      assert.equal(invocation.stdout.includes(privateValue.trim()), false);
+      assert.equal(readFileSync(guardPath, "utf8"), privateValue);
+      assert.deepEqual(artifactSnapshot(scenario.candidate, resourceType), before);
+    } finally {
+      cleanupScenario(scenario);
+    }
+  });
+
+  await t.test("refresh acknowledgement", async () => {
+    const resourceType = "zcc_forwarding_profile";
+    const scenario = await prepareScenario(
+      resourceType,
+      [{ id: "rename-id", name: "Before" }],
+      [{ id: "rename-id", name: "After" }],
+    );
+    try {
+      const publication = await publish(scenario);
+      assert.equal(publication.status, "awaiting_apply");
+      const paths = artifactPaths(scenario.candidate, resourceType);
+      const moveBytes = readFileSync(paths.moves);
+      const markerBytes = readFileSync(paths.pending_moves);
+      const guardPath = path.join(
+        scenario.candidate.workspace,
+        PUBLISHER_GUARD_BASENAME,
+      );
+      const privateValue = "stale-ack-publisher-private-value\n";
+      writeFileSync(guardPath, privateValue, { mode: 0o600 });
+
+      const invocation = invokeAcknowledgementHost(
+        scenario,
+        publication,
+        true,
+      );
+      assert.equal(invocation.status, 1, invocation.stdout);
+      assert.equal(invocation.stderr, "");
+      assert.equal(invocation.response.status, "error");
+      assert.equal(invocation.response.error?.code, "OUTPUT_ROOT_BUSY");
+      assert.equal(invocation.response.error?.retryable, true);
+      assert.equal(invocation.stdout.includes(privateValue.trim()), false);
+      assert.equal(readFileSync(guardPath, "utf8"), privateValue);
+      assert.deepEqual(readFileSync(paths.moves), moveBytes);
+      assert.deepEqual(readFileSync(paths.pending_moves), markerBytes);
+    } finally {
+      cleanupScenario(scenario);
+    }
+  });
+
+  await t.test("nested ancestor cannot publish while the exact authority is held", async () => {
+    const resourceType = "zcc_device_cleanup";
+    const scenario = await prepareScenario(resourceType, [], raw(resourceType));
+    try {
+      const before = artifactSnapshot(scenario.candidate, resourceType);
+      const guardPath = path.join(
+        scenario.candidate.workspace,
+        PUBLISHER_GUARD_BASENAME,
+      );
+      const privateValue = "exact-refresh-authority-private-value\n";
+      writeFileSync(guardPath, privateValue, { mode: 0o600 });
+      const ancestor = realpathSync(path.dirname(scenario.candidate.workspace));
+
+      const invocation = invokeHost(scenario, ancestor);
+      assert.equal(invocation.status, 1, invocation.stdout);
+      assert.equal(invocation.stderr, "");
+      assert.equal(invocation.response.status, "error");
+      assert.equal(
+        invocation.response.error?.code,
+        "OUTPUT_ROOT_NOT_ARTIFACT_AUTHORITY",
+      );
+      assert.equal(invocation.response.error?.retryable, false);
+      assert.equal(invocation.stdout.includes(privateValue.trim()), false);
+      assert.equal(readFileSync(guardPath, "utf8"), privateValue);
+      assert.equal(
+        existsSync(path.join(ancestor, PUBLISHER_GUARD_BASENAME)),
+        false,
+      );
+      assert.deepEqual(artifactSnapshot(scenario.candidate, resourceType), before);
+    } finally {
+      cleanupScenario(scenario);
+    }
+  });
+
+  await t.test("nested ancestor cannot acknowledge while the exact authority is held", async () => {
+    const resourceType = "zcc_forwarding_profile";
+    const scenario = await prepareScenario(
+      resourceType,
+      [{ id: "rename-id", name: "Before" }],
+      [{ id: "rename-id", name: "After" }],
+    );
+    try {
+      const publication = await publish(scenario);
+      assert.equal(publication.status, "awaiting_apply");
+      const paths = artifactPaths(scenario.candidate, resourceType);
+      const moveBytes = readFileSync(paths.moves);
+      const markerBytes = readFileSync(paths.pending_moves);
+      const guardPath = path.join(
+        scenario.candidate.workspace,
+        PUBLISHER_GUARD_BASENAME,
+      );
+      const privateValue = "exact-ack-authority-private-value\n";
+      writeFileSync(guardPath, privateValue, { mode: 0o600 });
+      const ancestor = realpathSync(path.dirname(scenario.candidate.workspace));
+
+      const invocation = invokeAcknowledgementHost(
+        scenario,
+        publication,
+        true,
+        ancestor,
+      );
+      assert.equal(invocation.status, 1, invocation.stdout);
+      assert.equal(invocation.stderr, "");
+      assert.equal(invocation.response.status, "error");
+      assert.equal(
+        invocation.response.error?.code,
+        "OUTPUT_ROOT_NOT_ARTIFACT_AUTHORITY",
+      );
+      assert.equal(invocation.response.error?.retryable, false);
+      assert.equal(invocation.stdout.includes(privateValue.trim()), false);
+      assert.equal(readFileSync(guardPath, "utf8"), privateValue);
+      assert.equal(
+        existsSync(path.join(ancestor, PUBLISHER_GUARD_BASENAME)),
+        false,
+      );
+      assert.deepEqual(readFileSync(paths.moves), moveBytes);
+      assert.deepEqual(readFileSync(paths.pending_moves), markerBytes);
+    } finally {
+      cleanupScenario(scenario);
+    }
+  });
 });
 
 test("process host gates and emits trusted refresh acknowledgement", async () => {
@@ -1530,7 +1683,7 @@ test("process host gates and emits trusted refresh acknowledgement", async () =>
       missingRoot,
       publication,
       true,
-      false,
+      null,
     );
     assert.equal(invocation.status, 1, invocation.stdout);
     assert.equal(invocation.stderr, "");

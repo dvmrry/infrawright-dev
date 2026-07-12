@@ -16,6 +16,7 @@ import {
   validateZccPullArtifactSet,
   validateZccPullArtifactParity,
 } from "../contracts/validators.js";
+import { requireExactPublisherAuthority } from "../io/publisher-guard.js";
 import { ProcessFailure } from "./errors.js";
 import { pythonPosixRealpath } from "./paths.js";
 import type {
@@ -779,6 +780,10 @@ async function prepareArtifacts(options: {
     options.authority.root.absolutePath,
     options.pathBase,
     options.candidate,
+  );
+  requireExactPublisherAuthority(
+    options.authority.root.absolutePath,
+    artifacts.map((artifact) => artifact.absolutePath),
   );
   for (const target of [
     ...artifacts.map((artifact) => artifact.absolutePath),

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
   copyFileSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -34,6 +35,7 @@ import type {
   ProcessRequest,
   ProcessResponse,
 } from "../node-src/process/types.js";
+import { PUBLISHER_GUARD_BASENAME } from "../node-src/io/publisher-guard.js";
 
 const REPOSITORY = process.cwd();
 const PROCESS_MAIN = path.join(
@@ -472,7 +474,70 @@ test("public materializer refuses a reserved pending-move artifact before public
     assert.equal(readFileSync(pendingMoves, "utf8"), '{"state":"pending"}\n');
     assert.throws(() => lstatSync(paths.imports as string));
     assert.throws(() => lstatSync(paths.tfvars as string));
+    assert.throws(() => {
+      lstatSync(path.join(target.outputRoot, PUBLISHER_GUARD_BASENAME));
+    });
     assert.deepEqual(temporaryAliases(target.outputRoot), []);
+  });
+});
+
+test("public bootstrap materialization refuses an active or stale publisher guard", async () => {
+  await withFixturePair((oracle, target) => {
+    const resourceType = "zcc_device_cleanup";
+    const assertion = publicReadyAssertion(oracle, resourceType);
+    const guardPath = path.join(target.outputRoot, PUBLISHER_GUARD_BASENAME);
+    const privateValue = "prior-publisher-private-value\n";
+    writeFileSync(guardPath, privateValue, { mode: 0o600 });
+
+    const invocation = invoke(
+      materializeRequest(target, resourceType, assertion),
+      target.outputRoot,
+    );
+    assert.equal(invocation.status, 1, invocation.stdout);
+    assert.equal(invocation.stderr, "");
+    requireMaterializeError(invocation.response);
+    assert.equal(invocation.response.error.code, "OUTPUT_ROOT_BUSY");
+    assert.equal(invocation.response.error.category, "io");
+    assert.equal(invocation.response.error.retryable, true);
+    assert.equal(invocation.stdout.includes(privateValue.trim()), false);
+    assert.equal(readFileSync(guardPath, "utf8"), privateValue);
+    const paths = artifactPaths(target, resourceType);
+    assert.throws(() => lstatSync(paths.imports as string));
+    assert.throws(() => lstatSync(paths.tfvars as string));
+  });
+});
+
+test("public bootstrap rejects a nested ancestor output authority", async () => {
+  await withFixturePair((oracle, target) => {
+    const resourceType = "zcc_device_cleanup";
+    const assertion = publicReadyAssertion(oracle, resourceType);
+    const guardPath = path.join(target.outputRoot, PUBLISHER_GUARD_BASENAME);
+    const privateValue = "exact-authority-publisher-private-value\n";
+    writeFileSync(guardPath, privateValue, { mode: 0o600 });
+    const ancestor = realpathSync(target.workspace);
+
+    const invocation = invoke(
+      materializeRequest(target, resourceType, assertion),
+      ancestor,
+    );
+    assert.equal(invocation.status, 1, invocation.stdout);
+    assert.equal(invocation.stderr, "");
+    requireMaterializeError(invocation.response);
+    assert.equal(
+      invocation.response.error.code,
+      "OUTPUT_ROOT_NOT_ARTIFACT_AUTHORITY",
+    );
+    assert.equal(invocation.response.error.category, "io");
+    assert.equal(invocation.response.error.retryable, false);
+    assert.equal(invocation.stdout.includes(privateValue.trim()), false);
+    assert.equal(readFileSync(guardPath, "utf8"), privateValue);
+    assert.equal(
+      existsSync(path.join(ancestor, PUBLISHER_GUARD_BASENAME)),
+      false,
+    );
+    const paths = artifactPaths(target, resourceType);
+    assert.throws(() => lstatSync(paths.imports as string));
+    assert.throws(() => lstatSync(paths.tfvars as string));
   });
 });
 
