@@ -13,12 +13,12 @@
 
 ## Base / Head
 
-- Base: `bfa764a4530042fd597a11a7264b74fc0bd558d9` (merged PR #177,
-  current `origin/main` at builder rebase).
+- Base: `f812740c9f786be9ce436f558251d3dff82c14bd` (the local reviewed ZIA
+  cohort head used for consolidation; it was not yet `origin/main`).
 - Head: the checkpoint commit on `feature/node-zpa-transform-cohort`; resolve
   with `git rev-parse HEAD` before review.
 - Diff command:
-  `git diff bfa764a4530042fd597a11a7264b74fc0bd558d9...HEAD`.
+  `git diff f812740c9f786be9ce436f558251d3dff82c14bd...HEAD`.
 
 ## Files Changed
 
@@ -38,6 +38,7 @@
   - ZPA collectors, HTTP adapters, artifact publication, import/adoption,
     Terraform execution, and generated-config paths.
   - The generic transform kernel and the public five-resource ZCC catalog.
+  - The reviewed generic cohort compiler/schema supplied by the ZIA base.
   - ZPA pack overrides, provider schema, registry, and provider evidence.
 
 ## Source Inputs Consulted
@@ -62,8 +63,12 @@
   - `docs/review-handoff-template.md`
   - `docs/review-handoffs/zscaler-transform-contract-lift.md`
   - `docs/review-handoffs/zpa-provider-v4.4.6-evidence.md`
+  - `docs/review-handoffs/zia-transform-cohort.md`
 - Other source evidence:
   - `engine.transform.transform_items` is the independent runtime oracle.
+  - Public `engine.transform_catalog.transform_resource_cohort` constructs the
+    core resource/projection contracts; the ZPA tool only decorates those
+    resources with product-specific evidence after enforcing its pins.
   - `catalogs/zcc-transform-catalog.v1.json` supplies the reviewed Python
     `html.unescape` compatibility table and is included in the cohort source
     digest.
@@ -73,8 +78,11 @@
 - Reports:
   - None.
 - Schemas:
-  - None. This checkpoint has a private, exact catalog validator; a parallel
-    ZIA lane is expected to supply a reviewed generic private-cohort schema.
+  - No new schema. The reviewed ZIA base supplies the generic private-cohort
+    schema/compiler. The ZPA evidence envelope remains governed by its exact
+    private validator because its provider, absent-override, compatibility,
+    and per-resource evidence fields are intentionally outside that generic
+    core contract.
 - Fixtures:
   - `node-tests/fixtures/zpa-transform-cohort.v1.json` is sanitized input for
     the real Python/Node rendered-byte differential. It contains no live
@@ -96,7 +104,7 @@
     `zpa_pra_console_controller` and `zpa_pra_portal_controller` through the
     existing pure kernel.
 - Expected report/count/coverage changes:
-  - Five new Node tests and five Python catalog tests.
+  - Five new Node tests and six Python catalog tests.
   - No provider-readiness or generated-config qualification count changes.
 - Expected generated-output changes:
   - Only the new private catalog. It continues to record
@@ -117,6 +125,8 @@
 - Source precedence/provenance must remain explicit:
   - Catalog bytes bind the exact pack, registry, provider schema, provider
     evidence, and Python-compatibility catalog bytes with one source digest.
+  - Removing `provider_evidence` from each decorated ZPA resource must produce
+    exact equality with public `transform_resource_cohort` output.
   - A newly added resource override makes generation fail rather than silently
     changing transform semantics.
 - Ambiguity must stay classified instead of being coerced to success:
@@ -142,22 +152,25 @@
   - `make test`
   - `python3 -m engine.audit_vendor_boundary`
   - `python3 tools/zpa_transform_cohort_catalog.py --check catalogs/zpa-transform-cohort-catalog.v1.json`
+  - `python3 -m engine.transform_catalog --product zia --resource zia_admin_roles --resource zia_traffic_forwarding_static_ip --resource zia_url_categories --check catalogs/zia-transform-cohort.v1.json`
   - `python3 -m engine.transform_catalog --product zcc --check catalogs/zcc-transform-catalog.v1.json`
   - `git diff --check`
 - Relevant output summary:
   - Focused Node: 5/5 pass, including exact rendered bytes from the real Python
     transform for nested list/set blocks, HTML unescape, lossless integers,
     booleans, scalar/empty/set coercion, and duplicate-preserving set order.
-  - Full Node: 612 pass, 1 platform skip, 0 failures on the isolated final
+  - Combined ZIA/ZPA Node cohort checks: 10/10 pass.
+  - Combined generic/ZIA/ZPA Python catalog checks: 33/33 pass.
+  - Full Node: 617 pass, 1 platform skip, 0 failures on the isolated final
     run; typecheck and production bundle build pass.
-  - Full Python: 1,379 pass, 1 opt-in provider-source skip, 0 failures.
-  - Vendor boundary: 192 allowed matches, 0 violations.
-  - Both transform catalog freshness checks and whitespace check pass.
-  - Two earlier full Node attempts ran concurrently with the full Python suite
-    and hit two unrelated timing-sensitive failures, including the existing
-    Terraform descendant-PID timeout. The ZPA tests passed in both attempts;
-    the isolated full Node rerun passed completely, and the timeout test passed
-    18/18 when rerun alone.
+  - Full Python: 1,388 pass, 1 opt-in provider-source skip, 0 failures.
+  - Vendor boundary: 187 allowed matches, 0 violations.
+  - ZPA, ZIA, and ZCC transform catalog freshness checks and whitespace check
+    pass.
+  - One full Node attempt overlapped another agent's full Node run and hit the
+    existing Terraform descendant-PID timeout; Node counts both the failed
+    subtest and parent suite. Every ZIA/ZPA test passed in that attempt. After
+    the other process exited, the isolated full suite passed completely.
 - Tests not run and why:
   - No live tenant, HTTP, provider, Terraform, import, plan, apply, state, or
     generated-config test was run because none of those capabilities is
@@ -173,17 +186,18 @@
     policy.
   - `zpa_application_segment`, which additionally requires object-list
     attributes, merged blocks, and enum-to-boolean value mapping.
-  - Consolidating the checkpoint's private ZPA catalog builder/validator onto
-    the parallel ZIA lane's reviewed generic resource-cohort catalog/schema.
+  - A later rebase onto merged ZIA plus the shared snake/string-semantics fix;
+    this checkpoint deliberately uses the reviewed local ZIA head so the
+    consolidation can be assessed independently.
 - Reason it is safe to defer:
   - No public or mutating runtime path can reach this cohort. Unsupported
     resources and catalog changes fail closed, and Python remains the oracle.
-  - Preserving this self-contained checkpoint gives the consolidation review a
-    byte-tested comparison point; reuse must not weaken the ZPA 4.4.6 evidence
-    binding or override-absence gate.
+  - The generated ZPA catalog is unchanged by the consolidation: source digest
+    remains `e1dbc94c...` and exact file SHA-256 remains `eab7f5ce...`.
+    The ZPA 4.4.6 evidence binding and override-absence gate remain local.
 - Follow-up owner or trigger:
-  - Rebase onto the reviewed/merged ZIA generic cohort seam, then run a fresh
-    adversarial review over the consolidated diff before any push or PR.
+  - After ZIA and shared string semantics are both on `origin/main`, rebase
+    again and run a fresh changed-surface review before any push or PR.
 
 ## Review Focus
 
@@ -196,6 +210,8 @@
 - Specific assumptions to attack:
   - The selected resources truly have no override and use only current kernel
     encodings.
+  - Stripping the ZPA evidence decoration yields the exact public generic
+    compiler resources without private-helper imports or semantic rewrites.
   - `pra_application` and `pra_portals` cardinality/projection matches Python
     for object and list-shaped raw values.
   - Reusing the exact ZCC catalog's compatibility table preserves ZPA's

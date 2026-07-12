@@ -15,19 +15,15 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from engine.tfschema import (
-    attr_type,
-    block_is_single,
-    classify_attributes,
-    input_block_types,
-    load_resource,
-    resource_input_attrs,
-)
+from engine import transform_catalog
 
 
 CATALOG_KIND = "infrawright.zpa_transform_cohort_catalog"
 SCHEMA_VERSION = 1
 PRODUCT = "zpa"
+PROVIDER_SOURCE = "zscaler/zpa"
+PROVIDER_VERSION = "4.4.6"
+PROVIDER_COMMIT = "dcf12469a9a8f648be0691c74e9816fc94ec7ddc"
 COHORT_RESOURCES = (
     "zpa_pra_console_controller",
     "zpa_pra_portal_controller",
@@ -43,61 +39,11 @@ ABSENT_OVERRIDE_FILES = tuple(
     "packs/zpa/overrides/%s.json" % resource_type
     for resource_type in COHORT_RESOURCES
 )
-PRIMITIVE_ENCODINGS = frozenset(["bool", "number", "string"])
 
 
 def _read_json(relative_path):
     with open(os.path.join(ROOT, relative_path), encoding="utf-8") as f:
         return json.load(f)
-
-
-def _catalog_encoding(encoding, path):
-    if isinstance(encoding, str) and encoding in PRIMITIVE_ENCODINGS:
-        return encoding
-    if isinstance(encoding, list) and len(encoding) == 2:
-        kind, inner = encoding
-        if kind == "list" and inner in PRIMITIVE_ENCODINGS:
-            return [kind, inner]
-        if kind in ("set", "map") and inner == "string":
-            return [kind, inner]
-    raise ValueError("%s has unsupported encoding %r" % (path, encoding))
-
-
-def _projection(block, path, resource_top=False):
-    classification = (
-        resource_input_attrs(block)
-        if resource_top else classify_attributes(block)
-    )
-    schema_attributes = block.get("attributes") or {}
-    attributes = {}
-    for name in sorted(
-            classification["required"] + classification["optional"]):
-        attributes[name] = _catalog_encoding(
-            attr_type(schema_attributes[name]),
-            "%s.%s" % (path, name),
-        )
-    blocks = {}
-    for name, block_type in input_block_types(block).items():
-        mode = block_type.get("nesting_mode")
-        if mode not in ("single", "list", "set"):
-            raise ValueError(
-                "%s.%s has unsupported block mode %r" % (path, name, mode)
-            )
-        blocks[name] = {
-            "cardinality": (
-                "single" if block_is_single(block_type) else "many"
-            ),
-            "projection": _projection(
-                block_type["block"], "%s.%s[]" % (path, name)
-            ),
-        }
-    return {
-        "attributes": attributes,
-        "blocks": blocks,
-        "silently_ignored_attributes": sorted(
-            classification["computed_only"]
-        ),
-    }
 
 
 def _source_digest():
@@ -127,7 +73,7 @@ def _evidence_rows():
     return evidence, rows
 
 
-def _resource(resource_type, registry_entry, evidence_row):
+def _resource(resource_type, core_resource, registry_entry, evidence_row):
     raw_fetch = registry_entry.get("fetch") or {}
     fetch = {
         "optional_http_statuses": list(
@@ -150,33 +96,19 @@ def _resource(resource_type, registry_entry, evidence_row):
             % resource_type
         )
     shape_hash = (evidence_row.get("state_shape") or {}).get("shape_sha256")
-    if not isinstance(shape_hash, str) or len(shape_hash) != 64:
+    if (
+            not isinstance(shape_hash, str)
+            or len(shape_hash) != 64
+            or any(character not in "0123456789abcdef"
+                   for character in shape_hash)):
         raise ValueError("%s has no state-shape evidence hash" % resource_type)
-    return {
-        "acknowledged_drops": [],
-        "html_unescape_passes": 2,
-        "import_id": {
-            "segments": [{"field": "id"}],
-            "template": "{id}",
-        },
-        "invert_bool": [],
-        "key_fields": ["name"],
-        "lookup_source": None,
-        "projection": _projection(
-            load_resource(resource_type)["block"],
-            resource_type,
-            resource_top=True,
-        ),
-        "provider_evidence": {
-            "fetch": fetch,
-            "generated_config_qualification": qualification,
-            "state_shape_sha256": shape_hash,
-        },
-        "references": {},
-        "renames": {},
-        "split_csv": [],
-        "type": resource_type,
+    resource = dict(core_resource)
+    resource["provider_evidence"] = {
+        "fetch": fetch,
+        "generated_config_qualification": qualification,
+        "state_shape_sha256": shape_hash,
     }
+    return resource
 
 
 def build_catalog():
@@ -189,10 +121,21 @@ def build_catalog():
     manifest = _read_json("packs/zpa/pack.json")
     registry = _read_json("packs/zpa/registry.json")
     evidence, evidence_rows = _evidence_rows()
+    core_catalog = transform_catalog.transform_resource_cohort(
+        PRODUCT, list(COHORT_RESOURCES)
+    )
+    core_resources = dict(
+        (resource["type"], resource)
+        for resource in core_catalog["resources"]
+    )
     provider = (manifest.get("provider_sources") or {}).get(PRODUCT)
     version = manifest.get("pin")
     evidence_provider = evidence.get("provider") or {}
-    if provider != "zscaler/zpa" or evidence_provider.get("ref") != "v" + version:
+    if (
+            provider != PROVIDER_SOURCE
+            or version != PROVIDER_VERSION
+            or evidence_provider.get("ref") != "v" + PROVIDER_VERSION
+            or evidence_provider.get("commit") != PROVIDER_COMMIT):
         raise ValueError("ZPA pack and provider evidence pins disagree")
     resources = []
     for resource_type in COHORT_RESOURCES:
@@ -201,6 +144,7 @@ def build_catalog():
             raise ValueError("registry is missing %s" % resource_type)
         resources.append(_resource(
             resource_type,
+            core_resources[resource_type],
             entry,
             evidence_rows[resource_type],
         ))
@@ -209,7 +153,7 @@ def build_catalog():
         "kind": CATALOG_KIND,
         "product": PRODUCT,
         "provider": {
-            "evidence_commit": evidence_provider.get("commit"),
+            "evidence_commit": PROVIDER_COMMIT,
             "source": provider,
             "version": version,
         },

@@ -3,9 +3,10 @@ import embeddedCatalogJson from "../../catalogs/zpa-transform-cohort-catalog.v1.
 import { isJsonRecord, pythonJsonEqual } from "../json/python-equality.js";
 import { sortedStrings } from "../json/python-compatible.js";
 import { ProcessFailure } from "./errors.js";
-import type {
-  TransformCatalogResource,
-  TransformValueEncoding,
+import {
+  immutableTransformContractCopy,
+  type TransformCatalogResource,
+  type TransformValueEncoding,
 } from "./transform-catalog.js";
 
 const RESOURCE_TYPES = [
@@ -172,20 +173,6 @@ function validResource(
   return true;
 }
 
-function immutableJsonCopy(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return Object.freeze(value.map((item) => immutableJsonCopy(item)));
-  }
-  if (isJsonRecord(value)) {
-    const output: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
-    for (const key of Object.keys(value)) {
-      output[key] = immutableJsonCopy(value[key]);
-    }
-    return Object.freeze(output);
-  }
-  return value;
-}
-
 function validatedCatalog(candidate: unknown): ZpaTransformCohortCatalog {
   if (!isJsonRecord(candidate) || !exactKeys(candidate, [
     "absent_override_files", "kind", "product", "provider",
@@ -219,7 +206,7 @@ function validatedCatalog(candidate: unknown): ZpaTransformCohortCatalog {
   ) {
     return invalidCatalog("ZPA transform cohort catalog is malformed");
   }
-  return immutableJsonCopy(candidate) as ZpaTransformCohortCatalog;
+  return immutableTransformContractCopy(candidate) as ZpaTransformCohortCatalog;
 }
 
 const EMBEDDED_CATALOG = validatedCatalog(embeddedCatalogJson);

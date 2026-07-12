@@ -1,11 +1,13 @@
 """Freshness and closure tests for the private ZPA transform cohort."""
 import contextlib
+import hashlib
 import io
 import json
 import os
 import tempfile
 import unittest
 
+from engine import transform_catalog
 from tools import zpa_transform_cohort_catalog as cohort_catalog
 
 
@@ -20,6 +22,10 @@ class ZpaTransformCohortCatalogTest(unittest.TestCase):
         with open(CATALOG_PATH, encoding="utf-8") as f:
             committed = f.read()
         self.assertEqual(committed, cohort_catalog.render_catalog())
+        self.assertEqual(
+            hashlib.sha256(committed.encode("utf-8")).hexdigest(),
+            "eab7f5ce8f3e508629cd6a3cebd344332f57647442741717762e7373e2ae5694",
+        )
 
     def test_catalog_is_exactly_the_reviewed_two_resource_cohort(self):
         catalog = cohort_catalog.build_catalog()
@@ -46,7 +52,22 @@ class ZpaTransformCohortCatalogTest(unittest.TestCase):
             catalog["python_compatibility_source"],
             "catalogs/zcc-transform-catalog.v1.json",
         )
-        self.assertRegex(catalog["sources_sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(
+            catalog["sources_sha256"],
+            "e1dbc94cd82cfb824e88cfa2db3cc7398787369557d16dc23b660a1c2302a149",
+        )
+
+    def test_evidence_decorator_preserves_exact_generic_resources(self):
+        decorated = cohort_catalog.build_catalog()["resources"]
+        stripped = []
+        for resource in decorated:
+            core = dict(resource)
+            self.assertIsNotNone(core.pop("provider_evidence"))
+            stripped.append(core)
+        generic = transform_catalog.transform_resource_cohort(
+            "zpa", list(cohort_catalog.COHORT_RESOURCES)
+        )
+        self.assertEqual(stripped, generic["resources"])
 
     def test_no_resource_override_can_appear_without_review(self):
         catalog = cohort_catalog.build_catalog()
