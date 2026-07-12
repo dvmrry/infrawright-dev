@@ -97,13 +97,17 @@ The Zscaler runtime is undergoing a differential migration to Node 24. Its
 machine-only process operations emit root-topology, changed-path scope,
 plan-root, exact-catalog saved-plan assessment, immutable ZCC bootstrap artifact
 sets, read-only ZCC raw-transform refresh results, and provider-observed ZCC
-bootstrap adoption candidates. The adoption operation is read-only and exposes
-only projected artifact bytes; it does not claim Python parity, plan/apply
-readiness, live qualification, or cutover. These lanes are differentially
-compared with Python in CI. The two-phase refresh parity contract seeds two
-isolated materialized twins before Python, then proves seven post-Python
-artifact roles without emitting contents, import IDs, move keys, or physical
-paths. Materialization remains bootstrap-only. The compilers cover the five
+bootstrap adoption candidates plus content-free comparison against externally
+materialized references expected from the retained Python lane. Adoption
+compilation and comparison are read-only; comparison binds reference paths and
+bytes but does not attest which writer created them, and exposes only logical
+paths, sizes, and digests. Compilation exposes projected candidate bytes.
+Neither claims plan/apply readiness, live qualification, or cutover. These
+lanes are differentially compared with Python in CI. The two-phase refresh
+parity contract seeds two isolated materialized twins before Python, then
+proves seven post-Python artifact roles without emitting contents, import IDs,
+move keys, or physical paths. Materialization remains bootstrap-only. The
+compilers cover the five
 fetch-backed ZCC resources without writing them. Build
 the no-install bundle with
 `npm ci --ignore-scripts && npm run check && npm run build`; see

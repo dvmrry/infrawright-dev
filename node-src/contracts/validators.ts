@@ -14,6 +14,7 @@ import savedPlanAssessmentSchema from "../../docs/schemas/saved-plan-assessment.
 import transformCatalogSchema from "../../docs/schemas/transform-catalog.schema.json" with { type: "json" };
 import zccAdoptionCatalogSchema from "../../docs/schemas/zcc-adoption-catalog.schema.json" with { type: "json" };
 import zccAdoptionArtifactSetSchema from "../../docs/schemas/zcc-adoption-artifact-set.schema.json" with { type: "json" };
+import zccAdoptionArtifactParitySchema from "../../docs/schemas/zcc-adoption-artifact-parity.schema.json" with { type: "json" };
 import zccPullArtifactSetSchema from "../../docs/schemas/zcc-pull-artifact-set.schema.json" with { type: "json" };
 import zccPullRefreshArtifactSetSchema from "../../docs/schemas/zcc-pull-refresh-artifact-set.schema.json" with { type: "json" };
 import zccPullArtifactParitySchema from "../../docs/schemas/zcc-pull-artifact-parity.schema.json" with { type: "json" };
@@ -68,6 +69,10 @@ import {
   validateZccPullRefreshAcknowledgementRequestSemantics,
   validateZccPullRefreshAcknowledgementSemantics,
 } from "./zcc-pull-refresh-acknowledgement-semantics.js";
+import {
+  ZCC_ADOPTION_PARITY_SEMANTICS_KEYWORD,
+  validateZccAdoptionParitySemantics,
+} from "./zcc-adoption-parity-semantics.js";
 
 const AJV_OPTIONS = {
   coerceTypes: false,
@@ -204,6 +209,14 @@ ajv.addKeyword({
 });
 
 ajv.addKeyword({
+  keyword: ZCC_ADOPTION_PARITY_SEMANTICS_KEYWORD,
+  schemaType: "boolean",
+  type: "object",
+  errors: true,
+  validate: validateZccAdoptionParitySemantics,
+});
+
+ajv.addKeyword({
   keyword: ZCC_PULL_MATERIALIZATION_SEMANTICS_KEYWORD,
   schemaType: "boolean",
   type: "object",
@@ -251,6 +264,7 @@ ajv.addSchema(transformCatalogSchema);
 ajv.addSchema(zccAdoptionCatalogSchema);
 ajv.addSchema(zccPullArtifactSetSchema);
 ajv.addSchema(zccAdoptionArtifactSetSchema);
+ajv.addSchema(zccAdoptionArtifactParitySchema);
 ajv.addSchema(zccPullRefreshArtifactSetSchema);
 ajv.addSchema(zccPullArtifactParitySchema);
 ajv.addSchema(zccPullArtifactMaterializationSchema);
@@ -294,6 +308,9 @@ export const validateZccAdoptionCatalog: ValidateFunction = ajv.getSchema(
 ) as ValidateFunction;
 export const validateZccAdoptionArtifactSet: ValidateFunction = ajv.getSchema(
   zccAdoptionArtifactSetSchema.$id,
+) as ValidateFunction;
+export const validateZccAdoptionArtifactParity: ValidateFunction = ajv.getSchema(
+  zccAdoptionArtifactParitySchema.$id,
 ) as ValidateFunction;
 export const validateZccPullArtifactSet: ValidateFunction = ajv.getSchema(
   zccPullArtifactSetSchema.$id,

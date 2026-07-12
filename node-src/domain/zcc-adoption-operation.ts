@@ -6,9 +6,14 @@ import {
 import { runZccAdoptionOracle } from "./zcc-adoption-oracle.js";
 import { ProcessFailure } from "./errors.js";
 import {
+  bindZccAdoptionComparisonInputs,
   bindZccBootstrapPullOperationInputs,
   type ZccPullArtifactsOperationOptions,
 } from "./zcc-pull-operation.js";
+import {
+  compareZccAdoptionArtifactDigests,
+  type ZccAdoptionArtifactParity,
+} from "./zcc-adoption-artifact-parity.js";
 import {
   createZccAdoptionOracleAdapters,
   type ZccAdoptionOracleAdapterFactoryOptions,
@@ -71,4 +76,38 @@ export async function compileZccAdoptionArtifactsOperation(
   await options.adoptionHooks?.afterOracle?.();
   await bound.recheckInputs();
   return result;
+}
+
+/**
+ * Compare one fresh provider-observed candidate with stable external
+ * materialized reference artifacts. The provider transaction and reference
+ * reads remain effect-free in the caller workspace.
+ */
+export async function compareZccAdoptionArtifactsOperation(
+  options: CompileZccAdoptionArtifactsOperationOptions,
+): Promise<ZccAdoptionArtifactParity> {
+  const authority = options.hostAuthority;
+  if (authority === null) {
+    return missingAuthority();
+  }
+  const terraformExecutable = authority.terraformExecutable;
+  const adapters = createZccAdoptionOracleAdapters(authority);
+  const bound = await bindZccAdoptionComparisonInputs(options);
+  await options.adoptionHooks?.beforeOracle?.();
+  await bound.recheckInputs();
+  const candidate = await runZccAdoptionOracle({
+    catalog: loadZccAdoptionCatalog(),
+    catalogSha256: ZCC_ADOPTION_CATALOG_SHA256,
+    rawItems: bound.rawItems,
+    source: bound.source,
+    target: bound.target,
+    terraformExecutable,
+  }, adapters);
+
+  await options.adoptionHooks?.afterOracle?.();
+  await bound.recheckInputs();
+  return compareZccAdoptionArtifactDigests({
+    candidate,
+    materialized: bound.materialized,
+  });
 }

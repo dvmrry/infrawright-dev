@@ -6,6 +6,7 @@ import {
   validatePlanRoots,
   validateRootTopology,
   validateSavedPlanAssessment,
+  validateZccAdoptionArtifactParity,
   validateZccAdoptionArtifactSet,
   validateZccPullArtifactMaterialization,
   validateZccPullArtifactSet,
@@ -47,9 +48,15 @@ import {
   acknowledgeZccPullRefreshOperation,
 } from "../domain/zcc-pull-refresh-acknowledgement-operation.js";
 import { zccPullRefreshPublicationReceiptSha } from "../domain/zcc-pull-refresh-fingerprints.js";
-import { compileZccAdoptionArtifactsOperation } from "../domain/zcc-adoption-operation.js";
+import {
+  compareZccAdoptionArtifactsOperation,
+  compileZccAdoptionArtifactsOperation,
+} from "../domain/zcc-adoption-operation.js";
 import type { ZccAdoptionOracleHostAuthority } from "../domain/zcc-adoption-operation.js";
-import { zccAdoptionOperationResultErrors } from "../contracts/zcc-adoption-operation-semantics.js";
+import {
+  zccAdoptionOperationResultErrors,
+  zccAdoptionParityOperationResultErrors,
+} from "../contracts/zcc-adoption-operation-semantics.js";
 import { withPublisherGuard } from "../io/publisher-guard.js";
 import type {
   ProcessRequest,
@@ -110,6 +117,18 @@ function copyRequest(request: ProcessRequest): ProcessRequest {
       operation: "compile_adoption_artifacts",
       input: {
         mode: "bootstrap",
+        tenant: request.input.tenant,
+        resource_type: request.input.resource_type,
+      },
+    };
+  }
+  if (request.operation === "compare_adoption_artifacts") {
+    return {
+      ...base,
+      operation: "compare_adoption_artifacts",
+      input: {
+        mode: "bootstrap",
+        reference: "materialized",
         tenant: request.input.tenant,
         resource_type: request.input.resource_type,
       },
@@ -320,6 +339,44 @@ export async function executeRequest(
       schema_version: 1,
       request_id: request.request_id,
       operation: "compile_adoption_artifacts",
+      status: "ok",
+      diagnostics: [],
+      result,
+      error: null,
+    };
+  }
+  if (request.operation === "compare_adoption_artifacts") {
+    const result = await compareZccAdoptionArtifactsOperation({
+      workspace: request.context.workspace,
+      deploymentPath: resolveContextPath(
+        request.context.workspace,
+        request.context.deployment,
+      ),
+      catalogPath: resolveContextPath(
+        request.context.workspace,
+        request.context.root_catalog,
+      ),
+      tenant: request.input.tenant,
+      resourceType: request.input.resource_type,
+      hostAuthority: zccAdoptionOracle,
+    });
+    const bindingErrors = zccAdoptionParityOperationResultErrors(request, result);
+    if (!validateZccAdoptionArtifactParity(result) || bindingErrors.length > 0) {
+      throw new ProcessFailure({
+        code: "INVALID_OPERATION_RESULT",
+        category: "internal",
+        message: "compare_adoption_artifacts produced a result outside its versioned contract",
+        details: [
+          ...schemaErrorDetails(validateZccAdoptionArtifactParity.errors),
+          ...schemaErrorDetails(bindingErrors),
+        ],
+      });
+    }
+    return {
+      kind: "infrawright.process_response",
+      schema_version: 1,
+      request_id: request.request_id,
+      operation: "compare_adoption_artifacts",
       status: "ok",
       diagnostics: [],
       result,

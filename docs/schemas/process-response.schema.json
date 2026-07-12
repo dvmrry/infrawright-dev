@@ -49,6 +49,9 @@
           "const": "compile_adoption_artifacts"
         },
         {
+          "const": "compare_adoption_artifacts"
+        },
+        {
           "const": "seed_pull_refresh_parity"
         },
         {
@@ -99,6 +102,9 @@
         },
         {
           "$ref": "zcc-adoption-artifact-set.schema.json"
+        },
+        {
+          "$ref": "zcc-adoption-artifact-parity.schema.json"
         },
         {
           "$ref": "zcc-pull-refresh-parity-seed.schema.json"
@@ -159,6 +165,26 @@
               },
               "result": {
                 "$ref": "zcc-pull-refresh-parity-seed.schema.json"
+              },
+              "error": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "request_id": {
+                "type": "string"
+              },
+              "operation": {
+                "const": "compare_adoption_artifacts"
+              },
+              "diagnostics": {
+                "type": "array",
+                "maxItems": 0
+              },
+              "result": {
+                "$ref": "zcc-adoption-artifact-parity.schema.json"
               },
               "error": {
                 "type": "null"
