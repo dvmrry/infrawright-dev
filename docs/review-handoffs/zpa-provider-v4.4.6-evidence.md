@@ -119,6 +119,9 @@
     shapes, not accepted as independent assertions.
 - Adoption safety invariants:
   - The tool deliberately does not parse Go or infer provider semantics.
+  - Numeric importer grammar is restricted to the three committed variants,
+    and its exactness requirement is bound to Go
+    `strconv.ParseInt(id, 10, 64)` signed-64/explicit-base-10 semantics.
   - Static evidence does not authorize a ZPA Node catalog entry.
   - Provider-sensitive inputs remain identified and are not synthesized,
     persisted, or transported.
@@ -135,10 +138,10 @@
   - `git diff --check`
 - Relevant output summary:
   - Local and external source audits validate all 16 rows.
-  - Focused suite: 7/7 pass with the external provider source; without the
-    opt-in environment variable, 6 pass and the external-source case skips.
+  - Focused suite: 9/9 pass with the external provider source; without the
+    opt-in environment variable, 8 pass and the external-source case skips.
   - Vendor boundary: 192 allowed files, 0 violations.
-  - Full Python suite: 1,372 tests passed, 1 intentional external-source skip,
+  - Full Python suite: 1,374 tests passed, 1 intentional external-source skip,
     0 failures.
   - Diff whitespace check passes.
 - Tests not run and why:
@@ -169,7 +172,10 @@
   - `docs/evidence/zpa-provider-v4.4.6.json`
   - `tools/zpa_provider_evidence.py`
 - Specific assumptions to attack:
-  - The 14 custom importers' base-10 parse and alternate-lookup behavior.
+  - The 14 custom importers' exact
+    `strconv.ParseInt(id, 10, 64)` and alternate-lookup behavior.
+  - Closed-enum rejection of suffixed importer grammars and rejection of a
+    weakened generic numeric requirement.
   - App connector group, application server, and application segment Read
     identity classifications.
   - The negative claim that BA certificate, emergency access, and inspection

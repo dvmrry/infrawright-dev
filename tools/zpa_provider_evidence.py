@@ -41,6 +41,11 @@ RUNTIME_GATE = "terraform_runtime_evidence_required"
 MATRIX = os.path.join(REPO_ROOT, "docs", "evidence", "zpa-provider-v4.4.6.json")
 
 IMPORT_MODES = set(["numeric_or_alternate_lookup", "passthrough"])
+NUMERIC_IMPORT_GRAMMARS = set([
+    "base10_numeric_id_or_email_id",
+    "base10_numeric_id_or_name",
+    "base10_numeric_id_or_policy_name",
+])
 READ_IDENTITIES = set([
     "current_id_lookup_with_response_schema_id",
     "current_id_lookup_without_response_rebind",
@@ -72,8 +77,9 @@ STATE_SHAPE_KEYS = set([
     "required_input_paths", "sensitive_input_paths", "shape_sha256",
 ])
 NUMERIC_REQUIREMENT = (
-    "raw id must parse as a base-10 integer; otherwise the provider treats "
-    "it as the alternate lookup key"
+    "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed "
+    "64-bit, explicit base 10); otherwise the provider treats it as the "
+    "alternate lookup key"
 )
 
 
@@ -288,10 +294,18 @@ def validate_local(report):
                 raise EvidenceError("%s passthrough import claim is inconsistent" % resource_type)
         elif (
             not isinstance(imported["grammar"], str)
-            or not imported["grammar"].startswith("base10_numeric_id_or_")
-            or not isinstance(imported["alternate_lookup"], str)
+            or imported["grammar"] not in NUMERIC_IMPORT_GRAMMARS
+        ):
+            raise EvidenceError(
+                "%s numeric import grammar is unsupported" % resource_type)
+        elif imported["numeric_exactness_requirement"] != NUMERIC_REQUIREMENT:
+            raise EvidenceError(
+                "%s numeric exactness requirement is unsupported"
+                % resource_type
+            )
+        elif (
+            not isinstance(imported["alternate_lookup"], str)
             or not imported["alternate_lookup"]
-            or imported["numeric_exactness_requirement"] != NUMERIC_REQUIREMENT
         ):
             raise EvidenceError("%s alternate import claim is inconsistent" % resource_type)
         identity = item["read_identity"]

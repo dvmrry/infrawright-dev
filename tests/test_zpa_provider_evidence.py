@@ -82,6 +82,31 @@ class ZpaProviderEvidenceTest(unittest.TestCase):
                 evidence.EvidenceError, "overclaims generated-config"):
             evidence.validate_local(report)
 
+    def test_numeric_import_grammar_is_a_closed_enum(self):
+        report = copy.deepcopy(_matrix())
+        imported = next(
+            item["import"] for item in report["resources"]
+            if item["import"]["mode"] == "numeric_or_alternate_lookup"
+        )
+        imported["grammar"] += "_future_suffix"
+        with self.assertRaisesRegex(
+                evidence.EvidenceError, "numeric import grammar is unsupported"):
+            evidence.validate_local(report)
+
+    def test_numeric_import_requirement_cannot_be_weakened(self):
+        report = copy.deepcopy(_matrix())
+        imported = next(
+            item["import"] for item in report["resources"]
+            if item["import"]["mode"] == "numeric_or_alternate_lookup"
+        )
+        imported["numeric_exactness_requirement"] = (
+            "raw id must parse as a base-10 integer"
+        )
+        with self.assertRaisesRegex(
+                evidence.EvidenceError,
+                "numeric exactness requirement is unsupported"):
+            evidence.validate_local(report)
+
     def test_registry_and_schema_drift_fail_closed(self):
         report = copy.deepcopy(_matrix())
         report["resources"][0]["fetch"]["path"] = "different"

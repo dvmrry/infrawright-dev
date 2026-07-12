@@ -46,9 +46,13 @@ source ranges to decide whether each curated claim is correct.
 
 ### Import grammar is not uniformly “an ID”
 
-Fourteen resources implement a two-way importer: a base-10 integer is treated
-as the object ID, while any non-numeric string is interpreted as an alternate
-lookup key. The alternate key is normally a name, except:
+Fourteen resources implement a two-way importer by calling Go
+`strconv.ParseInt(id, 10, 64)`: input accepted under that exact signed 64-bit,
+explicit-base-10 operation is treated as the object ID, while a parse failure
+is interpreted as an alternate lookup key. The matrix grammar is a closed enum
+of `base10_numeric_id_or_name`, `base10_numeric_id_or_policy_name`, and
+`base10_numeric_id_or_email_id`; suffixes or future variants fail the audit.
+The alternate key is normally a name, except:
 
 - `zpa_policy_access_rule` uses a policy name scoped to access/global policy
   types; and
@@ -57,8 +61,8 @@ lookup key. The alternate key is normally a name, except:
 Only `zpa_ba_certificate` and `zpa_emergency_access_user` use SDK passthrough
 import. Consequently, the Node oracle may treat the current `{id}` catalog
 value as exact identity for the 14 custom importers only after validating that
-it parses as a base-10 integer. Otherwise the provider is performing a lookup,
-not importing the supplied bytes as identity.
+it is accepted by `strconv.ParseInt(id, 10, 64)`. Otherwise the provider is
+performing a lookup, not importing the supplied bytes as identity.
 
 ### `values.id` is not a universal state identity seam
 

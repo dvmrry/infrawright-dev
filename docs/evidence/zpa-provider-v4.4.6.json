@@ -144,7 +144,7 @@
         "engine_import_id_template": "{id}",
         "grammar": "base10_numeric_id_or_name",
         "mode": "numeric_or_alternate_lookup",
-        "numeric_exactness_requirement": "raw id must parse as a base-10 integer; otherwise the provider treats it as the alternate lookup key"
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
       },
       "read_identity": {
         "schema_id_attribute": "importer_seeded",
@@ -220,7 +220,7 @@
         "engine_import_id_template": "{id}",
         "grammar": "base10_numeric_id_or_name",
         "mode": "numeric_or_alternate_lookup",
-        "numeric_exactness_requirement": "raw id must parse as a base-10 integer; otherwise the provider treats it as the alternate lookup key"
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
       },
       "read_identity": {
         "schema_id_attribute": "read_response_id",
@@ -305,7 +305,7 @@
         "engine_import_id_template": "{id}",
         "grammar": "base10_numeric_id_or_name",
         "mode": "numeric_or_alternate_lookup",
-        "numeric_exactness_requirement": "raw id must parse as a base-10 integer; otherwise the provider treats it as the alternate lookup key"
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
       },
       "read_identity": {
         "schema_id_attribute": "importer_seeded",
@@ -500,7 +500,7 @@
         "engine_import_id_template": "{id}",
         "grammar": "base10_numeric_id_or_name",
         "mode": "numeric_or_alternate_lookup",
-        "numeric_exactness_requirement": "raw id must parse as a base-10 integer; otherwise the provider treats it as the alternate lookup key"
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
       },
       "read_identity": {
         "schema_id_attribute": "importer_seeded",
@@ -570,7 +570,7 @@
         "engine_import_id_template": "{id}",
         "grammar": "base10_numeric_id_or_name",
         "mode": "numeric_or_alternate_lookup",
-        "numeric_exactness_requirement": "raw id must parse as a base-10 integer; otherwise the provider treats it as the alternate lookup key"
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
       },
       "read_identity": {
         "schema_id_attribute": "not_source_populated",
@@ -652,7 +652,7 @@
         "engine_import_id_template": "{id}",
         "grammar": "base10_numeric_id_or_name",
         "mode": "numeric_or_alternate_lookup",
-        "numeric_exactness_requirement": "raw id must parse as a base-10 integer; otherwise the provider treats it as the alternate lookup key"
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
       },
       "read_identity": {
         "schema_id_attribute": "importer_seeded",
@@ -715,7 +715,7 @@
         "engine_import_id_template": "{id}",
         "grammar": "base10_numeric_id_or_policy_name",
         "mode": "numeric_or_alternate_lookup",
-        "numeric_exactness_requirement": "raw id must parse as a base-10 integer; otherwise the provider treats it as the alternate lookup key"
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
       },
       "read_identity": {
         "schema_id_attribute": "importer_seeded",
@@ -798,7 +798,7 @@
         "engine_import_id_template": "{id}",
         "grammar": "base10_numeric_id_or_email_id",
         "mode": "numeric_or_alternate_lookup",
-        "numeric_exactness_requirement": "raw id must parse as a base-10 integer; otherwise the provider treats it as the alternate lookup key"
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
       },
       "read_identity": {
         "schema_id_attribute": "importer_seeded",
@@ -875,7 +875,7 @@
         "engine_import_id_template": "{id}",
         "grammar": "base10_numeric_id_or_name",
         "mode": "numeric_or_alternate_lookup",
-        "numeric_exactness_requirement": "raw id must parse as a base-10 integer; otherwise the provider treats it as the alternate lookup key"
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
       },
       "read_identity": {
         "schema_id_attribute": "importer_seeded",
@@ -955,7 +955,7 @@
         "engine_import_id_template": "{id}",
         "grammar": "base10_numeric_id_or_name",
         "mode": "numeric_or_alternate_lookup",
-        "numeric_exactness_requirement": "raw id must parse as a base-10 integer; otherwise the provider treats it as the alternate lookup key"
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
       },
       "read_identity": {
         "schema_id_attribute": "importer_seeded",
@@ -1030,7 +1030,7 @@
         "engine_import_id_template": "{id}",
         "grammar": "base10_numeric_id_or_name",
         "mode": "numeric_or_alternate_lookup",
-        "numeric_exactness_requirement": "raw id must parse as a base-10 integer; otherwise the provider treats it as the alternate lookup key"
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
       },
       "read_identity": {
         "schema_id_attribute": "importer_seeded",
@@ -1098,7 +1098,7 @@
         "engine_import_id_template": "{id}",
         "grammar": "base10_numeric_id_or_name",
         "mode": "numeric_or_alternate_lookup",
-        "numeric_exactness_requirement": "raw id must parse as a base-10 integer; otherwise the provider treats it as the alternate lookup key"
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
       },
       "read_identity": {
         "schema_id_attribute": "importer_seeded",
@@ -1162,7 +1162,7 @@
         "engine_import_id_template": "{id}",
         "grammar": "base10_numeric_id_or_name",
         "mode": "numeric_or_alternate_lookup",
-        "numeric_exactness_requirement": "raw id must parse as a base-10 integer; otherwise the provider treats it as the alternate lookup key"
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
       },
       "read_identity": {
         "schema_id_attribute": "importer_seeded",
@@ -1242,7 +1242,7 @@
         "engine_import_id_template": "{id}",
         "grammar": "base10_numeric_id_or_name",
         "mode": "numeric_or_alternate_lookup",
-        "numeric_exactness_requirement": "raw id must parse as a base-10 integer; otherwise the provider treats it as the alternate lookup key"
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
       },
       "read_identity": {
         "schema_id_attribute": "importer_seeded",
