@@ -12,7 +12,8 @@ materialization operations, a read-only ZCC refresh compiler, and an
 assertion-bound imports-last ZCC refresh publisher. They establish
 an explicit ZCC post-apply acknowledgement/retirement operation and a public,
 read-only provider-observed ZCC adoption compiler and digest-only adoption
-parity operation. Together these establish the
+parity operation, plus a protected-assertion provider-observed adoption
+materializer. Together these establish the
 process protocol, deterministic JSON boundary, packaging, and differential
 validation pattern for later migration slices.
 
@@ -94,6 +95,10 @@ the requested tenant and resource type. `compare_adoption_artifacts` maps only
 `bootstrap` plus `reference: "materialized"` to
 `infrawright.zcc_adoption_artifact_parity`; mode, reference, tenant, and
 resource must all agree with the retained request.
+`materialize_adoption_artifacts` maps only bootstrap
+`create_or_verify_exact` to
+`infrawright.zcc_adoption_artifact_materialization`; mode, policy, tenant, and
+resource must agree with both the retained request and embedded verification.
 
 ## Version 1 Requests
 
@@ -396,6 +401,117 @@ provider-contract failures remain structured errors, not parity mismatches.
 Ready proves byte equality with the bound external reference only. It does not
 prove plan cleanliness, apply safety, live-tenant qualification, reference
 provenance, or cutover readiness, and it never materializes the candidate.
+
+### ZCC provider-observed adoption materialization
+
+`materialize_adoption_artifacts` is the distinct persistent write seam for a
+complete ready provider-observed adoption comparison:
+
+```json
+{
+  "kind": "infrawright.process_request",
+  "schema_version": 1,
+  "request_id": "zcc-adoption-materialize-130",
+  "operation": "materialize_adoption_artifacts",
+  "context": {
+    "workspace": "/workspace/deployment",
+    "deployment": "deployment.json",
+    "root_catalog": "catalogs/zscaler-root-catalog.v1.json"
+  },
+  "input": {
+    "mode": "bootstrap",
+    "publication": "create_or_verify_exact",
+    "tenant": "prod",
+    "resource_type": "zcc_trusted_network",
+    "assertion": {
+      "kind": "infrawright.zcc_adoption_artifact_parity",
+      "schema_version": 1
+    }
+  }
+}
+```
+
+The abbreviated assertion must be replaced by the complete `ready`/`equal`
+result from `compare_adoption_artifacts`; a review-required assertion is not a
+valid request. Request semantics join tenant and resource before operation I/O.
+The assertion is unsigned and does not attest its writer. Pipelines must obtain
+it from the intended Python-reference comparison lane and retain it in
+protected storage rather than assembling paths or digests by hand.
+
+The process snapshots both independent host capabilities before workspace I/O:
+the existing Terraform executable/private scratch/closed environment adoption
+oracle authority and `INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT`. The output root must
+be the exact existing canonical deployment-overlay authority, not a containing
+ancestor. The complete provider transaction and publication run under the
+root-level publisher guard, so another persistent Node mutation receives
+retryable `OUTPUT_ROOT_BUSY` before the binder or provider oracle runs. The
+guard does not coordinate Python or Terraform; a job-owned physical root and a
+serialized external workflow remain required.
+
+Guard acquisition necessarily precedes target derivation. After the
+candidate-only binder resolves the deployment target, the operation resolves
+imports, applicable lookup, and tfvars with the publisher's path policy and
+proves that the guarded root is their unique exact authority before running the
+provider oracle. The publisher repeats that exact-authority check during final
+preparation; the early check is not publication authority by itself.
+
+The operation uses a candidate-only binder. Existing targets are neither
+bootstrap-absence preconditions nor comparison references: source,
+deployment, catalog, and derived target coordinates are bound, while the
+publisher independently classifies target state. The operation re-runs the
+hardened provider import/read oracle in the target workspace, constructs fresh
+adoption self-parity from the new candidate digests, and requires exact equality
+with the protected assertion before it creates an artifact directory or file.
+This rechecks source, adoption catalog, root topology, logical layout, and all
+provider-observed output bytes. Source, controls, and target authority are
+rechecked after oracle cleanup and before and after publication.
+
+V1 is bootstrap create-or-verify-exact only. It never replaces a target.
+Existing exact regular non-symlink targets are reusable only as the fixed
+publication prefix `imports`, applicable `lookup`, then `tfvars`; mismatches,
+special files, symlinks, non-prefix partials, moves, pending moves, HCL
+alternates, generated bindings, and a stale non-applicable lookup fail closed.
+Each missing file is staged and synced, then made visible with the existing
+no-overwrite hard-link kernel. Tfvars is the final visible leaf. Provider-
+observed replacement would need its own future parity and transition protocol;
+the raw-transform refresh marker/imports-last contract is not authority for it.
+
+Publication is retry-forward rather than set-atomic. A handled failure after
+the first link returns retryable `MATERIALIZATION_INDETERMINATE`, preserves the
+exact prefix, and performs no path-based rollback; an unchanged retry verifies
+that prefix and advances the suffix. A failure before the first link removes
+every safely rebound staging alias or returns cleanup failure. Abrupt process
+termination can leave a random staging alias and stale publisher guard. The
+guard is never auto-broken: prove that no publisher remains or discard the
+complete job root before retrying. Consumers must use artifacts only after exit
+`0`.
+
+Success returns `infrawright.zcc_adoption_artifact_materialization` v1. Its
+sorted, disjoint `created` and `reused` arrays partition all applicable roles,
+and `verification` is the fresh complete ready/equal adoption parity. It emits
+no contents, provider state, import IDs, credentials, child diagnostics,
+scratch/staging names, or output-root field. The embedded parity retains its
+logical source and artifact coordinates; an absolute overlay therefore remains
+absolute because it was already part of the protected comparison contract.
+
+Success and exact reuse exit `0`. Request/domain failures exit `2`; these
+include malformed, non-ready, or cross-bound requests, a fresh assertion
+mismatch, a target outside the configured output root, unsupported residue, and
+an invalid existing artifact prefix. Host/provider/filesystem failures exit
+`1`; these include missing oracle/output configuration, an ancestor rather than
+the exact artifact authority, provider subprocess/timeout/cleanup failure,
+publisher contention, filesystem races, target-byte mismatch, and indeterminate
+publication. Only `OUTPUT_ROOT_BUSY` and post-link indeterminate failures are
+marked retryable by this contract. This operation never exits `3`:
+review-required evidence belongs to the comparison operation and is invalid
+publication input.
+
+This receipt proves fresh provider-observed byte equality with the protected
+external reference plus durable publication only. It does not run or claim
+environment generation, import staging, a saved plan, `assert-adoptable`,
+apply, live-tenant qualification, or cutover. After exit `0`, the serialized
+external workflow still runs `gen-env`, `stage-imports`, `plan SAVE=1`, and
+`assert-adoptable` before any separately authorized apply.
 
 ### ZCC read-only refresh compilation
 
@@ -964,9 +1080,9 @@ Exit status is:
 
 - `0`: successful read operation, ready bootstrap or refresh artifacts, a ready
   refresh seed, exact materialized/bootstrap or twin-refresh parity, complete
-  retry-forward bootstrap publication, complete refresh publication, an
-  awaiting-apply refresh receipt, a retired trusted acknowledgement, or a
-  clean/tolerated assessment;
+  retry-forward bootstrap or provider-observed adoption publication, complete
+  refresh publication, an awaiting-apply refresh receipt, a retired trusted
+  acknowledgement, or a clean/tolerated assessment;
 - `3`: schema-valid review-required bootstrap or refresh artifacts, a
   review-required refresh seed, a materialized parity difference, or a blocked
   assessment;
@@ -979,7 +1095,10 @@ The strict contracts are published in
 `docs/schemas/process-response.schema.json`. The standalone comparison result
 is `docs/schemas/zcc-pull-artifact-parity.schema.json`; provider-observed
 adoption comparison is
-`docs/schemas/zcc-adoption-artifact-parity.schema.json`; refresh compilation is
+`docs/schemas/zcc-adoption-artifact-parity.schema.json`; its content-free write
+receipt is
+`docs/schemas/zcc-adoption-artifact-materialization.schema.json`; refresh
+compilation is
 `docs/schemas/zcc-pull-refresh-artifact-set.schema.json`; the two-phase refresh
 contracts are `docs/schemas/zcc-pull-refresh-parity-seed.schema.json` and
 `docs/schemas/zcc-pull-refresh-parity.schema.json`; the content-free write
@@ -1146,8 +1265,8 @@ plan-root enumeration, exact-catalog saved-plan assessment, immutable ZCC
 bootstrap and refresh artifact compilation, two-phase refresh byte parity,
 materialized bootstrap comparison, asserted retry-forward bootstrap
 publication, asserted imports-last refresh publication, and provider-observed
-ZCC bootstrap adoption compilation and materialized-reference comparison as
-public process operations.
+ZCC bootstrap adoption compilation, materialized-reference comparison, and
+assertion-bound retry-forward publication as public process operations.
 
 The bundled, single-use ZCC adoption-oracle transaction covers the exact
 five-resource catalog. It renders only the pinned provider root and import
@@ -1193,10 +1312,11 @@ derives and binds the caller-workspace inputs, and exposes only the projected
 artifact candidate. The versioned secret-safe v1 parity report separately
 records shared-observation
 and stable Python-before/Node/Python-after comparisons but deliberately leaves
-both qualification fields fail-closed. A host-bound successor must derive its
-runner authority before it can qualify projection or executor, and only a later
-downstream gate may claim cutover. No live tenant or provider parity is claimed
-by the committed tests.
+both qualification fields fail-closed. The assertion-bound materializer now
+combines the existing provider runner and publisher authorities to write only a
+fresh exact candidate, but does not qualify projection, executor, plan, or live
+tenant behavior. Only a later downstream gate may claim cutover. No live tenant
+or provider parity is claimed by the committed tests.
 
 The ZCC compiler ports raw-item projection and exact tfvars/import/lookup byte
 rendering for `zcc_device_cleanup`, `zcc_failopen_policy`,
@@ -1205,9 +1325,11 @@ remains the independent differential oracle. Node returns an immutable
 candidate set, proves digest-only parity against materialized Python output,
 and may publish only this exact five-resource JSON bootstrap or refresh profile
 after a complete ready parity assertion is supplied from the protected
-comparison lane. The repository differential runs the actual Python writer, public Node
-comparer, and public Node materializer for all five supported ZCC resources and
-checks their resulting bytes exactly. A separate run-two differential lets
+comparison lane. Raw-transform and provider-observed bootstrap publication
+remain distinct assertion and evidence classes. The repository differential
+runs the actual Python writer, public Node comparer, and public Node materializer
+for all five supported ZCC resources and checks their resulting bytes exactly in
+singleton and grouped layouts. A separate run-two differential lets
 Python write the baseline and refreshed outputs, then proves the read-only Node
 refresh result for all five resources and adversarial rename cases, including
 HTML/Unicode/CSV normalization, grouped variable names, escaped HCL strings,
@@ -1352,3 +1474,6 @@ cutover oracle until the deployment and raw-pull corpus reports byte-clean
 parity. The Node materializer is a gated consumer of bootstrap evidence, not a
 way to bypass it: use it only for the documented exact bootstrap profile, from
 a serialized protected lane, and only after an exit-`0` receipt.
+The provider-observed adoption receipt likewise proves bytes and publication,
+not plan cleanliness: environment generation, import staging, a saved plan,
+`assert-adoptable`, live qualification, and cutover remain downstream gates.

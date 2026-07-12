@@ -20,6 +20,7 @@ import { requireExactPublisherAuthority } from "../io/publisher-guard.js";
 import { ProcessFailure } from "./errors.js";
 import { pythonPosixRealpath } from "./paths.js";
 import type {
+  ZccPullResourceType,
   ZccPullArtifactSet,
   ZccTextArtifact,
 } from "./zcc-pull-artifacts.js";
@@ -36,6 +37,27 @@ const MAX_TARGET_COMPONENT_BYTES = 255;
 const TEMP_ATTEMPTS = 16;
 
 export type ZccPullMaterializedArtifactName = "imports" | "lookup" | "tfvars";
+
+/** Common byte-bearing shape shared by the two immutable ZCC bootstrap lanes. */
+export interface ZccBootstrapMaterializationCandidate {
+  readonly resource_type: ZccPullResourceType;
+  readonly tenant: string;
+  readonly artifacts: {
+    readonly tfvars: ZccTextArtifact;
+    readonly imports: ZccTextArtifact;
+    readonly lookup: ZccTextArtifact | null;
+  };
+}
+
+export interface ZccBootstrapMaterializationResultOptions<
+  Candidate extends ZccBootstrapMaterializationCandidate,
+  Verification,
+> {
+  readonly candidate: Candidate;
+  readonly created: readonly ZccPullMaterializedArtifactName[];
+  readonly reused: readonly ZccPullMaterializedArtifactName[];
+  readonly verification: Verification;
+}
 
 interface MetadataBinding {
   readonly dev: bigint;
@@ -363,7 +385,8 @@ async function recheckDirectories(authority: BoundAuthority): Promise<void> {
   }
 }
 
-function resolveAuthorizedPath(
+/** @internal Resolve one bootstrap target with the publisher's exact policy. */
+export function resolveZccBootstrapMaterializationTargetPath(
   outputRoot: string,
   pathBase: string,
   nominatedPath: string,
@@ -602,7 +625,7 @@ async function refreshExactFile(
   return current;
 }
 
-function artifactBytes(candidate: ZccPullArtifactSet): readonly {
+function artifactBytes(candidate: ZccBootstrapMaterializationCandidate): readonly {
   readonly name: ZccPullMaterializedArtifactName;
   readonly descriptor: ZccTextArtifact;
   readonly bytes: Buffer;
@@ -721,7 +744,7 @@ function requireReadyAssertion(options: {
 function unsupportedPaths(
   outputRoot: string,
   pathBase: string,
-  candidate: ZccPullArtifactSet,
+  candidate: ZccBootstrapMaterializationCandidate,
 ): readonly string[] {
   const imports = candidate.artifacts.imports.path;
   const tfvars = candidate.artifacts.tfvars.path;
@@ -752,19 +775,23 @@ function unsupportedPaths(
     generated,
     ...(staleLookup === null ? [] : [staleLookup]),
   ]
-    .map((target) => resolveAuthorizedPath(outputRoot, pathBase, target));
+    .map((target) => resolveZccBootstrapMaterializationTargetPath(
+      outputRoot,
+      pathBase,
+      target,
+    ));
 }
 
 async function prepareArtifacts(options: {
   readonly authority: BoundAuthority;
   readonly pathBase: string;
-  readonly candidate: ZccPullArtifactSet;
+  readonly candidate: ZccBootstrapMaterializationCandidate;
 }): Promise<{
   readonly artifacts: readonly PreparedArtifact[];
   readonly unsupported: readonly string[];
 }> {
   const artifacts = artifactBytes(options.candidate).map((entry) => {
-    const absolutePath = resolveAuthorizedPath(
+    const absolutePath = resolveZccBootstrapMaterializationTargetPath(
       options.authority.root.absolutePath,
       options.pathBase,
       entry.descriptor.path,
@@ -1231,34 +1258,42 @@ async function publishStage(
   await syncParent(stage.artifact.parentPath);
 }
 
-/** Publish one freshly compiled, independently asserted ZCC bootstrap set. */
-export async function materializeReadyZccPullArtifacts(options: {
+/**
+ * @internal Shared no-replacement publication kernel for immutable ZCC
+ * bootstrap bytes.
+ *
+ * Callers must snapshot and validate their candidate/assertion synchronously
+ * before entering this function. The kernel owns only filesystem authority,
+ * fixed ordering, retry-forward publication, and final assertion revalidation.
+ */
+export async function materializeReadyZccBootstrapArtifacts<
+  Candidate extends ZccBootstrapMaterializationCandidate,
+  Verification,
+  Result,
+>(options: {
   readonly outputRoot: string;
   readonly pathBase: string;
-  readonly candidate: ZccPullArtifactSet;
-  readonly assertion: ZccPullArtifactParity;
+  readonly candidate: Candidate;
+  readonly asserted: Verification;
   readonly recheckInputs: () => Promise<void>;
+  readonly cleanVerification: (candidate: Candidate) => Verification;
+  readonly verificationReady: (verification: Verification) => boolean;
+  readonly buildResult: (
+    options: ZccBootstrapMaterializationResultOptions<Candidate, Verification>,
+  ) => Result;
   readonly hooks?: ZccPullMaterializationHooks;
-}): Promise<ZccPullArtifactMaterialization> {
-  // Library callers can retain and mutate their objects while this operation
-  // awaits filesystem work. Snapshot every data/function reference before the
-  // first await so publication remains bound to the assertion checked here.
-  const snapshot = snapshotMaterializationValues({
-    candidate: options.candidate,
-    assertion: options.assertion,
-  });
-  const candidate = snapshot.candidate;
-  const assertion = snapshot.assertion;
+}): Promise<Result> {
+  const candidate = options.candidate;
+  const asserted = options.asserted;
   const outputRoot = options.outputRoot;
   const pathBase = options.pathBase;
   const recheckInputs = options.recheckInputs;
+  const cleanVerification = options.cleanVerification;
+  const verificationReady = options.verificationReady;
+  const buildResult = options.buildResult;
   const hooks = options.hooks === undefined
     ? undefined
     : Object.freeze({ ...options.hooks });
-  const asserted = requireReadyAssertion({
-    candidate,
-    assertion,
-  });
   const authority = await bindAuthority(outputRoot);
   const prepared = await prepareArtifacts({
     authority,
@@ -1328,9 +1363,9 @@ export async function materializeReadyZccPullArtifacts(options: {
       stages: staged,
       requireComplete: true,
     });
-    const verification = cleanParity(candidate);
+    const verification = cleanVerification(candidate);
     if (
-      verification.status !== "ready"
+      !verificationReady(verification)
       || safeJsonValue(verification) !== safeJsonValue(asserted)
     ) {
       return fail(
@@ -1344,21 +1379,12 @@ export async function materializeReadyZccPullArtifacts(options: {
       .filter((artifact) => artifact.initial !== null)
       .map((artifact) => artifact.name)
       .sort();
-    return immutableCopy({
-      kind: "infrawright.zcc_pull_artifact_materialization",
-      schema_version: 1,
-      mode: "bootstrap",
-      product: "zcc",
-      resource_type: candidate.resource_type,
-      tenant: candidate.tenant,
-      status: "complete",
-      publication: {
-        policy: "create_or_verify_exact",
-        created,
-        reused,
-      },
+    return immutableCopy(buildResult({
+      candidate,
+      created,
+      reused,
       verification,
-    }) as ZccPullArtifactMaterialization;
+    })) as Result;
   } catch (error: unknown) {
     const clean = await cleanupStages(authority, staged);
     if (published > 0) {
@@ -1381,4 +1407,58 @@ export async function materializeReadyZccPullArtifacts(options: {
     }
     return fail("MATERIALIZATION_FAILED", "materialization failed safely", "io");
   }
+}
+
+/** Publish one freshly compiled, independently asserted ZCC bootstrap set. */
+export async function materializeReadyZccPullArtifacts(options: {
+  readonly outputRoot: string;
+  readonly pathBase: string;
+  readonly candidate: ZccPullArtifactSet;
+  readonly assertion: ZccPullArtifactParity;
+  readonly recheckInputs: () => Promise<void>;
+  readonly hooks?: ZccPullMaterializationHooks;
+}): Promise<ZccPullArtifactMaterialization> {
+  // Library callers can retain and mutate their objects while this operation
+  // awaits filesystem work. Snapshot every data/function reference before the
+  // first await so publication remains bound to the assertion checked here.
+  const snapshot = snapshotMaterializationValues({
+    candidate: options.candidate,
+    assertion: options.assertion,
+  });
+  const candidate = snapshot.candidate;
+  const asserted = requireReadyAssertion({
+    candidate,
+    assertion: snapshot.assertion,
+  });
+  const outputRoot = options.outputRoot;
+  const pathBase = options.pathBase;
+  const recheckInputs = options.recheckInputs;
+  const hooks = options.hooks === undefined
+    ? undefined
+    : Object.freeze({ ...options.hooks });
+  return materializeReadyZccBootstrapArtifacts({
+    outputRoot,
+    pathBase,
+    candidate,
+    asserted,
+    recheckInputs,
+    cleanVerification: cleanParity,
+    verificationReady: (verification) => verification.status === "ready",
+    buildResult: ({ candidate: current, created, reused, verification }) => ({
+      kind: "infrawright.zcc_pull_artifact_materialization",
+      schema_version: 1,
+      mode: "bootstrap",
+      product: "zcc",
+      resource_type: current.resource_type,
+      tenant: current.tenant,
+      status: "complete",
+      publication: {
+        policy: "create_or_verify_exact",
+        created,
+        reused,
+      },
+      verification,
+    }),
+    ...(hooks === undefined ? {} : { hooks }),
+  });
 }
