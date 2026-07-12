@@ -1,0 +1,1314 @@
+{
+  "kind": "infrawright.zpa_provider_evidence",
+  "schema_version": 1,
+  "local_inputs": [
+    {
+      "path": "packs/zpa/overrides/zpa_app_connector_group.json",
+      "sha256": "f102f714cdae8fccb0ece4e42466ec7b59c32955ad48dad69c865ef6b601c8b0"
+    },
+    {
+      "path": "packs/zpa/overrides/zpa_application_segment.json",
+      "sha256": "a1cf26380a47cf102920ebb8ac7e60fd0e5df121e34e6b8dfbcd70e5defd3067"
+    },
+    {
+      "path": "packs/zpa/overrides/zpa_application_server.json",
+      "sha256": "d4d136d54b63eae76d181ce7e9de11ec8ac5d2070a38c2c7cb217ec39c809420"
+    },
+    {
+      "path": "packs/zpa/overrides/zpa_inspection_custom_controls.json",
+      "sha256": "f5c531775d0446e74e828e47ce2450e6c8fae9e3b2086fcc3a723cc78df5d59d"
+    },
+    {
+      "path": "packs/zpa/overrides/zpa_microtenant_controller.json",
+      "sha256": "31848302eda72de03229fac79672b917f4af6e6a08b5c62fd3c146e2db9b7bd0"
+    },
+    {
+      "path": "packs/zpa/overrides/zpa_policy_access_rule.json",
+      "sha256": "5db39fcec7f82d9319ecb903654ae7bf2a708af7faef1eb03fdc9d82c672cc93"
+    },
+    {
+      "path": "packs/zpa/overrides/zpa_segment_group.json",
+      "sha256": "cb739fae8d2c7b84c555b1974ad18454cf25f92a3fe5978cb673cb1e0a19a5ab"
+    },
+    {
+      "path": "packs/zpa/overrides/zpa_server_group.json",
+      "sha256": "5a253e75b1ea5fbc4e8c23d18b983ee93923e7765923982a823ff181147f028d"
+    },
+    {
+      "path": "packs/zpa/overrides/zpa_service_edge_group.json",
+      "sha256": "39e367b7ec2c40b284ac905ba551e3583c2bb67dd91fe77b3036122fba77585c"
+    },
+    {
+      "path": "packs/zpa/pack.json",
+      "sha256": "2dd3ed588cd697e7327bcbb103bc93b10fc6f825e082debdad208b1e85b9927f"
+    },
+    {
+      "path": "packs/zpa/registry.json",
+      "sha256": "8c54fbf9bfd2bf8bebc0244ca5a516cb3d9f4ce08195d619bbc375f5790bdd5a"
+    },
+    {
+      "path": "packs/zpa/schemas/provider/zpa.json",
+      "sha256": "d25ad0fa6eb3671727c64481ba092426c1a74c86c8316bd18b0fcc2bdd9202e6"
+    }
+  ],
+  "provider": {
+    "commit": "dcf12469a9a8f648be0691c74e9816fc94ec7ddc",
+    "ref": "v4.4.6",
+    "repository": "https://github.com/zscaler/terraform-provider-zpa",
+    "source_files": [
+      {
+        "path": "zpa/common.go",
+        "sha256": "6031f248c1aa3174509dccaf44f716653d4650fc0489c1aa026ce62bb5a99e91"
+      },
+      {
+        "path": "zpa/resource_zpa_app_connector_group.go",
+        "sha256": "eef7ad6ee67c88c097cbe334f66903ce2c0bf536704b06eb5ccb98e4d989d98c"
+      },
+      {
+        "path": "zpa/resource_zpa_app_server_controller.go",
+        "sha256": "7a62ca6ffc7811a837e83a9b6a8ac0bba927b0cf8402c947cbaf5033b35aa222"
+      },
+      {
+        "path": "zpa/resource_zpa_application_segment.go",
+        "sha256": "d56712483e311f013073f03eb8f093b1f84c4819abf4b33214927c5e49859179"
+      },
+      {
+        "path": "zpa/resource_zpa_ba_certificate.go",
+        "sha256": "18f60b420010e486a0b14da1f9d04521be1629fac3df99cae716cc9d89d0eb61"
+      },
+      {
+        "path": "zpa/resource_zpa_emergency_access.go",
+        "sha256": "86c963da5232f8b74bea5c71b4812c1e0036ab93e059441b14e6e9f67cd810a3"
+      },
+      {
+        "path": "zpa/resource_zpa_inspection_custom_controls.go",
+        "sha256": "ab7799b068a886989cfbb76d53374c5dfdaccbb448eb5d956458e84bef36d85b"
+      },
+      {
+        "path": "zpa/resource_zpa_inspection_profile.go",
+        "sha256": "b4fccfecec512f804c5aeee2721f331f171e456917cdbe7b2966e304e802c2b0"
+      },
+      {
+        "path": "zpa/resource_zpa_microtenant_controller.go",
+        "sha256": "89382cc2f19ccb5d885b65566ea8b0f06e0197d56128cb2fc83d6373a9f12ab0"
+      },
+      {
+        "path": "zpa/resource_zpa_policy_access_rule.go",
+        "sha256": "5b859c2e858bcc3dd55e68eb13321efd851248391c45b11a9c2367517075490e"
+      },
+      {
+        "path": "zpa/resource_zpa_pra_approval.go",
+        "sha256": "fbabdbfd8f302c7c9248be9fa7ae26ef50209bd4e2fa6ad003f500c4110ba6e0"
+      },
+      {
+        "path": "zpa/resource_zpa_pra_console_controller.go",
+        "sha256": "01fe6cbad971fd908f82e96d8b50e923eda953a0ec03531fa9eeaaf88de5d9ce"
+      },
+      {
+        "path": "zpa/resource_zpa_pra_credential_controller.go",
+        "sha256": "d9d376041ed1f81b29b1d7e110f9ef4bbe2fae6e41f60ac8bba7200456caa2a3"
+      },
+      {
+        "path": "zpa/resource_zpa_pra_portal_controller.go",
+        "sha256": "6e7ad4db627a1c1e3082290b484d20a802e6e011fd14e95981b53af8358b2011"
+      },
+      {
+        "path": "zpa/resource_zpa_segment_group.go",
+        "sha256": "841c70773bd27ec001b3d2ef7105916f48c55260c023038b54c53243c61837ef"
+      },
+      {
+        "path": "zpa/resource_zpa_server_group.go",
+        "sha256": "c6e146dc7bb8d36fa90ef155610c508122c9a3d1a28c04eaa79425e029bfb180"
+      },
+      {
+        "path": "zpa/resource_zpa_service_edge_group.go",
+        "sha256": "424b463792858b4acbce5983fc2cca3d7b678791bc6d7a585996d3c8f858c424"
+      }
+    ]
+  },
+  "resources": [
+    {
+      "exceptions": [
+        "get_all_read_selects_current_id_without_rebind"
+      ],
+      "fetch": {
+        "optional_http_statuses": [],
+        "pagination": "zpa",
+        "path": "appConnectorGroup"
+      },
+      "generated_config": {
+        "qualification": "terraform_runtime_evidence_required"
+      },
+      "import": {
+        "alternate_lookup": "appconnectorgroup.GetByName(ctx, service, id)",
+        "engine_import_id_template": "{id}",
+        "grammar": "base10_numeric_id_or_name",
+        "mode": "numeric_or_alternate_lookup",
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
+      },
+      "read_identity": {
+        "schema_id_attribute": "importer_seeded",
+        "terraform_instance_id": "current_id_matched_in_list"
+      },
+      "resource_type": "zpa_app_connector_group",
+      "source_evidence": {
+        "exceptions": {
+          "get_all_read_selects_current_id_without_rebind": {
+            "end_line": 288,
+            "function": "resourceAppConnectorGroupRead",
+            "path": "zpa/resource_zpa_app_connector_group.go",
+            "sha256": "32f745450b8bededa1ab0d45ed4e9dbceb18172f323bafbca3abdc2837768089",
+            "start_line": 280,
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_app_connector_group.go#L280-L288"
+          }
+        },
+        "importer": {
+          "end_line": 44,
+          "function": "resourceAppConnectorGroup",
+          "path": "zpa/resource_zpa_app_connector_group.go",
+          "sha256": "75785e2b01bf27a1c6e98ccca026e22c021365bdb8d344ce1b098d4e4c90e1b4",
+          "start_line": 36,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_app_connector_group.go#L36-L44"
+        },
+        "read_identity": {
+          "end_line": 288,
+          "function": "resourceAppConnectorGroupRead",
+          "path": "zpa/resource_zpa_app_connector_group.go",
+          "sha256": "3e57c875b2ca265b47fdea90a3d9c83f7bf04f89320b07b8cb51970e5e00be14",
+          "start_line": 288,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_app_connector_group.go#L288-L288"
+        }
+      },
+      "state_shape": {
+        "attribute_encodings": {
+          "bool": 9,
+          "set(string)": 1,
+          "string": 15
+        },
+        "block_nesting_modes": {},
+        "counts": {
+          "computed_only_attributes": 1,
+          "computed_only_blocks": 0,
+          "input_attributes": 25,
+          "input_blocks": 0
+        },
+        "required_input_paths": [
+          "latitude",
+          "location",
+          "longitude",
+          "name"
+        ],
+        "sensitive_input_paths": [],
+        "shape_sha256": "e4a16695a7a65d8f6d1e33a198afea90d44f0c7d542501ad188241fe646ba624"
+      }
+    },
+    {
+      "exceptions": [
+        "attribute_as_block_port_ranges",
+        "policy_style_enum_to_bool_read_normalization"
+      ],
+      "fetch": {
+        "optional_http_statuses": [],
+        "pagination": "zpa",
+        "path": "application"
+      },
+      "generated_config": {
+        "qualification": "terraform_runtime_evidence_required"
+      },
+      "import": {
+        "alternate_lookup": "applicationsegment.GetByName(ctx, service, id)",
+        "engine_import_id_template": "{id}",
+        "grammar": "base10_numeric_id_or_name",
+        "mode": "numeric_or_alternate_lookup",
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
+      },
+      "read_identity": {
+        "schema_id_attribute": "read_response_id",
+        "terraform_instance_id": "current_id_lookup_with_response_schema_id"
+      },
+      "resource_type": "zpa_application_segment",
+      "source_evidence": {
+        "exceptions": {
+          "attribute_as_block_port_ranges": {
+            "end_line": 635,
+            "function": "resourceAppSegmentPortRange",
+            "path": "zpa/common.go",
+            "sha256": "2ac9e518ae72ddb313087ed09140157da76756cc6815c200a0494756f50e7388",
+            "start_line": 635,
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/common.go#L635-L635"
+          },
+          "policy_style_enum_to_bool_read_normalization": {
+            "end_line": 374,
+            "function": "resourceApplicationSegmentRead",
+            "path": "zpa/resource_zpa_application_segment.go",
+            "sha256": "cbee45b5530e66f7b085b05877885b1b2ee9ec3705e2cfd6466490be271233a9",
+            "start_line": 374,
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_application_segment.go#L374-L374"
+          }
+        },
+        "importer": {
+          "end_line": 48,
+          "function": "resourceApplicationSegment",
+          "path": "zpa/resource_zpa_application_segment.go",
+          "sha256": "a277adab25f4cbf24788a3d6fda118ebd4240b0d2d018c19dd0f28c2f9f59a97",
+          "start_line": 40,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_application_segment.go#L40-L48"
+        },
+        "read_identity": {
+          "end_line": 347,
+          "function": "resourceApplicationSegmentRead",
+          "path": "zpa/resource_zpa_application_segment.go",
+          "sha256": "47c69a46f93ad3926ba2cb5ce366a5ef6f8a621089beb4642ea08ddce6434a12",
+          "start_line": 335,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_application_segment.go#L335-L347"
+        }
+      },
+      "state_shape": {
+        "attribute_encodings": {
+          "bool": 14,
+          "list(object({from:string,to:string}))": 2,
+          "list(string)": 2,
+          "set(string)": 4,
+          "string": 12
+        },
+        "block_nesting_modes": {
+          "list": 2
+        },
+        "counts": {
+          "computed_only_attributes": 1,
+          "computed_only_blocks": 0,
+          "input_attributes": 34,
+          "input_blocks": 2
+        },
+        "required_input_paths": [
+          "domain_names",
+          "name",
+          "server_groups[].id",
+          "zpn_er_id[].id"
+        ],
+        "sensitive_input_paths": [],
+        "shape_sha256": "09b96ab238a048b7788b013d38205c3e324ec45b5f5d34f54e8758f462103ec5"
+      }
+    },
+    {
+      "exceptions": [],
+      "fetch": {
+        "optional_http_statuses": [],
+        "pagination": "zpa",
+        "path": "server"
+      },
+      "generated_config": {
+        "qualification": "terraform_runtime_evidence_required"
+      },
+      "import": {
+        "alternate_lookup": "appservercontroller.GetByName(ctx, service, id)",
+        "engine_import_id_template": "{id}",
+        "grammar": "base10_numeric_id_or_name",
+        "mode": "numeric_or_alternate_lookup",
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
+      },
+      "read_identity": {
+        "schema_id_attribute": "importer_seeded",
+        "terraform_instance_id": "current_id_lookup_without_response_rebind"
+      },
+      "resource_type": "zpa_application_server",
+      "source_evidence": {
+        "exceptions": {},
+        "importer": {
+          "end_line": 39,
+          "function": "resourceApplicationServer",
+          "path": "zpa/resource_zpa_app_server_controller.go",
+          "sha256": "2e8fe017641dc7e23818fbbc6097a554541beaff6df5b67f311a17496e1a6b5d",
+          "start_line": 31,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_app_server_controller.go#L31-L39"
+        },
+        "read_identity": {
+          "end_line": 135,
+          "function": "resourceApplicationServerRead",
+          "path": "zpa/resource_zpa_app_server_controller.go",
+          "sha256": "0b1e9f7c7a40dc60491b846601171e8613b49746d931e0de393451596d297894",
+          "start_line": 135,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_app_server_controller.go#L135-L135"
+        }
+      },
+      "state_shape": {
+        "attribute_encodings": {
+          "bool": 1,
+          "set(string)": 1,
+          "string": 5
+        },
+        "block_nesting_modes": {},
+        "counts": {
+          "computed_only_attributes": 1,
+          "computed_only_blocks": 0,
+          "input_attributes": 7,
+          "input_blocks": 0
+        },
+        "required_input_paths": [
+          "address",
+          "name"
+        ],
+        "sensitive_input_paths": [],
+        "shape_sha256": "337025f308e873343fb6f2a08b3361fddc53440448331ab3476bd47fa7e51ae7"
+      }
+    },
+    {
+      "exceptions": [
+        "computed_certificate_does_not_restore_optional_cert_blob"
+      ],
+      "fetch": {
+        "optional_http_statuses": [],
+        "pagination": "zpa",
+        "path": "certificate"
+      },
+      "generated_config": {
+        "qualification": "terraform_runtime_evidence_required"
+      },
+      "import": {
+        "alternate_lookup": null,
+        "engine_import_id_template": "{id}",
+        "grammar": "opaque_provider_id",
+        "mode": "passthrough",
+        "numeric_exactness_requirement": "not_applicable"
+      },
+      "read_identity": {
+        "schema_id_attribute": "not_source_populated",
+        "terraform_instance_id": "response_id"
+      },
+      "resource_type": "zpa_ba_certificate",
+      "source_evidence": {
+        "exceptions": {
+          "computed_certificate_does_not_restore_optional_cert_blob": {
+            "end_line": 106,
+            "function": "resourceBaCertificateRead",
+            "path": "zpa/resource_zpa_ba_certificate.go",
+            "sha256": "10e3a47f35038fd415220def404c3fbe4bc4c00ca52346734e33ee293cb2b261",
+            "start_line": 106,
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_ba_certificate.go#L106-L106"
+          }
+        },
+        "importer": {
+          "end_line": 20,
+          "function": "resourceBaCertificate",
+          "path": "zpa/resource_zpa_ba_certificate.go",
+          "sha256": "fda7b51c6c95ea29a1e41dfca7daf1f353bd00770addf8d3ec095d33b524cd5f",
+          "start_line": 20,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_ba_certificate.go#L20-L20"
+        },
+        "read_identity": {
+          "end_line": 103,
+          "function": "resourceBaCertificateRead",
+          "path": "zpa/resource_zpa_ba_certificate.go",
+          "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
+          "start_line": 103,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_ba_certificate.go#L103-L103"
+        }
+      },
+      "state_shape": {
+        "attribute_encodings": {
+          "string": 4
+        },
+        "block_nesting_modes": {},
+        "counts": {
+          "computed_only_attributes": 2,
+          "computed_only_blocks": 0,
+          "input_attributes": 4,
+          "input_blocks": 0
+        },
+        "required_input_paths": [
+          "name"
+        ],
+        "sensitive_input_paths": [],
+        "shape_sha256": "e6a94b8a93d6b9600b38295077df531d65928dc193d311c528de2aa447516978"
+      }
+    },
+    {
+      "exceptions": [],
+      "fetch": {
+        "optional_http_statuses": [
+          401,
+          403
+        ],
+        "pagination": "zpa",
+        "path": "emergencyAccess/users"
+      },
+      "generated_config": {
+        "qualification": "terraform_runtime_evidence_required"
+      },
+      "import": {
+        "alternate_lookup": null,
+        "engine_import_id_template": "{id}",
+        "grammar": "opaque_provider_id",
+        "mode": "passthrough",
+        "numeric_exactness_requirement": "not_applicable"
+      },
+      "read_identity": {
+        "schema_id_attribute": "not_source_populated",
+        "terraform_instance_id": "response_user_id"
+      },
+      "resource_type": "zpa_emergency_access_user",
+      "source_evidence": {
+        "exceptions": {},
+        "importer": {
+          "end_line": 20,
+          "function": "resourceEmergencyAccess",
+          "path": "zpa/resource_zpa_emergency_access.go",
+          "sha256": "fda7b51c6c95ea29a1e41dfca7daf1f353bd00770addf8d3ec095d33b524cd5f",
+          "start_line": 20,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_emergency_access.go#L20-L20"
+        },
+        "read_identity": {
+          "end_line": 94,
+          "function": "resourceEmergencyAccessRead",
+          "path": "zpa/resource_zpa_emergency_access.go",
+          "sha256": "fb3ad57fedb318c5f08361eb263d224ff672df91c31a41c276a1d3745eb3d130",
+          "start_line": 94,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_emergency_access.go#L94-L94"
+        }
+      },
+      "state_shape": {
+        "attribute_encodings": {
+          "string": 4
+        },
+        "block_nesting_modes": {},
+        "counts": {
+          "computed_only_attributes": 1,
+          "computed_only_blocks": 0,
+          "input_attributes": 4,
+          "input_blocks": 0
+        },
+        "required_input_paths": [],
+        "sensitive_input_paths": [],
+        "shape_sha256": "decb2a1b317df716d1cc6d6b171a59067e22efbd2dec25230c5821f745c9777e"
+      }
+    },
+    {
+      "exceptions": [],
+      "fetch": {
+        "optional_http_statuses": [
+          401,
+          403
+        ],
+        "pagination": "zpa",
+        "path": "inspectionControls/custom"
+      },
+      "generated_config": {
+        "qualification": "terraform_runtime_evidence_required"
+      },
+      "import": {
+        "alternate_lookup": "inspection_custom_controls.GetByName(ctx, service, id)",
+        "engine_import_id_template": "{id}",
+        "grammar": "base10_numeric_id_or_name",
+        "mode": "numeric_or_alternate_lookup",
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
+      },
+      "read_identity": {
+        "schema_id_attribute": "importer_seeded",
+        "terraform_instance_id": "response_id"
+      },
+      "resource_type": "zpa_inspection_custom_controls",
+      "source_evidence": {
+        "exceptions": {},
+        "importer": {
+          "end_line": 36,
+          "function": "resourceInspectionCustomControls",
+          "path": "zpa/resource_zpa_inspection_custom_controls.go",
+          "sha256": "10759cf1236f5897c599f626f4522990dba7e92d3644c400e7276c2b0f78da26",
+          "start_line": 28,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_inspection_custom_controls.go#L28-L36"
+        },
+        "read_identity": {
+          "end_line": 322,
+          "function": "resourceInspectionCustomControlsRead",
+          "path": "zpa/resource_zpa_inspection_custom_controls.go",
+          "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
+          "start_line": 322,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_inspection_custom_controls.go#L322-L322"
+        }
+      },
+      "state_shape": {
+        "attribute_encodings": {
+          "set(string)": 1,
+          "string": 14
+        },
+        "block_nesting_modes": {
+          "list": 2
+        },
+        "counts": {
+          "computed_only_attributes": 1,
+          "computed_only_blocks": 0,
+          "input_attributes": 15,
+          "input_blocks": 2
+        },
+        "required_input_paths": [
+          "name",
+          "severity",
+          "type"
+        ],
+        "sensitive_input_paths": [],
+        "shape_sha256": "380b6be7d3cf1c65425a159b41eb6bd1b0d575ad0fafcebae2977dfe8ff590e3"
+      }
+    },
+    {
+      "exceptions": [
+        "importer_writes_undeclared_profile_id",
+        "read_preserves_associate_all_controls_from_prior_state"
+      ],
+      "fetch": {
+        "optional_http_statuses": [
+          401,
+          403
+        ],
+        "pagination": "zpa",
+        "path": "inspectionProfile"
+      },
+      "generated_config": {
+        "qualification": "terraform_runtime_evidence_required"
+      },
+      "import": {
+        "alternate_lookup": "inspection_profile.GetByName(ctx, service, id)",
+        "engine_import_id_template": "{id}",
+        "grammar": "base10_numeric_id_or_name",
+        "mode": "numeric_or_alternate_lookup",
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
+      },
+      "read_identity": {
+        "schema_id_attribute": "not_source_populated",
+        "terraform_instance_id": "response_id"
+      },
+      "resource_type": "zpa_inspection_profile",
+      "source_evidence": {
+        "exceptions": {
+          "importer_writes_undeclared_profile_id": {
+            "end_line": 37,
+            "function": "resourceInspectionProfile",
+            "path": "zpa/resource_zpa_inspection_profile.go",
+            "sha256": "0c51f1d839e4ba9130131de629087009113795c81ae56a1c2062374300eabb56",
+            "start_line": 32,
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_inspection_profile.go#L32-L37"
+          },
+          "read_preserves_associate_all_controls_from_prior_state": {
+            "end_line": 312,
+            "function": "resourceInspectionProfileRead",
+            "path": "zpa/resource_zpa_inspection_profile.go",
+            "sha256": "10b5732d359ca32370e40d60b48d4685081a52caaa3381137a6eb2a7be9cf5cb",
+            "start_line": 312,
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_inspection_profile.go#L312-L312"
+          }
+        },
+        "importer": {
+          "end_line": 36,
+          "function": "resourceInspectionProfile",
+          "path": "zpa/resource_zpa_inspection_profile.go",
+          "sha256": "9b5d468b1d327f2da35d91558dc13a34a24dec3d1efcc52a6173d603554e582c",
+          "start_line": 28,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_inspection_profile.go#L28-L36"
+        },
+        "read_identity": {
+          "end_line": 307,
+          "function": "resourceInspectionProfileRead",
+          "path": "zpa/resource_zpa_inspection_profile.go",
+          "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
+          "start_line": 307,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_inspection_profile.go#L307-L307"
+        }
+      },
+      "state_shape": {
+        "attribute_encodings": {
+          "bool": 2,
+          "map(string)": 1,
+          "set(string)": 1,
+          "string": 22
+        },
+        "block_nesting_modes": {
+          "list": 2,
+          "set": 4
+        },
+        "counts": {
+          "computed_only_attributes": 1,
+          "computed_only_blocks": 0,
+          "input_attributes": 26,
+          "input_blocks": 6
+        },
+        "required_input_paths": [
+          "custom_controls[].id"
+        ],
+        "sensitive_input_paths": [],
+        "shape_sha256": "24470154776982cce9aee3d49bd008441d4422bca77eaa5dbced28dbf39e818b"
+      }
+    },
+    {
+      "exceptions": [],
+      "fetch": {
+        "optional_http_statuses": [],
+        "pagination": "zpa",
+        "path": "microtenants"
+      },
+      "generated_config": {
+        "qualification": "terraform_runtime_evidence_required"
+      },
+      "import": {
+        "alternate_lookup": "microtenants.GetByName(ctx, service, id)",
+        "engine_import_id_template": "{id}",
+        "grammar": "base10_numeric_id_or_name",
+        "mode": "numeric_or_alternate_lookup",
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
+      },
+      "read_identity": {
+        "schema_id_attribute": "importer_seeded",
+        "terraform_instance_id": "response_id"
+      },
+      "resource_type": "zpa_microtenant_controller",
+      "source_evidence": {
+        "exceptions": {},
+        "importer": {
+          "end_line": 33,
+          "function": "resourceMicrotenantController",
+          "path": "zpa/resource_zpa_microtenant_controller.go",
+          "sha256": "94d1e007ec3610949c88425f844e2f9df64f2ec261db232cce839ac7a915d15e",
+          "start_line": 25,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_microtenant_controller.go#L25-L33"
+        },
+        "read_identity": {
+          "end_line": 150,
+          "function": "resourceMicrotenantRead",
+          "path": "zpa/resource_zpa_microtenant_controller.go",
+          "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
+          "start_line": 150,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_microtenant_controller.go#L150-L150"
+        }
+      },
+      "state_shape": {
+        "attribute_encodings": {
+          "bool": 2,
+          "set(string)": 1,
+          "string": 3
+        },
+        "block_nesting_modes": {},
+        "counts": {
+          "computed_only_attributes": 1,
+          "computed_only_blocks": 1,
+          "input_attributes": 6,
+          "input_blocks": 0
+        },
+        "required_input_paths": [
+          "name"
+        ],
+        "sensitive_input_paths": [],
+        "shape_sha256": "5430c937e2acf78fe0d9731392c283fc954b8b566bd0e2d2b13e7d9f11aa0a64"
+      }
+    },
+    {
+      "exceptions": [
+        "policy_type_scoped_import_lookup"
+      ],
+      "fetch": {
+        "optional_http_statuses": [],
+        "pagination": "zpa",
+        "path": "policySet/rules/policyType/ACCESS_POLICY"
+      },
+      "generated_config": {
+        "qualification": "terraform_runtime_evidence_required"
+      },
+      "import": {
+        "alternate_lookup": "policysetcontroller.GetByNameAndTypes(ctx, service, types, id)",
+        "engine_import_id_template": "{id}",
+        "grammar": "base10_numeric_id_or_policy_name",
+        "mode": "numeric_or_alternate_lookup",
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
+      },
+      "read_identity": {
+        "schema_id_attribute": "importer_seeded",
+        "terraform_instance_id": "response_id"
+      },
+      "resource_type": "zpa_policy_access_rule",
+      "source_evidence": {
+        "exceptions": {
+          "policy_type_scoped_import_lookup": {
+            "end_line": 23,
+            "function": "resourcePolicyAccessRule",
+            "path": "zpa/resource_zpa_policy_access_rule.go",
+            "sha256": "889806995a383238cd61bf36a764d7f1ffc65a2888283c2469d078f1ba49d916",
+            "start_line": 23,
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_policy_access_rule.go#L23-L23"
+          }
+        },
+        "importer": {
+          "end_line": 672,
+          "function": "importPolicyStateContextFunc",
+          "path": "zpa/common.go",
+          "sha256": "d208ef612c6556415436365f30ab44793c8b11bc06fa75256cff60d6f8e832d6",
+          "start_line": 664,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/common.go#L664-L672"
+        },
+        "read_identity": {
+          "end_line": 156,
+          "function": "resourcePolicyAccessRead",
+          "path": "zpa/resource_zpa_policy_access_rule.go",
+          "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
+          "start_line": 156,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_policy_access_rule.go#L156-L156"
+        }
+      },
+      "state_shape": {
+        "attribute_encodings": {
+          "bool": 4,
+          "set(string)": 3,
+          "string": 23
+        },
+        "block_nesting_modes": {
+          "list": 4
+        },
+        "counts": {
+          "computed_only_attributes": 4,
+          "computed_only_blocks": 0,
+          "input_attributes": 30,
+          "input_blocks": 4
+        },
+        "required_input_paths": [
+          "app_connector_groups[].id",
+          "app_server_groups[].id",
+          "conditions[].operands[].lhs",
+          "conditions[].operands[].object_type",
+          "conditions[].operator",
+          "name"
+        ],
+        "sensitive_input_paths": [],
+        "shape_sha256": "d553b9d6df7f5c5d3a47182e6c3370a9cf99ba8d75e7b6d2b049b3ced72eb9c5"
+      }
+    },
+    {
+      "exceptions": [
+        "alternate_import_lookup_uses_email_id"
+      ],
+      "fetch": {
+        "optional_http_statuses": [
+          400,
+          401,
+          403
+        ],
+        "pagination": "zpa",
+        "path": "approval"
+      },
+      "generated_config": {
+        "qualification": "terraform_runtime_evidence_required"
+      },
+      "import": {
+        "alternate_lookup": "praapproval.GetByEmailID(ctx, service, id)",
+        "engine_import_id_template": "{id}",
+        "grammar": "base10_numeric_id_or_email_id",
+        "mode": "numeric_or_alternate_lookup",
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
+      },
+      "read_identity": {
+        "schema_id_attribute": "importer_seeded",
+        "terraform_instance_id": "response_id"
+      },
+      "resource_type": "zpa_pra_approval_controller",
+      "source_evidence": {
+        "exceptions": {
+          "alternate_import_lookup_uses_email_id": {
+            "end_line": 39,
+            "function": "resourcePRAPrivilegedApprovalController",
+            "path": "zpa/resource_zpa_pra_approval.go",
+            "sha256": "a33fa5a4897b9605558c8d5cc5049b181b13eced7b22420f0dcc4f93282f9d94",
+            "start_line": 39,
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_pra_approval.go#L39-L39"
+          }
+        },
+        "importer": {
+          "end_line": 41,
+          "function": "resourcePRAPrivilegedApprovalController",
+          "path": "zpa/resource_zpa_pra_approval.go",
+          "sha256": "0d30422c6e3b33b1c8903b3c02c247b8359b6c4d80ffce7901423f0e7db00cb0",
+          "start_line": 33,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_pra_approval.go#L33-L41"
+        },
+        "read_identity": {
+          "end_line": 227,
+          "function": "resourcePRAPrivilegedApprovalControllerRead",
+          "path": "zpa/resource_zpa_pra_approval.go",
+          "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
+          "start_line": 227,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_pra_approval.go#L227-L227"
+        }
+      },
+      "state_shape": {
+        "attribute_encodings": {
+          "list(string)": 1,
+          "set(string)": 2,
+          "string": 9
+        },
+        "block_nesting_modes": {
+          "set": 2
+        },
+        "counts": {
+          "computed_only_attributes": 1,
+          "computed_only_blocks": 0,
+          "input_attributes": 12,
+          "input_blocks": 2
+        },
+        "required_input_paths": [
+          "applications"
+        ],
+        "sensitive_input_paths": [],
+        "shape_sha256": "d124bf36085e456d654099970bf5e2775403b38632b6cce4dabd8febfcad6243"
+      }
+    },
+    {
+      "exceptions": [
+        "required_pra_application_read_assignment_is_conditional"
+      ],
+      "fetch": {
+        "optional_http_statuses": [
+          401,
+          403
+        ],
+        "pagination": "zpa",
+        "path": "praConsole"
+      },
+      "generated_config": {
+        "qualification": "terraform_runtime_evidence_required"
+      },
+      "import": {
+        "alternate_lookup": "praconsole.GetByName(ctx, service, id)",
+        "engine_import_id_template": "{id}",
+        "grammar": "base10_numeric_id_or_name",
+        "mode": "numeric_or_alternate_lookup",
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
+      },
+      "read_identity": {
+        "schema_id_attribute": "importer_seeded",
+        "terraform_instance_id": "response_id"
+      },
+      "resource_type": "zpa_pra_console_controller",
+      "source_evidence": {
+        "exceptions": {
+          "required_pra_application_read_assignment_is_conditional": {
+            "end_line": 174,
+            "function": "resourcePRAConsoleControllerRead",
+            "path": "zpa/resource_zpa_pra_console_controller.go",
+            "sha256": "9e12c9386f04fc48b0e51febb5b8d4c8640d66dbae75b0e8dfc2df86e7e86b3d",
+            "start_line": 172,
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_pra_console_controller.go#L172-L174"
+          }
+        },
+        "importer": {
+          "end_line": 44,
+          "function": "resourcePRAConsoleController",
+          "path": "zpa/resource_zpa_pra_console_controller.go",
+          "sha256": "a167dc2730fae16a7bf9f1ed1312b13cff51308cb592362615dd45c1e667f42e",
+          "start_line": 36,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_pra_console_controller.go#L36-L44"
+        },
+        "read_identity": {
+          "end_line": 164,
+          "function": "resourcePRAConsoleControllerRead",
+          "path": "zpa/resource_zpa_pra_console_controller.go",
+          "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
+          "start_line": 164,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_pra_console_controller.go#L164-L164"
+        }
+      },
+      "state_shape": {
+        "attribute_encodings": {
+          "bool": 1,
+          "set(string)": 1,
+          "string": 5
+        },
+        "block_nesting_modes": {
+          "list": 1,
+          "set": 1
+        },
+        "counts": {
+          "computed_only_attributes": 1,
+          "computed_only_blocks": 0,
+          "input_attributes": 7,
+          "input_blocks": 2
+        },
+        "required_input_paths": [
+          "pra_application",
+          "pra_application[].id",
+          "pra_portals"
+        ],
+        "sensitive_input_paths": [],
+        "shape_sha256": "c99a93a3a739d52be297289139715631547e5058ec9b2a5a98b6b98d3d60d778"
+      }
+    },
+    {
+      "exceptions": [
+        "optional_sensitive_credentials_are_not_read_back"
+      ],
+      "fetch": {
+        "optional_http_statuses": [
+          401,
+          403
+        ],
+        "pagination": "zpa",
+        "path": "credential"
+      },
+      "generated_config": {
+        "qualification": "terraform_runtime_evidence_required"
+      },
+      "import": {
+        "alternate_lookup": "pracredential.GetByName(ctx, service, id)",
+        "engine_import_id_template": "{id}",
+        "grammar": "base10_numeric_id_or_name",
+        "mode": "numeric_or_alternate_lookup",
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
+      },
+      "read_identity": {
+        "schema_id_attribute": "importer_seeded",
+        "terraform_instance_id": "response_id"
+      },
+      "resource_type": "zpa_pra_credential_controller",
+      "source_evidence": {
+        "exceptions": {
+          "optional_sensitive_credentials_are_not_read_back": {
+            "end_line": 165,
+            "function": "resourcePRACredentialControllerRead",
+            "path": "zpa/resource_zpa_pra_credential_controller.go",
+            "sha256": "2c19cd8514221ec1b551ebcfef270ca25d85b0223779dd3e8d045ec5b5063939",
+            "start_line": 164,
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_pra_credential_controller.go#L164-L165"
+          }
+        },
+        "importer": {
+          "end_line": 42,
+          "function": "resourcePRACredentialController",
+          "path": "zpa/resource_zpa_pra_credential_controller.go",
+          "sha256": "e9c6353df10a39dcb5608ec18f497087bcbec6e5bd5f4a2838b4e8d6603f2a5b",
+          "start_line": 34,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_pra_credential_controller.go#L34-L42"
+        },
+        "read_identity": {
+          "end_line": 161,
+          "function": "resourcePRACredentialControllerRead",
+          "path": "zpa/resource_zpa_pra_credential_controller.go",
+          "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
+          "start_line": 161,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_pra_credential_controller.go#L161-L161"
+        }
+      },
+      "state_shape": {
+        "attribute_encodings": {
+          "string": 9
+        },
+        "block_nesting_modes": {},
+        "counts": {
+          "computed_only_attributes": 1,
+          "computed_only_blocks": 0,
+          "input_attributes": 9,
+          "input_blocks": 0
+        },
+        "required_input_paths": [],
+        "sensitive_input_paths": [
+          "passphrase",
+          "password",
+          "private_key"
+        ],
+        "shape_sha256": "0f7338f4c38cd242ca7c704eff5dc69d900775261e4cd1c8dbd5b8a3f6d4e8b8"
+      }
+    },
+    {
+      "exceptions": [
+        "customize_diff_certificate_external_field_exclusion"
+      ],
+      "fetch": {
+        "optional_http_statuses": [
+          401,
+          403
+        ],
+        "pagination": "zpa",
+        "path": "praPortal"
+      },
+      "generated_config": {
+        "qualification": "terraform_runtime_evidence_required"
+      },
+      "import": {
+        "alternate_lookup": "praportal.GetByName(ctx, service, id)",
+        "engine_import_id_template": "{id}",
+        "grammar": "base10_numeric_id_or_name",
+        "mode": "numeric_or_alternate_lookup",
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
+      },
+      "read_identity": {
+        "schema_id_attribute": "importer_seeded",
+        "terraform_instance_id": "response_id"
+      },
+      "resource_type": "zpa_pra_portal_controller",
+      "source_evidence": {
+        "exceptions": {
+          "customize_diff_certificate_external_field_exclusion": {
+            "end_line": 43,
+            "function": "resourcePRAPortalController",
+            "path": "zpa/resource_zpa_pra_portal_controller.go",
+            "sha256": "89fe2f8258cd27c11258a9bfec5d7ddf03c2a81651457987cb1fee0faec23153",
+            "start_line": 23,
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_pra_portal_controller.go#L23-L43"
+          }
+        },
+        "importer": {
+          "end_line": 69,
+          "function": "resourcePRAPortalController",
+          "path": "zpa/resource_zpa_pra_portal_controller.go",
+          "sha256": "b9b22a10ded360fe9d403f91a29df7876c5591401323cd3f4007370f3e9c5de2",
+          "start_line": 61,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_pra_portal_controller.go#L61-L69"
+        },
+        "read_identity": {
+          "end_line": 202,
+          "function": "resourcePRAPortalControllerRead",
+          "path": "zpa/resource_zpa_pra_portal_controller.go",
+          "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
+          "start_line": 202,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_pra_portal_controller.go#L202-L202"
+        }
+      },
+      "state_shape": {
+        "attribute_encodings": {
+          "bool": 2,
+          "set(string)": 1,
+          "string": 11
+        },
+        "block_nesting_modes": {},
+        "counts": {
+          "computed_only_attributes": 1,
+          "computed_only_blocks": 0,
+          "input_attributes": 14,
+          "input_blocks": 0
+        },
+        "required_input_paths": [],
+        "sensitive_input_paths": [],
+        "shape_sha256": "5220340cb10060d75cffebf1407be02a366646781d5bcafe322c91ecea1954e6"
+      }
+    },
+    {
+      "exceptions": [],
+      "fetch": {
+        "optional_http_statuses": [],
+        "pagination": "zpa",
+        "path": "segmentGroup"
+      },
+      "generated_config": {
+        "qualification": "terraform_runtime_evidence_required"
+      },
+      "import": {
+        "alternate_lookup": "segmentgroup.GetByName(ctx, service, id)",
+        "engine_import_id_template": "{id}",
+        "grammar": "base10_numeric_id_or_name",
+        "mode": "numeric_or_alternate_lookup",
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
+      },
+      "read_identity": {
+        "schema_id_attribute": "importer_seeded",
+        "terraform_instance_id": "response_id"
+      },
+      "resource_type": "zpa_segment_group",
+      "source_evidence": {
+        "exceptions": {},
+        "importer": {
+          "end_line": 43,
+          "function": "resourceSegmentGroup",
+          "path": "zpa/resource_zpa_segment_group.go",
+          "sha256": "be8e77513201e8889ea70ce0d660138a2a9e00737dfc4a8f03cdcee13d01ba81",
+          "start_line": 35,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_segment_group.go#L35-L43"
+        },
+        "read_identity": {
+          "end_line": 146,
+          "function": "resourceSegmentGroupRead",
+          "path": "zpa/resource_zpa_segment_group.go",
+          "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
+          "start_line": 146,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_segment_group.go#L146-L146"
+        }
+      },
+      "state_shape": {
+        "attribute_encodings": {
+          "bool": 1,
+          "string": 4
+        },
+        "block_nesting_modes": {
+          "list": 1
+        },
+        "counts": {
+          "computed_only_attributes": 1,
+          "computed_only_blocks": 0,
+          "input_attributes": 5,
+          "input_blocks": 1
+        },
+        "required_input_paths": [
+          "name"
+        ],
+        "sensitive_input_paths": [],
+        "shape_sha256": "56ab34f68770e3b0bf683970fe214c8b85967855cd40b7dcf21a62361869455e"
+      }
+    },
+    {
+      "exceptions": [
+        "read_flattens_multi_object_reference_blocks"
+      ],
+      "fetch": {
+        "optional_http_statuses": [],
+        "pagination": "zpa",
+        "path": "serverGroup"
+      },
+      "generated_config": {
+        "qualification": "terraform_runtime_evidence_required"
+      },
+      "import": {
+        "alternate_lookup": "servergroup.GetByName(ctx, service, id)",
+        "engine_import_id_template": "{id}",
+        "grammar": "base10_numeric_id_or_name",
+        "mode": "numeric_or_alternate_lookup",
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
+      },
+      "read_identity": {
+        "schema_id_attribute": "importer_seeded",
+        "terraform_instance_id": "response_id"
+      },
+      "resource_type": "zpa_server_group",
+      "source_evidence": {
+        "exceptions": {
+          "read_flattens_multi_object_reference_blocks": {
+            "end_line": 258,
+            "function": "resourceServerGroupRead",
+            "path": "zpa/resource_zpa_server_group.go",
+            "sha256": "a0e092815aa90b60856e7c593595239738282756e3e38f2ee130365ba246ee29",
+            "start_line": 256,
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_server_group.go#L256-L258"
+          }
+        },
+        "importer": {
+          "end_line": 48,
+          "function": "resourceServerGroup",
+          "path": "zpa/resource_zpa_server_group.go",
+          "sha256": "18031befd4cc059fc78ea5f528694d6f1c3f9b699ae1c34aa66fcdb50bab4e32",
+          "start_line": 40,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_server_group.go#L40-L48"
+        },
+        "read_identity": {
+          "end_line": 247,
+          "function": "resourceServerGroupRead",
+          "path": "zpa/resource_zpa_server_group.go",
+          "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
+          "start_line": 247,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_server_group.go#L247-L247"
+        }
+      },
+      "state_shape": {
+        "attribute_encodings": {
+          "bool": 4,
+          "list(string)": 1,
+          "set(string)": 2,
+          "string": 7
+        },
+        "block_nesting_modes": {
+          "list": 5,
+          "set": 1
+        },
+        "counts": {
+          "computed_only_attributes": 1,
+          "computed_only_blocks": 0,
+          "input_attributes": 14,
+          "input_blocks": 6
+        },
+        "required_input_paths": [
+          "app_connector_groups[].id",
+          "extranet_dto[].location_dto[].id",
+          "extranet_dto[].location_group_dto[].id",
+          "name",
+          "servers[].id"
+        ],
+        "sensitive_input_paths": [],
+        "shape_sha256": "51002d301ca2402dff3eca7d9783687cf4f0ddea3c2681f29a49f100e3fe7bca"
+      }
+    },
+    {
+      "exceptions": [
+        "is_public_string_to_bool_read_normalization"
+      ],
+      "fetch": {
+        "optional_http_statuses": [],
+        "pagination": "zpa",
+        "path": "serviceEdgeGroup"
+      },
+      "generated_config": {
+        "qualification": "terraform_runtime_evidence_required"
+      },
+      "import": {
+        "alternate_lookup": "serviceedgegroup.GetByName(ctx, service, id)",
+        "engine_import_id_template": "{id}",
+        "grammar": "base10_numeric_id_or_name",
+        "mode": "numeric_or_alternate_lookup",
+        "numeric_exactness_requirement": "raw id must be accepted by Go strconv.ParseInt(id, 10, 64) (signed 64-bit, explicit base 10); otherwise the provider treats it as the alternate lookup key"
+      },
+      "read_identity": {
+        "schema_id_attribute": "importer_seeded",
+        "terraform_instance_id": "response_id"
+      },
+      "resource_type": "zpa_service_edge_group",
+      "source_evidence": {
+        "exceptions": {
+          "is_public_string_to_bool_read_normalization": {
+            "end_line": 342,
+            "function": "resourceServiceEdgeGroupRead",
+            "path": "zpa/resource_zpa_service_edge_group.go",
+            "sha256": "c5ef09128300c3059a2084dba7793f0ef55470095419599a577efb1442a78e34",
+            "start_line": 335,
+            "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_service_edge_group.go#L335-L342"
+          }
+        },
+        "importer": {
+          "end_line": 45,
+          "function": "resourceServiceEdgeGroup",
+          "path": "zpa/resource_zpa_service_edge_group.go",
+          "sha256": "c3aefb560903f950764a403e0af08166c714440d3389a285534848619b1dca83",
+          "start_line": 37,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_service_edge_group.go#L37-L45"
+        },
+        "read_identity": {
+          "end_line": 334,
+          "function": "resourceServiceEdgeGroupRead",
+          "path": "zpa/resource_zpa_service_edge_group.go",
+          "sha256": "e0b495693450eb6c251574eaecf8904715e7ec6051e340b082389e1b0ab66df0",
+          "start_line": 334,
+          "url": "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_service_edge_group.go#L334-L334"
+        }
+      },
+      "state_shape": {
+        "attribute_encodings": {
+          "bool": 6,
+          "set(string)": 3,
+          "string": 17
+        },
+        "block_nesting_modes": {
+          "list": 2
+        },
+        "counts": {
+          "computed_only_attributes": 1,
+          "computed_only_blocks": 0,
+          "input_attributes": 26,
+          "input_blocks": 2
+        },
+        "required_input_paths": [
+          "latitude",
+          "location",
+          "longitude",
+          "name"
+        ],
+        "sensitive_input_paths": [],
+        "shape_sha256": "eb70c93d17b2daf7c2f21c45b68bf0dac00eaf5703a7ff53f483f18600498c2c"
+      }
+    }
+  ],
+  "summary": {
+    "fetch_backed_resources": 16,
+    "generated_config_runtime_gates": 16,
+    "numeric_or_alternate_importers": 14,
+    "passthrough_importers": 2,
+    "resources_with_sensitive_inputs": 1,
+    "schema_id_not_source_populated": 3
+  }
+}
