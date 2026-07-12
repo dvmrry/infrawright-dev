@@ -16,11 +16,11 @@ import test from "node:test";
 import { ProcessFailure } from "../node-src/domain/errors.js";
 import {
   assessSavedPlans,
-  assessSavedPlansReport,
   MAX_SAVED_PLAN_ASSESSMENT_ROOTS,
   type SavedPlanAssessmentOptions,
   type SavedPlanAssessmentRootInput,
 } from "../node-src/domain/plan-assessment.js";
+import { assessSavedPlansReport } from "../node-src/domain/plan-assessment-report.js";
 import { planFingerprintV2 } from "../node-src/domain/plan-fingerprint.js";
 
 interface Fixture {

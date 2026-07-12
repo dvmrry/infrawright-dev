@@ -94,9 +94,11 @@ function renderScratchImports(identities: readonly ZiaUrlCategoryIdentity[]): st
   }).join("\n");
 }
 
-function childEnvironment(
+/** Build the exact allowlisted Terraform environment used by ZIA workflows. */
+export function ziaUrlCategoryTerraformEnvironment(
   source: NodeJS.ProcessEnv,
   scratch: string,
+  terraformDataDir: string | null = path.join(scratch, ".terraform-data"),
 ): Readonly<Record<string, string>> {
   const environment = Object.create(null) as Record<string, string>;
   for (const name of TERRAFORM_ENVIRONMENT_NAMES) {
@@ -108,10 +110,10 @@ function childEnvironment(
     HOME: path.join(scratch, "home"),
     LANG: "C",
     LC_ALL: "C",
-    TF_DATA_DIR: path.join(scratch, ".terraform-data"),
     TF_IN_AUTOMATION: "1",
     TMPDIR: path.join(scratch, "tmp"),
   });
+  if (terraformDataDir !== null) environment.TF_DATA_DIR = terraformDataDir;
   return Object.freeze(environment);
 }
 
@@ -329,7 +331,7 @@ export async function observeZiaUrlCategories(options: {
   const tempRoot = path.join(options.workspace, ".infrawright-oracle");
   await mkdir(tempRoot, { mode: 0o700, recursive: true });
   const scratch = await mkdtemp(path.join(tempRoot, "zia-url-categories-"));
-  const environment = childEnvironment(options.environment, scratch);
+  const environment = ziaUrlCategoryTerraformEnvironment(options.environment, scratch);
   const rootPath = path.join(scratch, "main.tf");
   const importsPath = path.join(scratch, "imports.tf");
   const generatedPath = path.join(scratch, "generated.tf");

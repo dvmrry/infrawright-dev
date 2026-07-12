@@ -35,7 +35,7 @@ import { expandCatalogResources, rootTopology } from "../domain/roots.js";
 import { changedPathScope } from "../domain/scope-paths.js";
 import { planRoots } from "../domain/plan-roots.js";
 import { resolveSavedPlanAssessment } from "../domain/plan-assessment-inputs.js";
-import { assessSavedPlansReport } from "../domain/plan-assessment.js";
+import { assessSavedPlansReport } from "../domain/plan-assessment-report.js";
 import { requireSupportedAssessmentCatalog } from "../domain/zscaler-assessment.js";
 import {
   compareZccPullArtifactsOperation,

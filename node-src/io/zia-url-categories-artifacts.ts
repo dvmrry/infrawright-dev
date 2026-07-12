@@ -1,4 +1,4 @@
-import { lstat, mkdir, realpath, writeFile } from "node:fs/promises";
+import { lstat, mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -10,6 +10,7 @@ import {
 import { ProcessFailure } from "../domain/errors.js";
 import { collectZiaUrlCategories } from "./zia-url-categories-fetch.js";
 import { observeZiaUrlCategories } from "./zia-url-categories-oracle.js";
+import { writeZiaUrlCategoryPrivateFile } from "./zia-url-categories-workspace.js";
 
 const TENANT = /^(?!\.{1,2}$)[A-Za-z0-9_.-]+$/;
 
@@ -107,10 +108,10 @@ async function persist(
       mkdir(path.dirname(paths.imports), { mode: 0o700, recursive: true }),
     ]);
     await Promise.all([
-      writeFile(paths.pull, contents.pull, { encoding: "utf8", mode: 0o600 }),
-      writeFile(paths.tfvars, contents.tfvars, { encoding: "utf8", mode: 0o600 }),
-      writeFile(paths.imports, contents.imports, { encoding: "utf8", mode: 0o600 }),
-      writeFile(paths.lookup, contents.lookup, { encoding: "utf8", mode: 0o600 }),
+      writeZiaUrlCategoryPrivateFile(paths.pull, contents.pull),
+      writeZiaUrlCategoryPrivateFile(paths.tfvars, contents.tfvars),
+      writeZiaUrlCategoryPrivateFile(paths.imports, contents.imports),
+      writeZiaUrlCategoryPrivateFile(paths.lookup, contents.lookup),
     ]);
   } catch {
     return fail(

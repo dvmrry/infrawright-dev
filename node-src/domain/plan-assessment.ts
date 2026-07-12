@@ -36,13 +36,6 @@ import {
 } from "./plan-policy.js";
 import type { PlanFingerprintV2 } from "./plan-fingerprint.js";
 import {
-  buildSavedPlanAssessmentErrorReport,
-  buildSavedPlanAssessmentReport,
-  type AssessmentMode,
-  type AssessmentReportRequest,
-  type SavedPlanAssessmentReport,
-} from "./plan-report.js";
-import {
   DEFAULT_BOUNDED_READ_LIMITS,
   ReadBudget,
   type BoundedReadLimits,
@@ -80,6 +73,12 @@ export interface SavedPlanAssessmentOptions {
   readonly maxRetainedSnapshotBytes?: bigint;
   readonly resultLimits?: SavedPlanAssessmentResultLimits;
 }
+
+/** Internal synchronous admission hook executed inside the evidence window. */
+export type SavedPlanAssessmentPlanGuard = (input: {
+  readonly plan: unknown;
+  readonly root: SavedPlanAssessmentRootInput;
+}) => unknown;
 
 export interface SavedPlanAssessmentResultLimits {
   readonly maxFindings: number;
@@ -463,11 +462,13 @@ function showLimits(
 /**
  * Assess all selected roots as one evidence transaction. Raw plan values stay
  * local to this function; the returned core contains only report-safe metadata
- * and normalized classifier findings.
+ * and normalized classifier findings. The optional internal plan guard runs
+ * synchronously inside that same evidence window.
  */
-async function runSavedPlanAssessment<T>(
+export async function runSavedPlanAssessment<T>(
   options: SavedPlanAssessmentOptions,
   finalize: (core: SavedPlanAssessmentCore) => T,
+  planGuard?: SavedPlanAssessmentPlanGuard,
 ): Promise<T> {
   const assessed: AssessedSavedPlanRoot[] = [];
   let stalePolicy: readonly StalePolicyEntry[] = [];
@@ -618,6 +619,17 @@ async function runSavedPlanAssessment<T>(
         fingerprintBudget: new ReadBudget(sourceLimits),
         savedPlanBudget: new ReadBudget(savedPlanLimits),
       });
+      const guardResult = planGuard?.({ plan, root });
+      if (
+        typeof guardResult === "object"
+        && guardResult !== null
+        && "then" in guardResult
+      ) {
+        fail(
+          "INVALID_ASSESSMENT_PLAN_GUARD",
+          "saved-plan assessment guard must be synchronous",
+        );
+      }
       const classification = classifyPlan(plan, boundPolicy.policy);
       remainingTime(deadline);
       if (!isJsonRecord(plan)) {
@@ -778,55 +790,4 @@ export async function assessSavedPlans(
   options: SavedPlanAssessmentOptions,
 ): Promise<SavedPlanAssessmentCore> {
   return runSavedPlanAssessment(options, (core) => core);
-}
-
-export interface SavedPlanAssessmentReportOutcome {
-  readonly report: SavedPlanAssessmentReport;
-  readonly failure: SavedPlanAssessmentFailure | null;
-}
-
-/** Build the versioned report synchronously inside the final evidence window. */
-export async function assessSavedPlansReport(options: {
-  readonly assessment: SavedPlanAssessmentOptions;
-  readonly mode: AssessmentMode;
-  readonly request: AssessmentReportRequest;
-}): Promise<SavedPlanAssessmentReportOutcome> {
-  const mode = options.mode;
-  const request = {
-    tenant: options.request.tenant,
-    selectors: [...options.request.selectors],
-    policy: options.request.policy,
-  };
-  if (
-    (mode === "assert-clean"
-      && (request.policy !== null || options.assessment.policyPath !== null))
-    || (mode === "assert-adoptable"
-      && (request.policy === null) !== (options.assessment.policyPath === null))
-  ) {
-    fail("INVALID_ASSESSMENT_REQUEST", "assessment mode and policy input disagree");
-  }
-  try {
-    const report = await runSavedPlanAssessment(
-      options.assessment,
-      (core) => buildSavedPlanAssessmentReport({
-        mode,
-        request,
-        core,
-      }),
-    );
-    return { report, failure: null };
-  } catch (error: unknown) {
-    if (!(error instanceof SavedPlanAssessmentFailure)) {
-      throw error;
-    }
-    return {
-      report: buildSavedPlanAssessmentErrorReport({
-        mode,
-        request,
-        partial: error.partial,
-        error: { kind: error.reportKind, message: error.message },
-      }),
-      failure: error,
-    };
-  }
 }

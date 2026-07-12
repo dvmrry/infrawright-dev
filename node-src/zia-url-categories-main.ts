@@ -1,5 +1,5 @@
 import { ProcessFailure } from "./domain/errors.js";
-import { runZiaUrlCategoryArtifactWorkflow } from "./io/zia-url-categories-artifacts.js";
+import { runZiaUrlCategoryPlanWorkflow } from "./io/zia-url-categories-plan.js";
 
 interface Arguments {
   readonly tenant: string;
@@ -41,23 +41,36 @@ function parseArguments(argv: readonly string[]): Arguments {
 async function main(): Promise<void> {
   try {
     const input = parseArguments(process.argv.slice(2));
-    const result = await runZiaUrlCategoryArtifactWorkflow({
+    const result = await runZiaUrlCategoryPlanWorkflow({
       environment: process.env,
       tenant: input.tenant,
       terraformExecutable: input.terraformExecutable,
       workspace: input.workspace,
     });
     for (const path of [
-      result.paths.pull,
-      result.paths.tfvars,
-      result.paths.imports,
-      result.paths.lookup,
+      result.artifacts.paths.pull,
+      result.artifacts.paths.tfvars,
+      result.artifacts.paths.imports,
+      result.artifacts.paths.lookup,
+      result.module.moduleMain,
+      result.module.moduleVariables,
+      result.module.moduleOutputs,
+      result.module.moduleVersions,
+      result.module.envMain,
+      ...(result.staged.imports === 0 ? [] : [result.paths.stagedImports]),
+      result.paths.plan,
+      result.paths.fingerprint,
+      result.paths.assessment,
     ]) {
       process.stderr.write(`wrote ${path}\n`);
     }
-    process.stderr.write(`adopted ${result.itemCount} ZIA URL categor${
-      result.itemCount === 1 ? "y" : "ies"
+    process.stderr.write(`adopted ${result.artifacts.itemCount} ZIA URL categor${
+      result.artifacts.itemCount === 1 ? "y" : "ies"
     }\n`);
+    process.stderr.write(
+      `staged ${result.staged.imports} import(s); ${result.staged.alreadyManaged} already managed\n`,
+    );
+    process.stderr.write(`assessed saved plan: ${result.assessment.status}\n`);
   } catch (error: unknown) {
     const failure = error instanceof ProcessFailure
       ? error

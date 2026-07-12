@@ -729,7 +729,11 @@ test("ZIA runtime bundle excludes the public process protocol and Python runtime
     assert.equal(inputs.some((input) => input.endsWith(forbidden)), false, forbidden);
   }
   const text = build.outputFiles?.[0]?.text ?? "";
-  for (const forbidden of ["python3", "python -m", "engine.adopt", "engine.import_oracle"]) {
+  // The narrow module/root renderer intentionally preserves the migration
+  // authority's generated-file comments byte-for-byte, including its inert
+  // `python -m engine.gen_module` regeneration comment. Runtime Python entry
+  // points and executable names must still be absent.
+  for (const forbidden of ["python3", "engine.adopt", "engine.import_oracle"]) {
     assert.equal(text.includes(forbidden), false, forbidden);
   }
 });
