@@ -494,13 +494,17 @@ scratch/staging names, or output-root field. The embedded parity retains its
 logical source and artifact coordinates; an absolute overlay therefore remains
 absolute because it was already part of the protected comparison contract.
 
-Success and exact reuse exit `0`. Malformed, non-ready, or cross-bound requests
-and a fresh assertion mismatch exit `2`. Missing/invalid host authority,
-provider subprocess/timeout/cleanup failure, publisher contention, filesystem
-races, target mismatch, and indeterminate publication exit `1`; only
-`OUTPUT_ROOT_BUSY` and post-link indeterminate failures are marked retryable by
-this contract. This operation never exits `3`: review-required evidence belongs
-to the comparison operation and is invalid publication input.
+Success and exact reuse exit `0`. Request/domain failures exit `2`; these
+include malformed, non-ready, or cross-bound requests, a fresh assertion
+mismatch, a target outside the configured output root, unsupported residue, and
+an invalid existing artifact prefix. Host/provider/filesystem failures exit
+`1`; these include missing oracle/output configuration, an ancestor rather than
+the exact artifact authority, provider subprocess/timeout/cleanup failure,
+publisher contention, filesystem races, target-byte mismatch, and indeterminate
+publication. Only `OUTPUT_ROOT_BUSY` and post-link indeterminate failures are
+marked retryable by this contract. This operation never exits `3`:
+review-required evidence belongs to the comparison operation and is invalid
+publication input.
 
 This receipt proves fresh provider-observed byte equality with the protected
 external reference plus durable publication only. It does not run or claim
