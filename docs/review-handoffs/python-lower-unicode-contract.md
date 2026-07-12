@@ -188,8 +188,8 @@
   - `git diff --check`.
 - Relevant output summary:
   - Full Node: 618 tests, 617 passed, 1 expected platform skip, 0 failed.
-  - Full Python: 1,374 passed, 1 external pinned-provider-source skip, 0
-    failed.
+  - Full Python: 1,374 tests total; 1,373 passed, 1 external
+    pinned-provider-source skip, 0 failed.
   - Python 3.12 and 3.13 exhaustive runs matched the independently computed
     Node digest across every Unicode scalar and five contexts. Both real Node
     24.15.0/Unicode 16.0 and Node 24.18.0/Unicode 17.0 produce that same digest.
