@@ -221,7 +221,6 @@ test("transform requires lossless raw numbers and canonicalizes finite floats", 
   assert.throws(() => run(1.5), /must be LosslessNumber/);
   assert.throws(() => run(-0), /must be LosslessNumber/);
   assert.throws(() => run(Number.MAX_SAFE_INTEGER + 1), /must be LosslessNumber/);
-  assert.throws(() => run("١٢"), /Unicode decimal strings/);
   assert.throws(
     () => run(new LosslessNumber("1e400")),
     /finite losslessly parsed JSON numbers/,

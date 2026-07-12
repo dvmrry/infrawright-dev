@@ -125,7 +125,7 @@
 
 ## Tests Run
 
-- `npm run check`: 584 total, 583 passed, 1 platform skip, 0 failed.
+- `npm run check`: 585 total, 584 passed, 1 platform skip, 0 failed.
 - `make test`: 1,365 passed, 0 failed.
 - `npm run build`.
 - `python3 -m unittest tests.test_transform_catalog`: 19 passed.
@@ -133,9 +133,42 @@
 - `python3 -m engine.audit_vendor_boundary`: 0 violations.
 - Focused real-Python transform differential for representative ZIA float,
   ZIA set/map, and ZPA set shapes: exact rendered bytes match.
+- Focused real-Python transform differential for Python numeric strings:
+  Unicode Nd integers/floats/exponents, valid and malformed underscore forms,
+  Python-only whitespace, U+FEFF, and nonnumeric text match exact bytes.
 - Focused 2,048-value deterministic finite-binary64 Python rendering
   differential: exact compact numeric tokens match.
+- One first full Node run hit the unrelated timing-sensitive
+  `terraform-command` descendant-pid fixture while the machine was loaded; its
+  isolated 18-test file and the complete 585-test rerun both passed.
 - `git diff --check`.
+
+## Review Remediation
+
+- Blocking finding: malformed underscore placement was accepted because the
+  first checkpoint removed every underscore before validating the numeric
+  grammar. Remediation: integer and float coercion now validate Python's
+  digit-part grammar first and remove only underscores already proven to sit
+  between decimal digits. A real-Python transform differential covers doubled,
+  leading, trailing, exponent-adjacent, and decimal-point-adjacent underscores
+  in both ASCII and mixed Unicode-digit forms.
+- Blocking finding: the first checkpoint rejected all Unicode
+  `Decimal_Number` strings even though Python `int`/`float` accept Nd digits.
+  Remediation: Unicode 15.1 Nd blocks are normalized through a reviewed table
+  matching the Python 3.13 authoring oracle. The same real-Python transform
+  differential covers Arabic-Indic, fullwidth, Devanagari, mixed-script,
+  integer, fraction, exponent, and valid underscore forms.
+- Follow-up edge finding: JavaScript `trim()` accepts U+FEFF where Python's
+  numeric parsers do not. Remediation: numeric coercion uses Python's accepted
+  leading/trailing whitespace set rather than JavaScript trimming; U+FEFF
+  prefix and suffix cases are retained as strings in the differential.
+- Follow-up edge finding: ordinary nonnumeric text containing digits must pass
+  through, not be classified merely because it contains Unicode or decimal
+  characters. Remediation: the broad character-property guard was removed;
+  `café 1` is retained unchanged in the direct Python differential.
+- Nonblocking map integer-key iteration risk is renderer-neutral for the
+  current JSON artifact path and remains explicitly deferred rather than
+  expanding this numeric-coercion checkpoint.
 
 ## Known Deferrals
 
@@ -151,6 +184,13 @@
   reproduced because the raw input contract is finite JSON.
 - No live provider or tenant evidence is claimed; structural test cases use
   committed schemas and sanitized inline values only.
+- The Unicode Nd table intentionally follows Python 3.13 / Unicode 15.1. A
+  future authoring-runtime Unicode upgrade requires a reviewed table update and
+  differential refresh rather than silently following the Node runtime.
+- JavaScript's integer-like object-key enumeration differs from Python dict
+  insertion order. The current artifact renderer sorts object keys, so this is
+  byte-neutral here; any future unsorted consumer must settle that contract
+  before using the kernel result directly.
 
 ## Review Focus
 

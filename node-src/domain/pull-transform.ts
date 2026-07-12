@@ -25,6 +25,20 @@ import { requireSupportedZccTransformCatalog } from "./transform-catalog.js";
 
 type TransformRecord = Record<string, unknown>;
 
+// Unicode 15.1 Decimal_Number zero code points, matching the Python 3.13
+// authoring oracle. Every Nd block is one contiguous run of ten values.
+const PYTHON_DECIMAL_ZEROS = [
+  0x30, 0x660, 0x6f0, 0x7c0, 0x966, 0x9e6, 0xa66, 0xae6,
+  0xb66, 0xbe6, 0xc66, 0xce6, 0xd66, 0xde6, 0xe50, 0xed0,
+  0xf20, 0x1040, 0x1090, 0x17e0, 0x1810, 0x1946, 0x19d0, 0x1a80,
+  0x1a90, 0x1b50, 0x1bb0, 0x1c40, 0x1c50, 0xa620, 0xa8d0, 0xa900,
+  0xa9d0, 0xa9f0, 0xaa50, 0xabf0, 0xff10, 0x104a0, 0x10d30, 0x11066,
+  0x110f0, 0x11136, 0x111d0, 0x112f0, 0x11450, 0x114d0, 0x11650, 0x116c0,
+  0x11730, 0x118e0, 0x11950, 0x11c50, 0x11d50, 0x11da0, 0x11f50, 0x16a60,
+  0x16ac0, 0x16b50, 0x1d7ce, 0x1d7d8, 0x1d7e2, 0x1d7ec, 0x1d7f6,
+  0x1e140, 0x1e2f0, 0x1e4f0, 0x1e950, 0x1fbf0,
+] as const;
+
 export interface PullTransformResult {
   readonly items: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
   readonly originals: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
@@ -238,8 +252,71 @@ function coerceBoolean(value: unknown): unknown {
   return value;
 }
 
+function pythonDecimalDigit(codePoint: number): number | null {
+  let low = 0;
+  let high = PYTHON_DECIMAL_ZEROS.length - 1;
+  let zero = -1;
+  while (low <= high) {
+    const middle = (low + high) >>> 1;
+    const candidate = PYTHON_DECIMAL_ZEROS[middle] ?? 0;
+    if (candidate <= codePoint) {
+      zero = candidate;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  const value = codePoint - zero;
+  return zero >= 0 && value >= 0 && value <= 9 ? value : null;
+}
+
+function normalizePythonDecimalDigits(value: string): string {
+  let output = "";
+  for (const character of value) {
+    const digit = pythonDecimalDigit(character.codePointAt(0) ?? -1);
+    output += digit === null ? character : String(digit);
+  }
+  return output;
+}
+
+function isPythonNumericWhitespace(codePoint: number): boolean {
+  return (codePoint >= 0x09 && codePoint <= 0x0d)
+    || codePoint === 0x20
+    || codePoint === 0x85
+    || codePoint === 0xa0
+    || codePoint === 0x1680
+    || (codePoint >= 0x2000 && codePoint <= 0x200a)
+    || codePoint === 0x2028
+    || codePoint === 0x2029
+    || codePoint === 0x202f
+    || codePoint === 0x205f
+    || codePoint === 0x3000;
+}
+
+function trimPythonNumericWhitespace(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end) {
+    const codePoint = value.codePointAt(start) ?? -1;
+    if (!isPythonNumericWhitespace(codePoint)) {
+      break;
+    }
+    start += codePoint > 0xffff ? 2 : 1;
+  }
+  while (end > start) {
+    const last = value.charCodeAt(end - 1);
+    const width = last >= 0xdc00 && last <= 0xdfff ? 2 : 1;
+    const codePoint = value.codePointAt(end - width) ?? -1;
+    if (!isPythonNumericWhitespace(codePoint)) {
+      break;
+    }
+    end -= width;
+  }
+  return value.slice(start, end);
+}
+
 function parsePythonInteger(value: string): number | LosslessNumber | null {
-  const stripped = value.trim();
+  const stripped = normalizePythonDecimalDigits(trimPythonNumericWhitespace(value));
   if (!/^[+-]?[0-9](?:_?[0-9])*$/.test(stripped)) {
     return null;
   }
@@ -253,12 +330,12 @@ function parsePythonInteger(value: string): number | LosslessNumber | null {
   return new LosslessNumber(integer.toString(10));
 }
 
-function isPythonFloatString(value: string): boolean {
-  const stripped = value.trim().replaceAll("_", "");
-  if (!/^[+-]?(?:(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?|inf(?:inity)?|nan)$/i.test(stripped)) {
-    return false;
+function normalizedPythonFloatString(value: string): string | null {
+  const stripped = normalizePythonDecimalDigits(trimPythonNumericWhitespace(value));
+  if (!/^[+-]?(?:(?:[0-9](?:_?[0-9])*(?:\.(?:[0-9](?:_?[0-9])*)?)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?|inf(?:inity)?|nan)$/i.test(stripped)) {
+    return null;
   }
-  return true;
+  return stripped.replaceAll("_", "");
 }
 
 function coercePrimitive(
@@ -286,14 +363,10 @@ function coercePrimitive(
     if (integer !== null) {
       return integer;
     }
-    if (/[^\x00-\x7f]/u.test(value) && /\p{Decimal_Number}/u.test(value)) {
-      throw new TypeError(
-        "transform numeric coercion does not yet support Unicode decimal strings",
-      );
-    }
-    if (isPythonFloatString(value)) {
+    const floatText = normalizedPythonFloatString(value);
+    if (floatText !== null) {
       const token = pythonFiniteFloatToken(
-        Number(value.trim().replaceAll("_", "")),
+        Number(floatText),
       );
       if (token === null) {
         throw new TypeError(

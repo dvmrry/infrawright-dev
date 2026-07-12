@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
+import { LosslessNumber } from "lossless-json";
+
 import { parseDataJsonLosslessly } from "../node-src/json/control.js";
 import { renderPythonLosslessArtifactJson } from "../node-src/json/python-lossless-artifact.js";
 import {
+  transformPullItems,
   transformPullItemsKernel,
 } from "../node-src/domain/pull-transform.js";
 import {
@@ -156,6 +159,75 @@ test("product-neutral float, set(string), and map(string) shapes match Python", 
     zeta: "true",
     é: "literal",
   });
+});
+
+test("numeric string coercion matches Python for Unicode digits and underscore grammar", () => {
+  const source = JSON.stringify([{
+    raw_items: [
+      { id: "arabic_integer", autoPurgeDays: "١٢" },
+      { id: "fullwidth_integer", autoPurgeDays: "１２" },
+      { id: "devanagari_integer", autoPurgeDays: "१२" },
+      { id: "mixed_valid_underscore", autoPurgeDays: "١_२" },
+      { id: "arabic_float", autoPurgeDays: "١٢.٥" },
+      { id: "fullwidth_exponent", autoPurgeDays: "１.５e２" },
+      { id: "devanagari_exponent", autoPurgeDays: "१e-२" },
+      { id: "mixed_float", autoPurgeDays: "١२.３e٤" },
+      { id: "python_whitespace", autoPurgeDays: "\u3000١٢\u3000" },
+      { id: "double_underscore", autoPurgeDays: "1__2" },
+      { id: "exponent_underscore", autoPurgeDays: "1e_2" },
+      { id: "before_decimal_underscore", autoPurgeDays: "1_.2" },
+      { id: "after_decimal_underscore", autoPurgeDays: "1._2" },
+      { id: "leading_underscore", autoPurgeDays: "_12" },
+      { id: "trailing_underscore", autoPurgeDays: "12_" },
+      { id: "unicode_double_underscore", autoPurgeDays: "١__٢" },
+      { id: "unicode_exponent_underscore", autoPurgeDays: "١e_२" },
+      { id: "unicode_before_decimal_underscore", autoPurgeDays: "١_.२" },
+      { id: "unicode_after_decimal_underscore", autoPurgeDays: "١._२" },
+      { id: "byte_order_mark_prefix", autoPurgeDays: "\ufeff12" },
+      { id: "byte_order_mark_suffix", autoPurgeDays: "12\ufeff" },
+      { id: "ordinary_nonnumeric", autoPurgeDays: "café 1" },
+    ],
+    resource_type: "zcc_device_cleanup",
+  }]);
+  const fixtures = parseDataJsonLosslessly(source) as readonly {
+    readonly raw_items: readonly unknown[];
+    readonly resource_type: string;
+  }[];
+  const fixture = fixtures[0];
+  assert.notEqual(fixture, undefined);
+  const actual = transformPullItems({
+    catalog: loadZccTransformCatalog(),
+    rawItems: fixture?.raw_items ?? [],
+    resourceType: fixture?.resource_type ?? "",
+  });
+
+  const python = spawnSync("python3", ["-c", PYTHON_ORACLE], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    input: source,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  assert.equal(python.status, 0, python.stderr);
+  assert.equal(python.stderr, "");
+  assert.equal(renderPythonLosslessArtifactJson([actual]), python.stdout);
+
+  assert.equal(actual.items.arabic_integer?.auto_purge_days, 12);
+  assert.equal(
+    (actual.items.fullwidth_exponent?.auto_purge_days as LosslessNumber).toString(),
+    "150.0",
+  );
+  assert.equal(
+    (actual.items.devanagari_exponent?.auto_purge_days as LosslessNumber).toString(),
+    "0.01",
+  );
+  for (const [key, value] of [
+    ["double_underscore", "1__2"],
+    ["unicode_exponent_underscore", "١e_२"],
+    ["byte_order_mark_prefix", "\ufeff12"],
+    ["ordinary_nonnumeric", "café 1"],
+  ] as const) {
+    assert.equal(actual.items[key]?.auto_purge_days, value);
+  }
 });
 
 test("set(string) sorting is stable and preserves duplicates like Python", () => {
