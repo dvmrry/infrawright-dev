@@ -4,9 +4,14 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import tempfile
 import unittest
+from unittest import mock
 
+from engine import packs
+from engine import registry
+from engine import tfschema
 from engine import transform_catalog
 from tools import zpa_transform_cohort_catalog as cohort_catalog
 
@@ -18,9 +23,31 @@ CATALOG_PATH = os.path.join(
 
 
 class ZpaTransformCohortCatalogTest(unittest.TestCase):
-    def test_committed_catalog_is_fresh(self):
+    def _committed_text(self):
         with open(CATALOG_PATH, encoding="utf-8") as f:
-            committed = f.read()
+            return f.read()
+
+    def _copy_zpa_pack_root(self, destination):
+        shutil.copytree(
+            os.path.join(ROOT, "packs", "zpa"),
+            os.path.join(destination, "zpa"),
+        )
+
+    def _rewrite_json(self, path, mutate):
+        with open(path, encoding="utf-8") as f:
+            value = json.load(f)
+        mutate(value)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(value, f, indent=2, sort_keys=True)
+            f.write("\n")
+
+    def _reset_loader_state(self):
+        packs.reset()
+        registry.reload_registry()
+        tfschema._cache.clear()
+
+    def test_committed_catalog_is_fresh(self):
+        committed = self._committed_text()
         self.assertEqual(committed, cohort_catalog.render_catalog())
         self.assertEqual(
             hashlib.sha256(committed.encode("utf-8")).hexdigest(),
@@ -122,6 +149,172 @@ class ZpaTransformCohortCatalogTest(unittest.TestCase):
             with contextlib.redirect_stderr(stderr):
                 self.assertEqual(cohort_catalog.main(["--check", f.name]), 1)
             self.assertIn("catalog is stale", stderr.getvalue())
+
+    def test_repository_authority_ignores_alternate_selected_override(self):
+        with tempfile.TemporaryDirectory() as alternate:
+            self._copy_zpa_pack_root(alternate)
+            override = os.path.join(
+                alternate,
+                "zpa",
+                "overrides",
+                "zpa_pra_console_controller.json",
+            )
+            with open(override, "w", encoding="utf-8") as f:
+                json.dump({"key_field": "id"}, f)
+                f.write("\n")
+            try:
+                with mock.patch.dict(
+                        os.environ, {"INFRAWRIGHT_PACKS": alternate}):
+                    self._reset_loader_state()
+                    poisoned = transform_catalog.transform_resource_cohort(
+                        "zpa", list(cohort_catalog.COHORT_RESOURCES)
+                    )
+                    self.assertEqual(
+                        poisoned["resources"][0]["key_fields"], ["id"]
+                    )
+                    self.assertEqual(
+                        cohort_catalog.render_catalog(),
+                        self._committed_text(),
+                    )
+            finally:
+                self._reset_loader_state()
+
+    def test_repository_authority_ignores_alternate_schema_registry_and_pin(
+            self):
+        with tempfile.TemporaryDirectory() as alternate:
+            self._copy_zpa_pack_root(alternate)
+            pack_dir = os.path.join(alternate, "zpa")
+            self._rewrite_json(
+                os.path.join(pack_dir, "pack.json"),
+                lambda value: value.update({"pin": "99.99.99"}),
+            )
+
+            def mutate_registry(value):
+                value["zpa_pra_console_controller"]["fetch"]["path"] = (
+                    "poisonedConsole"
+                )
+
+            self._rewrite_json(
+                os.path.join(pack_dir, "registry.json"), mutate_registry
+            )
+
+            def mutate_schema(value):
+                value["resource_schemas"][
+                    "zpa_pra_console_controller"
+                ]["block"]["attributes"]["name"]["type"] = "bool"
+
+            self._rewrite_json(
+                os.path.join(pack_dir, "schemas", "provider", "zpa.json"),
+                mutate_schema,
+            )
+            try:
+                with mock.patch.dict(
+                        os.environ, {"INFRAWRIGHT_PACKS": alternate}):
+                    self._reset_loader_state()
+                    poisoned = transform_catalog.transform_resource_cohort(
+                        "zpa", list(cohort_catalog.COHORT_RESOURCES)
+                    )
+                    self.assertEqual(
+                        poisoned["resources"][0]["projection"][
+                            "attributes"
+                        ]["name"],
+                        "bool",
+                    )
+                    self.assertEqual(packs.provider_pins()["zpa"], "99.99.99")
+                    self.assertEqual(
+                        cohort_catalog.render_catalog(),
+                        self._committed_text(),
+                    )
+            finally:
+                self._reset_loader_state()
+
+    def test_fresh_compiler_ignores_poisoned_parent_caches(self):
+        with tempfile.TemporaryDirectory() as alternate:
+            self._copy_zpa_pack_root(alternate)
+            pack_dir = os.path.join(alternate, "zpa")
+
+            def mutate_registry(value):
+                value["zpa_pra_console_controller"]["fetch"]["path"] = (
+                    "cachedPoison"
+                )
+
+            self._rewrite_json(
+                os.path.join(pack_dir, "registry.json"), mutate_registry
+            )
+
+            def mutate_schema(value):
+                value["resource_schemas"][
+                    "zpa_pra_console_controller"
+                ]["block"]["attributes"]["name"]["type"] = "bool"
+
+            self._rewrite_json(
+                os.path.join(pack_dir, "schemas", "provider", "zpa.json"),
+                mutate_schema,
+            )
+            try:
+                with mock.patch.dict(
+                        os.environ, {"INFRAWRIGHT_PACKS": alternate}):
+                    packs.reset()
+                    registry.reload_registry()
+                    tfschema._cache.clear()
+                    self.assertEqual(
+                        registry.load_registry()[
+                            "zpa_pra_console_controller"
+                        ]["fetch"]["path"],
+                        "cachedPoison",
+                    )
+                    self.assertEqual(
+                        tfschema.load_resource(
+                            "zpa_pra_console_controller"
+                        )["block"]["attributes"]["name"]["type"],
+                        "bool",
+                    )
+                # The alternate environment is gone, but the parent process
+                # still carries both poisoned caches at this point.
+                self.assertEqual(
+                    cohort_catalog.render_catalog(),
+                    self._committed_text(),
+                )
+            finally:
+                self._reset_loader_state()
+
+    def test_unknown_fetch_metadata_fails_instead_of_being_dropped(self):
+        original_read = cohort_catalog._read_json
+        poisoned = original_read("packs/zpa/registry.json")
+        poisoned["zpa_pra_console_controller"]["fetch"]["query"] = {
+            "future": "surface"
+        }
+
+        def read_json(relative_path):
+            if relative_path == "packs/zpa/registry.json":
+                return poisoned
+            return original_read(relative_path)
+
+        with mock.patch.object(
+                cohort_catalog, "_read_json", side_effect=read_json):
+            with self.assertRaisesRegex(
+                    ValueError, "fetch metadata has unsupported key query"):
+                cohort_catalog.build_catalog()
+
+    def test_duplicate_provider_evidence_rows_fail_closed(self):
+        original_read = cohort_catalog._read_json
+        poisoned = original_read("docs/evidence/zpa-provider-v4.4.6.json")
+        selected = next(
+            row for row in poisoned["resources"]
+            if row["resource_type"] == "zpa_pra_console_controller"
+        )
+        poisoned["resources"].append(dict(selected))
+
+        def read_json(relative_path):
+            if relative_path == "docs/evidence/zpa-provider-v4.4.6.json":
+                return poisoned
+            return original_read(relative_path)
+
+        with mock.patch.object(
+                cohort_catalog, "_read_json", side_effect=read_json):
+            with self.assertRaisesRegex(
+                    ValueError, "provider evidence duplicates"):
+                cohort_catalog.build_catalog()
 
 
 if __name__ == "__main__":

@@ -13,13 +13,14 @@
 
 ## Base / Head
 
-- Base: `c1ad94b8657bf1371f5d84d948e80c55382c80a4`, the exact reviewed
-  ZIA head at PR #180 when the two ZPA commits were replayed with `--onto`.
+- Base: `fc962f81dd637e40d869e320359a16beb8999e9c`, merged PR #180. Only
+  the three ZPA commits were replayed onto this base with `--onto`; both
+  narrowed ZIA pack-test requirement fixes remain inherited from the base.
 - Head: the clean `ready for adversarial review` checkpoint on
   `feature/node-zpa-transform-cohort`; resolve its exact immutable hash with
   `git rev-parse HEAD` when starting the review.
 - Diff command:
-  `git diff c1ad94b8657bf1371f5d84d948e80c55382c80a4...HEAD`.
+  `git diff fc962f81dd637e40d869e320359a16beb8999e9c...HEAD`.
 
 ## Files Changed
 
@@ -70,8 +71,9 @@
     the independent live runtime oracles for the complete result envelope and
     exact tfvars bytes.
   - Public `engine.transform_catalog.transform_resource_cohort` constructs the
-    core resource/projection contracts; the ZPA tool only decorates those
-    resources with product-specific evidence after enforcing its pins.
+    core resource/projection contracts in a fresh authoring subprocess forced
+    to this repository's `packs/`; the ZPA tool only decorates those resources
+    with product-specific evidence after enforcing its fixed-root pins.
   - `catalogs/zcc-transform-catalog.v1.json` supplies the reviewed Python
     `html.unescape` compatibility table and is included in the cohort source
     digest.
@@ -107,7 +109,7 @@
     `zpa_pra_console_controller` and `zpa_pra_portal_controller` through the
     existing pure kernel.
 - Expected report/count/coverage changes:
-  - Seven new Node tests and six Python catalog tests.
+  - Seven new Node tests and eleven Python catalog tests.
   - No provider-readiness or generated-config qualification count changes.
 - Expected generated-output changes:
   - Only the new private catalog. It continues to record
@@ -128,10 +130,17 @@
 - Source precedence/provenance must remain explicit:
   - Catalog bytes bind the exact pack, registry, provider schema, provider
     evidence, and Python-compatibility catalog bytes with one source digest.
+  - Compilation, fixed reads, source hashing, pin/fetch checks, and override
+    absence all use this checkout as one authority. The generic compiler runs
+    in a fresh subprocess with `INFRAWRIGHT_PACKS` forced to `ROOT/packs`, so
+    neither an ambient alternate root nor parent registry/schema caches can
+    contribute semantics attributed to repository bytes.
   - Removing `provider_evidence` from each decorated ZPA resource must produce
     exact equality with public `transform_resource_cohort` output.
   - A newly added resource override makes generation fail rather than silently
     changing transform semantics.
+  - Unknown selected-resource fetch keys and duplicate provider-evidence rows
+    fail instead of being projected away or overwritten.
   - JSON object insertion order is not semantic for projection attribute/block
     maps: reordered semantic copies are accepted and replaced with the embedded
     canonical snapshot. Ordered arrays such as `source_files`, resource order,
@@ -147,6 +156,35 @@
   - Raw JSON numbers must be losslessly parsed; native JavaScript numbers and
     non-finite numeric values fail before projection.
   - The internal wrapper is not reachable from the public process host.
+
+## Accepted Review Finding Mapping
+
+- Blocking authority split:
+  - Root cause: the ZPA tool read and hashed fixed `ROOT` files but called the
+    generic compiler in-process. That compiler follows `INFRAWRIGHT_PACKS`,
+    while registry and provider-schema loaders can retain an earlier root in
+    process-global caches. The outer catalog could therefore attribute
+    alternate semantics to repository provenance.
+  - Fix: invoke the generic compiler in a fresh Python subprocess whose cwd,
+    `PYTHONPATH`, and `INFRAWRIGHT_PACKS` are all forced to this checkout;
+    retain every outer read, digest, pin/fetch check, and absence check at the
+    same fixed `ROOT`.
+  - Regressions: an alternate selected override; an alternate mutated schema,
+    registry, and pin; and deliberately primed alternate registry/schema
+    caches followed by parent-environment restoration must all produce the
+    exact repository catalog bytes.
+  - Verification: focused malicious-authority tests plus exact catalog check,
+    reduced pack profiles, full Python, and unchanged catalog SHA-256.
+- Strictness nits:
+  - Root causes: selected fetch metadata was reconstructed from three known
+    fields, and evidence rows were indexed with a dict comprehension; unknown
+    fetch keys could be dropped and duplicate evidence rows could overwrite.
+  - Fixes/regressions: explicit allowed-key rejection and duplicate-row
+    rejection, each exercised through the complete catalog build.
+- Claim precision:
+  - The production bundle assertion covers the private cohort catalog/schema,
+    wrapper, and evidence-specific markers only. It does not claim that normal
+    ZPA resource names used by public topology are absent.
 
 ## Tests Run
 
@@ -165,6 +203,8 @@
   - `python3 -m engine.transform_catalog --product zia --resource zia_admin_roles --resource zia_traffic_forwarding_static_ip --resource zia_url_categories --check catalogs/zia-transform-cohort.v1.json`
   - `python3 -m engine.transform_catalog --product zcc --check catalogs/zcc-transform-catalog.v1.json`
   - `node tools/generate-python-lower-151.mjs --ucd-root /tmp/infrawright-ucd --check`
+  - `make test` against physically pruned exact `empty`, `zpa`, and `zscaler`
+    pack roots with their corresponding committed profiles.
   - `git diff --check`
 - Relevant output summary:
   - Focused ZPA Node: 7/7 pass, including complete result-envelope and exact
@@ -174,12 +214,17 @@
     Unicode 15.1 snake/dot boundaries, and production bundle exclusion.
   - Combined live-Python ZCC/ZIA/ZPA Node differentials: 14/14 pass on both
     Node 24.15.0/Unicode 16.0 and Node 24.18.0/Unicode 17.0.
-  - Combined generic/ZIA/ZPA Python catalog checks: 33/33 pass.
+  - Combined generic/ZIA/ZPA Python catalog checks: 38/38 pass; the focused
+    ZPA generator/authority surface is 11/11.
   - Full Node on each of Node 24.15.0/Unicode 16.0 and Node
     24.18.0/Unicode 17.0: 631 total, 630 pass, 1 expected platform skip,
     0 failures. Typecheck and production bundle build pass.
-  - Full Python: 1,388 total, 1,387 pass, 1 opt-in provider-source skip,
+  - Full Python: 1,394 total, 1,393 pass, 1 opt-in provider-source skip,
     0 failures.
+  - Physically pruned exact profiles pass without undeclared coupling:
+    `empty` selects 867 and omits 133 tests/12 modules; `zpa` selects 941 and
+    omits 79 tests/10 modules; `zscaler` selects 1,375 and omits 19 tests/no
+    modules. The ZPA and Zscaler runs each retain the one opt-in source skip.
   - Vendor boundary: 187 allowed matches, 0 violations.
   - ZPA, ZIA, and ZCC transform catalog freshness checks, the generated Python
     lowercase compatibility check, and whitespace check pass.
@@ -202,6 +247,9 @@
     policy.
   - `zpa_application_segment`, which additionally requires object-list
     attributes, merged blocks, and enum-to-boolean value mapping.
+  - Lossless untrusted/external catalog ingress and additional provider-specific
+    exceptions. The private embedded catalog remains the only accepted runtime
+    semantics in this slice.
 - Reason it is safe to defer:
   - No public or mutating runtime path can reach this cohort. Unsupported
     resources and catalog changes fail closed, and Python remains the oracle.
@@ -209,9 +257,9 @@
     remains `e1dbc94c...` and exact file SHA-256 remains `eab7f5ce...`.
     The ZPA 4.4.6 evidence binding and override-absence gate remain local.
 - Follow-up owner or trigger:
-  - A fresh read-only adversarial reviewer must assess the exact checkpoint
-    before any push or PR. Public reachability and additional ZPA resources
-    remain separate, independently reviewed slices.
+  - Two independent fresh read-only Sol changed-surface rechecks must assess
+    the exact checkpoint before any push or PR. Public reachability and
+    additional ZPA resources remain separate, independently reviewed slices.
 
 ## Review Focus
 
@@ -237,8 +285,9 @@
   - Reordered projection attribute/block maps are accepted only as semantic
     copies and return the canonical embedded snapshot, while ordered arrays
     still fail when reordered.
-  - The production process bundle contains no ZPA catalog, provider schema,
-    private wrapper, evidence commit/hash/status, or resource marker.
+  - The production process bundle contains no private ZPA cohort catalog,
+    provider schema, wrapper, or cohort/evidence-specific marker. Ordinary ZPA
+    resource type strings used by public topology are outside this claim.
 - Source evidence the reviewer should verify:
   - The two registry fetch rows, provider-schema projections, pack pin, evidence
     resource rows/state-shape hashes, and absence of both override files.

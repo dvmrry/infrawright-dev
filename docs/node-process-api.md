@@ -975,6 +975,12 @@ performs no collection, HTTP, publication, Terraform, adoption, or generated
 configuration. Every generated-configuration qualification remains
 `terraform_runtime_evidence_required`.
 
+Catalog authoring uses this checkout as one source authority. The ZPA wrapper
+reads and hashes fixed repository inputs and invokes the generic cohort
+compiler in a fresh Python process with `INFRAWRIGHT_PACKS` forced to this
+checkout's `packs/`; ambient pack roots and already-primed registry/schema
+caches cannot supply semantics attributed to the committed source digest.
+
 The first cohort intentionally does not include the initially preferred
 application resources. `zpa_app_connector_group` and
 `zpa_application_server` require `drop_if_default`; the connector group also

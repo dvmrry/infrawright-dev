@@ -9,14 +9,12 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
-
-from engine import transform_catalog
-
 
 CATALOG_KIND = "infrawright.zpa_transform_cohort_catalog"
 SCHEMA_VERSION = 1
@@ -39,6 +37,11 @@ ABSENT_OVERRIDE_FILES = tuple(
     "packs/zpa/overrides/%s.json" % resource_type
     for resource_type in COHORT_RESOURCES
 )
+FETCH_KEYS = frozenset([
+    "optional_http_statuses",
+    "pagination",
+    "path",
+])
 
 
 def _read_json(relative_path):
@@ -61,12 +64,65 @@ def _source_digest():
     return digest.hexdigest()
 
 
+def _compile_core_catalog():
+    """Compile against this checkout in a fresh, root-bound interpreter.
+
+    The generic compiler follows INFRAWRIGHT_PACKS and its registry/schema
+    loaders cache process-global state. Running it in this authoring process
+    would let ambient pack roots or already-primed caches supply semantics
+    while this tool attributed them to the fixed ROOT files it hashes below.
+    A fresh child gets one explicit pack authority and cannot inherit either
+    category of in-process cache.
+    """
+    command = [
+        sys.executable,
+        "-m",
+        "engine.transform_catalog",
+        "--product",
+        PRODUCT,
+    ]
+    for resource_type in COHORT_RESOURCES:
+        command.extend(["--resource", resource_type])
+    environment = os.environ.copy()
+    environment["INFRAWRIGHT_PACKS"] = os.path.join(ROOT, "packs")
+    environment["PYTHONPATH"] = ROOT
+    completed = subprocess.run(
+        command,
+        cwd=ROOT,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or "no diagnostic"
+        raise ValueError(
+            "repository transform cohort compilation failed: %s" % detail
+        )
+    try:
+        catalog = json.loads(completed.stdout)
+    except ValueError as exc:
+        raise ValueError(
+            "repository transform cohort compiler emitted invalid JSON: %s"
+            % exc
+        )
+    if not isinstance(catalog, dict):
+        raise ValueError(
+            "repository transform cohort compiler emitted a non-object"
+        )
+    return catalog
+
+
 def _evidence_rows():
     evidence = _read_json("docs/evidence/zpa-provider-v4.4.6.json")
-    rows = dict(
-        (row["resource_type"], row)
-        for row in evidence.get("resources") or []
-    )
+    rows = {}
+    for row in evidence.get("resources") or []:
+        resource_type = row["resource_type"]
+        if resource_type in rows:
+            raise ValueError(
+                "provider evidence duplicates %s" % resource_type
+            )
+        rows[resource_type] = row
     missing = sorted(set(COHORT_RESOURCES) - set(rows))
     if missing:
         raise ValueError("provider evidence is missing %s" % missing[0])
@@ -75,6 +131,12 @@ def _evidence_rows():
 
 def _resource(resource_type, core_resource, registry_entry, evidence_row):
     raw_fetch = registry_entry.get("fetch") or {}
+    unknown_fetch_keys = sorted(set(raw_fetch) - FETCH_KEYS)
+    if unknown_fetch_keys:
+        raise ValueError(
+            "%s fetch metadata has unsupported key %s"
+            % (resource_type, unknown_fetch_keys[0])
+        )
     fetch = {
         "optional_http_statuses": list(
             raw_fetch.get("optional_http_statuses") or []
@@ -121,9 +183,7 @@ def build_catalog():
     manifest = _read_json("packs/zpa/pack.json")
     registry = _read_json("packs/zpa/registry.json")
     evidence, evidence_rows = _evidence_rows()
-    core_catalog = transform_catalog.transform_resource_cohort(
-        PRODUCT, list(COHORT_RESOURCES)
-    )
+    core_catalog = _compile_core_catalog()
     core_resources = dict(
         (resource["type"], resource)
         for resource in core_catalog["resources"]
