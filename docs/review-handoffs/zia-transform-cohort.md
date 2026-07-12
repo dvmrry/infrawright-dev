@@ -41,6 +41,8 @@
   `node-tests/fixtures/zia-transform-cohort.v1.json`,
   `node-tests/zia-transform-cohort.test.ts`, and
   `tests/test_zia_transform_cohort_catalog.py`.
+- Active-pack test selection and its regression:
+  `tests/pack-test-requirements.json` and `tests/test_run.py`.
 - Boundary documentation: `docs/node-process-api.md` and this handoff.
 - Files intentionally left untouched: `engine/transform.py`, the shared public
   `docs/schemas/transform-catalog.schema.json`, shared
@@ -103,8 +105,10 @@
   behavior for an unknown top-level `\u2028Future` key.
 - Non-`id` computed fields remain reported drops rather than silently ignored.
   Acknowledged API-only paths remain omitted from the returned drop report.
-- Expected report/count/coverage changes: N/A; no readiness report or count is
-  changed.
+- Expected report/count/coverage changes: no readiness report or production
+  count is changed. Reduced pack profiles now omit only the catalog tests that
+  regenerate from unavailable ZIA/ZCC sources; full and Zscaler profiles retain
+  all eight Python cohort tests.
 - Expected generated-output changes: only the new private catalog and fixture.
 - Expected no-op areas: Python transform/runtime output, exact ZCC behavior and
   catalog bytes, public process operations, every non-selected resource, and
@@ -154,7 +158,7 @@
 - The same complete compiled Node suite under
   `npx --yes node@24.18.0`/Unicode 17.0: 624 total, 623 passed, one
   platform-specific skip, zero failures.
-- `make test`: 1,382 selected, 1,381 passed, one optional external pinned-source
+- `make test`: 1,383 selected, 1,382 passed, one optional external pinned-source
   skip, zero failures.
 - `npm run typecheck` and `npm run build`: passed.
 - Focused ZIA Node suite: 6/6 passed. Both committed-corpus and dedicated
@@ -205,6 +209,33 @@
   and U+2028 regex-dot drop-path bytes. The full suite passes under both actual
   Node 24 Unicode 16 and 17 runtimes; this checkpoint now requires the fresh
   changed-surface reconciliation review prescribed by the workflow.
+
+## CI Pack-Profile Remediation
+
+- Root cause: the new Python cohort module had no declaration in
+  `tests/pack-test-requirements.json`. Every reduced profile therefore selected
+  its ZIA and ZCC source-regeneration tests after the workflow intentionally
+  removed those packs, producing absent-registry failures rather than testing
+  the selected distribution.
+- Fix: declare the two ZIA regeneration gates as requiring `zia`, the existing
+  ZCC byte-regeneration cross-check as requiring `zcc`, and the cross-product
+  validation as requiring both. The four committed-artifact or pure-helper
+  assertions remain pack-independent and continue to run in every profile.
+  This uses existing per-test selection instead of runtime skips or weakened
+  assertions. A module-level ZIA rule plus nested ZCC rules is not used because
+  the current pre-import selector would correctly omit the module but then
+  classify the unloaded nested rules as stale.
+- Regression: `tests.test_run` now executes a synthetic empty/ZCC/ZIA/Zscaler
+  matrix against the committed rules, proving exact selected and omitted sets;
+  it also proves the artifact-only assertions remain unmarked.
+- Validation: the `make test` stage passed for all ten workflow pack profiles
+  against separately materialized active pack roots. Exact pruned-checkout
+  `make check` passed for `empty` (867 selected, 133 omitted tests, 11 omitted
+  modules) and `zscaler`
+  (1,364 selected, 19 omitted tests, no omitted modules, one optional skip).
+  Full `make test` ran 1,383 tests: 1,382 passed and one optional source test
+  skipped. Focused Python selector/cohort tests passed 15/15 and focused Node
+  ZIA parity passed 6/6.
 
 ## Known Deferrals
 
