@@ -325,6 +325,12 @@
       "packs": ["zcc"],
       "shared": [],
       "reason": "The generated transform contract is derived from the committed ZCC registry, provider schema, and overrides."
+    },
+    {
+      "prefix": "tests.test_zpa_provider_evidence.",
+      "packs": ["zpa"],
+      "shared": [],
+      "reason": "The evidence audit derives the exact fetch set and state-shape summaries from the committed ZPA registry and provider schema."
     }
   ]
 }
