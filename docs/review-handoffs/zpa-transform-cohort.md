@@ -13,12 +13,13 @@
 
 ## Base / Head
 
-- Base: `f812740c9f786be9ce436f558251d3dff82c14bd` (the local reviewed ZIA
-  cohort head used for consolidation; it was not yet `origin/main`).
-- Head: the checkpoint commit on `feature/node-zpa-transform-cohort`; resolve
-  with `git rev-parse HEAD` before review.
+- Base: `c1ad94b8657bf1371f5d84d948e80c55382c80a4`, the exact reviewed
+  ZIA head at PR #180 when the two ZPA commits were replayed with `--onto`.
+- Head: the clean `ready for adversarial review` checkpoint on
+  `feature/node-zpa-transform-cohort`; resolve its exact immutable hash with
+  `git rev-parse HEAD` when starting the review.
 - Diff command:
-  `git diff f812740c9f786be9ce436f558251d3dff82c14bd...HEAD`.
+  `git diff c1ad94b8657bf1371f5d84d948e80c55382c80a4...HEAD`.
 
 ## Files Changed
 
@@ -65,7 +66,9 @@
   - `docs/review-handoffs/zpa-provider-v4.4.6-evidence.md`
   - `docs/review-handoffs/zia-transform-cohort.md`
 - Other source evidence:
-  - `engine.transform.transform_items` is the independent runtime oracle.
+  - `engine.transform.transform_items` and `engine.transform.render_tfvars` are
+    the independent live runtime oracles for the complete result envelope and
+    exact tfvars bytes.
   - Public `engine.transform_catalog.transform_resource_cohort` constructs the
     core resource/projection contracts; the ZPA tool only decorates those
     resources with product-specific evidence after enforcing its pins.
@@ -104,7 +107,7 @@
     `zpa_pra_console_controller` and `zpa_pra_portal_controller` through the
     existing pure kernel.
 - Expected report/count/coverage changes:
-  - Five new Node tests and six Python catalog tests.
+  - Seven new Node tests and six Python catalog tests.
   - No provider-readiness or generated-config qualification count changes.
 - Expected generated-output changes:
   - Only the new private catalog. It continues to record
@@ -129,6 +132,10 @@
     exact equality with public `transform_resource_cohort` output.
   - A newly added resource override makes generation fail rather than silently
     changing transform semantics.
+  - JSON object insertion order is not semantic for projection attribute/block
+    maps: reordered semantic copies are accepted and replaced with the embedded
+    canonical snapshot. Ordered arrays such as `source_files`, resource order,
+    key fields, import segments, and projection lists retain their exact order.
 - Ambiguity must stay classified instead of being coerced to success:
   - Unsupported resource types fail with
     `UNSUPPORTED_ZPA_TRANSFORM_RESOURCE`; catalog drift fails the exact gate.
@@ -145,32 +152,41 @@
 
 - Commands:
   - `npm run typecheck`
-  - `npm test`
   - `npm run build`
-  - `node --test .node-test/node-tests/zpa-transform-cohort.test.js`
-  - `python3 -m unittest -v tests.test_zpa_transform_cohort_catalog`
+  - `npm run build:test`
+  - `node --test .node-test/node-tests/zpa-transform-cohort.test.js .node-test/node-tests/zia-transform-cohort.test.js .node-test/node-tests/zcc-pull-artifacts-differential.test.js`
+  - `npx --yes node@24.18.0 --test .node-test/node-tests/zpa-transform-cohort.test.js .node-test/node-tests/zia-transform-cohort.test.js .node-test/node-tests/zcc-pull-artifacts-differential.test.js`
+  - `node --test .node-test/node-tests/*.test.js`
+  - `npx --yes node@24.18.0 --test .node-test/node-tests/*.test.js`
+  - `python3 -m unittest -v tests.test_transform_catalog tests.test_zia_transform_cohort_catalog tests.test_zpa_transform_cohort_catalog`
   - `make test`
   - `python3 -m engine.audit_vendor_boundary`
   - `python3 tools/zpa_transform_cohort_catalog.py --check catalogs/zpa-transform-cohort-catalog.v1.json`
   - `python3 -m engine.transform_catalog --product zia --resource zia_admin_roles --resource zia_traffic_forwarding_static_ip --resource zia_url_categories --check catalogs/zia-transform-cohort.v1.json`
   - `python3 -m engine.transform_catalog --product zcc --check catalogs/zcc-transform-catalog.v1.json`
+  - `node tools/generate-python-lower-151.mjs --ucd-root /tmp/infrawright-ucd --check`
   - `git diff --check`
 - Relevant output summary:
-  - Focused Node: 5/5 pass, including exact rendered bytes from the real Python
-    transform for nested list/set blocks, HTML unescape, lossless integers,
-    booleans, scalar/empty/set coercion, and duplicate-preserving set order.
-  - Combined ZIA/ZPA Node cohort checks: 10/10 pass.
+  - Focused ZPA Node: 7/7 pass, including complete result-envelope and exact
+    `render_tfvars` byte comparison against live Python, nested list/set blocks,
+    HTML unescape, lossless integers, booleans, scalar/empty/set coercion,
+    duplicate-preserving set order, semantic projection-map reordering,
+    Unicode 15.1 snake/dot boundaries, and production bundle exclusion.
+  - Combined live-Python ZCC/ZIA/ZPA Node differentials: 14/14 pass on both
+    Node 24.15.0/Unicode 16.0 and Node 24.18.0/Unicode 17.0.
   - Combined generic/ZIA/ZPA Python catalog checks: 33/33 pass.
-  - Full Node: 617 pass, 1 platform skip, 0 failures on the isolated final
-    run; typecheck and production bundle build pass.
-  - Full Python: 1,388 pass, 1 opt-in provider-source skip, 0 failures.
+  - Full Node on each of Node 24.15.0/Unicode 16.0 and Node
+    24.18.0/Unicode 17.0: 631 total, 630 pass, 1 expected platform skip,
+    0 failures. Typecheck and production bundle build pass.
+  - Full Python: 1,388 total, 1,387 pass, 1 opt-in provider-source skip,
+    0 failures.
   - Vendor boundary: 187 allowed matches, 0 violations.
-  - ZPA, ZIA, and ZCC transform catalog freshness checks and whitespace check
-    pass.
-  - One full Node attempt overlapped another agent's full Node run and hit the
-    existing Terraform descendant-PID timeout; Node counts both the failed
-    subtest and parent suite. Every ZIA/ZPA test passed in that attempt. After
-    the other process exited, the isolated full suite passed completely.
+  - ZPA, ZIA, and ZCC transform catalog freshness checks, the generated Python
+    lowercase compatibility check, and whitespace check pass.
+  - The ZPA source digest remains
+    `e1dbc94cd82cfb824e88cfa2db3cc7398787369557d16dc23b660a1c2302a149`;
+    exact catalog SHA-256 remains
+    `eab7f5ce8f3e508629cd6a3cebd344332f57647442741717762e7373e2ae5694`.
 - Tests not run and why:
   - No live tenant, HTTP, provider, Terraform, import, plan, apply, state, or
     generated-config test was run because none of those capabilities is
@@ -186,9 +202,6 @@
     policy.
   - `zpa_application_segment`, which additionally requires object-list
     attributes, merged blocks, and enum-to-boolean value mapping.
-  - A later rebase onto merged ZIA plus the shared snake/string-semantics fix;
-    this checkpoint deliberately uses the reviewed local ZIA head so the
-    consolidation can be assessed independently.
 - Reason it is safe to defer:
   - No public or mutating runtime path can reach this cohort. Unsupported
     resources and catalog changes fail closed, and Python remains the oracle.
@@ -196,8 +209,9 @@
     remains `e1dbc94c...` and exact file SHA-256 remains `eab7f5ce...`.
     The ZPA 4.4.6 evidence binding and override-absence gate remain local.
 - Follow-up owner or trigger:
-  - After ZIA and shared string semantics are both on `origin/main`, rebase
-    again and run a fresh changed-surface review before any push or PR.
+  - A fresh read-only adversarial reviewer must assess the exact checkpoint
+    before any push or PR. Public reachability and additional ZPA resources
+    remain separate, independently reviewed slices.
 
 ## Review Focus
 
@@ -220,6 +234,11 @@
     remain visible as unacknowledged drops.
   - The private TypeScript catalog gate cannot authorize a third resource or a
     changed projection.
+  - Reordered projection attribute/block maps are accepted only as semantic
+    copies and return the canonical embedded snapshot, while ordered arrays
+    still fail when reordered.
+  - The production process bundle contains no ZPA catalog, provider schema,
+    private wrapper, evidence commit/hash/status, or resource marker.
 - Source evidence the reviewer should verify:
   - The two registry fetch rows, provider-schema projections, pack pin, evidence
     resource rows/state-shape hashes, and absence of both override files.
@@ -231,4 +250,5 @@
   - Nested reference-object ID unwrapping, list/set shape coercion, Unicode set
     ordering with duplicates, empty/scalar sets, HTML double-unescape,
     arbitrary-size integer string coercion, native/non-finite numbers, catalog
-    source drift, and newly introduced raw provider fields.
+    source drift, newly introduced raw provider fields, U+A7CB lowercase drift,
+    U+2028 regex-dot behavior, and insertion-order-only contract copies.

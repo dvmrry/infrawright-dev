@@ -1,7 +1,10 @@
 import embeddedCatalogJson from "../../catalogs/zpa-transform-cohort-catalog.v1.json" with { type: "json" };
 
 import { isJsonRecord, pythonJsonEqual } from "../json/python-equality.js";
-import { sortedStrings } from "../json/python-compatible.js";
+import {
+  sameStringSequence,
+  sortedStrings,
+} from "../json/python-compatible.js";
 import { ProcessFailure } from "./errors.js";
 import {
   immutableTransformContractCopy,
@@ -67,15 +70,11 @@ function invalidCatalog(message: string): never {
 }
 
 function exactKeys(value: object, expected: readonly string[]): boolean {
-  const actual = sortedStrings(Object.keys(value));
-  return actual.length === expected.length
-    && expected.every((key, index) => key === actual[index]);
+  return sameStringSequence(sortedStrings(Object.keys(value)), expected);
 }
 
 function exactStrings(value: unknown, expected: readonly string[]): boolean {
-  return Array.isArray(value)
-    && value.length === expected.length
-    && expected.every((item, index) => item === value[index]);
+  return stringArray(value) && sameStringSequence(value, expected);
 }
 
 function stringArray(value: unknown): value is readonly string[] {
@@ -107,9 +106,7 @@ function validProjection(value: unknown): boolean {
   if (
     !isJsonRecord(attributes)
     || !Object.values(attributes).every(validEncoding)
-    || !exactStrings(Object.keys(attributes), sortedStrings(Object.keys(attributes)))
     || !isJsonRecord(blocks)
-    || !exactStrings(Object.keys(blocks), sortedStrings(Object.keys(blocks)))
     || !stringArray(ignored)
     || !exactStrings(ignored, sortedStrings(new Set(ignored)))
   ) {
