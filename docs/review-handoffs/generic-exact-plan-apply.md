@@ -15,10 +15,10 @@
 
 ## Base / Head
 
-- Base: `5675552ee032875b616dc77dd57bd5051c5d6484` (draft PR #206).
+- Base: `b574ac8c3d3778c4f54b95b289f9d001f7a52021` (draft PR #206).
 - Head: frozen head of `feature/node-exact-plan-apply`; the review request
   supplies the resolved commit because a commit cannot contain its own hash.
-- Diff command: `git diff 5675552ee032875b616dc77dd57bd5051c5d6484...HEAD`.
+- Diff command: `git diff b574ac8c3d3778c4f54b95b289f9d001f7a52021...HEAD`.
 
 ## Files Changed
 
