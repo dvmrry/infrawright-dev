@@ -67,6 +67,26 @@
 - No assessment, guidance, Apply, provider-specific workflow, authoring-side
   branch, or successor-branch change is included.
 
+## Final Platform-Refusal Ordering Remediation
+
+- Remediation base: `117461bb7e5d53dcf1a7f14dab4b70958d0130e4`.
+- Remediation head: frozen review head supplied with the patch-review request.
+- Finding: `terraformShowPlan` performed path and filesystem preflight before
+  the runner's Windows refusal, so a missing or untrusted executable or a
+  missing snapshot could mask the declared unsupported-platform error.
+- Fix: one exported runner guard now owns the platform check. Both
+  `runTerraformCommand` and `terraformShowPlan` call it, with the show guard
+  running before any option, path, limit, environment, or filesystem preflight.
+- Regression: the show test injects `win32` and uses, separately, a missing
+  executable, a non-executable file, and a missing plan snapshot. Every case
+  returns `UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM` with the stable message.
+- Focused validation: typecheck and test compilation passed; the runner/show/
+  Oracle suite passed 53/53; the final show-only retry passed 20/20; whitespace
+  is clean.
+- Scope remains the shared guard, show call site, one focused test, and this
+  handoff. No platform support, supervision, spawn, or architecture expansion
+  is included.
+
 ## Files Changed
 
 - Files:

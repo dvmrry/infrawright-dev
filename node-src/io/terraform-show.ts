@@ -4,6 +4,7 @@ import path from "node:path";
 import { ProcessFailure } from "../domain/errors.js";
 import { parseDataJsonLosslessly } from "../json/control.js";
 import {
+  assertSupportedTerraformExecutionPlatform,
   runTerraformCommand,
   snapshotTerraformCommandEnvironment,
   snapshotTerraformCommandLimits,
@@ -262,6 +263,7 @@ function mapTerraformCommandFailure(error: unknown): never {
 export async function terraformShowPlan(
   options: TerraformShowOptions,
 ): Promise<unknown> {
+  assertSupportedTerraformExecutionPlatform();
   const terraformExecutable = options.terraformExecutable;
   const envDir = options.envDir;
   const snapshotPath = options.snapshotPath;

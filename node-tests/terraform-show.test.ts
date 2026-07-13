@@ -338,22 +338,31 @@ test("Terraform show resource limits retain positive-integer and byte bounds", a
 test("Terraform show preserves the Windows operational-platform refusal", async () => {
   await withTemp(async (fixture) => {
     const fake = executable(fixture.root, "exit 0");
+    const untrusted = join(fixture.root, "untrusted-terraform");
+    writeFileSync(untrusted, "not executable\n", { mode: 0o600 });
+    const missing = join(fixture.root, "missing");
     const platform = Object.getOwnPropertyDescriptor(process, "platform");
     assert.notEqual(platform, undefined);
     try {
       Object.defineProperty(process, "platform", { ...platform, value: "win32" });
-      await assert.rejects(
-        terraformShowPlan(options(fixture, fake)),
-        (error: unknown) => {
-          assert.ok(error instanceof ProcessFailure);
-          assert.equal(error.code, "UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM");
-          assert.equal(
-            error.message,
-            "Terraform execution through Infrawright is supported on Linux and macOS; Windows is not a supported operational platform.",
-          );
-          return true;
-        },
-      );
+      for (const request of [
+        options(fixture, missing),
+        options(fixture, untrusted),
+        { ...options(fixture, fake), snapshotPath: missing },
+      ]) {
+        await assert.rejects(
+          terraformShowPlan(request),
+          (error: unknown) => {
+            assert.ok(error instanceof ProcessFailure);
+            assert.equal(error.code, "UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM");
+            assert.equal(
+              error.message,
+              "Terraform execution through Infrawright is supported on Linux and macOS; Windows is not a supported operational platform.",
+            );
+            return true;
+          },
+        );
+      }
     } finally {
       Object.defineProperty(process, "platform", platform ?? {});
     }

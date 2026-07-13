@@ -22,6 +22,17 @@ export const DEFAULT_TERRAFORM_COMMAND_LIMITS: TerraformCommandLimits = Object.f
 export const UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM_MESSAGE =
   "Terraform execution through Infrawright is supported on Linux and macOS; Windows is not a supported operational platform.";
 
+export function assertSupportedTerraformExecutionPlatform(
+  platform: NodeJS.Platform = process.platform,
+): void {
+  if (platform === "win32") {
+    fail(
+      "UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM",
+      UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM_MESSAGE,
+    );
+  }
+}
+
 const MAX_TERRAFORM_COMMAND_STDOUT_BYTES = 8 * 1024 * 1024;
 const MAX_TERRAFORM_COMMAND_STDERR_BYTES = 16 * 1024 * 1024;
 const MAX_TERRAFORM_COMMAND_ARGUMENTS = 128;
@@ -454,12 +465,7 @@ export function runTerraformCommand(
 export async function runTerraformCommand(
   options: TerraformCommandOptions,
 ): Promise<TerraformCommandResult> {
-  if (process.platform === "win32") {
-    return fail(
-      "UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM",
-      UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM_MESSAGE,
-    );
-  }
+  assertSupportedTerraformExecutionPlatform();
   const terraformExecutable = options.terraformExecutable;
   const cwd = options.cwd;
   const outputMode = options.output;
