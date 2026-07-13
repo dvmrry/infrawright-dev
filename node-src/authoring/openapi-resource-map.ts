@@ -323,10 +323,10 @@ function topLevelMetadata(
   const gaps: string[] = [];
   for (const path of write) {
     const field = path.replaceAll("[]", "").split(".")[0] ?? path;
-    if (inputs.has(field) || computed.has(field)) continue;
+    if (inputs.has(field)) continue;
     const [alias, kind, reason] = reconciliationFieldAlias(field, inputs, computed);
     if (alias !== undefined && kind === "input") aliases.push({ api_path: path, reason, terraform_path: alias });
-    else gaps.push(path);
+    else if (!computed.has(field)) gaps.push(path);
   }
   return {
     aliased_top_level_paths: aliases,
@@ -585,6 +585,18 @@ function family(resourceType: string, prefix: string): string {
   return baseResourceTokens(resourceType, prefix)[0] ?? "unknown";
 }
 
+function roundRatio4(numerator: number, denominator: number): number {
+  if (denominator === 0) return 0;
+  const scaled = BigInt(numerator) * 10_000n;
+  const divisor = BigInt(denominator);
+  let quotient = scaled / divisor;
+  const twiceRemainder = (scaled % divisor) * 2n;
+  if (twiceRemainder > divisor || (twiceRemainder === divisor && quotient % 2n !== 0n)) {
+    quotient += 1n;
+  }
+  return Number(quotient) / 10_000;
+}
+
 function coverageDiagnostics(
   summary: JsonObject,
   families: Readonly<Record<string, Record<string, number>>>,
@@ -596,7 +608,7 @@ function coverageDiagnostics(
   const ratio = total === 0 ? 0 : covered / total;
   const warnings: JsonObject[] = [];
   if (openApiProfile.path_count_for_api_prefix === 0) warnings.push({ code: "api_prefix_matches_no_paths", message: "The selected API prefix matches zero OpenAPI paths. Check whether the spec stores the product base path in servers[] instead of paths[]." });
-  if (total > 0 && ratio < 0.25) warnings.push({ code: "low_openapi_resource_coverage", coverage_ratio: Number(ratio.toFixed(4)), message: "Fewer than 25% of Terraform resources mapped to this OpenAPI document. This often means the spec is the wrong product surface, only a partial surface, or the provider contains orchestration resources that do not map to CRUD collections." });
+  if (total > 0 && ratio < 0.25) warnings.push({ code: "low_openapi_resource_coverage", coverage_ratio: roundRatio4(covered, total), message: "Fewer than 25% of Terraform resources mapped to this OpenAPI document. This often means the spec is the wrong product surface, only a partial surface, or the provider contains orchestration resources that do not map to CRUD collections." });
   if (total > 0 && hints.length > 0 && ratio < 0.75) warnings.push({ code: "provider_config_suggests_multiple_surfaces", hint_attributes: hints.map((hint) => hint.name), message: "Provider configuration exposes URL/token/cloud-style knobs while OpenAPI coverage is incomplete. Classify resources by surface before field-level reconciliation." });
   const uncovered = sortedStrings(Object.keys(families)).flatMap((name) => {
     const counts = families[name] as Record<string, number>;
@@ -607,7 +619,7 @@ function coverageDiagnostics(
   });
   if (uncovered.length > 0) warnings.push({ code: "uncovered_resource_families", families: uncovered.slice(0, 50), message: "At least one Terraform resource family had no mapped OpenAPI CRUD endpoint." });
   return {
-    coverage_ratio: Number(ratio.toFixed(4)), covered_resources: covered,
+    coverage_ratio: roundRatio4(covered, total), covered_resources: covered,
     family_coverage: Object.fromEntries(sortedStrings(Object.keys(families)).map((name) => [name, Object.fromEntries(sortedStrings(Object.keys(families[name] ?? {})).map((key) => [key, families[name]?.[key]]))])),
     warnings,
   };
@@ -655,7 +667,7 @@ function registryCoverage(
   const summary: JsonObject = {
     [key === "fetch" ? "fetch_resources" : "read_resources"]: total,
     matched, unmatched: total - matched - ambiguous,
-    coverage_ratio: total === 0 ? null : Number((matched / total).toFixed(4)),
+    coverage_ratio: total === 0 ? null : roundRatio4(matched, total),
   };
   if (key === "read") summary.ambiguous = ambiguous;
   return { resources, summary, warnings };
