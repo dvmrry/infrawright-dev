@@ -14,12 +14,18 @@ const SELECTOR_TAIL = String.raw`(?:\.${IDENT}|\[${HCL_STRING}\]|${NUMERIC_INDEX
 const MODULE_SELECTOR = String.raw`module\.${IDENT}${SELECTOR_TAIL}`;
 const DATA_SELECTOR = String.raw`data\.${IDENT}\.${IDENT}${SELECTOR_TAIL}`;
 const LIST_ELEMENT = String.raw`(?:${MODULE_SELECTOR}|${HCL_STRING})`;
+// Python `re` and JavaScript disagree on `\s` (notably U+FEFF). Freeze the
+// Python whitespace set so the migration keeps one expression grammar.
+const PYTHON_WHITESPACE = String.raw`[\x09-\x0d\x1c-\x20\x85\xa0\u1680\u2000-\u200a\u2028-\u2029\u202f\u205f\u3000]`;
 const ALLOWED_EXPRESSIONS = [
   new RegExp(String.raw`^var\.${IDENT}$`, "u"),
   new RegExp(String.raw`^local\.${IDENT}$`, "u"),
   new RegExp(String.raw`^${DATA_SELECTOR}$`, "u"),
   new RegExp(String.raw`^${MODULE_SELECTOR}$`, "u"),
-  new RegExp(String.raw`^\[\s*(?:${LIST_ELEMENT}(?:\s*,\s*${LIST_ELEMENT})*)?\s*\]$`, "u"),
+  new RegExp(
+    String.raw`^\[${PYTHON_WHITESPACE}*(?:${LIST_ELEMENT}(?:${PYTHON_WHITESPACE}*,${PYTHON_WHITESPACE}*${LIST_ELEMENT})*)?${PYTHON_WHITESPACE}*\]$`,
+    "u",
+  ),
 ] as const;
 const CONTROL_CHARACTERS = /[\x00-\x1f\x7f]/u;
 
@@ -258,6 +264,7 @@ export function renderExpressionHclValue(value: unknown, indent = 0): string {
 
 export function toTerraformJsonValue(value: unknown): unknown {
   if (value instanceof HclExpression) return `\${${value.expression}}`;
+  if (value instanceof LosslessNumber) return value;
   if (Array.isArray(value)) return value.map(toTerraformJsonValue);
   if (record(value)) {
     return Object.fromEntries(sortedStrings(Object.keys(value)).map((key) => [key, toTerraformJsonValue(value[key])]));

@@ -3,11 +3,13 @@ import { spawnSync } from "node:child_process";
 import {
   access,
   cp,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
   readdir,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
@@ -383,6 +385,106 @@ test("operator precedence, stale generated filtering, stale HCL removal, and cyc
     }),
     /expression binding cycle detected.*resolve one direction/,
   );
+});
+
+test("dangling artifact paths retain Python existence and stale-file semantics", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-gen-env-dangling-");
+  const deploymentPath = path.join(workspace, "deployment.json");
+  const outputRoot = path.join(workspace, "generated");
+  await writeJson(deploymentPath, {
+    module_dir: path.join(workspace, "modules"),
+    overlay: workspace,
+    roots: { zia: { bind_references: true } },
+  });
+  const configDirectory = path.join(workspace, "config", "tenant");
+  await mkdir(configDirectory, { recursive: true });
+  for (const name of [
+    "zia_url_categories.auto.tfvars.json",
+    "zia_url_categories.expressions.json",
+    "zia_url_categories.generated.expressions.json",
+  ]) {
+    await symlink(`missing-${name}`, path.join(configDirectory, name));
+  }
+  const expressionPath = path.join(
+    outputRoot,
+    "tenant",
+    "zia_url_categories",
+    "expression_bindings.tf",
+  );
+  const backendPath = path.join(outputRoot, "tenant", ".backend");
+  const seedDanglingOutputs = async (): Promise<void> => {
+    await mkdir(path.dirname(expressionPath), { recursive: true });
+    await symlink("missing-expression-bindings.tf", expressionPath);
+    await symlink("missing-backend", backendPath);
+  };
+  await seedDanglingOutputs();
+  const python = spawnSync("python3", [
+    "-c",
+    "import sys; from engine.gen_env import generate_env; generate_env('tenant', out_root=sys.argv[1], selectors=['zia_url_categories'])",
+    outputRoot,
+  ], {
+    cwd: ROOT,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      INFRAWRIGHT_DEPLOYMENT: deploymentPath,
+      INFRAWRIGHT_PACK_PROFILE: path.join(ROOT, "packsets", "full.json"),
+    },
+  });
+  assert.equal(python.status, 0, `${python.stdout}\n${python.stderr}`);
+  const expected = await snapshotTree(outputRoot);
+  assert.doesNotMatch(expected["tenant/zia_url_categories/main.tf"] ?? "", /backend "/);
+  assert.doesNotMatch(expected["tenant/zia_url_categories/tests/smoke.tftest.hcl"] ?? "", /config_plan/);
+  assert.equal((await lstat(expressionPath)).isSymbolicLink(), true);
+  assert.equal((await lstat(backendPath)).isSymbolicLink(), true);
+
+  await rm(path.join(outputRoot, "tenant", "zia_url_categories"), { force: true, recursive: true });
+  await rm(backendPath, { force: true });
+  await seedDanglingOutputs();
+  await generateEnvironmentRoots({
+    deployment: await loadDeployment(deploymentPath),
+    formatHcl: terraformHclFormatter({ executable: TERRAFORM }),
+    outputRoot,
+    root: await committedRoot(),
+    selectors: ["zia_url_categories"],
+    tenant: "tenant",
+  });
+  assert.deepEqual(await snapshotTree(outputRoot), expected);
+  assert.equal((await lstat(expressionPath)).isSymbolicLink(), true);
+  assert.equal((await lstat(backendPath)).isSymbolicLink(), true);
+});
+
+test("invalid Python-incompatible expression whitespace cannot partially rewrite a root", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-gen-env-whitespace-");
+  const deploymentPath = path.join(workspace, "deployment.json");
+  await writeJson(deploymentPath, { overlay: workspace, roots: {} });
+  await writeJson(path.join(workspace, "config", "tenant", "zia_url_categories.auto.tfvars.json"), {
+    items: { example: { configured_name: "Example" } },
+  });
+  await writeJson(path.join(workspace, "config", "tenant", "zia_url_categories.expressions.json"), {
+    resources: {
+      "zia_url_categories.example": {
+        configured_name: { expression: "[\uFEFF]" },
+      },
+    },
+  });
+  const rootDirectory = path.join(workspace, "envs", "tenant", "zia_url_categories");
+  const mainPath = path.join(rootDirectory, "main.tf");
+  await mkdir(rootDirectory, { recursive: true });
+  await writeFile(mainPath, "preexisting root\n", "utf8");
+  const invalidDeployment = await loadDeployment(deploymentPath);
+  const invalidRoot = await committedRoot();
+  await assert.rejects(
+    () => generateEnvironmentRoots({
+      deployment: invalidDeployment,
+      formatHcl: async (source) => source,
+      root: invalidRoot,
+      selectors: ["zia_url_categories"],
+      tenant: "tenant",
+    }),
+    /outside the v1 allowlist/,
+  );
+  assert.equal(await readFile(mainPath, "utf8"), "preexisting root\n");
 });
 
 test("backend marker survives regeneration and profile/reduced-pack variants generate without Python", async (context) => {

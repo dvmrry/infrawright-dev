@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { parseDataJsonLosslessly } from "../json/control.js";
@@ -45,17 +45,16 @@ function record(value: unknown): value is JsonRecord {
 
 async function exists(file: string): Promise<boolean> {
   try {
-    await lstat(file);
+    await stat(file);
     return true;
-  } catch (error: unknown) {
-    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
-      return false;
-    }
-    throw error;
+  } catch {
+    // Match Python os.path.exists: follow links and treat a failed stat as absent.
+    return false;
   }
 }
 
 async function removeIfPresent(file: string): Promise<boolean> {
+  if (!(await exists(file))) return false;
   try {
     await unlink(file);
     return true;

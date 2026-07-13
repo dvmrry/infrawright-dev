@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { LosslessNumber } from "lossless-json";
+import { renderPythonLosslessArtifactJson } from "../node-src/json/python-lossless-artifact.js";
 
 import {
   HclExpression,
@@ -86,6 +87,7 @@ test("malformed expressions, paths, addresses, and secret-bearing metadata fail 
     "module.groups.items[1.2].id",
     "module.groups.items[01x].id",
     "var.secret\n",
+    "[\uFEFF]",
     "",
   ]) {
     assert.throws(
@@ -124,6 +126,28 @@ test("malformed expressions, paths, addresses, and secret-bearing metadata fail 
       /unknown key/,
     );
   }
+});
+
+test("Terraform JSON conversion preserves arbitrary-size numeric scalars", () => {
+  const converted = toTerraformJsonValue({
+    decimal: new LosslessNumber("1.2500"),
+    integer: new LosslessNumber("900719925474099312345"),
+    nested: [new LosslessNumber("2"), new HclExpression("local.value")],
+  });
+  assert.equal(
+    renderPythonLosslessArtifactJson(converted),
+    [
+      "{",
+      '  "decimal": 1.25,',
+      '  "integer": 900719925474099312345,',
+      '  "nested": [',
+      "    2,",
+      '    "${local.value}"',
+      "  ]",
+      "}",
+      "",
+    ].join("\n"),
+  );
 });
 
 test("binding path validation rejects unknown items, missing parents/leaves, and conflicts", () => {
