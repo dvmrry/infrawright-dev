@@ -194,10 +194,12 @@
 
 - Finding: Make could export deployment A while explicitly passing deployment
   B to selected CLI commands.
-- Fix: `DEPLOYMENT` is the Make authority; absent that, a nonempty imported
-  `INFRAWRIGHT_DEPLOYMENT` is used, then `deployment.json`. The resolved value
-  is exported and every explicit `--deployment` matches it. A recording fake
-  CLI covers all 16 deployment-consuming targets plus the nested demo override.
+- Fix: the imported `INFRAWRIGHT_DEPLOYMENT` fallback is snapshotted before
+  `DEPLOYMENT` is resolved, then the exported `INFRAWRIGHT_DEPLOYMENT` expands
+  lazily from `DEPLOYMENT` in the active target context. Command-line, global,
+  included-overlay target-specific, and nested Make values therefore remain
+  coherent, and every explicit `--deployment` matches. A recording fake CLI
+  covers all 16 deployment-consuming targets plus the nested demo override.
 - Finding: a second Transform/Adopt could erase the only unapplied move after
   the imports baseline advanced.
 - Fix: move derivation and conflict checks precede persistent writes. Existing
@@ -236,6 +238,14 @@
   remain portable. Help-looking option values cannot bypass the guard. A
   win32-mocked built-CLI regression proves missing metadata/executable paths
   are not inspected and an existing saved pair remains byte-identical.
+- Final patch review finding: the first deployment export used immediate
+  assignment, so target-specific `DEPLOYMENT` from an included Makefile could
+  leave the exported environment at the global value while argv used the
+  target value.
+- Final patch review fix: preserve only the imported fallback immediately and
+  export the resolved authority recursively. An included-overlay regression
+  applies one target-specific deployment to all 16 deployment-consuming
+  operational targets and requires environment/argv equality.
 
 ## Historical #194/#195 CI Record
 

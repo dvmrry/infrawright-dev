@@ -177,11 +177,19 @@ test("every deployment-consuming Make target uses one resolved deployment author
       "assert-adoptable",
       "apply",
     ] as const;
+    const overlay = path.join(directory, "overlay");
+    await mkdir(overlay);
+    await writeFile(
+      path.join(overlay, "Makefile"),
+      `${targets.join(" ")}: DEPLOYMENT = target-specific.json\n`,
+      "utf8",
+    );
     const cases = [
-      { environment: undefined, makeValue: undefined, expected: "deployment.json" },
-      { environment: "environment-a.json", makeValue: undefined, expected: "environment-a.json" },
-      { environment: undefined, makeValue: "make-b.json", expected: "make-b.json" },
-      { environment: "environment-a.json", makeValue: "make-b.json", expected: "make-b.json" },
+      { environment: undefined, makeValue: undefined, overlay: "", expected: "deployment.json" },
+      { environment: "environment-a.json", makeValue: undefined, overlay: "", expected: "environment-a.json" },
+      { environment: undefined, makeValue: "make-b.json", overlay: "", expected: "make-b.json" },
+      { environment: "environment-a.json", makeValue: "make-b.json", overlay: "", expected: "make-b.json" },
+      { environment: "environment-a.json", makeValue: undefined, overlay, expected: "target-specific.json" },
     ] as const;
 
     for (const scenario of cases) {
@@ -197,7 +205,7 @@ test("every deployment-consuming Make target uses one resolved deployment author
           "--no-print-directory",
           "--silent",
           target,
-          "OVERLAY=",
+          `OVERLAY=${scenario.overlay}`,
           "TENANT=authority-tenant",
           "IN=/tmp/infrawright-authority-input",
           "PATHS_JSON=/tmp/infrawright-authority-paths.json",
