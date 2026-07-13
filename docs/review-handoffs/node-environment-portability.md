@@ -128,7 +128,18 @@
   - `node scripts/build-environment-preflight.mjs --manifest`
   - `node scripts/build-environment-preflight.mjs --platform darwin --arch arm64`
   - `node scripts/verify-runtime-release.mjs <accepted-#208-tree> ...`
-  - Final gate commands and exact results will be recorded before review.
+  - Final gate:
+    - `npm run typecheck`
+    - `npm run build`
+    - `npm run build:test` followed by every compiled Node test containing a
+      retained Python-oracle launch
+    - `python3 -m tests.run --catalog packsets/full.json -v`
+    - `make verify-runtime` with missing npm/Python executables
+    - `node scripts/test-runtime-release.mjs`
+    - `python3 -m engine.audit_vendor_boundary`
+    - `git diff --check 5290334...HEAD`
+    - `npm audit --omit=dev`
+    - `npm test` once
 - Relevant output summary:
   - Focused preflight/oracle suite: 8 passed.
   - ZIA/ZPA/transform differentials with unsupported system Python and explicit
@@ -139,6 +150,21 @@
   - Simulated restricted-registry miss reports exactly
     `@esbuild/darwin-arm64@0.25.12` and redacts configured credentials and raw
     registry stderr.
+  - Final typecheck and production build passed. An initial build attempt using
+    a cross-worktree `node_modules` symlink was correctly rejected by the
+    existing importer-boundary guard; the gate used a physical copy of the
+    same pinned dependency tree and passed without source changes.
+  - All Node tests that launch Python: 386 passed, 1 macOS/Linux-specific skip,
+    0 failed across 387 tests.
+  - Retained Python suite: 1,400 passed, 1 external-provider-source skip.
+  - Explicit `make verify-runtime` passed with npm and Python missing.
+  - Exact-archive stripped-runtime smoke passed for `bfc0772` with npm, npx,
+    Python, source, the lockfile, TypeScript configuration, and `node_modules`
+    absent from the runtime tree.
+  - Vendor audit: 0 violations. Production dependency audit: 0
+    vulnerabilities. Whitespace check: clean.
+  - Complete `npm test`: 1,089 passed, 1 platform-specific skip, 0 failed
+    across 1,090 tests.
 - Tests not run and why:
   - No real restricted corporate registry is reachable from this workspace;
     its exact missing set must be obtained by running the credential-safe
