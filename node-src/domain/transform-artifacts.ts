@@ -548,18 +548,13 @@ export async function writeTransformArtifacts(options: {
   const written: string[] = [];
   const removed: string[] = [];
   const note = options.onDiagnostic ?? (() => undefined);
-  await mkdir(path.dirname(paths.config), { recursive: true });
-  await mkdir(path.dirname(paths.imports), { recursive: true });
-
-  if (options.lookupNameField !== null) {
-    await writeFile(paths.lookup, renderTransformLookup({
+  const lookupText = options.lookupNameField === null
+    ? null
+    : renderTransformLookup({
       items: options.result.items,
       originals: options.result.originals,
       nameField: options.lookupNameField,
-    }), "utf8");
-    written.push(paths.lookup);
-    note(`wrote ${paths.lookup}`);
-  }
+    });
 
   const template = typeof options.override.import_id === "string"
     ? options.override.import_id
@@ -573,15 +568,59 @@ export async function writeTransformArtifacts(options: {
   const moves = oldImports === null
     ? { moves: [], suppressed: [] }
     : deriveImportMoves(options.resourceType, oldImports, newImports);
-  if (moves.moves.length > 0) {
-    await writeFile(paths.moves, renderMovedBlocks(options.resourceType, moves.moves), "utf8");
+  const renderedMoves = moves.moves.length === 0
+    ? null
+    : renderMovedBlocks(options.resourceType, moves.moves);
+  const existingMoves = await readOptionalUtf8(paths.moves, `${options.resourceType} moves`);
+  if (
+    existingMoves !== null
+    && renderedMoves !== null
+    && existingMoves !== renderedMoves
+  ) {
+    throw new Error(
+      `unresolved/conflicting move evidence for ${options.resourceType}: ${paths.moves} already contains a different migration; preserve or explicitly resolve it before generating another rename`,
+    );
+  }
+
+  const configText = await renderDeploymentTfvars({
+    deployment: options.deployment,
+    items: options.result.items,
+    references: options.references,
+    resourceType: options.resourceType,
+    tenant: options.tenant,
+    variableName: options.variableName,
+  });
+  const binding = deriveGeneratedBindings({
+    context: options.bindingContext,
+    items: options.result.items,
+    lookupKeys: await lookupKeyMaps({
+      configDirectory: path.dirname(paths.config),
+      references: options.references,
+    }),
+    resourceType: options.resourceType,
+  });
+
+  await mkdir(path.dirname(paths.config), { recursive: true });
+  await mkdir(path.dirname(paths.imports), { recursive: true });
+
+  if (lookupText !== null) {
+    await writeFile(paths.lookup, lookupText, "utf8");
+    written.push(paths.lookup);
+    note(`wrote ${paths.lookup}`);
+  }
+
+  if (existingMoves === null && renderedMoves !== null) {
+    await writeFile(paths.moves, renderedMoves, "utf8");
     written.push(paths.moves);
     note(
       `RENAME(S) DETECTED: ${moves.moves.length} item(s) re-keyed — moved blocks staged in ${paths.moves}; copy into the env root alongside the imports file before plan/apply (RUNBOOK: Drift)`,
     );
-  } else if (await removeIfPresent(paths.moves)) {
-    removed.push(paths.moves);
-    note(`removed stale ${paths.moves} (no renames this run)`);
+  } else if (existingMoves !== null) {
+    note(
+      renderedMoves === null
+        ? `preserved unresolved move evidence ${paths.moves} (no newly derived moves this run)`
+        : `preserved byte-identical unresolved move evidence ${paths.moves}`,
+    );
   }
   for (const suppression of moves.suppressed) {
     note(
@@ -593,25 +632,9 @@ export async function writeTransformArtifacts(options: {
     removed.push(paths.staleConfig);
     note(`removed stale ${paths.staleConfig}`);
   }
-  await writeFile(paths.config, await renderDeploymentTfvars({
-    deployment: options.deployment,
-    items: options.result.items,
-    references: options.references,
-    resourceType: options.resourceType,
-    tenant: options.tenant,
-    variableName: options.variableName,
-  }), "utf8");
+  await writeFile(paths.config, configText, "utf8");
   written.push(paths.config);
 
-  const binding = deriveGeneratedBindings({
-    context: options.bindingContext,
-    items: options.result.items,
-    lookupKeys: await lookupKeyMaps({
-      configDirectory: path.dirname(paths.config),
-      references: options.references,
-    }),
-    resourceType: options.resourceType,
-  });
   for (const message of binding.notes) note(`NOTE bindings: ${message}`);
   if (Object.keys(binding.data.resources).length > 0) {
     await writeFile(paths.generatedBindings, renderGeneratedBindings(binding.data), "utf8");

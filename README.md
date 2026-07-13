@@ -23,7 +23,7 @@ configuration truth:
 ```bash
 make fetch TENANT=<tenant> RESOURCE=<resource-or-provider>
 make adopt IN=pulls/<tenant> TENANT=<tenant> RESOURCE=<resource-or-provider>
-make gen-modules RESOURCE=<resource-type>  # omit RESOURCE to generate all active modules
+make gen-modules RESOURCE=<resource-or-provider>  # selected grouped roots include every member
 make gen-env TENANT=<tenant> RESOURCE=<resource-or-provider>
 make stage-imports TENANT=<tenant> RESOURCE=<resource-or-provider>
 make plan TENANT=<tenant> RESOURCE=<resource-or-provider> SAVE=1
@@ -37,7 +37,7 @@ What each step owns:
 |---|---|
 | `make fetch` | Gathers raw provider/API evidence into `pulls/<tenant>`. |
 | `make adopt` | Uses Terraform/OpenTofu import and provider state as the projection oracle, then writes config/import artifacts. |
-| `make gen-modules` | Generates the deployment-selected reusable Terraform modules. |
+| `make gen-modules` | Generates reusable Terraform modules; a selected grouped-root member expands to the complete root. |
 | `make gen-env` | Generates isolated env roots that source the selected module set. |
 | `make stage-imports` | Stages generated `import {}` and `moved {}` blocks into env roots. |
 | `make plan SAVE=1` | Produces saved plan artifacts for the safety gates. |
@@ -59,8 +59,10 @@ tenant is an outage, not a diff. infrawright is built to keep the state stable:
 
 - **Stable identity-derived keys** — the same live resource maps to the same `["key"]`
   every run, so its state address never moves.
-- **Automatic `moved {}` reconciliation** — when a key *does* change, it's emitted as a
-  move, not a recreate.
+- **Durable `moved {}` reconciliation** — when a key *does* change, it is
+  emitted as a move, not a recreate. Rerunning Transform or Adopt preserves
+  unresolved move bytes; a different rename fails closed until an operator
+  confirms the state migration and explicitly removes the old move artifact.
 - **Deterministic, verified output** — `make check` proves the committed demo
   config/import artifacts do not drift and that the module generator still
   renders every resource type.
@@ -99,7 +101,8 @@ may still run on Windows without implying Terraform support.
 `make demo-contract` is the local no-credentials proof for the shipped demo: it
 materializes the demo overlay, verifies committed demo config/import artifacts
 do not drift, checks there are no stale demo moved-block files, and validates
-the generated demo module tree. It does not run live provider import or
+the generated demo module tree. It consumes the shipped bundle without an npm
+rebuild or Python runtime. It does not run live provider import or
 Terraform/OpenTofu plan; the live plan contract begins with the primary
 adoption workflow above and requires real provider credentials.
 

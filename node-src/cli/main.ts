@@ -82,6 +82,7 @@ import {
   renderLegacyRootDiagnostics,
   renderLegacyRootTopology,
 } from "../process/legacy.js";
+import { sortedStrings } from "../json/python-compatible.js";
 
 const USAGE = [
   "usage:",
@@ -405,23 +406,29 @@ async function moduleOptions(arguments_: string[]): Promise<ModuleOptions> {
 
 async function modules(arguments_: string[]): Promise<number> {
   const options = await moduleOptions(arguments_);
-  const root = await loadPackRoot({
-    packsRoot: options.root,
-    profilePath: options.profile,
-    catalogPath: options.catalog,
-  });
-  const outputRoot = options.output
-    ?? deploymentModuleDir(await loadDeployment(options.deployment));
+  const [root, deployment] = await Promise.all([
+    loadPackRoot({
+      packsRoot: options.root,
+      profilePath: options.profile,
+      catalogPath: options.catalog,
+    }),
+    loadDeployment(options.deployment),
+  ]);
+  const outputRoot = options.output ?? deploymentModuleDir(deployment);
   const active = activeGeneratedResourceTypes(root);
-  const activeSet = new Set(active);
-  for (const resourceType of options.resources) {
-    if (!activeSet.has(resourceType)) {
-      throw new Error(`unknown active generated resource type ${JSON.stringify(resourceType)}`);
-    }
+  let resources = active;
+  if (options.resources.length > 0) {
+    const selected = loadedRootTopology({
+      deployment,
+      root,
+      selectors: options.resources,
+      tenant: null,
+    });
+    process.stderr.write(renderLegacyRootDiagnostics(selected.diagnostics));
+    resources = sortedStrings(new Set(
+      selected.topology.roots.flatMap((root_) => root_.members),
+    ));
   }
-  const resources = options.resources.length === 0
-    ? active
-    : options.resources;
   if (options.verb === "validate") {
     await validateGeneratedModuleTree(outputRoot, resources);
     process.stdout.write(

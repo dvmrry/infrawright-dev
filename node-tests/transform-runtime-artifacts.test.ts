@@ -15,6 +15,8 @@ import test from "node:test";
 import { decodeHTML } from "entities";
 
 import { runTransformBatch } from "../node-src/domain/transform-runner.js";
+import { stageImports } from "../node-src/domain/import-staging.js";
+import { planEnvironmentRoots } from "../node-src/domain/plan-lifecycle.js";
 import { pythonHtmlUnescapeGeneric } from "../node-src/domain/python-html-unescape.js";
 import {
   renderTransformLookup,
@@ -230,7 +232,7 @@ test("generic Python HTML unescape covers named, prefix, numeric, invalid, and t
   );
 });
 
-test("a console rename creates a moved block and the next stable run removes it", async (context) => {
+test("unresolved move evidence survives reruns, stages for plan, and rejects conflicts atomically", async (context) => {
   const workspace = await temporaryDirectory(context, "infrawright-runtime-moves-");
   const input = path.join(workspace, "input");
   const source = path.join(input, "zia_rule_labels.json");
@@ -244,18 +246,90 @@ test("a console rename creates a moved block and the next stable run removes it"
     tenant: "tenant",
   } as const;
   assert.deepEqual((await runTransformBatch(options)).failed, []);
+  const imports = path.join(workspace, "imports", "tenant", "zia_rule_labels_imports.tf");
+  const originalImports = await text(imports);
 
   await writeJson(source, [{ id: 7, name: "Renamed Thing" }]);
   assert.deepEqual((await runTransformBatch(options)).failed, []);
   const moves = path.join(workspace, "imports", "tenant", "zia_rule_labels_moves.tf");
-  assert.equal(await text(moves),
-    "moved {\n"
-      + "  from = module.zia_rule_labels.zia_rule_labels.this[\"original_name\"]\n"
-      + "  to   = module.zia_rule_labels.zia_rule_labels.this[\"renamed_thing\"]\n"
-      + "}\n");
+  const moveText = "moved {\n"
+    + "  from = module.zia_rule_labels.zia_rule_labels.this[\"original_name\"]\n"
+    + "  to   = module.zia_rule_labels.zia_rule_labels.this[\"renamed_thing\"]\n"
+    + "}\n";
+  assert.equal(await text(moves), moveText);
 
   assert.deepEqual((await runTransformBatch(options)).failed, []);
-  assert.equal(await exists(moves), false);
+  assert.equal(await text(moves), moveText);
+
+  const environmentRoot = path.join(
+    workspace,
+    "envs",
+    "tenant",
+    "zia_rule_labels",
+  );
+  await mkdir(environmentRoot, { recursive: true });
+  await writeFile(path.join(environmentRoot, "main.tf"), "terraform {}\n", "utf8");
+  assert.deepEqual(await stageImports({
+    deployment: options.deployment,
+    root,
+    selectors: ["zia_rule_labels"],
+    stateAware: false,
+    tenant: "tenant",
+    workspace,
+  }), { sources: 2, staged: 2 });
+  assert.equal(
+    await text(path.join(environmentRoot, "zia_rule_labels_moves.tf")),
+    moveText,
+  );
+  const planned: string[] = [];
+  assert.deepEqual(await planEnvironmentRoots({
+    deployment: options.deployment,
+    importsOnly: false,
+    root,
+    save: false,
+    selectors: ["zia_rule_labels"],
+    tenant: "tenant",
+    terraform: {
+      initialize: async () => undefined,
+      plan: async (request) => {
+        planned.push(request.directory);
+      },
+    },
+    workspace,
+  }), { planned: 1 });
+  assert.deepEqual(planned, [environmentRoot]);
+
+  await writeFile(imports, originalImports, "utf8");
+  assert.deepEqual((await runTransformBatch(options)).failed, []);
+  assert.equal(await text(moves), moveText);
+
+  const paths = transformArtifactPaths({
+    deployment: options.deployment,
+    resourceType: "zia_rule_labels",
+    tenant: "tenant",
+  });
+  await writeFile(paths.lookup, "lookup-before-conflict\n", "utf8");
+  await writeFile(paths.generatedBindings, "binding-before-conflict\n", "utf8");
+  const protectedArtifacts = [
+    paths.config,
+    paths.lookup,
+    paths.generatedBindings,
+    paths.imports,
+    paths.moves,
+  ] as const;
+  const before = await Promise.all(protectedArtifacts.map((file) => text(file)));
+  const diagnostics: string[] = [];
+  await writeJson(source, [{ id: 7, name: "Another Rename" }]);
+  const conflict = await runTransformBatch({
+    ...options,
+    onDiagnostic: (message) => diagnostics.push(message),
+  });
+  assert.deepEqual(conflict.failed, ["zia_rule_labels"]);
+  assert.match(diagnostics.join("\n"), /unresolved\/conflicting move evidence/u);
+  assert.deepEqual(
+    await Promise.all(protectedArtifacts.map((file) => text(file))),
+    before,
+  );
 });
 
 test("same-root references materialize generated binding JSON on the first batch", async (context) => {

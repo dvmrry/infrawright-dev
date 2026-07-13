@@ -201,6 +201,41 @@ test("provider-state survivors own tfvars while raw identity owns keys/imports/l
   });
 });
 
+test("Adopt preserves unresolved move evidence on an identical rerun", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-adopt-durable-moves-");
+  const input = path.join(workspace, "pulls");
+  const source = path.join(input, "zia_rule_labels.json");
+  const root = await committedRoot();
+  let currentName = "Original Name";
+  const stateLoader: AdoptionStateLoader = async (request) => new Map(
+    [...request.keyToImportId].map(([key]) => [key, {
+      address: "zia_rule_labels.fixture",
+      sensitiveValues: {},
+      values: { id: "1", name: currentName },
+    }]),
+  );
+  const options = {
+    deployment: deployment(workspace),
+    inputDirectory: input,
+    policy: await loadAdoptionPolicy({ root }),
+    root,
+    selectors: ["zia_rule_labels"],
+    stateLoader,
+    tenant: "tenant",
+  } as const;
+
+  await writeJson(source, [{ id: "1", name: currentName }]);
+  assert.deepEqual((await runAdoptBatch(options)).failed, []);
+  currentName = "Renamed Thing";
+  await writeJson(source, [{ id: "1", name: currentName }]);
+  assert.deepEqual((await runAdoptBatch(options)).failed, []);
+  const moves = path.join(workspace, "imports", "tenant", "zia_rule_labels_moves.tf");
+  const moveBytes = await readFile(moves);
+
+  assert.deepEqual((await runAdoptBatch(options)).failed, []);
+  assert.deepEqual(await readFile(moves), moveBytes);
+});
+
 test("escaped-brace import templates survive the complete adoption artifact path", async (context) => {
   const workspace = await temporaryDirectory(context, "infrawright-adopt-escaped-template-");
   const input = path.join(workspace, "pulls");

@@ -3,14 +3,10 @@ NODE ?= node
 NPM ?= npm
 TF ?= terraform
 OVERLAY ?= demo
-DEPLOYMENT ?= deployment.json
+DEPLOYMENT ?= $(if $(strip $(INFRAWRIGHT_DEPLOYMENT)),$(INFRAWRIGHT_DEPLOYMENT),deployment.json)
 PACK_PROFILE ?= packsets/full.json
 PACK_CATALOG ?= packsets/full.json
 DEMO_PACK_REQUIREMENTS ?= demo/pack-requirements.json
-# Every engine invocation must see the selected deployment. ?= keeps an
-# explicitly exported INFRAWRIGHT_DEPLOYMENT from the caller authoritative;
-# recipe-level overrides (check-demo, check-modules) still win per-command.
-export INFRAWRIGHT_DEPLOYMENT ?= $(DEPLOYMENT)
 DEMO_DEPLOYMENT ?= demo/deployment.json
 INFRAWRIGHT_CLI ?= $(NODE) dist/infrawright-cli.mjs
 MODULE_DIR ?= $(shell INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(INFRAWRIGHT_CLI) deployment module-dir)
@@ -21,6 +17,13 @@ ifneq ($(strip $(OVERLAY)),)
 -include $(OVERLAY)/Makefile
 -include $(OVERLAY)/local.mk
 endif
+
+# DEPLOYMENT is the single Make-level authority. An imported nonempty
+# INFRAWRIGHT_DEPLOYMENT supplies its default, while command-line/overlay
+# DEPLOYMENT values win and are exported coherently to every recipe and nested
+# Make invocation.
+override INFRAWRIGHT_DEPLOYMENT := $(DEPLOYMENT)
+export INFRAWRIGHT_DEPLOYMENT
 
 .PHONY: metadata-cli check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set deployment resources resources-reference-order gen-modules validate-modules audit-vendor-boundary demo-contract check check-all check-core test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 

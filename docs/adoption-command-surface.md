@@ -293,11 +293,24 @@ CLI prints:
 NOTE: selecting <member> selects whole root <root_label>; also operating on <other_members>
 ```
 
+The operational `gen-modules` and `validate-modules` commands use this same
+expansion whenever a deployment and selector are supplied. Thus selecting
+either grouped member materializes and validates the complete module set that
+`gen-env` references. The low-level module renderer remains exact-resource.
+
 `stage-imports` copies every selected root member's
 `<resource_type>_imports.tf` and `<resource_type>_moves.tf` into the shared root.
 `plan` passes one `-var-file` for each member config file that exists and emits
 a skip note for missing member config. `assert-clean`, `assert-adoptable`,
 `clean-plans`, and `apply` operate once per root plan.
+
+An existing generated moves file is durable unresolved migration evidence.
+Transform and Adopt preserve it byte-for-byte when a rerun derives no new move
+or rederives the same bytes. A different newly derived move set fails closed
+before any config, lookup, binding, imports, or moves output is changed. The
+engine never removes an existing moves file merely because the imports
+baseline has advanced; explicit removal is an operator decision after the
+corresponding state migration is confirmed.
 
 When `bind_references` is true, transform/adopt may write
 `config/<tenant>/<resource_type>.generated.expressions.json` beside the
@@ -352,7 +365,7 @@ These commands keep the shipped demo and generators healthy:
 | Command | Responsibility |
 |---|---|
 | `make demo` | Overlay-owned demo workflow from `demo/Makefile`; materializes demo config/import artifacts and local generated modules. |
-| `make demo-contract` | Credential-free demo contract check: materializes the demo, verifies committed demo config/import artifacts do not drift, rejects stale demo moved-block files, and checks the generated demo module tree. |
+| `make demo-contract` | Credential-free demo contract check: consumes the shipped bundle without npm/Python, materializes the demo, verifies committed demo config/import artifacts do not drift, rejects stale demo moved-block files, and checks the generated demo module tree. |
 | `make check-demo` | Verifies committed demo config/import artifacts do not drift. |
 | `make check-modules` | Generates modules in a temporary deployment and checks generator output. |
 | `make test` | Runs unit tests. |

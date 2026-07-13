@@ -58,13 +58,15 @@ async function mustBeAbsent(file) {
 if (process.platform === "win32") {
   throw new Error("the local release staging smoke requires a macOS/Linux release host");
 }
-if (run("git", ["status", "--porcelain", "--untracked-files=no"]).stdout !== "") {
+const gitExecutable = run("sh", ["-c", "command -v git"]).stdout.trim();
+if (gitExecutable.length === 0) throw new Error("release staging smoke requires git");
+if (run(gitExecutable, ["status", "--porcelain", "--untracked-files=no"]).stdout !== "") {
   throw new Error("release staging smoke requires a committed Slice-4 tree");
 }
 const makeExecutable = run("sh", ["-c", "command -v make"]).stdout.trim();
 if (makeExecutable.length === 0) throw new Error("release staging smoke requires make");
 
-const commit = run("git", ["rev-parse", "HEAD"]).stdout.trim();
+const commit = run(gitExecutable, ["rev-parse", "HEAD"]).stdout.trim();
 const temporary = await mkdtemp(path.join(os.tmpdir(), "infrawright-runtime-release-"));
 const archive = path.join(temporary, "slice.tar");
 const stage = path.join(temporary, "archive");
@@ -73,7 +75,7 @@ const intercept = path.join(temporary, "intercept");
 
 try {
   await mkdir(stage);
-  run("git", ["archive", "--format=tar", `--output=${archive}`, commit]);
+  run(gitExecutable, ["archive", "--format=tar", `--output=${archive}`, commit]);
   run("tar", ["-xf", archive, "-C", stage]);
   run("npm", ["ci", "--ignore-scripts"], { cwd: stage, timeout: 240_000 });
   run("npm", ["run", "build"], { cwd: stage, timeout: 240_000 });
@@ -101,14 +103,35 @@ try {
     mustBeAbsent(path.join(generic, "dist", "infrawright-zcc-collector-child.mjs")),
   ]);
 
+  run(gitExecutable, ["init", "--quiet"], { cwd: generic });
+  run(gitExecutable, ["config", "user.email", "runtime-smoke@example.invalid"], { cwd: generic });
+  run(gitExecutable, ["config", "user.name", "Runtime Smoke"], { cwd: generic });
+  run(gitExecutable, ["add", "demo/config/demo", "demo/imports/demo"], { cwd: generic });
+  run(gitExecutable, ["commit", "--quiet", "-m", "runtime smoke baseline"], { cwd: generic });
+
   await mkdir(intercept);
   const forbiddenToolLog = path.join(temporary, "forbidden-tool-invoked");
   const shim = `#!/bin/sh\nprintf '%s\\n' "$0 $*" >> ${shellLiteral(forbiddenToolLog)}\nexit 97\n`;
-  for (const name of ["npm-must-not-run", "python", "python3", "python-must-not-run"]) {
+  for (const name of ["npm", "npm-must-not-run", "python", "python3", "python-must-not-run"]) {
     const file = path.join(intercept, name);
     await writeFile(file, shim, "utf8");
     await chmod(file, 0o755);
   }
+  const gitShim = path.join(intercept, "git");
+  await writeFile(gitShim, `#!/bin/sh\nexec ${shellLiteral(gitExecutable)} "$@"\n`, "utf8");
+  await chmod(gitShim, 0o755);
+  const findExecutable = run("sh", ["-c", "command -v find"]).stdout.trim();
+  if (findExecutable.length === 0) throw new Error("release staging smoke requires find");
+  const findShim = path.join(intercept, "find");
+  await writeFile(findShim, `#!/bin/sh\nexec ${shellLiteral(findExecutable)} "$@"\n`, "utf8");
+  await chmod(findShim, 0o755);
+  const terraform = path.join(intercept, "terraform");
+  await writeFile(
+    terraform,
+    "#!/bin/sh\nif [ \"$1\" = fmt ]; then\n  if [ \"${2-}\" = - ]; then /bin/cat; fi\n  exit 0\nfi\nexit 96\n",
+    "utf8",
+  );
+  await chmod(terraform, 0o755);
   const environment = {
     ...process.env,
     INFRAWRIGHT_DEPLOYMENT: "",
@@ -157,6 +180,29 @@ try {
   if (makeResult.stdout !== "zia_url_categories\n") {
     throw new Error(`unexpected no-install Make output: ${makeResult.stdout}`);
   }
+  const demoResult = run(makeExecutable, [
+    "--no-print-directory",
+    "--silent",
+    "demo-contract",
+    `NODE=${process.execPath}`,
+    `NPM=${path.join(intercept, "npm-must-not-run")}`,
+    `PYTHON=${path.join(intercept, "python-must-not-run")}`,
+    `TF=${terraform}`,
+    "SHELL=/bin/sh",
+    "OVERLAY=demo",
+    "DEPLOYMENT=demo/deployment.json",
+    "DEMO_DEPLOYMENT=demo/deployment.json",
+    "PACK_PROFILE=packsets/full.json",
+    "PACK_CATALOG=packsets/full.json",
+  ], { cwd: generic, env: environment, timeout: 240_000 });
+  if (!demoResult.stdout.includes("demo-contract: committed demo config/imports and generated modules are in sync")) {
+    throw new Error(`unexpected stripped demo-contract output: ${demoResult.stdout}`);
+  }
+  await Promise.all([
+    access(path.join(generic, "demo", "modules", "default", "zia_url_categories", "main.tf")),
+    access(path.join(generic, "demo", "config", "demo", "zia_url_categories.auto.tfvars.json")),
+    access(path.join(generic, "demo", "imports", "demo", "zia_url_categories_imports.tf")),
+  ]);
   await mustBeAbsent(forbiddenToolLog);
   process.stdout.write(`local runtime release smoke passed for ${commit}\n`);
 } finally {

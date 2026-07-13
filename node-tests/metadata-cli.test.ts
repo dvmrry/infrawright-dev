@@ -162,6 +162,120 @@ test("module CLI generates and validates one real module without Python", async 
   }
 });
 
+test("selected module generation and validation expand complete deployment roots", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-cli-grouped-modules-"));
+  try {
+    const deployment = path.join(directory, "deployment.json");
+    const modulesA = path.join(directory, "modules-a");
+    const modulesB = path.join(directory, "modules-b");
+    await writeJson(deployment, {
+      overlay: directory,
+      module_dir: modulesA,
+      roots: {
+        zpa: {
+          groups: {
+            zpa_custom: ["zpa_segment_group", "zpa_server_group"],
+          },
+        },
+      },
+    });
+    const metadata = [
+      "--deployment",
+      deployment,
+      "--root",
+      path.join(ROOT, "packs"),
+      "--profile",
+      path.join(ROOT, "packsets", "full.json"),
+      "--catalog",
+      path.join(ROOT, "packsets", "full.json"),
+    ];
+
+    const generatedA = run([
+      "modules",
+      "generate",
+      ...metadata,
+      "--resource",
+      "zpa_segment_group",
+      "--terraform",
+      "terraform",
+    ]);
+    assert.equal(generatedA.status, 0, generatedA.stderr);
+    assert.match(generatedA.stdout, /^generated 2 module\(s\),/u);
+    assert.match(generatedA.stderr, /selecting zpa_segment_group selects whole root zpa_custom/u);
+    await Promise.all([
+      stat(path.join(modulesA, "zpa_segment_group", "main.tf")),
+      stat(path.join(modulesA, "zpa_server_group", "main.tf")),
+    ]);
+    const validatedA = run([
+      "modules",
+      "validate",
+      ...metadata,
+      "--resource",
+      "zpa_segment_group",
+    ]);
+    assert.equal(validatedA.status, 0, validatedA.stderr);
+    assert.equal(
+      validatedA.stdout,
+      `validated generated module tree ${modulesA}: 2 module(s)\n`,
+    );
+
+    const generatedB = run([
+      "modules",
+      "generate",
+      ...metadata,
+      "--out",
+      modulesB,
+      "--resource",
+      "zpa_server_group",
+      "--terraform",
+      "terraform",
+    ]);
+    assert.equal(generatedB.status, 0, generatedB.stderr);
+    assert.match(generatedB.stdout, /^generated 2 module\(s\),/u);
+    await Promise.all([
+      stat(path.join(modulesB, "zpa_segment_group", "main.tf")),
+      stat(path.join(modulesB, "zpa_server_group", "main.tf")),
+    ]);
+    const validatedB = run([
+      "modules",
+      "validate",
+      ...metadata,
+      "--out",
+      modulesB,
+      "--resource",
+      "zpa_server_group",
+    ]);
+    assert.equal(validatedB.status, 0, validatedB.stderr);
+    assert.equal(
+      validatedB.stdout,
+      `validated generated module tree ${modulesB}: 2 module(s)\n`,
+    );
+
+    const environment = run([
+      "gen-env",
+      "--tenant",
+      "tenant",
+      ...metadata,
+      "--resource",
+      "zpa_segment_group",
+      "--terraform",
+      "terraform",
+    ]);
+    assert.equal(environment.status, 0, environment.stderr);
+    const rootMain = await readFile(
+      path.join(directory, "envs", "tenant", "zpa_custom", "main.tf"),
+      "utf8",
+    );
+    assert.match(rootMain, /module "zpa_segment_group"/u);
+    assert.match(rootMain, /module "zpa_server_group"/u);
+    for (const member of ["zpa_segment_group", "zpa_server_group"]) {
+      await stat(path.join(modulesA, member, "main.tf"));
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("CLI distinguishes usage failures from metadata failures", () => {
   const usage = run(["deployment", "unknown"]);
   assert.equal(usage.status, 2);

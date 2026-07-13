@@ -35,7 +35,9 @@ import-only Apply checklists.
   remote backends have different retention and audit requirements.
 - Start from a clean working tree or an isolated worktree.
 - Select the active deployment and overlay with `DEPLOYMENT=<file>` and
-  `OVERLAY=<path>` when the default demo deployment is not the target.
+  `OVERLAY=<path>` when the default demo deployment is not the target. A Make
+  `DEPLOYMENT` value is authoritative; otherwise a nonempty imported
+  `INFRAWRIGHT_DEPLOYMENT` is used, then `deployment.json`.
 - Treat generated plans, state, logs, raw API details, and provider diagnostics
   as sensitive local artifacts.
 
@@ -46,7 +48,7 @@ Run the primary adoption sequence for one provider or resource scope:
 ```sh
 make fetch TENANT=<tenant> RESOURCE=<resource-or-provider>
 make adopt IN=pulls/<tenant> TENANT=<tenant> RESOURCE=<resource-or-provider>
-make gen-modules RESOURCE=<resource-type>  # omit RESOURCE to generate all active modules
+make gen-modules RESOURCE=<resource-or-provider>  # grouped selection expands to the complete root
 make gen-env TENANT=<tenant> RESOURCE=<resource-or-provider>
 make stage-imports TENANT=<tenant> RESOURCE=<resource-or-provider>
 make plan TENANT=<tenant> RESOURCE=<resource-or-provider> SAVE=1
@@ -62,6 +64,19 @@ roots. Configure that root as the exact canonical deployment overlay; a
 containing ancestor is not a second valid authority. The ADO path convention,
 publisher-guard behavior, and stale cleanup rules are defined in
 [ADR 0001](adr/0001-publisher-ownership.md).
+
+Selective `gen-modules`, `validate-modules`, `gen-env`, staging, planning, and
+Apply resolve through the same deployment topology. Selecting either member
+of a grouped root therefore generates and validates every module referenced by
+that root. Omitting `RESOURCE` remains the simplest qualification path because
+it generates every active module.
+
+Generated `<resource_type>_moves.tf` files are durable unresolved migration
+evidence. Repeating Transform or Adopt preserves them byte-for-byte. If a new
+rename would conflict with an existing move artifact, artifact generation
+fails before changing config, imports, lookups, bindings, or moves. Remove a
+move file explicitly only after confirming that its state migration has been
+applied (and after any required staged copy is no longer needed).
 
 ### Frozen ZCC migration note
 

@@ -65,6 +65,11 @@ is absent; source-file timestamps from a fresh checkout do not authorize a
 runtime rebuild. Maintainers explicitly rebuild changed Node sources with
 `make metadata-cli` or the normal `npm run build` development gate.
 
+Make resolves one deployment authority for the entire invocation and exports
+it to every recipe and nested Make: command-line/Make `DEPLOYMENT` wins, then a
+nonempty imported `INFRAWRIGHT_DEPLOYMENT`, then `deployment.json`. Any
+explicit CLI `--deployment` emitted by Make uses that same resolved value.
+
 The metadata and module surfaces are ordinary Make adapters too:
 
 ```sh
@@ -74,6 +79,10 @@ make resources-reference-order RESOURCE=zia_url_categories
 make gen-modules RESOURCE=zia_url_categories
 make validate-modules RESOURCE=zia_url_categories
 ```
+
+With an explicit deployment, module selectors are closed under its root
+topology. Selecting either member of a grouped root generates or validates all
+members that `gen-env` will reference; ungrouped resources remain narrow.
 
 Python-backed targets that intentionally remain outside the operational
 runtime are `test`, `audit-vendor-boundary`, `reconcile`, `openapi-map`,
@@ -96,6 +105,11 @@ requires `npm ci --ignore-scripts` and the normal production build; running the
 result requires Node 24 and does not require `npm install`, `node_modules`, or
 Python. The checksum detects accidental byte corruption but is not a signature;
 release/tag trust remains authoritative.
+
+The exact-archive stripped-runtime smoke also runs `make demo-contract` after
+removing `node_modules`, Python operational sources, transition catalogs, and
+legacy bundles. npm and Python tripwires prove the demo consumes only the
+shipped generic bundle plus fake Terraform.
 
 The bundle discovers its adjacent `package.json`, while operational inputs may
 be selected explicitly with `--root`, `--profile`, `--catalog`, and

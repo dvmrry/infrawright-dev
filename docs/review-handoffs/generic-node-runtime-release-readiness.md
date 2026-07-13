@@ -29,27 +29,35 @@
 
 ## Files Changed
 
-- Production/release/documentation (13 files, approximately 540 net lines):
+- Production/release/documentation (15 files; exact additions/deletions are
+  reported with the final review request):
   - `.github/workflows/check.yml`
   - `Makefile`
   - `README.md`
+  - `demo/Makefile`
   - `docs/adoption-command-surface.md`
   - `docs/integration-validation.md`
   - `docs/node-process-api.md`
   - `docs/operational-runtime.md`
+  - `node-src/cli/main.ts`
   - `node-src/domain/plan-report.ts`
-  - `package.json`
+  - `node-src/domain/transform-artifacts.ts`
   - `scripts/build-metadata-cli.mjs`
   - `scripts/release.sh`
   - `scripts/test-runtime-release.mjs`
   - `scripts/verify-runtime-release.mjs`
 - Tests:
+  - `node-tests/adopt-runner.test.ts`
   - `node-tests/cli-bundle.test.ts`
+  - `node-tests/metadata-cli.test.ts`
   - `node-tests/operational-runtime-smoke.test.ts`
+  - `node-tests/plan-cli.test.ts`
   - `node-tests/plan-report.test.ts`
+  - `node-tests/transform-runtime-artifacts.test.ts`
 - Handoff: this file. Tests and this handoff are excluded from the line trigger;
-  this handoff is the fourteenth non-test changed file if counted toward the
-  file trigger, so neither authorized trigger is exceeded.
+  the final remediation adds nine non-test production/release/documentation
+  files to the previously reviewed #208 change set, below the authorized ten-
+  file trigger, and remains well below the 1,200-line trigger.
 - Intentionally untouched: accepted PR #203/#206/#207 commits, authoring PR
   #200/#201/#202/#204/#205 heads, PR #191/#192 heads, transition catalogs,
   frozen process-host/collector-child code and package entries, Python
@@ -113,6 +121,19 @@
   root result, exact-plan authorization, and strict v1 schema.
 - Documentation now identifies the generic bundle as primary and frozen ZCC
   process artifacts as retained legacy migration infrastructure.
+- Make now resolves one deployment authority and exports it to every recipe
+  and nested Make invocation. All deployment-consuming operational targets are
+  exercised with unset, environment-only, Make-only, and conflicting inputs.
+- Existing generated moves are durable unresolved evidence: identical or
+  empty re-derivations preserve exact bytes, while a different move set fails
+  before any persistent artifact changes. Transform and Adopt share the same
+  writer; staging and plan consumption are covered.
+- Operational selected-module generation and validation expand through the
+  deployment's existing root topology, so either grouped member materializes
+  the complete module set referenced by `gen-env`.
+- The stripped exact-archive smoke runs `make demo-contract` with npm/Python
+  tripwires and fake Terraform after operational Python, catalogs,
+  `node_modules`, and legacy bundles are removed.
 
 ## Invariants Claimed
 
@@ -136,11 +157,18 @@
 - Generic matcher/source precedence/provenance/provider-readiness invariants
   are unchanged; this slice does not alter those systems or claim additional
   provider coverage.
+- Unresolved generated move evidence is never silently replaced or removed.
+  Explicit operator removal is required after confirming the corresponding
+  state migration; no receipt, acknowledgement protocol, or state inspection
+  was added.
 
 ## Tests Run
 
 - Focused pre-review checks:
-  - generic CLI bundle/inventory and plan-report suites: 11/11 passed;
+  - deployment authority, module/root topology, Transform/Adopt artifacts,
+    staging, and plan lifecycle: 64/64 passed;
+  - generic CLI bundle/inventory and plan-report suites from the original
+    readiness slice: 11/11 passed;
   - built relocated Python-disabled operational workflow: 1/1 passed;
   - generic runtime verifier passed across all 11 profiles;
   - JavaScript syntax and whitespace checks passed.
@@ -164,6 +192,29 @@
 
 ## Review Remediation
 
+- Finding: Make could export deployment A while explicitly passing deployment
+  B to selected CLI commands.
+- Fix: `DEPLOYMENT` is the Make authority; absent that, a nonempty imported
+  `INFRAWRIGHT_DEPLOYMENT` is used, then `deployment.json`. The resolved value
+  is exported and every explicit `--deployment` matches it. A recording fake
+  CLI covers all 16 deployment-consuming targets plus the nested demo override.
+- Finding: a second Transform/Adopt could erase the only unapplied move after
+  the imports baseline advanced.
+- Fix: move derivation and conflict checks precede persistent writes. Existing
+  empty/identical re-derivations preserve exact bytes; a different move fails
+  closed before config, lookup, binding, imports, or moves change. Transform,
+  Adopt, staging, and a subsequent plan are covered.
+- Finding: selected module generation was exact-resource while `gen-env`
+  selected a complete grouped root.
+- Fix: the operational module CLI resolves selected resources through the
+  existing root topology. Selecting either member of a two-member group
+  generates and validates both, and the resulting root references only present
+  modules; ungrouped generation remains exact.
+- Finding: `demo-modules` always entered the development npm rebuild path.
+- Fix: it depends on the shipped bundle file, while `metadata-cli` remains the
+  explicit rebuild target. The exact-archive stripped-runtime smoke now runs
+  the complete demo contract under npm/Python tripwires.
+
 - Finding: operational Make targets could treat fresh-checkout source mtimes as
   authority to rebuild the shipped bundle after release staging removed
   `node_modules`.
@@ -185,6 +236,21 @@
   remain portable. Help-looking option values cannot bypass the guard. A
   win32-mocked built-CLI regression proves missing metadata/executable paths
   are not inspected and an existing saved pair remains byte-identical.
+
+## Historical #194/#195 CI Record
+
+- #194's focused generator review/tests and #195's focused transform review/
+  tests passed as recorded in their PR bodies. In both historical workflow
+  runs, every matrix job except `node-process-api` succeeded.
+- The `node-process-api` jobs were cancelled at the GitHub six-hour ceiling
+  while still in `Type, unit, and Python differential checks`; they did not
+  report a test assertion failure.
+- Downstream commit `f9020577d850f7d172f97a29c3928852d50c866c`
+  disabled the HashiCorp Terraform wrapper so stdin-based `terraform fmt -`
+  calls reach Terraform directly.
+- Those historical branches are intentionally not restacked. The cumulative
+  exact corrected-head #208 CI result is supplied in the PR evidence after the
+  final commit, because a commit cannot contain its own future CI result.
 
 ## Review Focus
 

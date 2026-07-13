@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -143,4 +143,119 @@ test("the authoritative operational inventory expands only to built Node CLI rou
   ], { cwd: ROOT, encoding: "utf8" });
   assert.equal(unknown.status, 2);
   assert.match(unknown.stderr, /^error: unknown command not-a-command/u);
+});
+
+test("every deployment-consuming Make target uses one resolved deployment authority", async () => {
+  buildBundle();
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-deployment-authority-"));
+  try {
+    const recorder = path.join(directory, "record.mjs");
+    const log = path.join(directory, "record.jsonl");
+    await writeFile(recorder, [
+      'import { appendFileSync } from "node:fs";',
+      "appendFileSync(process.env.INFRAWRIGHT_RECORD_FILE, JSON.stringify({",
+      "  argv: process.argv.slice(2),",
+      "  deployment: process.env.INFRAWRIGHT_DEPLOYMENT ?? null,",
+      '}) + "\\n");',
+    ].join("\n"), "utf8");
+
+    const targets = [
+      "deployment",
+      "gen-modules",
+      "validate-modules",
+      "transform",
+      "adopt",
+      "gen-env",
+      "roots",
+      "scope-paths",
+      "plan-roots",
+      "stage-imports",
+      "unstage-imports",
+      "plan",
+      "clean-plans",
+      "assert-clean",
+      "assert-adoptable",
+      "apply",
+    ] as const;
+    const cases = [
+      { environment: undefined, makeValue: undefined, expected: "deployment.json" },
+      { environment: "environment-a.json", makeValue: undefined, expected: "environment-a.json" },
+      { environment: undefined, makeValue: "make-b.json", expected: "make-b.json" },
+      { environment: "environment-a.json", makeValue: "make-b.json", expected: "make-b.json" },
+    ] as const;
+
+    for (const scenario of cases) {
+      for (const target of targets) {
+        await writeFile(log, "", "utf8");
+        const environment: Record<string, string> = {
+          ...process.env,
+          INFRAWRIGHT_RECORD_FILE: log,
+        };
+        if (scenario.environment === undefined) delete environment.INFRAWRIGHT_DEPLOYMENT;
+        else environment.INFRAWRIGHT_DEPLOYMENT = scenario.environment;
+        const arguments_ = [
+          "--no-print-directory",
+          "--silent",
+          target,
+          "OVERLAY=",
+          "TENANT=authority-tenant",
+          "IN=/tmp/infrawright-authority-input",
+          "PATHS_JSON=/tmp/infrawright-authority-paths.json",
+          `INFRAWRIGHT_CLI=${process.execPath} ${recorder}`,
+          "NPM=__NPM_MUST_NOT_RUN__",
+          "PYTHON=__PYTHON_MUST_NOT_RUN__",
+          "TF=__TERRAFORM__",
+          ...(scenario.makeValue === undefined ? [] : [`DEPLOYMENT=${scenario.makeValue}`]),
+        ];
+        const result = spawnSync("make", arguments_, {
+          cwd: ROOT,
+          encoding: "utf8",
+          env: environment,
+        });
+        assert.equal(result.status, 0, `${target}: ${result.stdout}${result.stderr}`);
+        const records = (await readFile(log, "utf8")).trim().split("\n").filter(Boolean).map((line) => {
+          return JSON.parse(line) as { argv: string[]; deployment: string | null };
+        });
+        assert.equal(records.length, 1, `${target}: ${JSON.stringify(records)}`);
+        const record = records[0];
+        assert.equal(record?.deployment, scenario.expected, target);
+        const deploymentIndex = record?.argv.indexOf("--deployment") ?? -1;
+        if (deploymentIndex >= 0) {
+          assert.equal(record?.argv[deploymentIndex + 1], scenario.expected, target);
+        }
+      }
+    }
+
+    await writeFile(log, "", "utf8");
+    const nested = spawnSync("make", [
+      "--no-print-directory",
+      "--silent",
+      "check-demo",
+      "DEPLOYMENT=outer-b.json",
+      "DEMO_DEPLOYMENT=nested-demo.json",
+      `INFRAWRIGHT_CLI=${process.execPath} ${recorder}`,
+      "NPM=__NPM_MUST_NOT_RUN__",
+      "PYTHON=__PYTHON_MUST_NOT_RUN__",
+      "TF=__TERRAFORM__",
+    ], {
+      cwd: ROOT,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        INFRAWRIGHT_DEPLOYMENT: "environment-a.json",
+        INFRAWRIGHT_RECORD_FILE: log,
+      },
+    });
+    assert.equal(nested.status, 0, `${nested.stdout}${nested.stderr}`);
+    const nestedRecords = (await readFile(log, "utf8")).trim().split("\n").filter(Boolean).map((line) => {
+      return JSON.parse(line) as { argv: string[]; deployment: string | null };
+    });
+    assert.equal(nestedRecords.length, 2);
+    assert.deepEqual(nestedRecords.map((record) => record.deployment), [
+      "nested-demo.json",
+      "nested-demo.json",
+    ]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
