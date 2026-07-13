@@ -221,7 +221,7 @@ class MakefileOverlayTest(unittest.TestCase):
             tfvars = proc.stdout.index("check-tfvars-fmt")
             self.assertLess(modules, tfvars)
 
-    def test_deployment_export_reaches_engine_invocations(self):
+    def test_deployment_authority_reaches_engine_invocations(self):
         with tempfile.TemporaryDirectory() as td:
             missing_overlay = os.path.join(td, "missing")
             hcl_dep = os.path.join(td, "hcl-deployment.json")
@@ -252,6 +252,14 @@ class MakefileOverlayTest(unittest.TestCase):
                 "--no-print-directory",
                 "OVERLAY=%s" % missing_overlay,
                 "DEPLOYMENT=%s" % hcl_dep,
+                probe,
+                "probe",
+            ], env=env)
+            self.assertEqual(proc.stdout, "hcl\n")
+
+            proc = _run_make([
+                "--no-print-directory",
+                "OVERLAY=%s" % missing_overlay,
                 probe,
                 "probe",
             ], env=env)

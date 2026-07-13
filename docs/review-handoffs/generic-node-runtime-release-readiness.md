@@ -54,6 +54,7 @@
   - `node-tests/plan-cli.test.ts`
   - `node-tests/plan-report.test.ts`
   - `node-tests/transform-runtime-artifacts.test.ts`
+  - `tests/test_makefile_overlay.py`
 - Handoff: this file. Tests and this handoff are excluded from the line trigger;
   the final remediation adds nine non-test production/release/documentation
   files to the previously reviewed #208 change set, below the authorized ten-
@@ -61,8 +62,9 @@
 - Intentionally untouched: accepted PR #203/#206/#207 commits, authoring PR
   #200/#201/#202/#204/#205 heads, PR #191/#192 heads, transition catalogs,
   frozen process-host/collector-child code and package entries, Python
-  implementation and tests, external pipelines, credentials, live backends,
-  providers, and deployment state.
+  implementation and provider/engine tests, external pipelines, credentials,
+  live backends, providers, and deployment state. One retained Python Make
+  overlay test is updated to the accepted deployment-precedence contract.
 
 ## Source Inputs Consulted
 
@@ -171,6 +173,8 @@
     readiness slice: 11/11 passed;
   - built relocated Python-disabled operational workflow: 1/1 passed;
   - generic runtime verifier passed across all 11 profiles;
+  - retained Python Make/overlay suite after the deployment-precedence update:
+    12/12 passed;
   - JavaScript syntax and whitespace checks passed.
 - The final exact-commit gate runs once after this handoff is committed:
   typecheck, production build, generic verifier, local release staging/relocated
@@ -246,6 +250,11 @@
   export the resolved authority recursively. An included-overlay regression
   applies one target-specific deployment to all 16 deployment-consuming
   operational targets and requires environment/argv equality.
+- Exact-head CI evidence correction: the retained Make overlay test still
+  expected the superseded ambient-environment precedence. It now asserts that
+  an explicit `DEPLOYMENT` wins while a nonempty imported
+  `INFRAWRIGHT_DEPLOYMENT` remains the fallback when `DEPLOYMENT` is absent;
+  no production behavior changed in this correction.
 
 ## Historical #194/#195 CI Record
 
