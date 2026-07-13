@@ -11,6 +11,7 @@ import {
   deploymentPath,
   deploymentTenantRoot,
   deploymentTfvarsFormat,
+  loadBoundAssessmentDeployment,
   loadDeployment,
 } from "../domain/deployment.js";
 import {
@@ -65,6 +66,7 @@ import {
   planEnvironmentRoots,
   type PlanTerraform,
 } from "../domain/plan-lifecycle.js";
+import { runSavedPlanAssertion } from "../domain/plan-assessment-runner.js";
 import {
   renderLegacyChangedPathScope,
   renderLegacyPlanRoots,
@@ -89,6 +91,8 @@ const USAGE = [
   "  infrawright plan-roots [--tenant <name>] [--resource <selector>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright plan --tenant <name> [--resource <selector>] [--imports-only] [--save] [--backend-config <file>] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright clean-plans [--tenant <name>] [--resource <selector>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
+  "  infrawright assert-clean [--tenant <name>] [--resource <selector>] [--backend-config <file>] [--report <file|->] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
+  "  infrawright assert-adoptable [--tenant <name>] [--resource <selector>] [--policy <file>] [--backend-config <file>] [--report <file|->] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright fetch --tenant <name> [--resource <selector>] [--out <dir>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright fetch-diag [--root <packs>] [--profile <file>] [--catalog <file>]",
 ].join("\n");
@@ -111,9 +115,13 @@ function usageError(message: string): never {
 
 const LEGACY_USAGE_FAILURE_CODES = new Set([
   "INVALID_CHANGED_PATHS",
+  "INVALID_ASSESSMENT_INPUT",
   "INVALID_DEPLOYMENT",
   "INVALID_ROOT_CONFIGURATION",
   "INVALID_TENANT",
+  "INVALID_DRIFT_POLICY",
+  "INVALID_TERRAFORM_SHOW_JSON",
+  "INVALID_TERRAFORM_SHOW_UTF8",
   "UNKNOWN_RESOURCE_SELECTOR",
 ]);
 
@@ -1100,6 +1108,122 @@ async function cleanPlansCommand(arguments_: string[]): Promise<number> {
   return 0;
 }
 
+interface AssessmentCliOptions extends RootQueryCliOptions {
+  readonly backendConfig?: string;
+  readonly policy?: string;
+  readonly report?: string;
+  readonly terraform?: string;
+}
+
+async function assessmentCliOptions(
+  arguments_: string[],
+  command: "assert-clean" | "assert-adoptable",
+): Promise<AssessmentCliOptions> {
+  const rootDirectory = await packageRoot();
+  let root = process.env.INFRAWRIGHT_PACKS || path.join(rootDirectory, "packs");
+  let profile = process.env.INFRAWRIGHT_PACK_PROFILE
+    || path.join(rootDirectory, "packsets", "full.json");
+  let catalog = path.join(rootDirectory, "packsets", "full.json");
+  let selectedDeployment = deploymentPath();
+  let tenant: string | undefined;
+  let backendConfig: string | undefined;
+  let policy: string | undefined;
+  let report: string | undefined;
+  let terraform: string | undefined;
+  const resources: string[] = [];
+  for (let index = 0; index < arguments_.length;) {
+    const argument = arguments_[index];
+    if (
+      argument === "--root"
+      || argument === "--profile"
+      || argument === "--catalog"
+      || argument === "--deployment"
+      || argument === "--tenant"
+      || argument === "--resource"
+      || argument === "--backend-config"
+      || argument === "--policy"
+      || argument === "--report"
+      || argument === "--terraform"
+    ) {
+      if (command === "assert-clean" && argument === "--policy") {
+        usageError("assert-clean does not accept --policy");
+      }
+      const option = takeOption(arguments_, index, argument, argument === "--tenant");
+      if (argument === "--root") root = option.value;
+      if (argument === "--profile") profile = option.value;
+      if (argument === "--catalog") catalog = option.value;
+      if (argument === "--deployment") selectedDeployment = option.value;
+      if (argument === "--tenant") {
+        if (tenant !== undefined) usageError("--tenant may be specified only once");
+        tenant = option.value;
+      }
+      if (argument === "--resource") resources.push(option.value);
+      if (argument === "--backend-config") backendConfig = option.value;
+      if (argument === "--policy") policy = option.value;
+      if (argument === "--report") {
+        if (report !== undefined) usageError("--report may be specified only once");
+        report = option.value;
+      }
+      if (argument === "--terraform") terraform = option.value;
+      index = option.next;
+    } else if (argument === "-h" || argument === "--help") {
+      throw new CliExit(USAGE, 0, true);
+    } else {
+      usageError(`${command} does not accept ${String(argument)}`);
+    }
+  }
+  return {
+    ...(backendConfig === undefined ? {} : { backendConfig }),
+    catalog,
+    deployment: selectedDeployment,
+    ...(policy === undefined ? {} : { policy }),
+    profile,
+    ...(report === undefined ? {} : { report }),
+    resources,
+    root,
+    ...(tenant === undefined ? {} : { tenant }),
+    ...(terraform === undefined ? {} : { terraform }),
+  };
+}
+
+async function assessmentCommand(
+  arguments_: string[],
+  command: "assert-clean" | "assert-adoptable",
+): Promise<number> {
+  const options = await assessmentCliOptions(arguments_, command);
+  await runSavedPlanAssertion({
+    backendConfig: options.backendConfig ?? null,
+    loadInputs: async () => {
+      const [packRoot, boundDeployment] = await Promise.all([
+        loadPackRoot({
+          packsRoot: options.root,
+          profilePath: options.profile,
+          catalogPath: options.catalog,
+        }),
+        loadBoundAssessmentDeployment(path.resolve(options.deployment)),
+      ]);
+      return {
+        deployment: boundDeployment.deployment,
+        root: packRoot,
+        controlFiles: [boundDeployment.file],
+      };
+    },
+    mode: command,
+    onDiagnostic: (message) => process.stderr.write(`${message}\n`),
+    policyPath: options.policy ?? null,
+    reportPath: options.report ?? null,
+    selectors: options.resources,
+    stdout: (text) => process.stdout.write(text),
+    tenant: options.tenant ?? null,
+    terraformExecutable: () => resolveTerraformExecutable(
+      options.terraform ?? process.env.TF,
+      process.env,
+    ),
+    workspace: process.cwd(),
+  });
+  return 0;
+}
+
 interface FetchCliOptions {
   readonly catalog: string;
   readonly output?: string;
@@ -1306,6 +1430,12 @@ async function main(arguments_: string[]): Promise<number> {
   }
   if (command === "clean-plans") {
     return legacyPlanLifecycleCommand(() => cleanPlansCommand(arguments_.slice(1)));
+  }
+  if (command === "assert-clean" || command === "assert-adoptable") {
+    return legacyPlanLifecycleCommand(() => assessmentCommand(
+      arguments_.slice(1),
+      command,
+    ));
   }
   if (command === "fetch") return fetchCommand(arguments_.slice(1));
   if (command === "fetch-diag") return fetchDiag(arguments_.slice(1));

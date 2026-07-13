@@ -461,7 +461,7 @@ test("report outcome retains completed roots when a later root fails", async () 
     assert.deepEqual(outcome.report.roots.map((root) => root.label), ["zpa_sample"]);
     assert.deepEqual(outcome.report.error, {
       kind: "assessment_error",
-      message: "Terraform show did not emit valid plan JSON",
+      message: "Expecting value: line 1 column 1 (char 0)",
     });
   });
 });

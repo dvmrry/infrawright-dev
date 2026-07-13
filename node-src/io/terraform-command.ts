@@ -304,7 +304,10 @@ export async function resolveTerraformExecutable(
       // Continue searching PATH candidates.
     }
   }
-  throw new Error(`unable to resolve Terraform executable ${JSON.stringify(requested)}`);
+  const pythonPath = `'${requested
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")}'`;
+  throw new Error(`[Errno 2] No such file or directory: ${pythonPath}`);
 }
 
 function snapshotArgv(value: readonly string[]): string[] {

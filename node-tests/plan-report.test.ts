@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
+import { LosslessNumber } from "lossless-json";
+
 import { ProcessFailure } from "../node-src/domain/errors.js";
 import { validateSavedPlanAssessment } from "../node-src/contracts/validators.js";
 import type { SavedPlanAssessmentCore } from "../node-src/domain/plan-assessment.js";
@@ -267,6 +269,68 @@ test("error report recomputes partial counts and leaves the source core unchange
     message: "sanitized assessment failure",
   });
   assert.equal(validateSavedPlanAssessment(error), true);
+});
+
+test("large guidance remains reportable and finite floats render like Python", () => {
+  const blocked = core("blocked");
+  const findingPath = "rules[0].map.key.quote\"slash\\";
+  const entries = Array.from({ length: 10_001 }, (_, index) => ({
+    lane: "absent_default",
+    source: "resource_changes",
+    address: 'zpa_sample.this["one"]',
+    finding_path: findingPath,
+    matched_plan_path: "rules[].map.key.quote\"slash\\",
+    status_effect: "informational only; plan remains blocked",
+    rule: `rule-${String(index).padStart(5, "0")}`,
+    observed_value: 0.5,
+  }));
+  const report = buildSavedPlanAssessmentReport({
+    mode: "assert-adoptable",
+    request: { tenant: "tenant", selectors: [], policy: "policy.json" },
+    core: blocked,
+    guidance: [{ tenant: "tenant", label: "zpa_custom", entries }],
+  });
+  assert.equal(report.roots[0]?.guidance.length, entries.length);
+  assert.match(
+    renderPythonCompatibleJson(report as unknown as JsonValue),
+    /"observed_value": 0\.5/u,
+  );
+});
+
+test("report rendering preserves Python float provenance from guidance JSON", () => {
+  const blocked = core("blocked");
+  const findingPath = "rules[0].map.key.quote\"slash\\";
+  const report = buildSavedPlanAssessmentReport({
+    mode: "assert-adoptable",
+    request: { tenant: "tenant", selectors: [], policy: "policy.json" },
+    core: blocked,
+    guidance: [{
+      tenant: "tenant",
+      label: "zpa_custom",
+      entries: [{
+        lane: "absent_default",
+        source: "resource_changes",
+        address: 'zpa_sample.this["one"]',
+        finding_path: findingPath,
+        matched_plan_path: "rules[].map.key.quote\"slash\\",
+        status_effect: "informational only; plan remains blocked",
+        rule: "float-provenance",
+        observed_value: new LosslessNumber("1.0"),
+      }],
+    }],
+  });
+  const rendered = renderPythonCompatibleJson(report as unknown as JsonValue);
+  assert.match(rendered, /"observed_value": 1\.0/u);
+  const python = spawnSync("python3", ["-c", [
+    "import json, sys",
+    "value = json.loads(sys.stdin.read())",
+    "sys.stdout.write(json.dumps(value, indent=2, sort_keys=True) + '\\n')",
+  ].join("; ")], {
+    input: rendered,
+    encoding: "utf8",
+  });
+  assert.equal(python.status, 0, python.stderr);
+  assert.equal(rendered, python.stdout);
 });
 
 test("assessment validator rejects contradictory report semantics", () => {

@@ -351,7 +351,9 @@ export async function loadPackMetadata(root: string): Promise<PackMetadata> {
     const directory = path.join(absolute, name);
     const manifestPath = path.join(directory, "pack.json");
     if (!(await isFile(manifestPath))) continue;
-    const data = validatePackManifest(await readJson(manifestPath), manifestPath);
+    const data = validatePackManifest(await readJson(manifestPath, {
+      preserveNumericTokensUnderKeys: new Set(["observed_value", "value"]),
+    }), manifestPath);
     manifests.push(manifestRecord(name, directory, manifestPath, data));
   }
 

@@ -1,3 +1,5 @@
+import { LosslessNumber } from "lossless-json";
+
 import { ProcessFailure } from "./errors.js";
 import type {
   AssessmentFinding,
@@ -88,8 +90,6 @@ const ASSESSMENT_ERROR_KINDS = new Set<AssessmentErrorKind>([
   "no_saved_plans",
   "policy_error",
 ]);
-const MAX_ASSESSMENT_GUIDANCE_ENTRIES = 10_000;
-const MAX_ASSESSMENT_GUIDANCE_NODES = 100_000;
 
 function fail(code: string, message: string): never {
   throw new ProcessFailure({ code, category: "domain", message });
@@ -98,7 +98,7 @@ function fail(code: string, message: string): never {
 function validatedReport(
   report: SavedPlanAssessmentReport,
 ): SavedPlanAssessmentReport {
-  if (!validateSavedPlanAssessment(report)) {
+  if (!validateSavedPlanAssessment(schemaValidationValue(report))) {
     throw new ProcessFailure({
       code: "INVALID_ASSESSMENT_REPORT",
       category: "internal",
@@ -107,6 +107,20 @@ function validatedReport(
     });
   }
   return report;
+}
+
+function schemaValidationValue(value: unknown): unknown {
+  if (value instanceof LosslessNumber) {
+    const parsed = Number(value.toString());
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  if (Array.isArray(value)) return value.map(schemaValidationValue);
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => {
+      return [key, schemaValidationValue(child)];
+    }));
+  }
+  return value;
 }
 
 export function formatConcretePlanPath(path: PlanPath): string {
@@ -146,7 +160,7 @@ function cloneJson(
   depth = 0,
 ): JsonValue {
   state.nodes += 1;
-  if (state.nodes > MAX_ASSESSMENT_GUIDANCE_NODES || depth > 64) {
+  if (depth > 64) {
     return fail("INVALID_ASSESSMENT_GUIDANCE", "assessment guidance is too complex");
   }
   if (
@@ -161,6 +175,9 @@ function cloneJson(
       return fail("INVALID_ASSESSMENT_GUIDANCE", "assessment guidance is not JSON");
     }
     return value;
+  }
+  if (value instanceof LosslessNumber) {
+    return new LosslessNumber(value.toString()) as unknown as JsonValue;
   }
   if (Array.isArray(value)) {
     return value.map((child) => cloneJson(child, state, depth + 1));
@@ -320,6 +337,9 @@ function guidanceMarker(value: JsonValue): string {
   if (typeof value === "number") {
     return Object.is(value, -0) ? "-0" : JSON.stringify(value);
   }
+  if (value instanceof LosslessNumber) {
+    return value.toString();
+  }
   if (Array.isArray(value)) {
     return `[${value.map(guidanceMarker).join(",")}]`;
   }
@@ -339,20 +359,12 @@ function buildRoots(
 ): AssessmentReportRoot[] {
   const roots = new Set(core.roots.map(rootKey));
   const byRoot = new Map<string, readonly Readonly<Record<string, unknown>>[]>();
-  let entryCount = 0;
   for (const group of guidance) {
     const key = rootKey(group);
     if (!roots.has(key) || byRoot.has(key)) {
       return fail(
         "INVALID_ASSESSMENT_GUIDANCE",
         "assessment guidance references an unknown or duplicate root",
-      );
-    }
-    entryCount += group.entries.length;
-    if (entryCount > MAX_ASSESSMENT_GUIDANCE_ENTRIES) {
-      return fail(
-        "INVALID_ASSESSMENT_GUIDANCE",
-        "assessment guidance exceeds the entry-count limit",
       );
     }
     byRoot.set(key, group.entries);

@@ -3,12 +3,14 @@ import path from "node:path";
 import { ProcessFailure } from "./errors.js";
 import type { BoundAssessmentControlFile } from "./control-evidence.js";
 import { pythonPosixJoin } from "./paths.js";
-import { planRoots } from "./plan-roots.js";
+import { loadedPlanRoots, planRoots } from "./plan-roots.js";
+import { transformArtifactPaths } from "./transform-artifacts.js";
 import type {
   SavedPlanAssessmentOptions,
   SavedPlanAssessmentRootInput,
 } from "./plan-assessment.js";
 import type { Deployment, RootCatalog, WholeRootDiagnostic } from "./types.js";
+import type { LoadedPackRoot } from "../metadata/loader.js";
 import type { TerraformShowLimits } from "../io/terraform-show.js";
 import { sameStringSequence } from "../json/python-compatible.js";
 
@@ -25,10 +27,31 @@ export interface ResolveSavedPlanAssessmentOptions {
   readonly terraformShowLimits?: TerraformShowLimits;
 }
 
+export interface ResolveLoadedSavedPlanAssessmentOptions {
+  readonly workspace: string;
+  readonly deployment: Deployment;
+  readonly root: LoadedPackRoot;
+  readonly tenant: string | null;
+  readonly selectors: readonly string[];
+  readonly terraformExecutable: string;
+  readonly backendConfig: string | null;
+  readonly policyPath: string | null;
+  readonly controlFiles?: readonly BoundAssessmentControlFile[];
+  readonly terraformShowLimits?: TerraformShowLimits;
+}
+
 export interface SavedPlanAssessmentContext {
   readonly workspace: string;
   readonly deployment: Deployment;
   readonly catalog: RootCatalog;
+  readonly tenant: string | null;
+  readonly selectors: readonly string[];
+}
+
+export interface LoadedSavedPlanAssessmentContext {
+  readonly workspace: string;
+  readonly deployment: Deployment;
+  readonly root: LoadedPackRoot;
   readonly tenant: string | null;
   readonly selectors: readonly string[];
 }
@@ -125,6 +148,18 @@ export function copySavedPlanAssessmentContext(
   };
 }
 
+export function copyLoadedSavedPlanAssessmentContext(
+  context: LoadedSavedPlanAssessmentContext,
+): LoadedSavedPlanAssessmentContext {
+  return {
+    workspace: context.workspace,
+    deployment: copyDeployment(context.deployment),
+    root: context.root,
+    tenant: context.tenant,
+    selectors: [...context.selectors],
+  };
+}
+
 async function materializeSavedPlanAssessmentRoots(
   supplied: SavedPlanAssessmentContext,
 ): Promise<{
@@ -214,6 +249,74 @@ export async function recheckSavedPlanAssessmentContext(
   }
 }
 
+async function materializeLoadedSavedPlanAssessmentRoots(
+  supplied: LoadedSavedPlanAssessmentContext,
+): Promise<{
+  readonly roots: readonly SavedPlanAssessmentRootInput[];
+  readonly diagnostics: readonly WholeRootDiagnostic[];
+}> {
+  const context = copyLoadedSavedPlanAssessmentContext(supplied);
+  if (!path.isAbsolute(context.workspace)) {
+    return fail("INVALID_WORKSPACE", "assessment workspace must be absolute");
+  }
+  const selected = await loadedPlanRoots({
+    workspace: context.workspace,
+    deployment: context.deployment,
+    root: context.root,
+    tenant: context.tenant,
+    selectors: context.selectors,
+  });
+  return {
+    roots: selected.result.roots
+      .filter((root) => root.artifacts.tfplan.exists)
+      .map((root): SavedPlanAssessmentRootInput => ({
+        tenant: root.tenant,
+        label: root.label,
+        members: [...root.members],
+        envDir: resolve(context.workspace, root.env_dir),
+        savedPlanPath: resolve(context.workspace, root.artifacts.tfplan.path),
+        fingerprintPath: resolve(
+          context.workspace,
+          root.artifacts.tfplan_sources.path,
+        ),
+        varFiles: root.members.map((resourceType) => resolve(
+          context.workspace,
+          transformArtifactPaths({
+            deployment: context.deployment,
+            resourceType,
+            tenant: root.tenant,
+          }).config,
+        )),
+      })),
+    diagnostics: selected.diagnostics.map((diagnostic) => ({
+      ...diagnostic,
+      selected_members: [...diagnostic.selected_members],
+      additional_members: [...diagnostic.additional_members],
+    })),
+  };
+}
+
+export async function recheckLoadedSavedPlanAssessmentContext(
+  context: LoadedSavedPlanAssessmentContext,
+  expectedRoots: readonly SavedPlanAssessmentRootInput[],
+): Promise<void> {
+  let current: readonly SavedPlanAssessmentRootInput[];
+  try {
+    current = (await materializeLoadedSavedPlanAssessmentRoots(context)).roots;
+  } catch {
+    return fail(
+      "ASSESSMENT_CONTEXT_CHANGED",
+      "saved-plan assessment context changed during assessment",
+    );
+  }
+  if (!sameAssessmentRoots(expectedRoots, current)) {
+    return fail(
+      "ASSESSMENT_CONTEXT_CHANGED",
+      "saved-plan assessment context changed during assessment",
+    );
+  }
+}
+
 /** Resolve public topology/artifact inputs into the narrow assessment core. */
 export interface ResolvedSavedPlanAssessment {
   readonly assessment: SavedPlanAssessmentOptions;
@@ -268,4 +371,49 @@ export async function resolveSavedPlanAssessmentOptions(
   options: ResolveSavedPlanAssessmentOptions,
 ): Promise<SavedPlanAssessmentOptions> {
   return (await resolveSavedPlanAssessment(options)).assessment;
+}
+
+/** Resolve the real active pack/deployment topology for operational CLI use. */
+export async function resolveLoadedSavedPlanAssessment(
+  options: ResolveLoadedSavedPlanAssessmentOptions,
+): Promise<ResolvedSavedPlanAssessment> {
+  const context = copyLoadedSavedPlanAssessmentContext({
+    workspace: options.workspace,
+    deployment: options.deployment,
+    root: options.root,
+    tenant: options.tenant,
+    selectors: options.selectors,
+  });
+  const selected = await materializeLoadedSavedPlanAssessmentRoots(context);
+  return {
+    assessment: {
+      terraformExecutable: options.terraformExecutable,
+      roots: selected.roots,
+      backendConfig: options.backendConfig === null
+        ? null
+        : resolve(context.workspace, options.backendConfig),
+      policyPath: options.policyPath === null
+        ? null
+        : resolve(context.workspace, options.policyPath),
+      controlFiles: (options.controlFiles ?? []).map((file) => ({
+        path: file.path,
+        digest: file.digest === null ? null : { ...file.digest },
+        ...(file.identity === undefined
+          ? {}
+          : { identity: file.identity === null ? null : { ...file.identity } }),
+        ...(file.followSymlinks === undefined
+          ? {}
+          : { followSymlinks: file.followSymlinks }),
+      })),
+      loadedContext: context,
+      ...(options.terraformShowLimits === undefined
+        ? {}
+        : { terraformShowLimits: { ...options.terraformShowLimits } }),
+    },
+    diagnostics: selected.diagnostics.map((diagnostic) => ({
+      ...diagnostic,
+      selected_members: [...diagnostic.selected_members],
+      additional_members: [...diagnostic.additional_members],
+    })),
+  };
 }

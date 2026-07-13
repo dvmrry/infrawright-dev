@@ -1,8 +1,16 @@
+import { LosslessNumber } from "lossless-json";
+
+import {
+  canonicalPythonNumberToken,
+  pythonFiniteFloatToken,
+} from "./python-number.js";
+
 type JsonObject = { readonly [key: string]: JsonValue };
 export type JsonValue =
   | null
   | boolean
   | number
+  | LosslessNumber
   | string
   | readonly JsonValue[]
   | JsonObject;
@@ -70,6 +78,27 @@ function encodedStringLength(value: string, maximum: number): number {
   return length;
 }
 
+function encodeNumber(value: number | LosslessNumber): string {
+  if (value instanceof LosslessNumber) {
+    const token = canonicalPythonNumberToken(value.toString());
+    if (token !== null) return token;
+    throw new TypeError(
+      "the Python-compatible renderer accepts finite JSON numbers only",
+    );
+  }
+  if (!Number.isFinite(value)) {
+    throw new TypeError(
+      "the Python-compatible renderer accepts finite JSON numbers only",
+    );
+  }
+  if (Number.isSafeInteger(value) && !Object.is(value, -0)) return String(value);
+  const token = pythonFiniteFloatToken(value);
+  if (token !== null) return token;
+  throw new TypeError(
+    "the Python-compatible renderer accepts finite JSON numbers only",
+  );
+}
+
 function encodedLength(value: JsonValue, level: number, maximum: number): number {
   if (value === null) {
     return 4;
@@ -77,13 +106,8 @@ function encodedLength(value: JsonValue, level: number, maximum: number): number
   if (typeof value === "boolean") {
     return value ? 4 : 5;
   }
-  if (typeof value === "number") {
-    if (!Number.isSafeInteger(value) || Object.is(value, -0)) {
-      throw new TypeError(
-        "the initial Python-compatible renderer accepts safe integers only",
-      );
-    }
-    return String(value).length;
+  if (typeof value === "number" || value instanceof LosslessNumber) {
+    return encodeNumber(value).length;
   }
   if (typeof value === "string") {
     return encodedStringLength(value, maximum);
@@ -132,13 +156,8 @@ function encode(value: JsonValue, level: number): string {
   if (typeof value === "boolean") {
     return value ? "true" : "false";
   }
-  if (typeof value === "number") {
-    if (!Number.isSafeInteger(value) || Object.is(value, -0)) {
-      throw new TypeError(
-        "the initial Python-compatible renderer accepts safe integers only",
-      );
-    }
-    return String(value);
+  if (typeof value === "number" || value instanceof LosslessNumber) {
+    return encodeNumber(value);
   }
   if (typeof value === "string") {
     return encodeString(value);
@@ -169,7 +188,7 @@ function encode(value: JsonValue, level: number): string {
   return ["{", entries.join(",\n"), `${currentIndent}}`].join("\n");
 }
 
-/** Match json.dumps(..., indent=2, sort_keys=True) for integer-only contracts. */
+/** Match json.dumps(..., indent=2, sort_keys=True) for supported JSON numbers. */
 export function renderPythonCompatibleJson(value: JsonValue): string {
   return `${encode(value, 0)}\n`;
 }

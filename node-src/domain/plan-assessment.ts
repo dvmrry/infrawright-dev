@@ -9,8 +9,11 @@ import {
   type BoundAssessmentControlFile,
 } from "./control-evidence.js";
 import {
+  copyLoadedSavedPlanAssessmentContext,
   copySavedPlanAssessmentContext,
+  recheckLoadedSavedPlanAssessmentContext,
   recheckSavedPlanAssessmentContext,
+  type LoadedSavedPlanAssessmentContext,
   type SavedPlanAssessmentContext,
 } from "./plan-assessment-inputs.js";
 import type { StalePolicyEntry } from "./drift-policy.js";
@@ -38,10 +41,15 @@ import type { PlanFingerprintV2 } from "./plan-fingerprint.js";
 import {
   buildSavedPlanAssessmentErrorReport,
   buildSavedPlanAssessmentReport,
+  type AssessmentGuidanceGroup,
   type AssessmentMode,
   type AssessmentReportRequest,
   type SavedPlanAssessmentReport,
 } from "./plan-report.js";
+import {
+  collectAssessmentGuidance,
+  type AssessmentGuidanceSource,
+} from "./assessment-guidance.js";
 import {
   DEFAULT_BOUNDED_READ_LIMITS,
   ReadBudget,
@@ -72,6 +80,8 @@ export interface SavedPlanAssessmentOptions {
   readonly policyPath: string | null;
   readonly controlFiles?: readonly BoundAssessmentControlFile[];
   readonly context?: SavedPlanAssessmentContext;
+  readonly loadedContext?: LoadedSavedPlanAssessmentContext;
+  readonly expectedPolicySha256?: string | null;
   readonly sourceLimits?: BoundedReadLimits;
   readonly savedPlanLimits?: BoundedReadLimits;
   readonly policyLimits?: BoundedReadLimits;
@@ -125,11 +135,13 @@ export type SavedPlanAssessmentErrorKind =
 export class SavedPlanAssessmentFailure extends ProcessFailure {
   readonly reportKind: SavedPlanAssessmentErrorKind;
   readonly partial: SavedPlanAssessmentCore;
+  readonly guidance: readonly AssessmentGuidanceGroup[];
 
   constructor(options: {
     readonly failure: ProcessFailure;
     readonly reportKind: SavedPlanAssessmentErrorKind;
     readonly partial: SavedPlanAssessmentCore;
+    readonly guidance?: readonly AssessmentGuidanceGroup[];
   }) {
     super({
       code: options.failure.code,
@@ -141,6 +153,11 @@ export class SavedPlanAssessmentFailure extends ProcessFailure {
     this.name = "SavedPlanAssessmentFailure";
     this.reportKind = options.reportKind;
     this.partial = options.partial;
+    this.guidance = (options.guidance ?? []).map((group) => ({
+      tenant: group.tenant,
+      label: group.label,
+      entries: group.entries.map((entry) => ({ ...entry })),
+    }));
   }
 }
 
@@ -275,6 +292,16 @@ function copyAssessmentOptions(
     ...(options.context === undefined
       ? {}
       : { context: copySavedPlanAssessmentContext(options.context) }),
+    ...(options.loadedContext === undefined
+      ? {}
+      : {
+          loadedContext: copyLoadedSavedPlanAssessmentContext(
+            options.loadedContext,
+          ),
+        }),
+    ...(options.expectedPolicySha256 === undefined
+      ? {}
+      : { expectedPolicySha256: options.expectedPolicySha256 }),
     sourceLimits: copyReadLimits(
       options.sourceLimits ?? DEFAULT_BOUNDED_READ_LIMITS,
     ),
@@ -440,12 +467,34 @@ async function recheckAssessmentContext(
   if (options.context !== undefined) {
     await recheckSavedPlanAssessmentContext(options.context, options.roots);
   }
+  if (options.loadedContext !== undefined) {
+    await recheckLoadedSavedPlanAssessmentContext(
+      options.loadedContext,
+      options.roots,
+    );
+  }
   await recheckAssessmentControlFiles(controlFiles);
   // End on topology rather than the trailing control read. This second pass
   // catches a root that materializes while the control-file sandwich closes.
   if (options.context !== undefined) {
     await recheckSavedPlanAssessmentContext(options.context, options.roots);
   }
+  if (options.loadedContext !== undefined) {
+    await recheckLoadedSavedPlanAssessmentContext(
+      options.loadedContext,
+      options.roots,
+    );
+  }
+}
+
+/** Bind and validate policy before operational topology or Terraform lookup. */
+export async function preflightSavedPlanAssessmentPolicy(
+  policyPath: string | null,
+): Promise<Awaited<ReturnType<typeof loadBoundDriftPolicy>>> {
+  return loadBoundDriftPolicy(
+    policyPath,
+    new ReadBudget(DEFAULT_POLICY_LIMITS),
+  );
 }
 
 function showLimits(
@@ -467,9 +516,14 @@ function showLimits(
  */
 async function runSavedPlanAssessment<T>(
   options: SavedPlanAssessmentOptions,
-  finalize: (core: SavedPlanAssessmentCore) => T,
+  finalize: (
+    core: SavedPlanAssessmentCore,
+    guidance: readonly AssessmentGuidanceGroup[],
+  ) => T,
+  guidanceSource?: AssessmentGuidanceSource,
 ): Promise<T> {
   const assessed: AssessedSavedPlanRoot[] = [];
+  const guidance: AssessmentGuidanceGroup[] = [];
   let stalePolicy: readonly StalePolicyEntry[] = [];
   let policySha256: string | null = null;
   let reportKind: SavedPlanAssessmentErrorKind = "assessment_error";
@@ -538,20 +592,30 @@ async function runSavedPlanAssessment<T>(
       );
     }
     const controlFiles = capturedOptions.controlFiles ?? [];
-    await recheckAssessmentContext(capturedOptions);
-    remainingTime(deadline);
     reportKind = "policy_error";
     const boundPolicy = await loadBoundDriftPolicy(
       capturedOptions.policyPath,
       new ReadBudget(policyLimits),
     );
     policySha256 = boundPolicy.file?.sha256 ?? null;
-    remainingTime(deadline);
     reportKind = "assessment_error";
+    if (
+      capturedOptions.expectedPolicySha256 !== undefined
+      && capturedOptions.expectedPolicySha256 !== policySha256
+    ) {
+      fail(
+        "DRIFT_POLICY_CHANGED",
+        "saved-plan drift policy changed during assessment",
+      );
+    }
+    remainingTime(deadline);
     await recheckAssessmentContext(capturedOptions);
     remainingTime(deadline);
     if (capturedOptions.roots.length === 0) {
-      fail("NO_SAVED_PLANS", "no saved plans were selected for assessment");
+      fail(
+        "NO_SAVED_PLANS",
+        "no saved plans to check - run make plan SAVE=1 first",
+      );
     }
     temporary = await mkdtemp(path.join(tmpdir(), "infrawright-assessment-"));
     await chmod(temporary, 0o700);
@@ -659,6 +723,20 @@ async function runSavedPlanAssessment<T>(
         plan_fingerprint: captured.fingerprintFile.fingerprint,
         findings,
       });
+      if (classification.status === BLOCKED && guidanceSource !== undefined) {
+        try {
+          guidance.push(collectAssessmentGuidance({
+            source: guidanceSource,
+            tenant: root.tenant,
+            label: root.label,
+            members: root.members,
+            plan,
+            findings,
+          }));
+        } catch {
+          guidance.push({ tenant: root.tenant, label: root.label, entries: [] });
+        }
+      }
     }
 
     const checkedTypes = new Set(capturedOptions.roots.flatMap((root) => root.members));
@@ -689,7 +767,7 @@ async function runSavedPlanAssessment<T>(
     remainingTime(deadline);
 
     const core = assessmentCore(assessed, policySha256, stalePolicy);
-    completed = finalize(core);
+    completed = finalize(core, guidance);
     remainingTime(deadline);
     if (
       typeof completed === "object"
@@ -757,6 +835,7 @@ async function runSavedPlanAssessment<T>(
       failure: primaryFailure,
       reportKind,
       partial: assessmentCore(assessed, policySha256, stalePolicy),
+      guidance,
     });
   }
   if (!hasCompleted) {
@@ -768,6 +847,7 @@ async function runSavedPlanAssessment<T>(
       }),
       reportKind: "assessment_error",
       partial: assessmentCore(assessed, policySha256, stalePolicy),
+      guidance,
     });
   }
   return completed as T;
@@ -785,11 +865,29 @@ export interface SavedPlanAssessmentReportOutcome {
   readonly failure: SavedPlanAssessmentFailure | null;
 }
 
+function buildReportWithIsolatedGuidance(
+  build: (guidance: readonly AssessmentGuidanceGroup[]) => SavedPlanAssessmentReport,
+  guidance: readonly AssessmentGuidanceGroup[],
+): SavedPlanAssessmentReport {
+  try {
+    return build(guidance);
+  } catch (error: unknown) {
+    if (
+      !(error instanceof ProcessFailure)
+      || error.code !== "INVALID_ASSESSMENT_GUIDANCE"
+    ) {
+      throw error;
+    }
+    return build([]);
+  }
+}
+
 /** Build the versioned report synchronously inside the final evidence window. */
 export async function assessSavedPlansReport(options: {
   readonly assessment: SavedPlanAssessmentOptions;
   readonly mode: AssessmentMode;
   readonly request: AssessmentReportRequest;
+  readonly guidanceSource?: AssessmentGuidanceSource;
 }): Promise<SavedPlanAssessmentReportOutcome> {
   const mode = options.mode;
   const request = {
@@ -808,11 +906,16 @@ export async function assessSavedPlansReport(options: {
   try {
     const report = await runSavedPlanAssessment(
       options.assessment,
-      (core) => buildSavedPlanAssessmentReport({
-        mode,
-        request,
-        core,
-      }),
+      (core, guidance) => buildReportWithIsolatedGuidance(
+        (isolatedGuidance) => buildSavedPlanAssessmentReport({
+          mode,
+          request,
+          core,
+          guidance: isolatedGuidance,
+        }),
+        guidance,
+      ),
+      options.guidanceSource,
     );
     return { report, failure: null };
   } catch (error: unknown) {
@@ -820,12 +923,16 @@ export async function assessSavedPlansReport(options: {
       throw error;
     }
     return {
-      report: buildSavedPlanAssessmentErrorReport({
-        mode,
-        request,
-        partial: error.partial,
-        error: { kind: error.reportKind, message: error.message },
-      }),
+      report: buildReportWithIsolatedGuidance(
+        (isolatedGuidance) => buildSavedPlanAssessmentErrorReport({
+          mode,
+          request,
+          partial: error.partial,
+          error: { kind: error.reportKind, message: error.message },
+          guidance: isolatedGuidance,
+        }),
+        error.guidance,
+      ),
       failure: error,
     };
   }

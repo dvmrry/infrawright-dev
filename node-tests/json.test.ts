@@ -106,14 +106,28 @@ test("data parser preserves numeric lexemes beyond JavaScript precision", () => 
   );
 });
 
-test("initial compatibility renderer refuses floats instead of changing bytes", () => {
-  assert.throws(
-    () => renderPythonCompatibleJson({ value: 1.0 / 2 } as JsonValue),
-    /safe integers only/,
+test("compatibility renderer preserves Python float spelling and numeric tokens", () => {
+  assert.equal(
+    renderPythonCompatibleJson({ value: 1.0 / 2 } as JsonValue),
+    "{\n  \"value\": 0.5\n}\n",
   );
-  assert.throws(
-    () => renderPythonCompatibleJson({ value: -0 } as JsonValue),
-    /safe integers only/,
+  assert.equal(
+    renderPythonCompatibleJson({ value: -0 } as JsonValue),
+    "{\n  \"value\": -0.0\n}\n",
+  );
+  assert.equal(
+    renderPythonCompatibleJson({ value: 1e-6 } as JsonValue),
+    "{\n  \"value\": 1e-06\n}\n",
+  );
+  assert.equal(
+    renderPythonCompatibleJson({ value: 1e20 } as JsonValue),
+    "{\n  \"value\": 1e+20\n}\n",
+  );
+  assert.equal(
+    renderPythonCompatibleJson({
+      value: new LosslessNumber("1.0"),
+    } as JsonValue),
+    "{\n  \"value\": 1.0\n}\n",
   );
 });
 

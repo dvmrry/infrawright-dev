@@ -2,7 +2,10 @@ import { lstat } from "node:fs/promises";
 import path from "node:path";
 
 import { ProcessFailure } from "../domain/errors.js";
-import { parseDataJsonLosslessly } from "../json/control.js";
+import {
+  parseDataJsonLosslessly,
+  PythonJsonDecodeError,
+} from "../json/control.js";
 import {
   assertSupportedTerraformExecutionPlatform,
   runTerraformCommand,
@@ -340,10 +343,12 @@ export async function terraformShowPlan(
   let plan: unknown;
   try {
     plan = parseDataJsonLosslessly(text);
-  } catch {
+  } catch (error: unknown) {
     return fail(
       "INVALID_TERRAFORM_SHOW_JSON",
-      "Terraform show did not emit valid plan JSON",
+      error instanceof PythonJsonDecodeError
+        ? error.message
+        : "Terraform show did not emit valid plan JSON",
     );
   }
   checkDeadline(deadline);

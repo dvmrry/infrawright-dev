@@ -162,11 +162,11 @@ plan: metadata-cli ## Terraform plan for tenant roots (TENANT=<label> [RESOURCE=
 clean-plans: metadata-cli ## Delete saved tfplan artifacts ([TENANT=<label>] [RESOURCE=<type|provider>])
 	$(INFRAWRIGHT_CLI) clean-plans $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-assert-clean: ## Exit 0 only when every saved plan is no-op/import-only ([TENANT=<label>] [RESOURCE=<type|provider>] [BACKEND_CONFIG=<file>] [REPORT=<file>])
-	@$(PYTHON) -m engine.ops assert-clean $(OPTIONAL_TENANT_ARG) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(REPORT),--report "$(REPORT)") $(RESOURCE)
+assert-clean: metadata-cli ## Exit 0 only when every saved plan is no-op/import-only ([TENANT=<label>] [RESOURCE=<type|provider>] [BACKEND_CONFIG=<file>] [REPORT=<file>])
+	@$(INFRAWRIGHT_CLI) assert-clean $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(REPORT),--report "$(REPORT)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-assert-adoptable: ## Classify saved plans with optional consumer drift policy ([TENANT=<label>] [RESOURCE=<type|provider>] [POLICY=<file>] [BACKEND_CONFIG=<file>] [REPORT=<file>])
-	@$(PYTHON) -m engine.ops assert-adoptable $(OPTIONAL_TENANT_ARG) $(if $(POLICY),--policy "$(POLICY)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(REPORT),--report "$(REPORT)") $(RESOURCE)
+assert-adoptable: metadata-cli ## Classify saved plans with optional consumer drift policy ([TENANT=<label>] [RESOURCE=<type|provider>] [POLICY=<file>] [BACKEND_CONFIG=<file>] [REPORT=<file>])
+	@$(INFRAWRIGHT_CLI) assert-adoptable $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(POLICY),--policy "$(POLICY)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(REPORT),--report "$(REPORT)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
 apply: ## Apply saved plans ([TENANT=<label>] [RESOURCE=<type|provider>] [POLICY=<file>] [BACKEND_CONFIG=<file>] [ALLOW_DESTROY=1] [ALLOW_NON_MAIN=1] [ALLOW_PLAN_CHANGES=1])
 	$(PYTHON) -m engine.ops apply $(OPTIONAL_TENANT_ARG) $(if $(POLICY),--policy "$(POLICY)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(ALLOW_DESTROY),--allow-destroy) $(if $(ALLOW_NON_MAIN),--allow-non-main) $(if $(ALLOW_PLAN_CHANGES),--allow-plan-changes) $(if $(MAIN_BRANCH),--main-branch "$(MAIN_BRANCH)") $(RESOURCE)
