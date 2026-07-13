@@ -14,7 +14,7 @@ const HTTP_METHODS: Readonly<Record<string, string>> = {
   "http.MethodPut": "PUT",
 };
 const SERVICE_SUFFIXES = ["ServiceOp", "Service", "Client", "API"] as const;
-const IGNORED_DIRECTORIES = new Set([".git", "test", "testdata", "tests"]);
+const IGNORED_DIRECTORIES = new Set([".git", "test", "testdata"]);
 const FORMAT_VERB = /%[a-zA-Z]/gu;
 
 export interface SdkPathEvidence extends JsonObject {
@@ -277,9 +277,10 @@ export async function extractSdkPaths(sdkRoot: string | undefined): Promise<Extr
   if (sdkRoot === undefined || sdkRoot === "") return { evidence, unresolved };
   const decoder = new TextDecoder("utf-8", { fatal: true });
   for (const filename of await discoverSdkGoFiles(sdkRoot)) {
+    const contents = await readFile(filename);
     let text: string;
     try {
-      text = decoder.decode(await readFile(filename));
+      text = decoder.decode(contents);
     } catch {
       continue;
     }

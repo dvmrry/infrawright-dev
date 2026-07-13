@@ -95,6 +95,16 @@ func (s *WidgetsService) MissingPath(ctx context.Context) error {
 }
 `;
 
+const TESTS_ONLY = String.raw`package sdk
+const testsBasePath = "v2/tests"
+type TestsServiceOp struct { client *Client }
+func (s *TestsServiceOp) Get(ctx context.Context) error {
+  path := testsBasePath
+  _, err := s.client.NewRequest(ctx, http.MethodGet, path, nil)
+  return err
+}
+`;
+
 test("scanner report is exact Python-compatible across supported path shapes", async (context) => {
   const root = await fixture({
     ".git/ignored.go": SOURCE,
@@ -102,6 +112,7 @@ test("scanner report is exact Python-compatible across supported path shapes", a
     "a/widgets_test.go": SOURCE,
     "test/ignored.go": SOURCE,
     "testdata/ignored.go": SOURCE,
+    "tests/only.go": TESTS_ONLY,
     "z/invalid.go": new Uint8Array([0xff, 0xfe, 0xfd]),
   });
   context.after(async () => rm(root, { force: true, recursive: true }));
@@ -111,6 +122,7 @@ test("scanner report is exact Python-compatible across supported path shapes", a
   assert.equal(report.evidence["Widgets.List"]?.source_role, "list");
   assert.equal(report.evidence["Grouped.Read"]?.path_template, "v2/grouped/{id}");
   assert.equal(report.evidence["Raw.Create"]?.method, "POST");
+  assert.equal(report.evidence["Tests.Get"]?.path_template, "v2/tests");
   assert.equal(report.unresolved["Widgets.MissingMethod"]?.reason, "method_not_detected");
   assert.equal(report.unresolved["Widgets.MissingPath"]?.reason, "path_template_not_found");
 });
@@ -121,12 +133,12 @@ test("discovery excludes ignored directories/tests and uses portable determinist
     "a/z.go": "package a",
     "b/a.go": "package b",
     "b/a_test.go": "package b",
-    "tests/ignored.go": "package tests",
+    "tests/included.go": "package tests",
   });
   context.after(async () => rm(root, { force: true, recursive: true }));
   const files = await discoverSdkGoFiles(root);
   assert.deepEqual(files.map((filename) => path.relative(root, filename).split(path.sep).join("/")), [
-    "a/z.go", "a/ä.go", "b/a.go",
+    "a/z.go", "a/ä.go", "b/a.go", "tests/included.go",
   ]);
 });
 
