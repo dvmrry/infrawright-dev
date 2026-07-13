@@ -196,6 +196,23 @@ export function snakeJsonKeys(value: unknown): unknown {
   return snakeKeys(value, "$raw", false);
 }
 
+/** Recursively snake-case authoring inputs, which may be constructed with
+ * ordinary finite JavaScript numbers instead of coming from the lossless
+ * runtime JSON parser. */
+export function snakeJsonKeysForAuthoring(value: unknown): unknown {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new TypeError("authoring input numbers must be finite");
+    return value;
+  }
+  if (Array.isArray(value)) return value.map((item) => snakeJsonKeysForAuthoring(item));
+  if (isPlainJsonRecord(value)) {
+    return safeRecord(Object.keys(value).map((key) => {
+      return [snakeName(key), snakeJsonKeysForAuthoring(value[key])] as const;
+    }));
+  }
+  return cloneJson(value);
+}
+
 export function slugifyTransformKey(value: string): string {
   return pythonLower151(value)
     .replace(/[^a-z0-9]+/gu, "_")
@@ -1118,6 +1135,52 @@ function applyReachableOverrides(
     }
   }
   return output;
+}
+
+/** Apply the ordinary read-side override vocabulary without schema shaping.
+ *
+ * Authoring analyzers use this seam to classify the exact values that the
+ * runtime transform would subsequently project. Keeping the operation here
+ * prevents the authoring side stack from acquiring a second implementation
+ * of override ordering or numeric behavior.
+ */
+export function applyTransformOverridesForAuthoring(
+  item: Readonly<Record<string, unknown>>,
+  override: Readonly<JsonObject>,
+  resourceType: string,
+): Readonly<Record<string, unknown>> {
+  return applyReachableOverrides(
+    safeRecord(Object.keys(item).map((key) => [key, item[key]] as const)),
+    {
+      htmlUnescapePasses: 0,
+      override,
+      projection: {
+        attributes: Object.freeze({}),
+        blocks: Object.freeze({}),
+        knownMembers: Object.freeze([]),
+        silentlyIgnoredAttributes: Object.freeze([]),
+        strictFrozenCompatibility: false,
+      },
+      strictFrozenCompatibility: false,
+      type: resourceType,
+    },
+  );
+}
+
+/** Authoring classification seam for the runtime's primitive coercion rules. */
+export function coerceTransformPrimitiveForAuthoring(
+  value: unknown,
+  primitive: "bool" | "number" | "string",
+): unknown {
+  return coerceValue(value, primitive, false);
+}
+
+/** Authoring classification seam for runtime drop-if-default comparison. */
+export function transformValueMatchesDefaultForAuthoring(
+  value: unknown,
+  defaultValue: unknown,
+): boolean {
+  return matchesTransformDefault(value, defaultValue);
 }
 
 function skipMatchers(value: unknown, label: string): readonly JsonObject[] {
