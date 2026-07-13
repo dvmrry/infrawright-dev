@@ -372,7 +372,12 @@ function expandedPaths(entry: FetchEntry): string[] {
   }
   const expand = entry.expand ?? {};
   const keys = sortedStrings(Object.keys(expand));
-  if (keys.length === 0) return [entry.path];
+  if (keys.length === 0) {
+    if (entry.path.includes("{") || entry.path.includes("}")) {
+      throw new Error("fetch path must not contain undeclared expansion braces");
+    }
+    return [entry.path];
+  }
   if (keys.length !== 1) {
     throw new Error(`expand supports exactly one placeholder: ${JSON.stringify(keys)}`);
   }
@@ -383,6 +388,10 @@ function expandedPaths(entry: FetchEntry): string[] {
     throw new Error(
       `expand key ${JSON.stringify(key)} not present in path ${JSON.stringify(entry.path)}`,
     );
+  }
+  const remainder = entry.path.split(token).join("");
+  if (remainder.includes("{") || remainder.includes("}")) {
+    throw new Error("fetch path must not contain undeclared expansion braces");
   }
   return (expand[key] ?? []).map((value) => {
     const violation = fetchExpansionSafetyViolation(value);

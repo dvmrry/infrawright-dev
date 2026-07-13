@@ -152,6 +152,33 @@ function validateExpand(value: unknown, source: string): void {
   }
 }
 
+function validateFetchExpansionShape(
+  fetchPath: string,
+  expand: unknown,
+  source: string,
+): void {
+  const expansions = isObject(expand) ? Object.keys(expand) : [];
+  if (expansions.length > 1) {
+    fail(`${source}.expand supports exactly one placeholder`);
+  }
+  if (expansions.length === 0) {
+    if (fetchPath.includes("{") || fetchPath.includes("}")) {
+      fail(`${source}.path must not contain undeclared expansion braces`);
+    }
+    return;
+  }
+  const key = expansions[0];
+  if (key === undefined) return;
+  const token = `{${key}}`;
+  if (!fetchPath.includes(token)) {
+    fail(`${source}.expand key ${JSON.stringify(key)} is not present in path`);
+  }
+  const remainder = fetchPath.split(token).join("");
+  if (remainder.includes("{") || remainder.includes("}")) {
+    fail(`${source}.path must not contain undeclared expansion braces`);
+  }
+}
+
 function validateStatuses(value: unknown, source: string): void {
   if (!Array.isArray(value)) fail(`${source} must be a list`);
   for (const [index, item] of value.entries()) {
@@ -178,6 +205,7 @@ function validateFetch(value: unknown, source: string): void {
   }
   if (Object.hasOwn(value, "query")) validateQuery(value.query, `${source}.query`);
   if (Object.hasOwn(value, "expand")) validateExpand(value.expand, `${source}.expand`);
+  validateFetchExpansionShape(fetchPath, value.expand, source);
   if (Object.hasOwn(value, "optional_http_statuses")) {
     validateStatuses(value.optional_http_statuses, `${source}.optional_http_statuses`);
   }

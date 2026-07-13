@@ -193,6 +193,16 @@ test("registry fetch paths reject inputs that WHATWG URLs would silently normali
       value,
     );
   }
+  for (const value of ["items/{literal}", "items/{item}/{other}"]) {
+    assert.throws(
+      () => validateRegistry(
+        registry(value, value.includes("{item}") ? "safe" : undefined),
+        "registry.json",
+      ),
+      /undeclared expansion braces/,
+      value,
+    );
+  }
   for (const value of [
     ".",
     "..",
@@ -205,6 +215,7 @@ test("registry fetch paths reject inputs that WHATWG URLs would silently normali
   }
   assert.doesNotThrow(() => {
     validateRegistry(registry("items/{item}", "slash/value"), "registry.json");
+    validateRegistry(registry("items/{item}/{item}", "safe"), "registry.json");
     validateRegistry(registry("items/{item}", "nested/../value?#\\"), "registry.json");
     validateRegistry(registry("items/{item}", "%2e"), "registry.json");
   });

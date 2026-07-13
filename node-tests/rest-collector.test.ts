@@ -227,6 +227,26 @@ test("direct collector calls reject unsafe paths before URL composition", async 
       fetchPath,
     );
   }
+  for (const unsafeEntry of [
+    entry("single", { path: "items/{literal}" }),
+    entry("single", {
+      path: "items/{item}/{other}",
+      expand: { item: ["safe"] },
+    }),
+  ]) {
+    await assert.rejects(
+      fetchResource({
+        adapter: adapter(),
+        auth,
+        context,
+        entry: unsafeEntry,
+        mode: "oneapi",
+        resourceType: "sample",
+        transport: new QueueTransport([]),
+      }),
+      /undeclared expansion braces/,
+    );
+  }
   for (const value of [".", ".."]) {
     await assert.rejects(
       fetchResource({
