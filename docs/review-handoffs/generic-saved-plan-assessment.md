@@ -18,12 +18,12 @@
 
 ## Base / Head
 
-- Base: `0156b5a9aebc87071018e78ea3c485c673312d05`, the accepted amended head
+- Base: `e023ce2ec43498f179981dbfa750d3101bb2b273`, the accepted amended head
   of draft PR #203.
 - Head: frozen review commit on
   `feature/node-generic-saved-plan-assessment`.
 - Diff command:
-  `git diff 0156b5a9aebc87071018e78ea3c485c673312d05..HEAD`.
+  `git diff e023ce2ec43498f179981dbfa750d3101bb2b273..HEAD`.
 
 ## Files Changed
 
