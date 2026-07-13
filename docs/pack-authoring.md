@@ -31,12 +31,15 @@ for the profile contract, reduced-root checks, and CI expectations.
 Validate packs with:
 
 ```bash
+npm ci --ignore-scripts
+npm run build:metadata-cli
+
 make check-pack
 make check-pack PACK=zia
 
-python -m engine.check_pack
-python -m engine.check_pack --pack zia
-python -m engine.check_pack PACK=zia
+node dist/infrawright-cli.mjs check-pack
+node dist/infrawright-cli.mjs check-pack --pack zia
+node dist/infrawright-cli.mjs check-pack PACK=zia
 ```
 
 ## `pack.json`

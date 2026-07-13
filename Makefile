@@ -1,4 +1,6 @@
 PYTHON ?= python3
+NODE ?= node
+NPM ?= npm
 TF ?= terraform
 OVERLAY ?= demo
 DEPLOYMENT ?= deployment.json
@@ -11,6 +13,8 @@ DEMO_PACK_REQUIREMENTS ?= demo/pack-requirements.json
 export INFRAWRIGHT_DEPLOYMENT ?= $(DEPLOYMENT)
 DEMO_DEPLOYMENT ?= demo/deployment.json
 MODULE_DIR ?= $(shell INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(PYTHON) -m engine.deployment module-dir)
+INFRAWRIGHT_CLI ?= $(NODE) dist/infrawright-cli.mjs
+METADATA_CLI_INPUTS := $(shell find node-src scripts -type f \( -name '*.ts' -o -name 'build-metadata-cli.mjs' \) -print)
 OPTIONAL_TENANT_ARG = $(if $(filter undefined,$(origin TENANT)),,--tenant "$(TENANT)")
 
 -include local.mk
@@ -19,7 +23,12 @@ ifneq ($(strip $(OVERLAY)),)
 -include $(OVERLAY)/local.mk
 endif
 
-.PHONY: check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set audit-vendor-boundary demo-contract check check-all check-core test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: metadata-cli check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set audit-vendor-boundary demo-contract check check-all check-core test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+
+dist/infrawright-cli.mjs: package.json package-lock.json tsconfig.json $(METADATA_CLI_INPUTS)
+	$(NPM) run build:metadata-cli
+
+metadata-cli: dist/infrawright-cli.mjs
 
 check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
 	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1
@@ -27,8 +36,8 @@ check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
 		echo "check-demo: unable to inspect demo drift" >&2; exit 1; }; \
 	test -z "$$status" || { echo "demo drift:"; echo "$$status"; exit 1; }
 
-check-examples: ## Validate examples whose declared pack requirements are installed
-	@set +e; output="$$( $(PYTHON) -m engine.pack_set --catalog "$(PACK_CATALOG)" --requirements "$(DEMO_PACK_REQUIREMENTS)" 2>&1 )"; status=$$?; set -e; \
+check-examples: metadata-cli ## Validate examples whose declared pack requirements are installed
+	@set +e; output="$$( $(INFRAWRIGHT_CLI) check-pack-set --catalog "$(PACK_CATALOG)" --requirements "$(DEMO_PACK_REQUIREMENTS)" 2>&1 )"; status=$$?; set -e; \
 	if [ $$status -eq 0 ]; then \
 		echo "$$output"; $(MAKE) check-demo; \
 	elif [ $$status -eq 3 ]; then \
@@ -43,25 +52,25 @@ check-modules: ## Generate every module into a temp deployment to catch generato
 	INFRAWRIGHT_DEPLOYMENT="$$tmp/deployment.json" $(PYTHON) -m engine.gen_module > /dev/null 2>&1; \
 	$(PYTHON) -m engine.gen_module --check-output "$$tmp/modules" > /dev/null
 
-check-tfvars-fmt: ## Validate HCL tfvars formatting when deployment selects hcl
-	@fmt="$$(INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(PYTHON) -c 'from engine import deployment; print(deployment.tfvars_format())')" || exit $$?; \
+check-tfvars-fmt: metadata-cli ## Validate HCL tfvars formatting when deployment selects hcl
+	@fmt="$$(INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(INFRAWRIGHT_CLI) deployment tfvars-format)" || exit $$?; \
 	if [ "$$fmt" = "json" ]; then echo "check-tfvars-fmt: skip (json tfvars)"; exit 0; fi; \
 	if ! command -v "$(TF)" >/dev/null 2>&1; then echo "check-tfvars-fmt: skip (no terraform)"; exit 0; fi; \
-	overlay="$$(INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(PYTHON) -m engine.deployment overlay)" || exit $$?; \
+	overlay="$$(INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(INFRAWRIGHT_CLI) deployment overlay)" || exit $$?; \
 	if [ "$$overlay" = "." ]; then config_dir="config"; else config_dir="$$overlay/config"; fi; \
 	if [ ! -d "$$config_dir" ]; then echo "check-tfvars-fmt: no config dirs"; exit 0; fi; \
 	"$(TF)" fmt -check -recursive "$$config_dir"
 
-check-pack: ## Validate pack.json and registry.json metadata ([PACK=<name>])
-	$(PYTHON) -m engine.check_pack $(if $(PACK),--pack "$(PACK)")
+check-pack: metadata-cli ## Validate pack.json and registry.json metadata ([PACK=<name>])
+	$(INFRAWRIGHT_CLI) check-pack $(if $(PACK),--pack "$(PACK)")
 
-check-pack-set: ## Require the installed pack root to match PACK_PROFILE exactly
-	$(PYTHON) -m engine.pack_set --catalog "$(PACK_CATALOG)" --profile "$(PACK_PROFILE)"
+check-pack-set: metadata-cli ## Require the installed pack root to match PACK_PROFILE exactly
+	$(INFRAWRIGHT_CLI) check-pack-set --catalog "$(PACK_CATALOG)" --profile "$(PACK_PROFILE)"
 
 audit-vendor-boundary: ## Audit vendor-specific tokens in engine source
 	$(PYTHON) -m engine.audit_vendor_boundary
 
-demo-contract: ## Credential-free demo artifact/module contract check
+demo-contract: metadata-cli ## Credential-free demo artifact/module contract check
 	@echo "demo-contract: materializing demo overlay without credentials"
 	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1
 	@status="$$(git status --porcelain -- demo/config/demo demo/imports/demo)" || { \
@@ -72,7 +81,7 @@ demo-contract: ## Credential-free demo artifact/module contract check
 	@test -z "$$(find demo/imports/demo -name '*_moves.tf' -print)" || { \
 		echo "demo-contract: stale demo moved-block files found:"; \
 		find demo/imports/demo -name '*_moves.tf' -print; exit 1; }
-	@module_dir="$$(INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(PYTHON) -m engine.deployment module-dir)"; \
+	@module_dir="$$(INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(INFRAWRIGHT_CLI) deployment module-dir)"; \
 	INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(PYTHON) -m engine.gen_module --check-output "$$module_dir" > /dev/null; \
 	echo "demo-contract: committed demo config/imports and generated modules are in sync"
 	@echo "demo-contract: live provider import/plan proof requires credentials and the adoption workflow"

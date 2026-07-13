@@ -2,16 +2,18 @@
   "name": "@infrawright/process",
   "version": "0.0.0",
   "private": true,
-  "description": "Machine-only Infrawright process host migration foundation",
+  "description": "Infrawright Node library, CLI, and machine process migration foundation",
   "type": "module",
   "engines": {
     "node": ">=24 <25"
   },
   "bin": {
+    "infrawright": "dist/infrawright-cli.mjs",
     "infrawright-process": "dist/infrawright.mjs"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json --noEmit && node scripts/build-node.mjs",
+    "build": "tsc -p tsconfig.json --noEmit && node scripts/build-node.mjs && node scripts/build-metadata-cli.mjs",
+    "build:metadata-cli": "tsc -p tsconfig.json --noEmit && node scripts/build-metadata-cli.mjs",
     "check": "npm run typecheck && npm run test",
     "test": "npm run build:test && node --test .node-test/node-tests/*.test.js",
     "build:test": "tsc -p tsconfig.test.json",

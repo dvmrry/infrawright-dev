@@ -4,7 +4,17 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { loadDeployment } from "../node-src/domain/deployment.js";
+import {
+  deploymentConfigDir,
+  deploymentEnvsDir,
+  deploymentImportsDir,
+  deploymentModuleDir,
+  deploymentOverlay,
+  deploymentPullsDir,
+  deploymentTenantRoot,
+  deploymentTfvarsFormat,
+  loadDeployment,
+} from "../node-src/domain/deployment.js";
 
 test("deployment loader preserves the Python missing and empty defaults", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "deployment-node-"));
@@ -90,6 +100,38 @@ test("deployment dictionaries do not treat prototype names specially", async () 
       '{"roots":{"zpa":{"groups":{"__proto__":["one"],"__proto__":["two"]}}}}',
     );
     await assert.rejects(() => loadDeployment(deployment));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("deployment path helpers preserve the operational overlay contract", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "deployment-node-"));
+  try {
+    const deploymentPath = path.join(directory, "deployment.json");
+    await writeFile(deploymentPath, JSON.stringify({
+      overlay: "estate/prod",
+      module_dir: "estate/modules/pinned",
+      tfvars_format: "hcl",
+    }));
+    const deployment = await loadDeployment(deploymentPath);
+    assert.equal(deploymentOverlay(deployment), "estate/prod");
+    assert.equal(deploymentModuleDir(deployment), "estate/modules/pinned");
+    assert.equal(deploymentTfvarsFormat(deployment), "hcl");
+    assert.equal(deploymentTenantRoot(deployment, "tenant-a"), "estate/prod");
+    assert.equal(
+      deploymentConfigDir(deployment, "tenant-a"),
+      path.join("estate", "prod", "config", "tenant-a"),
+    );
+    assert.equal(
+      deploymentImportsDir(deployment, "tenant-a"),
+      path.join("estate", "prod", "imports", "tenant-a"),
+    );
+    assert.equal(
+      deploymentEnvsDir(deployment, "tenant-a"),
+      path.join("estate", "prod", "envs", "tenant-a"),
+    );
+    assert.equal(deploymentPullsDir("tenant-a"), path.join("pulls", "tenant-a"));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

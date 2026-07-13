@@ -205,7 +205,10 @@ class CheckPackCliTest(unittest.TestCase):
             universal_newlines=True,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("python3 -m engine.check_pack --pack \"zia\"", proc.stdout)
+        self.assertIn(
+            "node dist/infrawright-cli.mjs check-pack --pack \"zia\"",
+            proc.stdout,
+        )
 
 
 if __name__ == "__main__":

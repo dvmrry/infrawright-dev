@@ -7,6 +7,7 @@ import type { Deployment, RootProviderConfig } from "./types.js";
 import { readOptionalUtf8 } from "../io/files.js";
 import { parseControlJson } from "../json/control.js";
 import { sortedStrings } from "../json/python-compatible.js";
+import path from "node:path";
 
 const ROOT_LABEL = /^[a-z0-9_]+$/;
 const PROVIDER_KEYS = new Set(["strategy", "groups", "bind_references"]);
@@ -178,6 +179,84 @@ function deploymentFromText(text: string | null): Deployment {
 
 export async function loadDeployment(path: string): Promise<Deployment> {
   return deploymentFromText(await readOptionalUtf8(path, "deployment"));
+}
+
+export function deploymentPath(options?: {
+  readonly explicit?: string;
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly cwd?: string;
+}): string {
+  const environment = options?.environment ?? process.env;
+  const selected = options?.explicit || environment.INFRAWRIGHT_DEPLOYMENT;
+  return selected || path.join(options?.cwd ?? process.cwd(), "deployment.json");
+}
+
+export function deploymentOverlay(deployment: Deployment): string {
+  if (typeof deployment.overlay !== "string") {
+    return malformed("deployment overlay must be a string");
+  }
+  return deployment.overlay || ".";
+}
+
+export function deploymentTfvarsFormat(deployment: Deployment): "json" | "hcl" {
+  const value = deployment.tfvars_format ?? "json";
+  if (value !== "json" && value !== "hcl") {
+    return malformed("deployment tfvars_format must be 'json' or 'hcl'");
+  }
+  return value;
+}
+
+export function deploymentModuleDir(deployment: Deployment): string {
+  if (deployment.module_dir !== undefined) {
+    if (typeof deployment.module_dir !== "string") {
+      return malformed("deployment module_dir must be a string");
+    }
+    if (deployment.module_dir.length > 0) return deployment.module_dir;
+  }
+  const overlay = deploymentOverlay(deployment);
+  return overlay === "." ? "modules" : path.join(overlay, "modules", "default");
+}
+
+export function deploymentTenantRoot(
+  deployment: Deployment,
+  _tenant: string,
+): string {
+  return deploymentOverlay(deployment);
+}
+
+function deploymentTenantPath(
+  deployment: Deployment,
+  tenant: string,
+  kind: "config" | "imports" | "envs",
+): string {
+  const relative = path.join(kind, tenant);
+  const root = deploymentTenantRoot(deployment, tenant);
+  return root === "." ? relative : path.join(root, relative);
+}
+
+export function deploymentConfigDir(
+  deployment: Deployment,
+  tenant: string,
+): string {
+  return deploymentTenantPath(deployment, tenant, "config");
+}
+
+export function deploymentImportsDir(
+  deployment: Deployment,
+  tenant: string,
+): string {
+  return deploymentTenantPath(deployment, tenant, "imports");
+}
+
+export function deploymentEnvsDir(
+  deployment: Deployment,
+  tenant: string,
+): string {
+  return deploymentTenantPath(deployment, tenant, "envs");
+}
+
+export function deploymentPullsDir(tenant: string): string {
+  return path.join("pulls", tenant);
 }
 
 export async function loadBoundAssessmentDeployment(
