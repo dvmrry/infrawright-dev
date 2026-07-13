@@ -4,6 +4,8 @@
 
 - Port the non-assessment root and saved-plan lifecycle from `engine/ops.py`
   to ordinary typed Node library functions and thin CLI adapters.
+- Port the authorized `resources --order=references` query as a thin Node CLI
+  command; it has no corresponding Make target to switch.
 - Switch `make roots`, `make scope-paths`, `make plan-roots`, `make plan`, and
   `make clean-plans` to Node without changing their product-independent
   behavior or output contracts.
@@ -11,6 +13,9 @@
   minute default while ordinary plan has no artificial deadline, explicit
   long deadlines do not overflow JavaScript timers, executable resolution
   uses platform path semantics, and plan output streams to the caller.
+- Preserve process cancellation semantics by reaping every active detached
+  Terraform group before redelivering POSIX termination signals, and preserve
+  visible init diagnostics while suppressing init stdout.
 - Preserve the existing fingerprint-v2 saved-plan pair for the later
   assessment and Apply slices.
 - Keep assessment, guidance, Apply, provider/product orchestration, live
@@ -49,6 +54,10 @@
     definitions, and live provider/backend configuration are unchanged.
   - Draft PRs #191 and #192 and all frozen ZCC process-host operations are
     untouched.
+- Scope metrics after first-review remediation: 9 production files,
+  1,131 insertions / 90 deletions, net +1,041 production lines. Tests and this
+  handoff are excluded; the authorized trigger is 16 files / about 3,000 net
+  production lines.
 
 ## Source Inputs Consulted
 
@@ -100,13 +109,21 @@
     durations beyond the removed ten-minute ceiling;
   - Terraform executable selection supports POSIX, Windows, relative-explicit,
     and PATH forms and validates the resolved file;
-  - normal Terraform plan output is bounded and streamed without a shell.
+  - normal Terraform plan output is bounded and streamed without a shell;
+  - plan init suppresses stdout but preserves bounded stderr, matching the
+    existing Python subprocess call;
+  - invalid tenant/selector/path input remains a usage failure (status 2),
+    while changed-path file I/O remains an operational failure (status 1);
+  - SIGINT, SIGTERM, and SIGHUP reap active detached Terraform groups and are
+    then redelivered so the Node caller retains the original signal exit;
+  - unchanged state-aware import staging also loses the prior Node-only
+    default deadline, matching Python's unbounded init/state-list calls.
 - Expected report/count/coverage changes: None.
 - Expected generated-output changes: only a real `tfplan` plus its existing
   fingerprint-v2 sidecar when `SAVE=1`; no new artifact type or schema.
 - Expected no-op areas: collection, transformation, adoption projection,
-  module/root generation, import staging, assessment, guidance, Apply, and all
-  provider-specific behavior.
+  module/root generation, import-staging selection/filtering, assessment,
+  guidance, Apply, and all provider-specific behavior.
 
 ## Invariants Claimed
 
@@ -145,14 +162,27 @@
   - `git diff --check`
   - `npm test` once in the successful final gate
 - Relevant output summary:
-  - affected Node checkpoint: 133 tests, 132 passed, 1 platform skip, 0 failed;
+  - initial affected Node checkpoint: 133 tests, 132 passed, 1 platform skip,
+    0 failed;
   - retained Python ops/Make suite: 131 passed, 0 failed;
   - timeout remediation including frozen ZCC callers: 55 passed, 0 failed;
   - vendor-boundary audit: 187 allowed matches, 0 violations;
-  - full Node suite: 1,020 tests, 1,019 passed, 1 platform skip, 0 failed;
+  - post-remediation affected Node gate: 103 tests, 102 passed, 1 platform
+    skip, 0 failed;
+  - post-remediation full Node suite: 1,026 tests, 1,025 passed, 1 platform
+    skip, 0 failed;
   - exact query stdout/stderr differentials and Python-disabled Make paths
     passed against a physically reduced real ZIA pack root;
   - no credential, network, live backend, provider, or Apply operation ran.
+- First formal review remediation:
+  - added signal/exit cleanup for detached POSIX Terraform groups and a
+    three-signal subprocess regression;
+  - added bounded stderr-only inheritance for init, with success and failure
+    adapter coverage;
+  - restored status-2 validation classification and separated changed-path
+    file reads from JSON parse failures, with negative CLI differentials for
+    tenant, selector, path, deployment, and semantic-root validation;
+  - added missing-saved-plan and failed-init partial-artifact cleanup tests.
 - Tests not run and why:
   - no real Terraform backend/provider run: acceptance explicitly uses fake
     Terraform and requires no credentials;
@@ -191,8 +221,9 @@
   - fingerprint-v2 bytes and input sets must remain exact;
   - no-deadline and very long explicit timeouts must avoid timer overflow and
     remain independent of adapter-owned mocked clocks;
-  - inherited output must stream both channels, enforce bounds, reap process
-    groups, and fail nonzero without leaking captured output into errors;
+  - inherited output must stream the intended channels, enforce bounds, reap
+    process groups on completion and interruption, preserve signal exits, and
+    fail nonzero without leaking captured output into errors;
   - executable resolution must not confuse Windows separators, relative paths,
     or PATH lookup.
 - Source evidence the reviewer should verify: the exact Python functions and

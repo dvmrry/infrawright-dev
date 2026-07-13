@@ -60,10 +60,16 @@ export interface TerraformCommandInheritOptions
   readonly output: "inherit";
 }
 
+export interface TerraformCommandInheritStderrOptions
+  extends TerraformCommandBaseOptions {
+  readonly output: "inherit-stderr";
+}
+
 export type TerraformCommandOptions =
   | TerraformCommandCaptureOptions
   | TerraformCommandDiscardOptions
-  | TerraformCommandInheritOptions;
+  | TerraformCommandInheritOptions
+  | TerraformCommandInheritStderrOptions;
 
 export interface TerraformCommandCaptureResult {
   readonly kind: "captured";
@@ -82,6 +88,66 @@ export type TerraformCommandResult =
   | TerraformCommandCaptureResult
   | TerraformCommandDiscardResult
   | TerraformCommandInheritResult;
+
+const TERMINATION_SIGNALS = ["SIGTERM", "SIGINT", "SIGHUP"] as const;
+type TerminationSignal = (typeof TERMINATION_SIGNALS)[number];
+const activeTerraformProcessGroups = new Set<number>();
+const terminationSignalHandlers = new Map<TerminationSignal, () => void>();
+let exitHandlerInstalled = false;
+
+function killPosixProcessGroup(pid: number): void {
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    // The isolated process group may already be empty.
+  }
+}
+
+function killActiveTerraformProcessGroups(): void {
+  for (const pid of activeTerraformProcessGroups) {
+    killPosixProcessGroup(pid);
+  }
+}
+
+function removeTerminationHandlers(): void {
+  for (const [signal, handler] of terminationSignalHandlers) {
+    process.removeListener(signal, handler);
+  }
+  terminationSignalHandlers.clear();
+  if (exitHandlerInstalled) {
+    process.removeListener("exit", killActiveTerraformProcessGroups);
+    exitHandlerInstalled = false;
+  }
+}
+
+function installTerminationHandlers(): void {
+  if (process.platform === "win32" || terminationSignalHandlers.size > 0) return;
+  for (const signal of TERMINATION_SIGNALS) {
+    const handler = (): void => {
+      killActiveTerraformProcessGroups();
+      activeTerraformProcessGroups.clear();
+      removeTerminationHandlers();
+      process.kill(process.pid, signal);
+    };
+    terminationSignalHandlers.set(signal, handler);
+    process.once(signal, handler);
+  }
+  process.once("exit", killActiveTerraformProcessGroups);
+  exitHandlerInstalled = true;
+}
+
+function registerTerraformProcessGroup(pid: number | undefined): () => void {
+  if (process.platform === "win32" || pid === undefined) return () => undefined;
+  activeTerraformProcessGroups.add(pid);
+  installTerminationHandlers();
+  let registered = true;
+  return () => {
+    if (!registered) return;
+    registered = false;
+    activeTerraformProcessGroups.delete(pid);
+    if (activeTerraformProcessGroups.size === 0) removeTerminationHandlers();
+  };
+}
 
 function fail(
   code: string,
@@ -176,7 +242,7 @@ export function terraformExecutableCandidates(
   const explicit = path.posix.isAbsolute(requested)
     || path.win32.isAbsolute(requested)
     || requested.includes("/")
-    || requested.includes("\\");
+    || (platform === "win32" && requested.includes("\\"));
   if (explicit) {
     if (path.win32.isAbsolute(requested) && platform !== "win32") {
       return [requested];
@@ -361,6 +427,9 @@ export function runTerraformCommand(
   options: TerraformCommandInheritOptions,
 ): Promise<TerraformCommandInheritResult>;
 export function runTerraformCommand(
+  options: TerraformCommandInheritStderrOptions,
+): Promise<TerraformCommandInheritResult>;
+export function runTerraformCommand(
   options: TerraformCommandOptions,
 ): Promise<TerraformCommandResult>;
 /**
@@ -390,7 +459,12 @@ export async function runTerraformCommand(
       "Terraform command requires resolved absolute paths",
     );
   }
-  if (outputMode !== "capture" && outputMode !== "discard" && outputMode !== "inherit") {
+  if (
+    outputMode !== "capture"
+    && outputMode !== "discard"
+    && outputMode !== "inherit"
+    && outputMode !== "inherit-stderr"
+  ) {
     return fail(
       "INVALID_TERRAFORM_COMMAND_OUTPUT",
       "Terraform command output mode is not allowed",
@@ -434,6 +508,7 @@ export async function runTerraformCommand(
       }));
       return;
     }
+    const unregisterProcessGroup = registerTerraformProcessGroup(child.pid);
 
     const output = outputMode === "capture"
       ? Buffer.allocUnsafe(limits.maxStdoutBytes)
@@ -488,8 +563,9 @@ export async function runTerraformCommand(
       source: Readable,
       destination: NodeJS.WriteStream,
       chunk: Buffer,
+      enabled: boolean,
     ): void => {
-      if (outputMode !== "inherit") return;
+      if (!enabled) return;
       if (!destination.write(chunk)) {
         source.pause();
         destination.once("drain", () => source.resume());
@@ -509,7 +585,7 @@ export async function runTerraformCommand(
         chunk.copy(output, stdoutBytes);
       }
       stdoutBytes += chunk.length;
-      streamOutput(child.stdout, process.stdout, chunk);
+      streamOutput(child.stdout, process.stdout, chunk, outputMode === "inherit");
     });
     child.stderr.on("data", (chunk: Buffer) => {
       if (chunk.length > limits.maxStderrBytes - stderrBytes) {
@@ -521,7 +597,12 @@ export async function runTerraformCommand(
         return;
       }
       stderrBytes += chunk.length;
-      streamOutput(child.stderr, process.stderr, chunk);
+      streamOutput(
+        child.stderr,
+        process.stderr,
+        chunk,
+        outputMode === "inherit" || outputMode === "inherit-stderr",
+      );
     });
     child.stdout.on("error", () => {
       terminate(new ProcessFailure({
@@ -556,6 +637,7 @@ export async function runTerraformCommand(
       closed = true;
       if (timer !== null) clearTimeout(timer);
       killProcessTree();
+      unregisterProcessGroup();
       if (terminalFailure !== null) {
         output?.fill(0);
         reject(terminalFailure);
@@ -566,7 +648,7 @@ export async function runTerraformCommand(
           category: "domain",
           message: "Terraform command did not complete successfully",
         }));
-      } else if (outputMode === "inherit") {
+      } else if (outputMode === "inherit" || outputMode === "inherit-stderr") {
         resolve({ kind: "inherited" });
       } else if (output === null) {
         resolve({ kind: "discarded" });

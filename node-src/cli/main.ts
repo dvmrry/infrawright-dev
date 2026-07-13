@@ -48,6 +48,7 @@ import {
   type AdoptionStateLoader,
 } from "../domain/adopt-runner.js";
 import { resolveTerraformExecutable } from "../io/terraform-command.js";
+import { ProcessFailure } from "../domain/errors.js";
 import { generateEnvironmentRoots } from "../domain/environment-generator.js";
 import {
   createImportStagingTerraform,
@@ -106,6 +107,30 @@ class CliExit extends Error {
 
 function usageError(message: string): never {
   throw new CliExit(message, 2);
+}
+
+const LEGACY_USAGE_FAILURE_CODES = new Set([
+  "INVALID_CHANGED_PATHS",
+  "INVALID_DEPLOYMENT",
+  "INVALID_ROOT_CONFIGURATION",
+  "INVALID_TENANT",
+  "UNKNOWN_RESOURCE_SELECTOR",
+]);
+
+async function legacyPlanLifecycleCommand(
+  operation: () => Promise<number>,
+): Promise<number> {
+  try {
+    return await operation();
+  } catch (error: unknown) {
+    if (
+      error instanceof ProcessFailure
+      && LEGACY_USAGE_FAILURE_CODES.has(error.code)
+    ) {
+      throw new CliExit(error.message, 2);
+    }
+    throw error;
+  }
 }
 
 async function packageRoot(): Promise<string> {
@@ -888,7 +913,7 @@ async function scopePathsCommand(arguments_: string[]): Promise<number> {
       || argument === "--paths-json"
       || argument === "--path"
     ) {
-      const option = takeOption(arguments_, index, argument);
+      const option = takeOption(arguments_, index, argument, argument === "--path");
       if (argument === "--root") root = option.value;
       if (argument === "--profile") profile = option.value;
       if (argument === "--catalog") catalog = option.value;
@@ -907,10 +932,10 @@ async function scopePathsCommand(arguments_: string[]): Promise<number> {
   }
   if (pathsJson !== undefined) {
     let parsed: unknown;
+    const text = pathsJson === "-"
+      ? await readStandardInput()
+      : await readFile(pathsJson, "utf8");
     try {
-      const text = pathsJson === "-"
-        ? await readStandardInput()
-        : await readFile(pathsJson, "utf8");
       parsed = JSON.parse(text) as unknown;
     } catch {
       usageError(`${pathsJson} must contain a JSON array of changed paths`);
@@ -1264,12 +1289,24 @@ async function main(arguments_: string[]): Promise<number> {
   if (command === "gen-env") return genEnv(arguments_.slice(1));
   if (command === "stage-imports") return stageImportsCommand(arguments_.slice(1));
   if (command === "unstage-imports") return unstageImportsCommand(arguments_.slice(1));
-  if (command === "resources") return resourcesCommand(arguments_.slice(1));
-  if (command === "roots") return rootsCommand(arguments_.slice(1));
-  if (command === "scope-paths") return scopePathsCommand(arguments_.slice(1));
-  if (command === "plan-roots") return planRootsCommand(arguments_.slice(1));
-  if (command === "plan") return planCommand(arguments_.slice(1));
-  if (command === "clean-plans") return cleanPlansCommand(arguments_.slice(1));
+  if (command === "resources") {
+    return legacyPlanLifecycleCommand(() => resourcesCommand(arguments_.slice(1)));
+  }
+  if (command === "roots") {
+    return legacyPlanLifecycleCommand(() => rootsCommand(arguments_.slice(1)));
+  }
+  if (command === "scope-paths") {
+    return legacyPlanLifecycleCommand(() => scopePathsCommand(arguments_.slice(1)));
+  }
+  if (command === "plan-roots") {
+    return legacyPlanLifecycleCommand(() => planRootsCommand(arguments_.slice(1)));
+  }
+  if (command === "plan") {
+    return legacyPlanLifecycleCommand(() => planCommand(arguments_.slice(1)));
+  }
+  if (command === "clean-plans") {
+    return legacyPlanLifecycleCommand(() => cleanPlansCommand(arguments_.slice(1)));
+  }
   if (command === "fetch") return fetchCommand(arguments_.slice(1));
   if (command === "fetch-diag") return fetchDiag(arguments_.slice(1));
   if (command === "-h" || command === "--help") {

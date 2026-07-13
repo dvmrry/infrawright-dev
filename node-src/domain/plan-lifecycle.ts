@@ -77,7 +77,7 @@ export function createPlanTerraform(options: {
         ...common,
         argv,
         cwd: request.directory,
-        output: "discard",
+        output: "inherit-stderr",
       });
     },
     plan: async (request) => {

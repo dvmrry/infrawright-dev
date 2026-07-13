@@ -202,6 +202,51 @@ test("generic Terraform adapter emits exact backend, var-file, and saved-plan ar
   ].join("\n"));
 });
 
+test("generic Terraform adapter suppresses init stdout and preserves init stderr", async (context) => {
+  const workspace = await temporaryDirectory(context);
+  for (const exitCode of [0, 37]) {
+    const executable = path.join(workspace, `terraform-init-${exitCode}`);
+    await writeText(executable, [
+      "#!/bin/sh",
+      "printf '%s' 'hidden-init-stdout'",
+      "printf '%s' 'visible-init-stderr' >&2",
+      `exit ${exitCode}`,
+      "",
+    ].join("\n"));
+    await chmod(executable, 0o700);
+    const adapter = createPlanTerraform({ environment: {}, terraformExecutable: executable });
+    let stdout = "";
+    let stderr = "";
+    const originalStdout = process.stdout.write;
+    const originalStderr = process.stderr.write;
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      stdout += Buffer.from(chunk).toString("utf8");
+      return true;
+    }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += Buffer.from(chunk).toString("utf8");
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const request: PlanTerraformRequest = {
+        directory: workspace,
+        save: false,
+        varFiles: [],
+      };
+      if (exitCode === 0) await adapter.initialize(request);
+      else await assert.rejects(adapter.initialize(request), (error) => {
+        assertFailure(error, "TERRAFORM_COMMAND_FAILED");
+        return true;
+      });
+    } finally {
+      process.stdout.write = originalStdout;
+      process.stderr.write = originalStderr;
+    }
+    assert.equal(stdout, "");
+    assert.equal(stderr, "visible-init-stderr");
+  }
+});
+
 test("remote backend uses the exact absolute config and tenant/root state key", async (context) => {
   const workspace = await temporaryDirectory(context);
   await writeRoot({ backend: "azurerm", label: ZIA_RESOURCE, members: [ZIA_RESOURCE], workspace });
@@ -408,6 +453,45 @@ test("failed Terraform plan removes a partial saved pair", async (context) => {
   }), /fake plan failed/u);
   await assert.rejects(readFile(path.join(directory, "tfplan")));
   await assert.rejects(readFile(path.join(directory, "tfplan.sources")));
+});
+
+test("failed init and missing saved output both remove partial plan artifacts", async (context) => {
+  for (const phase of ["init", "missing-plan"] as const) {
+    await context.test(phase, async () => {
+      const workspace = await mkdtemp(path.join(os.tmpdir(), `infrawright-plan-${phase}-`));
+      try {
+        const directory = await writeRoot({ label: ZIA_RESOURCE, members: [ZIA_RESOURCE], workspace });
+        await writeText(configPath(workspace, ZIA_RESOURCE), `{"${ZIA_RESOURCE}_items":{}}\n`);
+        const terraform: PlanTerraform = {
+          initialize: async () => {
+            if (phase === "init") {
+              await writeText(path.join(directory, "tfplan"), "partial-plan");
+              await writeText(path.join(directory, "tfplan.sources"), "partial-sources");
+              throw new Error("fake init failed");
+            }
+          },
+          plan: async () => undefined,
+        };
+        await assert.rejects(planEnvironmentRoots({
+          deployment: deployment(),
+          importsOnly: false,
+          root: await committedRoot(),
+          save: true,
+          selectors: [ZIA_RESOURCE],
+          tenant: "tenant",
+          terraform,
+          workspace,
+        }), phase === "init" ? /fake init failed/u : (error) => {
+          assertFailure(error, "MISSING_SAVED_PLAN");
+          return true;
+        });
+        await assert.rejects(readFile(path.join(directory, "tfplan")));
+        await assert.rejects(readFile(path.join(directory, "tfplan.sources")));
+      } finally {
+        await rm(workspace, { force: true, recursive: true });
+      }
+    });
+  }
 });
 
 test("clean-plans without a tenant removes selected pairs across tenants", async (context) => {

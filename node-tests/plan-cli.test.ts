@@ -116,6 +116,107 @@ test("real metadata CLI query bytes match Python on grouped materialized roots",
   assert.equal(nodeScope.stderr, pythonScope.stderr);
 });
 
+test("query validation and changed-path file failures retain legacy status classes", async (context) => {
+  const workspace = await temporaryDirectory(context);
+  const packs = await reducedZiaRoot(workspace);
+  const deployment = path.join(workspace, "deployment.json");
+  await writeText(deployment, `${JSON.stringify({ overlay: workspace, roots: {} }, null, 2)}\n`);
+  const environment = {
+    ...process.env,
+    INFRAWRIGHT_DEPLOYMENT: deployment,
+    INFRAWRIGHT_PACKS: packs,
+  };
+  const cli = path.join(ROOT, "dist", "infrawright-cli.mjs");
+  const built = command(process.execPath, ["scripts/build-metadata-cli.mjs"], environment);
+  assert.equal(built.status, 0, built.stderr);
+  const common = [
+    "--root", packs,
+    "--profile", PROFILE,
+    "--catalog", CATALOG,
+    "--deployment", deployment,
+  ];
+  const invalidPaths = path.join(workspace, "invalid-paths.json");
+  await writeText(invalidPaths, '[""]\n');
+  const validationCases = [
+    {
+      python: ["-m", "engine.ops", "roots", "--json", "unknown_resource"],
+      node: [cli, "roots", "--resource", "unknown_resource", ...common],
+    },
+    {
+      python: ["-m", "engine.ops", "plan-roots", "--json", "--tenant", "../bad"],
+      node: [cli, "plan-roots", "--tenant", "../bad", ...common],
+    },
+    {
+      python: ["-m", "engine.ops", "scope-paths", "--json", "--paths-json", invalidPaths],
+      node: [cli, "scope-paths", "--paths-json", invalidPaths, ...common],
+    },
+  ];
+  for (const item of validationCases) {
+    const python = command("python3", item.python, environment);
+    const node = command(process.execPath, item.node, environment);
+    assert.equal(node.status, python.status, item.node[1]);
+    assert.equal(node.stdout, python.stdout, item.node[1]);
+    assert.equal(node.stderr, python.stderr, item.node[1]);
+    assert.equal(node.status, 2, item.node[1]);
+  }
+
+  const invalidDeployment = path.join(workspace, "invalid-deployment.json");
+  await writeText(invalidDeployment, '{"overlay":".","roots":[]}\n');
+  const invalidRoot = path.join(workspace, "invalid-root.json");
+  await writeText(invalidRoot, `${JSON.stringify({
+    overlay: ".",
+    roots: { zia: { groups: { bad_group: ["zia_not_real"] } } },
+  })}\n`);
+  for (const selected of [invalidDeployment, invalidRoot]) {
+    const selectedEnvironment = {
+      ...environment,
+      INFRAWRIGHT_DEPLOYMENT: selected,
+    };
+    const python = command(
+      "python3",
+      ["-m", "engine.ops", "roots", "--json"],
+      selectedEnvironment,
+    );
+    const node = command(
+      process.execPath,
+      [
+        cli,
+        "roots",
+        "--root", packs,
+        "--profile", PROFILE,
+        "--catalog", CATALOG,
+        "--deployment", selected,
+      ],
+      selectedEnvironment,
+    );
+    assert.equal(python.status, 2, python.stderr);
+    assert.equal(node.status, python.status, node.stderr);
+    assert.equal(node.stdout, python.stdout);
+  }
+
+  const malformed = path.join(workspace, "malformed.json");
+  await writeText(malformed, "{bad\n");
+  const malformedResult = command(
+    process.execPath,
+    [cli, "scope-paths", "--paths-json", malformed, ...common],
+    environment,
+  );
+  assert.equal(malformedResult.status, 2);
+  assert.equal(malformedResult.stdout, "");
+  assert.match(malformedResult.stderr, /must contain a JSON array of changed paths/u);
+
+  const missing = path.join(workspace, "missing.json");
+  const missingResult = command(
+    process.execPath,
+    [cli, "scope-paths", "--paths-json", missing, ...common],
+    environment,
+  );
+  assert.equal(missingResult.status, 1);
+  assert.equal(missingResult.stdout, "");
+  assert.match(missingResult.stderr, /ENOENT|no such file or directory/iu);
+  assert.equal(missingResult.stderr.includes("must contain a JSON array"), false);
+});
+
 test("all Slice-1 Make targets run with Python unavailable and fake Terraform", async (context) => {
   const workspace = await temporaryDirectory(context);
   const packs = await reducedZiaRoot(workspace);
