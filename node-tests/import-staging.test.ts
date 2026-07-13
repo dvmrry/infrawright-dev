@@ -258,7 +258,7 @@ test("state-aware staging filters exact state and preserves moves independently"
   await writeText(sourceImports, text);
   await writeText(sourceMoves, "# moves stay independent\n");
   const rootDirectory = path.join(workspace, "envs", "tenant", ZIA_RESOURCE);
-  await writeText(path.join(rootDirectory, "main.tf"), 'terraform {\n  backend "azurerm" {}\n}\n');
+  await writeText(path.join(rootDirectory, "main.tf"), 'terraform {\r  backend "azurerm" {}\r}\r');
   const calls: Array<{ readonly kind: "init" | "list"; readonly request: unknown }> = [];
   const terraform: ImportStagingTerraform = {
     initialize: async (request) => { calls.push({ kind: "init", request }); },
@@ -394,16 +394,46 @@ test("unstaging removes selected member copies only and preserves source artifac
   }), { removed: 0 });
 });
 
-async function prepareDifferentialWorkspace(workspace: string): Promise<void> {
+async function prepareDifferentialWorkspace(
+  workspace: string,
+  importsText = imports(ZIA_RESOURCE, ["managed", "new"]),
+): Promise<void> {
   await writeText(
     path.join(workspace, "deployment.json"),
     `${JSON.stringify({ overlay: ".", roots: {} }, null, 2)}\n`,
   );
   await writeText(
     path.join(workspace, "imports", "tenant", `${ZIA_RESOURCE}_imports.tf`),
-    imports(ZIA_RESOURCE, ["managed", "new"]),
+    importsText,
   );
   await mkdir(path.join(workspace, "envs", "tenant", ZIA_RESOURCE), { recursive: true });
+}
+
+function runPythonStateAwareStage(workspace: string, address: string): void {
+  const python = spawnSync("python3", [
+    "-c",
+    [
+      "import sys",
+      "from engine import ops",
+      "class Result:",
+      "    returncode = 0",
+      `    stdout = ${JSON.stringify(`${address}\n`)}.encode('utf-8')`,
+      "ops._check_call = lambda *args, **kwargs: 0",
+      "ops.subprocess.run = lambda *args, **kwargs: Result()",
+      `raise SystemExit(ops.cmd_stage_imports({'tenant': 'tenant', 'selectors': ['${ZIA_RESOURCE}'], 'state_aware': True, 'backend_config': None}))`,
+    ].join("\n"),
+  ], {
+    cwd: workspace,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      INFRAWRIGHT_DEPLOYMENT: path.join(workspace, "deployment.json"),
+      INFRAWRIGHT_PACKS: path.join(ROOT, "packs"),
+      INFRAWRIGHT_PACK_PROFILE: path.join(ROOT, "packsets", "full.json"),
+      PYTHONPATH: ROOT,
+    },
+  });
+  assert.equal(python.status, 0, python.stderr);
 }
 
 test("state-aware staging tree matches Python with injected state output", async (context) => {
@@ -414,30 +444,7 @@ test("state-aware staging tree matches Python with injected state output", async
     prepareDifferentialWorkspace(nodeWorkspace),
   ]);
   const address = importAddress(ZIA_RESOURCE, "managed");
-  const python = spawnSync("python3", [
-    "-c",
-    [
-      "import json, sys",
-      "from engine import ops",
-      "class Result:",
-      "    returncode = 0",
-      `    stdout = ${JSON.stringify(`${address}\n`)}.encode('utf-8')`,
-      "ops._check_call = lambda *args, **kwargs: 0",
-      "ops.subprocess.run = lambda *args, **kwargs: Result()",
-      `raise SystemExit(ops.cmd_stage_imports({'tenant': 'tenant', 'selectors': ['${ZIA_RESOURCE}'], 'state_aware': True, 'backend_config': None}))`,
-    ].join("\n"),
-  ], {
-    cwd: pythonWorkspace,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      INFRAWRIGHT_DEPLOYMENT: path.join(pythonWorkspace, "deployment.json"),
-      INFRAWRIGHT_PACKS: path.join(ROOT, "packs"),
-      INFRAWRIGHT_PACK_PROFILE: path.join(ROOT, "packsets", "full.json"),
-      PYTHONPATH: ROOT,
-    },
-  });
-  assert.equal(python.status, 0, python.stderr);
+  runPythonStateAwareStage(pythonWorkspace, address);
   await stageImports({
     deployment: { overlay: ".", roots: {} },
     root: await committedRoot(),
@@ -455,6 +462,46 @@ test("state-aware staging tree matches Python with injected state output", async
     await readFile(path.join(nodeWorkspace, relative), "utf8"),
     await readFile(path.join(pythonWorkspace, relative), "utf8"),
   );
+});
+
+test("state-aware file decoding matches Python for CR, CRLF, and UTF-8 BOM", async (context) => {
+  const canonical = imports(ZIA_RESOURCE, ["managed", "new"]);
+  const cases = [
+    { label: "cr", text: canonical.replaceAll("\n", "\r") },
+    { label: "crlf", text: canonical.replace("\n", "\r\n") },
+    { label: "bom", text: `\ufeff${canonical}` },
+  ] as const;
+  const address = importAddress(ZIA_RESOURCE, "managed");
+  for (const item of cases) {
+    const pythonWorkspace = await temporaryDirectory(context, `infrawright-stage-${item.label}-python-`);
+    const nodeWorkspace = await temporaryDirectory(context, `infrawright-stage-${item.label}-node-`);
+    await Promise.all([
+      prepareDifferentialWorkspace(pythonWorkspace, item.text),
+      prepareDifferentialWorkspace(nodeWorkspace, item.text),
+    ]);
+    const sourceRelative = path.join("imports", "tenant", `${ZIA_RESOURCE}_imports.tf`);
+    const sourceBefore = await readFile(path.join(nodeWorkspace, sourceRelative));
+    runPythonStateAwareStage(pythonWorkspace, address);
+    await stageImports({
+      deployment: { overlay: ".", roots: {} },
+      root: await committedRoot(),
+      selectors: [ZIA_RESOURCE],
+      stateAware: true,
+      tenant: "tenant",
+      terraform: {
+        initialize: async () => undefined,
+        listState: async () => ({ success: true, stdout: `${address}\n` }),
+      },
+      workspace: nodeWorkspace,
+    });
+    const stagedRelative = path.join("envs", "tenant", ZIA_RESOURCE, `${ZIA_RESOURCE}_imports.tf`);
+    assert.equal(
+      await readFile(path.join(nodeWorkspace, stagedRelative), "utf8"),
+      await readFile(path.join(pythonWorkspace, stagedRelative), "utf8"),
+      item.label,
+    );
+    assert.deepEqual(await readFile(path.join(nodeWorkspace, sourceRelative)), sourceBefore);
+  }
 });
 
 test("staging metadata works for full, provider, Zscaler, empty, and reduced roots", async (context) => {

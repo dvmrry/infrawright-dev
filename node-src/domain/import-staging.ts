@@ -1,7 +1,6 @@
-import { copyFile, stat, unlink, writeFile } from "node:fs/promises";
+import { copyFile, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { readRequiredUtf8 } from "../io/files.js";
 import { runTerraformCommand } from "../io/terraform-command.js";
 import type { LoadedPackRoot } from "../metadata/loader.js";
 import { deploymentEnvsDir } from "./deployment.js";
@@ -56,6 +55,24 @@ function decodeUtf8(content: Uint8Array): string {
       "terraform state list output is not valid UTF-8",
     );
   }
+}
+
+async function readPythonTextUtf8(file: string, label: string): Promise<string> {
+  let content: Buffer;
+  try {
+    content = await readFile(file);
+  } catch {
+    return fail("READ_FAILED", `unable to read ${label}`, "io");
+  }
+  let text: string;
+  try {
+    // Python open(..., encoding="utf-8") retains the BOM as U+FEFF.
+    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(content);
+  } catch {
+    return fail("INVALID_UTF8", `${label} is not valid UTF-8`);
+  }
+  // Python's default text mode performs universal-newline translation.
+  return text.replaceAll(/\r\n?/gu, "\n");
 }
 
 /** Adapt the bounded generic Terraform runner for staging-only init/state-list calls. */
@@ -160,8 +177,8 @@ async function requireBackendConfiguration(options: {
   if (options.backendConfig !== undefined && options.backendConfig.length > 0) return;
   const main = path.join(options.directory, "main.tf");
   if (!(await exists(main))) return;
-  const text = await readRequiredUtf8(main, `${options.label} environment root`);
-  if (text.split(/\r?\n/u).some((line) => line.startsWith('  backend "'))) {
+  const text = await readPythonTextUtf8(main, `${options.label} environment root`);
+  if (text.split("\n").some((line) => line.startsWith('  backend "'))) {
     fail(
       "BACKEND_CONFIG_REQUIRED",
       `${options.label} declares a remote backend; run with BACKEND_CONFIG=<file>`,
@@ -170,7 +187,12 @@ async function requireBackendConfiguration(options: {
 }
 
 function stateAddresses(stdout: string): readonly string[] {
-  return stdout.split(/\r\n|[\n\v\f\r\x1c-\x1e\x85\u2028\u2029]/u);
+  if (stdout.length === 0) return [];
+  const lines = stdout.split(/\r\n|[\n\v\f\r\x1c-\x1e\x85\u2028\u2029]/u);
+  if (/(?:\r\n|[\n\v\f\r\x1c-\x1e\x85\u2028\u2029])$/u.test(stdout)) {
+    lines.pop();
+  }
+  return lines;
 }
 
 /** Copy generated import/move artifacts into complete deployment-selected roots. */
@@ -244,7 +266,7 @@ export async function stageImports(options: {
           await terraform.initialize(request);
           const state = await terraform.listState(request);
           const filtered = filterGeneratedImports(
-            await readRequiredUtf8(source, `${resourceType} imports`),
+            await readPythonTextUtf8(source, `${resourceType} imports`),
             state.success ? stateAddresses(state.stdout) : [],
           );
           if (filtered.text.length > 0) {
