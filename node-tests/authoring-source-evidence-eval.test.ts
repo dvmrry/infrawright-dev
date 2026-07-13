@@ -67,3 +67,11 @@ test("in-memory coordinator evaluates Slice-2 text and AST reports", async (cont
   const control = await deriveSourceOperationRegistry({ schemaData: schema, openApi: openapi, sourceRoot: root, providerSource: provider, resourcePrefix: "example" }); const ast = await deriveSourceOperationRegistry({ schemaData: schema, openApi: openapi, sourceRoot: root, providerSource: provider, resourcePrefix: "example", sourceFacts: facts });
   const evaluation = evaluateSourceEvidence(control, ast, compareSourceOperationReports(control, ast)); assert.equal((evaluation.summary as JsonObject).review_required, 1); assert.match(renderSourceEvidenceMarkdown(evaluation), /new_mapping/u);
 });
+
+test("explicit null metrics remain None instead of becoming measured zeroes", async () => {
+  const compare: JsonObject = { changes: [], summary: { resources: null, unchanged: null, control: { resources: null, mapped: null }, candidate: { resources: null, mapped: null } } };
+  const candidateReport: JsonObject = { diagnostics: [], registry: { missing: { status: "unmapped", reason: "resource_file_not_found", source: { candidate_count: null, client_call_count: null, package_call_count: null, raw_rest_call_count: null } } }, summary: { resources: null, mapped: null } };
+  const evaluation = evaluateSourceEvidence({}, candidateReport, compare); const expected = await pythonEvaluation(compare, candidateReport); const markdown = renderSourceEvidenceMarkdown(evaluation);
+  assert.deepEqual(evaluation, expected.evaluation); assert.equal(markdown, expected.markdown); assert.match(markdown, /\| `resources` \| `None` \| `None` \|/u);
+  const bucket = (((evaluation.shortcomings as JsonObject).buckets as JsonObject).resource_file_not_found as JsonObject).resources as JsonObject[]; assert.equal(bucket[0]?.client_call_count, null);
+});

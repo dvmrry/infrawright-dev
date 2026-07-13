@@ -21,6 +21,7 @@ function pythonTruthy(value: unknown): boolean {
 }
 function pythonDisplay(value: unknown): string { if (value == null) return "None"; if (value === true) return "True"; if (value === false) return "False"; return String(value); }
 function firstTruthy(...values: readonly unknown[]): unknown { return values.find(pythonTruthy) ?? values.at(-1); }
+function getDefault(value: JsonObject, key: string, fallback: unknown): unknown { return Object.hasOwn(value, key) ? value[key] : fallback; }
 
 function changedFilesOnly(before: JsonObject, after: JsonObject): boolean {
   const { files: beforeFiles = [], ...beforeRest } = before; const { files: afterFiles = [], ...afterRest } = after;
@@ -50,7 +51,7 @@ export function classifySourceEvidenceComparison(compareReport: JsonObject): Jso
     changes.push({ ...change, classification, classification_reason: reason });
   }
   const summary = object(compareReport.summary);
-  return { changes, summary: { acceptable: counts.acceptable, candidate: object(summary.candidate), changed: changes.length, control: object(summary.control), reasons: Object.fromEntries(sortedStrings(Object.keys(reasons)).map((reason) => [reason, reasons[reason]])), regressions: counts.regression, resources: summary.resources ?? 0, review_required: counts.review, unchanged: summary.unchanged ?? 0 } };
+  return { changes, summary: { acceptable: counts.acceptable, candidate: object(summary.candidate), changed: changes.length, control: object(summary.control), reasons: Object.fromEntries(sortedStrings(Object.keys(reasons)).map((reason) => [reason, reasons[reason]])), regressions: counts.regression, resources: getDefault(summary, "resources", 0), review_required: counts.review, unchanged: getDefault(summary, "unchanged", 0) } };
 }
 
 function operationCallCount(detail: JsonObject): number { return ["client_call_count", "package_call_count", "raw_rest_call_count"].reduce((sum, key) => sum + (pythonTruthy(detail[key]) ? Number(detail[key]) : 0), 0); }
@@ -72,7 +73,7 @@ export function summarizeSourceEvidenceShortcomings(candidateReport: JsonObject,
   for (const change of objects(evaluation.changes)) if (change.classification === "regression") addShortcoming(shortcomings, "regression", change.resource, { after: object(change.after), before: object(change.before), reason: change.classification_reason });
   for (const resource of sortedStrings(Object.keys(registry))) {
     const entry = object(registry[resource]); const diagnostic = diagnostics.get(resource) ?? {}; const source = object(entry.source); const status = entry.status; const reason = entry.reason;
-    const detail: JsonObject = { candidate_count: source.candidate_count ?? 0, client_call_count: source.client_call_count ?? 0, files: firstTruthy(source.files, diagnostic.files, []) as never, package_call_count: source.package_call_count ?? 0, raw_rest_call_count: source.raw_rest_call_count ?? 0, reason: reason ?? null, status: status ?? null };
+    const detail: JsonObject = { candidate_count: getDefault(source, "candidate_count", 0), client_call_count: getDefault(source, "client_call_count", 0), files: firstTruthy(source.files, diagnostic.files, []) as never, package_call_count: getDefault(source, "package_call_count", 0), raw_rest_call_count: getDefault(source, "raw_rest_call_count", 0), reason: reason ?? null, status: status ?? null };
     for (const key of ["client_calls", "package_calls", "raw_rest_calls"]) if (pythonTruthy(source[key])) detail[key] = (source[key] as unknown[]).slice(0, 10) as never;
     const candidates = firstTruthy(entry.candidates, diagnostic.ambiguous, diagnostic.hits, []); if (pythonTruthy(candidates)) detail.candidate_samples = candidateSamples(candidates) as never;
     if (status === "ambiguous_source_operation") { addShortcoming(shortcomings, "ambiguous_source_operation", resource, detail); continue; }
@@ -88,11 +89,11 @@ export function summarizeSourceEvidenceShortcomings(candidateReport: JsonObject,
 
 function statusTable(summary: JsonObject): string {
   const control = object(summary.control); const candidate = object(summary.candidate); const names = ["resources", "mapped", "ambiguous", "graphql_source", "unmapped", "resources_with_source_files"];
-  return ["| Metric | Text Scanner | AST Facts |", "|---|---:|---:|", ...names.map((name) => `| \`${name}\` | \`${pythonDisplay(control[name] ?? 0)}\` | \`${pythonDisplay(candidate[name] ?? 0)}\` |`)].join("\n");
+  return ["| Metric | Text Scanner | AST Facts |", "|---|---:|---:|", ...names.map((name) => `| \`${name}\` | \`${pythonDisplay(getDefault(control, name, 0))}\` | \`${pythonDisplay(getDefault(candidate, name, 0))}\` |`)].join("\n");
 }
 
 export function renderSourceEvidenceMarkdown(evaluation: JsonObject, title = "Source Evidence A/B Evaluation"): string {
-  const summary = object(evaluation.summary); const lines = [`# ${title}`, "", statusTable(summary), "", "## Delta Summary", "", "| Classification | Count |", "|---|---:|", `| \`regression\` | \`${pythonDisplay(summary.regressions ?? 0)}\` |`, `| \`review\` | \`${pythonDisplay(summary.review_required ?? 0)}\` |`, `| \`acceptable\` | \`${pythonDisplay(summary.acceptable ?? 0)}\` |`, `| \`unchanged\` | \`${pythonDisplay(summary.unchanged ?? 0)}\` |`, ""];
+  const summary = object(evaluation.summary); const lines = [`# ${title}`, "", statusTable(summary), "", "## Delta Summary", "", "| Classification | Count |", "|---|---:|", `| \`regression\` | \`${pythonDisplay(getDefault(summary, "regressions", 0))}\` |`, `| \`review\` | \`${pythonDisplay(getDefault(summary, "review_required", 0))}\` |`, `| \`acceptable\` | \`${pythonDisplay(getDefault(summary, "acceptable", 0))}\` |`, `| \`unchanged\` | \`${pythonDisplay(getDefault(summary, "unchanged", 0))}\` |`, ""];
   const reasons = object(summary.reasons); if (Object.keys(reasons).length > 0) { lines.push("## Reasons", "", "| Reason | Count |", "|---|---:|", ...sortedStrings(Object.keys(reasons)).map((reason) => `| \`${reason}\` | \`${pythonDisplay(reasons[reason])}\` |`), ""); }
   const changes = [...objects(evaluation.changes)].sort((a, b) => (CHANGE_CLASS_ORDER[String(a.classification)] ?? 99) - (CHANGE_CLASS_ORDER[String(b.classification)] ?? 99) || comparePythonStrings(String(a.resource ?? ""), String(b.resource ?? "")));
   if (changes.length > 0) { const shown = changes.slice(0, MAX_MARKDOWN_CHANGE_ROWS); lines.push("## Changes", "", "| Resource | Class | Reason | Before | After |", "|---|---|---|---|---|", ...shown.map((change) => { const before = object(change.before); const after = object(change.after); return `| \`${pythonDisplay(change.resource)}\` | \`${pythonDisplay(change.classification)}\` | \`${pythonDisplay(change.classification_reason)}\` | ${pythonDisplay(before.status)} \`${pythonDisplay(before.read_path)}\` | ${pythonDisplay(after.status)} \`${pythonDisplay(after.read_path)}\` |`; })); if (changes.length > shown.length) lines.push("", `Showing \`${shown.length}\` of \`${changes.length}\` changes; full detail is in JSON.`); lines.push(""); }
