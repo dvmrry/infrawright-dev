@@ -19,6 +19,9 @@ export const DEFAULT_TERRAFORM_COMMAND_LIMITS: TerraformCommandLimits = Object.f
   maxStderrBytes: 1024 * 1024,
 });
 
+export const UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM_MESSAGE =
+  "Terraform execution through Infrawright is supported on Linux and macOS; Windows is not a supported operational platform.";
+
 const MAX_TERRAFORM_COMMAND_STDOUT_BYTES = 8 * 1024 * 1024;
 const MAX_TERRAFORM_COMMAND_STDERR_BYTES = 16 * 1024 * 1024;
 const MAX_TERRAFORM_COMMAND_ARGUMENTS = 128;
@@ -250,9 +253,17 @@ export function terraformExecutableCandidates(
     return [pathModule.resolve(cwd, requested)];
   }
 
-  const pathValue = environment.PATH ?? environment.Path ?? environment.path ?? "";
+  const pathValue = environment.PATH ?? environment.Path ?? environment.path;
+  if (pathValue === undefined) return [];
   const delimiter = platform === "win32" ? ";" : ":";
-  const directories = pathValue.split(delimiter).filter((entry) => entry.length > 0);
+  const components = pathValue.split(delimiter);
+  const directories = platform === "win32"
+    ? components.filter((entry) => entry.length > 0)
+    : components.map((entry) => {
+        // POSIX execvp treats every empty PATH component as the current working
+        // directory. Preserve its position instead of silently dropping it.
+        return entry.length === 0 ? cwd : entry;
+      });
   const names = platform === "win32" && path.win32.extname(requested) === ""
     ? (environment.PATHEXT ?? ".COM;.EXE;.BAT;.CMD")
       .split(";")
@@ -443,6 +454,12 @@ export function runTerraformCommand(
 export async function runTerraformCommand(
   options: TerraformCommandOptions,
 ): Promise<TerraformCommandResult> {
+  if (process.platform === "win32") {
+    return fail(
+      "UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM",
+      UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM_MESSAGE,
+    );
+  }
   const terraformExecutable = options.terraformExecutable;
   const cwd = options.cwd;
   const outputMode = options.output;

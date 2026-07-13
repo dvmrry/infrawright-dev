@@ -29,6 +29,44 @@
 - Diff command:
   `git diff be5e4d04cc33b08b051519a1e2753a716dc20d40..HEAD`.
 
+## Accepted-Head Portability Remediation
+
+- Remediation base: `0156b5a9aebc87071018e78ea3c485c673312d05`,
+  the independently reviewed PR #203 head.
+- Remediation head: current working tree, ready for a patch-focused fresh
+  review before commit and push.
+- Remediation diff command:
+  `git diff 0156b5a9aebc87071018e78ea3c485c673312d05`.
+- Finding 1: empty POSIX `PATH` components were dropped. Each explicit empty
+  component now resolves to `cwd` in its original position; an absent `PATH`
+  retains the prior no-candidate behavior. Existing explicit POSIX, Windows,
+  and ordinary PATH resolution remains unchanged.
+- Finding 2: Windows cannot provide the runner's POSIX process-group ownership
+  contract with built-in Node process APIs. Per the approved runtime policy,
+  operational Terraform execution through the shared Node runner now fails
+  before executable inspection or spawn on `win32`. Linux is
+  production-supported, macOS is developer-supported, and pure
+  metadata/rendering functionality is not platform-blocked. Retained Python
+  assessment and Apply lanes remain outside this slice and are not described as
+  implementing the new pre-spawn refusal.
+- No Windows process supervisor, Job Object binding, native dependency,
+  PowerShell wrapper, `taskkill` orchestration, or Windows CI claim was added.
+- The unsupported-platform failure is preserved through the generic Oracle and
+  Terraform-show wrappers instead of being translated to an opaque spawn error.
+- Runtime support is documented once in `README.md`; no CLI-wide Windows guard
+  was introduced.
+- Focused validation: 71 Node runner/show/Oracle/plan/CLI tests passed, with no
+  failure or skip.
+- Accumulated validation:
+  - TypeScript typecheck passed;
+  - retained Python ops/Make suite passed 131/131;
+  - full Node suite passed 1,028/1,029 with the existing Linux-only filename
+    test skipped on macOS and no failures;
+  - vendor-boundary audit reported 187 allowed matches and 0 violations;
+  - `git diff --check` passed.
+- No assessment, guidance, Apply, provider-specific workflow, authoring-side
+  branch, or successor-branch change is included.
+
 ## Files Changed
 
 - Files:

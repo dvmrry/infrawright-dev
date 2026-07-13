@@ -96,6 +96,12 @@ export function createOracleCommandRunner(options: {
         await runTerraformCommand({ ...common, output: "discard" });
         return { stdout: "" };
       } catch (error: unknown) {
+        if (
+          error instanceof ProcessFailure
+          && error.code === "UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM"
+        ) {
+          throw error;
+        }
         const code = error instanceof ProcessFailure ? error.code : "TERRAFORM_COMMAND_FAILED";
         throw new ProcessFailure({
           code,

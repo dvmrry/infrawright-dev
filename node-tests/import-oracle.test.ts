@@ -398,3 +398,35 @@ test("Oracle timeout defaults to five minutes and accepts any positive practical
     /numeric range/,
   );
 });
+
+test("Oracle preserves the Windows operational-platform refusal", async (context) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-oracle-platform-"));
+  context.after(() => rm(directory, { force: true, recursive: true }));
+  const executable = path.join(directory, "fake-terraform");
+  await writeFile(executable, "#!/bin/sh\nexit 0\n");
+  await chmod(executable, 0o700);
+  const runner = createOracleCommandRunner({ terraformExecutable: executable });
+  const platform = Object.getOwnPropertyDescriptor(process, "platform");
+  assert.notEqual(platform, undefined);
+  try {
+    Object.defineProperty(process, "platform", { ...platform, value: "win32" });
+    await assert.rejects(runner.run({
+      argv: ["plan"],
+      cwd: directory,
+      debugName: "platform-check",
+      environment: {},
+      output: "discard",
+      sensitiveTokens: [],
+    }), (error: unknown) => {
+      assert.ok(error instanceof ProcessFailure);
+      assert.equal(error.code, "UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM");
+      assert.equal(
+        error.message,
+        "Terraform execution through Infrawright is supported on Linux and macOS; Windows is not a supported operational platform.",
+      );
+      return true;
+    });
+  } finally {
+    Object.defineProperty(process, "platform", platform ?? {});
+  }
+});

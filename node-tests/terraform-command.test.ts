@@ -353,6 +353,37 @@ test("Terraform executable candidates use POSIX and Windows path semantics", asy
     { cwd: "/work", platform: "linux" },
   ), ["/first/terraform", "/second/terraform"]);
   assert.deepEqual(terraformExecutableCandidates(
+    "terraform",
+    { PATH: ":/usr/bin" },
+    { cwd: "/work", platform: "linux" },
+  ), ["/work/terraform", "/usr/bin/terraform"]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "terraform",
+    { PATH: "/usr/bin:" },
+    { cwd: "/work", platform: "linux" },
+  ), ["/usr/bin/terraform", "/work/terraform"]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "terraform",
+    { PATH: "/usr/bin::/bin" },
+    { cwd: "/work", platform: "linux" },
+  ), ["/usr/bin/terraform", "/work/terraform", "/bin/terraform"]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "terraform",
+    { PATH: "::/usr/bin::" },
+    { cwd: "/work", platform: "linux" },
+  ), [
+    "/work/terraform",
+    "/work/terraform",
+    "/usr/bin/terraform",
+    "/work/terraform",
+    "/work/terraform",
+  ]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "terraform",
+    {},
+    { cwd: "/work", platform: "linux" },
+  ), []);
+  assert.deepEqual(terraformExecutableCandidates(
     "terraform\\literal",
     { PATH: "/first" },
     { cwd: "/work", platform: "linux" },
@@ -367,6 +398,20 @@ test("Terraform executable candidates use POSIX and Windows path semantics", asy
     "D:\\second\\terraform.exe",
     "D:\\second\\terraform.cmd",
   ]);
+  for (const pathValue of [
+    ";C:\\tools",
+    "C:\\tools;",
+    "C:\\first;;D:\\second",
+    ";;C:\\tools;;",
+  ]) {
+    assert.deepEqual(terraformExecutableCandidates(
+      "terraform",
+      { PATH: pathValue, PATHEXT: ".EXE" },
+      { cwd: "D:\\work", platform: "win32" },
+    ), pathValue.split(";").filter((entry) => entry.length > 0).map((entry) => {
+      return `${entry}\\terraform.exe`;
+    }));
+  }
 
   await withTemp(async (fixture) => {
     const fake = executable(fixture.root, "exit 0");
@@ -381,6 +426,50 @@ test("Terraform executable candidates use POSIX and Windows path semantics", asy
       await resolveTerraformExecutable("terraform-from-path", { PATH: fixture.root }),
       realpathSync(target),
     );
+    const other = join(fixture.root, "other");
+    mkdirSync(other);
+    const fallback = join(other, "terraform-fallback");
+    writeFileSync(fallback, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    chmodSync(fallback, 0o700);
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(fixture.cwd);
+      assert.equal(
+        await resolveTerraformExecutable(
+          "terraform-fallback",
+          { PATH: `:${other}` },
+        ),
+        realpathSync(fallback),
+      );
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+});
+
+test("Windows Terraform execution fails before spawning a child", async () => {
+  await withTemp(async (fixture) => {
+    const marker = join(fixture.root, "spawned");
+    const fake = executable(fixture.root, `printf '%s' spawned > '${marker}'`);
+    const platform = Object.getOwnPropertyDescriptor(process, "platform");
+    assert.notEqual(platform, undefined);
+    try {
+      Object.defineProperty(process, "platform", {
+        ...platform,
+        value: "win32",
+      });
+      const failure = await captureFailure(runTerraformCommand({
+        ...baseOptions(fixture, fake),
+        output: "discard",
+      }), "UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM");
+      assert.equal(
+        failure.message,
+        "Terraform execution through Infrawright is supported on Linux and macOS; Windows is not a supported operational platform.",
+      );
+    } finally {
+      Object.defineProperty(process, "platform", platform ?? {});
+    }
+    await assert.rejects(readFile(marker));
   });
 });
 

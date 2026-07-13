@@ -7,6 +7,7 @@ import {
   runTerraformCommand,
   snapshotTerraformCommandEnvironment,
   snapshotTerraformCommandLimits,
+  UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM_MESSAGE,
 } from "./terraform-command.js";
 
 export interface TerraformShowLimits {
@@ -181,6 +182,11 @@ async function requireRegularFile(
 function mapTerraformCommandFailure(error: unknown): never {
   const code = error instanceof ProcessFailure ? error.code : "";
   switch (code) {
+    case "UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM":
+      return fail(
+        "UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM",
+        UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM_MESSAGE,
+      );
     case "TERRAFORM_COMMAND_TIMEOUT":
       return fail(
         "TERRAFORM_SHOW_TIMEOUT",

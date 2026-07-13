@@ -335,6 +335,31 @@ test("Terraform show resource limits retain positive-integer and byte bounds", a
   });
 });
 
+test("Terraform show preserves the Windows operational-platform refusal", async () => {
+  await withTemp(async (fixture) => {
+    const fake = executable(fixture.root, "exit 0");
+    const platform = Object.getOwnPropertyDescriptor(process, "platform");
+    assert.notEqual(platform, undefined);
+    try {
+      Object.defineProperty(process, "platform", { ...platform, value: "win32" });
+      await assert.rejects(
+        terraformShowPlan(options(fixture, fake)),
+        (error: unknown) => {
+          assert.ok(error instanceof ProcessFailure);
+          assert.equal(error.code, "UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM");
+          assert.equal(
+            error.message,
+            "Terraform execution through Infrawright is supported on Linux and macOS; Windows is not a supported operational platform.",
+          );
+          return true;
+        },
+      );
+    } finally {
+      Object.defineProperty(process, "platform", platform ?? {});
+    }
+  });
+});
+
 test("lossless JSON graph growth is rejected before object construction", async () => {
   await withTemp(async (fixture) => {
     const values = Array.from({ length: 100_001 }, (_, index) => index).join(",");
