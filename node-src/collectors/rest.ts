@@ -8,6 +8,10 @@ import { canonicalPythonNumberToken, pythonFiniteFloatToken } from "../json/pyth
 import { renderPythonLosslessArtifactJson } from "../json/python-lossless-artifact.js";
 import { sortedStrings } from "../json/python-compatible.js";
 import type { LoadedPackRoot } from "../metadata/loader.js";
+import {
+  fetchExpansionSafetyViolation,
+  fetchPathSafetyViolation,
+} from "../metadata/resources.js";
 import { isObject } from "../metadata/validation.js";
 import { fetchProducts, selectFetchResources } from "./selection.js";
 export { collectorMaxRetries, retryDelayMs } from "./retry.js";
@@ -362,6 +366,10 @@ async function paginateZccV2(options: {
 }
 
 function expandedPaths(entry: FetchEntry): string[] {
+  const pathViolation = fetchPathSafetyViolation(entry.path);
+  if (pathViolation !== null) {
+    throw new Error(`fetch path ${pathViolation}`);
+  }
   const expand = entry.expand ?? {};
   const keys = sortedStrings(Object.keys(expand));
   if (keys.length === 0) return [entry.path];
@@ -377,6 +385,10 @@ function expandedPaths(entry: FetchEntry): string[] {
     );
   }
   return (expand[key] ?? []).map((value) => {
+    const violation = fetchExpansionSafetyViolation(value);
+    if (violation !== null) {
+      throw new Error(`fetch expansion ${JSON.stringify(key)} value ${violation}`);
+    }
     return entry.path.split(token).join(percentEncode(value, false));
   });
 }

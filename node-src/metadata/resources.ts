@@ -39,6 +39,9 @@ const FETCH_KEYS = new Set([
   "query",
 ]);
 const PAGINATION_STYLES = new Set(["single", "zcc_v2", "zia", "zpa"]);
+const FETCH_QUERY_KEYS = new Set(["query"]);
+const DOT_PATH_SEGMENT = /^(?:\.|%2e){1,2}$/iu;
+const SAFE_FETCH_PATH = /^(?:[A-Za-z0-9\-._~!$&'()*+,;=:@/{}]|%[0-9A-Fa-f]{2})+$/u;
 const DERIVE_KEYS = new Set(["from", "policy_type"]);
 const ADOPT_KEYS = new Set([
   "constant_key",
@@ -108,13 +111,43 @@ function validateQuery(value: unknown, source: string): void {
   }
 }
 
+/** Return why a collector path-like value is unsafe for WHATWG URL composition. */
+export function fetchPathSafetyViolation(value: string): string | null {
+  if (value.includes("\\")) return "must not contain backslashes";
+  if (value.includes("?") || value.includes("#")) {
+    return "must not contain query or fragment delimiters ('?' or '#')";
+  }
+  if (!SAFE_FETCH_PATH.test(value)) {
+    return "must contain only RFC 3986 path characters, valid percent escapes, and expansion braces";
+  }
+  if (value.split("/").some((segment) => DOT_PATH_SEGMENT.test(segment))) {
+    return "must not contain raw or percent-encoded dot path segments";
+  }
+  return null;
+}
+
+/** Expansion values are quoted as one segment; only dot segments survive quoting. */
+export function fetchExpansionSafetyViolation(value: string): string | null {
+  return value === "." || value === ".."
+    ? "must not be '.' or '..'"
+    : null;
+}
+
+function validateFetchPathValue(value: string, source: string): void {
+  const violation = fetchPathSafetyViolation(value);
+  if (violation !== null) fail(`${source} ${violation}`);
+}
+
 function validateExpand(value: unknown, source: string): void {
   if (!isObject(value)) fail(`${source} must be an object`);
   for (const [key, values] of Object.entries(value)) {
     if (key.length === 0) fail(`${source} keys must be non-empty strings`);
     if (!Array.isArray(values)) fail(`${source}.${key} must be a list`);
     for (const [index, item] of values.entries()) {
-      requireNonEmptyString(item, `${source}.${key}[${index}]`);
+      const label = `${source}.${key}[${index}]`;
+      const expansion = requireNonEmptyString(item, label);
+      const violation = fetchExpansionSafetyViolation(expansion);
+      if (violation !== null) fail(`${label} ${violation}`);
     }
   }
 }
@@ -138,7 +171,8 @@ function validateFetch(value: unknown, source: string): void {
       `${source}.pagination unsupported value ${JSON.stringify(pagination)}; allowed values: ${sortedStrings(PAGINATION_STYLES).join(", ")}`,
     );
   }
-  requireNonEmptyString(value.path, `${source}.path`);
+  const fetchPath = requireNonEmptyString(value.path, `${source}.path`);
+  validateFetchPathValue(fetchPath, `${source}.path`);
   if (Object.hasOwn(value, "envelope")) {
     requireNonEmptyString(value.envelope, `${source}.envelope`);
   }
@@ -272,7 +306,12 @@ export async function loadRegistry(
     if (selected !== null && !selected.has(manifest.name)) continue;
     const registryPath = path.join(manifest.directory, "registry.json");
     if (!(await isFile(registryPath))) continue;
-    const registry = validateRegistry(await readJson(registryPath), registryPath);
+    const registry = validateRegistry(
+      await readJson(registryPath, {
+        preserveNumericTokensUnderKeys: FETCH_QUERY_KEYS,
+      }),
+      registryPath,
+    );
     for (const resourceType of Object.keys(registry)) {
       const prior = sources[resourceType];
       if (prior !== undefined) {

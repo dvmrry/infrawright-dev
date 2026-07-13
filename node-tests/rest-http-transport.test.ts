@@ -66,7 +66,7 @@ async function captureFailure(
   return caught;
 }
 
-test("proxy snapshot uses lowercase precedence, HTTPS fallback, and explicit empties", () => {
+test("proxy snapshot uses lowercase precedence without routing HTTPS through HTTP_PROXY", () => {
   assert.deepEqual(snapshotRestProxyEnvironment({}), {
     httpProxy: "",
     httpsProxy: "",
@@ -88,9 +88,53 @@ test("proxy snapshot uses lowercase precedence, HTTPS fallback, and explicit emp
     HTTP_PROXY: "http://proxy.invalid:8080",
   }), {
     httpProxy: "http://proxy.invalid:8080/",
-    httpsProxy: "http://proxy.invalid:8080/",
+    httpsProxy: "",
     noProxy: "",
   });
+});
+
+test("HTTP_PROXY alone gives HTTPS requests a direct dispatcher", async () => {
+  const created: Dispatcher[] = [];
+  const configurations: Array<{
+    readonly httpProxy: string | undefined;
+    readonly httpsProxy: string | undefined;
+  }> = [];
+  const transport = await createRestHttpTransport(
+    { HTTP_PROXY: "http://proxy.invalid:8080" },
+    {
+      createDispatcher(options) {
+        configurations.push({
+          httpProxy: options.httpProxy,
+          httpsProxy: options.httpsProxy,
+        });
+        const dispatcher = fakeDispatcher();
+        created.push(dispatcher);
+        return dispatcher;
+      },
+      httpRequest: async (_url, options) => {
+        assert.equal(options.dispatcher, created[1]);
+        return response("[]");
+      },
+    },
+  );
+  try {
+    await transport.request({
+      method: "GET",
+      url: new URL("https://api.example.test/data"),
+    });
+  } finally {
+    await transport.close?.();
+  }
+  assert.deepEqual(configurations, [
+    {
+      httpProxy: "http://proxy.invalid:8080/",
+      httpsProxy: "",
+    },
+    {
+      httpProxy: "",
+      httpsProxy: "",
+    },
+  ]);
 });
 
 test("configured CA is added to system trust without replacing it", async (t) => {
@@ -178,17 +222,56 @@ test("transport persists scoped session cookies from legacy auth into data GETs"
   assert.equal(observed[1]?.headers.cookie, "JSESSIONID=session-value");
 });
 
-test("transport follows Python-style POST redirects, captures cookies, and strips cross-origin auth", async () => {
+test("transport rejects public-suffix cookies while accepting valid parent-domain cookies", async () => {
+  const observed: Array<Readonly<Record<string, string>>> = [];
+  const requester: RestUndiciRequest = async (_url, options) => {
+    observed.push(options.headers);
+    return observed.length === 1
+      ? response("{}", 200, {
+          "set-cookie": [
+            "public=reject; Domain=com; Path=/; Secure",
+            "parent=accept; Domain=example.com; Path=/; Secure",
+            "host=only; Path=/; Secure",
+          ],
+        })
+      : response("[]");
+  };
+  const transport = await createRestHttpTransport({}, {
+    createDispatcher: () => fakeDispatcher(),
+    httpRequest: requester,
+  });
+  try {
+    await transport.request({
+      method: "GET",
+      url: new URL("https://auth.example.com/session"),
+    });
+    await transport.request({
+      method: "GET",
+      url: new URL("https://api.example.com/data"),
+    });
+  } finally {
+    await transport.close?.();
+  }
+  assert.equal(observed[1]?.cookie, "parent=accept");
+});
+
+test("transport follows Python-style POST redirects without replaying a body on cross-origin downgrade", async () => {
   const observed: Array<{
+    readonly body?: string | Uint8Array;
     readonly method: string;
     readonly url: string;
     readonly headers: Readonly<Record<string, string>>;
   }> = [];
   const requester: RestUndiciRequest = async (url, options) => {
-    observed.push({ method: options.method, url: url.toString(), headers: options.headers });
+    observed.push({
+      ...(options.body === undefined ? {} : { body: options.body }),
+      method: options.method,
+      url: url.toString(),
+      headers: options.headers,
+    });
     return observed.length === 1
       ? response("redirect", 302, {
-          location: "https://other.example.test/final",
+          location: "http://other.example.test/final",
           "set-cookie": ["sid=value; Path=/; Secure"],
         })
       : response("done", 200);
@@ -215,6 +298,36 @@ test("transport follows Python-style POST redirects, captures cookies, and strip
   assert.equal(observed[1]?.headers.authorization, undefined);
   assert.equal(observed[1]?.headers.cookie, undefined);
   assert.equal(observed[1]?.headers["content-type"], undefined);
+  assert.equal(observed[1]?.body, undefined);
+});
+
+test("transport refuses POST 307 and 308 redirects without replaying the request", async () => {
+  for (const status of [307, 308]) {
+    let requests = 0;
+    const transport = await createRestHttpTransport({}, {
+      createDispatcher: () => fakeDispatcher(),
+      httpRequest: async () => {
+        requests += 1;
+        return response("redirect", status, {
+          location: "https://auth.example.test/replay",
+        });
+      },
+    });
+    try {
+      await captureFailure(
+        () => transport.request({
+          body: "client_secret=must-not-replay",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          method: "POST",
+          url: new URL("https://auth.example.test/token"),
+        }),
+        "REST_HTTP_REDIRECT_REFUSED",
+      );
+    } finally {
+      await transport.close?.();
+    }
+    assert.equal(requests, 1, `HTTP ${status} must not issue a redirected request`);
+  }
 });
 
 test("transport retries auth and data requests on 429 inside the production seam", async () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -227,4 +227,38 @@ test("Make fetch targets invoke the Node CLI instead of Python", async () => {
   assert.match(fetchBlock, /\$\(INFRAWRIGHT_CLI\) fetch --tenant/);
   assert.match(fetchBlock, /\$\(INFRAWRIGHT_CLI\) fetch-diag/);
   assert.doesNotMatch(fetchBlock, /\$\(PYTHON\)/);
+});
+
+test("fetch CLI rejects external collector authority before transport setup", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-cli-authority-"));
+  try {
+    const packs = path.join(directory, "packs");
+    await cp(path.join(ROOT, "packs", "zia"), path.join(packs, "zia"), {
+      recursive: true,
+    });
+    await cp(
+      path.join(ROOT, "packs", "_shared", "zscaler"),
+      path.join(packs, "_shared", "zscaler"),
+      { recursive: true },
+    );
+    const result = run([
+      "fetch",
+      "--tenant",
+      "tenant-a",
+      "--root",
+      packs,
+      "--profile",
+      path.join(ROOT, "packsets", "zia.json"),
+      "--catalog",
+      path.join(ROOT, "packsets", "full.json"),
+    ], {
+      REQUESTS_CA_BUNDLE: path.join(directory, "must-not-be-read.pem"),
+    });
+    assert.equal(result.status, 2);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /built-in product adapters only with the installed pack root/);
+    assert.doesNotMatch(result.stderr, /CA bundle/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

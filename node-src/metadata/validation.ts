@@ -93,7 +93,48 @@ const JSON_INTEGER = /^-?(?:0|[1-9][0-9]*)$/;
 const MIN_SAFE_INTEGER = BigInt(Number.MIN_SAFE_INTEGER);
 const MAX_SAFE_INTEGER = BigInt(Number.MAX_SAFE_INTEGER);
 
-function parseMetadataJson(text: string, preserveNumericTokens: boolean): unknown {
+function normalizedMetadataNumber(value: LosslessNumber): number | LosslessNumber {
+  const token = value.toString();
+  if (JSON_INTEGER.test(token)) {
+    const integer = BigInt(token);
+    return integer >= MIN_SAFE_INTEGER && integer <= MAX_SAFE_INTEGER
+      ? Number(integer)
+      : value;
+  }
+  const number = Number(token);
+  return Number.isFinite(number) ? number : value;
+}
+
+function normalizeNumericTokens(
+  value: unknown,
+  preserve: boolean,
+  preserveUnderKeys: ReadonlySet<string>,
+): unknown {
+  if (value instanceof LosslessNumber) {
+    return preserve ? value : normalizedMetadataNumber(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      return normalizeNumericTokens(item, preserve, preserveUnderKeys);
+    });
+  }
+  if (!isObject(value)) return value;
+  const output: JsonObject = Object.create(null) as JsonObject;
+  for (const [key, item] of Object.entries(value)) {
+    output[key] = normalizeNumericTokens(
+      item,
+      preserve || preserveUnderKeys.has(key),
+      preserveUnderKeys,
+    );
+  }
+  return output;
+}
+
+function parseMetadataJson(
+  text: string,
+  preserveNumericTokens: boolean,
+  preserveNumericTokensUnderKeys: ReadonlySet<string>,
+): unknown {
   const parseWithSource = JSON.parse as unknown as (
     source: string,
     reviver: (
@@ -102,12 +143,13 @@ function parseMetadataJson(text: string, preserveNumericTokens: boolean): unknow
       context: { readonly source?: string },
     ) => unknown,
   ) => unknown;
-  return parseWithSource(
+  const selectivelyPreserve = preserveNumericTokensUnderKeys.size > 0;
+  const parsed = parseWithSource(
     text,
     (_key: string, value: unknown, context: { readonly source?: string }) => {
       if (typeof value !== "number" || context.source === undefined) return value;
       const token = context.source;
-      if (preserveNumericTokens) return new LosslessNumber(token);
+      if (preserveNumericTokens || selectivelyPreserve) return new LosslessNumber(token);
       if (JSON_INTEGER.test(token)) {
         const integer = BigInt(token);
         return integer >= MIN_SAFE_INTEGER && integer <= MAX_SAFE_INTEGER
@@ -117,11 +159,17 @@ function parseMetadataJson(text: string, preserveNumericTokens: boolean): unknow
       return Number.isFinite(value) ? value : new LosslessNumber(token);
     },
   );
+  return selectivelyPreserve && !preserveNumericTokens
+    ? normalizeNumericTokens(parsed, false, preserveNumericTokensUnderKeys)
+    : parsed;
 }
 
 export async function readJson(
   path: string,
-  options?: { readonly preserveNumericTokens?: boolean },
+  options?: {
+    readonly preserveNumericTokens?: boolean;
+    readonly preserveNumericTokensUnderKeys?: ReadonlySet<string>;
+  },
 ): Promise<unknown> {
   let text: string;
   try {
@@ -131,7 +179,11 @@ export async function readJson(
     return fail(`failed to read ${path}: ${detail}`);
   }
   try {
-    return parseMetadataJson(text, options?.preserveNumericTokens === true);
+    return parseMetadataJson(
+      text,
+      options?.preserveNumericTokens === true,
+      options?.preserveNumericTokensUnderKeys ?? new Set<string>(),
+    );
   } catch (error: unknown) {
     const detail = error instanceof Error ? error.message : String(error);
     return fail(`failed to read ${path}: ${detail}`);

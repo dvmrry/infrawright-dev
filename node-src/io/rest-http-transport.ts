@@ -5,11 +5,10 @@ import { getCACertificates } from "node:tls";
 import {
   EnvHttpProxyAgent,
   errors as undiciErrors,
-  parseCookie,
   request as undiciRequest,
-  type Cookie,
   type Dispatcher,
 } from "undici";
+import { CookieJar } from "tough-cookie";
 
 import type {
   HttpRequest,
@@ -63,17 +62,6 @@ export type RestUndiciRequest = (
   },
 ) => Promise<RestUndiciResponse>;
 
-interface StoredCookie {
-  readonly creation: number;
-  readonly domain: string;
-  readonly expiresAt: number | null;
-  readonly hostOnly: boolean;
-  readonly name: string;
-  readonly path: string;
-  readonly secure: boolean;
-  readonly value: string;
-}
-
 function ioFailure(
   code: string,
   message: string,
@@ -86,14 +74,14 @@ function selectedEnvironment(
   environment: Readonly<Record<string, string | undefined>>,
   lower: "http_proxy" | "https_proxy" | "no_proxy",
   upper: "HTTP_PROXY" | "HTTPS_PROXY" | "NO_PROXY",
-): { readonly present: boolean; readonly value: string } {
+): string {
   if (Object.hasOwn(environment, lower)) {
-    return { present: true, value: environment[lower] ?? "" };
+    return environment[lower] ?? "";
   }
   if (Object.hasOwn(environment, upper)) {
-    return { present: true, value: environment[upper] ?? "" };
+    return environment[upper] ?? "";
   }
-  return { present: false, value: "" };
+  return "";
 }
 
 function validProxyUrl(value: string): string {
@@ -129,11 +117,11 @@ export function snapshotRestProxyEnvironment(
   const http = selectedEnvironment(environment, "http_proxy", "HTTP_PROXY");
   const https = selectedEnvironment(environment, "https_proxy", "HTTPS_PROXY");
   const noProxy = selectedEnvironment(environment, "no_proxy", "NO_PROXY");
-  const httpProxy = validProxyUrl(http.value);
+  const httpProxy = validProxyUrl(http);
   return Object.freeze({
     httpProxy,
-    httpsProxy: validProxyUrl(https.present ? https.value : httpProxy),
-    noProxy: noProxy.value,
+    httpsProxy: validProxyUrl(https),
+    noProxy,
   });
 }
 
@@ -344,98 +332,6 @@ async function readBoundedBody(
   return output;
 }
 
-function defaultCookiePath(url: URL): string {
-  const path = url.pathname;
-  if (!path.startsWith("/") || path === "/") return "/";
-  const lastSlash = path.lastIndexOf("/");
-  return lastSlash <= 0 ? "/" : path.slice(0, lastSlash);
-}
-
-function domainMatches(host: string, domain: string): boolean {
-  return host === domain || host.endsWith(`.${domain}`);
-}
-
-function pathMatches(requestPath: string, cookiePath: string): boolean {
-  if (requestPath === cookiePath) return true;
-  if (!requestPath.startsWith(cookiePath)) return false;
-  return cookiePath.endsWith("/") || requestPath[cookiePath.length] === "/";
-}
-
-function expiry(cookie: Cookie, now: number): number | null {
-  if (cookie.maxAge !== undefined) {
-    return now + cookie.maxAge * 1000;
-  }
-  if (cookie.expires instanceof Date) return cookie.expires.getTime();
-  if (typeof cookie.expires === "number") return cookie.expires;
-  return null;
-}
-
-class CookieJar {
-  private readonly cookies = new Map<string, StoredCookie>();
-  private nextCreation = 0;
-
-  capture(url: URL, headers: HttpResponse["headers"], now = Date.now()): void {
-    const raw = headers["set-cookie"];
-    const values = typeof raw === "string" ? [raw] : Array.isArray(raw) ? raw : [];
-    for (const value of values) {
-      const parsed = parseCookie(value);
-      if (parsed === null || parsed.name === "") continue;
-      const responseHost = url.hostname.toLowerCase();
-      const requestedDomain = parsed.domain?.replace(/^\./, "").toLowerCase();
-      if (requestedDomain !== undefined && !domainMatches(responseHost, requestedDomain)) {
-        continue;
-      }
-      const domain = requestedDomain ?? responseHost;
-      const cookiePath = parsed.path?.startsWith("/") === true
-        ? parsed.path
-        : defaultCookiePath(url);
-      const key = `${parsed.name}\0${domain}\0${cookiePath}`;
-      const expiresAt = expiry(parsed, now);
-      if (parsed.maxAge !== undefined && parsed.maxAge <= 0 || expiresAt !== null && expiresAt <= now) {
-        this.cookies.delete(key);
-        continue;
-      }
-      const previous = this.cookies.get(key);
-      this.cookies.set(key, {
-        creation: previous?.creation ?? this.nextCreation++,
-        domain,
-        expiresAt,
-        hostOnly: requestedDomain === undefined,
-        name: parsed.name,
-        path: cookiePath,
-        secure: parsed.secure === true,
-        value: parsed.value,
-      });
-    }
-  }
-
-  header(url: URL, now = Date.now()): string | null {
-    const host = url.hostname.toLowerCase();
-    const path = url.pathname || "/";
-    const matches: StoredCookie[] = [];
-    for (const [key, cookie] of this.cookies) {
-      if (cookie.expiresAt !== null && cookie.expiresAt <= now) {
-        this.cookies.delete(key);
-        continue;
-      }
-      if (
-        (cookie.hostOnly ? host !== cookie.domain : !domainMatches(host, cookie.domain))
-        || !pathMatches(path, cookie.path)
-        || cookie.secure && url.protocol !== "https:"
-      ) {
-        continue;
-      }
-      matches.push(cookie);
-    }
-    matches.sort((left, right) => {
-      return right.path.length - left.path.length || left.creation - right.creation;
-    });
-    return matches.length === 0
-      ? null
-      : matches.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
-  }
-}
-
 function redirectStatus(status: number): boolean {
   return status === 301 || status === 302 || status === 303
     || status === 307 || status === 308;
@@ -488,13 +384,28 @@ export async function createRestHttpTransport(
     proxyTls: tls,
     requestTls: tls,
   };
-  const dispatcher = options.createDispatcher?.(dispatcherOptions)
-    ?? new EnvHttpProxyAgent(dispatcherOptions);
+  const createDispatcher = options.createDispatcher
+    ?? ((input: EnvHttpProxyAgent.Options) => new EnvHttpProxyAgent(input));
+  const httpDispatcher = createDispatcher(dispatcherOptions);
+  // EnvHttpProxyAgent intentionally falls back from an absent HTTPS proxy to
+  // its HTTP proxy. urllib does not, so use a separately direct dispatcher for
+  // HTTPS when only HTTP_PROXY is configured.
+  const httpsDispatcher = proxy.httpProxy !== "" && proxy.httpsProxy === ""
+    ? createDispatcher({
+        ...dispatcherOptions,
+        httpProxy: "",
+        httpsProxy: "",
+      })
+    : httpDispatcher;
+  const dispatchers = [...new Set([httpDispatcher, httpsDispatcher])];
   const requestWire = options.httpRequest ?? REAL_HTTP_REQUEST;
   const sleep = options.sleep ?? ((milliseconds: number) => {
     return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
   });
-  const jar = new CookieJar();
+  const jar = new CookieJar(undefined, {
+    allowSpecialUseDomain: true,
+    rejectPublicSuffixes: true,
+  });
   let closed = false;
 
   const requestOnce = async (input: HttpRequest): Promise<HttpResponse> => {
@@ -510,8 +421,8 @@ export async function createRestHttpTransport(
         );
       }
       const headers = { ...baseHeaders };
-      const cookie = jar.header(url);
-      if (cookie !== null && !Object.keys(headers).some((name) => name.toLowerCase() === "cookie")) {
+      const cookie = jar.getCookieStringSync(url.toString());
+      if (cookie !== "" && !Object.keys(headers).some((name) => name.toLowerCase() === "cookie")) {
         headers.cookie = cookie;
       }
       const selectedTimeout = input.timeoutMs ?? timeoutMs;
@@ -521,7 +432,7 @@ export async function createRestHttpTransport(
         raw = await requestWire(url, {
           ...(body === undefined ? {} : { body }),
           bodyTimeout: selectedTimeout,
-          dispatcher,
+          dispatcher: url.protocol === "https:" ? httpsDispatcher : httpDispatcher,
           headers,
           headersTimeout: selectedTimeout,
           method,
@@ -532,7 +443,13 @@ export async function createRestHttpTransport(
       }
       const status = responseStatus(raw.statusCode);
       const normalizedHeaders = responseHeaders(raw.headers);
-      jar.capture(url, normalizedHeaders);
+      const setCookie = normalizedHeaders["set-cookie"];
+      const setCookieValues = typeof setCookie === "string"
+        ? [setCookie]
+        : Array.isArray(setCookie) ? setCookie : [];
+      for (const value of setCookieValues) {
+        jar.setCookieSync(value, url.toString(), { ignoreError: true });
+      }
       if (!redirectStatus(status)) {
         return Object.freeze({
           body: await readBoundedBody(raw, responseLimit),
@@ -542,6 +459,12 @@ export async function createRestHttpTransport(
       }
       const location = headerValue(normalizedHeaders, "location");
       destroyBody(raw.body);
+      if ((status === 307 || status === 308) && method === "POST") {
+        return ioFailure(
+          "REST_HTTP_REDIRECT_REFUSED",
+          "redirect response would replay a POST request body",
+        );
+      }
       if (location === null) {
         return ioFailure(
           "INVALID_REST_HTTP_RESPONSE",
@@ -571,15 +494,18 @@ export async function createRestHttpTransport(
           }),
         );
       }
+      // A redirect is never allowed to replay caller-supplied request bytes.
+      // Authentication POSTs use the urllib-compatible POST-to-GET cases above;
+      // 307/308 POSTs are refused before reaching this point.
+      body = undefined;
+      baseHeaders = Object.fromEntries(
+        Object.entries(baseHeaders).filter(([name]) => {
+          const lower = name.toLowerCase();
+          return lower !== "content-type" && lower !== "content-length";
+        }),
+      );
       if (status === 303 || (status === 301 || status === 302) && method === "POST") {
         method = "GET";
-        body = undefined;
-        baseHeaders = Object.fromEntries(
-          Object.entries(baseHeaders).filter(([name]) => {
-            return name.toLowerCase() !== "content-type"
-              && name.toLowerCase() !== "content-length";
-          }),
-        );
       }
       url = next;
     }
@@ -589,17 +515,23 @@ export async function createRestHttpTransport(
     async close(): Promise<void> {
       if (closed) return;
       closed = true;
-      try {
-        await dispatcher.close();
-      } catch {
+      let cleanupFailed = false;
+      for (const dispatcher of dispatchers) {
         try {
-          await dispatcher.destroy();
+          await dispatcher.close();
         } catch {
-          return ioFailure(
-            "REST_HTTP_CLEANUP_FAILED",
-            "HTTP transport cleanup failed",
-          );
+          try {
+            await dispatcher.destroy();
+          } catch {
+            cleanupFailed = true;
+          }
         }
+      }
+      if (cleanupFailed) {
+        return ioFailure(
+          "REST_HTTP_CLEANUP_FAILED",
+          "HTTP transport cleanup failed",
+        );
       }
     },
     async request(request: HttpRequest): Promise<HttpResponse> {

@@ -161,7 +161,56 @@ test("strict profile, registry, and override vocabularies reject silent typos", 
   );
 });
 
-test("metadata loading preserves wide integers and integer-token versions", async () => {
+test("registry fetch paths reject inputs that WHATWG URLs would silently normalize", () => {
+  const registry = (pathValue: string, expansion?: string) => ({
+    sample_resource: {
+      product: "sample",
+      fetch: {
+        pagination: "single",
+        path: pathValue,
+        ...(expansion === undefined ? {} : { expand: { item: [expansion] } }),
+      },
+    },
+  });
+  for (const value of [
+    "items\\admin",
+    "items?scope=admin",
+    "items#admin",
+    "items/../admin",
+    "items/.%2E/admin",
+    "items/%2e./admin",
+  ]) {
+    assert.throws(
+      () => validateRegistry(registry(value), "registry.json"),
+      /fetch\.path must not contain/,
+      value,
+    );
+  }
+  for (const value of ["items admin", "items/é", "items/%zz"]) {
+    assert.throws(
+      () => validateRegistry(registry(value), "registry.json"),
+      /RFC 3986 path characters/,
+      value,
+    );
+  }
+  for (const value of [
+    ".",
+    "..",
+  ]) {
+    assert.throws(
+      () => validateRegistry(registry("items/{item}", value), "registry.json"),
+      /fetch\.expand\.item\[0\] must not be/,
+      value,
+    );
+  }
+  assert.doesNotThrow(() => {
+    validateRegistry(registry("items/{item}", "slash/value"), "registry.json");
+    validateRegistry(registry("items/{item}", "nested/../value?#\\"), "registry.json");
+    validateRegistry(registry("items/{item}", "%2e"), "registry.json");
+  });
+});
+
+test("metadata loading preserves fetch query number tokens and wide integers", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-numbers-"));
   try {
     await writeJson(path.join(directory, "sample", "pack.json"), {
@@ -170,7 +219,7 @@ test("metadata loading preserves wide integers and integer-token versions", asyn
     await mkdir(path.join(directory, "sample", "overrides"), { recursive: true });
     await writeFile(
       path.join(directory, "sample", "registry.json"),
-      '{"sample_resource":{"product":"sample","fetch":{"pagination":"single","path":"/items","query":{"safe":9007199254740991,"wide":9007199254740993}}}}',
+      '{"sample_resource":{"product":"sample","fetch":{"pagination":"single","path":"/items","query":{"safe":9007199254740991,"wide":9007199254740993,"decimal":1.0,"exponent":1e0,"negative_zero":-0.0}}}}',
     );
     await writeFile(
       path.join(directory, "sample", "overrides", "sample_resource.json"),
@@ -185,8 +234,11 @@ test("metadata loading preserves wide integers and integer-token versions", asyn
     const fetch = loaded.resources.get("sample_resource")?.registry.fetch;
     assert.equal(typeof fetch, "object");
     const query = (fetch as { readonly query: Record<string, unknown> }).query;
-    assert.equal(query.safe, Number.MAX_SAFE_INTEGER);
+    assert.equal((query.safe as LosslessNumber).toString(), "9007199254740991");
     assert.equal((query.wide as LosslessNumber).toString(), "9007199254740993");
+    assert.equal((query.decimal as LosslessNumber).toString(), "1.0");
+    assert.equal((query.exponent as LosslessNumber).toString(), "1e0");
+    assert.equal((query.negative_zero as LosslessNumber).toString(), "-0.0");
     const defaults = loaded.resources.get("sample_resource")?.override?.defaults as
       | Record<string, unknown>
       | undefined;

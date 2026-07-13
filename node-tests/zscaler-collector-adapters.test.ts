@@ -334,6 +334,24 @@ test("diagnostic helpers mask identities and derive the same hosts", () => {
       "fetch: (vanity/customer-id hidden; set FETCH_DEBUG=1 to show)",
     ],
   );
+  assert.equal(
+    fetchDebugLines({
+      context: EMPTY_CONTEXT,
+      environment: { HTTPS_PROXY: "https://upper.example", https_proxy: "" },
+      mode: "oneapi",
+      products: new Set(["zia"]),
+    })[1],
+    "fetch: proxy = not set",
+  );
+  assert.equal(
+    fetchDebugLines({
+      context: EMPTY_CONTEXT,
+      environment: { HTTP_PROXY: "http://http-only.example" },
+      mode: "oneapi",
+      products: new Set(["zia"]),
+    })[1],
+    "fetch: proxy = not set",
+  );
   assert.deepEqual(
     diagnosticHosts(environment, new Set(["zia", "zpa"])),
     ["api.zscalertwo.zsapi.net", "tenant.zsloginzscalertwo.net"],

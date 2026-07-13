@@ -1,4 +1,4 @@
-import { access } from "node:fs/promises";
+import { access, realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -432,6 +432,20 @@ interface FetchCliOptions {
   readonly tenant?: string;
 }
 
+async function requireBuiltInCollectorAuthority(
+  root: Awaited<ReturnType<typeof loadPackRoot>>,
+  products: ReadonlySet<string>,
+): Promise<void> {
+  if (products.size === 0) return;
+  const installed = await realpath(path.join(await packageRoot(), "packs"));
+  const selected = await realpath(root.root);
+  if (installed !== selected) {
+    usageError(
+      "the fetch CLI can use built-in product adapters only with the installed pack root; external collector roots require a library caller that supplies matching adapters",
+    );
+  }
+}
+
 async function fetchCliOptions(
   arguments_: string[],
   requireTenant: boolean,
@@ -509,6 +523,7 @@ async function fetchCommand(arguments_: string[]): Promise<number> {
     if (resource === undefined) throw new Error(`unknown active resource ${resourceType}`);
     return resource.product;
   }));
+  await requireBuiltInCollectorAuthority(root, products);
   const mode = collectorAuthMode(process.env);
   const context = collectorContext({
     environment: process.env,
@@ -560,6 +575,7 @@ async function fetchDiag(arguments_: string[]): Promise<number> {
     catalogPath: options.catalog,
   });
   const products = new Set(fetchProducts(root));
+  await requireBuiltInCollectorAuthority(root, products);
   const bundle = process.env.REQUESTS_CA_BUNDLE || process.env.SSL_CERT_FILE;
   for (const host of diagnosticHosts(process.env, products)) {
     if (host.includes("<")) {

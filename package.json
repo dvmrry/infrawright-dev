@@ -23,6 +23,7 @@
     "ajv": "8.20.0",
     "entities": "8.0.0",
     "lossless-json": "4.3.0",
+    "tough-cookie": "6.0.2",
     "undici": "7.28.0"
   },
   "devDependencies": {

@@ -413,6 +413,12 @@ function debugVerbose(environment: NodeJS.ProcessEnv): boolean {
   return TRUTHY.has((environment.FETCH_DEBUG ?? "").trim().toLowerCase());
 }
 
+function configuredHttpsProxy(environment: NodeJS.ProcessEnv): string {
+  return Object.hasOwn(environment, "https_proxy")
+    ? environment.https_proxy ?? ""
+    : environment.HTTPS_PROXY ?? "";
+}
+
 function safeLegacyBase(derive: () => string, override: string | undefined): string {
   if ((override ?? "") !== "") return `${override} (override)`;
   try {
@@ -439,7 +445,7 @@ export function fetchDebugLines(input: {
   };
   const lines = [
     `fetch: auth mode = ${input.mode}`,
-    `fetch: proxy = ${input.environment.HTTPS_PROXY || input.environment.https_proxy ? "set" : "not set"}`,
+    `fetch: proxy = ${configuredHttpsProxy(input.environment) ? "set" : "not set"}`,
   ];
   if (input.mode === "oneapi") {
     lines.push(
