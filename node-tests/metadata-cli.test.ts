@@ -220,10 +220,11 @@ test("fetch and fetch-diag run through Node with Python unavailable", async () =
 
 test("Make fetch targets invoke the Node CLI instead of Python", async () => {
   const makefile = await readFile(path.join(ROOT, "Makefile"), "utf8");
-  const fetchBlock = makefile.slice(
-    makefile.indexOf("fetch: metadata-cli"),
-    makefile.indexOf("gen-env:"),
-  );
+  const fetchStart = makefile.search(/^fetch:/m);
+  const genEnvStart = makefile.search(/^gen-env:/m);
+  assert.notEqual(fetchStart, -1, "Makefile must define fetch");
+  assert.ok(genEnvStart > fetchStart, "gen-env must follow the fetch targets");
+  const fetchBlock = makefile.slice(fetchStart, genEnvStart);
   assert.match(fetchBlock, /\$\(INFRAWRIGHT_CLI\) fetch --tenant/);
   assert.match(fetchBlock, /\$\(INFRAWRIGHT_CLI\) fetch-diag/);
   assert.doesNotMatch(fetchBlock, /\$\(PYTHON\)/);

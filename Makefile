@@ -14,7 +14,6 @@ export INFRAWRIGHT_DEPLOYMENT ?= $(DEPLOYMENT)
 DEMO_DEPLOYMENT ?= demo/deployment.json
 INFRAWRIGHT_CLI ?= $(NODE) dist/infrawright-cli.mjs
 MODULE_DIR ?= $(shell INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(INFRAWRIGHT_CLI) deployment module-dir)
-METADATA_CLI_INPUTS := $(shell find node-src scripts -type f \( -name '*.ts' -o -name 'build-metadata-cli.mjs' \) -print)
 OPTIONAL_TENANT_ARG = $(if $(filter undefined,$(origin TENANT)),,--tenant "$(TENANT)")
 
 -include local.mk
@@ -25,10 +24,11 @@ endif
 
 .PHONY: metadata-cli check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set deployment resources resources-reference-order gen-modules validate-modules audit-vendor-boundary demo-contract check check-all check-core test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
-dist/infrawright-cli.mjs: package.json package-lock.json tsconfig.json $(METADATA_CLI_INPUTS)
+dist/infrawright-cli.mjs:
 	$(NPM) run build:metadata-cli
 
-metadata-cli: dist/infrawright-cli.mjs
+metadata-cli: ## Explicitly rebuild the generic CLI for development
+	$(NPM) run build:metadata-cli
 
 check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
 	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1
@@ -36,7 +36,7 @@ check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
 		echo "check-demo: unable to inspect demo drift" >&2; exit 1; }; \
 	test -z "$$status" || { echo "demo drift:"; echo "$$status"; exit 1; }
 
-check-examples: metadata-cli ## Validate examples whose declared pack requirements are installed
+check-examples: dist/infrawright-cli.mjs ## Validate examples whose declared pack requirements are installed
 	@set +e; output="$$( $(INFRAWRIGHT_CLI) check-pack-set --catalog "$(PACK_CATALOG)" --requirements "$(DEMO_PACK_REQUIREMENTS)" 2>&1 )"; status=$$?; set -e; \
 	if [ $$status -eq 0 ]; then \
 		echo "$$output"; $(MAKE) check-demo; \
@@ -46,13 +46,13 @@ check-examples: metadata-cli ## Validate examples whose declared pack requiremen
 		echo "$$output" >&2; exit $$status; \
 	fi
 
-check-modules: metadata-cli ## Generate every module into a temp deployment to catch generator regressions
+check-modules: dist/infrawright-cli.mjs ## Generate every module into a temp deployment to catch generator regressions
 	@tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \
 	printf '{"module_dir": "%s/modules"}\n' "$$tmp" > "$$tmp/deployment.json"; \
 	INFRAWRIGHT_DEPLOYMENT="$$tmp/deployment.json" $(INFRAWRIGHT_CLI) modules generate --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" > /dev/null 2>&1; \
 	$(INFRAWRIGHT_CLI) modules validate --out "$$tmp/modules" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" > /dev/null
 
-check-tfvars-fmt: metadata-cli ## Validate HCL tfvars formatting when deployment selects hcl
+check-tfvars-fmt: dist/infrawright-cli.mjs ## Validate HCL tfvars formatting when deployment selects hcl
 	@fmt="$$(INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(INFRAWRIGHT_CLI) deployment tfvars-format)" || exit $$?; \
 	if [ "$$fmt" = "json" ]; then echo "check-tfvars-fmt: skip (json tfvars)"; exit 0; fi; \
 	if ! command -v "$(TF)" >/dev/null 2>&1; then echo "check-tfvars-fmt: skip (no terraform)"; exit 0; fi; \
@@ -61,31 +61,31 @@ check-tfvars-fmt: metadata-cli ## Validate HCL tfvars formatting when deployment
 	if [ ! -d "$$config_dir" ]; then echo "check-tfvars-fmt: no config dirs"; exit 0; fi; \
 	"$(TF)" fmt -check -recursive "$$config_dir"
 
-check-pack: metadata-cli ## Validate pack.json and registry.json metadata ([PACK=<name>])
+check-pack: dist/infrawright-cli.mjs ## Validate pack.json and registry.json metadata ([PACK=<name>])
 	$(INFRAWRIGHT_CLI) check-pack $(if $(PACK),--pack "$(PACK)")
 
-check-pack-set: metadata-cli ## Require the installed pack root to match PACK_PROFILE exactly
+check-pack-set: dist/infrawright-cli.mjs ## Require the installed pack root to match PACK_PROFILE exactly
 	$(INFRAWRIGHT_CLI) check-pack-set --catalog "$(PACK_CATALOG)" --profile "$(PACK_PROFILE)"
 
-deployment: metadata-cli ## Query deployment metadata (DEPLOYMENT_QUERY=<verb> [TENANT=<label>])
+deployment: dist/infrawright-cli.mjs ## Query deployment metadata (DEPLOYMENT_QUERY=<verb> [TENANT=<label>])
 	$(INFRAWRIGHT_CLI) deployment --deployment "$(DEPLOYMENT)" "$(or $(DEPLOYMENT_QUERY),overlay)" $(if $(TENANT),"$(TENANT)")
 
-resources: metadata-cli ## List generated resources ([RESOURCE="<type|provider> ..."] [REFERENCE_ORDER=1])
+resources: dist/infrawright-cli.mjs ## List generated resources ([RESOURCE="<type|provider> ..."] [REFERENCE_ORDER=1])
 	$(INFRAWRIGHT_CLI) resources $(if $(REFERENCE_ORDER),--order=references) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
 resources-reference-order: REFERENCE_ORDER=1
 resources-reference-order: resources
 
-gen-modules: metadata-cli ## Generate deployment modules ([RESOURCE="<type> ..."])
+gen-modules: dist/infrawright-cli.mjs ## Generate deployment modules ([RESOURCE="<type> ..."])
 	$(INFRAWRIGHT_CLI) modules generate --deployment "$(DEPLOYMENT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-validate-modules: metadata-cli ## Validate deployment modules ([RESOURCE="<type> ..."])
+validate-modules: dist/infrawright-cli.mjs ## Validate deployment modules ([RESOURCE="<type> ..."])
 	$(INFRAWRIGHT_CLI) modules validate --deployment "$(DEPLOYMENT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
 audit-vendor-boundary: ## Audit vendor-specific tokens in engine source
 	$(PYTHON) -m engine.audit_vendor_boundary
 
-demo-contract: metadata-cli ## Credential-free demo artifact/module contract check
+demo-contract: dist/infrawright-cli.mjs ## Credential-free demo artifact/module contract check
 	@echo "demo-contract: materializing demo overlay without credentials"
 	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1
 	@status="$$(git status --porcelain -- demo/config/demo demo/imports/demo)" || { \
@@ -114,18 +114,18 @@ check-core: ## Prove the pack-independent engine surface with an empty pack root
 test: check-pack-set ## Run core tests plus tests whose declared pack requirements are installed
 	$(PYTHON) -m tests.run --catalog "$(PACK_CATALOG)" -v
 
-fetch: metadata-cli ## Pull API JSON into pulls/<tenant> (TENANT=<name> [RESOURCE="<type|provider> ..."])
+fetch: dist/infrawright-cli.mjs ## Pull API JSON into pulls/<tenant> (TENANT=<name> [RESOURCE="<type|provider> ..."])
 	@test -n "$(TENANT)" || { echo "usage: make fetch TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
 	$(INFRAWRIGHT_CLI) fetch --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-fetch-diag: metadata-cli ## Probe TLS to the fetcher's hosts under system trust and +bundle
+fetch-diag: dist/infrawright-cli.mjs ## Probe TLS to the fetcher's hosts under system trust and +bundle
 	$(INFRAWRIGHT_CLI) fetch-diag --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)"
 
-gen-env: metadata-cli ## Generate env roots for a tenant (TENANT=<label> [BACKEND=azurerm] [RESOURCE="<type|provider> ..."])
+gen-env: dist/infrawright-cli.mjs ## Generate env roots for a tenant (TENANT=<label> [BACKEND=azurerm] [RESOURCE="<type|provider> ..."])
 	@test -n "$(TENANT)" || { echo "usage: make gen-env TENANT=<label> [BACKEND=azurerm] [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
 	$(INFRAWRIGHT_CLI) gen-env --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(BACKEND),--backend "$(BACKEND)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-transform: metadata-cli ## Transform pulled JSON for a tenant (IN=<dir> TENANT=<name> [RESOURCE="<type|provider> ..."])
+transform: dist/infrawright-cli.mjs ## Transform pulled JSON for a tenant (IN=<dir> TENANT=<name> [RESOURCE="<type|provider> ..."])
 	@test -n "$(IN)" -a -n "$(TENANT)" || { echo "usage: make transform IN=pulls/<tenant> TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
 	$(INFRAWRIGHT_CLI) transform --in "$(IN)" --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
@@ -145,7 +145,7 @@ source-evidence-eval: ## A/B evaluate text source scanning vs AST facts (SCHEMA=
 	@test -n "$(SCHEMA)" -a -n "$(OPENAPI)" -a -n "$(SOURCE_ROOT)" -a -n "$(OUT_DIR)" || { echo "usage: make source-evidence-eval SCHEMA=<schema.json> OPENAPI=<spec.json> SOURCE_ROOT=<dir> OUT_DIR=<dir> [SOURCE_FACTS=<facts.json>] [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [RESOURCES=a,b] [FAIL_ON_REGRESSION=1]"; exit 2; }
 	$(PYTHON) -m engine.source_evidence_eval --schema "$(SCHEMA)" --openapi "$(OPENAPI)" --source-root "$(SOURCE_ROOT)" --out-dir "$(OUT_DIR)" $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(RESOURCES),--resources "$(RESOURCES)") $(if $(SOURCE_FACTS),--source-facts "$(SOURCE_FACTS)") $(if $(AST_TOOL_DIR),--ast-tool-dir "$(AST_TOOL_DIR)") $(if $(FAIL_ON_REGRESSION),--fail-on-regression)
 
-adopt: metadata-cli ## Transform pulled JSON using Terraform/OpenTofu import oracle (IN=<dir> TENANT=<name> [RESOURCE="<type|provider> ..."] [POLICY=<file>])
+adopt: dist/infrawright-cli.mjs ## Transform pulled JSON using Terraform/OpenTofu import oracle (IN=<dir> TENANT=<name> [RESOURCE="<type|provider> ..."] [POLICY=<file>])
 	@test -n "$(IN)" -a -n "$(TENANT)" || { echo "usage: make adopt IN=pulls/<tenant> TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"] [POLICY=<file>]"; exit 2; }
 	$(INFRAWRIGHT_CLI) adopt --in "$(IN)" --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)") $(if $(POLICY),--policy "$(POLICY)")
 
@@ -153,35 +153,35 @@ provider-probe: ## Run provider readiness probe (RECIPE=<recipe.json> [WORK_DIR=
 	@test -n "$(RECIPE)" || { echo "usage: make provider-probe RECIPE=<recipe.json> [WORK_DIR=<dir>] [OUT=<summary.json>] [MARKDOWN=<summary.md>]"; exit 2; }
 	$(PYTHON) -m engine.provider_probe "$(RECIPE)" $(if $(WORK_DIR),--work-dir "$(WORK_DIR)") $(if $(OUT),--out "$(OUT)") $(if $(MARKDOWN),--markdown "$(MARKDOWN)")
 
-roots: metadata-cli ## Emit root topology JSON ([TENANT=<label>] [RESOURCE=<type|provider>])
+roots: dist/infrawright-cli.mjs ## Emit root topology JSON ([TENANT=<label>] [RESOURCE=<type|provider>])
 	@$(INFRAWRIGHT_CLI) roots $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-scope-paths: metadata-cli ## Map changed paths to affected whole roots (PATHS_JSON=<file|->)
+scope-paths: dist/infrawright-cli.mjs ## Map changed paths to affected whole roots (PATHS_JSON=<file|->)
 	@test -n "$(PATHS_JSON)" || { echo "usage: make scope-paths PATHS_JSON=<file|->"; exit 2; }
 	@$(INFRAWRIGHT_CLI) scope-paths --paths-json "$(PATHS_JSON)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)"
 
-plan-roots: metadata-cli ## Enumerate materialized env roots and plan artifacts ([TENANT=<label>] [RESOURCE=<type|provider>])
+plan-roots: dist/infrawright-cli.mjs ## Enumerate materialized env roots and plan artifacts ([TENANT=<label>] [RESOURCE=<type|provider>])
 	@$(INFRAWRIGHT_CLI) plan-roots $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-stage-imports: metadata-cli ## Copy import/moved blocks into env roots (TENANT=<label> [RESOURCE=<type|provider>] [STATE_AWARE=1] [BACKEND_CONFIG=<file>])
+stage-imports: dist/infrawright-cli.mjs ## Copy import/moved blocks into env roots (TENANT=<label> [RESOURCE=<type|provider>] [STATE_AWARE=1] [BACKEND_CONFIG=<file>])
 	@test -n "$(TENANT)" || { echo "usage: make stage-imports TENANT=<label> [RESOURCE=\"<type|provider> ...\"] [STATE_AWARE=1] [BACKEND_CONFIG=<file>]"; exit 2; }
 	$(INFRAWRIGHT_CLI) stage-imports --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)") $(if $(STATE_AWARE),--state-aware --terraform "$(TF)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)")
 
-unstage-imports: metadata-cli ## Remove staged import/moved blocks from env roots (TENANT=<label> [RESOURCE=<type|provider>])
+unstage-imports: dist/infrawright-cli.mjs ## Remove staged import/moved blocks from env roots (TENANT=<label> [RESOURCE=<type|provider>])
 	@test -n "$(TENANT)" || { echo "usage: make unstage-imports TENANT=<label> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
 	$(INFRAWRIGHT_CLI) unstage-imports --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-plan: metadata-cli ## Terraform plan for tenant roots (TENANT=<label> [RESOURCE=<type|provider>] [IMPORTS_ONLY=1] [SAVE=1] [BACKEND_CONFIG=<file>])
+plan: dist/infrawright-cli.mjs ## Terraform plan for tenant roots (TENANT=<label> [RESOURCE=<type|provider>] [IMPORTS_ONLY=1] [SAVE=1] [BACKEND_CONFIG=<file>])
 	$(INFRAWRIGHT_CLI) plan --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(IMPORTS_ONLY),--imports-only) $(if $(SAVE),--save) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-clean-plans: metadata-cli ## Delete saved tfplan artifacts ([TENANT=<label>] [RESOURCE=<type|provider>])
+clean-plans: dist/infrawright-cli.mjs ## Delete saved tfplan artifacts ([TENANT=<label>] [RESOURCE=<type|provider>])
 	$(INFRAWRIGHT_CLI) clean-plans $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-assert-clean: metadata-cli ## Exit 0 only when every saved plan is no-op/import-only ([TENANT=<label>] [RESOURCE=<type|provider>] [BACKEND_CONFIG=<file>] [REPORT=<file>])
+assert-clean: dist/infrawright-cli.mjs ## Exit 0 only when every saved plan is no-op/import-only ([TENANT=<label>] [RESOURCE=<type|provider>] [BACKEND_CONFIG=<file>] [REPORT=<file>])
 	@$(INFRAWRIGHT_CLI) assert-clean $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(REPORT),--report "$(REPORT)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-assert-adoptable: metadata-cli ## Classify saved plans with optional consumer drift policy ([TENANT=<label>] [RESOURCE=<type|provider>] [POLICY=<file>] [BACKEND_CONFIG=<file>] [REPORT=<file>])
+assert-adoptable: dist/infrawright-cli.mjs ## Classify saved plans with optional consumer drift policy ([TENANT=<label>] [RESOURCE=<type|provider>] [POLICY=<file>] [BACKEND_CONFIG=<file>] [REPORT=<file>])
 	@$(INFRAWRIGHT_CLI) assert-adoptable $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(POLICY),--policy "$(POLICY)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(REPORT),--report "$(REPORT)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-apply: metadata-cli ## Apply saved plans ([TENANT=<label>] [RESOURCE=<type|provider>] [POLICY=<file>] [BACKEND_CONFIG=<file>] [ALLOW_DESTROY=1] [ALLOW_NON_MAIN=1] [ALLOW_PLAN_CHANGES=1])
+apply: dist/infrawright-cli.mjs ## Apply saved plans ([TENANT=<label>] [RESOURCE=<type|provider>] [POLICY=<file>] [BACKEND_CONFIG=<file>] [ALLOW_DESTROY=1] [ALLOW_NON_MAIN=1] [ALLOW_PLAN_CHANGES=1])
 	$(INFRAWRIGHT_CLI) apply $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(POLICY),--policy "$(POLICY)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(ALLOW_DESTROY),--allow-destroy) $(if $(ALLOW_NON_MAIN),--allow-non-main) $(if $(ALLOW_PLAN_CHANGES),--allow-plan-changes) $(if $(MAIN_BRANCH),--main-branch "$(MAIN_BRANCH)") $(foreach rt,$(RESOURCE),--resource "$(rt)")

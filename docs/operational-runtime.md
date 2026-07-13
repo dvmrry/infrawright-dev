@@ -60,6 +60,11 @@ multiline recipes, continuations, variables, target-specific values, and the
 delegated `resources-reference-order` alias. It separately inspects built-CLI
 help so a documented Make route cannot point at a missing command.
 
+Operational Make targets consume the shipped bundle and build it only when it
+is absent; source-file timestamps from a fresh checkout do not authorize a
+runtime rebuild. Maintainers explicitly rebuild changed Node sources with
+`make metadata-cli` or the normal `npm run build` development gate.
+
 The metadata and module surfaces are ordinary Make adapters too:
 
 ```sh

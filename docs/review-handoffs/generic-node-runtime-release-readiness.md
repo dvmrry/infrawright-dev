@@ -162,6 +162,30 @@
 - Unknown external consumers of the legacy bundles/process host are why their
   artifacts and separately labeled release guard remain intact.
 
+## Review Remediation
+
+- Finding: operational Make targets could treat fresh-checkout source mtimes as
+  authority to rebuild the shipped bundle after release staging removed
+  `node_modules`.
+- Root cause: the same timestamp-driven `metadata-cli` prerequisite served as
+  both the runtime existence check and the explicit development rebuild path.
+- Fix: operational targets now depend only on the bundle file, whose missing-
+  file recipe builds it; `make metadata-cli` is the explicit unconditional
+  developer rebuild. The exact-commit release smoke makes a source newer than
+  the bundle, installs an npm tripwire, and runs `make resources` successfully
+  from the dependency/Python/catalog/legacy-stripped runtime.
+- Finding: lazy Terraform adapter resolution allowed `plan --save` to remove a
+  saved pair before the low-level unsupported-Windows guard ran.
+- Root cause: low-level runner/show guards protected spawn and show preflight,
+  but the operational CLI entered domain preparation before requesting its
+  lazy adapter.
+- Fix: one pre-dispatch guard now rejects every CLI route that can execute
+  Terraform (including conditional state-aware staging and module generation),
+  while syntactically genuine help and non-executing metadata/rendering routes
+  remain portable. Help-looking option values cannot bypass the guard. A
+  win32-mocked built-CLI regression proves missing metadata/executable paths
+  are not inspected and an existing saved pair remains byte-identical.
+
 ## Review Focus
 
 - Review only operational command completeness, Python runtime independence,

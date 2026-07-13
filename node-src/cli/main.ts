@@ -48,7 +48,10 @@ import {
   runAdoptBatch,
   type AdoptionStateLoader,
 } from "../domain/adopt-runner.js";
-import { resolveTerraformExecutable } from "../io/terraform-command.js";
+import {
+  assertSupportedTerraformExecutionPlatform,
+  resolveTerraformExecutable,
+} from "../io/terraform-command.js";
 import { ProcessFailure } from "../domain/errors.js";
 import { generateEnvironmentRoots } from "../domain/environment-generator.js";
 import {
@@ -1551,8 +1554,73 @@ async function fetchDiag(arguments_: string[]): Promise<number> {
   return 0;
 }
 
+const TERRAFORM_COMMAND_VALUE_OPTIONS = new Set([
+  "--backend",
+  "--backend-config",
+  "--catalog",
+  "--deployment",
+  "--in",
+  "--main-branch",
+  "--out",
+  "--policy",
+  "--profile",
+  "--report",
+  "--resource",
+  "--root",
+  "--tenant",
+  "--terraform",
+]);
+const TERRAFORM_COMMAND_FLAGS = new Set([
+  "--allow-destroy",
+  "--allow-non-main",
+  "--allow-plan-changes",
+  "--imports-only",
+  "--save",
+  "--state-aware",
+]);
+
+function hasStandaloneTerraformHelp(arguments_: readonly string[]): boolean {
+  for (let index = 1; index < arguments_.length;) {
+    const argument = arguments_[index];
+    if (argument === "-h" || argument === "--help") return true;
+    if (argument !== undefined && TERRAFORM_COMMAND_VALUE_OPTIONS.has(argument)) {
+      if (arguments_[index + 1] === undefined) return false;
+      index += 2;
+      continue;
+    }
+    if (
+      argument !== undefined
+      && (
+        TERRAFORM_COMMAND_FLAGS.has(argument)
+        || (index === 1 && arguments_[0] === "modules" && argument === "generate")
+      )
+    ) {
+      index += 1;
+      continue;
+    }
+    return false;
+  }
+  return false;
+}
+
+function requiresTerraformExecution(arguments_: readonly string[]): boolean {
+  if (hasStandaloneTerraformHelp(arguments_)) return false;
+  const command = arguments_[0];
+  return command === "adopt"
+    || command === "gen-env"
+    || command === "plan"
+    || command === "assert-clean"
+    || command === "assert-adoptable"
+    || command === "apply"
+    || (command === "modules" && arguments_[1] === "generate")
+    || (command === "stage-imports" && arguments_.includes("--state-aware"));
+}
+
 async function main(arguments_: string[]): Promise<number> {
   const command = arguments_[0];
+  if (requiresTerraformExecution(arguments_)) {
+    assertSupportedTerraformExecutionPlatform();
+  }
   if (command === "check-pack") return checkPack(arguments_.slice(1));
   if (command === "check-pack-set") return checkPackSet(arguments_.slice(1));
   if (command === "deployment") return deployment(arguments_.slice(1));

@@ -9,6 +9,7 @@ import {
   mkdir,
   readdir,
   rm,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
@@ -60,6 +61,8 @@ if (process.platform === "win32") {
 if (run("git", ["status", "--porcelain", "--untracked-files=no"]).stdout !== "") {
   throw new Error("release staging smoke requires a committed Slice-4 tree");
 }
+const makeExecutable = run("sh", ["-c", "command -v make"]).stdout.trim();
+if (makeExecutable.length === 0) throw new Error("release staging smoke requires make");
 
 const commit = run("git", ["rev-parse", "HEAD"]).stdout.trim();
 const temporary = await mkdtemp(path.join(os.tmpdir(), "infrawright-runtime-release-"));
@@ -99,9 +102,9 @@ try {
   ]);
 
   await mkdir(intercept);
-  const pythonLog = path.join(temporary, "python-invoked");
-  const shim = `#!/bin/sh\nprintf '%s\\n' "$0 $*" >> ${shellLiteral(pythonLog)}\nexit 97\n`;
-  for (const name of ["python", "python3", "python-must-not-run"]) {
+  const forbiddenToolLog = path.join(temporary, "forbidden-tool-invoked");
+  const shim = `#!/bin/sh\nprintf '%s\\n' "$0 $*" >> ${shellLiteral(forbiddenToolLog)}\nexit 97\n`;
+  for (const name of ["npm-must-not-run", "python", "python3", "python-must-not-run"]) {
     const file = path.join(intercept, name);
     await writeFile(file, shim, "utf8");
     await chmod(file, 0o755);
@@ -136,7 +139,25 @@ try {
   if (resourceResult.stdout !== "zia_url_categories\n") {
     throw new Error(`unexpected relocated resource output: ${resourceResult.stdout}`);
   }
-  await mustBeAbsent(pythonLog);
+  const source = path.join(generic, "node-src", "cli", "main.ts");
+  const future = new Date(Date.now() + 10_000);
+  await utimes(source, future, future);
+  const makeResult = run(makeExecutable, [
+    "--no-print-directory",
+    "--silent",
+    "resources",
+    "OVERLAY=",
+    `NODE=${process.execPath}`,
+    `NPM=${path.join(intercept, "npm-must-not-run")}`,
+    "SHELL=/bin/sh",
+    `PACK_PROFILE=${path.join(generic, "packsets", "full.json")}`,
+    `PACK_CATALOG=${path.join(generic, "packsets", "full.json")}`,
+    "RESOURCE=zia_url_categories",
+  ], { cwd: generic, env: environment });
+  if (makeResult.stdout !== "zia_url_categories\n") {
+    throw new Error(`unexpected no-install Make output: ${makeResult.stdout}`);
+  }
+  await mustBeAbsent(forbiddenToolLog);
   process.stdout.write(`local runtime release smoke passed for ${commit}\n`);
 } finally {
   if (process.env.INFRAWRIGHT_KEEP_RELEASE_SMOKE !== "1") {

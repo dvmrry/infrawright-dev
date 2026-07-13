@@ -4,6 +4,7 @@ import { chmod, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:f
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 
 const ROOT = process.cwd();
 const PROFILE = path.join(ROOT, "packsets", "zia.json");
@@ -215,6 +216,62 @@ test("query validation and changed-path file failures retain legacy status class
   assert.equal(missingResult.stdout, "");
   assert.match(missingResult.stderr, /ENOENT|no such file or directory/iu);
   assert.equal(missingResult.stderr.includes("must contain a JSON array"), false);
+});
+
+test("unsupported Windows plan refuses before preflight and preserves the saved pair", async (context) => {
+  const workspace = await temporaryDirectory(context);
+  const envRoot = path.join(workspace, "envs", "tenant", SECOND);
+  const plan = path.join(envRoot, "tfplan");
+  const fingerprint = path.join(envRoot, "tfplan.sources");
+  await writeText(plan, "existing saved plan\n");
+  await writeText(fingerprint, "existing fingerprint\n");
+
+  const cli = path.join(ROOT, "dist", "infrawright-cli.mjs");
+  const built = command(process.execPath, ["scripts/build-metadata-cli.mjs"], process.env);
+  assert.equal(built.status, 0, built.stderr);
+  const cliArguments = [
+    "plan",
+    "--tenant", "tenant",
+    "--resource", SECOND,
+    "--save",
+    "--terraform", "--help",
+    "--deployment", path.join(workspace, "missing-deployment.json"),
+    "--root", path.join(workspace, "missing-packs"),
+    "--profile", path.join(workspace, "missing-profile.json"),
+    "--catalog", path.join(workspace, "missing-catalog.json"),
+  ];
+  const bootstrap = [
+    "Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' });",
+    `process.argv = ${JSON.stringify([process.execPath, cli, ...cliArguments])};`,
+    `await import(${JSON.stringify(pathToFileURL(cli).href)});`,
+  ].join("\n");
+  const result = command(
+    process.execPath,
+    ["--input-type=module", "--eval", bootstrap],
+    process.env,
+  );
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, "");
+  assert.equal(
+    result.stderr,
+    "error: Terraform execution through Infrawright is supported on Linux and macOS; "
+      + "Windows is not a supported operational platform.\n",
+  );
+  assert.equal(await readFile(plan, "utf8"), "existing saved plan\n");
+  assert.equal(await readFile(fingerprint, "utf8"), "existing fingerprint\n");
+
+  const helpBootstrap = [
+    "Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' });",
+    `process.argv = ${JSON.stringify([process.execPath, cli, "plan", "--help"])};`,
+    `await import(${JSON.stringify(pathToFileURL(cli).href)});`,
+  ].join("\n");
+  const help = command(
+    process.execPath,
+    ["--input-type=module", "--eval", helpBootstrap],
+    process.env,
+  );
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /^usage:\n/u);
 });
 
 test("all Slice-1 Make targets run with Python unavailable and fake Terraform", async (context) => {
