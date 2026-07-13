@@ -49,6 +49,12 @@ import {
   type AdoptionStateLoader,
 } from "../domain/adopt-runner.js";
 import { generateEnvironmentRoots } from "../domain/environment-generator.js";
+import {
+  createImportStagingTerraform,
+  stageImports,
+  unstageImports,
+  type ImportStagingTerraform,
+} from "../domain/import-staging.js";
 
 const USAGE = [
   "usage:",
@@ -59,6 +65,8 @@ const USAGE = [
   "  infrawright transform --in <dir> --tenant <name> [--resource <selector>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright adopt --in <dir> --tenant <name> [--resource <selector>] [--policy <file>] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright gen-env --tenant <name> [--backend <backend>] [--resource <selector>] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
+  "  infrawright stage-imports --tenant <name> [--resource <selector>] [--state-aware] [--backend-config <file>] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
+  "  infrawright unstage-imports --tenant <name> [--resource <selector>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright fetch --tenant <name> [--resource <selector>] [--out <dir>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright fetch-diag [--root <packs>] [--profile <file>] [--catalog <file>]",
 ].join("\n");
@@ -571,6 +579,155 @@ async function genEnv(arguments_: string[]): Promise<number> {
   return 0;
 }
 
+interface ImportStagingCliOptions {
+  readonly backendConfig?: string;
+  readonly catalog: string;
+  readonly deployment: string;
+  readonly profile: string;
+  readonly resources: readonly string[];
+  readonly root: string;
+  readonly stateAware: boolean;
+  readonly tenant: string;
+  readonly terraform?: string;
+}
+
+async function importStagingCliOptions(
+  arguments_: string[],
+  command: "stage-imports" | "unstage-imports",
+): Promise<ImportStagingCliOptions> {
+  const rootDirectory = await packageRoot();
+  let root = process.env.INFRAWRIGHT_PACKS || path.join(rootDirectory, "packs");
+  let profile = process.env.INFRAWRIGHT_PACK_PROFILE
+    || path.join(rootDirectory, "packsets", "full.json");
+  let catalog = path.join(rootDirectory, "packsets", "full.json");
+  let selectedDeployment = deploymentPath();
+  let backendConfig: string | undefined;
+  let tenant: string | undefined;
+  let terraform: string | undefined;
+  let stateAware = false;
+  const resources: string[] = [];
+  for (let index = 0; index < arguments_.length;) {
+    const argument = arguments_[index];
+    if (argument === "--state-aware") {
+      if (command === "unstage-imports") {
+        usageError("unstage-imports does not accept --state-aware");
+      }
+      stateAware = true;
+      index += 1;
+    } else if (
+      argument === "--root"
+      || argument === "--profile"
+      || argument === "--catalog"
+      || argument === "--deployment"
+      || argument === "--tenant"
+      || argument === "--resource"
+      || argument === "--backend-config"
+      || argument === "--terraform"
+    ) {
+      if (
+        command === "unstage-imports"
+        && (argument === "--backend-config" || argument === "--terraform")
+      ) {
+        usageError(`unstage-imports does not accept ${argument}`);
+      }
+      const option = takeOption(arguments_, index, argument);
+      if (argument === "--root") root = option.value;
+      if (argument === "--profile") profile = option.value;
+      if (argument === "--catalog") catalog = option.value;
+      if (argument === "--deployment") selectedDeployment = option.value;
+      if (argument === "--tenant") tenant = option.value;
+      if (argument === "--resource") resources.push(option.value);
+      if (argument === "--backend-config") backendConfig = option.value;
+      if (argument === "--terraform") terraform = option.value;
+      index = option.next;
+    } else if (argument === "-h" || argument === "--help") {
+      throw new CliExit(USAGE, 0, true);
+    } else {
+      usageError(`unknown argument ${String(argument)}`);
+    }
+  }
+  if (tenant === undefined) usageError(`${command} requires --tenant`);
+  return {
+    ...(backendConfig === undefined ? {} : { backendConfig }),
+    catalog,
+    deployment: selectedDeployment,
+    profile,
+    resources,
+    root,
+    stateAware,
+    tenant,
+    ...(terraform === undefined ? {} : { terraform }),
+  };
+}
+
+async function stageImportsCommand(arguments_: string[]): Promise<number> {
+  const options = await importStagingCliOptions(arguments_, "stage-imports");
+  const [packRoot, loadedDeployment] = await Promise.all([
+    loadPackRoot({
+      packsRoot: options.root,
+      profilePath: options.profile,
+      catalogPath: options.catalog,
+    }),
+    loadDeployment(options.deployment),
+  ]);
+  let adapterPromise: Promise<ImportStagingTerraform> | undefined;
+  const adapter = options.stateAware ? {
+    initialize: async (request: Parameters<ImportStagingTerraform["initialize"]>[0]) => {
+      adapterPromise ??= resolveTerraformExecutable(
+        options.terraform ?? process.env.TF,
+        process.env,
+      ).then((terraformExecutable) => createImportStagingTerraform({
+        environment: process.env,
+        terraformExecutable,
+      }));
+      await (await adapterPromise).initialize(request);
+    },
+    listState: async (request: Parameters<ImportStagingTerraform["listState"]>[0]) => {
+      adapterPromise ??= resolveTerraformExecutable(
+        options.terraform ?? process.env.TF,
+        process.env,
+      ).then((terraformExecutable) => createImportStagingTerraform({
+        environment: process.env,
+        terraformExecutable,
+      }));
+      return (await adapterPromise).listState(request);
+    },
+  } satisfies ImportStagingTerraform : undefined;
+  await stageImports({
+    ...(options.backendConfig === undefined ? {} : { backendConfig: options.backendConfig }),
+    deployment: loadedDeployment,
+    onDiagnostic: (message) => process.stderr.write(`${message}\n`),
+    root: packRoot,
+    selectors: options.resources,
+    stateAware: options.stateAware,
+    tenant: options.tenant,
+    ...(adapter === undefined ? {} : { terraform: adapter }),
+    workspace: process.cwd(),
+  });
+  return 0;
+}
+
+async function unstageImportsCommand(arguments_: string[]): Promise<number> {
+  const options = await importStagingCliOptions(arguments_, "unstage-imports");
+  const [packRoot, loadedDeployment] = await Promise.all([
+    loadPackRoot({
+      packsRoot: options.root,
+      profilePath: options.profile,
+      catalogPath: options.catalog,
+    }),
+    loadDeployment(options.deployment),
+  ]);
+  await unstageImports({
+    deployment: loadedDeployment,
+    onDiagnostic: (message) => process.stderr.write(`${message}\n`),
+    root: packRoot,
+    selectors: options.resources,
+    tenant: options.tenant,
+    workspace: process.cwd(),
+  });
+  return 0;
+}
+
 interface FetchCliOptions {
   readonly catalog: string;
   readonly output?: string;
@@ -758,6 +915,8 @@ async function main(arguments_: string[]): Promise<number> {
   if (command === "transform") return transform(arguments_.slice(1));
   if (command === "adopt") return adopt(arguments_.slice(1));
   if (command === "gen-env") return genEnv(arguments_.slice(1));
+  if (command === "stage-imports") return stageImportsCommand(arguments_.slice(1));
+  if (command === "unstage-imports") return unstageImportsCommand(arguments_.slice(1));
   if (command === "fetch") return fetchCommand(arguments_.slice(1));
   if (command === "fetch-diag") return fetchDiag(arguments_.slice(1));
   if (command === "-h" || command === "--help") {

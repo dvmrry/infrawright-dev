@@ -148,11 +148,13 @@ scope-paths: ## Map changed paths to affected whole roots (PATHS_JSON=<file|->)
 plan-roots: ## Enumerate materialized env roots and plan artifacts ([TENANT=<label>] [RESOURCE=<type|provider>])
 	@$(PYTHON) -m engine.ops plan-roots --json $(OPTIONAL_TENANT_ARG) $(RESOURCE)
 
-stage-imports: ## Copy import/moved blocks into env roots (TENANT=<label> [RESOURCE=<type|provider>] [STATE_AWARE=1] [BACKEND_CONFIG=<file>])
-	$(PYTHON) -m engine.ops stage-imports --tenant "$(TENANT)" $(if $(STATE_AWARE),--state-aware) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(RESOURCE)
+stage-imports: metadata-cli ## Copy import/moved blocks into env roots (TENANT=<label> [RESOURCE=<type|provider>] [STATE_AWARE=1] [BACKEND_CONFIG=<file>])
+	@test -n "$(TENANT)" || { echo "usage: make stage-imports TENANT=<label> [RESOURCE=\"<type|provider> ...\"] [STATE_AWARE=1] [BACKEND_CONFIG=<file>]"; exit 2; }
+	$(INFRAWRIGHT_CLI) stage-imports --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)") $(if $(STATE_AWARE),--state-aware --terraform "$(TF)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)")
 
-unstage-imports: ## Remove staged import/moved blocks from env roots (TENANT=<label> [RESOURCE=<type|provider>])
-	$(PYTHON) -m engine.ops unstage-imports --tenant "$(TENANT)" $(RESOURCE)
+unstage-imports: metadata-cli ## Remove staged import/moved blocks from env roots (TENANT=<label> [RESOURCE=<type|provider>])
+	@test -n "$(TENANT)" || { echo "usage: make unstage-imports TENANT=<label> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
+	$(INFRAWRIGHT_CLI) unstage-imports --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
 plan: ## Terraform plan for tenant roots (TENANT=<label> [RESOURCE=<type|provider>] [IMPORTS_ONLY=1] [SAVE=1] [BACKEND_CONFIG=<file>])
 	$(PYTHON) -m engine.ops plan --tenant "$(TENANT)" $(if $(IMPORTS_ONLY),--imports-only) $(if $(SAVE),--save) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(RESOURCE)

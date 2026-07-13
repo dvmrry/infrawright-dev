@@ -4,6 +4,7 @@ import { comparePythonStrings } from "../json/python-compatible.js";
 const RESOURCE_TYPE = /^[a-z][a-z0-9_]*$/;
 const MAX_GENERATED_IMPORT_PAIRS = 50_000;
 const MAX_IMPORT_MOVE_CANDIDATES = 50_000;
+const PYTHON_WHITESPACE = String.raw`[\x09-\x0d\x1c-\x20\x85\xa0\u1680\u2000-\u200a\u2028-\u2029\u202f\u205f\u3000]`;
 
 export interface GeneratedImportPair {
   readonly key: string;
@@ -34,6 +35,12 @@ export interface ImportMoveDerivation {
 export interface ParsedHclQuotedString {
   readonly value: string;
   readonly end: number;
+}
+
+export interface FilteredGeneratedImports {
+  readonly text: string;
+  readonly kept: number;
+  readonly skipped: number;
 }
 
 function fail(code: string, message: string): never {
@@ -176,6 +183,100 @@ export function parseHclQuotedString(
     "INVALID_HCL_QUOTED_STRING",
     "generated HCL string literal is unterminated",
   );
+}
+
+function generatedImportBlockEnd(text: string, openBrace: number): number {
+  let depth = 0;
+  let index = openBrace;
+  while (index < text.length) {
+    const character = text[index];
+    if (character === '"') {
+      try {
+        index = parseHclQuotedString(text, index).end;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "invalid HCL string";
+        return fail(
+          "INVALID_GENERATED_IMPORT_BLOCK",
+          `malformed generated import block: ${message}`,
+        );
+      }
+      continue;
+    }
+    if (character === "{") {
+      depth += 1;
+      index += 1;
+      continue;
+    }
+    if (character === "}") {
+      depth -= 1;
+      index += 1;
+      if (depth === 0) {
+        if (text.startsWith("\r\n", index)) return index + 2;
+        if (text[index] === "\n" || text[index] === "\r") return index + 1;
+        return index;
+      }
+      continue;
+    }
+    index += 1;
+  }
+  return fail(
+    "INVALID_GENERATED_IMPORT_BLOCK",
+    "unterminated generated import block",
+  );
+}
+
+function pythonWhitespaceOnly(text: string): boolean {
+  return new RegExp(String.raw`^${PYTHON_WHITESPACE}*$`, "u").test(text);
+}
+
+function trimPythonWhitespace(text: string): string {
+  return text
+    .replace(new RegExp(String.raw`^${PYTHON_WHITESPACE}+`, "u"), "")
+    .replace(new RegExp(String.raw`${PYTHON_WHITESPACE}+$`, "u"), "");
+}
+
+/** Filter top-level generated import blocks down to exact unmanaged addresses. */
+export function filterGeneratedImports(
+  importsText: string,
+  stateAddresses: Iterable<string>,
+): FilteredGeneratedImports {
+  const managed = new Set(stateAddresses);
+  const startPattern = new RegExp(
+    String.raw`(?:^|(?<=\n))[ \t]*import${PYTHON_WHITESPACE}*\{`,
+    "gu",
+  );
+  const toPattern = new RegExp(
+    String.raw`(?:^|(?<=\n))[ \t]*to${PYTHON_WHITESPACE}*=${PYTHON_WHITESPACE}*([^\n]*?)${PYTHON_WHITESPACE}*(?=\n|$)`,
+    "u",
+  );
+  const parts: string[] = [];
+  let position = 0;
+  let kept = 0;
+  let skipped = 0;
+  while (true) {
+    const match = startPattern.exec(importsText);
+    if (match === null) break;
+    const openBrace = importsText.lastIndexOf("{", match.index + match[0].length - 1);
+    const end = generatedImportBlockEnd(importsText, openBrace);
+    parts.push(importsText.slice(position, match.index));
+    const block = importsText.slice(match.index, end);
+    const addressMatch = toPattern.exec(block);
+    const address = addressMatch?.[1] === undefined
+      ? null
+      : trimPythonWhitespace(addressMatch[1]);
+    if (address !== null && managed.has(address)) {
+      skipped += 1;
+    } else {
+      parts.push(block);
+      kept += 1;
+    }
+    position = end;
+    startPattern.lastIndex = end;
+  }
+  parts.push(importsText.slice(position));
+  let text = parts.join("");
+  if (kept === 0 && pythonWhitespaceOnly(text)) text = "";
+  return Object.freeze({ text, kept, skipped });
 }
 
 function requirePair(pair: GeneratedImportPair): void {
