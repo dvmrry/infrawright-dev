@@ -230,7 +230,7 @@ function isReadOnlyPath(path: string): boolean {
   return READ_ONLY_NAMES.has(leaf) || READ_ONLY_SUFFIXES.some((suffix) => leaf.endsWith(suffix));
 }
 
-function aliasFor(
+export function reconciliationFieldAlias(
   key: string,
   keep: ReadonlySet<string>,
   computed: ReadonlySet<string>,
@@ -544,7 +544,7 @@ function walkBlock(
       if (bucket !== undefined && reason !== undefined) addLeaves(report, bucket, child, childValue, reason);
       else if (isReadOnlyPath(child)) addLeaves(report, "dropped_known", child, childValue, "common_read_only");
       else {
-        const [alias, aliasKind, aliasReason] = aliasFor(key, keep, computed);
+        const [alias, aliasKind, aliasReason] = reconciliationFieldAlias(key, keep, computed);
         if (alias !== undefined && aliasKind === "input" && aliasReason?.startsWith("relationship") && isRelationshipValue(childValue)) {
           report.add("relationship", child, `relationship_id:${alias}`, childValue);
         } else if (alias !== undefined && aliasKind === "input") {
