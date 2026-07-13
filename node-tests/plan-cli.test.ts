@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { chmod, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -87,7 +88,7 @@ test("real metadata CLI query bytes match Python on grouped materialized roots",
     },
   ];
   for (const item of cases) {
-    const python = command("python3", item.python, environment);
+    const python = command(PYTHON_ORACLE, item.python, environment);
     const node = command(process.execPath, item.node, environment);
     assert.equal(python.status, 0, python.stderr);
     assert.equal(node.status, 0, node.stderr);
@@ -101,7 +102,7 @@ test("real metadata CLI query bytes match Python on grouped materialized roots",
     path.join(workspace, "envs", "tenant", LABEL, "main.tf"),
   ]);
   const pythonScope = command(
-    "python3",
+    PYTHON_ORACLE,
     ["-m", "engine.ops", "scope-paths", "--json", "--paths-json", "-"],
     environment,
     changed,
@@ -153,7 +154,7 @@ test("query validation and changed-path file failures retain legacy status class
     },
   ];
   for (const item of validationCases) {
-    const python = command("python3", item.python, environment);
+    const python = command(PYTHON_ORACLE, item.python, environment);
     const node = command(process.execPath, item.node, environment);
     assert.equal(node.status, python.status, item.node[1]);
     assert.equal(node.stdout, python.stdout, item.node[1]);
@@ -174,7 +175,7 @@ test("query validation and changed-path file failures retain legacy status class
       INFRAWRIGHT_DEPLOYMENT: selected,
     };
     const python = command(
-      "python3",
+      PYTHON_ORACLE,
       ["-m", "engine.ops", "roots", "--json"],
       selectedEnvironment,
     );

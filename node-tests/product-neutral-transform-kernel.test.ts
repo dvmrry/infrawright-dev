@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE as PYTHON_ORACLE_EXECUTABLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
@@ -138,7 +139,7 @@ test("product-neutral float, set(string), and map(string) shapes match Python", 
     });
   });
 
-  const python = spawnSync("python3", ["-c", PYTHON_ORACLE], {
+  const python = spawnSync(PYTHON_ORACLE_EXECUTABLE, ["-c", PYTHON_ORACLE], {
     cwd: process.cwd(),
     encoding: "utf8",
     input: source,
@@ -201,7 +202,7 @@ test("numeric string coercion matches Python for Unicode digits and underscore g
     resourceType: fixture?.resource_type ?? "",
   });
 
-  const python = spawnSync("python3", ["-c", PYTHON_ORACLE], {
+  const python = spawnSync(PYTHON_ORACLE_EXECUTABLE, ["-c", PYTHON_ORACLE], {
     cwd: process.cwd(),
     encoding: "utf8",
     input: source,

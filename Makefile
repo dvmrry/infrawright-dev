@@ -26,13 +26,19 @@ endif
 override INFRAWRIGHT_DEPLOYMENT = $(DEPLOYMENT)
 export INFRAWRIGHT_DEPLOYMENT
 
-.PHONY: metadata-cli check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set deployment resources resources-reference-order gen-modules validate-modules audit-vendor-boundary demo-contract check check-all check-core test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: metadata-cli verify-runtime source-build-preflight check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set deployment resources resources-reference-order gen-modules validate-modules audit-vendor-boundary demo-contract check check-all check-core test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 dist/infrawright-cli.mjs:
 	$(NPM) run build:metadata-cli
 
 metadata-cli: ## Explicitly rebuild the generic CLI for development
 	$(NPM) run build:metadata-cli
+
+verify-runtime: ## Verify the prebuilt generic CLI without npm or Python
+	$(NODE) scripts/verify-runtime-release.mjs "$(CURDIR)" --deployment "$(DEPLOYMENT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)"
+
+source-build-preflight: ## Diagnose whether the configured npm registry can rebuild the CLI
+	$(NODE) scripts/build-environment-preflight.mjs --npm "$(NPM)"
 
 check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
 	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1

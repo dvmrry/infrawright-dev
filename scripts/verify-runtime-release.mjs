@@ -10,20 +10,18 @@ function fail(message) {
   process.exit(1);
 }
 
-async function requireFile(root, relative) {
-  const file = path.join(root, relative);
+async function requireFile(file, label) {
   let metadata;
   try {
     metadata = await stat(file);
   } catch {
-    return fail(`missing ${relative}`);
+    return fail(`missing ${label}`);
   }
-  if (!metadata.isFile()) fail(`${relative} is not a regular file`);
+  if (!metadata.isFile()) fail(`${label} is not a regular file`);
   return file;
 }
 
-function runCli(root, ...arguments_) {
-  const cli = path.join(root, "dist", "infrawright-cli.mjs");
+function runCli(root, cli, ...arguments_) {
   const result = spawnSync(process.execPath, [cli, ...arguments_], {
     cwd: path.dirname(root),
     encoding: "utf8",
@@ -47,15 +45,75 @@ function runCli(root, ...arguments_) {
   return result;
 }
 
-const root = path.resolve(process.argv[2] ?? ".");
-const packageFile = await requireFile(root, "package.json");
-await requireFile(root, "package-lock.json");
-await requireFile(root, "README.md");
-await requireFile(root, "LICENSE");
-await requireFile(root, "deployment.json");
-const cli = await requireFile(root, "dist/infrawright-cli.mjs");
-const checksumFile = await requireFile(root, "dist/infrawright-cli.mjs.sha256");
-const fullProfileFile = await requireFile(root, "packsets/full.json");
+function parseArguments(arguments_) {
+  let root = ".";
+  const selected = {};
+  for (let index = 0; index < arguments_.length;) {
+    const argument = arguments_[index];
+    if (!argument.startsWith("-") && index === 0) {
+      root = argument;
+      index += 1;
+      continue;
+    }
+    if (
+      argument === "--root"
+      || argument === "--cli"
+      || argument === "--checksum"
+      || argument === "--package"
+      || argument === "--packs"
+      || argument === "--profile"
+      || argument === "--catalog"
+      || argument === "--deployment"
+    ) {
+      const value = arguments_[index + 1];
+      if (value === undefined || value.length === 0) {
+        fail(`${argument} requires a value`);
+      }
+      if (argument === "--root") root = value;
+      else selected[argument.slice(2)] = value;
+      index += 2;
+      continue;
+    }
+    fail(`unknown argument ${argument}`);
+  }
+  return { root: path.resolve(root), selected };
+}
+
+function selectedPath(root, value, fallback) {
+  return path.resolve(root, value ?? fallback);
+}
+
+const parsed = parseArguments(process.argv.slice(2));
+const root = parsed.root;
+const packageFile = await requireFile(
+  selectedPath(root, parsed.selected.package, "package.json"),
+  "package.json package-root metadata",
+);
+const deploymentFile = await requireFile(
+  selectedPath(root, parsed.selected.deployment, "deployment.json"),
+  "deployment input",
+);
+const cli = await requireFile(
+  selectedPath(root, parsed.selected.cli, "dist/infrawright-cli.mjs"),
+  "dist/infrawright-cli.mjs",
+);
+const checksumFile = await requireFile(
+  selectedPath(
+    root,
+    parsed.selected.checksum,
+    "dist/infrawright-cli.mjs.sha256",
+  ),
+  "dist/infrawright-cli.mjs.sha256",
+);
+const packsRoot = selectedPath(root, parsed.selected.packs, "packs");
+const profileFile = await requireFile(
+  selectedPath(root, parsed.selected.profile, "packsets/full.json"),
+  "pack profile",
+);
+const catalogFile = await requireFile(
+  selectedPath(root, parsed.selected.catalog, "packsets/full.json"),
+  "pack catalog",
+);
 
 const packageDocument = JSON.parse(await readFile(packageFile, "utf8"));
 if (packageDocument.engines?.node !== ">=24 <25") {
@@ -77,7 +135,7 @@ if (process.platform !== "win32" && ((await stat(cli)).mode & 0o111) === 0) {
   fail("generic CLI bundle is not executable");
 }
 
-const fullProfile = JSON.parse(await readFile(fullProfileFile, "utf8"));
+const fullProfile = JSON.parse(await readFile(catalogFile, "utf8"));
 if (
   fullProfile.kind !== "infrawright.pack-set"
   || fullProfile.version !== 1
@@ -87,17 +145,18 @@ if (
   fail("packsets/full.json is not a version-1 pack set");
 }
 for (const pack of fullProfile.packs) {
-  await requireFile(root, `packs/${pack}/pack.json`);
+  await requireFile(path.join(packsRoot, pack, "pack.json"), `pack ${pack}`);
 }
 for (const component of fullProfile.shared) {
   try {
-    await access(path.join(root, "packs", "_shared", component));
+    await access(path.join(packsRoot, "_shared", component));
   } catch {
     fail(`missing packs/_shared/${component}`);
   }
 }
 
-const profileNames = (await readdir(path.join(root, "packsets")))
+const profilesRoot = path.dirname(profileFile);
+const profileNames = (await readdir(profilesRoot))
   .filter((name) => name.endsWith(".json"))
   .sort();
 if (profileNames.length === 0) fail("release contains no pack profiles");
@@ -105,7 +164,10 @@ const knownPacks = new Set(fullProfile.packs);
 const knownShared = new Set(fullProfile.shared);
 for (const name of profileNames) {
   const relative = `packsets/${name}`;
-  const document = JSON.parse(await readFile(await requireFile(root, relative), "utf8"));
+  const document = JSON.parse(await readFile(
+    await requireFile(path.join(profilesRoot, name), relative),
+    "utf8",
+  ));
   if (
     document.kind !== "infrawright.pack-set"
     || document.version !== 1
@@ -118,23 +180,38 @@ for (const name of profileNames) {
   }
 }
 
-runCli(root, "--help");
-runCli(root, "check-pack", "--root", path.join(root, "packs"));
+const help = runCli(root, cli, "--help");
+for (const command of [
+  "fetch",
+  "adopt",
+  "gen-env",
+  "stage-imports",
+  "plan",
+  "assert-adoptable",
+  "apply",
+]) {
+  if (!help.stdout.includes(command)) {
+    fail(`CLI help is missing operational command ${command}`);
+  }
+}
+runCli(root, cli, "check-pack", "--root", packsRoot);
 runCli(
   root,
+  cli,
   "check-pack-set",
   "--root",
-  path.join(root, "packs"),
+  packsRoot,
   "--profile",
-  fullProfileFile,
+  profileFile,
   "--catalog",
-  fullProfileFile,
+  catalogFile,
 );
 runCli(
   root,
+  cli,
   "deployment",
   "--deployment",
-  path.join(root, "deployment.json"),
+  deploymentFile,
   "module-dir",
 );
 

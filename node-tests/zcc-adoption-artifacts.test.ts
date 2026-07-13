@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -215,7 +216,7 @@ async function loadSuccessCases(): Promise<readonly SuccessCase[]> {
 }
 
 function pythonArtifacts(cases: readonly SuccessCase[]): readonly PythonArtifacts[] {
-  const result = spawnSync("python3", ["-c", PYTHON_ARTIFACT_ORACLE], {
+  const result = spawnSync(PYTHON_ORACLE, ["-c", PYTHON_ARTIFACT_ORACLE], {
     cwd: WORKSPACE,
     encoding: "utf8",
     input: stringifyLosslessJson({

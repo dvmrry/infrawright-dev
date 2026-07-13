@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE as PYTHON_ORACLE_EXECUTABLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
@@ -85,7 +86,7 @@ test("Node ZCC transform matches the raw-schema Python oracle", async () => {
     raw_items: fixture.raw_items,
     resource_type: fixture.resource_type,
   })) });
-  const oracle = spawnSync("python3", ["-c", PYTHON_ORACLE], {
+  const oracle = spawnSync(PYTHON_ORACLE_EXECUTABLE, ["-c", PYTHON_ORACLE], {
     cwd: WORKSPACE,
     encoding: "utf8",
     input: oracleInput,

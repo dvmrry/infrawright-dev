@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { access, chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -99,7 +100,7 @@ function pythonExpected(fixture: string): { readonly imports: string; readonly t
     "override = {'import_id': adoption_entry(data['resource_type'])['import_id']}",
     "print(json.dumps({'tfvars': transform.render_tfvars(items), 'imports': transform.render_imports(data['resource_type'], originals, override)}))",
   ].join("; ");
-  const result = spawnSync("python3", ["-c", source, fixture], {
+  const result = spawnSync(PYTHON_ORACLE, ["-c", source, fixture], {
     cwd: ROOT,
     encoding: "utf8",
   });

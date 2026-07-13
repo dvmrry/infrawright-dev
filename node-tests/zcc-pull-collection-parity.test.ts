@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -106,7 +107,7 @@ rest.fetch_resource = lambda resource_type, auth_mode, ctx, token, opener: items
 sys.exit(rest.fetch_all(
     "oneapi", {}, {}, object(), os.environ["OUT_DIR"], only=set(resources)))
 `;
-  const result = spawnSync("python3", ["-c", script], {
+  const result = spawnSync(PYTHON_ORACLE, ["-c", script], {
     cwd: REPOSITORY,
     env: {
       ...process.env,

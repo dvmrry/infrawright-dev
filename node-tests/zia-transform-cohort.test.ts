@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE as PYTHON_ORACLE_EXECUTABLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -160,7 +161,7 @@ test("representative and edge fixtures match real Python results and tfvars byte
       tfvars: renderPythonLosslessArtifactJson({ items: result.items }),
     };
   });
-  const python = spawnSync("python3", ["-c", PYTHON_ORACLE], {
+  const python = spawnSync(PYTHON_ORACLE_EXECUTABLE, ["-c", PYTHON_ORACLE], {
     cwd: WORKSPACE,
     encoding: "utf8",
     input: source,
@@ -250,7 +251,7 @@ test("ZIA nested map keys and unknown drops retain live Python Unicode bytes", (
     result,
     tfvars,
   }];
-  const python = spawnSync("python3", ["-c", PYTHON_ORACLE], {
+  const python = spawnSync(PYTHON_ORACLE_EXECUTABLE, ["-c", PYTHON_ORACLE], {
     cwd: WORKSPACE,
     encoding: "utf8",
     input: source,

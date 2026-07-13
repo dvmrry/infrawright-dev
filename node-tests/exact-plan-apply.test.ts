@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import {
@@ -702,7 +703,7 @@ test("Make Apply is Python-disabled and Node/Python blocked diagnostics agree", 
     "--catalog", path.join(ROOT, "packsets", "full.json"),
     "--deployment", deploymentPath,
   ], environment);
-  const python = command("python3", [
+  const python = command(PYTHON_ORACLE, [
     "-m", "engine.ops", "apply",
     "--tenant", "tenant",
     RESOURCE,

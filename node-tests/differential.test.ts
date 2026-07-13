@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
@@ -42,7 +43,7 @@ async function compare(options: {
     args.push("--tenant", options.tenant);
   }
   args.push(...options.selectors);
-  const python = spawnSync("python3", args, {
+  const python = spawnSync(PYTHON_ORACLE, args, {
     cwd: WORKSPACE,
     encoding: "utf8",
     env: {
@@ -72,7 +73,7 @@ async function compareScope(options: {
     paths: options.paths,
   });
   const python = spawnSync(
-    "python3",
+    PYTHON_ORACLE,
     ["-m", "engine.ops", "scope-paths", "--json", "--paths-json", "-"],
     {
       cwd: WORKSPACE,
@@ -110,7 +111,7 @@ async function comparePlanRoots(options: {
     args.push("--tenant", options.tenant);
   }
   args.push(...options.selectors);
-  const python = spawnSync("python3", args, {
+  const python = spawnSync(PYTHON_ORACLE, args, {
     cwd: WORKSPACE,
     encoding: "utf8",
     env: {
@@ -128,7 +129,7 @@ async function comparePlanRoots(options: {
 
 test("committed Zscaler catalog is current", () => {
   const check = spawnSync(
-    "python3",
+    PYTHON_ORACLE,
     [
       "-m",
       "engine.root_catalog",
@@ -160,7 +161,7 @@ test("pruned Zscaler pack root produces the same catalog and topology", async ()
       { recursive: true },
     );
     const check = spawnSync(
-      "python3",
+      PYTHON_ORACLE,
       [
         "-m",
         "engine.root_catalog",

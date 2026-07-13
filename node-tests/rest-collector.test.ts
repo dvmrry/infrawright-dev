@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -196,7 +197,7 @@ test("fetch query float tokens match Python urllib encoding after registry load"
     });
     assert.deepEqual(result.processed, ["sample_resource"]);
 
-    const oracle = spawnSync("python3", [
+    const oracle = spawnSync(PYTHON_ORACLE, [
       "-c",
       "import json, sys, urllib.parse; print(urllib.parse.urlencode(json.loads(sys.argv[1])))",
       queryJson,

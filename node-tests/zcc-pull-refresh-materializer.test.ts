@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
@@ -140,7 +141,7 @@ function writePull(
 function runPython(value: Twin, resourceType: ZccPullResourceType): void {
   const pythonPath = process.env.PYTHONPATH;
   const run = spawnSync(
-    "python3",
+    PYTHON_ORACLE,
     ["-m", "engine.transform", resourceType, pullPath(value, resourceType), TENANT],
     {
       cwd: value.workspace,

@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -887,7 +888,7 @@ test("production parent bundle reaches the read-only compiler", (t) => {
 });
 
 test("main.tf and non-state-aware staged imports exactly match Python", async (t) => {
-  const python = spawnSync("python3", ["--version"], { encoding: "utf8" });
+  const python = spawnSync(PYTHON_ORACLE, ["--version"], { encoding: "utf8" });
   const terraform = spawnSync("terraform", ["version", "-json"], { encoding: "utf8" });
   if (python.error !== undefined || terraform.error !== undefined) {
     t.skip("Python or Terraform is unavailable");
@@ -927,7 +928,7 @@ test("main.tf and non-state-aware staged imports exactly match Python", async (t
             : `${REPO}${path.delimiter}${process.env.PYTHONPATH}`,
         };
         const selector = value.members[0] ?? "zcc_device_cleanup";
-        const generation = spawnSync("python3", [
+        const generation = spawnSync(PYTHON_ORACLE, [
           "-m",
           "engine.gen_env",
           TENANT,
@@ -939,7 +940,7 @@ test("main.tf and non-state-aware staged imports exactly match Python", async (t
           encoding: "utf8",
         });
         assert.equal(generation.status, 0, generation.stderr);
-        const staging = spawnSync("python3", [
+        const staging = spawnSync(PYTHON_ORACLE, [
           "-m",
           "engine.ops",
           "stage-imports",

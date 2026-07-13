@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -325,7 +326,7 @@ function runPythonTransform(
   const pullPath = writeRaw(twin, resourceType, raw);
   const pythonPath = process.env.PYTHONPATH;
   const child = spawnSync(
-    "python3",
+    PYTHON_ORACLE,
     ["-m", "engine.transform", resourceType, pullPath, TENANT],
     {
       cwd: twin.workspace,
@@ -427,7 +428,7 @@ json.dump({
     "rendered": render_moves(payload["resource_type"], result.moves),
 }, sys.stdout, ensure_ascii=False, sort_keys=True)
 `;
-  const child = spawnSync("python3", ["-c", source], {
+  const child = spawnSync(PYTHON_ORACLE, ["-c", source], {
     cwd: WORKSPACE,
     encoding: "utf8",
     input: JSON.stringify({

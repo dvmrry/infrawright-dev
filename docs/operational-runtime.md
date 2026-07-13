@@ -89,6 +89,11 @@ runtime are `test`, `audit-vendor-boundary`, `reconcile`, `openapi-map`,
 `source-operation-map`, `source-evidence-eval`, and `provider-probe`. Tests
 that execute Python comparison implementations and the frozen ZCC migration
 machinery are also maintainer/migration surfaces, not runtime prerequisites.
+Node migration differentials resolve their test-only Python oracle from a
+nonempty `PYTHON`, then `python3`, then `python`. The retained parity authority
+accepts Python 3.12/UCD 15.0.0 and Python 3.13/UCD 15.1.0; set `PYTHON` to one
+of those interpreters when the system default is newer. This selection affects
+tests only and does not add Python to any operational command.
 
 ## Runtime and Release Contract
 
@@ -100,22 +105,68 @@ infrawright -> dist/infrawright-cli.mjs
 ```
 
 The bundle targets Node 24, contains its runtime npm dependencies, and is
-executable where the platform preserves executable mode. Building a release
-requires `npm ci --ignore-scripts` and the normal production build; running the
-result requires Node 24 and does not require `npm install`, `node_modules`, or
-Python. The checksum detects accidental byte corruption but is not a signature;
-release/tag trust remains authoritative.
+executable where the platform preserves executable mode. Running the accepted
+artifact requires Node 24, the adjacent `package.json` used to locate the
+bundle root, selected pack/profile/deployment data, and Terraform for Terraform
+operations. It does not require npm, package installation, `node_modules`, the
+TypeScript source tree, esbuild, tsgo, or Python. The checksum detects
+accidental byte corruption but is not a signature; release/tag trust remains
+authoritative.
 
-The exact-archive stripped-runtime smoke also runs `make demo-contract` after
-removing `node_modules`, Python operational sources, transition catalogs, and
-legacy bundles. npm and Python tripwires prove the demo consumes only the
-shipped generic bundle plus fake Terraform.
+Verify the already-built runtime without authorizing a rebuild:
+
+```sh
+make verify-runtime \
+  DEPLOYMENT=deployment.json \
+  PACK_PROFILE=packsets/full.json \
+  PACK_CATALOG=packsets/full.json
+```
+
+The target has no dependency on the `dist` build target. It verifies Node 24,
+the SHA-256, CLI startup and operational help, pack/profile consistency, and
+the selected deployment input. It neither invokes npm nor Python.
+
+The exact-archive stripped-runtime smoke runs `make verify-runtime`, a pure
+resource query, and `make demo-contract` from a tree without `node_modules`,
+`node-src`, `node-tests`, the lockfile, TypeScript configuration, Python
+operational sources, transition catalogs, or legacy bundles. npm, npx, and
+Python tripwires prove the demo consumes only the shipped generic bundle plus
+fake Terraform.
 
 The bundle discovers its adjacent `package.json`, while operational inputs may
 be selected explicitly with `--root`, `--profile`, `--catalog`, and
 `--deployment` (or their documented environment equivalents). A complete
 release therefore includes package metadata, profiles, and all manifests,
 registries, schemas, and overrides selected by those profiles.
+
+### Source-build registry contract
+
+Rebuilding the bundle is a maintainer/build-host action, not a work-machine
+runtime prerequisite. A faithful source build requires the pinned ordinary npm
+packages and the current platform's optional build-tool binaries from
+`package-lock.json`. A restricted corporate registry must mirror those exact
+packages before it can run `npm ci --ignore-scripts` and `npm run build`.
+
+Inspect the configured registry without installing or rewriting configuration:
+
+```sh
+make source-build-preflight
+node scripts/build-environment-preflight.mjs --manifest
+```
+
+The preflight reports only sanitized registry hosts and exact package
+name/version failures. It verifies registry metadata against the lockfile,
+detects omitted optional packages and public scoped-registry bypasses, and
+does not expose npm credentials, proxy credentials, or `.npmrc` contents. It
+does not fall back to the public registry or download vendor binaries. The
+derived manifest separates ordinary packages, each supported platform's
+optional packages, and install-script packages that could attempt an
+out-of-band download when optional binaries are absent.
+
+If the preflight says the source build is unavailable, obtain the approved
+`dist/infrawright-cli.mjs` and checksum from the trusted build path, run
+`make verify-runtime`, and use that artifact with Node 24. Mirror readiness is
+required only when the restricted environment must compile the bundle itself.
 
 `dist/infrawright.mjs` and
 `dist/infrawright-zcc-collector-child.mjs` remain frozen legacy migration

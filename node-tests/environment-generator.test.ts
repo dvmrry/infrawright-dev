@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
@@ -112,7 +113,7 @@ async function pythonThenNodeTree(options: {
     ...options.deployment,
   });
   await options.prepare?.(workspace);
-  const python = spawnSync("python3", [
+  const python = spawnSync(PYTHON_ORACLE, [
     "-c",
     [
       "import json, sys",
@@ -418,7 +419,7 @@ test("dangling artifact paths retain Python existence and stale-file semantics",
     await symlink("missing-backend", backendPath);
   };
   await seedDanglingOutputs();
-  const python = spawnSync("python3", [
+  const python = spawnSync(PYTHON_ORACLE, [
     "-c",
     "import sys; from engine.gen_env import generate_env; generate_env('tenant', out_root=sys.argv[1], selectors=['zia_url_categories'])",
     outputRoot,

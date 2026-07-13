@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -192,7 +193,7 @@ test("all five request paths and canonical fixture bytes match Python", async ()
       method: "GET",
       url: `https://api.zsapi.net/${EXPECTED_PATHS[resourceType]}${expectedQuery}`,
     }]);
-    const python = spawnSync("python3", ["-c", [
+    const python = spawnSync(PYTHON_ORACLE, ["-c", [
       "import json,sys",
       "with open(sys.argv[1], encoding='utf-8') as f: value=json.load(f)",
       "sys.stdout.write(json.dumps(value, indent=2, sort_keys=True)+'\\n')",
@@ -632,7 +633,7 @@ test("large integer tokens, Unicode, and HTML entities remain byte-lossless", as
     sleep: () => undefined,
     transport: () => response(source),
   });
-  const python = spawnSync("python3", ["-c", [
+  const python = spawnSync(PYTHON_ORACLE, ["-c", [
     "import json,sys",
     "value=json.loads(sys.stdin.read())",
     "sys.stdout.write(json.dumps(value, indent=2, sort_keys=True)+'\\n')",

@@ -108,12 +108,25 @@ adoption workflow above and requires real provider credentials.
 
 The primary runtime is the executable, dependency-bundled
 `dist/infrawright-cli.mjs`, exposed as `infrawright`, with checksum
-`dist/infrawright-cli.mjs.sha256`. Build it with
-`npm ci --ignore-scripts && npm run build`; downstream execution needs Node 24
-but neither `npm install`, `node_modules`, nor Python. Python remains in this
-repository for tests, differentials, probes, and maintainer authoring/research
-tools. No live-provider, live-backend, or deployment-Apply qualification is
-claimed by the credential-free repository tests.
+`dist/infrawright-cli.mjs.sha256`. Verify an approved prebuilt runtime with
+`make verify-runtime`; this checks its checksum, Node 24, command surface, and
+selected pack/profile/deployment inputs without invoking npm or Python. The
+runtime tree also retains its adjacent `package.json` as bundle-location
+metadata. Downstream execution needs Node 24 and Terraform for Terraform
+operations, but neither `npm install`, `npm ci`, `node_modules`, TypeScript,
+esbuild, tsgo, nor Python.
+
+Rebuilding from source is a separate maintainer contract: it requires the
+pinned packages and platform binaries in `package-lock.json`. Run
+`make source-build-preflight` to check the configured registry without
+installing anything, or generate the exact mirror inventory with
+`node scripts/build-environment-preflight.mjs --manifest`. Until a restricted
+corporate registry mirrors that inventory, use the approved prebuilt bundle;
+the repository does not bypass the configured registry or fall back to the
+public npm registry. Python remains in this repository for tests,
+differentials, probes, and maintainer authoring/research tools. No
+live-provider, live-backend, or deployment-Apply qualification is claimed by
+the credential-free repository tests.
 
 See [Operational Node Runtime](docs/operational-runtime.md) for the authoritative
 Make/CLI inventory, release contract, support policy, external qualification

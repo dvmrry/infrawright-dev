@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
@@ -251,7 +252,7 @@ async function loadCases(): Promise<readonly DifferentialCase[]> {
 function pythonResults(
   cases: readonly DifferentialCase[],
 ): readonly PythonCaseResult[] {
-  const child = spawnSync("python3", ["-c", PYTHON_IDENTITY_PROJECTION_ORACLE], {
+  const child = spawnSync(PYTHON_ORACLE, ["-c", PYTHON_IDENTITY_PROJECTION_ORACLE], {
     cwd: WORKSPACE,
     encoding: "utf8",
     input: stringifyLosslessJson({ cases: cases.map((fixture) => ({

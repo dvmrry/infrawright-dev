@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
@@ -92,7 +93,7 @@ interface ScannerResult {
 }
 
 function python<T>(script: string, input: unknown): T {
-  const result = spawnSync("python3", ["-c", script], {
+  const result = spawnSync(PYTHON_ORACLE, ["-c", script], {
     cwd: process.cwd(),
     encoding: "utf8",
     input: JSON.stringify(input),

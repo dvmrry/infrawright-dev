@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE as PYTHON_ORACLE_EXECUTABLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
@@ -184,7 +185,7 @@ async function cases(): Promise<DifferentialCase[]> {
 
 test("Node artifact compiler matches independent Python bytes for every ZCC resource", async () => {
   const fixtures = await cases();
-  const oracle = spawnSync("python3", ["-c", PYTHON_ORACLE], {
+  const oracle = spawnSync(PYTHON_ORACLE_EXECUTABLE, ["-c", PYTHON_ORACLE], {
     cwd: WORKSPACE,
     encoding: "utf8",
     input: stringifyLosslessJson(fixtures),

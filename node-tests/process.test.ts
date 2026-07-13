@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
@@ -226,7 +227,7 @@ function pythonAssessmentReport(fixture: {
   readonly report: unknown;
   readonly bytes: string;
 } {
-  const result = spawnSync("python3", ["-c", PYTHON_ASSESSMENT_REPORT], {
+  const result = spawnSync(PYTHON_ORACLE, ["-c", PYTHON_ASSESSMENT_REPORT], {
     input: JSON.stringify({
       env_dir: fixture.envDir,
       var_file: fixture.varFile,

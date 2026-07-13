@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -226,7 +227,7 @@ test("operational assessment reports, diagnostics, and exits match Python", asyn
         "--deployment", item.deployment,
         ...(policyPath === null ? [] : ["--policy", policyPath]),
       ];
-      const python = command("python3", pythonArguments, item.environment);
+      const python = command(PYTHON_ORACLE, pythonArguments, item.environment);
       const node = command(process.execPath, nodeArguments, item.environment);
       assert.equal(node.status, python.status, node.stderr);
       assert.equal(node.stdout, python.stdout, selected.name);
@@ -273,7 +274,7 @@ test("no-saved-plan CLI failure and error report match Python without Terraform"
   await rm(path.join(item.envDir, "tfplan.sources"));
   const pythonReport = path.join(item.workspace, "no-plans.python.json");
   const nodeReport = path.join(item.workspace, "no-plans.node.json");
-  const python = command("python3", [
+  const python = command(PYTHON_ORACLE, [
     "-m", "engine.ops", "assert-clean",
     "--tenant", "tenant",
     "--report", pythonReport,
@@ -330,7 +331,7 @@ test("selection failures retain the Python error-report contract", async (contex
   const item = await fixture(context);
   const pythonReport = path.join(item.workspace, "selection.python.json");
   const nodeReport = path.join(item.workspace, "selection.node.json");
-  const python = command("python3", [
+  const python = command(PYTHON_ORACLE, [
     "-m", "engine.ops", "assert-clean",
     "--tenant", "tenant",
     "--report", pythonReport,
@@ -396,7 +397,7 @@ test("invalid Terraform show JSON retains the legacy diagnostic, report, and exi
   await chmod(item.terraform, 0o700);
   const pythonReport = path.join(item.workspace, "invalid-show.python.json");
   const nodeReport = path.join(item.workspace, "invalid-show.node.json");
-  const python = command("python3", [
+  const python = command(PYTHON_ORACLE, [
     "-m", "engine.ops", "assert-clean",
     "--tenant", "tenant",
     "--report", pythonReport,
@@ -459,7 +460,7 @@ test("invalid policy and missing Terraform retain legacy diagnostics and reports
       "--deployment", item.deployment,
       ...(selected.policy === null ? [] : ["--policy", selected.policy]),
     ];
-    const python = command("python3", pythonArgs, {
+    const python = command(PYTHON_ORACLE, pythonArgs, {
       ...item.environment,
       TF: selected.terraform,
     });

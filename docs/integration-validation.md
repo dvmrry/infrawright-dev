@@ -27,8 +27,12 @@ import-only Apply checklists.
   tenant/account identifiers.
 - Ensure Terraform/OpenTofu is available and matches the version being
   validated.
-- Use Node 24 and verify the accepted `dist/infrawright-cli.mjs.sha256` before
-  running; do not install runtime npm dependencies in the qualification job.
+- Use Node 24 and run `make verify-runtime` against the accepted
+  `dist/infrawright-cli.mjs` and checksum before qualification. Do not run
+  `npm ci`, install runtime npm dependencies, or rebuild from source in the
+  qualification job. A restricted corporate registry needs the lockfile's
+  pinned build packages only on a separate source-build path; inspect that
+  path with `make source-build-preflight`.
 - Make Python unavailable so a retained migration path cannot satisfy an
   operational step accidentally.
 - Choose the backend/state policy before running. Local scratch state and

@@ -9,7 +9,6 @@ import {
   mkdir,
   readdir,
   rm,
-  utimes,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
@@ -85,18 +84,36 @@ try {
     cwd: temporary,
   });
 
-  await cp(stage, generic, { recursive: true });
-  await Promise.all([
-    rm(path.join(generic, "engine"), { force: true, recursive: true }),
-    rm(path.join(generic, "catalogs"), { force: true, recursive: true }),
-    rm(path.join(generic, "dist", "infrawright.mjs"), { force: true }),
-    rm(path.join(generic, "dist", "infrawright.mjs.sha256"), { force: true }),
-    rm(path.join(generic, "dist", "infrawright-zcc-collector-child.mjs"), { force: true }),
-    rm(path.join(generic, "dist", "infrawright-zcc-collector-child.mjs.sha256"), { force: true }),
-  ]);
+  await mkdir(generic);
+  for (const relative of [
+    "Makefile",
+    "package.json",
+    "deployment.json",
+    "demo",
+    "packs",
+    "packsets",
+  ]) {
+    await cp(path.join(stage, relative), path.join(generic, relative), {
+      recursive: true,
+    });
+  }
+  await mkdir(path.join(generic, "dist"));
+  await mkdir(path.join(generic, "scripts"));
+  for (const relative of [
+    "dist/infrawright-cli.mjs",
+    "dist/infrawright-cli.mjs.sha256",
+    "scripts/verify-runtime-release.mjs",
+  ]) {
+    await cp(path.join(stage, relative), path.join(generic, relative));
+  }
   await removePythonFiles(generic);
   await Promise.all([
     mustBeAbsent(path.join(generic, "node_modules")),
+    mustBeAbsent(path.join(generic, "node-src")),
+    mustBeAbsent(path.join(generic, "node-tests")),
+    mustBeAbsent(path.join(generic, "package-lock.json")),
+    mustBeAbsent(path.join(generic, "tsconfig.json")),
+    mustBeAbsent(path.join(generic, "tsconfig.test.json")),
     mustBeAbsent(path.join(generic, "engine")),
     mustBeAbsent(path.join(generic, "catalogs")),
     mustBeAbsent(path.join(generic, "dist", "infrawright.mjs")),
@@ -112,7 +129,15 @@ try {
   await mkdir(intercept);
   const forbiddenToolLog = path.join(temporary, "forbidden-tool-invoked");
   const shim = `#!/bin/sh\nprintf '%s\\n' "$0 $*" >> ${shellLiteral(forbiddenToolLog)}\nexit 97\n`;
-  for (const name of ["npm", "npm-must-not-run", "python", "python3", "python-must-not-run"]) {
+  for (const name of [
+    "npm",
+    "npm-must-not-run",
+    "npx",
+    "npx-must-not-run",
+    "python",
+    "python3",
+    "python-must-not-run",
+  ]) {
     const file = path.join(intercept, name);
     await writeFile(file, shim, "utf8");
     await chmod(file, 0o755);
@@ -142,10 +167,18 @@ try {
     PYTHON: path.join(intercept, "python-must-not-run"),
     PYTHONPATH: "",
   };
-  run(process.execPath, [
-    path.join(generic, "scripts", "verify-runtime-release.mjs"),
-    generic,
-  ], { cwd: temporary, env: environment });
+  run(makeExecutable, [
+    "--no-print-directory",
+    "--silent",
+    "verify-runtime",
+    `NODE=${process.execPath}`,
+    `NPM=${path.join(intercept, "npm-must-not-run")}`,
+    `PYTHON=${path.join(intercept, "python-must-not-run")}`,
+    "SHELL=/bin/sh",
+    "DEPLOYMENT=deployment.json",
+    "PACK_PROFILE=packsets/full.json",
+    "PACK_CATALOG=packsets/full.json",
+  ], { cwd: generic, env: environment });
   const resourceResult = run(process.execPath, [
     path.join(generic, "dist", "infrawright-cli.mjs"),
     "resources",
@@ -162,9 +195,6 @@ try {
   if (resourceResult.stdout !== "zia_url_categories\n") {
     throw new Error(`unexpected relocated resource output: ${resourceResult.stdout}`);
   }
-  const source = path.join(generic, "node-src", "cli", "main.ts");
-  const future = new Date(Date.now() + 10_000);
-  await utimes(source, future, future);
   const makeResult = run(makeExecutable, [
     "--no-print-directory",
     "--silent",

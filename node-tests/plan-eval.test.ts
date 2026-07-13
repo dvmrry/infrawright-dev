@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
@@ -106,7 +107,7 @@ test("prototype-like own keys cannot disappear behind tolerated drift", () => {
   const actual = classifyPlan(plan, new DriftPolicy(policyData));
   assert.equal(actual.status, BLOCKED);
   assert.deepEqual(actual.findings[0]?.paths, [["__proto__"]]);
-  const python = spawnSync("python3", ["-c", [
+  const python = spawnSync(PYTHON_ORACLE, ["-c", [
     "import json,sys",
     "from engine.drift_policy import DriftPolicy",
     "from engine.plan_eval import classify_plan",
@@ -173,7 +174,7 @@ test("valid-plan corpus matches Python classifier exactly", () => {
     }] },
   ];
   for (const plan of plans) {
-    const python = spawnSync("python3", [
+    const python = spawnSync(PYTHON_ORACLE, [
       "-c",
       "import json,sys; from engine.plan_eval import classify_plan; print(json.dumps(classify_plan(json.load(sys.stdin)), sort_keys=True))",
     ], { input: JSON.stringify(plan), encoding: "utf8" });
@@ -347,7 +348,7 @@ test("policy classification and stale tracking match Python", () => {
     resourceTypes: new Set(["sample_resource"]),
     modes: ["plan_tolerate"],
   });
-  const python = spawnSync("python3", [
+  const python = spawnSync(PYTHON_ORACLE, [
     "-c",
     [
       "import json,sys",
@@ -669,7 +670,7 @@ test("lossless numeric classification corpus matches Python", () => {
   for (const [before, after] of pairs) {
     const source = `{"format_version":"1.2","complete":true,"errored":false,"resource_changes":[{"address":"sample_resource.this","type":"sample_resource","change":{"actions":["update"],"before":{"value":${before}},"after":{"value":${after}}}}]}`;
     const nodeResult = classifyPlan(parseDataJsonLosslessly(source));
-    const python = spawnSync("python3", [
+    const python = spawnSync(PYTHON_ORACLE, [
       "-c",
       "import json,sys; from engine.plan_eval import classify_plan; print(json.dumps(classify_plan(json.load(sys.stdin)), sort_keys=True))",
     ], { input: source, encoding: "utf8" });

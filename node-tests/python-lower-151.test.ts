@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -24,7 +25,6 @@ import {
 } from "../node-src/domain/zcc-adoption-projection.js";
 
 const HASH_CONTRACT = "infrawright-python-lower-15.1-exhaustive-v1\0";
-const PYTHON = process.env.PYTHON ?? "python3";
 const HASH_VECTORS = [
   (character: string): string => character,
   (character: string): string => `A\u03a3${character}`,
@@ -354,7 +354,7 @@ test("private ZCC adoption identities match live Python slug semantics", () => {
     { id: "collision-one", name: "I" },
     { id: "collision-two", name: "\u0130" },
   ] as const;
-  const python = spawnSync(PYTHON, ["-c", PYTHON_ADOPTION_KEY_ORACLE], {
+  const python = spawnSync(PYTHON_ORACLE, ["-c", PYTHON_ADOPTION_KEY_ORACLE], {
     cwd: process.cwd(),
     encoding: "utf8",
     input: JSON.stringify({ collision, items }),
@@ -418,7 +418,7 @@ test("lowercase helper rejects Node Unicode runtime drift", () => {
 test("all Unicode scalars match the supported live Python oracle", {
   timeout: 120_000,
 }, () => {
-  const python = spawnSync(PYTHON, ["-c", PYTHON_EXHAUSTIVE_ORACLE], {
+  const python = spawnSync(PYTHON_ORACLE, ["-c", PYTHON_EXHAUSTIVE_ORACLE], {
     cwd: process.cwd(),
     encoding: "utf8",
     maxBuffer: 1024 * 1024,

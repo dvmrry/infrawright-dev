@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE as PYTHON_ORACLE_EXECUTABLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -164,7 +165,7 @@ test("private ZPA cohort results and tfvars bytes match the real Python transfor
     };
   });
 
-  const python = spawnSync("python3", ["-c", PYTHON_ORACLE], {
+  const python = spawnSync(PYTHON_ORACLE_EXECUTABLE, ["-c", PYTHON_ORACLE], {
     cwd: process.cwd(),
     encoding: "utf8",
     input: corpusText,
@@ -234,7 +235,7 @@ test("ZPA unknown fields retain live Python Unicode result and tfvars bytes", ()
     result,
     tfvars: renderPythonLosslessArtifactJson({ items: result.items }),
   }];
-  const python = spawnSync("python3", ["-c", PYTHON_ORACLE], {
+  const python = spawnSync(PYTHON_ORACLE_EXECUTABLE, ["-c", PYTHON_ORACLE], {
     cwd: process.cwd(),
     encoding: "utf8",
     input: source,

@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
@@ -98,7 +99,7 @@ function pythonFilter(text: string, addresses: readonly string[]): {
   readonly kept: number;
   readonly skipped: number;
 } {
-  const result = spawnSync("python3", [
+  const result = spawnSync(PYTHON_ORACLE, [
     "-c",
     [
       "import json, sys",
@@ -410,7 +411,7 @@ async function prepareDifferentialWorkspace(
 }
 
 function runPythonStateAwareStage(workspace: string, address: string): void {
-  const python = spawnSync("python3", [
+  const python = spawnSync(PYTHON_ORACLE, [
     "-c",
     [
       "import sys",

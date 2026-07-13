@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -905,7 +906,7 @@ function pythonAdopt(
   resourceType: ZccPullResourceType,
 ): void {
   const result = spawnSync(
-    process.env.PYTHON ?? "python3",
+    PYTHON_ORACLE,
     [
       "-m",
       "engine.adopt",

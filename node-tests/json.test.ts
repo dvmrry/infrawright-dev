@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
@@ -37,7 +38,7 @@ test("integer-only compatibility renderer matches Python bytes", () => {
     nested: [true, null, 9007199254740991],
   } as const;
   const python = spawnSync(
-    "python3",
+    PYTHON_ORACLE,
     [
       "-c",
       "import json,sys; value=json.loads(sys.stdin.read()); sys.stdout.write(json.dumps(value, indent=2, sort_keys=True)+'\\n')",

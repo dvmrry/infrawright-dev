@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
@@ -86,7 +87,7 @@ test("concrete plan path formatting matches Python", () => {
     ["rules", "*", "id"],
     ["map.key", "quote\"slash\\"],
   ] as const;
-  const python = spawnSync("python3", [
+  const python = spawnSync(PYTHON_ORACLE, [
     "-c",
     "import json,sys; from engine.paths import format_path; print(json.dumps([format_path(p) for p in json.load(sys.stdin)]))",
   ], { input: JSON.stringify(paths), encoding: "utf8" });
@@ -125,7 +126,7 @@ test("saved-plan report object and bytes match Python for each summary status", 
       status,
       findings: input.roots[0]?.findings ?? [],
     };
-    const python = spawnSync("python3", ["-c", PYTHON_REPORT], {
+    const python = spawnSync(PYTHON_ORACLE, ["-c", PYTHON_REPORT], {
       input: JSON.stringify({
         mode: "assert-adoptable",
         tenant: "tenant",
@@ -348,7 +349,7 @@ test("report rendering preserves Python float provenance from guidance JSON", ()
   });
   const rendered = renderPythonCompatibleJson(report as unknown as JsonValue);
   assert.match(rendered, /"observed_value": 1\.0/u);
-  const python = spawnSync("python3", ["-c", [
+  const python = spawnSync(PYTHON_ORACLE, ["-c", [
     "import json, sys",
     "value = json.loads(sys.stdin.read())",
     "sys.stdout.write(json.dumps(value, indent=2, sort_keys=True) + '\\n')",
