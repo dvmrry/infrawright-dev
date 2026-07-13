@@ -99,12 +99,12 @@ check-core: ## Prove the pack-independent engine surface with an empty pack root
 test: check-pack-set ## Run core tests plus tests whose declared pack requirements are installed
 	$(PYTHON) -m tests.run --catalog "$(PACK_CATALOG)" -v
 
-fetch: ## Pull API JSON into pulls/<tenant> (TENANT=<name> [RESOURCE="<type|provider> ..."])
+fetch: metadata-cli ## Pull API JSON into pulls/<tenant> (TENANT=<name> [RESOURCE="<type|provider> ..."])
 	@test -n "$(TENANT)" || { echo "usage: make fetch TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
-	$(PYTHON) -m engine.collectors.rest "$(TENANT)" $(RESOURCE)
+	$(INFRAWRIGHT_CLI) fetch --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-fetch-diag: ## Probe TLS to the fetcher's hosts under system trust and +bundle
-	$(PYTHON) -m engine.collectors.rest --diag
+fetch-diag: metadata-cli ## Probe TLS to the fetcher's hosts under system trust and +bundle
+	$(INFRAWRIGHT_CLI) fetch-diag --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)"
 
 gen-env: ## Generate env roots for a tenant (TENANT=<label> [BACKEND=azurerm] [RESOURCE="<type|provider> ..."])
 	@test -n "$(TENANT)" || { echo "usage: make gen-env TENANT=<label> [BACKEND=azurerm] [RESOURCE=\"<type|provider> ...\"]"; exit 2; }

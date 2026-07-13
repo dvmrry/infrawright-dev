@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -169,4 +169,62 @@ test("CLI distinguishes usage failures from metadata failures", () => {
   const help = run(["check-pack-set", "--help"]);
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /^usage:/);
+});
+
+test("fetch and fetch-diag run through Node with Python unavailable", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-cli-fetch-"));
+  try {
+    const packs = path.join(directory, "packs");
+    const output = path.join(directory, "pulls", "tenant-a");
+    await mkdir(packs, { recursive: true });
+    const environment = {
+      HTTP_PROXY: "",
+      HTTPS_PROXY: "",
+      NO_PROXY: "",
+      PYTHON: path.join(directory, "python-must-not-run"),
+      REQUESTS_CA_BUNDLE: "",
+      SSL_CERT_FILE: "",
+      http_proxy: "",
+      https_proxy: "",
+      no_proxy: "",
+    };
+    const metadata = [
+      "--root",
+      packs,
+      "--profile",
+      path.join(ROOT, "packsets", "empty.json"),
+      "--catalog",
+      path.join(ROOT, "packsets", "full.json"),
+    ];
+    const fetched = run([
+      "fetch",
+      "--tenant",
+      "tenant-a",
+      "--out",
+      output,
+      ...metadata,
+    ], environment);
+    assert.equal(fetched.status, 0, fetched.stderr);
+    assert.equal(fetched.stdout, "");
+    assert.match(fetched.stderr, /fetch: auth mode = oneapi/);
+    assert.equal((await stat(output)).isDirectory(), true);
+
+    const diagnosed = run(["fetch-diag", ...metadata], environment);
+    assert.equal(diagnosed.status, 0, diagnosed.stderr);
+    assert.equal(diagnosed.stdout, "");
+    assert.equal(diagnosed.stderr, "");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Make fetch targets invoke the Node CLI instead of Python", async () => {
+  const makefile = await readFile(path.join(ROOT, "Makefile"), "utf8");
+  const fetchBlock = makefile.slice(
+    makefile.indexOf("fetch: metadata-cli"),
+    makefile.indexOf("gen-env:"),
+  );
+  assert.match(fetchBlock, /\$\(INFRAWRIGHT_CLI\) fetch --tenant/);
+  assert.match(fetchBlock, /\$\(INFRAWRIGHT_CLI\) fetch-diag/);
+  assert.doesNotMatch(fetchBlock, /\$\(PYTHON\)/);
 });

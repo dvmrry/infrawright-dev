@@ -28,6 +28,19 @@ import {
   validateGeneratedModuleTree,
 } from "../modules/generator.js";
 import { runTransformBatch } from "../domain/transform-runner.js";
+import { validateTenant } from "../domain/roots.js";
+import { fetchResources, selectFetchResources } from "../collectors/rest.js";
+import { fetchProducts } from "../collectors/selection.js";
+import { probeRestHost } from "../collectors/rest-diagnostics.js";
+import {
+  collectorAuthMode,
+  collectorContext,
+  createZscalerCollectorAdapters,
+  diagnosticHosts,
+  fetchDebugLines,
+  maskCollectorIdentifiers,
+} from "../collectors/zscaler-adapters.js";
+import { createRestHttpTransport } from "../io/rest-http-transport.js";
 
 const USAGE = [
   "usage:",
@@ -36,6 +49,8 @@ const USAGE = [
   "  infrawright deployment [--deployment <file>] <overlay|tfvars-format|module-dir|tenant-root|config-dir|imports-dir|envs-dir> [tenant]",
   "  infrawright modules <generate|validate> [--resource <type>] [--out <dir>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>] [--terraform <path>]",
   "  infrawright transform --in <dir> --tenant <name> [--resource <selector>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
+  "  infrawright fetch --tenant <name> [--resource <selector>] [--out <dir>] [--root <packs>] [--profile <file>] [--catalog <file>]",
+  "  infrawright fetch-diag [--root <packs>] [--profile <file>] [--catalog <file>]",
 ].join("\n");
 
 class CliExit extends Error {
@@ -408,6 +423,168 @@ async function transform(arguments_: string[]): Promise<number> {
   return result.failed.length === 0 ? 0 : 1;
 }
 
+interface FetchCliOptions {
+  readonly catalog: string;
+  readonly output?: string;
+  readonly profile: string;
+  readonly resources: readonly string[];
+  readonly root: string;
+  readonly tenant?: string;
+}
+
+async function fetchCliOptions(
+  arguments_: string[],
+  requireTenant: boolean,
+): Promise<FetchCliOptions> {
+  const rootDirectory = await packageRoot();
+  let root = process.env.INFRAWRIGHT_PACKS || path.join(rootDirectory, "packs");
+  let profile = process.env.INFRAWRIGHT_PACK_PROFILE
+    || path.join(rootDirectory, "packsets", "full.json");
+  let catalog = path.join(rootDirectory, "packsets", "full.json");
+  let output: string | undefined;
+  let tenant: string | undefined;
+  const resources: string[] = [];
+  for (let index = 0; index < arguments_.length;) {
+    const argument = arguments_[index];
+    if (
+      argument === "--root"
+      || argument === "--profile"
+      || argument === "--catalog"
+      || argument === "--out"
+      || argument === "--tenant"
+      || argument === "--resource"
+    ) {
+      if (!requireTenant && (argument === "--out" || argument === "--tenant" || argument === "--resource")) {
+        usageError(`fetch-diag does not accept ${argument}`);
+      }
+      const option = takeOption(arguments_, index, argument);
+      if (argument === "--root") root = option.value;
+      if (argument === "--profile") profile = option.value;
+      if (argument === "--catalog") catalog = option.value;
+      if (argument === "--out") output = option.value;
+      if (argument === "--tenant") tenant = option.value;
+      if (argument === "--resource") resources.push(option.value);
+      index = option.next;
+    } else if (argument === "-h" || argument === "--help") {
+      throw new CliExit(USAGE, 0, true);
+    } else {
+      usageError(`unknown argument ${String(argument)}`);
+    }
+  }
+  if (requireTenant && tenant === undefined) usageError("fetch requires --tenant");
+  if (tenant !== undefined) {
+    try {
+      validateTenant(tenant);
+    } catch (error: unknown) {
+      usageError(error instanceof Error ? error.message : "invalid tenant");
+    }
+  }
+  return {
+    catalog,
+    ...(output === undefined ? {} : { output }),
+    profile,
+    resources,
+    root,
+    ...(tenant === undefined ? {} : { tenant }),
+  };
+}
+
+async function fetchCommand(arguments_: string[]): Promise<number> {
+  const options = await fetchCliOptions(arguments_, true);
+  const tenant = options.tenant;
+  if (tenant === undefined) usageError("fetch requires --tenant");
+  const root = await loadPackRoot({
+    packsRoot: options.root,
+    profilePath: options.profile,
+    catalogPath: options.catalog,
+  });
+  let selected: readonly string[];
+  try {
+    selected = selectFetchResources({ root, selectors: options.resources });
+  } catch (error: unknown) {
+    usageError(error instanceof Error ? error.message : "invalid fetch selector");
+  }
+  const products = new Set(selected.map((resourceType) => {
+    const resource = root.resources.get(resourceType);
+    if (resource === undefined) throw new Error(`unknown active resource ${resourceType}`);
+    return resource.product;
+  }));
+  const mode = collectorAuthMode(process.env);
+  const context = collectorContext({
+    environment: process.env,
+    mode,
+    neededProducts: products,
+  });
+  for (const line of fetchDebugLines({
+    context,
+    environment: process.env,
+    mode,
+    products,
+  })) {
+    process.stderr.write(`${line}\n`);
+  }
+  const transport = await createRestHttpTransport(process.env);
+  let result;
+  let primary: unknown;
+  try {
+    result = await fetchResources({
+      adapters: createZscalerCollectorAdapters(),
+      context,
+      environment: process.env,
+      mode,
+      onDiagnostic: (message) => process.stderr.write(`${message}\n`),
+      outputDirectory: options.output ?? path.join("pulls", tenant),
+      root,
+      selectors: options.resources,
+      transport,
+    });
+  } catch (error: unknown) {
+    primary = error;
+  } finally {
+    try {
+      await transport.close?.();
+    } catch (error: unknown) {
+      if (primary === undefined) primary = error;
+    }
+  }
+  if (primary !== undefined) throw primary;
+  if (result === undefined) throw new Error("fetch did not produce a result");
+  return Object.keys(result.failed).length === 0 ? 0 : 1;
+}
+
+async function fetchDiag(arguments_: string[]): Promise<number> {
+  const options = await fetchCliOptions(arguments_, false);
+  const root = await loadPackRoot({
+    packsRoot: options.root,
+    profilePath: options.profile,
+    catalogPath: options.catalog,
+  });
+  const products = new Set(fetchProducts(root));
+  const bundle = process.env.REQUESTS_CA_BUNDLE || process.env.SSL_CERT_FILE;
+  for (const host of diagnosticHosts(process.env, products)) {
+    if (host.includes("<")) {
+      process.stderr.write(`${maskCollectorIdentifiers(host)}: skipped (env vars not set)\n`);
+      continue;
+    }
+    const system = await probeRestHost(host, {
+      environment: process.env,
+      includeCustomCa: false,
+    });
+    let line = `${maskCollectorIdentifiers(host)}: system-trust ${system.ok ? "OK" : "FAIL"} (${maskCollectorIdentifiers(system.detail)})`;
+    if (bundle === undefined || bundle === "") {
+      line += "; no CA bundle configured (set REQUESTS_CA_BUNDLE)";
+    } else {
+      const custom = await probeRestHost(host, {
+        environment: process.env,
+        includeCustomCa: true,
+      });
+      line += `; +bundle ${custom.ok ? "OK" : "FAIL"} (${maskCollectorIdentifiers(custom.detail)})`;
+    }
+    process.stderr.write(`${line}\n`);
+  }
+  return 0;
+}
+
 async function main(arguments_: string[]): Promise<number> {
   const command = arguments_[0];
   if (command === "check-pack") return checkPack(arguments_.slice(1));
@@ -415,6 +592,8 @@ async function main(arguments_: string[]): Promise<number> {
   if (command === "deployment") return deployment(arguments_.slice(1));
   if (command === "modules") return modules(arguments_.slice(1));
   if (command === "transform") return transform(arguments_.slice(1));
+  if (command === "fetch") return fetchCommand(arguments_.slice(1));
+  if (command === "fetch-diag") return fetchDiag(arguments_.slice(1));
   if (command === "-h" || command === "--help") {
     process.stdout.write(`${USAGE}\n`);
     return 0;

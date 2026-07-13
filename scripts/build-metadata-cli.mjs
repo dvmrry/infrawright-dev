@@ -12,6 +12,8 @@ await build({
   outfile: output,
   platform: "node",
   target: "node24",
-  banner: { js: "#!/usr/bin/env node" },
+  banner: {
+    js: "#!/usr/bin/env node\nimport { createRequire as __infrawrightCreateRequire } from 'node:module'; const require = __infrawrightCreateRequire(import.meta.url);",
+  },
 });
 await chmod(output, 0o755);
