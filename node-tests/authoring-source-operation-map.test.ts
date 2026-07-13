@@ -193,3 +193,21 @@ func read() { client.Repositories.ListAllTopics(ctx, owner, repo, nil) }
   assert.equal(((report.registry as JsonObject).example_thing as JsonObject).status, "ambiguous_source_operation");
   assert.equal((((report.registry as JsonObject).example_repository_topics as JsonObject).read as JsonObject).evidence_kind, "relationship_list_read");
 });
+
+test("escaped raw REST paths and empty selector parts retain exact Python evidence", async (context) => {
+  const root = await fixture({ "resource_widget.go": String.raw`package provider
+func read() { client.NewRequest("GET", "\x2fwidgets\u002f%s", nil) }
+` });
+  context.after(async () => rm(root, { force: true, recursive: true }));
+  const schema: JsonObject = { provider_schemas: { [PROVIDER]: { resource_schemas: { example_widget: { block: { attributes: {} } } } } } };
+  const openapi: JsonObject = { paths: { "/widgets/{id}": { get: { operationId: "GetWidget" } } } };
+  const textReport = await deriveSourceOperationRegistry({ openApi: openapi, providerSource: PROVIDER, resourcePrefix: "example", schemaData: schema, sourceRoot: root });
+  assert.deepEqual(textReport, await pythonReport({ root, schema, openapi, providerSource: PROVIDER, prefix: "example" }));
+  assert.equal(((((textReport.registry as JsonObject).example_widget as JsonObject).read as JsonObject).hops as JsonObject[])[0]?.raw_rest_path, "/widgets/{arg}");
+  const facts: JsonObject = { source_root: root, files: [{ path: "resource_widget.go", imports: [], package: "provider" }], functions: [], resource_registrations: [], resource_references: [], identifier_references: [], read_callbacks: [], package_calls: [], raw_rest_calls: [], selector_calls: [
+    { file: "resource_widget.go", parts: [], symbol: "client.Widgets.Get" },
+  ] };
+  const factsReport = await deriveSourceOperationRegistry({ openApi: openapi, providerSource: PROVIDER, resourcePrefix: "example", schemaData: schema, sourceFacts: facts, sourceRoot: root });
+  assert.deepEqual(factsReport, await pythonReport({ facts, root, schema, openapi, providerSource: PROVIDER, prefix: "example" }));
+  assert.equal(((factsReport.registry as JsonObject).example_widget as JsonObject).status, "mapped");
+});

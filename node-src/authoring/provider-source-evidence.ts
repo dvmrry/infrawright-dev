@@ -185,7 +185,25 @@ export async function packageCalls(text: string, root: string): Promise<readonly
 function decodeGoLiteral(value: string): string {
   if (value.startsWith("`") && value.endsWith("`")) return value.slice(1, -1);
   const inner = value.startsWith("\"") && value.endsWith("\"") ? value.slice(1, -1) : value;
-  return inner.replace(/\\n/gu, "\n").replace(/\\t/gu, "\t").replace(/\\r/gu, "\r").replace(/\\"/gu, "\"").replace(/\\\\/gu, "\\");
+  const encoded = Buffer.from(inner, "utf8").toString("latin1"); const output: string[] = [];
+  const simple: Readonly<Record<string, string>> = { "\\": "\\", "\"": "\"", "'": "'", a: "\x07", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" };
+  for (let index = 0; index < encoded.length; index += 1) {
+    const current = encoded[index] as string; if (current !== "\\") { output.push(current); continue; }
+    const escape = encoded[index + 1]; if (escape === undefined) throw new Error("truncated escape in Go string literal");
+    if (simple[escape] !== undefined) { output.push(simple[escape]); index += 1; continue; }
+    if (escape === "\n") { index += 1; continue; }
+    const widths: Readonly<Record<string, number>> = { U: 8, u: 4, x: 2 }; const width = widths[escape];
+    if (width !== undefined) {
+      const digits = encoded.slice(index + 2, index + 2 + width); if (digits.length !== width || !/^[0-9A-Fa-f]+$/u.test(digits)) throw new Error(`invalid \\${escape} escape in Go string literal`);
+      const codePoint = Number.parseInt(digits, 16); if (codePoint > 0x10ffff) throw new Error("invalid Unicode escape in Go string literal");
+      output.push(String.fromCodePoint(codePoint)); index += width + 1; continue;
+    }
+    if (/[0-7]/u.test(escape)) {
+      const digits = encoded.slice(index + 1).match(/^[0-7]{1,3}/u)?.[0] as string; output.push(String.fromCodePoint(Number.parseInt(digits, 8))); index += digits.length; continue;
+    }
+    output.push("\\", escape); index += 1;
+  }
+  return output.join("");
 }
 
 export function normalizeRawRestPath(value: string): string {
@@ -313,13 +331,16 @@ export async function textEvidence(root: string, files: readonly string[]): Prom
 }
 
 function selectedFactFiles(files: readonly string[]): ReadonlySet<string> { return new Set(files.map((filename) => filename.replaceAll("\\", "/"))); }
+function selectorParts(item: JsonObject): readonly string[] {
+  return Array.isArray(item.parts) && item.parts.length > 0 ? item.parts.map(String) : String(item.symbol ?? "").split(".");
+}
 
 export async function factsEvidence(root: string, files: readonly string[], facts: JsonObject): Promise<JsonObject> {
   const selected = selectedFactFiles(files); const identifiers = new Set<string>();
   const sdk: Record<string, JsonObject> = {}; const packages: Record<string, JsonObject> = {}; const raw: Record<string, JsonObject> = {};
   for (const item of [...array(facts.functions), ...array(facts.identifier_references)]) if (selected.has(String(item.file ?? "").replaceAll("\\", "/"))) { const token = canonicalSourceSymbol(String(item.name ?? "")); if (token) identifiers.add(token); }
   for (const item of array(facts.selector_calls)) {
-    if (!selected.has(String(item.file ?? "").replaceAll("\\", "/"))) continue; const parts = Array.isArray(item.parts) ? item.parts.map(String) : String(item.symbol ?? "").split(".");
+    if (!selected.has(String(item.file ?? "").replaceAll("\\", "/"))) continue; const parts = selectorParts(item);
     identifiers.add(canonicalSourceSymbol(String(item.symbol ?? ""))); for (const part of parts) identifiers.add(canonicalSourceSymbol(part));
     const indexes = parts.map((part, i) => SDK_RECEIVERS.has(part) ? i : -1).filter((i) => i >= 0); const suffix = parts.slice((indexes.at(-1) ?? parts.length) + 1); if (suffix.length === 0) continue;
     const method = suffix.at(-1) as string; const role = sdkMethodRole(method); if (role === null) continue; const chain = suffix.slice(0, -1); const symbol = [...chain, method].join("."); sdk[symbol] = { chain, client_symbol: symbol, method, source_role: role };
@@ -344,7 +365,7 @@ export function sdkClientCallsFromFacts(
   const selected = selectedFactFiles(files); const calls: Record<string, JsonObject> = {};
   for (const item of array(facts.selector_calls)) {
     if (!selected.has(String(item.file ?? "").replaceAll("\\", "/"))) continue;
-    const parts = Array.isArray(item.parts) ? item.parts.map(String) : String(item.symbol ?? "").split(".");
+    const parts = selectorParts(item);
     const indexes = parts.map((part, index) => SDK_RECEIVERS.has(part) ? index : -1).filter((index) => index >= 0);
     if (indexes.length === 0) continue;
     const suffix = parts.slice((indexes.at(-1) as number) + 1); if (suffix.length === 0) continue;
