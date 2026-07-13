@@ -1,9 +1,17 @@
 # Node Process API Migration
 
-Infrawright is migrating its Zscaler runtime from Python to a typed Node 24
-library behind one machine-only process host. Pipelines and supervised agents
-are the audience. This is not a human command-line interface and it is not an
-HTTP service.
+> **Frozen migration infrastructure.** This document preserves the contracts
+> for the legacy Zscaler process host, comparisons, assertions, receipts,
+> materializers, publishers, acknowledgements, and collector child. It is not
+> the primary operational runtime. New operational automation uses the generic
+> Node 24 `infrawright` CLI described in
+> [Operational Node Runtime](operational-runtime.md). Nothing documented here
+> is removed by the runtime-readiness slice because external consumers have not
+> yet been inventoried.
+
+The process host was built for pipelines and supervised agents during the
+Python-to-Node migration. It is not a human command-line interface or an HTTP
+service.
 
 The first slices port the read-only root-topology, changed-path scoping,
 materialized plan-root enumeration, exact-catalog Zscaler saved-plan
@@ -29,7 +37,10 @@ npm run check
 npm run build
 ```
 
-The build produces the executable `dist/infrawright.mjs` parent and its exact
+The primary generic build artifact is `dist/infrawright-cli.mjs` with checksum
+`dist/infrawright-cli.mjs.sha256`; it is exposed as `infrawright` and needs no
+runtime install or Python. The legacy migration build additionally produces
+the executable `dist/infrawright.mjs` parent and its exact
 integrity-bound sibling `dist/infrawright-zcc-collector-child.mjs`. Ship and
 relocate those two files together in the same directory. The parent verifies
 the sibling's embedded SHA-256 and size before sending credentials; every

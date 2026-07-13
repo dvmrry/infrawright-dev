@@ -245,6 +245,33 @@ test("report status is derived and inconsistent cores fail closed", () => {
   );
 });
 
+test("clean import findings remain classification evidence but are omitted from v1 reports", () => {
+  const input = core("clean");
+  const root = input.roots[0];
+  assert.ok(root !== undefined);
+  const importFinding = {
+    status: "clean" as const,
+    source: "resource_changes" as const,
+    address: 'zpa_sample.this["one"]',
+    resource_type: "zpa_sample",
+    actions: ["create"],
+    paths: [],
+  };
+  const report = buildSavedPlanAssessmentReport({
+    mode: "assert-adoptable",
+    request: { tenant: "tenant", selectors: ["zpa_sample"], policy: null },
+    core: {
+      ...input,
+      policy_sha256: null,
+      stale_policy: [],
+      roots: [{ ...root, findings: [importFinding] }],
+    },
+  });
+  assert.equal(report.roots[0]?.status, "clean");
+  assert.deepEqual(report.roots[0]?.findings, []);
+  assert.equal(validateSavedPlanAssessment(report), true);
+});
+
 test("error report recomputes partial counts and leaves the source core unchanged", () => {
   const partial = core("blocked");
   const error = buildSavedPlanAssessmentErrorReport({

@@ -371,17 +371,17 @@ function buildRoots(
   }
   const cloneState = { nodes: 0 };
   return core.roots.map((root) => {
-    const derived = root.findings.some((finding) => finding.status === BLOCKED)
+    const reportableFindings = root.findings.filter((finding) => {
+      return finding.status !== "clean";
+    });
+    const derived = reportableFindings.some((finding) => finding.status === BLOCKED)
       ? BLOCKED
-      : root.findings.some((finding) => {
+      : reportableFindings.some((finding) => {
           return finding.status === "clean_with_tolerated_drift";
         })
       ? "clean_with_tolerated_drift"
       : "clean";
-    if (
-      root.status !== derived
-      || root.findings.some((finding) => finding.status === "clean")
-    ) {
+    if (root.status !== derived) {
       return fail(
         "INVALID_ASSESSMENT_REPORT",
         "assessment root status and findings are inconsistent",
@@ -394,7 +394,7 @@ function buildRoots(
       status: derived,
       plan: { ...root.plan },
       plan_fingerprint: { ...root.plan_fingerprint },
-      findings: root.findings.map(normalizedFinding),
+      findings: reportableFindings.map(normalizedFinding),
       guidance: guidanceForRoot(
         root,
         byRoot.get(rootKey(root)) ?? [],

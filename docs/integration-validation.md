@@ -10,6 +10,14 @@ for a selected tenant/resource scope.
 This runbook is intentionally conservative. A validation failure is evidence to
 classify, not an automatic engine feature request.
 
+The commands below run through the generic Node 24 `infrawright` CLI. Python
+must be unavailable when qualifying the operational runtime; retained Python
+tests, differentials, probes, and authoring tools are outside this workflow.
+Repository fake-Terraform tests establish readiness to qualify, not live
+qualification. See [Operational Node Runtime](operational-runtime.md) for the
+exact bundle/checksum contract and the separately authorized read-only and
+import-only Apply checklists.
+
 ## Preconditions
 
 - Use a controlled non-production tenant, or a production tenant that is
@@ -19,6 +27,10 @@ classify, not an automatic engine feature request.
   tenant/account identifiers.
 - Ensure Terraform/OpenTofu is available and matches the version being
   validated.
+- Use Node 24 and verify the accepted `dist/infrawright-cli.mjs.sha256` before
+  running; do not install runtime npm dependencies in the qualification job.
+- Make Python unavailable so a retained migration path cannot satisfy an
+  operational step accidentally.
 - Choose the backend/state policy before running. Local scratch state and
   remote backends have different retention and audit requirements.
 - Start from a clean working tree or an isolated worktree.
@@ -34,6 +46,7 @@ Run the primary adoption sequence for one provider or resource scope:
 ```sh
 make fetch TENANT=<tenant> RESOURCE=<resource-or-provider>
 make adopt IN=pulls/<tenant> TENANT=<tenant> RESOURCE=<resource-or-provider>
+make gen-modules RESOURCE=<resource-type>  # omit RESOURCE to generate all active modules
 make gen-env TENANT=<tenant> RESOURCE=<resource-or-provider>
 make stage-imports TENANT=<tenant> RESOURCE=<resource-or-provider>
 make plan TENANT=<tenant> RESOURCE=<resource-or-provider> SAVE=1
@@ -50,6 +63,10 @@ containing ancestor is not a second valid authority. The ADO path convention,
 publisher-guard behavior, and stale cleanup rules are defined in
 [ADR 0001](adr/0001-publisher-ownership.md).
 
+### Frozen ZCC migration note
+
+The following process-host lane is retained only for consumers of the frozen
+ZCC migration architecture; it is not the primary generic operational path.
 For the exact five-resource Node ZCC provider-observed bootstrap lane, use a
 protected Python-reference workspace to obtain a complete exit-`0`
 `compare_adoption_artifacts` assertion, then submit that assertion unchanged to
@@ -64,6 +81,8 @@ result. Only after its exit `0` may the serialized workflow continue with
 fake-provider or repository differentials as live-tenant qualification, and do
 not apply from the materialization receipt alone.
 
+### Saved-plan and Apply evidence
+
 Use the same `POLICY=<file>` for `assert-adoptable` and `apply`. Apply
 reclassifies saved plans before execution and should only proceed for clean,
 import-only, or explicitly policy-tolerated saved plans.
@@ -72,7 +91,7 @@ When using a remote backend, also pass the same `BACKEND_CONFIG=<file>` to
 `plan`, `assert-adoptable` (or `assert-clean`), and `apply`. The saved-plan
 fingerprint treats a missing or changed backend config as stale.
 
-For a Node ZCC refresh that returned `awaiting_apply`, call the versioned
+For a frozen Node ZCC refresh that returned `awaiting_apply`, call the versioned
 `acknowledge_pull_refresh` process operation only after the apply and unstage
 steps succeed. The acknowledgement requires the complete parity assertion,
 the complete publication receipt, `INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT`, and
@@ -109,10 +128,10 @@ Classify each failure before deciding where work belongs.
 
 | Category | Meaning | Evidence to collect | Fix location, if any | Blocks validation? |
 |---|---|---|---|---|
-| Core bug | Provider-agnostic engine behavior is wrong, unsafe, or inconsistent with the documented command contract. | Command, sanitized traceback/output, minimal fixture, generated artifact paths, saved plan summary. | `engine/` with focused tests. | Yes, until fixed or scoped out. |
+| Core bug | Provider-agnostic engine behavior is wrong, unsafe, or inconsistent with the documented command contract. | Command, sanitized error/output, minimal fixture, generated artifact paths, saved plan summary. | `node-src/` with focused tests. | Yes, until fixed or scoped out. |
 | Pack metadata bug | Provider behavior can be represented by existing pack metadata, but the pack value is missing or wrong. | Resource type, pack name, relevant registry/override/adoption metadata, sanitized plan or projection evidence. | `packs/<provider>/` metadata and pack tests. | Yes for affected resources. |
 | Registry/fetch metadata bug | Collection/adoption inventory metadata points at the wrong list/detail path, key, import ID, or identity alias. | Fetch command, raw item shape, key/import ID derivation, registry entry, sanitized fetch output. | Pack registry/adoption metadata. | Yes for affected resources. |
-| Collector bug | The collector cannot reliably fetch current provider evidence independent of projection/adoption. | Collector command, sanitized HTTP/status/pagination/auth diagnostics, input config, no secret values. | Collector code or pack-owned collection helper. | Yes if fetch evidence is required. |
+| Collector bug | The collector cannot reliably fetch current provider evidence independent of projection/adoption. | Collector command, sanitized HTTP/status/pagination/auth diagnostics, input config, no secret values. | Generic Node collector code or pack registry metadata. | Yes if fetch evidence is required. |
 | Provider behavior unsupported by current generic contract | Provider semantics are real but need a new explicit metadata/guidance/design lane before automation is safe. | Saved plan classification, provider schema path, raw/provider state contrast, existing diagnostic output. | Design doc first, then validator/metadata/behavior if approved. | Usually yes for affected resources. |
 | Provider bug / upstream evidence candidate | Terraform provider or API behavior appears inconsistent, lossy, or contrary to published contracts. | Repro command, provider version, sanitized provider diagnostics, minimal Terraform config/state evidence. | Upstream issue or provider-specific workaround metadata if safe. | Yes unless isolated and approved. |
 | Operator input required | The resource needs a human-supplied value, provider setting, expression binding, approval, or tenant-specific decision. | Blocked path, required input, policy/guidance annotation, source of the requirement. | Consumer config, drift policy, expression binding, or operator runbook. | Blocks until supplied or explicitly scoped out. |

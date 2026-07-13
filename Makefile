@@ -23,7 +23,7 @@ ifneq ($(strip $(OVERLAY)),)
 -include $(OVERLAY)/local.mk
 endif
 
-.PHONY: metadata-cli check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set audit-vendor-boundary demo-contract check check-all check-core test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: metadata-cli check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set deployment resources resources-reference-order gen-modules validate-modules audit-vendor-boundary demo-contract check check-all check-core test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 dist/infrawright-cli.mjs: package.json package-lock.json tsconfig.json $(METADATA_CLI_INPUTS)
 	$(NPM) run build:metadata-cli
@@ -66,6 +66,21 @@ check-pack: metadata-cli ## Validate pack.json and registry.json metadata ([PACK
 
 check-pack-set: metadata-cli ## Require the installed pack root to match PACK_PROFILE exactly
 	$(INFRAWRIGHT_CLI) check-pack-set --catalog "$(PACK_CATALOG)" --profile "$(PACK_PROFILE)"
+
+deployment: metadata-cli ## Query deployment metadata (DEPLOYMENT_QUERY=<verb> [TENANT=<label>])
+	$(INFRAWRIGHT_CLI) deployment --deployment "$(DEPLOYMENT)" "$(or $(DEPLOYMENT_QUERY),overlay)" $(if $(TENANT),"$(TENANT)")
+
+resources: metadata-cli ## List generated resources ([RESOURCE="<type|provider> ..."] [REFERENCE_ORDER=1])
+	$(INFRAWRIGHT_CLI) resources $(if $(REFERENCE_ORDER),--order=references) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
+
+resources-reference-order: REFERENCE_ORDER=1
+resources-reference-order: resources
+
+gen-modules: metadata-cli ## Generate deployment modules ([RESOURCE="<type> ..."])
+	$(INFRAWRIGHT_CLI) modules generate --deployment "$(DEPLOYMENT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
+
+validate-modules: metadata-cli ## Validate deployment modules ([RESOURCE="<type> ..."])
+	$(INFRAWRIGHT_CLI) modules validate --deployment "$(DEPLOYMENT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
 audit-vendor-boundary: ## Audit vendor-specific tokens in engine source
 	$(PYTHON) -m engine.audit_vendor_boundary

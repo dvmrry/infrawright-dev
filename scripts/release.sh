@@ -45,7 +45,7 @@ fi
 git -C "$DEV_ROOT" archive "$TAG" | tar -x -C "$STAGE"
 echo "staged $TAG tree: $(find "$STAGE" -type f ! -path '*/.git/*' | wc -l | tr -d ' ') files"
 
-# 3. Build the portable Node process bundle inside the tracked release tree.
+# 3. Build the portable Node bundles inside the tracked release tree.
 #    npm is a release-time dependency only; downstream runs the bundled file
 #    with Node 24 and does not install packages.
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || true)"
@@ -63,17 +63,23 @@ test "$NODE_MAJOR" = 24 || {
     > dist/infrawright-zcc-collector-child.mjs.sha256
 )
 
-# 4. Self-containment guard — a release missing the shared pack or engine is broken.
-#    (This is the exact failure mode a fresh clone would hit; catch it before publish.)
+# 4a. Primary generic-runtime guard. This deliberately does not require Python,
+#     transition catalogs, or either legacy process bundle.
+node "$STAGE/scripts/verify-runtime-release.mjs" "$STAGE"
+
+# 4b. Retained legacy-compatibility guard. Unknown external consumers may still
+#     use the process host and ZCC child, so preserve their historical inputs.
 for must in packs/_shared/zscaler/collector.py engine/transform.py packs/zia/registry.json catalogs/zscaler-root-catalog.v1.json catalogs/zcc-transform-catalog.v1.json dist/infrawright.mjs dist/infrawright.mjs.sha256 dist/infrawright-zcc-collector-child.mjs dist/infrawright-zcc-collector-child.mjs.sha256 LICENSE README.md; do
   test -f "$STAGE/$must" || { echo "FATAL: release is missing $must — aborting"; exit 2; }
 done
-echo "self-containment guard: OK"
+echo "legacy-compatibility guard: OK"
 
 # 5. One clean commit + tag on the public repo. No push (that's your call).
 cd "$STAGE"
 git add -A
 git add -f \
+  dist/infrawright-cli.mjs \
+  dist/infrawright-cli.mjs.sha256 \
   dist/infrawright.mjs \
   dist/infrawright.mjs.sha256 \
   dist/infrawright-zcc-collector-child.mjs \

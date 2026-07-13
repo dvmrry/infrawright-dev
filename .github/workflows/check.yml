@@ -27,6 +27,8 @@ jobs:
         run: npm run check
       - name: Build no-install process bundle
         run: npm run build
+      - name: Prove generic runtime release staging without tags or runtime installs
+        run: npm run test:runtime-release
       - name: Prove bundle runs outside the checkout
         run: |
           root="$RUNNER_TEMP/infrawright-node-smoke"

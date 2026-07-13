@@ -2,7 +2,10 @@
 
 The root `Makefile` is the stable product command surface. Overlay Makefiles may
 add local workflows, but they should not redefine the meaning of the core
-adoption commands.
+adoption commands. These targets are thin adapters over the generic Node 24
+`infrawright` CLI; the authoritative production inventory and the intentionally
+retained Python maintainer surfaces are listed in
+[Operational Node Runtime](operational-runtime.md).
 
 ## Primary Adoption Flow
 
@@ -11,6 +14,7 @@ These commands are the normal import-oracle adoption workflow:
 ```text
 fetch
   -> adopt
+  -> gen-modules
   -> gen-env
   -> stage-imports
   -> plan SAVE=1
@@ -24,11 +28,18 @@ Command responsibilities:
 |---|---|
 | `make fetch` | Collect raw provider inventory/detail JSON into `pulls/<tenant>`. |
 | `make adopt` | Use Terraform/OpenTofu import as the provider-state oracle and write projected config/import artifacts. |
+| `make gen-modules` | Generate the deployment-selected reusable Terraform/OpenTofu modules. |
 | `make gen-env` | Generate isolated Terraform/OpenTofu env roots that source the deployment-selected module set. |
 | `make stage-imports` | Copy generated `import {}` and `moved {}` blocks into env roots. |
 | `make plan SAVE=1` | Run Terraform/OpenTofu plans and save plan artifacts for later gates. |
 | `make assert-adoptable` | Classify saved plans as clean, tolerated by explicit policy, or blocked. Guidance annotations never make a blocked plan clean. |
 | `make apply` | Reclassify saved plans and apply only when they are clean/import-only or fully tolerated by explicit policy; destructive or non-main workflows still require explicit safety flags. |
+
+Adopt's provider Oracle may execute a mechanically verified import-only plan
+against ephemeral local scratch state so provider Read can supply projected
+configuration. That local-only transaction cannot create, update, replace, or
+destroy remote objects and is distinct from the later deployment `make apply`.
+Deployment Apply rechecks and executes only the exact saved `tfplan`.
 
 Supporting adoption commands:
 
@@ -84,7 +95,7 @@ Emit configured root topology with:
 
 ```sh
 make roots TENANT=prod RESOURCE="zpa_application_segment zpa_segment_group"
-# or: python -m engine.ops roots --json --tenant prod zpa
+# or: node dist/infrawright-cli.mjs roots --tenant prod --resource zpa
 ```
 
 The topology is derived from deployment configuration and pack metadata; env
@@ -103,10 +114,9 @@ tenant values fail before any topology JSON is emitted.
 Map changed paths directly to affected resources and whole logical roots with:
 
 ```sh
-python -m engine.ops scope-paths --json \
-  --path config/prod/zpa_application_segment.auto.tfvars.json
-# or pass a JSON array produced by downstream changed.py
 make scope-paths PATHS_JSON=changed-paths.json
+# or: node dist/infrawright-cli.mjs scope-paths \
+#       --paths-json changed-paths.json
 ```
 
 `scope-paths` is deliberately VCS-agnostic: it never invokes Git and accepts
@@ -135,7 +145,8 @@ Enumerate materialized env roots and their plan-artifact pair with:
 
 ```sh
 make plan-roots TENANT=prod RESOURCE=zpa_application_segment
-# or: python -m engine.ops plan-roots --json --tenant prod zpa
+# or: node dist/infrawright-cli.mjs plan-roots \
+#       --tenant prod --resource zpa_application_segment
 ```
 
 Each result includes the tenant, logical root, complete member list, provider,
@@ -170,6 +181,9 @@ before and after `terraform show`, and the plan, fingerprint, and current plan
 sources (plus policy, when supplied) are rechecked immediately before report
 publication. A concurrent change writes an error assessment and fails the gate
 instead of publishing a successful classification bound to different evidence.
+Import-only actions remain part of the internal clean classification evidence;
+because `clean` is an aggregate v1 status rather than a reportable finding
+status, clean/import-only roots emit an empty `findings` list.
 
 Finding paths and guidance paths deliberately expose two domains. Each
 `findings[].paths` and `guidance[].finding_path` is a concrete plan-space path

@@ -23,6 +23,7 @@ configuration truth:
 ```bash
 make fetch TENANT=<tenant> RESOURCE=<resource-or-provider>
 make adopt IN=pulls/<tenant> TENANT=<tenant> RESOURCE=<resource-or-provider>
+make gen-modules RESOURCE=<resource-type>  # omit RESOURCE to generate all active modules
 make gen-env TENANT=<tenant> RESOURCE=<resource-or-provider>
 make stage-imports TENANT=<tenant> RESOURCE=<resource-or-provider>
 make plan TENANT=<tenant> RESOURCE=<resource-or-provider> SAVE=1
@@ -36,6 +37,7 @@ What each step owns:
 |---|---|
 | `make fetch` | Gathers raw provider/API evidence into `pulls/<tenant>`. |
 | `make adopt` | Uses Terraform/OpenTofu import and provider state as the projection oracle, then writes config/import artifacts. |
+| `make gen-modules` | Generates the deployment-selected reusable Terraform modules. |
 | `make gen-env` | Generates isolated env roots that source the selected module set. |
 | `make stage-imports` | Stages generated `import {}` and `moved {}` blocks into env roots. |
 | `make plan SAVE=1` | Produces saved plan artifacts for the safety gates. |
@@ -88,13 +90,11 @@ make demo-contract  # credential-free demo artifact/module contract check
 
 ### Runtime requirements
 
-Node 24 is required for the Node runtime. Linux is the production target for
-Terraform execution; macOS is supported for local development and tests where
-practical. Windows remains usable for naturally portable metadata and rendering
-operations, but Windows is not a supported platform for Terraform execution.
-The Node operational Terraform runner enforces that boundary before spawn;
-retained Python migration lanes are not a Windows support claim and are not
-changed by this slice.
+Node 24 and Terraform/OpenTofu are required for the operational adoption
+runtime. Linux is the production Terraform target, macOS is supported for
+development and testing, and Windows Terraform execution is unsupported and
+rejected before preflight or spawn. Naturally portable metadata/rendering code
+may still run on Windows without implying Terraform support.
 
 `make demo-contract` is the local no-credentials proof for the shipped demo: it
 materializes the demo overlay, verifies committed demo config/import artifacts
@@ -103,40 +103,30 @@ the generated demo module tree. It does not run live provider import or
 Terraform/OpenTofu plan; the live plan contract begins with the primary
 adoption workflow above and requires real provider credentials.
 
-The Zscaler runtime is undergoing a differential migration to Node 24. Its
-machine-only process operations emit root-topology, changed-path scope,
-plan-root, exact-catalog saved-plan assessment, immutable ZCC bootstrap artifact
-sets, read-only ZCC raw-transform refresh results, and provider-observed ZCC
-bootstrap adoption candidates plus content-free comparison against externally
-materialized references expected from the retained Python lane, and may publish
-one fresh candidate under the complete protected comparison assertion. Adoption
-compilation and comparison are read-only; comparison binds reference paths and
-bytes but does not attest which writer created them, and exposes only logical
-paths, sizes, and digests. Compilation exposes projected candidate bytes. The
-distinct adoption materializer is create-or-verify-exact, retry-forward, and
-content-free in its receipt. None claims plan/apply readiness, live
-qualification, or cutover. These lanes are differentially compared with Python
-in CI. The two-phase refresh
-parity contract seeds two isolated materialized twins before Python, then
-proves seven post-Python artifact roles without emitting contents, import IDs,
-move keys, or physical paths. Provider-observed adoption materialization remains
-bootstrap-only; the raw-transform publisher also retains its separately
-asserted refresh protocol. The
-compilers cover the five
-fetch-backed ZCC resources without writing them. Build
-the no-install bundle with
-`npm ci --ignore-scripts && npm run check && npm run build`; see
-[Node Process API Migration](docs/node-process-api.md) for the request contract,
-current boundary, refusal cases, and downstream dual-run guidance.
+The primary runtime is the executable, dependency-bundled
+`dist/infrawright-cli.mjs`, exposed as `infrawright`, with checksum
+`dist/infrawright-cli.mjs.sha256`. Build it with
+`npm ci --ignore-scripts && npm run build`; downstream execution needs Node 24
+but neither `npm install`, `node_modules`, nor Python. Python remains in this
+repository for tests, differentials, probes, and maintainer authoring/research
+tools. No live-provider, live-backend, or deployment-Apply qualification is
+claimed by the credential-free repository tests.
+
+See [Operational Node Runtime](docs/operational-runtime.md) for the authoritative
+Make/CLI inventory, release contract, support policy, external qualification
+checklist, and frozen-architecture inventory. The retained
+`dist/infrawright.mjs` process host and ZCC collector child are frozen legacy
+migration artifacts; their detailed contracts remain in
+[Node Process API Migration](docs/node-process-api.md).
 
 ## Layout
 
 | Path | Role |
 |------|------|
-| `engine/` | core transform/adoption/codegen: modular TF + `import` + `moved` reconciliation; includes the audited shared REST collector edge |
-| `node-src/` | typed Node 24 library and machine-only process host under differential migration |
-| `catalogs/` | versioned transition catalogs consumed by the Node runtime |
-| `packs/<name>/` | a provider bundle: `pack.json` + `registry.json` + `overrides/` + `schemas/` + collector |
+| `engine/` | retained Python implementations used by tests, differentials, and maintainer/migration tools; not required by the operational Node runtime |
+| `node-src/` | generic typed Node 24 operational library/CLI plus frozen migration process-host code |
+| `catalogs/` | frozen versioned transition catalogs retained for migration consumers; not required by the generic CLI |
+| `packs/<name>/` | provider metadata: `pack.json`, collection registry, overrides, and schemas; retained Python collector modules may coexist but are not runtime dependencies |
 | `[<overlay>/]config/<tenant>/<resource_type>.auto.tfvars[.json]` | generated tenant config; `deployment.json` `tfvars_format` selects `json` by default or opt-in `hcl` |
 | `[<overlay>/]imports/<tenant>/<resource_type>_imports.tf` | generated import blocks |
 | `[<overlay>/]envs/<tenant>/<root_label>/` | generated Terraform roots; `<root_label>` is the resource type by default, or an opt-in grouped root label |
