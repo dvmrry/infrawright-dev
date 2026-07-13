@@ -201,6 +201,46 @@ test("provider-state survivors own tfvars while raw identity owns keys/imports/l
   });
 });
 
+test("escaped-brace import templates survive the complete adoption artifact path", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-adopt-escaped-template-");
+  const input = path.join(workspace, "pulls");
+  const resourceType = "zia_url_categories";
+  await writeJson(path.join(input, `${resourceType}.json`), [{
+    configuredName: "Escaped",
+    customCategory: true,
+    id: "CUSTOM_07",
+    urls: [],
+  }]);
+  const baseRoot = await committedRoot();
+  const baseResource = baseRoot.resources.get(resourceType);
+  assert.notEqual(baseResource, undefined);
+  const resources = new Map(baseRoot.resources);
+  resources.set(resourceType, {
+    ...baseResource!,
+    override: {
+      ...record(baseResource!.override, "zia_url_categories.override"),
+      import_id: "{{tenant}}:{id}",
+    },
+  });
+  const root = { ...baseRoot, resources } as LoadedPackRoot;
+  const result = await runAdoptBatch({
+    deployment: deployment(workspace),
+    inputDirectory: input,
+    policy: await loadAdoptionPolicy({ root }),
+    root,
+    selectors: [resourceType],
+    stateLoader: async () => new Map([["escaped", {
+      address: `${resourceType}.fixture`,
+      sensitiveValues: {},
+      values: { configured_name: "Escaped", custom_category: true, id: "CUSTOM_07", urls: [] },
+    }]]),
+    tenant: "tenant",
+  });
+  assert.deepEqual(result.failed, []);
+  const imports = await readFile(path.join(workspace, "imports", "tenant", `${resourceType}_imports.tf`), "utf8");
+  assert.equal(imports.includes('id = "{tenant}:CUSTOM_07"'), true);
+});
+
 test("batch aggregation retains successful outputs and skips missing pulls", async (context) => {
   const workspace = await temporaryDirectory(context, "infrawright-adopt-batch-");
   const input = path.join(workspace, "pulls");
@@ -307,6 +347,27 @@ test("derived resources delegate to the generic transform path without invoking 
   assert.deepEqual(result.failed, []);
   assert.deepEqual(result.processed, ["zpa_policy_access_rule_reorder"]);
   await access(path.join(workspace, "config", "tenant", "zpa_policy_access_rule_reorder.auto.tfvars.json"));
+
+  await rm(path.join(workspace, "config", "tenant", "zpa_policy_access_rule_reorder.auto.tfvars.json"));
+  const pending = path.join(workspace, "imports", "tenant", "zpa_policy_access_rule_reorder_moves.pending.json");
+  await writeJson(pending, { transition: true });
+  const blocked = await runAdoptBatch({
+    deployment: deployment(workspace),
+    inputDirectory: input,
+    policy: await loadAdoptionPolicy({ root: await committedRoot() }),
+    root: await committedRoot(),
+    selectors: ["zpa_policy_access_rule_reorder"],
+    stateLoader: async () => {
+      called = true;
+      return new Map();
+    },
+    tenant: "tenant",
+  });
+  assert.deepEqual(blocked.failed, ["zpa_policy_access_rule_reorder"]);
+  await assert.rejects(
+    () => access(path.join(workspace, "config", "tenant", "zpa_policy_access_rule_reorder.auto.tfvars.json")),
+    /ENOENT/,
+  );
 });
 
 test("empty, provider, Zscaler, full, and reduced profiles select cleanly with no pulls", async (context) => {
@@ -371,11 +432,11 @@ if (args[0] === "plan") {
   process.exit(0);
 }
 if (args[0] === "show" && args.at(-1)?.endsWith(".tfplan")) {
-  process.stdout.write(JSON.stringify({resource_changes:[{address,change:{actions:["no-op"],importing:{id:"77"}},mode:"managed",type:"zia_rule_labels"}]}));
+  process.stdout.write(JSON.stringify({applyable:true,complete:true,errored:false,format_version:"1.2",terraform_version:"1.15.4",resource_changes:[{address,change:{actions:["no-op"],importing:{id:"77"}},mode:"managed",provider_name:"registry.terraform.io/zscaler/zia",type:"zia_rule_labels"}]}));
   process.exit(0);
 }
 if (args[0] === "show") {
-  process.stdout.write(JSON.stringify({values:{root_module:{resources:[{address,mode:"managed",type:"zia_rule_labels",values:{id:"77",name:"Make Fixture"},sensitive_values:{}}]}}}));
+  process.stdout.write(JSON.stringify({format_version:"1.0",terraform_version:"1.15.4",values:{root_module:{resources:[{address,mode:"managed",provider_name:"registry.terraform.io/zscaler/zia",type:"zia_rule_labels",values:{id:"77",name:"Make Fixture"},sensitive_values:{}}]}}}));
   process.exit(0);
 }
 process.exit(0);

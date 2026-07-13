@@ -378,6 +378,23 @@ test("derived reorder writes config only", async (context) => {
     "tenant",
     "zpa_policy_access_rule_reorder_imports.tf",
   )), false);
+
+  await rm(config);
+  let checkedImmediatelyBeforeWrite = false;
+  const blocked = await runTransformBatch({
+    beforeArtifactWrite: async () => {
+      checkedImmediatelyBeforeWrite = true;
+      throw new Error("pending move transition");
+    },
+    deployment: deployment(workspace),
+    inputDirectory: input,
+    root: await committedRoot(),
+    selectors: ["zpa_policy_access_rule_reorder"],
+    tenant: "tenant",
+  });
+  assert.equal(checkedImmediatelyBeforeWrite, true);
+  assert.deepEqual(blocked.failed, ["zpa_policy_access_rule_reorder"]);
+  assert.equal(await exists(config), false);
 });
 
 test("DROPS_CHECK records failure only after writing tfvars and imports", async (context) => {

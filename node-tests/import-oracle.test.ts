@@ -38,22 +38,31 @@ function committedRoot(): Promise<LoadedPackRoot> {
 
 function plan(actions: readonly string[] = ["no-op"]): unknown {
   return {
+    applyable: true,
+    complete: true,
+    errored: false,
+    format_version: "1.2",
     resource_changes: [{
       address: ADDRESS,
       change: { actions, importing: { id: IMPORT_ID } },
       mode: "managed",
+      provider_name: "registry.terraform.io/zscaler/zia",
       type: RESOURCE,
     }],
+    terraform_version: "1.15.4",
   };
 }
 
 function state(include = true): unknown {
   return {
+    format_version: "1.0",
+    terraform_version: "1.15.4",
     values: {
       root_module: {
         resources: include ? [{
           address: ADDRESS,
           mode: "managed",
+          provider_name: "registry.terraform.io/zscaler/zia",
           sensitive_values: { description: false, id: false },
           type: RESOURCE,
           values: { configured_name: "Example", description: "Read", id: IMPORT_ID },
@@ -142,15 +151,46 @@ test("fake Terraform executes the exact local import/read transaction and cleans
 
 test("the scratch apply is unreachable for create, update, replace, destroy, drift, or incomplete coverage", async () => {
   const root = await committedRoot();
+  const unsafeStatus = plan() as Record<string, unknown>;
+  unsafeStatus.complete = false;
+  const errored = plan() as Record<string, unknown>;
+  errored.errored = true;
+  const notApplyable = plan() as Record<string, unknown>;
+  notApplyable.applyable = false;
+  const wrongImport = plan() as Record<string, unknown>;
+  ((wrongImport.resource_changes as Record<string, unknown>[])[0]!.change as Record<string, unknown>).importing = { id: "WRONG" };
+  const wrongMode = plan() as Record<string, unknown>;
+  (wrongMode.resource_changes as Record<string, unknown>[])[0]!.mode = "data";
+  const wrongType = plan() as Record<string, unknown>;
+  (wrongType.resource_changes as Record<string, unknown>[])[0]!.type = "zia_wrong";
+  const wrongProvider = plan() as Record<string, unknown>;
+  (wrongProvider.resource_changes as Record<string, unknown>[])[0]!.provider_name = "registry.terraform.io/example/wrong";
+  const duplicate = plan() as Record<string, unknown>;
+  duplicate.resource_changes = [
+    ...(duplicate.resource_changes as unknown[]),
+    ...(duplicate.resource_changes as unknown[]),
+  ];
+  const deferred = plan() as Record<string, unknown>;
+  deferred.deferred_changes = [{ reason: "provider deferred" }];
+  const diagnostics = plan() as Record<string, unknown>;
+  diagnostics.diagnostics = [{ summary: "not safe" }];
   for (const invalid of [
     plan(["create"]),
     plan(["update"]),
     plan(["delete", "create"]),
     plan(["delete"]),
-    { resource_drift: [{ address: ADDRESS }], resource_changes: [
-      { address: ADDRESS, change: { actions: ["no-op"], importing: { id: IMPORT_ID } } },
-    ] },
-    { resource_changes: [] },
+    { ...(plan() as Record<string, unknown>), resource_drift: [{ address: ADDRESS }] },
+    { ...(plan() as Record<string, unknown>), resource_changes: [] },
+    unsafeStatus,
+    errored,
+    notApplyable,
+    wrongImport,
+    wrongMode,
+    wrongType,
+    wrongProvider,
+    duplicate,
+    deferred,
+    diagnostics,
   ]) {
     const fake = new FakeTerraform();
     fake.plan = invalid;
@@ -212,7 +252,7 @@ test("missing state, duplicate import IDs, and malformed plan coverage fail clos
       root,
       runner: fake,
     }),
-    /did not return state for key/,
+    /non-exact root state/,
   );
   await assert.rejects(
     () => importProviderState({
@@ -225,12 +265,79 @@ test("missing state, duplicate import IDs, and malformed plan coverage fail clos
   );
   assert.throws(
     () => assertImportOnlyPlan({
-      expectedAddresses: new Set([ADDRESS]),
-      plan: { resource_changes: [{ address: ADDRESS, change: { actions: ["no-op"] } }] },
+      expectedImports: new Map([[ADDRESS, IMPORT_ID]]),
+      plan: { ...(plan() as Record<string, unknown>), resource_changes: [{
+        address: ADDRESS,
+        change: { actions: ["no-op"] },
+        mode: "managed",
+        provider_name: "registry.terraform.io/zscaler/zia",
+        type: RESOURCE,
+      }] },
+      providerName: "registry.terraform.io/zscaler/zia",
       resourceType: RESOURCE,
     }),
-    /not import-only/,
+    /not the exact requested import/,
   );
+  const exact = plan() as Record<string, unknown>;
+  const first = (exact.resource_changes as Record<string, unknown>[])[0]!;
+  exact.resource_changes = [first, first];
+  assert.throws(
+    () => assertImportOnlyPlan({
+      expectedImports: new Map([
+        [ADDRESS, IMPORT_ID],
+        [oracleAddress(RESOURCE, "other"), "OTHER"],
+      ]),
+      plan: exact,
+      providerName: "registry.terraform.io/zscaler/zia",
+      resourceType: RESOURCE,
+    }),
+    /not the exact requested import/,
+  );
+});
+
+test("state extraction rejects extra, child, wrong-mode, wrong-provider, and malformed observations", async () => {
+  const root = await committedRoot();
+  const variants: unknown[] = [];
+  const extra = state() as Record<string, unknown>;
+  const extraRoot = ((extra.values as Record<string, unknown>).root_module as Record<string, unknown>);
+  extraRoot.resources = [...(extraRoot.resources as unknown[]), {
+    address: `${RESOURCE}.extra`,
+    mode: "managed",
+    provider_name: "registry.terraform.io/zscaler/zia",
+    sensitive_values: {},
+    type: RESOURCE,
+    values: { id: "extra" },
+  }];
+  variants.push(extra);
+  const child = state() as Record<string, unknown>;
+  ((child.values as Record<string, unknown>).root_module as Record<string, unknown>).child_modules = [{ resources: [] }];
+  variants.push(child);
+  for (const [field, value] of [
+    ["mode", "data"],
+    ["type", "zia_wrong"],
+    ["provider_name", "registry.terraform.io/example/wrong"],
+    ["values", null],
+    ["sensitive_values", null],
+  ] as const) {
+    const candidate = state() as Record<string, unknown>;
+    const resources = ((candidate.values as Record<string, unknown>).root_module as Record<string, unknown>).resources as Record<string, unknown>[];
+    resources[0]![field] = value;
+    variants.push(candidate);
+  }
+  for (const candidate of variants) {
+    const fake = new FakeTerraform();
+    fake.state = candidate;
+    await assert.rejects(
+      () => importProviderState({
+        keyToImportId: new Map([[KEY, IMPORT_ID]]),
+        resourceType: RESOURCE,
+        root,
+        runner: fake,
+      }),
+      /non-exact|malformed/,
+    );
+    assert.equal(fake.requests.some((request) => request.debugName === "show-state"), true);
+  }
 });
 
 test("retained Oracle workdir is explicit and warns that it contains sensitive material", async (context) => {

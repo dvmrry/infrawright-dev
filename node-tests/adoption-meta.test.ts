@@ -11,7 +11,9 @@ import {
   deriveAdoptionKey,
   type AdoptionMetadata,
 } from "../node-src/domain/adoption-meta.js";
-import { loadPackRoot, type LoadedResourceMetadata } from "../node-src/metadata/loader.js";
+import { adoptResourceItems } from "../node-src/domain/adopt-runner.js";
+import { DriftPolicy } from "../node-src/domain/drift-policy.js";
+import { loadPackRoot, type LoadedPackRoot, type LoadedResourceMetadata } from "../node-src/metadata/loader.js";
 import type { JsonObject } from "../node-src/metadata/validation.js";
 
 const ROOT = process.cwd();
@@ -207,4 +209,27 @@ test("duplicate keys and duplicate import IDs fail before any Oracle call", () =
     }),
     /duplicate import_id/,
   );
+});
+
+test("present malformed legacy identity metadata fails before invoking the Oracle", async () => {
+  for (const override of [
+    { import_id: 7 },
+    { key_field: null },
+  ]) {
+    let called = false;
+    await assert.rejects(
+      () => adoptResourceItems({
+        policy: new DriftPolicy({ version: 1, resource_types: {} }),
+        rawItems: [{ id: "UNINTENDED", name: "Wrong Default" }],
+        resource: resource({ override }),
+        root: {} as LoadedPackRoot,
+        stateLoader: async () => {
+          called = true;
+          return new Map();
+        },
+      }),
+      /adopt\.(?:import_id|key_field) must be/,
+    );
+    assert.equal(called, false);
+  }
 });

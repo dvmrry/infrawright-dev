@@ -113,6 +113,34 @@ test("exact-index generated-config omits are intentionally deferred to state pro
   assert.equal(selected.staleEntries().length, 1);
 });
 
+test("a value added by projection_fill is subsequently eligible for projection_omit_if", async () => {
+  const selected = policy({
+    projection_fill: [{
+      path: "description",
+      source: "rawDescription",
+      reason: "provider omitted it",
+      approved_by: "unit",
+    }],
+    projection_omit_if: [{
+      path: "description",
+      values: ["DROP"],
+      reason: "sentinel",
+      approved_by: "unit",
+    }],
+  });
+  const result = await applyGeneratedConfigPolicy({
+    addressToKey: new Map([[ADDRESS, "example"]]),
+    generatedConfig: GENERATED.replace('  description = "DROP"\n', ""),
+    policy: selected,
+    rawItems: new Map([["example", { rawDescription: "DROP" }]]),
+    resourceType: "sample_resource",
+    root: root(),
+  });
+  assert.equal(result.edits, 2);
+  assert.equal(result.text.includes("description"), false);
+  assert.deepEqual(selected.staleEntries(), []);
+});
+
 test("required-path, missing-config, missing-raw, missing-address, duplicate, and unexpected blocks fail closed", async () => {
   await assert.rejects(
     () => applyGeneratedConfigPolicy({

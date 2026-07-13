@@ -90,18 +90,44 @@ export function pythonTransformString(value: unknown): string {
   throw new TypeError("transform identity must be a scalar JSON value");
 }
 
-function formatImportTemplate(
+/** Match Python str.format's field and doubled-brace behavior for import IDs. */
+export function formatImportTemplate(
   template: string,
   original: Readonly<Record<string, unknown>>,
 ): string {
-  return template.replace(/\{([^{}]+)\}/gu, (_match, field: string) => {
-    if (!own(original, field)) {
+  let output = "";
+  for (let index = 0; index < template.length;) {
+    const character = template[index];
+    if (character === "{" && template[index + 1] === "{") {
+      output += "{";
+      index += 2;
+      continue;
+    }
+    if (character === "}" && template[index + 1] === "}") {
+      output += "}";
+      index += 2;
+      continue;
+    }
+    if (character !== "{") {
+      if (character === "}") {
+        throw new TypeError(`invalid import_id template ${JSON.stringify(template)}`);
+      }
+      output += character ?? "";
+      index += 1;
+      continue;
+    }
+    const end = template.indexOf("}", index + 1);
+    if (end < 0) throw new TypeError(`invalid import_id template ${JSON.stringify(template)}`);
+    const field = template.slice(index + 1, end);
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(field) || !own(original, field)) {
       throw new TypeError(
         `import_id template ${JSON.stringify(template)} references missing field ${JSON.stringify(field)}`,
       );
     }
-    return pythonTransformString(original[field]);
-  });
+    output += pythonTransformString(original[field]);
+    index = end + 1;
+  }
+  return output;
 }
 
 export function renderTransformImports(options: {

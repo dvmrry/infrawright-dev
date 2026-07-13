@@ -1,7 +1,7 @@
 import type { LoadedResourceMetadata } from "../metadata/loader.js";
 import { isObject, type JsonObject } from "../metadata/validation.js";
 import { pythonJsonEqual } from "../json/python-equality.js";
-import { pythonTransformString } from "./transform-artifacts.js";
+import { formatImportTemplate, pythonTransformString } from "./transform-artifacts.js";
 import {
   slugifyTransformKey,
   snakeJsonKeys,
@@ -69,14 +69,21 @@ export function adoptionMetadata(resource: LoadedResourceMetadata): AdoptionMeta
     explicitFields,
     `${resource.type}.adopt.identity_fields`,
   );
-  const importId = typeof explicit.import_id === "string"
+  const importIdValue = Object.hasOwn(explicit, "import_id")
     ? explicit.import_id
-    : typeof override.import_id === "string"
+    : Object.hasOwn(override, "import_id")
       ? override.import_id
       : Object.hasOwn(identityFields, "import_id")
         ? "{import_id}"
         : "{id}";
-  const keyField = explicit.key_field ?? override.key_field ?? "name";
+  if (typeof importIdValue !== "string") {
+    throw new TypeError(`${resource.type}.adopt.import_id must be a string`);
+  }
+  const keyField = Object.hasOwn(explicit, "key_field")
+    ? explicit.key_field
+    : Object.hasOwn(override, "key_field")
+      ? override.key_field
+      : "name";
   if (
     typeof keyField !== "string"
     && (!Array.isArray(keyField) || keyField.some((field) => typeof field !== "string"))
@@ -96,7 +103,7 @@ export function adoptionMetadata(resource: LoadedResourceMetadata): AdoptionMeta
     constantKey: typeof explicit.constant_key === "string" ? explicit.constant_key : null,
     identityFields,
     identityRenames: stringMap(renames, `${resource.type}.adopt.identity_renames`),
-    importId,
+    importId: importIdValue,
     keyField: keyField as string | readonly string[],
     skipIf: matcherList(skipIf, `${resource.type}.adopt.skip_if`),
     skipIfLte: matcherList(skipIfLte, `${resource.type}.adopt.skip_if_lte`),
@@ -188,43 +195,6 @@ export function deriveAdoptionKey(
   return key;
 }
 
-function formatImportId(
-  template: string,
-  item: Readonly<Record<string, unknown>>,
-): string {
-  let output = "";
-  for (let index = 0; index < template.length;) {
-    const character = template[index];
-    if (character === "{" && template[index + 1] === "{") {
-      output += "{";
-      index += 2;
-      continue;
-    }
-    if (character === "}" && template[index + 1] === "}") {
-      output += "}";
-      index += 2;
-      continue;
-    }
-    if (character !== "{") {
-      if (character === "}") throw new TypeError(`invalid import_id template ${JSON.stringify(template)}`);
-      output += character;
-      index += 1;
-      continue;
-    }
-    const end = template.indexOf("}", index + 1);
-    if (end < 0) throw new TypeError(`invalid import_id template ${JSON.stringify(template)}`);
-    const field = template.slice(index + 1, end);
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(field) || !Object.hasOwn(item, field)) {
-      throw new TypeError(
-        `import_id template ${JSON.stringify(template)} references missing field ${JSON.stringify(field)}`,
-      );
-    }
-    output += identityString(item[field]);
-    index = end + 1;
-  }
-  return output;
-}
-
 /** Derive, validate, and de-duplicate a resource's raw adoption identities. */
 export function deriveAdoptionIdentities(options: {
   readonly rawItems: readonly unknown[];
@@ -262,7 +232,7 @@ export function deriveAdoptionIdentities(options: {
     if (keys.has(key)) {
       throw new TypeError(`duplicate derived key ${JSON.stringify(key)} for ${options.resource.type}`);
     }
-    const importId = formatImportId(metadata.importId, entry.item);
+    const importId = formatImportTemplate(metadata.importId, entry.item);
     const prior = importIds.get(importId);
     if (prior !== undefined) {
       throw new TypeError(

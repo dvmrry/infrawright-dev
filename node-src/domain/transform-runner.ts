@@ -176,6 +176,7 @@ function reportedDrops(options: {
 
 /** Execute the real batch transform target without invoking Python. */
 export async function runTransformBatch(options: {
+  readonly beforeArtifactWrite?: (resourceType: string) => Promise<void>;
   readonly deployment: Deployment;
   readonly environment?: NodeJS.ProcessEnv;
   readonly inputDirectory: string;
@@ -220,6 +221,7 @@ export async function runTransformBatch(options: {
       const variableName = rootLabel === resourceType ? "items" : `${resourceType}_items`;
       const derive = resource.registry.derive;
       if (isObject(derive)) {
+        await options.beforeArtifactWrite?.(resourceType);
         await writeDerivedTransformArtifact({
           deployment: options.deployment,
           items: deriveReorderItems(raw, derive),
@@ -242,6 +244,7 @@ export async function runTransformBatch(options: {
         htmlUnescape: pythonHtmlUnescapeGeneric,
         unescapeHtml: shouldUnescape(options.root, resourceType),
       });
+      await options.beforeArtifactWrite?.(resourceType);
       await writeTransformArtifacts({
         bindingContext: transformBindingContext({
           deployment: options.deployment,

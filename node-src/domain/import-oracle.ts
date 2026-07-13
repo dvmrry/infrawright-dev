@@ -188,38 +188,83 @@ function jsonRecord(value: unknown, message: string): JsonRecord {
   return value;
 }
 
+function optionalEmptyArray(value: unknown): boolean {
+  return value === undefined || (Array.isArray(value) && value.length === 0);
+}
+
+function optionalEmptyRecord(value: unknown): boolean {
+  return value === undefined || (isObject(value) && Object.keys(value).length === 0);
+}
+
+function optionalEmptyCollection(value: unknown): boolean {
+  return optionalEmptyArray(value) || optionalEmptyRecord(value);
+}
+
+function providerName(source: string): string {
+  return source.split("/").length === 2
+    ? `registry.terraform.io/${source}`
+    : source;
+}
+
 export function assertImportOnlyPlan(options: {
-  readonly expectedAddresses: ReadonlySet<string>;
+  readonly expectedImports: ReadonlyMap<string, string>;
   readonly plan: unknown;
+  readonly providerName: string;
   readonly resourceType: string;
 }): void {
   const plan = jsonRecord(options.plan, `${options.resourceType} terraform show -json plan returned a non-object`);
-  const drift = Array.isArray(plan.resource_drift) ? plan.resource_drift : [];
-  if (drift.length > 0) {
-    throw new OracleError(`${options.resourceType} oracle import plan reported resource drift; refusing to apply the scratch plan`);
+  if (
+    typeof plan.format_version !== "string"
+    || !/^1\./u.test(plan.format_version)
+    || typeof plan.terraform_version !== "string"
+    || plan.terraform_version.length === 0
+    || plan.complete !== true
+    || plan.errored !== false
+    || plan.applyable !== true
+    || !optionalEmptyCollection(plan.errors)
+    || !optionalEmptyCollection(plan.diagnostics)
+    || !optionalEmptyArray(plan.checks)
+    || !optionalEmptyArray(plan.deferred_changes)
+    || !optionalEmptyArray(plan.action_invocations)
+    || !optionalEmptyArray(plan.deferred_action_invocations)
+    || !optionalEmptyArray(plan.resource_drift)
+    || !optionalEmptyRecord(plan.output_changes)
+  ) {
+    throw new OracleError(`${options.resourceType} oracle import plan was incomplete, errored, non-applyable, deferred, or contained non-import effects; refusing to apply the scratch plan`);
   }
-  const changes = Array.isArray(plan.resource_changes) ? plan.resource_changes : [];
-  if (changes.length !== options.expectedAddresses.size) {
+  const changes = Array.isArray(plan.resource_changes) ? plan.resource_changes : null;
+  if (changes === null || changes.length !== options.expectedImports.size) {
     throw new OracleError(
-      `${options.resourceType} oracle import plan reported ${changes.length} resource change(s), expected ${options.expectedAddresses.size} import(s); refusing to apply the scratch plan`,
+      `${options.resourceType} oracle import plan reported ${changes?.length ?? "malformed"} resource change(s), expected ${options.expectedImports.size} import(s); refusing to apply the scratch plan`,
     );
   }
   const addresses = new Set<string>();
   for (const raw of changes) {
     const change = jsonRecord(raw, `${options.resourceType} oracle import plan contained a malformed change`);
     const address = typeof change.address === "string" ? change.address : "<unknown>";
+    const expectedImportId = options.expectedImports.get(address);
     const details = isObject(change.change) ? change.change : {};
     const actions = Array.isArray(details.actions) ? details.actions : [];
-    const importing = isObject(details.importing) && Object.keys(details.importing).length > 0;
-    if (actions.length !== 1 || actions[0] !== "no-op" || !importing) {
+    const importing = isObject(details.importing) ? details.importing : null;
+    if (
+      expectedImportId === undefined
+      || addresses.has(address)
+      || change.mode !== "managed"
+      || change.type !== options.resourceType
+      || change.provider_name !== options.providerName
+      || actions.length !== 1
+      || actions[0] !== "no-op"
+      || importing === null
+      || importing.id !== expectedImportId
+    ) {
       throw new OracleError(
-        `${options.resourceType} oracle import plan was not import-only for ${address} (actions=${JSON.stringify(actions)} importing=${String(importing)}); refusing to apply the scratch plan`,
+        `${options.resourceType} oracle import plan was not the exact requested import for ${address}; refusing to apply the scratch plan`,
       );
     }
     addresses.add(address);
   }
-  const missing = [...options.expectedAddresses].filter((address) => !addresses.has(address)).sort();
-  const unexpected = [...addresses].filter((address) => !options.expectedAddresses.has(address)).sort();
+  const missing = [...options.expectedImports.keys()].filter((address) => !addresses.has(address)).sort();
+  const unexpected = [...addresses].filter((address) => !options.expectedImports.has(address)).sort();
   if (missing.length > 0 || unexpected.length > 0) {
     throw new OracleError(
       `${options.resourceType} oracle import plan addresses did not match expected scratch addresses (missing=${missing.join(", ") || "<none>"} unexpected=${unexpected.join(", ") || "<none>"}); refusing to apply the scratch plan`,
@@ -227,19 +272,63 @@ export function assertImportOnlyPlan(options: {
   }
 }
 
-function stateResources(state: unknown): readonly JsonRecord[] {
-  const rootValue = isObject(state) && isObject(state.values) && isObject(state.values.root_module)
-    ? state.values.root_module
-    : {};
-  const output: JsonRecord[] = [];
-  const stack: unknown[] = [rootValue];
-  while (stack.length > 0) {
-    const module = stack.pop();
-    if (!isObject(module)) continue;
-    if (Array.isArray(module.resources)) {
-      for (const resource of module.resources) if (isObject(resource)) output.push(resource);
+function exactStateObjects(options: {
+  readonly addressToKey: ReadonlyMap<string, string>;
+  readonly providerName: string;
+  readonly resourceType: string;
+  readonly state: unknown;
+}): ReadonlyMap<string, OracleStateObject> {
+  const state = jsonRecord(options.state, `${options.resourceType} terraform show -json state returned a non-object`);
+  if (
+    typeof state.format_version !== "string"
+    || !/^1\./u.test(state.format_version)
+    || typeof state.terraform_version !== "string"
+    || state.terraform_version.length === 0
+    || !isObject(state.values)
+    || !optionalEmptyRecord(state.values.outputs)
+    || !optionalEmptyArray(state.checks)
+    || !isObject(state.values.root_module)
+  ) {
+    throw new OracleError(`${options.resourceType} import oracle returned malformed Terraform state`);
+  }
+  const rootModule = state.values.root_module;
+  if (
+    !Array.isArray(rootModule.resources)
+    || rootModule.resources.length !== options.addressToKey.size
+    || !optionalEmptyArray(rootModule.child_modules)
+  ) {
+    throw new OracleError(`${options.resourceType} import oracle returned non-exact root state`);
+  }
+  const output = new Map<string, OracleStateObject>();
+  const seen = new Set<string>();
+  for (const raw of rootModule.resources) {
+    if (!isObject(raw) || typeof raw.address !== "string") {
+      throw new OracleError(`${options.resourceType} import oracle returned a malformed root resource`);
     }
-    if (Array.isArray(module.child_modules)) stack.push(...module.child_modules);
+    const key = options.addressToKey.get(raw.address);
+    if (
+      key === undefined
+      || seen.has(raw.address)
+      || raw.mode !== "managed"
+      || raw.type !== options.resourceType
+      || raw.provider_name !== options.providerName
+      || Object.hasOwn(raw, "deposed_key")
+      || (raw.tainted !== undefined && raw.tainted !== false)
+      || !isObject(raw.values)
+      || !Object.hasOwn(raw, "sensitive_values")
+      || (!isObject(raw.sensitive_values) && raw.sensitive_values !== true)
+    ) {
+      throw new OracleError(`${options.resourceType} import oracle returned non-exact managed state for ${raw.address}`);
+    }
+    seen.add(raw.address);
+    output.set(key, {
+      address: raw.address,
+      values: raw.values,
+      sensitiveValues: raw.sensitive_values,
+    });
+  }
+  if (seen.size !== options.addressToKey.size) {
+    throw new OracleError(`${options.resourceType} import oracle did not return exact expected-address coverage`);
   }
   return output;
 }
@@ -302,9 +391,15 @@ export async function importProviderState(options: {
       TF_DATA_DIR: path.join(temporary, ".terraform"),
     };
     const addresses = new Map<string, string>();
+    const expectedImports = new Map<string, string>();
     for (const key of [...options.keyToImportId.keys()].sort()) {
-      addresses.set(oracleAddress(options.resourceType, key), key);
+      const address = oracleAddress(options.resourceType, key);
+      addresses.set(address, key);
+      expectedImports.set(address, options.keyToImportId.get(key) ?? "");
     }
+    const expectedProviderName = providerName(
+      options.root.packs.providerSources[resource.provider] ?? "",
+    );
     const sensitiveTokens = [...options.keyToImportId.values()].sort();
     const run = async (
       argv: readonly string[],
@@ -356,30 +451,21 @@ export async function importProviderState(options: {
     }
     const planJson = parseDataJsonLosslessly(await run(["show", "-json", plan], "show-plan", "capture"));
     assertImportOnlyPlan({
-      expectedAddresses: new Set(addresses.keys()),
+      expectedImports,
       plan: planJson,
+      providerName: expectedProviderName,
       resourceType: options.resourceType,
     });
     await run(["apply", "-input=false", "-no-color", "-lock=false", plan], "apply-imports");
     const stateJson = parseDataJsonLosslessly(
       await run(["show", "-json", "terraform.tfstate"], "show-state", "capture"),
     );
-    const output = new Map<string, OracleStateObject>();
-    for (const state of stateResources(stateJson)) {
-      if (state.type !== options.resourceType || typeof state.address !== "string") continue;
-      const key = addresses.get(state.address);
-      if (key === undefined) continue;
-      output.set(key, {
-        address: state.address,
-        values: isObject(state.values) ? state.values : {},
-        sensitiveValues: state.sensitive_values ?? {},
-      });
-    }
-    const missing = [...options.keyToImportId.keys()].filter((key) => !output.has(key)).sort();
-    if (missing.length > 0) {
-      throw new OracleError(`${options.resourceType} import oracle did not return state for key(s): ${missing.join(", ")}`);
-    }
-    return output;
+    return exactStateObjects({
+      addressToKey: addresses,
+      providerName: expectedProviderName,
+      resourceType: options.resourceType,
+      state: stateJson,
+    });
   } catch (error: unknown) {
     primary = error;
     throw error;

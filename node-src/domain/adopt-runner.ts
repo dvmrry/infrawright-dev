@@ -250,8 +250,14 @@ export async function runAdoptBatch(options: {
       if (!Array.isArray(rawItems)) throw new TypeError(`${source} must be a JSON LIST of items`);
       const resource = options.root.resources.get(resourceType);
       if (resource === undefined) throw new TypeError(`unknown resource ${resourceType}`);
+      await assertNoPendingMoves({ deployment: options.deployment, resourceType, tenant: options.tenant });
       if (isObject(resource.registry.derive)) {
         const delegated = await runTransformBatch({
+          beforeArtifactWrite: async (selectedResourceType) => assertNoPendingMoves({
+            deployment: options.deployment,
+            resourceType: selectedResourceType,
+            tenant: options.tenant,
+          }),
           deployment: options.deployment,
           inputDirectory: options.inputDirectory,
           onDiagnostic: write,
@@ -263,7 +269,6 @@ export async function runAdoptBatch(options: {
         else processed.push(resourceType);
         continue;
       }
-      await assertNoPendingMoves({ deployment: options.deployment, resourceType, tenant: options.tenant });
       const result = await adoptResourceItems({
         policy: options.policy,
         rawItems,
