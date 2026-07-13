@@ -203,9 +203,15 @@
     TypeScript source, `node_modules`, and legacy bundles absent, including the
     shadow-root, external-profile, fixed-profile-inventory, and incoherent
     selector regressions.
+- The first patch-focused recheck found two residual implementations of the
+  accepted findings: Node can resolve a symlinked main module outside the
+  lexical package root, and npm/Pacote compares registry-host replacement
+  tokens case-sensitively. The final patch rejects a symlinked runtime bundle
+  and accepts only npm's exact lowercase rewrite tokens; both reproductions are
+  permanent regressions.
 - Scope remains below the user trigger. The conservative count including this
-  handoff is 7 non-test files, +851/-49 lines, net +802; excluding the review
-  handoff leaves 6 files, +613/-49 lines, net +564.
+  handoff is 7 non-test files, +870/-50 lines, net +820; excluding the review
+  handoff leaves 6 files, +617/-50 lines, net +567.
 - The exact patch-focused re-review is requested against the frozen commit
   named in its prompt; the reviewer verdict is recorded with the PR evidence
   rather than self-certified here.

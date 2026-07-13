@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { access, readFile, readdir, stat } from "node:fs/promises";
+import { access, lstat, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 function fail(message) {
@@ -93,6 +93,9 @@ const cli = await requireFile(
   path.join(root, "dist", "infrawright-cli.mjs"),
   "dist/infrawright-cli.mjs",
 );
+if ((await lstat(cli)).isSymbolicLink()) {
+  fail("dist/infrawright-cli.mjs must not be a symbolic link");
+}
 const checksumFile = await requireFile(
   path.join(root, "dist", "infrawright-cli.mjs.sha256"),
   "dist/infrawright-cli.mjs.sha256",

@@ -179,24 +179,24 @@ function configTokens(value) {
 }
 
 function replacementPolicy(setting, registry, resolvedHosts) {
-  const normalized = setting.trim().toLowerCase();
+  const configured = setting.trim();
   const hosts = [...resolvedHosts.keys()].sort();
   if (hosts.every((host) => host === registry)) {
     return { description: "not required; lock hosts match the configured registry" };
   }
   const unreplaced = hosts.filter((host) => {
     return host !== registry
-      && normalized !== "always"
-      && normalized !== host
-      && !(normalized === "npmjs" && PUBLIC_REGISTRY_HOSTS.has(host));
+      && configured !== "always"
+      && configured !== host
+      && !(configured === "npmjs" && PUBLIC_REGISTRY_HOSTS.has(host));
   });
   if (unreplaced.length > 0) {
     return {
       error: `registry-host replacement leaves lockfile host ${unreplaced[0]} authoritative`,
     };
   }
-  if (normalized === "always") return { description: "all lockfile hosts" };
-  if (normalized === "npmjs") return { description: "public npm lockfile hosts" };
+  if (configured === "always") return { description: "all lockfile hosts" };
+  if (configured === "npmjs") return { description: "public npm lockfile hosts" };
   return { description: "matching lockfile host" };
 }
 

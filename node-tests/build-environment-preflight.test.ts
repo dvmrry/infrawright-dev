@@ -288,7 +288,13 @@ test("unsafe registry-host replacement fails before lookup without leaking confi
   try {
     const npm = await fakeNpm(directory);
     const log = path.join(directory, "npm.log");
-    for (const replacement of ["never", "old-registry.example", "secret-token-value"]) {
+    for (const replacement of [
+      "never",
+      "NPMJS",
+      "REGISTRY.NPMJS.ORG",
+      "old-registry.example",
+      "secret-token-value",
+    ]) {
       const result = runPreflight([
         "--npm",
         npm,

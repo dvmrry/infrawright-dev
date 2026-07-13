@@ -9,6 +9,7 @@ import {
   mkdir,
   readdir,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
@@ -240,6 +241,19 @@ try {
   if (!externalCli.stderr.includes("unknown argument --cli")) {
     throw new Error(`unexpected incoherent-selector diagnostic: ${externalCli.stderr}`);
   }
+
+  const runtimeCli = path.join(generic, "dist", "infrawright-cli.mjs");
+  await rm(runtimeCli);
+  await symlink(path.join(stage, "dist", "infrawright-cli.mjs"), runtimeCli);
+  const symlinkedCli = runExpectedFailure(process.execPath, [verifier, generic], {
+    cwd: temporary,
+    env: environment,
+  });
+  if (!symlinkedCli.stderr.includes("infrawright-cli.mjs must not be a symbolic link")) {
+    throw new Error(`unexpected symlinked-CLI diagnostic: ${symlinkedCli.stderr}`);
+  }
+  await rm(runtimeCli);
+  await cp(path.join(stage, "dist", "infrawright-cli.mjs"), runtimeCli);
   const resourceResult = run(process.execPath, [
     path.join(generic, "dist", "infrawright-cli.mjs"),
     "resources",
