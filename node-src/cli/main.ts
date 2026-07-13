@@ -48,6 +48,7 @@ import {
   runAdoptBatch,
   type AdoptionStateLoader,
 } from "../domain/adopt-runner.js";
+import { generateEnvironmentRoots } from "../domain/environment-generator.js";
 
 const USAGE = [
   "usage:",
@@ -57,6 +58,7 @@ const USAGE = [
   "  infrawright modules <generate|validate> [--resource <type>] [--out <dir>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>] [--terraform <path>]",
   "  infrawright transform --in <dir> --tenant <name> [--resource <selector>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright adopt --in <dir> --tenant <name> [--resource <selector>] [--policy <file>] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
+  "  infrawright gen-env --tenant <name> [--backend <backend>] [--resource <selector>] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright fetch --tenant <name> [--resource <selector>] [--out <dir>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright fetch-diag [--root <packs>] [--profile <file>] [--catalog <file>]",
 ].join("\n");
@@ -511,6 +513,64 @@ async function adopt(arguments_: string[]): Promise<number> {
   return result.failed.length === 0 ? 0 : 1;
 }
 
+async function genEnv(arguments_: string[]): Promise<number> {
+  const rootDirectory = await packageRoot();
+  let root = process.env.INFRAWRIGHT_PACKS || path.join(rootDirectory, "packs");
+  let profile = process.env.INFRAWRIGHT_PACK_PROFILE
+    || path.join(rootDirectory, "packsets", "full.json");
+  let catalog = path.join(rootDirectory, "packsets", "full.json");
+  let selectedDeployment = deploymentPath();
+  let backend: string | undefined;
+  let tenant: string | undefined;
+  let terraform: string | undefined;
+  const resources: string[] = [];
+  for (let index = 0; index < arguments_.length;) {
+    const argument = arguments_[index];
+    if (
+      argument === "--root"
+      || argument === "--profile"
+      || argument === "--catalog"
+      || argument === "--deployment"
+      || argument === "--backend"
+      || argument === "--tenant"
+      || argument === "--terraform"
+      || argument === "--resource"
+    ) {
+      const option = takeOption(arguments_, index, argument);
+      if (argument === "--root") root = option.value;
+      if (argument === "--profile") profile = option.value;
+      if (argument === "--catalog") catalog = option.value;
+      if (argument === "--deployment") selectedDeployment = option.value;
+      if (argument === "--backend") backend = option.value;
+      if (argument === "--tenant") tenant = option.value;
+      if (argument === "--terraform") terraform = option.value;
+      if (argument === "--resource") resources.push(option.value);
+      index = option.next;
+    } else if (argument === "-h" || argument === "--help") {
+      throw new CliExit(USAGE, 0, true);
+    } else {
+      usageError(`unknown argument ${String(argument)}`);
+    }
+  }
+  if (tenant === undefined) usageError("gen-env requires --tenant");
+  const [packRoot, loadedDeployment] = await Promise.all([
+    loadPackRoot({ packsRoot: root, profilePath: profile, catalogPath: catalog }),
+    loadDeployment(selectedDeployment),
+  ]);
+  await generateEnvironmentRoots({
+    ...(backend === undefined ? {} : { backend }),
+    deployment: loadedDeployment,
+    formatHcl: terraformHclFormatter({
+      ...(terraform === undefined ? {} : { executable: terraform }),
+    }),
+    onDiagnostic: (message) => process.stderr.write(`${message}\n`),
+    root: packRoot,
+    selectors: resources,
+    tenant,
+  });
+  return 0;
+}
+
 interface FetchCliOptions {
   readonly catalog: string;
   readonly output?: string;
@@ -697,6 +757,7 @@ async function main(arguments_: string[]): Promise<number> {
   if (command === "modules") return modules(arguments_.slice(1));
   if (command === "transform") return transform(arguments_.slice(1));
   if (command === "adopt") return adopt(arguments_.slice(1));
+  if (command === "gen-env") return genEnv(arguments_.slice(1));
   if (command === "fetch") return fetchCommand(arguments_.slice(1));
   if (command === "fetch-diag") return fetchDiag(arguments_.slice(1));
   if (command === "-h" || command === "--help") {

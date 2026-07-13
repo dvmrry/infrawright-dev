@@ -106,9 +106,9 @@ fetch: metadata-cli ## Pull API JSON into pulls/<tenant> (TENANT=<name> [RESOURC
 fetch-diag: metadata-cli ## Probe TLS to the fetcher's hosts under system trust and +bundle
 	$(INFRAWRIGHT_CLI) fetch-diag --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)"
 
-gen-env: ## Generate env roots for a tenant (TENANT=<label> [BACKEND=azurerm] [RESOURCE="<type|provider> ..."])
+gen-env: metadata-cli ## Generate env roots for a tenant (TENANT=<label> [BACKEND=azurerm] [RESOURCE="<type|provider> ..."])
 	@test -n "$(TENANT)" || { echo "usage: make gen-env TENANT=<label> [BACKEND=azurerm] [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
-	$(PYTHON) -m engine.gen_env "$(TENANT)" $(if $(BACKEND),--backend "$(BACKEND)") $(RESOURCE)
+	$(INFRAWRIGHT_CLI) gen-env --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(BACKEND),--backend "$(BACKEND)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
 transform: metadata-cli ## Transform pulled JSON for a tenant (IN=<dir> TENANT=<name> [RESOURCE="<type|provider> ..."])
 	@test -n "$(IN)" -a -n "$(TENANT)" || { echo "usage: make transform IN=pulls/<tenant> TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
