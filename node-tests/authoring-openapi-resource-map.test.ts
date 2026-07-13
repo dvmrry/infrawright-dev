@@ -226,24 +226,26 @@ test("computed API fields retain writable relationship aliases before suppressio
 });
 
 test("generic and registry ratios use Python half-even four-place rounding", () => {
-  const providerSource = "registry.terraform.io/example/example";
-  const resources: JsonObject = { example_folder: schema() };
-  const registry: JsonObject = { example_folder: { fetch: { path: "/folders" }, product: "example" } };
-  for (let index = 1; index < 32; index += 1) {
-    const name = `example_missing_${String(index).padStart(2, "0")}`;
-    resources[name] = schema();
-    registry[name] = { fetch: { path: `/missing/${index}` }, product: "example" };
+  for (const [total, expected] of [[32, 0.0312], [160, 0.0063]] as const) {
+    const providerSource = "registry.terraform.io/example/example";
+    const resources: JsonObject = { example_folder: schema() };
+    const registry: JsonObject = { example_folder: { fetch: { path: "/folders" }, product: "example" } };
+    for (let index = 1; index < total; index += 1) {
+      const name = `example_missing_${String(index).padStart(3, "0")}`;
+      resources[name] = schema();
+      registry[name] = { fetch: { path: `/missing/${index}` }, product: "example" };
+    }
+    const schemaData: JsonObject = { provider_schemas: { [providerSource]: { resource_schemas: resources } } };
+    const openApi: JsonObject = { openapi: "3.0.3", paths: {
+      "/folders": { get: {}, post: {} }, "/folders/{id}": { get: {} },
+    } };
+    const options = { apiPrefix: "/", openApi, providerSource, registryData: registry, resourcePrefix: "example", schemaData };
+    const report = buildOpenApiResourceMap(options);
+    assert.deepEqual(report, pythonReport({
+      api_prefix: "/", openapi: openApi, provider_source: providerSource,
+      registry_data: registry, resource_prefix: "example", schema: schemaData,
+    }));
+    assert.equal((report.coverage as JsonObject).coverage_ratio, expected);
+    assert.equal(((report.registry_fetch_coverage as JsonObject).summary as JsonObject).coverage_ratio, expected);
   }
-  const schemaData: JsonObject = { provider_schemas: { [providerSource]: { resource_schemas: resources } } };
-  const openApi: JsonObject = { openapi: "3.0.3", paths: {
-    "/folders": { get: {}, post: {} }, "/folders/{id}": { get: {} },
-  } };
-  const options = { apiPrefix: "/", openApi, providerSource, registryData: registry, resourcePrefix: "example", schemaData };
-  const report = buildOpenApiResourceMap(options);
-  assert.deepEqual(report, pythonReport({
-    api_prefix: "/", openapi: openApi, provider_source: providerSource,
-    registry_data: registry, resource_prefix: "example", schema: schemaData,
-  }));
-  assert.equal((report.coverage as JsonObject).coverage_ratio, 0.0312);
-  assert.equal(((report.registry_fetch_coverage as JsonObject).summary as JsonObject).coverage_ratio, 0.0312);
 });

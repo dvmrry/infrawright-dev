@@ -585,16 +585,32 @@ function family(resourceType: string, prefix: string): string {
   return baseResourceTokens(resourceType, prefix)[0] ?? "unknown";
 }
 
-function roundRatio4(numerator: number, denominator: number): number {
-  if (denominator === 0) return 0;
-  const scaled = BigInt(numerator) * 10_000n;
-  const divisor = BigInt(denominator);
+function pythonRound4(value: number): number {
+  if (!Number.isFinite(value)) return value;
+  if (value === 0) return value;
+  const buffer = new ArrayBuffer(8);
+  const view = new DataView(buffer);
+  view.setFloat64(0, Math.abs(value), false);
+  const high = view.getUint32(0, false);
+  const low = view.getUint32(4, false);
+  const exponentBits = (high >>> 20) & 0x7ff;
+  const fraction = (BigInt(high & 0xfffff) << 32n) | BigInt(low);
+  const significand = exponentBits === 0 ? fraction : (1n << 52n) | fraction;
+  const exponent = exponentBits === 0 ? -1074 : exponentBits - 1075;
+  let scaled = significand * 10_000n;
+  let divisor = 1n;
+  if (exponent >= 0) scaled <<= BigInt(exponent);
+  else divisor <<= BigInt(-exponent);
   let quotient = scaled / divisor;
   const twiceRemainder = (scaled % divisor) * 2n;
   if (twiceRemainder > divisor || (twiceRemainder === divisor && quotient % 2n !== 0n)) {
     quotient += 1n;
   }
-  return Number(quotient) / 10_000;
+  return (value < 0 ? -Number(quotient) : Number(quotient)) / 10_000;
+}
+
+function roundRatio4(numerator: number, denominator: number): number {
+  return denominator === 0 ? 0 : pythonRound4(numerator / denominator);
 }
 
 function coverageDiagnostics(
