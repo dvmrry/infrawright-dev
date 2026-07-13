@@ -110,18 +110,9 @@ gen-env: ## Generate env roots for a tenant (TENANT=<label> [BACKEND=azurerm] [R
 	@test -n "$(TENANT)" || { echo "usage: make gen-env TENANT=<label> [BACKEND=azurerm] [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
 	$(PYTHON) -m engine.gen_env "$(TENANT)" $(if $(BACKEND),--backend "$(BACKEND)") $(RESOURCE)
 
-transform: ## Transform pulled JSON for a tenant (IN=<dir> TENANT=<name> [RESOURCE="<type|provider> ..."])
+transform: metadata-cli ## Transform pulled JSON for a tenant (IN=<dir> TENANT=<name> [RESOURCE="<type|provider> ..."])
 	@test -n "$(IN)" -a -n "$(TENANT)" || { echo "usage: make transform IN=pulls/<tenant> TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
-	@set -e; resources="$$($(PYTHON) -m engine.ops resources --order=references $(RESOURCE))"; failed=""; for rt in $$resources; do \
-		src=$$($(PYTHON) -c "from engine.registry import derive_entry; d=derive_entry('$$rt'); print(d['from'] if d else '$$rt')"); \
-		f="$(IN)/$$src.json"; \
-		if [ -f "$$f" ]; then \
-			$(PYTHON) -m engine.transform "$$rt" "$$f" "$(TENANT)" || failed="$$failed $$rt"; \
-		else \
-			echo "skip $$rt (no $$f)"; \
-		fi; \
-	done; \
-	test -z "$$failed" || { echo ""; echo "transform FAILED for:$$failed"; exit 1; }
+	$(INFRAWRIGHT_CLI) transform --in "$(IN)" --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
 reconcile: ## Compare API JSON to Terraform schema (RESOURCE=<type> IN=<api.json> [SCHEMA=<schema.json>] [API_OPTIONS=<options.json>] [OPENAPI=<spec.json>] [OPENAPI_READ=<METHOD:/path>] [OPENAPI_WRITE="<METHOD:/path> ..."] [OVERRIDE=<override.json>] [OUT=<report.json>] [STRICT=1])
 	@test -n "$(RESOURCE)" -a -n "$(IN)" || { echo "usage: make reconcile RESOURCE=<type> IN=<api.json> [SCHEMA=<schema.json>] [API_OPTIONS=<options.json>] [OPENAPI=<spec.json>] [OPENAPI_READ=<METHOD:/path>] [OPENAPI_WRITE=\"<METHOD:/path> ...\"] [OVERRIDE=<override.json>] [OUT=<report.json>] [STRICT=1]"; exit 2; }

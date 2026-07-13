@@ -5,6 +5,18 @@ import path from "node:path";
 import { manifestForProvider } from "../metadata/packs.js";
 import type { LoadedPackRoot } from "../metadata/loader.js";
 import { isObject, type JsonObject } from "../metadata/validation.js";
+import {
+  terraformAttributeType as attributeType,
+  terraformAttributesForBlock as attributesForBlock,
+  terraformBlockForSchema as blockForSchema,
+  terraformBlockIsSingle as blockIsSingle,
+  terraformBlockTypesForBlock as blockTypesForBlock,
+  terraformBooleanField as booleanField,
+  terraformClassifyAttributes as classifyAttributes,
+  terraformInputBlockTypes as inputBlockTypes,
+  terraformRequireObject as requireObject,
+  terraformResourceInputAttributes as resourceInputAttributes,
+} from "../metadata/terraform-schema.js";
 import { renderPythonLosslessArtifactJson } from "../json/python-lossless-artifact.js";
 import { sortedStrings } from "../json/python-compatible.js";
 
@@ -31,12 +43,6 @@ export interface GeneratedModule {
   readonly files: readonly string[];
 }
 
-interface ClassifiedAttributes {
-  readonly required: readonly string[];
-  readonly optional: readonly string[];
-  readonly computedOnly: readonly string[];
-}
-
 interface RenderContext {
   readonly resourceType: string;
   readonly provider: string;
@@ -49,128 +55,6 @@ interface RenderContext {
 
 function schemaError(message: string): never {
   throw new TypeError(message);
-}
-
-function requireObject(value: unknown, label: string): JsonObject {
-  if (!isObject(value)) schemaError(`${label} must be an object`);
-  return value;
-}
-
-function blockForSchema(schema: JsonObject, label: string): JsonObject {
-  return requireObject(schema.block, `${label}.block`);
-}
-
-function attributesForBlock(block: JsonObject, label: string): JsonObject {
-  const value = block.attributes;
-  if (value === undefined || value === null) return {};
-  return requireObject(value, `${label}.attributes`);
-}
-
-function blockTypesForBlock(block: JsonObject, label: string): JsonObject {
-  const value = block.block_types;
-  if (value === undefined || value === null) return {};
-  return requireObject(value, `${label}.block_types`);
-}
-
-function booleanField(value: JsonObject, name: string): boolean {
-  return value[name] === true;
-}
-
-function classifyAttributes(block: JsonObject, label: string): ClassifiedAttributes {
-  const required: string[] = [];
-  const optional: string[] = [];
-  const computedOnly: string[] = [];
-  const attributes = attributesForBlock(block, label);
-  for (const name of sortedStrings(Object.keys(attributes))) {
-    const attribute = requireObject(attributes[name], `${label}.attributes.${name}`);
-    if (booleanField(attribute, "deprecated") && !booleanField(attribute, "required")) {
-      computedOnly.push(name);
-    } else if (booleanField(attribute, "required")) {
-      required.push(name);
-    } else if (booleanField(attribute, "optional")) {
-      optional.push(name);
-    } else {
-      computedOnly.push(name);
-    }
-  }
-  return { required, optional, computedOnly };
-}
-
-function resourceInputAttributes(block: JsonObject, label: string): ClassifiedAttributes {
-  const classified = classifyAttributes(block, label);
-  const id = attributesForBlock(block, label).id;
-  if (
-    classified.optional.includes("id")
-    && id !== undefined
-    && booleanField(requireObject(id, `${label}.attributes.id`), "computed")
-  ) {
-    return {
-      required: classified.required,
-      optional: classified.optional.filter((name) => name !== "id"),
-      computedOnly: [...classified.computedOnly, "id"],
-    };
-  }
-  return classified;
-}
-
-function nestedTypeEncoding(nestedTypeValue: unknown, label: string): unknown {
-  const nestedType = requireObject(nestedTypeValue, label);
-  const attributes = attributesForBlock(nestedType, label);
-  const members: JsonObject = {};
-  for (const name of sortedStrings(Object.keys(attributes))) {
-    const attribute = requireObject(attributes[name], `${label}.attributes.${name}`);
-    if (booleanField(attribute, "deprecated") && !booleanField(attribute, "required")) {
-      continue;
-    }
-    if (booleanField(attribute, "required") || booleanField(attribute, "optional")) {
-      members[name] = attributeType(attribute, `${label}.attributes.${name}`);
-    }
-  }
-  const objectEncoding: unknown = ["object", members];
-  const mode = nestedType.nesting_mode;
-  if (mode === "single") return objectEncoding;
-  if (mode === "list" || mode === "set" || mode === "map") {
-    return [mode, objectEncoding];
-  }
-  return schemaError(`unsupported nested_type nesting_mode ${JSON.stringify(mode)}`);
-}
-
-function attributeType(attribute: JsonObject, label: string): unknown {
-  if (Object.hasOwn(attribute, "type")) return attribute.type;
-  if (Object.hasOwn(attribute, "nested_type")) {
-    return nestedTypeEncoding(attribute.nested_type, `${label}.nested_type`);
-  }
-  return schemaError(`attribute has no type or nested_type: ${label}`);
-}
-
-function blockIsSingle(blockType: JsonObject): boolean {
-  return blockType.nesting_mode === "single" || blockType.max_items === 1;
-}
-
-function blockHasInputs(block: JsonObject, label: string): boolean {
-  const classified = classifyAttributes(block, label);
-  if (classified.required.length > 0 || classified.optional.length > 0) return true;
-  const nested = blockTypesForBlock(block, label);
-  return sortedStrings(Object.keys(nested)).some((name) => {
-    const blockType = requireObject(nested[name], `${label}.block_types.${name}`);
-    return blockHasInputs(
-      requireObject(blockType.block, `${label}.block_types.${name}.block`),
-      `${label}.block_types.${name}.block`,
-    );
-  });
-}
-
-function inputBlockTypes(block: JsonObject, label: string): ReadonlyMap<string, JsonObject> {
-  const output = new Map<string, JsonObject>();
-  const nested = blockTypesForBlock(block, label);
-  for (const name of sortedStrings(Object.keys(nested))) {
-    const blockType = requireObject(nested[name], `${label}.block_types.${name}`);
-    const child = requireObject(blockType.block, `${label}.block_types.${name}.block`);
-    if (blockHasInputs(child, `${label}.block_types.${name}.block`)) {
-      output.set(name, blockType);
-    }
-  }
-  return output;
 }
 
 function hclType(encoding: unknown, indent = 4): string {

@@ -9,6 +9,7 @@ import type {
 } from "./types.js";
 import { pythonPosixJoin } from "./paths.js";
 import { sortedStrings } from "../json/python-compatible.js";
+import type { LoadedPackRoot } from "../metadata/loader.js";
 
 const ROOT_LABEL = /^[a-z0-9_]+$/;
 const VALID_TENANT = /^[A-Za-z0-9_.-]+$/;
@@ -55,6 +56,62 @@ function indexCatalog(catalog: RootCatalog): CatalogIndex {
         .map((resource) => resource.type),
     ),
     providers: new Set(catalog.declared_providers),
+  };
+}
+
+function loadedResourceShape(
+  root: LoadedPackRoot,
+  resourceType: string,
+): RootCatalogResource {
+  const resource = root.resources.get(resourceType);
+  if (resource === undefined) {
+    return domainError(`unknown active resource type '${resourceType}'`);
+  }
+  const prefixes = Object.entries(root.packs.providerPrefixes)
+    .filter(([prefix, provider]) => {
+      return provider === resource.provider && resourceType.startsWith(prefix);
+    })
+    .sort(([left], [right]) => right.length - left.length);
+  const prefix = prefixes[0]?.[0];
+  if (prefix === undefined) {
+    return domainError(
+      `resource type ${resourceType} has no declared prefix for provider ${resource.provider}`,
+    );
+  }
+  const bareName = resourceType.slice(prefix.length);
+  const first = bareName.split("_", 1)[0] ?? "";
+  return {
+    type: resourceType,
+    product: resource.product,
+    provider: resource.provider,
+    bare_name: bareName,
+    slug_label: first.length === 0 ? null : `${prefix}${first}`,
+    generated: resource.registry.generate === true,
+    derived: resource.registry.generate === true
+      && typeof resource.registry.derive === "object"
+      && resource.registry.derive !== null,
+  };
+}
+
+/** Build the existing root resolver's private index directly from pack metadata. */
+function indexLoadedPackRoot(root: LoadedPackRoot): CatalogIndex {
+  const resources = new Map<string, RootCatalogResource>();
+  for (const resourceType of sortedStrings(root.resources.keys())) {
+    resources.set(resourceType, loadedResourceShape(root, resourceType));
+  }
+  return {
+    resources,
+    generated: new Set(
+      [...resources.values()]
+        .filter((resource) => resource.generated)
+        .map((resource) => resource.type),
+    ),
+    derived: new Set(
+      [...resources.values()]
+        .filter((resource) => resource.generated && resource.derived)
+        .map((resource) => resource.type),
+    ),
+    providers: new Set(Object.values(root.packs.providerPrefixes)),
   };
 }
 
@@ -285,6 +342,14 @@ export function expandCatalogResources(
   return expandResources(selectors, indexCatalog(catalog));
 }
 
+/** Expand transform selectors without constructing or persisting a root catalog. */
+export function expandLoadedResources(
+  root: LoadedPackRoot,
+  selectors: readonly string[],
+): string[] {
+  return expandResources(selectors, indexLoadedPackRoot(root));
+}
+
 function tenantPath(
   deployment: Deployment,
   tenant: string,
@@ -298,8 +363,8 @@ function tenantPath(
   return overlay === "." ? relative : pythonPosixJoin(overlay, relative);
 }
 
-export function rootTopology(options: {
-  catalog: RootCatalog;
+function rootTopologyFromIndex(options: {
+  index: CatalogIndex;
   deployment: Deployment;
   tenant: string | null;
   selectors: readonly string[];
@@ -307,7 +372,7 @@ export function rootTopology(options: {
   if (options.tenant !== null) {
     validateTenant(options.tenant);
   }
-  const index = indexCatalog(options.catalog);
+  const index = options.index;
   const resolution = resolveRoots(options.deployment, index);
   const selectedResources = expandResources(options.selectors, index);
   const selected = new Set(selectedResources);
@@ -379,4 +444,34 @@ export function rootTopology(options: {
     },
     diagnostics,
   };
+}
+
+export function rootTopology(options: {
+  catalog: RootCatalog;
+  deployment: Deployment;
+  tenant: string | null;
+  selectors: readonly string[];
+}): { topology: RootTopology; diagnostics: WholeRootDiagnostic[] } {
+  return rootTopologyFromIndex({
+    deployment: options.deployment,
+    index: indexCatalog(options.catalog),
+    tenant: options.tenant,
+    selectors: options.selectors,
+  });
+}
+
+/** Resolve roots from the same pack metadata object used by generators. */
+export function loadedRootTopology(options: {
+  root: LoadedPackRoot;
+  deployment: Deployment;
+  tenant: string | null;
+  selectors: readonly string[];
+}): { topology: RootTopology; diagnostics: WholeRootDiagnostic[] } {
+  if (options.tenant !== null) validateTenant(options.tenant);
+  return rootTopologyFromIndex({
+    deployment: options.deployment,
+    index: indexLoadedPackRoot(options.root),
+    tenant: options.tenant,
+    selectors: options.selectors,
+  });
 }

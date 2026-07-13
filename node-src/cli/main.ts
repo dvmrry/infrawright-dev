@@ -27,6 +27,7 @@ import {
   terraformHclFormatter,
   validateGeneratedModuleTree,
 } from "../modules/generator.js";
+import { runTransformBatch } from "../domain/transform-runner.js";
 
 const USAGE = [
   "usage:",
@@ -34,6 +35,7 @@ const USAGE = [
   "  infrawright check-pack-set [--profile <file>] [--catalog <file>] [--requirements <file>] [--root <packs>]",
   "  infrawright deployment [--deployment <file>] <overlay|tfvars-format|module-dir|tenant-root|config-dir|imports-dir|envs-dir> [tenant]",
   "  infrawright modules <generate|validate> [--resource <type>] [--out <dir>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>] [--terraform <path>]",
+  "  infrawright transform --in <dir> --tenant <name> [--resource <selector>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
 ].join("\n");
 
 class CliExit extends Error {
@@ -351,12 +353,68 @@ async function modules(arguments_: string[]): Promise<number> {
   return 0;
 }
 
+async function transform(arguments_: string[]): Promise<number> {
+  const rootDirectory = await packageRoot();
+  let root = process.env.INFRAWRIGHT_PACKS || path.join(rootDirectory, "packs");
+  let profile = process.env.INFRAWRIGHT_PACK_PROFILE
+    || path.join(rootDirectory, "packsets", "full.json");
+  let catalog = path.join(rootDirectory, "packsets", "full.json");
+  let selectedDeployment = deploymentPath();
+  let input: string | undefined;
+  let tenant: string | undefined;
+  const resources: string[] = [];
+  for (let index = 0; index < arguments_.length;) {
+    const argument = arguments_[index];
+    if (
+      argument === "--root"
+      || argument === "--profile"
+      || argument === "--catalog"
+      || argument === "--deployment"
+      || argument === "--in"
+      || argument === "--tenant"
+      || argument === "--resource"
+    ) {
+      const option = takeOption(arguments_, index, argument);
+      if (argument === "--root") root = option.value;
+      if (argument === "--profile") profile = option.value;
+      if (argument === "--catalog") catalog = option.value;
+      if (argument === "--deployment") selectedDeployment = option.value;
+      if (argument === "--in") input = option.value;
+      if (argument === "--tenant") tenant = option.value;
+      if (argument === "--resource") resources.push(option.value);
+      index = option.next;
+    } else if (argument === "-h" || argument === "--help") {
+      throw new CliExit(USAGE, 0, true);
+    } else {
+      usageError(`unknown argument ${String(argument)}`);
+    }
+  }
+  if (input === undefined || tenant === undefined) {
+    usageError("transform requires --in and --tenant");
+  }
+  const [packRoot, loadedDeployment] = await Promise.all([
+    loadPackRoot({ packsRoot: root, profilePath: profile, catalogPath: catalog }),
+    loadDeployment(selectedDeployment),
+  ]);
+  const result = await runTransformBatch({
+    deployment: loadedDeployment,
+    environment: process.env,
+    inputDirectory: input,
+    onDiagnostic: (message) => process.stderr.write(`${message}\n`),
+    root: packRoot,
+    selectors: resources,
+    tenant,
+  });
+  return result.failed.length === 0 ? 0 : 1;
+}
+
 async function main(arguments_: string[]): Promise<number> {
   const command = arguments_[0];
   if (command === "check-pack") return checkPack(arguments_.slice(1));
   if (command === "check-pack-set") return checkPackSet(arguments_.slice(1));
   if (command === "deployment") return deployment(arguments_.slice(1));
   if (command === "modules") return modules(arguments_.slice(1));
+  if (command === "transform") return transform(arguments_.slice(1));
   if (command === "-h" || command === "--help") {
     process.stdout.write(`${USAGE}\n`);
     return 0;
