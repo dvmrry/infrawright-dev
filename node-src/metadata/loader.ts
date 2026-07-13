@@ -12,6 +12,7 @@ import {
   loadOverrides,
   loadProviderSchema,
   loadRegistry,
+  loadResourceMainOverride,
   loadResourceSchema,
   type LoadedOverrides,
   type LoadedRegistry,
@@ -37,6 +38,7 @@ export interface LoadedPackRoot {
   readonly overrides: LoadedOverrides;
   readonly resources: ReadonlyMap<string, LoadedResourceMetadata>;
   loadProviderSchema(provider: string): Promise<ProviderSchema>;
+  loadResourceMainOverride(resourceType: string): Promise<string | null>;
   loadResourceSchema(resourceType: string): Promise<Readonly<JsonObject>>;
 }
 
@@ -102,6 +104,7 @@ export async function loadPackRoot(options: {
     loadRegistry(metadata, active.packs),
     loadOverrides(metadata, active.packs),
   ]);
+  const resources = resourceMap(metadata, registry, overrides);
   return {
     root: metadata.root,
     profile,
@@ -109,9 +112,15 @@ export async function loadPackRoot(options: {
     packs: metadata,
     registry,
     overrides,
-    resources: resourceMap(metadata, registry, overrides),
+    resources,
     loadProviderSchema: async (provider: string) => {
       return loadProviderSchema(metadata, provider);
+    },
+    loadResourceMainOverride: async (resourceType: string) => {
+      if (!resources.has(resourceType)) {
+        throw new TypeError(`unknown active resource type ${JSON.stringify(resourceType)}`);
+      }
+      return loadResourceMainOverride(metadata, resourceType);
     },
     loadResourceSchema: async (resourceType: string) => {
       return loadResourceSchema(metadata, resourceType);

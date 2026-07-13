@@ -183,7 +183,7 @@ class MakefileOverlayTest(unittest.TestCase):
             self.assertIn("OVERLAY=demo", proc.stdout)
             self.assertIn(" demo > /dev/null", proc.stdout)
             self.assertIn("INFRAWRIGHT_DEPLOYMENT=\"demo/deployment.json\"", proc.stdout)
-            self.assertIn("engine.gen_module --check-output", proc.stdout)
+            self.assertIn("modules validate", proc.stdout)
 
     def test_check_demo_propagates_git_status_failure(self):
         with tempfile.TemporaryDirectory() as td:
@@ -217,7 +217,7 @@ class MakefileOverlayTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             missing_overlay = os.path.join(td, "missing")
             proc = _run_make(["OVERLAY=%s" % missing_overlay, "-n", "check"])
-            modules = proc.stdout.index("engine.gen_module --check-output")
+            modules = proc.stdout.index("modules validate")
             tfvars = proc.stdout.index("check-tfvars-fmt")
             self.assertLess(modules, tfvars)
 

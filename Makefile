@@ -12,8 +12,8 @@ DEMO_PACK_REQUIREMENTS ?= demo/pack-requirements.json
 # recipe-level overrides (check-demo, check-modules) still win per-command.
 export INFRAWRIGHT_DEPLOYMENT ?= $(DEPLOYMENT)
 DEMO_DEPLOYMENT ?= demo/deployment.json
-MODULE_DIR ?= $(shell INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(PYTHON) -m engine.deployment module-dir)
 INFRAWRIGHT_CLI ?= $(NODE) dist/infrawright-cli.mjs
+MODULE_DIR ?= $(shell INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(INFRAWRIGHT_CLI) deployment module-dir)
 METADATA_CLI_INPUTS := $(shell find node-src scripts -type f \( -name '*.ts' -o -name 'build-metadata-cli.mjs' \) -print)
 OPTIONAL_TENANT_ARG = $(if $(filter undefined,$(origin TENANT)),,--tenant "$(TENANT)")
 
@@ -46,11 +46,11 @@ check-examples: metadata-cli ## Validate examples whose declared pack requiremen
 		echo "$$output" >&2; exit $$status; \
 	fi
 
-check-modules: ## Generate every module into a temp deployment to catch generator regressions
+check-modules: metadata-cli ## Generate every module into a temp deployment to catch generator regressions
 	@tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \
 	printf '{"module_dir": "%s/modules"}\n' "$$tmp" > "$$tmp/deployment.json"; \
-	INFRAWRIGHT_DEPLOYMENT="$$tmp/deployment.json" $(PYTHON) -m engine.gen_module > /dev/null 2>&1; \
-	$(PYTHON) -m engine.gen_module --check-output "$$tmp/modules" > /dev/null
+	INFRAWRIGHT_DEPLOYMENT="$$tmp/deployment.json" $(INFRAWRIGHT_CLI) modules generate --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" > /dev/null 2>&1; \
+	$(INFRAWRIGHT_CLI) modules validate --out "$$tmp/modules" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" > /dev/null
 
 check-tfvars-fmt: metadata-cli ## Validate HCL tfvars formatting when deployment selects hcl
 	@fmt="$$(INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(INFRAWRIGHT_CLI) deployment tfvars-format)" || exit $$?; \
@@ -82,7 +82,7 @@ demo-contract: metadata-cli ## Credential-free demo artifact/module contract che
 		echo "demo-contract: stale demo moved-block files found:"; \
 		find demo/imports/demo -name '*_moves.tf' -print; exit 1; }
 	@module_dir="$$(INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(INFRAWRIGHT_CLI) deployment module-dir)"; \
-	INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(PYTHON) -m engine.gen_module --check-output "$$module_dir" > /dev/null; \
+	INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(INFRAWRIGHT_CLI) modules validate --out "$$module_dir" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" > /dev/null; \
 	echo "demo-contract: committed demo config/imports and generated modules are in sync"
 	@echo "demo-contract: live provider import/plan proof requires credentials and the adoption workflow"
 

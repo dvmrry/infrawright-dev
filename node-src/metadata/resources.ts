@@ -1,6 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
+import { readOptionalUtf8 } from "../io/files.js";
 import { sortedStrings } from "../json/python-compatible.js";
 import {
   manifestForProvider,
@@ -342,7 +343,10 @@ export async function loadOverrides(
           `${overridePath}: duplicate override resource type ${JSON.stringify(resourceType)} already loaded from ${prior}`,
         );
       }
-      entries[resourceType] = validateOverride(await readJson(overridePath), overridePath);
+      entries[resourceType] = validateOverride(
+        await readJson(overridePath, { preserveNumericTokens: true }),
+        overridePath,
+      );
       sources[resourceType] = overridePath;
     }
   }
@@ -397,6 +401,20 @@ export async function loadResourceSchema(
     );
   }
   return resource;
+}
+
+export async function loadResourceMainOverride(
+  metadata: PackMetadata,
+  resourceType: string,
+): Promise<string | null> {
+  const provider = providerForResource(metadata, resourceType);
+  const overridePath = path.join(
+    manifestForProvider(metadata, provider).directory,
+    "overrides",
+    resourceType,
+    "main.tf",
+  );
+  return readOptionalUtf8(overridePath, `${resourceType} main.tf override`);
 }
 
 export async function validatePackResources(

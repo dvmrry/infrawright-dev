@@ -18,13 +18,22 @@ import {
   validateActivePackSet,
   validatePackAuthoring,
 } from "../metadata/packs.js";
+import { loadPackRoot } from "../metadata/loader.js";
 import { validatePackResources } from "../metadata/resources.js";
+import {
+  activeGeneratedResourceTypes,
+  generateActiveModules,
+  generateModule,
+  terraformHclFormatter,
+  validateGeneratedModuleTree,
+} from "../modules/generator.js";
 
 const USAGE = [
   "usage:",
   "  infrawright check-pack [--pack <name>|PACK=<name>] [--root <packs>]",
   "  infrawright check-pack-set [--profile <file>] [--catalog <file>] [--requirements <file>] [--root <packs>]",
   "  infrawright deployment [--deployment <file>] <overlay|tfvars-format|module-dir|tenant-root|config-dir|imports-dir|envs-dir> [tenant]",
+  "  infrawright modules <generate|validate> [--resource <type>] [--out <dir>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>] [--terraform <path>]",
 ].join("\n");
 
 class CliExit extends Error {
@@ -219,11 +228,135 @@ async function deployment(arguments_: string[]): Promise<number> {
   return 0;
 }
 
+interface ModuleOptions {
+  readonly verb: "generate" | "validate";
+  readonly root: string;
+  readonly profile: string;
+  readonly catalog: string;
+  readonly deployment: string;
+  readonly output?: string;
+  readonly terraform?: string;
+  readonly resources: readonly string[];
+}
+
+async function moduleOptions(arguments_: string[]): Promise<ModuleOptions> {
+  const rootDirectory = await packageRoot();
+  const verb = arguments_[0];
+  if (verb !== "generate" && verb !== "validate") {
+    usageError("modules requires the generate or validate verb");
+  }
+  let root = process.env.INFRAWRIGHT_PACKS || path.join(rootDirectory, "packs");
+  let profile = process.env.INFRAWRIGHT_PACK_PROFILE
+    || path.join(rootDirectory, "packsets", "full.json");
+  let catalog = path.join(rootDirectory, "packsets", "full.json");
+  let selectedDeployment = deploymentPath();
+  let output: string | undefined;
+  let terraform: string | undefined;
+  const resources: string[] = [];
+  for (let index = 1; index < arguments_.length;) {
+    const argument = arguments_[index];
+    if (
+      argument === "--root"
+      || argument === "--profile"
+      || argument === "--catalog"
+      || argument === "--deployment"
+      || argument === "--out"
+      || argument === "--terraform"
+      || argument === "--resource"
+    ) {
+      const option = takeOption(arguments_, index, argument);
+      if (argument === "--root") root = option.value;
+      if (argument === "--profile") profile = option.value;
+      if (argument === "--catalog") catalog = option.value;
+      if (argument === "--deployment") selectedDeployment = option.value;
+      if (argument === "--out") output = option.value;
+      if (argument === "--terraform") terraform = option.value;
+      if (argument === "--resource") resources.push(option.value);
+      index = option.next;
+    } else if (argument === "-h" || argument === "--help") {
+      throw new CliExit(USAGE, 0, true);
+    } else {
+      usageError(`unknown argument ${String(argument)}`);
+    }
+  }
+  const duplicates = resources.filter((item, index) => resources.indexOf(item) !== index);
+  if (duplicates.length > 0) {
+    usageError(`duplicate --resource ${JSON.stringify(duplicates[0])}`);
+  }
+  return {
+    verb,
+    root,
+    profile,
+    catalog,
+    deployment: selectedDeployment,
+    ...(output === undefined ? {} : { output }),
+    ...(terraform === undefined ? {} : { terraform }),
+    resources,
+  };
+}
+
+async function modules(arguments_: string[]): Promise<number> {
+  const options = await moduleOptions(arguments_);
+  const root = await loadPackRoot({
+    packsRoot: options.root,
+    profilePath: options.profile,
+    catalogPath: options.catalog,
+  });
+  const outputRoot = options.output
+    ?? deploymentModuleDir(await loadDeployment(options.deployment));
+  const active = activeGeneratedResourceTypes(root);
+  const activeSet = new Set(active);
+  for (const resourceType of options.resources) {
+    if (!activeSet.has(resourceType)) {
+      throw new Error(`unknown active generated resource type ${JSON.stringify(resourceType)}`);
+    }
+  }
+  const resources = options.resources.length === 0
+    ? active
+    : options.resources;
+  if (options.verb === "validate") {
+    await validateGeneratedModuleTree(outputRoot, resources);
+    process.stdout.write(
+      `validated generated module tree ${outputRoot}: ${resources.length} module(s)\n`,
+    );
+    return 0;
+  }
+  const formatter = terraformHclFormatter({
+    ...(options.terraform === undefined ? {} : { executable: options.terraform }),
+  });
+  const onWrite = (destination: string): void => {
+    process.stderr.write(`wrote ${destination}\n`);
+  };
+  let generated;
+  if (options.resources.length === 0) {
+    generated = await generateActiveModules(root, {
+      outputRoot,
+      formatHcl: formatter,
+      onWrite,
+    });
+  } else {
+    generated = [];
+    for (const resourceType of resources) {
+      generated.push(await generateModule(root, resourceType, {
+        outputRoot,
+        formatHcl: formatter,
+        onWrite,
+      }));
+    }
+  }
+  const files = generated.reduce((total, item) => total + item.files.length, 0);
+  process.stdout.write(
+    `generated ${generated.length} module(s), ${files} file(s), in ${outputRoot}\n`,
+  );
+  return 0;
+}
+
 async function main(arguments_: string[]): Promise<number> {
   const command = arguments_[0];
   if (command === "check-pack") return checkPack(arguments_.slice(1));
   if (command === "check-pack-set") return checkPackSet(arguments_.slice(1));
   if (command === "deployment") return deployment(arguments_.slice(1));
+  if (command === "modules") return modules(arguments_.slice(1));
   if (command === "-h" || command === "--help") {
     process.stdout.write(`${USAGE}\n`);
     return 0;

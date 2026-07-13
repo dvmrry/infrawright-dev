@@ -123,6 +123,45 @@ test("deployment CLI exposes the existing module and tenant path contract", asyn
   }
 });
 
+test("module CLI generates and validates one real module without Python", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-cli-modules-"));
+  try {
+    const common = [
+      "--resource",
+      "zpa_segment_group",
+      "--out",
+      directory,
+      "--root",
+      path.join(ROOT, "packs"),
+      "--profile",
+      path.join(ROOT, "packsets", "full.json"),
+      "--catalog",
+      path.join(ROOT, "packsets", "full.json"),
+    ];
+    const generated = run(
+      ["modules", "generate", ...common, "--terraform", "terraform"],
+      { PYTHON: path.join(directory, "python-must-not-run") },
+    );
+    assert.equal(generated.status, 0, generated.stderr);
+    assert.equal(
+      generated.stdout,
+      `generated 1 module(s), 7 file(s), in ${directory}\n`,
+    );
+    assert.match(generated.stderr, /zpa_segment_group\/main\.tf/);
+    const validated = run(
+      ["modules", "validate", ...common],
+      { PYTHON: path.join(directory, "python-must-not-run") },
+    );
+    assert.equal(validated.status, 0, validated.stderr);
+    assert.equal(
+      validated.stdout,
+      `validated generated module tree ${directory}: 1 module(s)\n`,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("CLI distinguishes usage failures from metadata failures", () => {
   const usage = run(["deployment", "unknown"]);
   assert.equal(usage.status, 2);
