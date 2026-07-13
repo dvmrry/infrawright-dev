@@ -37,7 +37,7 @@ export interface TransformBatchResult {
   readonly skipped: readonly string[];
 }
 
-function referenceSpecs(
+export function transformReferenceSpecs(
   root: LoadedPackRoot,
   resource: LoadedResourceMetadata,
 ): Readonly<Record<string, TransformReferenceSpec>> {
@@ -59,7 +59,7 @@ function referenceSpecs(
   return output;
 }
 
-function lookupNameField(
+export function transformLookupNameField(
   root: LoadedPackRoot,
   resource: LoadedResourceMetadata,
 ): string | null {
@@ -101,7 +101,7 @@ async function knownHoldPaths(
   return output;
 }
 
-function bindingContext(options: {
+export function transformBindingContext(options: {
   readonly deployment: Deployment;
   readonly root: LoadedPackRoot;
   readonly resource: LoadedResourceMetadata;
@@ -215,7 +215,7 @@ export async function runTransformBatch(options: {
       }
       const resource = options.root.resources.get(resourceType);
       if (resource === undefined) throw new TypeError(`unknown resource ${resourceType}`);
-      const references = referenceSpecs(options.root, resource);
+      const references = transformReferenceSpecs(options.root, resource);
       const rootLabel = topology.resource_roots[resourceType] ?? resourceType;
       const variableName = rootLabel === resourceType ? "items" : `${resourceType}_items`;
       const derive = resource.registry.derive;
@@ -243,7 +243,7 @@ export async function runTransformBatch(options: {
         unescapeHtml: shouldUnescape(options.root, resourceType),
       });
       await writeTransformArtifacts({
-        bindingContext: bindingContext({
+        bindingContext: transformBindingContext({
           deployment: options.deployment,
           root: options.root,
           resource,
@@ -251,7 +251,7 @@ export async function runTransformBatch(options: {
           references,
         }),
         deployment: options.deployment,
-        lookupNameField: lookupNameField(options.root, resource),
+        lookupNameField: transformLookupNameField(options.root, resource),
         onDiagnostic: write,
         override: resource.override ?? {},
         references,

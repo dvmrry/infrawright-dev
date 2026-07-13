@@ -41,6 +41,13 @@ import {
   maskCollectorIdentifiers,
 } from "../collectors/zscaler-adapters.js";
 import { createRestHttpTransport } from "../io/rest-http-transport.js";
+import {
+  defaultAdoptionStateLoader,
+  loadAdoptionPolicy,
+  resolveTerraformExecutable,
+  runAdoptBatch,
+  type AdoptionStateLoader,
+} from "../domain/adopt-runner.js";
 
 const USAGE = [
   "usage:",
@@ -49,6 +56,7 @@ const USAGE = [
   "  infrawright deployment [--deployment <file>] <overlay|tfvars-format|module-dir|tenant-root|config-dir|imports-dir|envs-dir> [tenant]",
   "  infrawright modules <generate|validate> [--resource <type>] [--out <dir>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>] [--terraform <path>]",
   "  infrawright transform --in <dir> --tenant <name> [--resource <selector>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
+  "  infrawright adopt --in <dir> --tenant <name> [--resource <selector>] [--policy <file>] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright fetch --tenant <name> [--resource <selector>] [--out <dir>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright fetch-diag [--root <packs>] [--profile <file>] [--catalog <file>]",
 ].join("\n");
@@ -423,6 +431,86 @@ async function transform(arguments_: string[]): Promise<number> {
   return result.failed.length === 0 ? 0 : 1;
 }
 
+async function adopt(arguments_: string[]): Promise<number> {
+  const rootDirectory = await packageRoot();
+  let root = process.env.INFRAWRIGHT_PACKS || path.join(rootDirectory, "packs");
+  let profile = process.env.INFRAWRIGHT_PACK_PROFILE
+    || path.join(rootDirectory, "packsets", "full.json");
+  let catalog = path.join(rootDirectory, "packsets", "full.json");
+  let selectedDeployment = deploymentPath();
+  let input: string | undefined;
+  let tenant: string | undefined;
+  let policyPath: string | undefined;
+  let terraform: string | undefined;
+  const resources: string[] = [];
+  for (let index = 0; index < arguments_.length;) {
+    const argument = arguments_[index];
+    if (
+      argument === "--root"
+      || argument === "--profile"
+      || argument === "--catalog"
+      || argument === "--deployment"
+      || argument === "--in"
+      || argument === "--tenant"
+      || argument === "--resource"
+      || argument === "--policy"
+      || argument === "--terraform"
+    ) {
+      const option = takeOption(arguments_, index, argument);
+      if (argument === "--root") root = option.value;
+      if (argument === "--profile") profile = option.value;
+      if (argument === "--catalog") catalog = option.value;
+      if (argument === "--deployment") selectedDeployment = option.value;
+      if (argument === "--in") input = option.value;
+      if (argument === "--tenant") tenant = option.value;
+      if (argument === "--resource") resources.push(option.value);
+      if (argument === "--policy") policyPath = option.value;
+      if (argument === "--terraform") terraform = option.value;
+      index = option.next;
+    } else if (argument === "-h" || argument === "--help") {
+      throw new CliExit(USAGE, 0, true);
+    } else {
+      usageError(`unknown argument ${String(argument)}`);
+    }
+  }
+  if (input === undefined || tenant === undefined) usageError("adopt requires --in and --tenant");
+  const [packRoot, loadedDeployment] = await Promise.all([
+    loadPackRoot({ packsRoot: root, profilePath: profile, catalogPath: catalog }),
+    loadDeployment(selectedDeployment),
+  ]);
+  const policy = await loadAdoptionPolicy({
+    ...(policyPath === undefined ? {} : { path: policyPath }),
+    root: packRoot,
+  });
+  let loadedState: AdoptionStateLoader | null = null;
+  const stateLoader: AdoptionStateLoader = async (request) => {
+    if (loadedState === null) {
+      const executable = await resolveTerraformExecutable(
+        terraform ?? process.env.TF,
+        process.env,
+      );
+      loadedState = await defaultAdoptionStateLoader({
+        environment: process.env,
+        onDiagnostic: (message) => process.stderr.write(`${message}\n`),
+        root: packRoot,
+        terraformExecutable: executable,
+      });
+    }
+    return loadedState(request);
+  };
+  const result = await runAdoptBatch({
+    deployment: loadedDeployment,
+    inputDirectory: input,
+    onDiagnostic: (message) => process.stderr.write(`${message}\n`),
+    policy,
+    root: packRoot,
+    selectors: resources,
+    stateLoader,
+    tenant,
+  });
+  return result.failed.length === 0 ? 0 : 1;
+}
+
 interface FetchCliOptions {
   readonly catalog: string;
   readonly output?: string;
@@ -608,6 +696,7 @@ async function main(arguments_: string[]): Promise<number> {
   if (command === "deployment") return deployment(arguments_.slice(1));
   if (command === "modules") return modules(arguments_.slice(1));
   if (command === "transform") return transform(arguments_.slice(1));
+  if (command === "adopt") return adopt(arguments_.slice(1));
   if (command === "fetch") return fetchCommand(arguments_.slice(1));
   if (command === "fetch-diag") return fetchDiag(arguments_.slice(1));
   if (command === "-h" || command === "--help") {

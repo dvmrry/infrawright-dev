@@ -290,8 +290,19 @@ function validateAdopt(value: unknown, source: string): void {
   if (Object.hasOwn(value, "constant_key") && !Object.hasOwn(value, "import_id")) {
     fail(`${source}.constant_key requires import_id`);
   }
-  for (const key of ["constant_key", "key_field", "import_id"]) {
+  for (const key of ["constant_key", "import_id"]) {
     if (Object.hasOwn(value, key)) requireNonEmptyString(value[key], `${source}.${key}`);
+  }
+  if (Object.hasOwn(value, "key_field")) {
+    if (typeof value.key_field === "string") {
+      requireNonEmptyString(value.key_field, `${source}.key_field`);
+    } else if (
+      !Array.isArray(value.key_field)
+      || value.key_field.length === 0
+      || value.key_field.some((field) => typeof field !== "string" || field.length === 0)
+    ) {
+      fail(`${source}.key_field must be a non-empty string or list of non-empty strings`);
+    }
   }
   for (const key of ["identity_renames", "identity_fields"]) {
     if (Object.hasOwn(value, key)) validateStringMap(value[key], `${source}.${key}`);

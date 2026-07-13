@@ -191,6 +191,11 @@ function snakeKeys(
   return cloneJson(value);
 }
 
+/** Recursively snake-case a losslessly parsed JSON value using Python rules. */
+export function snakeJsonKeys(value: unknown): unknown {
+  return snakeKeys(value, "$raw", false);
+}
+
 export function slugifyTransformKey(value: string): string {
   return pythonLower151(value)
     .replace(/[^a-z0-9]+/gu, "_")
@@ -1171,9 +1176,18 @@ function skipMatchReason(
   item: TransformRecord,
   resource: RuntimeTransformResource,
 ): "skip_if" | "skip_if_lte" | null {
+  return transformSkipMatchReason(item, resource.override, resource.type);
+}
+
+/** Evaluate the transform/adoption skip vocabulary against a snake-cased item. */
+export function transformSkipMatchReason(
+  item: Readonly<Record<string, unknown>>,
+  metadata: Readonly<JsonObject>,
+  label: string,
+): "skip_if" | "skip_if_lte" | null {
   for (const matcher of skipMatchers(
-    resource.override.skip_if,
-    `${resource.type}.override.skip_if`,
+    metadata.skip_if,
+    `${label}.skip_if`,
   )) {
     if (Object.entries(matcher).every(([field, expected]) => {
       return pythonJsonEqual(item[snakeName(field)], expected);
@@ -1182,8 +1196,8 @@ function skipMatchReason(
     }
   }
   for (const matcher of skipMatchers(
-    resource.override.skip_if_lte,
-    `${resource.type}.override.skip_if_lte`,
+    metadata.skip_if_lte,
+    `${label}.skip_if_lte`,
   )) {
     if (Object.entries(matcher).every(([field, thresholdValue]) => {
       const threshold = lteNumber(thresholdValue);
@@ -1197,6 +1211,39 @@ function skipMatchReason(
     }
   }
   return null;
+}
+
+/** Shape one raw API value through the ordinary loaded-resource schema kernel. */
+export function projectLoadedRawField(options: {
+  readonly rawValue: unknown;
+  readonly resourceType: string;
+  readonly schema: Readonly<JsonObject>;
+  readonly target: string;
+}): unknown | undefined {
+  const block = terraformBlockForSchema(
+    options.schema as JsonObject,
+    options.resourceType,
+  );
+  const projection = compileProjection(
+    block,
+    `${options.resourceType}.block`,
+    { mergeBlocks: new Set(), topLevel: true },
+  );
+  const shaped = safeRecord([[
+    options.target,
+    snakeKeys(options.rawValue, `$raw.${options.target}`, false),
+  ]]);
+  const filtered = filterItem(
+    shaped,
+    projection,
+    "",
+    [],
+    new Set(),
+    new Set(),
+    safeRecord([]),
+  );
+  const coerced = coerceItem(filtered, projection);
+  return hasOwn(coerced, options.target) ? coerced[options.target] : undefined;
 }
 
 function runtimeProjectionFromCatalog(
