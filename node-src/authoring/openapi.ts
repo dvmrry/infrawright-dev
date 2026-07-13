@@ -19,6 +19,12 @@ function objectOrEmpty(value: unknown): JsonObject {
   return isObject(value) ? value : {};
 }
 
+function schemaObject(value: unknown): JsonObject {
+  if (value === undefined || value === null) return {};
+  if (!isObject(value)) throw new TypeError("OpenAPI schema must be an object");
+  return value;
+}
+
 export function decodeLocalRefToken(token: string): string {
   return token.replaceAll("~1", "/").replaceAll("~0", "~");
 }
@@ -47,7 +53,7 @@ export function resolveLocalRef(spec: JsonObject, ref: string): unknown {
 }
 
 export function resolveOpenApiSchema(spec: JsonObject, rawSchema: unknown): JsonObject {
-  let schema = objectOrEmpty(rawSchema);
+  let schema = schemaObject(rawSchema);
   const seen = new Set<string>();
   while (typeof schema.$ref === "string") {
     const ref = schema.$ref;
@@ -63,7 +69,32 @@ export function resolveOpenApiSchema(spec: JsonObject, rawSchema: unknown): Json
 }
 
 export function mergeOpenApiSchema(spec: JsonObject, rawSchema: unknown): JsonObject {
-  const schema = { ...resolveOpenApiSchema(spec, rawSchema) };
+  return mergeOpenApiSchemaInternal(spec, rawSchema, new Set(), 0);
+}
+
+function mergeOpenApiSchemaInternal(
+  spec: JsonObject,
+  rawSchema: unknown,
+  activeRefs: ReadonlySet<string>,
+  depth: number,
+): JsonObject {
+  if (depth > 64) throw new TypeError("OpenAPI schema recursion limit exceeded");
+  let input = schemaObject(rawSchema);
+  let refs = activeRefs;
+  if (typeof input.$ref === "string") {
+    const ref = input.$ref;
+    if (activeRefs.has(ref)) throw new TypeError(`recursive OpenAPI ref: ${ref}`);
+    const target = resolveLocalRef(spec, ref);
+    if (!isObject(target)) throw new TypeError(`OpenAPI ref ${ref} is not an object`);
+    refs = new Set([...activeRefs, ref]);
+    input = { ...target, ...Object.fromEntries(
+      Object.entries(input).filter(([key]) => key !== "$ref"),
+    ) };
+    if (typeof input.$ref === "string") {
+      return mergeOpenApiSchemaInternal(spec, input, refs, depth + 1);
+    }
+  }
+  const schema = { ...input };
   const parts = schema.allOf;
   delete schema.allOf;
   if (!Array.isArray(parts) || parts.length === 0) return schema;
@@ -71,7 +102,7 @@ export function mergeOpenApiSchema(spec: JsonObject, rawSchema: unknown): JsonOb
   const properties: JsonObject = {};
   const required: string[] = [];
   for (const rawPart of parts) {
-    const part = mergeOpenApiSchema(spec, rawPart);
+    const part = mergeOpenApiSchemaInternal(spec, rawPart, refs, depth + 1);
     for (const [key, value] of Object.entries(part)) {
       if (key === "properties") Object.assign(properties, objectOrEmpty(value));
       else if (key === "required" && Array.isArray(value)) {
@@ -206,7 +237,13 @@ export function flattenOpenApiSchema(options: {
   const schema = mergeOpenApiSchema(options.spec, options.schema);
   const kind = openApiSchemaKind(schema);
   if (kind === "array") {
-    flattenOpenApiSchema({ ...options, fields, schema: schema.items, prefix: prefix === "" ? "" : `${prefix}[]` });
+    flattenOpenApiSchema({
+      ...options,
+      depth: depth + 1,
+      fields,
+      schema: schema.items,
+      prefix: prefix === "" ? "" : `${prefix}[]`,
+    });
     return fields;
   }
   if (kind !== "object") {

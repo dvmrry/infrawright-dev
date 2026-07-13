@@ -149,10 +149,30 @@ test("OpenAPI 2/3 schemas resolve refs, allOf, arrays, siblings, and read/write 
 test("OpenAPI recursion is rejected for direct ref cycles and bounded while flattening nested objects", () => {
   const recursive: JsonObject = { components: { schemas: { Loop: { $ref: "#/components/schemas/Loop" } } } };
   assert.throws(() => mergeOpenApiSchema(recursive, { $ref: "#/components/schemas/Loop" }), /recursive OpenAPI ref/);
+  const allOfRecursive: JsonObject = { components: { schemas: {
+    Loop: { allOf: [{ $ref: "#/components/schemas/Loop" }] },
+  } } };
+  assert.throws(
+    () => mergeOpenApiSchema(allOfRecursive, { $ref: "#/components/schemas/Loop" }),
+    /recursive OpenAPI ref/,
+  );
+  const arrayRecursive: JsonObject = { components: { schemas: {
+    Loop: { items: { $ref: "#/components/schemas/Loop" }, type: "array" },
+  } } };
+  assert.doesNotThrow(() => flattenOpenApiSchema({
+    mode: "read", schema: { $ref: "#/components/schemas/Loop" }, spec: arrayRecursive,
+  }));
   let schema: JsonObject = { properties: { leaf: { type: "string" } }, type: "object" };
   for (let index = 0; index < 12; index += 1) schema = { properties: { child: schema }, type: "object" };
   const fields = flattenOpenApiSchema({ mode: "read", schema, spec: {} });
   assert.equal(Object.keys(fields).some((path) => path.split(".").length > 10), false);
+});
+
+test("present malformed OpenAPI schemas fail closed at every merge boundary", () => {
+  for (const schema of ["invalid", true, 1, [], { allOf: ["invalid"] }]) {
+    assert.throws(() => mergeOpenApiSchema({}, schema), /OpenAPI schema must be an object/);
+  }
+  assert.deepEqual(mergeOpenApiSchema({}, null), {});
 });
 
 test("reconciliation covers overrides, skips, nested shapes, relationships, API evidence, and exact Python parity", () => {
@@ -228,4 +248,15 @@ test("arbitrary-size integers and fractional numbers retain numeric classificati
   const entries = (report.asDict().paths as Record<string, Array<{ path: string; types: JsonObject }>>).kept ?? [];
   const amount = entries.find((entry) => entry.path === "amount");
   assert.deepEqual(amount?.types, { float: 1, int: 1 });
+});
+
+test("report path ordering is exact Python code-point ordering", () => {
+  const schema: JsonObject = { block: { attributes: {} } };
+  const items = [{ a: 1, z: 1, "ä": 1 }];
+  const report = reconcileItems({ items, resourceSchema: schema, resourceType: "sample_widget" });
+  assert.deepEqual(report.asDict(), pythonReport({
+    items, resource_type: "sample_widget", schema,
+  }));
+  const unknown = (report.asDict().paths as Record<string, Array<{ path: string }>>).unknown ?? [];
+  assert.deepEqual(unknown.map((entry) => entry.path), ["a", "z", "ä"]);
 });

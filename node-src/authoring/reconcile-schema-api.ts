@@ -292,7 +292,8 @@ export class ReconciliationReport {
     const observations: Record<string, number> = {};
     const uniquePaths: Record<string, number> = {};
     for (const bucket of RECONCILIATION_BUCKETS) {
-      const entries = [...this.#buckets[bucket].values()].sort((a, b) => a.path.localeCompare(b.path));
+      const entries = sortedStrings([...this.#buckets[bucket].keys()])
+        .map((path) => this.#buckets[bucket].get(path) as MutableReportEntry);
       paths[bucket] = entries;
       observations[bucket] = entries.reduce((sum, entry) => sum + entry.count, 0);
       uniquePaths[bucket] = entries.length;
