@@ -387,9 +387,14 @@ test("real command adapter bounds output and never returns import IDs in failure
   assert.match(thrown.message, /provider diagnostics and import IDs were redacted/);
 });
 
-test("Oracle timeout configuration is bounded and rejects invalid values", () => {
+test("Oracle timeout defaults to five minutes and accepts any positive practical duration", () => {
   assert.equal(oracleTimeoutMs({}), 300_000);
   assert.equal(oracleTimeoutMs({ INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS: "0.25" }), 250);
+  assert.equal(oracleTimeoutMs({ INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS: "601" }), 601_000);
+  assert.equal(oracleTimeoutMs({ INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS: "86400" }), 86_400_000);
   assert.throws(() => oracleTimeoutMs({ INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS: "0" }), /positive number/);
-  assert.throws(() => oracleTimeoutMs({ INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS: "601" }), /600 second bound/);
+  assert.throws(
+    () => oracleTimeoutMs({ INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS: "1e100" }),
+    /numeric range/,
+  );
 });

@@ -1,4 +1,4 @@
-import { access, realpath } from "node:fs/promises";
+import { access, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,7 +28,7 @@ import {
   validateGeneratedModuleTree,
 } from "../modules/generator.js";
 import { runTransformBatch } from "../domain/transform-runner.js";
-import { validateTenant } from "../domain/roots.js";
+import { expandLoadedResources, loadedRootTopology, validateTenant } from "../domain/roots.js";
 import { fetchResources, selectFetchResources } from "../collectors/rest.js";
 import { fetchProducts } from "../collectors/selection.js";
 import { probeRestHost } from "../collectors/rest-diagnostics.js";
@@ -44,10 +44,10 @@ import { createRestHttpTransport } from "../io/rest-http-transport.js";
 import {
   defaultAdoptionStateLoader,
   loadAdoptionPolicy,
-  resolveTerraformExecutable,
   runAdoptBatch,
   type AdoptionStateLoader,
 } from "../domain/adopt-runner.js";
+import { resolveTerraformExecutable } from "../io/terraform-command.js";
 import { generateEnvironmentRoots } from "../domain/environment-generator.js";
 import {
   createImportStagingTerraform,
@@ -55,6 +55,21 @@ import {
   unstageImports,
   type ImportStagingTerraform,
 } from "../domain/import-staging.js";
+import { referenceOrder } from "../domain/transform-selection.js";
+import { changedPathScopeLoaded } from "../domain/scope-paths.js";
+import { loadedPlanRoots } from "../domain/plan-roots.js";
+import {
+  cleanPlans,
+  createPlanTerraform,
+  planEnvironmentRoots,
+  type PlanTerraform,
+} from "../domain/plan-lifecycle.js";
+import {
+  renderLegacyChangedPathScope,
+  renderLegacyPlanRoots,
+  renderLegacyRootDiagnostics,
+  renderLegacyRootTopology,
+} from "../process/legacy.js";
 
 const USAGE = [
   "usage:",
@@ -67,6 +82,12 @@ const USAGE = [
   "  infrawright gen-env --tenant <name> [--backend <backend>] [--resource <selector>] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright stage-imports --tenant <name> [--resource <selector>] [--state-aware] [--backend-config <file>] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright unstage-imports --tenant <name> [--resource <selector>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
+  "  infrawright resources [--order=references] [--resource <selector>] [--root <packs>] [--profile <file>] [--catalog <file>]",
+  "  infrawright roots [--tenant <name>] [--resource <selector>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
+  "  infrawright scope-paths --paths-json <file|-> [--path <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
+  "  infrawright plan-roots [--tenant <name>] [--resource <selector>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
+  "  infrawright plan --tenant <name> [--resource <selector>] [--imports-only] [--save] [--backend-config <file>] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
+  "  infrawright clean-plans [--tenant <name>] [--resource <selector>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright fetch --tenant <name> [--resource <selector>] [--out <dir>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright fetch-diag [--root <packs>] [--profile <file>] [--catalog <file>]",
 ].join("\n");
@@ -107,12 +128,21 @@ function takeOption(
   arguments_: string[],
   index: number,
   option: string,
+  allowEmpty = false,
 ): { readonly value: string; readonly next: number } {
   const value = arguments_[index + 1];
-  if (value === undefined || value.length === 0) {
+  if (value === undefined || (!allowEmpty && value.length === 0)) {
     return usageError(`${option} requires a value`);
   }
   return { value, next: index + 2 };
+}
+
+async function readStandardInput(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 async function checkPack(arguments_: string[]): Promise<number> {
@@ -728,6 +758,323 @@ async function unstageImportsCommand(arguments_: string[]): Promise<number> {
   return 0;
 }
 
+interface RootQueryCliOptions {
+  readonly catalog: string;
+  readonly deployment: string;
+  readonly profile: string;
+  readonly resources: readonly string[];
+  readonly root: string;
+  readonly tenant?: string;
+}
+
+async function rootQueryCliOptions(
+  arguments_: string[],
+  command: "roots" | "plan-roots" | "clean-plans",
+): Promise<RootQueryCliOptions> {
+  const rootDirectory = await packageRoot();
+  let root = process.env.INFRAWRIGHT_PACKS || path.join(rootDirectory, "packs");
+  let profile = process.env.INFRAWRIGHT_PACK_PROFILE
+    || path.join(rootDirectory, "packsets", "full.json");
+  let catalog = path.join(rootDirectory, "packsets", "full.json");
+  let selectedDeployment = deploymentPath();
+  let tenant: string | undefined;
+  const resources: string[] = [];
+  for (let index = 0; index < arguments_.length;) {
+    const argument = arguments_[index];
+    if (
+      argument === "--root"
+      || argument === "--profile"
+      || argument === "--catalog"
+      || argument === "--deployment"
+      || argument === "--tenant"
+      || argument === "--resource"
+    ) {
+      const option = takeOption(arguments_, index, argument, argument === "--tenant");
+      if (argument === "--root") root = option.value;
+      if (argument === "--profile") profile = option.value;
+      if (argument === "--catalog") catalog = option.value;
+      if (argument === "--deployment") selectedDeployment = option.value;
+      if (argument === "--tenant") {
+        if (tenant !== undefined) usageError("--tenant may be specified only once");
+        tenant = option.value;
+      }
+      if (argument === "--resource") resources.push(option.value);
+      index = option.next;
+    } else if (argument === "-h" || argument === "--help") {
+      throw new CliExit(USAGE, 0, true);
+    } else {
+      usageError(`${command} does not accept ${String(argument)}`);
+    }
+  }
+  return {
+    catalog,
+    deployment: selectedDeployment,
+    profile,
+    resources,
+    root,
+    ...(tenant === undefined ? {} : { tenant }),
+  };
+}
+
+async function resourcesCommand(arguments_: string[]): Promise<number> {
+  const rootDirectory = await packageRoot();
+  let root = process.env.INFRAWRIGHT_PACKS || path.join(rootDirectory, "packs");
+  let profile = process.env.INFRAWRIGHT_PACK_PROFILE
+    || path.join(rootDirectory, "packsets", "full.json");
+  let catalog = path.join(rootDirectory, "packsets", "full.json");
+  let order: "sorted" | "references" = "sorted";
+  const resources: string[] = [];
+  for (let index = 0; index < arguments_.length;) {
+    const argument = arguments_[index];
+    if (argument === "--order=references") {
+      order = "references";
+      index += 1;
+    } else if (argument === "--root" || argument === "--profile" || argument === "--catalog" || argument === "--resource") {
+      const option = takeOption(arguments_, index, argument);
+      if (argument === "--root") root = option.value;
+      if (argument === "--profile") profile = option.value;
+      if (argument === "--catalog") catalog = option.value;
+      if (argument === "--resource") resources.push(option.value);
+      index = option.next;
+    } else if (argument === "-h" || argument === "--help") {
+      throw new CliExit(USAGE, 0, true);
+    } else {
+      usageError(`resources does not accept ${String(argument)}`);
+    }
+  }
+  const packRoot = await loadPackRoot({ packsRoot: root, profilePath: profile, catalogPath: catalog });
+  const selected = expandLoadedResources(packRoot, resources);
+  const ordered = order === "references"
+    ? referenceOrder({ root: packRoot, resourceTypes: selected })
+    : { resourceTypes: selected, notes: [] as readonly string[] };
+  for (const note of ordered.notes) process.stderr.write(note);
+  for (const resourceType of ordered.resourceTypes) process.stdout.write(`${resourceType}\n`);
+  return 0;
+}
+
+async function rootsCommand(arguments_: string[]): Promise<number> {
+  const options = await rootQueryCliOptions(arguments_, "roots");
+  const [packRoot, loadedDeployment] = await Promise.all([
+    loadPackRoot({ packsRoot: options.root, profilePath: options.profile, catalogPath: options.catalog }),
+    loadDeployment(options.deployment),
+  ]);
+  const result = loadedRootTopology({
+    deployment: loadedDeployment,
+    root: packRoot,
+    selectors: options.resources,
+    tenant: options.tenant ?? null,
+  });
+  process.stderr.write(renderLegacyRootDiagnostics(result.diagnostics));
+  process.stdout.write(renderLegacyRootTopology(result.topology));
+  return 0;
+}
+
+async function scopePathsCommand(arguments_: string[]): Promise<number> {
+  const rootDirectory = await packageRoot();
+  let root = process.env.INFRAWRIGHT_PACKS || path.join(rootDirectory, "packs");
+  let profile = process.env.INFRAWRIGHT_PACK_PROFILE
+    || path.join(rootDirectory, "packsets", "full.json");
+  let catalog = path.join(rootDirectory, "packsets", "full.json");
+  let selectedDeployment = deploymentPath();
+  let pathsJson: string | undefined;
+  const paths: string[] = [];
+  for (let index = 0; index < arguments_.length;) {
+    const argument = arguments_[index];
+    if (
+      argument === "--root"
+      || argument === "--profile"
+      || argument === "--catalog"
+      || argument === "--deployment"
+      || argument === "--paths-json"
+      || argument === "--path"
+    ) {
+      const option = takeOption(arguments_, index, argument);
+      if (argument === "--root") root = option.value;
+      if (argument === "--profile") profile = option.value;
+      if (argument === "--catalog") catalog = option.value;
+      if (argument === "--deployment") selectedDeployment = option.value;
+      if (argument === "--paths-json") {
+        if (pathsJson !== undefined) usageError("--paths-json may be specified only once");
+        pathsJson = option.value;
+      }
+      if (argument === "--path") paths.push(option.value);
+      index = option.next;
+    } else if (argument === "-h" || argument === "--help") {
+      throw new CliExit(USAGE, 0, true);
+    } else {
+      usageError(`scope-paths does not accept ${String(argument)}`);
+    }
+  }
+  if (pathsJson !== undefined) {
+    let parsed: unknown;
+    try {
+      const text = pathsJson === "-"
+        ? await readStandardInput()
+        : await readFile(pathsJson, "utf8");
+      parsed = JSON.parse(text) as unknown;
+    } catch {
+      usageError(`${pathsJson} must contain a JSON array of changed paths`);
+    }
+    if (!Array.isArray(parsed)) usageError(`${pathsJson} must contain a JSON array of changed paths`);
+    paths.push(...parsed as string[]);
+  }
+  const [packRoot, loadedDeployment] = await Promise.all([
+    loadPackRoot({ packsRoot: root, profilePath: profile, catalogPath: catalog }),
+    loadDeployment(selectedDeployment),
+  ]);
+  process.stdout.write(renderLegacyChangedPathScope(changedPathScopeLoaded({
+    deployment: loadedDeployment,
+    deploymentPath: selectedDeployment,
+    paths,
+    root: packRoot,
+    workspace: process.cwd(),
+  })));
+  return 0;
+}
+
+async function planRootsCommand(arguments_: string[]): Promise<number> {
+  const options = await rootQueryCliOptions(arguments_, "plan-roots");
+  const [packRoot, loadedDeployment] = await Promise.all([
+    loadPackRoot({ packsRoot: options.root, profilePath: options.profile, catalogPath: options.catalog }),
+    loadDeployment(options.deployment),
+  ]);
+  const result = await loadedPlanRoots({
+    deployment: loadedDeployment,
+    root: packRoot,
+    selectors: options.resources,
+    tenant: options.tenant ?? null,
+    workspace: process.cwd(),
+  });
+  process.stderr.write(renderLegacyRootDiagnostics(result.diagnostics));
+  process.stdout.write(renderLegacyPlanRoots(result.result));
+  return 0;
+}
+
+interface PlanCliOptions extends RootQueryCliOptions {
+  readonly backendConfig?: string;
+  readonly importsOnly: boolean;
+  readonly save: boolean;
+  readonly terraform?: string;
+  readonly tenant: string;
+}
+
+async function planCliOptions(arguments_: string[]): Promise<PlanCliOptions> {
+  const rootDirectory = await packageRoot();
+  let root = process.env.INFRAWRIGHT_PACKS || path.join(rootDirectory, "packs");
+  let profile = process.env.INFRAWRIGHT_PACK_PROFILE
+    || path.join(rootDirectory, "packsets", "full.json");
+  let catalog = path.join(rootDirectory, "packsets", "full.json");
+  let selectedDeployment = deploymentPath();
+  let tenant: string | undefined;
+  let backendConfig: string | undefined;
+  let terraform: string | undefined;
+  let importsOnly = false;
+  let save = false;
+  const resources: string[] = [];
+  for (let index = 0; index < arguments_.length;) {
+    const argument = arguments_[index];
+    if (argument === "--imports-only" || argument === "--save") {
+      if (argument === "--imports-only") importsOnly = true;
+      else save = true;
+      index += 1;
+    } else if (
+      argument === "--root"
+      || argument === "--profile"
+      || argument === "--catalog"
+      || argument === "--deployment"
+      || argument === "--tenant"
+      || argument === "--resource"
+      || argument === "--backend-config"
+      || argument === "--terraform"
+    ) {
+      const option = takeOption(arguments_, index, argument, argument === "--tenant");
+      if (argument === "--root") root = option.value;
+      if (argument === "--profile") profile = option.value;
+      if (argument === "--catalog") catalog = option.value;
+      if (argument === "--deployment") selectedDeployment = option.value;
+      if (argument === "--tenant") tenant = option.value;
+      if (argument === "--resource") resources.push(option.value);
+      if (argument === "--backend-config") backendConfig = option.value;
+      if (argument === "--terraform") terraform = option.value;
+      index = option.next;
+    } else if (argument === "-h" || argument === "--help") {
+      throw new CliExit(USAGE, 0, true);
+    } else {
+      usageError(`plan does not accept ${String(argument)}`);
+    }
+  }
+  if (tenant === undefined) usageError("plan requires --tenant");
+  return {
+    ...(backendConfig === undefined ? {} : { backendConfig }),
+    catalog,
+    deployment: selectedDeployment,
+    importsOnly,
+    profile,
+    resources,
+    root,
+    save,
+    tenant,
+    ...(terraform === undefined ? {} : { terraform }),
+  };
+}
+
+async function planCommand(arguments_: string[]): Promise<number> {
+  const options = await planCliOptions(arguments_);
+  const [packRoot, loadedDeployment] = await Promise.all([
+    loadPackRoot({ packsRoot: options.root, profilePath: options.profile, catalogPath: options.catalog }),
+    loadDeployment(options.deployment),
+  ]);
+  let adapterPromise: Promise<PlanTerraform> | undefined;
+  const adapter: PlanTerraform = {
+    initialize: async (request) => {
+      adapterPromise ??= resolveTerraformExecutable(
+        options.terraform ?? process.env.TF,
+        process.env,
+      ).then((terraformExecutable) => createPlanTerraform({
+        environment: process.env,
+        terraformExecutable,
+      }));
+      await (await adapterPromise).initialize(request);
+    },
+    plan: async (request) => {
+      if (adapterPromise === undefined) {
+        throw new Error("Terraform plan adapter was used before initialization");
+      }
+      await (await adapterPromise).plan(request);
+    },
+  };
+  await planEnvironmentRoots({
+    ...(options.backendConfig === undefined ? {} : { backendConfig: options.backendConfig }),
+    deployment: loadedDeployment,
+    importsOnly: options.importsOnly,
+    onDiagnostic: (message) => process.stderr.write(`${message}\n`),
+    root: packRoot,
+    save: options.save,
+    selectors: options.resources,
+    tenant: options.tenant,
+    terraform: adapter,
+    workspace: process.cwd(),
+  });
+  return 0;
+}
+
+async function cleanPlansCommand(arguments_: string[]): Promise<number> {
+  const options = await rootQueryCliOptions(arguments_, "clean-plans");
+  const [packRoot, loadedDeployment] = await Promise.all([
+    loadPackRoot({ packsRoot: options.root, profilePath: options.profile, catalogPath: options.catalog }),
+    loadDeployment(options.deployment),
+  ]);
+  await cleanPlans({
+    deployment: loadedDeployment,
+    onDiagnostic: (message) => process.stderr.write(`${message}\n`),
+    root: packRoot,
+    selectors: options.resources,
+    tenant: options.tenant ?? null,
+    workspace: process.cwd(),
+  });
+  return 0;
+}
+
 interface FetchCliOptions {
   readonly catalog: string;
   readonly output?: string;
@@ -917,6 +1264,12 @@ async function main(arguments_: string[]): Promise<number> {
   if (command === "gen-env") return genEnv(arguments_.slice(1));
   if (command === "stage-imports") return stageImportsCommand(arguments_.slice(1));
   if (command === "unstage-imports") return unstageImportsCommand(arguments_.slice(1));
+  if (command === "resources") return resourcesCommand(arguments_.slice(1));
+  if (command === "roots") return rootsCommand(arguments_.slice(1));
+  if (command === "scope-paths") return scopePathsCommand(arguments_.slice(1));
+  if (command === "plan-roots") return planRootsCommand(arguments_.slice(1));
+  if (command === "plan") return planCommand(arguments_.slice(1));
+  if (command === "clean-plans") return cleanPlansCommand(arguments_.slice(1));
   if (command === "fetch") return fetchCommand(arguments_.slice(1));
   if (command === "fetch-diag") return fetchDiag(arguments_.slice(1));
   if (command === "-h" || command === "--help") {

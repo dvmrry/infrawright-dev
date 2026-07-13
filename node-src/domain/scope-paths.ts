@@ -5,13 +5,15 @@ import {
   pythonRelativeUnder,
   sameContractPath,
 } from "./paths.js";
-import { rootTopology } from "./roots.js";
+import { loadedRootTopology, rootTopology } from "./roots.js";
+import type { LoadedPackRoot } from "../metadata/loader.js";
 import type {
   ChangedPathKind,
   ChangedPathMatch,
   ChangedPathScope,
   Deployment,
   RootCatalog,
+  RootTopology,
   RootTopologyRoot,
 } from "./types.js";
 import { sortedStrings } from "../json/python-compatible.js";
@@ -195,12 +197,12 @@ function scopeOnePath(options: {
   };
 }
 
-export function changedPathScope(options: {
+function changedPathScopeFromTopology(options: {
   paths: readonly string[];
   workspace: string;
   deploymentPath: string;
   deployment: Deployment;
-  catalog: RootCatalog;
+  topology: RootTopology;
 }): ChangedPathScope {
   if (!Array.isArray(options.paths)) {
     return domainError("changed paths must be a JSON array or repeated --path");
@@ -216,12 +218,7 @@ export function changedPathScope(options: {
     normalized.push(pythonPosixNormPath(candidate));
   }
   const paths = sortedStrings(new Set(normalized));
-  const { topology } = rootTopology({
-    catalog: options.catalog,
-    deployment: options.deployment,
-    tenant: null,
-    selectors: [],
-  });
+  const topology = options.topology;
   const rootsByLabel = new Map(topology.roots.map((root) => [root.label, root]));
   const resources = new Set(Object.keys(topology.resource_roots));
   const pathMatches: ChangedPathMatch[] = [];
@@ -284,4 +281,41 @@ export function changedPathScope(options: {
       };
     }),
   };
+}
+
+export function changedPathScope(options: {
+  paths: readonly string[];
+  workspace: string;
+  deploymentPath: string;
+  deployment: Deployment;
+  catalog: RootCatalog;
+}): ChangedPathScope {
+  return changedPathScopeFromTopology({
+    ...options,
+    topology: rootTopology({
+      catalog: options.catalog,
+      deployment: options.deployment,
+      tenant: null,
+      selectors: [],
+    }).topology,
+  });
+}
+
+/** Scope changed paths against the same live pack metadata used by the CLI. */
+export function changedPathScopeLoaded(options: {
+  paths: readonly string[];
+  workspace: string;
+  deploymentPath: string;
+  deployment: Deployment;
+  root: LoadedPackRoot;
+}): ChangedPathScope {
+  return changedPathScopeFromTopology({
+    ...options,
+    topology: loadedRootTopology({
+      deployment: options.deployment,
+      root: options.root,
+      tenant: null,
+      selectors: [],
+    }).topology,
+  });
 }

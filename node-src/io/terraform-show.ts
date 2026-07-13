@@ -49,7 +49,18 @@ function fail(
 
 function snapshotShowLimits(value: TerraformShowLimits): TerraformShowLimits {
   try {
-    return snapshotTerraformCommandLimits(value);
+    const limits = snapshotTerraformCommandLimits(value);
+    if (limits.timeoutMs === null) {
+      return fail(
+        "INVALID_TERRAFORM_SHOW_LIMIT",
+        "Terraform show limits must include a positive timeout",
+      );
+    }
+    return {
+      timeoutMs: limits.timeoutMs,
+      maxStdoutBytes: limits.maxStdoutBytes,
+      maxStderrBytes: limits.maxStderrBytes,
+    };
   } catch {
     return fail(
       "INVALID_TERRAFORM_SHOW_LIMIT",

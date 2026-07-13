@@ -318,12 +318,12 @@ test("invalid UTF-8 and unsafe executable or snapshot paths fail closed", async 
   });
 });
 
-test("Terraform show resource limits have fixed upper and lower bounds", async () => {
+test("Terraform show resource limits retain positive-integer and byte bounds", async () => {
   await withTemp(async (fixture) => {
     const fake = executable(fixture.root, "exit 0");
     for (const limits of [
       { ...LIMITS, timeoutMs: 0 },
-      { ...LIMITS, timeoutMs: 10 * 60 * 1000 + 1 },
+      { ...LIMITS, timeoutMs: 1.5 },
       { ...LIMITS, maxStdoutBytes: 8 * 1024 * 1024 + 1 },
       { ...LIMITS, maxStderrBytes: 16 * 1024 * 1024 + 1 },
     ]) {

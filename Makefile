@@ -138,15 +138,15 @@ provider-probe: ## Run provider readiness probe (RECIPE=<recipe.json> [WORK_DIR=
 	@test -n "$(RECIPE)" || { echo "usage: make provider-probe RECIPE=<recipe.json> [WORK_DIR=<dir>] [OUT=<summary.json>] [MARKDOWN=<summary.md>]"; exit 2; }
 	$(PYTHON) -m engine.provider_probe "$(RECIPE)" $(if $(WORK_DIR),--work-dir "$(WORK_DIR)") $(if $(OUT),--out "$(OUT)") $(if $(MARKDOWN),--markdown "$(MARKDOWN)")
 
-roots: ## Emit root topology JSON ([TENANT=<label>] [RESOURCE=<type|provider>])
-	@$(PYTHON) -m engine.ops roots --json $(OPTIONAL_TENANT_ARG) $(RESOURCE)
+roots: metadata-cli ## Emit root topology JSON ([TENANT=<label>] [RESOURCE=<type|provider>])
+	@$(INFRAWRIGHT_CLI) roots $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-scope-paths: ## Map changed paths to affected whole roots (PATHS_JSON=<file|->)
+scope-paths: metadata-cli ## Map changed paths to affected whole roots (PATHS_JSON=<file|->)
 	@test -n "$(PATHS_JSON)" || { echo "usage: make scope-paths PATHS_JSON=<file|->"; exit 2; }
-	@$(PYTHON) -m engine.ops scope-paths --json --paths-json "$(PATHS_JSON)"
+	@$(INFRAWRIGHT_CLI) scope-paths --paths-json "$(PATHS_JSON)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)"
 
-plan-roots: ## Enumerate materialized env roots and plan artifacts ([TENANT=<label>] [RESOURCE=<type|provider>])
-	@$(PYTHON) -m engine.ops plan-roots --json $(OPTIONAL_TENANT_ARG) $(RESOURCE)
+plan-roots: metadata-cli ## Enumerate materialized env roots and plan artifacts ([TENANT=<label>] [RESOURCE=<type|provider>])
+	@$(INFRAWRIGHT_CLI) plan-roots $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
 stage-imports: metadata-cli ## Copy import/moved blocks into env roots (TENANT=<label> [RESOURCE=<type|provider>] [STATE_AWARE=1] [BACKEND_CONFIG=<file>])
 	@test -n "$(TENANT)" || { echo "usage: make stage-imports TENANT=<label> [RESOURCE=\"<type|provider> ...\"] [STATE_AWARE=1] [BACKEND_CONFIG=<file>]"; exit 2; }
@@ -156,11 +156,11 @@ unstage-imports: metadata-cli ## Remove staged import/moved blocks from env root
 	@test -n "$(TENANT)" || { echo "usage: make unstage-imports TENANT=<label> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
 	$(INFRAWRIGHT_CLI) unstage-imports --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-plan: ## Terraform plan for tenant roots (TENANT=<label> [RESOURCE=<type|provider>] [IMPORTS_ONLY=1] [SAVE=1] [BACKEND_CONFIG=<file>])
-	$(PYTHON) -m engine.ops plan --tenant "$(TENANT)" $(if $(IMPORTS_ONLY),--imports-only) $(if $(SAVE),--save) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(RESOURCE)
+plan: metadata-cli ## Terraform plan for tenant roots (TENANT=<label> [RESOURCE=<type|provider>] [IMPORTS_ONLY=1] [SAVE=1] [BACKEND_CONFIG=<file>])
+	$(INFRAWRIGHT_CLI) plan --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(IMPORTS_ONLY),--imports-only) $(if $(SAVE),--save) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-clean-plans: ## Delete saved tfplan artifacts ([TENANT=<label>] [RESOURCE=<type|provider>])
-	$(PYTHON) -m engine.ops clean-plans $(OPTIONAL_TENANT_ARG) $(RESOURCE)
+clean-plans: metadata-cli ## Delete saved tfplan artifacts ([TENANT=<label>] [RESOURCE=<type|provider>])
+	$(INFRAWRIGHT_CLI) clean-plans $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
 assert-clean: ## Exit 0 only when every saved plan is no-op/import-only ([TENANT=<label>] [RESOURCE=<type|provider>] [BACKEND_CONFIG=<file>] [REPORT=<file>])
 	@$(PYTHON) -m engine.ops assert-clean $(OPTIONAL_TENANT_ARG) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(REPORT),--report "$(REPORT)") $(RESOURCE)

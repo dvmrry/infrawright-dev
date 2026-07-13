@@ -69,8 +69,8 @@ export function oracleTimeoutMs(environment: NodeJS.ProcessEnv): number {
     throw new OracleError("INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS must be a positive number");
   }
   const milliseconds = Math.ceil(seconds * 1000);
-  if (!Number.isSafeInteger(milliseconds) || milliseconds > 600_000) {
-    throw new OracleError("INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS exceeds the supported 600 second bound");
+  if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0) {
+    throw new OracleError("INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS is outside the supported numeric range");
   }
   return milliseconds;
 }

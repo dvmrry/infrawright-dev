@@ -10,12 +10,15 @@ import {
 } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
+import { performance } from "node:perf_hooks";
 import test from "node:test";
 
 import { ProcessFailure } from "../node-src/domain/errors.js";
 import {
+  resolveTerraformExecutable,
   runTerraformCommand,
+  terraformExecutableCandidates,
   type TerraformCommandLimits,
 } from "../node-src/io/terraform-command.js";
 
@@ -183,6 +186,131 @@ test("discard mode returns no child output", async () => {
       output: "discard",
     });
     assert.deepEqual(result, { kind: "discarded" });
+  });
+});
+
+test("inherit mode streams both channels and preserves nonzero failure", async () => {
+  await withTemp(async (fixture) => {
+    const success = executable(
+      fixture.root,
+      "printf '%s' 'visible-stdout'; printf '%s' 'visible-stderr' >&2",
+    );
+    let stdout = "";
+    let stderr = "";
+    const originalStdout = process.stdout.write;
+    const originalStderr = process.stderr.write;
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      stdout += Buffer.from(chunk).toString("utf8");
+      return true;
+    }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += Buffer.from(chunk).toString("utf8");
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      assert.deepEqual(await runTerraformCommand({
+        ...baseOptions(fixture, success),
+        output: "inherit",
+      }), { kind: "inherited" });
+    } finally {
+      process.stdout.write = originalStdout;
+      process.stderr.write = originalStderr;
+    }
+    assert.equal(stdout.endsWith("visible-stdout"), true);
+    assert.equal(stderr.includes("visible-stderr"), true);
+
+    const failure = executable(fixture.root, "exit 37");
+    await captureFailure(runTerraformCommand({
+      ...baseOptions(fixture, failure),
+      output: "inherit",
+    }), "TERRAFORM_COMMAND_FAILED");
+  });
+});
+
+test("no-deadline and long practical deadlines do not inherit the old ten-minute ceiling", async () => {
+  await withTemp(async (fixture) => {
+    const delayed = executable(fixture.root, "sleep 0.05; exit 0");
+    assert.deepEqual(await runTerraformCommand({
+      ...baseOptions(fixture, delayed),
+      limits: { ...LIMITS, timeoutMs: null },
+      output: "discard",
+    }), { kind: "discarded" });
+    const immediate = executable(fixture.root, "exit 0");
+    assert.deepEqual(await runTerraformCommand({
+      ...baseOptions(fixture, immediate),
+      limits: { ...LIMITS, timeoutMs: 86_400_000 },
+      output: "discard",
+    }), { kind: "discarded" });
+    assert.deepEqual(await runTerraformCommand({
+      ...baseOptions(fixture, immediate),
+      limits: { ...LIMITS, timeoutMs: Number.MAX_SAFE_INTEGER },
+      output: "discard",
+    }), { kind: "discarded" });
+  });
+});
+
+test("child timeout uses an independent monotonic clock", async (context) => {
+  await withTemp(async (fixture) => {
+    context.mock.method(performance, "now", () => 0);
+    const blocked = executable(fixture.root, "while :; do sleep 1; done");
+    await captureFailure(runTerraformCommand({
+      ...baseOptions(fixture, blocked),
+      limits: { ...LIMITS, timeoutMs: 30 },
+      output: "discard",
+    }), "TERRAFORM_COMMAND_TIMEOUT");
+  });
+});
+
+test("Terraform executable candidates use POSIX and Windows path semantics", async () => {
+  assert.deepEqual(terraformExecutableCandidates(
+    "C:\\tools\\terraform.exe",
+    {},
+    { cwd: "D:\\work", platform: "win32" },
+  ), ["C:\\tools\\terraform.exe"]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "C:/tools/terraform.exe",
+    {},
+    { cwd: "D:\\work", platform: "win32" },
+  ), ["C:\\tools\\terraform.exe"]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "..\\bin\\terraform.exe",
+    {},
+    { cwd: "C:\\work\\repo", platform: "win32" },
+  ), ["C:\\work\\bin\\terraform.exe"]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "./bin/terraform",
+    {},
+    { cwd: "/work/repo", platform: "linux" },
+  ), ["/work/repo/bin/terraform"]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "terraform",
+    { PATH: "/first:/second" },
+    { cwd: "/work", platform: "linux" },
+  ), ["/first/terraform", "/second/terraform"]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "terraform",
+    { PATH: "C:\\first;D:\\second", PATHEXT: ".EXE;.CMD" },
+    { cwd: "C:\\work", platform: "win32" },
+  ), [
+    "C:\\first\\terraform.exe",
+    "C:\\first\\terraform.cmd",
+    "D:\\second\\terraform.exe",
+    "D:\\second\\terraform.cmd",
+  ]);
+
+  await withTemp(async (fixture) => {
+    const fake = executable(fixture.root, "exit 0");
+    assert.equal(
+      await resolveTerraformExecutable(relative(process.cwd(), fake), process.env),
+      fake,
+    );
+    const target = join(fixture.root, "terraform-from-path");
+    writeFileSync(target, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    chmodSync(target, 0o700);
+    assert.equal(
+      await resolveTerraformExecutable("terraform-from-path", { PATH: fixture.root }),
+      realpathSync(target),
+    );
   });
 });
 
@@ -454,7 +582,7 @@ test("argument, environment, output, and limit bounds reject hostile inputs", as
           ...baseOptions(fixture, fake),
           limits: {
             ...LIMITS,
-            timeoutMs: 10 * 60 * 1000 + 1,
+            timeoutMs: 1.5,
           },
           output: "discard",
         },

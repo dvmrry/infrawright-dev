@@ -1,5 +1,4 @@
-import { constants } from "node:fs";
-import { access, lstat, readFile, realpath } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 import { LosslessNumber } from "lossless-json";
 
@@ -305,27 +304,6 @@ export async function runAdoptBatch(options: {
   }
   if (failed.length > 0) write(`\nadopt FAILED for: ${failed.join(" ")}`);
   return { failed, processed, skipped };
-}
-
-export async function resolveTerraformExecutable(
-  selected: string | undefined,
-  environment: NodeJS.ProcessEnv,
-): Promise<string> {
-  const requested = selected && selected.length > 0 ? selected : "terraform";
-  const candidates = requested.includes(path.sep)
-    ? [path.resolve(requested)]
-    : (environment.PATH ?? "").split(path.delimiter).filter(Boolean).map((directory) => {
-        return path.resolve(directory, requested);
-      });
-  for (const candidate of candidates) {
-    try {
-      await access(candidate, constants.X_OK);
-      return await realpath(candidate);
-    } catch {
-      // Continue searching PATH.
-    }
-  }
-  throw new Error(`unable to resolve Terraform executable ${JSON.stringify(requested)}`);
 }
 
 export async function defaultAdoptionStateLoader(options: {

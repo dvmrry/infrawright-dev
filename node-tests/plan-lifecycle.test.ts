@@ -1,0 +1,432 @@
+import assert from "node:assert/strict";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+
+import { ProcessFailure } from "../node-src/domain/errors.js";
+import {
+  cleanPlans,
+  createPlanTerraform,
+  planEnvironmentRoots,
+  type PlanTerraform,
+  type PlanTerraformRequest,
+} from "../node-src/domain/plan-lifecycle.js";
+import { loadPackRoot, type LoadedPackRoot } from "../node-src/metadata/loader.js";
+import type { Deployment } from "../node-src/domain/types.js";
+
+const ROOT = process.cwd();
+const ZIA_RESOURCE = "zia_url_categories";
+const ZIA_SECOND = "zia_admin_users";
+const DERIVED = "zpa_policy_access_rule_reorder";
+let packRootPromise: Promise<LoadedPackRoot> | undefined;
+
+function committedRoot(): Promise<LoadedPackRoot> {
+  packRootPromise ??= loadPackRoot({
+    packsRoot: path.join(ROOT, "packs"),
+    profilePath: path.join(ROOT, "packsets", "full.json"),
+    catalogPath: path.join(ROOT, "packsets", "full.json"),
+  });
+  return packRootPromise;
+}
+
+async function temporaryDirectory(
+  context: { after(callback: () => Promise<unknown> | unknown): void },
+): Promise<string> {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-plan-lifecycle-"));
+  context.after(() => rm(directory, { force: true, recursive: true }));
+  return directory;
+}
+
+async function writeText(file: string, text: string): Promise<void> {
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, text, "utf8");
+}
+
+function deployment(roots: Deployment["roots"] = {}): Deployment {
+  return { overlay: ".", roots };
+}
+
+function envDirectory(workspace: string, label: string): string {
+  return path.join(workspace, "envs", "tenant", label);
+}
+
+function configPath(workspace: string, resourceType: string): string {
+  return path.join(workspace, "config", "tenant", `${resourceType}.auto.tfvars.json`);
+}
+
+function hclConfigPath(workspace: string, resourceType: string): string {
+  return path.join(workspace, "config", "tenant", `${resourceType}.auto.tfvars`);
+}
+
+async function writeRoot(options: {
+  readonly backend?: string;
+  readonly label: string;
+  readonly members: readonly string[];
+  readonly workspace: string;
+}): Promise<string> {
+  const directory = envDirectory(options.workspace, options.label);
+  const lines = [
+    ...(options.backend === undefined
+      ? []
+      : ["terraform {", `  backend "${options.backend}" {}`, "}", ""]),
+  ];
+  for (const resourceType of options.members) {
+    const moduleDirectory = path.join(options.workspace, "modules", resourceType);
+    await writeText(path.join(moduleDirectory, "main.tf"), "# module\n");
+    lines.push(
+      `module "${resourceType}" {`,
+      `  source = "${path.relative(directory, moduleDirectory)}"`,
+      `  items = var.${resourceType}_items`,
+      "}",
+      "",
+    );
+  }
+  await writeText(path.join(directory, "main.tf"), `${lines.join("\n")}\n`);
+  return directory;
+}
+
+class FakeTerraform implements PlanTerraform {
+  readonly initialized: PlanTerraformRequest[] = [];
+  readonly planned: PlanTerraformRequest[] = [];
+  onInitialize?: (request: PlanTerraformRequest) => Promise<void> | void;
+  onPlan?: (request: PlanTerraformRequest) => Promise<void> | void;
+
+  async initialize(request: PlanTerraformRequest): Promise<void> {
+    this.initialized.push(request);
+    await this.onInitialize?.(request);
+  }
+
+  async plan(request: PlanTerraformRequest): Promise<void> {
+    this.planned.push(request);
+    if (request.save) await writeFile(path.join(request.directory, "tfplan"), "opaque-plan");
+    await this.onPlan?.(request);
+  }
+}
+
+function assertFailure(error: unknown, code: string): ProcessFailure {
+  assert.ok(error instanceof ProcessFailure);
+  assert.equal(error.code, code);
+  return error;
+}
+
+test("saved local plan leaves an exact private pair and clean-plans removes only that pair", async (context) => {
+  const workspace = await temporaryDirectory(context);
+  const directory = await writeRoot({ label: ZIA_RESOURCE, members: [ZIA_RESOURCE], workspace });
+  const config = configPath(workspace, ZIA_RESOURCE);
+  await writeText(config, `{"${ZIA_RESOURCE}_items":{}}\n`);
+  await writeText(path.join(directory, "tfplan"), "stale-plan");
+  await writeText(path.join(directory, "tfplan.sources"), "stale-sources\n");
+  await writeText(path.join(directory, "report.json"), "{}\n");
+  await writeText(path.join(directory, ".terraform.lock.hcl"), "# lock\n");
+  const terraform = new FakeTerraform();
+  const diagnostics: string[] = [];
+
+  const result = await planEnvironmentRoots({
+    deployment: deployment(),
+    importsOnly: false,
+    onDiagnostic: (message) => diagnostics.push(message),
+    root: await committedRoot(),
+    save: true,
+    selectors: [ZIA_RESOURCE],
+    tenant: "tenant",
+    terraform,
+    workspace,
+  });
+
+  assert.deepEqual(result, { planned: 1 });
+  assert.equal(terraform.initialized.length, 1);
+  assert.equal(terraform.planned.length, 1);
+  assert.deepEqual(terraform.planned[0]?.varFiles, [config]);
+  assert.equal(terraform.planned[0]?.backendConfig, undefined);
+  assert.deepEqual(diagnostics, [`== plan ${ZIA_RESOURCE}`]);
+  const sources = await readFile(path.join(directory, "tfplan.sources"), "utf8");
+  assert.match(sources, /^\{"sha256": "[0-9a-f]{64}", "version": 2\}\n$/u);
+  if (process.platform !== "win32") {
+    assert.equal((await stat(path.join(directory, "tfplan"))).mode & 0o777, 0o600);
+  }
+
+  const cleanDiagnostics: string[] = [];
+  assert.deepEqual(await cleanPlans({
+    deployment: deployment(),
+    onDiagnostic: (message) => cleanDiagnostics.push(message),
+    root: await committedRoot(),
+    selectors: [ZIA_RESOURCE],
+    tenant: "tenant",
+    workspace,
+  }), { removed: 1 });
+  assert.deepEqual(cleanDiagnostics, [
+    `removed envs/tenant/${ZIA_RESOURCE}/tfplan`,
+    `removed envs/tenant/${ZIA_RESOURCE}/tfplan.sources`,
+    "1 stale plan(s) removed",
+  ]);
+  assert.equal(await readFile(path.join(directory, "report.json"), "utf8"), "{}\n");
+  assert.equal(await readFile(path.join(directory, ".terraform.lock.hcl"), "utf8"), "# lock\n");
+  assert.deepEqual(await cleanPlans({
+    deployment: deployment(),
+    root: await committedRoot(),
+    selectors: [ZIA_RESOURCE],
+    tenant: "tenant",
+    workspace,
+  }), { removed: 0 });
+});
+
+test("generic Terraform adapter emits exact backend, var-file, and saved-plan argv", async (context) => {
+  const workspace = await temporaryDirectory(context);
+  const executable = path.join(workspace, "terraform-fake");
+  const log = path.join(workspace, "terraform.log");
+  await writeText(executable, [
+    "#!/bin/sh",
+    "printf '%s\\n' \"$*\" >> \"$TF_LOG_FILE\"",
+    "exit 0",
+    "",
+  ].join("\n"));
+  await chmod(executable, 0o700);
+  const adapter = createPlanTerraform({
+    environment: { TF_LOG_FILE: log },
+    terraformExecutable: executable,
+  });
+  const request: PlanTerraformRequest = {
+    backendConfig: path.join(workspace, "backend.hcl"),
+    backendKey: "tenant/grouped.tfstate",
+    directory: workspace,
+    save: true,
+    varFiles: [path.join(workspace, "a.tfvars"), path.join(workspace, "b.tfvars")],
+  };
+  await adapter.initialize(request);
+  await adapter.plan(request);
+  assert.equal(await readFile(log, "utf8"), [
+    `init -input=false -reconfigure -backend-config=${request.backendConfig} -backend-config=key=${request.backendKey}`,
+    `plan -input=false -var-file=${request.varFiles[0]} -var-file=${request.varFiles[1]} -out=tfplan`,
+    "",
+  ].join("\n"));
+});
+
+test("remote backend uses the exact absolute config and tenant/root state key", async (context) => {
+  const workspace = await temporaryDirectory(context);
+  await writeRoot({ backend: "azurerm", label: ZIA_RESOURCE, members: [ZIA_RESOURCE], workspace });
+  await writeText(configPath(workspace, ZIA_RESOURCE), `{"${ZIA_RESOURCE}_items":{}}\n`);
+  const backend = path.join(workspace, "backend.hcl");
+  await writeText(backend, "storage_account_name = \"example\"\n");
+
+  await assert.rejects(
+    planEnvironmentRoots({
+      deployment: deployment(),
+      importsOnly: false,
+      root: await committedRoot(),
+      save: false,
+      selectors: [ZIA_RESOURCE],
+      tenant: "tenant",
+      terraform: new FakeTerraform(),
+      workspace,
+    }),
+    (error) => {
+      assertFailure(error, "BACKEND_CONFIG_REQUIRED");
+      return true;
+    },
+  );
+
+  const terraform = new FakeTerraform();
+  await planEnvironmentRoots({
+    backendConfig: "backend.hcl",
+    deployment: deployment(),
+    importsOnly: false,
+    root: await committedRoot(),
+    save: false,
+    selectors: [ZIA_RESOURCE],
+    tenant: "tenant",
+    terraform,
+    workspace,
+  });
+  assert.equal(terraform.initialized[0]?.backendConfig, backend);
+  assert.equal(terraform.initialized[0]?.backendKey, `tenant/${ZIA_RESOURCE}.tfstate`);
+  await assert.rejects(readFile(path.join(envDirectory(workspace, ZIA_RESOURCE), "tfplan")));
+});
+
+test("HCL config selection and no-config skipping preserve deployment behavior", async (context) => {
+  const workspace = await temporaryDirectory(context);
+  await writeRoot({ label: ZIA_RESOURCE, members: [ZIA_RESOURCE], workspace });
+  const hcl = hclConfigPath(workspace, ZIA_RESOURCE);
+  await writeText(hcl, `${ZIA_RESOURCE}_items = {}\n`);
+  const terraform = new FakeTerraform();
+  await planEnvironmentRoots({
+    deployment: { overlay: ".", roots: {}, tfvars_format: "hcl" },
+    importsOnly: false,
+    root: await committedRoot(),
+    save: false,
+    selectors: [ZIA_RESOURCE],
+    tenant: "tenant",
+    terraform,
+    workspace,
+  });
+  assert.deepEqual(terraform.planned[0]?.varFiles, [hcl]);
+
+  await rm(hcl);
+  const diagnostics: string[] = [];
+  await assert.rejects(planEnvironmentRoots({
+    deployment: { overlay: ".", roots: {}, tfvars_format: "hcl" },
+    importsOnly: false,
+    onDiagnostic: (message) => diagnostics.push(message),
+    root: await committedRoot(),
+    save: false,
+    selectors: [ZIA_RESOURCE],
+    tenant: "tenant",
+    terraform: new FakeTerraform(),
+    workspace,
+  }), (error) => {
+    assertFailure(error, "NO_ROOTS_PLANNED");
+    return true;
+  });
+  assert.deepEqual(diagnostics, [`skip ${ZIA_RESOURCE} (no config/tenant/${ZIA_RESOURCE}.auto.tfvars)`]);
+});
+
+test("grouped roots fail before Terraform when only some member configs exist", async (context) => {
+  const workspace = await temporaryDirectory(context);
+  const label = "zia_pair";
+  const roots = { zia: { groups: { [label]: [ZIA_RESOURCE, ZIA_SECOND] } } };
+  await writeRoot({ label, members: [ZIA_RESOURCE, ZIA_SECOND], workspace });
+  await writeText(configPath(workspace, ZIA_RESOURCE), `{"${ZIA_RESOURCE}_items":{}}\n`);
+  const terraform = new FakeTerraform();
+  await assert.rejects(
+    planEnvironmentRoots({
+      deployment: deployment(roots),
+      importsOnly: false,
+      root: await committedRoot(),
+      save: false,
+      selectors: [ZIA_RESOURCE],
+      tenant: "tenant",
+      terraform,
+      workspace,
+    }),
+    (error) => {
+      const failure = assertFailure(error, "MISSING_GROUP_CONFIG");
+      assert.match(failure.message, /zia_admin_users\.auto\.tfvars\.json/u);
+      return true;
+    },
+  );
+  assert.deepEqual(terraform.initialized, []);
+  assert.deepEqual(terraform.planned, []);
+});
+
+test("init and plan mutations both fail closed and remove the saved pair", async (context) => {
+  for (const phase of ["init", "plan"] as const) {
+    await context.test(phase, async () => {
+      const workspace = await mkdtemp(path.join(os.tmpdir(), `infrawright-plan-${phase}-`));
+      try {
+        const directory = await writeRoot({ label: ZIA_RESOURCE, members: [ZIA_RESOURCE], workspace });
+        const config = configPath(workspace, ZIA_RESOURCE);
+        await writeText(config, `{"${ZIA_RESOURCE}_items":{}}\n`);
+        const terraform = new FakeTerraform();
+        if (phase === "init") {
+          terraform.onInitialize = async () => {
+            await writeFile(
+              path.join(workspace, "modules", ZIA_RESOURCE, "main.tf"),
+              "# changed during init\n",
+              "utf8",
+            );
+          };
+        } else {
+          terraform.onPlan = async () => {
+            await writeFile(config, `{"${ZIA_RESOURCE}_items":{"changed":{}}}\n`, "utf8");
+          };
+        }
+        await assert.rejects(
+          planEnvironmentRoots({
+            deployment: deployment(),
+            importsOnly: false,
+            root: await committedRoot(),
+            save: true,
+            selectors: [ZIA_RESOURCE],
+            tenant: "tenant",
+            terraform,
+            workspace,
+          }),
+          (error) => {
+            assertFailure(
+              error,
+              phase === "init" ? "INIT_INPUTS_CHANGED" : "PLAN_INPUTS_CHANGED",
+            );
+            return true;
+          },
+        );
+        await assert.rejects(readFile(path.join(directory, "tfplan")));
+        await assert.rejects(readFile(path.join(directory, "tfplan.sources")));
+        if (phase === "init") assert.equal(terraform.planned.length, 0);
+      } finally {
+        await rm(workspace, { force: true, recursive: true });
+      }
+    });
+  }
+});
+
+test("imports-only skips roots containing a derived member and reports no planned roots", async (context) => {
+  const workspace = await temporaryDirectory(context);
+  await mkdir(envDirectory(workspace, DERIVED), { recursive: true });
+  await writeText(configPath(workspace, DERIVED), `{"${DERIVED}_items":{}}\n`);
+  const diagnostics: string[] = [];
+  const terraform = new FakeTerraform();
+  await assert.rejects(
+    planEnvironmentRoots({
+      deployment: deployment(),
+      importsOnly: true,
+      onDiagnostic: (message) => diagnostics.push(message),
+      root: await committedRoot(),
+      save: false,
+      selectors: [DERIVED],
+      tenant: "tenant",
+      terraform,
+      workspace,
+    }),
+    (error) => {
+      assertFailure(error, "NO_ROOTS_PLANNED");
+      return true;
+    },
+  );
+  assert.deepEqual(diagnostics, [
+    `skip ${DERIVED} (IMPORTS_ONLY: derived/non-importable member ${DERIVED})`,
+  ]);
+  assert.deepEqual(terraform.initialized, []);
+});
+
+test("failed Terraform plan removes a partial saved pair", async (context) => {
+  const workspace = await temporaryDirectory(context);
+  const directory = await writeRoot({ label: ZIA_RESOURCE, members: [ZIA_RESOURCE], workspace });
+  await writeText(configPath(workspace, ZIA_RESOURCE), `{"${ZIA_RESOURCE}_items":{}}\n`);
+  const terraform = new FakeTerraform();
+  terraform.onPlan = () => {
+    throw new Error("fake plan failed");
+  };
+  await assert.rejects(planEnvironmentRoots({
+    deployment: deployment(),
+    importsOnly: false,
+    root: await committedRoot(),
+    save: true,
+    selectors: [ZIA_RESOURCE],
+    tenant: "tenant",
+    terraform,
+    workspace,
+  }), /fake plan failed/u);
+  await assert.rejects(readFile(path.join(directory, "tfplan")));
+  await assert.rejects(readFile(path.join(directory, "tfplan.sources")));
+});
+
+test("clean-plans without a tenant removes selected pairs across tenants", async (context) => {
+  const workspace = await temporaryDirectory(context);
+  for (const tenant of ["alpha", "beta"]) {
+    const directory = path.join(workspace, "envs", tenant, ZIA_RESOURCE);
+    await writeText(path.join(directory, "tfplan"), tenant);
+    await writeText(path.join(directory, "tfplan.sources"), "{}\n");
+  }
+  const diagnostics: string[] = [];
+  assert.deepEqual(await cleanPlans({
+    deployment: deployment(),
+    onDiagnostic: (message) => diagnostics.push(message),
+    root: await committedRoot(),
+    selectors: [ZIA_RESOURCE],
+    tenant: null,
+    workspace,
+  }), { removed: 2 });
+  assert.equal(diagnostics.at(-1), "2 stale plan(s) removed");
+  await assert.rejects(readFile(path.join(workspace, "envs", "alpha", ZIA_RESOURCE, "tfplan")));
+  await assert.rejects(readFile(path.join(workspace, "envs", "beta", ZIA_RESOURCE, "tfplan")));
+});
