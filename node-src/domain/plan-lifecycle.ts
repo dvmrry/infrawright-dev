@@ -135,7 +135,7 @@ function workspacePath(workspace: string, candidate: string): string {
   return path.isAbsolute(candidate) ? candidate : path.resolve(workspace, candidate);
 }
 
-async function requireBackendConfiguration(options: {
+export async function requireBackendConfiguration(options: {
   readonly backendConfig?: string;
   readonly directory: string;
   readonly label: string;

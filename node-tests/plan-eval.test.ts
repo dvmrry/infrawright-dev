@@ -57,7 +57,7 @@ test("plan classification preserves clean, blocked, import, and opaque semantics
       type: "sample_resource",
       change: { actions: ["create"], importing: { id: "1" } },
     }],
-  }).status, BLOCKED);
+  }).status, CLEAN);
   assert.equal(classifyPlan({
     format_version: "1.2",
     complete: true,

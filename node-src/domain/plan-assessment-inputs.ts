@@ -249,7 +249,7 @@ export async function recheckSavedPlanAssessmentContext(
   }
 }
 
-async function materializeLoadedSavedPlanAssessmentRoots(
+export async function materializeLoadedSavedPlanAssessmentRoots(
   supplied: LoadedSavedPlanAssessmentContext,
 ): Promise<{
   readonly roots: readonly SavedPlanAssessmentRootInput[];

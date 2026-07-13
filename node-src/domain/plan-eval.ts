@@ -185,6 +185,20 @@ function classifyChange(
   if (typeof resourceType !== "string") {
     throw new TypeError(`${source} type must be a string`);
   }
+  if (
+    isRecord(change.importing)
+    && Object.keys(change.importing).length > 0
+    && actions.size === 1
+    && actions.has("create")
+  ) {
+    return [{
+      status: CLEAN,
+      source,
+      address,
+      actions: sortedStrings(actions),
+      paths: [],
+    }];
+  }
   if (actions.has("delete")) {
     return [blocked(source, address, actions, [["<delete>"]])];
   }

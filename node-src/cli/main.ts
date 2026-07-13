@@ -68,6 +68,12 @@ import {
 } from "../domain/plan-lifecycle.js";
 import { runSavedPlanAssertion } from "../domain/plan-assessment-runner.js";
 import {
+  applyExactSavedPlans,
+  createExactPlanApplyTerraform,
+  currentApplyBranch,
+  type ExactPlanApplyTerraform,
+} from "../domain/exact-plan-apply.js";
+import {
   renderLegacyChangedPathScope,
   renderLegacyPlanRoots,
   renderLegacyRootDiagnostics,
@@ -93,6 +99,7 @@ const USAGE = [
   "  infrawright clean-plans [--tenant <name>] [--resource <selector>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright assert-clean [--tenant <name>] [--resource <selector>] [--backend-config <file>] [--report <file|->] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright assert-adoptable [--tenant <name>] [--resource <selector>] [--policy <file>] [--backend-config <file>] [--report <file|->] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
+  "  infrawright apply [--tenant <name>] [--resource <selector>] [--policy <file>] [--backend-config <file>] [--allow-destroy] [--allow-non-main] [--allow-plan-changes] [--main-branch <name>] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright fetch --tenant <name> [--resource <selector>] [--out <dir>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright fetch-diag [--root <packs>] [--profile <file>] [--catalog <file>]",
 ].join("\n");
@@ -1224,6 +1231,148 @@ async function assessmentCommand(
   return 0;
 }
 
+interface ApplyCliOptions extends RootQueryCliOptions {
+  readonly allowDestroy: boolean;
+  readonly allowNonMain: boolean;
+  readonly allowPlanChanges: boolean;
+  readonly backendConfig?: string;
+  readonly mainBranch?: string;
+  readonly policy?: string;
+  readonly terraform?: string;
+}
+
+async function applyCliOptions(arguments_: string[]): Promise<ApplyCliOptions> {
+  const rootDirectory = await packageRoot();
+  let root = process.env.INFRAWRIGHT_PACKS || path.join(rootDirectory, "packs");
+  let profile = process.env.INFRAWRIGHT_PACK_PROFILE
+    || path.join(rootDirectory, "packsets", "full.json");
+  let catalog = path.join(rootDirectory, "packsets", "full.json");
+  let selectedDeployment = deploymentPath();
+  let tenant: string | undefined;
+  let backendConfig: string | undefined;
+  let policy: string | undefined;
+  let terraform: string | undefined;
+  let mainBranch: string | undefined;
+  let allowDestroy = false;
+  let allowNonMain = false;
+  let allowPlanChanges = false;
+  const resources: string[] = [];
+  for (let index = 0; index < arguments_.length;) {
+    const argument = arguments_[index];
+    if (
+      argument === "--allow-destroy"
+      || argument === "--allow-non-main"
+      || argument === "--allow-plan-changes"
+    ) {
+      if (argument === "--allow-destroy") allowDestroy = true;
+      if (argument === "--allow-non-main") allowNonMain = true;
+      if (argument === "--allow-plan-changes") allowPlanChanges = true;
+      index += 1;
+    } else if (
+      argument === "--root"
+      || argument === "--profile"
+      || argument === "--catalog"
+      || argument === "--deployment"
+      || argument === "--tenant"
+      || argument === "--resource"
+      || argument === "--backend-config"
+      || argument === "--policy"
+      || argument === "--terraform"
+      || argument === "--main-branch"
+    ) {
+      const option = takeOption(arguments_, index, argument, argument === "--tenant");
+      if (argument === "--root") root = option.value;
+      if (argument === "--profile") profile = option.value;
+      if (argument === "--catalog") catalog = option.value;
+      if (argument === "--deployment") selectedDeployment = option.value;
+      if (argument === "--tenant") tenant = option.value;
+      if (argument === "--resource") resources.push(option.value);
+      if (argument === "--backend-config") backendConfig = option.value;
+      if (argument === "--policy") policy = option.value;
+      if (argument === "--terraform") terraform = option.value;
+      if (argument === "--main-branch") mainBranch = option.value;
+      index = option.next;
+    } else if (argument === "-h" || argument === "--help") {
+      throw new CliExit(USAGE, 0, true);
+    } else {
+      usageError(`apply does not accept ${String(argument)}`);
+    }
+  }
+  if (tenant !== undefined) validateTenant(tenant);
+  return {
+    allowDestroy,
+    allowNonMain,
+    allowPlanChanges,
+    ...(backendConfig === undefined ? {} : { backendConfig }),
+    catalog,
+    deployment: selectedDeployment,
+    ...(mainBranch === undefined ? {} : { mainBranch }),
+    ...(policy === undefined ? {} : { policy }),
+    profile,
+    resources,
+    root,
+    ...(tenant === undefined ? {} : { tenant }),
+    ...(terraform === undefined ? {} : { terraform }),
+  };
+}
+
+async function applyCommand(arguments_: string[]): Promise<number> {
+  const options = await applyCliOptions(arguments_);
+  const workspace = process.cwd();
+  let adapterPromise: Promise<ExactPlanApplyTerraform> | undefined;
+  const adapter = async (): Promise<ExactPlanApplyTerraform> => {
+    adapterPromise ??= resolveTerraformExecutable(
+      options.terraform ?? process.env.TF,
+      process.env,
+    ).then((terraformExecutable) => createExactPlanApplyTerraform({
+      environment: process.env,
+      terraformExecutable,
+    }));
+    return adapterPromise;
+  };
+  await applyExactSavedPlans({
+    allowDestroy: options.allowDestroy,
+    allowNonMain: options.allowNonMain,
+    allowPlanChanges: options.allowPlanChanges,
+    backendConfig: options.backendConfig === undefined
+      ? null
+      : path.resolve(workspace, options.backendConfig),
+    currentBranch: () => currentApplyBranch({
+      cwd: workspace,
+      environment: process.env,
+    }),
+    loadInputs: async () => {
+      const [packRoot, boundDeployment] = await Promise.all([
+        loadPackRoot({
+          packsRoot: options.root,
+          profilePath: options.profile,
+          catalogPath: options.catalog,
+        }),
+        loadBoundAssessmentDeployment(path.resolve(options.deployment)),
+      ]);
+      return {
+        controlFiles: [boundDeployment.file],
+        deployment: boundDeployment.deployment,
+        root: packRoot,
+      };
+    },
+    mainBranch: options.mainBranch ?? null,
+    onDiagnostic: (message) => process.stderr.write(`${message}\n`),
+    policyPath: options.policy === undefined
+      ? null
+      : path.resolve(workspace, options.policy),
+    selectors: options.resources,
+    tenant: options.tenant ?? null,
+    terraform: {
+      initialize: async (request) => (await adapter()).initialize(request),
+      show: async (request) => (await adapter()).show(request),
+      apply: async (request) => (await adapter()).apply(request),
+    },
+    workspace,
+  });
+  return 0;
+}
+
 interface FetchCliOptions {
   readonly catalog: string;
   readonly output?: string;
@@ -1436,6 +1585,9 @@ async function main(arguments_: string[]): Promise<number> {
       arguments_.slice(1),
       command,
     ));
+  }
+  if (command === "apply") {
+    return legacyPlanLifecycleCommand(() => applyCommand(arguments_.slice(1)));
   }
   if (command === "fetch") return fetchCommand(arguments_.slice(1));
   if (command === "fetch-diag") return fetchDiag(arguments_.slice(1));

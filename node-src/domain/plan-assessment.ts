@@ -174,7 +174,7 @@ const DEFAULT_ASSESSMENT_RESULT_LIMITS: SavedPlanAssessmentResultLimits = {
   maxMetadataBytes: MAX_SAVED_PLAN_ASSESSMENT_METADATA_BYTES,
 };
 
-const DEFAULT_SAVED_PLAN_LIMITS: BoundedReadLimits = {
+export const DEFAULT_SAVED_PLAN_LIMITS: BoundedReadLimits = {
   maxFiles: 16,
   maxDirectories: 1,
   maxDirectoryEntries: 1,
@@ -183,7 +183,7 @@ const DEFAULT_SAVED_PLAN_LIMITS: BoundedReadLimits = {
   maxFileBytes: 512n * 1024n * 1024n,
 };
 
-const DEFAULT_POLICY_LIMITS: BoundedReadLimits = {
+export const DEFAULT_POLICY_LIMITS: BoundedReadLimits = {
   maxFiles: 2,
   maxDirectories: 1,
   maxDirectoryEntries: 1,
