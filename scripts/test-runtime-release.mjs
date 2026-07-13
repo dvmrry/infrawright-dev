@@ -37,6 +37,20 @@ function run(command, arguments_, options = {}) {
   return result;
 }
 
+function runExpectedFailure(command, arguments_, options = {}) {
+  const result = spawnSync(command, arguments_, {
+    cwd: options.cwd ?? repository,
+    encoding: "utf8",
+    env: options.env ?? process.env,
+    maxBuffer: 32 * 1024 * 1024,
+    timeout: options.timeout ?? 120_000,
+  });
+  if (result.status === 0) {
+    throw new Error(`${command} ${arguments_.join(" ")} unexpectedly succeeded`);
+  }
+  return result;
+}
+
 async function removePythonFiles(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const candidate = path.join(directory, entry.name);
@@ -179,6 +193,53 @@ try {
     "PACK_PROFILE=packsets/full.json",
     "PACK_CATALOG=packsets/full.json",
   ], { cwd: generic, env: environment });
+  const verifier = path.join(generic, "scripts", "verify-runtime-release.mjs");
+  const externalProfiles = path.join(temporary, "external-profile");
+  await mkdir(externalProfiles);
+  await cp(
+    path.join(generic, "packsets", "full.json"),
+    path.join(externalProfiles, "selected.json"),
+  );
+  await cp(
+    path.join(generic, "deployment.json"),
+    path.join(externalProfiles, "unrelated.json"),
+  );
+  run(process.execPath, [
+    verifier,
+    generic,
+    "--profile",
+    path.join(externalProfiles, "selected.json"),
+  ], { cwd: temporary, env: environment });
+
+  await writeFile(path.join(generic, "packsets", "broken.json"), "{}\n", "utf8");
+  const brokenProfile = runExpectedFailure(process.execPath, [verifier, generic], {
+    cwd: temporary,
+    env: environment,
+  });
+  if (!brokenProfile.stderr.includes("packsets/broken.json is not a subset")) {
+    throw new Error(`unexpected malformed-profile diagnostic: ${brokenProfile.stderr}`);
+  }
+  await rm(path.join(generic, "packsets", "broken.json"));
+
+  await cp(path.join(generic, "package.json"), path.join(generic, "dist", "package.json"));
+  const shadowRoot = runExpectedFailure(process.execPath, [verifier, generic], {
+    cwd: temporary,
+    env: environment,
+  });
+  if (!shadowRoot.stderr.includes("package root different from the verified runtime root")) {
+    throw new Error(`unexpected shadow-package diagnostic: ${shadowRoot.stderr}`);
+  }
+  await rm(path.join(generic, "dist", "package.json"));
+
+  const externalCli = runExpectedFailure(process.execPath, [
+    verifier,
+    generic,
+    "--cli",
+    path.join(stage, "dist", "infrawright-cli.mjs"),
+  ], { cwd: temporary, env: environment });
+  if (!externalCli.stderr.includes("unknown argument --cli")) {
+    throw new Error(`unexpected incoherent-selector diagnostic: ${externalCli.stderr}`);
+  }
   const resourceResult = run(process.execPath, [
     path.join(generic, "dist", "infrawright-cli.mjs"),
     "resources",

@@ -91,7 +91,7 @@
   - Prebuilt runtime qualification is explicit and independent of npm/Python.
   - Restricted-registry build failures identify exact missing package versions
     and direct operators to the verified prebuilt artifact.
-  - All 63 Python launch sites in 35 retained Node tests consistently select
+  - All 64 Python launch sites in 35 retained Node tests consistently select
     the migration oracle.
 - Expected report/count/coverage changes:
   - Current lockfile manifest: 15 ordinary packages; two platform packages for
@@ -170,6 +170,30 @@
     its exact missing set must be obtained by running the credential-safe
     preflight there.
   - No live provider/backend or deployment Apply is authorized.
+
+## Formal Review and Accepted Remediation
+
+- The targeted fresh-context review returned `Request changes` with six
+  accepted contract findings:
+  - bind the verified CLI, checksum, package binary, and package root, reject
+    shadow package metadata and incoherent CLI selectors, and exercise a
+    default-path resource query;
+  - validate a selected profile independently while always checking the fixed
+    release `packsets/` inventory;
+  - model npm's actual `replace-registry-host` rewrite cases without printing
+    the raw setting;
+  - classify only exact npm `E404` evidence as a missing mirror package;
+  - honor effective npm development-dependency omission and explicit include
+    overrides;
+  - continue implicit Python fallback past an installed but unsupported
+    interpreter while keeping explicit `PYTHON` terminal.
+- The review also corrected the Python launch-site count from 63 to 64 and
+  requested exact platform-pair assertions for all four supported targets.
+- Package/lock synchronization remains `npm ci`'s fail-closed authority; the
+  preflight claim is deliberately limited to registry readiness for the pinned
+  lockfile.
+- The remediation is one bounded batch. Its regression evidence and exact
+  patch-focused re-review verdict are appended after the frozen patch gate.
 
 ## Known Deferrals
 

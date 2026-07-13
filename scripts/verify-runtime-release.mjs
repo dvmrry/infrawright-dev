@@ -57,10 +57,6 @@ function parseArguments(arguments_) {
     }
     if (
       argument === "--root"
-      || argument === "--cli"
-      || argument === "--checksum"
-      || argument === "--package"
-      || argument === "--packs"
       || argument === "--profile"
       || argument === "--catalog"
       || argument === "--deployment"
@@ -86,7 +82,7 @@ function selectedPath(root, value, fallback) {
 const parsed = parseArguments(process.argv.slice(2));
 const root = parsed.root;
 const packageFile = await requireFile(
-  selectedPath(root, parsed.selected.package, "package.json"),
+  path.join(root, "package.json"),
   "package.json package-root metadata",
 );
 const deploymentFile = await requireFile(
@@ -94,18 +90,14 @@ const deploymentFile = await requireFile(
   "deployment input",
 );
 const cli = await requireFile(
-  selectedPath(root, parsed.selected.cli, "dist/infrawright-cli.mjs"),
+  path.join(root, "dist", "infrawright-cli.mjs"),
   "dist/infrawright-cli.mjs",
 );
 const checksumFile = await requireFile(
-  selectedPath(
-    root,
-    parsed.selected.checksum,
-    "dist/infrawright-cli.mjs.sha256",
-  ),
+  path.join(root, "dist", "infrawright-cli.mjs.sha256"),
   "dist/infrawright-cli.mjs.sha256",
 );
-const packsRoot = selectedPath(root, parsed.selected.packs, "packs");
+const packsRoot = path.join(root, "packs");
 const profileFile = await requireFile(
   selectedPath(root, parsed.selected.profile, "packsets/full.json"),
   "pack profile",
@@ -114,6 +106,10 @@ const catalogFile = await requireFile(
   selectedPath(root, parsed.selected.catalog, "packsets/full.json"),
   "pack catalog",
 );
+const releaseCatalogFile = await requireFile(
+  path.join(root, "packsets", "full.json"),
+  "release pack catalog",
+);
 
 const packageDocument = JSON.parse(await readFile(packageFile, "utf8"));
 if (packageDocument.engines?.node !== ">=24 <25") {
@@ -121,6 +117,25 @@ if (packageDocument.engines?.node !== ">=24 <25") {
 }
 if (packageDocument.bin?.infrawright !== "dist/infrawright-cli.mjs") {
   fail("package.json must expose dist/infrawright-cli.mjs as infrawright");
+}
+if (path.resolve(root, packageDocument.bin.infrawright) !== cli) {
+  fail("package.json infrawright binary does not resolve to the verified CLI");
+}
+let discoveredRoot = path.dirname(cli);
+while (true) {
+  try {
+    await access(path.join(discoveredRoot, "package.json"));
+    break;
+  } catch {
+    const parent = path.dirname(discoveredRoot);
+    if (parent === discoveredRoot) {
+      fail("generic CLI cannot discover its package root");
+    }
+    discoveredRoot = parent;
+  }
+}
+if (discoveredRoot !== root) {
+  fail("generic CLI discovers a package root different from the verified runtime root");
 }
 if (Number(process.versions.node.split(".")[0]) !== 24) {
   fail(`verification requires Node 24, found ${process.versions.node}`);
@@ -135,7 +150,7 @@ if (process.platform !== "win32" && ((await stat(cli)).mode & 0o111) === 0) {
   fail("generic CLI bundle is not executable");
 }
 
-const fullProfile = JSON.parse(await readFile(catalogFile, "utf8"));
+const fullProfile = JSON.parse(await readFile(releaseCatalogFile, "utf8"));
 if (
   fullProfile.kind !== "infrawright.pack-set"
   || fullProfile.version !== 1
@@ -155,7 +170,7 @@ for (const component of fullProfile.shared) {
   }
 }
 
-const profilesRoot = path.dirname(profileFile);
+const profilesRoot = path.join(root, "packsets");
 const profileNames = (await readdir(profilesRoot))
   .filter((name) => name.endsWith(".json"))
   .sort();
@@ -193,6 +208,17 @@ for (const command of [
   if (!help.stdout.includes(command)) {
     fail(`CLI help is missing operational command ${command}`);
   }
+}
+const defaultResources = runCli(
+  root,
+  cli,
+  "resources",
+  "--order=references",
+  "--resource",
+  "zia_url_categories",
+);
+if (defaultResources.stdout !== "zia_url_categories\n") {
+  fail("CLI default package-root inputs returned unexpected resources");
 }
 runCli(root, cli, "check-pack", "--root", packsRoot);
 runCli(

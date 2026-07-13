@@ -71,6 +71,24 @@ test("blank PYTHON falls back from unavailable python3 to python", async () => {
   }
 });
 
+test("implicit unsupported python3 falls through to supported python", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-python-version-fallback-"));
+  try {
+    await fakePython(directory, "python3", "3.9", "13.0.0");
+    await fakePython(directory, "python", "3.13", "15.1.0");
+    const oracle = resolvePythonOracle({
+      environment: { ...process.env, PATH: directory, PYTHON: "" },
+    });
+    assert.deepEqual(oracle, {
+      executable: "python",
+      pythonVersion: "3.13",
+      unicodeVersion: "15.1.0",
+    });
+  } finally {
+    await rm(directory, { force: true, recursive: true });
+  }
+});
+
 test("explicit missing PYTHON does not fall through", () => {
   assert.throws(
     () => resolvePythonOracle({

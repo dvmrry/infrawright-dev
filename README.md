@@ -111,10 +111,11 @@ The primary runtime is the executable, dependency-bundled
 `dist/infrawright-cli.mjs.sha256`. Verify an approved prebuilt runtime with
 `make verify-runtime`; this checks its checksum, Node 24, command surface, and
 selected pack/profile/deployment inputs without invoking npm or Python. The
-runtime tree also retains its adjacent `package.json` as bundle-location
-metadata. Downstream execution needs Node 24 and Terraform for Terraform
-operations, but neither `npm install`, `npm ci`, `node_modules`, TypeScript,
-esbuild, tsgo, nor Python.
+runtime tree also retains its package-root `package.json` as bundle-location
+metadata; verification rejects a nearer package file that would change the
+bundle's discovered root. Downstream execution needs Node 24 and Terraform for
+Terraform operations, but neither `npm install`, `npm ci`, `node_modules`,
+TypeScript, esbuild, tsgo, nor Python.
 
 Rebuilding from source is a separate maintainer contract: it requires the
 pinned packages and platform binaries in `package-lock.json`. Run

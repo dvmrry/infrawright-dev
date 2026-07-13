@@ -123,8 +123,10 @@ make verify-runtime \
 ```
 
 The target has no dependency on the `dist` build target. It verifies Node 24,
-the SHA-256, CLI startup and operational help, pack/profile consistency, and
-the selected deployment input. It neither invokes npm nor Python.
+the SHA-256, a coherent package root and package binary, CLI startup and
+operational help, pack/profile consistency, and the selected deployment input.
+It rejects nearer package metadata that would change the root discovered by the
+bundle. It neither invokes npm nor Python.
 
 The exact-archive stripped-runtime smoke runs `make verify-runtime`, a pure
 resource query, and `make demo-contract` from a tree without `node_modules`,
@@ -133,11 +135,11 @@ operational sources, transition catalogs, or legacy bundles. npm, npx, and
 Python tripwires prove the demo consumes only the shipped generic bundle plus
 fake Terraform.
 
-The bundle discovers its adjacent `package.json`, while operational inputs may
-be selected explicitly with `--root`, `--profile`, `--catalog`, and
-`--deployment` (or their documented environment equivalents). A complete
-release therefore includes package metadata, profiles, and all manifests,
-registries, schemas, and overrides selected by those profiles.
+The bundle discovers the package-root `package.json` above `dist/`, while
+operational inputs may be selected explicitly with `--root`, `--profile`,
+`--catalog`, and `--deployment` (or their documented environment equivalents).
+A complete release therefore includes package metadata, profiles, and all
+manifests, registries, schemas, and overrides selected by those profiles.
 
 ### Source-build registry contract
 
@@ -156,12 +158,19 @@ node scripts/build-environment-preflight.mjs --manifest
 
 The preflight reports only sanitized registry hosts and exact package
 name/version failures. It verifies registry metadata against the lockfile,
-detects omitted optional packages and public scoped-registry bypasses, and
+detects omitted optional or development build packages, rejects registry-host
+rewrite policies that would leave public lock URLs authoritative, detects
+public scoped-registry bypasses, and
 does not expose npm credentials, proxy credentials, or `.npmrc` contents. It
 does not fall back to the public registry or download vendor binaries. The
 derived manifest separates ordinary packages, each supported platform's
 optional packages, and install-script packages that could attempt an
 out-of-band download when optional binaries are absent.
+
+This diagnostic answers registry-metadata readiness for the pinned lockfile; it
+does not replace `npm ci`'s package/lock synchronization check. The checked-in
+package and lock metadata remain synchronized, and a later source build still
+uses the supported `npm ci --ignore-scripts` command before building.
 
 If the preflight says the source build is unavailable, obtain the approved
 `dist/infrawright-cli.mjs` and checksum from the trusted build path, run

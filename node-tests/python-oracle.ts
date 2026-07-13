@@ -45,6 +45,11 @@ export function resolvePythonOracle(
   const configured = environment.PYTHON?.trim();
   const explicit = configured !== undefined && configured.length > 0;
   const candidates = explicit ? [configured] : ["python3", "python"];
+  const failures: string[] = [];
+  const rejectCandidate = (executable: string, detail: string): void => {
+    if (explicit) throw unsupported(executable, detail);
+    failures.push(`${executable}: ${detail}`);
+  };
 
   for (const executable of candidates) {
     const probe = spawnSync(executable, ["-I", "-c", PROBE], {
@@ -55,18 +60,23 @@ export function resolvePythonOracle(
     });
     if (probe.error !== undefined) {
       const code = (probe.error as NodeJS.ErrnoException).code;
-      if (!explicit && code === "ENOENT") continue;
-      throw unsupported(executable, code === undefined ? probe.error.message : code);
+      rejectCandidate(
+        executable,
+        code === undefined ? probe.error.message : code,
+      );
+      continue;
     }
     if (probe.status !== 0) {
-      throw unsupported(executable, `version probe exited ${String(probe.status)}`);
+      rejectCandidate(executable, `version probe exited ${String(probe.status)}`);
+      continue;
     }
 
     let document: unknown;
     try {
       document = JSON.parse(probe.stdout);
     } catch {
-      throw unsupported(executable, "version probe returned invalid JSON");
+      rejectCandidate(executable, "version probe returned invalid JSON");
+      continue;
     }
     if (
       typeof document !== "object"
@@ -74,20 +84,22 @@ export function resolvePythonOracle(
       || typeof (document as { python?: unknown }).python !== "string"
       || typeof (document as { unicode?: unknown }).unicode !== "string"
     ) {
-      throw unsupported(executable, "version probe returned an invalid result");
+      rejectCandidate(executable, "version probe returned an invalid result");
+      continue;
     }
     const python = (document as { python: string }).python;
     const unicode = (document as { unicode: string }).unicode;
     const supported = SUPPORTED.get(`${python}/${unicode}`);
     if (supported === undefined) {
-      throw unsupported(executable, `found Python ${python} / UCD ${unicode}`);
+      rejectCandidate(executable, `found Python ${python} / UCD ${unicode}`);
+      continue;
     }
     return { executable, ...supported };
   }
 
   throw unsupported(
     "python3/python",
-    "neither fallback executable was found",
+    `no supported fallback was found (${failures.join("; ")})`,
   );
 }
 

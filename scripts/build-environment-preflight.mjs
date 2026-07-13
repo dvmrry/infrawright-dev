@@ -174,6 +174,32 @@ function registryHost(value) {
   }
 }
 
+function configTokens(value) {
+  return new Set(value.split(/[\s,]+/u).filter((item) => item.length > 0));
+}
+
+function replacementPolicy(setting, registry, resolvedHosts) {
+  const normalized = setting.trim().toLowerCase();
+  const hosts = [...resolvedHosts.keys()].sort();
+  if (hosts.every((host) => host === registry)) {
+    return { description: "not required; lock hosts match the configured registry" };
+  }
+  const unreplaced = hosts.filter((host) => {
+    return host !== registry
+      && normalized !== "always"
+      && normalized !== host
+      && !(normalized === "npmjs" && PUBLIC_REGISTRY_HOSTS.has(host));
+  });
+  if (unreplaced.length > 0) {
+    return {
+      error: `registry-host replacement leaves lockfile host ${unreplaced[0]} authoritative`,
+    };
+  }
+  if (normalized === "always") return { description: "all lockfile hosts" };
+  if (normalized === "npmjs") return { description: "public npm lockfile hosts" };
+  return { description: "matching lockfile host" };
+}
+
 function packageScope(name) {
   return name.startsWith("@") ? name.slice(0, name.indexOf("/")) : undefined;
 }
@@ -188,10 +214,11 @@ function viewPackage(npm, item) {
   ]);
   if (result.error !== undefined) return { state: "unresolved" };
   if (result.status !== 0) {
+    const exactCode = result.stderr.split(/\r?\n/u).some((line) => {
+      return /^npm (?:ERR!|error) code E404$/iu.test(line.trim());
+    });
     return {
-      state: /(?:E404|404 Not Found|not found)/iu.test(result.stderr)
-        ? "missing"
-        : "unresolved",
+      state: exactCode ? "missing" : "unresolved",
     };
   }
   try {
@@ -250,11 +277,13 @@ if (!SUPPORTED_PLATFORMS.some(([platform, arch]) => {
   let registry;
   let replaceRegistryHost;
   let omit;
+  let include;
   let optional;
   try {
     registry = registryHost(configValue(options.npm, "registry"));
     replaceRegistryHost = configValue(options.npm, "replace-registry-host") || "npmjs";
     omit = configValue(options.npm, "omit");
+    include = configValue(options.npm, "include");
     optional = configValue(options.npm, "optional");
   } catch (error) {
     sourceBuildUnavailable([
@@ -268,17 +297,24 @@ if (!SUPPORTED_PLATFORMS.some(([platform, arch]) => {
     .filter(([host]) => PUBLIC_REGISTRY_HOSTS.has(host))
     .reduce((total, [, count]) => total + count, 0);
   const policyErrors = [];
-  if (omit.split(/[\s,]+/u).includes("optional") || optional === "false") {
+  const omitted = configTokens(omit);
+  const included = configTokens(include);
+  if (
+    !included.has("optional")
+    && (omitted.has("optional") || optional === "false")
+  ) {
     policyErrors.push("npm is configured to omit required optional platform packages");
   }
-  if (
-    !PUBLIC_REGISTRY_HOSTS.has(registry)
-    && lockPublicCount > 0
-    && replaceRegistryHost === "never"
-  ) {
-    policyErrors.push(
-      "replace-registry-host=never would leave public lockfile URLs authoritative",
-    );
+  if (!included.has("dev") && omitted.has("dev")) {
+    policyErrors.push("npm is configured to omit required development build tools");
+  }
+  const replacement = replacementPolicy(
+    replaceRegistryHost,
+    registry,
+    items.resolvedHosts,
+  );
+  if (replacement.error !== undefined) {
+    policyErrors.push(replacement.error);
   }
   const scopes = [...new Set(required.map((item) => packageScope(item.name)).filter(Boolean))];
   for (const scope of scopes) {
@@ -304,7 +340,7 @@ if (!SUPPORTED_PLATFORMS.some(([platform, arch]) => {
 
   process.stdout.write(`Configured registry host: ${registry}\n`);
   process.stdout.write(`Lockfile public-registry URLs: ${lockPublicCount}\n`);
-  process.stdout.write(`Registry-host replacement: ${replaceRegistryHost}\n`);
+  process.stdout.write(`Registry-host replacement: ${replacement.description ?? "unsafe"}\n`);
   process.stdout.write(`Current source-build platform: ${options.platform}/${options.arch}\n`);
   process.stdout.write("Required platform packages:\n");
   for (const item of currentPlatform) process.stdout.write(`  ${spec(item)}\n`);
