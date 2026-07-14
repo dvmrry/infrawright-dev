@@ -4,7 +4,7 @@
 
 - Add a bounded work-machine runbook that distinguishes pack authority,
   generated-config policy, provider-state projection, stale outputs, and root
-  topology without exposing tenant data.
+  topology without exposing raw tenant values.
 - Let downstream execute only the portions available in its approved
   environment and return one normalized report.
 - Keep provider behavior, pack metadata, Transform, Adopt, roots, plans, and
@@ -49,8 +49,10 @@
 
 ## Expected Delta
 
-- Expected behavior change: maintainers can execute a precise read-only
-  downstream diagnostic and classify each observed failure stage.
+- Expected behavior change: maintainers can execute a precise downstream
+  diagnostic and classify each observed failure stage. Adopt may execute only
+  its mechanically verified import-only Apply against backend-free scratch
+  local state; deployment Apply and remote mutation remain prohibited.
 - Expected report/count/coverage changes: none until downstream returns the
   requested report.
 - Expected generated-output changes: none.
@@ -67,9 +69,14 @@
 - Ambiguity must stay classified instead of being coerced to success: explicit
   result categories are defined.
 - Provider-readiness counts must stay explainable: only field occurrence
-  counts and resource-type topology are returned.
-- Adoption safety invariants: no Terraform Apply, remote writes, credential
+  counts and resource-type topology are returned, and counts are identified as
+  tenant-derived evidence for the approved channel.
+- Adoption safety invariants: no deployment Apply, remote writes, credential
   printing, raw object output, state output, or plan output is authorized.
+  The Oracle's exact import-only scratch Apply must be explicitly acknowledged.
+- Output containment: path-relocated deployment copies differ only in overlay
+  and module_dir, and every output directory must resolve physically within
+  one of four disjoint private lanes.
 
 ## Tests Run
 
@@ -77,6 +84,10 @@
   - `git diff --check`
   - Node CLI `roots` invocation against committed demo metadata.
   - `jq` sanitization of the resulting root topology.
+  - Tenant-free full-product `resources` and `roots` commands for ZIA and
+    ZPA, including exact-registry source-less classification.
+  - Physical output-containment command design against the deployment path
+    semantics.
   - Direct credential-free Node and Python calls covering optional string,
     Optional+Computed string, and dotted nested default omission using the
     pinned ZIA schema shapes.
@@ -100,16 +111,36 @@
   `docs/provider-labs/zia-adoption-followup-runbook.md`.
 - Specific assumptions to attack:
   - commands use one explicit pack authority;
-  - counts cannot print tenant values;
+  - private logs prevent raw diagnostics from reaching reportable output;
+  - relocated lanes are contained, disjoint, and semantics-preserving;
+  - counts cannot print raw tenant values;
   - generated-HCL classification matches actual Oracle file lifecycle;
-  - root selectors name materializable resources;
+  - successful dispatch requires target-before evidence, not mere absence;
+  - tenant-free product selectors resolve active topology;
   - explicit groups are distinguished from automatic slug grouping;
+  - exact registry evidence identifies source-less members;
+  - materialized module/variable comparison is required for stale causality;
   - partial execution cannot be misreported as success.
 - Source evidence the reviewer should verify: CLI argument parsing, Oracle
   retained-file behavior, pack loader authority, roots output structure, and
   current ZIA/ZPA registry membership.
 - Generated artifacts the reviewer should compare: none.
 - Edge cases that could silently overclaim, remap, drop, or weaken evidence:
-  missing `generated.tf.before-policy`, missing override files, stale output
+  missing `generated.tf.before-policy`, unrelated generated-config edits,
+  missing override files, HCL tfvars, path or symlink escape, stale output
   workspaces, explicit deployment groups, and raw API omission being mistaken
   for proof that `drop_if_default` executed.
+
+## Initial Review And Remediation
+
+- Initial verdict: Request changes.
+- Accepted findings:
+  - distinguish deployment Apply from the Oracle's local import-only Apply;
+  - capture tenant-bearing diagnostics privately and omit tenant from topology;
+  - prove relocated output lanes are contained and disjoint;
+  - require positive target-before evidence before claiming policy dispatch;
+  - derive source-less membership from the bound registries and compare an
+    actual materialized root before assigning stale-root causality;
+  - require JSON tfvars for jq counts and identify counts as tenant-derived.
+- Remediation: all accepted findings are addressed in the runbook. No runtime,
+  pack, provider, schema, fixture, or generated artifact changed.
