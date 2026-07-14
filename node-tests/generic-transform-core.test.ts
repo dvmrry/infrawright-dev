@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
 
 import { LosslessNumber } from "lossless-json";
@@ -7,7 +8,10 @@ import {
   deriveReorderItems,
   transformLoadedItems,
 } from "../node-src/domain/pull-transform.js";
-import type { LoadedResourceMetadata } from "../node-src/metadata/loader.js";
+import {
+  loadPackRoot,
+  type LoadedResourceMetadata,
+} from "../node-src/metadata/loader.js";
 import type { JsonObject } from "../node-src/metadata/validation.js";
 
 function resource(override: JsonObject): LoadedResourceMetadata {
@@ -118,6 +122,41 @@ test("loaded metadata drives the complete override order and schema projection",
     result.originals.r_amp_amp_d?.id?.toString(),
     "9007199254740997",
   );
+});
+
+test("committed ZIA overrides drop raw empty-string sentinels", async () => {
+  const root = await loadPackRoot({
+    packsRoot: path.join(process.cwd(), "packs"),
+    profilePath: path.join(process.cwd(), "packsets", "full.json"),
+    catalogPath: path.join(process.cwd(), "packsets", "full.json"),
+  });
+  const fixtures = [{
+    resourceType: "zia_firewall_filtering_network_service",
+    raw: { id: "1", name: "Example", tag: "" },
+    retained: { id: "1", name: "Example", tag: "managed" },
+    field: "tag",
+    retainedValue: "managed",
+  }, {
+    resourceType: "zia_browser_control_policy",
+    raw: { id: "browser_settings", pluginCheckFrequency: "" },
+    retained: { id: "browser_settings", pluginCheckFrequency: "weekly" },
+    field: "plugin_check_frequency",
+    retainedValue: "weekly",
+  }] as const;
+
+  for (const fixture of fixtures) {
+    const loaded = root.resources.get(fixture.resourceType);
+    assert.ok(loaded);
+    const schema = await root.loadResourceSchema(fixture.resourceType);
+    const dropped = transformLoadedItems({ resource: loaded, schema, rawItems: [fixture.raw] });
+    const retained = transformLoadedItems({ resource: loaded, schema, rawItems: [fixture.retained] });
+    const droppedItem = Object.values(dropped.items)[0];
+    const retainedItem = Object.values(retained.items)[0];
+    assert.ok(droppedItem);
+    assert.ok(retainedItem);
+    assert.equal(Object.hasOwn(droppedItem, fixture.field), false, fixture.resourceType);
+    assert.equal(retainedItem[fixture.field], fixture.retainedValue, fixture.resourceType);
+  }
 });
 
 test("generic schema shaping merges configured blocks and records conflicts", () => {

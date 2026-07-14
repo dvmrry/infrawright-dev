@@ -958,6 +958,65 @@ test("provider-state survivors own tfvars while raw identity owns keys/imports/l
   });
 });
 
+test("committed ZIA empty-string defaults are absent from adopted tfvars", async (context) => {
+  const root = await committedRoot();
+  const fixtures = [{
+    resourceType: "zia_firewall_filtering_network_service",
+    raw: { id: "42", name: "Example" },
+    stateValues: { id: "42", name: "Example", tag: "" },
+    field: "tag",
+  }, {
+    resourceType: "zia_browser_control_policy",
+    raw: {},
+    stateValues: {
+      id: "browser_settings",
+      plugin_check_frequency: "",
+    },
+    field: "plugin_check_frequency",
+  }] as const;
+
+  for (const fixture of fixtures) {
+    const workspace = await temporaryDirectory(
+      context,
+      `infrawright-adopt-${fixture.resourceType}-`,
+    );
+    const input = path.join(workspace, "pulls");
+    await writeJson(path.join(input, `${fixture.resourceType}.json`), [fixture.raw]);
+    const result = await runAdoptBatch({
+      deployment: deployment(workspace),
+      inputDirectory: input,
+      policy: await loadAdoptionPolicy({ root }),
+      root,
+      selectors: [fixture.resourceType],
+      stateLoader: async (request) => new Map(
+        [...request.keyToImportId].map(([key]) => [key, {
+          address: `${fixture.resourceType}.fixture`,
+          sensitiveValues: {},
+          values: fixture.stateValues,
+        }]),
+      ),
+      tenant: "tenant",
+    });
+    assert.deepEqual(result.failed, [], fixture.resourceType);
+    const tfvars = JSON.parse(await readFile(
+      path.join(
+        workspace,
+        "config",
+        "tenant",
+        `${fixture.resourceType}.auto.tfvars.json`,
+      ),
+      "utf8",
+    )) as Record<string, unknown>;
+    const items = record(tfvars.items, `${fixture.resourceType}.items`);
+    assert.equal(Object.keys(items).length, 1, fixture.resourceType);
+    const adoptedItem = record(
+      Object.values(items)[0],
+      `${fixture.resourceType}.items[0]`,
+    );
+    assert.equal(Object.hasOwn(adoptedItem, fixture.field), false, fixture.resourceType);
+  }
+});
+
 test("Adopt preserves unresolved move evidence on an identical rerun", async (context) => {
   const workspace = await temporaryDirectory(context, "infrawright-adopt-durable-moves-");
   const input = path.join(workspace, "pulls");

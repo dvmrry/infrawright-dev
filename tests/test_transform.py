@@ -2544,6 +2544,16 @@ class OverrideAuthoringValidationTest(unittest.TestCase):
         for rt in generated_types():
             load_override(rt)
 
+    def test_zia_provider_empty_string_sentinels_are_exact(self):
+        from engine.transform import load_override
+
+        self.assertEqual(
+            load_override("zia_firewall_filtering_network_service")
+            ["drop_if_default"]["tag"], "")
+        self.assertEqual(
+            load_override("zia_browser_control_policy")
+            ["drop_if_default"]["plugin_check_frequency"], "")
+
 
 
 class DropsCheckGateTest(unittest.TestCase):

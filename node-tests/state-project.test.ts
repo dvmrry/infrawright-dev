@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
 
 import { LosslessNumber } from "lossless-json";
@@ -10,7 +11,7 @@ import {
   providerSchemaStatus,
   validateSensitiveMaskShape,
 } from "../node-src/domain/state-project.js";
-import type { LoadedPackRoot } from "../node-src/metadata/loader.js";
+import { loadPackRoot, type LoadedPackRoot } from "../node-src/metadata/loader.js";
 import type { JsonObject } from "../node-src/metadata/validation.js";
 
 const SCHEMA: JsonObject = {
@@ -85,6 +86,17 @@ function plain(value: unknown): unknown {
   return value;
 }
 
+let committedRootPromise: Promise<LoadedPackRoot> | undefined;
+
+function committedRoot(): Promise<LoadedPackRoot> {
+  committedRootPromise ??= loadPackRoot({
+    packsRoot: path.join(process.cwd(), "packs"),
+    profilePath: path.join(process.cwd(), "packsets", "full.json"),
+    catalogPath: path.join(process.cwd(), "packsets", "full.json"),
+  });
+  return committedRootPromise;
+}
+
 test("schema projection preserves writable false/zero/empty values and recursively removes computed state", async () => {
   const output = await projectProviderState({
     resourceType: "sample_resource",
@@ -141,6 +153,37 @@ test("pack drop_if_default removes provider sentinels from projected tfvars", as
     required_settings: { mode: "strict" },
     rules: [{ name: "first" }, { name: "second", order: "2" }],
   });
+});
+
+test("committed ZIA overrides remove provider empty-string sentinels", async () => {
+  const loaded = await committedRoot();
+  const network = await projectProviderState({
+    resourceType: "zia_firewall_filtering_network_service",
+    root: loaded,
+    stateValues: { name: "Example", tag: "" },
+  });
+  assert.deepEqual(plain(network), { name: "Example" });
+
+  const browser = await projectProviderState({
+    resourceType: "zia_browser_control_policy",
+    root: loaded,
+    stateValues: { id: "browser_settings", plugin_check_frequency: "" },
+  });
+  assert.deepEqual(plain(browser), {});
+
+  const retainedNetwork = await projectProviderState({
+    resourceType: "zia_firewall_filtering_network_service",
+    root: loaded,
+    stateValues: { name: "Example", tag: "managed" },
+  });
+  assert.deepEqual(plain(retainedNetwork), { name: "Example", tag: "managed" });
+
+  const retainedBrowser = await projectProviderState({
+    resourceType: "zia_browser_control_policy",
+    root: loaded,
+    stateValues: { id: "browser_settings", plugin_check_frequency: "weekly" },
+  });
+  assert.deepEqual(plain(retainedBrowser), { plugin_check_frequency: "weekly" });
 });
 
 test("required attributes and required nested cardinality fail closed", async () => {

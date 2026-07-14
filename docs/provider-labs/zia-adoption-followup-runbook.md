@@ -18,10 +18,21 @@ The following live results are accepted and do not need to be repeated:
 - PR #218: assert-adoptable succeeded for all seven tested roots.
 - PR #217: the unsupported ZIA URL filtering rules failed closed as intended.
 
-Read and execute the available phases of this runbook against runtime
-implementation head `d49922fa2e6826416956dea1afddbee113c121bc` or a later
-docs-only descendant with the same CLI SHA-256. Return the report template
-without replacing unavailable values with interpretation. Prioritize:
+The first execution of this runbook also established that provider Read emits
+empty strings for `zia_firewall_filtering_network_service.tag` and
+`zia_browser_control_policy.plugin_check_frequency`. The candidate pack now
+declares those exact sentinels as `drop_if_default`. Do not substitute `null`
+and do not infer that Transform exercised a rule from a zero raw count. A
+separate direct observation is required to distinguish an absent field, JSON
+`null`, and another nonmatching value.
+
+Read and execute the available phases of this runbook against a candidate
+descended from runtime implementation head
+`d49922fa2e6826416956dea1afddbee113c121bc` whose production CLI has SHA-256
+`af6002b13fe5f0ba96dcc7c29fc529d101c5dfcba44df9066f3f6fd29ccd81e4`.
+Pack-only, test-only, and documentation changes do not alter that runtime
+artifact. Return the report template without replacing unavailable values with
+interpretation. Prioritize:
 
 1. For `zia_firewall_filtering_network_service.tag`, return the raw,
    Transform, generated-before-policy, generated-after-policy, and adopted
@@ -34,6 +45,51 @@ without replacing unavailable values with interpretation. Prioritize:
    `zpa_application`.
 5. Say `no deployment Apply`; separately report whether the Oracle local
    scratch import-only Apply ran.
+
+For a candidate containing the empty-string pack correction, the remaining
+field acceptance is narrower than the original investigation:
+
+- Bind and report the new override hashes.
+- Rerun Network Service and Browser Control Adopt from fresh private lanes.
+- Require Adopt exit zero and adopted-tfvars counts of zero for both `tag=""`
+  and `plugin_check_frequency=""`.
+- If either count is nonzero, return the count and normalized failure without
+  changing matcher semantics or equating JSON `null` with an empty string.
+- Generated-before and generated-after counts may remain zero. That means the
+  provider omitted the field from generated HCL; it is not a failure when the
+  final adopted tfvars count is zero.
+
+Before running Adopt, require the full runtime digest and the committed pack
+values. Do not edit either override in the evidence workspace:
+
+    test "$(shasum -a 256 "$IW_CLI" | awk '{print $1}')" = \
+      af6002b13fe5f0ba96dcc7c29fc529d101c5dfcba44df9066f3f6fd29ccd81e4
+    jq -e '.drop_if_default.tag == ""' \
+      "$IW_PACKS/zia/overrides/zia_firewall_filtering_network_service.json" \
+      >/dev/null
+    jq -e '.drop_if_default.plugin_check_frequency == ""' \
+      "$IW_PACKS/zia/overrides/zia_browser_control_policy.json" >/dev/null
+
+For `zia_url`, first return the literal sanitized current topology entry for
+both `zia_url` and `zia_url_categories_predefined`. With the bound registry,
+the expected current topology is:
+
+    zia_url members:
+      zia_url_categories
+      zia_url_filtering_and_cloud_app_settings
+      zia_url_filtering_rules
+    zia_url_categories_predefined members:
+      zia_url_categories_predefined
+
+If current topology matches but materialized modules or variables differ,
+regenerate the complete `zia_url` root with the same bound CLI, pack,
+profile, catalog, and deployment authorities, then repeat the materialized
+comparison. Regenerate only inside a disposable clean-room workspace; do not
+overwrite a persistent deployment workspace. Do not run a deployment plan for
+this follow-up. If current topology itself still places the predefined type in
+`zia_url`, report the CLI
+SHA-256 and both literal sanitized topology entries as an authority mismatch;
+do not classify the resolver from the stale materialized root.
 
 Use NOT RUN or INCONCLUSIVE rather than summarizing a missing observation.
 
