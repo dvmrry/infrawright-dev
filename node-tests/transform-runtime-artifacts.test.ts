@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -19,8 +20,15 @@ import { stageImports } from "../node-src/domain/import-staging.js";
 import { planEnvironmentRoots } from "../node-src/domain/plan-lifecycle.js";
 import { pythonHtmlUnescapeGeneric } from "../node-src/domain/python-html-unescape.js";
 import {
+  compileTransformArtifactBatch,
+  compileTransformArtifacts,
+  installTransformArtifactBatchCommitHookForTests,
+  publishCompiledTransformArtifactBatch,
+  publishCompiledTransformArtifacts,
   renderTransformLookup,
   transformArtifactPaths,
+  writeTransformArtifacts,
+  type TransformArtifactCompileOptions,
 } from "../node-src/domain/transform-artifacts.js";
 import { transformLoadedItems } from "../node-src/domain/pull-transform.js";
 import type { Deployment } from "../node-src/domain/types.js";
@@ -86,6 +94,40 @@ function deployment(overlay: string, options?: {
   };
 }
 
+function artifactCompileOptions(options: {
+  readonly deployment?: Deployment;
+  readonly lookupNameField?: string | null;
+  readonly override?: Readonly<Record<string, unknown>>;
+  readonly references?: TransformArtifactCompileOptions["references"];
+  readonly resourceType?: string;
+  readonly result?: TransformArtifactCompileOptions["result"];
+  readonly workspace: string;
+}): TransformArtifactCompileOptions {
+  const resourceType = options.resourceType ?? "sample_resource";
+  const references = options.references ?? {};
+  return {
+    bindingContext: {
+      bindReferences: false,
+      derived: new Set(),
+      generated: new Set([resourceType]),
+      resourceRoots: { [resourceType]: resourceType },
+      references,
+    },
+    deployment: options.deployment ?? deployment(options.workspace),
+    lookupNameField: options.lookupNameField === undefined ? "name" : options.lookupNameField,
+    override: options.override ?? {},
+    references,
+    resourceType,
+    result: options.result ?? {
+      drops: [],
+      items: { example: { name: "Example" } },
+      originals: { example: { id: "id-1", name: "Example" } },
+    },
+    tenant: "tenant",
+    variableName: "items",
+  };
+}
+
 async function temporaryDirectory(
   context: { after(callback: () => Promise<unknown> | unknown): void },
   prefix: string,
@@ -111,6 +153,27 @@ async function exists(file: string): Promise<boolean> {
 
 async function text(file: string): Promise<string> {
   return readFile(file, "utf8");
+}
+
+async function artifactSnapshot(
+  paths: ReturnType<typeof transformArtifactPaths>,
+): Promise<Readonly<Record<string, string | null>>> {
+  const entries = await Promise.all(Object.entries(paths).map(async ([key, file]) => {
+    try {
+      return [key, await readFile(file, "utf8")] as const;
+    } catch (error: unknown) {
+      if (
+        typeof error === "object"
+        && error !== null
+        && "code" in error
+        && error.code === "ENOENT"
+      ) {
+        return [key, null] as const;
+      }
+      throw error;
+    }
+  }));
+  return Object.fromEntries(entries) as Readonly<Record<string, string | null>>;
 }
 
 test("runTransformBatch materializes all 20 demo fixture goldens exactly", async (context) => {
@@ -216,6 +279,299 @@ test("lookup rendering is sorted, survivor-based, unknown-safe, and last-key-win
     + "    \"CUSTOM_02\": \"beta\"\n"
     + "  }\n"
     + "}\n");
+});
+
+test("transform artifact compilation performs no filesystem mutation", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-artifact-compile-");
+  const options = artifactCompileOptions({ workspace });
+  const paths = transformArtifactPaths(options);
+
+  const compiled = await compileTransformArtifacts(options);
+
+  assert.deepEqual(compiled.paths, paths);
+  assert.equal(await exists(path.join(workspace, "config")), false);
+  assert.equal(await exists(path.join(workspace, "imports")), false);
+
+  await publishCompiledTransformArtifacts(compiled);
+  assert.equal(await exists(paths.config), true);
+  assert.equal(await exists(paths.imports), true);
+  assert.equal(await exists(paths.lookup), true);
+});
+
+test("artifact batch preflights every compile before publishing any member", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-artifact-preflight-");
+  const valid = artifactCompileOptions({
+    resourceType: "sample_first",
+    workspace,
+  });
+  const invalid = artifactCompileOptions({
+    override: { import_id: "{missing}" },
+    resourceType: "sample_second",
+    workspace,
+  });
+
+  await assert.rejects(
+    compileTransformArtifactBatch([valid, invalid]),
+    /references missing field "missing"/u,
+  );
+  assert.equal(await exists(path.join(workspace, "config")), false);
+  assert.equal(await exists(path.join(workspace, "imports")), false);
+});
+
+test("compile and publish preserve legacy artifact bytes and lifecycle", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-artifact-parity-");
+  const legacyOptions = artifactCompileOptions({
+    workspace: path.join(workspace, "legacy"),
+  });
+  const splitOptions = artifactCompileOptions({
+    workspace: path.join(workspace, "split"),
+  });
+
+  const legacy = await writeTransformArtifacts(legacyOptions);
+  const split = await publishCompiledTransformArtifacts(
+    await compileTransformArtifacts(splitOptions),
+  );
+  const legacyPaths = transformArtifactPaths(legacyOptions);
+  const splitPaths = transformArtifactPaths(splitOptions);
+  for (const key of ["config", "imports", "lookup"] as const) {
+    assert.equal(await text(splitPaths[key]), await text(legacyPaths[key]), key);
+  }
+  assert.deepEqual(
+    split.written.map((file) => path.basename(file)),
+    legacy.written.map((file) => path.basename(file)),
+  );
+  assert.deepEqual(split.removed, []);
+  assert.deepEqual(legacy.removed, []);
+});
+
+test("batch publication rolls every member back when a later member commit fails", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-artifact-rollback-");
+  const diagnostics: string[] = [];
+  const options = ["sample_first", "sample_second"].map((resourceType) => ({
+    ...artifactCompileOptions({ resourceType, workspace }),
+    onDiagnostic: (message: string) => {
+      diagnostics.push(message);
+    },
+  }));
+  const seed = await compileTransformArtifactBatch(options);
+  for (const item of seed) {
+    await mkdir(path.dirname(item.paths.config), { recursive: true });
+    await mkdir(path.dirname(item.paths.imports), { recursive: true });
+    await writeFile(item.paths.config, `old config for ${item.resourceType}\n`, "utf8");
+    await writeFile(item.paths.staleConfig, `old stale config for ${item.resourceType}\n`, "utf8");
+    await writeFile(item.paths.generatedBindings, `old bindings for ${item.resourceType}\n`, "utf8");
+    await writeFile(item.paths.imports, item.newImports, "utf8");
+    await writeFile(item.paths.lookup, `old lookup for ${item.resourceType}\n`, "utf8");
+  }
+  const before = await Promise.all(seed.map((item) => artifactSnapshot(item.paths)));
+  const compiled = await compileTransformArtifactBatch(options);
+  const removeHook = installTransformArtifactBatchCommitHookForTests((mutation) => {
+    if (
+      mutation.resourceType === "sample_second"
+      && mutation.target === compiled[1]?.paths.config
+    ) {
+      throw new Error("injected member-2 commit failure");
+    }
+  });
+  try {
+    await assert.rejects(
+      publishCompiledTransformArtifactBatch(compiled),
+      /injected member-2 commit failure/u,
+    );
+  } finally {
+    removeHook();
+  }
+
+  assert.deepEqual(
+    await Promise.all(seed.map((item) => artifactSnapshot(item.paths))),
+    before,
+  );
+  assert.deepEqual(diagnostics, []);
+});
+
+test("rollback failure preserves transaction backups for operator recovery", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-artifact-recovery-");
+  const options = ["sample_first", "sample_second"].map((resourceType) => {
+    return artifactCompileOptions({ resourceType, workspace });
+  });
+  const compiled = await compileTransformArtifactBatch(options);
+  for (const item of compiled) {
+    await mkdir(path.dirname(item.paths.config), { recursive: true });
+    await mkdir(path.dirname(item.paths.imports), { recursive: true });
+    await writeFile(item.paths.config, `old config for ${item.resourceType}\n`, "utf8");
+    await writeFile(item.paths.imports, item.newImports, "utf8");
+  }
+  const first = compiled[0]!;
+  const second = compiled[1]!;
+  const removeHook = installTransformArtifactBatchCommitHookForTests((mutation, phase) => {
+    if (phase === "commit" && mutation.target === second.paths.config) {
+      throw new Error("injected commit failure");
+    }
+    if (phase === "rollback" && mutation.target === first.paths.config) {
+      throw new Error("injected rollback failure");
+    }
+  });
+  try {
+    await assert.rejects(
+      publishCompiledTransformArtifactBatch(compiled),
+      /recovery data preserved/u,
+    );
+  } finally {
+    removeHook();
+  }
+
+  const parent = path.dirname(first.paths.config);
+  const transactionDirectories = (await readdir(parent, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith(".infrawright-artifact-batch-"))
+    .map((entry) => path.join(parent, entry.name));
+  assert.equal(transactionDirectories.length, 1);
+  const recoveryContents = await Promise.all(
+    (await readdir(transactionDirectories[0]!)).map((name) => {
+      return readFile(path.join(transactionDirectories[0]!, name), "utf8");
+    }),
+  );
+  assert.ok(recoveryContents.includes("old config for sample_first\n"));
+});
+
+test("batch publication rejects a directory target without mutating or deleting it", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-artifact-directory-");
+  const options = ["sample_first", "sample_second"].map((resourceType) => {
+    return artifactCompileOptions({ resourceType, workspace });
+  });
+  const compiled = await compileTransformArtifactBatch(options);
+  const first = compiled[0]!;
+  const second = compiled[1]!;
+  await mkdir(path.dirname(first.paths.config), { recursive: true });
+  await mkdir(path.dirname(first.paths.imports), { recursive: true });
+  await writeFile(first.paths.config, "first artifact before failure\n", "utf8");
+  await writeFile(first.paths.imports, first.newImports, "utf8");
+  const firstBefore = await artifactSnapshot(first.paths);
+  await mkdir(second.paths.config, { recursive: true });
+  const sentinel = path.join(second.paths.config, "sentinel.txt");
+  await writeFile(sentinel, "directory must survive\n", "utf8");
+
+  await assert.rejects(
+    publishCompiledTransformArtifactBatch(compiled),
+    /batch target is not a regular file/u,
+  );
+
+  assert.deepEqual(await artifactSnapshot(first.paths), firstBefore);
+  assert.equal(await text(sentinel), "directory must survive\n");
+});
+
+test("successful batch publication preserves sequential writer bytes and lifecycle", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-artifact-batch-parity-");
+  const legacyWorkspace = path.join(workspace, "legacy");
+  const batchWorkspace = path.join(workspace, "batch");
+  const resourceTypes = ["sample_first", "sample_second"] as const;
+  const legacyOptions = resourceTypes.map((resourceType) => {
+    return artifactCompileOptions({ resourceType, workspace: legacyWorkspace });
+  });
+  const batchOptions = resourceTypes.map((resourceType) => {
+    return artifactCompileOptions({ resourceType, workspace: batchWorkspace });
+  });
+  for (const options of [...legacyOptions, ...batchOptions]) {
+    const paths = transformArtifactPaths(options);
+    await mkdir(path.dirname(paths.config), { recursive: true });
+    await writeFile(paths.staleConfig, "stale opposite-format config\n", "utf8");
+    await writeFile(paths.generatedBindings, "stale generated bindings\n", "utf8");
+  }
+
+  const legacyResults = [];
+  for (const options of legacyOptions) {
+    legacyResults.push(await writeTransformArtifacts(options));
+  }
+  const batchResults = await publishCompiledTransformArtifactBatch(
+    await compileTransformArtifactBatch(batchOptions),
+  );
+
+  for (const [index, resourceType] of resourceTypes.entries()) {
+    const legacyPaths = transformArtifactPaths(legacyOptions[index]!);
+    const batchPaths = transformArtifactPaths(batchOptions[index]!);
+    assert.deepEqual(
+      await artifactSnapshot(batchPaths),
+      await artifactSnapshot(legacyPaths),
+      resourceType,
+    );
+    assert.deepEqual(
+      batchResults[index]?.written.map((file) => path.relative(batchWorkspace, file)),
+      legacyResults[index]?.written.map((file) => path.relative(legacyWorkspace, file)),
+      `${resourceType} written lifecycle`,
+    );
+    assert.deepEqual(
+      batchResults[index]?.removed.map((file) => path.relative(batchWorkspace, file)),
+      legacyResults[index]?.removed.map((file) => path.relative(legacyWorkspace, file)),
+      `${resourceType} removed lifecycle`,
+    );
+  }
+});
+
+test("batch compilation uses new lookup results for grouped bindings and HCL comments", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-artifact-lookups-");
+  const hclDeployment = deployment(workspace, { hcl: true });
+  const references = {
+    group_id: { name_field: "name", referent: "sample_group" },
+  } as const;
+  const generated = new Set(["sample_group", "sample_item"]);
+  const resourceRoots = {
+    sample_group: "sample_root",
+    sample_item: "sample_root",
+  } as const;
+  const referrer: TransformArtifactCompileOptions = {
+    ...artifactCompileOptions({
+      deployment: hclDeployment,
+      lookupNameField: null,
+      references,
+      resourceType: "sample_item",
+      result: {
+        drops: [],
+        items: { item: { group_id: "new-id", name: "Item" } },
+        originals: { item: { id: "item-id", name: "Item" } },
+      },
+      workspace,
+    }),
+    bindingContext: {
+      bindReferences: true,
+      derived: new Set(),
+      generated,
+      references,
+      resourceRoots,
+    },
+  };
+  const referent: TransformArtifactCompileOptions = {
+    ...artifactCompileOptions({
+      deployment: hclDeployment,
+      resourceType: "sample_group",
+      result: {
+        drops: [],
+        items: { new_key: { name: "Fresh Group" } },
+        originals: { new_key: { id: "new-id", name: "Fresh Group" } },
+      },
+      workspace,
+    }),
+    bindingContext: {
+      bindReferences: true,
+      derived: new Set(),
+      generated,
+      references: {},
+      resourceRoots,
+    },
+  };
+  const staleLookup = transformArtifactPaths(referent).lookup;
+  await writeJson(staleLookup, {
+    by_id: { "new-id": "Stale Group" },
+    key_by_id: { "new-id": "stale_key" },
+  });
+
+  const compiled = await compileTransformArtifactBatch([referrer, referent]);
+  await publishCompiledTransformArtifactBatch(compiled);
+
+  const referrerPaths = transformArtifactPaths(referrer);
+  assert.match(await text(referrerPaths.config), /group_id\s+= "new-id"\s+# Fresh Group/u);
+  assert.match(
+    await text(referrerPaths.generatedBindings),
+    /module\.sample_group\.items\[\\"new_key\\"\]\.id/u,
+  );
 });
 
 test("generic Python HTML unescape covers named, prefix, numeric, invalid, and two-pass inputs", () => {

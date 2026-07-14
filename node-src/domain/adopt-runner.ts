@@ -15,14 +15,21 @@ import { DriftPolicy } from "./drift-policy.js";
 import {
   createOracleCommandRunner,
   importProviderState,
+  importProviderStates,
+  oracleBatchResourceFamily,
   oracleTimeoutMs,
+  type OracleBatchResourceRequest,
+  type OracleBatchState,
   type OracleStateObject,
 } from "./import-oracle.js";
 import { loadedRootTopology, validateTenant } from "./roots.js";
 import { projectProviderState } from "./state-project.js";
 import {
+  compileTransformArtifactBatch,
+  publishCompiledTransformArtifactBatch,
   transformArtifactPaths,
   writeTransformArtifacts,
+  type TransformArtifactCompileOptions,
   type TransformReferenceSpec,
 } from "./transform-artifacts.js";
 import {
@@ -47,6 +54,23 @@ export type AdoptionStateLoader = (options: {
   readonly rawItems: ReadonlyMap<string, Readonly<Record<string, unknown>>>;
   readonly resourceType: string;
 }) => Promise<ReadonlyMap<string, OracleStateObject>>;
+
+export type AdoptionBatchStateLoader = (options: {
+  readonly resources: readonly OracleBatchResourceRequest[];
+}) => Promise<OracleBatchState>;
+
+export type OracleBatchMode = "logical-root" | "per-resource-type";
+
+export function oracleBatchMode(environment: NodeJS.ProcessEnv): OracleBatchMode {
+  const raw = environment.INFRAWRIGHT_ORACLE_BATCH_MODE?.trim();
+  if (raw === undefined || raw.length === 0 || raw === "per-resource-type") {
+    return "per-resource-type";
+  }
+  if (raw === "logical-root") return "logical-root";
+  throw new TypeError(
+    "INFRAWRIGHT_ORACLE_BATCH_MODE must be per-resource-type or logical-root",
+  );
+}
 
 function cloneJson(value: unknown): unknown {
   if (value instanceof LosslessNumber) return new LosslessNumber(value.toString());
@@ -145,52 +169,61 @@ async function assertNoPendingMoves(options: {
   }
 }
 
-/** Derive identity, run provider state, and project one resource without writing. */
-export async function adoptResourceItems(options: {
-  readonly performance?: PerformanceRecorder;
-  readonly policy: DriftPolicy;
+interface PreparedAdoptionItems {
+  readonly identityByKey: ReadonlyMap<string, Readonly<Record<string, unknown>>>;
+  readonly keyToImportId: ReadonlyMap<string, string>;
+  readonly keyToRaw: ReadonlyMap<string, Readonly<Record<string, unknown>>>;
+  readonly resource: LoadedResourceMetadata;
+}
+
+function prepareAdoptionItems(options: {
   readonly rawItems: readonly unknown[];
   readonly resource: LoadedResourceMetadata;
-  readonly root: LoadedPackRoot;
-  readonly stateLoader: AdoptionStateLoader;
   readonly write?: (message: string) => void;
-}): Promise<PullTransformResult> {
+}): PreparedAdoptionItems {
   const derived = deriveAdoptionIdentities({ rawItems: options.rawItems, resource: options.resource });
   for (const skipped of derived.skipped) {
     options.write?.(
       `skipped ${options.resource.type} item ${JSON.stringify(skipped.item.name ?? skipped.item.id)} (identity ${skipped.reason} matched)`,
     );
   }
-  const keyToImportId = new Map(derived.identities.map((item) => [item.key, item.importId]));
-  const keyToRaw = new Map(derived.identities.map((item) => [item.key, item.raw]));
-  const identityByKey = new Map(derived.identities.map((item) => [item.key, item.item]));
+  return {
+    identityByKey: new Map(derived.identities.map((item) => [item.key, item.item])),
+    keyToImportId: new Map(derived.identities.map((item) => [item.key, item.importId])),
+    keyToRaw: new Map(derived.identities.map((item) => [item.key, item.raw])),
+    resource: options.resource,
+  };
+}
+
+async function projectAdoptionItems(options: {
+  readonly performance?: PerformanceRecorder;
+  readonly policy: DriftPolicy;
+  readonly prepared: PreparedAdoptionItems;
+  readonly root: LoadedPackRoot;
+  readonly state: ReadonlyMap<string, OracleStateObject>;
+}): Promise<PullTransformResult> {
+  const { identityByKey, keyToImportId, keyToRaw, resource } = options.prepared;
   const originals: Record<string, Readonly<Record<string, unknown>>> = Object.create(null) as Record<
     string,
     Readonly<Record<string, unknown>>
   >;
   if (keyToImportId.size === 0) return { drops: [], items: {}, originals };
-  const state = await options.stateLoader({
-    keyToImportId,
-    policy: options.policy,
-    rawItems: keyToRaw,
-    resourceType: options.resource.type,
-  });
   const items: Record<string, Readonly<Record<string, unknown>>> = Object.create(null) as Record<
     string,
     Readonly<Record<string, unknown>>
   >;
-  const missing = [...keyToImportId.keys()].filter((key) => !state.has(key)).sort();
-  const unexpected = [...state.keys()].filter((key) => !keyToImportId.has(key)).sort();
+  const missing = [...keyToImportId.keys()].filter((key) => !options.state.has(key)).sort();
+  const unexpected = [...options.state.keys()].filter((key) => !keyToImportId.has(key)).sort();
   if (missing.length > 0 || unexpected.length > 0) {
     throw new TypeError(
-      `${options.resource.type} adoption Oracle keys did not match requested identities (missing=${missing.join(", ") || "<none>"} unexpected=${unexpected.join(", ") || "<none>"})`,
+      `${resource.type} adoption Oracle keys did not match requested identities (missing=${missing.join(", ") || "<none>"} unexpected=${unexpected.join(", ") || "<none>"})`,
     );
   }
   const projectionStarted = options.performance?.now() ?? 0;
   let projectionStatus: "failed" | "success" = "success";
   try {
-    for (const key of [...state.keys()].sort()) {
-      const observed = state.get(key);
+    for (const key of [...options.state.keys()].sort()) {
+      const observed = options.state.get(key);
       if (observed === undefined) continue;
       const rawItem = keyToRaw.get(key);
       const identity = identityByKey.get(key);
@@ -198,7 +231,7 @@ export async function adoptResourceItems(options: {
       originals[key] = identity;
       items[key] = await projectProviderState({
         policy: options.policy,
-        resourceType: options.resource.type,
+        resourceType: resource.type,
         root: options.root,
         sensitiveValues: observed.sensitiveValues,
         stateValues: observed.values,
@@ -211,13 +244,48 @@ export async function adoptResourceItems(options: {
   } finally {
     options.performance?.recordSpan({
       durationMs: options.performance.durationSince(projectionStarted),
-      instances: state.size,
+      instances: options.state.size,
       phase: "adopt.provider_state_projection",
-      resourceFamily: options.resource.type,
+      resourceFamily: resource.type,
       status: projectionStatus,
     });
   }
   return { drops: [], items, originals };
+}
+
+/** Derive identity, run provider state, and project one resource without writing. */
+export async function adoptResourceItems(options: {
+  readonly performance?: PerformanceRecorder;
+  readonly policy: DriftPolicy;
+  readonly rawItems: readonly unknown[];
+  readonly resource: LoadedResourceMetadata;
+  readonly root: LoadedPackRoot;
+  readonly stateLoader: AdoptionStateLoader;
+  readonly write?: (message: string) => void;
+}): Promise<PullTransformResult> {
+  const prepared = prepareAdoptionItems(options);
+  if (prepared.keyToImportId.size === 0) {
+    return projectAdoptionItems({
+      ...(options.performance === undefined ? {} : { performance: options.performance }),
+      policy: options.policy,
+      prepared,
+      root: options.root,
+      state: new Map(),
+    });
+  }
+  const state = await options.stateLoader({
+    keyToImportId: prepared.keyToImportId,
+    policy: options.policy,
+    rawItems: prepared.keyToRaw,
+    resourceType: options.resource.type,
+  });
+  return projectAdoptionItems({
+    ...(options.performance === undefined ? {} : { performance: options.performance }),
+    policy: options.policy,
+    prepared,
+    root: options.root,
+    state,
+  });
 }
 
 function variableNameFor(
@@ -229,7 +297,9 @@ function variableNameFor(
 }
 
 export interface RunAdoptBatchOptions {
+  readonly batchStateLoader?: AdoptionBatchStateLoader;
   readonly deployment: Deployment;
+  readonly environment?: NodeJS.ProcessEnv;
   readonly inputDirectory: string;
   readonly onDiagnostic?: (message: string) => void;
   readonly policy: DriftPolicy;
@@ -256,7 +326,259 @@ async function runAdoptBatchInner(
   const processed: string[] = [];
   const skipped: string[] = [];
   const failed: string[] = [];
+  const mode = oracleBatchMode(options.environment ?? process.env);
+  const selected = new Set(selection.resourceTypes);
+  const handled = new Set<string>();
+  const disabledBatchRoots = new Set<string>();
+  const topologyRootByMember = new Map<string, (typeof topology.roots)[number]>();
+  for (const logicalRoot of topology.roots) {
+    for (const member of logicalRoot.members) topologyRootByMember.set(member, logicalRoot);
+  }
+
+  const recordResourceSpan = (
+    resourceType: string,
+    started: number,
+    instances: number,
+    status: PerformanceStatus,
+  ): void => {
+    options.performance?.recordSpan({
+      durationMs: options.performance.durationSince(started),
+      instances,
+      phase: "adopt.resource",
+      resourceFamily: resourceType,
+      status,
+    });
+  };
+
+  const tryLogicalRootBatch = async (trigger: string): Promise<boolean> => {
+    if (mode !== "logical-root") return false;
+    const logicalRoot = topologyRootByMember.get(trigger);
+    if (logicalRoot === undefined || disabledBatchRoots.has(logicalRoot.label)) return false;
+    const candidates = logicalRoot.members.filter((member) => {
+      if (!selected.has(member)) return false;
+      const resource = options.root.resources.get(member);
+      return resource !== undefined && !isObject(resource.registry.derive);
+    });
+    if (candidates.length < 2) {
+      disabledBatchRoots.add(logicalRoot.label);
+      return false;
+    }
+    const batchStarted = options.performance?.now() ?? 0;
+    const batchFamily = oracleBatchResourceFamily(candidates);
+    let batchInstances = 0;
+    const recordBatchSpan = (status: PerformanceStatus): void => {
+      options.performance?.recordSpan({
+        durationMs: options.performance.durationSince(batchStarted),
+        instances: batchInstances,
+        phase: "adopt.resource",
+        resourceFamily: batchFamily,
+        status,
+      });
+    };
+
+    const prepared: Array<{
+      readonly adoption: PreparedAdoptionItems;
+      readonly resource: LoadedResourceMetadata;
+      readonly resourceType: string;
+    }> = [];
+    let preflightFailed = false;
+    for (const resourceType of candidates) {
+      handled.add(resourceType);
+      const started = options.performance?.now() ?? 0;
+      let instances = 0;
+      try {
+        const sourceType = transformSourceType(options.root, resourceType);
+        const source = path.join(options.inputDirectory, `${sourceType}.json`);
+        const text = await readOptionalUtf8(source, `${resourceType} adoption input`);
+        if (text === null) {
+          skipped.push(resourceType);
+          write(`skip ${resourceType} (no ${source})`);
+          recordResourceSpan(resourceType, started, instances, "skipped");
+          continue;
+        }
+        const rawItems = parseDataJsonLosslessly(text);
+        if (!Array.isArray(rawItems)) throw new TypeError(`${source} must be a JSON LIST of items`);
+        instances = rawItems.length;
+        batchInstances += instances;
+        const resource = options.root.resources.get(resourceType);
+        if (resource === undefined) throw new TypeError(`unknown resource ${resourceType}`);
+        if (resource.provider !== logicalRoot.provider) {
+          throw new TypeError(
+            `logical root ${logicalRoot.label} mixes provider ${String(logicalRoot.provider)} with ${resource.provider}`,
+          );
+        }
+        await assertNoPendingMoves({
+          deployment: options.deployment,
+          resourceType,
+          tenant: options.tenant,
+        });
+        prepared.push({
+          adoption: prepareAdoptionItems({ rawItems, resource, write }),
+          resource,
+          resourceType,
+        });
+      } catch (error: unknown) {
+        preflightFailed = true;
+        failed.push(resourceType);
+        write(`error: ${resourceType}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    if (preflightFailed) {
+      for (const entry of prepared) {
+        if (!failed.includes(entry.resourceType)) failed.push(entry.resourceType);
+      }
+      recordBatchSpan("failed");
+      return true;
+    }
+    if (prepared.length < 2) {
+      disabledBatchRoots.add(logicalRoot.label);
+      for (const entry of prepared) handled.delete(entry.resourceType);
+      return false;
+    }
+    if (options.batchStateLoader === undefined) {
+      for (const entry of prepared) {
+        failed.push(entry.resourceType);
+      }
+      write(
+        `error: logical root ${logicalRoot.label}: logical-root Oracle batching was requested but no batch state loader was configured`,
+      );
+      recordBatchSpan("failed");
+      return true;
+    }
+
+    const batchResources = prepared.map((entry) => ({
+      keyToImportId: entry.adoption.keyToImportId,
+      policy: options.policy,
+      rawItems: entry.adoption.keyToRaw,
+      resourceType: entry.resourceType,
+    }));
+    let stateByResource: OracleBatchState;
+    try {
+      stateByResource = await options.batchStateLoader({ resources: batchResources });
+    } catch (error: unknown) {
+      let isolatedFailures = 0;
+      for (const request of batchResources) {
+        try {
+          await options.stateLoader(request);
+        } catch (memberError: unknown) {
+          isolatedFailures += 1;
+          write(
+            `error: ${request.resourceType}: ${memberError instanceof Error ? memberError.message : String(memberError)}`,
+          );
+        }
+      }
+      for (const entry of prepared) {
+        if (!failed.includes(entry.resourceType)) failed.push(entry.resourceType);
+      }
+      const detail = error instanceof Error ? error.message : String(error);
+      write(
+        isolatedFailures === 0
+          ? `error: logical root ${logicalRoot.label}: batched Oracle failed after every member succeeded independently: ${detail}`
+          : `error: logical root ${logicalRoot.label}: batched Oracle failed; ${isolatedFailures} member failure(s) identified above: ${detail}`,
+      );
+      recordBatchSpan("failed");
+      return true;
+    }
+
+    try {
+      const expectedResourceTypes = new Set(prepared.map((entry) => entry.resourceType));
+      const unexpectedResourceTypes = [...stateByResource.keys()]
+        .filter((resourceType) => !expectedResourceTypes.has(resourceType))
+        .sort();
+      if (unexpectedResourceTypes.length > 0) {
+        throw new TypeError(
+          `logical-root Oracle result ${logicalRoot.label} contained unexpected resources ${unexpectedResourceTypes.join(", ")}`,
+        );
+      }
+      const artifactOptions: TransformArtifactCompileOptions[] = [];
+      for (const entry of prepared) {
+        const state = stateByResource.get(entry.resourceType);
+        if (state === undefined) {
+          throw new TypeError(
+            `${entry.resourceType} missing from logical-root Oracle result ${logicalRoot.label}`,
+          );
+        }
+        const result = await projectAdoptionItems({
+          ...(options.performance === undefined ? {} : { performance: options.performance }),
+          policy: options.policy,
+          prepared: entry.adoption,
+          root: options.root,
+          state,
+        });
+        await assertNoPendingMoves({
+          deployment: options.deployment,
+          resourceType: entry.resourceType,
+          tenant: options.tenant,
+        });
+        const references: Readonly<Record<string, TransformReferenceSpec>> = transformReferenceSpecs(
+          options.root,
+          entry.resource,
+        );
+        artifactOptions.push({
+          bindingContext: transformBindingContext({
+            deployment: options.deployment,
+            references,
+            resource: entry.resource,
+            resourceRoots: topology.resource_roots,
+            root: options.root,
+          }),
+          deployment: options.deployment,
+          lookupNameField: transformLookupNameField(options.root, entry.resource),
+          onDiagnostic: write,
+          override: { import_id: adoptionMetadata(entry.resource).importId },
+          references,
+          resourceType: entry.resourceType,
+          result,
+          tenant: options.tenant,
+          variableName: variableNameFor(entry.resourceType, topology.resource_roots),
+        });
+      }
+      const artifactStarted = options.performance?.now() ?? 0;
+      let artifactStatus: "failed" | "success" = "success";
+      try {
+        const compiled = await compileTransformArtifactBatch(artifactOptions);
+        for (const entry of prepared) {
+          await assertNoPendingMoves({
+            deployment: options.deployment,
+            resourceType: entry.resourceType,
+            tenant: options.tenant,
+          });
+        }
+        await publishCompiledTransformArtifactBatch(compiled);
+      } catch (error: unknown) {
+        artifactStatus = "failed";
+        throw error;
+      } finally {
+        options.performance?.recordSpan({
+          durationMs: options.performance.durationSince(artifactStarted),
+          instances: artifactOptions.reduce((total, item) => {
+            return total + Object.keys(item.result.items).length;
+          }, 0),
+          phase: "adopt.artifact_write",
+          resourceFamily: batchFamily,
+          status: artifactStatus,
+        });
+      }
+      for (const entry of prepared) {
+        processed.push(entry.resourceType);
+      }
+      recordBatchSpan("success");
+    } catch (error: unknown) {
+      for (const entry of prepared) {
+        if (!failed.includes(entry.resourceType)) failed.push(entry.resourceType);
+      }
+      write(
+        `error: logical root ${logicalRoot.label}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      recordBatchSpan("failed");
+    }
+    return true;
+  };
+
   for (const resourceType of selection.resourceTypes) {
+    if (handled.has(resourceType)) continue;
+    if (await tryLogicalRootBatch(resourceType)) continue;
+    if (handled.has(resourceType)) continue;
     const resourceStarted = options.performance?.now() ?? 0;
     let instanceCount = 0;
     let resourceStatus: PerformanceStatus = "success";
@@ -409,6 +731,32 @@ export async function defaultAdoptionStateLoader(options: {
     policy: request.policy,
     rawItems: request.rawItems,
     resourceType: request.resourceType,
+    root: options.root,
+    runner,
+    ...(options.performance === undefined ? {} : { performance: options.performance }),
+    ...(options.onDiagnostic === undefined ? {} : { onDiagnostic: options.onDiagnostic }),
+  });
+}
+
+export async function defaultAdoptionBatchStateLoader(options: {
+  readonly environment: NodeJS.ProcessEnv;
+  readonly onDiagnostic?: (message: string) => void;
+  readonly performance?: PerformanceRecorder;
+  readonly root: LoadedPackRoot;
+  readonly terraformExecutable: string;
+}): Promise<AdoptionBatchStateLoader> {
+  const timeoutMs = oracleTimeoutMs(options.environment);
+  const runner = createOracleCommandRunner({
+    limits: {
+      maxStderrBytes: 1024 * 1024,
+      maxStdoutBytes: 8 * 1024 * 1024,
+      timeoutMs,
+    },
+    terraformExecutable: options.terraformExecutable,
+  });
+  return async (request) => importProviderStates({
+    environment: options.environment,
+    resources: request.resources,
     root: options.root,
     runner,
     ...(options.performance === undefined ? {} : { performance: options.performance }),

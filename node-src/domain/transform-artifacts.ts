@@ -1,5 +1,14 @@
 import { LosslessNumber } from "lossless-json";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  rename,
+  rm,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -7,6 +16,7 @@ import {
   renderGeneratedImports,
   renderHclQuotedString,
   renderMovedBlocks,
+  type ImportMoveDerivation,
 } from "./import-moves.js";
 import type { PullTransformResult } from "./pull-transform.js";
 import type { Deployment } from "./types.js";
@@ -59,6 +69,92 @@ export interface TransformArtifactWriteResult {
   readonly paths: TransformArtifactPaths;
   readonly written: readonly string[];
   readonly removed: readonly string[];
+}
+
+export interface TransformLookupData {
+  readonly byId: Readonly<Record<string, string>>;
+  readonly keyById: Readonly<Record<string, string>>;
+}
+
+export interface TransformArtifactCompileOptions {
+  readonly bindingContext: BindingContext;
+  readonly deployment: Deployment;
+  readonly lookupNameField: string | null;
+  /**
+   * Authoritative lookup data already compiled in the same transaction.
+   * An explicit null suppresses a stale lookup sidecar on disk.
+   */
+  readonly lookupOverrides?: Readonly<Record<string, TransformLookupData | null>>;
+  readonly onDiagnostic?: (message: string) => void;
+  readonly override: Readonly<Record<string, unknown>>;
+  readonly references: Readonly<Record<string, TransformReferenceSpec>>;
+  readonly resourceType: string;
+  readonly result: PullTransformResult;
+  readonly tenant: string;
+  readonly variableName: string;
+}
+
+/** Opaque, fully preflighted transform output; pass this to the publish functions. */
+export interface CompiledTransformArtifacts {
+  readonly binding: GeneratedBindingsResult;
+  readonly configText: string;
+  readonly existingMoves: string | null;
+  readonly lookupText: string | null;
+  readonly moves: ImportMoveDerivation;
+  readonly newImports: string;
+  readonly onDiagnostic?: (message: string) => void;
+  readonly paths: TransformArtifactPaths;
+  readonly renderedMoves: string | null;
+  readonly resourceType: string;
+}
+
+type BatchArtifactMutation = Readonly<{
+  contents?: string;
+  kind: "remove" | "write";
+  resourceType: string;
+  target: string;
+}>;
+
+type PreparedBatchArtifactMutation = BatchArtifactMutation & Readonly<{
+  backupPath: string;
+  stagePath: string | null;
+}>;
+
+type AppliedBatchArtifactMutation = PreparedBatchArtifactMutation & Readonly<{
+  hadOriginal: boolean;
+}>;
+
+type BatchArtifactCommitHook = (
+  mutation: Readonly<Pick<BatchArtifactMutation, "kind" | "resourceType" | "target">>,
+  phase: "commit" | "rollback",
+) => void | Promise<void>;
+
+class BatchArtifactRollbackError extends AggregateError {
+  constructor(
+    errors: readonly unknown[],
+    readonly transactionDirectories: readonly string[],
+  ) {
+    super(
+      errors,
+      `transform artifact batch publication and rollback both failed; recovery data preserved in ${transactionDirectories.join(", ")}`,
+    );
+    this.name = "BatchArtifactRollbackError";
+  }
+}
+
+let batchArtifactCommitHook: BatchArtifactCommitHook | undefined;
+
+/** @internal Test-only fault injection for batch publication rollback coverage. */
+export function installTransformArtifactBatchCommitHookForTests(
+  hook: BatchArtifactCommitHook,
+): () => void {
+  if (batchArtifactCommitHook !== undefined) {
+    throw new Error("a transform artifact batch commit test hook is already installed");
+  }
+  batchArtifactCommitHook = hook;
+  return () => {
+    if (batchArtifactCommitHook === hook) batchArtifactCommitHook = undefined;
+  };
 }
 
 function record(entries: Iterable<readonly [string, unknown]>): JsonRecord {
@@ -180,10 +276,7 @@ export function renderTransformLookup(options: {
   return renderPythonLosslessArtifactJson(payload);
 }
 
-export function parseLookupSidecar(value: unknown): {
-  readonly byId: Readonly<Record<string, string>>;
-  readonly keyById: Readonly<Record<string, string>>;
-} {
+export function parseLookupSidecar(value: unknown): TransformLookupData {
   const root = object(value);
   if (root === null) throw new TypeError("lookup sidecar must contain a JSON object");
   const nestedById = object(root.by_id);
@@ -433,10 +526,26 @@ async function removeIfPresent(file: string): Promise<boolean> {
   }
 }
 
-async function loadLookup(file: string): Promise<ReturnType<typeof parseLookupSidecar> | null> {
+async function loadLookup(file: string): Promise<TransformLookupData | null> {
   const text = await readOptionalUtf8(file, `lookup for ${path.basename(file)}`);
   if (text === null) return null;
   return parseLookupSidecar(parseDataJsonLosslessly(text));
+}
+
+async function resolveLookup(options: {
+  readonly configDirectory: string;
+  readonly lookupOverrides?: Readonly<Record<string, TransformLookupData | null>>;
+  readonly referent: string;
+}): Promise<TransformLookupData | null> {
+  if (
+    options.lookupOverrides !== undefined
+    && own(options.lookupOverrides, options.referent)
+  ) {
+    return options.lookupOverrides[options.referent] ?? null;
+  }
+  return loadLookup(
+    path.join(options.configDirectory, `${options.referent}.lookup.json`),
+  );
 }
 
 function systemConstant(value: string): boolean {
@@ -453,10 +562,11 @@ function displayFor(value: unknown, mapping: Readonly<Record<string, string>>): 
 async function deriveHclComments(options: {
   readonly configDirectory: string;
   readonly items: PullTransformResult["items"];
+  readonly lookupOverrides?: Readonly<Record<string, TransformLookupData | null>>;
   readonly references: Readonly<Record<string, TransformReferenceSpec>>;
 }): Promise<HclTfvarsComments> {
   const comments: Record<string, string> = Object.create(null) as Record<string, string>;
-  const lookups = new Map<string, ReturnType<typeof parseLookupSidecar> | null>();
+  const lookups = new Map<string, TransformLookupData | null>();
   for (const itemKey of sortedStrings(Object.keys(options.items))) {
     const item = options.items[itemKey];
     if (item === undefined) continue;
@@ -468,9 +578,13 @@ async function deriveHclComments(options: {
       if (spec === undefined) continue;
       let lookup = lookups.get(spec.referent);
       if (lookup === undefined && !lookups.has(spec.referent)) {
-        lookup = await loadLookup(
-          path.join(options.configDirectory, `${spec.referent}.lookup.json`),
-        );
+        lookup = await resolveLookup({
+          configDirectory: options.configDirectory,
+          ...(options.lookupOverrides === undefined
+            ? {}
+            : { lookupOverrides: options.lookupOverrides }),
+          referent: spec.referent,
+        });
         lookups.set(spec.referent, lookup);
       }
       if (lookup === null || lookup === undefined) continue;
@@ -494,6 +608,7 @@ async function deriveHclComments(options: {
 async function renderDeploymentTfvars(options: {
   readonly deployment: Deployment;
   readonly items: PullTransformResult["items"];
+  readonly lookupOverrides?: Readonly<Record<string, TransformLookupData | null>>;
   readonly references: Readonly<Record<string, TransformReferenceSpec>>;
   readonly resourceType: string;
   readonly tenant: string;
@@ -507,6 +622,9 @@ async function renderDeploymentTfvars(options: {
     await deriveHclComments({
       configDirectory: deploymentConfigDir(options.deployment, options.tenant),
       items: options.items,
+      ...(options.lookupOverrides === undefined
+        ? {}
+        : { lookupOverrides: options.lookupOverrides }),
       references: options.references,
     }),
     options.variableName,
@@ -515,6 +633,7 @@ async function renderDeploymentTfvars(options: {
 
 async function lookupKeyMaps(options: {
   readonly configDirectory: string;
+  readonly lookupOverrides?: Readonly<Record<string, TransformLookupData | null>>;
   readonly references: Readonly<Record<string, TransformReferenceSpec>>;
 }): Promise<Readonly<Record<string, Readonly<Record<string, string>> | null>>> {
   const output: Record<string, Readonly<Record<string, string>> | null> = Object.create(null) as Record<
@@ -523,38 +642,44 @@ async function lookupKeyMaps(options: {
   >;
   for (const spec of Object.values(options.references)) {
     if (own(output, spec.referent)) continue;
-    const lookup = await loadLookup(
-      path.join(options.configDirectory, `${spec.referent}.lookup.json`),
-    );
+    const lookup = await resolveLookup({
+      configDirectory: options.configDirectory,
+      ...(options.lookupOverrides === undefined
+        ? {}
+        : { lookupOverrides: options.lookupOverrides }),
+      referent: spec.referent,
+    });
     output[spec.referent] = lookup?.keyById ?? null;
   }
   return output;
 }
 
-/** Materialize the ordinary transform artifact set with Python's file lifecycle. */
-export async function writeTransformArtifacts(options: {
-  readonly bindingContext: BindingContext;
-  readonly deployment: Deployment;
-  readonly lookupNameField: string | null;
-  readonly onDiagnostic?: (message: string) => void;
-  readonly override: Readonly<Record<string, unknown>>;
-  readonly references: Readonly<Record<string, TransformReferenceSpec>>;
-  readonly resourceType: string;
-  readonly result: PullTransformResult;
-  readonly tenant: string;
-  readonly variableName: string;
-}): Promise<TransformArtifactWriteResult> {
+function compileLookup(options: TransformArtifactCompileOptions): {
+  readonly data: TransformLookupData | null;
+  readonly text: string | null;
+} {
+  if (options.lookupNameField === null) return { data: null, text: null };
+  const text = renderTransformLookup({
+    items: options.result.items,
+    originals: options.result.originals,
+    nameField: options.lookupNameField,
+  });
+  return {
+    data: parseLookupSidecar(parseDataJsonLosslessly(text)),
+    text,
+  };
+}
+
+/**
+ * Read and validate every input needed to publish one ordinary transform
+ * artifact set. This function never creates, writes, renames, or removes a
+ * filesystem entry.
+ */
+export async function compileTransformArtifacts(
+  options: TransformArtifactCompileOptions,
+): Promise<CompiledTransformArtifacts> {
   const paths = transformArtifactPaths(options);
-  const written: string[] = [];
-  const removed: string[] = [];
-  const note = options.onDiagnostic ?? (() => undefined);
-  const lookupText = options.lookupNameField === null
-    ? null
-    : renderTransformLookup({
-      items: options.result.items,
-      originals: options.result.originals,
-      nameField: options.lookupNameField,
-    });
+  const lookupText = compileLookup(options).text;
 
   const template = typeof options.override.import_id === "string"
     ? options.override.import_id
@@ -585,6 +710,9 @@ export async function writeTransformArtifacts(options: {
   const configText = await renderDeploymentTfvars({
     deployment: options.deployment,
     items: options.result.items,
+    ...(options.lookupOverrides === undefined
+      ? {}
+      : { lookupOverrides: options.lookupOverrides }),
     references: options.references,
     resourceType: options.resourceType,
     tenant: options.tenant,
@@ -595,10 +723,92 @@ export async function writeTransformArtifacts(options: {
     items: options.result.items,
     lookupKeys: await lookupKeyMaps({
       configDirectory: path.dirname(paths.config),
+      ...(options.lookupOverrides === undefined
+        ? {}
+        : { lookupOverrides: options.lookupOverrides }),
       references: options.references,
     }),
     resourceType: options.resourceType,
   });
+
+  return Object.freeze({
+    binding,
+    configText,
+    existingMoves,
+    lookupText,
+    moves,
+    newImports,
+    ...(options.onDiagnostic === undefined
+      ? {}
+      : { onDiagnostic: options.onDiagnostic }),
+    paths,
+    renderedMoves,
+    resourceType: options.resourceType,
+  });
+}
+
+/**
+ * Compile a complete batch before the caller publishes any member. Fresh
+ * lookup data from every member is authoritative for same-batch references.
+ */
+export async function compileTransformArtifactBatch(
+  options: readonly TransformArtifactCompileOptions[],
+): Promise<readonly CompiledTransformArtifacts[]> {
+  const pathOwners = new Map<string, string>();
+  const lookupsByConfigDirectory = new Map<
+    string,
+    Record<string, TransformLookupData | null>
+  >();
+  for (const item of options) {
+    const paths = transformArtifactPaths(item);
+    for (const outputPath of Object.values(paths)) {
+      const owner = pathOwners.get(outputPath);
+      if (owner !== undefined) {
+        throw new Error(
+          `transform artifact batch output collision: ${JSON.stringify(outputPath)} is owned by both ${JSON.stringify(owner)} and ${JSON.stringify(item.resourceType)}`,
+        );
+      }
+      pathOwners.set(outputPath, item.resourceType);
+    }
+    const configDirectory = path.dirname(paths.config);
+    let lookups = lookupsByConfigDirectory.get(configDirectory);
+    if (lookups === undefined) {
+      lookups = Object.create(null) as Record<string, TransformLookupData | null>;
+      lookupsByConfigDirectory.set(configDirectory, lookups);
+    }
+    lookups[item.resourceType] = compileLookup(item).data;
+  }
+
+  return Promise.all(options.map((item) => {
+    const configDirectory = path.dirname(transformArtifactPaths(item).config);
+    return compileTransformArtifacts({
+      ...item,
+      lookupOverrides: {
+        ...(item.lookupOverrides ?? {}),
+        ...(lookupsByConfigDirectory.get(configDirectory) ?? {}),
+      },
+    });
+  }));
+}
+
+/** Publish one fully compiled artifact set with the legacy file lifecycle. */
+export async function publishCompiledTransformArtifacts(
+  compiled: CompiledTransformArtifacts,
+): Promise<TransformArtifactWriteResult> {
+  const {
+    binding,
+    configText,
+    existingMoves,
+    lookupText,
+    moves,
+    newImports,
+    paths,
+    renderedMoves,
+    resourceType,
+  } = compiled;
+  const written: string[] = [];
+  const removed: string[] = [];
+  const note = compiled.onDiagnostic ?? (() => undefined);
 
   await mkdir(path.dirname(paths.config), { recursive: true });
   await mkdir(path.dirname(paths.imports), { recursive: true });
@@ -624,7 +834,7 @@ export async function writeTransformArtifacts(options: {
   }
   for (const suppression of moves.suppressed) {
     note(
-      `SUPPRESSED RENAME CANDIDATE: ${options.resourceType} ${JSON.stringify(suppression.oldKey)} -> ${JSON.stringify(suppression.newKey)} (import_id ${JSON.stringify(suppression.importId)}, reason=${suppression.reason}); no moved block emitted`,
+      `SUPPRESSED RENAME CANDIDATE: ${resourceType} ${JSON.stringify(suppression.oldKey)} -> ${JSON.stringify(suppression.newKey)} (import_id ${JSON.stringify(suppression.importId)}, reason=${suppression.reason}); no moved block emitted`,
     );
   }
 
@@ -650,6 +860,312 @@ export async function writeTransformArtifacts(options: {
   note(`wrote ${paths.config}`);
   note(`wrote ${paths.imports}`);
   return { paths, written, removed };
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && "code" in error
+    && error.code === "ENOENT";
+}
+
+async function assertRegularBatchArtifactTarget(target: string): Promise<void> {
+  try {
+    const metadata = await lstat(target);
+    if (!metadata.isFile() || metadata.isSymbolicLink()) {
+      throw new Error(
+        `transform artifact batch target is not a regular file: ${target}`,
+      );
+    }
+  } catch (error: unknown) {
+    if (isMissingFileError(error)) return;
+    throw error;
+  }
+}
+
+function batchArtifactMutations(
+  compiled: CompiledTransformArtifacts,
+): readonly BatchArtifactMutation[] {
+  const mutations: BatchArtifactMutation[] = [];
+  if (compiled.lookupText !== null) {
+    mutations.push({
+      contents: compiled.lookupText,
+      kind: "write",
+      resourceType: compiled.resourceType,
+      target: compiled.paths.lookup,
+    });
+  }
+  if (compiled.existingMoves === null && compiled.renderedMoves !== null) {
+    mutations.push({
+      contents: compiled.renderedMoves,
+      kind: "write",
+      resourceType: compiled.resourceType,
+      target: compiled.paths.moves,
+    });
+  }
+  mutations.push({
+    kind: "remove",
+    resourceType: compiled.resourceType,
+    target: compiled.paths.staleConfig,
+  });
+  mutations.push({
+    contents: compiled.configText,
+    kind: "write",
+    resourceType: compiled.resourceType,
+    target: compiled.paths.config,
+  });
+  if (Object.keys(compiled.binding.data.resources).length > 0) {
+    mutations.push({
+      contents: renderGeneratedBindings(compiled.binding.data),
+      kind: "write",
+      resourceType: compiled.resourceType,
+      target: compiled.paths.generatedBindings,
+    });
+  } else {
+    mutations.push({
+      kind: "remove",
+      resourceType: compiled.resourceType,
+      target: compiled.paths.generatedBindings,
+    });
+  }
+  mutations.push({
+    contents: compiled.newImports,
+    kind: "write",
+    resourceType: compiled.resourceType,
+    target: compiled.paths.imports,
+  });
+  return mutations;
+}
+
+async function removeTransactionDirectories(
+  directories: readonly string[],
+): Promise<readonly unknown[]> {
+  const failures: unknown[] = [];
+  for (const directory of directories) {
+    try {
+      await rm(directory, { force: true, recursive: true });
+    } catch (error: unknown) {
+      failures.push(error);
+    }
+  }
+  return failures;
+}
+
+async function prepareBatchArtifactMutations(
+  mutations: readonly BatchArtifactMutation[],
+): Promise<Readonly<{
+  mutations: readonly PreparedBatchArtifactMutation[];
+  transactionDirectories: readonly string[];
+}>> {
+  const transactionDirectoryByParent = new Map<string, string>();
+  const prepared: PreparedBatchArtifactMutation[] = [];
+  try {
+    for (const [index, mutation] of mutations.entries()) {
+      const parent = path.dirname(mutation.target);
+      await mkdir(parent, { recursive: true });
+      let transactionDirectory = transactionDirectoryByParent.get(parent);
+      if (transactionDirectory === undefined) {
+        transactionDirectory = await mkdtemp(
+          path.join(parent, ".infrawright-artifact-batch-"),
+        );
+        transactionDirectoryByParent.set(parent, transactionDirectory);
+      }
+      const stagePath = mutation.kind === "write"
+        ? path.join(transactionDirectory, `stage-${index}`)
+        : null;
+      if (stagePath !== null) {
+        if (mutation.contents === undefined) {
+          throw new Error(`missing staged contents for ${mutation.target}`);
+        }
+        await writeFile(stagePath, mutation.contents, "utf8");
+      }
+      prepared.push({
+        ...mutation,
+        backupPath: path.join(transactionDirectory, `backup-${index}`),
+        stagePath,
+      });
+    }
+    return {
+      mutations: prepared,
+      transactionDirectories: [...transactionDirectoryByParent.values()],
+    };
+  } catch (error: unknown) {
+    const cleanupFailures = await removeTransactionDirectories(
+      [...transactionDirectoryByParent.values()],
+    );
+    if (cleanupFailures.length === 0) throw error;
+    throw new AggregateError(
+      [error, ...cleanupFailures],
+      "transform artifact batch staging and cleanup both failed",
+    );
+  }
+}
+
+async function applyBatchArtifactMutations(
+  mutations: readonly PreparedBatchArtifactMutation[],
+): Promise<readonly AppliedBatchArtifactMutation[]> {
+  const applied: AppliedBatchArtifactMutation[] = [];
+  try {
+    for (const mutation of mutations) {
+      await batchArtifactCommitHook?.({
+        kind: mutation.kind,
+        resourceType: mutation.resourceType,
+        target: mutation.target,
+      }, "commit");
+      let hadOriginal = false;
+      try {
+        await rename(mutation.target, mutation.backupPath);
+        hadOriginal = true;
+      } catch (error: unknown) {
+        if (!isMissingFileError(error)) throw error;
+      }
+      const appliedMutation = { ...mutation, hadOriginal };
+      applied.push(appliedMutation);
+      const previous = hadOriginal ? await lstat(mutation.backupPath) : null;
+      if (
+        previous !== null
+        && (!previous.isFile() || previous.isSymbolicLink())
+      ) {
+        throw new Error(
+          `transform artifact batch target changed to a non-regular file: ${mutation.target}`,
+        );
+      }
+      if (mutation.kind === "write") {
+        if (mutation.stagePath === null) {
+          throw new Error(`missing staged artifact for ${mutation.target}`);
+        }
+        if (previous !== null) {
+          await chmod(mutation.stagePath, previous.mode & 0o7777);
+        }
+        await rename(mutation.stagePath, mutation.target);
+      }
+    }
+    return applied;
+  } catch (error: unknown) {
+    const rollbackFailures: unknown[] = [];
+    for (const mutation of [...applied].reverse()) {
+      try {
+        await batchArtifactCommitHook?.({
+          kind: mutation.kind,
+          resourceType: mutation.resourceType,
+          target: mutation.target,
+        }, "rollback");
+        if (mutation.kind === "write") await removeIfPresent(mutation.target);
+        if (mutation.hadOriginal) {
+          await rename(mutation.backupPath, mutation.target);
+        }
+      } catch (rollbackError: unknown) {
+        rollbackFailures.push(rollbackError);
+      }
+    }
+    if (rollbackFailures.length === 0) throw error;
+    throw new BatchArtifactRollbackError(
+      [error, ...rollbackFailures],
+      [...new Set(applied.map((mutation) => path.dirname(mutation.backupPath)))],
+    );
+  }
+}
+
+function completedBatchArtifactResult(
+  compiled: CompiledTransformArtifacts,
+  applied: readonly AppliedBatchArtifactMutation[],
+): TransformArtifactWriteResult {
+  const resourceMutations = applied.filter((mutation) => {
+    return mutation.resourceType === compiled.resourceType;
+  });
+  const written = resourceMutations
+    .filter((mutation) => mutation.kind === "write")
+    .map((mutation) => mutation.target);
+  const removed = resourceMutations
+    .filter((mutation) => mutation.kind === "remove" && mutation.hadOriginal)
+    .map((mutation) => mutation.target);
+  const removedSet = new Set(removed);
+  const note = compiled.onDiagnostic ?? (() => undefined);
+
+  if (compiled.lookupText !== null) note(`wrote ${compiled.paths.lookup}`);
+  if (compiled.existingMoves === null && compiled.renderedMoves !== null) {
+    note(
+      `RENAME(S) DETECTED: ${compiled.moves.moves.length} item(s) re-keyed — moved blocks staged in ${compiled.paths.moves}; copy into the env root alongside the imports file before plan/apply (RUNBOOK: Drift)`,
+    );
+  } else if (compiled.existingMoves !== null) {
+    note(
+      compiled.renderedMoves === null
+        ? `preserved unresolved move evidence ${compiled.paths.moves} (no newly derived moves this run)`
+        : `preserved byte-identical unresolved move evidence ${compiled.paths.moves}`,
+    );
+  }
+  for (const suppression of compiled.moves.suppressed) {
+    note(
+      `SUPPRESSED RENAME CANDIDATE: ${compiled.resourceType} ${JSON.stringify(suppression.oldKey)} -> ${JSON.stringify(suppression.newKey)} (import_id ${JSON.stringify(suppression.importId)}, reason=${suppression.reason}); no moved block emitted`,
+    );
+  }
+  if (removedSet.has(compiled.paths.staleConfig)) {
+    note(`removed stale ${compiled.paths.staleConfig}`);
+  }
+  for (const message of compiled.binding.notes) note(`NOTE bindings: ${message}`);
+  if (Object.keys(compiled.binding.data.resources).length > 0) {
+    note(`wrote ${compiled.paths.generatedBindings}`);
+  } else if (removedSet.has(compiled.paths.generatedBindings)) {
+    note(`removed stale ${compiled.paths.generatedBindings}`);
+  }
+  note(`wrote ${compiled.paths.config}`);
+  note(`wrote ${compiled.paths.imports}`);
+  return { paths: compiled.paths, written, removed };
+}
+
+/**
+ * Publish an already-preflighted batch as one rollback-capable filesystem
+ * transaction in deterministic caller order.
+ */
+export async function publishCompiledTransformArtifactBatch(
+  compiled: readonly CompiledTransformArtifacts[],
+): Promise<readonly TransformArtifactWriteResult[]> {
+  const mutations = compiled.flatMap((item) => batchArtifactMutations(item));
+  const targetOwners = new Map<string, string>();
+  for (const mutation of mutations) {
+    const owner = targetOwners.get(mutation.target);
+    if (owner !== undefined) {
+      throw new Error(
+        `transform artifact batch mutation collision: ${JSON.stringify(mutation.target)} is owned by both ${JSON.stringify(owner)} and ${JSON.stringify(mutation.resourceType)}`,
+      );
+    }
+    targetOwners.set(mutation.target, mutation.resourceType);
+  }
+  await Promise.all(mutations.map((mutation) => {
+    return assertRegularBatchArtifactTarget(mutation.target);
+  }));
+  const prepared = await prepareBatchArtifactMutations(mutations);
+  let applied: readonly AppliedBatchArtifactMutation[];
+  try {
+    applied = await applyBatchArtifactMutations(prepared.mutations);
+  } catch (error: unknown) {
+    if (error instanceof BatchArtifactRollbackError) throw error;
+    const cleanupFailures = await removeTransactionDirectories(
+      prepared.transactionDirectories,
+    );
+    if (cleanupFailures.length === 0) throw error;
+    throw new AggregateError(
+      [error, ...cleanupFailures],
+      "transform artifact batch publication failed and transaction cleanup also failed",
+    );
+  }
+  const cleanupFailures = await removeTransactionDirectories(
+    prepared.transactionDirectories,
+  );
+  if (cleanupFailures.length > 0) {
+    throw new AggregateError(
+      cleanupFailures,
+      "transform artifact batch committed but transaction cleanup failed",
+    );
+  }
+  return compiled.map((item) => completedBatchArtifactResult(item, applied));
+}
+
+/** Materialize one ordinary transform artifact set with the legacy lifecycle. */
+export async function writeTransformArtifacts(
+  options: TransformArtifactCompileOptions,
+): Promise<TransformArtifactWriteResult> {
+  return publishCompiledTransformArtifacts(await compileTransformArtifacts(options));
 }
 
 /** Derived resources write config only and intentionally create no imports. */

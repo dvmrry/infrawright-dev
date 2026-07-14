@@ -15,7 +15,7 @@ import {
   type TerraformCommandLimits,
 } from "../io/terraform-command.js";
 import { renderHclQuotedString } from "./import-moves.js";
-import { applyGeneratedConfigPolicy } from "./generated-config-policy.js";
+import { applyGeneratedConfigPolicies } from "./generated-config-policy.js";
 import { DriftPolicy } from "./drift-policy.js";
 import type { PerformanceRecorder } from "../performance/recorder.js";
 
@@ -32,6 +32,42 @@ export interface OracleStateObject {
   readonly address: string;
   readonly sensitiveValues: unknown;
   readonly values: Readonly<Record<string, unknown>>;
+}
+
+export interface OracleBatchResourceRequest {
+  readonly keyToImportId: ReadonlyMap<string, string>;
+  readonly policy?: DriftPolicy;
+  readonly rawItems?: ReadonlyMap<string, Readonly<Record<string, unknown>>>;
+  readonly resourceType: string;
+}
+
+export type OracleBatchState = ReadonlyMap<
+  string,
+  ReadonlyMap<string, OracleStateObject>
+>;
+
+export function oracleBatchResourceFamily(resourceTypes: Iterable<string>): string {
+  const sorted = [...new Set(resourceTypes)].sort();
+  const joined = sorted.join(",");
+  if (sorted.length === 1) return sorted[0] ?? "oracle_batch_1_empty";
+  const readable = `oracle_batch.${sorted.join(".")}`;
+  if (readable.length <= 256) return readable;
+  const digest = createHash("sha1").update(joined, "utf8").digest("hex").slice(0, 16);
+  return `oracle_batch_${sorted.length}_${digest}`;
+}
+
+interface ExpectedOracleInstance {
+  readonly importId: string;
+  readonly key: string;
+  readonly providerName: string;
+  readonly resourceType: string;
+}
+
+function expectedResourceContext(
+  expected: ReadonlyMap<string, ExpectedOracleInstance>,
+): string {
+  const resourceTypes = new Set([...expected.values()].map((instance) => instance.resourceType));
+  return resourceTypes.size === 1 ? `${[...resourceTypes][0]} ` : "";
 }
 
 export interface OracleCommandRequest {
@@ -191,6 +227,13 @@ export function renderOracleImports(
   }).join("\n");
 }
 
+function renderOracleBatchImports(resources: readonly OracleBatchResourceRequest[]): string {
+  return [...resources]
+    .sort((left, right) => left.resourceType.localeCompare(right.resourceType))
+    .map((resource) => renderOracleImports(resource.resourceType, resource.keyToImportId))
+    .join("\n");
+}
+
 function assertLocalScratchRoot(text: string): void {
   if (BACKEND_BLOCK.test(text)) {
     throw new OracleError("oracle scratch root must not declare a Terraform backend; oracle state is intentionally ephemeral and local");
@@ -227,13 +270,12 @@ function providerName(source: string): string {
     : source;
 }
 
-export function assertImportOnlyPlan(options: {
-  readonly expectedImports: ReadonlyMap<string, string>;
+function assertImportOnlyBatchPlan(options: {
+  readonly expected: ReadonlyMap<string, ExpectedOracleInstance>;
   readonly plan: unknown;
-  readonly providerName: string;
-  readonly resourceType: string;
 }): void {
-  const plan = jsonRecord(options.plan, `${options.resourceType} terraform show -json plan returned a non-object`);
+  const context = expectedResourceContext(options.expected);
+  const plan = jsonRecord(options.plan, `${context}terraform show -json plan returned a non-object`);
   if (
     typeof plan.format_version !== "string"
     || !/^1\./u.test(plan.format_version)
@@ -251,55 +293,72 @@ export function assertImportOnlyPlan(options: {
     || !optionalEmptyArray(plan.resource_drift)
     || !optionalEmptyRecord(plan.output_changes)
   ) {
-    throw new OracleError(`${options.resourceType} oracle import plan was incomplete, errored, non-applyable, deferred, or contained non-import effects; refusing to apply the scratch plan`);
+    throw new OracleError(`${context}oracle import plan was incomplete, errored, non-applyable, deferred, or contained non-import effects; refusing to apply the scratch plan`);
   }
   const changes = Array.isArray(plan.resource_changes) ? plan.resource_changes : null;
-  if (changes === null || changes.length !== options.expectedImports.size) {
+  if (changes === null || changes.length !== options.expected.size) {
     throw new OracleError(
-      `${options.resourceType} oracle import plan reported ${changes?.length ?? "malformed"} resource change(s), expected ${options.expectedImports.size} import(s); refusing to apply the scratch plan`,
+      `${context}oracle import plan reported ${changes?.length ?? "malformed"} resource change(s), expected ${options.expected.size} import(s); refusing to apply the scratch plan`,
     );
   }
   const addresses = new Set<string>();
   for (const raw of changes) {
-    const change = jsonRecord(raw, `${options.resourceType} oracle import plan contained a malformed change`);
+    const change = jsonRecord(raw, `${context}oracle import plan contained a malformed change`);
     const address = typeof change.address === "string" ? change.address : "<unknown>";
-    const expectedImportId = options.expectedImports.get(address);
+    const expected = options.expected.get(address);
     const details = isObject(change.change) ? change.change : {};
     const actions = Array.isArray(details.actions) ? details.actions : [];
     const importing = isObject(details.importing) ? details.importing : null;
     if (
-      expectedImportId === undefined
+      expected === undefined
       || addresses.has(address)
       || change.mode !== "managed"
-      || change.type !== options.resourceType
-      || change.provider_name !== options.providerName
+      || change.type !== expected.resourceType
+      || change.provider_name !== expected.providerName
       || actions.length !== 1
       || actions[0] !== "no-op"
       || importing === null
-      || importing.id !== expectedImportId
+      || importing.id !== expected.importId
     ) {
       throw new OracleError(
-        `${options.resourceType} oracle import plan was not the exact requested import for ${address}; refusing to apply the scratch plan`,
+        `${context}oracle import plan was not the exact requested import for ${address}; refusing to apply the scratch plan`,
       );
     }
     addresses.add(address);
   }
-  const missing = [...options.expectedImports.keys()].filter((address) => !addresses.has(address)).sort();
-  const unexpected = [...addresses].filter((address) => !options.expectedImports.has(address)).sort();
+  const missing = [...options.expected.keys()].filter((address) => !addresses.has(address)).sort();
+  const unexpected = [...addresses].filter((address) => !options.expected.has(address)).sort();
   if (missing.length > 0 || unexpected.length > 0) {
     throw new OracleError(
-      `${options.resourceType} oracle import plan addresses did not match expected scratch addresses (missing=${missing.join(", ") || "<none>"} unexpected=${unexpected.join(", ") || "<none>"}); refusing to apply the scratch plan`,
+      `${context}oracle import plan addresses did not match expected scratch addresses (missing=${missing.join(", ") || "<none>"} unexpected=${unexpected.join(", ") || "<none>"}); refusing to apply the scratch plan`,
     );
   }
 }
 
-function exactStateObjects(options: {
-  readonly addressToKey: ReadonlyMap<string, string>;
+export function assertImportOnlyPlan(options: {
+  readonly expectedImports: ReadonlyMap<string, string>;
+  readonly plan: unknown;
   readonly providerName: string;
   readonly resourceType: string;
+}): void {
+  const expected = new Map<string, ExpectedOracleInstance>();
+  for (const [address, importId] of options.expectedImports) {
+    expected.set(address, {
+      importId,
+      key: address,
+      providerName: options.providerName,
+      resourceType: options.resourceType,
+    });
+  }
+  assertImportOnlyBatchPlan({ expected, plan: options.plan });
+}
+
+function exactBatchStateObjects(options: {
+  readonly expected: ReadonlyMap<string, ExpectedOracleInstance>;
   readonly state: unknown;
-}): ReadonlyMap<string, OracleStateObject> {
-  const state = jsonRecord(options.state, `${options.resourceType} terraform show -json state returned a non-object`);
+}): OracleBatchState {
+  const context = expectedResourceContext(options.expected);
+  const state = jsonRecord(options.state, `${context}terraform show -json state returned a non-object`);
   if (
     typeof state.format_version !== "string"
     || !/^1\./u.test(state.format_version)
@@ -310,48 +369,72 @@ function exactStateObjects(options: {
     || !optionalEmptyArray(state.checks)
     || !isObject(state.values.root_module)
   ) {
-    throw new OracleError(`${options.resourceType} import oracle returned malformed Terraform state`);
+    throw new OracleError(`${context}import oracle returned malformed Terraform state`);
   }
   const rootModule = state.values.root_module;
   if (
     !Array.isArray(rootModule.resources)
-    || rootModule.resources.length !== options.addressToKey.size
+    || rootModule.resources.length !== options.expected.size
     || !optionalEmptyArray(rootModule.child_modules)
   ) {
-    throw new OracleError(`${options.resourceType} import oracle returned non-exact root state`);
+    throw new OracleError(`${context}import oracle returned non-exact root state`);
   }
-  const output = new Map<string, OracleStateObject>();
+  const output = new Map<string, Map<string, OracleStateObject>>();
   const seen = new Set<string>();
   for (const raw of rootModule.resources) {
     if (!isObject(raw) || typeof raw.address !== "string") {
-      throw new OracleError(`${options.resourceType} import oracle returned a malformed root resource`);
+      throw new OracleError(`${context}import oracle returned a malformed root resource`);
     }
-    const key = options.addressToKey.get(raw.address);
+    const expected = options.expected.get(raw.address);
     if (
-      key === undefined
+      expected === undefined
       || seen.has(raw.address)
       || raw.mode !== "managed"
-      || raw.type !== options.resourceType
-      || raw.provider_name !== options.providerName
+      || raw.type !== expected.resourceType
+      || raw.provider_name !== expected.providerName
       || Object.hasOwn(raw, "deposed_key")
       || (raw.tainted !== undefined && raw.tainted !== false)
       || !isObject(raw.values)
       || !Object.hasOwn(raw, "sensitive_values")
       || (!isObject(raw.sensitive_values) && raw.sensitive_values !== true)
     ) {
-      throw new OracleError(`${options.resourceType} import oracle returned non-exact managed state for ${raw.address}`);
+      throw new OracleError(`${context}import oracle returned non-exact managed state for ${raw.address}`);
     }
     seen.add(raw.address);
-    output.set(key, {
+    let resourceOutput = output.get(expected.resourceType);
+    if (resourceOutput === undefined) {
+      resourceOutput = new Map();
+      output.set(expected.resourceType, resourceOutput);
+    }
+    resourceOutput.set(expected.key, {
       address: raw.address,
       values: raw.values,
       sensitiveValues: raw.sensitive_values,
     });
   }
-  if (seen.size !== options.addressToKey.size) {
-    throw new OracleError(`${options.resourceType} import oracle did not return exact expected-address coverage`);
+  if (seen.size !== options.expected.size) {
+    throw new OracleError(`${context}import oracle did not return exact expected-address coverage`);
   }
   return output;
+}
+
+function exactStateObjects(options: {
+  readonly addressToKey: ReadonlyMap<string, string>;
+  readonly providerName: string;
+  readonly resourceType: string;
+  readonly state: unknown;
+}): ReadonlyMap<string, OracleStateObject> {
+  const expected = new Map<string, ExpectedOracleInstance>();
+  for (const [address, key] of options.addressToKey) {
+    expected.set(address, {
+      importId: "",
+      key,
+      providerName: options.providerName,
+      resourceType: options.resourceType,
+    });
+  }
+  return exactBatchStateObjects({ expected, state: options.state }).get(options.resourceType)
+    ?? new Map();
 }
 
 function assertNoUnknownValues(value: unknown, resourceType: string): void {
@@ -383,42 +466,26 @@ function assertNoUnknownValues(value: unknown, resourceType: string): void {
  * accepted plan and post-Apply local state are equivalent for the selected
  * resource cohort.
  */
-export function extractAcceptedPlanState(options: {
-  readonly addressToKey: ReadonlyMap<string, string>;
-  readonly expectedImports: ReadonlyMap<string, string>;
+function extractAcceptedBatchPlanState(options: {
+  readonly expected: ReadonlyMap<string, ExpectedOracleInstance>;
   readonly plan: unknown;
-  readonly providerName: string;
-  readonly resourceType: string;
-}): ReadonlyMap<string, OracleStateObject> {
-  assertImportOnlyPlan({
-    expectedImports: options.expectedImports,
-    plan: options.plan,
-    providerName: options.providerName,
-    resourceType: options.resourceType,
-  });
-  const plan = jsonRecord(
-    options.plan,
-    `${options.resourceType} terraform show -json plan returned a non-object`,
-  );
+}): OracleBatchState {
+  assertImportOnlyBatchPlan({ expected: options.expected, plan: options.plan });
+  const context = expectedResourceContext(options.expected);
+  const plan = jsonRecord(options.plan, `${context}terraform show -json plan returned a non-object`);
   if (!isObject(plan.planned_values) || !isObject(plan.prior_state)) {
-    throw new OracleError(
-      `${options.resourceType} accepted import plan did not contain complete planned and prior state`,
-    );
+    throw new OracleError(`${context}accepted import plan did not contain complete planned and prior state`);
   }
-  const planned = exactStateObjects({
-    addressToKey: options.addressToKey,
-    providerName: options.providerName,
-    resourceType: options.resourceType,
+  const planned = exactBatchStateObjects({
+    expected: options.expected,
     state: {
       format_version: plan.format_version,
       terraform_version: plan.terraform_version,
       values: plan.planned_values,
     },
   });
-  const prior = exactStateObjects({
-    addressToKey: options.addressToKey,
-    providerName: options.providerName,
-    resourceType: options.resourceType,
+  const prior = exactBatchStateObjects({
+    expected: options.expected,
     state: plan.prior_state,
   });
   const changes = Array.isArray(plan.resource_changes) ? plan.resource_changes : [];
@@ -426,18 +493,18 @@ export function extractAcceptedPlanState(options: {
   for (const raw of changes) {
     const change = jsonRecord(
       raw,
-      `${options.resourceType} accepted import plan contained a malformed change`,
+      `${context}accepted import plan contained a malformed change`,
     );
     if (typeof change.address !== "string" || changeByAddress.has(change.address)) {
       throw new OracleError(
-        `${options.resourceType} accepted import plan contained duplicate or malformed change addresses`,
+        `${context}accepted import plan contained duplicate or malformed change addresses`,
       );
     }
     changeByAddress.set(change.address, change);
   }
-  for (const [address, key] of options.addressToKey) {
-    const plannedObject = planned.get(key);
-    const priorObject = prior.get(key);
+  for (const [address, expected] of options.expected) {
+    const plannedObject = planned.get(expected.resourceType)?.get(expected.key);
+    const priorObject = prior.get(expected.resourceType)?.get(expected.key);
     const rawChange = changeByAddress.get(address);
     const change = isObject(rawChange?.change) ? rawChange.change : null;
     if (
@@ -455,10 +522,10 @@ export function extractAcceptedPlanState(options: {
       || (!isObject(change.after_sensitive) && change.after_sensitive !== true)
     ) {
       throw new OracleError(
-        `${options.resourceType} accepted import plan did not contain exact provider-observed evidence`,
+        `${expected.resourceType} accepted import plan did not contain exact provider-observed evidence`,
       );
     }
-    assertNoUnknownValues(change.after_unknown, options.resourceType);
+    assertNoUnknownValues(change.after_unknown, expected.resourceType);
     if (
       !terraformJsonExactlyEqual(change.before, change.after)
       || !terraformJsonExactlyEqual(change.after, plannedObject.values)
@@ -468,11 +535,46 @@ export function extractAcceptedPlanState(options: {
       || !terraformJsonExactlyEqual(plannedObject.sensitiveValues, priorObject.sensitiveValues)
     ) {
       throw new OracleError(
-        `${options.resourceType} accepted import plan provider observations were inconsistent`,
+        `${expected.resourceType} accepted import plan provider observations were inconsistent`,
       );
     }
   }
   return planned;
+}
+
+export function extractAcceptedPlanState(options: {
+  readonly addressToKey: ReadonlyMap<string, string>;
+  readonly expectedImports: ReadonlyMap<string, string>;
+  readonly plan: unknown;
+  readonly providerName: string;
+  readonly resourceType: string;
+}): ReadonlyMap<string, OracleStateObject> {
+  const missingImports = [...options.addressToKey.keys()]
+    .filter((address) => !options.expectedImports.has(address))
+    .sort();
+  const unexpectedImports = [...options.expectedImports.keys()]
+    .filter((address) => !options.addressToKey.has(address))
+    .sort();
+  if (missingImports.length > 0 || unexpectedImports.length > 0) {
+    throw new OracleError(
+      `${options.resourceType} accepted import plan address maps did not match (missing=${missingImports.join(", ") || "<none>"} unexpected=${unexpectedImports.join(", ") || "<none>"})`,
+    );
+  }
+  const expected = new Map<string, ExpectedOracleInstance>();
+  for (const [address, key] of options.addressToKey) {
+    const importId = options.expectedImports.get(address);
+    if (importId === undefined) {
+      throw new OracleError(`${options.resourceType} accepted import plan missing expected import ${address}`);
+    }
+    expected.set(address, {
+      importId,
+      key,
+      providerName: options.providerName,
+      resourceType: options.resourceType,
+    });
+  }
+  return extractAcceptedBatchPlanState({ expected, plan: options.plan }).get(options.resourceType)
+    ?? new Map();
 }
 
 async function fileExists(file: string): Promise<boolean> {
@@ -488,71 +590,98 @@ function normalPlanFailure(error: unknown): boolean {
   return error instanceof ProcessFailure && error.code === "TERRAFORM_COMMAND_FAILED";
 }
 
-/** Execute the generic local-state import/read Oracle transaction. */
-export async function importProviderState(options: {
+/** Execute one generic local-state import/read Oracle transaction for one provider batch. */
+export async function importProviderStates(options: {
   readonly environment?: NodeJS.ProcessEnv;
   readonly keepWorkdir?: boolean;
-  readonly keyToImportId: ReadonlyMap<string, string>;
   readonly onDiagnostic?: (message: string) => void;
   readonly performance?: PerformanceRecorder;
-  readonly policy?: DriftPolicy;
-  readonly rawItems?: ReadonlyMap<string, Readonly<Record<string, unknown>>>;
-  readonly resourceType: string;
+  readonly resources: readonly OracleBatchResourceRequest[];
   readonly root: LoadedPackRoot;
   readonly runner: OracleCommandRunner;
-}): Promise<ReadonlyMap<string, OracleStateObject>> {
-  if (options.keyToImportId.size === 0) return new Map();
+}): Promise<OracleBatchState> {
+  const resources = [...options.resources].sort((left, right) => {
+    return left.resourceType.localeCompare(right.resourceType);
+  });
+  const resourceTypes = new Set<string>();
+  for (const resource of resources) {
+    if (resourceTypes.has(resource.resourceType)) {
+      throw new OracleError(`duplicate oracle batch resource type ${resource.resourceType}`);
+    }
+    resourceTypes.add(resource.resourceType);
+  }
+  const active = resources.filter((resource) => resource.keyToImportId.size > 0);
+  if (active.length === 0) {
+    return new Map(resources.map((resource) => [resource.resourceType, new Map()]));
+  }
+  const resourceFamily = oracleBatchResourceFamily(
+    active.map((resource) => resource.resourceType),
+  );
   const environment = options.environment ?? process.env;
   const stateSource = oracleStateSource(environment);
   options.performance?.recordSpan({
     durationMs: 0,
     oracleStateSource: stateSource,
     phase: "oracle.state_source",
-    resourceFamily: options.resourceType,
+    resourceFamily,
     status: "success",
     terraformCommands: 0,
   });
-  if (options.policy?.entries(options.resourceType, "projection_fill").length && options.rawItems === undefined) {
-    throw new OracleError(`${options.resourceType} projection_fill requires raw_items`);
-  }
-  const importIds = new Map<string, string>();
-  for (const [key, importId] of [...options.keyToImportId].sort(([left], [right]) => left.localeCompare(right))) {
-    const prior = importIds.get(importId);
-    if (prior !== undefined) {
-      throw new OracleError(`${options.resourceType} duplicate import_id for keys ${JSON.stringify(prior)} and ${JSON.stringify(key)}`);
+  for (const resource of active) {
+    if (resource.policy?.entries(resource.resourceType, "projection_fill").length && resource.rawItems === undefined) {
+      throw new OracleError(`${resource.resourceType} projection_fill requires raw_items`);
     }
-    importIds.set(importId, key);
+    const importIds = new Map<string, string>();
+    for (const [key, importId] of [...resource.keyToImportId].sort(([left], [right]) => left.localeCompare(right))) {
+      const prior = importIds.get(importId);
+      if (prior !== undefined) {
+        throw new OracleError(`${resource.resourceType} duplicate import_id for keys ${JSON.stringify(prior)} and ${JSON.stringify(key)}`);
+      }
+      importIds.set(importId, key);
+    }
+    checkAddressCollisions(resource.resourceType, resource.keyToImportId.keys());
   }
-  checkAddressCollisions(options.resourceType, options.keyToImportId.keys());
+  const providerResources = active.map((request) => {
+    const resource = options.root.resources.get(request.resourceType);
+    if (resource === undefined) throw new OracleError(`unknown active resource ${request.resourceType}`);
+    return { request, resource };
+  });
+  const providers = new Set(providerResources.map(({ resource }) => resource.provider));
+  if (providers.size !== 1) {
+    throw new OracleError(`oracle batch must contain exactly one provider, found ${[...providers].sort().join(", ")}`);
+  }
+  const provider = providerResources[0]?.resource.provider ?? "";
+  const expectedProviderName = providerName(options.root.packs.providerSources[provider] ?? "");
+  const expected = new Map<string, ExpectedOracleInstance>();
+  for (const { request } of providerResources) {
+    for (const [key, importId] of [...request.keyToImportId].sort(([left], [right]) => left.localeCompare(right))) {
+      const address = oracleAddress(request.resourceType, key);
+      if (expected.has(address)) throw new OracleError(`oracle batch address collision at ${address}`);
+      expected.set(address, {
+        importId,
+        key,
+        providerName: expectedProviderName,
+        resourceType: request.resourceType,
+      });
+    }
+  }
   const keep = options.keepWorkdir === true || truthy(environment.INFRAWRIGHT_KEEP_ORACLE);
   const temporary = await mkdtemp(path.join(os.tmpdir(), "infrawright-oracle-"));
   let primary: unknown;
   try {
-    const resource = options.root.resources.get(options.resourceType);
-    if (resource === undefined) throw new OracleError(`unknown active resource ${options.resourceType}`);
-    const main = await renderOracleRoot({ provider: resource.provider, root: options.root });
+    const main = await renderOracleRoot({ provider, root: options.root });
     assertLocalScratchRoot(main);
     await writeFile(path.join(temporary, "main.tf"), main, "utf8");
     await writeFile(
       path.join(temporary, "imports.tf"),
-      renderOracleImports(options.resourceType, options.keyToImportId),
+      renderOracleBatchImports(active),
       "utf8",
     );
     const childEnvironment = {
       ...environmentRecord(environment),
       TF_DATA_DIR: path.join(temporary, ".terraform"),
     };
-    const addresses = new Map<string, string>();
-    const expectedImports = new Map<string, string>();
-    for (const key of [...options.keyToImportId.keys()].sort()) {
-      const address = oracleAddress(options.resourceType, key);
-      addresses.set(address, key);
-      expectedImports.set(address, options.keyToImportId.get(key) ?? "");
-    }
-    const expectedProviderName = providerName(
-      options.root.packs.providerSources[resource.provider] ?? "",
-    );
-    const sensitiveTokens = [...options.keyToImportId.values()].sort();
+    const sensitiveTokens = active.flatMap((resource) => [...resource.keyToImportId.values()]).sort();
     const run = async (
       argv: readonly string[],
       debugName: string,
@@ -589,7 +718,7 @@ export async function importProviderState(options: {
           ...(phase === "oracle.corrected_plan" ? { correctedPlan: true } : {}),
           durationMs: options.performance.durationSince(started),
           phase,
-          resourceFamily: options.resourceType,
+          resourceFamily,
           status,
           terraformCommands: 1,
         });
@@ -609,18 +738,22 @@ export async function importProviderState(options: {
       if (!normalPlanFailure(error) || !(await fileExists(generated))) throw error;
       generateFailure = error;
     }
-    const original = await readOptionalUtf8(generated, `${options.resourceType} generated import config`) ?? "";
+    const original = await readOptionalUtf8(generated, `${resourceFamily} generated import config`) ?? "";
     const policyStarted = options.performance?.now() ?? 0;
-    let applied: Awaited<ReturnType<typeof applyGeneratedConfigPolicy>>;
+    let applied: Awaited<ReturnType<typeof applyGeneratedConfigPolicies>>;
     let policyStatus: "failed" | "success" = "success";
     try {
-      applied = await applyGeneratedConfigPolicy({
-        addressToKey: addresses,
+      applied = await applyGeneratedConfigPolicies({
         generatedConfig: original,
-        policy: options.policy ?? null,
-        resourceType: options.resourceType,
+        resources: active.map((resource) => ({
+          addressToKey: new Map([...expected].filter(([, instance]) => {
+            return instance.resourceType === resource.resourceType;
+          }).map(([address, instance]) => [address, instance.key])),
+          policy: resource.policy ?? null,
+          resourceType: resource.resourceType,
+          ...(resource.rawItems === undefined ? {} : { rawItems: resource.rawItems }),
+        })),
         root: options.root,
-        ...(options.rawItems === undefined ? {} : { rawItems: options.rawItems }),
       });
     } catch (error: unknown) {
       policyStatus = "failed";
@@ -629,7 +762,7 @@ export async function importProviderState(options: {
       options.performance?.recordSpan({
         durationMs: options.performance.durationSince(policyStarted),
         phase: "oracle.generated_config_policy",
-        resourceFamily: options.resourceType,
+        resourceFamily,
         status: policyStatus,
       });
     }
@@ -647,47 +780,38 @@ export async function importProviderState(options: {
         correctedPlan: false,
         durationMs: 0,
         phase: "oracle.corrected_plan",
-        resourceFamily: options.resourceType,
+        resourceFamily,
         status: "skipped",
         terraformCommands: 0,
       });
     }
     const planJson = parseDataJsonLosslessly(await run(["show", "-json", plan], "show-plan", "capture"));
     if (stateSource === "accepted-plan") {
-      const output = extractAcceptedPlanState({
-        addressToKey: addresses,
-        expectedImports,
-        plan: planJson,
-        providerName: expectedProviderName,
-        resourceType: options.resourceType,
-      });
+      const output = extractAcceptedBatchPlanState({ expected, plan: planJson });
       for (const phase of ["oracle.scratch_apply", "oracle.state_show"] as const) {
         options.performance?.recordSpan({
           durationMs: 0,
           phase,
-          resourceFamily: options.resourceType,
+          resourceFamily,
           status: "skipped",
           terraformCommands: 0,
         });
       }
-      return output;
+      return new Map(resources.map((resource) => [
+        resource.resourceType,
+        output.get(resource.resourceType) ?? new Map(),
+      ]));
     }
-    assertImportOnlyPlan({
-      expectedImports,
-      plan: planJson,
-      providerName: expectedProviderName,
-      resourceType: options.resourceType,
-    });
+    assertImportOnlyBatchPlan({ expected, plan: planJson });
     await run(["apply", "-input=false", "-no-color", "-lock=false", plan], "apply-imports");
     const stateJson = parseDataJsonLosslessly(
       await run(["show", "-json", "terraform.tfstate"], "show-state", "capture"),
     );
-    return exactStateObjects({
-      addressToKey: addresses,
-      providerName: expectedProviderName,
-      resourceType: options.resourceType,
-      state: stateJson,
-    });
+    const output = exactBatchStateObjects({ expected, state: stateJson });
+    return new Map(resources.map((resource) => [
+      resource.resourceType,
+      output.get(resource.resourceType) ?? new Map(),
+    ]));
   } catch (error: unknown) {
     primary = error;
     throw error;
@@ -708,4 +832,34 @@ export async function importProviderState(options: {
       }
     }
   }
+}
+
+/** Execute the generic local-state import/read Oracle transaction for one resource type. */
+export async function importProviderState(options: {
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly keepWorkdir?: boolean;
+  readonly keyToImportId: ReadonlyMap<string, string>;
+  readonly onDiagnostic?: (message: string) => void;
+  readonly performance?: PerformanceRecorder;
+  readonly policy?: DriftPolicy;
+  readonly rawItems?: ReadonlyMap<string, Readonly<Record<string, unknown>>>;
+  readonly resourceType: string;
+  readonly root: LoadedPackRoot;
+  readonly runner: OracleCommandRunner;
+}): Promise<ReadonlyMap<string, OracleStateObject>> {
+  const output = await importProviderStates({
+    ...(options.environment === undefined ? {} : { environment: options.environment }),
+    ...(options.keepWorkdir === undefined ? {} : { keepWorkdir: options.keepWorkdir }),
+    ...(options.onDiagnostic === undefined ? {} : { onDiagnostic: options.onDiagnostic }),
+    ...(options.performance === undefined ? {} : { performance: options.performance }),
+    resources: [{
+      keyToImportId: options.keyToImportId,
+      ...(options.policy === undefined ? {} : { policy: options.policy }),
+      ...(options.rawItems === undefined ? {} : { rawItems: options.rawItems }),
+      resourceType: options.resourceType,
+    }],
+    root: options.root,
+    runner: options.runner,
+  });
+  return output.get(options.resourceType) ?? new Map();
 }

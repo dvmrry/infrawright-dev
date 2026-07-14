@@ -146,6 +146,7 @@ interface StackEntry {
   readonly kind: "block" | "resource";
   readonly path: readonly ConcretePathSegment[];
   readonly present?: Set<string>;
+  readonly resourceType?: string;
 }
 
 function resourceStart(line: string): { readonly address: string; readonly type: string } | null {
@@ -221,13 +222,16 @@ async function fillForResource(options: {
   readonly address: string;
   readonly addressToKey: ReadonlyMap<string, string>;
   readonly fills: readonly PolicyEntry[];
-  readonly policy: DriftPolicy;
+  readonly policy: DriftPolicy | null;
   readonly present: Set<string>;
   readonly rawItems: ReadonlyMap<string, Readonly<Record<string, unknown>>> | null;
   readonly resourceType: string;
   readonly schema: Readonly<JsonObject>;
 }): Promise<{ readonly count: number; readonly lines: readonly string[] }> {
   if (options.fills.length === 0) return { count: 0, lines: [] };
+  if (options.policy === null) {
+    throw new GeneratedConfigPolicyError(`${options.resourceType} generated import config policy entries require a policy`);
+  }
   const key = options.addressToKey.get(options.address);
   if (key === undefined) {
     throw new GeneratedConfigPolicyError(`${options.resourceType} generated import config missing key for ${options.address}`);
@@ -279,21 +283,30 @@ async function fillForResource(options: {
   return { count, lines };
 }
 
-interface RewriteOptions {
+interface RewriteResourceOptions {
   readonly addressToKey: ReadonlyMap<string, string>;
-  readonly generatedConfig: string;
   readonly fills: readonly PolicyEntry[];
   readonly omits: readonly OmitEntry[];
-  readonly policy: DriftPolicy;
+  readonly policy: DriftPolicy | null;
   readonly rawItems?: ReadonlyMap<string, Readonly<Record<string, unknown>>>;
   readonly resourceType: string;
   readonly schema: Readonly<JsonObject>;
+}
+
+interface RewriteOptions {
+  readonly generatedConfig: string;
+  readonly resources: ReadonlyMap<string, RewriteResourceOptions>;
+}
+
+function generatedConfigContext(resources: ReadonlyMap<string, RewriteResourceOptions>): string {
+  return resources.size === 1 ? `${[...resources.keys()][0]} ` : "";
 }
 
 async function rewriteGeneratedConfig(options: RewriteOptions): Promise<{
   readonly edits: number;
   readonly text: string;
 }> {
+  const context = generatedConfigContext(options.resources);
   const lines = options.generatedConfig.match(/.*(?:\n|$)/gu)?.filter((line) => line.length > 0) ?? [];
   const output: string[] = [];
   const stack: StackEntry[] = [];
@@ -316,11 +329,12 @@ async function rewriteGeneratedConfig(options: RewriteOptions): Promise<{
     }
     const resource = resourceStart(line);
     if (resource !== null) {
-      if (resource.type !== options.resourceType || !options.addressToKey.has(resource.address)) {
-        throw new GeneratedConfigPolicyError(`${options.resourceType} generated import config contained unexpected resource block ${resource.address}`);
+      const resourceOptions = options.resources.get(resource.type);
+      if (resourceOptions === undefined || !resourceOptions.addressToKey.has(resource.address)) {
+        throw new GeneratedConfigPolicyError(`${context}generated import config contained unexpected resource block ${resource.address}`);
       }
       if (seen.has(resource.address)) {
-        throw new GeneratedConfigPolicyError(`${options.resourceType} generated import config contained duplicate resource block ${resource.address}`);
+        throw new GeneratedConfigPolicyError(`${context}generated import config contained duplicate resource block ${resource.address}`);
       }
       seen.add(resource.address);
       stack.push({
@@ -329,6 +343,7 @@ async function rewriteGeneratedConfig(options: RewriteOptions): Promise<{
         kind: "resource",
         path: [],
         present: new Set(),
+        resourceType: resource.type,
       });
       output.push(line);
       continue;
@@ -336,15 +351,23 @@ async function rewriteGeneratedConfig(options: RewriteOptions): Promise<{
     if (stripped === "}") {
       const current = stack.at(-1);
       if (stack.length === 1 && current?.kind === "resource") {
+        const resourceType = current.resourceType ?? "";
+        const resourceOptions = options.resources.get(resourceType);
+        if (resourceOptions === undefined) {
+          throw new GeneratedConfigPolicyError(`generated import config contained unknown sibling resource type ${resourceType}`);
+        }
+        if (resourceOptions.policy === null && resourceOptions.fills.length > 0) {
+          throw new GeneratedConfigPolicyError(`${resourceType} generated import config policy entries require a policy`);
+        }
         const fill = await fillForResource({
           address: current.address ?? "",
-          addressToKey: options.addressToKey,
-          fills: options.fills,
-          policy: options.policy,
+          addressToKey: resourceOptions.addressToKey,
+          fills: resourceOptions.fills,
+          policy: resourceOptions.policy,
           present: current.present ?? new Set(),
-          rawItems: options.rawItems ?? null,
-          resourceType: options.resourceType,
-          schema: options.schema,
+          rawItems: resourceOptions.rawItems ?? null,
+          resourceType,
+          schema: resourceOptions.schema,
         });
         output.push(...fill.lines);
         edits += fill.count;
@@ -365,17 +388,22 @@ async function rewriteGeneratedConfig(options: RewriteOptions): Promise<{
     }
     const attribute = attributeLine(line);
     if (attribute !== null && stack.length > 0 && stack[0]?.kind === "resource") {
+      const resourceType = stack[0].resourceType ?? "";
+      const resourceOptions = options.resources.get(resourceType);
+      if (resourceOptions === undefined) {
+        throw new GeneratedConfigPolicyError(`generated import config contained unknown sibling resource type ${resourceType}`);
+      }
       if (stack.length === 1) stack[0].present?.add(attribute.name);
       const path = [...(stack.at(-1)?.path ?? []), attribute.name];
       const match = matchingOmit(
         path,
         parsedScalar(attribute.value),
-        options.omits,
-        options.resourceType,
-        options.schema,
+        resourceOptions.omits,
+        resourceType,
+        resourceOptions.schema,
       );
       if (match !== null) {
-        options.policy.markMatched(match.entry);
+        resourceOptions.policy?.markMatched(match.entry);
         edits += 1;
         continue;
       }
@@ -384,14 +412,94 @@ async function rewriteGeneratedConfig(options: RewriteOptions): Promise<{
     }
     output.push(line);
   }
-  const missing = [...options.addressToKey.keys()].filter((address) => !seen.has(address)).sort();
+  const missing = [...options.resources.values()].flatMap((resource) => {
+    return [...resource.addressToKey.keys()].filter((address) => !seen.has(address));
+  }).sort();
   if (missing.length > 0) {
-    throw new GeneratedConfigPolicyError(`${options.resourceType} generated import config missing resource block(s): ${missing.join(", ")}`);
+    throw new GeneratedConfigPolicyError(`${context}generated import config missing resource block(s): ${missing.join(", ")}`);
   }
   return { edits, text: output.join("") };
 }
 
-/** Apply fill first, then omit/omit-if, matching Python's generated-config policy order. */
+export interface GeneratedConfigPolicyResource {
+  readonly addressToKey: ReadonlyMap<string, string>;
+  readonly policy: DriftPolicy | null;
+  readonly rawItems?: ReadonlyMap<string, Readonly<Record<string, unknown>>>;
+  readonly resourceType: string;
+}
+
+/** Apply every resource's fill first, then omit/omit-if, in one generated file. */
+export async function applyGeneratedConfigPolicies(options: {
+  readonly generatedConfig: string;
+  readonly resources: readonly GeneratedConfigPolicyResource[];
+  readonly root: LoadedPackRoot;
+}): Promise<{ readonly edits: number; readonly text: string }> {
+  const resources = new Map<string, RewriteResourceOptions>();
+  for (const resource of [...options.resources].sort((left, right) => {
+    return left.resourceType.localeCompare(right.resourceType);
+  })) {
+    if (resources.has(resource.resourceType)) {
+      throw new GeneratedConfigPolicyError(`duplicate generated-config policy resource type ${resource.resourceType}`);
+    }
+    const entries = await policyEntries({
+      policy: resource.policy,
+      resourceType: resource.resourceType,
+      root: options.root,
+    });
+    if (entries.fills.length > 0 && resource.rawItems === undefined) {
+      throw new GeneratedConfigPolicyError(`${resource.resourceType} generated import config projection_fill requires raw_items`);
+    }
+    resources.set(resource.resourceType, {
+      addressToKey: resource.addressToKey,
+      fills: entries.fills,
+      omits: entries.omits,
+      policy: resource.policy,
+      ...(resource.rawItems === undefined ? {} : { rawItems: resource.rawItems }),
+      resourceType: resource.resourceType,
+      schema: entries.fills.length > 0 || entries.omits.length > 0
+        ? await options.root.loadResourceSchema(resource.resourceType)
+        : {},
+    });
+  }
+  const hasFills = [...resources.values()].some((resource) => resource.fills.length > 0);
+  const hasOmits = [...resources.values()].some((resource) => resource.omits.length > 0);
+  if (!hasFills && !hasOmits) {
+    if (resources.size > 1 && options.generatedConfig.length > 0) {
+      return rewriteGeneratedConfig({ generatedConfig: options.generatedConfig, resources });
+    }
+    return { edits: 0, text: options.generatedConfig };
+  }
+  if (options.generatedConfig.length === 0) {
+    throw new GeneratedConfigPolicyError(`${generatedConfigContext(resources)}generated import config is missing; projection policy cannot be applied safely`);
+  }
+  let text = options.generatedConfig;
+  let edits = 0;
+  if (hasFills) {
+    const filled = await rewriteGeneratedConfig({
+      generatedConfig: text,
+      resources: new Map([...resources].map(([resourceType, resource]) => [resourceType, {
+        ...resource,
+        omits: [],
+      }])),
+    });
+    text = filled.text;
+    edits += filled.edits;
+  }
+  if (hasOmits) {
+    const omitted = await rewriteGeneratedConfig({
+      generatedConfig: text,
+      resources: new Map([...resources].map(([resourceType, resource]) => [resourceType, {
+        ...resource,
+        fills: [],
+      }])),
+    });
+    text = omitted.text;
+    edits += omitted.edits;
+  }
+  return { edits, text };
+}
+
+/** Apply fill first, then omit/omit-if for one resource. */
 export async function applyGeneratedConfigPolicy(options: {
   readonly addressToKey: ReadonlyMap<string, string>;
   readonly generatedConfig: string;
@@ -400,49 +508,14 @@ export async function applyGeneratedConfigPolicy(options: {
   readonly resourceType: string;
   readonly root: LoadedPackRoot;
 }): Promise<{ readonly edits: number; readonly text: string }> {
-  const entries = await policyEntries(options);
-  if (entries.fills.length === 0 && entries.omits.length === 0) {
-    return { edits: 0, text: options.generatedConfig };
-  }
-  if (options.generatedConfig.length === 0) {
-    throw new GeneratedConfigPolicyError(`${options.resourceType} generated import config is missing; projection policy cannot be applied safely`);
-  }
-  if (options.policy === null) {
-    throw new GeneratedConfigPolicyError(`${options.resourceType} generated import config policy entries require a policy`);
-  }
-  if (entries.fills.length > 0 && options.rawItems === undefined) {
-    throw new GeneratedConfigPolicyError(`${options.resourceType} generated import config projection_fill requires raw_items`);
-  }
-  const schema = await options.root.loadResourceSchema(options.resourceType);
-  let text = options.generatedConfig;
-  let edits = 0;
-  if (entries.fills.length > 0) {
-    const filled = await rewriteGeneratedConfig({
+  return applyGeneratedConfigPolicies({
+    generatedConfig: options.generatedConfig,
+    resources: [{
       addressToKey: options.addressToKey,
-      fills: entries.fills,
-      generatedConfig: text,
-      omits: [],
       policy: options.policy,
       ...(options.rawItems === undefined ? {} : { rawItems: options.rawItems }),
       resourceType: options.resourceType,
-      schema,
-    });
-    text = filled.text;
-    edits += filled.edits;
-  }
-  if (entries.omits.length > 0) {
-    const omitted = await rewriteGeneratedConfig({
-      addressToKey: options.addressToKey,
-      fills: [],
-      generatedConfig: text,
-      omits: entries.omits,
-      policy: options.policy,
-      ...(options.rawItems === undefined ? {} : { rawItems: options.rawItems }),
-      resourceType: options.resourceType,
-      schema,
-    });
-    text = omitted.text;
-    edits += omitted.edits;
-  }
-  return { edits, text };
+    }],
+    root: options.root,
+  });
 }

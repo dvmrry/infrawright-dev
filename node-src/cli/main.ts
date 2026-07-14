@@ -47,9 +47,11 @@ import {
 } from "../collectors/zscaler-adapters.js";
 import { createRestHttpTransport } from "../io/rest-http-transport.js";
 import {
+  defaultAdoptionBatchStateLoader,
   defaultAdoptionStateLoader,
   loadAdoptionPolicy,
   runAdoptBatch,
+  type AdoptionBatchStateLoader,
   type AdoptionStateLoader,
 } from "../domain/adopt-runner.js";
 import {
@@ -584,25 +586,44 @@ async function adopt(
     ...(policyPath === undefined ? {} : { path: policyPath }),
     root: packRoot,
   });
+  let loadedTerraformExecutable: Promise<string> | null = null;
+  const terraformExecutable = (): Promise<string> => {
+    loadedTerraformExecutable ??= resolveTerraformExecutable(
+      terraform ?? process.env.TF,
+      process.env,
+    );
+    return loadedTerraformExecutable;
+  };
   let loadedState: AdoptionStateLoader | null = null;
   const stateLoader: AdoptionStateLoader = async (request) => {
     if (loadedState === null) {
-      const executable = await resolveTerraformExecutable(
-        terraform ?? process.env.TF,
-        process.env,
-      );
       loadedState = await defaultAdoptionStateLoader({
         environment: process.env,
         onDiagnostic: (message) => process.stderr.write(`${message}\n`),
         ...(performance === undefined ? {} : { performance }),
         root: packRoot,
-        terraformExecutable: executable,
+        terraformExecutable: await terraformExecutable(),
       });
     }
     return loadedState(request);
   };
+  let loadedBatchState: AdoptionBatchStateLoader | null = null;
+  const batchStateLoader: AdoptionBatchStateLoader = async (request) => {
+    if (loadedBatchState === null) {
+      loadedBatchState = await defaultAdoptionBatchStateLoader({
+        environment: process.env,
+        onDiagnostic: (message) => process.stderr.write(`${message}\n`),
+        ...(performance === undefined ? {} : { performance }),
+        root: packRoot,
+        terraformExecutable: await terraformExecutable(),
+      });
+    }
+    return loadedBatchState(request);
+  };
   const result = await runAdoptBatch({
+    batchStateLoader,
     deployment: loadedDeployment,
+    environment: process.env,
     inputDirectory: input,
     onDiagnostic: (message) => process.stderr.write(`${message}\n`),
     policy,

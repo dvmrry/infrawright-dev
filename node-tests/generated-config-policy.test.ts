@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { DriftPolicy } from "../node-src/domain/drift-policy.js";
 import {
+  applyGeneratedConfigPolicies,
   applyGeneratedConfigPolicy,
   GeneratedConfigPolicyError,
 } from "../node-src/domain/generated-config-policy.js";
@@ -42,6 +43,7 @@ function policy(resource: JsonObject): DriftPolicy {
 }
 
 const ADDRESS = "sample_resource.iw_deadbeef";
+const SIBLING_ADDRESS = "sibling_resource.iw_cafebabe";
 const GENERATED = `resource "sample_resource" "iw_deadbeef" {
   description = "DROP"
   name        = "Example"
@@ -91,6 +93,82 @@ test("generated config removes optional scalar and wildcard block leaves, then f
   assert.equal(result.text.includes("order = 2"), true);
   assert.equal(result.text.includes('filled = [\n    "one",\n    "two",\n  ]'), true);
   assert.deepEqual(selected.staleEntries(), []);
+});
+
+test("batch generated-config policy edits known sibling resource blocks independently", async () => {
+  const siblingGenerated = GENERATED.replaceAll("sample_resource", "sibling_resource")
+    .replaceAll("iw_deadbeef", "iw_cafebabe")
+    .replaceAll('description = "DROP"', 'description = "SIBLING"');
+  const firstPolicy = policy({
+    projection_omit: [{ path: "description", reason: "first", approved_by: "unit" }],
+  });
+  const siblingPolicy = new DriftPolicy({
+    version: 1,
+    resource_types: {
+      sibling_resource: {
+        projection_omit_if: [{
+          path: "description",
+          values: ["SIBLING"],
+          reason: "second",
+          approved_by: "unit",
+        }],
+      },
+    },
+  });
+  const result = await applyGeneratedConfigPolicies({
+    generatedConfig: `${GENERATED}\n${siblingGenerated}`,
+    resources: [{
+      addressToKey: new Map([[ADDRESS, "first"]]),
+      policy: firstPolicy,
+      resourceType: "sample_resource",
+    }, {
+      addressToKey: new Map([[SIBLING_ADDRESS, "second"]]),
+      policy: siblingPolicy,
+      resourceType: "sibling_resource",
+    }],
+    root: root(),
+  });
+  assert.equal(result.edits, 2);
+  assert.equal(result.text.includes('description = "DROP"'), false);
+  assert.equal(result.text.includes('description = "SIBLING"'), false);
+  assert.deepEqual(firstPolicy.staleEntries(), []);
+  assert.deepEqual(siblingPolicy.staleEntries(), []);
+});
+
+test("batch generated-config policy rejects unknown sibling blocks", async () => {
+  const siblingGenerated = GENERATED.replaceAll("sample_resource", "sibling_resource")
+    .replaceAll("iw_deadbeef", "iw_cafebabe");
+  await assert.rejects(
+    () => applyGeneratedConfigPolicies({
+      generatedConfig: `${GENERATED}\n${siblingGenerated}\nresource "unknown_resource" "extra" {\n  name = "extra"\n}\n`,
+      resources: [{
+        addressToKey: new Map([[ADDRESS, "first"]]),
+        policy: null,
+        resourceType: "sample_resource",
+      }, {
+        addressToKey: new Map([[SIBLING_ADDRESS, "second"]]),
+        policy: null,
+        resourceType: "sibling_resource",
+      }],
+      root: root(),
+    }),
+    /unexpected resource block unknown_resource\.extra/u,
+  );
+});
+
+test("no-policy single-resource wrapper preserves the schema-free fast path", async () => {
+  const result = await applyGeneratedConfigPolicy({
+    addressToKey: new Map([[ADDRESS, "example"]]),
+    generatedConfig: GENERATED,
+    policy: null,
+    resourceType: "sample_resource",
+    root: {
+      loadResourceSchema: async () => {
+        throw new Error("schema must not be loaded without policy entries");
+      },
+    } as unknown as LoadedPackRoot,
+  });
+  assert.deepEqual(result, { edits: 0, text: GENERATED });
 });
 
 test("exact-index generated-config omits are intentionally deferred to state projection", async () => {

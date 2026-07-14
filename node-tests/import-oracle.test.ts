@@ -11,7 +11,9 @@ import {
   createOracleCommandRunner,
   extractAcceptedPlanState,
   importProviderState,
+  importProviderStates,
   oracleAddress,
+  oracleBatchResourceFamily,
   oracleStateSource,
   oracleTimeoutMs,
   renderOracleImports,
@@ -29,8 +31,31 @@ const RESOURCE = "zia_url_categories";
 const KEY = "example";
 const IMPORT_ID = "CUSTOM_01";
 const ADDRESS = oracleAddress(RESOURCE, KEY);
+const BATCH_RESOURCE = "zia_cloud_app_control_rule";
+const BATCH_KEY = "second";
+const BATCH_IMPORT_ID = "SECOND_01";
+const BATCH_ADDRESS = oracleAddress(BATCH_RESOURCE, BATCH_KEY);
 
 let loadedRoot: Promise<LoadedPackRoot> | undefined;
+
+test("Oracle batch performance labels are deterministic and bounded", () => {
+  assert.equal(oracleBatchResourceFamily(["zia_url_categories"]), "zia_url_categories");
+  assert.equal(
+    oracleBatchResourceFamily(["zia_url_categories", "zia_rule_labels"]),
+    oracleBatchResourceFamily(["zia_rule_labels", "zia_url_categories"]),
+  );
+  assert.match(
+    oracleBatchResourceFamily(["zia_url_categories", "zia_rule_labels"]),
+    /^oracle_batch\.zia_rule_labels\.zia_url_categories$/u,
+  );
+  const wide = Array.from({ length: 40 }, (_, index) => {
+    return `zia_resource_family_${String(index).padStart(3, "0")}_with_a_long_name`;
+  });
+  const label = oracleBatchResourceFamily(wide);
+  assert.ok(label.length <= 256);
+  assert.match(label, /^oracle_batch_40_[0-9a-f]{16}$/u);
+  assert.equal(label, oracleBatchResourceFamily([...wide].reverse()));
+});
 
 function committedRoot(): Promise<LoadedPackRoot> {
   loadedRoot ??= loadPackRoot({
@@ -112,6 +137,75 @@ function planWithObservedState(
   };
   output.prior_state = state(true, values, sensitiveValues);
   return output;
+}
+
+function batchResourceObservation(options: {
+  readonly address: string;
+  readonly resourceType: string;
+  readonly values: Readonly<Record<string, unknown>>;
+}): Record<string, unknown> {
+  return {
+    address: options.address,
+    mode: "managed",
+    provider_name: "registry.terraform.io/zscaler/zia",
+    sensitive_values: {},
+    type: options.resourceType,
+    values: options.values,
+  };
+}
+
+function batchState(): Record<string, unknown> {
+  return {
+    format_version: "1.0",
+    terraform_version: "1.15.4",
+    values: {
+      root_module: {
+        resources: [
+          batchResourceObservation({ address: ADDRESS, resourceType: RESOURCE, values: DEFAULT_VALUES }),
+          batchResourceObservation({
+            address: BATCH_ADDRESS,
+            resourceType: BATCH_RESOURCE,
+            values: { id: BATCH_IMPORT_ID, name: "Second" },
+          }),
+        ],
+      },
+    },
+  };
+}
+
+function batchPlanWithObservedState(): Record<string, unknown> {
+  const stateValue = batchState();
+  const resources = (((stateValue.values as Record<string, unknown>).root_module as Record<
+    string,
+    unknown
+  >).resources as Record<string, unknown>[]);
+  return {
+    applyable: true,
+    complete: true,
+    errored: false,
+    format_version: "1.2",
+    planned_values: (stateValue.values as Record<string, unknown>),
+    prior_state: stateValue,
+    resource_changes: resources.map((resource) => {
+      const importId = resource.address === ADDRESS ? IMPORT_ID : BATCH_IMPORT_ID;
+      return {
+        address: resource.address,
+        change: {
+          actions: ["no-op"],
+          after: resource.values,
+          after_sensitive: resource.sensitive_values,
+          after_unknown: {},
+          before: resource.values,
+          before_sensitive: resource.sensitive_values,
+          importing: { id: importId },
+        },
+        mode: "managed",
+        provider_name: resource.provider_name,
+        type: resource.type,
+      };
+    }),
+    terraform_version: "1.15.4",
+  };
 }
 
 class FakeTerraform implements OracleCommandRunner {
@@ -303,6 +397,134 @@ test("accepted-plan state source skips scratch Apply and state show only for exa
   }
 });
 
+test("provider batch shares one Oracle transaction and splits accepted or applied state by type", async () => {
+  const generated = `resource "${RESOURCE}" "${ADDRESS.split(".")[1]}" {\n  configured_name = "Example"\n}\n\n`
+    + `resource "${BATCH_RESOURCE}" "${BATCH_ADDRESS.split(".")[1]}" {\n  name = "Second"\n}\n`;
+  const requests = [{
+    keyToImportId: new Map([[KEY, IMPORT_ID]]),
+    resourceType: RESOURCE,
+  }, {
+    keyToImportId: new Map([[BATCH_KEY, BATCH_IMPORT_ID]]),
+    resourceType: BATCH_RESOURCE,
+  }] as const;
+  const acceptedFake = new FakeTerraform(generated);
+  acceptedFake.plan = batchPlanWithObservedState();
+  const accepted = await importProviderStates({
+    environment: { INFRAWRIGHT_ORACLE_STATE_SOURCE: "accepted-plan" },
+    resources: requests,
+    root: await committedRoot(),
+    runner: acceptedFake,
+  });
+  assert.deepEqual(acceptedFake.requests.map((request) => request.debugName), [
+    "init",
+    "plan-generate-config",
+    "show-plan",
+  ]);
+  assert.deepEqual([...accepted.get(RESOURCE)?.keys() ?? []], [KEY]);
+  assert.deepEqual([...accepted.get(BATCH_RESOURCE)?.keys() ?? []], [BATCH_KEY]);
+
+  const appliedFake = new FakeTerraform(generated);
+  appliedFake.plan = batchPlanWithObservedState();
+  appliedFake.state = batchState();
+  const applied = await importProviderStates({
+    environment: { INFRAWRIGHT_ORACLE_STATE_SOURCE: "applied-state" },
+    resources: requests,
+    root: await committedRoot(),
+    runner: appliedFake,
+  });
+  assert.deepEqual(appliedFake.requests.map((request) => request.debugName), [
+    "init",
+    "plan-generate-config",
+    "show-plan",
+    "apply-imports",
+    "show-state",
+  ]);
+  assert.ok(terraformJsonEqual(
+    accepted.get(RESOURCE)?.get(KEY)?.values,
+    applied.get(RESOURCE)?.get(KEY)?.values,
+  ));
+  assert.ok(terraformJsonEqual(
+    accepted.get(BATCH_RESOURCE)?.get(BATCH_KEY)?.values,
+    applied.get(BATCH_RESOURCE)?.get(BATCH_KEY)?.values,
+  ));
+});
+
+test("provider batch validates each address type, provider, and import ID before scratch Apply", async () => {
+  const root = await committedRoot();
+  const generated = `resource "${RESOURCE}" "${ADDRESS.split(".")[1]}" {\n  configured_name = "Example"\n}\n\n`
+    + `resource "${BATCH_RESOURCE}" "${BATCH_ADDRESS.split(".")[1]}" {\n  name = "Second"\n}\n`;
+  for (const mutate of [
+    (change: Record<string, unknown>) => { change.type = RESOURCE; },
+    (change: Record<string, unknown>) => {
+      change.provider_name = "registry.terraform.io/example/wrong";
+    },
+    (change: Record<string, unknown>) => {
+      (change.change as Record<string, unknown>).importing = { id: "WRONG" };
+    },
+  ]) {
+    const fake = new FakeTerraform(generated);
+    const candidate = batchPlanWithObservedState();
+    const change = (candidate.resource_changes as Record<string, unknown>[])[1]!;
+    mutate(change);
+    fake.plan = candidate;
+    await assert.rejects(
+      () => importProviderStates({
+        resources: [{ keyToImportId: new Map([[KEY, IMPORT_ID]]), resourceType: RESOURCE }, {
+          keyToImportId: new Map([[BATCH_KEY, BATCH_IMPORT_ID]]),
+          resourceType: BATCH_RESOURCE,
+        }],
+        root,
+        runner: fake,
+      }),
+      /not the exact requested import/u,
+    );
+    assert.equal(fake.requests.some((request) => request.debugName === "apply-imports"), false);
+  }
+});
+
+test("provider batch applies per-type generated-config policy with at most one corrected plan", async () => {
+  const generated = `resource "${RESOURCE}" "${ADDRESS.split(".")[1]}" {\n  configured_name = "Example"\n  description = "DROP"\n}\n\n`
+    + `resource "${BATCH_RESOURCE}" "${BATCH_ADDRESS.split(".")[1]}" {\n  name = "Second"\n}\n`;
+  const fake = new FakeTerraform(generated);
+  fake.failGeneratedPlan = true;
+  fake.plan = batchPlanWithObservedState();
+  fake.state = batchState();
+  const selected = new DriftPolicy({
+    version: 1,
+    resource_types: {
+      [RESOURCE]: {
+        projection_omit: [{
+          path: "description",
+          reason: "provider validation default",
+          approved_by: "unit",
+        }],
+      },
+    },
+  });
+  await importProviderStates({
+    resources: [{
+      keyToImportId: new Map([[KEY, IMPORT_ID]]),
+      policy: selected,
+      resourceType: RESOURCE,
+    }, {
+      keyToImportId: new Map([[BATCH_KEY, BATCH_IMPORT_ID]]),
+      resourceType: BATCH_RESOURCE,
+    }],
+    root: await committedRoot(),
+    runner: fake,
+  });
+  assert.deepEqual(fake.requests.map((request) => request.debugName), [
+    "init",
+    "plan-generate-config",
+    "plan-imports",
+    "show-plan",
+    "apply-imports",
+    "show-state",
+  ]);
+  assert.equal(fake.requests.filter((request) => request.debugName === "plan-imports").length, 1);
+  assert.deepEqual(selected.staleEntries({ modes: ["projection_omit"] }), []);
+});
+
 test("accepted-plan extractor matches the retained Terraform plan/state fixture", async () => {
   const source = parseDataJsonLosslessly(await readFile(
     path.join(ROOT, "node-tests", "fixtures", "terraform-import-structure-v1.15.4.json"),
@@ -327,6 +549,22 @@ test("accepted-plan extractor matches the retained Terraform plan/state fixture"
     output.get("fixture")?.sensitiveValues,
     stateResource.sensitive_values,
   ));
+});
+
+test("accepted-plan wrapper rejects extra expected-import addresses", () => {
+  assert.throws(
+    () => extractAcceptedPlanState({
+      addressToKey: new Map([[ADDRESS, KEY]]),
+      expectedImports: new Map([
+        [ADDRESS, IMPORT_ID],
+        [`${RESOURCE}.iw_extra`, "EXTRA"],
+      ]),
+      plan: {},
+      providerName: "registry.terraform.io/zscaler/zia",
+      resourceType: RESOURCE,
+    }),
+    /address maps did not match.*unexpected=zia_url_categories\.iw_extra/u,
+  );
 });
 
 test("accepted-plan state source rejects unknown, incomplete, or inconsistent evidence", async () => {

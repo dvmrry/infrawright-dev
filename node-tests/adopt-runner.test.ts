@@ -1,19 +1,22 @@
 import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { access, chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import {
   loadAdoptionPolicy,
+  oracleBatchMode,
   runAdoptBatch,
+  type AdoptionBatchStateLoader,
   type AdoptionStateLoader,
 } from "../node-src/domain/adopt-runner.js";
 import {
   extractAcceptedPlanState,
   oracleAddress,
+  type OracleStateObject,
 } from "../node-src/domain/import-oracle.js";
 import type { Deployment } from "../node-src/domain/types.js";
 import { isObject } from "../node-src/metadata/validation.js";
@@ -28,6 +31,7 @@ const PARITY_FIXTURES = [
   "zia_url_filtering_rules_zero_quota.json",
   "zpa_application_segment_microtenant.json",
 ] as const;
+const ZIA_BATCH_MEMBERS = ["zia_rule_labels", "zia_url_categories"] as const;
 
 let loadedRoot: Promise<LoadedPackRoot> | undefined;
 
@@ -49,6 +53,17 @@ function committedRoot(profile = "full.json"): Promise<LoadedPackRoot> {
 
 function deployment(overlay: string): Deployment {
   return { overlay, roots: {} };
+}
+
+function groupedZiaDeployment(overlay: string): Deployment {
+  return {
+    overlay,
+    roots: {
+      zia: {
+        groups: { zia_adoption_batch: ZIA_BATCH_MEMBERS },
+      },
+    },
+  };
 }
 
 async function reducedPackRoot(
@@ -86,6 +101,75 @@ async function writeJson(file: string, value: unknown): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, `${JSON.stringify(value, null, 2)}\n`);
 }
+
+async function snapshotTree(directory: string): Promise<Readonly<Record<string, string>>> {
+  const files: Array<readonly [string, string]> = [];
+  const visit = async (current: string): Promise<void> => {
+    for (const entry of await readdir(current, { withFileTypes: true })) {
+      const absolute = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        await visit(absolute);
+      } else if (entry.isFile()) {
+        files.push([path.relative(directory, absolute), await readFile(absolute, "utf8")]);
+      }
+    }
+  };
+  await visit(directory);
+  return Object.fromEntries(files.sort(([left], [right]) => left.localeCompare(right)));
+}
+
+async function writeZiaBatchPulls(input: string): Promise<void> {
+  await writeJson(path.join(input, "zia_rule_labels.json"), [{ id: "1", name: "Batch Label" }]);
+  await writeJson(path.join(input, "zia_url_categories.json"), [{
+    configuredName: "Batch Category",
+    customCategory: true,
+    id: "CUSTOM_01",
+    urls: ["batch.example"],
+  }]);
+}
+
+function adoptionState(
+  resourceType: string,
+  importId: string,
+): OracleStateObject {
+  if (resourceType === "zia_rule_labels") {
+    return {
+      address: `${resourceType}.fixture`,
+      sensitiveValues: {},
+      values: { id: importId, name: "Batch Label" },
+    };
+  }
+  if (resourceType === "zia_url_categories") {
+    return {
+      address: `${resourceType}.fixture`,
+      sensitiveValues: {},
+      values: {
+        configured_name: "Batch Category",
+        custom_category: true,
+        id: importId,
+        urls: ["batch.example"],
+      },
+    };
+  }
+  throw new TypeError(`unexpected adoption fixture resource ${resourceType}`);
+}
+
+const ziaBatchStateLoader: AdoptionStateLoader = async (request) => new Map(
+  [...request.keyToImportId].map(([key, importId]) => [
+    key,
+    adoptionState(request.resourceType, importId),
+  ]),
+);
+
+const ziaLogicalRootStateLoader: AdoptionBatchStateLoader = async (request) => new Map(
+  request.resources.map((resource) => [
+    resource.resourceType,
+    new Map([...resource.keyToImportId].map(([key, importId]) => [
+      key,
+      adoptionState(resource.resourceType, importId),
+    ])),
+  ]),
+);
 
 function record(value: unknown, label: string): Readonly<Record<string, unknown>> {
   if (!isObject(value)) throw new TypeError(`${label} must be an object`);
@@ -191,6 +275,202 @@ function acceptedPlanStateLoader(options: {
     });
   };
 }
+
+test("logical-root Oracle batching is opt-in and validates its environment value", () => {
+  assert.equal(oracleBatchMode({}), "per-resource-type");
+  assert.equal(
+    oracleBatchMode({ INFRAWRIGHT_ORACLE_BATCH_MODE: "per-resource-type" }),
+    "per-resource-type",
+  );
+  assert.equal(
+    oracleBatchMode({ INFRAWRIGHT_ORACLE_BATCH_MODE: "logical-root" }),
+    "logical-root",
+  );
+  assert.throws(
+    () => oracleBatchMode({ INFRAWRIGHT_ORACLE_BATCH_MODE: "root" }),
+    /must be per-resource-type or logical-root/u,
+  );
+});
+
+test("logical-root adoption uses one batch Oracle and preserves per-resource artifact bytes", async (context) => {
+  const root = await committedRoot();
+  const policy = await loadAdoptionPolicy({ root });
+  const legacyWorkspace = await temporaryDirectory(context, "infrawright-adopt-per-resource-");
+  const batchWorkspace = await temporaryDirectory(context, "infrawright-adopt-logical-root-");
+  const legacyInput = path.join(legacyWorkspace, "pulls");
+  const batchInput = path.join(batchWorkspace, "pulls");
+  await Promise.all([writeZiaBatchPulls(legacyInput), writeZiaBatchPulls(batchInput)]);
+
+  let legacyCalls = 0;
+  const legacy = await runAdoptBatch({
+    batchStateLoader: async () => {
+      throw new Error("per-resource mode must not invoke the batch Oracle");
+    },
+    deployment: groupedZiaDeployment(legacyWorkspace),
+    environment: { INFRAWRIGHT_ORACLE_BATCH_MODE: "per-resource-type" },
+    inputDirectory: legacyInput,
+    policy,
+    root,
+    selectors: [...ZIA_BATCH_MEMBERS],
+    stateLoader: async (request) => {
+      legacyCalls += 1;
+      return ziaBatchStateLoader(request);
+    },
+    tenant: "tenant",
+  });
+  assert.deepEqual(legacy.failed, []);
+  assert.equal(legacyCalls, ZIA_BATCH_MEMBERS.length);
+
+  let batchCalls = 0;
+  const batched = await runAdoptBatch({
+    batchStateLoader: async (request) => {
+      batchCalls += 1;
+      assert.deepEqual(
+        request.resources.map((resource) => resource.resourceType),
+        [...ZIA_BATCH_MEMBERS],
+      );
+      return ziaLogicalRootStateLoader(request);
+    },
+    deployment: groupedZiaDeployment(batchWorkspace),
+    environment: { INFRAWRIGHT_ORACLE_BATCH_MODE: "logical-root" },
+    inputDirectory: batchInput,
+    policy,
+    root,
+    selectors: [...ZIA_BATCH_MEMBERS],
+    stateLoader: async () => {
+      throw new Error("logical-root mode must not invoke the per-resource Oracle");
+    },
+    tenant: "tenant",
+  });
+  assert.deepEqual(batched.failed, []);
+  assert.equal(batchCalls, 1);
+  assert.deepEqual(
+    [...batched.processed].sort(),
+    [...legacy.processed].sort(),
+  );
+  assert.deepEqual(
+    await snapshotTree(path.join(batchWorkspace, "config", "tenant")),
+    await snapshotTree(path.join(legacyWorkspace, "config", "tenant")),
+  );
+  assert.deepEqual(
+    await snapshotTree(path.join(batchWorkspace, "imports", "tenant")),
+    await snapshotTree(path.join(legacyWorkspace, "imports", "tenant")),
+  );
+});
+
+test("logical-root member failure leaves every member artifact unchanged", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-adopt-batch-atomic-");
+  const input = path.join(workspace, "pulls");
+  const config = path.join(workspace, "config", "tenant");
+  const imports = path.join(workspace, "imports", "tenant");
+  await writeZiaBatchPulls(input);
+  await Promise.all([mkdir(config, { recursive: true }), mkdir(imports, { recursive: true })]);
+  for (const resourceType of ZIA_BATCH_MEMBERS) {
+    await writeFile(
+      path.join(config, `${resourceType}.auto.tfvars.json`),
+      `existing ${resourceType} config\n`,
+    );
+    await writeFile(
+      path.join(imports, `${resourceType}_imports.tf`),
+      `existing ${resourceType} imports\n`,
+    );
+  }
+  const before = {
+    config: await snapshotTree(config),
+    imports: await snapshotTree(imports),
+  };
+  const result = await runAdoptBatch({
+    batchStateLoader: async (request) => {
+      const states = await ziaLogicalRootStateLoader(request);
+      return new Map<string, ReadonlyMap<string, OracleStateObject>>([
+        ["zia_rule_labels", states.get("zia_rule_labels")!],
+        ["zia_url_categories", new Map()],
+      ]);
+    },
+    deployment: groupedZiaDeployment(workspace),
+    environment: { INFRAWRIGHT_ORACLE_BATCH_MODE: "logical-root" },
+    inputDirectory: input,
+    policy: await loadAdoptionPolicy({ root: await committedRoot() }),
+    root: await committedRoot(),
+    selectors: [...ZIA_BATCH_MEMBERS],
+    stateLoader: async () => {
+      throw new Error("logical-root mode must not invoke the per-resource Oracle");
+    },
+    tenant: "tenant",
+  });
+  assert.deepEqual([...result.failed].sort(), [...ZIA_BATCH_MEMBERS].sort());
+  assert.deepEqual(result.processed, []);
+  assert.deepEqual(await snapshotTree(config), before.config);
+  assert.deepEqual(await snapshotTree(imports), before.imports);
+});
+
+test("logical-root Oracle failure isolates the responsible member without publishing", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-adopt-batch-isolation-");
+  const input = path.join(workspace, "pulls");
+  await writeZiaBatchPulls(input);
+  const diagnostics: string[] = [];
+  const isolated: string[] = [];
+  const result = await runAdoptBatch({
+    batchStateLoader: async () => {
+      throw new Error("batched Terraform plan failed");
+    },
+    deployment: groupedZiaDeployment(workspace),
+    environment: { INFRAWRIGHT_ORACLE_BATCH_MODE: "logical-root" },
+    inputDirectory: input,
+    onDiagnostic: (message) => diagnostics.push(message),
+    policy: await loadAdoptionPolicy({ root: await committedRoot() }),
+    root: await committedRoot(),
+    selectors: [...ZIA_BATCH_MEMBERS],
+    stateLoader: async (request) => {
+      isolated.push(request.resourceType);
+      if (request.resourceType === "zia_url_categories") {
+        throw new Error("isolated provider Read failed");
+      }
+      return ziaBatchStateLoader(request);
+    },
+    tenant: "tenant",
+  });
+  assert.deepEqual(isolated, [...ZIA_BATCH_MEMBERS]);
+  assert.deepEqual([...result.failed].sort(), [...ZIA_BATCH_MEMBERS].sort());
+  assert.deepEqual(result.processed, []);
+  assert.ok(diagnostics.some((message) => {
+    return message === "error: zia_url_categories: isolated provider Read failed";
+  }));
+  assert.ok(diagnostics.some((message) => {
+    return /1 member failure\(s\) identified above/u.test(message);
+  }));
+  await assert.rejects(access(path.join(workspace, "config", "tenant")), { code: "ENOENT" });
+  await assert.rejects(access(path.join(workspace, "imports", "tenant")), { code: "ENOENT" });
+});
+
+test("logical-root mode falls back to per-resource Oracles for ungrouped roots", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-adopt-batch-fallback-");
+  const input = path.join(workspace, "pulls");
+  await writeZiaBatchPulls(input);
+  let batchCalls = 0;
+  let perResourceCalls = 0;
+  const result = await runAdoptBatch({
+    batchStateLoader: async () => {
+      batchCalls += 1;
+      throw new Error("ungrouped resources must not invoke the batch Oracle");
+    },
+    deployment: deployment(workspace),
+    environment: { INFRAWRIGHT_ORACLE_BATCH_MODE: "logical-root" },
+    inputDirectory: input,
+    policy: await loadAdoptionPolicy({ root: await committedRoot() }),
+    root: await committedRoot(),
+    selectors: [...ZIA_BATCH_MEMBERS],
+    stateLoader: async (request) => {
+      perResourceCalls += 1;
+      return ziaBatchStateLoader(request);
+    },
+    tenant: "tenant",
+  });
+  assert.deepEqual(result.failed, []);
+  assert.equal(batchCalls, 0);
+  assert.equal(perResourceCalls, ZIA_BATCH_MEMBERS.length);
+  assert.deepEqual([...result.processed].sort(), [...ZIA_BATCH_MEMBERS].sort());
+});
 
 test("all four retained transform/adopt fixtures write byte-identical Python artifacts", async (context) => {
   const root = await committedRoot();
@@ -573,43 +853,62 @@ test("empty, provider, Zscaler, full, and reduced profiles select cleanly with n
   }
 });
 
-test("make adopt is Python-disabled and executes against injected fake Terraform", async (context) => {
+test("make adopt wires logical-root batching to one Python-disabled fake Terraform transaction", async (context) => {
   const workspace = await temporaryDirectory(context, "infrawright-make-adopt-");
   const input = path.join(workspace, "pulls");
-  await writeJson(path.join(input, "zia_rule_labels.json"), [{ id: "77", name: "Make Fixture" }]);
+  await writeZiaBatchPulls(input);
   const deploymentPath = path.join(workspace, "deployment.json");
-  await writeJson(deploymentPath, { overlay: workspace, roots: {} });
+  await writeJson(deploymentPath, groupedZiaDeployment(workspace));
   const fakeTerraform = path.join(workspace, "terraform-fake.mjs");
+  const fakeLog = path.join(workspace, "terraform.log");
   await writeFile(fakeTerraform, `#!/usr/bin/env node
 import fs from "node:fs";
 const args = process.argv.slice(2);
+fs.appendFileSync(process.env.FAKE_TERRAFORM_LOG, args[0] + "\\n");
 const imports = fs.existsSync("imports.tf") ? fs.readFileSync("imports.tf", "utf8") : "";
-const address = /to = ([^\\s]+)/u.exec(imports)?.[1] ?? "zia_rule_labels.iw_unknown";
-const name = address.split(".")[1];
+const instances = [...imports.matchAll(/to = ([^\\s]+)\\s+id = "([^"]+)"/gu)].map((match) => ({
+  address: match[1],
+  id: match[2],
+  name: match[1].split(".")[1],
+  type: match[1].split(".")[0],
+}));
+const values = (item) => item.type === "zia_rule_labels"
+  ? { id: item.id, name: "Batch Label" }
+  : { configured_name: "Batch Category", custom_category: true, id: item.id, urls: ["batch.example"] };
 if (args[0] === "plan") {
   const generated = args.find((item) => item.startsWith("-generate-config-out="));
-  if (generated) fs.writeFileSync(generated.slice(generated.indexOf("=") + 1), 'resource "zia_rule_labels" "' + name + '" {\\n  name = "Make Fixture"\\n}\\n');
+  if (generated) {
+    const config = instances.map((item) => item.type === "zia_rule_labels"
+      ? 'resource "zia_rule_labels" "' + item.name + '" {\\n  name = "Batch Label"\\n}\\n'
+      : 'resource "zia_url_categories" "' + item.name + '" {\\n  configured_name = "Batch Category"\\n  custom_category = true\\n  urls = ["batch.example"]\\n}\\n').join("\\n");
+    fs.writeFileSync(generated.slice(generated.indexOf("=") + 1), config);
+  }
   const out = args.find((item) => item.startsWith("-out="));
   if (out) fs.writeFileSync(out.slice(5), "fake");
   process.exit(0);
 }
 if (args[0] === "show" && args.at(-1)?.endsWith(".tfplan")) {
-  process.stdout.write(JSON.stringify({applyable:true,complete:true,errored:false,format_version:"1.2",terraform_version:"1.15.4",resource_changes:[{address,change:{actions:["no-op"],importing:{id:"77"}},mode:"managed",provider_name:"registry.terraform.io/zscaler/zia",type:"zia_rule_labels"}]}));
+  process.stdout.write(JSON.stringify({applyable:true,complete:true,errored:false,format_version:"1.2",terraform_version:"1.15.4",resource_changes:instances.map((item) => ({address:item.address,change:{actions:["no-op"],importing:{id:item.id}},mode:"managed",provider_name:"registry.terraform.io/zscaler/zia",type:item.type}))}));
   process.exit(0);
 }
 if (args[0] === "show") {
-  process.stdout.write(JSON.stringify({format_version:"1.0",terraform_version:"1.15.4",values:{root_module:{resources:[{address,mode:"managed",provider_name:"registry.terraform.io/zscaler/zia",type:"zia_rule_labels",values:{id:"77",name:"Make Fixture"},sensitive_values:{}}]}}}));
+  process.stdout.write(JSON.stringify({format_version:"1.0",terraform_version:"1.15.4",values:{root_module:{resources:instances.map((item) => ({address:item.address,mode:"managed",provider_name:"registry.terraform.io/zscaler/zia",type:item.type,values:values(item),sensitive_values:{}}))}}}));
   process.exit(0);
 }
 process.exit(0);
-`);
+  `);
   await chmod(fakeTerraform, 0o700);
   const packsRoot = await reducedPackRoot(workspace, "make-zia", ["zia"], ["zscaler"]);
+  const built = spawnSync(process.execPath, ["scripts/build-metadata-cli.mjs"], {
+    cwd: ROOT,
+    encoding: "utf8",
+  });
+  assert.equal(built.status, 0, `${built.stdout}\n${built.stderr}`);
   const result = spawnSync("make", [
     "adopt",
     `IN=${input}`,
     "TENANT=tenant",
-    'RESOURCE=zia_rule_labels',
+    `RESOURCE=${ZIA_BATCH_MEMBERS.join(" ")}`,
     `TF=${fakeTerraform}`,
     `DEPLOYMENT=${deploymentPath}`,
     "PACK_PROFILE=packsets/zia.json",
@@ -620,12 +919,23 @@ process.exit(0);
     encoding: "utf8",
     env: {
       ...process.env,
+      FAKE_TERRAFORM_LOG: fakeLog,
       INFRAWRIGHT_DEPLOYMENT: deploymentPath,
+      INFRAWRIGHT_ORACLE_BATCH_MODE: "logical-root",
       INFRAWRIGHT_PACKS: packsRoot,
     },
   });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   assert.equal(`${result.stdout}${result.stderr}`.includes("python-must-not-run"), false);
-  await access(path.join(workspace, "config", "tenant", "zia_rule_labels.auto.tfvars.json"));
-  await access(path.join(workspace, "imports", "tenant", "zia_rule_labels_imports.tf"));
+  assert.deepEqual((await readFile(fakeLog, "utf8")).trim().split("\n"), [
+    "init",
+    "plan",
+    "show",
+    "apply",
+    "show",
+  ]);
+  for (const resourceType of ZIA_BATCH_MEMBERS) {
+    await access(path.join(workspace, "config", "tenant", `${resourceType}.auto.tfvars.json`));
+    await access(path.join(workspace, "imports", "tenant", `${resourceType}_imports.tf`));
+  }
 });
