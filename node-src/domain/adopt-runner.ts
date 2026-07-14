@@ -217,6 +217,27 @@ function itemCounts(
   };
 }
 
+function writeUnsupportedDiagnostics(options: {
+  readonly classification: AdoptionRawClassification;
+  readonly resource: LoadedResourceMetadata;
+  readonly write?: (message: string) => void;
+}): void {
+  if (options.write === undefined) return;
+  for (const unsupported of options.classification.unsupported) {
+    options.write(
+      `unsupported ${options.resource.type} item ${itemLabel(unsupported.item)} (matched static unsupported rule)`,
+    );
+  }
+  const matchedRules = new Set(
+    options.classification.unsupported.map((unsupported) => unsupported.rule),
+  );
+  for (const rule of matchedRules) {
+    options.write(
+      `unsupported ${options.resource.type} rule for ${rule.provider.source} ${rule.provider.version}: ${rule.reason}; evidence=${JSON.stringify(rule.evidence)}`,
+    );
+  }
+}
+
 function writeTerminalCounts(options: {
   readonly counts: AdoptionItemCounts;
   readonly published: number;
@@ -243,11 +264,11 @@ function prepareAdoptionItems(options: {
       `skipped ${options.resource.type} item ${JSON.stringify(skipped.item.name ?? skipped.item.id)} (identity ${skipped.reason} matched)`,
     );
   }
-  for (const unsupported of classification.unsupported) {
-    options.write?.(
-      `unsupported ${options.resource.type} item ${itemLabel(unsupported.item)} for ${unsupported.rule.provider.source} ${unsupported.rule.provider.version}: ${unsupported.rule.reason}`,
-    );
-  }
+  writeUnsupportedDiagnostics({
+    classification,
+    resource: options.resource,
+    ...(options.write === undefined ? {} : { write: options.write }),
+  });
   if (classification.unsupported.length > 0) {
     return {
       blocked: { classification, counts, resource: options.resource },
@@ -423,9 +444,20 @@ async function runAdoptBatchInner(
   const skipped: string[] = [];
   const failed: string[] = [];
   const mode = oracleBatchMode(options.environment ?? process.env);
-  const selected = new Set(selection.resourceTypes);
+  const operationOrder = mode === "logical-root"
+    ? referenceOrder({
+        resourceTypes: selectedTopology.topology.roots.flatMap((logicalRoot) => {
+          return logicalRoot.members;
+        }),
+        root: options.root,
+      })
+    : selection;
+  if (operationOrder !== selection) {
+    for (const note of operationOrder.notes) write(note.trimEnd());
+  }
+  const selected = new Set(operationOrder.resourceTypes);
   const selectionIndex = new Map(
-    selection.resourceTypes.map((resourceType, index) => [resourceType, index] as const),
+    operationOrder.resourceTypes.map((resourceType, index) => [resourceType, index] as const),
   );
   const handled = new Set<string>();
   const disabledBatchRoots = new Set<string>();
@@ -569,11 +601,6 @@ async function runAdoptBatchInner(
           unsupportedRoot = true;
           continue;
         }
-        await assertNoPendingMoves({
-          deployment: options.deployment,
-          resourceType,
-          tenant: options.tenant,
-        });
         prepared.push({ adoption: preflight.prepared, resource, resourceType });
       } catch (error: unknown) {
         preflightFailed = true;
@@ -584,6 +611,32 @@ async function runAdoptBatchInner(
       }
     }
     if (preflightFailed || unsupportedRoot) {
+      for (const resourceType of candidates) {
+        if (!missingResources.has(resourceType) && !failed.includes(resourceType)) {
+          failed.push(resourceType);
+        }
+      }
+      flushPreflight();
+      finishCounts();
+      recordBatchSpan("failed");
+      return true;
+    }
+    for (const entry of prepared) {
+      try {
+        await assertNoPendingMoves({
+          deployment: options.deployment,
+          resourceType: entry.resourceType,
+          tenant: options.tenant,
+        });
+      } catch (error: unknown) {
+        preflightFailed = true;
+        if (!failed.includes(entry.resourceType)) failed.push(entry.resourceType);
+        preflightDiagnostics.push(
+          `error: ${entry.resourceType}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    if (preflightFailed) {
       for (const resourceType of candidates) {
         if (!missingResources.has(resourceType) && !failed.includes(resourceType)) {
           failed.push(resourceType);
@@ -771,7 +824,7 @@ async function runAdoptBatchInner(
     return true;
   };
 
-  for (const resourceType of selection.resourceTypes) {
+  for (const resourceType of operationOrder.resourceTypes) {
     if (handled.has(resourceType)) continue;
     if (await tryLogicalRootBatch(resourceType)) continue;
     if (handled.has(resourceType)) continue;

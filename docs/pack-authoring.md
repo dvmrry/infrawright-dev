@@ -231,13 +231,13 @@ provider-specific read/write inconsistencies:
   "drift_policy": {
     "version": 1,
     "resource_types": {
-      "zia_url_filtering_rules": {
+      "sample_widget": {
         "projection_fill": [
           {
-            "path": "cbi_profile",
-            "source": "cbiProfile",
+            "path": "write_profile",
+            "source": "rawProfile",
             "reason": "Provider read omits a write-required field; raw pull carries it.",
-            "approved_by": "zscaler-adoption"
+            "approved_by": "pack-owner"
           }
         ]
       }
@@ -252,6 +252,11 @@ metadata must not silently tolerate plan drift. Keep pack declarations narrow,
 source-backed, and provider-version-specific in their reason text. Do not use
 pack policy for tenant secrets, synthetic defaults, placeholders, or
 environment-specific choices.
+
+This is a generic authoring example, not current ZIA policy. The pinned ZIA
+4.7.26 pack classifies URL-filtering ISOLATE rules as version-scoped
+unsupported before Oracle and intentionally has no `cbi_profile`
+`projection_fill`.
 
 ## Overrides
 

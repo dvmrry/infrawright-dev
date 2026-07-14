@@ -31,6 +31,20 @@ test("metadata CLI validates the committed pack root without Python", () => {
   assert.equal(result.stderr, "");
 });
 
+test("ZIA admin-role evidence names the pinned SDK source path", async () => {
+  const fixture = JSON.parse(await readFile(
+    path.join(ROOT, "node-tests", "fixtures", "zia-adoption-classification-v4.7.26.json"),
+    "utf8",
+  )) as {
+    readonly resources: {
+      readonly zia_admin_roles: { readonly evidence: readonly string[] };
+    };
+  };
+  assert.deepEqual(fixture.resources.zia_admin_roles.evidence, [
+    "https://github.com/zscaler/zscaler-sdk-go/blob/v3.8.40/zscaler/zia/services/adminuserrolemgmt/roles/adminroles.go#L64-L65",
+  ]);
+});
+
 test("empty pack environment selections retain Python falsey fallback", () => {
   const packResult = run(["check-pack"], { INFRAWRIGHT_PACKS: "" });
   assert.equal(packResult.status, 0, packResult.stderr);
@@ -91,6 +105,46 @@ test("metadata CLI reports strict registry and override failures on stderr", asy
     assert.equal(result.status, 1);
     assert.equal(result.stdout, "");
     assert.match(result.stderr, /unknown override key rename/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("check-pack rejects unsupported rules scoped to a stale provider source or pin", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-cli-unsupported-scope-"));
+  const registryPath = path.join(directory, "sample", "registry.json");
+  const rule = {
+    evidence: ["https://example.invalid/provider-source"],
+    match: { action: "ISOLATE" },
+    provider: { source: "example/sample", version: "1.2.3" },
+    reason: "provider cannot round-trip this object",
+  };
+  try {
+    await writeJson(path.join(directory, "sample", "pack.json"), {
+      pin: "1.2.3",
+      provider_prefixes: { sample_: "sample" },
+      provider_sources: { sample: "example/sample" },
+    });
+    for (const [field, value, expected] of [
+      ["source", "example/stale", /provider\.source.*does not match active provider source/u],
+      ["version", "9.9.9", /provider\.version.*does not match active provider pin/u],
+    ] as const) {
+      await writeJson(registryPath, {
+        sample_resource: {
+          adopt: {
+            unsupported_if: [{
+              ...rule,
+              provider: { ...rule.provider, [field]: value },
+            }],
+          },
+          product: "sample",
+        },
+      });
+      const result = run(["check-pack", "--pack", "sample", "--root", directory]);
+      assert.equal(result.status, 1, `${field}: ${result.stderr}`);
+      assert.equal(result.stdout, "", field);
+      assert.match(result.stderr, expected, field);
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

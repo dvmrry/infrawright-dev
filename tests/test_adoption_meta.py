@@ -6,6 +6,7 @@ import unittest
 
 from engine import packs
 from engine import registry
+from engine import transform
 from engine.adoption_meta import (
     adoption_entry,
     classify_raw_items,
@@ -148,6 +149,100 @@ class AdoptionMetaTest(unittest.TestCase):
             [item["item"]["id"] for item in strict["unsupported"]],
             ["number"],
         )
+
+    def test_strict_scalar_matchers_keep_transform_and_adopt_aligned(self):
+        cases = [
+            (
+                "true does not equal one",
+                {"system": True},
+                [
+                    {"id": "true", "system": True},
+                    {"id": "one", "system": 1},
+                ],
+                ["true"],
+            ),
+            (
+                "one does not equal true",
+                {"system": 1},
+                [
+                    {"id": "one", "system": 1},
+                    {"id": "true", "system": True},
+                ],
+                ["one"],
+            ),
+            (
+                "false does not equal zero",
+                {"system": False},
+                [
+                    {"id": "false", "system": False},
+                    {"id": "zero", "system": 0},
+                ],
+                ["false"],
+            ),
+            (
+                "zero does not equal false",
+                {"system": 0},
+                [
+                    {"id": "zero", "system": 0},
+                    {"id": "false", "system": False},
+                ],
+                ["zero"],
+            ),
+            (
+                "explicit null does not equal absence",
+                {"system": None},
+                [
+                    {"id": "null", "system": None},
+                    {"id": "absent"},
+                ],
+                ["null"],
+            ),
+        ]
+        rule = {
+            "evidence": ["https://example.invalid/provider-source"],
+            "provider": {"source": "example/sample", "version": "1.2.3"},
+            "reason": "provider cannot round-trip this object",
+        }
+
+        for name, matcher, items, expected_ids in cases:
+            with self.subTest(name=name):
+                transform_ids = [
+                    item["id"] for item in items
+                    if transform.skip_item_match_reason(
+                        transform.snake_keys(item), {"skip_if": [matcher]}
+                    ) == "skip_if"
+                ]
+                self._registry({
+                    "sample_resource": {
+                        "adopt": {"skip_if": [matcher]},
+                        "generate": True,
+                        "product": "sample",
+                    },
+                })
+                skipped_ids = [
+                    entry["item"]["id"]
+                    for entry in classify_raw_items(items, "sample_resource")["skipped"]
+                ]
+                self._registry({
+                    "sample_resource": {
+                        "adopt": {
+                            "unsupported_if": [dict(rule, match=matcher)],
+                        },
+                        "generate": True,
+                        "product": "sample",
+                    },
+                })
+                unsupported_ids = [
+                    entry["item"]["id"]
+                    for entry in classify_raw_items(
+                        items, "sample_resource"
+                    )["unsupported"]
+                ]
+
+                self.assertEqual(transform_ids, expected_ids)
+                self.assertEqual(skipped_ids, expected_ids)
+                self.assertEqual(unsupported_ids, expected_ids)
+
     def test_registry_adopt_overrides_legacy_override(self):
         self._registry({
             "sample_resource": {

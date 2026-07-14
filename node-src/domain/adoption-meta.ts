@@ -6,6 +6,7 @@ import {
   slugifyTransformKey,
   snakeJsonKeys,
   snakeName,
+  strictJsonScalarMatcherMatches,
   transformSkipMatchReason,
 } from "./pull-transform.js";
 
@@ -108,20 +109,11 @@ export function adoptionUnsupportedRules(
   });
 }
 
-function unsupportedScalarEqual(left: unknown, right: unknown): boolean {
-  if (typeof left === "boolean" || typeof right === "boolean") {
-    return typeof left === "boolean" && typeof right === "boolean" && left === right;
-  }
-  return pythonJsonEqual(left, right);
-}
-
 function unsupportedRuleMatches(
   item: Readonly<Record<string, unknown>>,
   rule: AdoptionUnsupportedRule,
 ): boolean {
-  return Object.entries(rule.match).every(([field, expected]) => {
-    return unsupportedScalarEqual(item[snakeName(field)], expected);
-  });
+  return strictJsonScalarMatcherMatches(item, rule.match);
 }
 
 /** Classify raw adoption items before identity shaping or Terraform execution. */

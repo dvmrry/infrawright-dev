@@ -73,14 +73,13 @@ a lab proves the smallest safe behavior:
   through `assert-adoptable`. Until that evidence exists, the Zscaler binding
   proof/Test B remains blocked on validation rather than on an unimplemented
   engine hook.
-- Batch URL-filtering adoption also exercises provider-read-dropped required
-  fields. ZIA ISOLATE URL filtering rules need `cbi_profile` on write, while
-  provider readback can omit it and the raw `urlFilteringRules` pull carries
-  `cbiProfile`. `projection_fill` now restores that writable target only from
-  the raw pull, never synthesizes it, never overwrites provider readback, and
-  makes the same fill visible before generated-config provider validation. The
-  dev-tenant run still needs to prove those assumptions against the live
-  provider.
+- ZIA ISOLATE URL filtering rules are outside the current batch-oracle cohort.
+  With pinned provider 4.7.26, write requires `cbi_profile` but a fresh import
+  Read cannot reliably reconstruct the block when the API omits it. The ZIA
+  registry classifies `action = "ISOLATE"` as version-scoped unsupported before
+  Oracle, and the former pack `projection_fill` was intentionally removed.
+  Reconsidering support after a provider upgrade requires new source/readback
+  evidence and a newly scoped rule.
 - ZIA singleton identity checks remain part of the same validation track.
   `zia_url_filtering_and_cloud_app_settings` is a singleton-style surface with
   no natural per-object `id` in the read payload; the pack override currently

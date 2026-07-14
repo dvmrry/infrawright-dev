@@ -92,8 +92,12 @@ pure metadata such as `sample`, `import_id`, `key_field`, `ranges`, and
 
 Known local coverage is narrow:
 
-- `zia_url_filtering_rules.cbi_profile` has pack-level `projection_fill`
-  ([packs/zia/pack.json](../packs/zia/pack.json#L2-L15)).
+- `zia_url_filtering_rules` with `action = "ISOLATE"` is version-scoped
+  unsupported for pinned provider 4.7.26 before Oracle. The former
+  `cbi_profile` `projection_fill` was intentionally removed because fresh
+  import Read cannot reliably reconstruct a write-required block when the API
+  omits it
+  ([packs/zia/registry.json](../packs/zia/registry.json)).
 - `zia_url_filtering_rules.url_categories` has a local pack reference to
   `zia_url_categories` ([packs/zia/pack.json](../packs/zia/pack.json#L17-L36)).
 - `zcc_forwarding_profile.trusted_network_ids` and
@@ -249,7 +253,7 @@ captured as a repeatable test.
 | Finding | Upstream evidence | Local status |
 |---|---|---|
 | URL filtering `url_categories=["ANY"]` | Upstream injects `["ANY"]` for `zia_url_filtering_rules` only: [`generate.go#L2614-L2634`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/generate.go#L2614-L2634). | Transform override exists. Oracle behavior RESOLVED by pinned provider source: zia 4.7.26 READ sets `["ANY"]` when the API returns an empty list, so the oracle sees it by construction. Scoped to URL filtering; cloud app control has no `url_categories`. |
-| Empty/non-empty `cbi_profile` handling | Upstream has a resource-specific block writer for URL filtering and cloud app rules: [`nesting.go#L69-L115`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/nesting/nesting.go#L69-L115). | Pack `projection_fill` exists for URL filtering. |
+| Empty/non-empty `cbi_profile` handling | Upstream has a resource-specific block writer for URL filtering and cloud app rules: [`nesting.go#L69-L115`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/nesting/nesting.go#L69-L115). | For pinned provider 4.7.26, URL-filtering ISOLATE is version-scoped unsupported before Oracle; the former pack `projection_fill` was removed. |
 | Default microtenant controller skip | Import filters `ID!="0"` and generate filters `Name!="Default"`: [`import.go#L1077-L1100`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/import.go#L1077-L1100), [`generate.go#L1360-L1379`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/generate.go#L1360-L1379). | Local `zpa_microtenant_controller` has `skip_if.id="0"`. |
 | Numeric ID list blocks drop `id==0` | Upstream numeric list block helper skips numeric zero IDs: [`helpers.go#L409-L438`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/helpers/helpers.go#L409-L438). | Implemented in #144 via numeric `0` sentinel filtering in group bindings. Tenant evidence gate remains: confirm `0` means none/sentinel, not any/all, for each affected field. |
 | `appServerGroups` points at server groups | Data-source mapper maps both `serverGroups` and `appServerGroups` to `zpa_server_group`: [`datasource_processor.go#L75-L78`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/helpers/datasource_processor.go#L75-L78). | Treat as candidate only; another upstream helper disagrees. Verify with pinned ZPA schema before adopting. |
@@ -281,6 +285,14 @@ truth.
 | `zia_firewall_dns_rule` | Name list: `ZPA Resolver for Road Warrior`, `ZPA Resolver for Locations`, `Critical risk DNS categories`, `Critical risk DNS tunnels`, `High risk DNS categories`, `High risk DNS tunnels`, `Risky DNS categories`, `Risky DNS tunnels`, `Office 365 One Click Rule`, `Block DNS Tunnels`, `Block Filesharing DNS`, `Block Gaming DNS`, `UCaaS One Click Rule`, `Fallback ZPA Resolver for Locations`, `Fallback ZPA Resolver for Road Warrior`, `Unknown DNS Traffic`, `Default Firewall DNS Rule`. Also generic `order <= 0` skip. | Import names: [`import.go#L1853-L1863`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/import.go#L1853-L1863). Generate names: [`generate.go#L1924-L1934`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/generate.go#L1924-L1934). Order skip links above. |
 | `ztc_traffic_forwarding_rule` | `Client Connector to ZPA`, `ZPA Forwarding Rule`, `ZPA Pool For Stray Traffic`, `Default Forwarding Rule` | Generate: [`generate.go#L2407-L2418`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/generate.go#L2407-L2418). |
 | `ztc_traffic_forwarding_dns_rule`, `ztc_traffic_forwarding_log_rule` | DNS skips `DefaultRule || Predefined`; log skips `DefaultRule`. | Import: [`import.go#L2478-L2506`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/import.go#L2478-L2506). Generate: [`generate.go#L2432-L2459`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/generate.go#L2432-L2459). |
+
+For the current ZIA pack, provider source exposes both `predefined` and
+`default_rule` on firewall filtering, firewall IPS, firewall DNS, and NAT
+control rules, but it does not prove those populations are exclusive. Those
+four overrides therefore skip only source-backed `predefined = true`; DNS also
+retains the independently evidenced `order <= 0` predicate. A
+`default_rule = true` item that is neither predefined nor non-positive DNS
+remains eligible.
 
 ## No-Match Ledger
 
@@ -354,7 +366,7 @@ remain gates before relying on the affected behavior broadly.
 | `-generate-config-out`: non-zero `size_quota` | Source-confirmed / targeted live run needed | Pinned provider source resolves the bytes-to-MB read/write conversion; the private run did not exercise a non-zero quota. | Import a rule with a known non-zero quota and retain API, provider-state, generated-config, and clean re-plan unit summaries. |
 | ZCC failopen inverted booleans | Source-confirmed / reported blocked live | Pinned provider source proves symmetric inversion for the five configured fields; the private run was blocked before import. | Retain the exact ZCC provider version and sanitized import diagnostic, then rerun live oracle confirmation. |
 | `zpa_application_segment.policy_style` | Source-confirmed / reported live | Pinned provider source proves config-space boolean readback, and the operator reported the oracle path agreed. | Retain a sanitized live summary if tenant evidence is needed beyond the source-backed conclusion. |
-| `-generate-config-out`: `cbi_profile` projection | Reported partial / exception open | The operator reported projection working for the observed URL-filtering cases except a private-run case labeled PI-3. | PI-3 has no retained diagnostic in this repository. Record its resource, command, versions, and sanitized failure before diagnosing and rerunning it. |
+| `-generate-config-out`: `cbi_profile` projection | Superseded for provider 4.7.26 | Earlier private observations did not establish reliable fresh-import reconstruction. Current metadata classifies URL-filtering ISOLATE as version-scoped unsupported before Oracle and the fill was removed. | Re-open only for a new provider version with retained source/readback evidence that proves the block can round-trip safely. |
 | `zpa_application_segment.microtenant_id="0"` | Source-derived artifact parity / live recheck needed | Provider source proves raw readback; current Transform and Adopt both apply the pack default omission and the retained fixture is byte-equal. The earlier operator report predates this behavior and has no sanitized record. | Run a fresh controlled import/plan proving that omitting this optional, non-computed attribute remains no-op, and retain a sanitized summary before treating it as live-qualified. |
 
 One non-tenant follow-up remains: #144 validates matcher shape and rename

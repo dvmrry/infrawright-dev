@@ -429,7 +429,7 @@ test("logical-root adoption uses one batch Oracle and preserves per-resource art
   );
 });
 
-test("logical-root batching preserves external referent order and ZPA HCL bytes", async (context) => {
+test("logical-root fallback preserves implicit root members, external referent order, and ZPA HCL bytes", async (context) => {
   const root = await committedRoot();
   const policy = await loadAdoptionPolicy({ root });
   const legacyWorkspace = await temporaryDirectory(context, "infrawright-adopt-zpa-order-legacy-");
@@ -466,6 +466,7 @@ test("logical-root batching preserves external referent order and ZPA HCL bytes"
 
   let batchCalls = 0;
   const optimizedOrder: string[] = [];
+  const diagnostics: string[] = [];
   const optimized = await runAdoptBatch({
     batchStateLoader: async () => {
       batchCalls += 1;
@@ -474,9 +475,10 @@ test("logical-root batching preserves external referent order and ZPA HCL bytes"
     deployment: slugZpaDeployment(batchWorkspace),
     environment: { INFRAWRIGHT_ORACLE_BATCH_MODE: "logical-root" },
     inputDirectory: batchInput,
+    onDiagnostic: (message) => diagnostics.push(message),
     policy,
     root,
-    selectors,
+    selectors: ["zpa_application_server", "zpa_segment_group"],
     stateLoader: async (request) => {
       optimizedOrder.push(request.resourceType);
       return zpaReferenceStateLoader(request);
@@ -489,6 +491,9 @@ test("logical-root batching preserves external referent order and ZPA HCL bytes"
   assert.equal(batchCalls, 0);
   assert.deepEqual(optimizedOrder, legacyOrder);
   assert.deepEqual(legacyOrder, selectors);
+  assert.ok(diagnostics.some((message) => {
+    return message.includes("selecting zpa_application_server selects whole root zpa_application");
+  }));
   assert.deepEqual(
     await snapshotTree(path.join(batchWorkspace, "config", "tenant")),
     await snapshotTree(path.join(legacyWorkspace, "config", "tenant")),
@@ -566,8 +571,9 @@ test("logical-root unsupported preflight covers every member and invokes no Orac
     writeJson(path.join(input, "zia_rule_labels.json"), [{ id: "1", name: "Safe Label" }]),
     writeJson(path.join(input, "zia_url_filtering_rules.json"), [
       { action: "ISOLATE", predefined: true },
-      { action: "ISOLATE", predefined: false },
-      { action: "BLOCK", id: 3, name: "Eligible Rule", predefined: false },
+      { action: "ISOLATE", id: 2, name: "Unsupported One", predefined: false },
+      { action: "ISOLATE", id: 3, name: "Unsupported Two", predefined: false },
+      { action: "BLOCK", id: 4, name: "Eligible Rule", predefined: false },
     ]),
     mkdir(config, { recursive: true }),
     mkdir(imports, { recursive: true }),
@@ -582,6 +588,10 @@ test("logical-root unsupported preflight covers every member and invokes no Orac
       `existing ${resourceType} imports\n`,
     );
   }
+  await writeFile(
+    path.join(imports, "zia_rule_labels_moves.pending.json"),
+    '{"safe_marker":"pending"}\n',
+  );
   const before = {
     config: await snapshotTree(config),
     imports: await snapshotTree(imports),
@@ -620,11 +630,29 @@ test("logical-root unsupported preflight covers every member and invokes no Orac
   assert.ok(diagnostics.some((message) => message.startsWith(
     "unsupported zia_url_filtering_rules item",
   )));
+  assert.equal(
+    diagnostics.filter((message) => {
+      return message.startsWith("unsupported zia_url_filtering_rules item");
+    }).length,
+    2,
+  );
+  const evidenceDiagnostics = diagnostics.filter((message) => {
+    return message.startsWith("unsupported zia_url_filtering_rules rule for");
+  });
+  assert.equal(evidenceDiagnostics.length, 1);
+  assert.match(evidenceDiagnostics[0] ?? "", /zscaler\/zia 4\.7\.26/u);
+  assert.match(evidenceDiagnostics[0] ?? "", /fresh import Read cannot reconstruct/u);
+  assert.match(evidenceDiagnostics[0] ?? "", /resource_zia_url_filtering_rules\.go#L52-L63/u);
+  assert.match(evidenceDiagnostics[0] ?? "", /resource_zia_url_filtering_rules\.go#L536-L544/u);
+  assert.equal(
+    diagnostics.some((message) => message.includes("pending move transition")),
+    false,
+  );
   assert.ok(diagnostics.includes(
     "adopt counts zia_rule_labels: fetched=1 system_skipped=0 unsupported=0 eligible=1 published=0 failed=1",
   ));
   assert.ok(diagnostics.includes(
-    "adopt counts zia_url_filtering_rules: fetched=3 system_skipped=1 unsupported=1 eligible=1 published=0 failed=1",
+    "adopt counts zia_url_filtering_rules: fetched=4 system_skipped=1 unsupported=2 eligible=1 published=0 failed=1",
   ));
 });
 

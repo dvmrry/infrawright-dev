@@ -138,14 +138,16 @@ understands drift policy and guidance annotations.
 
 For Zscaler batch-oracle validation, include a resource that exercises
 generated-config projection timing. `zia_url_filtering_rules` is the current
-case. Provider-generated config can contain optional-zero sentinels such as
-`size_quota = 0`, and ISOLATE rules can require `cbi_profile` even though
-provider readback omits it. A passing validation must show that configured
-projection omissions and pack-declared `projection_fill` entries are effective
-before the provider validates generated config, not only after post-import
-`show -json` projection. Until that is proven, URL-filtering adoption and any
-dependent binding proof remain blocked even when the engine's fail-closed
-safety checks pass.
+case for optional-zero sentinels such as `size_quota = 0`. A passing validation
+must show that configured projection omissions are effective before the
+provider validates generated config, not only after post-import `show -json`
+projection. ISOLATE rules are not part of this validation: for pinned provider
+4.7.26, `cbi_profile` is required on write but a fresh import Read cannot
+reliably reconstruct it when omitted by the API, so version-scoped
+`unsupported_if` metadata rejects `action = "ISOLATE"` before Oracle. The
+former ZIA `cbi_profile` `projection_fill` was intentionally removed. Generic
+`projection_fill` timing remains covered by engine tests, but the current ZIA
+pack declares no such fill.
 
 ## Failure Classification
 

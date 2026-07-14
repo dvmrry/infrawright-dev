@@ -2,9 +2,6 @@
   "skip_if": [
     {
       "predefined": true
-    },
-    {
-      "default_rule": true
     }
   ],
   "skip_if_lte": [

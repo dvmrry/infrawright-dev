@@ -39,7 +39,7 @@ uses the upstream repository as prior art for targeted follow-up work.
 
 | Edge case class | Upstream status | Evidence | Recommended use |
 |---|---:|---|---|
-| `zia_url_filtering_rules` / `zia_cloud_app_control_rule` `cbi_profile` omission and forced fields | Covered | Upstream has a resource-specific `cbi_profile` block writer that skips empty blocks and writes `id`, `name`, and `url` when present: [`nesting.go#L69-L115`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/nesting/nesting.go#L69-L115). | Good candidate for parity tests and source-backed policy comparison. |
+| `zia_url_filtering_rules` / `zia_cloud_app_control_rule` `cbi_profile` omission and forced fields | Covered upstream | Upstream has a resource-specific `cbi_profile` block writer that skips empty blocks and writes `id`, `name`, and `url` when present: [`nesting.go#L69-L115`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/nesting/nesting.go#L69-L115). | Do not infer current local support. For pinned ZIA provider 4.7.26, URL-filtering ISOLATE is version-scoped unsupported before Oracle and the former fill was removed. Revisit only with new provider source/readback evidence. |
 | Empty/missing `zia_url_filtering_rules.url_categories` readback as `["ANY"]` | Covered | Upstream injects `["ANY"]` for this resource only: [`generate.go#L2614-L2634`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/generate.go#L2614-L2634). | Good candidate for test-only confirmation before any behavior change. |
 | Default `zpa_microtenant_controller` object | Covered for controller resource only | Import filters `ID != "0"`: [`import.go#L1077-L1100`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/import.go#L1077-L1100). Generate filters `Name != "Default"`: [`generate.go#L1360-L1379`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/generate.go#L1360-L1379). | Useful corroboration for the controller skip only. Does not prove broad nested `microtenantId == "0"` pruning. |
 | `microtenantId == "0"` on arbitrary ZPA resources and nested operands | Not covered | Upstream only filters the microtenant controller list and has CLI/provider microtenant configuration. No general nested scrubber was found. Local tests cover top-level and nested default stubs. | Keep our own rule and evidence path. Do not infer broad behavior from upstream. |
@@ -85,7 +85,7 @@ Specific caution points:
 2. Start with test-only parity work.
    Add or extend fixtures that assert the local behavior we already believe is
    correct, without changing generated output. Good first targets are
-   `cbi_profile`, `url_categories = ["ANY"]`, non-positive DNS rule order,
+   `url_categories = ["ANY"]`, non-positive DNS rule order,
    exact cloud-app rule type enumeration, and country-prefix normalization.
 
 3. Promote only source-backed, provider-backed rules.
@@ -136,6 +136,7 @@ The safest next action is WP1 plus WP2: create the inventory and add test-only
 coverage for the upstream-confirmed cases. That lets us get ahead of repeated
 triage without changing behavior based on third-party assumptions.
 
-After that, pick one low-risk covered case, such as `cbi_profile` or
+After that, pick one low-risk covered case, such as
 `url_categories = ["ANY"]`, and run it through the full local evidence path
-before making a behavior PR.
+before making a behavior PR. Do not use `cbi_profile` as that case while pinned
+ZIA provider 4.7.26 remains version-scoped unsupported for ISOLATE adoption.

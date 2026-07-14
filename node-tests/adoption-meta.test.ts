@@ -16,7 +16,10 @@ import {
 import { adoptResourceItems } from "../node-src/domain/adopt-runner.js";
 import { DriftPolicy } from "../node-src/domain/drift-policy.js";
 import { parseDataJsonLosslessly } from "../node-src/json/control.js";
-import { transformLoadedItems } from "../node-src/domain/pull-transform.js";
+import {
+  transformLoadedItems,
+  transformSkipMatchReason,
+} from "../node-src/domain/pull-transform.js";
 import { formatImportTemplate } from "../node-src/domain/transform-artifacts.js";
 import { loadPackRoot, type LoadedPackRoot, type LoadedResourceMetadata } from "../node-src/metadata/loader.js";
 import type { JsonObject } from "../node-src/metadata/validation.js";
@@ -326,6 +329,89 @@ test("raw classification runs system skips then strict unsupported checks before
   });
   assert.deepEqual(strictResult.eligible.map((item) => item.id), ["bool"]);
   assert.deepEqual(strictResult.unsupported.map((entry) => entry.item.id), ["number"]);
+});
+
+test("strict scalar matchers keep Transform, Adopt skip_if, and unsupported_if aligned", () => {
+  const cases: ReadonlyArray<{
+    readonly items: readonly JsonObject[];
+    readonly match: JsonObject;
+    readonly matchedIds: readonly string[];
+    readonly name: string;
+  }> = [
+    {
+      name: "true does not equal one",
+      match: { system: true },
+      items: [
+        { id: "true", system: true },
+        { id: "one", system: new LosslessNumber("1") },
+      ],
+      matchedIds: ["true"],
+    },
+    {
+      name: "one does not equal true",
+      match: { system: new LosslessNumber("1") },
+      items: [
+        { id: "one", system: new LosslessNumber("1") },
+        { id: "true", system: true },
+      ],
+      matchedIds: ["one"],
+    },
+    {
+      name: "false does not equal zero",
+      match: { system: false },
+      items: [
+        { id: "false", system: false },
+        { id: "zero", system: new LosslessNumber("0") },
+      ],
+      matchedIds: ["false"],
+    },
+    {
+      name: "zero does not equal false",
+      match: { system: new LosslessNumber("0") },
+      items: [
+        { id: "zero", system: new LosslessNumber("0") },
+        { id: "false", system: false },
+      ],
+      matchedIds: ["zero"],
+    },
+    {
+      name: "explicit null does not equal absence",
+      match: { system: null },
+      items: [
+        { id: "null", system: null },
+        { id: "absent" },
+      ],
+      matchedIds: ["null"],
+    },
+  ];
+
+  for (const fixture of cases) {
+    const transformMatched = fixture.items.filter((item) => {
+      return transformSkipMatchReason(
+        item,
+        { skip_if: [fixture.match] },
+        "sample_resource",
+      ) === "skip_if";
+    }).map((item) => item.id);
+    const adoptSkipped = classifyAdoptionRawItems({
+      rawItems: fixture.items,
+      resource: resource({ adopt: { skip_if: [fixture.match] } }),
+    }).skipped.map((entry) => entry.item.id);
+    const adoptUnsupported = classifyAdoptionRawItems({
+      rawItems: fixture.items,
+      resource: resource({
+        adopt: { unsupported_if: [unsupportedRule(fixture.match)] },
+      }),
+    }).unsupported.map((entry) => entry.item.id);
+
+    assert.deepEqual(transformMatched, fixture.matchedIds, `${fixture.name}: Transform`);
+    assert.deepEqual(adoptSkipped, fixture.matchedIds, `${fixture.name}: Adopt skip_if`);
+    assert.deepEqual(
+      adoptUnsupported,
+      fixture.matchedIds,
+      `${fixture.name}: Adopt unsupported_if`,
+    );
+  }
 });
 
 test("committed ZIA classification metadata matches source-backed Fetch-shaped fixtures", async () => {

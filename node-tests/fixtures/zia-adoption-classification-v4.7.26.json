@@ -7,7 +7,7 @@
   "resources": {
     "zia_admin_roles": {
       "evidence": [
-        "https://github.com/zscaler/zscaler-sdk-go/blob/v3.8.40/zscaler/zia/services/adminuserrolemgmt/roles/admin_roles.go#L64-L65"
+        "https://github.com/zscaler/zscaler-sdk-go/blob/v3.8.40/zscaler/zia/services/adminuserrolemgmt/roles/adminroles.go#L64-L65"
       ],
       "skip": [
         {"id": 1, "name": "System Role", "isNonEditable": true}
@@ -43,10 +43,10 @@
         "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_firewall_filtering_rules.go#L275-L281"
       ],
       "skip": [
-        {"id": 7, "name": "Predefined Rule", "predefined": true, "defaultRule": false},
-        {"id": 8, "name": "Default Rule", "predefined": false, "defaultRule": true}
+        {"id": 7, "name": "Predefined Rule", "predefined": true, "defaultRule": false}
       ],
       "keep": [
+        {"id": 8, "name": "Default Rule", "predefined": false, "defaultRule": true},
         {"id": 9, "name": "Managed Rule", "predefined": false, "defaultRule": false}
       ]
     },
@@ -55,10 +55,10 @@
         "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_firewall_ips_rules.go#L279-L285"
       ],
       "skip": [
-        {"id": 10, "name": "Predefined IPS Rule", "predefined": true, "defaultRule": false},
-        {"id": 11, "name": "Default IPS Rule", "predefined": false, "defaultRule": true}
+        {"id": 10, "name": "Predefined IPS Rule", "predefined": true, "defaultRule": false}
       ],
       "keep": [
+        {"id": 11, "name": "Default IPS Rule", "predefined": false, "defaultRule": true},
         {"id": 12, "name": "Managed IPS Rule", "predefined": false, "defaultRule": false}
       ]
     },
@@ -68,10 +68,10 @@
       ],
       "skip": [
         {"id": 13, "name": "Predefined DNS Rule", "order": 1, "predefined": true, "defaultRule": false},
-        {"id": 14, "name": "Default DNS Rule", "order": 1, "predefined": false, "defaultRule": true},
         {"id": 15, "name": "Nonpositive DNS Rule", "order": 0, "predefined": false, "defaultRule": false}
       ],
       "keep": [
+        {"id": 14, "name": "Default DNS Rule", "order": 1, "predefined": false, "defaultRule": true},
         {"id": 16, "name": "Managed DNS Rule", "order": 1, "predefined": false, "defaultRule": false}
       ]
     },
@@ -80,10 +80,10 @@
         "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_nat_control_rules.go#L258-L264"
       ],
       "skip": [
-        {"id": 17, "name": "Predefined NAT Rule", "predefined": true, "defaultRule": false},
-        {"id": 18, "name": "Default NAT Rule", "predefined": false, "defaultRule": true}
+        {"id": 17, "name": "Predefined NAT Rule", "predefined": true, "defaultRule": false}
       ],
       "keep": [
+        {"id": 18, "name": "Default NAT Rule", "predefined": false, "defaultRule": true},
         {"id": 19, "name": "Managed NAT Rule", "predefined": false, "defaultRule": false}
       ]
     },

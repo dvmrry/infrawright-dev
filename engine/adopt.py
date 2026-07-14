@@ -21,21 +21,8 @@ from engine.registry import derive_entry
 from engine.state_project import project_item
 
 
-def adopt_items(raw_items, resource_type, policy=None, state_loader=None):
-    """Adopt raw items through provider-observed state.
-
-    ``state_loader`` is an injectable equivalent of ``import_state`` used by
-    credential-free parity fixtures. Production callers leave it unset and
-    retain the existing live import behavior.
-    """
-    if state_loader is None:
-        state_loader = import_state
-    meta = adoption_entry(resource_type)
-    key_to_identity = {}
-    key_to_import_id = {}
-    key_to_raw = {}
-    import_id_to_key = {}
-    identities = []
+def _prepare_adoption_items(raw_items, resource_type):
+    """Classify and report every item before identity or runtime checks."""
     classification = classify_raw_items(raw_items, resource_type)
     for skipped in classification["skipped"]:
         item = skipped["item"]
@@ -49,15 +36,27 @@ def adopt_items(raw_items, resource_type, policy=None, state_loader=None):
         )
     for unsupported in classification["unsupported"]:
         item = unsupported["item"]
-        rule = unsupported["rule"]
         sys.stderr.write(
-            "unsupported %s item %r for %s %s: %s\n"
+            "unsupported %s item %r (matched static unsupported rule)\n"
+            % (resource_type, item.get("name") or item.get("id"))
+        )
+    matched_rules = []
+    matched_rule_ids = set()
+    for unsupported in classification["unsupported"]:
+        rule = unsupported["rule"]
+        if id(rule) in matched_rule_ids:
+            continue
+        matched_rule_ids.add(id(rule))
+        matched_rules.append(rule)
+    for rule in matched_rules:
+        sys.stderr.write(
+            "unsupported %s rule for %s %s: %s; evidence=%s\n"
             % (
                 resource_type,
-                item.get("name") or item.get("id"),
                 rule["provider"]["source"],
                 rule["provider"]["version"],
                 rule["reason"],
+                json.dumps(rule["evidence"], separators=(",", ":")),
             )
         )
     if classification["unsupported"]:
@@ -66,6 +65,35 @@ def adopt_items(raw_items, resource_type, policy=None, state_loader=None):
             "artifact publication is permitted"
             % (resource_type, len(classification["unsupported"]))
         )
+    return classification
+
+
+def adopt_items(raw_items, resource_type, policy=None, state_loader=None):
+    """Adopt raw items through provider-observed state.
+
+    ``state_loader`` is an injectable equivalent of ``import_state`` used by
+    credential-free parity fixtures. Production callers leave it unset and
+    retain the existing live import behavior.
+    """
+    classification = _prepare_adoption_items(raw_items, resource_type)
+    return _adopt_classified_items(
+        classification,
+        resource_type,
+        policy=policy,
+        state_loader=state_loader,
+    )
+
+
+def _adopt_classified_items(classification, resource_type, policy=None,
+                            state_loader=None):
+    if state_loader is None:
+        state_loader = import_state
+    meta = adoption_entry(resource_type)
+    key_to_identity = {}
+    key_to_import_id = {}
+    key_to_raw = {}
+    import_id_to_key = {}
+    identities = []
     for raw in classification["eligible"]:
         ident = identity_item(raw, resource_type)
         identities.append((ident, raw))
@@ -117,10 +145,19 @@ def adopt_items(raw_items, resource_type, policy=None, state_loader=None):
 
 
 def write_outputs(resource_type, raw_items, tenant, policy):
+    classification = _prepare_adoption_items(raw_items, resource_type)
+    _write_classified_outputs(resource_type, tenant, policy, classification)
+
+
+def _write_classified_outputs(resource_type, tenant, policy, classification):
     artifacts.assert_no_pending_moves(tenant, resource_type)
     config_dir = deployment.config_dir(tenant)
     imports_dir = deployment.imports_dir(tenant)
-    items, originals = adopt_items(raw_items, resource_type, policy=policy)
+    items, originals = _adopt_classified_items(
+        classification,
+        resource_type,
+        policy=policy,
+    )
     artifacts.assert_no_pending_moves(tenant, resource_type)
     os.makedirs(config_dir, exist_ok=True)
     os.makedirs(imports_dir, exist_ok=True)
@@ -186,11 +223,6 @@ def main(argv=None):
     resource_type, input_path, tenant = argv
     artifacts.validate_tenant(tenant)
     artifacts.validate_resource_type(resource_type)
-    try:
-        artifacts.assert_no_pending_moves(tenant, resource_type)
-    except RuntimeError as exc:
-        sys.stderr.write("error: %s\n" % exc)
-        return 1
     policy = DriftPolicy.load_for_adoption(policy_path)
     try:
         with open(input_path, encoding="utf-8") as f:
@@ -202,6 +234,17 @@ def main(argv=None):
         sys.stderr.write("error: %s must be a JSON LIST of items\n" % input_path)
         return 2
 
+    try:
+        classification = _prepare_adoption_items(raw_items, resource_type)
+    except Exception as exc:
+        sys.stderr.write("error: %s\n" % exc)
+        return 1
+    try:
+        artifacts.assert_no_pending_moves(tenant, resource_type)
+    except RuntimeError as exc:
+        sys.stderr.write("error: %s\n" % exc)
+        return 1
+
     derive = derive_entry(resource_type)
     if derive is not None:
         sys.stderr.write(
@@ -210,7 +253,12 @@ def main(argv=None):
         )
         return transform.main([resource_type, input_path, tenant])
     try:
-        write_outputs(resource_type, raw_items, tenant, policy)
+        _write_classified_outputs(
+            resource_type,
+            tenant,
+            policy,
+            classification,
+        )
     except Exception as exc:
         sys.stderr.write("error: %s\n" % exc)
         return 1

@@ -79,12 +79,6 @@ def unsupported_rules(resource_type):
     return rules
 
 
-def _unsupported_equal(left, right):
-    if isinstance(left, bool) or isinstance(right, bool):
-        return isinstance(left, bool) and isinstance(right, bool) and left == right
-    return left == right
-
-
 def classify_raw_items(raw_items, resource_type):
     """Classify raw input before identity shaping or Terraform execution."""
     meta = adoption_entry(resource_type)
@@ -98,9 +92,8 @@ def classify_raw_items(raw_items, resource_type):
             continue
         matched = None
         for rule in rules:
-            if all(
-                    _unsupported_equal(item.get(transform.snake(field)), expected)
-                    for field, expected in rule["match"].items()):
+            if transform.strict_json_scalar_matcher_matches(
+                    item, rule["match"]):
                 matched = rule
                 break
         if matched is not None:

@@ -434,6 +434,37 @@ export async function loadRegistry(
   return { entries, sources };
 }
 
+export function validateUnsupportedProviderScopes(
+  metadata: PackMetadata,
+  registry: LoadedRegistry,
+): void {
+  for (const [resourceType, entry] of Object.entries(registry.entries)) {
+    const adopt = isObject(entry.adopt) ? entry.adopt : null;
+    const rules = adopt !== null && Array.isArray(adopt.unsupported_if)
+      ? adopt.unsupported_if
+      : [];
+    if (rules.length === 0) continue;
+    const provider = providerForResource(metadata, resourceType);
+    const owner = manifestForProvider(metadata, provider);
+    const expectedSource = owner.providerSources[provider];
+    const expectedVersion = owner.data.pin;
+    for (const [index, rawRule] of rules.entries()) {
+      if (!isObject(rawRule) || !isObject(rawRule.provider)) continue;
+      const label = `${registry.sources[resourceType] ?? resourceType}.${resourceType}.adopt.unsupported_if[${index}].provider`;
+      if (rawRule.provider.source !== expectedSource) {
+        fail(
+          `${label}.source ${JSON.stringify(rawRule.provider.source)} does not match active provider source ${JSON.stringify(expectedSource)}`,
+        );
+      }
+      if (rawRule.provider.version !== expectedVersion) {
+        fail(
+          `${label}.version ${JSON.stringify(rawRule.provider.version)} does not match active provider pin ${JSON.stringify(expectedVersion)}`,
+        );
+      }
+    }
+  }
+}
+
 export function validateOverride(value: unknown, source: string): JsonObject {
   const data = requireObject(value, `override metadata in ${source}`);
   const unknown = sortedStrings(Object.keys(data).filter((key) => !OVERRIDE_KEYS.has(key)));
@@ -573,5 +604,6 @@ export async function validatePackResources(
     loadRegistry(metadata, packNames),
     loadOverrides(metadata, packNames),
   ]);
+  validateUnsupportedProviderScopes(metadata, registry);
   return { registry, overrides };
 }

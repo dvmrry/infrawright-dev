@@ -1131,6 +1131,30 @@ function skipMatchers(value: unknown, label: string): readonly JsonObject[] {
   });
 }
 
+function jsonScalarKind(value: unknown): "boolean" | "null" | "number" | "string" | null {
+  if (value === null) return "null";
+  if (typeof value === "boolean") return "boolean";
+  if (typeof value === "string") return "string";
+  if (value instanceof LosslessNumber || typeof value === "number") return "number";
+  return null;
+}
+
+/** Match a snake-cased item against exact, presence-aware JSON scalar fields. */
+export function strictJsonScalarMatcherMatches(
+  item: Readonly<Record<string, unknown>>,
+  matcher: Readonly<JsonObject>,
+): boolean {
+  return Object.entries(matcher).every(([rawField, expected]) => {
+    const field = snakeName(rawField);
+    if (!hasOwn(item, field)) return false;
+    const expectedKind = jsonScalarKind(expected);
+    if (expectedKind === null || jsonScalarKind(item[field]) !== expectedKind) return false;
+    return expectedKind === "number"
+      ? pythonJsonEqual(item[field], expected)
+      : item[field] === expected;
+  });
+}
+
 type LteNumber =
   | { readonly integer: bigint; readonly kind: "integer" }
   | { readonly float: number; readonly kind: "float" };
@@ -1189,9 +1213,7 @@ export function transformSkipMatchReason(
     metadata.skip_if,
     `${label}.skip_if`,
   )) {
-    if (Object.entries(matcher).every(([field, expected]) => {
-      return pythonJsonEqual(item[snakeName(field)], expected);
-    })) {
+    if (strictJsonScalarMatcherMatches(item, matcher)) {
       return "skip_if";
     }
   }

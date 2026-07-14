@@ -309,29 +309,14 @@ single top-level raw source name. It never overwrites provider readback: if the
 projected provider state already contains the target, even as an empty list or
 object, the fill entry remains stale. It also refuses sensitive targets.
 
-The ZIA URL filtering rule policy below handles ISOLATE rules where provider
-readback omits `cbi_profile`, but provider write validation requires
-`cbi_profile` when `action = "ISOLATE"`. The raw `urlFilteringRules` API pull
-carries `cbiProfile` with `id`, `name`, `profileSeq`, and `url`, so the value is
-recoverable without synthesis:
-
-```json
-{
-  "version": 1,
-  "resource_types": {
-    "zia_url_filtering_rules": {
-      "projection_fill": [
-        {
-          "path": "cbi_profile",
-          "source": "cbiProfile",
-          "reason": "ZIA provider 4.7.26 read omits cbi_profile for ISOLATE URL filtering rules, while write validation requires cbi_profile when action is ISOLATE; the raw urlFilteringRules API pull carries cbiProfile with id/name/profileSeq/url.",
-          "approved_by": "zscaler-adoption"
-        }
-      ]
-    }
-  }
-}
-```
+The current ZIA pack intentionally does not use `projection_fill` for URL
+filtering ISOLATE rules. With the pinned `zscaler/zia` provider 4.7.26,
+`cbi_profile` is required on write but a fresh import Read cannot reliably
+reconstruct the block when the API omits it. The pack therefore classifies
+`action = "ISOLATE"` as version-scoped unsupported before identity derivation
+or any Oracle call. The earlier ZIA `cbi_profile` fill was removed; support for
+a later provider version requires new source/readback evidence and an updated
+provider scope rather than reusing that fill.
 
 The oracle also applies `projection_omit`, `projection_omit_if`, and
 `projection_fill` to Terraform/OpenTofu generated import config before provider
