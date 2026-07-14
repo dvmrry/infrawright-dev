@@ -66,6 +66,19 @@ function groupedZiaDeployment(overlay: string): Deployment {
   };
 }
 
+function slugZpaDeployment(overlay: string): Deployment {
+  return {
+    overlay,
+    tfvars_format: "hcl",
+    roots: {
+      zpa: {
+        bind_references: true,
+        strategy: "slug",
+      },
+    },
+  };
+}
+
 async function reducedPackRoot(
   parent: string,
   name: string,
@@ -169,6 +182,51 @@ const ziaLogicalRootStateLoader: AdoptionBatchStateLoader = async (request) => n
       adoptionState(resource.resourceType, importId),
     ])),
   ]),
+);
+
+async function writeZpaReferenceOrderingPulls(input: string): Promise<void> {
+  await Promise.all([
+    writeJson(path.join(input, "zpa_application_server.json"), [{
+      address: "10.0.0.1",
+      id: "server-id",
+      name: "Server",
+    }]),
+    writeJson(path.join(input, "zpa_segment_group.json"), [{
+      id: "sg-id",
+      name: "Segment Group",
+    }]),
+    writeJson(path.join(input, "zpa_application_segment.json"), [{
+      domain_names: ["app.example"],
+      id: "app-id",
+      name: "App",
+      segment_group_id: "sg-id",
+    }]),
+  ]);
+}
+
+const zpaReferenceStateLoader: AdoptionStateLoader = async (request) => new Map(
+  [...request.keyToImportId].map(([key, importId]) => {
+    let values: Readonly<Record<string, unknown>>;
+    if (request.resourceType === "zpa_application_server") {
+      values = { address: "10.0.0.1", id: importId, name: "Server" };
+    } else if (request.resourceType === "zpa_segment_group") {
+      values = { id: importId, name: "Segment Group" };
+    } else if (request.resourceType === "zpa_application_segment") {
+      values = {
+        domain_names: ["app.example"],
+        id: importId,
+        name: "App",
+        segment_group_id: "sg-id",
+      };
+    } else {
+      throw new TypeError(`unexpected ZPA reference fixture resource ${request.resourceType}`);
+    }
+    return [key, {
+      address: `${request.resourceType}.fixture`,
+      sensitiveValues: {},
+      values,
+    } satisfies OracleStateObject] as const;
+  }),
 );
 
 function record(value: unknown, label: string): Readonly<Record<string, unknown>> {
@@ -355,6 +413,88 @@ test("logical-root adoption uses one batch Oracle and preserves per-resource art
   assert.deepEqual(
     await snapshotTree(path.join(batchWorkspace, "imports", "tenant")),
     await snapshotTree(path.join(legacyWorkspace, "imports", "tenant")),
+  );
+});
+
+test("logical-root batching preserves external referent order and ZPA HCL bytes", async (context) => {
+  const root = await committedRoot();
+  const policy = await loadAdoptionPolicy({ root });
+  const legacyWorkspace = await temporaryDirectory(context, "infrawright-adopt-zpa-order-legacy-");
+  const batchWorkspace = await temporaryDirectory(context, "infrawright-adopt-zpa-order-batch-");
+  const legacyInput = path.join(legacyWorkspace, "pulls");
+  const batchInput = path.join(batchWorkspace, "pulls");
+  await Promise.all([
+    writeZpaReferenceOrderingPulls(legacyInput),
+    writeZpaReferenceOrderingPulls(batchInput),
+  ]);
+  const selectors = [
+    "zpa_application_server",
+    "zpa_segment_group",
+    "zpa_application_segment",
+  ];
+
+  const legacyOrder: string[] = [];
+  const legacy = await runAdoptBatch({
+    batchStateLoader: async () => {
+      throw new Error("per-resource mode must not invoke the batch Oracle");
+    },
+    deployment: slugZpaDeployment(legacyWorkspace),
+    environment: { INFRAWRIGHT_ORACLE_BATCH_MODE: "per-resource-type" },
+    inputDirectory: legacyInput,
+    policy,
+    root,
+    selectors,
+    stateLoader: async (request) => {
+      legacyOrder.push(request.resourceType);
+      return zpaReferenceStateLoader(request);
+    },
+    tenant: "tenant",
+  });
+
+  let batchCalls = 0;
+  const optimizedOrder: string[] = [];
+  const optimized = await runAdoptBatch({
+    batchStateLoader: async () => {
+      batchCalls += 1;
+      throw new Error("a root with a pending external referent must not batch");
+    },
+    deployment: slugZpaDeployment(batchWorkspace),
+    environment: { INFRAWRIGHT_ORACLE_BATCH_MODE: "logical-root" },
+    inputDirectory: batchInput,
+    policy,
+    root,
+    selectors,
+    stateLoader: async (request) => {
+      optimizedOrder.push(request.resourceType);
+      return zpaReferenceStateLoader(request);
+    },
+    tenant: "tenant",
+  });
+
+  assert.deepEqual(legacy.failed, []);
+  assert.deepEqual(optimized.failed, []);
+  assert.equal(batchCalls, 0);
+  assert.deepEqual(optimizedOrder, legacyOrder);
+  assert.deepEqual(legacyOrder, selectors);
+  assert.deepEqual(
+    await snapshotTree(path.join(batchWorkspace, "config", "tenant")),
+    await snapshotTree(path.join(legacyWorkspace, "config", "tenant")),
+  );
+  assert.deepEqual(
+    await snapshotTree(path.join(batchWorkspace, "imports", "tenant")),
+    await snapshotTree(path.join(legacyWorkspace, "imports", "tenant")),
+  );
+  assert.match(
+    await readFile(
+      path.join(
+        batchWorkspace,
+        "config",
+        "tenant",
+        "zpa_application_segment.auto.tfvars",
+      ),
+      "utf8",
+    ),
+    /segment_group_id = "sg-id" # Segment Group/u,
   );
 });
 

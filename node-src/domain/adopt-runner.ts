@@ -328,6 +328,9 @@ async function runAdoptBatchInner(
   const failed: string[] = [];
   const mode = oracleBatchMode(options.environment ?? process.env);
   const selected = new Set(selection.resourceTypes);
+  const selectionIndex = new Map(
+    selection.resourceTypes.map((resourceType, index) => [resourceType, index] as const),
+  );
   const handled = new Set<string>();
   const disabledBatchRoots = new Set<string>();
   const topologyRootByMember = new Map<string, (typeof topology.roots)[number]>();
@@ -354,12 +357,37 @@ async function runAdoptBatchInner(
     if (mode !== "logical-root") return false;
     const logicalRoot = topologyRootByMember.get(trigger);
     if (logicalRoot === undefined || disabledBatchRoots.has(logicalRoot.label)) return false;
-    const candidates = logicalRoot.members.filter((member) => {
+    const logicalRootMembers = new Set(logicalRoot.members);
+    const candidates = selection.resourceTypes.filter((member) => {
+      if (!logicalRootMembers.has(member)) return false;
       if (!selected.has(member)) return false;
       const resource = options.root.resources.get(member);
       return resource !== undefined && !isObject(resource.registry.derive);
     });
     if (candidates.length < 2) {
+      disabledBatchRoots.add(logicalRoot.label);
+      return false;
+    }
+    const candidateSet = new Set(candidates);
+    const triggerIndex = selectionIndex.get(trigger);
+    if (triggerIndex === undefined) {
+      throw new TypeError(`selected resource ${trigger} has no reference-order position`);
+    }
+    const hasPendingExternalReferent = candidates.some((resourceType) => {
+      const resource = options.root.resources.get(resourceType);
+      if (resource === undefined) return false;
+      return Object.values(transformReferenceSpecs(options.root, resource)).some((reference) => {
+        if (!selected.has(reference.referent) || candidateSet.has(reference.referent)) return false;
+        const referentIndex = selectionIndex.get(reference.referent);
+        return !handled.has(reference.referent)
+          && (referentIndex === undefined || referentIndex >= triggerIndex);
+      });
+    });
+    if (hasPendingExternalReferent) {
+      // Pulling the rest of this root forward would bypass the global
+      // referent-before-referrer order. Keep the whole root on the legacy
+      // per-resource path so HCL lookup annotations see freshly written
+      // external lookup sidecars.
       disabledBatchRoots.add(logicalRoot.label);
       return false;
     }
