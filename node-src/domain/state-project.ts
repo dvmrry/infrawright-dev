@@ -22,7 +22,7 @@ import {
   type ConcretePathSegment,
   type PolicyPathSegment,
 } from "./policy-paths.js";
-import { projectLoadedRawField } from "./pull-transform.js";
+import { matchesTransformDefault, projectLoadedRawField } from "./pull-transform.js";
 import { DriftPolicy, type PolicyEntry } from "./drift-policy.js";
 
 type JsonRecord = Record<string, unknown>;
@@ -598,34 +598,89 @@ function removeMatchingLeaves(
   selector: readonly PolicyPathSegment[],
   values: readonly unknown[],
   path: readonly ConcretePathSegment[] = [],
+  ignoreCollectionIndexes = false,
+  equality: (left: unknown, right: unknown) => boolean = terraformJsonEqual,
 ): number {
   let removed = 0;
   if (record(value)) {
     for (const key of Object.keys(value).sort()) {
       const child = value[key];
       const childPath = [...path, key];
-      if (leaf(child) && policySelectorMatches(selector, childPath)
-        && values.some((candidate) => terraformJsonEqual(child, candidate))) {
+      const matchPath = ignoreCollectionIndexes
+        ? childPath.filter((segment) => typeof segment !== "number")
+        : childPath;
+      if (leaf(child) && policySelectorMatches(selector, matchPath)
+        && values.some((candidate) => equality(child, candidate))) {
         delete value[key];
         removed += 1;
       } else {
-        removed += removeMatchingLeaves(child, selector, values, childPath);
+        removed += removeMatchingLeaves(
+          child,
+          selector,
+          values,
+          childPath,
+          ignoreCollectionIndexes,
+          equality,
+        );
       }
     }
   } else if (Array.isArray(value)) {
     for (let index = value.length - 1; index >= 0; index -= 1) {
       const child = value[index];
       const childPath = [...path, index];
-      if (leaf(child) && policySelectorMatches(selector, childPath)
-        && values.some((candidate) => terraformJsonEqual(child, candidate))) {
+      const matchPath = ignoreCollectionIndexes
+        ? childPath.filter((segment) => typeof segment !== "number")
+        : childPath;
+      if (leaf(child) && policySelectorMatches(selector, matchPath)
+        && values.some((candidate) => equality(child, candidate))) {
         value.splice(index, 1);
         removed += 1;
       } else {
-        removed += removeMatchingLeaves(child, selector, values, childPath);
+        removed += removeMatchingLeaves(
+          child,
+          selector,
+          values,
+          childPath,
+          ignoreCollectionIndexes,
+          equality,
+        );
       }
     }
   }
   return removed;
+}
+
+function applyPackDropIfDefault(options: {
+  readonly output: JsonRecord;
+  readonly resourceType: string;
+  readonly root: LoadedPackRoot;
+  readonly schema: Readonly<JsonObject>;
+}): void {
+  const override = options.root.resources?.get(options.resourceType)?.override;
+  const dropDefaults = record(override?.drop_if_default)
+    ? override.drop_if_default
+    : {};
+  for (const path of Object.keys(dropDefaults).sort()) {
+    const selector = parsePolicyPath(path);
+    const status = providerSchemaStatus({
+      path: selector,
+      resourceType: options.resourceType,
+      schema: options.schema,
+    });
+    if (status !== "optional") {
+      throw new ProjectionError(
+        `${options.resourceType} pack drop_if_default path ${path} is not optional (schema status ${status})`,
+      );
+    }
+    removeMatchingLeaves(
+      options.output,
+      selector,
+      [dropDefaults[path]],
+      [],
+      true,
+      matchesTransformDefault,
+    );
+  }
 }
 
 function applyProjectionOmitIf(options: {
@@ -678,6 +733,9 @@ export async function projectProviderState(options: {
       resourceType: options.resourceType,
       schema,
     });
+  }
+  applyPackDropIfDefault({ output, resourceType: options.resourceType, root: options.root, schema });
+  if (policy !== null) {
     applyProjectionOmitIf({ output, policy, resourceType: options.resourceType, schema });
   }
   return output;

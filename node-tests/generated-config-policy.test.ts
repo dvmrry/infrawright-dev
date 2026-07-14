@@ -16,6 +16,7 @@ const SCHEMA: JsonObject = {
       description: { optional: true, type: "string" },
       filled: { optional: true, type: ["list", "string"] },
       name: { required: true, type: "string" },
+      size_quota: { optional: true, type: "number" },
     },
     block_types: {
       rules: {
@@ -31,8 +32,11 @@ const SCHEMA: JsonObject = {
   },
 };
 
-function root(): LoadedPackRoot {
-  return { loadResourceSchema: async () => SCHEMA } as unknown as LoadedPackRoot;
+function root(override: JsonObject | null = null): LoadedPackRoot {
+  return {
+    loadResourceSchema: async () => SCHEMA,
+    resources: new Map([["sample_resource", { override }]]),
+  } as unknown as LoadedPackRoot;
 }
 
 function policy(resource: JsonObject): DriftPolicy {
@@ -93,6 +97,38 @@ test("generated config removes optional scalar and wildcard block leaves, then f
   assert.equal(result.text.includes("order = 2"), true);
   assert.equal(result.text.includes('filled = [\n    "one",\n    "two",\n  ]'), true);
   assert.deepEqual(selected.staleEntries(), []);
+});
+
+test("pack drop_if_default removes provider-emitted sentinel without a drift policy", async () => {
+  const generated = GENERATED.replace(
+    '  description = "DROP"\n',
+    "  size_quota = 0\n",
+  );
+  const result = await applyGeneratedConfigPolicy({
+    addressToKey: new Map([[ADDRESS, "example"]]),
+    generatedConfig: generated,
+    policy: null,
+    resourceType: "sample_resource",
+    root: root({ drop_if_default: { size_quota: 0 } }),
+  });
+  assert.equal(result.edits, 1);
+  assert.equal(result.text.includes("size_quota"), false);
+  assert.equal(result.text.includes('name        = "Example"'), true);
+});
+
+test("pack drop_if_default preserves nonmatching provider values", async () => {
+  const generated = GENERATED.replace(
+    '  description = "DROP"\n',
+    "  size_quota = 10\n",
+  );
+  const result = await applyGeneratedConfigPolicy({
+    addressToKey: new Map([[ADDRESS, "example"]]),
+    generatedConfig: generated,
+    policy: null,
+    resourceType: "sample_resource",
+    root: root({ drop_if_default: { size_quota: 0 } }),
+  });
+  assert.deepEqual(result, { edits: 0, text: generated });
 });
 
 test("batch generated-config policy edits known sibling resource blocks independently", async () => {

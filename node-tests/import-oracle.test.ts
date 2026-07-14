@@ -775,6 +775,60 @@ test("policy edits generated config and forces a second plan before authorizatio
   assert.equal(corrected?.terraform_commands, 1);
 });
 
+test("pack drop_if_default edits generated config and forces a second plan", async () => {
+  const resourceType = "zia_url_filtering_rules";
+  const key = "quota";
+  const importId = "QUOTA_01";
+  const address = oracleAddress(resourceType, key);
+  const generated = `resource "${resourceType}" "${address.split(".")[1]}" {\n  id         = "${importId}"\n  name       = "Quota"\n  size_quota = 0\n}\n`;
+  const fake = new FakeTerraform(generated);
+  fake.failGeneratedPlan = true;
+  fake.plan = {
+    applyable: true,
+    complete: true,
+    errored: false,
+    format_version: "1.2",
+    resource_changes: [{
+      address,
+      change: { actions: ["no-op"], importing: { id: importId } },
+      mode: "managed",
+      provider_name: "registry.terraform.io/zscaler/zia",
+      type: resourceType,
+    }],
+    terraform_version: "1.15.4",
+  };
+  fake.state = {
+    format_version: "1.0",
+    terraform_version: "1.15.4",
+    values: {
+      root_module: {
+        resources: [batchResourceObservation({
+          address,
+          resourceType,
+          values: { id: importId, name: "Quota" },
+        })],
+      },
+    },
+  };
+
+  const output = await importProviderState({
+    keyToImportId: new Map([[key, importId]]),
+    resourceType,
+    root: await committedRoot(),
+    runner: fake,
+  });
+
+  assert.deepEqual([...output.keys()], [key]);
+  assert.deepEqual(fake.requests.map((request) => request.debugName), [
+    "init",
+    "plan-generate-config",
+    "plan-imports",
+    "show-plan",
+    "apply-imports",
+    "show-state",
+  ]);
+});
+
 test("accepted-plan mode uses the corrected plan and skips only Apply/state show", async () => {
   const fake = new FakeTerraform(`resource "${RESOURCE}" "${ADDRESS.split(".")[1]}" {\n  configured_name = "Example"\n  description     = "DROP"\n}\n`);
   fake.failGeneratedPlan = true;

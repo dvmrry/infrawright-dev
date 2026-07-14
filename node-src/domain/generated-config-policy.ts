@@ -13,6 +13,7 @@ import { terraformJsonEqual } from "../json/python-equality.js";
 import { canonicalPythonNumberToken } from "../json/python-number.js";
 import { renderHclQuotedString, parseHclQuotedString } from "./import-moves.js";
 import { parsePolicyPath, policySelectorMatches, type ConcretePathSegment } from "./policy-paths.js";
+import { matchesTransformDefault } from "./pull-transform.js";
 import { DriftPolicy, type PolicyEntry } from "./drift-policy.js";
 import { projectionFillValue, providerSchemaStatus } from "./state-project.js";
 
@@ -26,9 +27,10 @@ export class GeneratedConfigPolicyError extends Error {
 }
 
 interface OmitEntry {
-  readonly entry: PolicyEntry;
-  readonly mode: "projection_omit" | "projection_omit_if";
+  readonly entry: PolicyEntry | null;
+  readonly mode: "pack_drop_if_default" | "projection_omit" | "projection_omit_if";
   readonly selector: ReturnType<typeof parsePolicyPath>;
+  readonly values?: readonly unknown[];
 }
 
 function record(value: unknown): value is JsonRecord {
@@ -44,22 +46,54 @@ async function policyEntries(options: {
   readonly resourceType: string;
   readonly root: LoadedPackRoot;
 }): Promise<{ readonly fills: readonly PolicyEntry[]; readonly omits: readonly OmitEntry[] }> {
-  if (options.policy === null) return { fills: [], omits: [] };
+  const override = options.root.resources?.get(options.resourceType)?.override;
+  const dropDefaults = record(override?.drop_if_default)
+    ? override.drop_if_default
+    : {};
+  const fills = options.policy?.entries(options.resourceType, "projection_fill") ?? [];
+  const policyOmits = options.policy === null
+    ? []
+    : [
+      ...options.policy.entries(options.resourceType, "projection_omit"),
+      ...options.policy.entries(options.resourceType, "projection_omit_if"),
+    ];
+  if (fills.length === 0 && policyOmits.length === 0 && Object.keys(dropDefaults).length === 0) {
+    return { fills: [], omits: [] };
+  }
   const schema = await options.root.loadResourceSchema(options.resourceType);
   const omits: OmitEntry[] = [];
-  for (const mode of ["projection_omit", "projection_omit_if"] as const) {
-    for (const entry of options.policy.entries(options.resourceType, mode)) {
-      const selector = parsePolicyPath(entry.path);
-      if (providerSchemaStatus({ path: selector, resourceType: options.resourceType, schema }) === "required") {
-        throw new GeneratedConfigPolicyError(
-          `${options.resourceType} generated import config policy cannot ${mode} required path ${String(entry.path)}`,
-        );
+  if (options.policy !== null) {
+    for (const mode of ["projection_omit", "projection_omit_if"] as const) {
+      for (const entry of options.policy.entries(options.resourceType, mode)) {
+        const selector = parsePolicyPath(entry.path);
+        if (providerSchemaStatus({ path: selector, resourceType: options.resourceType, schema }) === "required") {
+          throw new GeneratedConfigPolicyError(
+            `${options.resourceType} generated import config policy cannot ${mode} required path ${String(entry.path)}`,
+          );
+        }
+        if (!exactIndex(selector)) omits.push({ entry, mode, selector });
       }
-      if (!exactIndex(selector)) omits.push({ entry, mode, selector });
+    }
+  }
+  for (const path of Object.keys(dropDefaults).sort()) {
+    const selector = parsePolicyPath(path);
+    const status = providerSchemaStatus({ path: selector, resourceType: options.resourceType, schema });
+    if (status !== "optional") {
+      throw new GeneratedConfigPolicyError(
+        `${options.resourceType} generated import config pack drop_if_default path ${path} is not optional (schema status ${status})`,
+      );
+    }
+    if (!exactIndex(selector)) {
+      omits.push({
+        entry: null,
+        mode: "pack_drop_if_default",
+        selector,
+        values: [dropDefaults[path]],
+      });
     }
   }
   return {
-    fills: options.policy.entries(options.resourceType, "projection_fill"),
+    fills,
     omits,
   };
 }
@@ -122,20 +156,32 @@ function matchingOmit(
 ): OmitEntry | null {
   if (!parsed.known) return null;
   for (const candidate of entries) {
-    if (!policySelectorMatches(candidate.selector, path)) continue;
+    const matches = candidate.mode === "pack_drop_if_default"
+      ? policySelectorMatches(
+        candidate.selector,
+        path.filter((segment) => typeof segment !== "number"),
+      )
+      : policySelectorMatches(candidate.selector, path);
+    if (!matches) continue;
     const status = providerSchemaStatus({
       path: candidate.selector,
       resourceType,
       schema,
     });
     if (status !== "optional") {
+      const pathLabel = candidate.entry?.path ?? candidate.selector.join(".");
       throw new GeneratedConfigPolicyError(
-        `${resourceType} generated import config policy matched non-optional path ${String(candidate.entry.path)} (schema status ${status})`,
+        `${resourceType} generated import config policy matched non-optional path ${String(pathLabel)} (schema status ${status})`,
       );
     }
     if (candidate.mode === "projection_omit") return candidate;
-    const values = Array.isArray(candidate.entry.values) ? candidate.entry.values : [];
-    if (values.some((value) => terraformJsonEqual(parsed.value, value))) return candidate;
+    const values = candidate.mode === "pack_drop_if_default"
+      ? candidate.values ?? []
+      : Array.isArray(candidate.entry?.values) ? candidate.entry.values : [];
+    const matchesValue = candidate.mode === "pack_drop_if_default"
+      ? values.some((value) => matchesTransformDefault(parsed.value, value))
+      : values.some((value) => terraformJsonEqual(parsed.value, value));
+    if (matchesValue) return candidate;
   }
   return null;
 }
@@ -403,7 +449,7 @@ async function rewriteGeneratedConfig(options: RewriteOptions): Promise<{
         resourceOptions.schema,
       );
       if (match !== null) {
-        resourceOptions.policy?.markMatched(match.entry);
+        if (match.entry !== null) resourceOptions.policy?.markMatched(match.entry);
         edits += 1;
         continue;
       }

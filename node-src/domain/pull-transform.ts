@@ -717,7 +717,7 @@ function filterItem(
       if (overrideDrops.has(dotted)) continue;
       if (
         hasOwn(overrideDropDefaults, dotted)
-        && matchesDefault(value, overrideDropDefaults[dotted])
+        && matchesTransformDefault(value, overrideDropDefaults[dotted])
       ) {
         continue;
       }
@@ -913,7 +913,7 @@ function integerValue(value: unknown): bigint | null {
   return null;
 }
 
-function matchesDefault(value: unknown, defaultValue: unknown): boolean {
+export function matchesTransformDefault(value: unknown, defaultValue: unknown): boolean {
   const defaultInteger = integerValue(defaultValue);
   let comparable = value;
   if (defaultInteger !== null && typeof value === "string") {
@@ -1113,7 +1113,7 @@ function applyReachableOverrides(
     `${resource.type}.override.drop_if_default`,
   );
   for (const field of sortedStrings(Object.keys(dropDefaults))) {
-    if (hasOwn(output, field) && matchesDefault(output[field], dropDefaults[field])) {
+    if (hasOwn(output, field) && matchesTransformDefault(output[field], dropDefaults[field])) {
       delete output[field];
     }
   }

@@ -160,6 +160,45 @@ class AdoptCommandTest(unittest.TestCase):
         self.assertEqual(items, {"prod_app": {"name": "Prod App"}})
         self.assertEqual(originals["prod_app"]["id"], "123")
 
+    def test_adopt_items_passes_pack_drop_defaults_to_projection(self):
+        _write_json(os.path.join(
+            self.tmp,
+            "packs",
+            "sample",
+            "overrides",
+            "sample_resource.json",
+        ), {
+            "drop_if_default": {"size_quota": 0},
+        })
+
+        def fake_import_state(resource_type, key_to_import_id,
+                              policy=None, raw_items=None):
+            return {
+                "prod_app": {
+                    "values": {"name": "Prod App", "size_quota": 0},
+                    "sensitive_values": {},
+                }
+            }
+
+        def fake_project_item(resource_type, state_values,
+                              sensitive_values=None, policy=None, raw_item=None,
+                              override=None):
+            self.assertEqual(
+                override,
+                {"drop_if_default": {"size_quota": 0}},
+            )
+            return {"name": state_values["name"]}
+
+        adopt.import_state = fake_import_state
+        adopt.project_item = fake_project_item
+
+        items, _ = adopt.adopt_items(
+            [{"id": "123", "name": "Prod App"}],
+            "sample_resource",
+        )
+
+        self.assertEqual(items, {"prod_app": {"name": "Prod App"}})
+
     def test_adopt_main_loads_pack_drift_policy(self):
         _write_json(os.path.join(self.tmp, "packs", "sample", "pack.json"), {
             "drift_policy": {

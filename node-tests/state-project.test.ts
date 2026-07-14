@@ -62,9 +62,10 @@ const SCHEMA: JsonObject = {
   },
 };
 
-function root(schema: JsonObject = SCHEMA): LoadedPackRoot {
+function root(schema: JsonObject = SCHEMA, override: JsonObject | null = null): LoadedPackRoot {
   return {
     loadResourceSchema: async () => schema,
+    resources: new Map([["sample_resource", { override }]]),
   } as unknown as LoadedPackRoot;
 }
 
@@ -113,6 +114,33 @@ test("schema projection preserves writable false/zero/empty values and recursive
     settings: { flag: false, mode: "audit" },
   });
   assert.equal((output.number_value as LosslessNumber).toString(), "9007199254740993");
+});
+
+test("pack drop_if_default removes provider sentinels from projected tfvars", async () => {
+  const output = await projectProviderState({
+    resourceType: "sample_resource",
+    root: root(SCHEMA, {
+      drop_if_default: {
+        number_value: 0,
+        "rules.order": 0,
+      },
+    }),
+    stateValues: {
+      name: "Example",
+      number_value: new LosslessNumber("0"),
+      required_settings: [{ mode: "strict" }],
+      rules: [
+        { name: "first", order: new LosslessNumber("0") },
+        { name: "second", order: new LosslessNumber("2") },
+      ],
+    },
+  });
+
+  assert.deepEqual(plain(output), {
+    name: "Example",
+    required_settings: { mode: "strict" },
+    rules: [{ name: "first" }, { name: "second", order: "2" }],
+  });
 });
 
 test("required attributes and required nested cardinality fail closed", async () => {

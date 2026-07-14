@@ -78,15 +78,21 @@ def adopt_items(raw_items, resource_type, policy=None, state_loader=None):
 
     oracle = state_loader(
         resource_type, key_to_import_id, policy=policy, raw_items=key_to_raw)
+    override = transform.load_override(resource_type)
     items = {}
     for key in sorted(oracle):
         state_obj = oracle[key]
+        projection_options = {
+            "sensitive_values": state_obj.get("sensitive_values"),
+            "policy": policy,
+            "raw_item": key_to_raw.get(key),
+        }
+        if override:
+            projection_options["override"] = override
         items[key] = project_item(
             resource_type,
             state_obj["values"],
-            sensitive_values=state_obj.get("sensitive_values"),
-            policy=policy,
-            raw_item=key_to_raw.get(key),
+            **projection_options
         )
     return items, key_to_identity
 

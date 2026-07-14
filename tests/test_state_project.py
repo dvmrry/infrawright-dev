@@ -97,6 +97,33 @@ class StateProjectTest(unittest.TestCase):
             "rules": [],
         })
 
+    def test_pack_drop_if_default_removes_provider_sentinels(self):
+        out = project_item(
+            "sample_resource",
+            {
+                "name": "Prod",
+                "count": 0,
+                "rules": [
+                    {"name": "first", "order": 0},
+                    {"name": "second", "order": 2},
+                ],
+            },
+            override={
+                "drop_if_default": {
+                    "count": 0,
+                    "rules.order": 0,
+                },
+            },
+        )
+
+        self.assertEqual(out, {
+            "name": "Prod",
+            "rules": [
+                {"name": "first"},
+                {"name": "second", "order": 2},
+            ],
+        })
+
     def test_required_missing_fails(self):
         with self.assertRaises(ProjectionError):
             project_item("sample_resource", {"description": "x"})
