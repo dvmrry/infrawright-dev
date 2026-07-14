@@ -34,6 +34,28 @@ export interface AdoptionIdentityResult {
   }[];
 }
 
+export interface AdoptionUnsupportedRule {
+  readonly evidence: readonly string[];
+  readonly match: Readonly<JsonObject>;
+  readonly provider: {
+    readonly source: string;
+    readonly version: string;
+  };
+  readonly reason: string;
+}
+
+export interface AdoptionRawClassification {
+  readonly eligible: readonly Readonly<Record<string, unknown>>[];
+  readonly skipped: readonly {
+    readonly item: Readonly<Record<string, unknown>>;
+    readonly reason: "skip_if" | "skip_if_lte";
+  }[];
+  readonly unsupported: readonly {
+    readonly item: Readonly<Record<string, unknown>>;
+    readonly rule: AdoptionUnsupportedRule;
+  }[];
+}
+
 function record(value: unknown, label: string): Readonly<Record<string, unknown>> {
   if (!isObject(value)) throw new TypeError(`${label} must be a JSON object`);
   return value;
@@ -56,6 +78,87 @@ function matcherList(value: unknown, label: string): readonly Readonly<JsonObjec
     throw new TypeError(`${label} must be a list of objects`);
   }
   return value as readonly Readonly<JsonObject>[];
+}
+
+/** Resolve already-validated, version-scoped unsupported adoption metadata. */
+export function adoptionUnsupportedRules(
+  resource: LoadedResourceMetadata,
+): readonly AdoptionUnsupportedRule[] {
+  const adopt = isObject(resource.registry.adopt) ? resource.registry.adopt : {};
+  const rawRules = Array.isArray(adopt.unsupported_if) ? adopt.unsupported_if : [];
+  return rawRules.map((rawRule, index) => {
+    const label = `${resource.type}.adopt.unsupported_if[${index}]`;
+    const rule = record(rawRule, label);
+    const provider = record(rule.provider, `${label}.provider`);
+    if (!isObject(rule.match) || typeof rule.reason !== "string") {
+      throw new TypeError(`${label} is not valid unsupported adoption metadata`);
+    }
+    if (typeof provider.source !== "string" || typeof provider.version !== "string") {
+      throw new TypeError(`${label}.provider is not valid unsupported adoption metadata`);
+    }
+    if (!Array.isArray(rule.evidence) || rule.evidence.some((item) => typeof item !== "string")) {
+      throw new TypeError(`${label}.evidence is not valid unsupported adoption metadata`);
+    }
+    return {
+      evidence: rule.evidence as readonly string[],
+      match: rule.match,
+      provider: { source: provider.source, version: provider.version },
+      reason: rule.reason,
+    };
+  });
+}
+
+function unsupportedScalarEqual(left: unknown, right: unknown): boolean {
+  if (typeof left === "boolean" || typeof right === "boolean") {
+    return typeof left === "boolean" && typeof right === "boolean" && left === right;
+  }
+  return pythonJsonEqual(left, right);
+}
+
+function unsupportedRuleMatches(
+  item: Readonly<Record<string, unknown>>,
+  rule: AdoptionUnsupportedRule,
+): boolean {
+  return Object.entries(rule.match).every(([field, expected]) => {
+    return unsupportedScalarEqual(item[snakeName(field)], expected);
+  });
+}
+
+/** Classify raw adoption items before identity shaping or Terraform execution. */
+export function classifyAdoptionRawItems(options: {
+  readonly rawItems: readonly unknown[];
+  readonly resource: LoadedResourceMetadata;
+}): AdoptionRawClassification {
+  const metadata = adoptionMetadata(options.resource);
+  const unsupportedRules = adoptionUnsupportedRules(options.resource);
+  const eligible: Array<Readonly<Record<string, unknown>>> = [];
+  const skipped: Array<{
+    readonly item: Readonly<Record<string, unknown>>;
+    readonly reason: "skip_if" | "skip_if_lte";
+  }> = [];
+  const unsupported: Array<{
+    readonly item: Readonly<Record<string, unknown>>;
+    readonly rule: AdoptionUnsupportedRule;
+  }> = [];
+  for (const raw of options.rawItems) {
+    const rawItem = record(raw, `${options.resource.type} raw item`);
+    const item = record(snakeJsonKeys(rawItem), `${options.resource.type} raw item`);
+    const reason = transformSkipMatchReason(item, {
+      skip_if: metadata.skipIf,
+      skip_if_lte: metadata.skipIfLte,
+    }, `${options.resource.type}.adopt`);
+    if (reason !== null) {
+      skipped.push({ item, reason });
+      continue;
+    }
+    const unsupportedRule = unsupportedRules.find((rule) => unsupportedRuleMatches(item, rule));
+    if (unsupportedRule !== undefined) {
+      unsupported.push({ item, rule: unsupportedRule });
+      continue;
+    }
+    eligible.push(rawItem);
+  }
+  return { eligible, skipped, unsupported };
 }
 
 /** Resolve registry adoption metadata before legacy transform identity fallback. */
@@ -201,23 +304,20 @@ export function deriveAdoptionIdentities(options: {
   readonly resource: LoadedResourceMetadata;
 }): AdoptionIdentityResult {
   const metadata = adoptionMetadata(options.resource);
+  const classified = classifyAdoptionRawItems(options);
+  if (classified.unsupported.length > 0) {
+    throw new TypeError(
+      `${options.resource.type} contains ${classified.unsupported.length} item(s) unsupported by provider ${classified.unsupported[0]?.rule.provider.source ?? "<unknown>"} ${classified.unsupported[0]?.rule.provider.version ?? "<unknown>"}`,
+    );
+  }
   const retained: Array<{
     readonly item: Readonly<Record<string, unknown>>;
     readonly raw: Readonly<Record<string, unknown>>;
   }> = [];
-  const skipped: Array<{
-    readonly item: Readonly<Record<string, unknown>>;
-    readonly reason: "skip_if" | "skip_if_lte";
-  }> = [];
-  for (const raw of options.rawItems) {
+  for (const raw of classified.eligible) {
     const rawItem = record(raw, `${options.resource.type} raw item`);
     const item = adoptionIdentityItem({ metadata, raw, resourceType: options.resource.type });
-    const reason = transformSkipMatchReason(item, {
-      skip_if: metadata.skipIf,
-      skip_if_lte: metadata.skipIfLte,
-    }, `${options.resource.type}.adopt`);
-    if (reason !== null) skipped.push({ item, reason });
-    else retained.push({ item, raw: rawItem });
+    retained.push({ item, raw: rawItem });
   }
   if (metadata.constantKey !== null && retained.length > 1) {
     throw new TypeError(
@@ -243,5 +343,5 @@ export function deriveAdoptionIdentities(options: {
     importIds.set(importId, key);
     identities.push({ importId, item: entry.item, key, raw: entry.raw });
   }
-  return { identities, skipped };
+  return { identities, skipped: classified.skipped };
 }

@@ -122,6 +122,31 @@ class CheckPackCliTest(unittest.TestCase):
         self.assertIn("zia", proc.stderr)
         self.assertIn("zpa", proc.stderr)
 
+    def test_unsupported_adoption_scope_must_match_pack_source_and_pin(self):
+        rule = {
+            "evidence": ["https://example.invalid/provider-source"],
+            "match": {"action": "ISOLATE"},
+            "provider": {"source": "example/sample", "version": "1.2.3"},
+            "reason": "provider cannot round-trip this object",
+        }
+        pack = {
+            "pin": "1.2.3",
+            "provider_prefixes": {"sample_": "sample"},
+            "provider_sources": {"sample": "example/sample"},
+        }
+        for field, value in (("source", "example/other"), ("version", "9.9.9")):
+            scoped = dict(rule)
+            scoped["provider"] = dict(rule["provider"], **{field: value})
+            data = _registry()
+            data["sample_resource"]["adopt"] = {
+                "unsupported_if": [scoped],
+            }
+            with tempfile.TemporaryDirectory() as td:
+                _write_pack(td, "bad", pack=pack, registry=data)
+                proc = self._run(packs_root=td)
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("does not match pack provider", proc.stderr)
+
     def test_invalid_override_metadata_fails(self):
         with tempfile.TemporaryDirectory() as td:
             _write_pack(td, "bad", registry=_registry())

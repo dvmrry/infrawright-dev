@@ -1283,6 +1283,7 @@ function runtimeResourceFromCatalog(
       ? resource.key_fields[0]
       : resource.key_fields,
     renames: resource.renames,
+    skip_if: resource.skip_if ?? [],
     sort_lists: resource.sort_lists ?? [],
     split_csv: resource.split_csv,
   };

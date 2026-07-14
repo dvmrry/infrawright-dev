@@ -67,7 +67,8 @@ def _validate_one(root, name):
     pack_path = os.path.join(pack_dir, "pack.json")
     if not os.path.isfile(pack_path):
         raise ValueError("unknown pack %r under %s" % (name, root))
-    packs.validate_pack_metadata(_load_json(pack_path), path=pack_path)
+    pack_data = _load_json(pack_path)
+    packs.validate_pack_metadata(pack_data, path=pack_path)
     packs.validate_collector_layout(name, root=root)
 
     registry_path = os.path.join(pack_dir, "registry.json")
@@ -75,8 +76,39 @@ def _validate_one(root, name):
     if os.path.isfile(registry_path):
         registry_data = _load_json(registry_path)
         registry.validate_registry(registry_data, path=registry_path)
+        _validate_unsupported_scopes(registry_data, pack_data, registry_path)
     _validate_overrides(pack_dir)
     return registry_path, registry_data
+
+
+def _validate_unsupported_scopes(registry_data, pack_data, registry_path):
+    prefixes = pack_data.get("provider_prefixes", {})
+    sources = pack_data.get("provider_sources", {})
+    pin = pack_data.get("pin")
+    for resource_type, entry in registry_data.items():
+        rules = (entry.get("adopt") or {}).get("unsupported_if") or []
+        if not rules:
+            continue
+        provider = None
+        for prefix in sorted(prefixes, key=len, reverse=True):
+            if resource_type.startswith(prefix):
+                provider = prefixes[prefix]
+                break
+        expected_source = sources.get(provider)
+        for index, rule in enumerate(rules):
+            scoped = rule["provider"]
+            label = "%s.%s.adopt.unsupported_if[%d].provider" % (
+                registry_path, resource_type, index)
+            if scoped["source"] != expected_source:
+                raise ValueError(
+                    "%s.source %r does not match pack provider source %r"
+                    % (label, scoped["source"], expected_source)
+                )
+            if scoped["version"] != pin:
+                raise ValueError(
+                    "%s.version %r does not match pack provider pin %r"
+                    % (label, scoped["version"], pin)
+                )
 
 
 def _validate_overrides(pack_dir):

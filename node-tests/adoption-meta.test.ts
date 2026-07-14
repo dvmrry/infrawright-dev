@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
@@ -7,12 +8,14 @@ import { LosslessNumber } from "lossless-json";
 import {
   adoptionIdentityItem,
   adoptionMetadata,
+  classifyAdoptionRawItems,
   deriveAdoptionIdentities,
   deriveAdoptionKey,
   type AdoptionMetadata,
 } from "../node-src/domain/adoption-meta.js";
 import { adoptResourceItems } from "../node-src/domain/adopt-runner.js";
 import { DriftPolicy } from "../node-src/domain/drift-policy.js";
+import { parseDataJsonLosslessly } from "../node-src/json/control.js";
 import { transformLoadedItems } from "../node-src/domain/pull-transform.js";
 import { formatImportTemplate } from "../node-src/domain/transform-artifacts.js";
 import { loadPackRoot, type LoadedPackRoot, type LoadedResourceMetadata } from "../node-src/metadata/loader.js";
@@ -60,7 +63,7 @@ test("all committed registry adoption entries resolve through generic metadata",
   const explicit = [...root.resources.values()].filter((entry) => {
     return entry.registry.adopt !== undefined;
   });
-  assert.equal(explicit.length, 31);
+  assert.equal(explicit.length, 33);
   for (const entry of explicit) {
     assert.doesNotThrow(() => adoptionMetadata(entry), entry.type);
   }
@@ -272,6 +275,112 @@ test("skip predicates retain wide-number precision and report their exact mode",
   });
   assert.deepEqual(result.skipped.map((entry) => entry.reason), ["skip_if", "skip_if_lte"]);
   assert.deepEqual(result.identities.map((entry) => entry.key), ["high"]);
+});
+
+function unsupportedRule(match: JsonObject): JsonObject {
+  return {
+    evidence: ["https://example.invalid/provider-source"],
+    match,
+    provider: { source: "example/sample", version: "1.2.3" },
+    reason: "provider cannot round-trip this object",
+  };
+}
+
+test("raw classification runs system skips then strict unsupported checks before identity", () => {
+  const selected = resource({
+    adopt: {
+      identity_fields: { import_id: "details.missing" },
+      key_field: "missing_name",
+      skip_if: [{ system: true }],
+      unsupported_if: [unsupportedRule({ action: "ISOLATE" })],
+    },
+  });
+  const classified = classifyAdoptionRawItems({
+    rawItems: [
+      { action: "ISOLATE", system: true },
+      { action: "ISOLATE", system: false },
+      { action: "BLOCK", system: false },
+    ],
+    resource: selected,
+  });
+  assert.equal(classified.skipped.length, 1);
+  assert.equal(classified.unsupported.length, 1);
+  assert.equal(classified.eligible.length, 1);
+  assert.throws(
+    () => deriveAdoptionIdentities({
+      rawItems: [{ action: "ISOLATE", system: false }],
+      resource: selected,
+    }),
+    /contains 1 item\(s\) unsupported by provider/u,
+  );
+
+  const strict = resource({
+    adopt: { unsupported_if: [unsupportedRule({ marker: new LosslessNumber("1") })] },
+  });
+  const strictResult = classifyAdoptionRawItems({
+    rawItems: [
+      { id: "bool", marker: true, name: "Boolean" },
+      { id: "number", marker: new LosslessNumber("1"), name: "Number" },
+    ],
+    resource: strict,
+  });
+  assert.deepEqual(strictResult.eligible.map((item) => item.id), ["bool"]);
+  assert.deepEqual(strictResult.unsupported.map((entry) => entry.item.id), ["number"]);
+});
+
+test("committed ZIA classification metadata matches source-backed Fetch-shaped fixtures", async () => {
+  const root = await loadPackRoot({
+    packsRoot: path.join(ROOT, "packs"),
+    profilePath: path.join(ROOT, "packsets", "full.json"),
+    catalogPath: path.join(ROOT, "packsets", "full.json"),
+  });
+  const fixture = parseDataJsonLosslessly(await readFile(
+    path.join(ROOT, "node-tests", "fixtures", "zia-adoption-classification-v4.7.26.json"),
+    "utf8",
+  )) as {
+    readonly resources: Readonly<Record<string, {
+      readonly keep: readonly JsonObject[];
+      readonly skip?: readonly JsonObject[];
+      readonly system_skip?: readonly JsonObject[];
+      readonly unsupported?: readonly JsonObject[];
+    }>>;
+  };
+  for (const [resourceType, evidence] of Object.entries(fixture.resources)) {
+    const selected = root.resources.get(resourceType);
+    assert.notEqual(selected, undefined, resourceType);
+    const skipped = [...(evidence.skip ?? []), ...(evidence.system_skip ?? [])];
+    const unsupported = evidence.unsupported ?? [];
+    const classified = classifyAdoptionRawItems({
+      rawItems: [...skipped, ...unsupported, ...evidence.keep],
+      resource: selected as LoadedResourceMetadata,
+    });
+    assert.equal(classified.skipped.length, skipped.length, `${resourceType} system skip`);
+    assert.equal(classified.unsupported.length, unsupported.length, `${resourceType} unsupported`);
+    assert.equal(classified.eligible.length, evidence.keep.length, `${resourceType} keep`);
+    const schema = await root.loadResourceSchema(resourceType);
+    for (const item of skipped) {
+      assert.equal(
+        Object.keys(transformLoadedItems({
+          rawItems: [item],
+          resource: selected as LoadedResourceMetadata,
+          schema,
+        }).items).length,
+        0,
+        `${resourceType} Transform system skip`,
+      );
+    }
+    for (const item of [...unsupported, ...evidence.keep]) {
+      assert.equal(
+        Object.keys(transformLoadedItems({
+          rawItems: [item],
+          resource: selected as LoadedResourceMetadata,
+          schema,
+        }).items).length,
+        1,
+        `${resourceType} Transform retains user-owned item`,
+      );
+    }
+  }
 });
 
 test("duplicate keys and duplicate import IDs fail before any Oracle call", () => {

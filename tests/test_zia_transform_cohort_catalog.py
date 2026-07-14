@@ -51,6 +51,7 @@ class ZiaTransformCohortCatalogTest(unittest.TestCase):
         self.assertEqual(
             catalog["source_files"],
             [
+                "zia/overrides/zia_admin_roles.json",
                 "zia/overrides/zia_traffic_forwarding_static_ip.json",
                 "zia/overrides/zia_url_categories.json",
                 "zia/pack.json",
@@ -74,6 +75,10 @@ class ZiaTransformCohortCatalogTest(unittest.TestCase):
             ["urls"],
         )
         self.assertNotIn("sort_lists", resources["zia_admin_roles"])
+        self.assertEqual(
+            resources["zia_admin_roles"]["skip_if"],
+            [{"is_non_editable": True}],
+        )
         self.assertEqual(
             resources["zia_url_categories"]["lookup_source"],
             {"name_field": "configured_name"},
@@ -175,6 +180,16 @@ class ZiaTransformCohortCatalogTest(unittest.TestCase):
                 "zia_traffic_forwarding_static_ip",
                 {"key_field": "ip_address", "sample": {"ignored": True}},
             )
+
+    def test_skip_if_metadata_is_validated_for_private_cohorts(self):
+        for invalid in ({}, {"is_non_editable": []}):
+            with self.assertRaisesRegex(
+                    ValueError, "must not be empty|value must be a scalar"):
+                transform_catalog._supported_override(
+                    "zia_admin_roles",
+                    {"skip_if": [invalid]},
+                    additional_keys={"skip_if"},
+                )
 
     def test_default_projection_gate_remains_strictly_zcc_closed(self):
         block = {

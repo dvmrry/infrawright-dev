@@ -66,6 +66,19 @@ function groupedZiaDeployment(overlay: string): Deployment {
   };
 }
 
+function unsupportedZiaDeployment(overlay: string): Deployment {
+  return {
+    overlay,
+    roots: {
+      zia: {
+        groups: {
+          zia_unsupported_preflight: ["zia_rule_labels", "zia_url_filtering_rules"],
+        },
+      },
+    },
+  };
+}
+
 function slugZpaDeployment(overlay: string): Deployment {
   return {
     overlay,
@@ -542,6 +555,205 @@ test("logical-root member failure leaves every member artifact unchanged", async
   assert.deepEqual(result.processed, []);
   assert.deepEqual(await snapshotTree(config), before.config);
   assert.deepEqual(await snapshotTree(imports), before.imports);
+});
+
+test("logical-root unsupported preflight covers every member and invokes no Oracle", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-adopt-unsupported-root-");
+  const input = path.join(workspace, "pulls");
+  const config = path.join(workspace, "config", "tenant");
+  const imports = path.join(workspace, "imports", "tenant");
+  await Promise.all([
+    writeJson(path.join(input, "zia_rule_labels.json"), [{ id: "1", name: "Safe Label" }]),
+    writeJson(path.join(input, "zia_url_filtering_rules.json"), [
+      { action: "ISOLATE", predefined: true },
+      { action: "ISOLATE", predefined: false },
+      { action: "BLOCK", id: 3, name: "Eligible Rule", predefined: false },
+    ]),
+    mkdir(config, { recursive: true }),
+    mkdir(imports, { recursive: true }),
+  ]);
+  for (const resourceType of ["zia_rule_labels", "zia_url_filtering_rules"]) {
+    await writeFile(
+      path.join(config, `${resourceType}.auto.tfvars.json`),
+      `existing ${resourceType} config\n`,
+    );
+    await writeFile(
+      path.join(imports, `${resourceType}_imports.tf`),
+      `existing ${resourceType} imports\n`,
+    );
+  }
+  const before = {
+    config: await snapshotTree(config),
+    imports: await snapshotTree(imports),
+  };
+  const diagnostics: string[] = [];
+  let batchCalls = 0;
+  let resourceCalls = 0;
+  const root = await committedRoot();
+  const result = await runAdoptBatch({
+    batchStateLoader: async () => {
+      batchCalls += 1;
+      throw new Error("unsupported root must not invoke the batch Oracle");
+    },
+    deployment: unsupportedZiaDeployment(workspace),
+    environment: { INFRAWRIGHT_ORACLE_BATCH_MODE: "logical-root" },
+    inputDirectory: input,
+    onDiagnostic: (message) => diagnostics.push(message),
+    policy: await loadAdoptionPolicy({ root }),
+    root,
+    selectors: ["zia_rule_labels"],
+    stateLoader: async () => {
+      resourceCalls += 1;
+      throw new Error("unsupported root must not invoke an isolation Oracle");
+    },
+    tenant: "tenant",
+  });
+  assert.equal(batchCalls, 0);
+  assert.equal(resourceCalls, 0);
+  assert.deepEqual([...result.failed].sort(), ["zia_rule_labels", "zia_url_filtering_rules"]);
+  assert.deepEqual(result.processed, []);
+  assert.deepEqual(await snapshotTree(config), before.config);
+  assert.deepEqual(await snapshotTree(imports), before.imports);
+  assert.ok(diagnostics.some((message) => {
+    return message.includes("selecting zia_rule_labels selects whole root zia_unsupported_preflight");
+  }));
+  assert.ok(diagnostics.some((message) => message.startsWith(
+    "unsupported zia_url_filtering_rules item",
+  )));
+  assert.ok(diagnostics.includes(
+    "adopt counts zia_rule_labels: fetched=1 system_skipped=0 unsupported=0 eligible=1 published=0 failed=1",
+  ));
+  assert.ok(diagnostics.includes(
+    "adopt counts zia_url_filtering_rules: fetched=3 system_skipped=1 unsupported=1 eligible=1 published=0 failed=1",
+  ));
+});
+
+test("logical-root unsupported preflight precedes external-referent fallback", async (context) => {
+  const workspace = await temporaryDirectory(
+    context,
+    "infrawright-adopt-unsupported-before-fallback-",
+  );
+  const input = path.join(workspace, "pulls");
+  const config = path.join(workspace, "config", "tenant");
+  await Promise.all([
+    writeJson(path.join(input, "zia_rule_labels.json"), [{ id: "1", name: "Safe Label" }]),
+    writeJson(path.join(input, "zia_url_categories.json"), [{
+      configuredName: "External Category",
+      customCategory: true,
+      id: "CUSTOM_EXTERNAL",
+      urls: ["external.example"],
+    }]),
+    writeJson(path.join(input, "zia_url_filtering_rules.json"), [{
+      action: "ISOLATE",
+      id: 2,
+      name: "Managed Isolate",
+      predefined: false,
+    }]),
+    mkdir(config, { recursive: true }),
+  ]);
+  const rootMembers = ["zia_rule_labels", "zia_url_filtering_rules"] as const;
+  for (const resourceType of rootMembers) {
+    await writeFile(
+      path.join(config, `${resourceType}.auto.tfvars.json`),
+      `existing ${resourceType} config\n`,
+    );
+  }
+  const before = await snapshotTree(config);
+  const resourceCalls: string[] = [];
+  let batchCalls = 0;
+  const root = await committedRoot();
+  const result = await runAdoptBatch({
+    batchStateLoader: async () => {
+      batchCalls += 1;
+      throw new Error("unsupported root must not invoke the batch Oracle");
+    },
+    deployment: unsupportedZiaDeployment(workspace),
+    environment: { INFRAWRIGHT_ORACLE_BATCH_MODE: "logical-root" },
+    inputDirectory: input,
+    policy: await loadAdoptionPolicy({ root }),
+    root,
+    selectors: [
+      "zia_rule_labels",
+      "zia_url_filtering_rules",
+      "zia_url_categories",
+    ],
+    stateLoader: async (request) => {
+      resourceCalls.push(request.resourceType);
+      assert.equal(request.resourceType, "zia_url_categories");
+      return new Map([[
+        "external_category",
+        {
+          address: "zia_url_categories.fixture",
+          sensitiveValues: {},
+          values: {
+            configured_name: "External Category",
+            custom_category: true,
+            id: "CUSTOM_EXTERNAL",
+            urls: ["external.example"],
+          },
+        },
+      ]]);
+    },
+    tenant: "tenant",
+  });
+  assert.equal(batchCalls, 0);
+  assert.deepEqual(resourceCalls, ["zia_url_categories"]);
+  assert.deepEqual([...result.failed].sort(), [...rootMembers].sort());
+  assert.deepEqual(result.processed, ["zia_url_categories"]);
+  const after = await snapshotTree(config);
+  for (const resourceType of rootMembers) {
+    const file = `${resourceType}.auto.tfvars.json`;
+    assert.equal(after[file], before[file]);
+  }
+});
+
+test("per-resource unsupported failure leaves its artifacts untouched while another resource publishes", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-adopt-unsupported-resource-");
+  const input = path.join(workspace, "pulls");
+  const config = path.join(workspace, "config", "tenant");
+  await Promise.all([
+    writeJson(path.join(input, "zia_rule_labels.json"), [{ id: "1", name: "Safe Label" }]),
+    writeJson(path.join(input, "zia_url_filtering_rules.json"), [
+      { action: "ISOLATE", id: 2, name: "Managed Isolate", predefined: false },
+      { action: "BLOCK", id: 3, name: "Eligible Rule", predefined: false },
+    ]),
+    mkdir(config, { recursive: true }),
+  ]);
+  const blockedPath = path.join(config, "zia_url_filtering_rules.auto.tfvars.json");
+  await writeFile(blockedPath, "existing blocked config\n");
+  const diagnostics: string[] = [];
+  let oracleCalls = 0;
+  const root = await committedRoot();
+  const result = await runAdoptBatch({
+    deployment: deployment(workspace),
+    environment: { INFRAWRIGHT_ORACLE_BATCH_MODE: "per-resource-type" },
+    inputDirectory: input,
+    onDiagnostic: (message) => diagnostics.push(message),
+    policy: await loadAdoptionPolicy({ root }),
+    root,
+    selectors: ["zia_rule_labels", "zia_url_filtering_rules"],
+    stateLoader: async (request) => {
+      oracleCalls += 1;
+      assert.equal(request.resourceType, "zia_rule_labels");
+      return new Map([["safe_label", {
+        address: "zia_rule_labels.fixture",
+        sensitiveValues: {},
+        values: { id: "1", name: "Safe Label" },
+      }]]);
+    },
+    tenant: "tenant",
+  });
+  assert.equal(oracleCalls, 1);
+  assert.deepEqual(result.processed, ["zia_rule_labels"]);
+  assert.deepEqual(result.failed, ["zia_url_filtering_rules"]);
+  assert.equal(await readFile(blockedPath, "utf8"), "existing blocked config\n");
+  await access(path.join(config, "zia_rule_labels.auto.tfvars.json"));
+  assert.ok(diagnostics.includes(
+    "adopt counts zia_rule_labels: fetched=1 system_skipped=0 unsupported=0 eligible=1 published=1 failed=0",
+  ));
+  assert.ok(diagnostics.includes(
+    "adopt counts zia_url_filtering_rules: fetched=2 system_skipped=0 unsupported=1 eligible=1 published=0 failed=1",
+  ));
 });
 
 test("logical-root Oracle failure isolates the responsible member without publishing", async (context) => {

@@ -57,7 +57,7 @@ test("committed pack metadata exposes the complete generic resource surface", as
   const registry = loaded.registry;
   const overrides = loaded.overrides;
   assert.equal(Object.keys(registry.entries).length, 151);
-  assert.equal(Object.keys(overrides.entries).length, 65);
+  assert.equal(Object.keys(overrides.entries).length, 72);
   assert.equal(registry.entries.zia_url_categories?.product, "zia");
   assert.equal(overrides.entries.zia_url_categories?.key_field, "configured_name");
   assert.deepEqual(loaded.resources.get("zia_url_categories"), {
@@ -165,6 +165,91 @@ test("strict profile, registry, and override vocabularies reject silent typos", 
     () => validateOverride({ rename: { one: "two" } }, "override.json"),
     /unknown override key rename/,
   );
+});
+
+test("unsupported adoption metadata is closed, version-scoped, and forbidden on derived resources", async () => {
+  const rule = {
+    evidence: ["https://example.invalid/provider-source"],
+    match: { action: "ISOLATE" },
+    provider: { source: "example/sample", version: "1.2.3" },
+    reason: "provider cannot round-trip this object",
+  };
+  assert.doesNotThrow(() => validateRegistry({
+    sample_resource: {
+      adopt: { unsupported_if: [rule] },
+      product: "sample",
+    },
+  }, "registry.json"));
+  for (const unsupported_if of [
+    {},
+    [],
+    [{ ...rule, evidence: [] }],
+    [{ ...rule, evidence: ["same", "same"] }],
+    [{ ...rule, match: {} }],
+    [{ ...rule, match: { nested: { value: true } } }],
+    [{ ...rule, provider: { source: "example/sample" } }],
+    [{ ...rule, reason: "" }],
+    [{ ...rule, unexpected: true }],
+    [rule, rule],
+  ]) {
+    assert.throws(
+      () => validateRegistry({
+        sample_resource: { adopt: { unsupported_if }, product: "sample" },
+      }, "registry.json"),
+      /unsupported_if|evidence|match|provider|reason|unknown/u,
+    );
+  }
+  assert.throws(
+    () => validateRegistry({
+      sample_resource: {
+        adopt: { unsupported_if: [rule] },
+        derive: { from: "sample_source" },
+        product: "sample",
+      },
+    }, "registry.json"),
+    /not valid for a derived resource/u,
+  );
+  assert.throws(
+    () => validateOverride({ unsupported_if: [rule] }, "override.json"),
+    /unknown override key unsupported_if/u,
+  );
+
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-unsupported-scope-"));
+  try {
+    await writeJson(path.join(directory, "sample", "pack.json"), {
+      pin: "1.2.3",
+      provider_prefixes: { sample_: "sample" },
+      provider_sources: { sample: "example/sample" },
+    });
+    await writeJson(path.join(directory, "sample", "registry.json"), {
+      sample_resource: {
+        adopt: { unsupported_if: [rule] },
+        product: "sample",
+      },
+    });
+    await loadPackRoot({ packsRoot: directory });
+    for (const [field, value] of [
+      ["source", "example/other"],
+      ["version", "9.9.9"],
+    ] as const) {
+      const mutated = {
+        ...rule,
+        provider: { ...rule.provider, [field]: value },
+      };
+      await writeJson(path.join(directory, "sample", "registry.json"), {
+        sample_resource: {
+          adopt: { unsupported_if: [mutated] },
+          product: "sample",
+        },
+      });
+      await assert.rejects(
+        () => loadPackRoot({ packsRoot: directory }),
+        new RegExp(`provider\\.${field}.*does not match active provider`, "u"),
+      );
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("registry fetch paths reject inputs that WHATWG URLs would silently normalize", () => {

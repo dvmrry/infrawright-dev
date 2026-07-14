@@ -52,7 +52,15 @@ const ADOPT_KEYS = new Set([
   "key_field",
   "skip_if",
   "skip_if_lte",
+  "unsupported_if",
 ]);
+const UNSUPPORTED_IF_KEYS = new Set([
+  "evidence",
+  "match",
+  "provider",
+  "reason",
+]);
+const UNSUPPORTED_PROVIDER_KEYS = new Set(["source", "version"]);
 const OVERRIDE_KEYS = new Set([
   "acknowledged_drops",
   "defaults",
@@ -265,7 +273,7 @@ function validateSkipRenameConflicts(
   source: string,
   fields: readonly { readonly field: string; readonly snake: string }[],
 ): void {
-  const renames = data.renames;
+  const renames = isObject(data.renames) ? data.renames : data.identity_renames;
   if (!isObject(renames)) return;
   const renamed = new Set<string>();
   for (const [oldName, newName] of Object.entries(renames)) {
@@ -277,7 +285,7 @@ function validateSkipRenameConflicts(
   );
   if (conflicts.length > 0) {
     fail(
-      `skip predicates in ${source} reference renamed field(s) ${conflicts.join(", ")}; skip predicates run before transform renames and after adoption identity renames, so keep skip fields independent of renames`,
+      `skip predicates in ${source} reference renamed field(s) ${conflicts.join(", ")}; skip predicates run on snake-cased raw input before transform or adoption identity renames, so keep skip fields independent of renames`,
     );
   }
 }
@@ -308,7 +316,53 @@ function validateAdopt(value: unknown, source: string): void {
   for (const key of ["identity_renames", "identity_fields"]) {
     if (Object.hasOwn(value, key)) validateStringMap(value[key], `${source}.${key}`);
   }
-  validateSkipMatchers(value, source);
+  const skipFields = [...validateSkipMatchers(value, source)];
+  if (Object.hasOwn(value, "unsupported_if")) {
+    const rules = value.unsupported_if;
+    if (!Array.isArray(rules) || rules.length === 0) {
+      fail(`${source}.unsupported_if must be a non-empty list`);
+    }
+    const conditions = new Set<string>();
+    for (const [index, rawRule] of rules.entries()) {
+      const ruleSource = `${source}.unsupported_if[${index}]`;
+      const rule = requireObject(rawRule, ruleSource);
+      rejectUnknownKeys(rule, UNSUPPORTED_IF_KEYS, ruleSource);
+      requireKeys(rule, UNSUPPORTED_IF_KEYS, ruleSource);
+      const match = requireObject(rule.match, `${ruleSource}.match`);
+      if (Object.keys(match).length === 0) fail(`${ruleSource}.match must not be empty`);
+      for (const [field, expected] of Object.entries(match)) {
+        if (field.length === 0) fail(`${ruleSource}.match field names must be non-empty strings`);
+        if (!isJsonScalar(expected)) fail(`${ruleSource}.match.${field} must be a scalar`);
+        skipFields.push({ field, snake: snakeCase(field) });
+      }
+      const condition = JSON.stringify(Object.fromEntries(
+        Object.entries(match)
+          .map(([field, expected]) => [snakeCase(field), expected] as const)
+          .sort(([left], [right]) => left.localeCompare(right)),
+      ));
+      if (conditions.has(condition)) fail(`${source}.unsupported_if contains duplicate match ${condition}`);
+      conditions.add(condition);
+      const provider = requireObject(rule.provider, `${ruleSource}.provider`);
+      rejectUnknownKeys(provider, UNSUPPORTED_PROVIDER_KEYS, `${ruleSource}.provider`);
+      requireKeys(provider, UNSUPPORTED_PROVIDER_KEYS, `${ruleSource}.provider`);
+      requireNonEmptyString(provider.source, `${ruleSource}.provider.source`);
+      requireNonEmptyString(provider.version, `${ruleSource}.provider.version`);
+      requireNonEmptyString(rule.reason, `${ruleSource}.reason`);
+      if (!Array.isArray(rule.evidence) || rule.evidence.length === 0) {
+        fail(`${ruleSource}.evidence must be a non-empty list`);
+      }
+      const evidence = new Set<string>();
+      for (const [evidenceIndex, rawEvidence] of rule.evidence.entries()) {
+        const item = requireNonEmptyString(
+          rawEvidence,
+          `${ruleSource}.evidence[${evidenceIndex}]`,
+        );
+        if (evidence.has(item)) fail(`${ruleSource}.evidence contains duplicate ${JSON.stringify(item)}`);
+        evidence.add(item);
+      }
+    }
+  }
+  validateSkipRenameConflicts(value, source, skipFields);
 }
 
 export function validateRegistry(value: unknown, source: string): JsonObject {
@@ -330,7 +384,16 @@ export function validateRegistry(value: unknown, source: string): JsonObject {
     }
     if (Object.hasOwn(rawEntry, "fetch")) validateFetch(rawEntry.fetch, `${label}.fetch`);
     if (Object.hasOwn(rawEntry, "derive")) validateDerive(rawEntry.derive, `${label}.derive`);
-    if (Object.hasOwn(rawEntry, "adopt")) validateAdopt(rawEntry.adopt, `${label}.adopt`);
+    if (Object.hasOwn(rawEntry, "adopt")) {
+      validateAdopt(rawEntry.adopt, `${label}.adopt`);
+      if (
+        Object.hasOwn(rawEntry, "derive")
+        && isObject(rawEntry.adopt)
+        && Object.hasOwn(rawEntry.adopt, "unsupported_if")
+      ) {
+        fail(`${label}.adopt.unsupported_if is not valid for a derived resource`);
+      }
+    }
   }
   return data;
 }

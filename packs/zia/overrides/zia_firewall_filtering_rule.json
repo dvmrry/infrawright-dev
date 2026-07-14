@@ -6,10 +6,5 @@
     {
       "default_rule": true
     }
-  ],
-  "skip_if_lte": [
-    {
-      "order": 0
-    }
   ]
 }

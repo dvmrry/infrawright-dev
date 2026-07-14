@@ -35,6 +35,7 @@ class AdoptCommandTest(unittest.TestCase):
             },
             "provider_prefixes": {"sample_": "sample"},
             "provider_sources": {"sample": "example/sample"},
+            "pin": "1.2.3",
         })
         _write_json(os.path.join(self.tmp, "packs", "sample", "registry.json"), {
             "sample_resource": {
@@ -118,6 +119,54 @@ class AdoptCommandTest(unittest.TestCase):
             imports = f.read()
         self.assertIn('id = "123"', imports)
         self.assertIn('this["prod_app"]', imports)
+
+    def test_unsupported_items_fail_before_identity_or_oracle_and_write_nothing(self):
+        _write_json(os.path.join(self.tmp, "packs", "sample", "registry.json"), {
+            "sample_resource": {
+                "adopt": {
+                    "identity_fields": {"import_id": "details.missing"},
+                    "key_field": "missing_name",
+                    "skip_if": [{"system": True}],
+                    "unsupported_if": [{
+                        "evidence": ["https://example.invalid/provider-source"],
+                        "match": {"action": "ISOLATE"},
+                        "provider": {
+                            "source": "example/sample",
+                            "version": "1.2.3",
+                        },
+                        "reason": "provider cannot round-trip this object",
+                    }],
+                },
+                "generate": True,
+                "product": "sample",
+            },
+        })
+        registry.reload_registry()
+        input_path = os.path.join(self.tmp, "unsupported.json")
+        _write_json(input_path, [
+            {"action": "ISOLATE", "system": True},
+            {"action": "ISOLATE", "system": False},
+            {"action": "BLOCK", "system": False},
+        ])
+        called = []
+
+        def fail_import_state(resource_type, key_to_import_id,
+                              policy=None, raw_items=None):
+            called.append(resource_type)
+            raise AssertionError("unsupported input must fail before Oracle")
+
+        adopt.import_state = fail_import_state
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(
+                adopt.main(["sample_resource", input_path, "tenant"]),
+                1,
+            )
+        self.assertEqual(called, [])
+        self.assertIn("skipped sample_resource", stderr.getvalue())
+        self.assertIn("unsupported sample_resource", stderr.getvalue())
+        self.assertIn("contains 1 unsupported item", stderr.getvalue())
+        self._assert_no_adopt_outputs()
 
     def test_adopt_items_passes_same_policy_to_oracle_and_projection(self):
         policy_obj = DriftPolicy({

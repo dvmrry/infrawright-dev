@@ -10,10 +10,10 @@ from engine import lookup
 from engine import transform
 from engine.adoption_meta import (
     adoption_entry,
+    classify_raw_items,
     derive_import_id_from_identity,
     derive_key_from_identity,
     identity_item,
-    skip_identity_item_reason,
 )
 from engine.drift_policy import DriftPolicy
 from engine.import_oracle import import_state
@@ -36,19 +36,38 @@ def adopt_items(raw_items, resource_type, policy=None, state_loader=None):
     key_to_raw = {}
     import_id_to_key = {}
     identities = []
-    for raw in raw_items:
-        ident = identity_item(raw, resource_type)
-        skip_reason = skip_identity_item_reason(ident, meta)
-        if skip_reason:
-            sys.stderr.write(
-                "skipped %s item %r (identity %s matched)\n"
-                % (
-                    resource_type,
-                    ident.get("name") or ident.get("id"),
-                    skip_reason,
-                )
+    classification = classify_raw_items(raw_items, resource_type)
+    for skipped in classification["skipped"]:
+        item = skipped["item"]
+        sys.stderr.write(
+            "skipped %s item %r (identity %s matched)\n"
+            % (
+                resource_type,
+                item.get("name") or item.get("id"),
+                skipped["reason"],
             )
-            continue
+        )
+    for unsupported in classification["unsupported"]:
+        item = unsupported["item"]
+        rule = unsupported["rule"]
+        sys.stderr.write(
+            "unsupported %s item %r for %s %s: %s\n"
+            % (
+                resource_type,
+                item.get("name") or item.get("id"),
+                rule["provider"]["source"],
+                rule["provider"]["version"],
+                rule["reason"],
+            )
+        )
+    if classification["unsupported"]:
+        raise ValueError(
+            "%s contains %d unsupported item(s); no Oracle command or "
+            "artifact publication is permitted"
+            % (resource_type, len(classification["unsupported"]))
+        )
+    for raw in classification["eligible"]:
+        ident = identity_item(raw, resource_type)
         identities.append((ident, raw))
 
     if meta.get("constant_key") is not None and len(identities) > 1:

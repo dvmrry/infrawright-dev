@@ -158,6 +158,16 @@
           "brandNewAPIField": "must-report"
         }
       ]
+    },
+    {
+      "name": "admin_roles_non_editable_system_skip",
+      "resource_type": "zia_admin_roles",
+      "raw_items": [
+        {
+          "id": "SYSTEM_ROLE",
+          "isNonEditable": true
+        }
+      ]
     }
   ]
 }

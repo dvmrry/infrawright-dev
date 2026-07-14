@@ -414,6 +414,48 @@ class PackRegistryValidationTest(unittest.TestCase):
             validate_registry(data, path="packs/sample/registry.json")
         self.assertIn("finite JSON number", str(ctx.exception))
 
+    def test_adopt_unsupported_if_is_closed_and_not_valid_for_derived_types(self):
+        rule = {
+            "evidence": ["https://example.invalid/provider-source"],
+            "match": {"action": "ISOLATE"},
+            "provider": {"source": "example/sample", "version": "1.2.3"},
+            "reason": "provider cannot round-trip this object",
+        }
+        data = self._registry_metadata()
+        data["sample_resource"]["adopt"] = {"unsupported_if": [rule]}
+        validate_registry(data, path="packs/sample/registry.json")
+
+        invalid = [
+            [],
+            [dict(rule, evidence=[])],
+            [dict(rule, evidence=["same", "same"])],
+            [dict(rule, match={})],
+            [dict(rule, match={"nested": {"value": True}})],
+            [dict(rule, provider={"source": "example/sample"})],
+            [dict(rule, reason="")],
+            [dict(rule, unexpected=True)],
+            [rule, rule],
+        ]
+        for rules in invalid:
+            data = self._registry_metadata()
+            data["sample_resource"]["adopt"] = {
+                "unsupported_if": rules,
+            }
+            with self.assertRaises(ValueError):
+                validate_registry(data, path="packs/sample/registry.json")
+
+        data = {
+            "sample_derived": {
+                "adopt": {"unsupported_if": [rule]},
+                "derive": {"from": "sample_resource"},
+                "generate": True,
+                "product": "sample",
+            },
+        }
+        with self.assertRaises(ValueError) as ctx:
+            validate_registry(data, path="packs/sample/registry.json")
+        self.assertIn("not valid for a derived resource", str(ctx.exception))
+
     def test_unknown_key_in_pack_json_fails(self):
         data = self._pack_metadata()
         data["rename"] = {}

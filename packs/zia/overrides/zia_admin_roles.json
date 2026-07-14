@@ -1,0 +1,7 @@
+{
+  "skip_if": [
+    {
+      "is_non_editable": true
+    }
+  ]
+}

@@ -3,6 +3,8 @@
 This is a metadata-only smoke test. It does not test behavior changes because the
 metadata is guidance/validation only.
 """
+import json
+import os
 import unittest
 
 from engine import packs
@@ -212,16 +214,26 @@ class PackMetadataBehaviorInvariantTest(unittest.TestCase):
                     % (resource_type, mode),
                 )
 
-    def test_zia_url_filtering_declares_cbi_projection_fill(self):
+    def test_zia_url_filtering_rejects_isolate_before_obsolete_projection_fill(self):
         policy = packs.drift_policy_data()
         entries = (
             policy.get("resource_types", {})
             .get("zia_url_filtering_rules", {})
             .get("projection_fill", [])
         )
-        self.assertEqual(len(entries), 1)
-        self.assertEqual(entries[0]["path"], "cbi_profile")
-        self.assertEqual(entries[0]["source"], "cbiProfile")
+        self.assertEqual(entries, [])
+        with open(
+                os.path.join(packs.packs_root(), "zia", "registry.json"),
+                encoding="utf-8",
+        ) as f:
+            rule = json.load(f)["zia_url_filtering_rules"]["adopt"][
+                "unsupported_if"
+            ][0]
+        self.assertEqual(rule["match"], {"action": "ISOLATE"})
+        self.assertEqual(rule["provider"], {
+            "source": "zscaler/zia",
+            "version": "4.7.26",
+        })
 
     def test_no_sensitive_required_pack_metadata_exists_yet(self):
         # Grafana remains manual-review/unclassified. Update this test when the

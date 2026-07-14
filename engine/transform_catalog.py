@@ -18,6 +18,7 @@ import string
 import sys
 
 from engine import packs
+from engine.overrides import validate_skip_matcher_metadata
 from engine.registry import load_registry
 from engine.tfschema import (
     attr_type,
@@ -54,7 +55,7 @@ _SUPPORTED_OVERRIDE_KEYS = frozenset([
     "renames",
     "split_csv",
 ])
-_COHORT_ENCODED_OVERRIDE_KEYS = frozenset(["sort_lists"])
+_COHORT_ENCODED_OVERRIDE_KEYS = frozenset(["skip_if", "sort_lists"])
 _COHORT_AUTHORING_ONLY_OVERRIDE_KEYS = frozenset(["sample"])
 _PRIMITIVE_ENCODINGS = frozenset(["bool", "number", "string"])
 _FIELD_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -193,6 +194,11 @@ def _supported_override(
         _override_string_list(resource_type, override, field)
     if "sort_lists" in additional_keys:
         _override_string_list(resource_type, override, "sort_lists")
+    if "skip_if" in additional_keys:
+        validate_skip_matcher_metadata(
+            {"skip_if": override.get("skip_if", [])},
+            path="%s cohort override" % resource_type,
+        )
     key_field = override.get("key_field", "name")
     key_fields = key_field if isinstance(key_field, list) else [key_field]
     if not key_fields or any(
@@ -423,6 +429,12 @@ def _resource(
     )
     if sort_lists:
         resource["sort_lists"] = sort_lists
+    skip_if = override.get("skip_if") if cohort else None
+    if skip_if:
+        # load_override has already validated the matcher vocabulary. Preserve
+        # authored matcher order because the transform kernel evaluates it in
+        # order even though all matching outcomes are the same system skip.
+        resource["skip_if"] = skip_if
     return resource
 
 

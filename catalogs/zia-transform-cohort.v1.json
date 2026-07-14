@@ -55,6 +55,11 @@
       },
       "references": {},
       "renames": {},
+      "skip_if": [
+        {
+          "is_non_editable": true
+        }
+      ],
       "split_csv": [],
       "type": "zia_admin_roles"
     },
@@ -234,11 +239,12 @@
   ],
   "schema_version": 1,
   "source_files": [
+    "zia/overrides/zia_admin_roles.json",
     "zia/overrides/zia_traffic_forwarding_static_ip.json",
     "zia/overrides/zia_url_categories.json",
     "zia/pack.json",
     "zia/registry.json",
     "zia/schemas/provider/zia.json"
   ],
-  "sources_sha256": "569f5773fcb685f4599c881f05702e0186d3b6f713acc9829747295fa2d1b093"
+  "sources_sha256": "7498a1395206c1c1bac0ff561eef4880b67e9c6ee4f2055c97f2b644a33f6362"
 }

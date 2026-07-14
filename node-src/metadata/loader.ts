@@ -18,7 +18,7 @@ import {
   type LoadedRegistry,
   type ProviderSchema,
 } from "./resources.js";
-import type { JsonObject } from "./validation.js";
+import { isObject, type JsonObject } from "./validation.js";
 
 export interface LoadedResourceMetadata {
   readonly type: string;
@@ -65,6 +65,27 @@ function resourceMap(
       throw new TypeError(`${resourceType} registry product is not a string`);
     }
     const override = overrides.entries[resourceType];
+    const manifest = ownerForProvider(metadata, provider);
+    const adopt = isObject(entry.adopt) ? entry.adopt : null;
+    const unsupportedRules = adopt !== null && Array.isArray(adopt.unsupported_if)
+      ? adopt.unsupported_if
+      : [];
+    for (const [index, rawRule] of unsupportedRules.entries()) {
+      if (!isObject(rawRule) || !isObject(rawRule.provider)) continue;
+      const expectedSource = metadata.providerSources[provider];
+      const expectedVersion = manifest?.data.pin;
+      const label = `${resourceType}.adopt.unsupported_if[${index}].provider`;
+      if (rawRule.provider.source !== expectedSource) {
+        throw new TypeError(
+          `${label}.source ${JSON.stringify(rawRule.provider.source)} does not match active provider source ${JSON.stringify(expectedSource)}`,
+        );
+      }
+      if (rawRule.provider.version !== expectedVersion) {
+        throw new TypeError(
+          `${label}.version ${JSON.stringify(rawRule.provider.version)} does not match active provider pin ${JSON.stringify(expectedVersion)}`,
+        );
+      }
+    }
     resources.set(resourceType, {
       type: resourceType,
       product,

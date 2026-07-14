@@ -1,5 +1,19 @@
 {
   "sample": {
     "forward_method": "DIRECT"
-  }
+  },
+  "skip_if": [
+    {
+      "name": "Client Connector Traffic Direct"
+    },
+    {
+      "name": "ZPA Pool For Stray Traffic"
+    },
+    {
+      "name": "ZIA Inspected ZPA Apps"
+    },
+    {
+      "name": "Fallback mode of ZPA Forwarding"
+    }
+  ]
 }

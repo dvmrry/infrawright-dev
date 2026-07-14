@@ -28,7 +28,7 @@ const FIXTURE_PATH = path.join(
   "node-tests/fixtures/zia-transform-cohort.v1.json",
 );
 const EXPECTED_CATALOG_SHA256 =
-  "361b3ae18a4d4aee5dda70a76783736f6f0f86f8c3d106725e1831ff510d8600";
+  "6051a1b83297da51a9dd48792c4ef9cc2ed88d562344a250f5055e82b278bd7e";
 
 const PYTHON_ORACLE = String.raw`
 import json
@@ -145,6 +145,19 @@ test("catalog semantics fail closed while serialization stays authoring-only", (
     () => requireSupportedZiaTransformCohortCatalog(malformed),
     expectProcessFailure("INVALID_ZIA_TRANSFORM_COHORT"),
   );
+
+  const malformedSkip = copyCatalog();
+  const adminRoles = (
+    malformedSkip.resources as Array<Record<string, unknown>>
+  ).find((resource) => resource.type === "zia_admin_roles");
+  assert.notEqual(adminRoles, undefined);
+  if (adminRoles !== undefined) {
+    adminRoles.skip_if = [{ is_non_editable: [] }];
+  }
+  assert.throws(
+    () => requireSupportedZiaTransformCohortCatalog(malformedSkip),
+    expectProcessFailure("INVALID_ZIA_TRANSFORM_COHORT"),
+  );
 });
 
 test("representative and edge fixtures match real Python results and tfvars bytes", () => {
@@ -168,7 +181,10 @@ test("representative and edge fixtures match real Python results and tfvars byte
     maxBuffer: 16 * 1024 * 1024,
   });
   assert.equal(python.status, 0, python.stderr);
-  assert.equal(python.stderr, "");
+  assert.equal(
+    python.stderr,
+    "skipped zia_admin_roles item 'SYSTEM_ROLE' (skip_if matched)\n",
+  );
   assert.equal(renderPythonLosslessArtifactJson(actual), python.stdout);
 
   const byName = new Map(actual.map((entry) => [entry.name, entry.result]));
@@ -223,6 +239,18 @@ test("representative and edge fixtures match real Python results and tfvars byte
     "β",
     "😀",
   ]);
+  assert.deepEqual(
+    Object.keys(
+      byName.get("admin_roles_non_editable_system_skip")?.items ?? {},
+    ),
+    [],
+  );
+  assert.deepEqual(
+    Object.keys(
+      byName.get("admin_roles_non_editable_system_skip")?.originals ?? {},
+    ),
+    [],
+  );
 });
 
 test("ZIA nested map keys and unknown drops retain live Python Unicode bytes", () => {
@@ -379,6 +407,7 @@ test("production bundle exposes public ZCC adoption but excludes private ZIA con
     "infrawright.transform_resource_cohort",
     "https://infrawright.local/schemas/transform-resource-cohort.schema.json",
     "zia/overrides/zia_traffic_forwarding_static_ip.json",
+    "zia/overrides/zia_admin_roles.json",
     "zia/overrides/zia_url_categories.json",
   ]) {
     assert.equal(bundle.includes(privateMarker), false, privateMarker);

@@ -38,6 +38,7 @@ export interface TransformCatalogResource {
   readonly acknowledged_drops: readonly string[];
   readonly invert_bool: readonly string[];
   readonly renames: Readonly<Record<string, string>>;
+  readonly skip_if?: readonly Readonly<Record<string, unknown>>[];
   readonly sort_lists?: readonly string[];
   readonly split_csv: readonly string[];
   readonly projection: TransformProjection;

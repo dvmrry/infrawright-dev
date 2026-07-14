@@ -9,7 +9,9 @@ import { readOptionalUtf8 } from "../io/files.js";
 import type { Deployment } from "./types.js";
 import {
   adoptionMetadata,
+  classifyAdoptionRawItems,
   deriveAdoptionIdentities,
+  type AdoptionRawClassification,
 } from "./adoption-meta.js";
 import { DriftPolicy } from "./drift-policy.js";
 import {
@@ -38,7 +40,11 @@ import {
   transformLookupNameField,
   transformReferenceSpecs,
 } from "./transform-runner.js";
-import { selectTransformResources, transformSourceType } from "./transform-selection.js";
+import {
+  referenceOrder,
+  selectTransformResources,
+  transformSourceType,
+} from "./transform-selection.js";
 import type { PullTransformResult } from "./pull-transform.js";
 import type { PerformanceRecorder, PerformanceStatus } from "../performance/recorder.js";
 
@@ -170,29 +176,95 @@ async function assertNoPendingMoves(options: {
 }
 
 interface PreparedAdoptionItems {
+  readonly counts: AdoptionItemCounts;
   readonly identityByKey: ReadonlyMap<string, Readonly<Record<string, unknown>>>;
   readonly keyToImportId: ReadonlyMap<string, string>;
   readonly keyToRaw: ReadonlyMap<string, Readonly<Record<string, unknown>>>;
   readonly resource: LoadedResourceMetadata;
 }
 
+interface AdoptionItemCounts {
+  readonly eligible: number;
+  readonly fetched: number;
+  readonly systemSkipped: number;
+  readonly unsupported: number;
+}
+
+interface UnsupportedAdoptionItems {
+  readonly classification: AdoptionRawClassification;
+  readonly counts: AdoptionItemCounts;
+  readonly resource: LoadedResourceMetadata;
+}
+
+type AdoptionPreflight =
+  | { readonly status: "ready"; readonly prepared: PreparedAdoptionItems }
+  | { readonly status: "unsupported"; readonly blocked: UnsupportedAdoptionItems };
+
+function itemLabel(item: Readonly<Record<string, unknown>>): string {
+  const value = item.name ?? item.id ?? "<unknown>";
+  return JSON.stringify(value);
+}
+
+function itemCounts(
+  fetched: number,
+  classification: AdoptionRawClassification,
+): AdoptionItemCounts {
+  return {
+    eligible: classification.eligible.length,
+    fetched,
+    systemSkipped: classification.skipped.length,
+    unsupported: classification.unsupported.length,
+  };
+}
+
+function writeTerminalCounts(options: {
+  readonly counts: AdoptionItemCounts;
+  readonly published: number;
+  readonly resourceType: string;
+  readonly write: (message: string) => void;
+}): void {
+  const failed = Math.max(0, options.counts.eligible - options.published);
+  options.write(
+    `adopt counts ${options.resourceType}: fetched=${options.counts.fetched} system_skipped=${options.counts.systemSkipped} unsupported=${options.counts.unsupported} eligible=${options.counts.eligible} published=${options.published} failed=${failed}`,
+  );
+}
+
 function prepareAdoptionItems(options: {
+  readonly onClassified?: (counts: AdoptionItemCounts) => void;
   readonly rawItems: readonly unknown[];
   readonly resource: LoadedResourceMetadata;
   readonly write?: (message: string) => void;
-}): PreparedAdoptionItems {
-  const derived = deriveAdoptionIdentities({ rawItems: options.rawItems, resource: options.resource });
-  for (const skipped of derived.skipped) {
+}): AdoptionPreflight {
+  const classification = classifyAdoptionRawItems(options);
+  const counts = itemCounts(options.rawItems.length, classification);
+  options.onClassified?.(counts);
+  for (const skipped of classification.skipped) {
     options.write?.(
       `skipped ${options.resource.type} item ${JSON.stringify(skipped.item.name ?? skipped.item.id)} (identity ${skipped.reason} matched)`,
     );
   }
-  return {
+  for (const unsupported of classification.unsupported) {
+    options.write?.(
+      `unsupported ${options.resource.type} item ${itemLabel(unsupported.item)} for ${unsupported.rule.provider.source} ${unsupported.rule.provider.version}: ${unsupported.rule.reason}`,
+    );
+  }
+  if (classification.unsupported.length > 0) {
+    return {
+      blocked: { classification, counts, resource: options.resource },
+      status: "unsupported",
+    };
+  }
+  const derived = deriveAdoptionIdentities({
+    rawItems: classification.eligible,
+    resource: options.resource,
+  });
+  return { status: "ready", prepared: {
+    counts,
     identityByKey: new Map(derived.identities.map((item) => [item.key, item.item])),
     keyToImportId: new Map(derived.identities.map((item) => [item.key, item.importId])),
     keyToRaw: new Map(derived.identities.map((item) => [item.key, item.raw])),
     resource: options.resource,
-  };
+  } };
 }
 
 async function projectAdoptionItems(options: {
@@ -263,7 +335,29 @@ export async function adoptResourceItems(options: {
   readonly stateLoader: AdoptionStateLoader;
   readonly write?: (message: string) => void;
 }): Promise<PullTransformResult> {
-  const prepared = prepareAdoptionItems(options);
+  const preflight = prepareAdoptionItems(options);
+  if (preflight.status === "unsupported") {
+    throw new TypeError(
+      `${options.resource.type} contains ${preflight.blocked.counts.unsupported} unsupported item(s); no Oracle command or artifact publication is permitted`,
+    );
+  }
+  return adoptPreparedResourceItems({
+    ...(options.performance === undefined ? {} : { performance: options.performance }),
+    policy: options.policy,
+    prepared: preflight.prepared,
+    root: options.root,
+    stateLoader: options.stateLoader,
+  });
+}
+
+async function adoptPreparedResourceItems(options: {
+  readonly performance?: PerformanceRecorder;
+  readonly policy: DriftPolicy;
+  readonly prepared: PreparedAdoptionItems;
+  readonly root: LoadedPackRoot;
+  readonly stateLoader: AdoptionStateLoader;
+}): Promise<PullTransformResult> {
+  const prepared = options.prepared;
   if (prepared.keyToImportId.size === 0) {
     return projectAdoptionItems({
       ...(options.performance === undefined ? {} : { performance: options.performance }),
@@ -277,7 +371,7 @@ export async function adoptResourceItems(options: {
     keyToImportId: prepared.keyToImportId,
     policy: options.policy,
     rawItems: prepared.keyToRaw,
-    resourceType: options.resource.type,
+    resourceType: prepared.resource.type,
   });
   return projectAdoptionItems({
     ...(options.performance === undefined ? {} : { performance: options.performance }),
@@ -317,12 +411,14 @@ async function runAdoptBatchInner(
   const write = options.onDiagnostic ?? (() => undefined);
   const selection = selectTransformResources({ root: options.root, selectors: options.selectors });
   for (const note of selection.notes) write(note.trimEnd());
-  const topology = loadedRootTopology({
+  const selectedTopology = loadedRootTopology({
     deployment: options.deployment,
     root: options.root,
     selectors: selection.resourceTypes,
     tenant: options.tenant,
-  }).topology;
+  });
+  for (const diagnostic of selectedTopology.diagnostics) write(`NOTE: ${diagnostic.message}`);
+  const topology = selectedTopology.topology;
   const processed: string[] = [];
   const skipped: string[] = [];
   const failed: string[] = [];
@@ -357,37 +453,16 @@ async function runAdoptBatchInner(
     if (mode !== "logical-root") return false;
     const logicalRoot = topologyRootByMember.get(trigger);
     if (logicalRoot === undefined || disabledBatchRoots.has(logicalRoot.label)) return false;
-    const logicalRootMembers = new Set(logicalRoot.members);
-    const candidates = selection.resourceTypes.filter((member) => {
-      if (!logicalRootMembers.has(member)) return false;
-      if (!selected.has(member)) return false;
+    const orderedRoot = referenceOrder({
+      resourceTypes: logicalRoot.members,
+      root: options.root,
+    });
+    for (const note of orderedRoot.notes) write(note.trimEnd());
+    const candidates = orderedRoot.resourceTypes.filter((member) => {
       const resource = options.root.resources.get(member);
       return resource !== undefined && !isObject(resource.registry.derive);
     });
     if (candidates.length < 2) {
-      disabledBatchRoots.add(logicalRoot.label);
-      return false;
-    }
-    const candidateSet = new Set(candidates);
-    const triggerIndex = selectionIndex.get(trigger);
-    if (triggerIndex === undefined) {
-      throw new TypeError(`selected resource ${trigger} has no reference-order position`);
-    }
-    const hasPendingExternalReferent = candidates.some((resourceType) => {
-      const resource = options.root.resources.get(resourceType);
-      if (resource === undefined) return false;
-      return Object.values(transformReferenceSpecs(options.root, resource)).some((reference) => {
-        if (!selected.has(reference.referent) || candidateSet.has(reference.referent)) return false;
-        const referentIndex = selectionIndex.get(reference.referent);
-        return !handled.has(reference.referent)
-          && (referentIndex === undefined || referentIndex >= triggerIndex);
-      });
-    });
-    if (hasPendingExternalReferent) {
-      // Pulling the rest of this root forward would bypass the global
-      // referent-before-referrer order. Keep the whole root on the legacy
-      // per-resource path so HCL lookup annotations see freshly written
-      // external lookup sidecars.
       disabledBatchRoots.add(logicalRoot.label);
       return false;
     }
@@ -409,7 +484,45 @@ async function runAdoptBatchInner(
       readonly resource: LoadedResourceMetadata;
       readonly resourceType: string;
     }> = [];
+    const countsByResource = new Map<string, AdoptionItemCounts>();
+    const missingResources = new Set<string>();
+    const preflightDiagnostics: string[] = [];
+    const preflightSpans: Array<{
+      readonly durationMs: number;
+      readonly instances: number;
+      readonly resourceType: string;
+    }> = [];
+    const skippedBeforePreflight = skipped.length;
+    const failedBeforePreflight = failed.length;
+    const flushPreflight = (): void => {
+      for (const diagnostic of preflightDiagnostics) write(diagnostic);
+      for (const span of preflightSpans) {
+        options.performance?.recordSpan({
+          durationMs: span.durationMs,
+          instances: span.instances,
+          phase: "adopt.resource",
+          resourceFamily: span.resourceType,
+          status: "skipped",
+        });
+      }
+    };
+    let countsFinished = false;
+    const finishCounts = (publishedByResource: ReadonlyMap<string, number> = new Map()): void => {
+      if (countsFinished) return;
+      countsFinished = true;
+      for (const resourceType of candidates) {
+        const counts = countsByResource.get(resourceType);
+        if (counts === undefined) continue;
+        writeTerminalCounts({
+          counts,
+          published: publishedByResource.get(resourceType) ?? 0,
+          resourceType,
+          write,
+        });
+      }
+    };
     let preflightFailed = false;
+    let unsupportedRoot = false;
     for (const resourceType of candidates) {
       handled.add(resourceType);
       const started = options.performance?.now() ?? 0;
@@ -419,9 +532,20 @@ async function runAdoptBatchInner(
         const source = path.join(options.inputDirectory, `${sourceType}.json`);
         const text = await readOptionalUtf8(source, `${resourceType} adoption input`);
         if (text === null) {
+          missingResources.add(resourceType);
+          countsByResource.set(resourceType, {
+            eligible: 0,
+            fetched: 0,
+            systemSkipped: 0,
+            unsupported: 0,
+          });
           skipped.push(resourceType);
-          write(`skip ${resourceType} (no ${source})`);
-          recordResourceSpan(resourceType, started, instances, "skipped");
+          preflightDiagnostics.push(`skip ${resourceType} (no ${source})`);
+          preflightSpans.push({
+            durationMs: options.performance?.durationSince(started) ?? 0,
+            instances,
+            resourceType,
+          });
           continue;
         }
         const rawItems = parseDataJsonLosslessly(text);
@@ -435,33 +559,71 @@ async function runAdoptBatchInner(
             `logical root ${logicalRoot.label} mixes provider ${String(logicalRoot.provider)} with ${resource.provider}`,
           );
         }
+        const preflight = prepareAdoptionItems({
+          onClassified: (counts) => countsByResource.set(resourceType, counts),
+          rawItems,
+          resource,
+          write: (message) => preflightDiagnostics.push(message),
+        });
+        if (preflight.status === "unsupported") {
+          unsupportedRoot = true;
+          continue;
+        }
         await assertNoPendingMoves({
           deployment: options.deployment,
           resourceType,
           tenant: options.tenant,
         });
-        prepared.push({
-          adoption: prepareAdoptionItems({ rawItems, resource, write }),
-          resource,
-          resourceType,
-        });
+        prepared.push({ adoption: preflight.prepared, resource, resourceType });
       } catch (error: unknown) {
         preflightFailed = true;
         failed.push(resourceType);
-        write(`error: ${resourceType}: ${error instanceof Error ? error.message : String(error)}`);
+        preflightDiagnostics.push(
+          `error: ${resourceType}: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
     }
-    if (preflightFailed) {
-      for (const entry of prepared) {
-        if (!failed.includes(entry.resourceType)) failed.push(entry.resourceType);
+    if (preflightFailed || unsupportedRoot) {
+      for (const resourceType of candidates) {
+        if (!missingResources.has(resourceType) && !failed.includes(resourceType)) {
+          failed.push(resourceType);
+        }
       }
+      flushPreflight();
+      finishCounts();
       recordBatchSpan("failed");
       return true;
     }
-    if (prepared.length < 2) {
+    const candidateSet = new Set(candidates);
+    const triggerIndex = selectionIndex.get(trigger);
+    if (triggerIndex === undefined) {
+      throw new TypeError(`selected resource ${trigger} has no reference-order position`);
+    }
+    const hasPendingExternalReferent = candidates.some((resourceType) => {
+      const resource = options.root.resources.get(resourceType);
+      if (resource === undefined) return false;
+      return Object.values(transformReferenceSpecs(options.root, resource)).some((reference) => {
+        if (!selected.has(reference.referent) || candidateSet.has(reference.referent)) return false;
+        const referentIndex = selectionIndex.get(reference.referent);
+        return !handled.has(reference.referent)
+          && (referentIndex === undefined || referentIndex >= triggerIndex);
+      });
+    });
+    if (hasPendingExternalReferent) {
+      // Classification is root-wide even when reference ordering prevents a
+      // batched Oracle. Roll back preflight bookkeeping and keep the safe root
+      // on the per-resource path only after proving it has no unsupported item.
+      skipped.length = skippedBeforePreflight;
+      failed.length = failedBeforePreflight;
+      for (const resourceType of candidates) handled.delete(resourceType);
       disabledBatchRoots.add(logicalRoot.label);
-      for (const entry of prepared) handled.delete(entry.resourceType);
       return false;
+    }
+    flushPreflight();
+    if (prepared.length === 0) {
+      finishCounts();
+      recordBatchSpan("skipped");
+      return true;
     }
     if (options.batchStateLoader === undefined) {
       for (const entry of prepared) {
@@ -470,6 +632,7 @@ async function runAdoptBatchInner(
       write(
         `error: logical root ${logicalRoot.label}: logical-root Oracle batching was requested but no batch state loader was configured`,
       );
+      finishCounts();
       recordBatchSpan("failed");
       return true;
     }
@@ -504,6 +667,7 @@ async function runAdoptBatchInner(
           ? `error: logical root ${logicalRoot.label}: batched Oracle failed after every member succeeded independently: ${detail}`
           : `error: logical root ${logicalRoot.label}: batched Oracle failed; ${isolatedFailures} member failure(s) identified above: ${detail}`,
       );
+      finishCounts();
       recordBatchSpan("failed");
       return true;
     }
@@ -519,6 +683,7 @@ async function runAdoptBatchInner(
         );
       }
       const artifactOptions: TransformArtifactCompileOptions[] = [];
+      const publishedByResource = new Map<string, number>();
       for (const entry of prepared) {
         const state = stateByResource.get(entry.resourceType);
         if (state === undefined) {
@@ -560,6 +725,7 @@ async function runAdoptBatchInner(
           tenant: options.tenant,
           variableName: variableNameFor(entry.resourceType, topology.resource_roots),
         });
+        publishedByResource.set(entry.resourceType, Object.keys(result.items).length);
       }
       const artifactStarted = options.performance?.now() ?? 0;
       let artifactStatus: "failed" | "success" = "success";
@@ -590,6 +756,7 @@ async function runAdoptBatchInner(
       for (const entry of prepared) {
         processed.push(entry.resourceType);
       }
+      finishCounts(publishedByResource);
       recordBatchSpan("success");
     } catch (error: unknown) {
       for (const entry of prepared) {
@@ -598,6 +765,7 @@ async function runAdoptBatchInner(
       write(
         `error: logical root ${logicalRoot.label}: ${error instanceof Error ? error.message : String(error)}`,
       );
+      finishCounts();
       recordBatchSpan("failed");
     }
     return true;
@@ -610,6 +778,8 @@ async function runAdoptBatchInner(
     const resourceStarted = options.performance?.now() ?? 0;
     let instanceCount = 0;
     let resourceStatus: PerformanceStatus = "success";
+    let counts: AdoptionItemCounts | undefined;
+    let published = 0;
     try {
       const sourceType = transformSourceType(options.root, resourceType);
       const source = path.join(options.inputDirectory, `${sourceType}.json`);
@@ -625,8 +795,12 @@ async function runAdoptBatchInner(
       instanceCount = rawItems.length;
       const resource = options.root.resources.get(resourceType);
       if (resource === undefined) throw new TypeError(`unknown resource ${resourceType}`);
-      await assertNoPendingMoves({ deployment: options.deployment, resourceType, tenant: options.tenant });
       if (isObject(resource.registry.derive)) {
+        await assertNoPendingMoves({
+          deployment: options.deployment,
+          resourceType,
+          tenant: options.tenant,
+        });
         const delegated = await runTransformBatch({
           beforeArtifactWrite: async (selectedResourceType) => assertNoPendingMoves({
             deployment: options.deployment,
@@ -651,14 +825,28 @@ async function runAdoptBatchInner(
         }
         continue;
       }
-      const result = await adoptResourceItems({
-        ...(options.performance === undefined ? {} : { performance: options.performance }),
-        policy: options.policy,
+      const preflight = prepareAdoptionItems({
+        onClassified: (value) => { counts = value; },
         rawItems,
         resource,
+        write,
+      });
+      if (preflight.status === "unsupported") {
+        resourceStatus = "failed";
+        failed.push(resourceType);
+        continue;
+      }
+      await assertNoPendingMoves({
+        deployment: options.deployment,
+        resourceType,
+        tenant: options.tenant,
+      });
+      const result = await adoptPreparedResourceItems({
+        ...(options.performance === undefined ? {} : { performance: options.performance }),
+        policy: options.policy,
+        prepared: preflight.prepared,
         root: options.root,
         stateLoader: options.stateLoader,
-        write,
       });
       await assertNoPendingMoves({ deployment: options.deployment, resourceType, tenant: options.tenant });
       const references: Readonly<Record<string, TransformReferenceSpec>> = transformReferenceSpecs(options.root, resource);
@@ -695,12 +883,21 @@ async function runAdoptBatchInner(
           status: artifactStatus,
         });
       }
+      published = Object.keys(result.items).length;
       processed.push(resourceType);
     } catch (error: unknown) {
       resourceStatus = "failed";
       failed.push(resourceType);
       write(`error: ${resourceType}: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
+      if (counts !== undefined) {
+        writeTerminalCounts({
+          counts,
+          published: resourceStatus === "success" ? published : 0,
+          resourceType,
+          write,
+        });
+      }
       options.performance?.recordSpan({
         durationMs: options.performance.durationSince(resourceStarted),
         instances: instanceCount,

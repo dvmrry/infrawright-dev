@@ -8,6 +8,7 @@ from engine import packs
 from engine import registry
 from engine.adoption_meta import (
     adoption_entry,
+    classify_raw_items,
     derive_import_id_from_identity,
     derive_key_from_identity,
     identity_item,
@@ -28,6 +29,7 @@ class AdoptionMetaTest(unittest.TestCase):
         os.environ["INFRAWRIGHT_PACKS"] = self.tmp
         os.makedirs(os.path.join(self.tmp, "sample", "overrides"), exist_ok=True)
         _write_json(os.path.join(self.tmp, "sample", "pack.json"), {
+            "pin": "1.2.3",
             "provider_prefixes": {"sample_": "sample"},
             "provider_sources": {"sample": "example/sample"},
         })
@@ -100,6 +102,52 @@ class AdoptionMetaTest(unittest.TestCase):
             meta,
         ))
 
+    def test_raw_system_and_strict_unsupported_classification_precede_identity(self):
+        rule = {
+            "evidence": ["https://example.invalid/provider-source"],
+            "match": {"action": "ISOLATE"},
+            "provider": {"source": "example/sample", "version": "1.2.3"},
+            "reason": "provider cannot round-trip this object",
+        }
+        self._registry({
+            "sample_resource": {
+                "adopt": {
+                    "identity_fields": {"import_id": "details.missing"},
+                    "key_field": "missing_name",
+                    "skip_if": [{"system": True}],
+                    "unsupported_if": [rule],
+                },
+                "generate": True,
+                "product": "sample",
+            },
+        })
+        classified = classify_raw_items([
+            {"action": "ISOLATE", "system": True},
+            {"action": "ISOLATE", "system": False},
+            {"action": "BLOCK", "system": False},
+        ], "sample_resource")
+        self.assertEqual(len(classified["skipped"]), 1)
+        self.assertEqual(len(classified["unsupported"]), 1)
+        self.assertEqual(len(classified["eligible"]), 1)
+
+        self._registry({
+            "sample_resource": {
+                "adopt": {
+                    "unsupported_if": [dict(rule, match={"marker": 1})],
+                },
+                "generate": True,
+                "product": "sample",
+            },
+        })
+        strict = classify_raw_items([
+            {"id": "bool", "name": "Boolean", "marker": True},
+            {"id": "number", "name": "Number", "marker": 1},
+        ], "sample_resource")
+        self.assertEqual([item["id"] for item in strict["eligible"]], ["bool"])
+        self.assertEqual(
+            [item["item"]["id"] for item in strict["unsupported"]],
+            ["number"],
+        )
     def test_registry_adopt_overrides_legacy_override(self):
         self._registry({
             "sample_resource": {

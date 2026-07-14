@@ -451,6 +451,59 @@ test("committed CASB pagers handle full boundaries and write deterministic bytes
   }
 });
 
+test("ZIA adoption classifiers receive exact Fetch-shaped system fields", async () => {
+  const packRoot = await root();
+  const fixture = JSON.parse(await readFile(
+    path.join(
+      process.cwd(),
+      "node-tests",
+      "fixtures",
+      "zia-adoption-classification-v4.7.26.json",
+    ),
+    "utf8",
+  )) as {
+    readonly resources: Readonly<Record<string, {
+      readonly keep?: readonly unknown[];
+      readonly skip?: readonly unknown[];
+      readonly system_skip?: readonly unknown[];
+      readonly unsupported?: readonly unknown[];
+    }>>;
+  };
+  const directory = await mkdtemp(path.join(os.tmpdir(), "rest-zia-adoption-fields-"));
+  try {
+    for (const [resourceType, evidence] of Object.entries(fixture.resources)) {
+      const payload = [
+        ...(evidence.skip ?? []),
+        ...(evidence.system_skip ?? []),
+        ...(evidence.unsupported ?? []),
+        ...(evidence.keep ?? []),
+      ];
+      const bytes: string[] = [];
+      for (const suffix of ["first", "second"]) {
+        const output = path.join(directory, resourceType, suffix);
+        const transport = new QueueTransport([response(payload)]);
+        const result = await fetchResources({
+          adapters: new Map([["zia", adapter("zia")]]),
+          context,
+          environment: {},
+          mode: "oneapi",
+          outputDirectory: output,
+          root: packRoot,
+          selectors: [resourceType],
+          transport,
+        });
+        assert.deepEqual(result.processed, [resourceType]);
+        assert.equal(transport.requests.length, 1, resourceType);
+        bytes.push(await readFile(path.join(output, `${resourceType}.json`), "utf8"));
+      }
+      assert.equal(bytes[0], bytes[1], `${resourceType} deterministic Fetch bytes`);
+      assert.deepEqual(JSON.parse(bytes[0] ?? "null"), payload, resourceType);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("batch shares OneAPI auth, skips optional statuses, writes Python bytes, and preserves stale skips", async () => {
   const packRoot = await root();
   const directory = await mkdtemp(path.join(os.tmpdir(), "rest-collector-"));
