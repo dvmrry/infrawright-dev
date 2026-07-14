@@ -615,14 +615,15 @@ test("real adapter streams init/Apply and invokes the exact saved plan", async (
     "",
   ].join("\n"));
   await chmod(executable, 0o700);
+  const environment = {
+    TF_CLI_ARGS_show: "-destroy",
+    TF_CLI_CONFIG_FILE: terraformConfig,
+    TF_DATA_DIR: terraformData,
+    TF_LOG: "TRACE",
+    ZIA_USERNAME: "provider-secret",
+  };
   const adapter = createExactPlanApplyTerraform({
-    environment: {
-      TF_CLI_ARGS_show: "-destroy",
-      TF_CLI_CONFIG_FILE: terraformConfig,
-      TF_DATA_DIR: terraformData,
-      TF_LOG: "TRACE",
-      ZIA_USERNAME: "provider-secret",
-    },
+    environment,
     terraformExecutable: executable,
   });
   let stdout = "";
@@ -639,6 +640,8 @@ test("real adapter streams init/Apply and invokes the exact saved plan", async (
   }) as typeof process.stderr.write;
   try {
     await adapter.initialize({ directory: workspace, save: false, varFiles: [] });
+    environment.TF_DATA_DIR = path.join(workspace, "mutated-data");
+    environment.TF_CLI_CONFIG_FILE = path.join(workspace, "mutated.rc");
     assert.deepEqual(await adapter.show({ directory: workspace, snapshotPath: savedPlan }), plan());
     await adapter.apply({ directory: workspace });
   } finally {

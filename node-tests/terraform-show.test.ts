@@ -115,7 +115,12 @@ test("default show preserves snapshotted provider context without command or sec
   await withTemp(async (fixture) => {
     const environment = {
       HOME: `${fixture.root}/home`,
+      TEMP: `${fixture.root}/temp`,
+      TMP: `${fixture.root}/tmp-short`,
       TMPDIR: `${fixture.root}/tmp`,
+      XDG_CONFIG_HOME: `${fixture.root}/xdg-config`,
+      XDG_DATA_HOME: `${fixture.root}/xdg-data`,
+      TERRAFORM_CONFIG: `${fixture.root}/terraform-config.rc`,
       TF_CLI_CONFIG_FILE: `${fixture.root}/terraform.rc`,
       TF_DATA_DIR: `${fixture.root}/terraform-data`,
       TF_PLUGIN_CACHE_DIR: `${fixture.root}/plugin-cache`,
@@ -128,10 +133,15 @@ test("default show preserves snapshotted provider context without command or sec
     };
     const fake = executable(fixture.root, [
       `if [ "$HOME" != '${environment.HOME}' ]; then exit 50; fi`,
-      `if [ "$TMPDIR" != '${environment.TMPDIR}' ]; then exit 51; fi`,
-      `if [ "$TF_CLI_CONFIG_FILE" != '${environment.TF_CLI_CONFIG_FILE}' ]; then exit 52; fi`,
-      `if [ "$TF_DATA_DIR" != '${environment.TF_DATA_DIR}' ]; then exit 53; fi`,
-      `if [ "$TF_PLUGIN_CACHE_DIR" != '${environment.TF_PLUGIN_CACHE_DIR}' ]; then exit 54; fi`,
+      `if [ "$TEMP" != '${environment.TEMP}' ]; then exit 51; fi`,
+      `if [ "$TMP" != '${environment.TMP}' ]; then exit 52; fi`,
+      `if [ "$TMPDIR" != '${environment.TMPDIR}' ]; then exit 53; fi`,
+      `if [ "$XDG_CONFIG_HOME" != '${environment.XDG_CONFIG_HOME}' ]; then exit 54; fi`,
+      `if [ "$XDG_DATA_HOME" != '${environment.XDG_DATA_HOME}' ]; then exit 55; fi`,
+      `if [ "$TERRAFORM_CONFIG" != '${environment.TERRAFORM_CONFIG}' ]; then exit 56; fi`,
+      `if [ "$TF_CLI_CONFIG_FILE" != '${environment.TF_CLI_CONFIG_FILE}' ]; then exit 57; fi`,
+      `if [ "$TF_DATA_DIR" != '${environment.TF_DATA_DIR}' ]; then exit 58; fi`,
+      `if [ "$TF_PLUGIN_CACHE_DIR" != '${environment.TF_PLUGIN_CACHE_DIR}' ]; then exit 59; fi`,
       'if [ "${TF_CLI_ARGS_show+x}" = x ]; then exit 70; fi',
       'if [ "${TF_LOG+x}" = x ]; then exit 71; fi',
       'if [ "${TF_REATTACH_PROVIDERS+x}" = x ]; then exit 72; fi',

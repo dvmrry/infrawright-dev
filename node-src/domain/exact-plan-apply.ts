@@ -109,6 +109,7 @@ export function createExactPlanApplyTerraform(options: {
   readonly terraformExecutable: string;
 }): ExactPlanApplyTerraform {
   const environment = definedEnvironment(options.environment);
+  const showEnvironment = operationalTerraformShowEnvironment(environment);
   const planTerraform = createPlanTerraform({
     environment,
     terraformExecutable: options.terraformExecutable,
@@ -118,7 +119,7 @@ export function createExactPlanApplyTerraform(options: {
     initialize: (request) => planTerraform.initialize(request),
     show: (request) => terraformShowPlan({
       envDir: request.directory,
-      environment: operationalTerraformShowEnvironment(options.environment),
+      environment: showEnvironment,
       snapshotPath: request.snapshotPath,
       terraformExecutable: options.terraformExecutable,
       ...(options.showLimits === undefined ? {} : { limits: options.showLimits }),
