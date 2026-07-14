@@ -267,10 +267,10 @@
       "reason": "The negative assertion is meaningful only when the ZCC pack is installed."
     },
     {
-      "prefix": "tests.test_pack_adoption_metadata.PackMetadataBehaviorInvariantTest.test_zia_url_filtering_declares_cbi_projection_fill.",
+      "prefix": "tests.test_pack_adoption_metadata.PackMetadataBehaviorInvariantTest.test_zia_url_filtering_rejects_isolate_before_obsolete_projection_fill.",
       "packs": ["zia"],
       "shared": [],
-      "reason": "The regression asserts the committed ZIA projection-fill policy."
+      "reason": "The regression asserts the committed version-scoped ZIA ISOLATE rejection and removal of the obsolete projection-fill policy."
     },
     {
       "prefix": "tests.test_pack_set.PackSetTest.test_full_profile_matches_committed_pack_root.",
