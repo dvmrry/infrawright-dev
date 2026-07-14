@@ -1,24 +1,5 @@
 {
-  "expected_differences": [
-    {
-      "adopt": {
-        "present": true,
-        "value": "0"
-      },
-      "classification": "representational_difference",
-      "disposition": "evidence_gate",
-      "evidence": [
-        "packs/zpa/overrides/zpa_application_segment.json",
-        "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_application_segment.go#L231-L244",
-        "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_application_segment.go#L358-L374"
-      ],
-      "path": "/items/example_segment/microtenant_id",
-      "reason": "Raw transform drops the default sentinel, while provider Read passes it through and oracle projection mirrors it; retain as an artifact-parity gate rather than inferring an oracle-plan failure.",
-      "transform": {
-        "present": false
-      }
-    }
-  ],
+  "expected_differences": [],
   "fixture_version": 1,
   "name": "zpa_application_segment_microtenant",
   "provenance": {
@@ -27,7 +8,7 @@
       "packs/zpa/overrides/zpa_application_segment.json",
       "packs/zpa/schemas/provider/zpa.json"
     ],
-    "note": "Minimal source-derived fixture for raw microtenant pass-through and policy_style normalization; it is not retained tenant output.",
+    "note": "Minimal source-derived equality fixture for microtenant default omission and policy_style normalization; it is not retained tenant output.",
     "provider_version": "4.4.6",
     "sanitized": true,
     "sources": [

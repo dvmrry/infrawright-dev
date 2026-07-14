@@ -33,14 +33,14 @@ class TransformAdoptParityTest(unittest.TestCase):
         self.assertEqual(report["result"], "evidence_gates")
         self.assertEqual(report["summary"], {
             "fixtures": 4,
-            "equal": 1,
+            "equal": 3,
             "classified_differences": 0,
-            "evidence_gate_fixtures": 3,
+            "evidence_gate_fixtures": 1,
             "review_required": 0,
-            "differences": 4,
-            "classified": 4,
+            "differences": 1,
+            "classified": 1,
             "unclassified": 0,
-            "evidence_gates": 4,
+            "evidence_gates": 1,
             "accepted": 0,
             "stale_expectations": 0,
             "unacknowledged_drops": 0,
@@ -69,13 +69,8 @@ class TransformAdoptParityTest(unittest.TestCase):
             "zia_dlp_engines_predefined_name": [
                 "/items/predefined_engine/name",
             ],
-            "zia_url_filtering_rules_zero_quota": [
-                "/items/no_quota_rule/size_quota",
-                "/items/no_quota_rule/time_quota",
-            ],
-            "zpa_application_segment_microtenant": [
-                "/items/example_segment/microtenant_id",
-            ],
+            "zia_url_filtering_rules_zero_quota": [],
+            "zpa_application_segment_microtenant": [],
         }
         self.assertEqual(
             dict(

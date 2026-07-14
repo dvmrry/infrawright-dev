@@ -1,42 +1,5 @@
 {
-  "expected_differences": [
-    {
-      "adopt": {
-        "present": true,
-        "value": 0
-      },
-      "classification": "validation_asymmetry",
-      "disposition": "evidence_gate",
-      "evidence": [
-        "packs/zia/overrides/zia_url_filtering_rules.json",
-        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L239-L243",
-        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L512-L514"
-      ],
-      "path": "/items/no_quota_rule/size_quota",
-      "reason": "Raw transform omits the divided zero default, while provider Read stores zero; a provider-framework or live probe must determine whether explicit zero survives config validation.",
-      "transform": {
-        "present": false
-      }
-    },
-    {
-      "adopt": {
-        "present": true,
-        "value": 0
-      },
-      "classification": "validation_asymmetry",
-      "disposition": "evidence_gate",
-      "evidence": [
-        "packs/zia/overrides/zia_url_filtering_rules.json",
-        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L233-L237",
-        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L510-L510"
-      ],
-      "path": "/items/no_quota_rule/time_quota",
-      "reason": "Raw transform omits the zero default, while provider Read stores zero; a provider-framework or live probe must determine whether explicit zero survives config validation.",
-      "transform": {
-        "present": false
-      }
-    }
-  ],
+  "expected_differences": [],
   "fixture_version": 1,
   "name": "zia_url_filtering_rules_zero_quota",
   "provenance": {
@@ -45,7 +8,7 @@
       "packs/zia/overrides/zia_url_filtering_rules.json",
       "packs/zia/schemas/provider/zia.json"
     ],
-    "note": "Minimal source-derived fixture for provider Read zero values and transform omission; explicit-zero validation still requires a live or provider-framework probe.",
+    "note": "Minimal source-derived equality fixture for provider Read zero values after pack drop_if_default is applied consistently by Transform and Adopt.",
     "provider_version": "4.7.26",
     "sanitized": true,
     "sources": [
