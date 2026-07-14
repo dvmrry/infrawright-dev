@@ -18,8 +18,14 @@ function run(script: string, arguments_: readonly string[]) {
   });
 }
 
-function performanceReport(command: "adopt" | "fetch", duration: number) {
+function performanceReport(
+  command: "adopt" | "fetch",
+  duration: number,
+  oracleStateSource: "accepted-plan" | "applied-state" = "applied-state",
+) {
   const fetch = command === "fetch";
+  const acceptedPlan = oracleStateSource === "accepted-plan";
+  const terraformCommands = fetch ? 0 : acceptedPlan ? 3 : 5;
   return {
     command,
     command_duration_ms: duration,
@@ -38,14 +44,33 @@ function performanceReport(command: "adopt" | "fetch", duration: number) {
       status: 200,
     }] : [],
     selected_concurrency: fetch ? 1 : null,
-    spans: [{
+    spans: fetch ? [{
       duration_ms: duration,
-      ...(fetch
-        ? { logical_requests: 2, pages: 2 }
-        : { terraform_commands: 5 }),
-      phase: fetch ? "fetch.total" : "adopt.total",
+      logical_requests: 2,
+      pages: 2,
+      phase: "fetch.total",
       status: "success",
-    }],
+    }] : [{
+      duration_ms: duration,
+      phase: "adopt.total",
+      status: "success",
+    }, {
+      duration_ms: 0,
+      oracle_state_source: oracleStateSource,
+      phase: "oracle.state_source",
+      status: "success",
+      terraform_commands: 0,
+    }, ...["oracle.init", "oracle.generated_config_plan", "oracle.plan_show"].map((phase) => ({
+      duration_ms: 1,
+      phase,
+      status: "success",
+      terraform_commands: 1,
+    })), ...["oracle.scratch_apply", "oracle.state_show"].map((phase) => ({
+      duration_ms: acceptedPlan ? 0 : 1,
+      phase,
+      status: acceptedPlan ? "skipped" : "success",
+      terraform_commands: acceptedPlan ? 0 : 1,
+    }))],
     summary: {
       http_requests: fetch ? 2 : 0,
       logical_requests: fetch ? 2 : 0,
@@ -53,7 +78,7 @@ function performanceReport(command: "adopt" | "fetch", duration: number) {
       rate_limited_requests: 0,
       retries: 0,
       retry_delay_ms: 0,
-      terraform_commands: command === "adopt" ? 5 : 0,
+      terraform_commands: terraformCommands,
     },
   };
 }
@@ -101,10 +126,65 @@ test("performance tools hash exact artifacts and compare sanitized reports", asy
       "--variant", `candidate=${path.join(directory, "candidate")}`,
     ]);
     assert.equal(comparison.status, 0, comparison.stderr);
-    assert.match(comparison.stdout, /\| baseline \| 100\.000 \| 200\.000 \| 300\.000 \| 2 \| 0 \| 2 \| 5 \| baseline \|/);
-    assert.match(comparison.stdout, /\| candidate \| 50\.000 \| 120\.000 \| 170\.000 \| 2 \| 0 \| 2 \| 5 \| yes \|/);
+    assert.match(comparison.stdout, /\| baseline \| applied-state \| 100\.000 \| 200\.000 \| 300\.000 \| 2 \| 0 \| 2 \| 5 \| baseline \|/);
+    assert.match(comparison.stdout, /\| candidate \| applied-state \| 50\.000 \| 120\.000 \| 170\.000 \| 2 \| 0 \| 2 \| 5 \| yes \|/);
     assert.match(comparison.stdout, /\| candidate \| 0 \| 0 \| 0\.000 \|/);
     assert.doesNotMatch(comparison.stdout, new RegExp(directory.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Oracle A/B comparison binds labels to state-source and skipped-phase evidence", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "performance-oracle-ab-"));
+  try {
+    for (const source of ["applied-state", "accepted-plan"] as const) {
+      const runDirectory = path.join(directory, source);
+      const pulls = path.join(runDirectory, "pulls");
+      await mkdir(pulls, { recursive: true });
+      await writeFile(path.join(pulls, "sample.json"), "[]\n", "utf8");
+      await writeFile(
+        path.join(runDirectory, "fetch.performance.json"),
+        JSON.stringify(performanceReport("fetch", 10)),
+      );
+      await writeFile(
+        path.join(runDirectory, "adopt.performance.json"),
+        JSON.stringify(performanceReport("adopt", source === "applied-state" ? 20 : 12, source)),
+      );
+      await writeManifest(runDirectory, [["pulls", pulls]]);
+    }
+    const compare = () => run(COMPARE, [
+      "--oracle-ab",
+      "--variant", `applied-state=${path.join(directory, "applied-state")}`,
+      "--variant", `accepted-plan=${path.join(directory, "accepted-plan")}`,
+    ]);
+    const success = compare();
+    assert.equal(success.status, 0, success.stderr);
+    assert.match(success.stdout, /\| applied-state \| applied-state \|/u);
+    assert.match(success.stdout, /\| accepted-plan \| accepted-plan \|/u);
+    assert.match(success.stdout, /\| accepted-plan \| accepted-plan \| 10\.000 \| 12\.000 \| 22\.000 \| 2 \| 0 \| 2 \| 3 \| yes \|/u);
+
+    const acceptedPath = path.join(directory, "accepted-plan", "adopt.performance.json");
+    await writeFile(acceptedPath, JSON.stringify(performanceReport("adopt", 12, "applied-state")));
+    let rejected = compare();
+    assert.equal(rejected.status, 2);
+    assert.match(rejected.stderr, /accepted-plan contains Oracle state source applied-state/u);
+
+    const missing = performanceReport("adopt", 12, "accepted-plan");
+    missing.spans = missing.spans.filter((span) => !("oracle_state_source" in span));
+    await writeFile(acceptedPath, JSON.stringify(missing));
+    rejected = compare();
+    assert.equal(rejected.status, 2);
+    assert.match(rejected.stderr, /accepted-plan is missing one Oracle state source/u);
+
+    const incomplete = performanceReport("adopt", 12, "accepted-plan");
+    const scratchApply = incomplete.spans.find((span) => span.phase === "oracle.scratch_apply");
+    assert.notEqual(scratchApply, undefined);
+    scratchApply!.status = "success";
+    await writeFile(acceptedPath, JSON.stringify(incomplete));
+    rejected = compare();
+    assert.equal(rejected.status, 2);
+    assert.match(rejected.stderr, /accepted-plan Adopt report does not contain exact oracle\.scratch_apply evidence/u);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

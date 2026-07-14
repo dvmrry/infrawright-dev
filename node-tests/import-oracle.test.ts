@@ -362,6 +362,21 @@ test("accepted-plan state source rejects unknown, incomplete, or inconsistent ev
       change.after = { ...DEFAULT_VALUES, enabled: 1 };
       change.before = { ...DEFAULT_VALUES, enabled: true };
     }],
+    ["lossless decimal mismatch", (candidate) => {
+      const [before, after] = parseDataJsonLosslessly(
+        '[{"quota":9007199254740992.0},{"quota":9007199254740993.0}]',
+      ) as readonly Record<string, unknown>[];
+      const change = ((candidate.resource_changes as Record<string, unknown>[])[0]!.change) as Record<string, unknown>;
+      change.before = before;
+      change.after = after;
+      const planned = candidate.planned_values as Record<string, unknown>;
+      const plannedRoot = planned.root_module as Record<string, unknown>;
+      (plannedRoot.resources as Record<string, unknown>[])[0]!.values = after;
+      const prior = candidate.prior_state as Record<string, unknown>;
+      const priorValues = prior.values as Record<string, unknown>;
+      const priorRoot = priorValues.root_module as Record<string, unknown>;
+      (priorRoot.resources as Record<string, unknown>[])[0]!.values = before;
+    }],
     ["missing planned state", (candidate) => {
       delete candidate.planned_values;
     }],
@@ -538,9 +553,12 @@ test("accepted-plan mode uses the corrected plan and skips only Apply/state show
       },
     },
   });
+  let now = 0;
+  const performance = new PerformanceRecorder({ now: () => now++ });
   const output = await importProviderState({
     environment: { INFRAWRIGHT_ORACLE_STATE_SOURCE: "accepted-plan" },
     keyToImportId: new Map([[KEY, IMPORT_ID]]),
+    performance,
     policy: selected,
     resourceType: RESOURCE,
     root: await committedRoot(),
@@ -553,6 +571,12 @@ test("accepted-plan mode uses the corrected plan and skips only Apply/state show
     "plan-imports",
     "show-plan",
   ]);
+  const report = performance.report({
+    command: "adopt",
+    commandDurationMs: 20,
+    commandStatus: "success",
+  });
+  assert.equal((report.summary as { terraform_commands: number }).terraform_commands, 4);
 });
 
 test("missing state, duplicate import IDs, and malformed plan coverage fail closed", async () => {

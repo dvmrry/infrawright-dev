@@ -16,7 +16,13 @@ function record(value) {
 
 function argumentsFrom(argv) {
   const variants = [];
+  let oracleAb = false;
   for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === "--oracle-ab") {
+      if (oracleAb) fail("--oracle-ab may be supplied only once");
+      oracleAb = true;
+      continue;
+    }
     if (argv[index] !== "--variant") fail(`unknown argument ${String(argv[index])}`);
     const value = argv[index + 1];
     if (value === undefined || value === "") fail("--variant requires label=run-directory");
@@ -31,7 +37,7 @@ function argumentsFrom(argv) {
     variants.push({ label, path: path.resolve(value.slice(separator + 1)) });
   }
   if (variants.length === 0) fail("at least one --variant is required");
-  return variants;
+  return { oracleAb, variants };
 }
 
 function nonNegativeNumber(value, label) {
@@ -197,7 +203,27 @@ function escapeCell(value) {
   return String(value).replaceAll("|", "\\|");
 }
 
-const variants = argumentsFrom(process.argv.slice(2));
+function reportOracleStateSource(report) {
+  const sources = new Set(report.spans.flatMap((span) => {
+    return span.oracle_state_source === undefined ? [] : [span.oracle_state_source];
+  }));
+  return sources.size === 1 ? [...sources][0] : null;
+}
+
+function assertOraclePhase(report, phase, source) {
+  const spans = report.spans.filter((span) => span.phase === phase);
+  const status = source === "accepted-plan" ? "skipped" : "success";
+  const commands = source === "accepted-plan" ? 0 : 1;
+  if (
+    spans.length === 0
+    || spans.some((span) => span.status !== status || span.terraform_commands !== commands)
+  ) {
+    fail(`${source} Adopt report does not contain exact ${phase} evidence`);
+  }
+}
+
+const parsedArguments = argumentsFrom(process.argv.slice(2));
+const variants = parsedArguments.variants;
 const evidence = [];
 for (const variant of variants) {
   evidence.push({
@@ -205,6 +231,25 @@ for (const variant of variants) {
     manifest: await manifest(variant.path),
     reports: await reports(variant.path),
   });
+}
+if (parsedArguments.oracleAb) {
+  if (evidence.length !== 2) fail("--oracle-ab requires exactly two variants");
+  const observed = new Set();
+  for (const variant of evidence) {
+    const adopt = variant.reports.get("adopt");
+    if (adopt === undefined) fail(`variant ${variant.label} is missing its Adopt report`);
+    const source = reportOracleStateSource(adopt);
+    if (source === null) fail(`variant ${variant.label} is missing one Oracle state source`);
+    if (variant.label !== source) {
+      fail(`variant ${variant.label} contains Oracle state source ${source}`);
+    }
+    observed.add(source);
+    assertOraclePhase(adopt, "oracle.scratch_apply", source);
+    assertOraclePhase(adopt, "oracle.state_show", source);
+  }
+  if (!observed.has("applied-state") || !observed.has("accepted-plan")) {
+    fail("--oracle-ab requires one applied-state and one accepted-plan report");
+  }
 }
 const baseline = evidence[0];
 const baselineCommands = [...baseline.reports.keys()].sort();
@@ -232,6 +277,7 @@ const rows = evidence.map((variant, index) => {
     http: sum(summaries, (summary) => summary.http_requests),
     label: variant.label,
     list: sum(http, (row) => row.classification === "list" ? row.request_count : 0),
+    oracleSource: adopt === undefined ? "-" : reportOracleStateSource(adopt) ?? "missing",
     oracle: adopt?.command_duration_ms ?? 0,
     parity: index === 0
       ? "baseline"
@@ -244,10 +290,10 @@ const rows = evidence.map((variant, index) => {
   };
 });
 
-process.stdout.write("| Variant | Fetch time (ms) | Oracle time (ms) | Total time (ms) | HTTP requests | Detail GETs | List GETs | TF commands | Parity |\n");
-process.stdout.write("|---|---:|---:|---:|---:|---:|---:|---:|---|\n");
+process.stdout.write("| Variant | Oracle source | Fetch time (ms) | Oracle time (ms) | Total time (ms) | HTTP requests | Detail GETs | List GETs | TF commands | Parity |\n");
+process.stdout.write("|---|---|---:|---:|---:|---:|---:|---:|---:|---|\n");
 for (const row of rows) {
-  process.stdout.write(`| ${escapeCell(row.label)} | ${row.fetch.toFixed(3)} | ${row.oracle.toFixed(3)} | ${row.total.toFixed(3)} | ${row.http} | ${row.detail} | ${row.list} | ${row.terraform} | ${row.parity} |\n`);
+  process.stdout.write(`| ${escapeCell(row.label)} | ${row.oracleSource} | ${row.fetch.toFixed(3)} | ${row.oracle.toFixed(3)} | ${row.total.toFixed(3)} | ${row.http} | ${row.detail} | ${row.list} | ${row.terraform} | ${row.parity} |\n`);
 }
 process.stdout.write("\n| Variant | HTTP 429s | Retries | Retry delay (ms) |\n");
 process.stdout.write("|---|---:|---:|---:|\n");

@@ -73,7 +73,7 @@ done
 Compare any set of runs without credentials:
 
 ```sh
-node scripts/compare-performance-reports.mjs \
+node "$IW_RUN_ROOT/applied-state/repo/scripts/compare-performance-reports.mjs" \
   --variant "c1-r1=$IW_EVIDENCE/fetch-c1-r1" \
   --variant "c2-r1=$IW_EVIDENCE/fetch-c2-r1" \
   --variant "c4-r1=$IW_EVIDENCE/fetch-c4-r1" \
@@ -117,6 +117,17 @@ INFRAWRIGHT_PERFORMANCE_REPORT="$run/modules.performance.json" \
   node "$IW_CLI" modules generate --resource "$IW_RESOURCE"
 INFRAWRIGHT_PERFORMANCE_REPORT="$run/gen-env.performance.json" \
   node "$IW_CLI" gen-env --tenant "$IW_TENANT" --resource "$IW_RESOURCE"
+config_dir="$(node "$IW_CLI" deployment config-dir "$IW_TENANT")"
+imports_dir="$(node "$IW_CLI" deployment imports-dir "$IW_TENANT")"
+envs_dir="$(node "$IW_CLI" deployment envs-dir "$IW_TENANT")"
+module_dir="$(node "$IW_CLI" deployment module-dir)"
+node scripts/performance-artifact-manifest.mjs \
+  --root "pulls=$run/pulls" \
+  --root "config=$config_dir" \
+  --root "imports=$imports_dir" \
+  --root "modules=$module_dir" \
+  --root "envs=$envs_dir" \
+  --out "$run/artifacts.sha256.json"
 INFRAWRIGHT_PERFORMANCE_REPORT="$run/stage.performance.json" \
   node "$IW_CLI" stage-imports --tenant "$IW_TENANT" \
     --resource "$IW_RESOURCE" --state-aware
@@ -131,26 +142,13 @@ This qualification stops before deployment Apply. The Oracle's mechanically
 verified import-only scratch Apply writes only ephemeral local state and remains
 part of Adopt.
 
-After each variant, hash the exact pull, configuration, imports, module, and
-environment roots. Query deployment-owned paths rather than guessing them:
-
-```sh
-config_dir="$(node "$IW_CLI" deployment config-dir "$IW_TENANT")"
-imports_dir="$(node "$IW_CLI" deployment imports-dir "$IW_TENANT")"
-envs_dir="$(node "$IW_CLI" deployment envs-dir "$IW_TENANT")"
-module_dir="$(node "$IW_CLI" deployment module-dir)"
-node scripts/performance-artifact-manifest.mjs \
-  --root "pulls=$run/pulls" \
-  --root "config=$config_dir" \
-  --root "imports=$imports_dir" \
-  --root "modules=$module_dir" \
-  --root "envs=$envs_dir" \
-  --out "$run/artifacts.sha256.json"
-```
-
-If an optional root does not exist for the selected workflow, omit that root
-consistently from every variant. The manifest deliberately records relative
-file names, sizes, and SHA-256 values, never file contents or absolute paths.
+The manifest is created immediately after root generation and before
+state-aware staging or Terraform init. If an optional root does not exist for
+the selected workflow, omit it consistently from every variant. The manifest
+records relative file names, sizes, and SHA-256 values, never file contents or
+absolute paths. Saved plans, fingerprints, provider installations,
+`.terraform`, state, and assessment output remain separate private runtime
+evidence and are not part of deterministic artifact parity.
 
 ### Applied-state versus accepted-plan Oracle A/B
 
@@ -171,7 +169,13 @@ export IW_RUN_ROOT="$(mktemp -d)"
 export IW_TENANT='<approved-tenant-label>'
 export IW_RESOURCE='<identical-bounded-selector>'
 export IW_DEPLOYMENT_REL='<repo-relative-identical-deployment-file>'
+export IW_RUNTIME='<approved-runtime-tree-built-from-IW_HEAD>'
+export IW_RUNTIME_SOURCE_COMMIT='<commit-from-trusted-build-attestation>'
 set -eu
+
+test "$IW_RUNTIME_SOURCE_COMMIT" = "$IW_HEAD"
+node "$IW_RUNTIME/scripts/verify-runtime-release.mjs" "$IW_RUNTIME"
+IW_CLI="$IW_RUNTIME/dist/infrawright-cli.mjs"
 
 for state_source in applied-state accepted-plan; do
   run="$IW_RUN_ROOT/$state_source"
@@ -183,31 +187,23 @@ for state_source in applied-state accepted-plan; do
     export INFRAWRIGHT_DEPLOYMENT="$repo/$IW_DEPLOYMENT_REL"
     export INFRAWRIGHT_ORACLE_STATE_SOURCE="$state_source"
     export INFRAWRIGHT_PERFORMANCE_REPORT="$run/fetch.performance.json"
-    node dist/infrawright-cli.mjs fetch \
+    node "$IW_CLI" fetch \
       --tenant "$IW_TENANT" --resource "$IW_RESOURCE" \
       --concurrency 1 --out "$run/pulls"
     export INFRAWRIGHT_PERFORMANCE_REPORT="$run/adopt.performance.json"
-    node dist/infrawright-cli.mjs adopt \
+    node "$IW_CLI" adopt \
       --in "$run/pulls" --tenant "$IW_TENANT" --resource "$IW_RESOURCE"
     export INFRAWRIGHT_PERFORMANCE_REPORT="$run/modules.performance.json"
-    node dist/infrawright-cli.mjs modules generate --resource "$IW_RESOURCE"
+    node "$IW_CLI" modules generate --resource "$IW_RESOURCE"
     export INFRAWRIGHT_PERFORMANCE_REPORT="$run/gen-env.performance.json"
-    node dist/infrawright-cli.mjs gen-env \
-      --tenant "$IW_TENANT" --resource "$IW_RESOURCE"
-    export INFRAWRIGHT_PERFORMANCE_REPORT="$run/stage.performance.json"
-    node dist/infrawright-cli.mjs stage-imports \
-      --tenant "$IW_TENANT" --resource "$IW_RESOURCE" --state-aware
-    export INFRAWRIGHT_PERFORMANCE_REPORT="$run/plan.performance.json"
-    node dist/infrawright-cli.mjs plan \
-      --tenant "$IW_TENANT" --resource "$IW_RESOURCE" --save
-    export INFRAWRIGHT_PERFORMANCE_REPORT="$run/assessment.performance.json"
-    node dist/infrawright-cli.mjs assert-adoptable \
+    node "$IW_CLI" gen-env \
       --tenant "$IW_TENANT" --resource "$IW_RESOURCE"
 
-    config_dir="$(node dist/infrawright-cli.mjs deployment config-dir "$IW_TENANT")"
-    imports_dir="$(node dist/infrawright-cli.mjs deployment imports-dir "$IW_TENANT")"
-    envs_dir="$(node dist/infrawright-cli.mjs deployment envs-dir "$IW_TENANT")"
-    module_dir="$(node dist/infrawright-cli.mjs deployment module-dir)"
+    # Hash only deterministic generated inputs, before Terraform init/staging.
+    config_dir="$(node "$IW_CLI" deployment config-dir "$IW_TENANT")"
+    imports_dir="$(node "$IW_CLI" deployment imports-dir "$IW_TENANT")"
+    envs_dir="$(node "$IW_CLI" deployment envs-dir "$IW_TENANT")"
+    module_dir="$(node "$IW_CLI" deployment module-dir)"
     node scripts/performance-artifact-manifest.mjs \
       --root "pulls=$run/pulls" \
       --root "config=$config_dir" \
@@ -215,18 +211,47 @@ for state_source in applied-state accepted-plan; do
       --root "modules=$module_dir" \
       --root "envs=$envs_dir" \
       --out "$run/artifacts.sha256.json"
+
+    export INFRAWRIGHT_PERFORMANCE_REPORT="$run/stage.performance.json"
+    node "$IW_CLI" stage-imports \
+      --tenant "$IW_TENANT" --resource "$IW_RESOURCE" --state-aware
+    export INFRAWRIGHT_PERFORMANCE_REPORT="$run/plan.performance.json"
+    node "$IW_CLI" plan \
+      --tenant "$IW_TENANT" --resource "$IW_RESOURCE" --save
+    export INFRAWRIGHT_PERFORMANCE_REPORT="$run/assessment.performance.json"
+    node "$IW_CLI" assert-adoptable \
+      --tenant "$IW_TENANT" --resource "$IW_RESOURCE"
   )
 done
 
 node scripts/compare-performance-reports.mjs \
+  --oracle-ab \
   --variant "applied-state=$IW_RUN_ROOT/applied-state" \
   --variant "accepted-plan=$IW_RUN_ROOT/accepted-plan"
 ```
+
+`--oracle-ab` requires exactly those two labels, binds each label to the state
+source recorded inside its Adopt report, displays the observed source, and
+requires the accepted-plan report to show scratch Apply and state show as
+zero-command skipped phases. Missing, duplicated, or mislabeled provenance is a
+comparison failure.
 
 The deployment file must resolve its overlay and module directories inside that
 variant's worktree (normally by using relative paths). Abort if both deployment
 files resolve to the same canonical output directory; variants must never share
 persistent writers.
+
+`IW_RUNTIME_SOURCE_COMMIT` must come from the trusted build attestation that
+maps the verified bundle digest to `IW_HEAD`; do not populate it by merely
+copying the desired benchmark commit. The work machine consumes that immutable
+runtime tree without npm, `node_modules`, TypeScript, or Python. Build and attest
+the bundle on the trusted build path when the candidate head changes.
+
+The manifest is deliberately written before state-aware staging or Terraform
+planning. It covers generated inputs only. Keep saved-plan, fingerprint,
+provider installation, `.terraform`, state, and assessment evidence in the
+private run directory and compare their classifications separately; do not add
+those nondeterministic or sensitive runtime files to the artifact manifest.
 
 The Adopt report includes a static `oracle_state_source` label and records the
 skipped scratch-Apply/state-show spans with zero Terraform commands. With no

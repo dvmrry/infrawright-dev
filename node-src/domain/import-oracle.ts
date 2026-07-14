@@ -8,7 +8,7 @@ import type { LoadedPackRoot } from "../metadata/loader.js";
 import { manifestForProvider } from "../metadata/packs.js";
 import { isObject } from "../metadata/validation.js";
 import { parseDataJsonLosslessly } from "../json/control.js";
-import { terraformJsonEqual } from "../json/python-equality.js";
+import { terraformJsonExactlyEqual } from "../json/python-equality.js";
 import { readOptionalUtf8 } from "../io/files.js";
 import {
   runTerraformCommand,
@@ -354,25 +354,25 @@ function exactStateObjects(options: {
   return output;
 }
 
-function assertNoUnknownValues(value: unknown, resourceType: string, address: string): void {
+function assertNoUnknownValues(value: unknown, resourceType: string): void {
   if (value === false) return;
   if (value === true) {
     throw new OracleError(
-      `${resourceType} accepted import plan left provider-observed values unknown for ${address}`,
+      `${resourceType} accepted import plan left provider-observed values unknown`,
     );
   }
   if (Array.isArray(value)) {
-    for (const child of value) assertNoUnknownValues(child, resourceType, address);
+    for (const child of value) assertNoUnknownValues(child, resourceType);
     return;
   }
   if (isObject(value)) {
     for (const child of Object.values(value)) {
-      assertNoUnknownValues(child, resourceType, address);
+      assertNoUnknownValues(child, resourceType);
     }
     return;
   }
   throw new OracleError(
-    `${resourceType} accepted import plan returned a malformed unknown-value mask for ${address}`,
+    `${resourceType} accepted import plan returned a malformed unknown-value mask`,
   );
 }
 
@@ -455,20 +455,20 @@ export function extractAcceptedPlanState(options: {
       || (!isObject(change.after_sensitive) && change.after_sensitive !== true)
     ) {
       throw new OracleError(
-        `${options.resourceType} accepted import plan did not contain exact provider-observed evidence for ${address}`,
+        `${options.resourceType} accepted import plan did not contain exact provider-observed evidence`,
       );
     }
-    assertNoUnknownValues(change.after_unknown, options.resourceType, address);
+    assertNoUnknownValues(change.after_unknown, options.resourceType);
     if (
-      !terraformJsonEqual(change.before, change.after)
-      || !terraformJsonEqual(change.after, plannedObject.values)
-      || !terraformJsonEqual(plannedObject.values, priorObject.values)
-      || !terraformJsonEqual(change.before_sensitive, change.after_sensitive)
-      || !terraformJsonEqual(change.after_sensitive, plannedObject.sensitiveValues)
-      || !terraformJsonEqual(plannedObject.sensitiveValues, priorObject.sensitiveValues)
+      !terraformJsonExactlyEqual(change.before, change.after)
+      || !terraformJsonExactlyEqual(change.after, plannedObject.values)
+      || !terraformJsonExactlyEqual(plannedObject.values, priorObject.values)
+      || !terraformJsonExactlyEqual(change.before_sensitive, change.after_sensitive)
+      || !terraformJsonExactlyEqual(change.after_sensitive, plannedObject.sensitiveValues)
+      || !terraformJsonExactlyEqual(plannedObject.sensitiveValues, priorObject.sensitiveValues)
     ) {
       throw new OracleError(
-        `${options.resourceType} accepted import plan provider observations were inconsistent for ${address}`,
+        `${options.resourceType} accepted import plan provider observations were inconsistent`,
       );
     }
   }

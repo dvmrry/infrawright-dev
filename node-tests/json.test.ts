@@ -17,6 +17,10 @@ import {
   sortedStrings,
   type JsonValue,
 } from "../node-src/json/python-compatible.js";
+import {
+  terraformJsonEqual,
+  terraformJsonExactlyEqual,
+} from "../node-src/json/python-equality.js";
 import { snapshotPlainJsonGraph } from "../node-src/json/supported-json-graph.js";
 
 test("shared Python string semantics preserve exact sequence and code-point order", () => {
@@ -105,6 +109,22 @@ test("data parser preserves numeric lexemes beyond JavaScript precision", () => 
       '{"__proto__":{"first":1},"__proto__":{"second":2}}',
     ),
   );
+});
+
+test("exact Terraform evidence equality avoids binary rounding", () => {
+  const values = parseDataJsonLosslessly(
+    "[1,1.0,10e-1,0.10e1,9007199254740992.0,9007199254740993.0,1e100000,10e99999]",
+  ) as readonly unknown[];
+  assert.equal(terraformJsonExactlyEqual(values[0], values[1]), true);
+  assert.equal(terraformJsonExactlyEqual(values[1], values[2]), true);
+  assert.equal(terraformJsonExactlyEqual(values[2], values[3]), true);
+  assert.equal(terraformJsonExactlyEqual(values[4], values[5]), false);
+  assert.equal(terraformJsonExactlyEqual(values[6], values[7]), true);
+  assert.equal(terraformJsonExactlyEqual(true, values[0]), false);
+
+  // Existing parity and plan-classification callers retain Python's numeric
+  // equality contract; only the accepted-plan authorization gate is exact.
+  assert.equal(terraformJsonEqual(values[4], values[5]), true);
 });
 
 test("compatibility renderer preserves Python float spelling and numeric tokens", () => {
