@@ -41,10 +41,12 @@
 - Pack metadata: exact committed ZIA overrides and registry.
 - Existing docs or design records: the Zscaler adoption follow-up runbook and
   its returned authority hashes/counts.
-- Other source evidence: downstream pre-change adopted-tfvars counts were 18
-  for `tag=""` and 1 for `plugin_check_frequency=""`; both Adopt commands
-  exited zero. Raw, Transform, generated-before, and generated-after counts
-  were zero and are not claimed as positive policy execution evidence.
+- Other source evidence: a downstream screenshot reported pre-change
+  adopted-tfvars counts of 18 for `tag=""` and 1 for
+  `plugin_check_frequency=""`; both Adopt commands exited zero. Its authority
+  hashes were truncated, so it authorizes a provisional candidate but is not
+  acceptance evidence. Raw, Transform, generated-before, and generated-after
+  counts were zero and are not claimed as positive policy execution evidence.
 
 ## Generated Artifacts
 
@@ -75,8 +77,9 @@
   schema-writable field and exact empty-string equality.
 - Generic matcher evidence must not outrank source-backed evidence: no generic
   matcher change was made.
-- Source precedence/provenance must remain explicit: runbook binds the complete
-  CLI digest and pack hashes before rerunning Adopt.
+- Source precedence/provenance must remain explicit: the remediated runbook
+  binds the reproducible committed CLI digest and complete pack hashes before
+  rerunning Adopt; truncated hashes make the result INCONCLUSIVE.
 - Ambiguity must stay classified instead of being coerced to success: zero raw
   counts do not distinguish absent, null, or another value; stale materialized
   roots remain separate from current topology.
@@ -107,7 +110,7 @@
   in repository CI; the candidate is exact-field metadata plus synthetic
   provider-state coverage.
 - Follow-up owner or trigger: approved downstream operator; acceptance is
-  adopted-tfvars counts 0/0 with Adopt exit zero.
+  adopted-tfvars counts 0/0 with Adopt exit zero and complete authority hashes.
 - Deferred work: ZPA source-less automatic grouping correction.
 - Reason it is safe to defer: separate topology/state-key surface, unrelated
   to these two ZIA values.
@@ -126,3 +129,23 @@
 - Edge cases that could silently overclaim, remap, drop, or weaken evidence:
   explicit raw `null`, nonempty strings, zero generated-HCL matches, stale root
   materialization, and a mismatched CLI digest.
+
+## First Review Findings And Remediation
+
+- Finding: screenshot-only counts and an unreproducible CLI digest could not
+  qualify the candidate.
+- Root cause: the first downstream report was optimized to fit on screen and
+  truncated the authority chain; its freshly built CLI did not match the
+  reproducible committed bundle.
+- Fix: classify that report as provisional, bind the reproducible committed
+  CLI SHA-256, and require every returned digest in full.
+- Regression verification: downstream run remains an explicit acceptance
+  gate; no repository test can manufacture tenant evidence.
+- Finding: vague regeneration wording could reuse an absolute original
+  deployment overlay and overwrite a persistent root.
+- Root cause: Phase 0 contained only Transform/Adopt lanes.
+- Fix: create a fifth relocated deployment lane, include it in the physical
+  containment proof, and make it the only authorized `gen-env` write target.
+- Regression verification: the documented procedure resolves and rechecks the
+  regenerated root beneath the lane before reading `main.tf`; the original
+  deployment is used read-only.

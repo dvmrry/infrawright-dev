@@ -18,18 +18,21 @@ The following live results are accepted and do not need to be repeated:
 - PR #218: assert-adoptable succeeded for all seven tested roots.
 - PR #217: the unsupported ZIA URL filtering rules failed closed as intended.
 
-The first execution of this runbook also established that provider Read emits
-empty strings for `zia_firewall_filtering_network_service.tag` and
-`zia_browser_control_policy.plugin_check_frequency`. The candidate pack now
-declares those exact sentinels as `drop_if_default`. Do not substitute `null`
-and do not infer that Transform exercised a rule from a zero raw count. A
-separate direct observation is required to distinguish an absent field, JSON
-`null`, and another nonmatching value.
+The first execution of this runbook reported provider-state empty strings for
+`zia_firewall_filtering_network_service.tag` and
+`zia_browser_control_policy.plugin_check_frequency`. That report arrived as a
+screenshot with truncated authority hashes, so it authorizes this candidate
+but does not qualify it. The candidate pack declares those exact sentinels as
+`drop_if_default`; the fresh run below must bind the complete authorities and
+validate the result. Do not substitute `null` and do not infer that Transform
+exercised a rule from a zero raw count. A separate direct observation is
+required to distinguish an absent field, JSON `null`, and another nonmatching
+value.
 
 Read and execute the available phases of this runbook against a candidate
 descended from runtime implementation head
 `d49922fa2e6826416956dea1afddbee113c121bc` whose production CLI has SHA-256
-`af6002b13fe5f0ba96dcc7c29fc529d101c5dfcba44df9066f3f6fd29ccd81e4`.
+`76eef2b7e672b113aa998ecf22927265f7be1e79e3a30e56441d3dbf96ff0379`.
 Pack-only, test-only, and documentation changes do not alter that runtime
 artifact. Return the report template without replacing unavailable values with
 interpretation. Prioritize:
@@ -63,7 +66,7 @@ Before running Adopt, require the full runtime digest and the committed pack
 values. Do not edit either override in the evidence workspace:
 
     test "$(shasum -a 256 "$IW_CLI" | awk '{print $1}')" = \
-      af6002b13fe5f0ba96dcc7c29fc529d101c5dfcba44df9066f3f6fd29ccd81e4
+      76eef2b7e672b113aa998ecf22927265f7be1e79e3a30e56441d3dbf96ff0379
     jq -e '.drop_if_default.tag == ""' \
       "$IW_PACKS/zia/overrides/zia_firewall_filtering_network_service.json" \
       >/dev/null
@@ -81,13 +84,11 @@ the expected current topology is:
     zia_url_categories_predefined members:
       zia_url_categories_predefined
 
-If current topology matches but materialized modules or variables differ,
-regenerate the complete `zia_url` root with the same bound CLI, pack,
-profile, catalog, and deployment authorities, then repeat the materialized
-comparison. Regenerate only inside a disposable clean-room workspace; do not
-overwrite a persistent deployment workspace. Do not run a deployment plan for
-this follow-up. If current topology itself still places the predefined type in
-`zia_url`, report the CLI
+If current topology matches but materialized modules or variables differ, use
+the physically contained regeneration procedure in Phase 3, then repeat the
+comparison. Do not regenerate through the original deployment overlay and do
+not run a deployment plan for this follow-up. If current topology itself still
+places the predefined type in `zia_url`, report the CLI
 SHA-256 and both literal sanitized topology entries as an authority mismatch;
 do not classify the resolver from the stale materialized root.
 
@@ -183,18 +184,19 @@ those two keys are removed.
       printf '%s exit=%s\n' "$label" "$status"
     }
 
-Create four lanes:
+Create five lanes. The fifth is the only authorized regeneration target:
 
     NS_T=$(prepare_lane network-transform)
     NS_A=$(prepare_lane network-adopt)
     BC_T=$(prepare_lane browser-transform)
     BC_A=$(prepare_lane browser-adopt)
+    ROOT_LANE=$(prepare_lane zia-root-regeneration)
 
 The derived deployment fixes overlay to the lane current directory. Prove the
 resolved config, imports, and envs directories are physically contained before
-running Transform or Adopt:
+running Transform, Adopt, or root regeneration:
 
-    for lane in "$NS_T" "$NS_A" "$BC_T" "$BC_A"; do
+    for lane in "$NS_T" "$NS_A" "$BC_T" "$BC_A" "$ROOT_LANE"; do
       for verb in config-dir imports-dir envs-dir; do
         value=$(cd "$lane" && node "$IW_CLI" deployment \
           --deployment "$lane/deployment.json" "$verb" "$IW_TENANT")
@@ -220,9 +222,9 @@ running Transform or Adopt:
       done
     done
 
-If any comparison or containment check fails, mark Phase 2 NOT RUN. Since every
-successful target is physically contained in one of four distinct lane roots,
-the Transform and Adopt output trees cannot overlap.
+If any comparison or containment check fails, mark Phase 2 and disposable root
+regeneration NOT RUN. Since every successful target is physically contained in
+one of five distinct lane roots, their output trees cannot overlap.
 
 Query and record the deployment tfvars format:
 
@@ -269,6 +271,7 @@ Record every authority hash with a fixed label so shasum never prints a path:
     hash_authority deployment-original "$IW_DEPLOYMENT"
     hash_authority deployment-network-lane "$NS_A/deployment.json"
     hash_authority deployment-browser-lane "$BC_A/deployment.json"
+    hash_authority deployment-root-lane "$ROOT_LANE/deployment.json"
     hash_authority override-network-service \
       "$IW_PACKS/zia/overrides/zia_firewall_filtering_network_service.json"
     hash_authority override-browser-control \
@@ -603,20 +606,104 @@ Interpretation:
   or came from another authority.
 - Without the materialized comparison, stale-root causality is INCONCLUSIVE.
 
+### Disposable Root Regeneration
+
+Run this only when the current topology excludes the predefined member and the
+original materialized root comparison is MISMATCH. It never uses the original
+deployment for a write. The derived deployment has already been proven
+semantically equivalent apart from its contained overlay and module directory,
+and Phase 0 proved all of its output directories resolve below `ROOT_LANE`.
+
+Explicitly authorize only this disposable regeneration:
+
+    export IW_ALLOW_DISPOSABLE_ROOT_REGENERATION=1
+
+Then run:
+
+    if test "${IW_ALLOW_DISPOSABLE_ROOT_REGENERATION:-}" = 1; then
+      run_private zia-root-regenerate "$ROOT_LANE" \
+        node "$IW_CLI" gen-env --tenant "$IW_TENANT" \
+          --root "$IW_PACKS" --profile "$IW_PROFILE" \
+          --catalog "$IW_CATALOG" \
+          --deployment "$ROOT_LANE/deployment.json" \
+          --resource "$IW_ROOT_SELECTOR"
+      test "$(cat "$IW_JOB/logs/zia-root-regenerate.status")" = 0
+
+      (
+        cd "$ROOT_LANE"
+        node "$IW_CLI" roots --tenant "$IW_TENANT" --root "$IW_PACKS" \
+          --profile "$IW_PROFILE" --catalog "$IW_CATALOG" \
+          --deployment "$ROOT_LANE/deployment.json" \
+          --resource "$IW_ROOT_SELECTOR"
+      ) > "$IW_JOB/regenerated.private.json" \
+        2> "$IW_JOB/logs/regenerated-roots.stderr"
+      IW_REGENERATED_ENV_REL=$(jq -er --arg label "$IW_ROOT_LABEL" \
+        '.roots[] | select(.label == $label) | .env_dir' \
+        "$IW_JOB/regenerated.private.json")
+      IW_REGENERATED_ROOT=$(node -e '
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const root = fs.realpathSync(process.argv[1]);
+    const target = fs.realpathSync(path.resolve(root, process.argv[2]));
+    const relative = path.relative(root, target);
+    if (relative === "" || relative === ".." ||
+        relative.startsWith(".." + path.sep) || path.isAbsolute(relative)) {
+      throw new Error("regenerated root escapes disposable lane");
+    }
+    process.stdout.write(target);
+    ' "$ROOT_LANE" "$IW_REGENERATED_ENV_REL")
+      test -f "$IW_REGENERATED_ROOT/main.tf"
+
+      rg --no-filename -o '^module "[a-z0-9_]+"' \
+        "$IW_REGENERATED_ROOT/main.tf" \
+        | sed -E 's/^module "([^"]+)"/\1/' | LC_ALL=C sort -u \
+        > "$IW_JOB/regenerated.modules"
+      rg --no-filename -o '^variable "[a-z0-9_]+"' \
+        "$IW_REGENERATED_ROOT/main.tf" \
+        | sed -E 's/^variable "([^"]+)"/\1/' | LC_ALL=C sort -u \
+        > "$IW_JOB/regenerated.variables"
+
+      for kind in modules variables; do
+        if diff -u "$IW_JOB/expected.$kind" \
+            "$IW_JOB/regenerated.$kind" \
+            > "$IW_JOB/regenerated-$kind.diff"; then
+          printf 'regenerated %s MATCH\n' "$kind"
+        else
+          printf 'regenerated %s MISMATCH\n' "$kind"
+          cat "$IW_JOB/regenerated-$kind.diff"
+        fi
+      done
+    else
+      printf '%s\n' 'disposable root regeneration: NOT RUN'
+    fi
+
+Return only the two regenerated MATCH/MISMATCH results and resource/variable
+names from a difference. Do not return the disposable path or generated file
+contents. The trap deletes the root lane with the rest of the private job.
+
 ## Report Template
 
-Return one sanitized report:
+Return one sanitized report. Every SHA-256 must contain all 64 hexadecimal
+characters; do not shorten hashes to fit a screenshot. If the approved channel
+cannot carry the complete text, mark the qualification INCONCLUSIVE instead of
+returning prefixes:
 
     Zscaler adoption follow-up
 
     Authority
+    - candidate repository commit:
     - pack repository commit and clean/dirty:
     - Node version:
     - Terraform version:
     - CLI SHA-256:
-    - ZIA/ZPA registry SHA-256:
-    - profile/catalog/original deployment SHA-256:
-    - relocated lane deployment SHA-256:
+    - ZIA registry SHA-256:
+    - ZPA registry SHA-256:
+    - profile SHA-256:
+    - catalog SHA-256:
+    - original deployment SHA-256:
+    - network lane deployment SHA-256:
+    - browser lane deployment SHA-256:
+    - root-regeneration lane deployment SHA-256:
     - tfvars format:
     - Oracle batch mode: per-resource-type
     - Oracle state source: applied-state
@@ -630,7 +717,7 @@ Return one sanitized report:
     browser plugin frequency | | | | | |
 
     Root topology
-    Root | Origin | Members | Source-less members | Materialized MATCH/MISMATCH/NOT RUN
+    Root | Origin | Members | Source-less members | Original materialized | Regenerated
 
     Classification
     - pack authority:
