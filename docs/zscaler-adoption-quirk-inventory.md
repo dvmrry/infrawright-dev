@@ -46,8 +46,10 @@ Use this four-class taxonomy when that mirror can still be wrong:
    current concrete gate: provider Read stores raw `name`, while transform maps
    `predefinedEngineName` to required `name`.
 2. Validation asymmetry: provider Read stores a value that explicit config
-   rejects. The current lab gate is `size_quota=0` / `time_quota=0`: both rule
-   resources validate explicit non-zero ranges while transform omits zero.
+   rejects. `size_quota=0` / `time_quota=0` exposed this class: both rule
+   resources validate explicit non-zero ranges, and Adopt now applies the same
+   pack default omissions as Transform before provider validation and artifact
+   output.
 3. Refresh/apply instability: first plan is clean, but a later apply or refresh
    can rewrite mirrored values, ordering, or back-references. These require
    multi-apply tests rather than first-plan evidence.
@@ -66,10 +68,10 @@ pure metadata such as `sample`, `import_id`, `key_field`, `ranges`, and
 
 | Resource | Semantic transforms | Oracle-path concern |
 |---|---|---|
-| `zia_url_filtering_rules` | `defaults.url_categories=["ANY"]`, `divide.size_quota=1024`, `drop_if_default.size_quota=0`, `drop_if_default.time_quota=0`, `skip_if.predefined=true`, `strip_prefix.source_countries="COUNTRY_"` ([source](../packs/zia/overrides/zia_url_filtering_rules.json#L30-L69)) | High: provider Read normalizes quota units and `ANY`, but explicit-zero validation, sub-1024 KB truncation, and transform/adopt byte parity remain gates. |
-| `zia_cloud_app_control_rule` | `divide.size_quota=1024`, `drop_if_default.size_quota=0`, `drop_if_default.time_quota=0`, `skip_if.default_rule=true`, `skip_if.predefined=true` ([source](../packs/zia/overrides/zia_cloud_app_control_rule.json#L29-L58)) | High: same explicit-zero validation and representational-divergence gates as URL filtering. |
+| `zia_url_filtering_rules` | `defaults.url_categories=["ANY"]`, `divide.size_quota=1024`, `drop_if_default.size_quota=0`, `drop_if_default.time_quota=0`, `skip_if.predefined=true`, `strip_prefix.source_countries="COUNTRY_"` ([source](../packs/zia/overrides/zia_url_filtering_rules.json#L30-L69)) | High: provider Read normalizes quota units and `ANY`; Transform and Adopt now omit zero quotas identically. Sub-1024 KB truncation and later-plan behavior remain gates. |
+| `zia_cloud_app_control_rule` | `divide.size_quota=1024`, `drop_if_default.size_quota=0`, `drop_if_default.time_quota=0`, `skip_if.default_rule=true`, `skip_if.predefined=true` ([source](../packs/zia/overrides/zia_cloud_app_control_rule.json#L29-L58)) | High: the shared pack-default mechanism removes the explicit-zero artifact divergence; resource-specific live validation and sub-1024 KB behavior remain gates. |
 | `zcc_failopen_policy` | `invert_bool` for `active`, `enable_web_sec_on_proxy_unreachable`, `enable_web_sec_on_tunnel_failure`, `enable_captive_portal_detection`, `enable_fail_open` ([source](../packs/zcc/overrides/zcc_failopen_policy.json#L9-L15)) | Medium/high: the five named fields normalize symmetrically; `enable_strict_enforcement_prompt` still needs an out-of-domain-value gate because transform treats non-zero as true while provider tests equality to `1`. |
-| `zpa_application_segment` | `drop_if_default.microtenant_id="0"`, `drop_if_default.policy_style="NONE"`, `value_map.policy_style.NONE=false`, `value_map.policy_style.DUAL_POLICY_EVAL=true`, `merge_blocks.server_groups` ([source](../packs/zpa/overrides/zpa_application_segment.json#L37-L50)) | Medium/high: `policy_style` normalizes, `microtenant_id` is mirrored raw, and `drop_if_default.policy_style="NONE"` is dead because `value_map` runs first. Later back-reference/order behavior remains a multi-apply concern. |
+| `zpa_application_segment` | `drop_if_default.microtenant_id="0"`, `drop_if_default.policy_style="NONE"`, `value_map.policy_style.NONE=false`, `value_map.policy_style.DUAL_POLICY_EVAL=true`, `merge_blocks.server_groups` ([source](../packs/zpa/overrides/zpa_application_segment.json#L37-L50)) | Medium/high: `policy_style` normalizes, and both paths now omit the raw `microtenant_id="0"` default. `drop_if_default.policy_style="NONE"` is dead because `value_map` runs first. Later back-reference/order behavior remains a multi-apply concern. |
 | `zpa_policy_access_rule` | nested `drop_if_default` for `microtenant_id`, drops operand drift fields, `html_escape_fields.custom_msg`, `merge_blocks.app_server_groups`, `merge_blocks.app_connector_groups`, `skip_if.default_rule=true` ([source](../packs/zpa/overrides/zpa_policy_access_rule.json#L72-L95)) | Medium/high: nested microtenant/default pruning and custom HTML behavior are local-only. |
 | `zpa_app_connector_group` | `drop_if_default.microtenant_id="0"`, `no_html_unescape`, `renames.signing_cert_id=enrollment_cert_id` ([source](../packs/zpa/overrides/zpa_app_connector_group.json#L25-L42)) | Medium: signing cert rename is local-only and already regression-worthy. |
 | `zcc_trusted_network` | 7 API-to-schema renames plus CSV splitting for 7 list fields ([source](../packs/zcc/overrides/zcc_trusted_network.json#L11-L28)) | Medium: renames align with schema, but `split_csv` is semantic. |
@@ -151,32 +153,35 @@ The four audited provider READ paths above do normalize quota units, failopen
 booleans, `policy_style`, and empty URL categories into their provider config
 representations. That explains those specific state values, but it is not the
 general reason the first oracle plan is clean. The oracle mirrors every present
-provider input from post-Read state into config, so raw values such as
-`microtenant_id="0"` can also plan clean on the first pass.
+provider input from post-Read state into config, so raw provider inputs can also
+plan clean on the first pass unless explicit pack policy changes their
+representation.
 
 Therefore a first-plan no-op proves config/state equality at that moment, not
 semantic correctness, transform/adopt artifact parity, config validation of an
-explicit mirrored value, or stability after apply and refresh. The named DLP
-engine and quota cases above remain explicit evidence gates. A general
+explicit mirrored value, or stability after apply and refresh. The DLP engine
+name remains the sole retained transform/adopt evidence gate; zero quotas and
+the application-segment microtenant default are now byte-equal. A general
 transform-to-projection bridge would not resolve those distinctions.
 
 `microtenant_id="0"` is not a provider-read normalization case, but it is also
 not a current oracle gap. Provider source proves raw pass-through: zpa 4.4.6
 [resource_zpa_application_segment.go](https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_application_segment.go)
-READ sets `microtenant_id` raw, including `"0"`. The oracle projects optional
-input attributes directly from post-read state
-([engine/state_project.py](../engine/state_project.py#L48-L83)), so the current
-path carries that value into config instead of applying transform's
-`drop_if_default`. The operator-reported tenant result was consistent with this
-mechanism, but no sanitized run record is retained in the repository.
+READ sets `microtenant_id` raw, including `"0"`. Adopt projects that optional
+input from post-read state and then applies the pack's `drop_if_default`, so the
+source-derived parity fixture now proves both local paths omit it. The earlier
+operator-reported tenant observation has no retained sanitized run record and
+does not by itself qualify the current omission behavior.
 
 The pinned zpa schema still makes this a useful guardrail. It declares
 `zpa_application_segment.microtenant_id` as `optional` and NOT `computed`
 ([resource_zpa_application_segment.go#L231-L234](https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_application_segment.go#L231-L234);
 local dump
 [packs/zpa/schemas/provider/zpa.json](../packs/zpa/schemas/provider/zpa.json)),
-so a future oracle policy that omits the attribute could turn a `"0"` state
-value into a planned change. This is unique to the app segment. The other seven
+so omitting the attribute can turn a `"0"` state value into a planned change.
+The current pack policy now performs that omission,
+so a fresh live no-op plan remains required even though the two local artifact
+paths are byte-equal. This is unique to the app segment. The other seven
 dropped field paths are `zpa_server_group.microtenant_id`,
 `zpa_segment_group.microtenant_id`, `zpa_application_server.microtenant_id`,
 `zpa_app_connector_group.microtenant_id`,
@@ -322,8 +327,9 @@ appears.
    and binds every classification to the exact path and values. The first
    baseline covers ZCC failopen inversion, the DLP predefined-name mismatch,
    URL-filtering zero quotas plus `url_categories=["ANY"]`, and ZPA
-   `microtenant_id="0"` plus `policy_style`. The named mismatches remain
-   fail-closed evidence gates. Broader resource coverage, retained sanitized
+   `microtenant_id="0"` plus `policy_style`. Only the DLP predefined-name
+   mismatch remains a fail-closed evidence gate; the other three fixtures are
+   byte-equal. Broader resource coverage, retained sanitized
    live fixtures, HCL/artifact parity, and later-plan behavior remain follow-up
    work.
 
@@ -347,7 +353,7 @@ remain gates before relying on the affected behavior broadly.
 | ZCC failopen inverted booleans | Source-confirmed / reported blocked live | Pinned provider source proves symmetric inversion for the five configured fields; the private run was blocked before import. | Retain the exact ZCC provider version and sanitized import diagnostic, then rerun live oracle confirmation. |
 | `zpa_application_segment.policy_style` | Source-confirmed / reported live | Pinned provider source proves config-space boolean readback, and the operator reported the oracle path agreed. | Retain a sanitized live summary if tenant evidence is needed beyond the source-backed conclusion. |
 | `-generate-config-out`: `cbi_profile` projection | Reported partial / exception open | The operator reported projection working for the observed URL-filtering cases except a private-run case labeled PI-3. | PI-3 has no retained diagnostic in this repository. Record its resource, command, versions, and sanitized failure before diagnosing and rerunning it. |
-| `zpa_application_segment.microtenant_id="0"` | Confirmed by current code path / reported live | Provider source proves raw readback; the oracle code mirrors present optional inputs from post-read state. The operator reported no special `"0"` omission/default handling was needed. | Preserve the no-omission guardrail above; retain a sanitized live summary if the tenant observation is used as acceptance evidence. |
+| `zpa_application_segment.microtenant_id="0"` | Source-derived artifact parity / live recheck needed | Provider source proves raw readback; current Transform and Adopt both apply the pack default omission and the retained fixture is byte-equal. The earlier operator report predates this behavior and has no sanitized record. | Run a fresh controlled import/plan proving that omitting this optional, non-computed attribute remains no-op, and retain a sanitized summary before treating it as live-qualified. |
 
 One non-tenant follow-up remains: #144 validates matcher shape and rename
 conflicts, but it does not validate skip field names against a schema or raw
