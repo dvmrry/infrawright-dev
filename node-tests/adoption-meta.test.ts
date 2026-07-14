@@ -13,6 +13,8 @@ import {
 } from "../node-src/domain/adoption-meta.js";
 import { adoptResourceItems } from "../node-src/domain/adopt-runner.js";
 import { DriftPolicy } from "../node-src/domain/drift-policy.js";
+import { transformLoadedItems } from "../node-src/domain/pull-transform.js";
+import { formatImportTemplate } from "../node-src/domain/transform-artifacts.js";
 import { loadPackRoot, type LoadedPackRoot, type LoadedResourceMetadata } from "../node-src/metadata/loader.js";
 import type { JsonObject } from "../node-src/metadata/validation.js";
 
@@ -61,6 +63,90 @@ test("all committed registry adoption entries resolve through generic metadata",
   assert.equal(explicit.length, 31);
   for (const entry of explicit) {
     assert.doesNotThrow(() => adoptionMetadata(entry), entry.type);
+  }
+});
+
+test("corrected ZIA Transform and Adopt identities produce the same keys and import IDs", async () => {
+  const root = await loadPackRoot({
+    packsRoot: path.join(ROOT, "packs"),
+    profilePath: path.join(ROOT, "packsets", "full.json"),
+    catalogPath: path.join(ROOT, "packsets", "full.json"),
+  });
+  const cases: ReadonlyArray<{
+    readonly resourceType: string;
+    readonly rawItems: readonly JsonObject[];
+    readonly expected: readonly { readonly key: string; readonly importId: string }[];
+  }> = [
+    {
+      resourceType: "zia_dc_exclusions",
+      rawItems: [{
+        dcid: new LosslessNumber("77"),
+        dcName: { id: new LosslessNumber("77"), name: "Primary" },
+      }],
+      expected: [{ key: "77", importId: "77" }],
+    },
+    {
+      resourceType: "zia_risk_profiles",
+      rawItems: [{ id: new LosslessNumber("9007199254740993"), profileName: "Mutable" }],
+      expected: [{ key: "9007199254740993", importId: "9007199254740993" }],
+    },
+    {
+      resourceType: "zia_subscription_alert",
+      rawItems: [{ id: new LosslessNumber("102"), email: "optional@example.invalid" }],
+      expected: [{ key: "102", importId: "102" }],
+    },
+    {
+      resourceType: "zia_traffic_forwarding_vpn_credentials",
+      rawItems: [{ id: new LosslessNumber("103"), type: "UFQDN", fqdn: "mutable.example" }],
+      expected: [{ key: "103", importId: "103" }],
+    },
+    {
+      resourceType: "zia_casb_dlp_rules",
+      rawItems: [
+        { id: new LosslessNumber("11"), name: "Duplicate", type: "OFLCASB_DLP_ITSM" },
+        { id: new LosslessNumber("12"), name: "Duplicate", type: "OFLCASB_DLP_ITSM" },
+      ],
+      expected: [
+        { key: "oflcasb_dlp_itsm_11", importId: "OFLCASB_DLP_ITSM:11" },
+        { key: "oflcasb_dlp_itsm_12", importId: "OFLCASB_DLP_ITSM:12" },
+      ],
+    },
+    {
+      resourceType: "zia_casb_malware_rules",
+      rawItems: [{ id: new LosslessNumber("21"), type: "OFLCASB_AVP_ITSM" }],
+      expected: [{
+        key: "oflcasb_avp_itsm_21",
+        importId: "OFLCASB_AVP_ITSM:21",
+      }],
+    },
+  ];
+
+  for (const fixture of cases) {
+    const resource = root.resources.get(fixture.resourceType);
+    assert.notEqual(resource, undefined, fixture.resourceType);
+    const selected = resource as LoadedResourceMetadata;
+    const transformed = transformLoadedItems({
+      rawItems: fixture.rawItems,
+      resource: selected,
+      schema: await root.loadResourceSchema(fixture.resourceType),
+    });
+    const adopted = deriveAdoptionIdentities({
+      rawItems: fixture.rawItems,
+      resource: selected,
+    });
+    const transformIdentities = Object.keys(transformed.items).map((key) => ({
+      key,
+      importId: formatImportTemplate(
+        adoptionMetadata(selected).importId,
+        transformed.originals[key] ?? {},
+      ),
+    }));
+    assert.deepEqual(transformIdentities, fixture.expected, `${fixture.resourceType} Transform`);
+    assert.deepEqual(
+      adopted.identities.map(({ key, importId }) => ({ key, importId })),
+      fixture.expected,
+      `${fixture.resourceType} Adopt`,
+    );
   }
 });
 

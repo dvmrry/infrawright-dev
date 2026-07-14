@@ -57,7 +57,7 @@ test("committed pack metadata exposes the complete generic resource surface", as
   const registry = loaded.registry;
   const overrides = loaded.overrides;
   assert.equal(Object.keys(registry.entries).length, 151);
-  assert.equal(Object.keys(overrides.entries).length, 59);
+  assert.equal(Object.keys(overrides.entries).length, 65);
   assert.equal(registry.entries.zia_url_categories?.product, "zia");
   assert.equal(overrides.entries.zia_url_categories?.key_field, "configured_name");
   assert.deepEqual(loaded.resources.get("zia_url_categories"), {

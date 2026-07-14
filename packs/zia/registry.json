@@ -162,7 +162,7 @@
   },
   "zia_casb_dlp_rules": {
     "fetch": {
-      "pagination": "single",
+      "pagination": "zia",
       "path": "casbDlpRules/all"
     },
     "generate": true,
@@ -170,7 +170,7 @@
   },
   "zia_casb_malware_rules": {
     "fetch": {
-      "pagination": "single",
+      "pagination": "zia",
       "path": "casbMalwareRules/all"
     },
     "generate": true,
@@ -220,7 +220,7 @@
   },
   "zia_dc_exclusions": {
     "fetch": {
-      "pagination": "zia",
+      "pagination": "single",
       "path": "dcExclusions"
     },
     "generate": true,
@@ -281,7 +281,7 @@
         401,
         403
       ],
-      "pagination": "zia",
+      "pagination": "single",
       "path": "extranet"
     },
     "generate": true,
@@ -313,7 +313,7 @@
   },
   "zia_firewall_filtering_ip_source_groups": {
     "fetch": {
-      "pagination": "zia",
+      "pagination": "single",
       "path": "ipSourceGroups"
     },
     "generate": true,
@@ -505,7 +505,7 @@
   },
   "zia_ssl_inspection_rules": {
     "fetch": {
-      "pagination": "zia",
+      "pagination": "single",
       "path": "sslInspectionRules"
     },
     "generate": true,
@@ -585,7 +585,7 @@
   },
   "zia_url_filtering_rules": {
     "fetch": {
-      "pagination": "zia",
+      "pagination": "single",
       "path": "urlFilteringRules"
     },
     "generate": true,

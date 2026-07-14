@@ -1,0 +1,10 @@
+{
+  "acknowledged_drops": [
+    "dc_name"
+  ],
+  "import_id": "{datacenter_id}",
+  "key_field": "datacenter_id",
+  "renames": {
+    "dcid": "datacenter_id"
+  }
+}

@@ -28,7 +28,7 @@ const FIXTURE_PATH = path.join(
   "node-tests/fixtures/zia-transform-cohort.v1.json",
 );
 const EXPECTED_CATALOG_SHA256 =
-  "a19c179f747f0402c55b7e617cdaed748fb2dcb722f92fa3d0afab8ac4d7716e";
+  "e7fe1338a448fa712ecf897bf60384012e25264f7819ce56ebdd3fe6b7597eed";
 
 const PYTHON_ORACLE = String.raw`
 import json

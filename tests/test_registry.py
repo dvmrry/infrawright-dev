@@ -155,6 +155,25 @@ class RegistryTest(unittest.TestCase):
                     "managed-fetch",
                 )
 
+    def test_corrected_zia_pagination_modes_match_endpoint_shapes(self):
+        paginated = {
+            "zia_casb_dlp_rules",
+            "zia_casb_malware_rules",
+        }
+        single_read = {
+            "zia_dc_exclusions",
+            "zia_extranet",
+            "zia_firewall_filtering_ip_source_groups",
+            "zia_ssl_inspection_rules",
+            "zia_url_filtering_rules",
+        }
+        for resource_type in sorted(paginated):
+            with self.subTest(resource_type=resource_type):
+                self.assertEqual(fetch_entry(resource_type)["pagination"], "zia")
+        for resource_type in sorted(single_read):
+            with self.subTest(resource_type=resource_type):
+                self.assertEqual(fetch_entry(resource_type)["pagination"], "single")
+
     def test_fetch_entry_unknown_raises(self):
         with self.assertRaises(KeyError):
             fetch_entry("zpa_nope")

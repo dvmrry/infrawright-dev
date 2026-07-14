@@ -161,6 +161,18 @@ test("all four pagination styles preserve their registry-owned response shapes",
     transport: single,
   }), [{ id: "1" }]);
 
+  const singleList = new QueueTransport([response([{ id: "1" }, { id: "2" }])]);
+  assert.deepEqual(await fetchResource({
+    adapter: adapter(),
+    auth,
+    context,
+    entry: entry("single"),
+    mode: "oneapi",
+    resourceType: "sample",
+    transport: singleList,
+  }), [{ id: "1" }, { id: "2" }]);
+  assert.equal(singleList.requests.length, 1);
+
   const v2 = new QueueTransport([
     response({ items: [{ id: "1" }], count: 100, limit: 100, total: 2 }),
     response({ items: [{ id: "2" }], count: 1, limit: 100, total: 2 }),
@@ -368,6 +380,53 @@ test("selectors use original active registry metadata and derived resources fetc
     () => selectFetchResources({ root: packRoot, selectors: ["unknown"] }),
     /valid products: zcc, zia, zpa, ztc/,
   );
+});
+
+test("committed CASB pagination follows every page and writes deterministic bytes", async () => {
+  const packRoot = await root();
+  const items = Array.from({ length: 1_001 }, (_unused, index) => ({
+    id: index,
+    name: `Rule ${index}`,
+    type: "OFLCASB_DLP_ITSM",
+  }));
+  const run = async (directory: string): Promise<{
+    readonly bytes: string;
+    readonly searches: readonly string[];
+  }> => {
+    const transport = new QueueTransport([
+      response(items.slice(0, 1_000)),
+      response(items.slice(1_000)),
+    ]);
+    const result = await fetchResources({
+      adapters: new Map([["zia", adapter("zia")]]),
+      context,
+      environment: {},
+      mode: "oneapi",
+      outputDirectory: directory,
+      root: packRoot,
+      selectors: ["zia_casb_dlp_rules"],
+      transport,
+    });
+    assert.deepEqual(result.processed, ["zia_casb_dlp_rules"]);
+    return {
+      bytes: await readFile(path.join(directory, "zia_casb_dlp_rules.json"), "utf8"),
+      searches: transport.requests.map((request) => request.url.search),
+    };
+  };
+
+  const directory = await mkdtemp(path.join(os.tmpdir(), "rest-casb-pages-"));
+  try {
+    const first = await run(path.join(directory, "first"));
+    const second = await run(path.join(directory, "second"));
+    assert.deepEqual(first.searches, [
+      "?page=1&pageSize=1000",
+      "?page=2&pageSize=1000",
+    ]);
+    assert.equal(first.bytes, second.bytes);
+    assert.equal((JSON.parse(first.bytes) as unknown[]).length, 1_001);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("batch shares OneAPI auth, skips optional statuses, writes Python bytes, and preserves stale skips", async () => {
