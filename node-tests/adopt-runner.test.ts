@@ -14,6 +14,7 @@ import {
 import type { Deployment } from "../node-src/domain/types.js";
 import { isObject } from "../node-src/metadata/validation.js";
 import { loadPackRoot, type LoadedPackRoot } from "../node-src/metadata/loader.js";
+import { PerformanceRecorder } from "../node-src/performance/recorder.js";
 
 const ROOT = process.cwd();
 const PARITY = path.join(ROOT, "tests", "fixtures", "parity");
@@ -383,6 +384,36 @@ test("derived resources delegate to the generic transform path without invoking 
   assert.deepEqual(result.failed, []);
   assert.deepEqual(result.processed, ["zpa_policy_access_rule_reorder"]);
   await access(path.join(workspace, "config", "tenant", "zpa_policy_access_rule_reorder.auto.tfvars.json"));
+
+  await writeJson(path.join(input, "zpa_policy_access_rule.json"), [
+    { id: "missing-order", name: "Missing Order" },
+  ]);
+  const performance = new PerformanceRecorder();
+  const malformed = await runAdoptBatch({
+    deployment: deployment(workspace),
+    inputDirectory: input,
+    performance,
+    policy: await loadAdoptionPolicy({ root: await committedRoot() }),
+    root: await committedRoot(),
+    selectors: ["zpa_policy_access_rule_reorder"],
+    stateLoader: async () => {
+      called = true;
+      return new Map();
+    },
+    tenant: "tenant",
+  });
+  assert.deepEqual(malformed.failed, ["zpa_policy_access_rule_reorder"]);
+  const report = performance.report({
+    command: "adopt",
+    commandDurationMs: 1,
+    commandStatus: "failed",
+  });
+  assert.deepEqual(
+    (report.spans as Array<{ phase: string; resource_family?: string; status: string }>).filter(
+      (span) => span.phase === "adopt.resource",
+    ).map((span) => [span.resource_family, span.status]),
+    [["zpa_policy_access_rule_reorder", "failed"]],
+  );
 
   await rm(path.join(workspace, "config", "tenant", "zpa_policy_access_rule_reorder.auto.tfvars.json"));
   const pending = path.join(workspace, "imports", "tenant", "zpa_policy_access_rule_reorder_moves.pending.json");

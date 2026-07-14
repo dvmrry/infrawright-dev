@@ -588,6 +588,17 @@ type FetchOutcome =
   | {
     readonly durationMs: number;
     readonly endedMs: number;
+    readonly error: unknown;
+    readonly itemCount: number;
+    readonly kind: "fatal";
+    readonly pages: number;
+    readonly product: string;
+    readonly resourceType: string;
+    readonly startedMs: number;
+  }
+  | {
+    readonly durationMs: number;
+    readonly endedMs: number;
     readonly kind: "failed" | "skipped";
     readonly pages: number;
     readonly product: string;
@@ -618,7 +629,9 @@ async function runFetchWorkers(options: {
   if (options.concurrency === 1) {
     const sequential = new Map<number, FetchOutcome>();
     for (const item of options.items) {
-      sequential.set(item.index, await options.execute(item));
+      const outcome = await options.execute(item);
+      sequential.set(item.index, outcome);
+      if (outcome.kind === "fatal") break;
     }
     return sequential;
   }
@@ -842,18 +855,18 @@ async function fetchResourcesBatch(
           "utf8",
         );
       } catch (error: unknown) {
-        if (options.performance !== undefined) {
-          options.performance.recordSpan({
-            durationMs: options.performance.durationSince(startedMs),
-            logicalRequests: pages,
-            pages,
-            phase: "fetch.resource",
-            product: item.entry.product,
-            resourceFamily: item.resourceType,
-            status: "failed",
-          });
-        }
-        throw error;
+        const endedMs = options.performance?.now() ?? startedMs;
+        return {
+          durationMs: options.performance === undefined ? 0 : endedMs - startedMs,
+          endedMs,
+          error,
+          itemCount: items.length,
+          kind: "fatal",
+          pages,
+          product: item.entry.product,
+          resourceType: item.resourceType,
+          startedMs,
+        };
       }
       const endedMs = options.performance?.now() ?? startedMs;
       return {
@@ -878,20 +891,15 @@ async function fetchResourcesBatch(
   }>();
   for (const [index, resourceType] of wanted.entries()) {
     const outcome = outcomes.get(index);
-    if (outcome === undefined || outcome.resourceType !== resourceType) {
+    if (outcome === undefined) continue;
+    if (outcome.resourceType !== resourceType) {
       throw new Error(`fetch did not produce an outcome for ${resourceType}`);
-    }
-    if (outcome.kind === "processed") {
-      processed.push(resourceType);
-      write(`wrote ${outcome.destination} (${outcome.itemCount} items)`);
-    } else if (outcome.kind === "skipped") {
-      skipped[resourceType] = outcome.reason;
-    } else {
-      failed[resourceType] = outcome.reason;
     }
     options.performance?.recordSpan({
       durationMs: outcome.durationMs,
-      ...(outcome.kind === "processed" ? { instances: outcome.itemCount } : {}),
+      ...(outcome.kind === "processed" || outcome.kind === "fatal"
+        ? { instances: outcome.itemCount }
+        : {}),
       logicalRequests: outcome.pages,
       pages: outcome.pages,
       phase: "fetch.resource",
@@ -905,7 +913,9 @@ async function fetchResourcesBatch(
       const prior = productWindows.get(outcome.product);
       productWindows.set(outcome.product, {
         endedMs: Math.max(prior?.endedMs ?? outcome.endedMs, outcome.endedMs),
-        failed: (prior?.failed ?? false) || outcome.kind === "failed",
+        failed: (prior?.failed ?? false)
+          || outcome.kind === "failed"
+          || outcome.kind === "fatal",
         startedMs: Math.min(prior?.startedMs ?? outcome.startedMs, outcome.startedMs),
       });
     }
@@ -921,6 +931,25 @@ async function fetchResourcesBatch(
         product,
         status: window.failed ? "failed" : "success",
       });
+    }
+  }
+
+  for (const [index, resourceType] of wanted.entries()) {
+    const outcome = outcomes.get(index);
+    if (outcome === undefined) {
+      throw new Error(`fetch did not produce an outcome for ${resourceType}`);
+    }
+    if (outcome.resourceType !== resourceType) {
+      throw new Error(`fetch did not produce an outcome for ${resourceType}`);
+    }
+    if (outcome.kind === "fatal") throw outcome.error;
+    if (outcome.kind === "processed") {
+      processed.push(resourceType);
+      write(`wrote ${outcome.destination} (${outcome.itemCount} items)`);
+    } else if (outcome.kind === "skipped") {
+      skipped[resourceType] = outcome.reason;
+    } else {
+      failed[resourceType] = outcome.reason;
     }
   }
 

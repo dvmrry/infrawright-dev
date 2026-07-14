@@ -350,6 +350,52 @@ test("fetch and fetch-diag run through Node with Python unavailable", async () =
   }
 });
 
+test("nonzero Fetch, Transform, and Adopt results outrank report-write failure", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-cli-report-failure-"));
+  try {
+    const input = path.join(directory, "pulls");
+    await mkdir(input, { recursive: true });
+    await writeFile(path.join(input, "zia_advanced_settings.json"), "{}\n", "utf8");
+    const metadata = [
+      "--root",
+      path.join(ROOT, "packs"),
+      "--profile",
+      path.join(ROOT, "packsets", "full.json"),
+      "--catalog",
+      path.join(ROOT, "packsets", "full.json"),
+      "--resource",
+      "zia_advanced_settings",
+    ];
+    const commands = [
+      ["transform", "--in", input, "--tenant", "tenant", ...metadata],
+      ["adopt", "--in", input, "--tenant", "tenant", ...metadata],
+      ["fetch", "--tenant", "tenant", "--out", path.join(directory, "fetch"), ...metadata],
+    ];
+    for (const arguments_ of commands) {
+      const result = run(arguments_, {
+        INFRAWRIGHT_PERFORMANCE_REPORT: directory,
+        ZSCALER_CLIENT_ID: "",
+        ZSCALER_CLIENT_SECRET: "",
+        ZSCALER_USE_LEGACY_CLIENT: "",
+      });
+      assert.equal(result.status, 1, `${arguments_[0]}: ${result.stderr}`);
+      assert.match(
+        result.stderr,
+        /WARNING: unable to write performance report after command failure/u,
+        String(arguments_[0]),
+      );
+      assert.doesNotMatch(
+        result.stderr,
+        /^error: unable to write performance report$/mu,
+        String(arguments_[0]),
+      );
+      assert.match(result.stderr, /FAILED|must be a JSON LIST/u, String(arguments_[0]));
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("Make fetch targets invoke the Node CLI instead of Python", async () => {
   const makefile = await readFile(path.join(ROOT, "Makefile"), "utf8");
   const fetchStart = makefile.search(/^fetch:/m);

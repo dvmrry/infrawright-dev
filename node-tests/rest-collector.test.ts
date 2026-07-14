@@ -570,6 +570,78 @@ test("bounded resource workers overlap without changing bytes, outcomes, auth, o
   }
 });
 
+test("concurrent write failures retain selection-ordered primary error and prior diagnostics", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "rest-write-order-"));
+  try {
+    const packDirectory = path.join(directory, "packs", "sample");
+    await mkdir(packDirectory, { recursive: true });
+    await writeFile(
+      path.join(packDirectory, "pack.json"),
+      JSON.stringify({ provider_prefixes: { sample_: "sample" } }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(packDirectory, "registry.json"),
+      JSON.stringify(Object.fromEntries("abc".split("").map((suffix) => [
+        `sample_${suffix}`,
+        { product: "sample", fetch: { pagination: "single", path: `items-${suffix}` } },
+      ]))),
+      "utf8",
+    );
+    const isolatedRoot = await loadPackRoot({ packsRoot: path.join(directory, "packs") });
+    const responses = new Map<string, HttpResponse>("abc".split("").map((suffix) => [
+      `/api/items-${suffix}`,
+      response([{ id: suffix }]),
+    ]));
+    for (const concurrency of [1, 2, 4]) {
+      const output = path.join(directory, `pulls-${concurrency}`);
+      await mkdir(path.join(output, "sample_b.json"), { recursive: true });
+      await mkdir(path.join(output, "sample_c.json"), { recursive: true });
+      const transport = new DelayedPathTransport(
+        responses,
+        new Map([
+          ["/api/items-a", 0],
+          ["/api/items-b", 20],
+          ["/api/items-c", 1],
+        ]),
+      );
+      const diagnostics: string[] = [];
+      let failure: unknown;
+      try {
+        await fetchResources({
+          adapters: new Map([["sample", adapter("sample")]]),
+          concurrency,
+          context,
+          environment: {},
+          mode: "oneapi",
+          onDiagnostic: (message) => diagnostics.push(message),
+          outputDirectory: output,
+          root: isolatedRoot,
+          selectors: ["sample"],
+          transport,
+        });
+      } catch (error: unknown) {
+        failure = error;
+      }
+      assert.notEqual(failure, undefined, `concurrency ${concurrency}`);
+      assert.match(String(failure), /sample_b\.json/u, `concurrency ${concurrency}`);
+      assert.doesNotMatch(String(failure), /sample_c\.json/u, `concurrency ${concurrency}`);
+      assert.deepEqual(diagnostics, [
+        `wrote ${path.join(output, "sample_a.json")} (1 items)`,
+      ]);
+      assert.equal(
+        await readFile(path.join(output, "sample_a.json"), "utf8"),
+        '[\n  {\n    "id": "a"\n  }\n]\n',
+      );
+      if (concurrency === 1) {
+        assert.deepEqual(transport.requests, ["/api/items-a", "/api/items-b"]);
+      }
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("fetch concurrency rejects invalid library values before authentication", async () => {
   const packRoot = await root();
   for (const concurrency of [0, -1, 1.5, Number.NaN, 65]) {

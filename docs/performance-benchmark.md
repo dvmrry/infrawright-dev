@@ -46,6 +46,7 @@ export IW_CLI="$PWD/dist/infrawright-cli.mjs"
 export IW_TENANT='<approved-tenant-label>'
 export IW_RESOURCE='<resource-or-provider-selector>'
 export IW_EVIDENCE="$(mktemp -d)"
+set -eu
 ```
 
 Run each viable concurrency three times. Each run has an isolated pull tree,
@@ -78,6 +79,12 @@ node scripts/compare-performance-reports.mjs \
   --variant "c4-r1=$IW_EVIDENCE/fetch-c4-r1" \
   --variant "c8-r1=$IW_EVIDENCE/fetch-c8-r1"
 ```
+
+The comparison refuses failed reports, duplicate or missing command reports,
+malformed counters, tampered manifests, and variants that cover different
+artifact-root sets. Its first table retains the aggregate timing/request/
+parity contract; a second table surfaces HTTP 429s, retries, and accumulated
+retry delay so a faster but rate-limit-unstable candidate cannot look ordinary.
 
 Stop increasing concurrency if output hashes differ, HTTP request count rises,
 429s increase materially, failures appear, or latency worsens. Do not select a

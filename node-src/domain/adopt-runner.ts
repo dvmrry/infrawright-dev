@@ -290,8 +290,15 @@ async function runAdoptBatchInner(
           selectors: [resourceType],
           tenant: options.tenant,
         });
-        if (delegated.failed.length > 0) failed.push(resourceType);
-        else processed.push(resourceType);
+        if (delegated.failed.length > 0) {
+          resourceStatus = "failed";
+          failed.push(resourceType);
+        } else if (delegated.skipped.length > 0) {
+          resourceStatus = "skipped";
+          skipped.push(resourceType);
+        } else {
+          processed.push(resourceType);
+        }
         continue;
       }
       const result = await adoptResourceItems({

@@ -5,6 +5,8 @@ import { createReadStream } from "node:fs";
 import { lstat, mkdir, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { artifactManifestDigest } from "./performance-manifest.mjs";
+
 function fail(message) {
   process.stderr.write(`error: ${message}\n`);
   process.exit(2);
@@ -77,6 +79,7 @@ async function snapshot(root) {
     }
   };
   await visit(root.path, "");
+  files.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
   return { files, label: root.label };
 }
 
@@ -90,23 +93,10 @@ const roots = [];
 for (const root of [...options.roots].sort((left, right) => left.label < right.label ? -1 : 1)) {
   roots.push(await snapshot(root));
 }
-const tree = createHash("sha256");
-for (const root of roots) {
-  for (const file of root.files) {
-    tree.update(root.label, "utf8");
-    tree.update("\0", "utf8");
-    tree.update(file.path, "utf8");
-    tree.update("\0", "utf8");
-    tree.update(String(file.size_bytes), "utf8");
-    tree.update("\0", "utf8");
-    tree.update(file.sha256, "ascii");
-    tree.update("\0", "utf8");
-  }
-}
 const manifest = {
   format: "infrawright-performance-artifact-manifest",
   roots,
-  tree_sha256: tree.digest("hex"),
+  tree_sha256: artifactManifestDigest(roots),
 };
 await mkdir(path.dirname(options.output), { recursive: true });
 await writeFile(options.output, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });

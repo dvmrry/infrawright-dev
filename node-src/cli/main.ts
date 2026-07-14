@@ -1784,7 +1784,7 @@ if (performance !== undefined) {
       }),
     });
   } catch (error: unknown) {
-    if (primary === undefined) primary = error;
+    if (primary === undefined && commandResult === 0) primary = error;
     else process.stderr.write("WARNING: unable to write performance report after command failure\n");
   }
 }

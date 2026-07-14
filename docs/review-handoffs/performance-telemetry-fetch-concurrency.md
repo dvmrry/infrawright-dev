@@ -143,7 +143,9 @@
   - vendor-boundary audit passed (187 allowed, 0 violations);
   - `npm audit --audit-level=high` passed (0 vulnerabilities);
   - `git diff --check` passed;
-  - `npm test` passed: 1,100 tests, 1,099 passed, 1 skipped, 0 failed.
+  - post-remediation focused recheck passed: 38 tests, 0 failed;
+  - exact patched-head `npm test` passed: 1,105 tests, 1,104 passed,
+    1 skipped, 0 failed.
 - Tests not run: live credentials, live provider/API/backend, deployment Apply,
   work-side A/B runs, and provider-cache tests. They are forbidden or belong to
   later slices.
@@ -159,6 +161,26 @@
   the next separately reviewed performance slice.
 - Provider snapshot/replay and Oracle batching remain feasibility work; this
   slice introduces neither.
+
+## Review Remediation
+
+- Concurrent render/write failures are captured as indexed resource outcomes.
+  The lowest selection-index failure is authoritative at every concurrency;
+  serial mode stops at that failure, and diagnostics for earlier successful
+  writes are preserved.
+- Artifact digests now bind the format marker, every explicit root boundary
+  and label (including empty roots), file count, and every file record. The
+  comparison tool validates the complete manifest, recomputes its digest, and
+  rejects differing root sets.
+- Report comparison now requires successful, structurally valid reports, one
+  report per command, a Fetch report, and the same command set in every
+  variant. It cross-checks summary counts and exposes 429/retry evidence in a
+  second table. The runbook uses fail-fast shell execution.
+- Derived Transform delegation propagates failed/skipped status into the
+  per-resource Adopt span instead of reporting success.
+- A nonzero command result remains the primary failure if optional report
+  writing also fails; the report failure is a warning. Fetch, Transform, and
+  Adopt regressions exercise the arbitration.
 
 ## Review Focus
 
