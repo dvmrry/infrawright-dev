@@ -27,9 +27,10 @@ The local transform path already has a real Zscaler quirk catalog:
 
 Those transformations run through
 [engine/transform.py](../engine/transform.py#L445-L533). The adopt/oracle path
-projects provider-observed state and then applies only projection policy:
-`projection_sync`, `projection_fill`, and `projection_omit_if`
-([engine/state_project.py](../engine/state_project.py#L199-L202)).
+projects provider-observed state, applies `projection_omit` inline, then applies
+`projection_sync`, `projection_fill`, pack `drop_if_default`, and
+`projection_omit_if`
+([engine/state_project.py](../engine/state_project.py#L242-L258)).
 
 That means every semantic transform override is a candidate oracle-path
 question, but not every transform override is an oracle-path gap. A clean first
@@ -164,8 +165,9 @@ name remains the sole retained transform/adopt evidence gate; zero quotas and
 the application-segment microtenant default are now byte-equal. A general
 transform-to-projection bridge would not resolve those distinctions.
 
-`microtenant_id="0"` is not a provider-read normalization case, but it is also
-not a current oracle gap. Provider source proves raw pass-through: zpa 4.4.6
+`microtenant_id="0"` is not a provider-read normalization case. Its local
+Transform/Adopt artifact gap is resolved, but live plan qualification remains
+open. Provider source proves raw pass-through: zpa 4.4.6
 [resource_zpa_application_segment.go](https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_application_segment.go)
 READ sets `microtenant_id` raw, including `"0"`. Adopt projects that optional
 input from post-read state and then applies the pack's `drop_if_default`, so the
@@ -195,8 +197,8 @@ so omission does not alter an element hash. The nested-path expectation assumes
 matching block shape and order. Under these predicates, all seven paths are
 expected to plan clean when omitted
 ([resource_zpa_server_group.go#L96-L100](https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_server_group.go#L96-L100)).
-Do not add a `projection_omit` or equivalent policy for the app-segment path
-without a pinned import/show/plan test.
+Do not treat the current pack-default omission as live-qualified without a
+pinned import/show/plan test.
 
 ## Numeric Zero Phantom Reference
 
