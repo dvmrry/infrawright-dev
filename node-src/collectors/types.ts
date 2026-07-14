@@ -1,4 +1,8 @@
 import type { LoadedPackRoot } from "../metadata/loader.js";
+import type {
+  HttpRequestPerformanceContext,
+  PerformanceRecorder,
+} from "../performance/recorder.js";
 
 export type CollectorAuthMode = "legacy" | "oneapi";
 
@@ -16,6 +20,8 @@ export interface HttpRequest {
   readonly headers?: Readonly<Record<string, string>>;
   readonly body?: Uint8Array | string;
   readonly timeoutMs?: number;
+  /** Sanitized static labels only; never URL, query, headers, body, or IDs. */
+  readonly performance?: HttpRequestPerformanceContext;
 }
 
 export interface HttpResponse {
@@ -39,6 +45,10 @@ export interface CollectorAcquireInput {
   readonly context: CollectorContext;
   readonly transport: HttpTransport;
   readonly nowMs?: number;
+  readonly performanceContext?: Omit<
+    HttpRequestPerformanceContext,
+    "classification" | "endpointFamily"
+  >;
 }
 
 export interface CollectorComposeUrlInput {
@@ -62,11 +72,14 @@ export interface FetchRunResult {
 
 export interface FetchResourcesOptions {
   readonly adapters: ReadonlyMap<string, CollectorAdapter>;
+  /** Maximum independent resource fetches in flight. Defaults to one. */
+  readonly concurrency?: number;
   readonly context: CollectorContext;
   readonly environment: NodeJS.ProcessEnv;
   readonly mode: CollectorAuthMode;
   readonly onDiagnostic?: (message: string) => void;
   readonly outputDirectory: string;
+  readonly performance?: PerformanceRecorder;
   readonly root: LoadedPackRoot;
   readonly selectors: readonly string[];
   readonly transport: HttpTransport;

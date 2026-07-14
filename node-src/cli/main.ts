@@ -30,7 +30,11 @@ import {
 } from "../modules/generator.js";
 import { runTransformBatch } from "../domain/transform-runner.js";
 import { expandLoadedResources, loadedRootTopology, validateTenant } from "../domain/roots.js";
-import { fetchResources, selectFetchResources } from "../collectors/rest.js";
+import {
+  fetchResources,
+  MAX_FETCH_CONCURRENCY,
+  selectFetchResources,
+} from "../collectors/rest.js";
 import { fetchProducts } from "../collectors/selection.js";
 import { probeRestHost } from "../collectors/rest-diagnostics.js";
 import {
@@ -83,6 +87,11 @@ import {
   renderLegacyRootTopology,
 } from "../process/legacy.js";
 import { sortedStrings } from "../json/python-compatible.js";
+import { writePerformanceReport } from "../io/performance-report.js";
+import {
+  PerformanceRecorder,
+  type PerformanceStatus,
+} from "../performance/recorder.js";
 
 const USAGE = [
   "usage:",
@@ -104,7 +113,7 @@ const USAGE = [
   "  infrawright assert-clean [--tenant <name>] [--resource <selector>] [--backend-config <file>] [--report <file|->] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright assert-adoptable [--tenant <name>] [--resource <selector>] [--policy <file>] [--backend-config <file>] [--report <file|->] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright apply [--tenant <name>] [--resource <selector>] [--policy <file>] [--backend-config <file>] [--allow-destroy] [--allow-non-main] [--allow-plan-changes] [--main-branch <name>] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
-  "  infrawright fetch --tenant <name> [--resource <selector>] [--out <dir>] [--root <packs>] [--profile <file>] [--catalog <file>]",
+  "  infrawright fetch --tenant <name> [--resource <selector>] [--out <dir>] [--concurrency <count>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright fetch-diag [--root <packs>] [--profile <file>] [--catalog <file>]",
 ].join("\n");
 
@@ -521,7 +530,10 @@ async function transform(arguments_: string[]): Promise<number> {
   return result.failed.length === 0 ? 0 : 1;
 }
 
-async function adopt(arguments_: string[]): Promise<number> {
+async function adopt(
+  arguments_: string[],
+  performance?: PerformanceRecorder,
+): Promise<number> {
   const rootDirectory = await packageRoot();
   let root = process.env.INFRAWRIGHT_PACKS || path.join(rootDirectory, "packs");
   let profile = process.env.INFRAWRIGHT_PACK_PROFILE
@@ -582,6 +594,7 @@ async function adopt(arguments_: string[]): Promise<number> {
       loadedState = await defaultAdoptionStateLoader({
         environment: process.env,
         onDiagnostic: (message) => process.stderr.write(`${message}\n`),
+        ...(performance === undefined ? {} : { performance }),
         root: packRoot,
         terraformExecutable: executable,
       });
@@ -593,6 +606,7 @@ async function adopt(arguments_: string[]): Promise<number> {
     inputDirectory: input,
     onDiagnostic: (message) => process.stderr.write(`${message}\n`),
     policy,
+    ...(performance === undefined ? {} : { performance }),
     root: packRoot,
     selectors: resources,
     stateLoader,
@@ -1385,6 +1399,7 @@ async function applyCommand(arguments_: string[]): Promise<number> {
 
 interface FetchCliOptions {
   readonly catalog: string;
+  readonly concurrency: number;
   readonly output?: string;
   readonly profile: string;
   readonly resources: readonly string[];
@@ -1417,6 +1432,8 @@ async function fetchCliOptions(
   let catalog = path.join(rootDirectory, "packsets", "full.json");
   let output: string | undefined;
   let tenant: string | undefined;
+  let concurrency = 1;
+  let concurrencySeen = false;
   const resources: string[] = [];
   for (let index = 0; index < arguments_.length;) {
     const argument = arguments_[index];
@@ -1427,8 +1444,14 @@ async function fetchCliOptions(
       || argument === "--out"
       || argument === "--tenant"
       || argument === "--resource"
+      || argument === "--concurrency"
     ) {
-      if (!requireTenant && (argument === "--out" || argument === "--tenant" || argument === "--resource")) {
+      if (!requireTenant && (
+        argument === "--out"
+        || argument === "--tenant"
+        || argument === "--resource"
+        || argument === "--concurrency"
+      )) {
         usageError(`fetch-diag does not accept ${argument}`);
       }
       const option = takeOption(arguments_, index, argument);
@@ -1438,6 +1461,17 @@ async function fetchCliOptions(
       if (argument === "--out") output = option.value;
       if (argument === "--tenant") tenant = option.value;
       if (argument === "--resource") resources.push(option.value);
+      if (argument === "--concurrency") {
+        if (concurrencySeen) usageError("--concurrency may be specified only once");
+        concurrencySeen = true;
+        if (!/^[1-9][0-9]*$/u.test(option.value)) {
+          usageError("--concurrency must be a positive integer");
+        }
+        concurrency = Number(option.value);
+        if (!Number.isSafeInteger(concurrency) || concurrency > MAX_FETCH_CONCURRENCY) {
+          usageError(`--concurrency must not exceed ${MAX_FETCH_CONCURRENCY}`);
+        }
+      }
       index = option.next;
     } else if (argument === "-h" || argument === "--help") {
       throw new CliExit(USAGE, 0, true);
@@ -1455,6 +1489,7 @@ async function fetchCliOptions(
   }
   return {
     catalog,
+    concurrency,
     ...(output === undefined ? {} : { output }),
     profile,
     resources,
@@ -1463,7 +1498,10 @@ async function fetchCliOptions(
   };
 }
 
-async function fetchCommand(arguments_: string[]): Promise<number> {
+async function fetchCommand(
+  arguments_: string[],
+  performance?: PerformanceRecorder,
+): Promise<number> {
   const options = await fetchCliOptions(arguments_, true);
   const tenant = options.tenant;
   if (tenant === undefined) usageError("fetch requires --tenant");
@@ -1498,17 +1536,22 @@ async function fetchCommand(arguments_: string[]): Promise<number> {
   })) {
     process.stderr.write(`${line}\n`);
   }
-  const transport = await createRestHttpTransport(process.env);
+  const transport = await createRestHttpTransport(
+    process.env,
+    performance === undefined ? {} : { performance },
+  );
   let result;
   let primary: unknown;
   try {
     result = await fetchResources({
       adapters: createZscalerCollectorAdapters(),
+      concurrency: options.concurrency,
       context,
       environment: process.env,
       mode,
       onDiagnostic: (message) => process.stderr.write(`${message}\n`),
       outputDirectory: options.output ?? path.join("pulls", tenant),
+      ...(performance === undefined ? {} : { performance }),
       root,
       selectors: options.resources,
       transport,
@@ -1623,7 +1666,10 @@ function requiresTerraformExecution(arguments_: readonly string[]): boolean {
     || (command === "stage-imports" && arguments_.includes("--state-aware"));
 }
 
-async function main(arguments_: string[]): Promise<number> {
+async function main(
+  arguments_: string[],
+  performance?: PerformanceRecorder,
+): Promise<number> {
   const command = arguments_[0];
   if (requiresTerraformExecution(arguments_)) {
     assertSupportedTerraformExecutionPlatform();
@@ -1633,7 +1679,7 @@ async function main(arguments_: string[]): Promise<number> {
   if (command === "deployment") return deployment(arguments_.slice(1));
   if (command === "modules") return modules(arguments_.slice(1));
   if (command === "transform") return transform(arguments_.slice(1));
-  if (command === "adopt") return adopt(arguments_.slice(1));
+  if (command === "adopt") return adopt(arguments_.slice(1), performance);
   if (command === "gen-env") return genEnv(arguments_.slice(1));
   if (command === "stage-imports") return stageImportsCommand(arguments_.slice(1));
   if (command === "unstage-imports") return unstageImportsCommand(arguments_.slice(1));
@@ -1664,7 +1710,7 @@ async function main(arguments_: string[]): Promise<number> {
   if (command === "apply") {
     return legacyPlanLifecycleCommand(() => applyCommand(arguments_.slice(1)));
   }
-  if (command === "fetch") return fetchCommand(arguments_.slice(1));
+  if (command === "fetch") return fetchCommand(arguments_.slice(1), performance);
   if (command === "fetch-diag") return fetchDiag(arguments_.slice(1));
   if (command === "-h" || command === "--help") {
     process.stdout.write(`${USAGE}\n`);
@@ -1673,9 +1719,80 @@ async function main(arguments_: string[]): Promise<number> {
   usageError(command === undefined ? USAGE : `unknown command ${command}\n${USAGE}`);
 }
 
+const PERFORMANCE_COMMANDS = new Set([
+  "adopt",
+  "apply",
+  "assert-adoptable",
+  "assert-clean",
+  "fetch",
+  "gen-env",
+  "modules",
+  "plan",
+  "stage-imports",
+  "transform",
+  "unstage-imports",
+]);
+
+function performanceCommand(arguments_: readonly string[]): string {
+  const command = arguments_[0];
+  if (command === undefined || !PERFORMANCE_COMMANDS.has(command)) return "unknown";
+  return command === "modules" && arguments_[1] === "generate"
+    ? "modules.generate"
+    : command;
+}
+
+function performancePhase(command: string): string {
+  if (command === "modules.generate") return "module_generation.total";
+  if (command === "gen-env") return "root_generation.total";
+  if (command === "stage-imports" || command === "unstage-imports") return "staging.total";
+  if (command === "plan") return "deployment_plan.total";
+  if (command === "assert-clean" || command === "assert-adoptable") return "assessment.total";
+  if (command === "apply") return "exact_plan_apply.total";
+  return `${command}.command`;
+}
+
+const cliArguments = process.argv.slice(2);
+const performancePath = (process.env.INFRAWRIGHT_PERFORMANCE_REPORT ?? "").trim();
+const performance = performancePath === "" ? undefined : new PerformanceRecorder();
+const command = performanceCommand(cliArguments);
+const commandStarted = performance?.now() ?? 0;
+let commandResult: number | undefined;
+let primary: unknown;
 try {
-  process.exitCode = await main(process.argv.slice(2));
+  commandResult = await main(cliArguments, performance);
 } catch (error: unknown) {
+  primary = error;
+}
+
+if (performance !== undefined) {
+  const status: PerformanceStatus = primary === undefined && commandResult === 0
+    ? "success"
+    : "failed";
+  const commandDurationMs = performance.durationSince(commandStarted);
+  performance.recordSpan({
+    durationMs: commandDurationMs,
+    phase: performancePhase(command),
+    status,
+  });
+  try {
+    await writePerformanceReport({
+      path: performancePath,
+      report: performance.report({
+        command,
+        commandDurationMs,
+        commandStatus: status,
+      }),
+    });
+  } catch (error: unknown) {
+    if (primary === undefined) primary = error;
+    else process.stderr.write("WARNING: unable to write performance report after command failure\n");
+  }
+}
+
+if (primary === undefined) {
+  process.exitCode = commandResult ?? 1;
+} else {
+  const error = primary;
   const message = error instanceof Error ? error.message : String(error);
   if (error instanceof CliExit) {
     const stream = error.stdout ? process.stdout : process.stderr;

@@ -197,6 +197,21 @@ function bearerContext(token: string): CollectorAuthContext {
   });
 }
 
+function authPerformance(
+  input: CollectorAcquireInput,
+  endpointFamily: string,
+): Record<string, unknown> {
+  return input.performanceContext === undefined
+    ? {}
+    : {
+      performance: {
+        ...input.performanceContext,
+        classification: "authentication" as const,
+        endpointFamily,
+      },
+    };
+}
+
 async function acquireOneApi(
   input: CollectorAcquireInput,
 ): Promise<CollectorAuthContext> {
@@ -217,6 +232,7 @@ async function acquireOneApi(
     body,
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     method: "POST",
+    ...authPerformance(input, "oauth2/v1/token"),
     url: tokenUrl,
   });
   if (response.status !== 200) {
@@ -263,6 +279,7 @@ async function acquireZiaLegacy(
     }),
     headers: { "Content-Type": "application/json" },
     method: "POST",
+    ...authPerformance(input, "api/v1/authenticatedSession"),
     url: new URL(`${ziaLegacyBase(input.context)}/api/v1/authenticatedSession`),
   });
   if (response.status !== 200) {
@@ -282,6 +299,7 @@ async function acquireZpaLegacy(
     ]).toString(),
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     method: "POST",
+    ...authPerformance(input, "signin"),
     url: new URL(`${zpaLegacyBase(input.context)}/signin`),
   });
   if (response.status !== 200) {

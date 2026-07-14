@@ -18,6 +18,7 @@ import {
   type OracleCommandRunner,
 } from "../node-src/domain/import-oracle.js";
 import { loadPackRoot, type LoadedPackRoot } from "../node-src/metadata/loader.js";
+import { PerformanceRecorder } from "../node-src/performance/recorder.js";
 
 const ROOT = process.cwd();
 const RESOURCE = "zia_url_categories";
@@ -121,9 +122,12 @@ test("generic Oracle renders provider pin/config and escaped deterministic impor
 
 test("fake Terraform executes the exact local import/read transaction and cleans scratch data", async () => {
   const fake = new FakeTerraform();
+  let now = 0;
+  const performance = new PerformanceRecorder({ now: () => now++ });
   const output = await importProviderState({
     environment: { PATH: "/unused" },
     keyToImportId: new Map([[KEY, IMPORT_ID]]),
+    performance,
     resourceType: RESOURCE,
     root: await committedRoot(),
     runner: fake,
@@ -147,6 +151,39 @@ test("fake Terraform executes the exact local import/read transaction and cleans
   assert.equal(apply?.environment.TF_DATA_DIR, path.join(apply?.cwd ?? "", ".terraform"));
   assert.deepEqual(apply?.sensitiveTokens, [IMPORT_ID]);
   await assert.rejects(() => access(apply?.cwd ?? ""), /ENOENT/);
+  const report = performance.report({
+    command: "adopt",
+    commandDurationMs: 20,
+    commandStatus: "success",
+  });
+  assert.equal((report.summary as { terraform_commands: number }).terraform_commands, 5);
+  const spans = report.spans as Array<{
+    corrected_plan?: boolean;
+    phase: string;
+    terraform_commands?: number;
+  }>;
+  assert.deepEqual(spans.filter((span) => span.phase.startsWith("oracle.")).map(
+    (span) => span.phase,
+  ), [
+    "oracle.corrected_plan",
+    "oracle.generated_config_plan",
+    "oracle.generated_config_policy",
+    "oracle.init",
+    "oracle.plan_show",
+    "oracle.scratch_apply",
+    "oracle.state_show",
+  ]);
+  assert.deepEqual(
+    spans.find((span) => span.phase === "oracle.corrected_plan"),
+    {
+      corrected_plan: false,
+      duration_ms: 0,
+      phase: "oracle.corrected_plan",
+      resource_family: RESOURCE,
+      status: "skipped",
+      terraform_commands: 0,
+    },
+  );
 });
 
 test("the scratch apply is unreachable for create, update, replace, destroy, drift, or incomplete coverage", async () => {
@@ -223,9 +260,12 @@ test("policy edits generated config and forces a second plan before authorizatio
       },
     },
   });
+  let now = 0;
+  const performance = new PerformanceRecorder({ now: () => now++ });
   await importProviderState({
     keyToImportId: new Map([[KEY, IMPORT_ID]]),
     policy: selected,
+    performance,
     resourceType: RESOURCE,
     root: await committedRoot(),
     runner: fake,
@@ -239,6 +279,17 @@ test("policy edits generated config and forces a second plan before authorizatio
     "show-state",
   ]);
   assert.deepEqual(selected.staleEntries({ modes: ["projection_omit"] }), []);
+  const report = performance.report({
+    command: "adopt",
+    commandDurationMs: 20,
+    commandStatus: "success",
+  });
+  assert.equal((report.summary as { terraform_commands: number }).terraform_commands, 6);
+  const corrected = (report.spans as Array<Record<string, unknown>>).find(
+    (span) => span.phase === "oracle.corrected_plan",
+  );
+  assert.equal(corrected?.corrected_plan, true);
+  assert.equal(corrected?.terraform_commands, 1);
 });
 
 test("missing state, duplicate import IDs, and malformed plan coverage fail closed", async () => {

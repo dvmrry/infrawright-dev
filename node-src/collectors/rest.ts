@@ -8,6 +8,7 @@ import { canonicalPythonNumberToken, pythonFiniteFloatToken } from "../json/pyth
 import { renderPythonLosslessArtifactJson } from "../json/python-lossless-artifact.js";
 import { sortedStrings } from "../json/python-compatible.js";
 import type { LoadedPackRoot } from "../metadata/loader.js";
+import type { HttpRequestPerformanceContext } from "../performance/recorder.js";
 import {
   fetchExpansionSafetyViolation,
   fetchPathSafetyViolation,
@@ -45,6 +46,8 @@ const ZCC_V2_PAGE_SIZE = 100;
 const ZCC_V2_MAX_PAGES = 100_000;
 const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
+export const MAX_FETCH_CONCURRENCY = 64;
+
 type PaginationStyle = "single" | "zcc_v2" | "zia" | "zpa";
 
 export interface FetchEntry {
@@ -63,6 +66,8 @@ export interface FetchResourceOptions {
   readonly context: CollectorContext;
   readonly entry: FetchEntry;
   readonly mode: CollectorAuthMode;
+  readonly onPageRequest?: () => void;
+  readonly performance?: HttpRequestPerformanceContext;
   readonly resourceType: string;
   readonly transport: HttpTransport;
 }
@@ -142,14 +147,18 @@ function baseUrl(url: URL): string {
 async function getJson(options: {
   readonly auth: CollectorAuthContext;
   readonly query: Readonly<Record<string, unknown>>;
+  readonly onPageRequest?: () => void;
+  readonly performance?: HttpRequestPerformanceContext;
   readonly transport: HttpTransport;
   readonly url: URL;
 }): Promise<unknown> {
   const requested = withQuery(options.url, options.query, {});
+  options.onPageRequest?.();
   const response = await options.transport.request({
     method: "GET",
     url: requested,
     headers: options.auth.headers,
+    ...(options.performance === undefined ? {} : { performance: options.performance }),
   });
   if (response.status !== 200) {
     throw new Error(
@@ -173,6 +182,8 @@ async function requestPage(options: {
   readonly auth: CollectorAuthContext;
   readonly baseQuery: Readonly<Record<string, unknown>>;
   readonly pageQuery: Readonly<Record<string, unknown>>;
+  readonly onPageRequest?: () => void;
+  readonly performance?: HttpRequestPerformanceContext;
   readonly transport: HttpTransport;
   readonly url: URL;
 }): Promise<unknown> {
@@ -181,6 +192,8 @@ async function requestPage(options: {
     query: Object.fromEntries(
       new Map([...Object.entries(options.baseQuery), ...Object.entries(options.pageQuery)]),
     ),
+    ...(options.onPageRequest === undefined ? {} : { onPageRequest: options.onPageRequest }),
+    ...(options.performance === undefined ? {} : { performance: options.performance }),
     transport: options.transport,
     url: options.url,
   });
@@ -203,6 +216,8 @@ function pythonTruthy(value: unknown): boolean {
 async function paginateZia(options: {
   readonly auth: CollectorAuthContext;
   readonly entry: FetchEntry;
+  readonly onPageRequest?: () => void;
+  readonly performance?: HttpRequestPerformanceContext;
   readonly transport: HttpTransport;
   readonly url: URL;
 }): Promise<readonly unknown[]> {
@@ -212,6 +227,8 @@ async function paginateZia(options: {
       auth: options.auth,
       baseQuery: options.entry.query,
       pageQuery: { page, pageSize: ZIA_PAGE_SIZE },
+      ...(options.onPageRequest === undefined ? {} : { onPageRequest: options.onPageRequest }),
+      ...(options.performance === undefined ? {} : { performance: options.performance }),
       transport: options.transport,
       url: options.url,
     });
@@ -267,6 +284,8 @@ function pythonInt(value: unknown): number {
 async function paginateZpa(options: {
   readonly auth: CollectorAuthContext;
   readonly entry: FetchEntry;
+  readonly onPageRequest?: () => void;
+  readonly performance?: HttpRequestPerformanceContext;
   readonly transport: HttpTransport;
   readonly url: URL;
 }): Promise<readonly unknown[]> {
@@ -276,6 +295,8 @@ async function paginateZpa(options: {
       auth: options.auth,
       baseQuery: options.entry.query,
       pageQuery: { page, pagesize: ZPA_PAGE_SIZE },
+      ...(options.onPageRequest === undefined ? {} : { onPageRequest: options.onPageRequest }),
+      ...(options.performance === undefined ? {} : { performance: options.performance }),
       transport: options.transport,
       url: options.url,
     });
@@ -301,12 +322,16 @@ async function paginateZpa(options: {
 async function paginateSingle(options: {
   readonly auth: CollectorAuthContext;
   readonly entry: FetchEntry;
+  readonly onPageRequest?: () => void;
+  readonly performance?: HttpRequestPerformanceContext;
   readonly transport: HttpTransport;
   readonly url: URL;
 }): Promise<readonly unknown[]> {
   const payload = await getJson({
     auth: options.auth,
     query: options.entry.query,
+    ...(options.onPageRequest === undefined ? {} : { onPageRequest: options.onPageRequest }),
+    ...(options.performance === undefined ? {} : { performance: options.performance }),
     transport: options.transport,
     url: options.url,
   });
@@ -323,6 +348,8 @@ function numeric(value: unknown, fallback: number): number {
 async function paginateZccV2(options: {
   readonly auth: CollectorAuthContext;
   readonly entry: FetchEntry;
+  readonly onPageRequest?: () => void;
+  readonly performance?: HttpRequestPerformanceContext;
   readonly transport: HttpTransport;
   readonly url: URL;
 }): Promise<readonly unknown[]> {
@@ -334,6 +361,8 @@ async function paginateZccV2(options: {
       auth: options.auth,
       baseQuery: options.entry.query,
       pageQuery: { skip, perPage: ZCC_V2_PAGE_SIZE },
+      ...(options.onPageRequest === undefined ? {} : { onPageRequest: options.onPageRequest }),
+      ...(options.performance === undefined ? {} : { performance: options.performance }),
       transport: options.transport,
       url: options.url,
     });
@@ -416,6 +445,8 @@ export async function fetchResource(
     const pageOptions = {
       auth: options.auth,
       entry: options.entry,
+      ...(options.onPageRequest === undefined ? {} : { onPageRequest: options.onPageRequest }),
+      ...(options.performance === undefined ? {} : { performance: options.performance }),
       transport: options.transport,
       url,
     };
@@ -528,11 +559,115 @@ function authIdentity(mode: CollectorAuthMode, product: string): string {
   return mode === "oneapi" ? "oneapi" : `${mode}:${product}`;
 }
 
+function fetchConcurrency(value: number | undefined): number {
+  const selected = value ?? 1;
+  if (
+    !Number.isSafeInteger(selected)
+    || selected <= 0
+    || selected > MAX_FETCH_CONCURRENCY
+  ) {
+    throw new TypeError(
+      `fetch concurrency must be a positive integer no greater than ${MAX_FETCH_CONCURRENCY}`,
+    );
+  }
+  return selected;
+}
+
+type FetchOutcome =
+  | {
+    readonly destination: string;
+    readonly durationMs: number;
+    readonly endedMs: number;
+    readonly itemCount: number;
+    readonly kind: "processed";
+    readonly pages: number;
+    readonly product: string;
+    readonly resourceType: string;
+    readonly startedMs: number;
+  }
+  | {
+    readonly durationMs: number;
+    readonly endedMs: number;
+    readonly kind: "failed" | "skipped";
+    readonly pages: number;
+    readonly product: string;
+    readonly reason: string;
+    readonly resourceType: string;
+    readonly startedMs: number;
+  };
+
+interface FetchWorkItem {
+  readonly adapter: CollectorAdapter;
+  readonly auth: CollectorAuthContext;
+  readonly destination: string;
+  readonly entry: FetchEntry;
+  readonly index: number;
+  readonly resourceType: string;
+}
+
+/**
+ * Run through one global bound while rotating products fairly. A shared
+ * OneAPI authority is never multiplied by independent product pools, and a
+ * large product queue cannot consume every worker indefinitely.
+ */
+async function runFetchWorkers(options: {
+  readonly concurrency: number;
+  readonly execute: (item: FetchWorkItem) => Promise<FetchOutcome>;
+  readonly items: readonly FetchWorkItem[];
+}): Promise<ReadonlyMap<number, FetchOutcome>> {
+  if (options.concurrency === 1) {
+    const sequential = new Map<number, FetchOutcome>();
+    for (const item of options.items) {
+      sequential.set(item.index, await options.execute(item));
+    }
+    return sequential;
+  }
+  const queues = new Map<string, FetchWorkItem[]>();
+  for (const item of options.items) {
+    const queue = queues.get(item.entry.product) ?? [];
+    queue.push(item);
+    queues.set(item.entry.product, queue);
+  }
+  const products = sortedStrings(queues.keys());
+  const outcomes = new Map<number, FetchOutcome>();
+  let cursor = 0;
+  let fatal: unknown;
+
+  const take = (): FetchWorkItem | undefined => {
+    if (fatal !== undefined || products.length === 0) return undefined;
+    for (let checked = 0; checked < products.length; checked += 1) {
+      const product = products[cursor];
+      cursor = (cursor + 1) % products.length;
+      if (product === undefined) continue;
+      const item = queues.get(product)?.shift();
+      if (item !== undefined) return item;
+    }
+    return undefined;
+  };
+
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const item = take();
+      if (item === undefined) return;
+      try {
+        outcomes.set(item.index, await options.execute(item));
+      } catch (error: unknown) {
+        fatal ??= error;
+      }
+    }
+  };
+  const workerCount = Math.min(options.concurrency, options.items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  if (fatal !== undefined) throw fatal;
+  return outcomes;
+}
+
 /** Execute the complete registry-driven fetch batch without invoking Python. */
-export async function fetchResources(
+async function fetchResourcesBatch(
   options: FetchResourcesOptions,
 ): Promise<FetchRunResult> {
   const write = options.onDiagnostic ?? (() => undefined);
+  const concurrency = fetchConcurrency(options.concurrency);
   const wanted = selectFetchResources({
     root: options.root,
     selectors: options.selectors,
@@ -565,17 +700,42 @@ export async function fetchResources(
       failedProducts.set(product, reason);
       continue;
     }
+    const authStarted = options.performance?.now() ?? 0;
     try {
       const auth = await adapter.acquire({
         mode: options.mode,
         environment: options.environment,
         context: options.context,
         transport: options.transport,
+        ...(options.performance === undefined
+          ? {}
+          : {
+            performanceContext: {
+              phase: "fetch",
+              product: identity === "oneapi" ? "oneapi" : product,
+            },
+          }),
+      });
+      options.performance?.recordSpan({
+        authIdentity: identity,
+        durationMs: options.performance.durationSince(authStarted),
+        phase: "fetch.authentication",
+        product: identity === "oneapi" ? "oneapi" : product,
+        status: "success",
       });
       authByIdentity.set(identity, auth);
       authByProduct.set(product, auth);
     } catch (error: unknown) {
       const reason = messageOf(error);
+      if (options.performance !== undefined) {
+        options.performance.recordSpan({
+          authIdentity: identity,
+          durationMs: options.performance.durationSince(authStarted),
+          phase: "fetch.authentication",
+          product: identity === "oneapi" ? "oneapi" : product,
+          status: "failed",
+        });
+      }
       failedAuth.set(identity, reason);
       failedProducts.set(product, reason);
     }
@@ -585,44 +745,183 @@ export async function fetchResources(
   const failed: Record<string, string> = Object.create(null) as Record<string, string>;
   const skipped: Record<string, string> = Object.create(null) as Record<string, string>;
   const processed: string[] = [];
-  for (const resourceType of wanted) {
+  const outcomes = new Map<number, FetchOutcome>();
+  const work: FetchWorkItem[] = [];
+  const destinations = new Set<string>();
+  for (const [index, resourceType] of wanted.entries()) {
     const entry = fetchEntry(options.root, resourceType);
     const productFailure = failedProducts.get(entry.product);
     if (productFailure !== undefined) {
-      failed[resourceType] = `auth failed: ${productFailure}`;
+      outcomes.set(index, {
+        durationMs: 0,
+        endedMs: 0,
+        kind: "failed",
+        pages: 0,
+        product: entry.product,
+        reason: `auth failed: ${productFailure}`,
+        resourceType,
+        startedMs: 0,
+      });
       continue;
     }
     const adapter = options.adapters.get(entry.product);
     const auth = authByProduct.get(entry.product);
     if (adapter === undefined || auth === undefined) {
-      failed[resourceType] = `auth failed: no collector adapter for product ${JSON.stringify(entry.product)}`;
-      continue;
-    }
-    let items: readonly unknown[];
-    try {
-      items = await fetchResource({
-        adapter,
-        auth,
-        context: options.context,
-        entry,
-        mode: options.mode,
+      outcomes.set(index, {
+        durationMs: 0,
+        endedMs: 0,
+        kind: "failed",
+        pages: 0,
+        product: entry.product,
+        reason: `auth failed: no collector adapter for product ${JSON.stringify(entry.product)}`,
         resourceType,
-        transport: options.transport,
+        startedMs: 0,
       });
-    } catch (error: unknown) {
-      const reason = messageOf(error);
-      const status = httpStatus(reason);
-      if (status !== null && entry.optionalHttpStatuses.has(status)) {
-        skipped[resourceType] = reason;
-      } else {
-        failed[resourceType] = reason;
-      }
       continue;
     }
     const destination = path.join(options.outputDirectory, `${resourceType}.json`);
-    await writeFile(destination, renderPythonLosslessArtifactJson(items), "utf8");
-    processed.push(resourceType);
-    write(`wrote ${destination} (${items.length} items)`);
+    if (destinations.has(destination)) {
+      throw new Error(`fetch selection resolved duplicate destination ${destination}`);
+    }
+    destinations.add(destination);
+    work.push({ adapter, auth, destination, entry, index, resourceType });
+  }
+
+  const completed = await runFetchWorkers({
+    concurrency,
+    items: work,
+    execute: async (item) => {
+      const startedMs = options.performance?.now() ?? 0;
+      let pages = 0;
+      let items: readonly unknown[];
+      try {
+        items = await fetchResource({
+          adapter: item.adapter,
+          auth: item.auth,
+          context: options.context,
+          entry: item.entry,
+          mode: options.mode,
+          onPageRequest: () => {
+            pages += 1;
+          },
+          ...(options.performance === undefined
+            ? {}
+            : {
+              performance: {
+                classification: "list",
+                endpointFamily: item.entry.path,
+                phase: "fetch",
+                product: item.entry.product,
+                resourceFamily: item.resourceType,
+              },
+            }),
+          resourceType: item.resourceType,
+          transport: options.transport,
+        });
+      } catch (error: unknown) {
+        const reason = messageOf(error);
+        const status = httpStatus(reason);
+        const endedMs = options.performance?.now() ?? startedMs;
+        return {
+          durationMs: options.performance === undefined ? 0 : endedMs - startedMs,
+          endedMs,
+          kind: status !== null && item.entry.optionalHttpStatuses.has(status)
+            ? "skipped"
+            : "failed",
+          pages,
+          product: item.entry.product,
+          reason,
+          resourceType: item.resourceType,
+          startedMs,
+        };
+      }
+      try {
+        await writeFile(
+          item.destination,
+          renderPythonLosslessArtifactJson(items),
+          "utf8",
+        );
+      } catch (error: unknown) {
+        if (options.performance !== undefined) {
+          options.performance.recordSpan({
+            durationMs: options.performance.durationSince(startedMs),
+            logicalRequests: pages,
+            pages,
+            phase: "fetch.resource",
+            product: item.entry.product,
+            resourceFamily: item.resourceType,
+            status: "failed",
+          });
+        }
+        throw error;
+      }
+      const endedMs = options.performance?.now() ?? startedMs;
+      return {
+        destination: item.destination,
+        durationMs: options.performance === undefined ? 0 : endedMs - startedMs,
+        endedMs,
+        itemCount: items.length,
+        kind: "processed",
+        pages,
+        product: item.entry.product,
+        resourceType: item.resourceType,
+        startedMs,
+      };
+    },
+  });
+  for (const [index, outcome] of completed) outcomes.set(index, outcome);
+
+  const productWindows = new Map<string, {
+    endedMs: number;
+    failed: boolean;
+    startedMs: number;
+  }>();
+  for (const [index, resourceType] of wanted.entries()) {
+    const outcome = outcomes.get(index);
+    if (outcome === undefined || outcome.resourceType !== resourceType) {
+      throw new Error(`fetch did not produce an outcome for ${resourceType}`);
+    }
+    if (outcome.kind === "processed") {
+      processed.push(resourceType);
+      write(`wrote ${outcome.destination} (${outcome.itemCount} items)`);
+    } else if (outcome.kind === "skipped") {
+      skipped[resourceType] = outcome.reason;
+    } else {
+      failed[resourceType] = outcome.reason;
+    }
+    options.performance?.recordSpan({
+      durationMs: outcome.durationMs,
+      ...(outcome.kind === "processed" ? { instances: outcome.itemCount } : {}),
+      logicalRequests: outcome.pages,
+      pages: outcome.pages,
+      phase: "fetch.resource",
+      product: outcome.product,
+      resourceFamily: resourceType,
+      status: outcome.kind === "processed"
+        ? "success"
+        : outcome.kind === "skipped" ? "skipped" : "failed",
+    });
+    if (outcome.startedMs !== 0 || outcome.endedMs !== 0) {
+      const prior = productWindows.get(outcome.product);
+      productWindows.set(outcome.product, {
+        endedMs: Math.max(prior?.endedMs ?? outcome.endedMs, outcome.endedMs),
+        failed: (prior?.failed ?? false) || outcome.kind === "failed",
+        startedMs: Math.min(prior?.startedMs ?? outcome.startedMs, outcome.startedMs),
+      });
+    }
+  }
+
+  if (options.performance !== undefined) {
+    for (const product of sortedStrings(productWindows.keys())) {
+      const window = productWindows.get(product);
+      if (window === undefined) continue;
+      options.performance.recordSpan({
+        durationMs: window.endedMs - window.startedMs,
+        phase: "fetch.product",
+        product,
+        status: window.failed ? "failed" : "success",
+      });
+    }
   }
 
   const skippedNames = sortedStrings(Object.keys(skipped));
@@ -647,4 +946,29 @@ export async function fetchResources(
     processed: Object.freeze(processed),
     skipped,
   };
+}
+
+/** Execute the complete registry-driven fetch batch without invoking Python. */
+export async function fetchResources(
+  options: FetchResourcesOptions,
+): Promise<FetchRunResult> {
+  const started = options.performance?.now() ?? 0;
+  const concurrency = fetchConcurrency(options.concurrency);
+  options.performance?.setFetchConcurrency(concurrency);
+  try {
+    const result = await fetchResourcesBatch({ ...options, concurrency });
+    options.performance?.recordSpan({
+      durationMs: options.performance.durationSince(started),
+      phase: "fetch.total",
+      status: Object.keys(result.failed).length === 0 ? "success" : "failed",
+    });
+    return result;
+  } catch (error: unknown) {
+    options.performance?.recordSpan({
+      durationMs: options.performance.durationSince(started),
+      phase: "fetch.total",
+      status: "failed",
+    });
+    throw error;
+  }
 }

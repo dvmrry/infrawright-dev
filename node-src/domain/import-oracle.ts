@@ -16,6 +16,7 @@ import {
 import { renderHclQuotedString } from "./import-moves.js";
 import { applyGeneratedConfigPolicy } from "./generated-config-policy.js";
 import { DriftPolicy } from "./drift-policy.js";
+import type { PerformanceRecorder } from "../performance/recorder.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -358,6 +359,7 @@ export async function importProviderState(options: {
   readonly keepWorkdir?: boolean;
   readonly keyToImportId: ReadonlyMap<string, string>;
   readonly onDiagnostic?: (message: string) => void;
+  readonly performance?: PerformanceRecorder;
   readonly policy?: DriftPolicy;
   readonly rawItems?: ReadonlyMap<string, Readonly<Record<string, unknown>>>;
   readonly resourceType: string;
@@ -412,15 +414,42 @@ export async function importProviderState(options: {
       debugName: string,
       output: "capture" | "discard" = "discard",
     ): Promise<string> => {
-      const result = await options.runner.run({
-        argv,
-        cwd: temporary,
-        debugName,
-        environment: childEnvironment,
-        output,
-        sensitiveTokens,
-      });
-      return result.stdout;
+      const phase = debugName === "init"
+        ? "oracle.init"
+        : debugName === "plan-generate-config"
+          ? "oracle.generated_config_plan"
+          : debugName === "plan-imports"
+            ? "oracle.corrected_plan"
+            : debugName === "show-plan"
+              ? "oracle.plan_show"
+              : debugName === "apply-imports"
+                ? "oracle.scratch_apply"
+                : "oracle.state_show";
+      const started = options.performance?.now() ?? 0;
+      let status: "failed" | "success" = "success";
+      try {
+        const result = await options.runner.run({
+          argv,
+          cwd: temporary,
+          debugName,
+          environment: childEnvironment,
+          output,
+          sensitiveTokens,
+        });
+        return result.stdout;
+      } catch (error: unknown) {
+        status = "failed";
+        throw error;
+      } finally {
+        options.performance?.recordSpan({
+          ...(phase === "oracle.corrected_plan" ? { correctedPlan: true } : {}),
+          durationMs: options.performance.durationSince(started),
+          phase,
+          resourceFamily: options.resourceType,
+          status,
+          terraformCommands: 1,
+        });
+      }
     };
     await run(["init", "-input=false", "-no-color"], "init");
     const plan = path.join(temporary, "oracle.tfplan");
@@ -437,14 +466,29 @@ export async function importProviderState(options: {
       generateFailure = error;
     }
     const original = await readOptionalUtf8(generated, `${options.resourceType} generated import config`) ?? "";
-    const applied = await applyGeneratedConfigPolicy({
-      addressToKey: addresses,
-      generatedConfig: original,
-      policy: options.policy ?? null,
-      resourceType: options.resourceType,
-      root: options.root,
-      ...(options.rawItems === undefined ? {} : { rawItems: options.rawItems }),
-    });
+    const policyStarted = options.performance?.now() ?? 0;
+    let applied: Awaited<ReturnType<typeof applyGeneratedConfigPolicy>>;
+    let policyStatus: "failed" | "success" = "success";
+    try {
+      applied = await applyGeneratedConfigPolicy({
+        addressToKey: addresses,
+        generatedConfig: original,
+        policy: options.policy ?? null,
+        resourceType: options.resourceType,
+        root: options.root,
+        ...(options.rawItems === undefined ? {} : { rawItems: options.rawItems }),
+      });
+    } catch (error: unknown) {
+      policyStatus = "failed";
+      throw error;
+    } finally {
+      options.performance?.recordSpan({
+        durationMs: options.performance.durationSince(policyStarted),
+        phase: "oracle.generated_config_policy",
+        resourceFamily: options.resourceType,
+        status: policyStatus,
+      });
+    }
     if (applied.edits > 0) {
       if (keep) await writeFile(path.join(temporary, "generated.tf.before-policy"), original, "utf8");
       await writeFile(generated, applied.text, "utf8");
@@ -454,6 +498,15 @@ export async function importProviderState(options: {
       await run([
         "plan", "-input=false", "-no-color", "-lock=false", `-out=${plan}`,
       ], "plan-imports");
+    } else {
+      options.performance?.recordSpan({
+        correctedPlan: false,
+        durationMs: 0,
+        phase: "oracle.corrected_plan",
+        resourceFamily: options.resourceType,
+        status: "skipped",
+        terraformCommands: 0,
+      });
     }
     const planJson = parseDataJsonLosslessly(await run(["show", "-json", plan], "show-plan", "capture"));
     assertImportOnlyPlan({

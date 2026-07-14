@@ -18,6 +18,12 @@ qualification. See [Operational Node Runtime](operational-runtime.md) for the
 exact bundle/checksum contract and the separately authorized read-only and
 import-only Apply checklists.
 
+For opt-in timing, HTTP-attempt accounting, exact artifact manifests, and the
+concurrency 1/2/4/8 work-machine matrix, use the
+[Post-Parity Performance Benchmark](performance-benchmark.md). Fixture timing
+is not live performance evidence, and the Fetch default remains serial until
+that matrix is returned and accepted.
+
 ## Preconditions
 
 - Use a controlled non-production tenant, or a production tenant that is

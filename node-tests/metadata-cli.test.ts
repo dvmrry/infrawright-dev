@@ -290,12 +290,14 @@ test("fetch and fetch-diag run through Node with Python unavailable", async () =
   try {
     const packs = path.join(directory, "packs");
     const output = path.join(directory, "pulls", "tenant-a");
+    const performanceReport = path.join(directory, "fetch-performance.json");
     await mkdir(packs, { recursive: true });
     const environment = {
       HTTP_PROXY: "",
       HTTPS_PROXY: "",
       NO_PROXY: "",
       PYTHON: path.join(directory, "python-must-not-run"),
+      INFRAWRIGHT_PERFORMANCE_REPORT: performanceReport,
       REQUESTS_CA_BUNDLE: "",
       SSL_CERT_FILE: "",
       http_proxy: "",
@@ -316,12 +318,28 @@ test("fetch and fetch-diag run through Node with Python unavailable", async () =
       "tenant-a",
       "--out",
       output,
+      "--concurrency",
+      "4",
       ...metadata,
     ], environment);
     assert.equal(fetched.status, 0, fetched.stderr);
     assert.equal(fetched.stdout, "");
     assert.match(fetched.stderr, /fetch: auth mode = oneapi/);
     assert.equal((await stat(output)).isDirectory(), true);
+    const performance = JSON.parse(await readFile(performanceReport, "utf8")) as {
+      command: string;
+      selected_concurrency: number;
+      summary: { http_requests: number };
+    };
+    assert.equal(performance.command, "fetch");
+    assert.equal(performance.selected_concurrency, 4);
+    assert.equal(performance.summary.http_requests, 0);
+
+    for (const value of ["0", "-1", "1.5", "65", "abc"]) {
+      const rejected = run(["fetch", "--tenant", "tenant-a", "--concurrency", value]);
+      assert.equal(rejected.status, 2, value);
+      assert.match(rejected.stderr, /--concurrency/);
+    }
 
     const diagnosed = run(["fetch-diag", ...metadata], environment);
     assert.equal(diagnosed.status, 0, diagnosed.stderr);
@@ -341,6 +359,7 @@ test("Make fetch targets invoke the Node CLI instead of Python", async () => {
   const fetchBlock = makefile.slice(fetchStart, genEnvStart);
   assert.match(fetchBlock, /\$\(INFRAWRIGHT_CLI\) fetch --tenant/);
   assert.match(fetchBlock, /\$\(INFRAWRIGHT_CLI\) fetch-diag/);
+  assert.match(fetchBlock, /FETCH_CONCURRENCY/);
   assert.doesNotMatch(fetchBlock, /\$\(PYTHON\)/);
 });
 

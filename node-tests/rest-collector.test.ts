@@ -1,7 +1,7 @@
 import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -19,6 +19,7 @@ import {
   type HttpTransport,
 } from "../node-src/collectors/rest.js";
 import { loadPackRoot, type LoadedPackRoot } from "../node-src/metadata/loader.js";
+import { PerformanceRecorder } from "../node-src/performance/recorder.js";
 
 function response(value: unknown, status = 200): HttpResponse {
   return {
@@ -39,6 +40,45 @@ class QueueTransport implements HttpTransport {
     assert.notEqual(next, undefined, `unexpected request ${request.url}`);
     return next as HttpResponse;
   }
+}
+
+class DelayedPathTransport implements HttpTransport {
+  active = 0;
+  maxActive = 0;
+  readonly requests: string[] = [];
+
+  constructor(
+    private readonly responses: ReadonlyMap<string, HttpResponse>,
+    private readonly delays: ReadonlyMap<string, number>,
+  ) {}
+
+  async request(request: HttpRequest): Promise<HttpResponse> {
+    const pathname = request.url.pathname;
+    this.requests.push(pathname);
+    this.active += 1;
+    this.maxActive = Math.max(this.maxActive, this.active);
+    try {
+      const delay = this.delays.get(pathname) ?? 0;
+      if (delay > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, delay));
+      } else {
+        await Promise.resolve();
+      }
+      const value = this.responses.get(pathname);
+      assert.notEqual(value, undefined, `unexpected request ${pathname}`);
+      return value as HttpResponse;
+    } finally {
+      this.active -= 1;
+    }
+  }
+}
+
+async function snapshotDirectory(directory: string): Promise<Readonly<Record<string, string>>> {
+  const output: Record<string, string> = Object.create(null) as Record<string, string>;
+  for (const name of (await readdir(directory)).sort()) {
+    output[name] = await readFile(path.join(directory, name), "utf8");
+  }
+  return output;
 }
 
 function adapter(product = "sample", acquisitions?: string[]): CollectorAdapter {
@@ -406,6 +446,216 @@ test("shared OneAPI authentication failure is isolated into every selected produ
       "zpa_segment_group",
     ]);
     assert.match(result.failed.zpa_segment_group ?? "", /^auth failed:/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("bounded resource workers overlap without changing bytes, outcomes, auth, or diagnostics", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "rest-concurrency-"));
+  try {
+    const packDirectory = path.join(directory, "packs", "sample");
+    await mkdir(packDirectory, { recursive: true });
+    await writeFile(
+      path.join(packDirectory, "pack.json"),
+      JSON.stringify({ provider_prefixes: { sample_: "sample" } }),
+      "utf8",
+    );
+    const registry = Object.fromEntries("abcdef".split("").map((suffix) => [
+      `sample_${suffix}`,
+      {
+        product: "sample",
+        fetch: {
+          pagination: "single",
+          path: `items-${suffix}`,
+          ...(suffix === "e" ? { optional_http_statuses: [403] } : {}),
+        },
+      },
+    ]));
+    await writeFile(
+      path.join(packDirectory, "registry.json"),
+      JSON.stringify(registry),
+      "utf8",
+    );
+    const isolatedRoot = await loadPackRoot({ packsRoot: path.join(directory, "packs") });
+    const output = path.join(directory, "pulls");
+    await mkdir(output, { recursive: true });
+    await writeFile(path.join(output, "sample_e.json"), "stale optional\n", "utf8");
+    await writeFile(path.join(output, "sample_f.json"), "stale failed\n", "utf8");
+    const responses = new Map<string, HttpResponse>("abcdef".split("").map((suffix, index) => [
+      `/api/items-${suffix}`,
+      suffix === "e"
+        ? response({}, 403)
+        : suffix === "f"
+          ? response({}, 503)
+          : response([{ id: index + 1 }, { id: `${suffix}-second` }]),
+    ]));
+    const selectors = ["sample"];
+    let baselineResult;
+    let baselineDiagnostics: string[] = [];
+    let baselineFiles: Readonly<Record<string, string>> = {};
+
+    for (const concurrency of [1, 2, 4, 8]) {
+      let acquisitions = 0;
+      const selectedAdapter: CollectorAdapter = {
+        ...adapter("sample"),
+        async acquire() {
+          acquisitions += 1;
+          return auth;
+        },
+      };
+      const delays = new Map<string, number>("abcdef".split("").map((suffix, index) => [
+        `/api/items-${suffix}`,
+        concurrency === 1 ? 0 : (6 - index) * 3,
+      ]));
+      const transport = new DelayedPathTransport(responses, delays);
+      const performance = new PerformanceRecorder();
+      const diagnostics: string[] = [];
+      const result = await fetchResources({
+        adapters: new Map([["sample", selectedAdapter]]),
+        concurrency,
+        context,
+        environment: {},
+        mode: "oneapi",
+        onDiagnostic: (message) => diagnostics.push(message),
+        outputDirectory: output,
+        performance,
+        root: isolatedRoot,
+        selectors,
+        transport,
+      });
+      const files = await snapshotDirectory(output);
+      assert.equal(acquisitions, 1);
+      assert.ok(transport.maxActive <= Math.min(concurrency, 6));
+      assert.equal(transport.requests.length, 6);
+      const report = performance.report({
+        command: "fetch",
+        commandDurationMs: 100,
+        commandStatus: "failed",
+      });
+      assert.equal(report.selected_concurrency, concurrency);
+      assert.equal((report.summary as { logical_requests: number }).logical_requests, 6);
+      assert.equal((report.summary as { pages: number }).pages, 6);
+      assert.deepEqual(
+        (report.spans as Array<{ phase: string; resource_family?: string }>).filter(
+          (span) => span.phase === "fetch.resource",
+        ).map((span) => span.resource_family),
+        "abcdef".split("").map((suffix) => `sample_${suffix}`),
+      );
+      if (concurrency === 1) {
+        assert.equal(transport.maxActive, 1);
+        assert.deepEqual(transport.requests, "abcdef".split("").map((suffix) => {
+          return `/api/items-${suffix}`;
+        }));
+        baselineResult = result;
+        baselineDiagnostics = diagnostics;
+        baselineFiles = files;
+      } else {
+        assert.ok(transport.maxActive > 1);
+        assert.deepEqual(result, baselineResult);
+        assert.deepEqual(diagnostics, baselineDiagnostics);
+        assert.deepEqual(files, baselineFiles);
+      }
+    }
+    assert.equal(
+      baselineFiles["sample_e.json"],
+      "stale optional\n",
+    );
+    assert.equal(
+      baselineFiles["sample_f.json"],
+      "stale failed\n",
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("fetch concurrency rejects invalid library values before authentication", async () => {
+  const packRoot = await root();
+  for (const concurrency of [0, -1, 1.5, Number.NaN, 65]) {
+    let acquisitions = 0;
+    await assert.rejects(fetchResources({
+      adapters: new Map([["zia", {
+        ...adapter("zia"),
+        async acquire() {
+          acquisitions += 1;
+          return auth;
+        },
+      }]]),
+      concurrency,
+      context,
+      environment: {},
+      mode: "oneapi",
+      outputDirectory: os.tmpdir(),
+      root: packRoot,
+      selectors: ["zia_advanced_settings"],
+      transport: new QueueTransport([]),
+    }), /fetch concurrency must be a positive integer/);
+    assert.equal(acquisitions, 0);
+  }
+});
+
+test("bounded scheduling rotates products instead of draining one product first", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "rest-product-fairness-"));
+  try {
+    for (const product of ["alpha", "beta"]) {
+      const packDirectory = path.join(directory, "packs", product);
+      await mkdir(packDirectory, { recursive: true });
+      await writeFile(
+        path.join(packDirectory, "pack.json"),
+        JSON.stringify({ provider_prefixes: { [`${product}_`]: product } }),
+        "utf8",
+      );
+      await writeFile(
+        path.join(packDirectory, "registry.json"),
+        JSON.stringify(Object.fromEntries(["a", "b"].map((suffix) => [
+          `${product}_${suffix}`,
+          { product, fetch: { pagination: "single", path: `${product}-${suffix}` } },
+        ]))),
+        "utf8",
+      );
+    }
+    const isolatedRoot = await loadPackRoot({ packsRoot: path.join(directory, "packs") });
+    const paths = ["/api/alpha-a", "/api/alpha-b", "/api/beta-a", "/api/beta-b"];
+    const serial = new DelayedPathTransport(
+      new Map(paths.map((pathname) => [pathname, response([])])),
+      new Map(),
+    );
+    const adapters = new Map<string, CollectorAdapter>([
+      ["alpha", adapter("alpha")],
+      ["beta", adapter("beta")],
+    ]);
+    await fetchResources({
+      adapters,
+      concurrency: 1,
+      context,
+      environment: {},
+      mode: "oneapi",
+      outputDirectory: path.join(directory, "serial"),
+      root: isolatedRoot,
+      selectors: [],
+      transport: serial,
+    });
+    assert.deepEqual(serial.requests, paths);
+    const transport = new DelayedPathTransport(
+      new Map(paths.map((pathname) => [pathname, response([])])),
+      new Map(paths.map((pathname) => [pathname, 5])),
+    );
+    await fetchResources({
+      adapters,
+      concurrency: 2,
+      context,
+      environment: {},
+      mode: "oneapi",
+      outputDirectory: path.join(directory, "pulls"),
+      root: isolatedRoot,
+      selectors: [],
+      transport,
+    });
+    assert.deepEqual(new Set(transport.requests.slice(0, 2)), new Set([
+      "/api/alpha-a",
+      "/api/beta-a",
+    ]));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

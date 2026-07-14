@@ -17,6 +17,7 @@ import type {
 } from "../collectors/types.js";
 import { collectorMaxRetries, retryDelayMs } from "../collectors/retry.js";
 import { ProcessFailure } from "../domain/errors.js";
+import type { PerformanceRecorder } from "../performance/recorder.js";
 
 export const REST_HTTP_TIMEOUT_MS = 30_000;
 export const REST_HTTP_RESPONSE_LIMIT_BYTES = 64 * 1024 * 1024;
@@ -40,6 +41,7 @@ export interface RestHttpTransportOptions {
   readonly createDispatcher?: (options: EnvHttpProxyAgent.Options) => Dispatcher;
   /** Test seam; production uses Undici. */
   readonly httpRequest?: RestUndiciRequest;
+  readonly performance?: PerformanceRecorder;
   readonly sleep?: (milliseconds: number) => void | Promise<void>;
 }
 
@@ -427,6 +429,22 @@ export async function createRestHttpTransport(
       }
       const selectedTimeout = input.timeoutMs ?? timeoutMs;
       validateBoundedInteger(selectedTimeout, "request timeout", 10 * 60 * 1000);
+      const attemptStarted = input.performance === undefined || options.performance === undefined
+        ? null
+        : options.performance.now();
+      const recordAttempt = (status: number | null): void => {
+        if (
+          attemptStarted !== null
+          && input.performance !== undefined
+          && options.performance !== undefined
+        ) {
+          options.performance.recordHttpAttempt({
+            context: input.performance,
+            durationMs: options.performance.durationSince(attemptStarted),
+            status,
+          });
+        }
+      };
       let raw: RestUndiciResponse;
       try {
         raw = await requestWire(url, {
@@ -439,6 +457,7 @@ export async function createRestHttpTransport(
           signal: AbortSignal.timeout(selectedTimeout),
         });
       } catch (error: unknown) {
+        recordAttempt(null);
         return connectionFailure(url, error);
       }
       const status = responseStatus(raw.statusCode);
@@ -451,14 +470,19 @@ export async function createRestHttpTransport(
         jar.setCookieSync(value, url.toString(), { ignoreError: true });
       }
       if (!redirectStatus(status)) {
-        return Object.freeze({
-          body: await readBoundedBody(raw, responseLimit),
-          headers: normalizedHeaders,
-          status,
-        });
+        try {
+          return Object.freeze({
+            body: await readBoundedBody(raw, responseLimit),
+            headers: normalizedHeaders,
+            status,
+          });
+        } finally {
+          recordAttempt(status);
+        }
       }
       const location = headerValue(normalizedHeaders, "location");
       destroyBody(raw.body);
+      recordAttempt(status);
       if ((status === 307 || status === 308) && method === "POST") {
         return ioFailure(
           "REST_HTTP_REDIRECT_REFUSED",
@@ -543,8 +567,16 @@ export async function createRestHttpTransport(
         const response = await requestOnce(request);
         if (response.status !== 429 || attempt === maximumRetries) return response;
         const retryAfter = headerValue(response.headers, "retry-after");
+        const delay = retryDelayMs(attempt, retryAfter);
         try {
-          await sleep(retryDelayMs(attempt, retryAfter));
+          await sleep(delay);
+          if (request.performance !== undefined && options.performance !== undefined) {
+            options.performance.recordHttpRetry({
+              context: request.performance,
+              delayMs: delay,
+              status: response.status,
+            });
+          }
         } catch {
           return ioFailure(
             "REST_HTTP_RETRY_CLOCK_FAILED",

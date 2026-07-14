@@ -126,7 +126,7 @@ test: check-pack-set ## Run core tests plus tests whose declared pack requiremen
 
 fetch: dist/infrawright-cli.mjs ## Pull API JSON into pulls/<tenant> (TENANT=<name> [RESOURCE="<type|provider> ..."])
 	@test -n "$(TENANT)" || { echo "usage: make fetch TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
-	$(INFRAWRIGHT_CLI) fetch --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
+	$(INFRAWRIGHT_CLI) fetch --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(if $(FETCH_CONCURRENCY),--concurrency "$(FETCH_CONCURRENCY)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
 fetch-diag: dist/infrawright-cli.mjs ## Probe TLS to the fetcher's hosts under system trust and +bundle
 	$(INFRAWRIGHT_CLI) fetch-diag --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)"

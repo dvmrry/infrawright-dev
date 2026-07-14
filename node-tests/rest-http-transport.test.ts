@@ -14,6 +14,7 @@ import {
   snapshotRestProxyEnvironment,
   type RestUndiciRequest,
 } from "../node-src/io/rest-http-transport.js";
+import { PerformanceRecorder } from "../node-src/performance/recorder.js";
 
 class TestBody implements AsyncIterable<unknown> {
   destroyed = 0;
@@ -332,7 +333,15 @@ test("transport refuses POST 307 and 308 redirects without replaying the request
 
 test("transport retries auth and data requests on 429 inside the production seam", async () => {
   let requests = 0;
+  let now = 0;
   const waits: number[] = [];
+  const performance = new PerformanceRecorder({
+    now() {
+      const value = now;
+      now += 5;
+      return value;
+    },
+  });
   const transport = await createRestHttpTransport({}, {
     createDispatcher: () => fakeDispatcher(),
     httpRequest: async () => {
@@ -341,6 +350,7 @@ test("transport retries auth and data requests on 429 inside the production seam
       if (requests === 2) return response("rate", 429);
       return response("ok", 200);
     },
+    performance,
     sleep(milliseconds) {
       waits.push(milliseconds);
     },
@@ -349,6 +359,12 @@ test("transport retries auth and data requests on 429 inside the production seam
     const result = await transport.request({
       body: "grant_type=client_credentials",
       method: "POST",
+      performance: {
+        classification: "authentication",
+        endpointFamily: "oauth2/v1/token",
+        phase: "fetch",
+        product: "oneapi",
+      },
       url: new URL("https://tenant.zslogin.net/oauth2/v1/token"),
     });
     assert.equal(result.status, 200);
@@ -357,6 +373,61 @@ test("transport retries auth and data requests on 429 inside the production seam
   }
   assert.equal(requests, 3);
   assert.deepEqual(waits, [250, 2_000]);
+  const report = performance.report({
+    command: "fetch",
+    commandDurationMs: 15,
+    commandStatus: "success",
+  });
+  assert.deepEqual(report.summary, {
+    http_requests: 3,
+    logical_requests: 0,
+    pages: 0,
+    rate_limited_requests: 2,
+    retries: 2,
+    retry_delay_ms: 2_250,
+    terraform_commands: 0,
+  });
+  const rendered = JSON.stringify(report);
+  assert.doesNotMatch(rendered, /tenant\.zslogin|grant_type|client_credentials/);
+  assert.match(rendered, /oauth2\/v1\/token/);
+});
+
+test("concurrent retry budgets stay isolated and bounded", async () => {
+  const attempts = new Map<string, number>();
+  const waits: number[] = [];
+  let active = 0;
+  let maxActive = 0;
+  const transport = await createRestHttpTransport({}, {
+    createDispatcher: () => fakeDispatcher(),
+    httpRequest: async (url) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await Promise.resolve();
+      active -= 1;
+      const key = url.pathname;
+      const attempt = (attempts.get(key) ?? 0) + 1;
+      attempts.set(key, attempt);
+      return key === "/slow" && attempt === 1
+        ? response("rate", 429, { "retry-after": "0.25" })
+        : response("ok", 200);
+    },
+    sleep(milliseconds) {
+      waits.push(milliseconds);
+    },
+  });
+  try {
+    const [slow, fast] = await Promise.all([
+      transport.request({ method: "GET", url: new URL("https://api.example.test/slow") }),
+      transport.request({ method: "GET", url: new URL("https://api.example.test/fast") }),
+    ]);
+    assert.equal(slow.status, 200);
+    assert.equal(fast.status, 200);
+  } finally {
+    await transport.close?.();
+  }
+  assert.deepEqual(Object.fromEntries(attempts), { "/slow": 2, "/fast": 1 });
+  assert.deepEqual(waits, [250]);
+  assert.equal(maxActive, 2);
 });
 
 test("response limit fails loudly and destroys an oversized declared body", async () => {

@@ -37,6 +37,18 @@ make apply TENANT=<tenant> RESOURCE=<resource-or-provider> POLICY=<file>
 |---|---|---|---|---|
 |  |  |  |  |  |
 
+## Performance Evidence (when enabled)
+
+| Run | Phase | Resource family | Instances | HTTP requests | Terraform commands | Duration (ms) |
+|---|---|---|---:|---:|---:|---:|
+|  |  |  |  |  |  |  |
+
+- Fetch concurrency:
+- HTTP 429 count / retry delay:
+- Artifact manifest SHA-256:
+- Baseline manifest match:
+- Fixture-only or live work-machine evidence:
+
 ## Generated-Config Projection Timing
 
 - Resource(s) exercised:

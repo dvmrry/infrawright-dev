@@ -33,6 +33,7 @@ import {
 } from "./transform-runner.js";
 import { selectTransformResources, transformSourceType } from "./transform-selection.js";
 import type { PullTransformResult } from "./pull-transform.js";
+import type { PerformanceRecorder, PerformanceStatus } from "../performance/recorder.js";
 
 export interface AdoptBatchResult {
   readonly failed: readonly string[];
@@ -146,6 +147,7 @@ async function assertNoPendingMoves(options: {
 
 /** Derive identity, run provider state, and project one resource without writing. */
 export async function adoptResourceItems(options: {
+  readonly performance?: PerformanceRecorder;
   readonly policy: DriftPolicy;
   readonly rawItems: readonly unknown[];
   readonly resource: LoadedResourceMetadata;
@@ -184,20 +186,35 @@ export async function adoptResourceItems(options: {
       `${options.resource.type} adoption Oracle keys did not match requested identities (missing=${missing.join(", ") || "<none>"} unexpected=${unexpected.join(", ") || "<none>"})`,
     );
   }
-  for (const key of [...state.keys()].sort()) {
-    const observed = state.get(key);
-    if (observed === undefined) continue;
-    const rawItem = keyToRaw.get(key);
-    const identity = identityByKey.get(key);
-    if (identity === undefined) continue;
-    originals[key] = identity;
-    items[key] = await projectProviderState({
-      policy: options.policy,
-      resourceType: options.resource.type,
-      root: options.root,
-      sensitiveValues: observed.sensitiveValues,
-      stateValues: observed.values,
-      ...(rawItem === undefined ? {} : { rawItem }),
+  const projectionStarted = options.performance?.now() ?? 0;
+  let projectionStatus: "failed" | "success" = "success";
+  try {
+    for (const key of [...state.keys()].sort()) {
+      const observed = state.get(key);
+      if (observed === undefined) continue;
+      const rawItem = keyToRaw.get(key);
+      const identity = identityByKey.get(key);
+      if (identity === undefined) continue;
+      originals[key] = identity;
+      items[key] = await projectProviderState({
+        policy: options.policy,
+        resourceType: options.resource.type,
+        root: options.root,
+        sensitiveValues: observed.sensitiveValues,
+        stateValues: observed.values,
+        ...(rawItem === undefined ? {} : { rawItem }),
+      });
+    }
+  } catch (error: unknown) {
+    projectionStatus = "failed";
+    throw error;
+  } finally {
+    options.performance?.recordSpan({
+      durationMs: options.performance.durationSince(projectionStarted),
+      instances: state.size,
+      phase: "adopt.provider_state_projection",
+      resourceFamily: options.resource.type,
+      status: projectionStatus,
     });
   }
   return { drops: [], items, originals };
@@ -211,17 +228,21 @@ function variableNameFor(
   return root === resourceType ? "items" : `${resourceType}_items`;
 }
 
-/** Execute the real generic adoption batch target without invoking Python. */
-export async function runAdoptBatch(options: {
+export interface RunAdoptBatchOptions {
   readonly deployment: Deployment;
   readonly inputDirectory: string;
   readonly onDiagnostic?: (message: string) => void;
   readonly policy: DriftPolicy;
+  readonly performance?: PerformanceRecorder;
   readonly root: LoadedPackRoot;
   readonly selectors: readonly string[];
   readonly stateLoader: AdoptionStateLoader;
   readonly tenant: string;
-}): Promise<AdoptBatchResult> {
+}
+
+async function runAdoptBatchInner(
+  options: RunAdoptBatchOptions,
+): Promise<AdoptBatchResult> {
   validateTenant(options.tenant);
   const write = options.onDiagnostic ?? (() => undefined);
   const selection = selectTransformResources({ root: options.root, selectors: options.selectors });
@@ -236,17 +257,22 @@ export async function runAdoptBatch(options: {
   const skipped: string[] = [];
   const failed: string[] = [];
   for (const resourceType of selection.resourceTypes) {
+    const resourceStarted = options.performance?.now() ?? 0;
+    let instanceCount = 0;
+    let resourceStatus: PerformanceStatus = "success";
     try {
       const sourceType = transformSourceType(options.root, resourceType);
       const source = path.join(options.inputDirectory, `${sourceType}.json`);
       const text = await readOptionalUtf8(source, `${resourceType} adoption input`);
       if (text === null) {
+        resourceStatus = "skipped";
         skipped.push(resourceType);
         write(`skip ${resourceType} (no ${source})`);
         continue;
       }
       const rawItems = parseDataJsonLosslessly(text);
       if (!Array.isArray(rawItems)) throw new TypeError(`${source} must be a JSON LIST of items`);
+      instanceCount = rawItems.length;
       const resource = options.root.resources.get(resourceType);
       if (resource === undefined) throw new TypeError(`unknown resource ${resourceType}`);
       await assertNoPendingMoves({ deployment: options.deployment, resourceType, tenant: options.tenant });
@@ -269,6 +295,7 @@ export async function runAdoptBatch(options: {
         continue;
       }
       const result = await adoptResourceItems({
+        ...(options.performance === undefined ? {} : { performance: options.performance }),
         policy: options.policy,
         rawItems,
         resource,
@@ -278,37 +305,85 @@ export async function runAdoptBatch(options: {
       });
       await assertNoPendingMoves({ deployment: options.deployment, resourceType, tenant: options.tenant });
       const references: Readonly<Record<string, TransformReferenceSpec>> = transformReferenceSpecs(options.root, resource);
-      await writeTransformArtifacts({
-        bindingContext: transformBindingContext({
+      const artifactStarted = options.performance?.now() ?? 0;
+      let artifactStatus: "failed" | "success" = "success";
+      try {
+        await writeTransformArtifacts({
+          bindingContext: transformBindingContext({
+            deployment: options.deployment,
+            references,
+            resource,
+            resourceRoots: topology.resource_roots,
+            root: options.root,
+          }),
           deployment: options.deployment,
+          lookupNameField: transformLookupNameField(options.root, resource),
+          onDiagnostic: write,
+          override: { import_id: adoptionMetadata(resource).importId },
           references,
-          resource,
-          resourceRoots: topology.resource_roots,
-          root: options.root,
-        }),
-        deployment: options.deployment,
-        lookupNameField: transformLookupNameField(options.root, resource),
-        onDiagnostic: write,
-        override: { import_id: adoptionMetadata(resource).importId },
-        references,
-        resourceType,
-        result,
-        tenant: options.tenant,
-        variableName: variableNameFor(resourceType, topology.resource_roots),
-      });
+          resourceType,
+          result,
+          tenant: options.tenant,
+          variableName: variableNameFor(resourceType, topology.resource_roots),
+        });
+      } catch (error: unknown) {
+        artifactStatus = "failed";
+        throw error;
+      } finally {
+        options.performance?.recordSpan({
+          durationMs: options.performance.durationSince(artifactStarted),
+          instances: Object.keys(result.items).length,
+          phase: "adopt.artifact_write",
+          resourceFamily: resourceType,
+          status: artifactStatus,
+        });
+      }
       processed.push(resourceType);
     } catch (error: unknown) {
+      resourceStatus = "failed";
       failed.push(resourceType);
       write(`error: ${resourceType}: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      options.performance?.recordSpan({
+        durationMs: options.performance.durationSince(resourceStarted),
+        instances: instanceCount,
+        phase: "adopt.resource",
+        resourceFamily: resourceType,
+        status: resourceStatus,
+      });
     }
   }
   if (failed.length > 0) write(`\nadopt FAILED for: ${failed.join(" ")}`);
   return { failed, processed, skipped };
 }
 
+/** Execute the real generic adoption batch target without invoking Python. */
+export async function runAdoptBatch(
+  options: RunAdoptBatchOptions,
+): Promise<AdoptBatchResult> {
+  const started = options.performance?.now() ?? 0;
+  try {
+    const result = await runAdoptBatchInner(options);
+    options.performance?.recordSpan({
+      durationMs: options.performance.durationSince(started),
+      phase: "adopt.total",
+      status: result.failed.length === 0 ? "success" : "failed",
+    });
+    return result;
+  } catch (error: unknown) {
+    options.performance?.recordSpan({
+      durationMs: options.performance.durationSince(started),
+      phase: "adopt.total",
+      status: "failed",
+    });
+    throw error;
+  }
+}
+
 export async function defaultAdoptionStateLoader(options: {
   readonly environment: NodeJS.ProcessEnv;
   readonly onDiagnostic?: (message: string) => void;
+  readonly performance?: PerformanceRecorder;
   readonly root: LoadedPackRoot;
   readonly terraformExecutable: string;
 }): Promise<AdoptionStateLoader> {
@@ -329,6 +404,7 @@ export async function defaultAdoptionStateLoader(options: {
     resourceType: request.resourceType,
     root: options.root,
     runner,
+    ...(options.performance === undefined ? {} : { performance: options.performance }),
     ...(options.onDiagnostic === undefined ? {} : { onDiagnostic: options.onDiagnostic }),
   });
 }
