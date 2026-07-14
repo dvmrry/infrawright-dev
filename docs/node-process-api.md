@@ -1491,6 +1491,11 @@ CI regenerates it logically and fails if its bytes differ. Node performs no
 Python call at runtime. A later migration slice will replace the producer only
 after the full pack-validation contract has been ported.
 
+The optional per-resource `slug_group` fact defaults to `true`. Packs set it
+to `false` only when a generated module must remain addressable but must not be
+added to an automatic slug root; explicit operator-authored groups remain
+authoritative.
+
 The raw-pull migration uses a second, narrower authoring-time boundary for the
 five fetch-backed ZCC resources:
 

@@ -679,6 +679,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_url",
       "type": "zia_url_categories_predefined"
     },
@@ -1378,5 +1379,5 @@
     "ztc/pack.json",
     "ztc/registry.json"
   ],
-  "sources_sha256": "08e0e355236509c60f290b8e7eb31bc4c03c4f38ef12c6176fc9c9c3aa3c41e0"
+  "sources_sha256": "446a43464ad055ef9c410dc33bbd4ee683459a55d13d2839eb01400d2971b2a4"
 }

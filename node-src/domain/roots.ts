@@ -18,6 +18,7 @@ interface CatalogIndex {
   readonly resources: ReadonlyMap<string, RootCatalogResource>;
   readonly generated: ReadonlySet<string>;
   readonly derived: ReadonlySet<string>;
+  readonly slugGrouped: ReadonlySet<string>;
   readonly providers: ReadonlySet<string>;
 }
 
@@ -55,6 +56,11 @@ function indexCatalog(catalog: RootCatalog): CatalogIndex {
         .filter((resource) => resource.generated && resource.derived)
         .map((resource) => resource.type),
     ),
+    slugGrouped: new Set(
+      catalog.resources
+        .filter((resource) => resource.generated && resource.slug_group !== false)
+        .map((resource) => resource.type),
+    ),
     providers: new Set(catalog.declared_providers),
   };
 }
@@ -90,6 +96,7 @@ function loadedResourceShape(
     derived: resource.registry.generate === true
       && typeof resource.registry.derive === "object"
       && resource.registry.derive !== null,
+    slug_group: resource.registry.slug_group !== false,
   };
 }
 
@@ -109,6 +116,11 @@ function indexLoadedPackRoot(root: LoadedPackRoot): CatalogIndex {
     derived: new Set(
       [...resources.values()]
         .filter((resource) => resource.generated && resource.derived)
+        .map((resource) => resource.type),
+    ),
+    slugGrouped: new Set(
+      [...resources.values()]
+        .filter((resource) => resource.generated && resource.slug_group !== false)
         .map((resource) => resource.type),
     ),
     providers: new Set(Object.values(root.packs.providerPrefixes)),
@@ -203,6 +215,9 @@ function slugGroups(
   const groups = new Map<string, string[]>();
   for (const resourceType of sortedStrings(index.generated)) {
     if (index.derived.has(resourceType)) {
+      continue;
+    }
+    if (!index.slugGrouped.has(resourceType)) {
       continue;
     }
     if (typeToLabel.get(resourceType) !== resourceType) {

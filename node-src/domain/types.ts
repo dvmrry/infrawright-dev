@@ -6,6 +6,8 @@ export interface RootCatalogResource {
   readonly slug_label: string | null;
   readonly generated: boolean;
   readonly derived: boolean;
+  /** Whether automatic slug grouping may include this generated module. */
+  readonly slug_group?: boolean;
 }
 
 export interface RootCatalog {

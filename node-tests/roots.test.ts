@@ -45,6 +45,16 @@ const catalog: RootCatalog = {
       generated: false,
       derived: false,
     },
+    {
+      type: "zpa_alpha_reference",
+      product: "zpa",
+      provider: "zpa",
+      bare_name: "alpha_reference",
+      slug_label: "zpa_alpha",
+      generated: true,
+      derived: false,
+      slug_group: false,
+    },
   ],
   source_files: ["zpa/pack.json", "zpa/registry.json"],
   sources_sha256: "0".repeat(64),
@@ -85,7 +95,7 @@ test("slug selection returns the entire root and a structured diagnostic", () =>
   ]);
 });
 
-test("derived resources remain separate under slug grouping", () => {
+test("derived and pack-excluded resources remain separate under slug grouping", () => {
   const result = rootTopology({
     catalog,
     deployment: { overlay: ".", roots: { zpa: { strategy: "slug" } } },
@@ -94,10 +104,19 @@ test("derived resources remain separate under slug grouping", () => {
   });
   assert.deepEqual(
     result.topology.roots.map((root) => root.label),
-    ["zpa_alpha", "zpa_derived_reorder"],
+    ["zpa_alpha", "zpa_alpha_reference", "zpa_derived_reorder"],
   );
   assert.equal(result.topology.directories, null);
   assert.ok(result.topology.roots.every((root) => root.env_dir === null));
+  assert.deepEqual(
+    result.topology.resource_roots,
+    {
+      zpa_alpha_one: "zpa_alpha",
+      zpa_alpha_two: "zpa_alpha",
+      zpa_alpha_reference: "zpa_alpha_reference",
+      zpa_derived_reorder: "zpa_derived_reorder",
+    },
+  );
 });
 
 test("known non-generated and unknown selectors fail closed", () => {
@@ -155,4 +174,26 @@ test("explicit groups reject derived and cross-provider members", () => {
     }),
     /not a declared provider/,
   );
+});
+
+test("explicit groups may include a generate-only type", () => {
+  const result = rootTopology({
+    catalog,
+    deployment: {
+      overlay: ".",
+      roots: {
+        zpa: {
+          groups: {
+            zpa_explicit: ["zpa_alpha_one", "zpa_alpha_reference"],
+          },
+        },
+      },
+    },
+    tenant: null,
+    selectors: ["zpa_alpha_one"],
+  });
+  assert.deepEqual(result.topology.roots[0]?.members, [
+    "zpa_alpha_one",
+    "zpa_alpha_reference",
+  ]);
 });

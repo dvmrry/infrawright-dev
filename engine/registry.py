@@ -13,7 +13,9 @@ from engine.overrides import validate_skip_matcher_metadata
 
 _cache = {}
 
-REGISTRY_RESOURCE_KEYS = set(["adopt", "derive", "fetch", "generate", "product"])
+REGISTRY_RESOURCE_KEYS = set([
+    "adopt", "derive", "fetch", "generate", "product", "slug_group",
+])
 REGISTRY_REQUIRED_RESOURCE_KEYS = set(["product"])
 FETCH_KEYS = set([
     "envelope",
@@ -203,6 +205,9 @@ def validate_registry(data, path=None):
         manifest_checks.require_keys(entry, REGISTRY_REQUIRED_RESOURCE_KEYS, label)
         if "generate" in entry and not isinstance(entry.get("generate"), bool):
             raise ValueError("%s.generate must be a boolean" % label)
+        if "slug_group" in entry and not isinstance(
+                entry.get("slug_group"), bool):
+            raise ValueError("%s.slug_group must be a boolean" % label)
         manifest_checks.require_non_empty_string(
             entry.get("product"), "%s.product" % label
         )

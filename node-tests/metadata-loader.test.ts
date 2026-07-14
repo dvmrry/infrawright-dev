@@ -156,6 +156,12 @@ test("strict profile, registry, and override vocabularies reject silent typos", 
     /unsupported value "singel"/,
   );
   assert.throws(
+    () => validateRegistry({
+      sample_resource: { product: "sample", slug_group: "false" },
+    }, "registry.json"),
+    /slug_group must be a boolean/,
+  );
+  assert.throws(
     () => validateOverride({ rename: { one: "two" } }, "override.json"),
     /unknown override key rename/,
   );

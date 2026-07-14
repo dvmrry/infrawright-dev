@@ -406,6 +406,16 @@ class PackRegistryValidationTest(unittest.TestCase):
             validate_registry(data, path="packs/sample/registry.json")
         self.assertIn("unknown key rename", str(ctx.exception))
 
+    def test_slug_group_must_be_boolean(self):
+        data = self._registry_metadata()
+        data["sample_resource"]["slug_group"] = False
+        validate_registry(data, path="packs/sample/registry.json")
+
+        data["sample_resource"]["slug_group"] = "false"
+        with self.assertRaises(ValueError) as ctx:
+            validate_registry(data, path="packs/sample/registry.json")
+        self.assertIn("sample_resource.slug_group", str(ctx.exception))
+
     def test_missing_required_per_resource_key_in_registry_fails(self):
         data = self._registry_metadata()
         del data["sample_resource"]["product"]

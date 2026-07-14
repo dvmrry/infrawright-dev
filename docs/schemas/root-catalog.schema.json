@@ -87,6 +87,10 @@
         },
         "derived": {
           "type": "boolean"
+        },
+        "slug_group": {
+          "type": "boolean",
+          "description": "Whether automatic slug grouping may include this generated module. Defaults to true when absent."
         }
       }
     }

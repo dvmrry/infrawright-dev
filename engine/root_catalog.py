@@ -97,7 +97,7 @@ def root_catalog(providers=None):
         if provider not in selected_set:
             continue
         entry = registry[resource_type]
-        resources.append({
+        resource = {
             "bare_name": packs.bare_name(resource_type),
             "derived": bool(entry.get("derive")),
             "generated": bool(entry.get("generate")),
@@ -105,7 +105,10 @@ def root_catalog(providers=None):
             "provider": provider,
             "slug_label": _slug_label(resource_type, provider),
             "type": resource_type,
-        })
+        }
+        if "slug_group" in entry:
+            resource["slug_group"] = entry["slug_group"]
+        resources.append(resource)
     source_files, sources_sha256 = _source_digest(
         _source_paths(selected)
     )

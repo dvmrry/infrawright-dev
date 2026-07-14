@@ -282,6 +282,10 @@ test("complete generated root trees match Python for ungrouped, grouped/bound, s
     selectors: ["zia_url_categories"],
   }, context);
   assert.match(slug.tree["tenant/zia_url/main.tf"] ?? "", /module "zia_url_filtering_rules"/);
+  assert.doesNotMatch(
+    slug.tree["tenant/zia_url/main.tf"] ?? "",
+    /module "zia_url_categories_predefined"/,
+  );
 });
 
 test("the complete full-profile generated root tree is byte-identical to Python", async (context) => {

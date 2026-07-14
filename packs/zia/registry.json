@@ -568,7 +568,8 @@
   },
   "zia_url_categories_predefined": {
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_url_filtering_and_cloud_app_settings": {
     "adopt": {

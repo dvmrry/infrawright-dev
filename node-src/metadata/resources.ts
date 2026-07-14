@@ -29,6 +29,7 @@ const REGISTRY_RESOURCE_KEYS = new Set([
   "fetch",
   "generate",
   "product",
+  "slug_group",
 ]);
 const FETCH_KEYS = new Set([
   "envelope",
@@ -323,6 +324,9 @@ export function validateRegistry(value: unknown, source: string): JsonObject {
     requireNonEmptyString(rawEntry.product, `${label}.product`);
     if (Object.hasOwn(rawEntry, "generate") && typeof rawEntry.generate !== "boolean") {
       fail(`${label}.generate must be a boolean`);
+    }
+    if (Object.hasOwn(rawEntry, "slug_group") && typeof rawEntry.slug_group !== "boolean") {
+      fail(`${label}.slug_group must be a boolean`);
     }
     if (Object.hasOwn(rawEntry, "fetch")) validateFetch(rawEntry.fetch, `${label}.fetch`);
     if (Object.hasOwn(rawEntry, "derive")) validateDerive(rawEntry.derive, `${label}.derive`);

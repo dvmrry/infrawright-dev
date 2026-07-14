@@ -149,6 +149,39 @@ class ArtifactsRootResolutionTest(unittest.TestCase):
         self.assertEqual(
             artifacts.root_label("zpa_policy_access_rule"), "zpa_policy")
 
+    def test_slug_strategy_excludes_generate_only_types(self):
+        self._deployment({"zia": {"strategy": "slug"}})
+
+        self.assertEqual(
+            artifacts.root_label("zia_url_categories_predefined"),
+            "zia_url_categories_predefined",
+        )
+        self.assertNotIn(
+            "zia_url_categories_predefined",
+            artifacts.root_members("zia_url"),
+        )
+        self.assertIn(
+            "zia_url_categories",
+            artifacts.root_members("zia_url"),
+        )
+
+    def test_explicit_group_may_include_generate_only_type(self):
+        self._deployment({
+            "zia": {
+                "groups": {
+                    "zia_url_explicit": [
+                        "zia_url_categories",
+                        "zia_url_categories_predefined",
+                    ],
+                },
+            },
+        })
+
+        self.assertEqual(
+            artifacts.root_members("zia_url_explicit"),
+            ["zia_url_categories", "zia_url_categories_predefined"],
+        )
+
     def test_no_roots_default_keeps_resource_labels_and_items_var(self):
         os.environ["INFRAWRIGHT_DEPLOYMENT"] = os.devnull
         self.assertEqual(
