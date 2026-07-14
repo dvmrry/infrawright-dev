@@ -58,16 +58,19 @@ function performanceReport(
       duration_ms: 0,
       oracle_state_source: oracleStateSource,
       phase: "oracle.state_source",
+      resource_family: "sample_resource",
       status: "success",
       terraform_commands: 0,
     }, ...["oracle.init", "oracle.generated_config_plan", "oracle.plan_show"].map((phase) => ({
       duration_ms: 1,
       phase,
+      resource_family: "sample_resource",
       status: "success",
       terraform_commands: 1,
     })), ...["oracle.scratch_apply", "oracle.state_show"].map((phase) => ({
       duration_ms: acceptedPlan ? 0 : 1,
       phase,
+      resource_family: "sample_resource",
       status: acceptedPlan ? "skipped" : "success",
       terraform_commands: acceptedPlan ? 0 : 1,
     }))],
@@ -175,13 +178,36 @@ test("Oracle A/B comparison binds labels to state-source and skipped-phase evide
     await writeFile(acceptedPath, JSON.stringify(missing));
     rejected = compare();
     assert.equal(rejected.status, 2);
-    assert.match(rejected.stderr, /accepted-plan is missing one Oracle state source/u);
+    assert.match(rejected.stderr, /accepted-plan is missing Oracle state-source evidence/u);
+
+    const misplaced = performanceReport("adopt", 12, "accepted-plan");
+    const misplacedSpans = misplaced.spans as Array<Record<string, unknown>>;
+    const sourceSpan = misplacedSpans.find((span) => span.phase === "oracle.state_source");
+    assert.notEqual(sourceSpan, undefined);
+    delete sourceSpan!.oracle_state_source;
+    misplacedSpans[0]!.oracle_state_source = "accepted-plan";
+    await writeFile(acceptedPath, JSON.stringify(misplaced));
+    rejected = compare();
+    assert.equal(rejected.status, 2);
+    assert.match(rejected.stderr, /records Oracle state source outside oracle\.state_source/u);
 
     const incomplete = performanceReport("adopt", 12, "accepted-plan");
     const scratchApply = incomplete.spans.find((span) => span.phase === "oracle.scratch_apply");
     assert.notEqual(scratchApply, undefined);
     scratchApply!.status = "success";
     await writeFile(acceptedPath, JSON.stringify(incomplete));
+    rejected = compare();
+    assert.equal(rejected.status, 2);
+    assert.match(rejected.stderr, /accepted-plan Adopt report does not contain exact oracle\.scratch_apply evidence/u);
+
+    const truncatedFamily = performanceReport("adopt", 12, "accepted-plan");
+    const truncatedSpans = truncatedFamily.spans as Array<Record<string, unknown>>;
+    const secondSource = {
+      ...truncatedSpans.find((span) => span.phase === "oracle.state_source")!,
+      resource_family: "second_resource",
+    };
+    truncatedSpans.push(secondSource);
+    await writeFile(acceptedPath, JSON.stringify(truncatedFamily));
     rejected = compare();
     assert.equal(rejected.status, 2);
     assert.match(rejected.stderr, /accepted-plan Adopt report does not contain exact oracle\.scratch_apply evidence/u);

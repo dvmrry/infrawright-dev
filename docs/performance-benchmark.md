@@ -73,7 +73,7 @@ done
 Compare any set of runs without credentials:
 
 ```sh
-node "$IW_RUN_ROOT/applied-state/repo/scripts/compare-performance-reports.mjs" \
+node scripts/compare-performance-reports.mjs \
   --variant "c1-r1=$IW_EVIDENCE/fetch-c1-r1" \
   --variant "c2-r1=$IW_EVIDENCE/fetch-c2-r1" \
   --variant "c4-r1=$IW_EVIDENCE/fetch-c4-r1" \
@@ -171,17 +171,29 @@ export IW_RESOURCE='<identical-bounded-selector>'
 export IW_DEPLOYMENT_REL='<repo-relative-identical-deployment-file>'
 export IW_RUNTIME='<approved-runtime-tree-built-from-IW_HEAD>'
 export IW_RUNTIME_SOURCE_COMMIT='<commit-from-trusted-build-attestation>'
+export IW_RUNTIME_SHA256='<bundle-sha256-from-trusted-build-attestation>'
 set -eu
 
 test "$IW_RUNTIME_SOURCE_COMMIT" = "$IW_HEAD"
-node "$IW_RUNTIME/scripts/verify-runtime-release.mjs" "$IW_RUNTIME"
 IW_CLI="$IW_RUNTIME/dist/infrawright-cli.mjs"
+read -r runtime_sha256 runtime_name < "$IW_RUNTIME/dist/infrawright-cli.mjs.sha256"
+test "$runtime_sha256" = "$IW_RUNTIME_SHA256"
+test "$runtime_name" = "infrawright-cli.mjs"
 
 for state_source in applied-state accepted-plan; do
   run="$IW_RUN_ROOT/$state_source"
   repo="$run/repo"
   mkdir -p "$run"
   git worktree add --detach "$repo" "$IW_HEAD"
+done
+
+# Use the verifier committed at IW_HEAD, not a script supplied by the runtime.
+node "$IW_RUN_ROOT/applied-state/repo/scripts/verify-runtime-release.mjs" \
+  "$IW_RUNTIME"
+
+for state_source in applied-state accepted-plan; do
+  run="$IW_RUN_ROOT/$state_source"
+  repo="$run/repo"
   (
     cd "$repo"
     export INFRAWRIGHT_DEPLOYMENT="$repo/$IW_DEPLOYMENT_REL"
@@ -224,7 +236,7 @@ for state_source in applied-state accepted-plan; do
   )
 done
 
-node scripts/compare-performance-reports.mjs \
+node "$IW_RUN_ROOT/applied-state/repo/scripts/compare-performance-reports.mjs" \
   --oracle-ab \
   --variant "applied-state=$IW_RUN_ROOT/applied-state" \
   --variant "accepted-plan=$IW_RUN_ROOT/accepted-plan"
@@ -232,20 +244,25 @@ node scripts/compare-performance-reports.mjs \
 
 `--oracle-ab` requires exactly those two labels, binds each label to the state
 source recorded inside its Adopt report, displays the observed source, and
-requires the accepted-plan report to show scratch Apply and state show as
-zero-command skipped phases. Missing, duplicated, or mislabeled provenance is a
-comparison failure.
+requires every selected resource family to have one successful state-source
+span plus matching scratch-Apply and state-show evidence. Accepted-plan phases
+must be zero-command skips; applied-state phases must be one-command successes.
+Missing, duplicated, truncated, or mislabeled provenance is a comparison
+failure.
 
 The deployment file must resolve its overlay and module directories inside that
 variant's worktree (normally by using relative paths). Abort if both deployment
 files resolve to the same canonical output directory; variants must never share
 persistent writers.
 
-`IW_RUNTIME_SOURCE_COMMIT` must come from the trusted build attestation that
-maps the verified bundle digest to `IW_HEAD`; do not populate it by merely
-copying the desired benchmark commit. The work machine consumes that immutable
-runtime tree without npm, `node_modules`, TypeScript, or Python. Build and attest
-the bundle on the trusted build path when the candidate head changes.
+`IW_RUNTIME_SOURCE_COMMIT` and `IW_RUNTIME_SHA256` must come from the same
+trusted build attestation that maps the bundle digest to `IW_HEAD`; do not
+populate them by merely copying the desired benchmark commit or the checksum
+shipped beside the bundle. The release verifier proves the bundle matches its
+packaged checksum, and the explicit digest comparison proves that checksum
+matches the independent attestation. The work machine consumes that immutable
+runtime tree without npm, `node_modules`, TypeScript, or Python. Build and
+attest the bundle on the trusted build path when the candidate head changes.
 
 The manifest is deliberately written before state-aware staging or Terraform
 planning. It covers generated inputs only. Keep saved-plan, fingerprint,

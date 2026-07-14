@@ -205,20 +205,63 @@ function escapeCell(value) {
 
 function reportOracleStateSource(report) {
   const sources = new Set(report.spans.flatMap((span) => {
-    return span.oracle_state_source === undefined ? [] : [span.oracle_state_source];
+    return span.phase !== "oracle.state_source" || span.oracle_state_source === undefined
+      ? []
+      : [span.oracle_state_source];
   }));
   return sources.size === 1 ? [...sources][0] : null;
 }
 
-function assertOraclePhase(report, phase, source) {
+function exactOracleEvidence(report, label) {
+  const labeled = report.spans.filter((span) => span.oracle_state_source !== undefined);
+  if (labeled.some((span) => span.phase !== "oracle.state_source")) {
+    fail(`variant ${label} records Oracle state source outside oracle.state_source`);
+  }
+  const sourceSpans = report.spans.filter((span) => span.phase === "oracle.state_source");
+  if (sourceSpans.length === 0) {
+    fail(`variant ${label} is missing Oracle state-source evidence`);
+  }
+  const sources = new Set(sourceSpans.map((span) => span.oracle_state_source));
+  if (sources.size !== 1 || sources.has(undefined)) {
+    fail(`variant ${label} does not contain one Oracle state source`);
+  }
+  const source = [...sources][0];
+  const families = new Set();
+  for (const span of sourceSpans) {
+    const family = span.resource_family;
+    if (
+      span.status !== "success"
+      || span.terraform_commands !== 0
+      || typeof family !== "string"
+      || !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/u.test(family)
+      || families.has(family)
+    ) {
+      fail(`variant ${label} has invalid Oracle state-source coverage`);
+    }
+    families.add(family);
+  }
+  return { families, source };
+}
+
+function assertOraclePhase(report, phase, evidence) {
   const spans = report.spans.filter((span) => span.phase === phase);
-  const status = source === "accepted-plan" ? "skipped" : "success";
-  const commands = source === "accepted-plan" ? 0 : 1;
-  if (
-    spans.length === 0
-    || spans.some((span) => span.status !== status || span.terraform_commands !== commands)
-  ) {
-    fail(`${source} Adopt report does not contain exact ${phase} evidence`);
+  const status = evidence.source === "accepted-plan" ? "skipped" : "success";
+  const commands = evidence.source === "accepted-plan" ? 0 : 1;
+  const families = new Set();
+  for (const span of spans) {
+    if (
+      typeof span.resource_family !== "string"
+      || !evidence.families.has(span.resource_family)
+      || families.has(span.resource_family)
+      || span.status !== status
+      || span.terraform_commands !== commands
+    ) {
+      fail(`${evidence.source} Adopt report does not contain exact ${phase} evidence`);
+    }
+    families.add(span.resource_family);
+  }
+  if (families.size !== evidence.families.size) {
+    fail(`${evidence.source} Adopt report does not contain exact ${phase} evidence`);
   }
 }
 
@@ -238,14 +281,13 @@ if (parsedArguments.oracleAb) {
   for (const variant of evidence) {
     const adopt = variant.reports.get("adopt");
     if (adopt === undefined) fail(`variant ${variant.label} is missing its Adopt report`);
-    const source = reportOracleStateSource(adopt);
-    if (source === null) fail(`variant ${variant.label} is missing one Oracle state source`);
-    if (variant.label !== source) {
-      fail(`variant ${variant.label} contains Oracle state source ${source}`);
+    const oracle = exactOracleEvidence(adopt, variant.label);
+    if (variant.label !== oracle.source) {
+      fail(`variant ${variant.label} contains Oracle state source ${oracle.source}`);
     }
-    observed.add(source);
-    assertOraclePhase(adopt, "oracle.scratch_apply", source);
-    assertOraclePhase(adopt, "oracle.state_show", source);
+    observed.add(oracle.source);
+    assertOraclePhase(adopt, "oracle.scratch_apply", oracle);
+    assertOraclePhase(adopt, "oracle.state_show", oracle);
   }
   if (!observed.has("applied-state") || !observed.has("accepted-plan")) {
     fail("--oracle-ab requires one applied-state and one accepted-plan report");
