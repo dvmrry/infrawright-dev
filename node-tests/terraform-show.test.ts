@@ -61,6 +61,25 @@ function options(fixture: Fixture, terraformExecutable: string) {
   } as const;
 }
 
+async function withProcessEnvironment<T>(
+  values: Readonly<Record<string, string>>,
+  callback: () => Promise<T>,
+): Promise<T> {
+  const original = new Map<string, string | undefined>();
+  for (const [name, value] of Object.entries(values)) {
+    original.set(name, process.env[name]);
+    process.env[name] = value;
+  }
+  try {
+    return await callback();
+  } finally {
+    for (const [name, value] of original) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+}
+
 function assertFailure(error: unknown, code: string): boolean {
   assert.ok(error instanceof ProcessFailure);
   assert.equal(error.code, code);
@@ -89,6 +108,47 @@ test("runs a fixed Terraform show invocation with a stripped environment", async
     } finally {
       delete process.env.TF_CLI_ARGS_show;
     }
+  });
+});
+
+test("default show preserves snapshotted provider context without command or secret variables", async () => {
+  await withTemp(async (fixture) => {
+    const environment = {
+      HOME: `${fixture.root}/home`,
+      TMPDIR: `${fixture.root}/tmp`,
+      TF_CLI_CONFIG_FILE: `${fixture.root}/terraform.rc`,
+      TF_DATA_DIR: `${fixture.root}/terraform-data`,
+      TF_PLUGIN_CACHE_DIR: `${fixture.root}/plugin-cache`,
+      TF_CLI_ARGS_show: "-destroy",
+      TF_LOG: "TRACE",
+      TF_REATTACH_PROVIDERS: "provider-process-secret",
+      TF_TOKEN_private_example: "token-secret",
+      ZIA_USERNAME: "provider-secret",
+      HTTPS_PROXY: "https://proxy-secret.invalid",
+    };
+    const fake = executable(fixture.root, [
+      `if [ "$HOME" != '${environment.HOME}' ]; then exit 50; fi`,
+      `if [ "$TMPDIR" != '${environment.TMPDIR}' ]; then exit 51; fi`,
+      `if [ "$TF_CLI_CONFIG_FILE" != '${environment.TF_CLI_CONFIG_FILE}' ]; then exit 52; fi`,
+      `if [ "$TF_DATA_DIR" != '${environment.TF_DATA_DIR}' ]; then exit 53; fi`,
+      `if [ "$TF_PLUGIN_CACHE_DIR" != '${environment.TF_PLUGIN_CACHE_DIR}' ]; then exit 54; fi`,
+      'if [ "${TF_CLI_ARGS_show+x}" = x ]; then exit 70; fi',
+      'if [ "${TF_LOG+x}" = x ]; then exit 71; fi',
+      'if [ "${TF_REATTACH_PROVIDERS+x}" = x ]; then exit 72; fi',
+      'if [ "${TF_TOKEN_private_example+x}" = x ]; then exit 73; fi',
+      'if [ "${ZIA_USERNAME+x}" = x ]; then exit 74; fi',
+      'if [ "${HTTPS_PROXY+x}" = x ]; then exit 75; fi',
+      'if [ "$CHECKPOINT_DISABLE" != 1 ]; then exit 90; fi',
+      'if [ "$LANG" != C ] || [ "$LC_ALL" != C ]; then exit 91; fi',
+      `printf '%s' '{"format_version":"1.2","complete":true,"errored":false}'`,
+    ].join("\n"));
+    await withProcessEnvironment(environment, async () => {
+      const command = terraformShowPlan(options(fixture, fake));
+      process.env.TF_DATA_DIR = `${fixture.root}/mutated-data`;
+      process.env.TF_CLI_CONFIG_FILE = `${fixture.root}/mutated.rc`;
+      const plan = await command;
+      assert.equal((plan as { format_version: string }).format_version, "1.2");
+    });
   });
 });
 

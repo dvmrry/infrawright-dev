@@ -48,6 +48,7 @@ import {
   type TerraformCommandLimits,
 } from "../io/terraform-command.js";
 import {
+  operationalTerraformShowEnvironment,
   terraformShowPlan,
   type TerraformShowLimits,
 } from "../io/terraform-show.js";
@@ -117,6 +118,7 @@ export function createExactPlanApplyTerraform(options: {
     initialize: (request) => planTerraform.initialize(request),
     show: (request) => terraformShowPlan({
       envDir: request.directory,
+      environment: operationalTerraformShowEnvironment(options.environment),
       snapshotPath: request.snapshotPath,
       terraformExecutable: options.terraformExecutable,
       ...(options.showLimits === undefined ? {} : { limits: options.showLimits }),

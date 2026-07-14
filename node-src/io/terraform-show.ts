@@ -26,11 +26,23 @@ export const DEFAULT_TERRAFORM_SHOW_LIMITS: TerraformShowLimits = {
   maxStderrBytes: 1024 * 1024,
 };
 
-const DEFAULT_TERRAFORM_SHOW_ENVIRONMENT = Object.freeze({
+const BASE_TERRAFORM_SHOW_ENVIRONMENT = Object.freeze({
   CHECKPOINT_DISABLE: "1",
   LANG: "C",
   LC_ALL: "C",
 });
+const TERRAFORM_SHOW_CONTEXT_NAMES = [
+  "HOME",
+  "TEMP",
+  "TMP",
+  "TMPDIR",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "TERRAFORM_CONFIG",
+  "TF_CLI_CONFIG_FILE",
+  "TF_DATA_DIR",
+  "TF_PLUGIN_CACHE_DIR",
+] as const;
 const MAX_TERRAFORM_JSON_STRUCTURE_TOKENS = 100_000;
 const MAX_TERRAFORM_JSON_STRING_CHARACTERS = 4 * 1024 * 1024;
 const MAX_TERRAFORM_JSON_SCALAR_CHARACTERS = 1024 * 1024;
@@ -85,6 +97,25 @@ function snapshotShowEnvironment(
       "Terraform show environment is not allowed",
     );
   }
+}
+
+/**
+ * Preserve only the caller context that can select Terraform's initialized
+ * provider installation. Command overrides, logging, credentials, and provider
+ * authentication remain absent from the show subprocess.
+ */
+export function operationalTerraformShowEnvironment(
+  environment: NodeJS.ProcessEnv = process.env,
+): Readonly<Record<string, string>> {
+  const selected = Object.create(null) as Record<string, string>;
+  for (const name of TERRAFORM_SHOW_CONTEXT_NAMES) {
+    const value = environment[name];
+    if (value !== undefined) selected[name] = value;
+  }
+  for (const [name, value] of Object.entries(BASE_TERRAFORM_SHOW_ENVIRONMENT)) {
+    selected[name] = value;
+  }
+  return snapshotShowEnvironment(selected);
 }
 
 function deadlineFailure(): never {
@@ -287,9 +318,9 @@ export async function terraformShowPlan(
   const limits = snapshotShowLimits(
     options.limits ?? DEFAULT_TERRAFORM_SHOW_LIMITS,
   );
-  const environment = snapshotShowEnvironment(
-    options.environment ?? DEFAULT_TERRAFORM_SHOW_ENVIRONMENT,
-  );
+  const environment = options.environment === undefined
+    ? operationalTerraformShowEnvironment()
+    : snapshotShowEnvironment(options.environment);
   const commandCwd = envDir;
   const deadline = Date.now() + limits.timeoutMs;
   await requireRegularFile(

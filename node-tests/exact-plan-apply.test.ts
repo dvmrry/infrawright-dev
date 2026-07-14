@@ -589,12 +589,19 @@ test("real adapter streams init/Apply and invokes the exact saved plan", async (
   const savedPlan = path.join(workspace, "tfplan");
   const log = path.join(workspace, "terraform.log");
   const planJson = path.join(workspace, "plan.json");
+  const terraformData = path.join(workspace, "terraform-data");
+  const terraformConfig = path.join(workspace, "terraform.rc");
   await writeText(savedPlan, "opaque\n");
   await writeText(planJson, JSON.stringify(plan()));
   await writeText(executable, [
     "#!/bin/sh",
     `printf '%s\\n' "$*" >> '${log}'`,
     "if [ \"$2\" = show ]; then",
+    `  if [ "$TF_DATA_DIR" != '${terraformData}' ]; then exit 41; fi`,
+    `  if [ "$TF_CLI_CONFIG_FILE" != '${terraformConfig}' ]; then exit 42; fi`,
+    '  if [ "${TF_CLI_ARGS_show+x}" = x ]; then exit 43; fi',
+    '  if [ "${TF_LOG+x}" = x ]; then exit 44; fi',
+    '  if [ "${ZIA_USERNAME+x}" = x ]; then exit 45; fi',
     `  cat '${planJson}'`,
     "fi",
     "if [ \"$1\" = init ]; then",
@@ -608,7 +615,16 @@ test("real adapter streams init/Apply and invokes the exact saved plan", async (
     "",
   ].join("\n"));
   await chmod(executable, 0o700);
-  const adapter = createExactPlanApplyTerraform({ environment: {}, terraformExecutable: executable });
+  const adapter = createExactPlanApplyTerraform({
+    environment: {
+      TF_CLI_ARGS_show: "-destroy",
+      TF_CLI_CONFIG_FILE: terraformConfig,
+      TF_DATA_DIR: terraformData,
+      TF_LOG: "TRACE",
+      ZIA_USERNAME: "provider-secret",
+    },
+    terraformExecutable: executable,
+  });
   let stdout = "";
   let stderr = "";
   const originalStdout = process.stdout.write;

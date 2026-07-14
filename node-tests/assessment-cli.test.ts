@@ -243,15 +243,35 @@ test("operational assessment reports, diagnostics, and exits match Python", asyn
 
 test("Make assessment targets run with Python deliberately unavailable", async (context) => {
   const item = await fixture(context);
-  await writeTerraform(item.terraform, plan({
+  const cleanPlan = plan({
     actions: ["no-op"],
     before: {},
     after: {},
-  }));
+  });
+  const terraformData = path.join(item.workspace, "terraform-data");
+  const terraformConfig = path.join(item.workspace, "terraform.rc");
+  await writeFile(item.terraform, [
+    "#!/bin/sh",
+    `if [ "$TF_DATA_DIR" != '${terraformData}' ]; then exit 41; fi`,
+    `if [ "$TF_CLI_CONFIG_FILE" != '${terraformConfig}' ]; then exit 42; fi`,
+    'if [ "${TF_CLI_ARGS_show+x}" = x ]; then exit 43; fi',
+    'if [ "${TF_LOG+x}" = x ]; then exit 44; fi',
+    'if [ "${TF_REATTACH_PROVIDERS+x}" = x ]; then exit 45; fi',
+    'if [ "${ZIA_USERNAME+x}" = x ]; then exit 46; fi',
+    `printf '%s' ${shellLiteral(JSON.stringify(cleanPlan))}`,
+    "",
+  ].join("\n"), { mode: 0o700 });
+  await chmod(item.terraform, 0o700);
   const environment = {
     ...item.environment,
     PATH: process.env.PATH,
     PYTHON: "/definitely/missing/python",
+    TF_CLI_ARGS_show: "-destroy",
+    TF_CLI_CONFIG_FILE: terraformConfig,
+    TF_DATA_DIR: terraformData,
+    TF_LOG: "TRACE",
+    TF_REATTACH_PROVIDERS: "provider-process-secret",
+    ZIA_USERNAME: "provider-secret",
   };
   for (const target of ["assert-clean", "assert-adoptable"]) {
     const result = command("make", [
