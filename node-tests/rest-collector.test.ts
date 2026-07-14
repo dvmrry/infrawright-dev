@@ -382,48 +382,70 @@ test("selectors use original active registry metadata and derived resources fetc
   );
 });
 
-test("committed CASB pagination follows every page and writes deterministic bytes", async () => {
+test("committed CASB pagers handle full boundaries and write deterministic bytes", async () => {
   const packRoot = await root();
-  const items = Array.from({ length: 1_001 }, (_unused, index) => ({
-    id: index,
-    name: `Rule ${index}`,
-    type: "OFLCASB_DLP_ITSM",
-  }));
-  const run = async (directory: string): Promise<{
+  const run = async (options: {
+    readonly directory: string;
+    readonly items: readonly unknown[];
+    readonly resourceType: "zia_casb_dlp_rules" | "zia_casb_malware_rules";
+  }): Promise<{
     readonly bytes: string;
     readonly searches: readonly string[];
   }> => {
+    const pages = options.items.length === 1_000
+      ? [options.items, []]
+      : [options.items.slice(0, 1_000), options.items.slice(1_000)];
     const transport = new QueueTransport([
-      response(items.slice(0, 1_000)),
-      response(items.slice(1_000)),
+      response(pages[0]),
+      response(pages[1]),
     ]);
     const result = await fetchResources({
       adapters: new Map([["zia", adapter("zia")]]),
       context,
       environment: {},
       mode: "oneapi",
-      outputDirectory: directory,
+      outputDirectory: options.directory,
       root: packRoot,
-      selectors: ["zia_casb_dlp_rules"],
+      selectors: [options.resourceType],
       transport,
     });
-    assert.deepEqual(result.processed, ["zia_casb_dlp_rules"]);
+    assert.deepEqual(result.processed, [options.resourceType]);
     return {
-      bytes: await readFile(path.join(directory, "zia_casb_dlp_rules.json"), "utf8"),
+      bytes: await readFile(path.join(options.directory, `${options.resourceType}.json`), "utf8"),
       searches: transport.requests.map((request) => request.url.search),
     };
   };
 
   const directory = await mkdtemp(path.join(os.tmpdir(), "rest-casb-pages-"));
   try {
-    const first = await run(path.join(directory, "first"));
-    const second = await run(path.join(directory, "second"));
-    assert.deepEqual(first.searches, [
-      "?page=1&pageSize=1000",
-      "?page=2&pageSize=1000",
-    ]);
-    assert.equal(first.bytes, second.bytes);
-    assert.equal((JSON.parse(first.bytes) as unknown[]).length, 1_001);
+    for (const [resourceType, ruleType] of [
+      ["zia_casb_dlp_rules", "OFLCASB_DLP_ITSM"],
+      ["zia_casb_malware_rules", "OFLCASB_AVP_ITSM"],
+    ] as const) {
+      for (const itemCount of [1_000, 1_001]) {
+        const items = Array.from({ length: itemCount }, (_unused, index) => ({
+          id: index,
+          name: `Rule ${index}`,
+          type: ruleType,
+        }));
+        const first = await run({
+          directory: path.join(directory, resourceType, `${itemCount}-first`),
+          items,
+          resourceType,
+        });
+        const second = await run({
+          directory: path.join(directory, resourceType, `${itemCount}-second`),
+          items,
+          resourceType,
+        });
+        assert.deepEqual(first.searches, [
+          "?page=1&pageSize=1000",
+          "?page=2&pageSize=1000",
+        ]);
+        assert.equal(first.bytes, second.bytes);
+        assert.equal((JSON.parse(first.bytes) as unknown[]).length, itemCount);
+      }
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
