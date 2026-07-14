@@ -90,6 +90,12 @@ applied (and after any required staged copy is no longer needed).
 
 ### Frozen ZCC migration note
 
+Before qualifying ZCC adoption, use the
+[ZCC beta provider audit and downstream matrix](provider-labs/zcc-beta-provider-audit.md).
+It pins the provider/SDK authority, separates pack-policy candidates from
+provider-only limitations, and records the live gates for the v1/v2 trusted
+network boundary and the two source-less v2 resources.
+
 The following process-host lane is retained only for consumers of the frozen
 ZCC migration architecture; it is not the primary generic operational path.
 For the exact five-resource Node ZCC provider-observed bootstrap lane, use a
