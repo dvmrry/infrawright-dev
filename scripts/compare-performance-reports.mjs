@@ -47,6 +47,10 @@ function nonNegativeInteger(value, label) {
   return value;
 }
 
+function roundedDuration(value) {
+  return Math.round(value * 1_000) / 1_000;
+}
+
 function optionalCount(value, label) {
   return value === undefined ? 0 : nonNegativeInteger(value, label);
 }
@@ -127,7 +131,7 @@ function validatePerformanceReport(value, name) {
     pages,
     rate_limited_requests: rateLimitedRequests,
     retries,
-    retry_delay_ms: retryDelayMs,
+    retry_delay_ms: roundedDuration(retryDelayMs),
     terraform_commands: terraformCommands,
   };
   for (const [field, count] of Object.entries(expected)) {

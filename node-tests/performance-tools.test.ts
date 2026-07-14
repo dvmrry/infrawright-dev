@@ -5,6 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { PerformanceRecorder } from "../node-src/performance/recorder.js";
+
 const ROOT = process.cwd();
 const MANIFEST = path.join(ROOT, "scripts", "performance-artifact-manifest.mjs");
 const COMPARE = path.join(ROOT, "scripts", "compare-performance-reports.mjs");
@@ -293,6 +295,53 @@ test("comparison surfaces rate-limit and retry evidence", async () => {
     ]);
     assert.equal(comparison.status, 0, comparison.stderr);
     assert.match(comparison.stdout, /\| candidate \| 1 \| 1 \| 250\.000 \|/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("comparison accepts recorder-normalized fractional retry totals", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "performance-fractional-retry-"));
+  try {
+    const recorder = new PerformanceRecorder();
+    recorder.setFetchConcurrency(1);
+    for (const [endpointFamily, delayMs] of [["items-a", 0.1], ["items-b", 0.2]] as const) {
+      const context = {
+        classification: "list" as const,
+        endpointFamily,
+        phase: "fetch",
+        product: "sample",
+        resourceFamily: "sample_resource",
+      };
+      recorder.recordHttpAttempt({ context, durationMs: 1, status: 429 });
+      recorder.recordHttpRetry({ context, delayMs, status: 429 });
+    }
+    recorder.recordSpan({
+      durationMs: 3,
+      logicalRequests: 1,
+      pages: 1,
+      phase: "fetch.total",
+      status: "success",
+    });
+    const report = recorder.report({
+      command: "fetch",
+      commandDurationMs: 3,
+      commandStatus: "success",
+    });
+    for (const name of ["baseline", "candidate"]) {
+      const runDirectory = path.join(directory, name);
+      const pulls = path.join(runDirectory, "pulls");
+      await mkdir(pulls, { recursive: true });
+      await writeFile(path.join(pulls, "sample.json"), "[]\n", "utf8");
+      await writeFile(path.join(runDirectory, "fetch.performance.json"), JSON.stringify(report));
+      await writeManifest(runDirectory, [["pulls", pulls]]);
+    }
+    const comparison = run(COMPARE, [
+      "--variant", `baseline=${path.join(directory, "baseline")}`,
+      "--variant", `candidate=${path.join(directory, "candidate")}`,
+    ]);
+    assert.equal(comparison.status, 0, comparison.stderr);
+    assert.match(comparison.stdout, /\| candidate \| 2 \| 2 \| 0\.300 \|/u);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
