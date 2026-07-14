@@ -11,6 +11,32 @@ unavailable phase as NOT RUN with its reason. Never substitute another
 experiment, and report INCONCLUSIVE whenever an authority or output cannot be
 bound.
 
+## Immediate Downstream Follow-Up
+
+The following live results are accepted and do not need to be repeated:
+
+- PR #218: assert-adoptable succeeded for all seven tested roots.
+- PR #217: the unsupported ZIA URL filtering rules failed closed as intended.
+
+Read and execute the available phases of this runbook against runtime
+implementation head `d49922fa2e6826416956dea1afddbee113c121bc` or a later
+docs-only descendant with the same CLI SHA-256. Return the report template
+without replacing unavailable values with interpretation. Prioritize:
+
+1. For `zia_firewall_filtering_network_service.tag`, return the raw,
+   Transform, generated-before-policy, generated-after-policy, and adopted
+   tfvars counts plus the Adopt exit status.
+2. Return the bound CLI, override, registry, profile, catalog, and deployment
+   hashes.
+3. For `zia_url`, return its classified origin and materialized
+   module/variable MATCH or MISMATCH.
+4. Return the sanitized source-less/root classifications for `zpa_app` and
+   `zpa_application`.
+5. Say `no deployment Apply`; separately report whether the Oracle local
+   scratch import-only Apply ran.
+
+Use NOT RUN or INCONCLUSIVE rather than summarizing a missing observation.
+
 ## Execution Boundary
 
 This runbook authorizes provider API reads and Terraform provider import/Read

@@ -55,6 +55,9 @@
   local state; deployment Apply and remote mutation remain prohibited.
 - Expected report/count/coverage changes: none until downstream returns the
   requested report.
+- Immediate follow-up delta: accepted #217/#218 live results are not repeated;
+  downstream is directed to the five remaining authority, field-pipeline, and
+  topology evidence items.
 - Expected generated-output changes: none.
 - Expected no-op areas: all repository runtime behavior.
 
