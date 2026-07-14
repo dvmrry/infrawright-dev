@@ -62,19 +62,19 @@ async function policyEntries(options: {
   }
   const schema = await options.root.loadResourceSchema(options.resourceType);
   const omits: OmitEntry[] = [];
-  if (options.policy !== null) {
-    for (const mode of ["projection_omit", "projection_omit_if"] as const) {
-      for (const entry of options.policy.entries(options.resourceType, mode)) {
-        const selector = parsePolicyPath(entry.path);
-        if (providerSchemaStatus({ path: selector, resourceType: options.resourceType, schema }) === "required") {
-          throw new GeneratedConfigPolicyError(
-            `${options.resourceType} generated import config policy cannot ${mode} required path ${String(entry.path)}`,
-          );
-        }
-        if (!exactIndex(selector)) omits.push({ entry, mode, selector });
+  const addPolicyOmits = (mode: "projection_omit" | "projection_omit_if"): void => {
+    if (options.policy === null) return;
+    for (const entry of options.policy.entries(options.resourceType, mode)) {
+      const selector = parsePolicyPath(entry.path);
+      if (providerSchemaStatus({ path: selector, resourceType: options.resourceType, schema }) === "required") {
+        throw new GeneratedConfigPolicyError(
+          `${options.resourceType} generated import config policy cannot ${mode} required path ${String(entry.path)}`,
+        );
       }
+      if (!exactIndex(selector)) omits.push({ entry, mode, selector });
     }
-  }
+  };
+  addPolicyOmits("projection_omit");
   for (const path of Object.keys(dropDefaults).sort()) {
     const selector = parsePolicyPath(path);
     const status = providerSchemaStatus({ path: selector, resourceType: options.resourceType, schema });
@@ -92,6 +92,7 @@ async function policyEntries(options: {
       });
     }
   }
+  addPolicyOmits("projection_omit_if");
   return {
     fills,
     omits,

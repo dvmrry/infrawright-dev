@@ -348,18 +348,22 @@ def _run_process(args, cwd, env, debug_dir=None, debug_name=None,
 
 def _generated_config_policy_entries(resource_type, policy):
     entries = []
-    if policy:
-        for mode in ("projection_omit", "projection_omit_if"):
-            for entry in policy.entries(resource_type, mode):
-                selector = parse_path(entry["path"])
-                if schema_paths.schema_status(resource_type, selector) == "required":
-                    raise OracleError(
-                        "%s generated import config policy cannot %s required "
-                        "path %s" % (resource_type, mode, entry["path"])
-                    )
-                if _has_exact_index(selector):
-                    continue
-                entries.append((mode, entry, selector, True))
+
+    def add_policy_entries(mode):
+        if not policy:
+            return
+        for entry in policy.entries(resource_type, mode):
+            selector = parse_path(entry["path"])
+            if schema_paths.schema_status(resource_type, selector) == "required":
+                raise OracleError(
+                    "%s generated import config policy cannot %s required "
+                    "path %s" % (resource_type, mode, entry["path"])
+                )
+            if _has_exact_index(selector):
+                continue
+            entries.append((mode, entry, selector, True))
+
+    add_policy_entries("projection_omit")
     override = load_override(resource_type)
     for path, default in sorted(
             (override.get("drop_if_default") or {}).items()):
@@ -379,6 +383,7 @@ def _generated_config_policy_entries(resource_type, policy):
             selector,
             False,
         ))
+    add_policy_entries("projection_omit_if")
     return entries
 
 

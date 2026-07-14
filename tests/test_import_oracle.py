@@ -927,6 +927,43 @@ class ImportOracleTest(unittest.TestCase):
             modes=("projection_omit_if",)),
             [("sample_resource", "projection_omit_if", "enabled")])
 
+    def test_pack_default_precedes_overlapping_conditional_omit(self):
+        policy = self._policy({
+            "projection_omit_if": [
+                {
+                    "path": "size_quota",
+                    "values": [0],
+                    "reason": "overlap",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+        lines = [
+            'resource "sample_resource" "iw_prod_app" {\n',
+            "  size_quota = 0\n",
+            "}\n",
+        ]
+        with mock.patch.object(
+                import_oracle,
+                "load_override",
+                return_value={"drop_if_default": {"size_quota": 0}}):
+            entries = import_oracle._generated_config_policy_entries(
+                "sample_resource", policy)
+
+        filtered, removed = import_oracle._filter_generated_config_lines(
+            "sample_resource",
+            {"sample_resource.iw_prod_app"},
+            lines,
+            entries,
+            policy,
+        )
+
+        self.assertEqual(removed, 1)
+        self.assertNotIn("size_quota", "".join(filtered))
+        self.assertEqual(policy.stale_entries(
+            modes=("projection_omit_if",)),
+            [("sample_resource", "projection_omit_if", "size_quota")])
+
     def test_generated_config_policy_removes_nested_scalar_leaf_only(self):
         policy = self._policy({
             "projection_omit_if": [

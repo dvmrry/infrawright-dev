@@ -131,6 +131,31 @@ test("pack drop_if_default preserves nonmatching provider values", async () => {
   assert.deepEqual(result, { edits: 0, text: generated });
 });
 
+test("pack defaults precede overlapping conditional drift omissions", async () => {
+  const generated = GENERATED.replace(
+    '  description = "DROP"\n',
+    "  size_quota = 0\n",
+  );
+  const selected = policy({
+    projection_omit_if: [{
+      path: "size_quota",
+      values: [0],
+      reason: "overlap",
+      approved_by: "unit",
+    }],
+  });
+  const result = await applyGeneratedConfigPolicy({
+    addressToKey: new Map([[ADDRESS, "example"]]),
+    generatedConfig: generated,
+    policy: selected,
+    resourceType: "sample_resource",
+    root: root({ drop_if_default: { size_quota: 0 } }),
+  });
+  assert.equal(result.edits, 1);
+  assert.equal(result.text.includes("size_quota"), false);
+  assert.equal(selected.staleEntries().length, 1);
+});
+
 test("batch generated-config policy edits known sibling resource blocks independently", async () => {
   const siblingGenerated = GENERATED.replaceAll("sample_resource", "sibling_resource")
     .replaceAll("iw_deadbeef", "iw_cafebabe")
