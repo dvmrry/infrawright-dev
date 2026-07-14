@@ -23,6 +23,7 @@ export interface PerformanceSpanInput {
   readonly correctedPlan?: boolean;
   readonly instances?: number;
   readonly logicalRequests?: number;
+  readonly oracleStateSource?: "accepted-plan" | "applied-state";
   readonly pages?: number;
   readonly product?: string;
   readonly resourceFamily?: string;
@@ -84,6 +85,13 @@ function quantile(values: readonly number[], fraction: number): number {
 }
 
 function optionalFields(input: PerformanceSpanInput): Record<string, unknown> {
+  if (
+    input.oracleStateSource !== undefined
+    && input.oracleStateSource !== "accepted-plan"
+    && input.oracleStateSource !== "applied-state"
+  ) {
+    throw new TypeError("Oracle state source is invalid");
+  }
   return {
     ...(input.authIdentity === undefined
       ? {}
@@ -93,6 +101,9 @@ function optionalFields(input: PerformanceSpanInput): Record<string, unknown> {
     ...(count(input.logicalRequests, "logical requests") === undefined
       ? {}
       : { logical_requests: input.logicalRequests }),
+    ...(input.oracleStateSource === undefined
+      ? {}
+      : { oracle_state_source: input.oracleStateSource }),
     ...(count(input.pages, "pages") === undefined ? {} : { pages: input.pages }),
     ...(input.product === undefined ? {} : { product: safeLabel(input.product, "product") }),
     ...(input.resourceFamily === undefined

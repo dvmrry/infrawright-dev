@@ -152,9 +152,164 @@ If an optional root does not exist for the selected workflow, omit that root
 consistently from every variant. The manifest deliberately records relative
 file names, sizes, and SHA-256 values, never file contents or absolute paths.
 
-Provider-cache and accepted-plan flags will be added to this matrix only by the
-candidate slice that implements them. Do not invent or infer flags before that
-slice lands.
+### Applied-state versus accepted-plan Oracle A/B
+
+`applied-state` remains the baseline and default. `accepted-plan` is an
+experimental candidate that still runs and validates the provider-backed exact
+import-only plan, but skips the scratch Apply and state show when the plan
+contains complete, internally identical provider observations. It fails closed
+instead of silently falling back when any value or sensitivity mask is unknown,
+missing, or inconsistent.
+
+Run both modes against the same bounded cohort in separate fresh workspaces.
+Keep Fetch concurrency at `1` for this comparison so the Oracle change is the
+only variable:
+
+```sh
+export IW_HEAD='<exact-performance-candidate-commit>'
+export IW_RUN_ROOT="$(mktemp -d)"
+export IW_TENANT='<approved-tenant-label>'
+export IW_RESOURCE='<identical-bounded-selector>'
+export IW_DEPLOYMENT_REL='<repo-relative-identical-deployment-file>'
+set -eu
+
+for state_source in applied-state accepted-plan; do
+  run="$IW_RUN_ROOT/$state_source"
+  repo="$run/repo"
+  mkdir -p "$run"
+  git worktree add --detach "$repo" "$IW_HEAD"
+  (
+    cd "$repo"
+    export INFRAWRIGHT_DEPLOYMENT="$repo/$IW_DEPLOYMENT_REL"
+    export INFRAWRIGHT_ORACLE_STATE_SOURCE="$state_source"
+    export INFRAWRIGHT_PERFORMANCE_REPORT="$run/fetch.performance.json"
+    node dist/infrawright-cli.mjs fetch \
+      --tenant "$IW_TENANT" --resource "$IW_RESOURCE" \
+      --concurrency 1 --out "$run/pulls"
+    export INFRAWRIGHT_PERFORMANCE_REPORT="$run/adopt.performance.json"
+    node dist/infrawright-cli.mjs adopt \
+      --in "$run/pulls" --tenant "$IW_TENANT" --resource "$IW_RESOURCE"
+    export INFRAWRIGHT_PERFORMANCE_REPORT="$run/modules.performance.json"
+    node dist/infrawright-cli.mjs modules generate --resource "$IW_RESOURCE"
+    export INFRAWRIGHT_PERFORMANCE_REPORT="$run/gen-env.performance.json"
+    node dist/infrawright-cli.mjs gen-env \
+      --tenant "$IW_TENANT" --resource "$IW_RESOURCE"
+    export INFRAWRIGHT_PERFORMANCE_REPORT="$run/stage.performance.json"
+    node dist/infrawright-cli.mjs stage-imports \
+      --tenant "$IW_TENANT" --resource "$IW_RESOURCE" --state-aware
+    export INFRAWRIGHT_PERFORMANCE_REPORT="$run/plan.performance.json"
+    node dist/infrawright-cli.mjs plan \
+      --tenant "$IW_TENANT" --resource "$IW_RESOURCE" --save
+    export INFRAWRIGHT_PERFORMANCE_REPORT="$run/assessment.performance.json"
+    node dist/infrawright-cli.mjs assert-adoptable \
+      --tenant "$IW_TENANT" --resource "$IW_RESOURCE"
+
+    config_dir="$(node dist/infrawright-cli.mjs deployment config-dir "$IW_TENANT")"
+    imports_dir="$(node dist/infrawright-cli.mjs deployment imports-dir "$IW_TENANT")"
+    envs_dir="$(node dist/infrawright-cli.mjs deployment envs-dir "$IW_TENANT")"
+    module_dir="$(node dist/infrawright-cli.mjs deployment module-dir)"
+    node scripts/performance-artifact-manifest.mjs \
+      --root "pulls=$run/pulls" \
+      --root "config=$config_dir" \
+      --root "imports=$imports_dir" \
+      --root "modules=$module_dir" \
+      --root "envs=$envs_dir" \
+      --out "$run/artifacts.sha256.json"
+  )
+done
+
+node scripts/compare-performance-reports.mjs \
+  --variant "applied-state=$IW_RUN_ROOT/applied-state" \
+  --variant "accepted-plan=$IW_RUN_ROOT/accepted-plan"
+```
+
+The deployment file must resolve its overlay and module directories inside that
+variant's worktree (normally by using relative paths). Abort if both deployment
+files resolve to the same canonical output directory; variants must never share
+persistent writers.
+
+The Adopt report includes a static `oracle_state_source` label and records the
+skipped scratch-Apply/state-show spans with zero Terraform commands. With no
+corrected plan, the expected structural command count falls from five to three;
+with a corrected plan, from six to four. These are command-count expectations,
+not live speed claims.
+
+Before considering a default change, inspect the private provider evidence and
+confirm the accepted plan's values and sensitivity masks equal the applied
+scratch state for every selected address. The committed manifest comparison
+then must show identical pull, config, import/move/binding, module, and root
+bytes, and the deployment assessment must remain clean/import-only with zero
+create, update, replace, or destroy actions.
+
+### Provider-cache handoff and snapshot feasibility
+
+The repository pins ZIA provider `v4.7.26` source at commit
+`6e6509f001ca71adcedfd4884250d09227395bf0` and Zscaler SDK `v3.8.40` at
+`4371c9bab44d852526721b4b5999e2471dda5198`. No matching installed provider
+binary or archive was available on this machine, so those source pins cannot be
+claimed as the binary used by the live baseline. Do not build or select a cache
+prototype until the work machine records the lock entry, installed executable
+path, SHA-256, `go version -m` metadata, and any development override or mirror.
+
+Run the provenance capture from the exact preserved Terraform root used by the
+baseline. These commands print package/version metadata and paths, not provider
+credentials:
+
+```sh
+terraform version
+terraform providers
+sed -n '/provider "registry.terraform.io\/zscaler\/zia"/,/^}/p' \
+  .terraform.lock.hcl
+find .terraform/providers -type f -name 'terraform-provider-zia*' -perm -111 -print
+provider_bin='<the-executable-path-reported-above>'
+shasum -a 256 "$provider_bin"
+go version -m "$provider_bin"
+for config in "$HOME/.terraformrc" "$HOME/.tofurc"; do
+  if test -f "$config" && \
+    grep -Eq 'provider_installation|dev_overrides|filesystem_mirror' "$config"; then
+    printf 'provider installation override/mirror configured in %s\n' "$config"
+  fi
+done
+```
+
+Do not print the complete CLI config. If `dev_overrides` or a filesystem mirror
+is reported, resolve the selected binary from that configuration privately and
+record only its path, digest, and build metadata in sanitized evidence.
+
+The source-backed option order is:
+
+| Rank | Option | Expected effect | Decision before live trace |
+|---:|---|---|---|
+| 1 | Provider list-backed Read cache | Replace N detail reads with list pages plus real misses inside one provider process | Preferred first prototype for the measured largest family |
+| 2 | Private job-local read-through cache | Reuse identical GET responses across Terraform processes | Consider only after per-process cache evidence |
+| 3 | Provider-native immutable snapshot transport | Replay exact provider response bytes through normal Read mapping | Feasible only with complete provider-consumable captures |
+| 4 | Existing transport injection | Enables metrics/cache but reduces no requests by itself | Enabler, not a candidate |
+| 5 | Loopback replay | Could reuse reads, but no clean arbitrary base-URL seam is proven | Reject; do not build interception/proxy machinery |
+
+Current Fetch files are normalized item arrays, not exact provider HTTP
+responses, and request shapes differ. They must not be treated as a provider
+snapshot. URL Categories is also a poor first cache target because its provider
+Read already uses a bulk `GetAll` and detail fallback. Source inspection makes
+Location Management a credible candidate (`GetLocationOrSublocationByID` may
+fall through to parent/sub-location scans), but only phase-level live request
+accounting can establish that it is the actual hotspot or that list objects are
+complete enough.
+
+### Oracle batching feasibility
+
+Provider-wide batching could reduce scratch `init`, provider starts, and the
+five-or-six-command transaction from once per resource type to once per batch.
+It does not remove one-detail-GET-per-object behavior without a provider cache
+or exact response replay. The current Oracle, generated-config policy, state
+extraction, failure attribution, and artifact publication are all intentionally
+single-resource-type boundaries. Generalizing them would be a material change,
+not a bounded performance patch.
+
+Do not prototype batching yet. Reconsider a provider-wide batch only after live
+telemetry shows init/provider startup or repeated list-cache initialization is a
+material share after request amplification and accepted-plan testing. Default
+deployment roots are usually one resource type, so deployment-root batching is
+not expected to provide a useful generic boundary.
 
 ## Acceptance
 

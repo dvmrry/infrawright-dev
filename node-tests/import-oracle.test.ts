@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,14 +9,18 @@ import { ProcessFailure } from "../node-src/domain/errors.js";
 import {
   assertImportOnlyPlan,
   createOracleCommandRunner,
+  extractAcceptedPlanState,
   importProviderState,
   oracleAddress,
+  oracleStateSource,
   oracleTimeoutMs,
   renderOracleImports,
   renderOracleRoot,
   type OracleCommandRequest,
   type OracleCommandRunner,
 } from "../node-src/domain/import-oracle.js";
+import { parseDataJsonLosslessly } from "../node-src/json/control.js";
+import { terraformJsonEqual } from "../node-src/json/python-equality.js";
 import { loadPackRoot, type LoadedPackRoot } from "../node-src/metadata/loader.js";
 import { PerformanceRecorder } from "../node-src/performance/recorder.js";
 
@@ -54,23 +58,60 @@ function plan(actions: readonly string[] = ["no-op"]): unknown {
   };
 }
 
-function state(include = true): unknown {
+const DEFAULT_VALUES = { configured_name: "Example", description: "Read", id: IMPORT_ID };
+const DEFAULT_SENSITIVE = { description: false, id: false };
+
+function resourceObservation(
+  values: Readonly<Record<string, unknown>>,
+  sensitiveValues: unknown,
+): Record<string, unknown> {
+  return {
+    address: ADDRESS,
+    mode: "managed",
+    provider_name: "registry.terraform.io/zscaler/zia",
+    sensitive_values: sensitiveValues,
+    type: RESOURCE,
+    values,
+  };
+}
+
+function state(
+  include = true,
+  values: Readonly<Record<string, unknown>> = DEFAULT_VALUES,
+  sensitiveValues: unknown = DEFAULT_SENSITIVE,
+): unknown {
   return {
     format_version: "1.0",
     terraform_version: "1.15.4",
     values: {
       root_module: {
-        resources: include ? [{
-          address: ADDRESS,
-          mode: "managed",
-          provider_name: "registry.terraform.io/zscaler/zia",
-          sensitive_values: { description: false, id: false },
-          type: RESOURCE,
-          values: { configured_name: "Example", description: "Read", id: IMPORT_ID },
-        }] : [],
+        resources: include ? [resourceObservation(values, sensitiveValues)] : [],
       },
     },
   };
+}
+
+function planWithObservedState(
+  values: Readonly<Record<string, unknown>> = DEFAULT_VALUES,
+  sensitiveValues: unknown = DEFAULT_SENSITIVE,
+): Record<string, unknown> {
+  const output = plan() as Record<string, unknown>;
+  const change = ((output.resource_changes as Record<string, unknown>[])[0]!.change) as Record<
+    string,
+    unknown
+  >;
+  Object.assign(change, {
+    after: values,
+    after_sensitive: sensitiveValues,
+    after_unknown: {},
+    before: values,
+    before_sensitive: sensitiveValues,
+  });
+  output.planned_values = {
+    root_module: { resources: [resourceObservation(values, sensitiveValues)] },
+  };
+  output.prior_state = state(true, values, sensitiveValues);
+  return output;
 }
 
 class FakeTerraform implements OracleCommandRunner {
@@ -172,6 +213,7 @@ test("fake Terraform executes the exact local import/read transaction and cleans
     "oracle.plan_show",
     "oracle.scratch_apply",
     "oracle.state_show",
+    "oracle.state_source",
   ]);
   assert.deepEqual(
     spans.find((span) => span.phase === "oracle.corrected_plan"),
@@ -184,6 +226,194 @@ test("fake Terraform executes the exact local import/read transaction and cleans
       terraform_commands: 0,
     },
   );
+});
+
+test("accepted-plan state source skips scratch Apply and state show only for exact evidence", async () => {
+  const values = parseDataJsonLosslessly(`{
+    "configured_name": "Provider normalized",
+    "description": null,
+    "enabled": true,
+    "large": 900719925474099312345678901,
+    "ordered": ["first", "second"],
+    "set_values": ["alpha", "beta"],
+    "nested": [{"computed_default": "provider", "optional": null}]
+  }`) as Readonly<Record<string, unknown>>;
+  const sensitiveValues = {
+    configured_name: false,
+    nested: [{ computed_default: false, optional: true }],
+  };
+  const appliedFake = new FakeTerraform();
+  appliedFake.plan = planWithObservedState(values, sensitiveValues);
+  appliedFake.state = state(true, values, sensitiveValues);
+  const applied = await importProviderState({
+    environment: { INFRAWRIGHT_ORACLE_STATE_SOURCE: "applied-state" },
+    keyToImportId: new Map([[KEY, IMPORT_ID]]),
+    resourceType: RESOURCE,
+    root: await committedRoot(),
+    runner: appliedFake,
+  });
+
+  const acceptedFake = new FakeTerraform();
+  acceptedFake.plan = planWithObservedState(values, sensitiveValues);
+  acceptedFake.state = state(false);
+  let now = 0;
+  const performance = new PerformanceRecorder({ now: () => now++ });
+  const accepted = await importProviderState({
+    environment: { INFRAWRIGHT_ORACLE_STATE_SOURCE: "accepted-plan" },
+    keyToImportId: new Map([[KEY, IMPORT_ID]]),
+    performance,
+    resourceType: RESOURCE,
+    root: await committedRoot(),
+    runner: acceptedFake,
+  });
+
+  assert.ok(terraformJsonEqual(accepted.get(KEY)?.values, applied.get(KEY)?.values));
+  assert.ok(terraformJsonEqual(
+    accepted.get(KEY)?.sensitiveValues,
+    applied.get(KEY)?.sensitiveValues,
+  ));
+  assert.deepEqual(acceptedFake.requests.map((request) => request.debugName), [
+    "init",
+    "plan-generate-config",
+    "show-plan",
+  ]);
+  const report = performance.report({
+    command: "adopt",
+    commandDurationMs: 20,
+    commandStatus: "success",
+  });
+  assert.equal((report.summary as { terraform_commands: number }).terraform_commands, 3);
+  const spans = report.spans as Array<Record<string, unknown>>;
+  assert.deepEqual(spans.find((span) => span.phase === "oracle.state_source"), {
+    duration_ms: 0,
+    oracle_state_source: "accepted-plan",
+    phase: "oracle.state_source",
+    resource_family: RESOURCE,
+    status: "success",
+    terraform_commands: 0,
+  });
+  for (const phase of ["oracle.scratch_apply", "oracle.state_show"]) {
+    assert.deepEqual(spans.find((span) => span.phase === phase), {
+      duration_ms: 0,
+      phase,
+      resource_family: RESOURCE,
+      status: "skipped",
+      terraform_commands: 0,
+    });
+  }
+});
+
+test("accepted-plan extractor matches the retained Terraform plan/state fixture", async () => {
+  const source = parseDataJsonLosslessly(await readFile(
+    path.join(ROOT, "node-tests", "fixtures", "terraform-import-structure-v1.15.4.json"),
+    "utf8",
+  )) as Record<string, unknown>;
+  const fixturePlan = source.plan;
+  const fixtureState = source.state as Record<string, unknown>;
+  const address = "terraform_data.fixture";
+  const output = extractAcceptedPlanState({
+    addressToKey: new Map([[address, "fixture"]]),
+    expectedImports: new Map([[address, "structural-fixture-id"]]),
+    plan: fixturePlan,
+    providerName: "terraform.io/builtin/terraform",
+    resourceType: "terraform_data",
+  });
+  const stateResource = (((fixtureState.values as Record<string, unknown>).root_module as Record<
+    string,
+    unknown
+  >).resources as Record<string, unknown>[])[0]!;
+  assert.ok(terraformJsonEqual(output.get("fixture")?.values, stateResource.values));
+  assert.ok(terraformJsonEqual(
+    output.get("fixture")?.sensitiveValues,
+    stateResource.sensitive_values,
+  ));
+});
+
+test("accepted-plan state source rejects unknown, incomplete, or inconsistent evidence", async () => {
+  const root = await committedRoot();
+  const variants: Array<readonly [string, (candidate: Record<string, unknown>) => void]> = [
+    ["unknown", (candidate) => {
+      const change = ((candidate.resource_changes as Record<string, unknown>[])[0]!.change) as Record<string, unknown>;
+      change.after_unknown = { nested: [{ computed_default: true }] };
+    }],
+    ["malformed unknown", (candidate) => {
+      const change = ((candidate.resource_changes as Record<string, unknown>[])[0]!.change) as Record<string, unknown>;
+      change.after_unknown = "unknown";
+    }],
+    ["planned mismatch", (candidate) => {
+      const planned = candidate.planned_values as Record<string, unknown>;
+      const rootModule = planned.root_module as Record<string, unknown>;
+      const resource = (rootModule.resources as Record<string, unknown>[])[0]!;
+      resource.values = { ...DEFAULT_VALUES, description: "different" };
+    }],
+    ["prior mismatch", (candidate) => {
+      const prior = candidate.prior_state as Record<string, unknown>;
+      const values = prior.values as Record<string, unknown>;
+      const rootModule = values.root_module as Record<string, unknown>;
+      const resource = (rootModule.resources as Record<string, unknown>[])[0]!;
+      resource.values = { ...DEFAULT_VALUES, description: "different" };
+    }],
+    ["sensitivity mismatch", (candidate) => {
+      const change = ((candidate.resource_changes as Record<string, unknown>[])[0]!.change) as Record<string, unknown>;
+      change.after_sensitive = { description: true, id: false };
+    }],
+    ["bool-number mismatch", (candidate) => {
+      const change = ((candidate.resource_changes as Record<string, unknown>[])[0]!.change) as Record<string, unknown>;
+      change.after = { ...DEFAULT_VALUES, enabled: 1 };
+      change.before = { ...DEFAULT_VALUES, enabled: true };
+    }],
+    ["missing planned state", (candidate) => {
+      delete candidate.planned_values;
+    }],
+    ["missing prior state", (candidate) => {
+      delete candidate.prior_state;
+    }],
+  ];
+  for (const [name, mutate] of variants) {
+    const fake = new FakeTerraform();
+    const candidate = planWithObservedState();
+    mutate(candidate);
+    fake.plan = candidate;
+    await assert.rejects(
+      () => importProviderState({
+        environment: { INFRAWRIGHT_ORACLE_STATE_SOURCE: "accepted-plan" },
+        keyToImportId: new Map([[KEY, IMPORT_ID]]),
+        resourceType: RESOURCE,
+        root,
+        runner: fake,
+      }),
+      /unknown|malformed|inconsistent|complete planned and prior state/u,
+      name,
+    );
+    assert.equal(fake.requests.some((request) => request.debugName === "apply-imports"), false, name);
+    assert.equal(fake.requests.some((request) => request.debugName === "show-state"), false, name);
+  }
+});
+
+test("Oracle state-source selection is strict and invalid values fail before Terraform", async () => {
+  const root = await committedRoot();
+  assert.equal(oracleStateSource({}), "applied-state");
+  assert.equal(oracleStateSource({ INFRAWRIGHT_ORACLE_STATE_SOURCE: "  " }), "applied-state");
+  assert.equal(
+    oracleStateSource({ INFRAWRIGHT_ORACLE_STATE_SOURCE: "accepted-plan" }),
+    "accepted-plan",
+  );
+  assert.throws(
+    () => oracleStateSource({ INFRAWRIGHT_ORACLE_STATE_SOURCE: "state" }),
+    /must be applied-state or accepted-plan/u,
+  );
+  const fake = new FakeTerraform();
+  await assert.rejects(
+    () => importProviderState({
+      environment: { INFRAWRIGHT_ORACLE_STATE_SOURCE: "state" },
+      keyToImportId: new Map([[KEY, IMPORT_ID]]),
+      resourceType: RESOURCE,
+      root,
+      runner: fake,
+    }),
+    /must be applied-state or accepted-plan/u,
+  );
+  assert.deepEqual(fake.requests, []);
 });
 
 test("the scratch apply is unreachable for create, update, replace, destroy, drift, or incomplete coverage", async () => {
@@ -290,6 +520,39 @@ test("policy edits generated config and forces a second plan before authorizatio
   );
   assert.equal(corrected?.corrected_plan, true);
   assert.equal(corrected?.terraform_commands, 1);
+});
+
+test("accepted-plan mode uses the corrected plan and skips only Apply/state show", async () => {
+  const fake = new FakeTerraform(`resource "${RESOURCE}" "${ADDRESS.split(".")[1]}" {\n  configured_name = "Example"\n  description     = "DROP"\n}\n`);
+  fake.failGeneratedPlan = true;
+  fake.plan = planWithObservedState();
+  const selected = new DriftPolicy({
+    version: 1,
+    resource_types: {
+      [RESOURCE]: {
+        projection_omit: [{
+          path: "description",
+          reason: "provider validation default",
+          approved_by: "unit",
+        }],
+      },
+    },
+  });
+  const output = await importProviderState({
+    environment: { INFRAWRIGHT_ORACLE_STATE_SOURCE: "accepted-plan" },
+    keyToImportId: new Map([[KEY, IMPORT_ID]]),
+    policy: selected,
+    resourceType: RESOURCE,
+    root: await committedRoot(),
+    runner: fake,
+  });
+  assert.deepEqual([...output.keys()], [KEY]);
+  assert.deepEqual(fake.requests.map((request) => request.debugName), [
+    "init",
+    "plan-generate-config",
+    "plan-imports",
+    "show-plan",
+  ]);
 });
 
 test("missing state, duplicate import IDs, and malformed plan coverage fail closed", async () => {

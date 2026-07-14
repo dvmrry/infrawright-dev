@@ -11,6 +11,10 @@ import {
   runAdoptBatch,
   type AdoptionStateLoader,
 } from "../node-src/domain/adopt-runner.js";
+import {
+  extractAcceptedPlanState,
+  oracleAddress,
+} from "../node-src/domain/import-oracle.js";
 import type { Deployment } from "../node-src/domain/types.js";
 import { isObject } from "../node-src/metadata/validation.js";
 import { loadPackRoot, type LoadedPackRoot } from "../node-src/metadata/loader.js";
@@ -109,6 +113,85 @@ function pythonExpected(fixture: string): { readonly imports: string; readonly t
   return JSON.parse(result.stdout) as { readonly imports: string; readonly tfvars: string };
 }
 
+function providerName(source: string): string {
+  return source.split("/").length === 2
+    ? `registry.terraform.io/${source}`
+    : source;
+}
+
+function acceptedPlanStateLoader(options: {
+  readonly providerState: Readonly<Record<string, unknown>>;
+  readonly resourceType: string;
+  readonly root: LoadedPackRoot;
+}): AdoptionStateLoader {
+  return async (request) => {
+    const resource = options.root.resources.get(options.resourceType);
+    assert.notEqual(resource, undefined);
+    const expectedProvider = providerName(
+      options.root.packs.providerSources[resource!.provider] ?? "",
+    );
+    const addressToKey = new Map<string, string>();
+    const expectedImports = new Map<string, string>();
+    const observations: Record<string, unknown>[] = [];
+    const changes: Record<string, unknown>[] = [];
+    for (const [key, importId] of [...request.keyToImportId].sort()) {
+      const address = oracleAddress(options.resourceType, key);
+      const state = record(
+        options.providerState[importId],
+        `${options.resourceType}.${importId}`,
+      );
+      const values = record(state.values, `${options.resourceType}.${importId}.values`);
+      const sensitiveValues = state.sensitive_values ?? {};
+      const observation = {
+        address,
+        mode: "managed",
+        provider_name: expectedProvider,
+        sensitive_values: sensitiveValues,
+        type: options.resourceType,
+        values,
+      };
+      addressToKey.set(address, key);
+      expectedImports.set(address, importId);
+      observations.push(observation);
+      changes.push({
+        address,
+        change: {
+          actions: ["no-op"],
+          after: values,
+          after_sensitive: sensitiveValues,
+          after_unknown: {},
+          before: values,
+          before_sensitive: sensitiveValues,
+          importing: { id: importId },
+        },
+        mode: "managed",
+        provider_name: expectedProvider,
+        type: options.resourceType,
+      });
+    }
+    return extractAcceptedPlanState({
+      addressToKey,
+      expectedImports,
+      plan: {
+        applyable: true,
+        complete: true,
+        errored: false,
+        format_version: "1.2",
+        planned_values: { root_module: { resources: observations } },
+        prior_state: {
+          format_version: "1.0",
+          terraform_version: "1.15.4",
+          values: { root_module: { resources: observations } },
+        },
+        resource_changes: changes,
+        terraform_version: "1.15.4",
+      },
+      providerName: expectedProvider,
+      resourceType: options.resourceType,
+    });
+  };
+}
+
 test("all four retained transform/adopt fixtures write byte-identical Python artifacts", async (context) => {
   const root = await committedRoot();
   for (const filename of PARITY_FIXTURES) {
@@ -118,10 +201,7 @@ test("all four retained transform/adopt fixtures write byte-identical Python art
     const rawItems = fixture.raw_items;
     assert.ok(Array.isArray(rawItems));
     const providerState = record(fixture.provider_state, `${filename}.provider_state`);
-    const workspace = await temporaryDirectory(context, `infrawright-adopt-${resourceType}-`);
-    const input = path.join(workspace, "pulls");
-    await writeJson(path.join(input, `${resourceType}.json`), rawItems);
-    const stateLoader: AdoptionStateLoader = async (request) => {
+    const appliedStateLoader: AdoptionStateLoader = async (request) => {
       const requested = new Set(request.keyToImportId.values());
       assert.deepEqual(requested, new Set(Object.keys(providerState)));
       return new Map([...request.keyToImportId].map(([key, importId]) => {
@@ -133,28 +213,43 @@ test("all four retained transform/adopt fixtures write byte-identical Python art
         }];
       }));
     };
-    const result = await runAdoptBatch({
-      deployment: deployment(workspace),
-      inputDirectory: input,
-      policy: await loadAdoptionPolicy({ root }),
-      root,
-      selectors: [resourceType],
-      stateLoader,
-      tenant: "tenant",
-    });
-    assert.deepEqual(result.failed, [], resourceType);
-    assert.deepEqual(result.processed, [resourceType], resourceType);
     const expected = pythonExpected(fixturePath);
-    assert.equal(
-      await readFile(path.join(workspace, "config", "tenant", `${resourceType}.auto.tfvars.json`), "utf8"),
-      expected.tfvars,
-      `${resourceType} tfvars`,
-    );
-    assert.equal(
-      await readFile(path.join(workspace, "imports", "tenant", `${resourceType}_imports.tf`), "utf8"),
-      expected.imports,
-      `${resourceType} imports`,
-    );
+    const artifacts: Array<{ readonly imports: string; readonly tfvars: string }> = [];
+    for (const [stateSource, stateLoader] of [
+      ["applied-state", appliedStateLoader],
+      ["accepted-plan", acceptedPlanStateLoader({ providerState, resourceType, root })],
+    ] as const) {
+      const workspace = await temporaryDirectory(
+        context,
+        `infrawright-adopt-${resourceType}-${stateSource}-`,
+      );
+      const input = path.join(workspace, "pulls");
+      await writeJson(path.join(input, `${resourceType}.json`), rawItems);
+      const result = await runAdoptBatch({
+        deployment: deployment(workspace),
+        inputDirectory: input,
+        policy: await loadAdoptionPolicy({ root }),
+        root,
+        selectors: [resourceType],
+        stateLoader,
+        tenant: "tenant",
+      });
+      assert.deepEqual(result.failed, [], `${resourceType} ${stateSource}`);
+      assert.deepEqual(result.processed, [resourceType], `${resourceType} ${stateSource}`);
+      const actual = {
+        imports: await readFile(
+          path.join(workspace, "imports", "tenant", `${resourceType}_imports.tf`),
+          "utf8",
+        ),
+        tfvars: await readFile(
+          path.join(workspace, "config", "tenant", `${resourceType}.auto.tfvars.json`),
+          "utf8",
+        ),
+      };
+      assert.deepEqual(actual, expected, `${resourceType} ${stateSource}`);
+      artifacts.push(actual);
+    }
+    assert.deepEqual(artifacts[1], artifacts[0], `${resourceType} state-source artifacts`);
   }
 });
 

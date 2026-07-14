@@ -44,6 +44,8 @@ make apply TENANT=<tenant> RESOURCE=<resource-or-provider> POLICY=<file>
 |  |  |  |  |  |  |  |
 
 - Fetch concurrency:
+- Oracle state source (`applied-state` / `accepted-plan`):
+- Oracle Terraform command count and skipped phases:
 - HTTP 429 count / retry delay:
 - Artifact manifest SHA-256:
 - Baseline manifest match:

@@ -79,6 +79,7 @@ function validatePerformanceReport(value, name) {
   let pages = 0;
   let logicalRequests = 0;
   let terraformCommands = 0;
+  const oracleStateSources = new Set();
   for (const [index, span] of value.spans.entries()) {
     if (
       !record(span)
@@ -89,12 +90,21 @@ function validatePerformanceReport(value, name) {
       throw new Error(`${name} span ${index} is invalid`);
     }
     nonNegativeNumber(span.duration_ms, `${name} span duration`);
+    if (span.oracle_state_source !== undefined) {
+      if (!["accepted-plan", "applied-state"].includes(span.oracle_state_source)) {
+        throw new Error(`${name} span ${index} Oracle state source is invalid`);
+      }
+      oracleStateSources.add(span.oracle_state_source);
+    }
     pages += optionalCount(span.pages, `${name} span pages`);
     logicalRequests += optionalCount(span.logical_requests, `${name} span logical requests`);
     terraformCommands += optionalCount(
       span.terraform_commands,
       `${name} span Terraform commands`,
     );
+  }
+  if (oracleStateSources.size > 1) {
+    throw new Error(`${name} contains conflicting Oracle state sources`);
   }
 
   let httpRequests = 0;

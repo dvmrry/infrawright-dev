@@ -8,6 +8,7 @@ import type { LoadedPackRoot } from "../metadata/loader.js";
 import { manifestForProvider } from "../metadata/packs.js";
 import { isObject } from "../metadata/validation.js";
 import { parseDataJsonLosslessly } from "../json/control.js";
+import { terraformJsonEqual } from "../json/python-equality.js";
 import { readOptionalUtf8 } from "../io/files.js";
 import {
   runTerraformCommand,
@@ -54,6 +55,8 @@ const BACKEND_BLOCK = /\bbackend\s+"[^"]+"\s*\{/u;
 const CLOUD_BLOCK = /\bcloud\s*\{/u;
 const DEFAULT_TIMEOUT_MS = 300_000;
 
+export type OracleStateSource = "accepted-plan" | "applied-state";
+
 function environmentRecord(environment: NodeJS.ProcessEnv): Readonly<Record<string, string>> {
   const output: Record<string, string> = Object.create(null) as Record<string, string>;
   for (const [key, value] of Object.entries(environment)) {
@@ -74,6 +77,17 @@ export function oracleTimeoutMs(environment: NodeJS.ProcessEnv): number {
     throw new OracleError("INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS is outside the supported numeric range");
   }
   return milliseconds;
+}
+
+export function oracleStateSource(environment: NodeJS.ProcessEnv): OracleStateSource {
+  const raw = environment.INFRAWRIGHT_ORACLE_STATE_SOURCE?.trim();
+  if (raw === undefined || raw.length === 0 || raw === "applied-state") {
+    return "applied-state";
+  }
+  if (raw === "accepted-plan") return "accepted-plan";
+  throw new OracleError(
+    "INFRAWRIGHT_ORACLE_STATE_SOURCE must be applied-state or accepted-plan",
+  );
 }
 
 export function createOracleCommandRunner(options: {
@@ -340,6 +354,127 @@ function exactStateObjects(options: {
   return output;
 }
 
+function assertNoUnknownValues(value: unknown, resourceType: string, address: string): void {
+  if (value === false) return;
+  if (value === true) {
+    throw new OracleError(
+      `${resourceType} accepted import plan left provider-observed values unknown for ${address}`,
+    );
+  }
+  if (Array.isArray(value)) {
+    for (const child of value) assertNoUnknownValues(child, resourceType, address);
+    return;
+  }
+  if (isObject(value)) {
+    for (const child of Object.values(value)) {
+      assertNoUnknownValues(child, resourceType, address);
+    }
+    return;
+  }
+  throw new OracleError(
+    `${resourceType} accepted import plan returned a malformed unknown-value mask for ${address}`,
+  );
+}
+
+/**
+ * Extract provider-observed state from a fully known, exact import-only plan.
+ *
+ * This remains experimental until live provider evidence proves that the
+ * accepted plan and post-Apply local state are equivalent for the selected
+ * resource cohort.
+ */
+export function extractAcceptedPlanState(options: {
+  readonly addressToKey: ReadonlyMap<string, string>;
+  readonly expectedImports: ReadonlyMap<string, string>;
+  readonly plan: unknown;
+  readonly providerName: string;
+  readonly resourceType: string;
+}): ReadonlyMap<string, OracleStateObject> {
+  assertImportOnlyPlan({
+    expectedImports: options.expectedImports,
+    plan: options.plan,
+    providerName: options.providerName,
+    resourceType: options.resourceType,
+  });
+  const plan = jsonRecord(
+    options.plan,
+    `${options.resourceType} terraform show -json plan returned a non-object`,
+  );
+  if (!isObject(plan.planned_values) || !isObject(plan.prior_state)) {
+    throw new OracleError(
+      `${options.resourceType} accepted import plan did not contain complete planned and prior state`,
+    );
+  }
+  const planned = exactStateObjects({
+    addressToKey: options.addressToKey,
+    providerName: options.providerName,
+    resourceType: options.resourceType,
+    state: {
+      format_version: plan.format_version,
+      terraform_version: plan.terraform_version,
+      values: plan.planned_values,
+    },
+  });
+  const prior = exactStateObjects({
+    addressToKey: options.addressToKey,
+    providerName: options.providerName,
+    resourceType: options.resourceType,
+    state: plan.prior_state,
+  });
+  const changes = Array.isArray(plan.resource_changes) ? plan.resource_changes : [];
+  const changeByAddress = new Map<string, JsonRecord>();
+  for (const raw of changes) {
+    const change = jsonRecord(
+      raw,
+      `${options.resourceType} accepted import plan contained a malformed change`,
+    );
+    if (typeof change.address !== "string" || changeByAddress.has(change.address)) {
+      throw new OracleError(
+        `${options.resourceType} accepted import plan contained duplicate or malformed change addresses`,
+      );
+    }
+    changeByAddress.set(change.address, change);
+  }
+  for (const [address, key] of options.addressToKey) {
+    const plannedObject = planned.get(key);
+    const priorObject = prior.get(key);
+    const rawChange = changeByAddress.get(address);
+    const change = isObject(rawChange?.change) ? rawChange.change : null;
+    if (
+      plannedObject === undefined
+      || priorObject === undefined
+      || rawChange === undefined
+      || change === null
+      || Object.hasOwn(rawChange, "deposed")
+      || !isObject(change.before)
+      || !isObject(change.after)
+      || !Object.hasOwn(change, "after_unknown")
+      || !Object.hasOwn(change, "before_sensitive")
+      || !Object.hasOwn(change, "after_sensitive")
+      || (!isObject(change.before_sensitive) && change.before_sensitive !== true)
+      || (!isObject(change.after_sensitive) && change.after_sensitive !== true)
+    ) {
+      throw new OracleError(
+        `${options.resourceType} accepted import plan did not contain exact provider-observed evidence for ${address}`,
+      );
+    }
+    assertNoUnknownValues(change.after_unknown, options.resourceType, address);
+    if (
+      !terraformJsonEqual(change.before, change.after)
+      || !terraformJsonEqual(change.after, plannedObject.values)
+      || !terraformJsonEqual(plannedObject.values, priorObject.values)
+      || !terraformJsonEqual(change.before_sensitive, change.after_sensitive)
+      || !terraformJsonEqual(change.after_sensitive, plannedObject.sensitiveValues)
+      || !terraformJsonEqual(plannedObject.sensitiveValues, priorObject.sensitiveValues)
+    ) {
+      throw new OracleError(
+        `${options.resourceType} accepted import plan provider observations were inconsistent for ${address}`,
+      );
+    }
+  }
+  return planned;
+}
+
 async function fileExists(file: string): Promise<boolean> {
   try {
     await access(file);
@@ -367,6 +502,16 @@ export async function importProviderState(options: {
   readonly runner: OracleCommandRunner;
 }): Promise<ReadonlyMap<string, OracleStateObject>> {
   if (options.keyToImportId.size === 0) return new Map();
+  const environment = options.environment ?? process.env;
+  const stateSource = oracleStateSource(environment);
+  options.performance?.recordSpan({
+    durationMs: 0,
+    oracleStateSource: stateSource,
+    phase: "oracle.state_source",
+    resourceFamily: options.resourceType,
+    status: "success",
+    terraformCommands: 0,
+  });
   if (options.policy?.entries(options.resourceType, "projection_fill").length && options.rawItems === undefined) {
     throw new OracleError(`${options.resourceType} projection_fill requires raw_items`);
   }
@@ -379,7 +524,6 @@ export async function importProviderState(options: {
     importIds.set(importId, key);
   }
   checkAddressCollisions(options.resourceType, options.keyToImportId.keys());
-  const environment = options.environment ?? process.env;
   const keep = options.keepWorkdir === true || truthy(environment.INFRAWRIGHT_KEEP_ORACLE);
   const temporary = await mkdtemp(path.join(os.tmpdir(), "infrawright-oracle-"));
   let primary: unknown;
@@ -509,6 +653,25 @@ export async function importProviderState(options: {
       });
     }
     const planJson = parseDataJsonLosslessly(await run(["show", "-json", plan], "show-plan", "capture"));
+    if (stateSource === "accepted-plan") {
+      const output = extractAcceptedPlanState({
+        addressToKey: addresses,
+        expectedImports,
+        plan: planJson,
+        providerName: expectedProviderName,
+        resourceType: options.resourceType,
+      });
+      for (const phase of ["oracle.scratch_apply", "oracle.state_show"] as const) {
+        options.performance?.recordSpan({
+          durationMs: 0,
+          phase,
+          resourceFamily: options.resourceType,
+          status: "skipped",
+          terraformCommands: 0,
+        });
+      }
+      return output;
+    }
     assertImportOnlyPlan({
       expectedImports,
       plan: planJson,
