@@ -216,7 +216,9 @@ prevent inherited environment settings from changing the evidence.
 Run the four commands only inside this guard. When the acknowledgement is
 absent, it prints a sanitized NOT RUN result and continues to Phase 3.
 
+    IW_PHASE2_RAN=0
     if test "${IW_ALLOW_ORACLE_SCRATCH_APPLY:-}" = 1; then
+    IW_PHASE2_RAN=1
     run_private network-transform "$NS_T" \
       env TMPDIR="$NS_T/tmp" node "$IW_CLI" transform \
         --root "$IW_PACKS" --profile "$IW_PROFILE" \
@@ -275,32 +277,34 @@ integer, while parser diagnostics remain private:
     PLUGIN_FILTER='[.. | objects | select(has("plugin_check_frequency") and .plugin_check_frequency == "")] | length'
     END_FILTER='[.. | objects | select(has("end") and .end == 0)] | length'
 
-    count_json network-raw-tag \
-      "$IW_PULL/zia_firewall_filtering_network_service.json" "$TAG_FILTER"
-    count_json network-transform-tag \
-      "$NS_T/config/$IW_TENANT/zia_firewall_filtering_network_service.auto.tfvars.json" \
-      "$TAG_FILTER"
-    count_json network-adopt-tag \
-      "$NS_A/config/$IW_TENANT/zia_firewall_filtering_network_service.auto.tfvars.json" \
-      "$TAG_FILTER"
+    if test "$IW_PHASE2_RAN" = 1; then
+      count_json network-raw-tag \
+        "$IW_PULL/zia_firewall_filtering_network_service.json" "$TAG_FILTER"
+      count_json network-transform-tag \
+        "$NS_T/config/$IW_TENANT/zia_firewall_filtering_network_service.auto.tfvars.json" \
+        "$TAG_FILTER"
+      count_json network-adopt-tag \
+        "$NS_A/config/$IW_TENANT/zia_firewall_filtering_network_service.auto.tfvars.json" \
+        "$TAG_FILTER"
 
-    count_json network-raw-end \
-      "$IW_PULL/zia_firewall_filtering_network_service.json" "$END_FILTER"
-    count_json network-transform-end \
-      "$NS_T/config/$IW_TENANT/zia_firewall_filtering_network_service.auto.tfvars.json" \
-      "$END_FILTER"
-    count_json network-adopt-end \
-      "$NS_A/config/$IW_TENANT/zia_firewall_filtering_network_service.auto.tfvars.json" \
-      "$END_FILTER"
+      count_json network-raw-end \
+        "$IW_PULL/zia_firewall_filtering_network_service.json" "$END_FILTER"
+      count_json network-transform-end \
+        "$NS_T/config/$IW_TENANT/zia_firewall_filtering_network_service.auto.tfvars.json" \
+        "$END_FILTER"
+      count_json network-adopt-end \
+        "$NS_A/config/$IW_TENANT/zia_firewall_filtering_network_service.auto.tfvars.json" \
+        "$END_FILTER"
 
-    count_json browser-raw-plugin \
-      "$IW_PULL/zia_browser_control_policy.json" "$PLUGIN_FILTER"
-    count_json browser-transform-plugin \
-      "$BC_T/config/$IW_TENANT/zia_browser_control_policy.auto.tfvars.json" \
-      "$PLUGIN_FILTER"
-    count_json browser-adopt-plugin \
-      "$BC_A/config/$IW_TENANT/zia_browser_control_policy.auto.tfvars.json" \
-      "$PLUGIN_FILTER"
+      count_json browser-raw-plugin \
+        "$IW_PULL/zia_browser_control_policy.json" "$PLUGIN_FILTER"
+      count_json browser-transform-plugin \
+        "$BC_T/config/$IW_TENANT/zia_browser_control_policy.auto.tfvars.json" \
+        "$PLUGIN_FILTER"
+      count_json browser-adopt-plugin \
+        "$BC_A/config/$IW_TENANT/zia_browser_control_policy.auto.tfvars.json" \
+        "$PLUGIN_FILTER"
+    fi
 
 Do not use this helper when IW_TFVARS_FORMAT is hcl.
 
@@ -338,12 +342,14 @@ printing filenames or matching lines:
         "$label" "$oracle_dirs" "$before_files" "$before" "$after"
     }
 
-    count_generated network-tag "$NS_A" \
-      '^[[:space:]]*tag[[:space:]]*=[[:space:]]*""[[:space:]]*$'
-    count_generated network-end "$NS_A" \
-      '^[[:space:]]*end[[:space:]]*=[[:space:]]*0[[:space:]]*$'
-    count_generated browser-plugin "$BC_A" \
-      '^[[:space:]]*plugin_check_frequency[[:space:]]*=[[:space:]]*""[[:space:]]*$'
+    if test "$IW_PHASE2_RAN" = 1; then
+      count_generated network-tag "$NS_A" \
+        '^[[:space:]]*tag[[:space:]]*=[[:space:]]*""[[:space:]]*$'
+      count_generated network-end "$NS_A" \
+        '^[[:space:]]*end[[:space:]]*=[[:space:]]*0[[:space:]]*$'
+      count_generated browser-plugin "$BC_A" \
+        '^[[:space:]]*plugin_check_frequency[[:space:]]*=[[:space:]]*""[[:space:]]*$'
+    fi
 
 The policy is proven exercised for one target only when all of these hold:
 

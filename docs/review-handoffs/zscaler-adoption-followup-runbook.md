@@ -148,6 +148,8 @@
   - made semantic and physical containment fail fast;
   - bound Adopt to `per-resource-type` and `applied-state`;
   - replaced filename-bearing `shasum` output with fixed labels and extracted
-    digests.
+    digests;
+  - bound every Phase 2 count invocation to the same scratch-Apply execution
+    flag so NOT RUN emits no field evidence.
 - Remediation: all accepted findings are addressed in the runbook. No runtime,
   pack, provider, schema, fixture, or generated artifact changed.
