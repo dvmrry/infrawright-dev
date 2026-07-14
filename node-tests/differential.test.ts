@@ -270,6 +270,99 @@ test("empty deployments, Python-falsey overlays, and slug roots match", async ()
   }
 });
 
+test("ZIA generate-only exclusions preserve exact automatic and explicit topology", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-node-"));
+  try {
+    const deploymentPath = path.join(directory, "deployment.json");
+    await writeFile(deploymentPath, JSON.stringify({
+      roots: { zia: { strategy: "slug" } },
+    }));
+    await compare({ deployment: deploymentPath, tenant: "prod", selectors: ["zia"] });
+
+    const catalog = await loadRootCatalog(CATALOG);
+    let deployment = await loadDeployment(deploymentPath);
+    let result = rootTopology({
+      catalog,
+      deployment,
+      tenant: "prod",
+      selectors: ["zia"],
+    });
+    const changedMappings = {
+      zia_admin_roles: "zia_admin_roles",
+      zia_admin_users: "zia_admin_users",
+      zia_bandwidth_classes_file_size: "zia_bandwidth_classes_file_size",
+      zia_bandwidth_classes_web_conferencing: "zia_bandwidth_classes_web_conferencing",
+      zia_cloud_app_control_rule: "zia_cloud_app_control_rule",
+      zia_cloud_application_instance: "zia_cloud_application_instance",
+      zia_cloud_nss_feed: "zia_cloud_nss_feed",
+      zia_sandbox_behavioral_analysis_v2: "zia_sandbox_behavioral_analysis_v2",
+      zia_sandbox_file_submission: "zia_sandbox_file_submission",
+      zia_traffic_capture_rules: "zia_traffic_capture_rules",
+      zia_virtual_service_edge_cluster: "zia_virtual_service_edge_cluster",
+      zia_virtual_service_edge_node: "zia_virtual_service_edge_node",
+    } as const;
+    for (const [resourceType, label] of Object.entries(changedMappings)) {
+      assert.equal(result.topology.resource_roots[resourceType], label, resourceType);
+    }
+    assert.equal(result.topology.resource_roots.zia_bandwidth_classes, "zia_bandwidth");
+    assert.equal(result.topology.resource_roots.zia_bandwidth_control_rule, "zia_bandwidth");
+    assert.equal(result.topology.roots.some((root) => root.label === "zia_admin"), false);
+    assert.deepEqual(
+      result.topology.roots.find((root) => root.label === "zia_bandwidth")?.members,
+      ["zia_bandwidth_classes", "zia_bandwidth_control_rule"],
+    );
+
+    const historicalGroups = {
+      zia_admin: ["zia_admin_roles", "zia_admin_users"],
+      zia_bandwidth: [
+        "zia_bandwidth_classes",
+        "zia_bandwidth_classes_file_size",
+        "zia_bandwidth_classes_web_conferencing",
+        "zia_bandwidth_control_rule",
+      ],
+      zia_cloud: [
+        "zia_cloud_app_control_rule",
+        "zia_cloud_application_instance",
+        "zia_cloud_nss_feed",
+      ],
+      zia_sandbox: [
+        "zia_sandbox_behavioral_analysis",
+        "zia_sandbox_behavioral_analysis_v2",
+        "zia_sandbox_file_submission",
+        "zia_sandbox_rules",
+      ],
+      zia_traffic: [
+        "zia_traffic_capture_rules",
+        "zia_traffic_forwarding_gre_tunnel",
+        "zia_traffic_forwarding_static_ip",
+        "zia_traffic_forwarding_vpn_credentials",
+      ],
+      zia_virtual: [
+        "zia_virtual_service_edge_cluster",
+        "zia_virtual_service_edge_node",
+      ],
+    } as const;
+    await writeFile(deploymentPath, JSON.stringify({
+      roots: { zia: { strategy: "slug", groups: historicalGroups } },
+    }));
+    await compare({ deployment: deploymentPath, tenant: "prod", selectors: ["zia"] });
+    deployment = await loadDeployment(deploymentPath);
+    result = rootTopology({ catalog, deployment, tenant: "prod", selectors: ["zia"] });
+    for (const [label, members] of Object.entries(historicalGroups)) {
+      assert.deepEqual(
+        result.topology.roots.find((root) => root.label === label)?.members,
+        members,
+        label,
+      );
+      for (const member of members) {
+        assert.equal(result.topology.resource_roots[member], label, member);
+      }
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("changed-path scope bytes match Python across artifact kinds", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-node-"));
   try {

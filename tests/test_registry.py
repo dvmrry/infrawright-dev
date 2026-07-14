@@ -155,6 +155,23 @@ class RegistryTest(unittest.TestCase):
                     "managed-fetch",
                 )
 
+    def test_zia_generate_only_resources_declare_automatic_group_intent(self):
+        registry = load_registry()
+        generate_only = {
+            resource_type: entry
+            for resource_type, entry in registry.items()
+            if entry["product"] == "zia"
+            and entry.get("generate") is True
+            and "fetch" not in entry
+            and "derive" not in entry
+        }
+        self.assertEqual(len(generate_only), 18)
+        self.assertTrue(generate_only)
+        for resource_type, entry in sorted(generate_only.items()):
+            with self.subTest(resource_type=resource_type):
+                self.assertIn("slug_group", entry)
+                self.assertIs(entry["slug_group"], False)
+
     def test_corrected_zia_pagination_modes_match_endpoint_shapes(self):
         paginated = {
             "zia_casb_dlp_rules",
