@@ -174,7 +174,8 @@ remaining evidence-composition gaps. They are remediated in `241f518`:
 
 The exact-decimal, manifest-timing, corrected-command-count, and diagnostic
 privacy fixes were explicitly verified by that re-review. Final patch-only
-confirmation of the three evidence changes is pending.
+review of `dfb2782..cc234fb` approved the three evidence changes with no
+remaining finding.
 
 ## Known Deferrals
 
