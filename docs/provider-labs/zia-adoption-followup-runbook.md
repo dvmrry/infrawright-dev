@@ -69,7 +69,7 @@ path-relocated copies of the deployment file. Only overlay and module_dir
 change; all grouping, format, and pack semantics remain byte-equivalent after
 those two keys are removed.
 
-    set -u
+    set -euo pipefail
     umask 077
     IW_JOB=$(mktemp -d /tmp/iw-adoption-followup.XXXXXX)
     trap 'rm -rf "$IW_JOB"' EXIT HUP INT TERM
@@ -77,14 +77,15 @@ those two keys are removed.
 
     prepare_lane() {
       lane="$IW_JOB/lanes/$1"
-      mkdir -m 700 "$lane" "$lane/tmp"
+      mkdir -m 700 "$lane" "$lane/tmp" || return 1
       jq '.overlay = "." | .module_dir = "modules"' "$IW_DEPLOYMENT" \
-        > "$lane/deployment.json"
+        > "$lane/deployment.json" || return 1
       jq -S 'del(.overlay, .module_dir)' "$IW_DEPLOYMENT" \
-        > "$lane/original.semantic.json"
+        > "$lane/original.semantic.json" || return 1
       jq -S 'del(.overlay, .module_dir)' "$lane/deployment.json" \
-        > "$lane/lane.semantic.json"
-      cmp "$lane/original.semantic.json" "$lane/lane.semantic.json"
+        > "$lane/lane.semantic.json" || return 1
+      cmp "$lane/original.semantic.json" "$lane/lane.semantic.json" \
+        || return 1
       printf '%s\n' "$lane"
     }
 
@@ -152,12 +153,11 @@ HCL with jq.
 
 ## Phase 1: Bind Runtime, Pack, And Registry Authorities
 
-Record the Node and Terraform versions and CLI hash. The CLI SHA-256, not the
-current shell repository, is the runtime authority:
+Record the Node and Terraform versions. The CLI SHA-256, not the current shell
+repository, is the runtime authority:
 
     node --version
     terraform version
-    shasum -a 256 "$IW_CLI"
 
 Record the pack repository commit and whether the pack tree is dirty, without
 printing its path:
@@ -166,52 +166,57 @@ printing its path:
     test -z "$(git -C "$IW_PACKS" status --porcelain -- .)" \
       && echo "pack tree: clean" || echo "pack tree: dirty"
 
-Record hashes for both registries, the profile, catalog, deployment, and the
-two lane deployment copies:
+Record every authority hash with a fixed label so shasum never prints a path:
 
-    shasum -a 256 \
-      "$IW_PACKS/zia/registry.json" \
-      "$IW_PACKS/zpa/registry.json" \
-      "$IW_PROFILE" "$IW_CATALOG" "$IW_DEPLOYMENT" \
-      "$NS_A/deployment.json" "$BC_A/deployment.json"
-
-Use a helper so a missing override is reported without leaking its absolute
-path:
-
-    hash_override() {
+    hash_authority() {
       label="$1"
       file="$2"
       if test -f "$file"; then
         digest=$(shasum -a 256 "$file" | awk '{print $1}')
-        printf '%s PRESENT %s\n' "$label" "$digest"
+        printf '%s %s\n' "$label" "$digest"
       else
         printf '%s MISSING\n' "$label"
       fi
     }
-    hash_override network-service \
+
+    hash_authority cli "$IW_CLI"
+    hash_authority zia-registry "$IW_PACKS/zia/registry.json"
+    hash_authority zpa-registry "$IW_PACKS/zpa/registry.json"
+    hash_authority profile "$IW_PROFILE"
+    hash_authority catalog "$IW_CATALOG"
+    hash_authority deployment-original "$IW_DEPLOYMENT"
+    hash_authority deployment-network-lane "$NS_A/deployment.json"
+    hash_authority deployment-browser-lane "$BC_A/deployment.json"
+    hash_authority override-network-service \
       "$IW_PACKS/zia/overrides/zia_firewall_filtering_network_service.json"
-    hash_override browser-control \
+    hash_authority override-browser-control \
       "$IW_PACKS/zia/overrides/zia_browser_control_policy.json"
 
 If present, print only the non-sensitive policy fragment:
 
-    jq -c '{drop_if_default,defaults,key_field}' \
-      "$IW_PACKS/zia/overrides/zia_firewall_filtering_network_service.json"
-    jq -c '{drop_if_default,defaults,key_field}' \
-      "$IW_PACKS/zia/overrides/zia_browser_control_policy.json"
+    for file in \
+      "$IW_PACKS/zia/overrides/zia_firewall_filtering_network_service.json" \
+      "$IW_PACKS/zia/overrides/zia_browser_control_policy.json"; do
+      if test -f "$file"; then
+        jq -c '{drop_if_default,defaults,key_field}' "$file" \
+          2>> "$IW_JOB/logs/policy-fragments.stderr" \
+          || printf '%s\n' "policy fragment: ERROR"
+      fi
+    done
 
 A missing file or missing rule is a pack-authority failure, not an Oracle
 rewriter failure.
 
 ## Phase 2: Exercise Transform And Adopt
 
-Do not proceed unless IW_ALLOW_ORACLE_SCRATCH_APPLY is exactly 1:
-
-    test "$IW_ALLOW_ORACLE_SCRATCH_APPLY" = 1
-
 All command diagnostics remain in private files. Report only each emitted
-label and exit status.
+label and exit status. The explicit per-resource-type and applied-state values
+prevent inherited environment settings from changing the evidence.
 
+Run the four commands only inside this guard. When the acknowledgement is
+absent, it prints a sanitized NOT RUN result and continues to Phase 3.
+
+    if test "${IW_ALLOW_ORACLE_SCRATCH_APPLY:-}" = 1; then
     run_private network-transform "$NS_T" \
       env TMPDIR="$NS_T/tmp" node "$IW_CLI" transform \
         --root "$IW_PACKS" --profile "$IW_PROFILE" \
@@ -221,6 +226,8 @@ label and exit status.
 
     run_private network-adopt "$NS_A" \
       env TMPDIR="$NS_A/tmp" INFRAWRIGHT_KEEP_ORACLE=1 \
+        INFRAWRIGHT_ORACLE_BATCH_MODE=per-resource-type \
+        INFRAWRIGHT_ORACLE_STATE_SOURCE=applied-state \
         node "$IW_CLI" adopt \
         --root "$IW_PACKS" --profile "$IW_PROFILE" \
         --catalog "$IW_CATALOG" --deployment "$NS_A/deployment.json" \
@@ -236,11 +243,16 @@ label and exit status.
 
     run_private browser-adopt "$BC_A" \
       env TMPDIR="$BC_A/tmp" INFRAWRIGHT_KEEP_ORACLE=1 \
+        INFRAWRIGHT_ORACLE_BATCH_MODE=per-resource-type \
+        INFRAWRIGHT_ORACLE_STATE_SOURCE=applied-state \
         node "$IW_CLI" adopt \
         --root "$IW_PACKS" --profile "$IW_PROFILE" \
         --catalog "$IW_CATALOG" --deployment "$BC_A/deployment.json" \
         --in "$IW_PULL" --tenant "$IW_TENANT" \
         --resource zia_browser_control_policy
+    else
+      printf '%s\n' "Phase 2 NOT RUN: scratch import-only Apply not acknowledged"
+    fi
 
 Do not paste the captured stdout or stderr. Inspect them only on the approved
 machine and report a normalized error category when a command fails.
@@ -293,7 +305,7 @@ integer, while parser diagnostics remain private:
 Do not use this helper when IW_TFVARS_FORMAT is hcl.
 
 For each Adopt lane, privately enumerate every retained
-infrawright-import-oracle-* directory below its lane tmp directory. This helper
+infrawright-oracle-* directory below its lane tmp directory. This helper
 sums a target across generated.tf.before-policy and generated.tf without
 printing filenames or matching lines:
 
@@ -321,7 +333,7 @@ printing filenames or matching lines:
           after=$((after + count))
         fi
       done < <(find "$lane/tmp" -type d \
-        -name 'infrawright-import-oracle-*' -print0)
+        -name 'infrawright-oracle-*' -print0)
       printf '%s oracle_dirs=%s before_files=%s before=%s after=%s\n' \
         "$label" "$oracle_dirs" "$before_files" "$before" "$after"
     }
@@ -518,6 +530,8 @@ Return one sanitized report:
     - profile/catalog/original deployment SHA-256:
     - relocated lane deployment SHA-256:
     - tfvars format:
+    - Oracle batch mode: per-resource-type
+    - Oracle state source: applied-state
     - network-service override: PRESENT/MISSING, SHA-256
     - browser-control override: PRESENT/MISSING, SHA-256
 

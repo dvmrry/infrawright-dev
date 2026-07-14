@@ -142,5 +142,12 @@
   - derive source-less membership from the bound registries and compare an
     actual materialized root before assigning stale-root causality;
   - require JSON tfvars for jq counts and identify counts as tenant-derived.
+- Patch recheck findings:
+  - corrected the retained work-directory prefix to
+    `infrawright-oracle-*`;
+  - made semantic and physical containment fail fast;
+  - bound Adopt to `per-resource-type` and `applied-state`;
+  - replaced filename-bearing `shasum` output with fixed labels and extracted
+    digests.
 - Remediation: all accepted findings are addressed in the runbook. No runtime,
   pack, provider, schema, fixture, or generated artifact changed.
