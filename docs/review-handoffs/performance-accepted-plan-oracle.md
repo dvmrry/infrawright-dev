@@ -15,16 +15,21 @@
 
 - Base: `04f32acb2099e6f41f4657ed1d4cb3e75890fba8`
 - Implementation head: `803e612be3a08059de551d9ca0032ef509295bc7`
+- Initial review head: `f0df44ed142ed45bbb456cc4746fe7ce4d1b50fb`
+- Remediated implementation head: `bbf5645cbcf0d6e0970cb0ae57fc22480a20f736`
 - Diff command:
-  `git diff 04f32acb2099e6f41f4657ed1d4cb3e75890fba8..803e612be3a08059de551d9ca0032ef509295bc7`
+  `git diff 04f32acb2099e6f41f4657ed1d4cb3e75890fba8..bbf5645cbcf0d6e0970cb0ae57fc22480a20f736`
 
 ## Files Changed
 
 - `node-src/domain/import-oracle.ts`
+- `node-src/json/python-equality.ts`
 - `node-src/performance/recorder.ts`
 - `scripts/compare-performance-reports.mjs`
 - `node-tests/import-oracle.test.ts`
 - `node-tests/adopt-runner.test.ts`
+- `node-tests/json.test.ts`
+- `node-tests/performance-tools.test.ts`
 - `docs/import-oracle.md`
 - `docs/performance-benchmark.md`
 - `docs/templates/integration-validation-report.md`
@@ -93,8 +98,11 @@
   the selected source and zero-command skipped phases.
 - Adoption safety invariants: exact import IDs/actions/addresses/provider/type
   validation still runs before state extraction. The provider still executes
-  the import/read plan. Terraform JSON equality preserves lossless numbers and
-  distinguishes booleans from numbers. No deployment Apply path changed.
+  the import/read plan. The accepted-plan authorization boundary compares
+  decimal/exponent tokens exactly without IEEE-754 coercion and distinguishes
+  booleans from numbers. Existing plan-classification and migration-parity
+  callers retain their established Python numeric-equality contract. No
+  deployment Apply path changed.
 
 ## Tests Run
 
@@ -102,15 +110,49 @@
 - `npm run build`
 - `npm run build:test`
 - Focused Oracle, state projection, Adopt artifact, performance-tool, and
-  Python-disabled operational-runtime tests: 36 passed, 0 failed.
+  Python-disabled operational-runtime tests before review: 36 passed, 0
+  failed.
 - `python3 -m engine.audit_vendor_boundary`: 187 allowed matches, 0 violations.
 - `npm audit --audit-level=high`: 0 vulnerabilities.
 - `git diff --check`: passed.
-- `npm test`: 1,111 tests; 1,110 passed; 1 skipped; 0 failed.
+- Initial final gate at `f0df44e`: `npm test`: 1,111 tests; 1,110 passed; 1
+  skipped; 0 failed.
+- Patch-focused remediated gate at `bbf5645`: typecheck, production build,
+  test build, and all 92 direct/transitive callers covering Oracle, exact and
+  compatibility JSON equality, plan classification, projection policy,
+  assessment guidance, Transform differentials, retained adoption artifacts,
+  and performance evidence passed; `git diff --check` passed.
 - Tests not run: live credentials, provider/API/backend calls, live
   plan-versus-state comparison, provider test suite (no provider change), and
   deployment Apply. These are forbidden on this machine or deferred to the
   approved work-machine benchmark.
+
+## Review Findings and Remediation
+
+The fresh-context review of `04f32ac..f0df44e` requested changes for four
+blocking findings. All four were accepted and remediated in `bbf5645`:
+
+1. Distinct decimal tokens could compare equal after JavaScript number
+   rounding. The accepted-plan gate now uses a dedicated exact-decimal JSON
+   comparison; a losslessly parsed `9007199254740992.0` versus
+   `9007199254740993.0` plan is rejected. The established Python-compatible
+   equality used elsewhere is unchanged.
+2. The A/B comparator trusted caller labels. `--oracle-ab` now binds the two
+   fixed variant labels to the state source recorded by Adopt, displays the
+   observed source, and validates scratch-Apply/state-show command evidence.
+3. The fresh-worktree benchmark had no executable candidate runtime. It now
+   requires an immutable checksum-verified runtime tree plus trusted build
+   attestation binding its digest to the exact candidate commit; no work-side
+   npm, TypeScript, `node_modules`, or Python is required.
+4. The artifact manifest included Terraform runtime state. It is now captured
+   before staging/init/plan and covers deterministic generated inputs only;
+   saved plans, fingerprints, provider installations, state, and assessments
+   remain separate private evidence.
+
+Accepted non-blocking review improvements also remove synthetic addresses from
+new accepted-plan diagnostics and directly assert that the corrected-plan
+Terraform command count falls from six to four. The patch-focused re-review is
+pending.
 
 ## Known Deferrals
 
