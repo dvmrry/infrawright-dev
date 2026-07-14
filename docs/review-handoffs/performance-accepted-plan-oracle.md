@@ -17,8 +17,9 @@
 - Implementation head: `803e612be3a08059de551d9ca0032ef509295bc7`
 - Initial review head: `f0df44ed142ed45bbb456cc4746fe7ce4d1b50fb`
 - Remediated implementation head: `bbf5645cbcf0d6e0970cb0ae57fc22480a20f736`
+- Evidence-remediation head: `241f5185f43b7da992c5fed97c0e91b74e82dad0`
 - Diff command:
-  `git diff 04f32acb2099e6f41f4657ed1d4cb3e75890fba8..bbf5645cbcf0d6e0970cb0ae57fc22480a20f736`
+  `git diff 04f32acb2099e6f41f4657ed1d4cb3e75890fba8..241f5185f43b7da992c5fed97c0e91b74e82dad0`
 
 ## Files Changed
 
@@ -122,6 +123,11 @@
   compatibility JSON equality, plan classification, projection policy,
   assessment guidance, Transform differentials, retained adoption artifacts,
   and performance evidence passed; `git diff --check` passed.
+- Evidence-remediation gate at `241f518`: typecheck and test build passed; 45
+  focused Oracle, exact/compatibility equality, plan-classification, and
+  performance-evidence tests passed after the first edit, then all 6
+  performance-tool tests passed after the diagnostic expectation correction;
+  `git diff --check` passed.
 - Tests not run: live credentials, provider/API/backend calls, live
   plan-versus-state comparison, provider test suite (no provider change), and
   deployment Apply. These are forbidden on this machine or deferred to the
@@ -151,8 +157,24 @@ blocking findings. All four were accepted and remediated in `bbf5645`:
 
 Accepted non-blocking review improvements also remove synthetic addresses from
 new accepted-plan diagnostics and directly assert that the corrected-plan
-Terraform command count falls from six to four. The patch-focused re-review is
-pending.
+Terraform command count falls from six to four.
+
+The first patch re-review verified those six corrections, then found three
+remaining evidence-composition gaps. They are remediated in `241f518`:
+
+1. Oracle provenance is accepted only on successful, zero-command
+   `oracle.state_source` spans, with exactly matching scratch-Apply and
+   state-show evidence for every resource family. Misplaced, missing,
+   duplicated, or truncated evidence fails.
+2. The benchmark compares the packaged checksum with the SHA-256 from the
+   trusted build attestation, then runs the verifier committed at `IW_HEAD`;
+   the attestation's commit and digest must come from the same record.
+3. The final A/B comparator is invoked from the detached `IW_HEAD` worktree,
+   never from the caller's current checkout.
+
+The exact-decimal, manifest-timing, corrected-command-count, and diagnostic
+privacy fixes were explicitly verified by that re-review. Final patch-only
+confirmation of the three evidence changes is pending.
 
 ## Known Deferrals
 
