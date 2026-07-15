@@ -12,6 +12,7 @@ import {
   operationAliases,
 } from "../node-src/authoring/source-operation-map.js";
 import type { JsonObject } from "../node-src/metadata/validation.js";
+import { PYTHON_ORACLE } from "./python-oracle.js";
 
 async function fixture(files: Readonly<Record<string, string>>): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "source-map-node-"));
@@ -36,7 +37,7 @@ async function pythonReport(options: {
   ].join(";");
   const payload = path.join(path.dirname(options.root), `${path.basename(options.root)}-options.json`);
   await writeFile(payload, JSON.stringify({ ...options, schema: undefined, openapi: undefined }));
-  const result = spawnSync("python3", ["-c", script, schemaPath, openapiPath, payload], { cwd: process.cwd(), encoding: "utf8" });
+  const result = spawnSync(PYTHON_ORACLE, ["-c", script, schemaPath, openapiPath, payload], { cwd: process.cwd(), encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr); return JSON.parse(result.stdout) as JsonObject;
 }
 
@@ -91,7 +92,7 @@ test("AST facts produce exact registry, diagnostics, and comparison reports", as
   const comparison = compareSourceOperationReports(control, candidate);
   const pyScript = "import json,sys;from engine import source_operation_map as s;a=json.load(open(sys.argv[1]));b=json.load(open(sys.argv[2]));json.dump(s.compare_registry_reports(a,b),sys.stdout,sort_keys=True,separators=(',',':'))";
   const before = `${root}-before.json`; const after = `${root}-after.json`; await writeFile(before, JSON.stringify(control)); await writeFile(after, JSON.stringify(candidate));
-  const result = spawnSync("python3", ["-c", pyScript, before, after], { cwd: process.cwd(), encoding: "utf8" }); assert.equal(result.status, 0, result.stderr);
+  const result = spawnSync(PYTHON_ORACLE, ["-c", pyScript, before, after], { cwd: process.cwd(), encoding: "utf8" }); assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(comparison, JSON.parse(result.stdout));
 });
 
@@ -210,4 +211,53 @@ func read() { client.NewRequest("GET", "\x2fwidgets\u002f%s", nil) }
   const factsReport = await deriveSourceOperationRegistry({ openApi: openapi, providerSource: PROVIDER, resourcePrefix: "example", schemaData: schema, sourceFacts: facts, sourceRoot: root });
   assert.deepEqual(factsReport, await pythonReport({ facts, root, schema, openapi, providerSource: PROVIDER, prefix: "example" }));
   assert.equal(((factsReport.registry as JsonObject).example_widget as JsonObject).status, "mapped");
+});
+
+test("AST REST facts with unresolved paths do not invent root-path evidence", async (context) => {
+  const root = await fixture({ "resource_widget.go": `package provider
+func read() { client.NewRequest("GET", dynamicPath, nil) }
+` });
+  context.after(async () => rm(root, { force: true, recursive: true }));
+  const schema: JsonObject = { provider_schemas: { [PROVIDER]: { resource_schemas: {
+    example_widget: { block: { attributes: {} } },
+  } } } };
+  const openapi: JsonObject = { paths: {
+    "/widgets/{id}": { get: { operationId: "GetWidget" } },
+  } };
+  const facts: JsonObject = {
+    source_root: root,
+    files: [{ path: "resource_widget.go", imports: [], package: "provider" }],
+    functions: [],
+    resource_registrations: [],
+    resource_references: [],
+    identifier_references: [],
+    read_callbacks: [],
+    package_calls: [],
+    raw_rest_calls: [{
+      file: "resource_widget.go",
+      function: "read",
+      method: "GET",
+      symbol: "client.NewRequest",
+    }],
+    selector_calls: [],
+  };
+  const report = await deriveSourceOperationRegistry({
+    openApi: openapi,
+    providerSource: PROVIDER,
+    resourcePrefix: "example",
+    schemaData: schema,
+    sourceFacts: facts,
+    sourceRoot: root,
+  });
+  assert.deepEqual(report, await pythonReport({
+    facts,
+    root,
+    schema,
+    openapi,
+    providerSource: PROVIDER,
+    prefix: "example",
+  }));
+  const source = ((report.registry as JsonObject).example_widget as JsonObject).source as JsonObject;
+  assert.equal(Object.hasOwn(source, "raw_rest_call_count"), false);
+  assert.equal(Object.hasOwn(source, "raw_rest_calls"), false);
 });

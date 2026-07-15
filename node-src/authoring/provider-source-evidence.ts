@@ -352,7 +352,13 @@ export async function factsEvidence(root: string, files: readonly string[], fact
     const role = packageMethodRole(method); if (role === null) continue; const symbol = String(item.symbol ?? `${pkg}.${method}`); packages[symbol] = { client_symbol: symbol, method, package: pkg, package_path: importPath, source_role: role };
   }
   for (const item of array(facts.raw_rest_calls)) {
-    if (!selected.has(String(item.file ?? "").replaceAll("\\", "/"))) continue; const method = String(item.method ?? "").toUpperCase(); const restPath = normalizeRawRestPath(String(item.path ?? "")); if (!method || !restPath) continue; const symbol = String(item.symbol ?? "NewRequest"); raw[`${symbol}\0${method}\0${restPath}`] = { client_symbol: `${symbol} ${method} ${restPath}`, method, path: restPath, source_role: "read" };
+    if (!selected.has(String(item.file ?? "").replaceAll("\\", "/"))) continue;
+    const method = String(item.method ?? "").toUpperCase();
+    const rawPath = String(item.path ?? "");
+    if (!method || !rawPath) continue;
+    const restPath = normalizeRawRestPath(rawPath);
+    const symbol = String(item.symbol ?? "NewRequest");
+    raw[`${symbol}\0${method}\0${restPath}`] = { client_symbol: `${symbol} ${method} ${restPath}`, method, path: restPath, source_role: "read" };
   }
   let graphql = array(facts.files).some((file) => selected.has(String(file.path ?? "").replaceAll("\\", "/")) && array(file.imports).some((item) => String(item.path ?? "").includes("githubv4")));
   graphql ||= array(facts.selector_calls).some((item) => selected.has(String(item.file ?? "").replaceAll("\\", "/")) && String(item.symbol ?? "").toLowerCase().includes("githubv4"));

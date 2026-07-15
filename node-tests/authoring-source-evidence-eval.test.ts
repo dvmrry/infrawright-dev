@@ -13,12 +13,13 @@ import {
 } from "../node-src/authoring/source-evidence-eval.js";
 import { compareSourceOperationReports, deriveSourceOperationRegistry } from "../node-src/authoring/source-operation-map.js";
 import type { JsonObject } from "../node-src/metadata/validation.js";
+import { PYTHON_ORACLE } from "./python-oracle.js";
 
 async function pythonEvaluation(compare: JsonObject, candidate: JsonObject): Promise<JsonObject> {
   const root = await mkdtemp(path.join(os.tmpdir(), "source-eval-python-")); const input = path.join(root, "input.json");
   await writeFile(input, JSON.stringify({ candidate, compare }));
   const script = ["import json,sys", "from engine import source_evidence_eval as e", "x=json.load(open(sys.argv[1]))", "v=e.classify_comparison(x['compare'])", "v['shortcomings']=e.summarize_shortcomings(x['candidate'],v)", "json.dump({'evaluation':v,'markdown':e.render_markdown(v)},sys.stdout,sort_keys=True,separators=(',',':'))"].join(";");
-  const result = spawnSync("python3", ["-c", script, input], { cwd: process.cwd(), encoding: "utf8" }); await rm(root, { force: true, recursive: true }); assert.equal(result.status, 0, result.stderr); return JSON.parse(result.stdout) as JsonObject;
+  const result = spawnSync(PYTHON_ORACLE, ["-c", script, input], { cwd: process.cwd(), encoding: "utf8" }); await rm(root, { force: true, recursive: true }); assert.equal(result.status, 0, result.stderr); return JSON.parse(result.stdout) as JsonObject;
 }
 
 const changes: JsonObject[] = [

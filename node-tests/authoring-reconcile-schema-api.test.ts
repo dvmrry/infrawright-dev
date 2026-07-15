@@ -18,6 +18,7 @@ import {
   resolveLocalRef,
 } from "../node-src/authoring/openapi.js";
 import type { JsonObject } from "../node-src/metadata/validation.js";
+import { PYTHON_ORACLE } from "./python-oracle.js";
 
 const SCHEMA: JsonObject = {
   block: {
@@ -59,7 +60,7 @@ function pythonReport(payload: JsonObject): unknown {
     "x=r.reconcile_items(p['resource_type'],p['items'],p['schema'],override=p.get('override'),api_metadata=m)",
     "json.dump(x.as_dict(),sys.stdout,sort_keys=True,separators=(',',':'))",
   ].join(";");
-  const result = spawnSync("python3", ["-c", script], {
+  const result = spawnSync(PYTHON_ORACLE, ["-c", script], {
     cwd: process.cwd(),
     encoding: "utf8",
     input: JSON.stringify(payload),

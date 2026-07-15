@@ -1,4 +1,8 @@
-import { isObject, type JsonObject } from "./validation.js";
+import {
+  isIntegerJsonNumber,
+  isObject,
+  type JsonObject,
+} from "./validation.js";
 import { sortedStrings } from "../json/python-compatible.js";
 
 export type TerraformPrimitiveEncoding = "bool" | "number" | "string";
@@ -185,7 +189,9 @@ export function terraformAttributeType(
 }
 
 export function terraformBlockIsSingle(blockType: JsonObject): boolean {
-  return blockType.nesting_mode === "single" || blockType.max_items === 1;
+  const maxItems = blockType.max_items;
+  return blockType.nesting_mode === "single"
+    || (isIntegerJsonNumber(maxItems) && maxItems.toString() === "1");
 }
 
 export function terraformBlockHasInputs(

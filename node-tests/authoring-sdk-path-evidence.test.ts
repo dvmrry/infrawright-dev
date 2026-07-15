@@ -16,6 +16,7 @@ import {
   splitGoCallArguments,
 } from "../node-src/authoring/sdk-path-evidence.js";
 import type { JsonObject } from "../node-src/metadata/validation.js";
+import { PYTHON_ORACLE } from "./python-oracle.js";
 
 async function fixture(files: Readonly<Record<string, string | Uint8Array>>): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "sdk-evidence-node-"));
@@ -34,7 +35,7 @@ function pythonExtract(root: string): unknown {
     "e,u=s.extract_sdk_paths(sys.argv[1])",
     "json.dump({'evidence':e,'unresolved':u},sys.stdout,sort_keys=True,separators=(',',':'))",
   ].join(";");
-  const result = spawnSync("python3", ["-c", script, root], {
+  const result = spawnSync(PYTHON_ORACLE, ["-c", script, root], {
     cwd: process.cwd(), encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr);

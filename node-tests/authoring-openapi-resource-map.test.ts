@@ -14,6 +14,7 @@ import {
   providerFromSchema,
 } from "../node-src/authoring/openapi-resource-map.js";
 import type { JsonObject } from "../node-src/metadata/validation.js";
+import { PYTHON_ORACLE } from "./python-oracle.js";
 
 function schema(attributes: JsonObject = { name: { required: true, type: "string" } }): JsonObject {
   return { block: { attributes } };
@@ -32,7 +33,7 @@ function pythonReport(payload: JsonObject): unknown {
     "r=m.build_report(sp,op,provider_source=p.get('provider_source'),resource_prefix=p.get('resource_prefix',''),api_prefix=p.get('api_prefix','/api/'),registry_data=p.get('registry_data'))",
     "json.dump(r,sys.stdout,sort_keys=True,separators=(',',':'))",
   ].join(";");
-  const result = spawnSync("python3", ["-c", script], {
+  const result = spawnSync(PYTHON_ORACLE, ["-c", script], {
     cwd: process.cwd(), encoding: "utf8", input: JSON.stringify(payload),
   });
   assert.equal(result.status, 0, result.stderr);

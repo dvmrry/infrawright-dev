@@ -40,11 +40,20 @@ async function fixture(): Promise<Fixture> {
   await jsonFile(schema, {
     resource_schemas: {
       example_widget: {
-        block: { attributes: { name: { required: true, type: "string" } } },
+        block: {
+          attributes: { name: { required: true, type: "string" } },
+          block_types: {
+            settings: {
+              block: { attributes: { mode: { optional: true, type: "string" } } },
+              max_items: 1,
+              nesting_mode: "list",
+            },
+          },
+        },
       },
     },
   });
-  await jsonFile(api, [{ name: "example" }]);
+  await jsonFile(api, [{ name: "example", settings: { mode: "strict" } }]);
   await jsonFile(openApi, {
     openapi: "3.0.3",
     paths: {
@@ -131,6 +140,10 @@ test("authoring CLI reports remain byte-compatible with Python", async (context)
     assert.equal(python.status, 0, python.stderr);
     assert.equal(node.stderr, python.stderr, comparison.module);
     assert.equal(node.stdout, python.stdout, comparison.module);
+    if (comparison.module === "engine.reconcile_schema_api") {
+      assert.match(node.stdout, /settings\.mode/u);
+      assert.doesNotMatch(node.stdout, /settings\[\]\.mode/u);
+    }
   }
 });
 
