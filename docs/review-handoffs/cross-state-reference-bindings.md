@@ -29,25 +29,33 @@
 - Root/plan integration: `node-src/domain/environment-generator.ts`,
   `node-src/domain/reference-backend.ts`, `node-src/domain/plan-lifecycle.ts`.
 - Focused Node and real local-Terraform tests under `node-tests/`.
+- Source-backed nested ZPA reference and lookup declarations in
+  `packs/zpa/pack.json`.
 - Operator documentation and live-qualification runbook under `docs/`.
-- Files intentionally left untouched: pack reference metadata, provider code,
-  provider schemas, Fetch, modules, import staging, assessment semantics,
-  saved-plan fingerprint schema, exact-plan Apply, and deployment defaults.
+- Files intentionally left untouched: provider code, provider schemas, Fetch,
+  modules, import staging, assessment semantics, saved-plan fingerprint schema,
+  exact-plan Apply, and deployment defaults.
 
 ## Source Inputs Consulted
 
-- Provider schemas: committed ZIA and ZPA provider schemas were read only to
-  bound the current top-level ID-reference scope; no schema was changed.
+- Provider schemas: committed ZIA and ZPA provider schemas were read only. ZPA
+  establishes ordered outer lists with required `set(string)` ID leaves for
+  `server_groups`, `app_connector_groups`, and `servers`; ZIA establishes that
+  `cbi_profile` is a list but does not make provider 4.7.26 import Read complete.
+  No schema was changed.
 - OpenAPI/API contracts: N/A.
 - Provider source files: N/A; existing provider-observed IDs remain
   authoritative.
-- Pack metadata: committed transform-reference declarations, currently
-  `zia_url_filtering_rules.url_categories -> zia_url_categories` and
-  `zpa_application_segment.segment_group_id -> zpa_segment_group`.
+- Pack metadata: the pre-existing top-level declarations plus the source-backed
+  ZPA cohort `zpa_application_segment.server_groups.id -> zpa_server_group`,
+  `zpa_server_group.app_connector_groups.id -> zpa_app_connector_group`, and
+  `zpa_server_group.servers.id -> zpa_application_server`.
 - Existing docs or design records: `docs/adoption-command-surface.md`,
   `docs/terraform-expression-bindings.md`, root topology and saved-plan
   lifecycle documentation.
-- Other source evidence: Terraform `terraform_remote_state` documentation,
+- Other source evidence: retained raw/projected application-segment and
+  server-group fixtures under `tests/fixtures/transform/`; Terraform
+  `terraform_remote_state` documentation,
   azurerm backend documentation, the existing referent lookup sidecars,
   existing same-root binding behavior, and the generated module `items` output.
 
@@ -66,10 +74,10 @@
 
 ## Expected Delta
 
-- Expected behavior change: `cross_state_references: true` permits top-level
-  pack-declared references across singleton state roots. Same-root references
-  remain module expressions. The option is mutually exclusive with the legacy
-  `bind_references` switch.
+- Expected behavior change: `cross_state_references: true` permits pack-declared
+  top-level and exact indexed-list references across singleton state roots.
+  Same-root references remain module expressions. The option is mutually
+  exclusive with the legacy `bind_references` switch.
 - Expected report/count/coverage changes: none.
 - Expected generated-output changes: opted-in referrer roots read the exact
   referent root and opted-in referent roots publish only stable-key-to-ID maps.
@@ -95,24 +103,29 @@
 
 ## Tests Run
 
-- `npm run build` passed.
-- Focused deployment, Transform/Adopt binding, environment, plan-lifecycle,
-  topology, and local Terraform tests passed (42 focused tests plus the real
-  local producer/consumer convergence test).
+- `npm run build` and `npm run typecheck` passed.
+- Focused expression-binding, deployment, Transform/Adopt artifact,
+  environment, topology, metadata/profile, and real local-Terraform tests
+  passed. Real Terraform covers local remote-state consumption at an indexed
+  leaf, multiple indexed edits preserving siblings, local Apply, and a second
+  no-op plan.
 - The complete Python generated-root differential passed all 9 profiles,
   including the full 151-root tree; legacy bytes are unchanged.
-- `npm test` ran 826 tests: 825 passed. One untouched ZCC timing test missed its
-  simultaneous protection-mutation window; its immediate isolated rerun passed
-  2/2. The failure is recorded rather than represented as a clean full gate.
+- `npm test` passed all 835 selected Node tests.
 - `git diff --check` passed.
 - Tests not run: no live ZIA/ZPA credentials, azurerm backend, remote provider,
   or deployment Apply. Those are explicitly downstream qualification.
 
 ## Known Deferrals
 
-- Nested reference paths and references requiring an ID representation other
-  than `item.id` are deferred. The current binding engine supports top-level
-  fields only; broad ZIA/ZPA mapping would overclaim coverage.
+- Wildcard/identity list selectors, unordered multi-element set traversal, and
+  references requiring producer output other than `item.id` remain deferred.
+- Only the three fixture/schema-backed ZPA nested edges are declared. Other ZPA
+  nested fields and ZIA firewall group edges require their own source/live
+  evidence before pack expansion.
+- Indexed root bindings do not repair ZIA provider 4.7.26 `ISOLATE` import Read;
+  the version-scoped `unsupported_if` classification remains required before
+  Oracle execution.
 - Additional source-backed ZIA URL-category consumers are a separate pack-data
   change after this engine mode is accepted.
 - Existing grouped state is not auto-split or migrated. Existing operators must
@@ -141,12 +154,18 @@
   and whether init/plan/Apply receive the required variable at the right time.
 - Attack cycle detection, explicit-group collapse, dependency ordering, missing
   state on first adoption, and stale referent state between plan and Apply.
+- Attack exact-index parsing, list sibling preservation, missing/out-of-range
+  failure, schema distinction between ordered lists and unordered sets, HCL
+  validation, and indexed-path canonicalization back to pack metadata.
+- Verify nested derivation stops at the declared ID collection leaf, emits one
+  list expression rather than per-ID target indexes, and retains unresolved
+  literals with visible diagnostics.
 - Verify the generated smoke override cannot conceal an invalid production
   expression and the local real-Terraform test proves second-run convergence.
 - Verify mixed ZIA lists bind managed custom categories while retaining
   predefined/system tokens literally and visibly.
 
-## Review Result
+## Prior Review Result
 
 - Fresh-context verdict on `9545bd970ac815871c52eb4026bf5854deeec083`:
   **Request changes**, with three blocking findings.
@@ -167,3 +186,8 @@
   passed; the complete full-profile generated-root tree remained byte-identical
   to Python; typecheck and whitespace checks passed.
 - Patch re-review target: `9545bd970ac815871c52eb4026bf5854deeec083..feature/reference-binding-qualification`.
+
+The prior review later approved exact head
+`eacca5305c96cbfb48fbde57e7adc03d2e111079`. The indexed-list and ZPA pack
+delta after that head invalidates that approval. A fresh-context adversarial
+review is required for the new frozen commit; no current approval is claimed.

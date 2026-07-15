@@ -15,6 +15,7 @@ import {
   renderExpressionBindingsHcl,
   renderExpressionHclValue,
   toTerraformJsonValue,
+  validateExpressionBindingSchemaPaths,
 } from "../node-src/domain/expression-bindings.js";
 
 function binding(expression: string, options?: { readonly sensitive?: boolean }): unknown {
@@ -25,6 +26,16 @@ function binding(expression: string, options?: { readonly sensitive?: boolean })
           expression,
           ...(options?.sensitive === undefined ? {} : { sensitive: options.sensitive }),
         },
+      },
+    },
+  };
+}
+
+function bindingAt(path: string, expression = "var.value"): unknown {
+  return {
+    resources: {
+      "sample_resource.example": {
+        [path]: { expression },
       },
     },
   };
@@ -138,10 +149,13 @@ test("malformed expressions, paths, addresses, and secret-bearing metadata fail 
     () => parseExpressionBindings({ resources: { "other.example": { value: { expression: "var.x" } } } }, "sample_resource"),
     /address must be sample_resource\.<key>/,
   );
-  assert.throws(
-    () => parseExpressionBindings({ resources: { "sample_resource.example": { "items[0]": { expression: "var.x" } } } }, "sample_resource"),
-    /unsupported segment/,
-  );
+  for (const path of ["items[]", "items[*]", "items[-1]", "items[01]", 'items["0"]', "items[9007199254740992]", "items[0]id"]) {
+    assert.throws(
+      () => parseExpressionBindings(bindingAt(path), "sample_resource"),
+      /selector|segment|safe integer/,
+      path,
+    );
+  }
   for (const extra of ["value", "secret", "secret_value", "credential"]) {
     assert.throws(
       () => parseExpressionBindings({
@@ -191,6 +205,92 @@ test("binding path validation rejects unknown items, missing parents/leaves, and
     },
   }, "sample_resource");
   assert.throws(() => renderExpressionBindingsHcl(conflicts), /conflicting expression binding/);
+});
+
+test("exact numeric list selectors preserve siblings and render fail-closed list edits", () => {
+  const parsed = parseExpressionBindings(bindingAt("nested[1].target"), "sample_resource");
+  assert.deepEqual(parsed[0]?.pathParts, ["nested", 1, "target"]);
+  assert.equal(parsed[0]?.path, "nested[1].target");
+  const applied = applyExpressionBindings({
+    example: {
+      nested: [
+        { target: "first", untouched: 1 },
+        { target: "second", untouched: 2 },
+        { target: "third", untouched: 3 },
+      ],
+    },
+  }, parsed) as { readonly example: { readonly nested: readonly Record<string, unknown>[] } };
+  assert.equal(applied.example.nested[0]?.target, "first");
+  assert.equal(applied.example.nested[2]?.target, "third");
+  assert.ok(applied.example.nested[1]?.target instanceof HclExpression);
+  assert.equal(applied.example.nested[1]?.untouched, 2);
+  const rendered = renderExpressionBindingsHcl(parsed);
+  assert.match(rendered, /concat\(slice\(/u);
+  assert.match(rendered, /nested\[1\]/u);
+  assert.match(rendered, /target = var\.value/u);
+  assert.throws(
+    () => applyExpressionBindings({ example: { nested: [{ target: "first" }] } }, parsed),
+    /out-of-range list index \[1\]/u,
+  );
+  const withoutIndex = parseExpressionBindings(bindingAt("nested.target"), "sample_resource");
+  assert.throws(
+    () => applyExpressionBindings({ example: { nested: [{ target: "first" }] } }, withoutIndex),
+    /traverses a list.*exact numeric list selector/u,
+  );
+  const indexOnObject = parseExpressionBindings(bindingAt("nested[0].target"), "sample_resource");
+  assert.throws(
+    () => applyExpressionBindings({ example: { nested: { target: "first" } } }, indexOnObject),
+    /indexes a non-list/u,
+  );
+});
+
+test("provider schema validation distinguishes ordered lists from unordered sets", () => {
+  const schema = {
+    block: {
+      attributes: {},
+      block_types: {
+        list_block: {
+          nesting_mode: "list",
+          block: { attributes: { id: { optional: true, type: "string" } } },
+        },
+        set_block: {
+          nesting_mode: "set",
+          block: { attributes: { id: { optional: true, type: "string" } } },
+        },
+        singleton_set: {
+          nesting_mode: "set",
+          max_items: 1,
+          block: { attributes: { id: { optional: true, type: ["set", "number"] } } },
+        },
+      },
+    },
+  };
+  assert.doesNotThrow(() => validateExpressionBindingSchemaPaths(
+    schema,
+    "sample_resource",
+    parseExpressionBindings(bindingAt("list_block[0].id"), "sample_resource"),
+  ));
+  assert.doesNotThrow(() => validateExpressionBindingSchemaPaths(
+    schema,
+    "sample_resource",
+    parseExpressionBindings(bindingAt("singleton_set.id"), "sample_resource"),
+  ));
+  assert.throws(
+    () => validateExpressionBindingSchemaPaths(
+      schema,
+      "sample_resource",
+      parseExpressionBindings(bindingAt("list_block.id"), "sample_resource"),
+    ),
+    /list block.*without an exact numeric selector/u,
+  );
+  assert.throws(
+    () => validateExpressionBindingSchemaPaths(
+      schema,
+      "sample_resource",
+      parseExpressionBindings(bindingAt("set_block[0].id"), "sample_resource"),
+    ),
+    /unordered set block/u,
+  );
 });
 
 test("layer merge is generated-first/operator-last and variable sensitivity uses logical OR", () => {

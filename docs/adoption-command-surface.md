@@ -395,11 +395,26 @@ referent state. Use this mode only where that trust boundary is acceptable.
 
 ### Binding Validation Limits
 
-When `tfvars_format: hcl` is active, operator-authored expression sidecars are
-validated by Terraform/OpenTofu at plan time only. The engine does not parse HCL
-tfvars back into data; generated bindings are leaf-exact by construction before
-the HCL file is written. Generated reference binding derivation supports only
-top-level reference fields. Dotted or nested referent paths are not derived.
+Expression-binding target paths are validated against the pinned provider
+schema for both JSON and native-HCL tfvars. Exact canonical numeric selectors
+such as `server_groups[0].id` may traverse ordered lists. Wildcard, identity,
+negative, quoted, noncanonical, and unordered multi-element set selectors are
+rejected. A path that crosses a list without an explicit index also fails
+closed. JSON tfvars receive an additional concrete leaf/index existence check;
+the engine does not parse HCL tfvars back into data, so a structurally valid but
+out-of-range HCL selector fails during Terraform validation or planning.
+
+Generated reference binding derivation remains limited to pack-declared,
+source-backed reference fields. Indexed-path support does not infer new nested
+references from matching field names and does not expand the current pack
+reference inventory by itself.
+
+This capability does not make ZIA URL-filtering `ISOLATE` rules adoptable with
+the pinned `zscaler/zia` provider 4.7.26. Version-scoped `unsupported_if`
+classification occurs before identity derivation and the import Oracle, while
+root expression bindings are applied later during environment generation. The
+provider's import Read still does not reconstruct `cbi_profile`; do not remove
+that fail-closed classification on the strength of an indexed root binding.
 
 Generated binding skip/fallback semantics:
 

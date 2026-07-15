@@ -22,9 +22,11 @@ import { pythonHtmlUnescapeGeneric } from "../node-src/domain/python-html-unesca
 import {
   compileTransformArtifactBatch,
   compileTransformArtifacts,
+  deriveGeneratedBindings,
   installTransformArtifactBatchCommitHookForTests,
   publishCompiledTransformArtifactBatch,
   publishCompiledTransformArtifacts,
+  renderGeneratedBindings,
   renderTransformLookup,
   transformArtifactPaths,
   writeTransformArtifacts,
@@ -738,6 +740,146 @@ test("same-root references materialize generated binding JSON on the first batch
   );
 });
 
+test("nested pack references emit deterministic concrete indexed binding paths", () => {
+  const result = deriveGeneratedBindings({
+    context: {
+      derived: new Set<string>(),
+      generated: new Set(["zpa_app_connector_group", "zpa_server_group"]),
+      mode: "cross_state",
+      references: {
+        "server_groups.id": {
+          name_field: "name",
+          referent: "zpa_server_group",
+        },
+      },
+      resourceRoots: {
+        zpa_app_connector_group: "zpa_app_connector_group",
+        zpa_server_group: "zpa_server_group",
+      },
+    },
+    items: {
+      connector_one: {
+        server_groups: [
+          { id: ["sg-2", "sg-1"], name: "Second and first" },
+          { id: ["sg-3"], name: "Third" },
+        ],
+      },
+    },
+    lookupKeys: {
+      zpa_server_group: {
+        "sg-1": "server_one",
+        "sg-2": "server_two",
+        "sg-3": "server_three",
+      },
+    },
+    resourceType: "zpa_app_connector_group",
+  });
+
+  assert.equal(
+    renderGeneratedBindings(result.data),
+    "{\n"
+      + "  \"resources\": {\n"
+      + "    \"zpa_app_connector_group.connector_one\": {\n"
+      + "      \"server_groups[0].id\": {\n"
+      + "        \"expression\": \"[data.terraform_remote_state.zpa_server_group.outputs.infrawright_reference_ids.zpa_server_group[\\\"server_two\\\"], data.terraform_remote_state.zpa_server_group.outputs.infrawright_reference_ids.zpa_server_group[\\\"server_one\\\"]]\",\n"
+      + "        \"reason\": \"cross-state reference binding via zpa_server_group root output\"\n"
+      + "      },\n"
+      + "      \"server_groups[1].id\": {\n"
+      + "        \"expression\": \"[data.terraform_remote_state.zpa_server_group.outputs.infrawright_reference_ids.zpa_server_group[\\\"server_three\\\"]]\",\n"
+      + "        \"reason\": \"cross-state reference binding via zpa_server_group root output\"\n"
+      + "      }\n"
+      + "    }\n"
+      + "  }\n"
+      + "}\n",
+  );
+  assert.deepEqual(result.notes, ["zpa_app_connector_group: 3 bound, 0 skipped"]);
+});
+
+test("nested pack references retain unresolved diagnostics without suppressing resolved siblings", () => {
+  const result = deriveGeneratedBindings({
+    context: {
+      derived: new Set<string>(),
+      generated: new Set(["zpa_app_connector_group", "zpa_server_group"]),
+      mode: "same_root",
+      references: {
+        "server_groups.id": {
+          name_field: "name",
+          referent: "zpa_server_group",
+        },
+      },
+      resourceRoots: {
+        zpa_app_connector_group: "zpa_app",
+        zpa_server_group: "zpa_app",
+      },
+    },
+    items: {
+      connector_one: {
+        server_groups: [{ id: ["sg-known", "sg-missing"] }],
+      },
+    },
+    lookupKeys: {
+      zpa_server_group: { "sg-known": "known" },
+    },
+    resourceType: "zpa_app_connector_group",
+  });
+
+  assert.equal(
+    renderGeneratedBindings(result.data),
+    "{\n"
+      + "  \"resources\": {\n"
+      + "    \"zpa_app_connector_group.connector_one\": {\n"
+      + "      \"server_groups[0].id\": {\n"
+      + "        \"expression\": \"[module.zpa_server_group.items[\\\"known\\\"].id, \\\"sg-missing\\\"]\",\n"
+      + "        \"reason\": \"group-local reference binding via zpa_server_group.items\"\n"
+      + "      }\n"
+      + "    }\n"
+      + "  }\n"
+      + "}\n",
+  );
+  assert.deepEqual(result.notes, [
+    "zpa_app_connector_group.connector_one.server_groups[0].id[1] value \"sg-missing\" skipped; id is absent from zpa_server_group lookup",
+    "zpa_app_connector_group: 1 bound, 1 skipped (id_absent=1)",
+  ]);
+});
+
+test("top-level generated reference binding output remains byte-compatible", () => {
+  const result = deriveGeneratedBindings({
+    context: {
+      derived: new Set<string>(),
+      generated: new Set(["zpa_application_segment", "zpa_segment_group"]),
+      mode: "same_root",
+      references: {
+        segment_group_id: {
+          name_field: "name",
+          referent: "zpa_segment_group",
+        },
+      },
+      resourceRoots: {
+        zpa_application_segment: "zpa_custom",
+        zpa_segment_group: "zpa_custom",
+      },
+    },
+    items: { app_one: { segment_group_id: "sg-1" } },
+    lookupKeys: { zpa_segment_group: { "sg-1": "segment_one" } },
+    resourceType: "zpa_application_segment",
+  });
+
+  assert.equal(
+    renderGeneratedBindings(result.data),
+    "{\n"
+      + "  \"resources\": {\n"
+      + "    \"zpa_application_segment.app_one\": {\n"
+      + "      \"segment_group_id\": {\n"
+      + "        \"expression\": \"module.zpa_segment_group.items[\\\"segment_one\\\"].id\",\n"
+      + "        \"reason\": \"group-local reference binding via zpa_segment_group.items\"\n"
+      + "      }\n"
+      + "    }\n"
+      + "  }\n"
+      + "}\n",
+  );
+  assert.deepEqual(result.notes, ["zpa_application_segment: 1 bound, 0 skipped"]);
+});
+
 test("opt-in cross-state references bind singleton roots without grouping", async (context) => {
   const workspace = await temporaryDirectory(context, "infrawright-runtime-cross-state-bindings-");
   const input = path.join(workspace, "input");
@@ -780,6 +922,64 @@ test("opt-in cross-state references bind singleton roots without grouping", asyn
       + "  }\n"
       + "}\n",
   );
+});
+
+test("committed ZPA nested references emit exact indexed cross-state bindings", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-runtime-zpa-nested-bindings-");
+  const input = path.join(workspace, "input");
+  await mkdir(input, { recursive: true });
+  await copyFile(
+    path.join(ROOT, "tests", "fixtures", "transform", "zpa_application_segment", "api.json"),
+    path.join(input, "zpa_application_segment.json"),
+  );
+  await copyFile(
+    path.join(ROOT, "tests", "fixtures", "transform", "zpa_server_group", "api.json"),
+    path.join(input, "zpa_server_group.json"),
+  );
+  await writeJson(path.join(input, "zpa_app_connector_group.json"), [{
+    id: "216199618143660001",
+    latitude: "40.0",
+    location: "fictional-dc-east",
+    longitude: "-75.0",
+    name: "Fictional Connector Group 1",
+  }]);
+  await writeJson(path.join(input, "zpa_application_server.json"), [
+    { address: "10.0.1.10", id: "216199618143770001", name: "fictional-server-01.example.test" },
+    { address: "10.0.1.11", id: "216199618143770002", name: "fictional-server-02.example.test" },
+  ]);
+  const result = await runTransformBatch({
+    deployment: deployment(workspace, {
+      roots: { zpa: { cross_state_references: true } },
+    }),
+    inputDirectory: input,
+    root: await committedRoot(),
+    selectors: [
+      "zpa_app_connector_group",
+      "zpa_application_segment",
+      "zpa_application_server",
+      "zpa_server_group",
+    ],
+    tenant: "tenant",
+  });
+  assert.deepEqual(result.failed, []);
+  const application = await text(path.join(
+    workspace,
+    "config",
+    "tenant",
+    "zpa_application_segment.generated.expressions.json",
+  ));
+  assert.match(application, /"server_groups\[0\]\.id"/u);
+  assert.match(application, /terraform_remote_state\.zpa_server_group/u);
+  const serverGroup = await text(path.join(
+    workspace,
+    "config",
+    "tenant",
+    "zpa_server_group.generated.expressions.json",
+  ));
+  assert.match(serverGroup, /"app_connector_groups\[0\]\.id"/u);
+  assert.match(serverGroup, /terraform_remote_state\.zpa_app_connector_group/u);
+  assert.match(serverGroup, /"servers\[0\]\.id"/u);
+  assert.match(serverGroup, /terraform_remote_state\.zpa_application_server/u);
 });
 
 test("cross-state list bindings preserve predefined ZIA values as literals", async (context) => {

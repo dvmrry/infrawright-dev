@@ -45,23 +45,52 @@ test("cross-state topology keeps singleton dependencies and collapses explicit g
     root,
     topology: singletonTopology,
   });
-  assert.deepEqual(singleton.edges, [{
-    field: "segment_group_id",
-    referent: "zpa_segment_group",
-    referentRoot: "zpa_segment_group",
-    referrer: "zpa_application_segment",
-    referrerRoot: "zpa_application_segment",
-  }]);
+  assert.deepEqual(singleton.edges, [
+    {
+      field: "segment_group_id",
+      referent: "zpa_segment_group",
+      referentRoot: "zpa_segment_group",
+      referrer: "zpa_application_segment",
+      referrerRoot: "zpa_application_segment",
+    },
+    {
+      field: "server_groups.id",
+      referent: "zpa_server_group",
+      referentRoot: "zpa_server_group",
+      referrer: "zpa_application_segment",
+      referrerRoot: "zpa_application_segment",
+    },
+    {
+      field: "app_connector_groups.id",
+      referent: "zpa_app_connector_group",
+      referentRoot: "zpa_app_connector_group",
+      referrer: "zpa_server_group",
+      referrerRoot: "zpa_server_group",
+    },
+    {
+      field: "servers.id",
+      referent: "zpa_application_server",
+      referentRoot: "zpa_application_server",
+      referrer: "zpa_server_group",
+      referrerRoot: "zpa_server_group",
+    },
+  ]);
   assert.deepEqual(
     [...(singleton.dependenciesByRoot.get("zpa_application_segment") ?? [])],
-    ["zpa_segment_group"],
+    ["zpa_segment_group", "zpa_server_group"],
   );
   assert.deepEqual(
     crossStateDependencyClosure(
       ["zpa_application_segment"],
       singleton.dependenciesByRoot,
     ),
-    ["zpa_application_segment", "zpa_segment_group"],
+    [
+      "zpa_app_connector_group",
+      "zpa_application_segment",
+      "zpa_application_server",
+      "zpa_segment_group",
+      "zpa_server_group",
+    ],
   );
 
   const groupedDeployment = {
@@ -69,7 +98,15 @@ test("cross-state topology keeps singleton dependencies and collapses explicit g
     roots: {
       zpa: {
         cross_state_references: true,
-        groups: { zpa_app: ["zpa_application_segment", "zpa_segment_group"] },
+        groups: {
+          zpa_app: [
+            "zpa_app_connector_group",
+            "zpa_application_segment",
+            "zpa_application_server",
+            "zpa_segment_group",
+            "zpa_server_group",
+          ],
+        },
       },
     },
   } as const;

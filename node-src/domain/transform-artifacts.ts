@@ -352,6 +352,47 @@ function fieldCandidates(
   items: PullTransformResult["items"],
   field: string,
 ): readonly { readonly key: string; readonly path: string; readonly value: unknown }[] {
+  const segments = field.split(".");
+  if (
+    segments.length > 1
+    && segments.every((segment) => /^[A-Za-z_][A-Za-z0-9_]*$/u.test(segment))
+  ) {
+    const candidates: Array<{ key: string; path: string; value: unknown }> = [];
+    const visit = (
+      key: string,
+      value: unknown,
+      segmentIndex: number,
+      concretePath: string,
+    ): void => {
+      if (segmentIndex === segments.length) {
+        if (value !== null && value !== undefined) {
+          candidates.push({ key, path: concretePath, value });
+        }
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach((child, index) => {
+          if (child !== null && child !== undefined) {
+            visit(key, child, segmentIndex, `${concretePath}[${index}]`);
+          }
+        });
+        return;
+      }
+      const item = object(value);
+      const segment = segments[segmentIndex];
+      if (item === null || segment === undefined || !own(item, segment)) return;
+      visit(
+        key,
+        item[segment],
+        segmentIndex + 1,
+        concretePath.length === 0 ? segment : `${concretePath}.${segment}`,
+      );
+    };
+    for (const key of sortedStrings(Object.keys(items))) {
+      visit(key, items[key], 0, "");
+    }
+    return candidates;
+  }
   const candidates: Array<{ key: string; path: string; value: unknown }> = [];
   for (const key of sortedStrings(Object.keys(items))) {
     const item = items[key];
@@ -396,14 +437,6 @@ export function deriveGeneratedBindings(options: {
     const spec = options.context.references[field];
     if (spec === undefined) continue;
     const candidates = fieldCandidates(options.items, field);
-    if (field.includes(".")) {
-      if (candidates.length > 0) {
-        count("nested_field_unsupported", candidates.length);
-        skipped += candidates.length;
-        notes.push(`${options.resourceType}.${field} skipped; nested reference fields are unsupported`);
-      }
-      continue;
-    }
     if (options.resourceType === spec.referent) {
       if (candidates.length > 0) {
         count("self_reference", candidates.length);
@@ -452,25 +485,21 @@ export function deriveGeneratedBindings(options: {
       }
       return `data.terraform_remote_state.${referentRoot}.outputs.infrawright_reference_ids.${spec.referent}[${renderHclQuotedString(referentKey)}]`;
     };
-    for (const key of sortedStrings(Object.keys(options.items))) {
-      const item = options.items[key];
-      if (item === undefined || !own(item, field)) continue;
-      const value = item[field];
-      let expression: string | null = null;
+    const bindValue = (key: string, path: string, value: unknown): string | null => {
       if (Array.isArray(value)) {
         const bindable = value.filter((child) => !zeroSentinel(child));
         const hadZero = bindable.length !== value.length;
         if (!bindable.every(bindableListElement)) {
           count("unbindable_list");
           skipped += 1;
-          notes.push(`${options.resourceType}.${key}.${field} skipped; list has null or unbindable elements`);
-          continue;
+          notes.push(`${options.resourceType}.${key}.${path} skipped; list has null or unbindable elements`);
+          return null;
         }
         const fragments: string[] = [];
         let boundAny = false;
         value.forEach((child, index) => {
           if (zeroSentinel(child)) return;
-          const resolved = resolve(key, `${field}[${index}]`, child);
+          const resolved = resolve(key, `${path}[${index}]`, child);
           if (resolved === null) {
             skipped += 1;
             fragments.push(renderHclQuotedString(pythonTransformString(child)));
@@ -480,13 +509,36 @@ export function deriveGeneratedBindings(options: {
             fragments.push(resolved);
           }
         });
-        if (boundAny) expression = `[${fragments.join(", ")}]`;
-        else if (hadZero && bindable.length === 0) expression = "[]";
-      } else if (value !== null && value !== undefined) {
-        expression = resolve(key, field, value);
-        if (expression === null) skipped += 1;
-        else bound += 1;
+        if (boundAny) return `[${fragments.join(", ")}]`;
+        if (hadZero && bindable.length === 0) return "[]";
+        return null;
       }
+      if (value === null || value === undefined) return null;
+      const expression = resolve(key, path, value);
+      if (expression === null) skipped += 1;
+      else bound += 1;
+      return expression;
+    };
+    if (field.includes(".")) {
+      for (const candidate of candidates) {
+        const expression = bindValue(candidate.key, candidate.path, candidate.value);
+        if (expression === null) continue;
+        const address = `${options.resourceType}.${candidate.key}`;
+        const fields = resources[address]
+          ?? (resources[address] = Object.create(null) as Record<string, unknown>);
+        fields[candidate.path] = {
+          expression,
+          reason: sameRoot(options.resourceType, spec.referent, options.context)
+            ? `group-local reference binding via ${spec.referent}.items`
+            : `cross-state reference binding via ${spec.referent} root output`,
+        };
+      }
+      continue;
+    }
+    for (const key of sortedStrings(Object.keys(options.items))) {
+      const item = options.items[key];
+      if (item === undefined || !own(item, field)) continue;
+      const expression = bindValue(key, field, item[field]);
       if (expression === null) continue;
       const address = `${options.resourceType}.${key}`;
       const fields = resources[address]

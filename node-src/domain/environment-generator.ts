@@ -19,6 +19,7 @@ import {
   loadExpressionBindings,
   mergeExpressionBindingLayers,
   renderExpressionBindingsHcl,
+  validateExpressionBindingSchemaPaths,
   type ExpressionBinding,
   type RemoteStateReference,
 } from "./expression-bindings.js";
@@ -373,7 +374,11 @@ function remoteStateReferencesForBindings(
       for (const reference of expressionRemoteStateReferences(binding.expression)) {
         selected.set(
           JSON.stringify([resourceType, binding.path, reference.root, reference.resourceType, reference.key]),
-          { ...reference, field: binding.path, referrer: resourceType },
+          {
+            ...reference,
+            field: binding.pathParts.filter((part): part is string => typeof part === "string").join("."),
+            referrer: resourceType,
+          },
         );
       }
     }
@@ -725,6 +730,11 @@ export async function generateEnvironmentRoots(options: {
         tenant: options.tenant,
       });
       if (bindings.length === 0) continue;
+      validateExpressionBindingSchemaPaths(
+        await options.root.loadResourceSchema(resourceType),
+        resourceType,
+        bindings,
+      );
       await validateBindingsAgainstConfig({
         bindings,
         config: configFile(options.deployment, options.tenant, resourceType),

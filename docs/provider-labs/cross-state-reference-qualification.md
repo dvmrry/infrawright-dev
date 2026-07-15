@@ -18,8 +18,17 @@ ZIA predefined category tokens are intentionally absent from the custom
 category lookup and must remain literal. A mixed rule should bind its managed
 custom category and retain its predefined values byte-for-byte.
 
-Nested reference paths remain outside the v1 generated-binding contract. Do
-not infer broader coverage from this qualification.
+Exact canonical numeric indexes into ordered lists are supported binding
+targets, for example `server_groups[0].id`. This does not authorize inference
+of nested references from provider field names. Qualify a nested mapping only
+when the candidate pack declares it and retained API/provider-schema evidence
+proves the referent, referrer field, cardinality, and stable list position.
+
+Do not use ZIA URL-filtering `cbi_profile[0].id` as the nested qualification
+case while pinned to `zscaler/zia` 4.7.26. `action = "ISOLATE"` is classified
+as version-scoped unsupported before identity derivation or the import Oracle,
+and the provider import Read does not reconstruct `cbi_profile`. Root bindings
+run after Adopt and cannot repair that provider limitation.
 
 ## Deployment And Backend
 
@@ -150,6 +159,46 @@ For ZIA, additionally record counts (not values) for:
 - predefined/system category values retained as literals;
 - unresolved non-system values, which block qualification until explained.
 
+## Ordered-list ZPA Qualification
+
+The first source-backed ZPA nested cohort is declared in `packs/zpa/pack.json`:
+
+- `zpa_application_segment.server_groups.id -> zpa_server_group`;
+- `zpa_server_group.app_connector_groups.id -> zpa_app_connector_group`;
+- `zpa_server_group.servers.id -> zpa_application_server`.
+
+The committed provider schema defines each outer block as an ordered list and
+the `id` leaf as a required set of strings. The retained application-segment
+and server-group raw/projected fixtures demonstrate the one-block shape that
+becomes `server_groups[0].id`, `app_connector_groups[0].id`, and
+`servers[0].id`. These declarations do not imply coverage of other ZPA nested
+fields.
+
+From a fresh workspace:
+
+1. Record the exact pack entry and the API/provider-schema evidence establishing
+   the referent type, target `id` leaf, ordered-list nesting, and `[0]`
+   cardinality used by the fixture.
+2. Fetch and Adopt the referent and referrer. Confirm the compiled sidecar uses
+   a canonical target such as `server_groups[0].id`; an unindexed
+   `server_groups.id` target must fail rather than silently render nothing.
+3. Generate both singleton roots with `cross_state_references: true`. Confirm
+   the producer exports only its minimal ID map and the referrer renders a
+   remote-state expression at the indexed leaf. Do not print IDs or state.
+4. Run referent-first stage, saved plan, and assessment. After separately
+   authorized import-only Apply of the referent, run the referrer plan and
+   assessment. Require zero create/update/replace/destroy actions apart from
+   expected imports.
+5. Repeat from a fresh workspace and require both plans to be no-op. A missing
+   or out-of-range element, list reorder, ambiguous referent, set-backed field,
+   or artifact difference fails qualification.
+
+Also retain negative fixture coverage for wildcard, negative, quoted,
+leading-zero, out-of-range, and list-without-index targets. Run the same schema
+validation with both JSON and native-HCL tfvars. Record explicitly that this
+ZPA qualification supplies no evidence for ZIA 4.7.26 `ISOLATE`/
+`cbi_profile` support.
+
 ## Report Back
 
 Return only sanitized evidence:
@@ -166,6 +215,9 @@ Return only sanitized evidence:
 | Referrer assessment | |
 | Fresh-workspace referent plan | |
 | Fresh-workspace referrer plan | |
+| Ordered-list ZPA target and pack evidence | |
+| Indexed path failed closed for invalid/missing selectors | |
+| ZIA 4.7.26 ISOLATE/cbi claim | must be `none` |
 | Python invoked | must be `no` |
 | Deployment Apply performed | `no`, unless separately authorized and identified |
 

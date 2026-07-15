@@ -4,6 +4,17 @@ import { parseDataJsonLosslessly } from "../json/control.js";
 import { canonicalPythonNumberToken, pythonFiniteFloatToken } from "../json/python-number.js";
 import { comparePythonStrings, sortedStrings } from "../json/python-compatible.js";
 import { readOptionalUtf8 } from "../io/files.js";
+import {
+  terraformAttributeType,
+  terraformAttributesForBlock,
+  terraformBlockForSchema,
+  terraformBlockIsSingle,
+  terraformBlockTypesForBlock,
+  terraformBooleanField,
+  terraformRequireObject,
+  type TerraformTypeEncoding,
+} from "../metadata/terraform-schema.js";
+import type { JsonObject } from "../metadata/validation.js";
 import { parseHclQuotedString } from "./import-moves.js";
 
 const PATH_SEGMENT = /^[A-Za-z_][A-Za-z0-9_]*$/u;
@@ -37,7 +48,7 @@ export interface ExpressionBinding {
   readonly address: string;
   readonly key: string;
   readonly path: string;
-  readonly pathParts: readonly string[];
+  readonly pathParts: readonly (string | number)[];
   readonly expression: string;
   readonly sensitive: boolean;
   readonly reason: string | null;
@@ -80,15 +91,50 @@ export function validateExpression(expression: unknown, context: string): string
   return expression;
 }
 
-function parsePath(value: unknown, context: string): readonly string[] {
+function renderPath(parts: readonly (string | number)[]): string {
+  return parts.map((part, index) => {
+    if (typeof part === "number") return `[${part}]`;
+    return index === 0 ? part : `.${part}`;
+  }).join("");
+}
+
+function parsePath(value: unknown, context: string): readonly (string | number)[] {
   if (typeof value !== "string" || value.length === 0) {
-    throw new TypeError(`${context} path must be a non-empty dotted string`);
+    throw new TypeError(`${context} path must be a non-empty attribute path`);
   }
-  const parts = value.split(".");
-  for (const part of parts) {
-    if (!PATH_SEGMENT.test(part)) {
+  const parts: Array<string | number> = [];
+  let offset = 0;
+  while (offset < value.length) {
+    if (parts.length > 0 && value[offset] === ".") offset += 1;
+    const attribute = /^[A-Za-z_][A-Za-z0-9_]*/u.exec(value.slice(offset))?.[0];
+    if (attribute === undefined) {
       throw new TypeError(
-        `${context} path ${JSON.stringify(value)} has unsupported segment ${JSON.stringify(part)}; v1 supports dotted object attributes only`,
+        `${context} path ${JSON.stringify(value)} has an unsupported segment; use dotted attributes and exact canonical numeric list selectors`,
+      );
+    }
+    parts.push(attribute);
+    offset += attribute.length;
+    while (value[offset] === "[") {
+      const close = value.indexOf("]", offset + 1);
+      if (close < 0) {
+        throw new TypeError(`${context} path ${JSON.stringify(value)} has an unterminated list selector`);
+      }
+      const token = value.slice(offset + 1, close);
+      if (!/^(?:0|[1-9][0-9]*)$/u.test(token)) {
+        throw new TypeError(
+          `${context} path ${JSON.stringify(value)} has unsupported list selector ${JSON.stringify(token)}; use an exact canonical non-negative index`,
+        );
+      }
+      const index = Number(token);
+      if (!Number.isSafeInteger(index)) {
+        throw new TypeError(`${context} path ${JSON.stringify(value)} list selector exceeds the safe integer range`);
+      }
+      parts.push(index);
+      offset = close + 1;
+    }
+    if (offset < value.length && value[offset] !== ".") {
+      throw new TypeError(
+        `${context} path ${JSON.stringify(value)} has an unsupported segment; use dotted attributes and exact canonical numeric list selectors`,
       );
     }
   }
@@ -130,7 +176,7 @@ function parseBinding(
   return {
     address,
     key,
-    path: pathParts.join("."),
+    path: renderPath(pathParts),
     pathParts,
     expression: validateExpression(value.expression, context),
     sensitive,
@@ -213,21 +259,150 @@ export function applyExpressionBindings(
     }
     let current: unknown = output[binding.key];
     for (const part of binding.pathParts.slice(0, -1)) {
+      if (typeof part === "number") {
+        if (!Array.isArray(current)) {
+          throw new TypeError(`expression binding ${binding.address}.${binding.path} indexes a non-list value`);
+        }
+        if (part >= current.length) {
+          throw new TypeError(`expression binding ${binding.address}.${binding.path} has out-of-range list index [${part}]`);
+        }
+        current = current[part];
+        continue;
+      }
+      if (Array.isArray(current)) {
+        throw new TypeError(
+          `expression binding ${binding.address}.${binding.path} traverses a list at ${part}; use an exact numeric list selector`,
+        );
+      }
       if (!record(current) || !Object.hasOwn(current, part)) {
         throw new TypeError(`expression binding ${binding.address}.${binding.path} has missing parent path`);
       }
       current = current[part];
     }
+    const leaf = binding.pathParts.at(-1);
+    if (typeof leaf === "number") {
+      if (!Array.isArray(current)) {
+        throw new TypeError(`expression binding ${binding.address}.${binding.path} indexes a non-list value`);
+      }
+      if (leaf >= current.length) {
+        throw new TypeError(`expression binding ${binding.address}.${binding.path} has out-of-range list index [${leaf}]`);
+      }
+      current[leaf] = new HclExpression(binding.expression);
+      continue;
+    }
+    if (Array.isArray(current)) {
+      throw new TypeError(
+        `expression binding ${binding.address}.${binding.path} traverses a list at ${leaf ?? "<leaf>"}; use an exact numeric list selector`,
+      );
+    }
     if (!record(current)) {
       throw new TypeError(`expression binding ${binding.address}.${binding.path} parent is not an object`);
     }
-    const leaf = binding.pathParts.at(-1) ?? "";
-    if (!Object.hasOwn(current, leaf)) {
+    if (leaf === undefined || !Object.hasOwn(current, leaf)) {
       throw new TypeError(`expression binding ${binding.address}.${binding.path} has missing target leaf`);
     }
     (current as Record<string, unknown>)[leaf] = new HclExpression(binding.expression);
   }
   return output;
+}
+
+type BindingSchemaCursor =
+  | { readonly kind: "block"; readonly block: JsonObject; readonly label: string }
+  | { readonly kind: "encoding"; readonly encoding: TerraformTypeEncoding; readonly label: string }
+  | { readonly kind: "block-list"; readonly block: JsonObject; readonly label: string }
+  | { readonly kind: "block-set"; readonly label: string };
+
+function schemaPathError(binding: ExpressionBinding, message: string): never {
+  throw new TypeError(`expression binding ${binding.address}.${binding.path} ${message}`);
+}
+
+function encodingCursor(
+  binding: ExpressionBinding,
+  cursor: Extract<BindingSchemaCursor, { readonly kind: "encoding" }>,
+  part: string | number,
+): BindingSchemaCursor {
+  const encoding = cursor.encoding;
+  if (typeof encoding === "string") {
+    return schemaPathError(binding, `traverses scalar ${cursor.label}`);
+  }
+  const [kind, inner] = encoding;
+  if (kind === "list") {
+    if (typeof part !== "number") {
+      return schemaPathError(binding, `traverses list ${cursor.label} without an exact numeric selector`);
+    }
+    return { kind: "encoding", encoding: inner, label: `${cursor.label}[${part}]` };
+  }
+  if (kind === "set") {
+    return schemaPathError(binding, `cannot traverse unordered set ${cursor.label}; bind the complete set leaf`);
+  }
+  if (kind === "map") {
+    return schemaPathError(binding, `cannot traverse map ${cursor.label}; bind the complete map leaf`);
+  }
+  if (typeof part !== "string") {
+    return schemaPathError(binding, `indexes object ${cursor.label} as a list`);
+  }
+  const member = (inner as Readonly<Record<string, TerraformTypeEncoding>>)[part];
+  if (member === undefined) return schemaPathError(binding, `references unknown schema path ${cursor.label}.${part}`);
+  return { kind: "encoding", encoding: member, label: `${cursor.label}.${part}` };
+}
+
+function blockCursor(
+  binding: ExpressionBinding,
+  cursor: Extract<BindingSchemaCursor, { readonly kind: "block" }>,
+  part: string | number,
+): BindingSchemaCursor {
+  if (typeof part !== "string") {
+    return schemaPathError(binding, `indexes object ${cursor.label} as a list`);
+  }
+  const attributes = terraformAttributesForBlock(cursor.block, cursor.label);
+  if (Object.hasOwn(attributes, part)) {
+    const attribute = terraformRequireObject(attributes[part], `${cursor.label}.attributes.${part}`);
+    if (!terraformBooleanField(attribute, "required") && !terraformBooleanField(attribute, "optional")) {
+      return schemaPathError(binding, `targets computed-only attribute ${cursor.label}.${part}`);
+    }
+    return {
+      kind: "encoding",
+      encoding: terraformAttributeType(attribute, `${cursor.label}.attributes.${part}`),
+      label: `${cursor.label}.${part}`,
+    };
+  }
+  const blockTypes = terraformBlockTypesForBlock(cursor.block, cursor.label);
+  if (!Object.hasOwn(blockTypes, part)) {
+    return schemaPathError(binding, `references unknown schema path ${cursor.label}.${part}`);
+  }
+  const blockType = terraformRequireObject(blockTypes[part], `${cursor.label}.block_types.${part}`);
+  const child = terraformRequireObject(blockType.block, `${cursor.label}.block_types.${part}.block`);
+  const label = `${cursor.label}.${part}`;
+  if (terraformBlockIsSingle(blockType)) return { kind: "block", block: child, label };
+  if (blockType.nesting_mode === "list") return { kind: "block-list", block: child, label };
+  if (blockType.nesting_mode === "set") return { kind: "block-set", label };
+  return schemaPathError(binding, `cannot traverse ${String(blockType.nesting_mode)} block ${label}`);
+}
+
+/** Validate target paths against the provider schema, including native-HCL configs. */
+export function validateExpressionBindingSchemaPaths(
+  schema: Readonly<JsonObject>,
+  resourceType: string,
+  bindings: readonly ExpressionBinding[],
+): void {
+  const rootBlock = terraformBlockForSchema(schema as JsonObject, resourceType);
+  for (const binding of bindings) {
+    let cursor: BindingSchemaCursor = { kind: "block", block: rootBlock, label: resourceType };
+    for (const part of binding.pathParts) {
+      if (cursor.kind === "block") {
+        cursor = blockCursor(binding, cursor, part);
+      } else if (cursor.kind === "encoding") {
+        cursor = encodingCursor(binding, cursor, part);
+      } else if (cursor.kind === "block-list") {
+        if (typeof part !== "number") {
+          schemaPathError(binding, `traverses list block ${cursor.label} without an exact numeric selector`);
+        }
+        cursor = { kind: "block", block: cursor.block, label: `${cursor.label}[${part}]` };
+      } else {
+        schemaPathError(binding, `cannot traverse unordered set block ${cursor.label}; bind the complete block leaf`);
+      }
+    }
+  }
 }
 
 export function renderExpressionHclValue(value: unknown, indent = 0): string {
@@ -274,51 +449,97 @@ export function toTerraformJsonValue(value: unknown): unknown {
   return value;
 }
 
+type BindingTreeValue = string | BindingTree;
+
 interface BindingTree {
-  [key: string]: string | BindingTree;
+  kind: "attributes" | "indices" | null;
+  children: Map<string | number, BindingTreeValue>;
+}
+
+function emptyBindingTree(): BindingTree {
+  return { kind: null, children: new Map() };
+}
+
+function bindingTreeChild(
+  tree: BindingTree,
+  part: string | number,
+  binding: ExpressionBinding,
+): BindingTree {
+  const kind = typeof part === "number" ? "indices" : "attributes";
+  if (tree.kind !== null && tree.kind !== kind) {
+    throw new TypeError(`conflicting expression binding shape below ${binding.address}.${binding.path}`);
+  }
+  tree.kind = kind;
+  const existing = tree.children.get(part);
+  if (existing === undefined) {
+    const child = emptyBindingTree();
+    tree.children.set(part, child);
+    return child;
+  }
+  if (typeof existing === "string") {
+    throw new TypeError(`conflicting expression binding below ${binding.address}.${binding.path}`);
+  }
+  return existing;
 }
 
 function bindingTree(bindings: readonly ExpressionBinding[]): Readonly<Record<string, BindingTree>> {
   const output: Record<string, BindingTree> = Object.create(null) as Record<string, BindingTree>;
   for (const binding of bindings) {
-    let current = output[binding.key] ?? (output[binding.key] = Object.create(null) as BindingTree);
+    let current = output[binding.key] ?? (output[binding.key] = emptyBindingTree());
     for (const part of binding.pathParts.slice(0, -1)) {
-      const existing = current[part];
-      if (existing === undefined) {
-        const child = Object.create(null) as BindingTree;
-        current[part] = child;
-        current = child;
-      } else if (typeof existing === "string") {
-        throw new TypeError(`conflicting expression binding below ${binding.address}.${binding.path}`);
-      } else {
-        current = existing;
-      }
+      current = bindingTreeChild(current, part, binding);
     }
-    const leaf = binding.pathParts.at(-1) ?? "";
-    if (Object.hasOwn(current, leaf)) {
+    const leaf = binding.pathParts.at(-1);
+    if (leaf === undefined) throw new TypeError(`empty expression binding path for ${binding.address}`);
+    const kind = typeof leaf === "number" ? "indices" : "attributes";
+    if (current.kind !== null && current.kind !== kind) {
+      throw new TypeError(`conflicting expression binding shape below ${binding.address}.${binding.path}`);
+    }
+    current.kind = kind;
+    if (current.children.has(leaf)) {
       throw new TypeError(`conflicting expression binding below ${binding.address}.${binding.path}`);
     }
-    current[leaf] = binding.expression;
+    current.children.set(leaf, binding.expression);
   }
   return output;
 }
 
 function renderMerge(baseExpression: string, tree: BindingTree, indent: number): string {
+  if (tree.kind === "indices") return renderListEdits(baseExpression, tree, indent);
   const pad = " ".repeat(indent);
   const innerPad = " ".repeat(indent + 2);
   const lines = [`merge(${baseExpression}, {`];
-  for (const name of sortedStrings(Object.keys(tree))) {
-    const value = tree[name];
+  const names = sortedStrings([...tree.children.keys()].filter((part): part is string => typeof part === "string"));
+  for (const name of names) {
+    const value = tree.children.get(name);
     if (typeof value === "string") {
       lines.push(`${innerPad}${name} = ${value}`);
     } else if (value !== undefined) {
       const childReference = `${baseExpression}.${name}`;
-      const childBase = `try(${childReference}, null) == null ? {} : ${childReference}`;
+      const childBase = value.kind === "indices"
+        ? childReference
+        : `try(${childReference}, null) == null ? {} : ${childReference}`;
       lines.push(`${innerPad}${name} = ${renderMerge(childBase, value, indent + 2)}`);
     }
   }
   lines.push(`${pad}})`);
   return lines.join("\n");
+}
+
+function renderListEdits(baseExpression: string, tree: BindingTree, indent: number): string {
+  const indexes = [...tree.children.keys()]
+    .filter((part): part is number => typeof part === "number")
+    .sort((left, right) => left - right);
+  let rendered = baseExpression;
+  for (const index of indexes) {
+    const value = tree.children.get(index);
+    if (value === undefined) continue;
+    const replacement = typeof value === "string"
+      ? value
+      : renderMerge(`${rendered}[${index}]`, value, indent + 2);
+    rendered = `concat(slice(${rendered}, 0, ${index}), [${replacement}], slice(${rendered}, ${index + 1}, length(${rendered})))`;
+  }
+  return rendered;
 }
 
 /** Render the exact root-layer HCL merge contract used by Python gen_env. */

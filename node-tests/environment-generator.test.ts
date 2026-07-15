@@ -238,8 +238,11 @@ test("cross-state mode emits singleton ID outputs and remote-state consumers", a
     tenant: "tenant",
   });
   assert.deepEqual(generated.roots.map((root) => root.label), [
+    "zpa_app_connector_group",
     "zpa_application_segment",
+    "zpa_application_server",
     "zpa_segment_group",
+    "zpa_server_group",
   ]);
 
   const referentMain = await readFile(
@@ -281,8 +284,11 @@ test("cross-state mode emits singleton ID outputs and remote-state consumers", a
     tenant: "tenant",
   });
   assert.deepEqual(generatedRemote.roots.map((root) => root.label), [
+    "zpa_app_connector_group",
     "zpa_application_segment",
+    "zpa_application_server",
     "zpa_segment_group",
+    "zpa_server_group",
   ]);
   const remoteMain = await readFile(
     path.join(remoteOutputRoot, "tenant", "zpa_application_segment", "main.tf"),
@@ -373,6 +379,131 @@ test("cross-state operator selectors must target a pack-declared reference edge"
     }),
     /is not declared by pack reference metadata/u,
   );
+});
+
+test("native HCL bindings require exact indexes for provider list blocks", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-gen-env-hcl-list-binding-");
+  const deploymentPath = path.join(workspace, "deployment.json");
+  const outputRoot = path.join(workspace, "generated");
+  await writeJson(deploymentPath, {
+    module_dir: path.join(workspace, "modules"),
+    overlay: workspace,
+    roots: {},
+    tfvars_format: "hcl",
+  });
+  const config = path.join(workspace, "config", "tenant");
+  await mkdir(config, { recursive: true });
+  await writeFile(
+    path.join(config, "zia_url_filtering_rules.auto.tfvars"),
+    'items = { isolate = { cbi_profile = [{ id = "old" }] } }\n',
+    "utf8",
+  );
+  const bindingPath = path.join(config, "zia_url_filtering_rules.expressions.json");
+  const writeBinding = async (targetPath: string): Promise<void> => writeJson(bindingPath, {
+    resources: {
+      "zia_url_filtering_rules.isolate": {
+        [targetPath]: { expression: "var.cbi_profile_id" },
+      },
+    },
+  });
+  const generate = async (): Promise<void> => {
+    await generateEnvironmentRoots({
+      deployment: await loadDeployment(deploymentPath),
+      formatHcl: async (source) => source,
+      outputRoot,
+      root: await committedRoot(),
+      selectors: ["zia_url_filtering_rules"],
+      tenant: "tenant",
+    });
+  };
+
+  await writeBinding("cbi_profile.id");
+  await assert.rejects(
+    generate,
+    /cbi_profile\.id traverses list block zia_url_filtering_rules\.cbi_profile without an exact numeric selector/u,
+  );
+
+  await writeBinding("cbi_profile[0].id");
+  await generate();
+  const overlay = await readFile(
+    path.join(outputRoot, "tenant", "zia_url_filtering_rules", "expression_bindings.tf"),
+    "utf8",
+  );
+  assert.match(overlay, /cbi_profile = concat\(slice\(/u);
+  assert.match(overlay, /cbi_profile\[0\]/u);
+  assert.match(overlay, /id = var\.cbi_profile_id/u);
+});
+
+test("pack-declared nested ZPA references validate indexed paths and dependency roots", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-gen-env-zpa-nested-cross-state-");
+  const deploymentPath = path.join(workspace, "deployment.json");
+  const outputRoot = path.join(workspace, "generated");
+  await writeJson(deploymentPath, {
+    module_dir: path.join(workspace, "modules"),
+    overlay: workspace,
+    roots: { zpa: { cross_state_references: true } },
+  });
+  const config = path.join(workspace, "config", "tenant");
+  await writeJson(path.join(config, "zpa_application_segment.auto.tfvars.json"), {
+    items: { app: { server_groups: [{ id: ["server-id"] }] } },
+  });
+  await writeJson(path.join(config, "zpa_application_segment.generated.expressions.json"), {
+    resources: {
+      "zpa_application_segment.app": {
+        "server_groups[0].id": {
+          expression: 'data.terraform_remote_state.zpa_server_group.outputs.infrawright_reference_ids.zpa_server_group["server"]',
+        },
+      },
+    },
+  });
+  await writeJson(path.join(config, "zpa_server_group.auto.tfvars.json"), {
+    items: {
+      server: {
+        app_connector_groups: [{ id: ["connector-id"] }],
+        servers: [{ id: ["application-server-id"] }],
+      },
+    },
+  });
+  await writeJson(path.join(config, "zpa_server_group.generated.expressions.json"), {
+    resources: {
+      "zpa_server_group.server": {
+        "app_connector_groups[0].id": {
+          expression: 'data.terraform_remote_state.zpa_app_connector_group.outputs.infrawright_reference_ids.zpa_app_connector_group["connector"]',
+        },
+        "servers[0].id": {
+          expression: 'data.terraform_remote_state.zpa_application_server.outputs.infrawright_reference_ids.zpa_application_server["application_server"]',
+        },
+      },
+    },
+  });
+  const generated = await generateEnvironmentRoots({
+    deployment: await loadDeployment(deploymentPath),
+    formatHcl: terraformHclFormatter({ executable: TERRAFORM }),
+    outputRoot,
+    root: await committedRoot(),
+    selectors: ["zpa_application_segment"],
+    tenant: "tenant",
+  });
+  assert.deepEqual(new Set(generated.roots.map((root) => root.label)), new Set([
+    "zpa_app_connector_group",
+    "zpa_application_segment",
+    "zpa_application_server",
+    "zpa_segment_group",
+    "zpa_server_group",
+  ]));
+  const applicationOverlay = await readFile(
+    path.join(outputRoot, "tenant", "zpa_application_segment", "expression_bindings.tf"),
+    "utf8",
+  );
+  assert.match(applicationOverlay, /server_groups = concat\(slice\(/u);
+  assert.match(applicationOverlay, /terraform_remote_state\.zpa_server_group/u);
+  const serverOverlay = await readFile(
+    path.join(outputRoot, "tenant", "zpa_server_group", "expression_bindings.tf"),
+    "utf8",
+  );
+  assert.match(serverOverlay, /app_connector_groups = concat\(slice\(/u);
+  assert.match(serverOverlay, /terraform_remote_state\.zpa_app_connector_group/u);
+  assert.match(serverOverlay, /terraform_remote_state\.zpa_application_server/u);
 });
 
 test("complete generated root trees match Python for ungrouped, grouped/bound, singleton HCL, and slug roots", async (context) => {

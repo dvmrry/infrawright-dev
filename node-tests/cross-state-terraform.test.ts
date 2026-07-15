@@ -6,6 +6,10 @@ import path from "node:path";
 import test from "node:test";
 
 import { renderEnvironmentSmokeTest } from "../node-src/domain/environment-generator.js";
+import {
+  parseExpressionBindings,
+  renderExpressionBindingsHcl,
+} from "../node-src/domain/expression-bindings.js";
 import { loadedRootTopology } from "../node-src/domain/roots.js";
 import { loadPackRoot } from "../node-src/metadata/loader.js";
 
@@ -55,19 +59,33 @@ test("local referent state is consumable before the referrer plan and converges"
   terraform(referent, ["init", "-backend=false", "-input=false"]);
   terraform(referent, ["apply", "-auto-approve", "-input=false"]);
 
+  const remoteBinding = parseExpressionBindings({
+    resources: {
+      "sample_resource.example": {
+        "nested[0].id": {
+          expression: 'data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]',
+        },
+      },
+    },
+  }, "sample_resource");
   await writeFile(path.join(referrer, "main.tf"), [
     'terraform { required_version = ">= 1.5" }',
+    'variable "items" { type = any }',
     'data "terraform_remote_state" "zpa_segment_group" {',
     '  backend = "local"',
     '  config = {',
     `    path = ${JSON.stringify(path.join(referent, "terraform.tfstate"))}`,
     '  }',
     '}',
+    renderExpressionBindingsHcl(remoteBinding),
     'resource "terraform_data" "consumer" {',
-    '  input = data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]',
+    '  input = local.infrawright_expression_bound_items["example"].nested',
     '}',
     '',
   ].join("\n"), "utf8");
+  await writeFile(path.join(referrer, "terraform.tfvars.json"), JSON.stringify({
+    items: { example: { nested: [{ id: "literal-id", sibling: "preserved" }] } },
+  }), "utf8");
   terraform(referrer, ["init", "-backend=false", "-input=false"]);
   const first = terraform(referrer, ["plan", "-out=tfplan", "-input=false"]);
   assert.match(first, /1 to add/u);
@@ -131,4 +149,51 @@ test("generated azurerm smoke variables satisfy the overridden remote-state read
   terraform(workspace, ["init", "-backend=false", "-input=false"]);
   const result = terraform(workspace, ["test", "-no-color"]);
   assert.match(result, /Success! 1 passed, 0 failed/u);
+});
+
+test("generated exact-index bindings preserve list elements and converge", async (context) => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "infrawright-index-binding-terraform-"));
+  context.after(() => rm(workspace, { force: true, recursive: true }));
+  const bindings = parseExpressionBindings({
+    resources: {
+      "sample_resource.example": {
+        "nested[0].id": { expression: "var.first_bound_id" },
+        "nested[1].id": { expression: "var.bound_id" },
+      },
+    },
+  }, "sample_resource");
+  await writeFile(path.join(workspace, "main.tf"), [
+    'terraform { required_version = ">= 1.5" }',
+    'variable "items" { type = any }',
+    renderExpressionBindingsHcl(bindings),
+    'resource "terraform_data" "consumer" {',
+    '  input = local.infrawright_expression_bound_items["example"].nested',
+    '}',
+    '',
+  ].join("\n"), "utf8");
+  await writeFile(path.join(workspace, "terraform.tfvars.json"), JSON.stringify({
+    bound_id: "resolved-id",
+    first_bound_id: "resolved-first-id",
+    items: {
+      example: {
+        nested: [
+          { id: "first", sibling: "kept-first" },
+          { id: "literal-id", sibling: "kept-second" },
+          { id: "third", sibling: "kept-third" },
+        ],
+      },
+    },
+  }), "utf8");
+  terraform(workspace, ["init", "-backend=false", "-input=false"]);
+  terraform(workspace, ["apply", "-auto-approve", "-input=false"]);
+  const state = JSON.parse(terraform(workspace, ["show", "-json"])) as {
+    readonly values?: { readonly root_module?: { readonly resources?: readonly [{ readonly values?: { readonly input?: unknown } }] } };
+  };
+  assert.deepEqual(state.values?.root_module?.resources?.[0]?.values?.input, [
+    { id: "resolved-first-id", sibling: "kept-first" },
+    { id: "resolved-id", sibling: "kept-second" },
+    { id: "third", sibling: "kept-third" },
+  ]);
+  const second = terraform(workspace, ["plan", "-detailed-exitcode", "-input=false"]);
+  assert.match(second, /No changes/u);
 });
