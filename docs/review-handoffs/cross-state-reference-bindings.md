@@ -128,10 +128,13 @@
   unknowns, sensitivity changes, duplicate modules, and deletes fail closed.
 - `npm test` passed all 838 selected Node tests after remediation.
 - `git diff --check` passed.
-- Tests not run: no repository-side live credentials, azurerm backend, remote
-  provider, or deployment Apply. A downstream local-state-only scalar ZPA run
-  reached an import-clean referrer plan; the updated assessor still needs a
-  downstream rerun.
+- Repository tests used no live credentials, azurerm backend, remote provider,
+  or deployment Apply. Separately, a downstream credential-backed disposable
+  workspace at `732a3be` completed referent Adopt/exact import-only Apply,
+  referrer import-clean plan, and `assert-adoptable` across two local states:
+  15 referent imports and 28 referrer imports, with zero add/change/destroy and
+  no tenant mutation. No IDs, tenant values, state, or plan contents are
+  retained here.
 
 ## Known Deferrals
 

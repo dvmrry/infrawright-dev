@@ -182,20 +182,22 @@ that adoption policy.
 
 ## Reported Live Scalar Qualification
 
-A downstream disposable-workspace run at PR #225 commit `74d07ef` reported the
-scalar pair `zpa_segment_group -> zpa_application_segment` working across two
-local state files: 15 referent imports and 28 referrer imports, with zero
-create/update/replace/destroy actions. Terraform resolved the referrer's
-`segment_group_id` from the referent's sensitive stable-key output at plan time;
-no managed ID was baked into generated HCL. The run used a mechanically checked
-import-only local-state Apply for the referent and performed no tenant mutation.
+A downstream disposable-workspace rerun at PR #225 commit `732a3be` completed
+the scalar pair `zpa_segment_group -> zpa_application_segment` through the
+sanctioned engine path across two local state files:
 
-That run also exposed the pre-fix assessor rejection of the otherwise expected
-output create. Repository tests now cover the bound output contract on initial,
-second-run, and empty referent plans for both
-assessment and exact Apply. A downstream rerun of `assert-adoptable` on the
-updated commit remains required before treating the live qualification as
-closed.
+- referent Adopt and exact engine Apply: 15 imports, zero add/change/destroy;
+- referrer plan: 28 imports, zero add/change/destroy;
+- referrer `assert-adoptable`: passed;
+- Terraform resolved `segment_group_id` from the referent's sensitive
+  stable-key output at plan time; no managed ID was baked into generated HCL;
+- no manual Terraform bypass and no tenant mutation occurred.
+
+The prior run at `74d07ef` exposed the assessor's rejection of the expected
+output create. The updated live run verifies that fix, while repository tests
+cover initial, second-run, wrong/missing, and empty referent plans for both
+assessment and exact Apply. The scalar cross-state qualification is closed for
+this commit. Any later head requires a delta review and targeted rerun.
 
 ## Ordered-list ZPA Qualification
 
