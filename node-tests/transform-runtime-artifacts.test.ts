@@ -107,7 +107,7 @@ function artifactCompileOptions(options: {
   const references = options.references ?? {};
   return {
     bindingContext: {
-      bindReferences: false,
+      mode: "disabled",
       derived: new Set(),
       generated: new Set([resourceType]),
       resourceRoots: { [resourceType]: resourceType },
@@ -531,7 +531,7 @@ test("batch compilation uses new lookup results for grouped bindings and HCL com
       workspace,
     }),
     bindingContext: {
-      bindReferences: true,
+      mode: "same_root",
       derived: new Set(),
       generated,
       references,
@@ -550,7 +550,7 @@ test("batch compilation uses new lookup results for grouped bindings and HCL com
       workspace,
     }),
     bindingContext: {
-      bindReferences: true,
+      mode: "same_root",
       derived: new Set(),
       generated,
       references: {},
@@ -735,6 +735,89 @@ test("same-root references materialize generated binding JSON on the first batch
       + "    }\n"
       + "  }\n"
       + "}\n",
+  );
+});
+
+test("opt-in cross-state references bind singleton roots without grouping", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-runtime-cross-state-bindings-");
+  const input = path.join(workspace, "input");
+  await writeJson(path.join(input, "zpa_segment_group.json"), [{
+    enabled: true,
+    id: "sg-1",
+    name: "Segment One",
+  }]);
+  await writeJson(path.join(input, "zpa_application_segment.json"), [{
+    domainNames: ["app.example.com"],
+    id: "app-1",
+    name: "App One",
+    segmentGroupId: "sg-1",
+  }]);
+  const result = await runTransformBatch({
+    deployment: deployment(workspace, {
+      roots: { zpa: { cross_state_references: true } },
+    }),
+    inputDirectory: input,
+    root: await committedRoot(),
+    selectors: ["zpa_application_segment", "zpa_segment_group"],
+    tenant: "tenant",
+  });
+  assert.deepEqual(result.failed, []);
+  assert.equal(
+    await text(path.join(
+      workspace,
+      "config",
+      "tenant",
+      "zpa_application_segment.generated.expressions.json",
+    )),
+    "{\n"
+      + "  \"resources\": {\n"
+      + "    \"zpa_application_segment.app_one\": {\n"
+      + "      \"segment_group_id\": {\n"
+      + "        \"expression\": \"data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group[\\\"segment_one\\\"]\",\n"
+      + "        \"reason\": \"cross-state reference binding via zpa_segment_group root output\"\n"
+      + "      }\n"
+      + "    }\n"
+      + "  }\n"
+      + "}\n",
+  );
+});
+
+test("cross-state list bindings preserve predefined ZIA values as literals", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-runtime-cross-state-list-");
+  const input = path.join(workspace, "input");
+  await writeJson(path.join(input, "zia_url_categories.json"), [{
+    configuredName: "Finance",
+    customCategory: true,
+    id: "CUSTOM_01",
+    urls: ["finance.example.com"],
+  }]);
+  await writeJson(path.join(input, "zia_url_filtering_rules.json"), [{
+    action: "BLOCK",
+    id: 7,
+    name: "Block Finance",
+    order: 1,
+    protocols: ["ANY_RULE"],
+    urlCategories: ["CUSTOM_01", "GAMBLING"],
+  }]);
+  const result = await runTransformBatch({
+    deployment: deployment(workspace, {
+      roots: { zia: { cross_state_references: true } },
+    }),
+    inputDirectory: input,
+    root: await committedRoot(),
+    selectors: ["zia_url_categories", "zia_url_filtering_rules"],
+    tenant: "tenant",
+  });
+  assert.deepEqual(result.failed, []);
+  const binding = await text(path.join(
+    workspace,
+    "config",
+    "tenant",
+    "zia_url_filtering_rules.generated.expressions.json",
+  ));
+  assert.match(
+    binding,
+    /\[data\.terraform_remote_state\.zia_url_categories\.outputs\.infrawright_reference_ids\.zia_url_categories\[\\"finance\\"\], \\"GAMBLING\\"\]/u,
   );
 });
 

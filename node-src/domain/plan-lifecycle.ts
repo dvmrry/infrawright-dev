@@ -17,11 +17,16 @@ import {
 } from "./plan-fingerprint.js";
 import { transformArtifactPaths } from "./transform-artifacts.js";
 import { validateTenant } from "./roots.js";
+import {
+  REFERENCE_BACKEND_VARIABLE,
+  referenceBackendEnvironment,
+} from "./reference-backend.js";
 
 export interface PlanTerraformRequest {
   readonly backendConfig?: string;
   readonly backendKey?: string;
   readonly directory: string;
+  readonly environment?: Readonly<Record<string, string>>;
   readonly save: boolean;
   readonly varFiles: readonly string[];
 }
@@ -51,6 +56,16 @@ function definedEnvironment(environment: NodeJS.ProcessEnv): Readonly<Record<str
   return output;
 }
 
+function sameEnvironment(
+  left: Readonly<Record<string, string>>,
+  right: Readonly<Record<string, string>>,
+): boolean {
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key, index) => key === rightKeys[index] && left[key] === right[key]);
+}
+
 /** Adapt the shell-free Terraform runner to ordinary deployment init/plan. */
 export function createPlanTerraform(options: {
   readonly environment: NodeJS.ProcessEnv;
@@ -77,6 +92,10 @@ export function createPlanTerraform(options: {
         ...common,
         argv,
         cwd: request.directory,
+        environment: {
+          ...environment,
+          ...request.environment,
+        },
         output: "inherit-stderr",
       });
     },
@@ -91,6 +110,10 @@ export function createPlanTerraform(options: {
         ...common,
         argv,
         cwd: request.directory,
+        environment: {
+          ...environment,
+          ...request.environment,
+        },
         output: "inherit",
       });
     },
@@ -163,6 +186,20 @@ export async function requireBackendConfiguration(options: {
       `${options.label} declares a remote backend; run with BACKEND_CONFIG=<file>`,
     );
   }
+}
+
+async function rootRequiresReferenceBackendEnvironment(directory: string): Promise<boolean> {
+  const main = path.join(directory, "main.tf");
+  if (!(await exists(main))) return false;
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(await readFile(main));
+  } catch {
+    return fail("READ_FAILED", "unable to inspect cross-state environment root", "io");
+  }
+  return text.replaceAll(/\r\n?/gu, "\n").split("\n").some((line) => {
+    return line === `variable "${REFERENCE_BACKEND_VARIABLE}" {`;
+  });
 }
 
 function isDerived(root: LoadedPackRoot, resourceType: string): boolean {
@@ -277,6 +314,10 @@ export async function planEnvironmentRoots(options: {
           backendConfig,
           backendKey: `${options.tenant}/${selectedRoot.label}.tfstate`,
         };
+    const requiresReferenceEnvironment = await rootRequiresReferenceBackendEnvironment(directory);
+    const initialReferenceEnvironment = !requiresReferenceEnvironment || backendConfig === undefined
+      ? {}
+      : await referenceBackendEnvironment(backendConfig);
     const request: PlanTerraformRequest = {
       ...backend,
       directory,
@@ -307,6 +348,15 @@ export async function planEnvironmentRoots(options: {
           );
         }
       }
+      const referenceEnvironment = !requiresReferenceEnvironment || backendConfig === undefined
+        ? {}
+        : await referenceBackendEnvironment(backendConfig);
+      if (!sameEnvironment(referenceEnvironment, initialReferenceEnvironment)) {
+        return fail(
+          "INIT_INPUTS_CHANGED",
+          `${selectedRoot.env_dir}: cross-state backend inputs changed while init was running - re-run make plan SAVE=1`,
+        );
+      }
       const fingerprint = options.save
         ? await planFingerprintV2({
             ...backend,
@@ -315,7 +365,22 @@ export async function planEnvironmentRoots(options: {
             varFiles,
           })
         : undefined;
-      await options.terraform.plan(request);
+      const confirmedReferenceEnvironment = !requiresReferenceEnvironment || backendConfig === undefined
+        ? {}
+        : await referenceBackendEnvironment(backendConfig);
+      if (!sameEnvironment(confirmedReferenceEnvironment, referenceEnvironment)) {
+        return fail(
+          "PLAN_INPUTS_CHANGED",
+          `${selectedRoot.env_dir}: cross-state backend inputs changed before planning - re-run make plan SAVE=1`,
+        );
+      }
+      const planRequest: PlanTerraformRequest = {
+        ...request,
+        ...(Object.keys(referenceEnvironment).length === 0
+          ? {}
+          : { environment: referenceEnvironment }),
+      };
+      await options.terraform.plan(planRequest);
       if (options.save) {
         const current = await planFingerprintV2({
           ...backend,

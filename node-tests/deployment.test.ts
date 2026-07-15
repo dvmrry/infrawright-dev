@@ -13,6 +13,7 @@ import {
   deploymentPullsDir,
   deploymentTenantRoot,
   deploymentTfvarsFormat,
+  deploymentReferenceBindingMode,
   loadDeployment,
 } from "../node-src/domain/deployment.js";
 
@@ -71,11 +72,32 @@ test("deployment loader fails closed on malformed root configuration", async () 
       { roots: { zpa: [] } },
       { roots: { zpa: { strategy: "surprise" } } },
       { roots: { zpa: { groups: { empty: [] } } } },
+      { roots: { zpa: { cross_state_references: "yes" } } },
+      { roots: { zpa: { bind_references: true, cross_state_references: true } } },
       { roots: { zpa: { unknown: true } } },
     ]) {
       await writeFile(deployment, JSON.stringify(value));
       await assert.rejects(() => loadDeployment(deployment));
     }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("cross-state reference mode is explicit and preserves legacy defaults", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "deployment-node-"));
+  try {
+    const deploymentPath = path.join(directory, "deployment.json");
+    await writeFile(deploymentPath, JSON.stringify({
+      roots: {
+        zia: { cross_state_references: true },
+        zpa: { bind_references: true },
+      },
+    }));
+    const deployment = await loadDeployment(deploymentPath);
+    assert.equal(deploymentReferenceBindingMode(deployment, "zia"), "cross_state");
+    assert.equal(deploymentReferenceBindingMode(deployment, "zpa"), "same_root");
+    assert.equal(deploymentReferenceBindingMode(deployment, "zcc"), "disabled");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

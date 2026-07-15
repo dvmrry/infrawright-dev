@@ -35,6 +35,7 @@ import { parseDataJsonLosslessly } from "../json/control.js";
 import { canonicalPythonNumberToken } from "../json/python-number.js";
 import { sortedStrings } from "../json/python-compatible.js";
 import { readOptionalUtf8 } from "../io/files.js";
+import type { ReferenceBindingMode } from "./deployment.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -44,7 +45,7 @@ export interface TransformReferenceSpec {
 }
 
 export interface BindingContext {
-  readonly bindReferences: boolean;
+  readonly mode: ReferenceBindingMode;
   readonly derived: ReadonlySet<string>;
   readonly generated: ReadonlySet<string>;
   readonly resourceRoots: Readonly<Record<string, string>>;
@@ -327,6 +328,26 @@ function sameRoot(
     && context.resourceRoots[resourceType] === context.resourceRoots[referent];
 }
 
+function bindableReference(
+  resourceType: string,
+  referent: string,
+  context: BindingContext,
+): boolean {
+  if (
+    resourceType === referent
+    || !context.generated.has(resourceType)
+    || !context.generated.has(referent)
+    || context.derived.has(resourceType)
+    || context.derived.has(referent)
+  ) {
+    return false;
+  }
+  const referrerRoot = context.resourceRoots[resourceType];
+  const referentRoot = context.resourceRoots[referent];
+  if (referrerRoot === undefined || referentRoot === undefined) return false;
+  return context.mode === "cross_state" || referrerRoot === referentRoot;
+}
+
 function fieldCandidates(
   items: PullTransformResult["items"],
   field: string,
@@ -368,7 +389,7 @@ export function deriveGeneratedBindings(options: {
   const count = (reason: string, amount = 1): void => {
     reasons.set(reason, (reasons.get(reason) ?? 0) + amount);
   };
-  if (!options.context.bindReferences) {
+  if (options.context.mode === "disabled") {
     return { data: { resources }, notes };
   }
   for (const field of sortedStrings(Object.keys(options.context.references))) {
@@ -391,7 +412,7 @@ export function deriveGeneratedBindings(options: {
       }
       continue;
     }
-    if (!sameRoot(options.resourceType, spec.referent, options.context)) continue;
+    if (!bindableReference(options.resourceType, spec.referent, options.context)) continue;
     const keyMap = options.lookupKeys[spec.referent];
     if (keyMap === null || keyMap === undefined) {
       if (candidates.length > 0) {
@@ -422,7 +443,14 @@ export function deriveGeneratedBindings(options: {
         notes.push(`${options.resourceType}.${key}.${path} value ${JSON.stringify(ident)} skipped; referent key contains a template interpolation`);
         return null;
       }
-      return `module.${spec.referent}.items[${renderHclQuotedString(referentKey)}].id`;
+      if (sameRoot(options.resourceType, spec.referent, options.context)) {
+        return `module.${spec.referent}.items[${renderHclQuotedString(referentKey)}].id`;
+      }
+      const referentRoot = options.context.resourceRoots[spec.referent];
+      if (referentRoot === undefined) {
+        throw new TypeError(`cross-state reference ${spec.referent} has no deployment root`);
+      }
+      return `data.terraform_remote_state.${referentRoot}.outputs.infrawright_reference_ids.${spec.referent}[${renderHclQuotedString(referentKey)}]`;
     };
     for (const key of sortedStrings(Object.keys(options.items))) {
       const item = options.items[key];
@@ -465,7 +493,9 @@ export function deriveGeneratedBindings(options: {
         ?? (resources[address] = Object.create(null) as Record<string, unknown>);
       fields[field] = {
         expression,
-        reason: `group-local reference binding via ${spec.referent}.items`,
+        reason: sameRoot(options.resourceType, spec.referent, options.context)
+          ? `group-local reference binding via ${spec.referent}.items`
+          : `cross-state reference binding via ${spec.referent} root output`,
       };
     }
   }

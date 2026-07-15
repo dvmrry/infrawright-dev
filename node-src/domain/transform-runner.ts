@@ -11,6 +11,7 @@ import { renderPythonLosslessArtifactJson } from "../json/python-lossless-artifa
 import { sortedStrings } from "../json/python-compatible.js";
 import { readOptionalUtf8 } from "../io/files.js";
 import type { Deployment } from "./types.js";
+import { deploymentReferenceBindingMode } from "./deployment.js";
 import { pythonHtmlUnescapeGeneric } from "./python-html-unescape.js";
 import { loadedRootTopology, validateTenant } from "./roots.js";
 import {
@@ -117,7 +118,7 @@ export function transformBindingContext(options: {
     }
   }
   return {
-    bindReferences: options.deployment.roots[options.resource.provider]?.bind_references === true,
+    mode: deploymentReferenceBindingMode(options.deployment, options.resource.provider),
     generated,
     derived,
     resourceRoots: options.resourceRoots,
@@ -193,7 +194,7 @@ export async function runTransformBatch(options: {
     root: options.root,
     deployment: options.deployment,
     tenant: options.tenant,
-    selectors: selection.resourceTypes,
+    selectors: [],
   }).topology;
   const processed: string[] = [];
   const skipped: string[] = [];

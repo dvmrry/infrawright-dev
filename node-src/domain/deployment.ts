@@ -10,7 +10,14 @@ import { sortedStrings } from "../json/python-compatible.js";
 import path from "node:path";
 
 const ROOT_LABEL = /^[a-z0-9_]+$/;
-const PROVIDER_KEYS = new Set(["strategy", "groups", "bind_references"]);
+const PROVIDER_KEYS = new Set([
+  "strategy",
+  "groups",
+  "bind_references",
+  "cross_state_references",
+]);
+
+export type ReferenceBindingMode = "disabled" | "same_root" | "cross_state";
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -106,10 +113,22 @@ function validateRootConfig(
   ) {
     return malformed(`roots.${provider}.bind_references must be a bool`);
   }
+  if (
+    value.cross_state_references !== undefined
+    && typeof value.cross_state_references !== "boolean"
+  ) {
+    return malformed(`roots.${provider}.cross_state_references must be a bool`);
+  }
+  if (value.bind_references === true && value.cross_state_references === true) {
+    return malformed(
+      `roots.${provider}.bind_references and cross_state_references are mutually exclusive`,
+    );
+  }
   const output: {
     strategy?: "explicit" | "slug";
     groups?: Readonly<Record<string, readonly string[]>>;
     bind_references?: boolean;
+    cross_state_references?: boolean;
   } = {};
   if (strategy !== undefined) {
     output.strategy = strategy;
@@ -120,7 +139,20 @@ function validateRootConfig(
   if (typeof value.bind_references === "boolean") {
     output.bind_references = value.bind_references;
   }
+  if (typeof value.cross_state_references === "boolean") {
+    output.cross_state_references = value.cross_state_references;
+  }
   return output;
+}
+
+export function deploymentReferenceBindingMode(
+  deployment: Deployment,
+  provider: string,
+): ReferenceBindingMode {
+  const config = deployment.roots[provider];
+  if (config?.cross_state_references === true) return "cross_state";
+  if (config?.bind_references === true) return "same_root";
+  return "disabled";
 }
 
 function validateDeployment(value: unknown): Deployment {

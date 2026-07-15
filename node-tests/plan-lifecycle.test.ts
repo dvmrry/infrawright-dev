@@ -177,6 +177,7 @@ test("generic Terraform adapter emits exact backend, var-file, and saved-plan ar
   const log = path.join(workspace, "terraform.log");
   await writeText(executable, [
     "#!/bin/sh",
+    "test \"$TF_VAR_CROSS_STATE\" = 'request-value' || exit 91",
     "printf '%s\\n' \"$*\" >> \"$TF_LOG_FILE\"",
     "exit 0",
     "",
@@ -190,6 +191,7 @@ test("generic Terraform adapter emits exact backend, var-file, and saved-plan ar
     backendConfig: path.join(workspace, "backend.hcl"),
     backendKey: "tenant/grouped.tfstate",
     directory: workspace,
+    environment: { TF_VAR_CROSS_STATE: "request-value" },
     save: true,
     varFiles: [path.join(workspace, "a.tfvars"), path.join(workspace, "b.tfvars")],
   };
@@ -286,6 +288,116 @@ test("remote backend uses the exact absolute config and tenant/root state key", 
   assert.equal(terraform.initialized[0]?.backendConfig, backend);
   assert.equal(terraform.initialized[0]?.backendKey, `tenant/${ZIA_RESOURCE}.tfstate`);
   await assert.rejects(readFile(path.join(envDirectory(workspace, ZIA_RESOURCE), "tfplan")));
+});
+
+test("cross-state plans derive a non-secret azurerm remote-state variable from JSON backend config", async (context) => {
+  const workspace = await temporaryDirectory(context);
+  const resourceType = "zpa_application_segment";
+  const directory = await writeRoot({ backend: "azurerm", label: resourceType, members: [resourceType], workspace });
+  await writeText(
+    path.join(directory, "main.tf"),
+    `${await readFile(path.join(directory, "main.tf"), "utf8")}variable "infrawright_remote_state_backend_config" {\n  type = any\n}\n`,
+  );
+  await writeText(configPath(workspace, resourceType), `{"${resourceType}_items":{}}\n`);
+  const backend = path.join(workspace, "backend.json");
+  await writeText(backend, JSON.stringify({
+    container_name: "tfstate",
+    storage_account_name: "example",
+    use_azuread_auth: true,
+  }));
+  const terraform = new FakeTerraform();
+  await planEnvironmentRoots({
+    backendConfig: backend,
+    deployment: deployment({ zpa: { cross_state_references: true } }),
+    importsOnly: false,
+    root: await committedRoot(),
+    save: false,
+    selectors: [resourceType],
+    tenant: "tenant",
+    terraform,
+    workspace,
+  });
+  assert.deepEqual(
+    JSON.parse(terraform.planned[0]?.environment?.TF_VAR_infrawright_remote_state_backend_config ?? ""),
+    {
+      container_name: "tfstate",
+      storage_account_name: "example",
+      use_azuread_auth: true,
+    },
+  );
+  assert.equal(terraform.planned[0]?.backendKey, `tenant/${resourceType}.tfstate`);
+
+  const racingTerraform = new FakeTerraform();
+  racingTerraform.onInitialize = async () => {
+    await writeText(backend, JSON.stringify({
+      container_name: "changed",
+      storage_account_name: "example",
+      use_azuread_auth: true,
+    }));
+  };
+  await assert.rejects(
+    planEnvironmentRoots({
+      backendConfig: backend,
+      deployment: deployment({ zpa: { cross_state_references: true } }),
+      importsOnly: false,
+      root: await committedRoot(),
+      save: false,
+      selectors: [resourceType],
+      tenant: "tenant",
+      terraform: racingTerraform,
+      workspace,
+    }),
+    (error) => {
+      assertFailure(error, "INIT_INPUTS_CHANGED");
+      return true;
+    },
+  );
+  assert.deepEqual(racingTerraform.planned, []);
+
+  await writeText(backend, 'storage_account_name = "example"\n');
+  const invalidTerraform = new FakeTerraform();
+  await assert.rejects(
+    planEnvironmentRoots({
+      backendConfig: backend,
+      deployment: deployment({ zpa: { cross_state_references: true } }),
+      importsOnly: false,
+      root: await committedRoot(),
+      save: false,
+      selectors: [resourceType],
+      tenant: "tenant",
+      terraform: invalidTerraform,
+      workspace,
+    }),
+    (error) => {
+      assertFailure(error, "INVALID_REFERENCE_BACKEND_CONFIG");
+      return true;
+    },
+  );
+  assert.deepEqual(invalidTerraform.initialized, []);
+  assert.deepEqual(invalidTerraform.planned, []);
+
+  await writeText(backend, JSON.stringify({
+    client_secret: "must-not-enter-state",
+    storage_account_name: "example",
+  }));
+  await assert.rejects(
+    planEnvironmentRoots({
+      backendConfig: backend,
+      deployment: deployment({ zpa: { cross_state_references: true } }),
+      importsOnly: false,
+      root: await committedRoot(),
+      save: false,
+      selectors: [resourceType],
+      tenant: "tenant",
+      terraform: new FakeTerraform(),
+      workspace,
+    }),
+    (error) => {
+      const failure = assertFailure(error, "UNSAFE_REFERENCE_BACKEND_CONFIG");
+      assert.doesNotMatch(failure.message, /must-not-enter-state/u);
+      return true;
+    },
+  );
 });
 
 test("HCL config selection and no-config skipping preserve deployment behavior", async (context) => {

@@ -440,6 +440,12 @@ async function runAdoptBatchInner(
   });
   for (const diagnostic of selectedTopology.diagnostics) write(`NOTE: ${diagnostic.message}`);
   const topology = selectedTopology.topology;
+  const bindingResourceRoots = loadedRootTopology({
+    deployment: options.deployment,
+    root: options.root,
+    selectors: [],
+    tenant: options.tenant,
+  }).topology.resource_roots;
   const processed: string[] = [];
   const skipped: string[] = [];
   const failed: string[] = [];
@@ -765,7 +771,7 @@ async function runAdoptBatchInner(
             deployment: options.deployment,
             references,
             resource: entry.resource,
-            resourceRoots: topology.resource_roots,
+            resourceRoots: bindingResourceRoots,
             root: options.root,
           }),
           deployment: options.deployment,
@@ -911,7 +917,7 @@ async function runAdoptBatchInner(
             deployment: options.deployment,
             references,
             resource,
-            resourceRoots: topology.resource_roots,
+            resourceRoots: bindingResourceRoots,
             root: options.root,
           }),
           deployment: options.deployment,

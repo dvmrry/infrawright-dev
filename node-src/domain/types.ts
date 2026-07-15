@@ -23,6 +23,7 @@ export interface RootProviderConfig {
   readonly strategy?: "explicit" | "slug";
   readonly groups?: Readonly<Record<string, readonly string[]>>;
   readonly bind_references?: boolean;
+  readonly cross_state_references?: boolean;
 }
 
 export interface Deployment {

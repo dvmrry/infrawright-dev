@@ -274,6 +274,7 @@ provider entry supports:
 | `strategy` | `"explicit"` or `"slug"`; absent means `"explicit"`. |
 | `groups` | Optional map of `<root_label>` to resource type list. Listed members share `envs/<tenant>/<root_label>/`. |
 | `bind_references` | Optional boolean, default `false`; when true, generate group-local expression bindings for pack-declared references whose referent is in the same grouped root. |
+| `cross_state_references` | Optional boolean, default `false`; when true, same-root references use module outputs and cross-root references use minimal remote-state ID outputs. Mutually exclusive with `bind_references`. |
 
 Explicit `groups` always win for their listed members. With `strategy: "slug"`,
 remaining resource types are grouped by provider prefix plus the first token
@@ -322,6 +323,72 @@ target same-root references and resolve them through sibling module outputs:
 
 Bindings are explicit generated artifacts; tfvars keep the raw IDs and readback still round-trips.
 
+### Opt-in Cross-state References
+
+For a new deployment, cross-state references normally replace automatic slug
+grouping rather than supplement it. Keep the default `"explicit"` strategy (or
+omit `strategy`) so every resource type retains its singleton state, and opt in
+per provider:
+
+```json
+{
+  "roots": {
+    "zia": { "cross_state_references": true },
+    "zpa": { "cross_state_references": true }
+  }
+}
+```
+
+Pack-declared references within one explicit group still use `module.*`.
+References between roots use `terraform_remote_state` and a generated,
+sensitive `infrawright_reference_ids` root output containing only stable config
+keys mapped to provider IDs. Complete resource objects are never exported.
+Predefined or system identifiers absent from a managed referent lookup remain
+literal values with a visible binding diagnostic.
+
+Explicit groups remain supported for existing state topology and for a genuine
+reference cycle. Enabling cross-state mode never splits or migrates an existing
+group. A declared cycle between states fails before root files or Terraform
+commands; group every member of that cycle deliberately if one state is the
+correct ownership boundary.
+
+The first import is dependency ordered, not plan-all/apply-all. Materialize and
+apply each referent state before planning its referrers. The existing
+`make resources-reference-order` output supplies referent-first resource order.
+Do not mutate, replace, or re-adopt a referent between planning and applying a
+dependent referrer. A referent-state change invalidates the dependent plan
+operationally even though the saved-plan fingerprint covers only the dependent
+root's local inputs; regenerate and reassess every affected referrer plan.
+After the last import-only Apply, repeat the complete sequence from a fresh
+workspace and require no-op plans.
+
+Local roots read sibling `terraform.tfstate` files. Generated `azurerm` roots
+reuse the same backend address data passed to `terraform init`, but each data
+source derives its own `<tenant>/<referent-root>.tfstate` key. In cross-state
+mode `BACKEND_CONFIG` must be a JSON object containing non-secret backend
+address fields, for example:
+
+```json
+{
+  "resource_group_name": "terraform-state",
+  "storage_account_name": "example",
+  "container_name": "tfstate",
+  "use_azuread_auth": true
+}
+```
+
+Do not put `key`, access keys, SAS tokens, client secrets, OIDC tokens, or
+certificate credentials in that file. Authentication remains environment- or
+managed-identity-owned. Pass the same file to `stage-imports`, `plan`,
+`assert-adoptable`, and `apply`; its bytes remain covered by saved-plan
+fingerprinting.
+
+Terraform's `terraform_remote_state` data source grants the referrer access to
+the complete referent state snapshot, not only its declared outputs. The
+generated root exposes only the minimal ID map to Terraform expressions, but
+backend authorization must still treat the referrer as a reader of the full
+referent state. Use this mode only where that trust boundary is acceptable.
+
 ### Binding Validation Limits
 
 When `tfvars_format: hcl` is active, operator-authored expression sidecars are
@@ -338,7 +405,8 @@ Generated binding skip/fallback semantics:
 | ID is absent from the referent lookup | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
 | Referent lookup sidecar has no `key_by_id` map | Leave the literal ID in tfvars and print a `NOTE bindings:` skip; rerun transform/adopt for the referent to refresh the sidecar. |
 | Referent key contains Terraform template interpolation syntax | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
-| Reference crosses a group/root boundary | No generated binding is considered; existing literal/comment behavior applies. |
+| Reference crosses a group/root boundary with cross-state mode disabled | No generated binding is considered; existing literal/comment behavior applies. |
+| Reference crosses a root boundary with cross-state mode enabled | Bind through the referent root's minimal `infrawright_reference_ids` output. |
 
 Group membership is fixed at first import. Changing it later means a fresh re-bootstrap of the affected types into new state — there is no regroup tooling, by design.
 

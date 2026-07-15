@@ -4,6 +4,7 @@ import { parseDataJsonLosslessly } from "../json/control.js";
 import { canonicalPythonNumberToken, pythonFiniteFloatToken } from "../json/python-number.js";
 import { comparePythonStrings, sortedStrings } from "../json/python-compatible.js";
 import { readOptionalUtf8 } from "../io/files.js";
+import { parseHclQuotedString } from "./import-moves.js";
 
 const PATH_SEGMENT = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const EXACT_VAR_EXPR = /^var\.([A-Za-z_][A-Za-z0-9_]*)$/u;
@@ -13,7 +14,7 @@ const NUMERIC_INDEX = String.raw`\[[0-9]+\]`;
 const SELECTOR_TAIL = String.raw`(?:\.${IDENT}|\[${HCL_STRING}\]|${NUMERIC_INDEX})*`;
 const MODULE_SELECTOR = String.raw`module\.${IDENT}${SELECTOR_TAIL}`;
 const DATA_SELECTOR = String.raw`data\.${IDENT}\.${IDENT}${SELECTOR_TAIL}`;
-const LIST_ELEMENT = String.raw`(?:${MODULE_SELECTOR}|${HCL_STRING})`;
+const LIST_ELEMENT = String.raw`(?:${MODULE_SELECTOR}|${DATA_SELECTOR}|${HCL_STRING})`;
 // Python `re` and JavaScript disagree on `\s` (notably U+FEFF). Freeze the
 // Python whitespace set so the migration keeps one expression grammar.
 const PYTHON_WHITESPACE = String.raw`[\x09-\x0d\x1c-\x20\x85\xa0\u1680\u2000-\u200a\u2028-\u2029\u202f\u205f\u3000]`;
@@ -396,4 +397,62 @@ export function expressionModuleTargets(expression: string): readonly string[] {
     index += 1;
   }
   return sortedStrings(targets);
+}
+
+export interface RemoteStateReference {
+  readonly key: string;
+  readonly resourceType: string;
+  readonly root: string;
+}
+
+/** Return canonical Infrawright remote-state selectors outside quoted strings. */
+export function expressionRemoteStateReferences(
+  expression: string,
+): readonly RemoteStateReference[] {
+  const prefix = "data.terraform_remote_state.";
+  const selected = new Map<string, RemoteStateReference>();
+  let index = 0;
+  let inString = false;
+  let escaped = false;
+  while (index < expression.length) {
+    const character = expression[index] ?? "";
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      index += 1;
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      index += 1;
+      continue;
+    }
+    if (!expression.startsWith(prefix, index)) {
+      index += 1;
+      continue;
+    }
+    const match = new RegExp(
+      String.raw`^data\.terraform_remote_state\.(${IDENT})\.outputs\.infrawright_reference_ids\.(${IDENT})\[`,
+      "u",
+    ).exec(expression.slice(index));
+    if (match === null) {
+      index += prefix.length;
+      continue;
+    }
+    const root = match[1] ?? "";
+    const resourceType = match[2] ?? "";
+    const quoted = parseHclQuotedString(expression, index + match[0].length);
+    if (expression[quoted.end] !== "]") {
+      throw new TypeError("cross-state reference key must end with a closing bracket");
+    }
+    const reference = { key: quoted.value, resourceType, root };
+    selected.set(JSON.stringify([root, resourceType, quoted.value]), reference);
+    index = quoted.end + 1;
+  }
+  return [...selected.values()].sort((left, right) => {
+    return comparePythonStrings(left.root, right.root)
+      || comparePythonStrings(left.resourceType, right.resourceType)
+      || comparePythonStrings(left.key, right.key);
+  });
 }

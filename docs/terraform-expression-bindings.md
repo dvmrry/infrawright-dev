@@ -51,6 +51,10 @@ V1 accepts only conservative Terraform expression roots:
 - `data.<type>.<name>...`
 - `module.<name>...`
 
+Lists may contain supported `data.*` or `module.*` selectors mixed with literal
+strings. This is how generated cross-state bindings retain provider/system
+sentinels while replacing only managed IDs.
+
 Do not wrap expressions in Terraform interpolation syntax in the binding file.
 Use this:
 

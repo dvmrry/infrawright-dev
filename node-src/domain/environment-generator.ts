@@ -2,25 +2,31 @@ import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { parseDataJsonLosslessly } from "../json/control.js";
-import { sortedStrings } from "../json/python-compatible.js";
+import { comparePythonStrings, sortedStrings } from "../json/python-compatible.js";
 import type { HclFormatter } from "../modules/generator.js";
 import type { LoadedPackRoot, LoadedResourceMetadata } from "../metadata/loader.js";
 import {
   deploymentConfigDir,
   deploymentEnvsDir,
   deploymentModuleDir,
+  deploymentReferenceBindingMode,
   deploymentTfvarsFormat,
 } from "./deployment.js";
 import {
   applyExpressionBindings,
   expressionModuleTargets,
+  expressionRemoteStateReferences,
   loadExpressionBindings,
   mergeExpressionBindingLayers,
   renderExpressionBindingsHcl,
   type ExpressionBinding,
+  type RemoteStateReference,
 } from "./expression-bindings.js";
 import { loadedRootTopology, validateTenant } from "./roots.js";
+import { crossStateReferenceTopology } from "./reference-topology.js";
 import { transformArtifactPaths } from "./transform-artifacts.js";
+import { renderHclQuotedString } from "./import-moves.js";
+import { REFERENCE_BACKEND_VARIABLE } from "./reference-backend.js";
 import type { Deployment, RootTopology } from "./types.js";
 
 const EXPRESSION_BINDINGS_TF = "expression_bindings.tf";
@@ -37,6 +43,11 @@ export interface EnvironmentGenerationResult {
     readonly path: string;
   }[];
   readonly backend: string | null;
+}
+
+export interface EnvironmentRemoteState {
+  readonly label: string;
+  readonly localPath: string;
 }
 
 function record(value: unknown): value is JsonRecord {
@@ -122,6 +133,67 @@ function expressionLocal(label: string, resourceType: string): string {
     : `infrawright_${resourceType}_expression_bound_items`;
 }
 
+function renderRemoteStateBlocks(options: {
+  readonly backend?: string;
+  readonly remoteStates: readonly EnvironmentRemoteState[];
+  readonly tenant: string;
+}): string {
+  if (options.remoteStates.length === 0) return "";
+  if (options.backend !== undefined && options.backend !== "azurerm") {
+    throw new TypeError(
+      `cross-state references support local or azurerm state, not ${JSON.stringify(options.backend)}`,
+    );
+  }
+  const sections: string[] = [];
+  if (options.backend === "azurerm") {
+    sections.push(
+      `variable "${REFERENCE_BACKEND_VARIABLE}" {`,
+      "  description = \"Non-secret azurerm address fields shared by cross-state lookups.\"",
+      "  type        = any",
+      "  sensitive   = true",
+      "}",
+      "",
+    );
+  }
+  for (const remote of options.remoteStates) {
+    sections.push(`data "terraform_remote_state" "${remote.label}" {`);
+    if (options.backend === "azurerm") {
+      sections.push(
+        '  backend = "azurerm"',
+        `  config = merge(var.${REFERENCE_BACKEND_VARIABLE}, {`,
+        `    key = ${renderHclQuotedString(`${options.tenant}/${remote.label}.tfstate`)}`,
+        "  })",
+      );
+    } else {
+      sections.push(
+        '  backend = "local"',
+        "  config = {",
+        `    path = ${renderHclQuotedString(remote.localPath)}`,
+        "  }",
+      );
+    }
+    sections.push("}", "");
+  }
+  return sections.join("\n");
+}
+
+function renderReferenceOutput(resourceTypes: readonly string[]): string {
+  if (resourceTypes.length === 0) return "";
+  const lines = [
+    'output "infrawright_reference_ids" {',
+    "  description = \"Minimal stable-key to provider ID map for opted-in cross-state consumers.\"",
+    "  sensitive   = true",
+    "  value = {",
+  ];
+  for (const resourceType of sortedStrings(resourceTypes)) {
+    lines.push(
+      `    ${resourceType} = { for key, item in module.${resourceType}.items : key => item.id }`,
+    );
+  }
+  lines.push("  }", "}", "");
+  return lines.join("\n");
+}
+
 /** Render one complete deployment-selected root without touching state. */
 export function renderEnvironmentMain(options: {
   readonly backend?: string;
@@ -130,6 +202,8 @@ export function renderEnvironmentMain(options: {
   readonly expressionBindingTypes?: readonly string[];
   readonly label: string;
   readonly members: readonly string[];
+  readonly referenceOutputTypes?: readonly string[];
+  readonly remoteStates?: readonly EnvironmentRemoteState[];
   readonly root: LoadedPackRoot;
   readonly tenant: string;
   readonly topology: RootTopology;
@@ -166,6 +240,15 @@ export function renderEnvironmentMain(options: {
       + `  items = ${items}\n`
       + "}";
   });
+  const remoteStateBlocks = renderRemoteStateBlocks({
+    ...(options.backend === undefined ? {} : { backend: options.backend }),
+    remoteStates: options.remoteStates ?? [],
+    tenant: options.tenant,
+  });
+  const referenceOutput = renderReferenceOutput(options.referenceOutputTypes ?? []);
+  const rootBody = remoteStateBlocks.length === 0 && referenceOutput.length === 0
+    ? `${memberBlocks.join("\n\n")}\n`
+    : `${remoteStateBlocks}${memberBlocks.join("\n\n")}\n\n${referenceOutput}`;
   return `# GENERATED by engine.gen_env for tenant '${options.tenant}' — do not edit.\n`
     + `# Regenerate: make gen-env TENANT=${options.tenant}\n\n`
     + "terraform {\n"
@@ -179,7 +262,7 @@ export function renderEnvironmentMain(options: {
     + "}\n\n"
     + `provider "${provider}" {\n`
     + "  # credentials via provider environment variables\n"
-    + `}\n\n${memberBlocks.join("\n\n")}\n`;
+    + `}\n\n${rootBody}`;
 }
 
 export function renderEnvironmentExpressionBindings(
@@ -272,6 +355,51 @@ function filterGeneratedBindings(options: {
   return kept;
 }
 
+function remoteStateReferencesForBindings(
+  bindingsByType: ReadonlyMap<string, readonly ExpressionBinding[]>,
+): readonly RemoteStateReference[] {
+  const selected = new Map<string, RemoteStateReference>();
+  for (const resourceType of sortedStrings(bindingsByType.keys())) {
+    for (const binding of bindingsByType.get(resourceType) ?? []) {
+      for (const reference of expressionRemoteStateReferences(binding.expression)) {
+        selected.set(
+          JSON.stringify([reference.root, reference.resourceType, reference.key]),
+          reference,
+        );
+      }
+    }
+  }
+  return [...selected.values()].sort((left, right) => {
+    return comparePythonStrings(left.root, right.root)
+      || comparePythonStrings(left.resourceType, right.resourceType)
+      || comparePythonStrings(left.key, right.key);
+  });
+}
+
+function validateRemoteStateReferences(options: {
+  readonly currentRoot: string;
+  readonly fullTopology: RootTopology;
+  readonly references: readonly RemoteStateReference[];
+}): void {
+  const roots = new Map(options.fullTopology.roots.map((root) => [root.label, root]));
+  for (const reference of options.references) {
+    const target = roots.get(reference.root);
+    if (target === undefined) {
+      throw new TypeError(`cross-state binding targets unknown root ${reference.root}`);
+    }
+    if (reference.root === options.currentRoot) {
+      throw new TypeError(
+        `cross-state binding in ${options.currentRoot} targets its own state; use a module binding`,
+      );
+    }
+    if (!target.members.includes(reference.resourceType)) {
+      throw new TypeError(
+        `cross-state binding expects ${reference.resourceType} in root ${reference.root}`,
+      );
+    }
+  }
+}
+
 async function loadBindingLayers(options: {
   readonly deployment: Deployment;
   readonly members: readonly string[];
@@ -282,7 +410,10 @@ async function loadBindingLayers(options: {
   const layers: Array<readonly ExpressionBinding[]> = [];
   const generated = generatedBindingsFile(options.deployment, options.tenant, options.resource.type);
   if (await exists(generated)) {
-    const enabled = options.deployment.roots[options.resource.provider]?.bind_references === true;
+    const enabled = deploymentReferenceBindingMode(
+      options.deployment,
+      options.resource.provider,
+    ) !== "disabled";
     if (enabled) {
       const filtered = filterGeneratedBindings({
         bindings: await loadExpressionBindings(generated, options.resource.type),
@@ -404,6 +535,7 @@ export function renderEnvironmentSmokeTest(options: {
   readonly label: string;
   readonly members: readonly string[];
   readonly root: LoadedPackRoot;
+  readonly remoteStateReferences?: readonly RemoteStateReference[];
   readonly tenant: string;
   readonly topology: RootTopology;
 }): string {
@@ -417,13 +549,36 @@ export function renderEnvironmentSmokeTest(options: {
   const lines = [
     "# GENERATED smoke test — the root composes and plans against a",
     `# mocked provider; no credentials. Regenerate: make gen-env TENANT=${options.tenant}`,
+  ];
+  const remoteByRoot = new Map<string, Map<string, Set<string>>>();
+  for (const reference of options.remoteStateReferences ?? []) {
+    const resources = remoteByRoot.get(reference.root) ?? new Map<string, Set<string>>();
+    const keys = resources.get(reference.resourceType) ?? new Set<string>();
+    keys.add(reference.key);
+    resources.set(reference.resourceType, keys);
+    remoteByRoot.set(reference.root, resources);
+  }
+  const remoteRoots = sortedStrings(remoteByRoot.keys());
+  for (const root of remoteRoots) {
+    lines.push("", "override_data {", `  target = data.terraform_remote_state.${root}`, "  values = {", "    outputs = {", "      infrawright_reference_ids = {");
+    for (const resourceType of sortedStrings(remoteByRoot.get(root)?.keys() ?? [])) {
+      lines.push(`        ${resourceType} = {`);
+      for (const key of sortedStrings(remoteByRoot.get(root)?.get(resourceType) ?? [])) {
+        lines.push(`          ${renderHclQuotedString(key)} = "infrawright-test-reference-id"`);
+      }
+      lines.push("        }");
+    }
+    lines.push("      }", "    }", "  }", "}");
+  }
+  lines.push(
+    ...(remoteRoots.length === 0 ? [] : [""]),
     `mock_provider "${provider}" {}`,
     "",
     'run "empty_plan" {',
     "  command = plan",
     "",
     "  variables {",
-  ];
+  );
   for (const resourceType of members) {
     lines.push(`    ${variableName(options.topology, resourceType)} = {}`);
   }
@@ -467,6 +622,17 @@ export async function generateEnvironmentRoots(options: {
     selectors: options.selectors,
     tenant: options.tenant,
   }).topology;
+  const fullTopology = loadedRootTopology({
+    deployment: options.deployment,
+    root: options.root,
+    selectors: [],
+    tenant: options.tenant,
+  }).topology;
+  const crossState = crossStateReferenceTopology({
+    deployment: options.deployment,
+    root: options.root,
+    topology: fullTopology,
+  });
   const tenantDirectory = tenantEnvironmentDirectory(
     options.deployment,
     options.tenant,
@@ -512,6 +678,20 @@ export async function generateEnvironmentRoots(options: {
       label: selectedRoot.label,
       members,
     });
+    const remoteStateReferences = remoteStateReferencesForBindings(bindingsByType);
+    validateRemoteStateReferences({
+      currentRoot: selectedRoot.label,
+      fullTopology,
+      references: remoteStateReferences,
+    });
+    const remoteStates = sortedStrings(new Set(remoteStateReferences.map((reference) => reference.root)))
+      .map((label) => ({
+        label,
+        localPath: path.relative(
+          directory,
+          path.join(tenantDirectory, label, "terraform.tfstate"),
+        ),
+      }));
     const main = await options.formatHcl(renderEnvironmentMain({
       ...(backend === undefined || backend.length === 0 ? {} : { backend }),
       deployment: options.deployment,
@@ -519,6 +699,8 @@ export async function generateEnvironmentRoots(options: {
       expressionBindingTypes: sortedStrings(bindingsByType.keys()),
       label: selectedRoot.label,
       members,
+      referenceOutputTypes: sortedStrings(crossState.outputsByRoot.get(selectedRoot.label) ?? []),
+      remoteStates,
       root: options.root,
       tenant: options.tenant,
       topology,
@@ -559,6 +741,7 @@ export async function generateEnvironmentRoots(options: {
       hasConfig,
       label: selectedRoot.label,
       members,
+      remoteStateReferences,
       root: options.root,
       tenant: options.tenant,
       topology,
