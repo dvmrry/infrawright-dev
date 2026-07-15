@@ -37,7 +37,6 @@ import {
   type CollectorAdapter,
 } from "../collectors/rest.js";
 import { resolveCollectorAdapters } from "../collectors/authority.js";
-import { fetchProducts } from "../collectors/selection.js";
 import { probeRestHost } from "../collectors/rest-diagnostics.js";
 import {
   collectorAuthMode,
@@ -1443,14 +1442,14 @@ interface FetchCliOptions {
 
 function requireBuiltInCollectorAuthority(
   root: Awaited<ReturnType<typeof loadPackRoot>>,
-  products: ReadonlySet<string>,
+  resourceTypes: readonly string[],
 ): ReadonlyMap<string, CollectorAdapter> {
   try {
     return resolveCollectorAdapters({
       authorities: {
         byProviderSource: createZscalerCollectorAdaptersByProviderSource(),
       },
-      products,
+      resourceTypes,
       root,
     });
   } catch (error: unknown) {
@@ -1558,7 +1557,7 @@ async function fetchCommand(
     if (resource === undefined) throw new Error(`unknown active resource ${resourceType}`);
     return resource.product;
   }));
-  const adapters = requireBuiltInCollectorAuthority(root, products);
+  const adapters = requireBuiltInCollectorAuthority(root, selected);
   const mode = collectorAuthMode(process.env);
   const context = collectorContext({
     environment: process.env,
@@ -1614,8 +1613,13 @@ async function fetchDiag(arguments_: string[]): Promise<number> {
     profilePath: options.profile,
     catalogPath: options.catalog,
   });
-  const products = new Set(fetchProducts(root));
-  requireBuiltInCollectorAuthority(root, products);
+  const selected = selectFetchResources({ root, selectors: [] });
+  const products = new Set(selected.map((resourceType) => {
+    const resource = root.resources.get(resourceType);
+    if (resource === undefined) throw new Error(`unknown active resource ${resourceType}`);
+    return resource.product;
+  }));
+  requireBuiltInCollectorAuthority(root, selected);
   const bundle = process.env.REQUESTS_CA_BUNDLE || process.env.SSL_CERT_FILE;
   for (const host of diagnosticHosts(process.env, products)) {
     if (host.includes("<")) {

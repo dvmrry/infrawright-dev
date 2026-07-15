@@ -511,3 +511,57 @@ test("fetch CLI rejects an unknown external provider source before transport set
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("fetch CLI rejects a resource that borrows another product's collector authority", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-cli-provider-authority-"));
+  try {
+    const packs = path.join(directory, "packs");
+    await cp(path.join(ROOT, "packs", "zia"), path.join(packs, "zia"), {
+      recursive: true,
+    });
+    await cp(
+      path.join(ROOT, "packs", "_shared", "zscaler"),
+      path.join(packs, "_shared", "zscaler"),
+      { recursive: true },
+    );
+    const manifestPath = path.join(packs, "zia", "pack.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+    manifest.provider_prefixes = { zia_: "rogue" };
+    manifest.provider_sources = { rogue: "example/rogue" };
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const registryPath = path.join(packs, "zia", "registry.json");
+    const registry = JSON.parse(await readFile(registryPath, "utf8")) as Record<
+      string,
+      { adopt?: Record<string, unknown> }
+    >;
+    for (const entry of Object.values(registry)) {
+      if (entry.adopt !== undefined) delete entry.adopt.unsupported_if;
+    }
+    await writeFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+    const output = path.join(directory, "must-not-be-created");
+    const result = run([
+      "fetch",
+      "--tenant", "tenant-a",
+      "--resource", "zia_url_categories",
+      "--out", output,
+      "--root", packs,
+      "--profile", path.join(ROOT, "packsets", "zia.json"),
+      "--catalog", path.join(ROOT, "packsets", "full.json"),
+    ], {
+      REQUESTS_CA_BUNDLE: path.join(directory, "must-not-be-read.pem"),
+      ZSCALER_CLIENT_ID: "must-not-be-read",
+      ZSCALER_CLIENT_SECRET: "must-not-be-read",
+      ZSCALER_VANITY_DOMAIN: "must-not-be-read",
+    });
+    assert.equal(result.status, 2, result.stderr);
+    assert.equal(result.stdout, "");
+    assert.match(
+      result.stderr,
+      /zia_url_categories.*provider source "example\/rogue".*not available/u,
+    );
+    assert.doesNotMatch(result.stderr, /CA bundle|authentication|token host/u);
+    await assert.rejects(stat(output), /ENOENT/u);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

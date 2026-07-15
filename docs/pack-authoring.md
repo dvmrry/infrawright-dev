@@ -17,8 +17,9 @@ packs/<name>/
 Set `INFRAWRIGHT_PACKS=/path/to/packs` to validate or run against a different
 packs root. The effective root is authoritative for manifest discovery,
 registries, schemas, overrides, and shared pack data. The operational Node CLI
-does not load `collector.py`: it binds a selected product's existing
-`provider_sources` declaration to a caller-approved `CollectorAdapter`.
+does not load `collector.py`: for every selected Fetch resource, it resolves
+the resource's actual provider owner and existing `provider_sources`
+declaration before binding a caller-approved `CollectorAdapter`.
 The bundled CLI recognizes its shipped Zscaler provider sources; a library
 caller may inject an adapter for a different provider source. Copying or
 pruning a pack root therefore does not require copying Python code, while an
@@ -367,7 +368,9 @@ owns authentication and URL composition. The pack that declares a provider
 token in `provider_prefixes` and its Terraform source in `provider_sources`
 owns that product's registry metadata; its directory name need not equal the
 provider token. The CLI resolves only provider sources for which it ships an
-adapter and verifies that the adapter's product matches the selected product.
+adapter and verifies that each selected resource's registry product matches
+that adapter. Resources sharing a product cannot span different provider
+sources.
 Custom sources require a library caller to supply the matching adapter.
 
 The remaining `packs/*/collector.py` files are retained Python parity and

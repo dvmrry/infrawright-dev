@@ -7,7 +7,7 @@ export interface CollectorAdapterAuthorities {
 }
 
 /**
- * Resolve selected product adapters through pack-owned provider sources.
+ * Resolve selected resource adapters through pack-owned provider sources.
  *
  * The pack root declares its provider source, while the caller chooses the
  * concrete source-to-adapter bindings it is willing to execute. The adapter
@@ -16,40 +16,53 @@ export interface CollectorAdapterAuthorities {
  */
 export function resolveCollectorAdapters(options: {
   readonly authorities: CollectorAdapterAuthorities;
-  readonly products: ReadonlySet<string>;
+  readonly resourceTypes: readonly string[];
   readonly root: LoadedPackRoot;
 }): ReadonlyMap<string, CollectorAdapter> {
   const selected = new Map<string, CollectorAdapter>();
-  for (const product of sortedStrings(options.products)) {
-    const owner = options.root.packs.providerOwners[product];
+  const sourcesByProduct = new Map<string, string>();
+  for (const resourceType of sortedStrings(options.resourceTypes)) {
+    const resource = options.root.resources.get(resourceType);
+    if (resource === undefined) {
+      throw new Error(`selected fetch resource ${JSON.stringify(resourceType)} is not active`);
+    }
+    const { product, provider } = resource;
+    const owner = options.root.packs.providerOwners[provider];
     if (owner === undefined) {
       throw new Error(
-        `selected fetch product ${JSON.stringify(product)} has no owning provider pack`,
+        `selected fetch resource ${JSON.stringify(resourceType)} uses provider ${JSON.stringify(provider)} without an owning pack`,
       );
     }
     const manifest = options.root.packs.manifests.find((item) => item.name === owner);
     if (manifest === undefined) {
       throw new Error(
-        `selected fetch product ${JSON.stringify(product)} has no loaded provider pack`,
+        `selected fetch resource ${JSON.stringify(resourceType)} uses provider ${JSON.stringify(provider)} without a loaded owning pack`,
       );
     }
-    const providerSource = manifest.providerSources[product];
+    const providerSource = manifest.providerSources[provider];
     if (providerSource === undefined) {
       throw new Error(
-        `pack ${JSON.stringify(owner)} declares selected fetch product ${JSON.stringify(product)} without a provider source`,
+        `pack ${JSON.stringify(owner)} owns selected fetch resource ${JSON.stringify(resourceType)} through provider ${JSON.stringify(provider)} without a provider source`,
       );
     }
     const adapter = options.authorities.byProviderSource.get(providerSource);
     if (adapter === undefined) {
       throw new Error(
-        `collector adapter for provider source ${JSON.stringify(providerSource)} and product ${JSON.stringify(product)} is not available; use a caller with a matching injected Node adapter`,
+        `selected fetch resource ${JSON.stringify(resourceType)} uses provider source ${JSON.stringify(providerSource)} and product ${JSON.stringify(product)}, but a matching collector adapter is not available; use a caller with a matching injected Node adapter`,
       );
     }
     if (adapter.product !== product) {
       throw new Error(
-        `collector adapter for provider source ${JSON.stringify(providerSource)} is bound to product ${JSON.stringify(adapter.product)}, not selected product ${JSON.stringify(product)}`,
+        `selected fetch resource ${JSON.stringify(resourceType)} declares product ${JSON.stringify(product)}, but provider source ${JSON.stringify(providerSource)} is bound to collector product ${JSON.stringify(adapter.product)}`,
       );
     }
+    const priorSource = sourcesByProduct.get(product);
+    if (priorSource !== undefined && priorSource !== providerSource) {
+      throw new Error(
+        `selected fetch product ${JSON.stringify(product)} spans provider sources ${JSON.stringify(priorSource)} and ${JSON.stringify(providerSource)}; one product cannot borrow authority across providers`,
+      );
+    }
+    sourcesByProduct.set(product, providerSource);
     selected.set(product, adapter);
   }
   return selected;

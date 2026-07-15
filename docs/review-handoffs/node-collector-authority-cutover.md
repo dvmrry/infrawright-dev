@@ -84,12 +84,14 @@
 ## Invariants Claimed
 
 - Evidence must not be silently dropped: registry selection and collection are
-  unchanged; the resolver returns one adapter for every selected product or
-  fails closed.
+  unchanged; the resolver validates every selected resource's actual provider
+  authority before returning the product adapter or failing closed.
 - Generic matcher evidence must not outrank source-backed evidence: N/A.
-- Source precedence/provenance must remain explicit: the owning manifest's
-  validated `provider_sources[product]` is the pack authority; the caller's
-  source map is the executable authority.
+- Source precedence/provenance must remain explicit: the selected resource's
+  provider determines its owning manifest, whose validated
+  `provider_sources[provider]` is the pack authority; the caller's source map
+  is the executable authority. Registry `product` cannot replace provider
+  provenance.
 - Ambiguity must stay classified instead of being coerced to success: missing,
   unknown, and mismatched mappings are explicit usage errors.
 - Provider-readiness counts must stay explainable: N/A; no readiness output or
@@ -152,3 +154,34 @@
 - Verify moving Python assertions did not weaken pure collector coverage and
   that the parity files remain selected only by the explicit all-tests lane.
 - Verify no catalog/schema/generated-output change is hidden in the diff.
+
+## Adversarial Review Loop
+
+The fresh-context review of `81d50926a38b249e773a05957cedc3f79ed17f99`
+returned **Request changes** with one blocking finding: the initial resolver
+accepted only selected products, so a resource owned by an unknown provider
+could declare `product: "zia"` and borrow the bundled ZIA collector authority.
+
+Accepted remediation:
+
+- Authority resolution now accepts the selected fetch resource types.
+- Each resource resolves through its actual provider, provider owner, and that
+  owner's `provider_sources[provider]` value before adapter lookup.
+- The resource registry product must equal the resolved adapter product.
+- One product may not span multiple provider sources in a selected run.
+- Direct resolver and CLI regressions use a `zia_url_categories` entry whose
+  actual provider is `rogue` while its registry product remains `zia`; both
+  fail before adapter acquisition, CA access, transport, or output creation.
+
+The patch-focused re-review should inspect only this authority-chain
+remediation and its tests, plus the updated explanatory claims.
+
+Remediation validation:
+
+- Focused authority, metadata CLI, external ZCC/ZTC Fetch, and Python-free
+  operational-smoke suite — 22 passed.
+- `PYTHON=/definitely/not-available npm run test:node` — 811 passed.
+- Retained REST/ZCC Python parity — 3 passed.
+- Retained collector/pack compatibility — 27 passed.
+- Typecheck, production build, vendor-boundary audit, and whitespace check —
+  passed.

@@ -91,14 +91,14 @@ test("generic Fetch collects real ZCC and ZTC registries from a Python-free exte
     ]);
     assert.deepEqual(await pythonArtifacts(packsRoot), []);
     const root = await loadPackRoot({ packsRoot });
-    const products = new Set(["zcc", "ztc"]);
     const adapters = resolveCollectorAdapters({
       authorities: {
         byProviderSource: createZscalerCollectorAdaptersByProviderSource(),
       },
-      products,
+      resourceTypes: ["zcc_trusted_network", "ztc_network_services"],
       root,
     });
+    const products = new Set(adapters.keys());
     const environment = {
       ZSCALER_CLIENT_ID: "fixture-client",
       ZSCALER_CLIENT_SECRET: "fixture-secret",

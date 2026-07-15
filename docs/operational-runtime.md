@@ -161,11 +161,13 @@ A complete release therefore includes package metadata, profiles, and all
 manifests, registries, schemas, and overrides selected by those profiles.
 
 `fetch --root` and `INFRAWRIGHT_PACKS` may select a copied or reduced external
-pack root. Collector authority comes from the owning pack's existing
-`provider_sources` value plus the caller's closed source-to-adapter map, not
-from the pack's filesystem location and not from `collector.py`. The bundled
-CLI fails an unknown source or product mismatch before credential parsing,
-CA-bundle loading, transport creation, or pull-directory creation. The
+pack root. For every selected Fetch resource, collector authority comes from
+the resource's actual provider owner, that owning pack's existing
+`provider_sources` value, and the caller's closed source-to-adapter map—not
+from the registry product alone, the pack's filesystem location, or
+`collector.py`. The bundled CLI fails an unknown source, cross-provider product
+reuse, or adapter-product mismatch before credential parsing, CA-bundle
+loading, transport creation, or pull-directory creation. The
 operational smoke exercises a nonempty `make fetch` from a root outside the
 runtime bundle after physically deleting every `.py`, `.pyc`, and
 `__pycache__` entry.

@@ -84,7 +84,12 @@ test("committed Zscaler provider sources resolve to the bundled Node collectors"
     authorities: {
       byProviderSource: createZscalerCollectorAdaptersByProviderSource(),
     },
-    products,
+    resourceTypes: [
+      "zcc_device_cleanup",
+      "zia_url_categories",
+      "zpa_application_segment",
+      "ztc_network_services",
+    ],
     root,
   });
   assert.deepEqual([...resolved.keys()], [...products].sort());
@@ -109,7 +114,7 @@ test("a copied Python-free pack root retains its Node collector authority", asyn
       authorities: {
         byProviderSource: createZscalerCollectorAdaptersByProviderSource(),
       },
-      products: new Set(["zia"]),
+      resourceTypes: ["zia_url_categories"],
       root,
     });
     assert.equal(resolved.get("zia")?.product, "zia");
@@ -130,14 +135,14 @@ test("authority resolution is selected-only and fails closed on missing, unknown
       authorities: {
         byProviderSource: createZscalerCollectorAdaptersByProviderSource(),
       },
-      products: new Set(["zia"]),
+      resourceTypes: ["zia_url_categories"],
       root,
     }).get("zia")?.product, "zia");
     assert.throws(() => resolveCollectorAdapters({
       authorities: {
         byProviderSource: createZscalerCollectorAdaptersByProviderSource(),
       },
-      products: new Set(["zcc"]),
+      resourceTypes: ["zcc_device_cleanup"],
       root,
     }), /example\/custom-zcc.*not available/u);
 
@@ -149,7 +154,7 @@ test("authority resolution is selected-only and fails closed on missing, unknown
       authorities: {
         byProviderSource: createZscalerCollectorAdaptersByProviderSource(),
       },
-      products: new Set(["zia"]),
+      resourceTypes: ["zia_url_categories"],
       root,
     }), /without a provider source/u);
 
@@ -163,9 +168,9 @@ test("authority resolution is selected-only and fails closed on missing, unknown
       authorities: {
         byProviderSource: createZscalerCollectorAdaptersByProviderSource(),
       },
-      products: new Set(["zia"]),
+      resourceTypes: ["zia_url_categories"],
       root,
-    }), /bound to product "zpa", not selected product "zia"/u);
+    }), /declares product "zia".*collector product "zpa"/u);
   } finally {
     await rm(packsRoot, { recursive: true, force: true });
   }
@@ -191,10 +196,31 @@ test("library callers may supply a custom provider-source adapter without extend
     };
     const resolved = resolveCollectorAdapters({
       authorities: { byProviderSource: new Map([[providerSource, adapter]]) },
-      products: new Set(["zia"]),
+      resourceTypes: ["zia_url_categories"],
       root,
     });
     assert.equal(resolved.get("zia"), adapter);
+  } finally {
+    await rm(packsRoot, { recursive: true, force: true });
+  }
+});
+
+test("a selected resource cannot borrow another provider's collector authority", async () => {
+  const packsRoot = await copiedRoot(["zia"]);
+  try {
+    await removeProviderScopedUnsupportedRules(packsRoot, "zia");
+    await rewriteManifest(packsRoot, "zia", (manifest) => {
+      manifest.provider_prefixes = { zia_: "rogue" };
+      manifest.provider_sources = { rogue: "example/rogue" };
+    });
+    const root = await loadPackRoot({ packsRoot });
+    assert.throws(() => resolveCollectorAdapters({
+      authorities: {
+        byProviderSource: createZscalerCollectorAdaptersByProviderSource(),
+      },
+      resourceTypes: ["zia_url_categories"],
+      root,
+    }), /zia_url_categories.*provider source "example\/rogue".*not available/u);
   } finally {
     await rm(packsRoot, { recursive: true, force: true });
   }
