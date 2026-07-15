@@ -94,6 +94,11 @@ import {
   PerformanceRecorder,
   type PerformanceStatus,
 } from "../performance/recorder.js";
+import {
+  AUTHORING_COMMANDS,
+  AuthoringCliUsageError,
+  runAuthoringCommand,
+} from "../authoring/cli.js";
 
 const USAGE = [
   "usage:",
@@ -117,6 +122,10 @@ const USAGE = [
   "  infrawright apply [--tenant <name>] [--resource <selector>] [--policy <file>] [--backend-config <file>] [--allow-destroy] [--allow-non-main] [--allow-plan-changes] [--main-branch <name>] [--terraform <path>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright fetch --tenant <name> [--resource <selector>] [--out <dir>] [--concurrency <count>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  infrawright fetch-diag [--root <packs>] [--profile <file>] [--catalog <file>]",
+  "  infrawright reconcile <resource-type> --api <file> [--api <file>] [--schema <file>] [--provider-source <source>] [--api-options <file>] [--openapi <file>] [--openapi-read <METHOD:/path>] [--openapi-write <METHOD:/path>] [--override <file>] [--out <file>] [--fail-on-unknown]",
+  "  infrawright openapi-map --schema <file> --openapi <file> [--provider-source <source>] [--resource-prefix <prefix>] [--api-prefix <prefix>] [--registry <file>] [--out <file>]",
+  "  infrawright source-operation-map --schema <file> --openapi <file> --source-root <dir> [--provider-source <source>] [--resource-prefix <prefix>] [--resources <a,b>] [--source-facts <file>] [--source-facts-compare <file>] [--sdk-root <dir>] [--out <file>] [--diagnostics <file>]",
+  "  infrawright source-evidence-eval --schema <file> --openapi <file> --source-root <dir> --out-dir <dir> [--provider-source <source>] [--resource-prefix <prefix>] [--resources <a,b>] [--source-facts <file>] [--ast-tool-dir <dir>] [--fail-on-regression]",
 ].join("\n");
 
 class CliExit extends Error {
@@ -1733,6 +1742,24 @@ async function main(
   }
   if (command === "fetch") return fetchCommand(arguments_.slice(1), performance);
   if (command === "fetch-diag") return fetchDiag(arguments_.slice(1));
+  if (command !== undefined && AUTHORING_COMMANDS.has(command)) {
+    if (arguments_[1] === "-h" || arguments_[1] === "--help") {
+      process.stdout.write(`${USAGE}\n`);
+      return 0;
+    }
+    try {
+      return await runAuthoringCommand({
+        arguments: arguments_.slice(1),
+        command,
+        repositoryRoot: await packageRoot(),
+      });
+    } catch (error: unknown) {
+      if (error instanceof AuthoringCliUsageError) {
+        throw new CliExit(error.message, 2);
+      }
+      throw error;
+    }
+  }
   if (command === "-h" || command === "--help") {
     process.stdout.write(`${USAGE}\n`);
     return 0;
