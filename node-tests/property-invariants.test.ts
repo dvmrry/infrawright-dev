@@ -49,7 +49,14 @@ test("parseArgs adapter preserves legacy diagnostics and order-aware help", () =
     (error: unknown) => error instanceof CliArgumentParseError
       && error.message === "--value requires a value",
   );
-  for (const arguments_ of [["-x"], ["unexpected"], ["--"]]) {
+  for (const arguments_ of [
+    ["-x"],
+    ["-xyz"],
+    ["-hh"],
+    ["unexpected"],
+    ["--"],
+    ["--value=inline"],
+  ]) {
     assert.throws(
       () => parseCommandArguments(arguments_, {}),
       (error: unknown) => error instanceof CliArgumentParseError
@@ -63,6 +70,17 @@ test("parseArgs adapter preserves legacy diagnostics and order-aware help", () =
   });
   assert.equal(value.flags.has("--help"), false);
   assert.deepEqual(value.options["--value"], ["--help"]);
+  const inline = parseCommandArguments(["--order=references"], {
+    values: { "--order": { inlineOnly: true } },
+  });
+  assert.deepEqual(inline.options["--order"], ["references"]);
+  assert.throws(
+    () => parseCommandArguments(["--order", "references"], {
+      values: { "--order": { inlineOnly: true } },
+    }),
+    (error: unknown) => error instanceof CliArgumentParseError
+      && error.message === "unknown argument --order",
+  );
 });
 
 test("parseArgs adapter retains mixed option and positional occurrence order", () => {

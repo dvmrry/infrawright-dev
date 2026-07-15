@@ -13,6 +13,7 @@ export class CliArgumentParseError extends Error {
 
 export interface CliValueOption {
   readonly allowEmpty?: boolean;
+  readonly inlineOnly?: boolean;
   readonly multiple?: boolean;
 }
 
@@ -66,11 +67,14 @@ function parseFailure(error: unknown): CliArgumentParseError {
 
 function argumentsThroughHelp(
   arguments_: readonly string[],
-  valueOptions: ReadonlySet<string>,
+  valueOptions: Readonly<Record<string, CliValueOption>>,
 ): readonly string[] {
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
-    if (argument !== undefined && valueOptions.has(argument)) {
+    if (argument !== undefined && valueOptions[argument] !== undefined) {
+      if (valueOptions[argument]?.inlineOnly === true) {
+        throw new CliArgumentParseError(`unknown argument ${argument}`);
+      }
       index += 1;
       continue;
     }
@@ -79,6 +83,15 @@ function argumentsThroughHelp(
     }
     if (argument === "--") {
       throw new CliArgumentParseError("unknown argument --");
+    }
+    if (argument?.startsWith("--") && argument.includes("=")) {
+      const name = argument.slice(0, argument.indexOf("="));
+      if (valueOptions[name]?.inlineOnly !== true) {
+        throw new CliArgumentParseError(`unknown argument ${argument}`);
+      }
+    }
+    if (argument?.startsWith("-") && !argument.startsWith("--")) {
+      throw new CliArgumentParseError(`unknown argument ${argument}`);
     }
   }
   return arguments_;
@@ -131,15 +144,17 @@ export function parseCommandArguments(
 
   let parsed: ReturnType<typeof parseArgs>;
   try {
-    const valueOptionNames = new Set(Object.keys(valueOptions));
+    const separateValueOptionNames = new Set(Object.entries(valueOptions)
+      .filter(([, declaration]) => declaration.inlineOnly !== true)
+      .map(([name]) => name));
     parsed = parseArgs({
       allowPositionals: configuration.allowPositionals ?? false,
       // Existing Infrawright commands bind the next token verbatim, including
       // values beginning with `-`. parseArgs treats those as ambiguous unless
       // they use `--option=value`, so normalize only declared string options.
       args: bindStringOptionValues(
-        argumentsThroughHelp(arguments_, valueOptionNames),
-        valueOptionNames,
+        argumentsThroughHelp(arguments_, valueOptions),
+        separateValueOptionNames,
       ),
       options: declarations as ParseArgsConfig["options"],
       strict: true,

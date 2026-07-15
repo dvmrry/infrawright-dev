@@ -18,6 +18,7 @@ import {
   resolveLocalRef,
   validateOpenApiDocument,
 } from "../node-src/authoring/openapi.js";
+import { parseDataJsonLosslessly } from "../node-src/json/control.js";
 import type { JsonObject } from "../node-src/metadata/validation.js";
 import { PYTHON_ORACLE } from "./python-oracle.js";
 
@@ -148,7 +149,7 @@ test("OpenAPI 2/3 schemas resolve refs, allOf, arrays, siblings, and read/write 
   assert.equal(v2.value?.writable, true);
 });
 
-test("Swagger Parser validates authoring documents without mutating refs or resolving externally", async () => {
+test("Swagger Parser validates lossless authoring documents without mutating or resolving refs", async () => {
   const valid: JsonObject = {
     components: { schemas: {
       Widget: { properties: { id: { type: "string" } }, type: "object" },
@@ -169,15 +170,18 @@ test("Swagger Parser validates authoring documents without mutating refs or reso
     validateOpenApiDocument({ openapi: "3.1.0", paths: {} }),
     /OpenAPI validation failed/,
   );
-  await assert.rejects(
-    validateOpenApiDocument({
-      info: { title: "external", version: "1" },
-      openapi: "3.1.0",
-      paths: {},
-      components: { schemas: { External: { $ref: "https:\/\/example.invalid\/schema.json" } } },
-    }),
-    /external OpenAPI \$ref values are not supported/,
-  );
+  const lossless = parseDataJsonLosslessly(JSON.stringify({
+    components: { schemas: {
+      Count: { maximum: 10, minimum: 0, type: "integer" },
+      External: { $ref: "resources/count.yml#/Count" },
+    } },
+    info: { title: "lossless multi-file fixture", version: "1" },
+    openapi: "3.0.3",
+    paths: {},
+  })) as JsonObject;
+  const losslessBefore = JSON.stringify(lossless);
+  await validateOpenApiDocument(lossless);
+  assert.equal(JSON.stringify(lossless), losslessBefore);
 });
 
 test("OpenAPI recursion is rejected for direct ref cycles and bounded while flattening nested objects", () => {

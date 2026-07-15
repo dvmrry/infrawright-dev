@@ -1,4 +1,5 @@
 import SwaggerParser from "@apidevtools/swagger-parser";
+import { LosslessNumber } from "lossless-json";
 
 import { snakeName } from "../domain/pull-transform.js";
 import { sortedStrings } from "../json/python-compatible.js";
@@ -17,24 +18,32 @@ export interface OpenApiFieldMetadata extends JsonObject {
 
 export type OpenApiFieldMap = Readonly<Record<string, OpenApiFieldMetadata>>;
 
-function assertLocalOpenApiReferences(spec: JsonObject): void {
-  const pending: unknown[] = [spec];
-  const seen = new Set<object>();
-  while (pending.length > 0) {
-    const value = pending.pop();
-    if (typeof value !== "object" || value === null || seen.has(value)) continue;
-    seen.add(value);
-    if (Array.isArray(value)) {
-      pending.push(...value);
-      continue;
+function openApiValidationGraph(
+  value: unknown,
+  seen: Map<object, unknown> = new Map(),
+): unknown {
+  if (value instanceof LosslessNumber) {
+    const number = Number(value.toString());
+    if (!Number.isFinite(number)) {
+      throw new TypeError("OpenAPI numeric values must be finite");
     }
-    for (const [key, child] of Object.entries(value)) {
-      if (key === "$ref" && typeof child === "string" && !child.startsWith("#/")) {
-        throw new TypeError("external OpenAPI $ref values are not supported");
-      }
-      pending.push(child);
-    }
+    return number;
   }
+  if (typeof value !== "object" || value === null) return value;
+  const previous = seen.get(value);
+  if (previous !== undefined) return previous;
+  if (Array.isArray(value)) {
+    const output: unknown[] = [];
+    seen.set(value, output);
+    output.push(...value.map((item) => openApiValidationGraph(item, seen)));
+    return output;
+  }
+  const output: JsonObject = Object.create(null) as JsonObject;
+  seen.set(value, output);
+  for (const [key, item] of Object.entries(value)) {
+    output[key] = openApiValidationGraph(item, seen);
+  }
+  return output;
 }
 
 /**
@@ -42,10 +51,12 @@ function assertLocalOpenApiReferences(spec: JsonObject): void {
  * local-ref and schema-flattening logic with a dereferenced object graph.
  */
 export async function validateOpenApiDocument(spec: JsonObject): Promise<void> {
-  assertLocalOpenApiReferences(spec);
   try {
-    await SwaggerParser.validate(spec as never, {
+    await SwaggerParser.validate(openApiValidationGraph(spec) as never, {
       mutateInputSchema: false,
+      // Multi-file provider contracts retain unresolved relative refs here.
+      // Infrawright's existing local-ref mapper remains authoritative and the
+      // validator must never acquire files or URLs on its behalf.
       resolve: { external: false, file: false, http: false },
       validate: { schema: true, spec: true },
     });

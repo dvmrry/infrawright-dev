@@ -821,7 +821,7 @@ async function resourcesCommand(arguments_: string[]): Promise<number> {
   let catalog = path.join(rootDirectory, "packsets", "full.json");
   const parsed = commandArguments(arguments_, { values: {
     "--catalog": {},
-    "--order": {},
+    "--order": { inlineOnly: true },
     "--profile": {},
     "--resource": { multiple: true },
     "--root": {},

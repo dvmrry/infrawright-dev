@@ -58,6 +58,9 @@ export async function createProviderProbeFixture(): Promise<ProviderProbeFixture
         get: { operationId: "RouteGetFolder", responses: { 200: { description: "ok" } } },
         patch: { responses: { 200: { description: "ok" } } },
       },
+      "/api/multi-file": {
+        $ref: "resources/multi-file.yml#/paths/~1api~1multi-file",
+      },
     },
   });
   await mkdir(path.join(source, "internal"), { recursive: true });

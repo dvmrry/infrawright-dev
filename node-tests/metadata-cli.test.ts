@@ -42,6 +42,23 @@ test("check-pack preserves encounter-order last-wins selection", () => {
   assert.equal(result.stdout, "validated packs: zia\n");
 });
 
+test("metadata CLI preserves exact legacy option spellings", () => {
+  const inlinePack = run(["check-pack", "--pack=zia"]);
+  assert.equal(inlinePack.status, 2);
+  assert.match(inlinePack.stderr, /unknown argument --pack=zia/u);
+
+  const clusteredHelp = run(["check-pack", "-hh"]);
+  assert.equal(clusteredHelp.status, 2);
+  assert.match(clusteredHelp.stderr, /unknown argument -hh/u);
+
+  const splitOrder = run(["resources", "--order", "references"]);
+  assert.equal(splitOrder.status, 2);
+  assert.match(splitOrder.stderr, /resources does not accept --order/u);
+
+  const inlineOrder = run(["resources", "--order=references"]);
+  assert.equal(inlineOrder.status, 0, inlineOrder.stderr);
+});
+
 test("ZIA admin-role evidence names the pinned SDK source path", async () => {
   const fixture = JSON.parse(await readFile(
     path.join(ROOT, "node-tests", "fixtures", "zia-adoption-classification-v4.7.26.json"),
