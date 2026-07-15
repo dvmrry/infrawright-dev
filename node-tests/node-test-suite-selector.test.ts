@@ -104,6 +104,10 @@ test("repository discovery naturally selects the operational smoke and Oracle te
   const result = run("check", directory, ["--json"]);
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(result.stdout) as {
+    readonly excluded: readonly {
+      readonly name: string;
+      readonly reason: string;
+    }[];
     readonly excluded_count: number;
     readonly selected: readonly string[];
     readonly selected_count: number;
@@ -112,6 +116,12 @@ test("repository discovery naturally selects the operational smoke and Oracle te
   assert.ok(report.selected.includes("import-oracle.test.js"));
   assert.ok(report.selected.includes("operational-runtime-smoke.test.js"));
   assert.ok(report.selected.includes("node-test-suite-selector.test.js"));
+  assert.ok(report.selected.includes("provider-probe.test.js"));
+  assert.ok(!report.selected.includes("provider-probe-parity.test.js"));
+  assert.ok(report.excluded.some((entry) => {
+    return entry.name === "provider-probe-parity.test.js"
+      && entry.reason === "imports-python-oracle";
+  }));
   assert.ok(report.selected_count > 0);
   assert.ok(report.excluded_count > 0);
   assert.equal(report.selected_count + report.excluded_count, report.total_count);

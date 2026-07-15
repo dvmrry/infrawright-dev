@@ -609,7 +609,7 @@ function pythonRound4(value: number): number {
   return (value < 0 ? -Number(quotient) : Number(quotient)) / 10_000;
 }
 
-function roundRatio4(numerator: number, denominator: number): number {
+export function roundPythonRatio4(numerator: number, denominator: number): number {
   return denominator === 0 ? 0 : pythonRound4(numerator / denominator);
 }
 
@@ -624,7 +624,7 @@ function coverageDiagnostics(
   const ratio = total === 0 ? 0 : covered / total;
   const warnings: JsonObject[] = [];
   if (openApiProfile.path_count_for_api_prefix === 0) warnings.push({ code: "api_prefix_matches_no_paths", message: "The selected API prefix matches zero OpenAPI paths. Check whether the spec stores the product base path in servers[] instead of paths[]." });
-  if (total > 0 && ratio < 0.25) warnings.push({ code: "low_openapi_resource_coverage", coverage_ratio: roundRatio4(covered, total), message: "Fewer than 25% of Terraform resources mapped to this OpenAPI document. This often means the spec is the wrong product surface, only a partial surface, or the provider contains orchestration resources that do not map to CRUD collections." });
+  if (total > 0 && ratio < 0.25) warnings.push({ code: "low_openapi_resource_coverage", coverage_ratio: roundPythonRatio4(covered, total), message: "Fewer than 25% of Terraform resources mapped to this OpenAPI document. This often means the spec is the wrong product surface, only a partial surface, or the provider contains orchestration resources that do not map to CRUD collections." });
   if (total > 0 && hints.length > 0 && ratio < 0.75) warnings.push({ code: "provider_config_suggests_multiple_surfaces", hint_attributes: hints.map((hint) => hint.name), message: "Provider configuration exposes URL/token/cloud-style knobs while OpenAPI coverage is incomplete. Classify resources by surface before field-level reconciliation." });
   const uncovered = sortedStrings(Object.keys(families)).flatMap((name) => {
     const counts = families[name] as Record<string, number>;
@@ -635,7 +635,7 @@ function coverageDiagnostics(
   });
   if (uncovered.length > 0) warnings.push({ code: "uncovered_resource_families", families: uncovered.slice(0, 50), message: "At least one Terraform resource family had no mapped OpenAPI CRUD endpoint." });
   return {
-    coverage_ratio: roundRatio4(covered, total), covered_resources: covered,
+    coverage_ratio: roundPythonRatio4(covered, total), covered_resources: covered,
     family_coverage: Object.fromEntries(sortedStrings(Object.keys(families)).map((name) => [name, Object.fromEntries(sortedStrings(Object.keys(families[name] ?? {})).map((key) => [key, families[name]?.[key]]))])),
     warnings,
   };
@@ -683,7 +683,7 @@ function registryCoverage(
   const summary: JsonObject = {
     [key === "fetch" ? "fetch_resources" : "read_resources"]: total,
     matched, unmatched: total - matched - ambiguous,
-    coverage_ratio: total === 0 ? null : roundRatio4(matched, total),
+    coverage_ratio: total === 0 ? null : roundPythonRatio4(matched, total),
   };
   if (key === "read") summary.ambiguous = ambiguous;
   return { resources, summary, warnings };
@@ -726,7 +726,11 @@ function registrySurface(item: JsonObject, provider: string | undefined, prefix:
     api_surface: prefix || null,
     confidence: matched ? (key === "fetch" ? "registry_fetch" : "source_read") : null,
     evidence: [{
-      ...(key === "fetch" ? { fetch_path: item.fetch_path, pagination: item.pagination } : { operation_id: item.operation_id, path_kind: item.path_kind, read_path: item.read_path }),
+      ...(key === "fetch" ? { fetch_path: item.fetch_path, pagination: item.pagination } : {
+        operation_id: item.operation_id ?? null,
+        path_kind: item.path_kind ?? null,
+        read_path: item.read_path ?? null,
+      }),
       kind: key === "fetch" ? "registry_fetch_path" : "source_read_registry",
       match: item.match ?? null, openapi_path: item.openapi_path ?? null,
       reason: item.reason ?? null, variant: item.variant ?? null,

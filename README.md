@@ -124,8 +124,9 @@ installing anything, or generate the exact mirror inventory with
 `node scripts/build-environment-preflight.mjs --manifest`. Until a restricted
 corporate registry mirrors that inventory, use the approved prebuilt bundle;
 the repository does not bypass the configured registry or fall back to the
-public npm registry. Python remains in this repository for tests,
-differentials, probes, and maintainer authoring/research tools. No
+public npm registry. Python remains in this repository for retained
+compatibility tests, migration differentials, and optional diagnostic/research
+tools. No
 live-provider, live-backend, or deployment-Apply qualification is claimed by
 the credential-free repository tests.
 

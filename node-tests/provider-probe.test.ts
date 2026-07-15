@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -13,6 +14,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { renderAuthoringJson } from "../node-src/authoring/json.js";
+import { buildOpenApiResourceMap } from "../node-src/authoring/openapi-resource-map.js";
 import {
   openApiOperationProfile,
   renderProviderProbeMarkdown,
@@ -20,105 +22,24 @@ import {
   terraformSchemaHcl,
   validateProviderProbeRecipe,
 } from "../node-src/authoring/provider-probe.js";
+import {
+  createProviderProbeFixture,
+  providerProbeArtifactBytes,
+  writeProviderProbeJson,
+} from "./provider-probe-fixture.js";
 
 const ROOT = process.cwd();
 const CLI = path.join(ROOT, ".node-test", "node-src", "cli", "main.js");
-const ARTIFACT_NAMES = [
-  "openapi-map.json",
-  "source-diagnostics.json",
-  "source-registry.json",
-  "summary.json",
-  "summary.md",
-] as const;
-
-interface Fixture {
-  readonly openApi: string;
-  readonly recipe: string;
-  readonly root: string;
-  readonly schema: string;
-  readonly source: string;
-}
-
-async function jsonFile(filename: string, value: unknown): Promise<void> {
-  await mkdir(path.dirname(filename), { recursive: true });
-  await writeFile(filename, `${JSON.stringify(value)}\n`, "utf8");
-}
-
-async function fixture(): Promise<Fixture> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "infrawright-provider-probe-node-"));
-  const schema = path.join(root, "schema.json");
-  const openApi = path.join(root, "openapi.json");
-  const source = path.join(root, "provider");
-  const recipe = path.join(root, "recipe.json");
-  await jsonFile(schema, {
-    provider_schemas: {
-      "registry.terraform.io/example/example": {
-        resource_schemas: {
-          example_folder: {
-            block: {
-              attributes: {
-                name: { required: true, type: "string" },
-              },
-            },
-          },
-        },
-      },
-    },
-  });
-  await jsonFile(openApi, {
-    openapi: "3.0.3",
-    paths: {
-      "/api/folders": {
-        get: { operationId: "RouteGetFolders", responses: { 200: { description: "ok" } } },
-        post: { responses: { 200: { description: "ok" } } },
-      },
-      "/api/folders/{uid}": {
-        get: { operationId: "RouteGetFolder", responses: { 200: { description: "ok" } } },
-        patch: { responses: { 200: { description: "ok" } } },
-      },
-    },
-  });
-  await mkdir(path.join(source, "internal"), { recursive: true });
-  await writeFile(path.join(source, "internal", "resource_folder.go"), [
-    "package internal",
-    "",
-    "func resourceFolder() {",
-    '    resourceName := "example_folder"',
-    "    _ = resourceName",
-    "    client.Provisioning.GetFolders(ctx)",
-    '    client.Provisioning.GetFolder("abc")',
-    "}",
-    "",
-  ].join("\n"), "utf8");
-  await jsonFile(recipe, {
-    api_prefix: "/api/",
-    name: "example",
-    openapi: { format: "json", path: "openapi.json" },
-    provider_source: "registry.terraform.io/example/example",
-    provider_version: "1.2.3",
-    resource_prefix: "example",
-    source: { path: "provider" },
-    terraform_schema: { path: "schema.json" },
-  });
-  return { openApi, recipe, root, schema, source };
-}
-
-async function artifactBytes(workDirectory: string): Promise<Readonly<Record<string, string>>> {
-  const entries = await Promise.all(ARTIFACT_NAMES.map(async (name) => {
-    return [name, await readFile(path.join(workDirectory, "artifacts", name), "utf8")] as const;
-  }));
-  return Object.fromEntries(entries);
-}
 
 test("local provider probe writes deterministic provider-readiness artifacts", async (context) => {
-  const data = await fixture();
+  const data = await createProviderProbeFixture();
   const workDirectory = path.join(data.root, "work");
   context.after(async () => rm(data.root, { force: true, recursive: true }));
 
   const first = await runProviderProbe({ recipe: data.recipe, workDirectory });
-  const firstBytes = await artifactBytes(workDirectory);
+  const firstBytes = await providerProbeArtifactBytes(workDirectory);
   const second = await runProviderProbe({ recipe: data.recipe, workDirectory });
-  const secondBytes = await artifactBytes(workDirectory);
+  const secondBytes = await providerProbeArtifactBytes(workDirectory);
 
   assert.deepEqual(second.summary, first.summary);
   assert.deepEqual(secondBytes, firstBytes);
@@ -128,16 +49,16 @@ test("local provider probe writes deterministic provider-readiness artifacts", a
   const sourceEvidence = first.summary.source_evidence as Record<string, unknown>;
   const readCoverage = first.summary.registry_read_coverage as Record<string, unknown>;
   assert.equal(sourceEvidence.mapped, 1);
-  assert.equal(readCoverage.read_resources, 1);
+  assert.equal(readCoverage.read_resources, 3);
   assert.equal(readCoverage.matched, 1);
-  assert.equal(readCoverage.coverage_ratio, 1);
+  assert.equal(readCoverage.coverage_ratio, 0.3333);
   assert.deepEqual(first.summary.openapi_operation_profile, {
     get_operations: 2,
     missing_operation_ids: 2,
     operation_id_coverage_ratio: 0.5,
     operations: 4,
   });
-  assert.match(firstBytes["summary.json"] ?? "", /"coverage_ratio": 1\.0/u);
+  assert.match(firstBytes["summary.json"] ?? "", /"coverage_ratio": 0\.3333/u);
   assert.match(firstBytes["summary.json"] ?? "", /"operation_id_coverage_ratio": 0\.5/u);
   assert.match(firstBytes["summary.md"] ?? "", /# Provider Probe: example/u);
   assert.match(firstBytes["summary.md"] ?? "", /## Artifacts/u);
@@ -147,30 +68,80 @@ test("local provider probe writes deterministic provider-readiness artifacts", a
   assert.equal(registry.example_folder?.read?.path, "/api/folders/{uid}");
 });
 
-const configuredPython = process.env.PYTHON?.trim();
-const nodeOnlySuite = process.env.INFRAWRIGHT_NODE_ONLY_TESTS === "1";
-test(
-  "local provider probe artifacts remain byte-compatible with Python",
-  {
-    skip: nodeOnlySuite || !configuredPython
-      ? "set PYTHON outside the Node-only suite to run the retained migration differential"
-      : false,
-  },
-  async (context) => {
-    const data = await fixture();
-    const workDirectory = path.join(data.root, "differential-work");
-    context.after(async () => rm(data.root, { force: true, recursive: true }));
-    const python = spawnSync(configuredPython as string, [
-      "-m", "engine.provider_probe", data.recipe, "--work-dir", workDirectory,
-    ], { cwd: ROOT, encoding: "utf8", env: process.env });
-    assert.equal(python.status, 0, python.stderr);
-    const expected = await artifactBytes(workDirectory);
+test("artifact publication preserves the complete prior set when a staged write fails", async (context) => {
+  const data = await createProviderProbeFixture();
+  const workDirectory = path.join(data.root, "atomic-work");
+  context.after(async () => rm(data.root, { force: true, recursive: true }));
+  await runProviderProbe({ recipe: data.recipe, workDirectory });
+  const accepted = await providerProbeArtifactBytes(workDirectory);
+  let writes = 0;
 
-    await rm(workDirectory, { force: true, recursive: true });
-    await runProviderProbe({ recipe: data.recipe, workDirectory });
-    assert.deepEqual(await artifactBytes(workDirectory), expected);
-  },
-);
+  await assert.rejects(
+    runProviderProbe({
+      artifactWriter: async (filename, contents) => {
+        writes += 1;
+        if (writes === 3) throw new Error("injected staged artifact failure");
+        await writeFile(filename, contents, "utf8");
+      },
+      recipe: data.recipe,
+      workDirectory,
+    }),
+    /injected staged artifact failure/u,
+  );
+
+  assert.equal(writes, 3);
+  assert.deepEqual(await providerProbeArtifactBytes(workDirectory), accepted);
+  const workEntries = await readdir(workDirectory);
+  assert.equal(
+    workEntries.some((name) => name.startsWith(".provider-probe-artifacts-")),
+    false,
+  );
+});
+
+test("source-read surface evidence emits Python nulls for every absent optional field", () => {
+  const report = buildOpenApiResourceMap({
+    apiPrefix: "/api/",
+    openApi: { openapi: "3.0.3", paths: {} },
+    providerSource: "registry.terraform.io/example/example",
+    registryData: {
+      example_ambiguous: {
+        product: "example",
+        reason: "ambiguous_source_operation",
+        status: "ambiguous_source_operation",
+      },
+      example_graphql: {
+        product: "example",
+        reason: "graphql_source",
+        status: "graphql_source",
+      },
+      example_missing: {
+        product: "example",
+        read: { path: "/api/missing" },
+        status: "mapped",
+      },
+    },
+    resourcePrefix: "example",
+    schemaData: {
+      provider_schemas: {
+        "registry.terraform.io/example/example": { resource_schemas: {} },
+      },
+    },
+  });
+  assert.doesNotThrow(() => renderAuthoringJson(report));
+  const surfaceMap = report.surface_map as {
+    readonly records: readonly {
+      readonly evidence: readonly Record<string, unknown>[];
+      readonly source: string;
+    }[];
+  };
+  const sourceRead = surfaceMap.records.filter((item) => item.source === "source_read_registry");
+  assert.equal(sourceRead.length, 3);
+  for (const record of sourceRead) {
+    assert.notEqual(record.evidence[0]?.operation_id, undefined);
+    assert.notEqual(record.evidence[0]?.path_kind, undefined);
+    assert.notEqual(record.evidence[0]?.read_path, undefined);
+  }
+});
 
 test("provider probe recipe validation remains fail-closed", () => {
   const valid = {
@@ -222,6 +193,21 @@ test("Terraform schema HCL is deterministic and uses HCL-compatible JSON strings
     "registry.terraform.io/example/example-provider",
     "2.0.0",
   ), /example_provider = \{/u);
+  assert.equal(terraformSchemaHcl(
+    { local_name: "", source: "", version: "" },
+    "registry.terraform.io/example/multi-part-provider",
+    "1.2.3",
+  ), [
+    "terraform {",
+    "  required_providers {",
+    "    multi_part_provider = {",
+    '      source = "example/multi-part-provider"',
+    '      version = "1.2.3"',
+    "    }",
+    "  }",
+    "}",
+    "",
+  ].join("\n"));
 });
 
 test("OpenAPI operation profiling ignores path metadata and uses Python half-even rounding", () => {
@@ -241,6 +227,14 @@ test("OpenAPI operation profiling ignores path metadata and uses Python half-eve
     operation_id_coverage_ratio: 0.0312,
     operations: 32,
   });
+  const binaryTiePaths = Object.fromEntries(Array.from({ length: 160 }, (_, index) => [
+    `/binary-tie/${String(index)}`,
+    { get: index === 0 ? { operationId: "OnlyDocumentedOperation" } : {} },
+  ]));
+  assert.equal(
+    openApiOperationProfile({ paths: binaryTiePaths }).operation_id_coverage_ratio,
+    0.0063,
+  );
   assert.deepEqual(openApiOperationProfile({ paths: {} }), {
     get_operations: 0,
     missing_operation_ids: 0,
@@ -279,11 +273,11 @@ test("OpenAPI operation profiling ignores path metadata and uses Python half-eve
 });
 
 test("provider probe schema materialization uses the injected Terraform host", async (context) => {
-  const data = await fixture();
+  const data = await createProviderProbeFixture();
   const workDirectory = path.join(data.root, "terraform-work");
   const recipe = path.join(data.root, "terraform-recipe.json");
   context.after(async () => rm(data.root, { force: true, recursive: true }));
-  await jsonFile(recipe, {
+  await writeProviderProbeJson(recipe, {
     api_prefix: "/api/",
     name: "example",
     openapi: { path: "openapi.json" },
@@ -344,8 +338,83 @@ test("provider probe schema materialization uses the injected Terraform host", a
   ].join("\n"));
 });
 
+test("empty recipe primaries fall back to URL, git, Terraform, and derived HCL values", async (context) => {
+  const data = await createProviderProbeFixture();
+  const workDirectory = path.join(data.root, "falsey-work");
+  const recipe = path.join(data.root, "falsey-recipe.json");
+  context.after(async () => rm(data.root, { force: true, recursive: true }));
+  await writeProviderProbeJson(recipe, {
+    api_prefix: "/api/",
+    name: "falsey",
+    openapi: { format: "", path: "", url: "https://example.test/openapi.json" },
+    provider_source: "registry.terraform.io/example/multi-part-provider",
+    provider_version: "1.2.3",
+    resource_prefix: "example",
+    source: {
+      git: "https://example.test/provider.git",
+      path: "",
+      ref: "v1.2.3",
+    },
+    terraform_provider: { local_name: "", source: "", version: "" },
+    terraform_schema: { path: "" },
+    tools: { terraform: "fake-terraform" },
+  });
+  const calls: string[][] = [];
+  const downloads: string[] = [];
+  await runProviderProbe({
+    host: {
+      download: async (url, destination) => {
+        downloads.push(url);
+        await writeFile(destination, await readFile(data.openApi));
+      },
+      run: async (arguments_, options = {}) => {
+        calls.push([...arguments_]);
+        if (arguments_[0] === "git") {
+          const cloneRoot = arguments_.at(-1) as string;
+          await mkdir(path.join(cloneRoot, "internal"), { recursive: true });
+          await writeFile(
+            path.join(cloneRoot, "internal", "resource_folder.go"),
+            await readFile(path.join(data.source, "internal", "resource_folder.go")),
+          );
+        }
+        if (arguments_[1] === "providers") {
+          assert.ok(options.stdoutPath);
+          await writeProviderProbeJson(options.stdoutPath, {
+            provider_schemas: {
+              "registry.terraform.io/example/multi-part-provider": {
+                resource_schemas: {
+                  example_folder: {
+                    block: {
+                      attributes: {
+                        name: { required: true, type: "string" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          });
+        }
+        return "";
+      },
+    },
+    recipe,
+    workDirectory,
+  });
+  assert.deepEqual(downloads, ["https://example.test/openapi.json"]);
+  assert.deepEqual(calls.map((call) => call.slice(0, 2)), [
+    ["fake-terraform", "init"],
+    ["fake-terraform", "providers"],
+    ["git", "clone"],
+  ]);
+  assert.match(
+    await readFile(path.join(workDirectory, "terraform-schema", "main.tf"), "utf8"),
+    /multi_part_provider = \{[\s\S]*source = "example\/multi-part-provider"[\s\S]*version = "1\.2\.3"/u,
+  );
+});
+
 test("provider probe refuses to replace an unmarked source checkout", async (context) => {
-  const data = await fixture();
+  const data = await createProviderProbeFixture();
   const workDirectory = path.join(data.root, "protected-work");
   const sourceDirectory = path.join(workDirectory, "source");
   const keep = path.join(sourceDirectory, "keep.txt");
@@ -353,7 +422,7 @@ test("provider probe refuses to replace an unmarked source checkout", async (con
   context.after(async () => rm(data.root, { force: true, recursive: true }));
   await mkdir(sourceDirectory, { recursive: true });
   await writeFile(keep, "do not delete\n", "utf8");
-  await jsonFile(recipe, {
+  await writeProviderProbeJson(recipe, {
     api_prefix: "/api/",
     name: "example",
     openapi: { path: "openapi.json" },
@@ -370,12 +439,12 @@ test("provider probe refuses to replace an unmarked source checkout", async (con
   assert.equal(await readFile(keep, "utf8"), "do not delete\n");
 });
 
-test("provider probe clones an exact ref, marks ownership, and replaces only its own checkout", async (context) => {
-  const data = await fixture();
+test("provider probe clones the requested branch or tag and replaces only its own checkout", async (context) => {
+  const data = await createProviderProbeFixture();
   const workDirectory = path.join(data.root, "clone-work");
   const recipe = path.join(data.root, "clone-recipe.json");
   context.after(async () => rm(data.root, { force: true, recursive: true }));
-  await jsonFile(recipe, {
+  await writeProviderProbeJson(recipe, {
     api_prefix: "/api/",
     name: "example",
     openapi: { path: "openapi.json" },
@@ -419,14 +488,14 @@ test("provider probe clones an exact ref, marks ownership, and replaces only its
 });
 
 test("provider probe YAML conversion stays safe and URL failures clean temporary files", async (context) => {
-  const data = await fixture();
+  const data = await createProviderProbeFixture();
   context.after(async () => rm(data.root, { force: true, recursive: true }));
   const ruby = spawnSync("ruby", ["--version"], { encoding: "utf8" });
   if (ruby.status === 0) {
     const unsafe = path.join(data.root, "unsafe.yaml");
     const unsafeRecipe = path.join(data.root, "unsafe-recipe.json");
     await writeFile(unsafe, "--- !ruby/object:Object {}\n", "utf8");
-    await jsonFile(unsafeRecipe, {
+    await writeProviderProbeJson(unsafeRecipe, {
       name: "unsafe",
       openapi: { format: "yaml", path: "unsafe.yaml" },
       provider_source: "registry.terraform.io/example/example",
@@ -443,7 +512,7 @@ test("provider probe YAML conversion stays safe and URL failures clean temporary
   const missingUrl = "file:///definitely/missing/infrawright-openapi.json";
   const urlRecipe = path.join(data.root, "url-recipe.json");
   const urlWork = path.join(data.root, "url-work");
-  await jsonFile(urlRecipe, {
+  await writeProviderProbeJson(urlRecipe, {
     name: "url",
     openapi: { format: "json", url: missingUrl },
     provider_source: "registry.terraform.io/example/example",
@@ -459,7 +528,7 @@ test("provider probe YAML conversion stays safe and URL failures clean temporary
 });
 
 test("provider-probe CLI and Make target stay Node-only when Python is a tripwire", async (context) => {
-  const data = await fixture();
+  const data = await createProviderProbeFixture();
   const bin = path.join(data.root, "bin");
   const tripwire = path.join(bin, "python-must-not-run");
   const marker = path.join(data.root, "python-was-invoked");

@@ -16,8 +16,9 @@
 
 - Base: `bac12dff0b25d84ae62b14b0dc2a3ae473e4e9d8` (draft PR #221 head)
 - Implementation head: `c7a076d4586486655ec5d3c21139ef3d34247a77`
-- Review head: the branch tip containing this handoff; this descendant changes
-  only the handoff document.
+- Review head: the branch tip after accepted review remediation. The
+  remediation changes test-routing assertions, compatibility CI, and
+  documentation in addition to the implementation handoff.
 - Diff command: `git diff bac12dff0b25d84ae62b14b0dc2a3ae473e4e9d8..HEAD`
 
 ## Files Changed
@@ -46,8 +47,8 @@
   and the provider-probe fixture schema; no schema changed.
 - OpenAPI/API contracts: the existing provider-probe recipe contract and local
   OpenAPI fixtures; no provider endpoint facts changed.
-- Provider source files: local fixture source plus the existing exact-ref clone
-  behavior; no provider source fact was added or remapped.
+- Provider source files: local fixture source plus the existing requested-ref
+  shallow-clone behavior; no provider source fact was added or remapped.
 - Pack metadata: the existing full catalog/profile and all committed pack
   metadata exercised by both the Node-only and complete parity gates.
 - Existing docs or design records: `docs/provider-probes.md`,
@@ -97,13 +98,13 @@
   still derives its registry through `deriveSourceOperationRegistry` and feeds
   that exact registry to `buildOpenApiResourceMap`.
 - Source precedence/provenance must remain explicit: local sources remain
-  direct; remote sources use the requested exact ref and may replace only an
-  empty or probe-marked checkout.
+  direct; remote sources shallow-clone the requested Git ref and may replace
+  only an empty or probe-marked checkout.
 - Ambiguity must stay classified instead of being coerced to success: mapper
   reports are emitted unchanged and warning codes remain deterministic.
 - Provider-readiness counts must stay explainable: the complete summary and
-  artifact bytes are checked against Python; operation profile rounding uses
-  exact integer-count arithmetic.
+  artifact bytes are checked against Python; operation-profile ratios reproduce
+  Python's binary64 division followed by four-place half-even rounding.
 - Adoption safety invariants: unchanged. The Node-only suite includes the
   generic import Oracle tests and the bundled operational runtime smoke with a
   Python tripwire; the full parity suite also remains green.
@@ -111,17 +112,20 @@
 ## Tests Run
 
 - `PYTHON=/usr/bin/false PYTHONPATH= make check-node`
-  - 66 selected test files, 42 explicitly excluded Python-oracle files.
-  - 769 tests: 768 passed, one explicit provider-probe differential skipped,
-    zero failed.
+  - 66 selected test files, 43 explicitly excluded Python-oracle files.
+  - 771 tests passed with zero skipped or failed tests.
   - Includes the Python-disabled operational smoke, import Oracle coverage,
     all pack/profile checks, module checks, and Node vendor audit.
 - `PYTHON=/run/current-system/sw/bin/python3 npm run check:all`
-  - 1,218 tests: 1,217 passed, one expected skip, zero failed.
+  - 1,222 tests: 1,221 passed, one platform-specific skip, zero failed.
 - `PYTHON=/run/current-system/sw/bin/python3 make test-python-legacy`
   - 1,417 tests passed, one expected skip.
-- Focused provider-probe/vendor/selector suite with supported Python:
-  21 passed, zero failed.
+- Focused provider-probe, OpenAPI-mapper, and selector remediation suite with
+  supported Python: 27 passed, zero skipped or failed.
+- The committed GitHub provider recipe completed through the Python-disabled
+  Node CLI and all five artifacts were byte-identical to Python. The repaired
+  `openapi-map.json` SHA-256 is
+  `443e72efe8cb17b48d79b4d58f10ad1c2cdd528e791894e1dae48a7a7c474cba`.
 - `npm run build`, `make verify-runtime`, `npm audit`, and
   `npm audit --omit=dev`: passed; zero reported vulnerabilities.
 - `node scripts/test-runtime-release.mjs`: passed for implementation commit
@@ -135,7 +139,7 @@
 - 134 tracked Python files remain: 59 under `engine/`, 62 under `tests/`, and
   three under `tools/` (the remainder are package files). They are retained
   parity/diagnostic/migration authority, not a hidden operational dependency.
-- 42 Node test files import the Python oracle and are excluded from the
+- 43 Node test files import the Python oracle and are excluded from the
   Node-only lane while remaining mandatory in `check:all`.
 - Optional research/diagnostic CLIs (`absent_defaults`, `dynamic_schema`,
   `sensitive_required`, `provider_config`, `adopt_certify`, inventory/headroom
@@ -157,7 +161,7 @@
 - Highest-risk files: `node-src/authoring/provider-probe.ts`,
   `node-src/authoring/json.ts`, and `scripts/run-node-test-suite.mjs`.
 - Attack recipe falsey/empty handling, YAML safe-load behavior, downloaded
-  OpenAPI cleanup, exact-ref source checkout replacement rules, Terraform
+  OpenAPI cleanup, requested-ref source checkout replacement rules, Terraform
   schema command behavior, report count/rounding semantics, and JSON/Markdown
   bytes.
 - Verify the probe never substitutes generic OpenAPI guesses for the
@@ -168,3 +172,24 @@
   CI remains intact.
 - Verify the diff does not alter provider pack metadata, operational workflow
   semantics, artifact schemas, deployment Apply authorization, or live state.
+
+## Accepted Review Remediation
+
+- Absent source-read evidence fields now serialize as explicit JSON `null`, so
+  ambiguous, missing, and GraphQL records remain renderable and Python-exact.
+- Provider-probe artifacts are rendered and staged as one complete set; a
+  failed staged write preserves the prior complete set and leaves no partial
+  summary or staging directory.
+- Empty recipe primaries and Terraform provider overrides now use the same
+  falsey fallback precedence as Python, including URL, Git, schema generation,
+  format inference, and multi-hyphen local-name derivation.
+- Operation-profile ratios reuse the mapper's Python-compatible binary-float
+  rounding helper; the `1 / 160` regression emits `0.0063`.
+- Provider-probe Python differentials live in a dedicated oracle-importing test
+  file. The Node-only selector excludes it honestly, while `check:all` executes
+  it without a hidden skip.
+- Reduced-profile and physically pruned CI keep the retained Python
+  compatibility gate explicitly during the archive window.
+- Collector and source-ref documentation now describes the Node Fetch path and
+  requested-ref shallow-clone behavior without claiming arbitrary commit-SHA
+  checkout support.

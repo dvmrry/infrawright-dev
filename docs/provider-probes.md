@@ -13,7 +13,8 @@ Recipes live under `docs/recipes/providers/` and pin:
 
 - `provider_source` and `provider_version`: the Terraform provider schema to
   inspect.
-- `source`: the matching provider repository and tag, or a local source path.
+- `source`: the matching provider repository and requested Git ref (normally a
+  version tag), or a local source path.
 - `openapi`: the published OpenAPI document, or a local OpenAPI path.
 - `resource_prefix` and `api_prefix`: provider-specific matching hints.
 

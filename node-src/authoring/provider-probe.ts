@@ -3,6 +3,7 @@ import { createWriteStream } from "node:fs";
 import {
   access,
   mkdir,
+  mkdtemp,
   readFile,
   readdir,
   rename,
@@ -17,8 +18,11 @@ import { finished } from "node:stream/promises";
 import { parseDataJsonLosslessly } from "../json/control.js";
 import { comparePythonStrings, sortedStrings } from "../json/python-compatible.js";
 import { isObject, type JsonObject } from "../metadata/validation.js";
-import { writeAuthoringJson } from "./json.js";
-import { buildOpenApiResourceMap } from "./openapi-resource-map.js";
+import { renderAuthoringJson, writeAuthoringJson } from "./json.js";
+import {
+  buildOpenApiResourceMap,
+  roundPythonRatio4,
+} from "./openapi-resource-map.js";
 import { deriveSourceOperationRegistry } from "./source-operation-map.js";
 
 const DEFAULT_WORK_ROOT = path.join(os.tmpdir(), "infrawright-provider-probes");
@@ -34,6 +38,8 @@ interface ProbeHost {
     readonly stdoutPath?: string;
   }) => Promise<string>;
 }
+
+type ArtifactWriter = (filename: string, contents: string) => Promise<void>;
 
 export interface ProviderProbeResult {
   readonly artifacts: Readonly<Record<string, string>>;
@@ -194,7 +200,7 @@ function recipePath(recipeFile: string, filename: string): string {
 }
 
 function isYamlPath(filename: string, explicitFormat?: string): boolean {
-  if (explicitFormat !== undefined) return ["yaml", "yml"].includes(explicitFormat.toLowerCase());
+  if (explicitFormat) return ["yaml", "yml"].includes(explicitFormat.toLowerCase());
   const lowered = filename.toLowerCase();
   return lowered.endsWith(".yaml") || lowered.endsWith(".yml");
 }
@@ -251,14 +257,14 @@ async function prepareOpenApi(
   const output = path.join(inputs, "openapi.json");
   const format = stringField(specification, "format", "openapi.format");
   const local = stringField(specification, "path", "openapi.path");
-  if (local !== undefined) {
+  if (local) {
     const source = recipePath(recipeFile, local);
     return isYamlPath(source, format)
       ? convertOpenApiYamlToJson(source, output, host)
       : copyOpenApiJsonInput(source, output);
   }
   const url = stringField(specification, "url", "openapi.url");
-  if (url === undefined) throw new TypeError("recipe openapi must include path or url");
+  if (!url) throw new TypeError("recipe openapi must include path or url");
   await host.download(url, raw);
   return isYamlPath(url, format)
     ? convertOpenApiYamlToJson(raw, output, host)
@@ -293,12 +299,12 @@ async function prepareSource(
   const source = section(recipe, "source");
   const local = stringField(source, "path", "source.path");
   let root: string;
-  if (local !== undefined) {
+  if (local) {
     root = recipePath(recipeFile, local);
   } else {
     const git = stringField(source, "git", "source.git");
     const ref = stringField(source, "ref", "source.ref");
-    if (git === undefined || ref === undefined) throw new TypeError("recipe source must include path or git");
+    if (!git || !ref) throw new TypeError("recipe source must include path or git");
     root = path.join(workDirectory, "source");
     await removeExistingProbeSource(root);
     await host.run(["git", "clone", "--depth", "1", "--branch", ref, git, root]);
@@ -309,7 +315,7 @@ async function prepareSource(
     );
   }
   const subdirectory = stringField(source, "subdir", "source.subdir");
-  if (subdirectory !== undefined) root = path.join(root, subdirectory);
+  if (subdirectory) root = path.join(root, subdirectory);
   if (!await exists(root) || !(await stat(root)).isDirectory()) {
     throw new TypeError(`provider source root does not exist: ${root}`);
   }
@@ -317,7 +323,7 @@ async function prepareSource(
 }
 
 function providerLocalName(providerSource: string): string {
-  return (providerSource.replace(/\/+$/u, "").split("/").at(-1) ?? "").replace("-", "_");
+  return (providerSource.replace(/\/+$/u, "").split("/").at(-1) ?? "").replaceAll("-", "_");
 }
 
 function terraformSource(providerSource: string): string {
@@ -330,13 +336,13 @@ export function terraformSchemaHcl(
   providerSource: string,
   providerVersion?: string,
 ): string {
-  const source = typeof terraformProvider.source === "string"
+  const source = typeof terraformProvider.source === "string" && terraformProvider.source
     ? terraformProvider.source
     : terraformSource(providerSource);
-  const version = typeof terraformProvider.version === "string"
+  const version = typeof terraformProvider.version === "string" && terraformProvider.version
     ? terraformProvider.version
     : providerVersion;
-  const localName = typeof terraformProvider.local_name === "string"
+  const localName = typeof terraformProvider.local_name === "string" && terraformProvider.local_name
     ? terraformProvider.local_name
     : providerLocalName(source);
   const lines = [
@@ -361,9 +367,9 @@ async function prepareSchema(
   await mkdir(inputs, { recursive: true });
   const output = path.join(inputs, "provider-schema.json");
   const local = stringField(schema, "path", "terraform_schema.path");
-  if (local !== undefined) return copyJsonInput(recipePath(recipeFile, local), output);
+  if (local) return copyJsonInput(recipePath(recipeFile, local), output);
   const providerSource = stringField(recipe, "provider_source", "provider_source");
-  if (providerSource === undefined) throw new TypeError("recipe must include provider_source");
+  if (!providerSource) throw new TypeError("recipe must include provider_source");
   const terraformProvider = section(recipe, "terraform_provider");
   const terraformDirectory = path.join(workDirectory, "terraform-schema");
   await mkdir(terraformDirectory, { recursive: true });
@@ -385,18 +391,6 @@ async function prepareSchema(
   });
   await readJson(output);
   return output;
-}
-
-function roundPythonRatio4(numerator: number, denominator: number): number {
-  // The inputs are integer counts. Compare the exact rational remainder to a
-  // half instead of relying on a binary floating-point equality test.
-  const scaledNumerator = numerator * 10_000;
-  const floor = Math.floor(scaledNumerator / denominator);
-  const doubledRemainder = (scaledNumerator - floor * denominator) * 2;
-  const rounded = doubledRemainder === denominator
-    ? (floor % 2 === 0 ? floor : floor + 1)
-    : (doubledRemainder > denominator ? floor + 1 : floor);
-  return rounded / 10_000;
 }
 
 function pythonFalseyJson(value: unknown): boolean {
@@ -496,9 +490,8 @@ function buildSummary(
   } as JsonObject;
 }
 
-async function artifactPaths(workDirectory: string): Promise<Record<string, string>> {
+function artifactPaths(workDirectory: string): Record<string, string> {
   const artifacts = path.join(workDirectory, "artifacts");
-  await mkdir(artifacts, { recursive: true });
   return {
     markdown: path.join(artifacts, "summary.md"),
     openapi_map: path.join(artifacts, "openapi-map.json"),
@@ -506,6 +499,53 @@ async function artifactPaths(workDirectory: string): Promise<Record<string, stri
     source_registry: path.join(artifacts, "source-registry.json"),
     summary: path.join(artifacts, "summary.json"),
   };
+}
+
+async function defaultArtifactWriter(filename: string, contents: string): Promise<void> {
+  await writeFile(filename, contents, "utf8");
+}
+
+async function publishArtifactSet(
+  workDirectory: string,
+  artifacts: Readonly<Record<string, string>>,
+  rendered: readonly { readonly name: string; readonly contents: string }[],
+  writer: ArtifactWriter,
+): Promise<void> {
+  const finalDirectory = path.join(workDirectory, "artifacts");
+  const stagedDirectory = await mkdtemp(path.join(workDirectory, ".provider-probe-artifacts-next-"));
+  let previousDirectory: string | undefined;
+  let previousMoved = false;
+  let published = false;
+  try {
+    for (const artifact of rendered) {
+      await writer(path.join(stagedDirectory, path.basename(artifacts[artifact.name] as string)), artifact.contents);
+    }
+    if (await exists(finalDirectory)) {
+      previousDirectory = await mkdtemp(path.join(workDirectory, ".provider-probe-artifacts-old-"));
+      await rm(previousDirectory, { force: true, recursive: true });
+      await rename(finalDirectory, previousDirectory);
+      previousMoved = true;
+    }
+    try {
+      await rename(stagedDirectory, finalDirectory);
+      published = true;
+    } catch (error: unknown) {
+      if (previousMoved && previousDirectory !== undefined && !await exists(finalDirectory)) {
+        await rename(previousDirectory, finalDirectory);
+        previousMoved = false;
+      }
+      throw error;
+    }
+    if (previousDirectory !== undefined) {
+      await rm(previousDirectory, { force: true, recursive: true });
+      previousMoved = false;
+    }
+  } finally {
+    if (!published) await rm(stagedDirectory, { force: true, recursive: true });
+    if (previousMoved && previousDirectory !== undefined && !await exists(finalDirectory)) {
+      await rename(previousDirectory, finalDirectory);
+    }
+  }
 }
 
 function display(value: unknown): string {
@@ -587,6 +627,7 @@ export function renderProviderProbeMarkdown(
 }
 
 export async function runProviderProbe(options: {
+  readonly artifactWriter?: ArtifactWriter;
   readonly host?: ProbeHost;
   readonly recipe: string;
   readonly workDirectory?: string;
@@ -625,21 +666,29 @@ export async function runProviderProbe(options: {
     openApiReport,
     openApiOperationProfile(openApiData),
   );
-  const artifacts = await artifactPaths(workDirectory);
-  await Promise.all([
-    writeAuthoringJson(object(sourceReport.registry, "source registry"), artifacts.source_registry as string),
-    writeAuthoringJson({
+  const artifacts = artifactPaths(workDirectory);
+  const rendered = [
+    {
+      contents: renderAuthoringJson(object(sourceReport.registry, "source registry")),
+      name: "source_registry",
+    },
+    {
+      contents: renderAuthoringJson({
       diagnostics: sourceReport.diagnostics,
       summary: sourceReport.summary,
-    }, artifacts.source_diagnostics as string),
-    writeAuthoringJson(openApiReport, artifacts.openapi_map as string),
-    writeAuthoringJson(summary, artifacts.summary as string),
-    writeFile(
-      artifacts.markdown as string,
-      renderProviderProbeMarkdown(summary, artifacts),
-      "utf8",
-    ),
-  ]);
+      }),
+      name: "source_diagnostics",
+    },
+    { contents: renderAuthoringJson(openApiReport), name: "openapi_map" },
+    { contents: renderAuthoringJson(summary), name: "summary" },
+    { contents: renderProviderProbeMarkdown(summary, artifacts), name: "markdown" },
+  ] as const;
+  await publishArtifactSet(
+    workDirectory,
+    artifacts,
+    rendered,
+    options.artifactWriter ?? defaultArtifactWriter,
+  );
   return {
     artifacts,
     inputs: { openapi, schema, source_root: sourceRoot },

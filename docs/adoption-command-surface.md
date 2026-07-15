@@ -381,15 +381,17 @@ flow.
 
 Collectors gather provider data. They do not own adoption semantics.
 
-`make fetch` currently invokes the shared REST collector entrypoint:
+`make fetch` invokes the bundled Node CLI's shared REST collector coordinator:
 
 ```text
-python -m engine.collectors.rest
+node dist/infrawright-cli.mjs fetch
 ```
 
-That entrypoint is product code, but provider-specific collection behavior
-belongs in packs and pack-owned helpers. A collector may know how to authenticate,
-page, call list/detail endpoints, and write raw JSON into `pulls/<tenant>`.
+The generic Node library owns registry selection, pagination, retries, failure
+aggregation, and deterministic pull-file output. Resource list/detail metadata
+remains in pack registries; built-in product adapters own authentication and URL
+composition. A collector may authenticate, page, call list/detail endpoints,
+and write raw JSON into `pulls/<tenant>`.
 
 A collector must not:
 

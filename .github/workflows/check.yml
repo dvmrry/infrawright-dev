@@ -445,6 +445,8 @@ jobs:
           echo "PACK_PROFILE=$GITHUB_WORKSPACE/packsets/$PROFILE.json" >> "$GITHUB_ENV"
       - name: Selected distribution gate
         run: make check
+      - name: Selected legacy Python compatibility gate
+        run: make test-python-legacy
 
   pruned-checkouts:
     runs-on: ubuntu-latest
@@ -507,3 +509,10 @@ jobs:
         run: |
           npm --prefix "$PRUNED_ROOT" ci --ignore-scripts
           make -C "$PRUNED_ROOT" PACK_PROFILE="packsets/$PROFILE.json" check
+      - name: Pruned legacy Python compatibility gate
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: >-
+          make -C "$PRUNED_ROOT"
+          PACK_PROFILE="packsets/$PROFILE.json"
+          test-python-legacy
