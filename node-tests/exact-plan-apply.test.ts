@@ -64,6 +64,44 @@ function plan(changes: readonly unknown[] = []): object {
   };
 }
 
+function planWithReferenceOutput(changes: readonly unknown[] = []): object {
+  const value = { [RESOURCE]: { one: "123" } };
+  return {
+    format_version: "1.2",
+    terraform_version: "1.15.4",
+    complete: true,
+    errored: false,
+    planned_values: {
+      outputs: {
+        infrawright_reference_ids: { sensitive: true, value },
+      },
+      root_module: {
+        child_modules: [{
+          address: `module.${RESOURCE}`,
+          resources: [{
+            address: `module.${RESOURCE}.${RESOURCE}.this["one"]`,
+            index: "one",
+            mode: "managed",
+            type: RESOURCE,
+            values: { id: "123" },
+          }],
+        }],
+      },
+    },
+    resource_changes: changes,
+    output_changes: {
+      infrawright_reference_ids: {
+        actions: ["create"],
+        before: null,
+        after: value,
+        before_sensitive: false,
+        after_sensitive: true,
+        after_unknown: false,
+      },
+    },
+  };
+}
+
 function change(
   actions: readonly string[],
   options: {
@@ -100,6 +138,7 @@ async function fixture(
   context: { after(callback: () => Promise<unknown> | unknown): void },
   options: {
     readonly backend?: boolean;
+    readonly crossState?: boolean;
     readonly grouped?: boolean;
     readonly writePlan?: boolean;
   } = {},
@@ -156,8 +195,13 @@ async function fixture(
   }
   const deployment: Deployment = {
     overlay: workspace,
-    roots: grouped
-      ? { zia: { groups: { [label]: members } } }
+    roots: grouped || options.crossState === true
+      ? {
+          zia: {
+            ...(grouped ? { groups: { [label]: members } } : {}),
+            ...(options.crossState === true ? { cross_state_references: true } : {}),
+          },
+        }
       : {},
   };
   return {
@@ -298,6 +342,17 @@ test("clean import-only Apply names tfplan and removes only the saved pair", asy
   await assert.rejects(readFile(item.tfplan), /ENOENT/u);
   await assert.rejects(readFile(item.fingerprintPath), /ENOENT/u);
   assert.equal(await readFile(keep, "utf8"), "# keep\n");
+});
+
+test("exact Apply recheck accepts the bound engine reference output", async (context) => {
+  const item = await fixture(context, { crossState: true });
+  const terraform = new FakeTerraform();
+  terraform.currentPlan = planWithReferenceOutput([
+    change(["create"], { importing: { id: "123" } }),
+  ]);
+  const completed = await run(item, terraform);
+  assert.deepEqual(completed.result, { applied: 1 });
+  assert.equal(terraform.applied.length, 1);
 });
 
 test("branch, missing-plan, stale-after-init, and Apply-failure gates retain evidence", async (context) => {

@@ -155,6 +155,57 @@ test("one transaction assesses clean plan metadata without returning plan values
   });
 });
 
+test("assessment accepts only a bound provider-observed reference output create", async () => {
+  await withFixture(async (fixture) => {
+    const value = { zpa_sample: { one: "provider-id" } };
+    const planJson = JSON.stringify({
+      format_version: "1.2",
+      terraform_version: "1.15.4",
+      complete: true,
+      errored: false,
+      planned_values: {
+        outputs: {
+          infrawright_reference_ids: { sensitive: true, value },
+        },
+        root_module: {
+          child_modules: [{
+            address: "module.zpa_sample",
+            resources: [{
+              address: 'module.zpa_sample.zpa_sample.this["one"]',
+              index: "one",
+              mode: "managed",
+              type: "zpa_sample",
+              values: { id: "provider-id" },
+            }],
+          }],
+        },
+      },
+      resource_changes: [],
+      output_changes: {
+        infrawright_reference_ids: {
+          actions: ["create"],
+          before: null,
+          after: value,
+          before_sensitive: false,
+          after_sensitive: true,
+          after_unknown: false,
+        },
+      },
+    });
+    const fake = executable(fixture.root, `printf '%s' ${shellLiteral(planJson)}`);
+    const withContract: SavedPlanAssessmentOptions = {
+      ...options(fixture, fake),
+      roots: [{ ...fixture.assessmentRoot, referenceOutputTypes: ["zpa_sample"] }],
+    };
+    const result = await assessSavedPlans(withContract);
+    assert.equal(result.status, "clean");
+    await assert.rejects(
+      assessSavedPlans(options(fixture, fake)),
+      (error: unknown) => failure(error, "INVALID_ASSESSMENT_PLAN"),
+    );
+  });
+});
+
 test("policy bytes drive tolerated classification and stale-entry reporting", async () => {
   await withFixture(async (fixture) => {
     const policyPath = join(fixture.root, "policy.json");

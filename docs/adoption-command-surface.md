@@ -431,6 +431,14 @@ Generated binding skip/fallback semantics:
 | Reference crosses a group/root boundary with cross-state mode disabled | No generated binding is considered; existing literal/comment behavior applies. |
 | Reference crosses a root boundary with cross-state mode enabled | Bind through the referent root's minimal `infrawright_reference_ids` output. |
 
+The saved-plan assessor and exact-plan Apply do not trust that output by name.
+For a referent root selected from the loaded pack/deployment context, they bind
+the expected referent resource types from the cross-state topology and rebuild
+the exact stable-key-to-provider-ID map from Terraform's planned child-module
+resources. Only a fully known, sensitive create/update matching that map is
+treated as engine-owned plan metadata. Every other non-no-op output remains
+outside the saved-plan contract.
+
 Group membership is fixed at first import. Changing it later means a fresh re-bootstrap of the affected types into new state — there is no regroup tooling, by design.
 
 ## Provider Readiness And Probe Commands

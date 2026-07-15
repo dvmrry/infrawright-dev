@@ -71,6 +71,7 @@ export interface SavedPlanAssessmentRootInput {
   readonly savedPlanPath: string;
   readonly fingerprintPath: string;
   readonly varFiles: readonly string[];
+  readonly referenceOutputTypes?: readonly string[];
 }
 
 export interface SavedPlanAssessmentOptions {
@@ -224,6 +225,19 @@ function validateRootInputs(roots: readonly SavedPlanAssessmentRootInput[]): voi
       || !path.isAbsolute(root.savedPlanPath)
       || !path.isAbsolute(root.fingerprintPath)
       || root.varFiles.some((file) => !path.isAbsolute(file))
+      || (
+        root.referenceOutputTypes !== undefined
+        && (
+          root.referenceOutputTypes.length === 0
+          || new Set(root.referenceOutputTypes).size !== root.referenceOutputTypes.length
+          || root.referenceOutputTypes.some((resourceType) => {
+            return !RESOURCE_TYPE.test(resourceType) || !root.members.includes(resourceType);
+          })
+          || root.referenceOutputTypes.some((resourceType, index) => {
+            return sortedStrings(root.referenceOutputTypes ?? [])[index] !== resourceType;
+          })
+        )
+      )
     ) {
       fail("INVALID_ASSESSMENT_ROOT", "saved-plan root input is invalid");
     }
@@ -281,6 +295,9 @@ function copyAssessmentOptions(
       savedPlanPath: root.savedPlanPath,
       fingerprintPath: root.fingerprintPath,
       varFiles: [...root.varFiles],
+      ...(root.referenceOutputTypes === undefined
+        ? {}
+        : { referenceOutputTypes: [...root.referenceOutputTypes] }),
     })).sort((left, right) => {
       const leftKey = `${left.tenant}\0${left.label}`;
       const rightKey = `${right.tenant}\0${right.label}`;
@@ -682,7 +699,11 @@ async function runSavedPlanAssessment<T>(
         fingerprintBudget: new ReadBudget(sourceLimits),
         savedPlanBudget: new ReadBudget(savedPlanLimits),
       });
-      const classification = classifyPlan(plan, boundPolicy.policy);
+      const classification = classifyPlan(plan, boundPolicy.policy, {
+        ...(root.referenceOutputTypes === undefined
+          ? {}
+          : { referenceOutputTypes: root.referenceOutputTypes }),
+      });
       remainingTime(deadline);
       if (!isJsonRecord(plan)) {
         fail("INVALID_ASSESSMENT_PLAN", "Terraform show did not emit a plan object");

@@ -118,6 +118,12 @@ Use the same `POLICY=<file>` for `assert-adoptable` and `apply`. Apply
 reclassifies saved plans before execution and should only proceed for clean,
 import-only, or explicitly policy-tolerated saved plans.
 
+For an opted-in cross-state referent, the engine-owned
+`infrawright_reference_ids` create/update is also clean only when the loaded
+topology names that referent and the sensitive, fully known output exactly
+matches provider-observed IDs reconstructed from Terraform's planned child
+modules. Arbitrary output changes remain outside the assessment contract.
+
 When using a remote backend, also pass the same `BACKEND_CONFIG=<file>` to
 `plan`, `assert-adoptable` (or `assert-clean`), and `apply`. The saved-plan
 fingerprint treats a missing or changed backend config as stale.
@@ -196,6 +202,8 @@ An integration-validation run is successful when:
 
 - saved plans are clean/import-only, or all non-import drift is explicitly
   policy-tolerated,
+- any cross-state reference output change is mechanically verified against the
+  bound root topology and planned provider IDs,
 - there are zero destroys and zero creates unless each is intentional and
   approved for the validation scope,
 - no sensitive values are rendered into committed artifacts,

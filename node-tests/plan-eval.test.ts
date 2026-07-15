@@ -29,6 +29,43 @@ function update(before: unknown, after: unknown): unknown {
   };
 }
 
+function referenceOutputPlan(action: "create" | "update" = "create"): Record<string, unknown> {
+  const value = { zpa_segment_group: { segment_one: "72059380790653545" } };
+  return {
+    format_version: "1.2",
+    complete: true,
+    errored: false,
+    planned_values: {
+      outputs: {
+        infrawright_reference_ids: { sensitive: true, value },
+      },
+      root_module: {
+        child_modules: [{
+          address: "module.zpa_segment_group",
+          resources: [{
+            address: 'module.zpa_segment_group.zpa_segment_group.this["segment_one"]',
+            index: "segment_one",
+            mode: "managed",
+            type: "zpa_segment_group",
+            values: { id: "72059380790653545", name: "Segment One" },
+          }],
+        }],
+      },
+    },
+    resource_changes: [],
+    output_changes: {
+      infrawright_reference_ids: {
+        actions: [action],
+        before: action === "create" ? null : { zpa_segment_group: {} },
+        after: value,
+        before_sensitive: action === "create" ? false : true,
+        after_sensitive: true,
+        after_unknown: false,
+      },
+    },
+  };
+}
+
 test("plan classification preserves clean, blocked, import, and opaque semantics", () => {
   assert.equal(classifyPlan({
     format_version: "1.2",
@@ -74,6 +111,57 @@ test("plan classification preserves clean, blocked, import, and opaque semantics
       },
     }],
   }).status, CLEAN);
+});
+
+test("only the bound provider-observed reference output may change", () => {
+  const contract = { referenceOutputTypes: ["zpa_segment_group"] };
+  for (const action of ["create", "update"] as const) {
+    assert.equal(classifyPlan(referenceOutputPlan(action), null, contract).status, CLEAN);
+  }
+  assert.throws(() => classifyPlan(referenceOutputPlan(), null), AssessmentPlanError);
+
+  const mutations: Array<(plan: Record<string, unknown>) => void> = [
+    (plan) => {
+      const changes = plan.output_changes as Record<string, unknown>;
+      changes.other = changes.infrawright_reference_ids;
+      delete changes.infrawright_reference_ids;
+    },
+    (plan) => {
+      const changes = plan.output_changes as Record<string, Record<string, unknown>>;
+      changes.infrawright_reference_ids!.after = {
+        zpa_segment_group: { segment_one: "wrong" },
+      };
+    },
+    (plan) => {
+      const changes = plan.output_changes as Record<string, Record<string, unknown>>;
+      changes.infrawright_reference_ids!.after_unknown = true;
+    },
+    (plan) => {
+      const changes = plan.output_changes as Record<string, Record<string, unknown>>;
+      changes.infrawright_reference_ids!.after_sensitive = false;
+    },
+    (plan) => {
+      const values = plan.planned_values as Record<string, Record<string, unknown>>;
+      const outputs = values.outputs as Record<string, Record<string, unknown>>;
+      outputs.infrawright_reference_ids!.sensitive = false;
+    },
+    (plan) => {
+      const values = plan.planned_values as Record<string, Record<string, unknown>>;
+      const root = values.root_module as Record<string, unknown>;
+      const children = root.child_modules as unknown[];
+      root.child_modules = [...children, structuredClone(children[0])];
+    },
+    (plan) => {
+      const changes = plan.output_changes as Record<string, Record<string, unknown>>;
+      changes.infrawright_reference_ids!.actions = ["delete"];
+      changes.infrawright_reference_ids!.after = null;
+    },
+  ];
+  for (const mutate of mutations) {
+    const candidate = referenceOutputPlan();
+    mutate(candidate);
+    assert.throws(() => classifyPlan(candidate, null, contract), AssessmentPlanError);
+  }
 });
 
 test("diff paths matches Python missing-null and nested list behavior", () => {

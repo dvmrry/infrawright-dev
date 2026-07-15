@@ -4,6 +4,8 @@ import { ProcessFailure } from "./errors.js";
 import type { BoundAssessmentControlFile } from "./control-evidence.js";
 import { pythonPosixJoin } from "./paths.js";
 import { loadedPlanRoots, planRoots } from "./plan-roots.js";
+import { crossStateReferenceTopology } from "./reference-topology.js";
+import { loadedRootTopology } from "./roots.js";
 import { transformArtifactPaths } from "./transform-artifacts.js";
 import type {
   SavedPlanAssessmentOptions,
@@ -12,7 +14,7 @@ import type {
 import type { Deployment, RootCatalog, WholeRootDiagnostic } from "./types.js";
 import type { LoadedPackRoot } from "../metadata/loader.js";
 import type { TerraformShowLimits } from "../io/terraform-show.js";
-import { sameStringSequence } from "../json/python-compatible.js";
+import { sameStringSequence, sortedStrings } from "../json/python-compatible.js";
 
 export interface ResolveSavedPlanAssessmentOptions {
   readonly workspace: string;
@@ -84,6 +86,9 @@ function copyDeployment(deployment: Deployment): Deployment {
         ...(config.bind_references === undefined
           ? {}
           : { bind_references: config.bind_references }),
+        ...(config.cross_state_references === undefined
+          ? {}
+          : { cross_state_references: config.cross_state_references }),
       },
       writable: true,
     });
@@ -224,7 +229,11 @@ function sameAssessmentRoots(
       && root.envDir === other.envDir
       && root.savedPlanPath === other.savedPlanPath
       && root.fingerprintPath === other.fingerprintPath
-      && sameStringSequence(root.varFiles, other.varFiles);
+      && sameStringSequence(root.varFiles, other.varFiles)
+      && sameStringSequence(
+        root.referenceOutputTypes ?? [],
+        other.referenceOutputTypes ?? [],
+      );
   });
 }
 
@@ -266,6 +275,17 @@ export async function materializeLoadedSavedPlanAssessmentRoots(
     tenant: context.tenant,
     selectors: context.selectors,
   });
+  const fullTopology = loadedRootTopology({
+    deployment: context.deployment,
+    root: context.root,
+    tenant: null,
+    selectors: [],
+  }).topology;
+  const referenceOutputs = crossStateReferenceTopology({
+    deployment: context.deployment,
+    root: context.root,
+    topology: fullTopology,
+  }).outputsByRoot;
   return {
     roots: selected.result.roots
       .filter((root) => root.artifacts.tfplan.exists)
@@ -287,6 +307,13 @@ export async function materializeLoadedSavedPlanAssessmentRoots(
             tenant: root.tenant,
           }).config,
         )),
+        ...((referenceOutputs.get(root.label)?.size ?? 0) === 0
+          ? {}
+          : {
+              referenceOutputTypes: sortedStrings(
+                referenceOutputs.get(root.label) ?? [],
+              ),
+            }),
       })),
     diagnostics: selected.diagnostics.map((diagnostic) => ({
       ...diagnostic,

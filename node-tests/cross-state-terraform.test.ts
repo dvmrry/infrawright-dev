@@ -11,6 +11,7 @@ import {
   renderExpressionBindingsHcl,
 } from "../node-src/domain/expression-bindings.js";
 import { loadedRootTopology } from "../node-src/domain/roots.js";
+import { validateAssessmentPlan } from "../node-src/domain/plan-contract.js";
 import { loadPackRoot } from "../node-src/metadata/loader.js";
 
 const TERRAFORM = process.env.TF || "terraform";
@@ -34,6 +35,47 @@ function terraform(directory: string, arguments_: readonly string[]): string {
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   return result.stdout;
 }
+
+test("real Terraform emits the reference-output shape accepted by assessment", async (context) => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "infrawright-reference-output-plan-"));
+  context.after(() => rm(workspace, { force: true, recursive: true }));
+  const moduleDirectory = path.join(workspace, "terraform_data");
+  await mkdir(moduleDirectory, { recursive: true });
+  await writeFile(path.join(moduleDirectory, "main.tf"), [
+    "variable \"items\" { type = map(any) }",
+    'resource "terraform_data" "this" {',
+    "  for_each = var.items",
+    "  input    = each.value",
+    "}",
+    'output "items" { value = terraform_data.this }',
+    "",
+  ].join("\n"), "utf8");
+  await writeFile(path.join(workspace, "main.tf"), [
+    'terraform { required_version = ">= 1.8" }',
+    'module "terraform_data" {',
+    '  source = "./terraform_data"',
+    "  items  = { one = null }",
+    "}",
+    "import {",
+    '  to = module.terraform_data.terraform_data.this["one"]',
+    '  id = "provider-id"',
+    "}",
+    'output "infrawright_reference_ids" {',
+    "  sensitive = true",
+    "  value = {",
+    "    terraform_data = { for key, item in module.terraform_data.items : key => item.id }",
+    "  }",
+    "}",
+    "",
+  ].join("\n"), "utf8");
+  terraform(workspace, ["init", "-backend=false", "-input=false"]);
+  terraform(workspace, ["plan", "-out=tfplan", "-input=false"]);
+  const plan = JSON.parse(terraform(workspace, ["show", "-json", "tfplan"])) as unknown;
+  assert.doesNotThrow(() => validateAssessmentPlan(plan, {
+    referenceOutputTypes: ["terraform_data"],
+  }));
+  assert.throws(() => validateAssessmentPlan(plan));
+});
 
 test("local referent state is consumable before the referrer plan and converges", async (context) => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "infrawright-cross-state-terraform-"));

@@ -1,5 +1,8 @@
 import type { DriftPolicy } from "./drift-policy.js";
-import { validateAssessmentPlan } from "./plan-contract.js";
+import {
+  validateAssessmentPlan,
+  type AssessmentPlanContract,
+} from "./plan-contract.js";
 import {
   isJsonRecord as isRecord,
   pythonJsonEqual,
@@ -245,7 +248,8 @@ function classifyPlanUnchecked(
 export function classifyPlan(
   plan: unknown,
   policy: DriftPolicy | null = null,
+  contract: AssessmentPlanContract = {},
 ): PlanClassification {
-  validateAssessmentPlan(plan);
+  validateAssessmentPlan(plan, contract);
   return classifyPlanUnchecked(plan, policy);
 }

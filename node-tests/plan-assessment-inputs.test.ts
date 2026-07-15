@@ -5,8 +5,12 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { ProcessFailure } from "../node-src/domain/errors.js";
-import { resolveSavedPlanAssessmentOptions } from "../node-src/domain/plan-assessment-inputs.js";
+import {
+  resolveLoadedSavedPlanAssessment,
+  resolveSavedPlanAssessmentOptions,
+} from "../node-src/domain/plan-assessment-inputs.js";
 import type { Deployment, RootCatalog } from "../node-src/domain/types.js";
+import { loadPackRoot } from "../node-src/metadata/loader.js";
 
 const CATALOG: RootCatalog = {
   kind: "infrawright.root_catalog",
@@ -182,6 +186,42 @@ test("resolver snapshots mutable options before asynchronous discovery", async (
     );
     assert.equal(resolved.backendConfig, join(workspace, "backend.hcl"));
     assert.equal(resolved.policyPath, join(workspace, "policy.json"));
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("loaded assessment binds the cross-state referent output contract", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "assessment-reference-output-"));
+  try {
+    const envDir = join(workspace, "envs", "tenant", "zpa_segment_group");
+    mkdirSync(envDir, { recursive: true });
+    writeFileSync(join(envDir, "tfplan"), "plan\n");
+    const root = await loadPackRoot({
+      packsRoot: join(process.cwd(), "packs"),
+      profilePath: join(process.cwd(), "packsets", "full.json"),
+      catalogPath: join(process.cwd(), "packsets", "full.json"),
+    });
+    const resolved = await resolveLoadedSavedPlanAssessment({
+      workspace,
+      deployment: {
+        overlay: ".",
+        roots: { zpa: { cross_state_references: true } },
+      },
+      root,
+      tenant: "tenant",
+      selectors: ["zpa_segment_group"],
+      terraformExecutable: "/opt/terraform",
+      backendConfig: null,
+      policyPath: null,
+    });
+    assert.deepEqual(resolved.assessment.roots[0]?.referenceOutputTypes, [
+      "zpa_segment_group",
+    ]);
+    assert.equal(
+      resolved.assessment.loadedContext?.deployment.roots.zpa?.cross_state_references,
+      true,
+    );
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }

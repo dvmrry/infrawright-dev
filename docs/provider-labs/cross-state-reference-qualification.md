@@ -133,7 +133,9 @@ Acceptance before Apply:
 
 - zero create/update/replace/destroy actions;
 - only expected imports or no-op;
-- no unexpected object or sensitivity changes;
+- no unexpected object or sensitivity changes; the referent's fully known,
+  sensitive `infrawright_reference_ids` create/update is expected only when it
+  exactly matches provider IDs reconstructed from planned module instances;
 - saved-plan fingerprint present and current.
 
 After explicit review and authorization, apply exactly that saved plan:
@@ -170,6 +172,29 @@ For ZIA, additionally record counts (not values) for:
 - custom category references that became remote-state expressions;
 - predefined/system category values retained as literals;
 - unresolved non-system values, which block qualification until explained.
+
+Do not use `zia_url_filtering_rules` as the first cross-state referrer when a
+fresh Fetch contains any version-scoped unsupported `ISOLATE` rule. Provider
+4.7.26 cannot reconstruct those rules' `cbi_profile`, so the current
+all-or-nothing preflight correctly publishes no artifact for that resource.
+Use the ZPA ordered-list cohort below to qualify indexed paths without changing
+that adoption policy.
+
+## Reported Live Scalar Qualification
+
+A downstream disposable-workspace run at PR #225 commit `74d07ef` reported the
+scalar pair `zpa_segment_group -> zpa_application_segment` working across two
+local state files: 15 referent imports and 28 referrer imports, with zero
+create/update/replace/destroy actions. Terraform resolved the referrer's
+`segment_group_id` from the referent's sensitive stable-key output at plan time;
+no managed ID was baked into generated HCL. The run used a mechanically checked
+import-only local-state Apply for the referent and performed no tenant mutation.
+
+That run also exposed the pre-fix assessor rejection of the otherwise expected
+output create. Repository tests now cover the bound output contract for both
+assessment and exact Apply. A downstream rerun of `assert-adoptable` on the
+updated commit remains required before treating the live qualification as
+closed.
 
 ## Ordered-list ZPA Qualification
 

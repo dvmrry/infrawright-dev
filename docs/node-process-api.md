@@ -1712,8 +1712,11 @@ assessment kernel, which provides:
   unknown-value, and partial-tolerance behavior for valid plan documents; and
 - a fail-closed entry point that accepts only supported Terraform JSON format
   `1.x`, complete and non-errored plans, structurally valid change records,
-  known action sequences, valid import markers, no non-no-op output changes,
-  no action invocations, and no failed checks before classification.
+  known action sequences, valid import markers, no non-no-op output changes
+  except the bound cross-state `infrawright_reference_ids` create/update whose
+  sensitive value exactly matches provider-observed IDs reconstructed from the
+  planned child modules, no action invocations, and no failed checks before
+  classification.
 
 The valid-plan comparison intentionally hardens four Python edge cases:
 drift-policy versions must be the JSON number `1` rather than `true`, policy

@@ -5,6 +5,8 @@ import { deploymentReferenceBindingMode } from "./deployment.js";
 import { mergedTransformReferences } from "./transform-selection.js";
 import type { Deployment, RootTopology } from "./types.js";
 
+export const INFRAWRIGHT_REFERENCE_OUTPUT = "infrawright_reference_ids";
+
 export interface CrossStateReferenceEdge {
   readonly field: string;
   readonly referrer: string;

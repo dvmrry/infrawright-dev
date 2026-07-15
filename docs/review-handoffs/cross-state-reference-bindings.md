@@ -27,15 +27,18 @@
   `node-src/domain/transform-runner.ts`, `node-src/domain/adopt-runner.ts`,
   `node-src/domain/expression-bindings.ts`.
 - Root/plan integration: `node-src/domain/environment-generator.ts`,
-  `node-src/domain/reference-backend.ts`, `node-src/domain/plan-lifecycle.ts`.
+  `node-src/domain/reference-backend.ts`, `node-src/domain/plan-lifecycle.ts`,
+  `node-src/domain/plan-contract.ts`, `node-src/domain/plan-assessment.ts`,
+  `node-src/domain/plan-assessment-inputs.ts`, and
+  `node-src/domain/exact-plan-apply.ts`.
 - Focused Node and real local-Terraform tests under `node-tests/`.
 - Source-backed nested ZPA reference declarations in `packs/zpa/pack.json`;
   required lookup sidecars are derived from those declarations only while a
   reference-binding mode is enabled.
 - Operator documentation and live-qualification runbook under `docs/`.
 - Files intentionally left untouched: provider code, provider schemas, Fetch,
-  modules, import staging, assessment semantics, saved-plan fingerprint schema,
-  exact-plan Apply, and deployment defaults.
+  modules, import staging, saved-plan fingerprint schema, deployment Apply
+  mechanics, and deployment defaults.
 
 ## Source Inputs Consulted
 
@@ -62,7 +65,8 @@
 
 ## Generated Artifacts
 
-- Reports: None.
+- Reports: the downstream scalar ZPA qualification is summarized without IDs,
+  credentials, tenant values, state, or plan contents in the lab runbook.
 - Schemas: None.
 - Fixtures: test-owned temporary deployment/pack trees only.
 - Snapshots: local test-only Terraform state for built-in `terraform_data`;
@@ -80,14 +84,16 @@
   top-level and exact indexed-list references across singleton state roots.
   Same-root references remain module expressions. The option is mutually
   exclusive with the legacy `bind_references` switch.
-- Expected report/count/coverage changes: none.
+- Expected report/count/coverage changes: assessment now accepts one
+  mechanically reconstructed engine-owned output create/update; it produces no
+  finding and changes no report schema.
 - Expected generated-output changes: opted-in referrer roots read the exact
   referent root and opted-in referent roots publish only stable-key-to-ID maps.
   Predefined/system IDs absent from managed lookup evidence remain literals
   with existing visible skip notes.
 - Expected no-op areas: a deployment without the option, explicit groups,
-  transform/adopt identity, tfvars/import/lookups/moves, plan classification,
-  fingerprint format, and exact saved-plan Apply.
+  transform/adopt identity, tfvars/import/lookups/moves, arbitrary output
+  rejection, fingerprint format, and exact saved-plan Apply execution.
 
 ## Invariants Claimed
 
@@ -101,7 +107,9 @@
   roots/resources, cycles, unsafe backend data, and malformed selectors fail.
 - Provider-readiness counts must stay explainable: N/A.
 - Adoption safety invariants: referent state is applied first; deployment plan
-  and assessment remain the convergence gates; no remote mutation is added.
+  and assessment remain the convergence gates; output acceptance is bound to
+  loaded topology and exact provider-observed planned IDs; no remote mutation
+  is added.
 
 ## Tests Run
 
@@ -113,10 +121,16 @@
   no-op plan.
 - The complete Python generated-root differential passed all 9 profiles,
   including the full 151-root tree; legacy bytes are unchanged.
+- Focused assessment/input/exact-Apply tests and a real Terraform 1.15
+  import-plan fixture prove that only the topology-bound, sensitive, fully
+  known output map is accepted; absent contracts, arbitrary names, wrong IDs,
+  unknowns, sensitivity changes, duplicate modules, and deletes fail closed.
 - `npm test` passed all 838 selected Node tests after remediation.
 - `git diff --check` passed.
-- Tests not run: no live ZIA/ZPA credentials, azurerm backend, remote provider,
-  or deployment Apply. Those are explicitly downstream qualification.
+- Tests not run: no repository-side live credentials, azurerm backend, remote
+  provider, or deployment Apply. A downstream local-state-only scalar ZPA run
+  reached an import-clean referrer plan; the updated assessor still needs a
+  downstream rerun.
 
 ## Known Deferrals
 

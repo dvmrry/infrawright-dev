@@ -27,6 +27,7 @@ import { loadedRootTopology, validateTenant } from "./roots.js";
 import {
   crossStateDependencyClosure,
   crossStateReferenceTopology,
+  INFRAWRIGHT_REFERENCE_OUTPUT,
   type CrossStateReferenceTopology,
 } from "./reference-topology.js";
 import { transformArtifactPaths } from "./transform-artifacts.js";
@@ -190,7 +191,7 @@ function renderRemoteStateBlocks(options: {
 function renderReferenceOutput(resourceTypes: readonly string[]): string {
   if (resourceTypes.length === 0) return "";
   const lines = [
-    'output "infrawright_reference_ids" {',
+    `output "${INFRAWRIGHT_REFERENCE_OUTPUT}" {`,
     "  description = \"Minimal stable-key to provider ID map for opted-in cross-state consumers.\"",
     "  sensitive   = true",
     "  value = {",
@@ -610,7 +611,7 @@ export function renderEnvironmentSmokeTest(options: {
     );
   };
   for (const root of remoteRoots) {
-    lines.push("", "override_data {", `  target = data.terraform_remote_state.${root}`, "  values = {", "    outputs = {", "      infrawright_reference_ids = {");
+    lines.push("", "override_data {", `  target = data.terraform_remote_state.${root}`, "  values = {", "    outputs = {", `      ${INFRAWRIGHT_REFERENCE_OUTPUT} = {`);
     for (const resourceType of sortedStrings(remoteByRoot.get(root)?.keys() ?? [])) {
       lines.push(`        ${resourceType} = {`);
       for (const key of sortedStrings(remoteByRoot.get(root)?.get(resourceType) ?? [])) {

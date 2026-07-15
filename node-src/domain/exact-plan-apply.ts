@@ -289,7 +289,11 @@ async function applyRoot(options: {
       directory: options.root.envDir,
       snapshotPath: evidence.snapshot.path,
     });
-    const classification = classifyPlan(plan, options.policy.policy);
+    const classification = classifyPlan(plan, options.policy.policy, {
+      ...(options.root.referenceOutputTypes === undefined
+        ? {}
+        : { referenceOutputTypes: options.root.referenceOutputTypes }),
+    });
     const destroys = destroyCount(plan);
     if (
       classification.status === BLOCKED

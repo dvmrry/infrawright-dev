@@ -2,6 +2,7 @@ import {
   isJsonRecord as isRecord,
   terraformJsonEqual,
 } from "../json/python-equality.js";
+import { INFRAWRIGHT_REFERENCE_OUTPUT } from "./reference-topology.js";
 
 const FORMAT_VERSION = /^1\.[0-9]+$/;
 const RESOURCE_TYPE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -25,6 +26,10 @@ export class AssessmentPlanError extends Error {
     super(message);
     this.name = "AssessmentPlanError";
   }
+}
+
+export interface AssessmentPlanContract {
+  readonly referenceOutputTypes?: readonly string[];
 }
 
 function fail(message: string): never {
@@ -172,18 +177,150 @@ function validateEmptyArray(plan: Record<string, unknown>, field: string): void 
   }
 }
 
-function validateOutputChanges(value: unknown): void {
+function referenceOutputValue(
+  plan: Record<string, unknown>,
+  resourceTypes: readonly string[],
+): Record<string, Record<string, string>> {
+  if (
+    resourceTypes.length === 0
+    || new Set(resourceTypes).size !== resourceTypes.length
+    || resourceTypes.some((resourceType) => !RESOURCE_TYPE.test(resourceType))
+  ) {
+    fail("reference output contract must contain unique Terraform resource types");
+  }
+  const plannedValues = plan.planned_values;
+  if (!isRecord(plannedValues) || !isRecord(plannedValues.root_module)) {
+    fail("reference output authorization requires planned root-module values");
+  }
+  const rootModule = plannedValues.root_module;
+  const childModules = rootModule.child_modules;
+  if (!Array.isArray(childModules)) {
+    fail("reference output authorization requires planned child modules");
+  }
+  const expected: Record<string, Record<string, string>> = Object.create(null) as Record<
+    string,
+    Record<string, string>
+  >;
+  for (const resourceType of resourceTypes) {
+    const address = `module.${resourceType}`;
+    const matches = childModules.filter((child) => isRecord(child) && child.address === address);
+    if (matches.length !== 1 || !isRecord(matches[0])) {
+      fail(`reference output authorization requires exactly one ${address} child module`);
+    }
+    const child = matches[0];
+    const resources = child.resources ?? [];
+    if (!Array.isArray(resources)) {
+      fail(`${address}.resources must be an array`);
+    }
+    const ids: Record<string, string> = Object.create(null) as Record<string, string>;
+    for (const rawResource of resources) {
+      if (!isRecord(rawResource)) {
+        fail(`${address}.resources entries must be objects`);
+      }
+      if (rawResource.mode !== "managed" || rawResource.type !== resourceType) continue;
+      if (
+        typeof rawResource.address !== "string"
+        || !rawResource.address.startsWith(`${address}.${resourceType}.this[`)
+        || typeof rawResource.index !== "string"
+        || !isRecord(rawResource.values)
+        || typeof rawResource.values.id !== "string"
+      ) {
+        fail(`${address} contains an invalid reference-output resource instance`);
+      }
+      if (Object.hasOwn(ids, rawResource.index)) {
+        fail(`${address} contains a duplicate reference-output key`);
+      }
+      ids[rawResource.index] = rawResource.values.id;
+    }
+    expected[resourceType] = ids;
+  }
+  const outputs = plannedValues.outputs;
+  if (!isRecord(outputs) || !isRecord(outputs[INFRAWRIGHT_REFERENCE_OUTPUT])) {
+    fail("reference output authorization requires the planned engine output");
+  }
+  const plannedOutput = outputs[INFRAWRIGHT_REFERENCE_OUTPUT];
+  if (
+    plannedOutput.sensitive !== true
+    || !Object.hasOwn(plannedOutput, "value")
+    || !terraformJsonEqual(plannedOutput.value, expected)
+  ) {
+    fail("planned engine reference output does not match provider-observed resource IDs");
+  }
+  return expected;
+}
+
+function validateReferenceOutputChange(options: {
+  readonly change: Record<string, unknown>;
+  readonly plan: Record<string, unknown>;
+  readonly resourceTypes: readonly string[];
+}): void {
+  const expected = referenceOutputValue(options.plan, options.resourceTypes);
+  const actions = options.change.actions;
+  if (
+    !Array.isArray(actions)
+    || actions.length !== 1
+    || (actions[0] !== "create" && actions[0] !== "update")
+  ) {
+    fail("engine reference output permits only create or update actions");
+  }
+  if (
+    !Object.hasOwn(options.change, "after")
+    || !terraformJsonEqual(options.change.after, expected)
+  ) {
+    fail("engine reference output does not match provider-observed resource IDs");
+  }
+  if (actions[0] === "create" && options.change.before !== null) {
+    fail("engine reference output create must start from null");
+  }
+  if (actions[0] === "update" && !Object.hasOwn(options.change, "before")) {
+    fail("engine reference output update must bind its prior value");
+  }
+  if (Object.hasOwn(options.change, "after_unknown")) {
+    validateBooleanMask(options.change.after_unknown, "output_changes after_unknown");
+    if (booleanMaskHasTrue(options.change.after_unknown)) {
+      fail("engine reference output must be fully known");
+    }
+  }
+  for (const field of ["before_sensitive", "after_sensitive"] as const) {
+    if (Object.hasOwn(options.change, field)) {
+      validateBooleanMask(options.change[field], `output_changes ${field}`);
+    }
+  }
+  if (options.change.after_sensitive !== true) {
+    fail("engine reference output must remain sensitive");
+  }
+  if (actions[0] === "update" && options.change.before_sensitive !== true) {
+    fail("engine reference output update must preserve sensitivity");
+  }
+}
+
+function validateOutputChanges(
+  plan: Record<string, unknown>,
+  contract: AssessmentPlanContract,
+): void {
+  const value = plan.output_changes;
   if (value === undefined) {
     return;
   }
   if (!isRecord(value)) {
     fail("output_changes must be an object");
   }
-  for (const change of Object.values(value)) {
+  for (const [name, change] of Object.entries(value)) {
     if (!isRecord(change) || !Array.isArray(change.actions)) {
       fail("output_changes entries must contain actions");
     }
     if (change.actions.length !== 1 || change.actions[0] !== "no-op") {
+      if (
+        name === INFRAWRIGHT_REFERENCE_OUTPUT
+        && (contract.referenceOutputTypes?.length ?? 0) > 0
+      ) {
+        validateReferenceOutputChange({
+          change,
+          plan,
+          resourceTypes: contract.referenceOutputTypes ?? [],
+        });
+        continue;
+      }
       fail("non-no-op output changes are not supported by saved-plan assessment");
     }
     if (
@@ -255,7 +392,10 @@ function validateChecks(value: unknown): void {
  * Validate the narrow Terraform plan surface consumed by saved-plan assessment.
  * Unknown object properties remain allowed for forward-compatible 1.x additions.
  */
-export function validateAssessmentPlan(plan: unknown): asserts plan is Record<string, unknown> {
+export function validateAssessmentPlan(
+  plan: unknown,
+  contract: AssessmentPlanContract = {},
+): asserts plan is Record<string, unknown> {
   if (!isRecord(plan)) {
     fail("plan must be an object");
   }
@@ -286,7 +426,7 @@ export function validateAssessmentPlan(plan: unknown): asserts plan is Record<st
   for (let index = 0; index < drift.length; index += 1) {
     validateChangeRecord(drift[index], `resource_drift[${index}]`);
   }
-  validateOutputChanges(plan.output_changes);
+  validateOutputChanges(plan, contract);
   validateEmptyArray(plan, "action_invocations");
   validateEmptyArray(plan, "deferred_changes");
   validateEmptyArray(plan, "deferred_action_invocations");
