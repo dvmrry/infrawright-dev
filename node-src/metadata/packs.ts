@@ -23,7 +23,6 @@ export const PACK_SET_VERSION = 1;
 
 const PACK_SET_KEYS = new Set(["kind", "version", "packs", "shared"]);
 const COMPONENT_NAME = /^[a-z0-9][a-z0-9_-]*$/;
-const IMPORTABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const MANIFEST_KEYS = new Set([
   "absent_defaults",
   "drift_policy",
@@ -558,16 +557,6 @@ export async function validatePackAuthoring(options: {
     const manifest = metadata.manifests.find((item) => item.name === options.pack);
     if (manifest === undefined) {
       fail(`unknown pack ${JSON.stringify(options.pack)} under ${root}`);
-    }
-  }
-  for (const name of names) {
-    if (
-      !IMPORTABLE_NAME.test(name)
-      && await isFile(path.join(root, name, "collector.py"))
-    ) {
-      fail(
-        `pack ${name} cannot expose a Python collector: its directory name is not an importable identifier`,
-      );
     }
   }
   await validateSharedDependencies(metadata, names);

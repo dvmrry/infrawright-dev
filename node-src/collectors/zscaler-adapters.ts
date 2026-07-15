@@ -342,7 +342,7 @@ function composeProductUrl(
   return fail(
     product === "zcc"
       ? "unknown auth_mode/product: 'legacy'/'zcc'"
-      : "ZTC legacy auth is not wired in the collector yet. Use OneAPI, or scope ZTC out of legacy runs with RESOURCE=\"zia zpa zcc\".",
+      : "ZTC legacy auth is not wired in the collector yet. Use OneAPI, or scope ZTC out of legacy runs with RESOURCE=\"zia zpa\".",
   );
 }
 
@@ -359,7 +359,7 @@ function adapter(product: "zia" | "zpa" | "zcc" | "ztc"): CollectorAdapter {
         );
       }
       return fail(
-        "ZTC legacy auth is not wired in the collector yet. Use OneAPI, or scope ZTC out of legacy runs with RESOURCE=\"zia zpa zcc\".",
+        "ZTC legacy auth is not wired in the collector yet. Use OneAPI, or scope ZTC out of legacy runs with RESOURCE=\"zia zpa\".",
       );
     },
     composeUrl(input: CollectorComposeUrlInput): URL {
@@ -376,6 +376,30 @@ export function createZscalerCollectorAdapters(): ReadonlyMap<string, CollectorA
     ["zcc", adapter("zcc")],
     ["ztc", adapter("ztc")],
   ]);
+}
+
+export const ZSCALER_COLLECTOR_PROVIDER_SOURCES = Object.freeze({
+  zcc: "zscaler/zcc",
+  zia: "zscaler/zia",
+  zpa: "zscaler/zpa",
+  ztc: "zscaler/ztc",
+} as const);
+
+/** Closed Node adapters keyed by the provider sources already declared by packs. */
+export function createZscalerCollectorAdaptersByProviderSource(): ReadonlyMap<
+  string,
+  CollectorAdapter
+> {
+  const byProduct = createZscalerCollectorAdapters();
+  return new Map(Object.entries(ZSCALER_COLLECTOR_PROVIDER_SOURCES).map(
+    ([product, providerSource]) => {
+      const selected = byProduct.get(product);
+      if (selected === undefined) {
+        throw new Error(`missing built-in collector adapter for product ${product}`);
+      }
+      return [providerSource, selected] as const;
+    },
+  ));
 }
 
 export function collectorAuthMode(

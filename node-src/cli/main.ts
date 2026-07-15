@@ -1,4 +1,4 @@
-import { access, readFile, realpath } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,13 +34,15 @@ import {
   fetchResources,
   MAX_FETCH_CONCURRENCY,
   selectFetchResources,
+  type CollectorAdapter,
 } from "../collectors/rest.js";
+import { resolveCollectorAdapters } from "../collectors/authority.js";
 import { fetchProducts } from "../collectors/selection.js";
 import { probeRestHost } from "../collectors/rest-diagnostics.js";
 import {
   collectorAuthMode,
   collectorContext,
-  createZscalerCollectorAdapters,
+  createZscalerCollectorAdaptersByProviderSource,
   diagnosticHosts,
   fetchDebugLines,
   maskCollectorIdentifiers,
@@ -1439,17 +1441,20 @@ interface FetchCliOptions {
   readonly tenant?: string;
 }
 
-async function requireBuiltInCollectorAuthority(
+function requireBuiltInCollectorAuthority(
   root: Awaited<ReturnType<typeof loadPackRoot>>,
   products: ReadonlySet<string>,
-): Promise<void> {
-  if (products.size === 0) return;
-  const installed = await realpath(path.join(await packageRoot(), "packs"));
-  const selected = await realpath(root.root);
-  if (installed !== selected) {
-    usageError(
-      "the fetch CLI can use built-in product adapters only with the installed pack root; external collector roots require a library caller that supplies matching adapters",
-    );
+): ReadonlyMap<string, CollectorAdapter> {
+  try {
+    return resolveCollectorAdapters({
+      authorities: {
+        byProviderSource: createZscalerCollectorAdaptersByProviderSource(),
+      },
+      products,
+      root,
+    });
+  } catch (error: unknown) {
+    usageError(error instanceof Error ? error.message : "invalid collector adapter authority");
   }
 }
 
@@ -1553,7 +1558,7 @@ async function fetchCommand(
     if (resource === undefined) throw new Error(`unknown active resource ${resourceType}`);
     return resource.product;
   }));
-  await requireBuiltInCollectorAuthority(root, products);
+  const adapters = requireBuiltInCollectorAuthority(root, products);
   const mode = collectorAuthMode(process.env);
   const context = collectorContext({
     environment: process.env,
@@ -1576,7 +1581,7 @@ async function fetchCommand(
   let primary: unknown;
   try {
     result = await fetchResources({
-      adapters: createZscalerCollectorAdapters(),
+      adapters,
       concurrency: options.concurrency,
       context,
       environment: process.env,
@@ -1610,7 +1615,7 @@ async function fetchDiag(arguments_: string[]): Promise<number> {
     catalogPath: options.catalog,
   });
   const products = new Set(fetchProducts(root));
-  await requireBuiltInCollectorAuthority(root, products);
+  requireBuiltInCollectorAuthority(root, products);
   const bundle = process.env.REQUESTS_CA_BUNDLE || process.env.SSL_CERT_FILE;
   for (const host of diagnosticHosts(process.env, products)) {
     if (host.includes("<")) {

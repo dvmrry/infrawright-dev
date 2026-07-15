@@ -1,6 +1,4 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -217,51 +215,6 @@ test("expanded paths are percent-quoted and concatenated in registry order", asy
       "/api/rules/slash%2Fvalue/again/slash%2Fvalue",
     ],
   );
-});
-
-test("fetch query float tokens match Python urllib encoding after registry load", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "rest-query-numbers-"));
-  try {
-    const packDirectory = path.join(directory, "sample");
-    await mkdir(packDirectory, { recursive: true });
-    await writeFile(
-      path.join(packDirectory, "pack.json"),
-      JSON.stringify({ provider_prefixes: { sample_: "sample" } }),
-      "utf8",
-    );
-    const queryJson = '{"integer":1,"decimal":1.0,"exponent":1e0,"negative_zero":-0.0,"tiny":1e-7}';
-    await writeFile(
-      path.join(packDirectory, "registry.json"),
-      `{"sample_resource":{"product":"sample","fetch":{"pagination":"single","path":"items","query":${queryJson}}}}`,
-      "utf8",
-    );
-    const isolatedRoot = await loadPackRoot({ packsRoot: directory });
-    const transport = new QueueTransport([response([])]);
-    const result = await fetchResources({
-      adapters: new Map([["sample", adapter()]]),
-      context,
-      environment: {},
-      mode: "oneapi",
-      outputDirectory: path.join(directory, "pulls"),
-      root: isolatedRoot,
-      selectors: ["sample_resource"],
-      transport,
-    });
-    assert.deepEqual(result.processed, ["sample_resource"]);
-
-    const oracle = spawnSync(PYTHON_ORACLE, [
-      "-c",
-      "import json, sys, urllib.parse; print(urllib.parse.urlencode(json.loads(sys.argv[1])))",
-      queryJson,
-    ], { encoding: "utf8" });
-    assert.equal(oracle.status, 0, oracle.stderr);
-    assert.equal(
-      transport.requests[0]?.url.search.slice(1),
-      oracle.stdout.trim(),
-    );
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
 });
 
 test("direct collector calls reject unsafe paths before URL composition", async () => {

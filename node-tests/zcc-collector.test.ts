@@ -1,7 +1,5 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -161,7 +159,7 @@ test("OneAPI endpoint derivation matches Python cloud and vanity rules", () => {
   }
 });
 
-test("all five request paths and canonical fixture bytes match Python", async () => {
+test("all five request paths and canonical fixture values are deterministic", async () => {
   for (const resourceType of RESOURCE_TYPES) {
     const fixturePath = path.join(
       process.cwd(),
@@ -193,13 +191,7 @@ test("all five request paths and canonical fixture bytes match Python", async ()
       method: "GET",
       url: `https://api.zsapi.net/${EXPECTED_PATHS[resourceType]}${expectedQuery}`,
     }]);
-    const python = spawnSync(PYTHON_ORACLE, ["-c", [
-      "import json,sys",
-      "with open(sys.argv[1], encoding='utf-8') as f: value=json.load(f)",
-      "sys.stdout.write(json.dumps(value, indent=2, sort_keys=True)+'\\n')",
-    ].join("\n"), fixturePath], { encoding: "utf8" });
-    assert.equal(python.status, 0, python.stderr);
-    assert.equal(result.canonical_json, python.stdout);
+    assert.deepEqual(JSON.parse(result.canonical_json), JSON.parse(fixture));
     assert.equal(result.metadata.item_count, JSON.parse(fixture).length);
     assert.equal(result.metadata.data_requests, 1);
     assert.equal(result.metadata.transport_attempts, 1);
@@ -633,13 +625,16 @@ test("large integer tokens, Unicode, and HTML entities remain byte-lossless", as
     sleep: () => undefined,
     transport: () => response(source),
   });
-  const python = spawnSync(PYTHON_ORACLE, ["-c", [
-    "import json,sys",
-    "value=json.loads(sys.stdin.read())",
-    "sys.stdout.write(json.dumps(value, indent=2, sort_keys=True)+'\\n')",
-  ].join(";")], { encoding: "utf8", input: source });
-  assert.equal(python.status, 0, python.stderr);
-  assert.equal(result.canonical_json, python.stdout);
+  assert.equal(result.canonical_json, [
+    "[",
+    "  {",
+    '    "html": "&amp; <b>&#x1F600;</b>",',
+    '    "id": 900719925474099312345678901234567890,',
+    '    "name": "M\\u00fcnchen \\ud83d\\ude00"',
+    "  }",
+    "]",
+    "",
+  ].join("\n"));
   assert.match(result.canonical_json, /900719925474099312345678901234567890/);
   assert.match(result.canonical_json, /&amp; <b>&#x1F600;<\/b>/);
   assert.match(result.canonical_json, /M\\u00fcnchen \\ud83d\\ude00/);

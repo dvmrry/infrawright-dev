@@ -294,7 +294,7 @@ test("legacy ZCC and ZTC failures retain the product-scoping remediation", async
       mode: "legacy",
       transport: new RecordingTransport(),
     }),
-    /ZTC legacy auth is not wired.*RESOURCE="zia zpa zcc"/,
+    /ZTC legacy auth is not wired.*RESOURCE="zia zpa"/,
   );
 });
 

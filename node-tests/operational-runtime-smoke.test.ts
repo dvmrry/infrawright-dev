@@ -55,14 +55,15 @@ interface CommandResult {
   readonly stderr: string;
 }
 
-async function runCli(options: {
+async function runCommand(options: {
   readonly arguments_: readonly string[];
-  readonly cli: string;
+  readonly executable: string;
   readonly environment: NodeJS.ProcessEnv;
+  readonly label: string;
   readonly workspace: string;
 }): Promise<CommandResult> {
   return new Promise<CommandResult>((resolve, reject) => {
-    const child = spawn(process.execPath, [options.cli, ...options.arguments_], {
+    const child = spawn(options.executable, options.arguments_, {
       cwd: options.workspace,
       env: options.environment,
       stdio: ["ignore", "pipe", "pipe"],
@@ -84,7 +85,7 @@ async function runCli(options: {
       };
       if (code !== 0) {
         reject(new Error(
-          `infrawright ${options.arguments_.join(" ")} exited ${String(code)}:\n`
+          `${options.label} ${options.arguments_.join(" ")} exited ${String(code)}:\n`
             + `${result.stdout}${result.stderr}`,
         ));
       } else {
@@ -92,6 +93,27 @@ async function runCli(options: {
       }
     });
   });
+}
+
+async function pythonArtifacts(directory: string): Promise<string[]> {
+  if (!(await exists(directory))) return [];
+  const found: string[] = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const pathname = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === "__pycache__") found.push(pathname);
+      else found.push(...await pythonArtifacts(pathname));
+    } else if (entry.name.endsWith(".py") || entry.name.endsWith(".pyc")) {
+      found.push(pathname);
+    }
+  }
+  return found;
+}
+
+async function removePythonArtifacts(directory: string): Promise<void> {
+  for (const pathname of await pythonArtifacts(directory)) {
+    await rm(pathname, { recursive: true, force: true });
+  }
 }
 
 test("built generic CLI completes a Python-disabled import-only workflow", {
@@ -106,13 +128,13 @@ test("built generic CLI completes a Python-disabled import-only workflow", {
 
   const workspace = await mkdtemp(path.join(os.tmpdir(), "infrawright-runtime-smoke-"));
   const runtime = path.join(workspace, "runtime");
-  const packs = path.join(runtime, "packs");
+  const packs = path.join(workspace, "external-packs");
   const profile = path.join(runtime, "packsets", "zia.json");
   const catalog = path.join(runtime, "packsets", "full.json");
   const cli = path.join(runtime, "dist", "infrawright-cli.mjs");
   const deployment = path.join(workspace, "deployment.json");
   const modules = path.join(workspace, "modules");
-  const pulls = path.join(workspace, "pulls", TENANT);
+  const pulls = path.join(runtime, "pulls", TENANT);
   const config = path.join(workspace, "config", TENANT, `${RESOURCE}.auto.tfvars.json`);
   const sourceImports = path.join(workspace, "imports", TENANT, `${RESOURCE}_imports.tf`);
   const envRoot = path.join(workspace, "envs", TENANT, RESOURCE);
@@ -138,6 +160,7 @@ test("built generic CLI completes a Python-disabled import-only workflow", {
     ]);
     await Promise.all([
       cp(path.join(ROOT, "package.json"), path.join(runtime, "package.json")),
+      cp(path.join(ROOT, "Makefile"), path.join(runtime, "Makefile")),
       cp(path.join(ROOT, "dist", "infrawright-cli.mjs"), cli),
       cp(path.join(ROOT, "dist", "infrawright-cli.mjs.sha256"), `${cli}.sha256`),
       cp(path.join(ROOT, "packs", "zia"), path.join(packs, "zia"), { recursive: true }),
@@ -149,8 +172,16 @@ test("built generic CLI completes a Python-disabled import-only workflow", {
       cp(path.join(ROOT, "packsets", "zia.json"), profile),
       cp(path.join(ROOT, "packsets", "full.json"), catalog),
     ]);
+    await Promise.all([
+      removePythonArtifacts(runtime),
+      removePythonArtifacts(packs),
+    ]);
     await chmod(cli, 0o755);
     assert.equal(await exists(path.join(runtime, "node_modules")), false);
+    assert.equal(await exists(path.join(runtime, "packs")), false);
+    assert.equal(path.relative(runtime, packs).startsWith(".."), true);
+    assert.deepEqual(await pythonArtifacts(runtime), []);
+    assert.deepEqual(await pythonArtifacts(packs), []);
 
     await writeFile(deployment, `${JSON.stringify({
       overlay: workspace,
@@ -205,7 +236,7 @@ test("built generic CLI completes a Python-disabled import-only workflow", {
       "exit 97",
       "",
     ].join("\n");
-    for (const name of ["python", "python3", "python-must-not-run"]) {
+    for (const name of ["npm-must-not-run", "python", "python3", "python-must-not-run"]) {
       const destination = path.join(intercept, name);
       await writeFile(destination, pythonShim, "utf8");
       await chmod(destination, 0o755);
@@ -287,8 +318,12 @@ test("built generic CLI completes a Python-disabled import-only workflow", {
     };
     const metadata = ["--root", packs, "--profile", profile, "--catalog", catalog];
     const deploymentArguments = ["--deployment", deployment];
-    const execute = (arguments_: readonly string[]): Promise<CommandResult> => runCli({
-      arguments_, cli, environment, workspace,
+    const execute = (arguments_: readonly string[]): Promise<CommandResult> => runCommand({
+      arguments_: [cli, ...arguments_],
+      environment,
+      executable: process.execPath,
+      label: "infrawright",
+      workspace,
     });
 
     await execute(["check-pack", "--pack", "zia", "--root", packs]);
@@ -305,10 +340,31 @@ test("built generic CLI completes a Python-disabled import-only workflow", {
       "modules", "validate", "--resource", RESOURCE, "--out", modules,
       ...deploymentArguments, ...metadata,
     ]);
-    await execute([
-      "fetch", "--tenant", TENANT, "--resource", RESOURCE, "--out", pulls,
-      ...metadata,
-    ]);
+    const makePath = spawnSync("/bin/sh", ["-c", "command -v make"], {
+      encoding: "utf8",
+    }).stdout.trim();
+    assert.notEqual(makePath, "", "make must be installed for the operational smoke");
+    await runCommand({
+      arguments_: [
+        "--no-print-directory",
+        "--silent",
+        "fetch",
+        `NODE=${process.execPath}`,
+        `NPM=${path.join(intercept, "npm-must-not-run")}`,
+        `PYTHON=${path.join(intercept, "python-must-not-run")}`,
+        "SHELL=/bin/sh",
+        "OVERLAY=",
+        `TENANT=${TENANT}`,
+        `RESOURCE=${RESOURCE}`,
+        `PACK_PROFILE=${profile}`,
+        `PACK_CATALOG=${catalog}`,
+        `INFRAWRIGHT_PACKS=${packs}`,
+      ],
+      environment,
+      executable: makePath,
+      label: "make",
+      workspace: runtime,
+    });
     assert.deepEqual(await readdir(pulls), [`${RESOURCE}.json`]);
     assert.deepEqual(JSON.parse(await readFile(path.join(pulls, `${RESOURCE}.json`), "utf8")), fixture);
     assert.deepEqual(requests.map((item) => item.split(" ", 1)[0]), ["POST", "GET"]);

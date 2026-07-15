@@ -136,6 +136,27 @@ test("pack ownership and required shared components remain hard failures", async
   }
 });
 
+test("Node pack authoring ignores retained Python collector filenames", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-node-pack-"));
+  try {
+    await writeJson(path.join(directory, "bad-name", "pack.json"), {
+      provider_prefixes: { sample_: "sample" },
+      provider_sources: { sample: "example/sample" },
+    });
+    await writeFile(
+      path.join(directory, "bad-name", "collector.py"),
+      "raise RuntimeError('must not be imported')\n",
+    );
+    const validated = await validatePackAuthoring({
+      pack: "bad-name",
+      root: directory,
+    });
+    assert.deepEqual(validated.names, ["bad-name"]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("strict profile, registry, and override vocabularies reject silent typos", () => {
   assert.throws(
     () => validatePackSetDocument({

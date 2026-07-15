@@ -463,7 +463,7 @@ test("Make fetch targets invoke the Node CLI instead of Python", async () => {
   assert.doesNotMatch(fetchBlock, /\$\(PYTHON\)/);
 });
 
-test("fetch CLI rejects external collector authority before transport setup", async () => {
+test("fetch CLI rejects an unknown external provider source before transport setup", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-cli-authority-"));
   try {
     const packs = path.join(directory, "packs");
@@ -475,23 +475,38 @@ test("fetch CLI rejects external collector authority before transport setup", as
       path.join(packs, "_shared", "zscaler"),
       { recursive: true },
     );
-    const result = run([
-      "fetch",
-      "--tenant",
-      "tenant-a",
-      "--root",
-      packs,
-      "--profile",
-      path.join(ROOT, "packsets", "zia.json"),
-      "--catalog",
-      path.join(ROOT, "packsets", "full.json"),
-    ], {
-      REQUESTS_CA_BUNDLE: path.join(directory, "must-not-be-read.pem"),
-    });
-    assert.equal(result.status, 2);
-    assert.equal(result.stdout, "");
-    assert.match(result.stderr, /built-in product adapters only with the installed pack root/);
-    assert.doesNotMatch(result.stderr, /CA bundle/);
+    const manifestPath = path.join(packs, "zia", "pack.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+    manifest.provider_sources = { zia: "example/external-zia" };
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const registryPath = path.join(packs, "zia", "registry.json");
+    const registry = JSON.parse(await readFile(registryPath, "utf8")) as Record<
+      string,
+      { adopt?: Record<string, unknown> }
+    >;
+    for (const entry of Object.values(registry)) {
+      if (entry.adopt !== undefined) delete entry.adopt.unsupported_if;
+    }
+    await writeFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+    const output = path.join(directory, "must-not-be-created");
+    const metadata = [
+      "--root", packs,
+      "--profile", path.join(ROOT, "packsets", "zia.json"),
+      "--catalog", path.join(ROOT, "packsets", "full.json"),
+    ];
+    for (const arguments_ of [
+      ["fetch", "--tenant", "tenant-a", "--out", output, ...metadata],
+      ["fetch-diag", ...metadata],
+    ]) {
+      const result = run(arguments_, {
+        REQUESTS_CA_BUNDLE: path.join(directory, "must-not-be-read.pem"),
+      });
+      assert.equal(result.status, 2, result.stderr);
+      assert.equal(result.stdout, "");
+      assert.match(result.stderr, /example\/external-zia.*not available/u);
+      assert.doesNotMatch(result.stderr, /CA bundle/);
+    }
+    await assert.rejects(stat(output), /ENOENT/u);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
