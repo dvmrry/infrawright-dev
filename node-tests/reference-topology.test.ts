@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 
-import { crossStateReferenceTopology } from "../node-src/domain/reference-topology.js";
+import {
+  crossStateDependencyClosure,
+  crossStateReferenceTopology,
+} from "../node-src/domain/reference-topology.js";
 import { loadedRootTopology } from "../node-src/domain/roots.js";
 import { loadPackRoot, type LoadedPackRoot } from "../node-src/metadata/loader.js";
 
@@ -43,6 +46,13 @@ test("cross-state topology keeps singleton dependencies and collapses explicit g
   assert.deepEqual(
     [...(singleton.dependenciesByRoot.get("zpa_application_segment") ?? [])],
     ["zpa_segment_group"],
+  );
+  assert.deepEqual(
+    crossStateDependencyClosure(
+      ["zpa_application_segment"],
+      singleton.dependenciesByRoot,
+    ),
+    ["zpa_application_segment", "zpa_segment_group"],
   );
 
   const groupedDeployment = {

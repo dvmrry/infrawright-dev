@@ -79,6 +79,11 @@ make gen-modules RESOURCE="$REFERENT $REFERRER"
 make gen-env TENANT="$TENANT" BACKEND=azurerm RESOURCE="$REFERENT $REFERRER"
 ```
 
+Selecting only `$REFERRER` for `gen-env` is also supported: root generation
+expands through the referent dependency closure. The explicit two-resource form
+above keeps the qualification transcript obvious. Plan and Apply selection do
+not widen automatically and must remain referent-first.
+
 Confirm the topology reports two singleton roots. Confirm the referrer has a
 generated expression sidecar and its root contains a
 `terraform_remote_state` block. Confirm the referent root contains the minimal

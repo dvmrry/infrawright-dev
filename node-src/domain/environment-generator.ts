@@ -23,7 +23,11 @@ import {
   type RemoteStateReference,
 } from "./expression-bindings.js";
 import { loadedRootTopology, validateTenant } from "./roots.js";
-import { crossStateReferenceTopology } from "./reference-topology.js";
+import {
+  crossStateDependencyClosure,
+  crossStateReferenceTopology,
+  type CrossStateReferenceTopology,
+} from "./reference-topology.js";
 import { transformArtifactPaths } from "./transform-artifacts.js";
 import { renderHclQuotedString } from "./import-moves.js";
 import { REFERENCE_BACKEND_VARIABLE } from "./reference-backend.js";
@@ -48,6 +52,11 @@ export interface EnvironmentGenerationResult {
 export interface EnvironmentRemoteState {
   readonly label: string;
   readonly localPath: string;
+}
+
+interface BoundRemoteStateReference extends RemoteStateReference {
+  readonly field: string;
+  readonly referrer: string;
 }
 
 function record(value: unknown): value is JsonRecord {
@@ -357,31 +366,43 @@ function filterGeneratedBindings(options: {
 
 function remoteStateReferencesForBindings(
   bindingsByType: ReadonlyMap<string, readonly ExpressionBinding[]>,
-): readonly RemoteStateReference[] {
-  const selected = new Map<string, RemoteStateReference>();
+): readonly BoundRemoteStateReference[] {
+  const selected = new Map<string, BoundRemoteStateReference>();
   for (const resourceType of sortedStrings(bindingsByType.keys())) {
     for (const binding of bindingsByType.get(resourceType) ?? []) {
       for (const reference of expressionRemoteStateReferences(binding.expression)) {
         selected.set(
-          JSON.stringify([reference.root, reference.resourceType, reference.key]),
-          reference,
+          JSON.stringify([resourceType, binding.path, reference.root, reference.resourceType, reference.key]),
+          { ...reference, field: binding.path, referrer: resourceType },
         );
       }
     }
   }
   return [...selected.values()].sort((left, right) => {
-    return comparePythonStrings(left.root, right.root)
+    return comparePythonStrings(left.referrer, right.referrer)
+      || comparePythonStrings(left.field, right.field)
+      || comparePythonStrings(left.root, right.root)
       || comparePythonStrings(left.resourceType, right.resourceType)
       || comparePythonStrings(left.key, right.key);
   });
 }
 
 function validateRemoteStateReferences(options: {
+  readonly crossState: CrossStateReferenceTopology;
   readonly currentRoot: string;
   readonly fullTopology: RootTopology;
-  readonly references: readonly RemoteStateReference[];
+  readonly references: readonly BoundRemoteStateReference[];
 }): void {
   const roots = new Map(options.fullTopology.roots.map((root) => [root.label, root]));
+  const declared = new Set(
+    options.crossState.edges.map((edge) => JSON.stringify([
+      edge.referrer,
+      edge.referrerRoot,
+      edge.field,
+      edge.referent,
+      edge.referentRoot,
+    ])),
+  );
   for (const reference of options.references) {
     const target = roots.get(reference.root);
     if (target === undefined) {
@@ -395,6 +416,17 @@ function validateRemoteStateReferences(options: {
     if (!target.members.includes(reference.resourceType)) {
       throw new TypeError(
         `cross-state binding expects ${reference.resourceType} in root ${reference.root}`,
+      );
+    }
+    if (!declared.has(JSON.stringify([
+      reference.referrer,
+      options.currentRoot,
+      reference.field,
+      reference.resourceType,
+      reference.root,
+    ]))) {
+      throw new TypeError(
+        `cross-state binding ${reference.referrer}.${reference.field} to ${reference.resourceType} in root ${reference.root} is not declared by pack reference metadata`,
       );
     }
   }
@@ -528,6 +560,7 @@ export function renderEnvironmentReadme(options: {
 }
 
 export function renderEnvironmentSmokeTest(options: {
+  readonly backend?: string;
   readonly configFormat: "json" | "hcl";
   readonly deployment: Deployment;
   readonly environmentDirectory: string;
@@ -559,6 +592,18 @@ export function renderEnvironmentSmokeTest(options: {
     remoteByRoot.set(reference.root, resources);
   }
   const remoteRoots = sortedStrings(remoteByRoot.keys());
+  const needsReferenceBackendVariable = options.backend === "azurerm" && remoteRoots.length > 0;
+  const appendReferenceBackendVariable = (): void => {
+    if (!needsReferenceBackendVariable) return;
+    lines.push(
+      `    ${REFERENCE_BACKEND_VARIABLE} = {`,
+      '      resource_group_name  = "infrawright-test"',
+      '      storage_account_name = "infrawrighttest"',
+      '      container_name       = "tfstate"',
+      "      use_azuread_auth     = true",
+      "    }",
+    );
+  };
   for (const root of remoteRoots) {
     lines.push("", "override_data {", `  target = data.terraform_remote_state.${root}`, "  values = {", "    outputs = {", "      infrawright_reference_ids = {");
     for (const resourceType of sortedStrings(remoteByRoot.get(root)?.keys() ?? [])) {
@@ -582,6 +627,7 @@ export function renderEnvironmentSmokeTest(options: {
   for (const resourceType of members) {
     lines.push(`    ${variableName(options.topology, resourceType)} = {}`);
   }
+  appendReferenceBackendVariable();
   lines.push("  }", "}");
   if (options.configFormat === "json") {
     const configured = members.filter((resourceType) => options.hasConfig.get(resourceType) === true);
@@ -597,6 +643,7 @@ export function renderEnvironmentSmokeTest(options: {
         );
         lines.push(`    ${name} = jsondecode(file("${reference}")).${name}`);
       }
+      appendReferenceBackendVariable();
       lines.push("  }", "}");
     }
   }
@@ -616,7 +663,7 @@ export async function generateEnvironmentRoots(options: {
 }): Promise<EnvironmentGenerationResult> {
   validateTenant(options.tenant);
   const onDiagnostic = options.onDiagnostic ?? (() => undefined);
-  const topology = loadedRootTopology({
+  const requestedTopology = loadedRootTopology({
     deployment: options.deployment,
     root: options.root,
     selectors: options.selectors,
@@ -633,6 +680,19 @@ export async function generateEnvironmentRoots(options: {
     root: options.root,
     topology: fullTopology,
   });
+  const generationLabels = crossStateDependencyClosure(
+    requestedTopology.roots.map((root) => root.label),
+    crossState.dependenciesByRoot,
+  );
+  const rootsByLabel = new Map(fullTopology.roots.map((root) => [root.label, root]));
+  const generationRoots = generationLabels.map((label) => {
+    const selected = rootsByLabel.get(label);
+    if (selected === undefined) {
+      throw new TypeError(`cross-state dependency root ${label} is absent from deployment topology`);
+    }
+    return selected;
+  });
+  const topology = fullTopology;
   const tenantDirectory = tenantEnvironmentDirectory(
     options.deployment,
     options.tenant,
@@ -646,7 +706,7 @@ export async function generateEnvironmentRoots(options: {
   await mkdir(tenantDirectory, { recursive: true });
   if (backend !== undefined && backend.length > 0) await writeFile(marker, `${backend}\n`, "utf8");
   const generated: Array<{ readonly label: string; readonly members: readonly string[]; readonly path: string }> = [];
-  for (const selectedRoot of topology.roots) {
+  for (const selectedRoot of generationRoots) {
     const members = sortedStrings(selectedRoot.members);
     const directory = environmentRootDirectory(
       options.deployment,
@@ -678,8 +738,15 @@ export async function generateEnvironmentRoots(options: {
       label: selectedRoot.label,
       members,
     });
-    const remoteStateReferences = remoteStateReferencesForBindings(bindingsByType);
+    const bindingMode = deploymentReferenceBindingMode(
+      options.deployment,
+      providerOf(options.root, members[0] ?? ""),
+    );
+    const remoteStateReferences = bindingMode === "cross_state"
+      ? remoteStateReferencesForBindings(bindingsByType)
+      : [];
     validateRemoteStateReferences({
+      crossState,
       currentRoot: selectedRoot.label,
       fullTopology,
       references: remoteStateReferences,
@@ -735,6 +802,7 @@ export async function generateEnvironmentRoots(options: {
     }
     const smokePath = path.join(testsDirectory, "smoke.tftest.hcl");
     await writeFile(smokePath, await options.formatHcl(renderEnvironmentSmokeTest({
+      ...(backend === undefined || backend.length === 0 ? {} : { backend }),
       configFormat: deploymentTfvarsFormat(options.deployment),
       deployment: options.deployment,
       environmentDirectory: directory,

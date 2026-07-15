@@ -229,14 +229,18 @@ test("cross-state mode emits singleton ID outputs and remote-state consumers", a
       },
     },
   });
-  await generateEnvironmentRoots({
+  const generated = await generateEnvironmentRoots({
     deployment: await loadDeployment(deploymentPath),
     formatHcl: terraformHclFormatter({ executable: TERRAFORM }),
     outputRoot,
     root: await committedRoot(),
-    selectors: ["zpa_application_segment", "zpa_segment_group"],
+    selectors: ["zpa_application_segment"],
     tenant: "tenant",
   });
+  assert.deepEqual(generated.roots.map((root) => root.label), [
+    "zpa_application_segment",
+    "zpa_segment_group",
+  ]);
 
   const referentMain = await readFile(
     path.join(outputRoot, "tenant", "zpa_segment_group", "main.tf"),
@@ -267,15 +271,19 @@ test("cross-state mode emits singleton ID outputs and remote-state consumers", a
   assert.match(smoke, /infrawright-test-reference-id/u);
 
   const remoteOutputRoot = path.join(workspace, "generated-azurerm");
-  await generateEnvironmentRoots({
+  const generatedRemote = await generateEnvironmentRoots({
     backend: "azurerm",
     deployment: await loadDeployment(deploymentPath),
     formatHcl: terraformHclFormatter({ executable: TERRAFORM }),
     outputRoot: remoteOutputRoot,
     root: await committedRoot(),
-    selectors: ["zpa_application_segment", "zpa_segment_group"],
+    selectors: ["zpa_application_segment"],
     tenant: "tenant",
   });
+  assert.deepEqual(generatedRemote.roots.map((root) => root.label), [
+    "zpa_application_segment",
+    "zpa_segment_group",
+  ]);
   const remoteMain = await readFile(
     path.join(remoteOutputRoot, "tenant", "zpa_application_segment", "main.tf"),
     "utf8",
@@ -284,6 +292,87 @@ test("cross-state mode emits singleton ID outputs and remote-state consumers", a
   assert.match(remoteMain, /sensitive\s+= true/u);
   assert.match(remoteMain, /config = merge\(var\.infrawright_remote_state_backend_config/u);
   assert.match(remoteMain, /key = "tenant\/zpa_segment_group\.tfstate"/u);
+  const remoteSmoke = await readFile(
+    path.join(remoteOutputRoot, "tenant", "zpa_application_segment", "tests", "smoke.tftest.hcl"),
+    "utf8",
+  );
+  assert.match(remoteSmoke, /infrawright_remote_state_backend_config = \{/u);
+  assert.match(remoteSmoke, /use_azuread_auth\s+= true/u);
+});
+
+test("operator data selectors do not activate cross-state generation without the opt-in", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-gen-env-operator-data-");
+  const deploymentPath = path.join(workspace, "deployment.json");
+  const outputRoot = path.join(workspace, "generated");
+  await writeJson(deploymentPath, {
+    module_dir: path.join(workspace, "modules"),
+    overlay: workspace,
+    roots: {},
+  });
+  const config = path.join(workspace, "config", "tenant");
+  await writeJson(path.join(config, "zpa_application_segment.auto.tfvars.json"), {
+    items: { app_one: { segment_group_id: "sg-1" } },
+  });
+  await writeJson(path.join(config, "zpa_application_segment.expressions.json"), {
+    resources: {
+      "zpa_application_segment.app_one": {
+        segment_group_id: {
+          expression: 'data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]',
+        },
+      },
+    },
+  });
+  const generated = await generateEnvironmentRoots({
+    deployment: await loadDeployment(deploymentPath),
+    formatHcl: terraformHclFormatter({ executable: TERRAFORM }),
+    outputRoot,
+    root: await committedRoot(),
+    selectors: ["zpa_application_segment"],
+    tenant: "tenant",
+  });
+  assert.deepEqual(generated.roots.map((root) => root.label), ["zpa_application_segment"]);
+  const main = await readFile(
+    path.join(outputRoot, "tenant", "zpa_application_segment", "main.tf"),
+    "utf8",
+  );
+  assert.doesNotMatch(main, /data "terraform_remote_state"/u);
+  await assert.rejects(
+    access(path.join(outputRoot, "tenant", "zpa_segment_group", "main.tf")),
+  );
+});
+
+test("cross-state operator selectors must target a pack-declared reference edge", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-gen-env-operator-edge-");
+  const deploymentPath = path.join(workspace, "deployment.json");
+  await writeJson(deploymentPath, {
+    module_dir: path.join(workspace, "modules"),
+    overlay: workspace,
+    roots: { zpa: { cross_state_references: true } },
+  });
+  const config = path.join(workspace, "config", "tenant");
+  await writeJson(path.join(config, "zpa_application_segment.auto.tfvars.json"), {
+    items: { app_one: { segment_group_id: "sg-1" } },
+  });
+  await writeJson(path.join(config, "zpa_application_segment.expressions.json"), {
+    resources: {
+      "zpa_application_segment.app_one": {
+        segment_group_id: {
+          expression: 'data.terraform_remote_state.zpa_app_connector_group.outputs.infrawright_reference_ids.zpa_app_connector_group["group_one"]',
+        },
+      },
+    },
+  });
+  await assert.rejects(
+    generateEnvironmentRoots({
+      deployment: await loadDeployment(deploymentPath),
+      formatHcl: terraformHclFormatter({ executable: TERRAFORM }),
+      outputRoot: path.join(workspace, "generated"),
+      root: await committedRoot(),
+      selectors: ["zpa_application_segment"],
+      tenant: "tenant",
+    }),
+    /is not declared by pack reference metadata/u,
+  );
 });
 
 test("complete generated root trees match Python for ungrouped, grouped/bound, singleton HCL, and slug roots", async (context) => {

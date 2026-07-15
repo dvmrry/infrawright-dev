@@ -145,3 +145,25 @@
   expression and the local real-Terraform test proves second-run convergence.
 - Verify mixed ZIA lists bind managed custom categories while retaining
   predefined/system tokens literally and visibly.
+
+## Review Result
+
+- Fresh-context verdict on `9545bd970ac815871c52eb4026bf5854deeec083`:
+  **Request changes**, with three blocking findings.
+- Finding 1: operator-authored remote-state selectors could activate generated
+  data blocks without the opt-in and the selector parser accepted suffixes.
+  Fix: automatic inference now runs only in cross-state mode, requires the exact
+  canonical selector, and validates referrer field/root/referent/root against a
+  committed pack-declared edge. Regression tests cover the no-flag legacy path,
+  noncanonical selectors, suffixes, and undeclared targets.
+- Finding 2: selecting only a referrer omitted its producer root/output.
+  Fix: `gen-env` expands selected roots through the cross-state referent closure
+  before writing. A consumer-only ZPA test now requires both singleton roots.
+- Finding 3: azurerm smoke tests omitted the required non-secret backend-address
+  variable. Fix: every generated run supplies a safe test-only address object
+  while `override_data` prevents external state access. A real Terraform 1.15
+  test executes the resulting variable/override shape without credentials.
+- Patch-focused verification: production build passed; 69 affected tests
+  passed; the complete full-profile generated-root tree remained byte-identical
+  to Python; typecheck and whitespace checks passed.
+- Patch re-review target: `9545bd970ac815871c52eb4026bf5854deeec083..feature/reference-binding-qualification`.

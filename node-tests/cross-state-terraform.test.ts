@@ -5,7 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { renderEnvironmentSmokeTest } from "../node-src/domain/environment-generator.js";
+import { loadedRootTopology } from "../node-src/domain/roots.js";
+import { loadPackRoot } from "../node-src/metadata/loader.js";
+
 const TERRAFORM = process.env.TF || "terraform";
+const ROOT = process.cwd();
 
 function terraform(directory: string, arguments_: readonly string[]): string {
   const result = spawnSync(TERRAFORM, arguments_, {
@@ -60,4 +65,61 @@ test("local referent state is consumable before the referrer plan and converges"
   terraform(referrer, ["apply", "-auto-approve", "-input=false", "tfplan"]);
   const second = terraform(referrer, ["plan", "-detailed-exitcode", "-input=false"]);
   assert.match(second, /No changes/u);
+});
+
+test("generated azurerm smoke variables satisfy the overridden remote-state reader", async (context) => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "infrawright-cross-state-smoke-"));
+  context.after(() => rm(workspace, { force: true, recursive: true }));
+  const deployment = {
+    overlay: ".",
+    roots: { zpa: { cross_state_references: true } },
+  } as const;
+  const root = await loadPackRoot({
+    packsRoot: path.join(ROOT, "packs"),
+    profilePath: path.join(ROOT, "packsets", "full.json"),
+    catalogPath: path.join(ROOT, "packsets", "full.json"),
+  });
+  const topology = loadedRootTopology({
+    deployment,
+    root,
+    selectors: ["zpa_application_segment"],
+    tenant: "tenant",
+  }).topology;
+  await writeFile(path.join(workspace, "main.tf"), [
+    'terraform { required_version = ">= 1.5" }',
+    'variable "items" { type = any }',
+    'variable "infrawright_remote_state_backend_config" {',
+    '  type      = any',
+    '  sensitive = true',
+    '}',
+    'data "terraform_remote_state" "zpa_segment_group" {',
+    '  backend = "azurerm"',
+    '  config = merge(var.infrawright_remote_state_backend_config, {',
+    '    key = "tenant/zpa_segment_group.tfstate"',
+    '  })',
+    '}',
+    '',
+  ].join("\n"), "utf8");
+  const smoke = renderEnvironmentSmokeTest({
+    backend: "azurerm",
+    configFormat: "hcl",
+    deployment,
+    environmentDirectory: workspace,
+    hasConfig: new Map([["zpa_application_segment", false]]),
+    label: "zpa_application_segment",
+    members: ["zpa_application_segment"],
+    remoteStateReferences: [{
+      key: "segment_one",
+      resourceType: "zpa_segment_group",
+      root: "zpa_segment_group",
+    }],
+    root,
+    tenant: "tenant",
+    topology,
+  }).replace('mock_provider "zpa" {}\n\n', "");
+  await mkdir(path.join(workspace, "tests"), { recursive: true });
+  await writeFile(path.join(workspace, "tests", "smoke.tftest.hcl"), smoke, "utf8");
+  terraform(workspace, ["init", "-backend=false", "-input=false"]);
+  const result = terraform(workspace, ["test", "-no-color"]);
+  assert.match(result, /Success! 1 passed, 0 failed/u);
 });

@@ -355,6 +355,10 @@ correct ownership boundary.
 The first import is dependency ordered, not plan-all/apply-all. Materialize and
 apply each referent state before planning its referrers. The existing
 `make resources-reference-order` output supplies referent-first resource order.
+When `gen-env` selects a referrer, it automatically materializes that root's
+complete cross-state referent dependency closure so every producer root contains
+the required output. Later plan and Apply commands remain explicitly
+referent-first; they do not silently widen a deployment operation.
 Do not mutate, replace, or re-adopt a referent between planning and applying a
 dependent referrer. A referent-state change invalidates the dependent plan
 operationally even though the saved-plan fingerprint covers only the dependent

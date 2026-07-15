@@ -19,6 +19,25 @@ export interface CrossStateReferenceTopology {
   readonly outputsByRoot: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
+/** Expand selected state roots through their complete referent dependency set. */
+export function crossStateDependencyClosure(
+  selectedRoots: Iterable<string>,
+  dependenciesByRoot: ReadonlyMap<string, ReadonlySet<string>>,
+): readonly string[] {
+  const selected = new Set(selectedRoots);
+  const pending = sortedStrings(selected);
+  while (pending.length > 0) {
+    const current = pending.shift() ?? "";
+    for (const dependency of sortedStrings(dependenciesByRoot.get(current) ?? [])) {
+      if (selected.has(dependency)) continue;
+      selected.add(dependency);
+      pending.push(dependency);
+      pending.sort(comparePythonStrings);
+    }
+  }
+  return sortedStrings(selected);
+}
+
 function generatedNonDerived(root: LoadedPackRoot, resourceType: string): boolean {
   const resource = root.resources.get(resourceType);
   return resource?.registry.generate === true && !isObject(resource.registry.derive);

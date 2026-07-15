@@ -18,6 +18,7 @@ const LIST_ELEMENT = String.raw`(?:${MODULE_SELECTOR}|${DATA_SELECTOR}|${HCL_STR
 // Python `re` and JavaScript disagree on `\s` (notably U+FEFF). Freeze the
 // Python whitespace set so the migration keeps one expression grammar.
 const PYTHON_WHITESPACE = String.raw`[\x09-\x0d\x1c-\x20\x85\xa0\u1680\u2000-\u200a\u2028-\u2029\u202f\u205f\u3000]`;
+const PYTHON_WHITESPACE_CHARACTER = new RegExp(`^${PYTHON_WHITESPACE}$`, "u");
 const ALLOWED_EXPRESSIONS = [
   new RegExp(String.raw`^var\.${IDENT}$`, "u"),
   new RegExp(String.raw`^local\.${IDENT}$`, "u"),
@@ -437,14 +438,28 @@ export function expressionRemoteStateReferences(
       "u",
     ).exec(expression.slice(index));
     if (match === null) {
-      index += prefix.length;
-      continue;
+      throw new TypeError(
+        "Infrawright terraform_remote_state expressions must use the canonical infrawright_reference_ids resource/key selector",
+      );
     }
     const root = match[1] ?? "";
     const resourceType = match[2] ?? "";
     const quoted = parseHclQuotedString(expression, index + match[0].length);
     if (expression[quoted.end] !== "]") {
       throw new TypeError("cross-state reference key must end with a closing bracket");
+    }
+    let boundary = quoted.end + 1;
+    while (
+      boundary < expression.length
+      && PYTHON_WHITESPACE_CHARACTER.test(expression[boundary] ?? "")
+    ) {
+      boundary += 1;
+    }
+    const next = expression[boundary];
+    if (next !== undefined && next !== "," && next !== "]") {
+      throw new TypeError(
+        "Infrawright terraform_remote_state expressions must end after the canonical resource/key selector",
+      );
     }
     const reference = { key: quoted.value, resourceType, root };
     selected.set(JSON.stringify([root, resourceType, quoted.value]), reference);

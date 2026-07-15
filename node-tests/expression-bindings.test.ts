@@ -8,6 +8,7 @@ import {
   HclExpression,
   applyExpressionBindings,
   expressionModuleTargets,
+  expressionRemoteStateReferences,
   expressionVariables,
   mergeExpressionBindingLayers,
   parseExpressionBindings,
@@ -76,6 +77,29 @@ test("the v1 expression allowlist accepts selectors and generated lists", () => 
     expressionModuleTargets('[module.groups.items["module.ignored"].id, "module.also_ignored"]'),
     ["groups"],
   );
+});
+
+test("Infrawright remote-state discovery accepts only the exact canonical selector", () => {
+  const canonical = 'data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]';
+  assert.deepEqual(expressionRemoteStateReferences(canonical), [{
+    key: "segment_one",
+    resourceType: "zpa_segment_group",
+    root: "zpa_segment_group",
+  }]);
+  assert.deepEqual(
+    expressionRemoteStateReferences(`[${canonical}, "literal"]`),
+    [{ key: "segment_one", resourceType: "zpa_segment_group", root: "zpa_segment_group" }],
+  );
+  for (const expression of [
+    "data.terraform_remote_state.zpa_segment_group.outputs.other",
+    `${canonical}.bogus`,
+  ]) {
+    assert.throws(
+      () => expressionRemoteStateReferences(expression),
+      /canonical|must end/u,
+      expression,
+    );
+  }
 });
 
 test("malformed expressions, paths, addresses, and secret-bearing metadata fail closed", () => {
