@@ -31,6 +31,9 @@ terraform providers schema -json
 ```
 
 YAML OpenAPI specs are converted to JSON with Ruby's standard YAML support.
+The probe coordinator, source mapper, OpenAPI mapper, artifact renderer, and
+CLI are Node 24 code; Ruby is used only for the existing safe YAML-to-JSON
+conversion and Python is not part of the probe execution path.
 
 ## Running
 
@@ -38,6 +41,9 @@ YAML OpenAPI specs are converted to JSON with Ruby's standard YAML support.
 make provider-probe RECIPE=docs/recipes/providers/github.json
 make provider-probe RECIPE=docs/recipes/providers/digitalocean.json
 ```
+
+Set `PYTHON` to a failing tripwire when qualifying the migrated path; neither
+the Make target nor `infrawright provider-probe` consults it.
 
 By default, outputs are written under:
 

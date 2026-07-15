@@ -126,6 +126,8 @@ const USAGE = [
   "  infrawright openapi-map --schema <file> --openapi <file> [--provider-source <source>] [--resource-prefix <prefix>] [--api-prefix <prefix>] [--registry <file>] [--out <file>]",
   "  infrawright source-operation-map --schema <file> --openapi <file> --source-root <dir> [--provider-source <source>] [--resource-prefix <prefix>] [--resources <a,b>] [--source-facts <file>] [--source-facts-compare <file>] [--sdk-root <dir>] [--out <file>] [--diagnostics <file>]",
   "  infrawright source-evidence-eval --schema <file> --openapi <file> --source-root <dir> --out-dir <dir> [--provider-source <source>] [--resource-prefix <prefix>] [--resources <a,b>] [--source-facts <file>] [--ast-tool-dir <dir>] [--fail-on-regression]",
+  "  infrawright provider-probe <recipe.json> [--work-dir <dir>] [--out <summary.json>] [--markdown <summary.md>] [--debug-traceback]",
+  "  infrawright audit-vendor-boundary [--root <repository>] [--allowlist <file>]",
 ].join("\n");
 
 class CliExit extends Error {

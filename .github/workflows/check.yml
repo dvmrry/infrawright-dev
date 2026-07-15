@@ -24,7 +24,7 @@ jobs:
       - name: Install pinned build dependencies
         run: npm ci --ignore-scripts
       - name: Type, unit, and Python differential checks
-        run: npm run check
+        run: npm run check:all
       - name: Build no-install process bundle
         run: npm run build
       - name: Prove generic runtime release staging without tags or runtime installs
@@ -390,7 +390,7 @@ jobs:
       - name: Install pinned Node dependencies
         run: npm ci --ignore-scripts
       - name: Unit tests on floor interpreter
-        run: make test
+        run: make test-python-legacy
 
   pack-profiles:
     runs-on: ubuntu-latest

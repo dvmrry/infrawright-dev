@@ -2,16 +2,12 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { LosslessNumber } from "lossless-json";
-
 import { loadPackRoot } from "../metadata/loader.js";
 import { validateOverride } from "../metadata/resources.js";
 import { isObject, type JsonObject } from "../metadata/validation.js";
 import { parseDataJsonLosslessly } from "../json/control.js";
-import {
-  renderPythonCompatibleJson,
-  type JsonValue,
-} from "../json/python-compatible.js";
+import { renderAuthoringJson } from "./json.js";
+import { writeAuthoringJson } from "./json.js";
 import {
   apiItemsFrom,
   mergeApiMetadata,
@@ -27,6 +23,11 @@ import {
   evaluateSourceEvidence,
   renderSourceEvidenceMarkdown,
 } from "./source-evidence-eval.js";
+import {
+  renderProviderProbeMarkdown,
+  runProviderProbe,
+} from "./provider-probe.js";
+import { runVendorBoundaryAudit } from "./vendor-boundary.js";
 
 export class AuthoringCliUsageError extends Error {
   constructor(message: string) {
@@ -36,7 +37,9 @@ export class AuthoringCliUsageError extends Error {
 }
 
 export const AUTHORING_COMMANDS = new Set([
+  "audit-vendor-boundary",
   "openapi-map",
+  "provider-probe",
   "reconcile",
   "source-evidence-eval",
   "source-operation-map",
@@ -118,30 +121,13 @@ async function writeJson(
   filename: string | undefined,
   stdout: (text: string) => void,
 ): Promise<void> {
-  const rendered = renderPythonCompatibleJson(
-    restorePythonFloatFields(value) as JsonValue,
-  );
+  const rendered = renderAuthoringJson(value);
   if (filename === undefined) {
     stdout(rendered);
     return;
   }
   await mkdir(path.dirname(path.resolve(filename)), { recursive: true });
   await writeFile(filename, rendered, "utf8");
-}
-
-function restorePythonFloatFields(value: unknown, field?: string): unknown {
-  if (typeof value === "number" && field === "coverage_ratio") {
-    return new LosslessNumber(Number.isInteger(value) ? `${String(value)}.0` : String(value));
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => restorePythonFloatFields(item));
-  }
-  if (isObject(value)) {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => {
-      return [key, restorePythonFloatFields(item, key)];
-    }));
-  }
-  return value;
 }
 
 async function writeText(value: string, filename: string): Promise<void> {
@@ -399,6 +385,69 @@ async function sourceEvidenceEvalCommand(
     : 0;
 }
 
+function truthy(value: string | undefined): boolean {
+  return ["1", "true", "yes", "on"].includes((value ?? "").trim().toLowerCase());
+}
+
+async function providerProbeCommand(
+  arguments_: readonly string[],
+  context: AuthoringCliContext,
+): Promise<number> {
+  const parsed = parseArguments(
+    arguments_,
+    new Set(["--markdown", "--out", "--work-dir"]),
+    new Set(),
+    new Set(["--debug-traceback"]),
+  );
+  if (parsed.positional.length !== 1) {
+    throw new AuthoringCliUsageError("provider-probe requires one recipe JSON path");
+  }
+  try {
+    const result = await runProviderProbe({
+      recipe: parsed.positional[0] as string,
+      ...(option(parsed, "--work-dir") === undefined
+        ? {}
+        : { workDirectory: option(parsed, "--work-dir") as string }),
+    });
+    const output = option(parsed, "--out");
+    if (output !== undefined) await writeAuthoringJson(result.summary, output);
+    const markdown = option(parsed, "--markdown");
+    if (markdown !== undefined) {
+      await writeText(renderProviderProbeMarkdown(result.summary), markdown);
+    }
+    context.stdout(`wrote ${String(result.artifacts.summary)}\n`);
+    context.stdout(`wrote ${String(result.artifacts.markdown)}\n`);
+    return 0;
+  } catch (error: unknown) {
+    const debug = parsed.flags.has("--debug-traceback")
+      || truthy(context.environment.INFRAWRIGHT_DEBUG_TRACEBACK);
+    if (debug && error instanceof Error && error.stack !== undefined) {
+      context.stderr(`${error.stack}\n`);
+    }
+    context.stderr(`error: ${error instanceof Error ? error.message : String(error)}\n`);
+    return 2;
+  }
+}
+
+async function vendorBoundaryCommand(
+  arguments_: readonly string[],
+  context: AuthoringCliContext,
+): Promise<number> {
+  const parsed = parseArguments(arguments_, new Set(["--allowlist", "--root"]));
+  if (parsed.positional.length !== 0) {
+    throw new AuthoringCliUsageError("audit-vendor-boundary does not accept positional arguments");
+  }
+  const result = await runVendorBoundaryAudit({
+    ...(option(parsed, "--allowlist") === undefined
+      ? {}
+      : { allowlist: option(parsed, "--allowlist") as string }),
+    root: option(parsed, "--root") ?? context.repositoryRoot,
+  });
+  if (result.stdout !== "") context.stdout(result.stdout);
+  if (result.stderr !== "") context.stderr(result.stderr);
+  return result.exitCode;
+}
+
 export async function runAuthoringCommand(options: {
   readonly arguments: readonly string[];
   readonly command: string;
@@ -420,6 +469,12 @@ export async function runAuthoringCommand(options: {
   }
   if (options.command === "source-evidence-eval") {
     return sourceEvidenceEvalCommand(options.arguments, context);
+  }
+  if (options.command === "provider-probe") {
+    return providerProbeCommand(options.arguments, context);
+  }
+  if (options.command === "audit-vendor-boundary") {
+    return vendorBoundaryCommand(options.arguments, context);
   }
   throw new AuthoringCliUsageError(`unknown authoring command ${options.command}`);
 }

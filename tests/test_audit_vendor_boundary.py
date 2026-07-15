@@ -110,7 +110,11 @@ class AuditVendorBoundaryCliTest(unittest.TestCase):
             universal_newlines=True,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("python3 -m engine.audit_vendor_boundary", proc.stdout)
+        self.assertIn(
+            "node dist/infrawright-cli.mjs audit-vendor-boundary",
+            proc.stdout,
+        )
+        self.assertNotIn("python", proc.stdout.lower())
 
 
 if __name__ == "__main__":

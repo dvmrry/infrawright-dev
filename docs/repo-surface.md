@@ -9,8 +9,8 @@ maintained development evidence.
 
 | Path | Purpose | Owner | Keep criteria | Notes |
 |---|---|---|---|---|
-| `engine/` | Core product logic: provider-agnostic transform, import oracle, projection, diagnostics, provider-readiness mapping, shared collectors, and CLI entrypoints. | Core maintainers | Keep only behavior used by root commands, tests, docs, or provider-pack contracts. | Engine changes require tests and should not absorb provider-specific one-offs; `make audit-vendor-boundary` makes current exceptions explicit. |
-| `node-src/` | Typed Node 24 library and machine-only process host. | Core maintainers | Keep only operations with published schemas and Python differential coverage until cutover. | This transition surface does not define a human CLI or HTTP service. |
+| `engine/` | Retained Python parity authority, migration diagnostics, and archive candidates. | Core maintainers | Keep only until the Node cutover is qualified and the corresponding compatibility evidence is archived or replaced. | No maintained operational or provider-authoring Make target executes this tree. |
+| `node-src/` | Typed Node 24 library and the maintained machine-oriented CLI/process host. | Core maintainers | Keep generic runtime and authoring behavior protected by direct tests, retained differentials, or provider-pack contracts. | This is the production implementation for root Make workflows. |
 | `catalogs/` | Versioned, validated transition inputs for the Node runtime. | Core and pack maintainers | Keep generated catalogs with provenance hashes and CI drift checks. | Python remains the catalog producer until the full pack validator is ported. |
 | `packs/` | Declarative provider metadata, schemas, registries, overrides, adoption metadata, and provider collectors. | Pack maintainers | Keep metadata that is validated, referenced by tests, or backed by provider-lab/readiness evidence. | Shared helpers belong under `packs/_shared/`; provider-specific behavior should not leak into `engine/`. |
 | `packsets/` | Exact installed-pack profiles used by distribution checks. | Distribution maintainers | Keep profiles minimal, sorted, and explicit about shared components. | A profile validates a selected pack root; it does not silently filter a larger root. |
@@ -51,10 +51,12 @@ maintained development evidence.
 - Root-global `modules/` is not required for demo operation after the
   overlay-scoped module-dir migration. The root `modules/` fallback exists only
   for deployments with no overlay and no explicit `module_dir`.
-- `make audit-vendor-boundary` scans `engine/**/*.py` for configured
+- `make audit-vendor-boundary` runs through the Node CLI and scans the retained
+  `engine/**/*.py` compatibility tree for configured
   provider/vendor tokens and fails on matches not listed in
   `engine/vendor_boundary_allowlist.json`. The allowlist is transitional
-  documentation, not a claim that the engine edge is already vendor-free.
+  documentation; retire or retarget this audit when the Python tree is
+  archived rather than silently leaving an empty audit behind.
 
 ## Prune Policy
 

@@ -26,7 +26,7 @@ endif
 override INFRAWRIGHT_DEPLOYMENT = $(DEPLOYMENT)
 export INFRAWRIGHT_DEPLOYMENT
 
-.PHONY: metadata-cli verify-runtime source-build-preflight check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set deployment resources resources-reference-order gen-modules validate-modules audit-vendor-boundary demo-contract check check-all check-core test fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: metadata-cli verify-runtime source-build-preflight check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set deployment resources resources-reference-order gen-modules validate-modules audit-vendor-boundary demo-contract check check-node check-all check-core test test-node test-python-legacy fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 dist/infrawright-cli.mjs:
 	$(NPM) run build:metadata-cli
@@ -92,8 +92,8 @@ gen-modules: dist/infrawright-cli.mjs ## Generate deployment modules ([RESOURCE=
 validate-modules: dist/infrawright-cli.mjs ## Validate deployment modules ([RESOURCE="<type> ..."])
 	$(INFRAWRIGHT_CLI) modules validate --deployment "$(DEPLOYMENT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-audit-vendor-boundary: ## Audit vendor-specific tokens in engine source
-	$(PYTHON) -m engine.audit_vendor_boundary
+audit-vendor-boundary: dist/infrawright-cli.mjs ## Audit vendor-specific tokens in engine source
+	$(INFRAWRIGHT_CLI) audit-vendor-boundary
 
 demo-contract: dist/infrawright-cli.mjs ## Credential-free demo artifact/module contract check
 	@echo "demo-contract: materializing demo overlay without credentials"
@@ -113,6 +113,8 @@ demo-contract: dist/infrawright-cli.mjs ## Credential-free demo artifact/module 
 
 check: check-pack-set test check-examples check-modules check-tfvars-fmt check-pack audit-vendor-boundary ## Active-distribution gate: exact pack set + selected tests/examples + generators + metadata
 
+check-node: check ## Explicit Python-independent repository qualification gate
+
 check-all: ## Run the active-distribution gate against the complete upstream pack catalog
 	@INFRAWRIGHT_PACKS="$(CURDIR)/packs" $(MAKE) PACK_CATALOG="$(CURDIR)/packsets/full.json" PACK_PROFILE="$(CURDIR)/packsets/full.json" check
 
@@ -121,7 +123,12 @@ check-core: ## Prove the pack-independent engine surface with an empty pack root
 	INFRAWRIGHT_PACKS="$$root" $(MAKE) PACK_CATALOG="$(CURDIR)/packsets/full.json" PACK_PROFILE="$(CURDIR)/packsets/empty.json" \
 		test check-pack check-modules audit-vendor-boundary
 
-test: check-pack-set ## Run core tests plus tests whose declared pack requirements are installed
+test: test-node ## Default repository tests use the Python-independent Node suite
+
+test-node: check-pack-set ## Run every Node test file that has no Python parity-oracle dependency
+	$(NPM) run test:node
+
+test-python-legacy: check-pack-set ## Retained Python implementation and migration tests pending archive
 	$(PYTHON) -m tests.run --catalog "$(PACK_CATALOG)" -v
 
 fetch: dist/infrawright-cli.mjs ## Pull API JSON into pulls/<tenant> (TENANT=<name> [RESOURCE="<type|provider> ..."])
@@ -159,9 +166,9 @@ adopt: dist/infrawright-cli.mjs ## Transform pulled JSON using Terraform/OpenTof
 	@test -n "$(IN)" -a -n "$(TENANT)" || { echo "usage: make adopt IN=pulls/<tenant> TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"] [POLICY=<file>]"; exit 2; }
 	$(INFRAWRIGHT_CLI) adopt --in "$(IN)" --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)") $(if $(POLICY),--policy "$(POLICY)")
 
-provider-probe: ## Run provider readiness probe (RECIPE=<recipe.json> [WORK_DIR=<dir>] [OUT=<summary.json>] [MARKDOWN=<summary.md>])
+provider-probe: dist/infrawright-cli.mjs ## Run provider readiness probe (RECIPE=<recipe.json> [WORK_DIR=<dir>] [OUT=<summary.json>] [MARKDOWN=<summary.md>])
 	@test -n "$(RECIPE)" || { echo "usage: make provider-probe RECIPE=<recipe.json> [WORK_DIR=<dir>] [OUT=<summary.json>] [MARKDOWN=<summary.md>]"; exit 2; }
-	$(PYTHON) -m engine.provider_probe "$(RECIPE)" $(if $(WORK_DIR),--work-dir "$(WORK_DIR)") $(if $(OUT),--out "$(OUT)") $(if $(MARKDOWN),--markdown "$(MARKDOWN)")
+	$(INFRAWRIGHT_CLI) provider-probe "$(RECIPE)" $(if $(WORK_DIR),--work-dir "$(WORK_DIR)") $(if $(OUT),--out "$(OUT)") $(if $(MARKDOWN),--markdown "$(MARKDOWN)")
 
 roots: dist/infrawright-cli.mjs ## Emit root topology JSON ([TENANT=<label>] [RESOURCE=<type|provider>])
 	@$(INFRAWRIGHT_CLI) roots $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")

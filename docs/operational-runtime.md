@@ -16,10 +16,11 @@ fetch / transform / adopt / modules / roots / staging
                  Terraform
 ```
 
-The operational runtime is Python-independent. This is not a claim that the
-repository contains no Python: Python remains available for tests,
-differential oracles, migration checks, probes, and maintainer authoring and
-research tools.
+The operational runtime and maintained provider-authoring commands are
+Python-independent. This is not a claim that the repository contains no
+Python: Python remains temporarily available as a differential oracle and for
+legacy migration checks while the Node implementation is qualified for the
+final archive/removal step.
 
 ## Authoritative Command Inventory
 
@@ -84,16 +85,31 @@ With an explicit deployment, module selectors are closed under its root
 topology. Selecting either member of a grouped root generates or validates all
 members that `gen-env` will reference; ungrouped resources remain narrow.
 
-Python-backed targets that intentionally remain outside the operational
-runtime are `test`, `audit-vendor-boundary`, `reconcile`, `openapi-map`,
-`source-operation-map`, `source-evidence-eval`, and `provider-probe`. Tests
-that execute Python comparison implementations and the frozen ZCC migration
-machinery are also maintainer/migration surfaces, not runtime prerequisites.
+The maintained authoring targets `reconcile`, `openapi-map`,
+`source-operation-map`, `source-evidence-eval`, and `provider-probe` use the
+same bundled Node CLI. Tests that execute Python comparison implementations
+and the frozen ZCC migration machinery are explicitly retained parity and
+compatibility surfaces, not runtime prerequisites.
 Node migration differentials resolve their test-only Python oracle from a
 nonempty `PYTHON`, then `python3`, then `python`. The retained parity authority
 accepts Python 3.12/UCD 15.0.0 and Python 3.13/UCD 15.1.0; set `PYTHON` to one
 of those interpreters when the system default is newer. This selection affects
 tests only and does not add Python to any operational command.
+
+The default repository/Make qualification path is Python-independent:
+
+```sh
+npm run test:node
+make check-node
+```
+
+The Node selector runs every compiled test file without a Python-oracle import,
+rejects direct hardcoded Python subprocesses in that selected set, and includes
+the import Oracle tests plus the bundled operational workflow smoke. It reports
+the exact selected/excluded counts so the remaining migration differential
+surface cannot be mistaken for Node coverage. During the archive window,
+`npm run check:all` and `make test-python-legacy` remain explicit compatibility
+gates for the retained Python authorities.
 
 ## Runtime and Release Contract
 

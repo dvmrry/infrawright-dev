@@ -166,7 +166,8 @@ class MakefileOverlayTest(unittest.TestCase):
             missing_overlay = os.path.join(td, "missing")
             proc = _run_make(["OVERLAY=%s" % missing_overlay, "-n", "test"])
             self.assertIn("node dist/infrawright-cli.mjs check-pack-set", proc.stdout)
-            self.assertIn("python3 -m tests.run --catalog", proc.stdout)
+            self.assertIn("npm run test:node", proc.stdout)
+            self.assertNotIn("python", proc.stdout.lower())
 
     def test_check_demo_reenters_demo_overlay(self):
         with tempfile.TemporaryDirectory() as td:
