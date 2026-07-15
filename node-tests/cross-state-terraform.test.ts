@@ -11,6 +11,15 @@ import { loadPackRoot } from "../node-src/metadata/loader.js";
 
 const TERRAFORM = process.env.TF || "terraform";
 const ROOT = process.cwd();
+const PACKS_ROOT = path.resolve(
+  process.env.INFRAWRIGHT_PACKS?.trim() || path.join(ROOT, "packs"),
+);
+const PACK_PROFILE = path.resolve(
+  process.env.PACK_PROFILE?.trim() || path.join(ROOT, "packsets", "full.json"),
+);
+const PACK_CATALOG = path.resolve(
+  process.env.PACK_CATALOG?.trim() || path.join(ROOT, "packsets", "full.json"),
+);
 
 function terraform(directory: string, arguments_: readonly string[]): string {
   const result = spawnSync(TERRAFORM, arguments_, {
@@ -75,9 +84,9 @@ test("generated azurerm smoke variables satisfy the overridden remote-state read
     roots: { zpa: { cross_state_references: true } },
   } as const;
   const root = await loadPackRoot({
-    packsRoot: path.join(ROOT, "packs"),
-    profilePath: path.join(ROOT, "packsets", "full.json"),
-    catalogPath: path.join(ROOT, "packsets", "full.json"),
+    packsRoot: PACKS_ROOT,
+    profilePath: PACK_PROFILE,
+    catalogPath: PACK_CATALOG,
   });
   const topology = loadedRootTopology({
     deployment,

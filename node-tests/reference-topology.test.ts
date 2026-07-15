@@ -10,12 +10,21 @@ import { loadedRootTopology } from "../node-src/domain/roots.js";
 import { loadPackRoot, type LoadedPackRoot } from "../node-src/metadata/loader.js";
 
 const ROOT = process.cwd();
+const PACKS_ROOT = path.resolve(
+  process.env.INFRAWRIGHT_PACKS?.trim() || path.join(ROOT, "packs"),
+);
+const PACK_PROFILE = path.resolve(
+  process.env.PACK_PROFILE?.trim() || path.join(ROOT, "packsets", "full.json"),
+);
+const PACK_CATALOG = path.resolve(
+  process.env.PACK_CATALOG?.trim() || path.join(ROOT, "packsets", "full.json"),
+);
 
 async function committedRoot(): Promise<LoadedPackRoot> {
   return loadPackRoot({
-    packsRoot: path.join(ROOT, "packs"),
-    profilePath: path.join(ROOT, "packsets", "full.json"),
-    catalogPath: path.join(ROOT, "packsets", "full.json"),
+    packsRoot: PACKS_ROOT,
+    profilePath: PACK_PROFILE,
+    catalogPath: PACK_CATALOG,
   });
 }
 

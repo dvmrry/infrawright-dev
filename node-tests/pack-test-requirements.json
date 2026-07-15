@@ -21,6 +21,12 @@
       "reason": "The authority suite validates every committed Zscaler provider source and Node collector binding."
     },
     {
+      "file": "cross-state-terraform.test.js",
+      "packs": ["zpa"],
+      "shared": ["zscaler"],
+      "reason": "The cross-state Terraform smoke resolves the committed ZPA segment-group reference."
+    },
+    {
       "file": "generic-transform-core.test.js",
       "packs": ["aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"],
       "shared": ["zscaler"],
@@ -61,6 +67,12 @@
       "packs": ["aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"],
       "shared": ["zscaler"],
       "reason": "The lifecycle suite resolves complete-root topology and fixtures against the complete pack tree."
+    },
+    {
+      "file": "reference-topology.test.js",
+      "packs": ["zpa"],
+      "shared": ["zscaler"],
+      "reason": "The reference-topology suite exercises the committed ZPA segment-group dependency."
     },
     {
       "file": "rest-collector.test.js",
