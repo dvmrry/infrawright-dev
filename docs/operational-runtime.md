@@ -103,13 +103,16 @@ npm run test:node
 make check-node
 ```
 
-The Node selector runs every compiled test file without a Python-oracle import,
-rejects direct hardcoded Python subprocesses in that selected set, and includes
-the import Oracle tests plus the bundled operational workflow smoke. It reports
-the exact selected/excluded counts so the remaining migration differential
-surface cannot be mistaken for Node coverage. During the archive window,
-`npm run check:all` and `make test-python-legacy` remain explicit compatibility
-gates for the retained Python authorities.
+The Node selector runs every compiled test file without a Python-oracle import
+whose explicit pack requirements are present, rejects direct hardcoded Python
+subprocesses in that selected set, and includes the import Oracle tests plus the
+bundled operational workflow smoke in the full distribution. Unmarked tests
+remain core and run in reduced distributions, so undeclared coupling fails
+closed. The selector separately reports Python-oracle and missing-pack
+exclusions so neither remaining surface can be mistaken for Node coverage.
+During the archive window, `npm run check:all` and
+`make test-python-legacy` remain explicit compatibility gates for the retained
+Python authorities.
 
 ## Runtime and Release Contract
 

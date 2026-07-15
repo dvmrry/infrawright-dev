@@ -28,7 +28,8 @@
   `node-src/authoring/vendor-boundary.ts`, `node-src/authoring/cli.ts`, and
   `node-src/cli/main.ts`.
 - Command/test routing: `Makefile`, `package.json`,
-  `.github/workflows/check.yml`, and `scripts/run-node-test-suite.mjs`.
+  `.github/workflows/check.yml`, `scripts/run-node-test-suite.mjs`, and
+  `node-tests/pack-test-requirements.json`.
 - Tests: `node-tests/provider-probe.test.ts`,
   `node-tests/vendor-boundary.test.ts`,
   `node-tests/node-test-suite-selector.test.ts`, plus two retained Python tests
@@ -76,8 +77,9 @@
   Node CLI and never invoke Python.
 - `make test`, `make check`, `make check-node`, `npm test`, and
   `npm run test:node` select only test files without a Python-oracle import,
-  reject hardcoded Python subprocesses in that selected set, and publish exact
-  selected/excluded counts.
+  omit only explicitly declared unavailable pack requirements, reject
+  hardcoded Python subprocesses in the selected set, and publish separate exact
+  counts for both exclusion classes.
 - `make test-python-legacy`, `npm run test:all`, and `npm run check:all` remain
   explicit compatibility gates. CI continues to run the complete parity gate.
 - Provider-probe recipe semantics, source checkout ownership, Terraform schema
@@ -113,9 +115,14 @@
 
 - `PYTHON=/usr/bin/false PYTHONPATH= make check-node`
   - 66 selected test files, 43 explicitly excluded Python-oracle files.
-  - 771 tests passed with zero skipped or failed tests.
+  - 774 tests passed with zero skipped or failed tests.
   - Includes the Python-disabled operational smoke, import Oracle coverage,
     all pack/profile checks, module checks, and Node vendor audit.
+- Physically pruned Python-disabled `make check` gates:
+  - empty profile: 55 selected files, 11 pack-excluded files, 43
+    Python-oracle files; 628 tests passed.
+  - Zscaler profile: 56 selected files, 10 pack-excluded files, 43
+    Python-oracle files; 629 tests passed, including the operational smoke.
 - `PYTHON=/run/current-system/sw/bin/python3 npm run check:all`
   - 1,222 tests: 1,221 passed, one platform-specific skip, zero failed.
 - `PYTHON=/run/current-system/sw/bin/python3 make test-python-legacy`
@@ -155,6 +162,10 @@
   removed, not left as an empty audit.
 - CI retains Python compatibility jobs until the archive/removal PR. The
   default repository gate and all maintained Make operations are Node-only.
+- Ten mixed full-catalog Node test files are intentionally file-level excluded
+  from reduced distributions. Narrowing those suites would improve reduced
+  coverage, but is not required for runtime cutover correctness; unmarked files
+  remain core and fail reduced CI on undeclared coupling.
 
 ## Review Focus
 
@@ -190,6 +201,10 @@
   it without a hidden skip.
 - Reduced-profile and physically pruned CI keep the retained Python
   compatibility gate explicitly during the archive window.
+- Node test selection now validates an exact, stale-checked file-level pack
+  requirements manifest. This closes the initial PR CI defect where reduced
+  and physically pruned distributions ran full-catalog Node files; no missing
+  directory or unknown-pack error is dynamically skipped.
 - Collector and source-ref documentation now describes the Node Fetch path and
   requested-ref shallow-clone behavior without claiming arbitrary commit-SHA
   checkout support.

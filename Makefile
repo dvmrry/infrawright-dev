@@ -126,7 +126,7 @@ check-core: ## Prove the pack-independent engine surface with an empty pack root
 test: test-node ## Default repository tests use the Python-independent Node suite
 
 test-node: check-pack-set ## Run every Node test file that has no Python parity-oracle dependency
-	$(NPM) run test:node
+	PACK_PROFILE="$(PACK_PROFILE)" PACK_CATALOG="$(PACK_CATALOG)" $(NPM) run test:node
 
 test-python-legacy: check-pack-set ## Retained Python implementation and migration tests pending archive
 	$(PYTHON) -m tests.run --catalog "$(PACK_CATALOG)" -v

@@ -368,7 +368,7 @@ These commands keep the shipped demo and generators healthy:
 | `make demo-contract` | Credential-free demo contract check: consumes the shipped bundle without npm/Python, materializes the demo, verifies committed demo config/import artifacts do not drift, rejects stale demo moved-block files, and checks the generated demo module tree. |
 | `make check-demo` | Verifies committed demo config/import artifacts do not drift. |
 | `make check-modules` | Generates modules in a temporary deployment and checks generator output. |
-| `make test` / `make test-node` | Runs the Python-independent Node suite and reports test files retained only for Python differential coverage. |
+| `make test` / `make test-node` | Runs the Python-independent Node suite selected for the active pack profile and separately reports pack-excluded and retained Python differential files. |
 | `make test-python-legacy` | Runs the retained Python implementation and migration suite during the archive window. |
 | `make check` / `make check-node` | Runs the Node suite, demo drift checks, module generator checks, pack validation, and the Node vendor-boundary audit without invoking Python. |
 

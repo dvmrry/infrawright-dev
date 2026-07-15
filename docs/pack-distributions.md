@@ -78,10 +78,12 @@ profile/catalog or validation fails.
 - `make check-pack PACK=<name>` remains the narrow pack-authoring metadata
   check.
 
-Tests are discovered normally. `tests/pack-test-requirements.json` declares
-the exact tests that require committed pack data. Tests without a declaration
-remain core and run under every profile. Requirement entries are fail-closed:
-stale test prefixes are errors, and the core/reduced CI profiles catch new
+Tests are discovered normally. `node-tests/pack-test-requirements.json`
+declares the exact compiled Node test files that require committed pack data;
+the retained Python compatibility suite uses the finer-grained unittest rules
+in `tests/pack-test-requirements.json`. Tests without a declaration remain core
+and run under every profile. Both requirement surfaces are fail-closed: stale
+files or prefixes are errors, and the core/reduced CI profiles catch new
 undeclared coupling.
 
 ## Examples
