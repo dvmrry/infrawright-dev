@@ -382,7 +382,7 @@ async function moduleOptions(arguments_: string[]): Promise<ModuleOptions> {
       "--root": {},
       "--terraform": {},
     },
-  }, { command });
+  });
   let root = process.env.INFRAWRIGHT_PACKS || path.join(rootDirectory, "packs");
   let profile = process.env.INFRAWRIGHT_PACK_PROFILE
     || path.join(rootDirectory, "packsets", "full.json");

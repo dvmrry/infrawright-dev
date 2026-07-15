@@ -70,6 +70,18 @@ test("metadata CLI preserves exact legacy option spellings", () => {
     misplacedModuleVerb.stderr,
     /modules requires the generate or validate verb/u,
   );
+
+  for (const arguments_ of [
+    ["modules", "generate", "extra", "--help"],
+    ["modules", "generate", "--unknown"],
+  ]) {
+    const result = run(arguments_);
+    assert.equal(result.status, 2);
+    assert.equal(
+      result.stderr,
+      `error: unknown argument ${arguments_[2]}\n`,
+    );
+  }
 });
 
 test("ZIA admin-role evidence names the pinned SDK source path", async () => {
