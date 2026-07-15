@@ -233,6 +233,27 @@ test("a bound empty reference output requires the configured generated resource"
   >;
   delete calls.zpa_segment_group;
   assert.throws(() => classifyPlan(malformed, null, contract), AssessmentPlanError);
+
+  const mismatchedChild = structuredClone(candidate);
+  mismatchedChild.planned_values.root_module = {
+    child_modules: [{
+      address: "module.zpa_segment_group",
+      resources: [{
+        address: "module.zpa_segment_group.terraform_data.other",
+        index: "other",
+        mode: "managed",
+        type: "terraform_data",
+        values: { id: "unrelated" },
+      }],
+    }],
+  };
+  delete (
+    mismatchedChild.configuration.root_module.module_calls as Record<string, unknown>
+  ).zpa_segment_group;
+  assert.throws(
+    () => classifyPlan(mismatchedChild, null, contract),
+    AssessmentPlanError,
+  );
 });
 
 test("diff paths matches Python missing-null and nested list behavior", () => {

@@ -235,7 +235,8 @@ function referenceOutputValue(
         }
         ids[rawResource.index] = rawResource.values.id;
       }
-    } else {
+    }
+    if (Object.keys(ids).length === 0) {
       validateEmptyReferenceModule(plan, resourceType);
     }
     expected[resourceType] = ids;
