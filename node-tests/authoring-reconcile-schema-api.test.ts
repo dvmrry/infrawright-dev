@@ -170,18 +170,25 @@ test("Swagger Parser validates lossless authoring documents without mutating or 
     validateOpenApiDocument({ openapi: "3.1.0", paths: {} }),
     /OpenAPI validation failed/,
   );
-  const lossless = parseDataJsonLosslessly(JSON.stringify({
-    components: { schemas: {
-      Count: { maximum: 10, minimum: 0, type: "integer" },
-      External: { $ref: "resources/count.yml#/Count" },
-    } },
-    info: { title: "lossless multi-file fixture", version: "1" },
-    openapi: "3.0.3",
-    paths: {},
-  })) as JsonObject;
+  const lossless = parseDataJsonLosslessly(`{
+    "components": {"schemas": {
+      "Count": {
+        "maximum": 1e400,
+        "minimum": 900719925474099312345678901,
+        "type": "integer"
+      },
+      "External": {"$ref": "resources/count.yml#/Count"}
+    }},
+    "info": {"title": "lossless multi-file fixture", "version": "1"},
+    "openapi": "3.0.3",
+    "paths": {}
+  }`) as JsonObject;
   const losslessBefore = JSON.stringify(lossless);
   await validateOpenApiDocument(lossless);
   assert.equal(JSON.stringify(lossless), losslessBefore);
+  const count = (((lossless.components as JsonObject).schemas as JsonObject).Count as JsonObject);
+  assert.equal(String(count.maximum), "1e400");
+  assert.equal(String(count.minimum), "900719925474099312345678901");
 });
 
 test("OpenAPI recursion is rejected for direct ref cycles and bounded while flattening nested objects", () => {

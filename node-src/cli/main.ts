@@ -368,8 +368,11 @@ interface ModuleOptions {
 
 async function moduleOptions(arguments_: string[]): Promise<ModuleOptions> {
   const rootDirectory = await packageRoot();
-  const parsed = commandArguments(arguments_, {
-    allowPositionals: true,
+  const verb = arguments_[0];
+  if (verb !== "generate" && verb !== "validate") {
+    usageError("modules requires the generate or validate verb");
+  }
+  const parsed = commandArguments(arguments_.slice(1), {
     values: {
       "--catalog": {},
       "--deployment": {},
@@ -380,11 +383,6 @@ async function moduleOptions(arguments_: string[]): Promise<ModuleOptions> {
       "--terraform": {},
     },
   }, { command });
-  const verb = parsed.positionals[0];
-  if (verb !== "generate" && verb !== "validate") {
-    usageError("modules requires the generate or validate verb");
-  }
-  if (parsed.positionals.length !== 1) usageError("modules accepts exactly one verb");
   let root = process.env.INFRAWRIGHT_PACKS || path.join(rootDirectory, "packs");
   let profile = process.env.INFRAWRIGHT_PACK_PROFILE
     || path.join(rootDirectory, "packsets", "full.json");
@@ -821,7 +819,7 @@ async function resourcesCommand(arguments_: string[]): Promise<number> {
   let catalog = path.join(rootDirectory, "packsets", "full.json");
   const parsed = commandArguments(arguments_, { values: {
     "--catalog": {},
-    "--order": { inlineOnly: true },
+    "--order": { allowedValues: ["references"], inlineOnly: true },
     "--profile": {},
     "--resource": { multiple: true },
     "--root": {},
@@ -830,9 +828,6 @@ async function resourcesCommand(arguments_: string[]): Promise<number> {
   profile = lastOption(parsed, "--profile") ?? profile;
   catalog = lastOption(parsed, "--catalog") ?? catalog;
   const orderValue = lastOption(parsed, "--order");
-  if (orderValue !== undefined && orderValue !== "references") {
-    usageError("--order only accepts references");
-  }
   const order: "sorted" | "references" = orderValue === "references" ? "references" : "sorted";
   const resources = parsed.options["--resource"] ?? [];
   const packRoot = await loadPackRoot({ packsRoot: root, profilePath: profile, catalogPath: catalog });

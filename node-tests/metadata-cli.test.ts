@@ -57,6 +57,19 @@ test("metadata CLI preserves exact legacy option spellings", () => {
 
   const inlineOrder = run(["resources", "--order=references"]);
   assert.equal(inlineOrder.status, 0, inlineOrder.stderr);
+
+  const invalidOrder = run(["resources", "--order=bad", "--help"]);
+  assert.equal(invalidOrder.status, 2);
+  assert.match(invalidOrder.stderr, /resources does not accept --order=bad/u);
+
+  const misplacedModuleVerb = run([
+    "modules", "--root", path.join(ROOT, "packs"), "generate", "--help",
+  ]);
+  assert.equal(misplacedModuleVerb.status, 2);
+  assert.match(
+    misplacedModuleVerb.stderr,
+    /modules requires the generate or validate verb/u,
+  );
 });
 
 test("ZIA admin-role evidence names the pinned SDK source path", async () => {

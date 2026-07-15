@@ -13,6 +13,7 @@ export class CliArgumentParseError extends Error {
 
 export interface CliValueOption {
   readonly allowEmpty?: boolean;
+  readonly allowedValues?: readonly string[];
   readonly inlineOnly?: boolean;
   readonly multiple?: boolean;
 }
@@ -86,7 +87,15 @@ function argumentsThroughHelp(
     }
     if (argument?.startsWith("--") && argument.includes("=")) {
       const name = argument.slice(0, argument.indexOf("="));
-      if (valueOptions[name]?.inlineOnly !== true) {
+      const declaration = valueOptions[name];
+      const value = argument.slice(argument.indexOf("=") + 1);
+      if (
+        declaration?.inlineOnly !== true
+        || (
+          declaration.allowedValues !== undefined
+          && !declaration.allowedValues.includes(value)
+        )
+      ) {
         throw new CliArgumentParseError(`unknown argument ${argument}`);
       }
     }

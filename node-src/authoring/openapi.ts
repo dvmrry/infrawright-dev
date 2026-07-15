@@ -24,9 +24,11 @@ function openApiValidationGraph(
 ): unknown {
   if (value instanceof LosslessNumber) {
     const number = Number(value.toString());
-    if (!Number.isFinite(number)) {
-      throw new TypeError("OpenAPI numeric values must be finite");
-    }
+    // Swagger Parser validates structure through native JSON numbers. Preserve
+    // magnitude only in the authoritative lossless graph; use a finite value
+    // of the same sign if JavaScript cannot represent the JSON token.
+    if (number === Number.POSITIVE_INFINITY) return Number.MAX_VALUE;
+    if (number === Number.NEGATIVE_INFINITY) return -Number.MAX_VALUE;
     return number;
   }
   if (typeof value !== "object" || value === null) return value;

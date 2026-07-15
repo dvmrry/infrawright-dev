@@ -71,15 +71,22 @@ test("parseArgs adapter preserves legacy diagnostics and order-aware help", () =
   assert.equal(value.flags.has("--help"), false);
   assert.deepEqual(value.options["--value"], ["--help"]);
   const inline = parseCommandArguments(["--order=references"], {
-    values: { "--order": { inlineOnly: true } },
+    values: { "--order": { allowedValues: ["references"], inlineOnly: true } },
   });
   assert.deepEqual(inline.options["--order"], ["references"]);
   assert.throws(
     () => parseCommandArguments(["--order", "references"], {
-      values: { "--order": { inlineOnly: true } },
+      values: { "--order": { allowedValues: ["references"], inlineOnly: true } },
     }),
     (error: unknown) => error instanceof CliArgumentParseError
       && error.message === "unknown argument --order",
+  );
+  assert.throws(
+    () => parseCommandArguments(["--order=bad", "--help"], {
+      values: { "--order": { allowedValues: ["references"], inlineOnly: true } },
+    }),
+    (error: unknown) => error instanceof CliArgumentParseError
+      && error.message === "unknown argument --order=bad",
   );
 });
 
