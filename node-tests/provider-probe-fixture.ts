@@ -47,6 +47,7 @@ export async function createProviderProbeFixture(): Promise<ProviderProbeFixture
     },
   });
   await writeProviderProbeJson(openApi, {
+    info: { title: "provider probe fixture", version: "1" },
     openapi: "3.0.3",
     paths: {
       "/api/folders": {

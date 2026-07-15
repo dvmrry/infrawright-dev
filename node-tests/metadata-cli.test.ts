@@ -31,6 +31,17 @@ test("metadata CLI validates the committed pack root without Python", () => {
   assert.equal(result.stderr, "");
 });
 
+test("check-pack preserves encounter-order last-wins selection", () => {
+  const result = run([
+    "check-pack",
+    "PACK=zia",
+    "--pack", "zpa",
+    "PACK=zia",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "validated packs: zia\n");
+});
+
 test("ZIA admin-role evidence names the pinned SDK source path", async () => {
   const fixture = JSON.parse(await readFile(
     path.join(ROOT, "node-tests", "fixtures", "zia-adoption-classification-v4.7.26.json"),

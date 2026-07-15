@@ -133,8 +133,11 @@ function runPreflight(
 test("mirror manifest is derived from the pinned lockfile", () => {
   const result = runPreflight(["--manifest"]);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /Ordinary packages \(15\):/u);
+  assert.match(result.stdout, /Ordinary packages \(27\):/u);
+  assert.match(result.stdout, /^  @apidevtools\/swagger-parser@12\.1\.0$/mu);
   assert.match(result.stdout, /^  esbuild@0\.25\.12$/mu);
+  assert.match(result.stdout, /^  fast-check@4\.9\.0$/mu);
+  assert.match(result.stdout, /^  pure-rand@8\.4\.2$/mu);
   assert.match(result.stdout, /^  typescript@7\.0\.2$/mu);
   const platformPackages = new Map([
     ["darwin/arm64", [

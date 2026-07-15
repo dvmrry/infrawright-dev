@@ -2,6 +2,10 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import {
+  CliArgumentParseError,
+  parseCommandArguments,
+} from "../cli/arguments.js";
 import { loadPackRoot } from "../metadata/loader.js";
 import { validateOverride } from "../metadata/resources.js";
 import { isObject, type JsonObject } from "../metadata/validation.js";
@@ -15,6 +19,7 @@ import {
   resourceSchemaFromData,
 } from "./reconcile-schema-api.js";
 import { buildOpenApiResourceMap } from "./openapi-resource-map.js";
+import { validateOpenApiDocument } from "./openapi.js";
 import {
   compareSourceOperationReports,
   deriveSourceOperationRegistry,
@@ -64,36 +69,28 @@ function parseArguments(
   repeatable: ReadonlySet<string> = new Set(),
   flags: ReadonlySet<string> = new Set(),
 ): ParsedArguments {
-  const values: Record<string, string[]> = Object.create(null) as Record<string, string[]>;
-  const enabled = new Set<string>();
-  const positional: string[] = [];
-  for (let index = 0; index < arguments_.length;) {
-    const argument = arguments_[index];
-    if (argument === undefined) break;
-    if (flags.has(argument)) {
-      enabled.add(argument);
-      index += 1;
-      continue;
+  try {
+    const parsed = parseCommandArguments(arguments_, {
+      allowPositionals: true,
+      flags: [...flags],
+      help: false,
+      values: Object.fromEntries([...options].map((name) => [name, {
+        multiple: repeatable.has(name),
+      }])),
+    });
+    return {
+      flags: parsed.flags,
+      options: parsed.options,
+      positional: parsed.positionals,
+    };
+  } catch (error: unknown) {
+    if (error instanceof CliArgumentParseError) {
+      throw new AuthoringCliUsageError(
+        error.message.replace("may be specified only once", "may be passed only once"),
+      );
     }
-    if (options.has(argument)) {
-      const value = arguments_[index + 1];
-      if (value === undefined || value.length === 0) {
-        throw new AuthoringCliUsageError(`${argument} requires a value`);
-      }
-      if (!repeatable.has(argument) && values[argument] !== undefined) {
-        throw new AuthoringCliUsageError(`${argument} may be passed only once`);
-      }
-      (values[argument] ??= []).push(value);
-      index += 2;
-      continue;
-    }
-    if (argument.startsWith("-")) {
-      throw new AuthoringCliUsageError(`unknown argument ${argument}`);
-    }
-    positional.push(argument);
-    index += 1;
+    throw error;
   }
-  return { flags: enabled, options: values, positional };
 }
 
 function option(parsed: ParsedArguments, name: string): string | undefined {
@@ -113,6 +110,12 @@ async function readJson(filename: string): Promise<unknown> {
 async function readObject(filename: string): Promise<JsonObject> {
   const value = await readJson(filename);
   if (!isObject(value)) throw new TypeError(`${filename} must contain a JSON object`);
+  return value;
+}
+
+async function readOpenApiObject(filename: string): Promise<JsonObject> {
+  const value = await readObject(filename);
+  await validateOpenApiDocument(value);
   return value;
 }
 
@@ -190,7 +193,7 @@ async function reconcileCommand(
   const report = reconcileItems({
     apiMetadata: mergeApiMetadata({
       optionDocuments,
-      ...(openApiPath === undefined ? {} : { openApi: await readObject(openApiPath) }),
+      ...(openApiPath === undefined ? {} : { openApi: await readOpenApiObject(openApiPath) }),
       openApiReadOperations: parsed.options["--openapi-read"] ?? [],
       openApiWriteOperations: parsed.options["--openapi-write"] ?? [],
     }),
@@ -224,7 +227,7 @@ async function openApiMapCommand(
   const providerSource = option(parsed, "--provider-source");
   const report = buildOpenApiResourceMap({
     apiPrefix: option(parsed, "--api-prefix") ?? "/api/",
-    openApi: await readObject(requiredOption(parsed, "--openapi")),
+    openApi: await readOpenApiObject(requiredOption(parsed, "--openapi")),
     ...(providerSource === undefined ? {} : { providerSource }),
     ...(registry === undefined ? {} : { registryData: await readObject(registry) }),
     resourcePrefix: option(parsed, "--resource-prefix") ?? "",
@@ -251,7 +254,7 @@ async function sourceOperationMapCommand(
   const resources = resourceFilter(option(parsed, "--resources"));
   const sdkRoot = option(parsed, "--sdk-root");
   const shared = {
-    openApi: await readObject(requiredOption(parsed, "--openapi")),
+    openApi: await readOpenApiObject(requiredOption(parsed, "--openapi")),
     ...(providerSource === undefined ? {} : { providerSource }),
     resourcePrefix: option(parsed, "--resource-prefix") ?? "",
     ...(resources === undefined ? {} : { resources }),
@@ -349,7 +352,7 @@ async function sourceEvidenceEvalCommand(
   const providerSource = option(parsed, "--provider-source");
   const resources = resourceFilter(option(parsed, "--resources"));
   const shared = {
-    openApi: await readObject(requiredOption(parsed, "--openapi")),
+    openApi: await readOpenApiObject(requiredOption(parsed, "--openapi")),
     ...(providerSource === undefined ? {} : { providerSource }),
     resourcePrefix: option(parsed, "--resource-prefix") ?? "",
     ...(resources === undefined ? {} : { resources }),

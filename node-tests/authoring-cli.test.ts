@@ -55,13 +55,16 @@ async function fixture(): Promise<Fixture> {
   });
   await jsonFile(api, [{ name: "example", settings: { mode: "strict" } }]);
   await jsonFile(openApi, {
+    info: { title: "authoring CLI fixture", version: "1" },
     openapi: "3.0.3",
     paths: {
       "/widgets": {
-        get: { operationId: "ListWidgets" },
-        post: { operationId: "CreateWidget" },
+        get: { operationId: "ListWidgets", responses: { 200: { description: "ok" } } },
+        post: { operationId: "CreateWidget", responses: { 200: { description: "ok" } } },
       },
-      "/widgets/{id}": { get: { operationId: "GetWidget" } },
+      "/widgets/{id}": {
+        get: { operationId: "GetWidget", responses: { 200: { description: "ok" } } },
+      },
     },
   });
   await jsonFile(facts, {

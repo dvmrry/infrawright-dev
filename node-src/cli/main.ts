@@ -3,6 +3,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  CliArgumentParseError,
+  lastOption,
+  parseCommandArguments,
+  type ParseCommandArgumentsOptions,
+  type ParsedCommandArguments,
+} from "./arguments.js";
+import {
   deploymentConfigDir,
   deploymentEnvsDir,
   deploymentImportsDir,
@@ -147,6 +154,34 @@ function usageError(message: string): never {
   throw new CliExit(message, 2);
 }
 
+function commandArguments(
+  arguments_: readonly string[],
+  configuration: ParseCommandArgumentsOptions,
+  behavior: {
+    readonly command?: string;
+    readonly status?: number;
+    readonly stdout?: boolean;
+  } = {},
+): ParsedCommandArguments {
+  let parsed: ParsedCommandArguments;
+  try {
+    parsed = parseCommandArguments(arguments_, configuration);
+  } catch (error: unknown) {
+    if (error instanceof CliArgumentParseError) {
+      const unknown = /^unknown argument (?<argument>.+)$/u.exec(error.message);
+      if (behavior.command !== undefined && unknown?.groups?.argument !== undefined) {
+        usageError(`${behavior.command} does not accept ${unknown.groups.argument}`);
+      }
+      usageError(error.message);
+    }
+    throw error;
+  }
+  if (parsed.flags.has("--help")) {
+    throw new CliExit(USAGE, behavior.status ?? 0, behavior.stdout ?? true);
+  }
+  return parsed;
+}
+
 const LEGACY_USAGE_FAILURE_CODES = new Set([
   "INVALID_CHANGED_PATHS",
   "INVALID_ASSESSMENT_INPUT",
@@ -191,19 +226,6 @@ async function packageRoot(): Promise<string> {
   }
 }
 
-function takeOption(
-  arguments_: string[],
-  index: number,
-  option: string,
-  allowEmpty = false,
-): { readonly value: string; readonly next: number } {
-  const value = arguments_[index + 1];
-  if (value === undefined || (!allowEmpty && value.length === 0)) {
-    return usageError(`${option} requires a value`);
-  }
-  return { value, next: index + 2 };
-}
-
 async function readStandardInput(): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) {
@@ -213,28 +235,22 @@ async function readStandardInput(): Promise<string> {
 }
 
 async function checkPack(arguments_: string[]): Promise<number> {
+  const parsed = commandArguments(arguments_, {
+    allowPositionals: true,
+    values: { "--pack": {}, "--root": {} },
+  }, { status: 2, stdout: false });
   let selectedPack: string | undefined;
-  let selectedRoot: string | undefined;
-  for (let index = 0; index < arguments_.length;) {
-    const argument = arguments_[index];
-    if (argument === "--pack") {
-      const option = takeOption(arguments_, index, "--pack");
-      selectedPack = option.value;
-      index = option.next;
-    } else if (argument === "--root") {
-      const option = takeOption(arguments_, index, "--root");
-      selectedRoot = option.value;
-      index = option.next;
-    } else if (argument?.startsWith("PACK=")) {
-      selectedPack = argument.slice("PACK=".length);
-      if (selectedPack.length === 0) usageError("PACK= requires a value");
-      index += 1;
-    } else if (argument === "-h" || argument === "--help") {
-      throw new CliExit(USAGE, 2);
-    } else {
-      usageError(`unknown argument ${String(argument)}`);
+  for (const occurrence of parsed.occurrences) {
+    if (occurrence.kind === "option") {
+      if (occurrence.name === "--pack") selectedPack = occurrence.value;
+      continue;
     }
+    const argument = occurrence.value;
+    if (!argument.startsWith("PACK=")) usageError(`unknown argument ${argument}`);
+    selectedPack = argument.slice("PACK=".length);
+    if (selectedPack.length === 0) usageError("PACK= requires a value");
   }
+  const selectedRoot = lastOption(parsed, "--root");
   const root = path.resolve(
     selectedRoot
       ?? (process.env.INFRAWRIGHT_PACKS || path.join(await packageRoot(), "packs")),
@@ -256,27 +272,16 @@ async function checkPackSet(arguments_: string[]): Promise<number> {
   let profile = process.env.INFRAWRIGHT_PACK_PROFILE
     || path.join(rootDirectory, "packsets", "full.json");
   let catalog = path.join(rootDirectory, "packsets", "full.json");
-  let requirements: string | undefined;
-  for (let index = 0; index < arguments_.length;) {
-    const argument = arguments_[index];
-    if (
-      argument === "--root"
-      || argument === "--profile"
-      || argument === "--catalog"
-      || argument === "--requirements"
-    ) {
-      const option = takeOption(arguments_, index, argument);
-      if (argument === "--root") root = option.value;
-      if (argument === "--profile") profile = option.value;
-      if (argument === "--catalog") catalog = option.value;
-      if (argument === "--requirements") requirements = option.value;
-      index = option.next;
-    } else if (argument === "-h" || argument === "--help") {
-      throw new CliExit(USAGE, 0, true);
-    } else {
-      usageError(`unknown argument ${String(argument)}`);
-    }
-  }
+  const parsed = commandArguments(arguments_, { values: {
+    "--catalog": {},
+    "--profile": {},
+    "--requirements": {},
+    "--root": {},
+  } });
+  root = lastOption(parsed, "--root") ?? root;
+  profile = lastOption(parsed, "--profile") ?? profile;
+  catalog = lastOption(parsed, "--catalog") ?? catalog;
+  const requirements = lastOption(parsed, "--requirements");
   if (requirements !== undefined) {
     const result = await checkPackRequirements({
       requirementsPath: requirements,
@@ -311,22 +316,12 @@ async function checkPackSet(arguments_: string[]): Promise<number> {
 }
 
 async function deployment(arguments_: string[]): Promise<number> {
-  let selectedPath: string | undefined;
-  const positional: string[] = [];
-  for (let index = 0; index < arguments_.length;) {
-    const argument = arguments_[index];
-    if (argument === "--deployment") {
-      const option = takeOption(arguments_, index, "--deployment");
-      selectedPath = option.value;
-      index = option.next;
-    } else if (argument === "-h" || argument === "--help") {
-      throw new CliExit(USAGE, 2);
-    } else {
-      if (argument === undefined) usageError("missing deployment argument");
-      positional.push(argument);
-      index += 1;
-    }
-  }
+  const parsed = commandArguments(arguments_, {
+    allowPositionals: true,
+    values: { "--deployment": {} },
+  }, { status: 2, stdout: false });
+  const selectedPath = lastOption(parsed, "--deployment");
+  const positional = parsed.positionals;
   const verb = positional[0];
   if (verb === undefined) usageError("deployment requires a verb");
   const source = deploymentPath(
@@ -373,44 +368,34 @@ interface ModuleOptions {
 
 async function moduleOptions(arguments_: string[]): Promise<ModuleOptions> {
   const rootDirectory = await packageRoot();
-  const verb = arguments_[0];
+  const parsed = commandArguments(arguments_, {
+    allowPositionals: true,
+    values: {
+      "--catalog": {},
+      "--deployment": {},
+      "--out": {},
+      "--profile": {},
+      "--resource": { multiple: true },
+      "--root": {},
+      "--terraform": {},
+    },
+  }, { command });
+  const verb = parsed.positionals[0];
   if (verb !== "generate" && verb !== "validate") {
     usageError("modules requires the generate or validate verb");
   }
+  if (parsed.positionals.length !== 1) usageError("modules accepts exactly one verb");
   let root = process.env.INFRAWRIGHT_PACKS || path.join(rootDirectory, "packs");
   let profile = process.env.INFRAWRIGHT_PACK_PROFILE
     || path.join(rootDirectory, "packsets", "full.json");
   let catalog = path.join(rootDirectory, "packsets", "full.json");
-  let selectedDeployment = deploymentPath();
-  let output: string | undefined;
-  let terraform: string | undefined;
-  const resources: string[] = [];
-  for (let index = 1; index < arguments_.length;) {
-    const argument = arguments_[index];
-    if (
-      argument === "--root"
-      || argument === "--profile"
-      || argument === "--catalog"
-      || argument === "--deployment"
-      || argument === "--out"
-      || argument === "--terraform"
-      || argument === "--resource"
-    ) {
-      const option = takeOption(arguments_, index, argument);
-      if (argument === "--root") root = option.value;
-      if (argument === "--profile") profile = option.value;
-      if (argument === "--catalog") catalog = option.value;
-      if (argument === "--deployment") selectedDeployment = option.value;
-      if (argument === "--out") output = option.value;
-      if (argument === "--terraform") terraform = option.value;
-      if (argument === "--resource") resources.push(option.value);
-      index = option.next;
-    } else if (argument === "-h" || argument === "--help") {
-      throw new CliExit(USAGE, 0, true);
-    } else {
-      usageError(`unknown argument ${String(argument)}`);
-    }
-  }
+  root = lastOption(parsed, "--root") ?? root;
+  profile = lastOption(parsed, "--profile") ?? profile;
+  catalog = lastOption(parsed, "--catalog") ?? catalog;
+  const selectedDeployment = lastOption(parsed, "--deployment") ?? deploymentPath();
+  const output = lastOption(parsed, "--out");
+  const terraform = lastOption(parsed, "--terraform");
+  const resources = parsed.options["--resource"] ?? [];
   const duplicates = resources.filter((item, index) => resources.indexOf(item) !== index);
   if (duplicates.length > 0) {
     usageError(`duplicate --resource ${JSON.stringify(duplicates[0])}`);
@@ -495,36 +480,22 @@ async function transform(arguments_: string[]): Promise<number> {
   let profile = process.env.INFRAWRIGHT_PACK_PROFILE
     || path.join(rootDirectory, "packsets", "full.json");
   let catalog = path.join(rootDirectory, "packsets", "full.json");
-  let selectedDeployment = deploymentPath();
-  let input: string | undefined;
-  let tenant: string | undefined;
-  const resources: string[] = [];
-  for (let index = 0; index < arguments_.length;) {
-    const argument = arguments_[index];
-    if (
-      argument === "--root"
-      || argument === "--profile"
-      || argument === "--catalog"
-      || argument === "--deployment"
-      || argument === "--in"
-      || argument === "--tenant"
-      || argument === "--resource"
-    ) {
-      const option = takeOption(arguments_, index, argument);
-      if (argument === "--root") root = option.value;
-      if (argument === "--profile") profile = option.value;
-      if (argument === "--catalog") catalog = option.value;
-      if (argument === "--deployment") selectedDeployment = option.value;
-      if (argument === "--in") input = option.value;
-      if (argument === "--tenant") tenant = option.value;
-      if (argument === "--resource") resources.push(option.value);
-      index = option.next;
-    } else if (argument === "-h" || argument === "--help") {
-      throw new CliExit(USAGE, 0, true);
-    } else {
-      usageError(`unknown argument ${String(argument)}`);
-    }
-  }
+  const parsed = commandArguments(arguments_, { values: {
+    "--catalog": {},
+    "--deployment": {},
+    "--in": {},
+    "--profile": {},
+    "--resource": { multiple: true },
+    "--root": {},
+    "--tenant": {},
+  } }, { command: "transform" });
+  root = lastOption(parsed, "--root") ?? root;
+  profile = lastOption(parsed, "--profile") ?? profile;
+  catalog = lastOption(parsed, "--catalog") ?? catalog;
+  const selectedDeployment = lastOption(parsed, "--deployment") ?? deploymentPath();
+  const input = lastOption(parsed, "--in");
+  const tenant = lastOption(parsed, "--tenant");
+  const resources = parsed.options["--resource"] ?? [];
   if (input === undefined || tenant === undefined) {
     usageError("transform requires --in and --tenant");
   }
@@ -553,42 +524,26 @@ async function adopt(
   let profile = process.env.INFRAWRIGHT_PACK_PROFILE
     || path.join(rootDirectory, "packsets", "full.json");
   let catalog = path.join(rootDirectory, "packsets", "full.json");
-  let selectedDeployment = deploymentPath();
-  let input: string | undefined;
-  let tenant: string | undefined;
-  let policyPath: string | undefined;
-  let terraform: string | undefined;
-  const resources: string[] = [];
-  for (let index = 0; index < arguments_.length;) {
-    const argument = arguments_[index];
-    if (
-      argument === "--root"
-      || argument === "--profile"
-      || argument === "--catalog"
-      || argument === "--deployment"
-      || argument === "--in"
-      || argument === "--tenant"
-      || argument === "--resource"
-      || argument === "--policy"
-      || argument === "--terraform"
-    ) {
-      const option = takeOption(arguments_, index, argument);
-      if (argument === "--root") root = option.value;
-      if (argument === "--profile") profile = option.value;
-      if (argument === "--catalog") catalog = option.value;
-      if (argument === "--deployment") selectedDeployment = option.value;
-      if (argument === "--in") input = option.value;
-      if (argument === "--tenant") tenant = option.value;
-      if (argument === "--resource") resources.push(option.value);
-      if (argument === "--policy") policyPath = option.value;
-      if (argument === "--terraform") terraform = option.value;
-      index = option.next;
-    } else if (argument === "-h" || argument === "--help") {
-      throw new CliExit(USAGE, 0, true);
-    } else {
-      usageError(`unknown argument ${String(argument)}`);
-    }
-  }
+  const parsed = commandArguments(arguments_, { values: {
+    "--catalog": {},
+    "--deployment": {},
+    "--in": {},
+    "--policy": {},
+    "--profile": {},
+    "--resource": { multiple: true },
+    "--root": {},
+    "--tenant": {},
+    "--terraform": {},
+  } }, { command });
+  root = lastOption(parsed, "--root") ?? root;
+  profile = lastOption(parsed, "--profile") ?? profile;
+  catalog = lastOption(parsed, "--catalog") ?? catalog;
+  const selectedDeployment = lastOption(parsed, "--deployment") ?? deploymentPath();
+  const input = lastOption(parsed, "--in");
+  const tenant = lastOption(parsed, "--tenant");
+  const policyPath = lastOption(parsed, "--policy");
+  const terraform = lastOption(parsed, "--terraform");
+  const resources = parsed.options["--resource"] ?? [];
   if (input === undefined || tenant === undefined) usageError("adopt requires --in and --tenant");
   const [packRoot, loadedDeployment] = await Promise.all([
     loadPackRoot({ packsRoot: root, profilePath: profile, catalogPath: catalog }),
@@ -654,39 +609,24 @@ async function genEnv(arguments_: string[]): Promise<number> {
   let profile = process.env.INFRAWRIGHT_PACK_PROFILE
     || path.join(rootDirectory, "packsets", "full.json");
   let catalog = path.join(rootDirectory, "packsets", "full.json");
-  let selectedDeployment = deploymentPath();
-  let backend: string | undefined;
-  let tenant: string | undefined;
-  let terraform: string | undefined;
-  const resources: string[] = [];
-  for (let index = 0; index < arguments_.length;) {
-    const argument = arguments_[index];
-    if (
-      argument === "--root"
-      || argument === "--profile"
-      || argument === "--catalog"
-      || argument === "--deployment"
-      || argument === "--backend"
-      || argument === "--tenant"
-      || argument === "--terraform"
-      || argument === "--resource"
-    ) {
-      const option = takeOption(arguments_, index, argument);
-      if (argument === "--root") root = option.value;
-      if (argument === "--profile") profile = option.value;
-      if (argument === "--catalog") catalog = option.value;
-      if (argument === "--deployment") selectedDeployment = option.value;
-      if (argument === "--backend") backend = option.value;
-      if (argument === "--tenant") tenant = option.value;
-      if (argument === "--terraform") terraform = option.value;
-      if (argument === "--resource") resources.push(option.value);
-      index = option.next;
-    } else if (argument === "-h" || argument === "--help") {
-      throw new CliExit(USAGE, 0, true);
-    } else {
-      usageError(`unknown argument ${String(argument)}`);
-    }
-  }
+  const parsed = commandArguments(arguments_, { values: {
+    "--backend": {},
+    "--catalog": {},
+    "--deployment": {},
+    "--profile": {},
+    "--resource": { multiple: true },
+    "--root": {},
+    "--tenant": {},
+    "--terraform": {},
+  } }, { command: "gen-env" });
+  root = lastOption(parsed, "--root") ?? root;
+  profile = lastOption(parsed, "--profile") ?? profile;
+  catalog = lastOption(parsed, "--catalog") ?? catalog;
+  const selectedDeployment = lastOption(parsed, "--deployment") ?? deploymentPath();
+  const backend = lastOption(parsed, "--backend");
+  const tenant = lastOption(parsed, "--tenant");
+  const terraform = lastOption(parsed, "--terraform");
+  const resources = parsed.options["--resource"] ?? [];
   if (tenant === undefined) usageError("gen-env requires --tenant");
   const [packRoot, loadedDeployment] = await Promise.all([
     loadPackRoot({ packsRoot: root, profilePath: profile, catalogPath: catalog }),
@@ -727,52 +667,28 @@ async function importStagingCliOptions(
   let profile = process.env.INFRAWRIGHT_PACK_PROFILE
     || path.join(rootDirectory, "packsets", "full.json");
   let catalog = path.join(rootDirectory, "packsets", "full.json");
-  let selectedDeployment = deploymentPath();
-  let backendConfig: string | undefined;
-  let tenant: string | undefined;
-  let terraform: string | undefined;
-  let stateAware = false;
-  const resources: string[] = [];
-  for (let index = 0; index < arguments_.length;) {
-    const argument = arguments_[index];
-    if (argument === "--state-aware") {
-      if (command === "unstage-imports") {
-        usageError("unstage-imports does not accept --state-aware");
-      }
-      stateAware = true;
-      index += 1;
-    } else if (
-      argument === "--root"
-      || argument === "--profile"
-      || argument === "--catalog"
-      || argument === "--deployment"
-      || argument === "--tenant"
-      || argument === "--resource"
-      || argument === "--backend-config"
-      || argument === "--terraform"
-    ) {
-      if (
-        command === "unstage-imports"
-        && (argument === "--backend-config" || argument === "--terraform")
-      ) {
-        usageError(`unstage-imports does not accept ${argument}`);
-      }
-      const option = takeOption(arguments_, index, argument);
-      if (argument === "--root") root = option.value;
-      if (argument === "--profile") profile = option.value;
-      if (argument === "--catalog") catalog = option.value;
-      if (argument === "--deployment") selectedDeployment = option.value;
-      if (argument === "--tenant") tenant = option.value;
-      if (argument === "--resource") resources.push(option.value);
-      if (argument === "--backend-config") backendConfig = option.value;
-      if (argument === "--terraform") terraform = option.value;
-      index = option.next;
-    } else if (argument === "-h" || argument === "--help") {
-      throw new CliExit(USAGE, 0, true);
-    } else {
-      usageError(`unknown argument ${String(argument)}`);
-    }
-  }
+  const stage = command === "stage-imports";
+  const parsed = commandArguments(arguments_, {
+    flags: stage ? ["--state-aware"] : [],
+    values: {
+      ...(stage ? { "--backend-config": {}, "--terraform": {} } : {}),
+      "--catalog": {},
+      "--deployment": {},
+      "--profile": {},
+      "--resource": { multiple: true },
+      "--root": {},
+      "--tenant": {},
+    },
+  }, { command });
+  root = lastOption(parsed, "--root") ?? root;
+  profile = lastOption(parsed, "--profile") ?? profile;
+  catalog = lastOption(parsed, "--catalog") ?? catalog;
+  const selectedDeployment = lastOption(parsed, "--deployment") ?? deploymentPath();
+  const backendConfig = lastOption(parsed, "--backend-config");
+  const tenant = lastOption(parsed, "--tenant");
+  const terraform = lastOption(parsed, "--terraform");
+  const stateAware = parsed.flags.has("--state-aware");
+  const resources = parsed.options["--resource"] ?? [];
   if (tenant === undefined) usageError(`${command} requires --tenant`);
   return {
     ...(backendConfig === undefined ? {} : { backendConfig }),
@@ -873,36 +789,20 @@ async function rootQueryCliOptions(
   let profile = process.env.INFRAWRIGHT_PACK_PROFILE
     || path.join(rootDirectory, "packsets", "full.json");
   let catalog = path.join(rootDirectory, "packsets", "full.json");
-  let selectedDeployment = deploymentPath();
-  let tenant: string | undefined;
-  const resources: string[] = [];
-  for (let index = 0; index < arguments_.length;) {
-    const argument = arguments_[index];
-    if (
-      argument === "--root"
-      || argument === "--profile"
-      || argument === "--catalog"
-      || argument === "--deployment"
-      || argument === "--tenant"
-      || argument === "--resource"
-    ) {
-      const option = takeOption(arguments_, index, argument, argument === "--tenant");
-      if (argument === "--root") root = option.value;
-      if (argument === "--profile") profile = option.value;
-      if (argument === "--catalog") catalog = option.value;
-      if (argument === "--deployment") selectedDeployment = option.value;
-      if (argument === "--tenant") {
-        if (tenant !== undefined) usageError("--tenant may be specified only once");
-        tenant = option.value;
-      }
-      if (argument === "--resource") resources.push(option.value);
-      index = option.next;
-    } else if (argument === "-h" || argument === "--help") {
-      throw new CliExit(USAGE, 0, true);
-    } else {
-      usageError(`${command} does not accept ${String(argument)}`);
-    }
-  }
+  const parsed = commandArguments(arguments_, { values: {
+    "--catalog": {},
+    "--deployment": {},
+    "--profile": {},
+    "--resource": { multiple: true },
+    "--root": {},
+    "--tenant": { allowEmpty: true, multiple: false },
+  } }, { command });
+  root = lastOption(parsed, "--root") ?? root;
+  profile = lastOption(parsed, "--profile") ?? profile;
+  catalog = lastOption(parsed, "--catalog") ?? catalog;
+  const selectedDeployment = lastOption(parsed, "--deployment") ?? deploymentPath();
+  const tenant = lastOption(parsed, "--tenant");
+  const resources = parsed.options["--resource"] ?? [];
   return {
     catalog,
     deployment: selectedDeployment,
@@ -919,26 +819,22 @@ async function resourcesCommand(arguments_: string[]): Promise<number> {
   let profile = process.env.INFRAWRIGHT_PACK_PROFILE
     || path.join(rootDirectory, "packsets", "full.json");
   let catalog = path.join(rootDirectory, "packsets", "full.json");
-  let order: "sorted" | "references" = "sorted";
-  const resources: string[] = [];
-  for (let index = 0; index < arguments_.length;) {
-    const argument = arguments_[index];
-    if (argument === "--order=references") {
-      order = "references";
-      index += 1;
-    } else if (argument === "--root" || argument === "--profile" || argument === "--catalog" || argument === "--resource") {
-      const option = takeOption(arguments_, index, argument);
-      if (argument === "--root") root = option.value;
-      if (argument === "--profile") profile = option.value;
-      if (argument === "--catalog") catalog = option.value;
-      if (argument === "--resource") resources.push(option.value);
-      index = option.next;
-    } else if (argument === "-h" || argument === "--help") {
-      throw new CliExit(USAGE, 0, true);
-    } else {
-      usageError(`resources does not accept ${String(argument)}`);
-    }
+  const parsed = commandArguments(arguments_, { values: {
+    "--catalog": {},
+    "--order": {},
+    "--profile": {},
+    "--resource": { multiple: true },
+    "--root": {},
+  } }, { command: "resources" });
+  root = lastOption(parsed, "--root") ?? root;
+  profile = lastOption(parsed, "--profile") ?? profile;
+  catalog = lastOption(parsed, "--catalog") ?? catalog;
+  const orderValue = lastOption(parsed, "--order");
+  if (orderValue !== undefined && orderValue !== "references") {
+    usageError("--order only accepts references");
   }
+  const order: "sorted" | "references" = orderValue === "references" ? "references" : "sorted";
+  const resources = parsed.options["--resource"] ?? [];
   const packRoot = await loadPackRoot({ packsRoot: root, profilePath: profile, catalogPath: catalog });
   const selected = expandLoadedResources(packRoot, resources);
   const ordered = order === "references"
@@ -972,36 +868,20 @@ async function scopePathsCommand(arguments_: string[]): Promise<number> {
   let profile = process.env.INFRAWRIGHT_PACK_PROFILE
     || path.join(rootDirectory, "packsets", "full.json");
   let catalog = path.join(rootDirectory, "packsets", "full.json");
-  let selectedDeployment = deploymentPath();
-  let pathsJson: string | undefined;
-  const paths: string[] = [];
-  for (let index = 0; index < arguments_.length;) {
-    const argument = arguments_[index];
-    if (
-      argument === "--root"
-      || argument === "--profile"
-      || argument === "--catalog"
-      || argument === "--deployment"
-      || argument === "--paths-json"
-      || argument === "--path"
-    ) {
-      const option = takeOption(arguments_, index, argument, argument === "--path");
-      if (argument === "--root") root = option.value;
-      if (argument === "--profile") profile = option.value;
-      if (argument === "--catalog") catalog = option.value;
-      if (argument === "--deployment") selectedDeployment = option.value;
-      if (argument === "--paths-json") {
-        if (pathsJson !== undefined) usageError("--paths-json may be specified only once");
-        pathsJson = option.value;
-      }
-      if (argument === "--path") paths.push(option.value);
-      index = option.next;
-    } else if (argument === "-h" || argument === "--help") {
-      throw new CliExit(USAGE, 0, true);
-    } else {
-      usageError(`scope-paths does not accept ${String(argument)}`);
-    }
-  }
+  const parsedArguments = commandArguments(arguments_, { values: {
+    "--catalog": {},
+    "--deployment": {},
+    "--path": { allowEmpty: true, multiple: true },
+    "--paths-json": { multiple: false },
+    "--profile": {},
+    "--root": {},
+  } }, { command: "scope-paths" });
+  root = lastOption(parsedArguments, "--root") ?? root;
+  profile = lastOption(parsedArguments, "--profile") ?? profile;
+  catalog = lastOption(parsedArguments, "--catalog") ?? catalog;
+  const selectedDeployment = lastOption(parsedArguments, "--deployment") ?? deploymentPath();
+  const pathsJson = lastOption(parsedArguments, "--paths-json");
+  const paths = [...(parsedArguments.options["--path"] ?? [])];
   if (pathsJson !== undefined) {
     let parsed: unknown;
     const text = pathsJson === "-"
@@ -1061,45 +941,29 @@ async function planCliOptions(arguments_: string[]): Promise<PlanCliOptions> {
   let profile = process.env.INFRAWRIGHT_PACK_PROFILE
     || path.join(rootDirectory, "packsets", "full.json");
   let catalog = path.join(rootDirectory, "packsets", "full.json");
-  let selectedDeployment = deploymentPath();
-  let tenant: string | undefined;
-  let backendConfig: string | undefined;
-  let terraform: string | undefined;
-  let importsOnly = false;
-  let save = false;
-  const resources: string[] = [];
-  for (let index = 0; index < arguments_.length;) {
-    const argument = arguments_[index];
-    if (argument === "--imports-only" || argument === "--save") {
-      if (argument === "--imports-only") importsOnly = true;
-      else save = true;
-      index += 1;
-    } else if (
-      argument === "--root"
-      || argument === "--profile"
-      || argument === "--catalog"
-      || argument === "--deployment"
-      || argument === "--tenant"
-      || argument === "--resource"
-      || argument === "--backend-config"
-      || argument === "--terraform"
-    ) {
-      const option = takeOption(arguments_, index, argument, argument === "--tenant");
-      if (argument === "--root") root = option.value;
-      if (argument === "--profile") profile = option.value;
-      if (argument === "--catalog") catalog = option.value;
-      if (argument === "--deployment") selectedDeployment = option.value;
-      if (argument === "--tenant") tenant = option.value;
-      if (argument === "--resource") resources.push(option.value);
-      if (argument === "--backend-config") backendConfig = option.value;
-      if (argument === "--terraform") terraform = option.value;
-      index = option.next;
-    } else if (argument === "-h" || argument === "--help") {
-      throw new CliExit(USAGE, 0, true);
-    } else {
-      usageError(`plan does not accept ${String(argument)}`);
-    }
-  }
+  const parsed = commandArguments(arguments_, {
+    flags: ["--imports-only", "--save"],
+    values: {
+      "--backend-config": {},
+      "--catalog": {},
+      "--deployment": {},
+      "--profile": {},
+      "--resource": { multiple: true },
+      "--root": {},
+      "--tenant": { allowEmpty: true },
+      "--terraform": {},
+    },
+  }, { command: "plan" });
+  root = lastOption(parsed, "--root") ?? root;
+  profile = lastOption(parsed, "--profile") ?? profile;
+  catalog = lastOption(parsed, "--catalog") ?? catalog;
+  const selectedDeployment = lastOption(parsed, "--deployment") ?? deploymentPath();
+  const tenant = lastOption(parsed, "--tenant");
+  const backendConfig = lastOption(parsed, "--backend-config");
+  const terraform = lastOption(parsed, "--terraform");
+  const importsOnly = parsed.flags.has("--imports-only");
+  const save = parsed.flags.has("--save");
+  const resources = parsed.options["--resource"] ?? [];
   if (tenant === undefined) usageError("plan requires --tenant");
   return {
     ...(backendConfig === undefined ? {} : { backendConfig }),
@@ -1188,54 +1052,28 @@ async function assessmentCliOptions(
   let profile = process.env.INFRAWRIGHT_PACK_PROFILE
     || path.join(rootDirectory, "packsets", "full.json");
   let catalog = path.join(rootDirectory, "packsets", "full.json");
-  let selectedDeployment = deploymentPath();
-  let tenant: string | undefined;
-  let backendConfig: string | undefined;
-  let policy: string | undefined;
-  let report: string | undefined;
-  let terraform: string | undefined;
-  const resources: string[] = [];
-  for (let index = 0; index < arguments_.length;) {
-    const argument = arguments_[index];
-    if (
-      argument === "--root"
-      || argument === "--profile"
-      || argument === "--catalog"
-      || argument === "--deployment"
-      || argument === "--tenant"
-      || argument === "--resource"
-      || argument === "--backend-config"
-      || argument === "--policy"
-      || argument === "--report"
-      || argument === "--terraform"
-    ) {
-      if (command === "assert-clean" && argument === "--policy") {
-        usageError("assert-clean does not accept --policy");
-      }
-      const option = takeOption(arguments_, index, argument, argument === "--tenant");
-      if (argument === "--root") root = option.value;
-      if (argument === "--profile") profile = option.value;
-      if (argument === "--catalog") catalog = option.value;
-      if (argument === "--deployment") selectedDeployment = option.value;
-      if (argument === "--tenant") {
-        if (tenant !== undefined) usageError("--tenant may be specified only once");
-        tenant = option.value;
-      }
-      if (argument === "--resource") resources.push(option.value);
-      if (argument === "--backend-config") backendConfig = option.value;
-      if (argument === "--policy") policy = option.value;
-      if (argument === "--report") {
-        if (report !== undefined) usageError("--report may be specified only once");
-        report = option.value;
-      }
-      if (argument === "--terraform") terraform = option.value;
-      index = option.next;
-    } else if (argument === "-h" || argument === "--help") {
-      throw new CliExit(USAGE, 0, true);
-    } else {
-      usageError(`${command} does not accept ${String(argument)}`);
-    }
-  }
+  const parsed = commandArguments(arguments_, { values: {
+    "--backend-config": {},
+    "--catalog": {},
+    "--deployment": {},
+    ...(command === "assert-adoptable" ? { "--policy": {} } : {}),
+    "--profile": {},
+    "--report": { multiple: false },
+    "--resource": { multiple: true },
+    "--root": {},
+    "--tenant": { allowEmpty: true, multiple: false },
+    "--terraform": {},
+  } }, { command });
+  root = lastOption(parsed, "--root") ?? root;
+  profile = lastOption(parsed, "--profile") ?? profile;
+  catalog = lastOption(parsed, "--catalog") ?? catalog;
+  const selectedDeployment = lastOption(parsed, "--deployment") ?? deploymentPath();
+  const tenant = lastOption(parsed, "--tenant");
+  const backendConfig = lastOption(parsed, "--backend-config");
+  const policy = lastOption(parsed, "--policy");
+  const report = lastOption(parsed, "--report");
+  const terraform = lastOption(parsed, "--terraform");
+  const resources = parsed.options["--resource"] ?? [];
   return {
     ...(backendConfig === undefined ? {} : { backendConfig }),
     catalog,
@@ -1304,57 +1142,34 @@ async function applyCliOptions(arguments_: string[]): Promise<ApplyCliOptions> {
   let profile = process.env.INFRAWRIGHT_PACK_PROFILE
     || path.join(rootDirectory, "packsets", "full.json");
   let catalog = path.join(rootDirectory, "packsets", "full.json");
-  let selectedDeployment = deploymentPath();
-  let tenant: string | undefined;
-  let backendConfig: string | undefined;
-  let policy: string | undefined;
-  let terraform: string | undefined;
-  let mainBranch: string | undefined;
-  let allowDestroy = false;
-  let allowNonMain = false;
-  let allowPlanChanges = false;
-  const resources: string[] = [];
-  for (let index = 0; index < arguments_.length;) {
-    const argument = arguments_[index];
-    if (
-      argument === "--allow-destroy"
-      || argument === "--allow-non-main"
-      || argument === "--allow-plan-changes"
-    ) {
-      if (argument === "--allow-destroy") allowDestroy = true;
-      if (argument === "--allow-non-main") allowNonMain = true;
-      if (argument === "--allow-plan-changes") allowPlanChanges = true;
-      index += 1;
-    } else if (
-      argument === "--root"
-      || argument === "--profile"
-      || argument === "--catalog"
-      || argument === "--deployment"
-      || argument === "--tenant"
-      || argument === "--resource"
-      || argument === "--backend-config"
-      || argument === "--policy"
-      || argument === "--terraform"
-      || argument === "--main-branch"
-    ) {
-      const option = takeOption(arguments_, index, argument, argument === "--tenant");
-      if (argument === "--root") root = option.value;
-      if (argument === "--profile") profile = option.value;
-      if (argument === "--catalog") catalog = option.value;
-      if (argument === "--deployment") selectedDeployment = option.value;
-      if (argument === "--tenant") tenant = option.value;
-      if (argument === "--resource") resources.push(option.value);
-      if (argument === "--backend-config") backendConfig = option.value;
-      if (argument === "--policy") policy = option.value;
-      if (argument === "--terraform") terraform = option.value;
-      if (argument === "--main-branch") mainBranch = option.value;
-      index = option.next;
-    } else if (argument === "-h" || argument === "--help") {
-      throw new CliExit(USAGE, 0, true);
-    } else {
-      usageError(`apply does not accept ${String(argument)}`);
-    }
-  }
+  const parsed = commandArguments(arguments_, {
+    flags: ["--allow-destroy", "--allow-non-main", "--allow-plan-changes"],
+    values: {
+      "--backend-config": {},
+      "--catalog": {},
+      "--deployment": {},
+      "--main-branch": {},
+      "--policy": {},
+      "--profile": {},
+      "--resource": { multiple: true },
+      "--root": {},
+      "--tenant": { allowEmpty: true },
+      "--terraform": {},
+    },
+  }, { command: "apply" });
+  root = lastOption(parsed, "--root") ?? root;
+  profile = lastOption(parsed, "--profile") ?? profile;
+  catalog = lastOption(parsed, "--catalog") ?? catalog;
+  const selectedDeployment = lastOption(parsed, "--deployment") ?? deploymentPath();
+  const tenant = lastOption(parsed, "--tenant");
+  const backendConfig = lastOption(parsed, "--backend-config");
+  const policy = lastOption(parsed, "--policy");
+  const terraform = lastOption(parsed, "--terraform");
+  const mainBranch = lastOption(parsed, "--main-branch");
+  const allowDestroy = parsed.flags.has("--allow-destroy");
+  const allowNonMain = parsed.flags.has("--allow-non-main");
+  const allowPlanChanges = parsed.flags.has("--allow-plan-changes");
+  const resources = parsed.options["--resource"] ?? [];
   if (tenant !== undefined) validateTenant(tenant);
   return {
     allowDestroy,
@@ -1466,53 +1281,32 @@ async function fetchCliOptions(
   let profile = process.env.INFRAWRIGHT_PACK_PROFILE
     || path.join(rootDirectory, "packsets", "full.json");
   let catalog = path.join(rootDirectory, "packsets", "full.json");
-  let output: string | undefined;
-  let tenant: string | undefined;
+  const parsed = commandArguments(arguments_, { values: {
+    "--catalog": {},
+    ...(requireTenant ? {
+      "--concurrency": { multiple: false },
+      "--out": {},
+      "--resource": { multiple: true },
+      "--tenant": {},
+    } : {}),
+    "--profile": {},
+    "--root": {},
+  } }, requireTenant ? {} : { command: "fetch-diag" });
+  root = lastOption(parsed, "--root") ?? root;
+  profile = lastOption(parsed, "--profile") ?? profile;
+  catalog = lastOption(parsed, "--catalog") ?? catalog;
+  const output = lastOption(parsed, "--out");
+  const tenant = lastOption(parsed, "--tenant");
+  const resources = parsed.options["--resource"] ?? [];
+  const concurrencyValue = lastOption(parsed, "--concurrency");
   let concurrency = 1;
-  let concurrencySeen = false;
-  const resources: string[] = [];
-  for (let index = 0; index < arguments_.length;) {
-    const argument = arguments_[index];
-    if (
-      argument === "--root"
-      || argument === "--profile"
-      || argument === "--catalog"
-      || argument === "--out"
-      || argument === "--tenant"
-      || argument === "--resource"
-      || argument === "--concurrency"
-    ) {
-      if (!requireTenant && (
-        argument === "--out"
-        || argument === "--tenant"
-        || argument === "--resource"
-        || argument === "--concurrency"
-      )) {
-        usageError(`fetch-diag does not accept ${argument}`);
-      }
-      const option = takeOption(arguments_, index, argument);
-      if (argument === "--root") root = option.value;
-      if (argument === "--profile") profile = option.value;
-      if (argument === "--catalog") catalog = option.value;
-      if (argument === "--out") output = option.value;
-      if (argument === "--tenant") tenant = option.value;
-      if (argument === "--resource") resources.push(option.value);
-      if (argument === "--concurrency") {
-        if (concurrencySeen) usageError("--concurrency may be specified only once");
-        concurrencySeen = true;
-        if (!/^[1-9][0-9]*$/u.test(option.value)) {
-          usageError("--concurrency must be a positive integer");
-        }
-        concurrency = Number(option.value);
-        if (!Number.isSafeInteger(concurrency) || concurrency > MAX_FETCH_CONCURRENCY) {
-          usageError(`--concurrency must not exceed ${MAX_FETCH_CONCURRENCY}`);
-        }
-      }
-      index = option.next;
-    } else if (argument === "-h" || argument === "--help") {
-      throw new CliExit(USAGE, 0, true);
-    } else {
-      usageError(`unknown argument ${String(argument)}`);
+  if (concurrencyValue !== undefined) {
+    if (!/^[1-9][0-9]*$/u.test(concurrencyValue)) {
+      usageError("--concurrency must be a positive integer");
+    }
+    concurrency = Number(concurrencyValue);
+    if (!Number.isSafeInteger(concurrency) || concurrency > MAX_FETCH_CONCURRENCY) {
+      usageError(`--concurrency must not exceed ${MAX_FETCH_CONCURRENCY}`);
     }
   }
   if (requireTenant && tenant === undefined) usageError("fetch requires --tenant");

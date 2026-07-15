@@ -23,6 +23,7 @@ import {
   buildOpenApiResourceMap,
   roundPythonRatio4,
 } from "./openapi-resource-map.js";
+import { validateOpenApiDocument } from "./openapi.js";
 import { deriveSourceOperationRegistry } from "./source-operation-map.js";
 
 const DEFAULT_WORK_ROOT = path.join(os.tmpdir(), "infrawright-provider-probes");
@@ -643,6 +644,7 @@ export async function runProviderProbe(options: {
   const sourceRoot = await prepareSource(recipe, options.recipe, workDirectory, host);
   const schemaData = await readObject(schema);
   const openApiData = await readObject(openapi);
+  await validateOpenApiDocument(openApiData);
   const providerSource = typeof recipe.provider_source === "string" ? recipe.provider_source : undefined;
   const resourcePrefix = typeof recipe.resource_prefix === "string" ? recipe.resource_prefix : "";
   const sourceReport = await deriveSourceOperationRegistry({

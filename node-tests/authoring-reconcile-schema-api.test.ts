@@ -16,6 +16,7 @@ import {
   flattenOpenApiSchema,
   mergeOpenApiSchema,
   resolveLocalRef,
+  validateOpenApiDocument,
 } from "../node-src/authoring/openapi.js";
 import type { JsonObject } from "../node-src/metadata/validation.js";
 import { PYTHON_ORACLE } from "./python-oracle.js";
@@ -145,6 +146,38 @@ test("OpenAPI 2/3 schemas resolve refs, allOf, arrays, siblings, and read/write 
   });
   assert.equal(v2.result?.response_only, true);
   assert.equal(v2.value?.writable, true);
+});
+
+test("Swagger Parser validates authoring documents without mutating refs or resolving externally", async () => {
+  const valid: JsonObject = {
+    components: { schemas: {
+      Widget: { properties: { id: { type: "string" } }, type: "object" },
+    } },
+    info: { title: "fixture", version: "1" },
+    openapi: "3.1.0",
+    paths: { "/widgets/{id}": { get: {
+      responses: { "200": { content: {
+        "application/json": { schema: { $ref: "#/components/schemas/Widget" } },
+      }, description: "ok" } },
+    } } },
+  };
+  const before = JSON.stringify(valid);
+  await validateOpenApiDocument(valid);
+  assert.equal(JSON.stringify(valid), before);
+
+  await assert.rejects(
+    validateOpenApiDocument({ openapi: "3.1.0", paths: {} }),
+    /OpenAPI validation failed/,
+  );
+  await assert.rejects(
+    validateOpenApiDocument({
+      info: { title: "external", version: "1" },
+      openapi: "3.1.0",
+      paths: {},
+      components: { schemas: { External: { $ref: "https:\/\/example.invalid\/schema.json" } } },
+    }),
+    /external OpenAPI \$ref values are not supported/,
+  );
 });
 
 test("OpenAPI recursion is rejected for direct ref cycles and bounded while flattening nested objects", () => {

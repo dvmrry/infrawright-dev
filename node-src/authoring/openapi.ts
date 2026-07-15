@@ -1,3 +1,5 @@
+import SwaggerParser from "@apidevtools/swagger-parser";
+
 import { snakeName } from "../domain/pull-transform.js";
 import { sortedStrings } from "../json/python-compatible.js";
 import { isObject, type JsonObject } from "../metadata/validation.js";
@@ -14,6 +16,44 @@ export interface OpenApiFieldMetadata extends JsonObject {
 }
 
 export type OpenApiFieldMap = Readonly<Record<string, OpenApiFieldMetadata>>;
+
+function assertLocalOpenApiReferences(spec: JsonObject): void {
+  const pending: unknown[] = [spec];
+  const seen = new Set<object>();
+  while (pending.length > 0) {
+    const value = pending.pop();
+    if (typeof value !== "object" || value === null || seen.has(value)) continue;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      pending.push(...value);
+      continue;
+    }
+    for (const [key, child] of Object.entries(value)) {
+      if (key === "$ref" && typeof child === "string" && !child.startsWith("#/")) {
+        throw new TypeError("external OpenAPI $ref values are not supported");
+      }
+      pending.push(child);
+    }
+  }
+}
+
+/**
+ * Validate an authoring input without replacing Infrawright's provenance-aware
+ * local-ref and schema-flattening logic with a dereferenced object graph.
+ */
+export async function validateOpenApiDocument(spec: JsonObject): Promise<void> {
+  assertLocalOpenApiReferences(spec);
+  try {
+    await SwaggerParser.validate(spec as never, {
+      mutateInputSchema: false,
+      resolve: { external: false, file: false, http: false },
+      validate: { schema: true, spec: true },
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "unknown validation failure";
+    throw new TypeError(`OpenAPI validation failed: ${message}`);
+  }
+}
 
 function objectOrEmpty(value: unknown): JsonObject {
   return isObject(value) ? value : {};

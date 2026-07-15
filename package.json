@@ -24,6 +24,7 @@
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
+    "@apidevtools/swagger-parser": "12.1.0",
     "ajv": "8.20.0",
     "entities": "8.0.0",
     "lossless-json": "4.3.0",
@@ -33,6 +34,7 @@
   "devDependencies": {
     "@types/node": "24.13.3",
     "esbuild": "0.25.12",
+    "fast-check": "4.9.0",
     "typescript": "7.0.2"
   }
 }
