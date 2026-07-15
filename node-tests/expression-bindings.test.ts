@@ -244,6 +244,24 @@ test("exact numeric list selectors preserve siblings and render fail-closed list
   );
 });
 
+test("many exact-index edits render linearly from one stable list base", () => {
+  const renderCount = (count: number): string => {
+    const paths = Object.fromEntries(Array.from({ length: count }, (_, index) => [
+      `nested[${index}].target`,
+      { expression: "var.value" },
+    ]));
+    return renderExpressionBindingsHcl(parseExpressionBindings({
+      resources: { "sample_resource.example": paths },
+    }, "sample_resource"));
+  };
+  const fifty = renderCount(50);
+  const hundred = renderCount(100);
+  assert.equal((hundred.match(/concat\(/gu) ?? []).length, 1);
+  assert.match(hundred, /var\.items\["example"\]\.nested\[99\]/u);
+  assert.ok(hundred.length < fifty.length * 2.1, `${fifty.length} -> ${hundred.length}`);
+  assert.ok(hundred.length < 100_000, `unexpected indexed binding output size: ${hundred.length}`);
+});
+
 test("provider schema validation distinguishes ordered lists from unordered sets", () => {
   const schema = {
     block: {

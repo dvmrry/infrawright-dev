@@ -15,7 +15,10 @@ import test from "node:test";
 
 import { decodeHTML } from "entities";
 
-import { runTransformBatch } from "../node-src/domain/transform-runner.js";
+import {
+  runTransformBatch,
+  transformLookupNameField,
+} from "../node-src/domain/transform-runner.js";
 import { stageImports } from "../node-src/domain/import-staging.js";
 import { planEnvironmentRoots } from "../node-src/domain/plan-lifecycle.js";
 import { pythonHtmlUnescapeGeneric } from "../node-src/domain/python-html-unescape.js";
@@ -142,6 +145,15 @@ async function temporaryDirectory(
 async function writeJson(file: string, value: unknown): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+async function snapshotFlatDirectory(directory: string): Promise<Readonly<Record<string, string>>> {
+  return Object.fromEntries(await Promise.all(
+    (await readdir(directory)).sort().map(async (name) => [
+      name,
+      await readFile(path.join(directory, name), "utf8"),
+    ] as const),
+  ));
 }
 
 async function exists(file: string): Promise<boolean> {
@@ -980,6 +992,137 @@ test("committed ZPA nested references emit exact indexed cross-state bindings", 
   assert.match(serverGroup, /terraform_remote_state\.zpa_app_connector_group/u);
   assert.match(serverGroup, /"servers\[0\]\.id"/u);
   assert.match(serverGroup, /terraform_remote_state\.zpa_application_server/u);
+
+  const configDirectory = path.join(workspace, "config", "tenant");
+  assert.deepEqual(
+    JSON.parse(await text(path.join(configDirectory, "zpa_app_connector_group.lookup.json"))),
+    {
+      by_id: { "216199618143660001": "Fictional Connector Group 1" },
+      key_by_id: { "216199618143660001": "fictional_connector_group_1" },
+    },
+  );
+  assert.deepEqual(
+    JSON.parse(await text(path.join(configDirectory, "zpa_application_server.lookup.json"))),
+    {
+      by_id: {
+        "216199618143770001": "fictional-server-01.example.test",
+        "216199618143770002": "fictional-server-02.example.test",
+      },
+      key_by_id: {
+        "216199618143770001": "fictional_server_01_example_test",
+        "216199618143770002": "fictional_server_02_example_test",
+      },
+    },
+  );
+  assert.deepEqual(
+    JSON.parse(await text(path.join(configDirectory, "zpa_server_group.lookup.json"))),
+    {
+      by_id: { "216199618143550001": "Fictional Server Group Alpha" },
+      key_by_id: { "216199618143550001": "fictional_server_group_alpha" },
+    },
+  );
+
+  const disabled = await runTransformBatch({
+    deployment: deployment(workspace),
+    inputDirectory: input,
+    root: await committedRoot(),
+    selectors: [
+      "zpa_app_connector_group",
+      "zpa_application_segment",
+      "zpa_application_server",
+      "zpa_server_group",
+    ],
+    tenant: "tenant",
+  });
+  assert.deepEqual(disabled.failed, []);
+  for (const resourceType of [
+    "zpa_app_connector_group",
+    "zpa_application_segment",
+    "zpa_application_server",
+    "zpa_server_group",
+  ]) {
+    assert.equal(
+      await exists(path.join(configDirectory, `${resourceType}.generated.expressions.json`)),
+      false,
+    );
+    assert.equal(await exists(path.join(configDirectory, `${resourceType}.lookup.json`)), false);
+  }
+
+  const freshDisabled = path.join(workspace, "fresh-disabled");
+  assert.deepEqual((await runTransformBatch({
+    deployment: deployment(freshDisabled),
+    inputDirectory: input,
+    root: await committedRoot(),
+    selectors: [
+      "zpa_app_connector_group",
+      "zpa_application_segment",
+      "zpa_application_server",
+      "zpa_server_group",
+    ],
+    tenant: "tenant",
+  })).failed, []);
+  assert.deepEqual(
+    await snapshotFlatDirectory(configDirectory),
+    await snapshotFlatDirectory(path.join(freshDisabled, "config", "tenant")),
+  );
+});
+
+test("reference lookup inference is opt-in, unique, and subordinate to explicit sources", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-reference-lookup-inference-");
+  const packs = path.join(workspace, "packs");
+  await writeJson(path.join(packs, "sample", "pack.json"), {
+    lookup_sources: {
+      sample_explicit: { name_field: "display" },
+    },
+    provider_prefixes: { sample_: "sample" },
+    references: {
+      sample_referrer_one: {
+        conflict: { name_field: "name", referent: "sample_conflict" },
+        explicit: { name_field: "name", referent: "sample_explicit" },
+      },
+      sample_referrer_two: {
+        conflict: { name_field: "label", referent: "sample_conflict" },
+        explicit: { name_field: "label", referent: "sample_explicit" },
+      },
+    },
+  });
+  await writeJson(path.join(packs, "sample", "registry.json"), {
+    sample_conflict: { generate: true, product: "sample" },
+    sample_explicit: { generate: true, product: "sample" },
+    sample_referrer_one: { generate: true, product: "sample" },
+    sample_referrer_two: { generate: true, product: "sample" },
+  });
+  const attributes = {
+    display: { optional: true, type: "string" },
+    id: { computed: true, type: "string" },
+    label: { optional: true, type: "string" },
+    name: { optional: true, type: "string" },
+  };
+  await writeJson(path.join(packs, "sample", "schemas", "provider", "sample.json"), {
+    resource_schemas: Object.fromEntries([
+      "sample_conflict",
+      "sample_explicit",
+      "sample_referrer_one",
+      "sample_referrer_two",
+    ].map((resourceType) => [resourceType, { block: { attributes } }])),
+  });
+  const root = await loadPackRoot({ packsRoot: packs });
+  const conflict = root.resources.get("sample_conflict");
+  const explicit = root.resources.get("sample_explicit");
+  assert.notEqual(conflict, undefined);
+  assert.notEqual(explicit, undefined);
+  const disabledDeployment = deployment(workspace);
+  const enabledDeployment = deployment(workspace, {
+    roots: { sample: { cross_state_references: true } },
+  });
+
+  assert.equal(transformLookupNameField(root, conflict!, disabledDeployment), null);
+  assert.equal(transformLookupNameField(root, explicit!, disabledDeployment), "display");
+  assert.equal(transformLookupNameField(root, explicit!, enabledDeployment), "display");
+  assert.throws(
+    () => transformLookupNameField(root, conflict!, enabledDeployment),
+    /conflicting inferred reference lookup name fields.*sample_referrer_two\.conflict.*sample_referrer_one\.conflict.*explicit lookup_sources/u,
+  );
 });
 
 test("cross-state list bindings preserve predefined ZIA values as literals", async (context) => {

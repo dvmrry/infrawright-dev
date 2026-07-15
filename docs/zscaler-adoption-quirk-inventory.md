@@ -103,8 +103,11 @@ Known local coverage is narrow:
 - `zcc_forwarding_profile.trusted_network_ids` and
   `trusted_network_ids_selected` have local pack references to
   `zcc_trusted_network` ([packs/zcc/pack.json](../packs/zcc/pack.json#L2-L25)).
-- ZPA currently has no pack-declared lookup sources or references
-  ([packs/zpa/pack.json](../packs/zpa/pack.json#L1-L10)).
+- ZPA retains the explicit `zpa_segment_group` lookup source and declares three
+  fixture/schema-backed nested reference edges: application segment to server
+  group, and server group to app connector group and application server
+  ([packs/zpa/pack.json](../packs/zpa/pack.json)). Their additional lookup
+  sidecars are derived only when reference binding is enabled.
 
 The main provider-read normalization probes are:
 
@@ -264,7 +267,7 @@ captured as a repeatable test.
 |---|---|---|---|
 | `zia_firewall_dns_rule` skip `order <= 0` | Config and filter: [`helpers.go#L82-L136`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/helpers/helpers.go#L82-L136). Applied in import and generate: [`import.go#L2568-L2574`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/import.go#L2568-L2574), [`generate.go#L2522-L2528`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/cmd/generate.go#L2522-L2528). | Implemented in #144 as local `skip_if_lte.order <= 0`. | Confirm in a dev tenant that predefined/system DNS rules have `order <= 0` and real managed DNS rules have `order >= 1`. |
 | ZPA-only `app_types` conversion (misattributed to ZIA DLP) | `ListNestedBlock` actively converts `applicationProtocol` for ZPA `praApps` and `inspectionApps`; those are its only call sites, and no ZIA DLP path calls it: [`nesting.go#L298-L306`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/nesting/nesting.go#L298-L306), [`helpers.go#L554-L604`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/helpers/helpers.go#L554-L604). | No upstream ZIA behavior is corroborated; the previous inventory row assigned active ZPA-only behavior to `zia_dlp_web_rules`. | Do not implement a ZIA transform from this evidence. Re-open only with pinned ZIA provider/API read-write evidence. |
-| ZPA reference map | Field spellings for app connector groups, server groups, segment groups, applications, service edges, trusted networks, PRA portals/apps, profiles, and CBI objects: [`datasource_processor.go#L68-L106`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/helpers/datasource_processor.go#L68-L106). | Local ZPA reference graph is empty. | Build a WP3 reference inventory; adopt one relationship at a time with schema and fixture evidence. |
+| ZPA reference map | Field spellings for app connector groups, server groups, segment groups, applications, service edges, trusted networks, PRA portals/apps, profiles, and CBI objects: [`datasource_processor.go#L68-L106`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/helpers/datasource_processor.go#L68-L106). | Local graph now includes segment-group, application-segment server groups, and server-group connector/server edges backed by committed schemas and fixtures. | Qualify the committed cohort live; add any further relationship one at a time with schema, fixture, and provider evidence. |
 | ZIA reference/data-source map | Locations, groups, users, departments, network services, IP groups, application groups, labels: [`datasource_processor.go#L141-L178`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/helpers/datasource_processor.go#L141-L178). | Local ZIA declares only URL category lookup/reference. | Compare against current fixtures before expanding. |
 | ZPA policy operands | Object-type-specific mappings for `SCIM`, `SCIM_GROUP`, `SAML`, `POSTURE`, `TRUSTED_NETWORK`, `MACHINE_GRP`: [`zpa_policy_processor.go#L35-L84`](https://github.com/zscaler/zscaler-terraformer/blob/8e117d34bc00a2ce47eadc7ea12aa998281e3f4f/terraformutils/helpers/zpa_policy_processor.go#L35-L84). | Local ZPA policy operand behavior is custom transform policy, not pack references. | Inventory as reference candidates; avoid upstream regex-HCL implementation. |
 

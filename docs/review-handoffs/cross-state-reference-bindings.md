@@ -29,8 +29,9 @@
 - Root/plan integration: `node-src/domain/environment-generator.ts`,
   `node-src/domain/reference-backend.ts`, `node-src/domain/plan-lifecycle.ts`.
 - Focused Node and real local-Terraform tests under `node-tests/`.
-- Source-backed nested ZPA reference and lookup declarations in
-  `packs/zpa/pack.json`.
+- Source-backed nested ZPA reference declarations in `packs/zpa/pack.json`;
+  required lookup sidecars are derived from those declarations only while a
+  reference-binding mode is enabled.
 - Operator documentation and live-qualification runbook under `docs/`.
 - Files intentionally left untouched: provider code, provider schemas, Fetch,
   modules, import staging, assessment semantics, saved-plan fingerprint schema,
@@ -69,8 +70,9 @@
 - Demo or lab outputs: a local producer state, dependent consumer Apply, and
   second consumer no-op plan with no external provider or credentials.
 - Artifact drift intentionally expected only when the new flag is enabled:
-  generated binding JSON, remote-state data blocks, minimal sensitive ID
-  outputs, backend input variable, and smoke-test data overrides.
+  reference-derived lookup sidecars, generated binding JSON, remote-state data
+  blocks, minimal sensitive ID outputs, backend input variable, and smoke-test
+  data overrides.
 
 ## Expected Delta
 
@@ -111,7 +113,7 @@
   no-op plan.
 - The complete Python generated-root differential passed all 9 profiles,
   including the full 151-root tree; legacy bytes are unchanged.
-- `npm test` passed all 835 selected Node tests.
+- `npm test` passed all 838 selected Node tests after remediation.
 - `git diff --check` passed.
 - Tests not run: no live ZIA/ZPA credentials, azurerm backend, remote provider,
   or deployment Apply. Those are explicitly downstream qualification.
@@ -128,6 +130,10 @@
   Oracle execution.
 - Additional source-backed ZIA URL-category consumers are a separate pack-data
   change after this engine mode is accepted.
+- A missing nested referent lookup currently counts one skipped concrete field
+  path even when that terminal field contains several IDs. Literals and
+  per-field diagnostics remain correct; per-ID summary accounting is a
+  non-blocking follow-up.
 - Existing grouped state is not auto-split or migrated. Existing operators must
   make a deliberate state migration; new deployments omit slug grouping.
 - Remote-state contents are not included in the dependent root's saved-plan
@@ -191,3 +197,14 @@ The prior review later approved exact head
 `eacca5305c96cbfb48fbde57e7adc03d2e111079`. The indexed-list and ZPA pack
 delta after that head invalidates that approval. A fresh-context adversarial
 review is required for the new frozen commit; no current approval is claimed.
+
+Fresh-context review of indexed-list head
+`d765067e88315ec1e3e1c1b6c85da0872722f3f8` requested changes for two blocking
+findings: indexed HCL rendering duplicated the prior expression exponentially,
+and three new unconditional ZPA lookup declarations changed the no-option
+artifact tree. The remediation renders all indexed edits from one stable base
+and makes lookup evidence inferred from reference metadata mode-scoped, while
+retaining explicit historical `lookup_sources`. Regression coverage includes
+large indexed edit sets, strict provider-shaped Terraform values, a complete
+disabled artifact tree, enabled lookup bytes, and enabled-to-disabled cleanup.
+Patch-focused re-review is required before this handoff claims approval.

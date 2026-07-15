@@ -13,6 +13,9 @@ The currently declared, directly testable reference pairs are:
 |---|---|
 | `zia_url_categories` | `zia_url_filtering_rules` |
 | `zpa_segment_group` | `zpa_application_segment` |
+| `zpa_server_group` | `zpa_application_segment.server_groups[0].id` |
+| `zpa_app_connector_group` | `zpa_server_group.app_connector_groups[0].id` |
+| `zpa_application_server` | `zpa_server_group.servers[0].id` |
 
 ZIA predefined category tokens are intentionally absent from the custom
 category lookup and must remain literal. A mixed rule should bind its managed
@@ -67,6 +70,12 @@ Record, without secrets or tenant data:
 - selected pair and root labels;
 - backend kind (not backend values).
 
+Before enabling the mode, run the same selected Transform or Adopt cohort with
+both binding options absent. Confirm that it produces neither generated
+expression files nor reference-derived lookup sidecars. This disabled control
+is the legacy-artifact baseline; pre-existing explicit `lookup_sources`, such
+as `zpa_segment_group`, remain present.
+
 ## Materialize Both Sides
 
 Set the variables for one pair:
@@ -96,7 +105,10 @@ not widen automatically and must remain referent-first.
 Confirm the topology reports two singleton roots. Confirm the referrer has a
 generated expression sidecar and its root contains a
 `terraform_remote_state` block. Confirm the referent root contains the minimal
-`infrawright_reference_ids` output. Do not print output values.
+`infrawright_reference_ids` output. Confirm the enabled referent run wrote its
+reference-derived lookup sidecar, then disable the mode and rerun that referent
+in the disposable workspace to prove the sidecar and generated bindings are
+removed. Do not print output values.
 
 ## Referent-first State Publication
 

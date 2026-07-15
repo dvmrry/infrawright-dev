@@ -63,11 +63,81 @@ export function transformReferenceSpecs(
 export function transformLookupNameField(
   root: LoadedPackRoot,
   resource: LoadedResourceMetadata,
+  deployment: Deployment,
 ): string | null {
   const resourceSource = mergedTransformLookupSources(root)[resource.type];
-  if (!isObject(resourceSource)) return null;
-  const field = resourceSource.name_field;
-  return typeof field === "string" ? field : null;
+  if (isObject(resourceSource) && typeof resourceSource.name_field === "string") {
+    return resourceSource.name_field;
+  }
+
+  const inferred = new Map<string, string[]>();
+  for (const reference of inboundLookupReferences(root, resource)) {
+    if (deploymentReferenceBindingMode(deployment, reference.provider) === "disabled") continue;
+    const sources = inferred.get(reference.nameField) ?? [];
+    sources.push(reference.source);
+    inferred.set(reference.nameField, sources);
+  }
+  if (inferred.size === 0) return null;
+  if (inferred.size > 1) {
+    const conflicts = sortedStrings(inferred.keys()).map((field) => {
+      return `${JSON.stringify(field)} from ${sortedStrings(inferred.get(field) ?? []).join(", ")}`;
+    });
+    throw new TypeError(
+      `${resource.type} has conflicting inferred reference lookup name fields: ${conflicts.join("; ")}; declare an explicit lookup_sources entry`,
+    );
+  }
+  return inferred.keys().next().value ?? null;
+}
+
+interface InboundLookupReference {
+  readonly nameField: string;
+  readonly provider: string;
+  readonly source: string;
+}
+
+function inboundLookupReferences(
+  root: LoadedPackRoot,
+  resource: LoadedResourceMetadata,
+): readonly InboundLookupReference[] {
+  const output: InboundLookupReference[] = [];
+  const references = mergedTransformReferences(root);
+  for (const referrer of sortedStrings(Object.keys(references))) {
+    const referrerResource = root.resources.get(referrer);
+    if (
+      referrerResource === undefined
+      || referrer === resource.type
+      || referrerResource.registry.generate !== true
+      || isObject(referrerResource.registry.derive)
+    ) {
+      continue;
+    }
+    const fields = references[referrer];
+    if (fields === undefined) continue;
+    for (const field of sortedStrings(Object.keys(fields))) {
+      const spec = fields[field];
+      if (
+        !isObject(spec)
+        || spec.referent !== resource.type
+        || typeof spec.name_field !== "string"
+      ) {
+        continue;
+      }
+      output.push({
+        nameField: spec.name_field,
+        provider: referrerResource.provider,
+        source: `${referrer}.${field}`,
+      });
+    }
+  }
+  return output;
+}
+
+/** Whether reference metadata owns removal of this resource's inferred lookup sidecar. */
+export function transformHasInferredLookupLifecycle(
+  root: LoadedPackRoot,
+  resource: LoadedResourceMetadata,
+): boolean {
+  return inboundLookupReferences(root, resource).length > 0;
 }
 
 function shouldUnescape(root: LoadedPackRoot, resourceType: string): boolean {
@@ -255,7 +325,8 @@ export async function runTransformBatch(options: {
           references,
         }),
         deployment: options.deployment,
-        lookupNameField: transformLookupNameField(options.root, resource),
+        lookupNameField: transformLookupNameField(options.root, resource, options.deployment),
+        removeLookupWhenAbsent: transformHasInferredLookupLifecycle(options.root, resource),
         onDiagnostic: write,
         override: resource.override ?? {},
         references,

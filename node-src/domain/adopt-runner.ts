@@ -37,6 +37,7 @@ import {
 import {
   runTransformBatch,
   transformBindingContext,
+  transformHasInferredLookupLifecycle,
   transformLookupNameField,
   transformReferenceSpecs,
 } from "./transform-runner.js";
@@ -775,7 +776,15 @@ async function runAdoptBatchInner(
             root: options.root,
           }),
           deployment: options.deployment,
-          lookupNameField: transformLookupNameField(options.root, entry.resource),
+          lookupNameField: transformLookupNameField(
+            options.root,
+            entry.resource,
+            options.deployment,
+          ),
+          removeLookupWhenAbsent: transformHasInferredLookupLifecycle(
+            options.root,
+            entry.resource,
+          ),
           onDiagnostic: write,
           override: { import_id: adoptionMetadata(entry.resource).importId },
           references,
@@ -921,7 +930,8 @@ async function runAdoptBatchInner(
             root: options.root,
           }),
           deployment: options.deployment,
-          lookupNameField: transformLookupNameField(options.root, resource),
+          lookupNameField: transformLookupNameField(options.root, resource, options.deployment),
+          removeLookupWhenAbsent: transformHasInferredLookupLifecycle(options.root, resource),
           onDiagnostic: write,
           override: { import_id: adoptionMetadata(resource).importId },
           references,

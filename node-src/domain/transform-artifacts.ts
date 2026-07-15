@@ -81,6 +81,8 @@ export interface TransformArtifactCompileOptions {
   readonly bindingContext: BindingContext;
   readonly deployment: Deployment;
   readonly lookupNameField: string | null;
+  /** Remove only lookup sidecars whose lifecycle is owned by inferred reference metadata. */
+  readonly removeLookupWhenAbsent?: boolean;
   /**
    * Authoritative lookup data already compiled in the same transaction.
    * An explicit null suppresses a stale lookup sidecar on disk.
@@ -101,6 +103,7 @@ export interface CompiledTransformArtifacts {
   readonly configText: string;
   readonly existingMoves: string | null;
   readonly lookupText: string | null;
+  readonly removeLookupWhenAbsent: boolean;
   readonly moves: ImportMoveDerivation;
   readonly newImports: string;
   readonly onDiagnostic?: (message: string) => void;
@@ -824,6 +827,7 @@ export async function compileTransformArtifacts(
       ? {}
       : { onDiagnostic: options.onDiagnostic }),
     paths,
+    removeLookupWhenAbsent: options.removeLookupWhenAbsent === true,
     renderedMoves,
     resourceType: options.resourceType,
   });
@@ -885,6 +889,7 @@ export async function publishCompiledTransformArtifacts(
     moves,
     newImports,
     paths,
+    removeLookupWhenAbsent,
     renderedMoves,
     resourceType,
   } = compiled;
@@ -899,6 +904,9 @@ export async function publishCompiledTransformArtifacts(
     await writeFile(paths.lookup, lookupText, "utf8");
     written.push(paths.lookup);
     note(`wrote ${paths.lookup}`);
+  } else if (removeLookupWhenAbsent && await removeIfPresent(paths.lookup)) {
+    removed.push(paths.lookup);
+    note(`removed stale inferred lookup ${paths.lookup}`);
   }
 
   if (existingMoves === null && renderedMoves !== null) {
@@ -973,6 +981,12 @@ function batchArtifactMutations(
     mutations.push({
       contents: compiled.lookupText,
       kind: "write",
+      resourceType: compiled.resourceType,
+      target: compiled.paths.lookup,
+    });
+  } else if (compiled.removeLookupWhenAbsent) {
+    mutations.push({
+      kind: "remove",
       resourceType: compiled.resourceType,
       target: compiled.paths.lookup,
     });
@@ -1165,6 +1179,9 @@ function completedBatchArtifactResult(
   const note = compiled.onDiagnostic ?? (() => undefined);
 
   if (compiled.lookupText !== null) note(`wrote ${compiled.paths.lookup}`);
+  else if (removedSet.has(compiled.paths.lookup)) {
+    note(`removed stale inferred lookup ${compiled.paths.lookup}`);
+  }
   if (compiled.existingMoves === null && compiled.renderedMoves !== null) {
     note(
       `RENAME(S) DETECTED: ${compiled.moves.moves.length} item(s) re-keyed — moved blocks staged in ${compiled.paths.moves}; copy into the env root alongside the imports file before plan/apply (RUNBOOK: Drift)`,

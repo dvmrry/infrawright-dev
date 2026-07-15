@@ -530,16 +530,20 @@ function renderListEdits(baseExpression: string, tree: BindingTree, indent: numb
   const indexes = [...tree.children.keys()]
     .filter((part): part is number => typeof part === "number")
     .sort((left, right) => left - right);
-  let rendered = baseExpression;
+  const segments: string[] = [];
+  let start = 0;
   for (const index of indexes) {
     const value = tree.children.get(index);
     if (value === undefined) continue;
+    segments.push(`slice(${baseExpression}, ${start}, ${index})`);
     const replacement = typeof value === "string"
       ? value
-      : renderMerge(`${rendered}[${index}]`, value, indent + 2);
-    rendered = `concat(slice(${rendered}, 0, ${index}), [${replacement}], slice(${rendered}, ${index + 1}, length(${rendered})))`;
+      : renderMerge(`${baseExpression}[${index}]`, value, indent + 2);
+    segments.push(`[${replacement}]`);
+    start = index + 1;
   }
-  return rendered;
+  segments.push(`slice(${baseExpression}, ${start}, length(${baseExpression}))`);
+  return `concat(${segments.join(", ")})`;
 }
 
 /** Render the exact root-layer HCL merge contract used by Python gen_env. */

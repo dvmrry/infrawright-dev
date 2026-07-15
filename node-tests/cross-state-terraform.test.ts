@@ -197,3 +197,79 @@ test("generated exact-index bindings preserve list elements and converge", async
   const second = terraform(workspace, ["plan", "-detailed-exitcode", "-input=false"]);
   assert.match(second, /No changes/u);
 });
+
+test("exact-index bindings satisfy provider-shaped list objects with set-valued IDs", async (context) => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "infrawright-index-binding-schema-"));
+  context.after(() => rm(workspace, { force: true, recursive: true }));
+  const ids = path.join(workspace, "ids");
+  const consumer = path.join(workspace, "consumer");
+  await mkdir(ids, { recursive: true });
+  await mkdir(consumer, { recursive: true });
+  await writeFile(path.join(ids, "main.tf"), [
+    'output "first" { value = "resolved-first-id" }',
+    'output "second" { value = "resolved-second-id" }',
+    '',
+  ].join("\n"), "utf8");
+  await writeFile(path.join(consumer, "main.tf"), [
+    'variable "items" {',
+    '  type = map(object({',
+    '    nested = list(object({',
+    '      id      = set(string)',
+    '      sibling = string',
+    '    }))',
+    '  }))',
+    '}',
+    'output "items" { value = var.items }',
+    '',
+  ].join("\n"), "utf8");
+  const bindings = parseExpressionBindings({
+    resources: {
+      "sample_resource.example": {
+        "nested[0].id": { expression: "[module.ids.first]" },
+        "nested[1].id": { expression: "[module.ids.second]" },
+      },
+    },
+  }, "sample_resource");
+  await writeFile(path.join(workspace, "main.tf"), [
+    'terraform { required_version = ">= 1.5" }',
+    'variable "items" {',
+    '  type = map(object({',
+    '    nested = list(object({',
+    '      id      = set(string)',
+    '      sibling = string',
+    '    }))',
+    '  }))',
+    '}',
+    'module "ids" { source = "./ids" }',
+    renderExpressionBindingsHcl(bindings),
+    'module "consumer" {',
+    '  source = "./consumer"',
+    '  items  = local.infrawright_expression_bound_items',
+    '}',
+    'output "resolved" { value = module.consumer.items }',
+    '',
+  ].join("\n"), "utf8");
+  await writeFile(path.join(workspace, "terraform.tfvars.json"), JSON.stringify({
+    items: {
+      example: {
+        nested: [
+          { id: ["literal-first"], sibling: "kept-first" },
+          { id: ["literal-second"], sibling: "kept-second" },
+          { id: ["literal-third"], sibling: "kept-third" },
+        ],
+      },
+    },
+  }), "utf8");
+  terraform(workspace, ["init", "-backend=false", "-input=false"]);
+  terraform(workspace, ["apply", "-auto-approve", "-input=false"]);
+  const resolved = JSON.parse(terraform(workspace, ["output", "-json", "resolved"])) as {
+    readonly example: { readonly nested: readonly { readonly id: readonly string[]; readonly sibling: string }[] };
+  };
+  assert.deepEqual(resolved.example.nested, [
+    { id: ["resolved-first-id"], sibling: "kept-first" },
+    { id: ["resolved-second-id"], sibling: "kept-second" },
+    { id: ["literal-third"], sibling: "kept-third" },
+  ]);
+  const second = terraform(workspace, ["plan", "-detailed-exitcode", "-input=false"]);
+  assert.match(second, /No changes/u);
+});

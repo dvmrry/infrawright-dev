@@ -92,6 +92,28 @@ function slugZpaDeployment(overlay: string): Deployment {
   };
 }
 
+function groupedZpaReferenceDeployment(
+  overlay: string,
+  bindReferences = true,
+): Deployment {
+  return {
+    overlay,
+    roots: {
+      zpa: {
+        ...(bindReferences ? { bind_references: true } : {}),
+        groups: {
+          zpa_reference_batch: [
+            "zpa_app_connector_group",
+            "zpa_application_server",
+            "zpa_server_group",
+          ],
+        },
+        strategy: "explicit",
+      },
+    },
+  };
+}
+
 async function reducedPackRoot(
   parent: string,
   name: string,
@@ -513,6 +535,153 @@ test("logical-root fallback preserves implicit root members, external referent o
       "utf8",
     ),
     /segment_group_id = "sg-id" # Segment Group/u,
+  );
+  assert.deepEqual(
+    JSON.parse(await readFile(
+      path.join(batchWorkspace, "config", "tenant", "zpa_application_server.lookup.json"),
+      "utf8",
+    )),
+    {
+      by_id: { "server-id": "Server" },
+      key_by_id: { "server-id": "server" },
+    },
+  );
+});
+
+test("logical-root adoption batch publishes inferred referent lookups and nested bindings", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-adopt-zpa-reference-batch-");
+  const input = path.join(workspace, "pulls");
+  await Promise.all([
+    writeJson(path.join(input, "zpa_app_connector_group.json"), [{
+      id: "connector-id",
+      latitude: "40.0",
+      location: "dc-east",
+      longitude: "-75.0",
+      name: "Connector",
+    }]),
+    writeJson(path.join(input, "zpa_application_server.json"), [{
+      address: "10.0.0.1",
+      id: "server-id",
+      name: "Server",
+    }]),
+    writeJson(path.join(input, "zpa_server_group.json"), [{
+      appConnectorGroups: [{ id: "connector-id" }],
+      dynamicDiscovery: false,
+      enabled: true,
+      id: "group-id",
+      name: "Server Group",
+      servers: [{ id: "server-id" }],
+    }]),
+  ]);
+  const root = await committedRoot();
+  let batchCalls = 0;
+  const batchStateLoader: AdoptionBatchStateLoader = async (request) => {
+    batchCalls += 1;
+    return new Map(request.resources.map((resource) => [
+        resource.resourceType,
+        new Map([...resource.keyToImportId].map(([key, importId]) => {
+          let values: Readonly<Record<string, unknown>>;
+          if (resource.resourceType === "zpa_app_connector_group") {
+            values = {
+              id: importId,
+              latitude: "40.0",
+              location: "dc-east",
+              longitude: "-75.0",
+              name: "Connector",
+            };
+          } else if (resource.resourceType === "zpa_application_server") {
+            values = { address: "10.0.0.1", id: importId, name: "Server" };
+          } else if (resource.resourceType === "zpa_server_group") {
+            values = {
+              app_connector_groups: [{ id: ["connector-id"] }],
+              dynamic_discovery: false,
+              enabled: true,
+              id: importId,
+              name: "Server Group",
+              servers: [{ id: ["server-id"] }],
+            };
+          } else {
+            throw new TypeError(`unexpected ZPA reference batch resource ${resource.resourceType}`);
+          }
+          return [key, {
+            address: `${resource.resourceType}.fixture`,
+            sensitiveValues: {},
+            values,
+          } satisfies OracleStateObject] as const;
+        })),
+      ]));
+  };
+  const result = await runAdoptBatch({
+    batchStateLoader,
+    deployment: groupedZpaReferenceDeployment(workspace),
+    environment: { INFRAWRIGHT_ORACLE_BATCH_MODE: "logical-root" },
+    inputDirectory: input,
+    policy: await loadAdoptionPolicy({ root }),
+    root,
+    selectors: [
+      "zpa_app_connector_group",
+      "zpa_application_server",
+      "zpa_server_group",
+    ],
+    stateLoader: async () => {
+      throw new Error("logical-root reference batch must not invoke the per-resource Oracle");
+    },
+    tenant: "tenant",
+  });
+  assert.deepEqual(result.failed, []);
+  assert.equal(batchCalls, 1);
+  const configDirectory = path.join(workspace, "config", "tenant");
+  for (const [resourceType, id, name, key] of [
+    ["zpa_app_connector_group", "connector-id", "Connector", "connector"],
+    ["zpa_application_server", "server-id", "Server", "server"],
+    ["zpa_server_group", "group-id", "Server Group", "server_group"],
+  ] as const) {
+    assert.deepEqual(
+      JSON.parse(await readFile(path.join(configDirectory, `${resourceType}.lookup.json`), "utf8")),
+      { by_id: { [id]: name }, key_by_id: { [id]: key } },
+    );
+  }
+  const binding = await readFile(
+    path.join(configDirectory, "zpa_server_group.generated.expressions.json"),
+    "utf8",
+  );
+  assert.match(binding, /"app_connector_groups\[0\]\.id"/u);
+  assert.equal(binding.includes('module.zpa_app_connector_group.items[\\"connector\\"].id'), true);
+  assert.match(binding, /"servers\[0\]\.id"/u);
+  assert.equal(binding.includes('module.zpa_application_server.items[\\"server\\"].id'), true);
+
+  const disabled = await runAdoptBatch({
+    batchStateLoader,
+    deployment: groupedZpaReferenceDeployment(workspace, false),
+    environment: { INFRAWRIGHT_ORACLE_BATCH_MODE: "logical-root" },
+    inputDirectory: input,
+    policy: await loadAdoptionPolicy({ root }),
+    root,
+    selectors: [
+      "zpa_app_connector_group",
+      "zpa_application_server",
+      "zpa_server_group",
+    ],
+    stateLoader: async () => {
+      throw new Error("logical-root reference batch must not invoke the per-resource Oracle");
+    },
+    tenant: "tenant",
+  });
+  assert.deepEqual(disabled.failed, []);
+  assert.equal(batchCalls, 2);
+  for (const resourceType of [
+    "zpa_app_connector_group",
+    "zpa_application_server",
+    "zpa_server_group",
+  ]) {
+    await assert.rejects(
+      readFile(path.join(configDirectory, `${resourceType}.lookup.json`), "utf8"),
+      { code: "ENOENT" },
+    );
+  }
+  await assert.rejects(
+    readFile(path.join(configDirectory, "zpa_server_group.generated.expressions.json"), "utf8"),
+    { code: "ENOENT" },
   );
 });
 

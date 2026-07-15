@@ -229,11 +229,15 @@ fail closed on new, stale, or still-evidence-gated differences. It is a
 diagnostic and does not make either path authoritative.
 
 Full `make transform` and `make adopt` runs process selected resource types in
-pack reference order, so a referent lookup sidecar is refreshed before same-root
-referrers derive generated bindings. A selective transform of only a referrer
-derives bindings from the committed referent sidecar by design; backfill
-pipelines commit sidecars, and operators should re-run the referent first when
-that referent changed.
+pack reference order. Explicit `lookup_sources` remain always-on pack outputs.
+When `bind_references` or `cross_state_references` is enabled, the engine also
+derives the lookup needed by each declared referent from the reference's
+`name_field`, so that sidecar is refreshed before referrers derive generated
+bindings. Those reference-derived sidecars are mode-scoped and are removed on
+a later disabled run; a deployment with neither option retains the legacy
+artifact tree. A selective transform of only a referrer consumes the committed
+referent sidecar by design, so operators should run the referent first whenever
+its identity evidence changed.
 
 Generated tenant config is JSON by default. Set `tfvars_format` to `hcl` in the
 active `deployment.json` to write `<resource_type>.auto.tfvars` instead of
