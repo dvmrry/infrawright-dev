@@ -197,7 +197,8 @@ The prior run at `74d07ef` exposed the assessor's rejection of the expected
 output create. The updated live run verifies that fix, while repository tests
 cover initial, second-run, wrong/missing, and empty referent plans for both
 assessment and exact Apply. The scalar cross-state qualification is closed for
-this commit. Any later head requires a delta review and targeted rerun.
+this commit's first-run sanctioned path. Fresh-workspace convergence remains
+required; any later head also requires a delta review and targeted rerun.
 
 ## Ordered-list ZPA Qualification
 
