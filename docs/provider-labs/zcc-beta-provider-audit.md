@@ -49,9 +49,11 @@ API string into state verbatim
 ([schema](https://github.com/zscaler/terraform-provider-zcc/blob/3e7598fcf4c9aed11a6bebe73c18fd472a7b5bef/internal/framework/resources/device_cleanup.go#L71-L80),
 [Read projection](https://github.com/zscaler/terraform-provider-zcc/blob/3e7598fcf4c9aed11a6bebe73c18fd472a7b5bef/internal/framework/resources/device_cleanup.go#L256-L270)).
 
-Downstream observed the exact JSON string `"1"`. That value cannot be emitted
-as valid provider configuration at this pin. A version-scoped, exact-scalar
-`unsupported_if` is the conservative immediate policy. A future
+An earlier downstream report observed the exact JSON string `"1"`, but no
+reviewable artifact was retained; treat it as an unverified prior report until
+the matrix below reproduces it. That value cannot be emitted as valid provider
+configuration at this pin. A version-scoped, exact-scalar `unsupported_if` is
+the conservative immediate policy after reproduction. A future
 `drop_if_default` is acceptable only if a live plan proves that omission means
 "leave the server-owned setting unchanged" rather than selecting a different
 default. Do not generalize the rule to every invalid string without observed
@@ -96,21 +98,29 @@ The provider's acceptance test deliberately ignores these fresh-import values:
 - `evaluate_trusted_network`;
 - every `forwarding_profile_actions[].is_same_as_on_trusted_network`;
 - every `forwarding_profile_zpa_actions[].is_same_as_on_trusted_network`;
-- `unified_tunnel[].system_proxy_data.proxy_action`.
+- one tested `unified_tunnel[].system_proxy_data.proxy_action` instance.
 
-The API omits them and provider Read can preserve them only from an existing
-plan/state, which a fresh import does not have
+The first three path families are API omissions that provider Read can preserve
+only from an existing plan/state, which a fresh import does not have
 ([acceptance evidence](https://github.com/zscaler/terraform-provider-zcc/blob/3e7598fcf4c9aed11a6bebe73c18fd472a7b5bef/internal/framework/resources/forwarding_profile_test.go#L40-L53),
 [Read workaround](https://github.com/zscaler/terraform-provider-zcc/blob/3e7598fcf4c9aed11a6bebe73c18fd472a7b5bef/internal/framework/resources/forwarding_profile.go#L958-L1016)).
 
-The provider also works around four bad SDK JSON tags for ZPA action latency
-fields by retaining plan values. Those fields are not equivalent to the four
-API omissions above and must not be added to a drop rule
-([source](https://github.com/zscaler/terraform-provider-zcc/blob/3e7598fcf4c9aed11a6bebe73c18fd472a7b5bef/internal/framework/resources/forwarding_profile.go#L1037-L1086)).
+The unified-tunnel case is narrower. Source says the API resets nested
+`systemProxyData` when both sibling action types are zero, while the provider
+overlays prior plan values
+([source](https://github.com/zscaler/terraform-provider-zcc/blob/3e7598fcf4c9aed11a6bebe73c18fd472a7b5bef/internal/framework/resources/forwarding_profile.go#L1093-L1125)).
+Generic `drop_if_default` cannot express that sibling condition, so no wildcard
+pack drop is justified for `proxy_action`.
 
-Candidate policy is exact default omission for only the four path families
-above, after a live import proves the manufactured values are `false`/`0` and
-that omitting them yields an import-only or no-op plan. If the tenant has more
+The pinned SDK already uses the unprefixed JSON tags for the ZPA latency fields.
+The provider source still contains an older bad-tag explanation and retains
+plan values defensively, but that comment is not evidence of a defect in SDK
+`v3.8.37`. Do not drop those fields without an actual GET differential.
+
+Candidate policy is exact default omission for only the three unconditional
+path families above, after a live import proves the manufactured values are
+`false` and that omitting them yields an import-only or no-op plan. The
+conditional unified-tunnel case remains deferred. If the tenant has more
 profiles than the provider's unpaged Read returns, automatic adoption remains
 unsupported regardless of pack policy.
 
@@ -122,12 +132,13 @@ The SDK implements a v2 paginated list at
 `/zcc/papi/public/v2/notification-templates`, and Infrawright already
 implements the matching `zcc_v2` envelope.
 
-This is not enough to enable Fetch. Downstream reported a live 404 for the v2
-source in the current gateway. Retain the resource as source-less until the
-same approved environment returns 200, reconciles every page against `total`,
-and imports all returned IDs cleanly. A successful gate should use numeric ID
-as the stable key/import identity and must compare list items with per-ID GET
-state before authoring drops.
+This is not enough to enable Fetch. An earlier downstream report recorded a
+live 404 for the v2 source, but no reviewable artifact was retained; treat it as
+unverified until reproduced. Retain the resource as source-less until the same
+approved environment returns 200, reconciles every page against `total`, and
+imports all returned IDs cleanly. A successful gate should use numeric ID as
+the stable key/import identity and must compare list items with per-ID GET state
+before authoring drops.
 
 ### `zcc_trusted_network`
 
@@ -136,8 +147,9 @@ the v2 resource. The provider accepts numeric ID or a case-insensitive v2 name
 lookup
 ([source](https://github.com/zscaler/terraform-provider-zcc/blob/3e7598fcf4c9aed11a6bebe73c18fd472a7b5bef/internal/framework/resources/trusted_network.go#L305-L330)).
 
-The current numeric import failed live for an observed v1 item. Switching the
-pack to `{name}` is not yet justified:
+An earlier downstream report said numeric import failed for one observed v1
+item, but no reviewable artifact was retained. Switching the pack to `{name}`
+is not justified by that report or source inspection alone:
 
 - v1 `networkName` and v2 `name` are distinct source fields;
 - v2 also carries `networkName`;
@@ -175,7 +187,8 @@ The provider supports numeric ID or name import
 ([source](https://github.com/zscaler/terraform-provider-zcc/blob/3e7598fcf4c9aed11a6bebe73c18fd472a7b5bef/internal/framework/resources/zia_posture.go#L258-L277)).
 Its own data-source documentation says the list endpoint silently truncates
 pagination, while the importer calls the SDK name lookup over that same
-endpoint. Downstream also reported the v2 source as gateway-parked with a 404.
+endpoint. An earlier downstream report also described the v2 source as
+gateway-parked with a 404, but no reviewable artifact was retained.
 
 Keep module/schema support, but keep automatic Fetch/Adopt disabled. Re-open
 only after an ID-complete paginated source exists and numeric import plus
@@ -186,9 +199,10 @@ as discovery evidence.
 
 The generic Node Transform and Adopt engines already understand
 `drop_if_default` and version-scoped `unsupported_if`. The retained frozen ZCC
-exact-five catalogs do not encode those semantics, but they bind every ZCC
-override and registry byte into their source digests. Therefore adding the
-pack policies above without also changing the frozen contracts would make one
+exact-five catalogs do not encode those semantics, but they bind every override
+in that exact-five cohort and the registry bytes into their source digests.
+Therefore adding the pack policies above without also changing the frozen
+contracts would make one
 runtime apply them while another rejects the pack as stale or ignores the
 meaning.
 
@@ -207,21 +221,45 @@ unchanged by this document.
 Run only on an approved machine with the existing credential environment.
 Never print environment variables, raw objects, names, IDs, URLs, state, plan
 contents, or credentials. Capture raw logs in a mode-0700 disposable directory
-and return only hashes, counts, exit statuses, and normalized classifications.
+and return only public-source hashes, fresh-run HMAC commitments, counts, exit
+statuses, and normalized classifications.
 No deployment Apply is authorized. The Oracle's mechanically verified
 backend-free import-only scratch Apply may run when already approved.
 
 ### Authority record
 
-Return full SHA-256 values for:
+Return full SHA-256 values only for immutable public build/source bindings:
 
 - `dist/infrawright-cli.mjs`;
-- ZCC registry, pack manifest, provider schema, and every tested override;
-- active profile/catalog and deployment file;
+- ZCC registry, pack manifest, provider schema, and every tested public pack
+  override;
 - Terraform binary and loaded provider binary.
 
 Also return Node, Terraform, provider, SDK, and engine Git versions, plus
 Oracle batch/state-source modes. Do not truncate hashes.
+
+Do not return an unkeyed digest of the active profile, catalog selection,
+deployment file, tenant-derived artifacts, or identity sets. Generate one fresh
+random 32-byte HMAC-SHA-256 key inside the evidence job, retain it only in the
+private job directory, use it for all within-run commitments below, and delete
+it with the job. Never print or return the key. Return commitments over the
+exact active profile, catalog-selection, and deployment-file bytes. This is
+equality evidence, not producer authentication.
+
+For every identity-set commitment, sort unique canonical string IDs by UTF-8
+bytes and frame the HMAC input as:
+
+```text
+zcc-identity-set-v1 NUL resource_type NUL field_class NUL
+decimal_utf8_length ":" utf8_value ...
+```
+
+Use `field_class=id` for remote identity sets. For trusted-network cross-version
+evidence, also commit sorted `id NUL exact_name` pairs under
+`field_class=id-name-pair`. Use the same framing and key for both phases being
+compared so the returned commitments can be compared without disclosing the
+values. Return a count beside every commitment. Literal IDs or names are never
+reportable evidence.
 
 ### Test matrix
 
@@ -229,19 +267,36 @@ Oracle batch/state-source modes. Do not truncate hashes.
 | --- | --- | --- |
 | Device cleanup | Raw JSON scalar type and normalized value class for all five projected fields; unsupported count; Oracle-command count | Exact observed `"1"` is rejected before Terraform; no artifact is published for a failed resource/root. |
 | Fail-open | Collected count; out-of-domain count for each boolean encoding; Adopt exit; second-plan class | Exactly one object, domain-valid values, import-only/no-op then no-op. |
-| Forwarding pagination | Total Fetch IDs, provider-Read-visible IDs, unique count, missing count, page parameters observed without tenant URLs | Provider Read sees every imported ID. Any missing ID blocks adoption. |
-| Forwarding omitted fields | Per-path occurrence counts in generated-before, generated-after, provider state, and adopted tfvars; Adopt exit | Only the four documented path families are omitted, and plan is import-only/no-op. |
-| Notification source | HTTP status class, page count, envelope total, collected count, per-ID import success count | 200, complete page reconciliation, and every returned object imports cleanly. A 404 keeps it source-less. |
-| Trusted v1/v2 join | v1/v2 counts, matched IDs, byte-equal names, case-fold collisions, field mismatches, numeric/name import successes, reference-plan class | Complete one-to-one join with no collisions/mismatches and clean reference plan. |
+| Forwarding pagination | Fetch and provider-Read-visible identity counts and HMAC commitments; missing count; page parameters without tenant URLs | Commitments match and provider Read sees every imported ID. Any missing ID blocks adoption. |
+| Forwarding omitted fields | Per-path occurrence counts in generated-before, generated-after, provider state, and adopted tfvars; Adopt exit | Only the three unconditional omission families are dropped and the plan is import-only/no-op. Conditional unified-tunnel cases are reported, not dropped. |
+| Notification source | HTTP status class, page count, envelope total, collected and per-ID import-success counts plus identity commitments | 200, complete page reconciliation, equal commitments, and every returned object imports cleanly. A 404 keeps it source-less. |
+| Trusted v1/v2 join | v1/v2 counts and ID/name-pair commitments; byte-equality mismatch and case-fold-collision counts; numeric/name import-success counts; reference-plan class | Equal pair commitments, no collisions/mismatches, and clean reference plan. |
 | Web privacy omitted fields | Provider-state and adopted-tfvars occurrence counts for the two documented paths; Adopt exit; second-plan class | Provider-manufactured false values are omitted and both plans are import-only/no-op then no-op. |
-| ZIA posture source | HTTP status class, page count, endpoint total, collected IDs, import successes | ID-complete pagination and clean numeric imports. A 404 or truncated total keeps it source-less. |
+| ZIA posture source | HTTP status class, page count, endpoint total, collected and import-success counts plus identity commitments | Equal commitments, ID-complete pagination, and clean numeric imports. A 404 or truncated total keeps it source-less. |
 
 For every failed or unsupported resource, return:
 
 ```text
 fetched=N system_skipped=S unsupported=U eligible=E published=P failed=F
 oracle_commands=N
+fetched_hmac=... system_skipped_hmac=... unsupported_hmac=...
+eligible_hmac=... published_hmac=... failed_hmac=...
 ```
+
+The identity sets must be pairwise disjoint where their lifecycle classes are
+disjoint, and must satisfy both exact set equations:
+
+```text
+fetched = system_skipped UNION unsupported UNION eligible
+eligible = published UNION failed
+```
+
+Counts must satisfy the corresponding conservation equations. Report
+`failed=eligible` when a fail-closed resource/root publishes nothing after
+eligibility; do not use `failed` as a command-error count. Equal counts with
+different commitments are a failure. The private evidence job must validate
+the set equations before emitting the sanitized report; a report consumer must
+reject any failed validation or count equation.
 
 An unsupported object discovered during logical-root preflight requires
 `published=0` and `oracle_commands=0` for that root. In per-resource mode the

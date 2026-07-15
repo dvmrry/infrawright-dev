@@ -81,10 +81,12 @@
 
 - Commands:
   - `python3 -m unittest tests.test_transform_catalog tests.test_adoption_catalog`
+  - `go test ./internal/framework/resources` in the pinned provider worktree.
   - `git diff --check`
   - direct source inspection of the pinned provider and SDK worktrees.
 - Relevant output summary: 35 catalog tests pass; exploratory unencoded pack
-  edits were removed; the branch contains documentation only.
+  edits were removed; provider resource tests pass; the branch contains
+  documentation only.
 - Tests not run and why: no live ZCC call or Terraform import was run because
   credentials and tenant evidence are downstream-only.
 
@@ -106,8 +108,10 @@
   - the exact provider/SDK pin and release status;
   - endpoint and pagination claims;
   - importer behavior and singleton classification;
-  - the exact four forwarding-profile omission path families;
-  - the distinction between API omission and SDK-tag workarounds;
+  - the three unconditional forwarding-profile omission path families and the
+    separately deferred sibling-conditioned unified-tunnel path;
+  - the distinction between provider comments and the pinned SDK's actual JSON
+    tags;
   - the v1/v2 trusted-network identity requirements;
   - the claim that frozen catalogs cannot silently consume new pack semantics;
   - the report's publication/Oracle-command count semantics.
@@ -118,4 +122,24 @@
 - Edge cases that could silently overclaim, remap, drop, or weaken evidence:
   case-insensitive duplicate names, incomplete provider list pages, singleton
   cardinality, JSON string versus number values, optional/computed defaults,
-  repeated nested paths, source 404s, and stale exact-five catalog digests.
+  sibling-conditioned nested paths, unkeyed tenant fingerprints, equal counts
+  over different identity sets, source 404s, and stale exact-five catalog
+  digests.
+
+## Initial Review And Remediation
+
+- Initial verdict: Request changes.
+- Accepted findings:
+  - do not generalize conditional unified-tunnel `proxy_action` normalization
+    into a wildcard pack drop;
+  - remove the stale provider-comment claim that pinned SDK `v3.8.37` has four
+    bad ZPA latency JSON tags;
+  - use unkeyed SHA-256 only for public build/source bindings and fresh-run HMAC
+    commitments for tenant-selected or low-entropy inputs;
+  - bind cross-phase identity sets with keyed commitments and conservation
+    equations instead of relying on counts;
+  - label screenshot-only 404/import/value reports as unverified prior reports;
+  - scope the override-digest claim to the exact-five cohort.
+- Remediation: all accepted findings are addressed in the audit. Production
+  code, packs, catalogs, schemas, fixtures, and generated artifacts remain
+  unchanged.
