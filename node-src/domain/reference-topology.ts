@@ -106,6 +106,11 @@ export function crossStateReferenceTopology(options: {
   const edges: CrossStateReferenceEdge[] = [];
   const dependenciesByRoot = new Map<string, Set<string>>();
   const outputsByRoot = new Map<string, Set<string>>();
+  if (!Object.keys(options.deployment.roots).some((provider) => {
+    return deploymentReferenceBindingMode(options.deployment, provider) === "cross_state";
+  })) {
+    return { edges, dependenciesByRoot, outputsByRoot };
+  }
   const references = mergedTransformReferences(options.root);
   for (const referrer of sortedStrings(Object.keys(references))) {
     const referrerResource = options.root.resources.get(referrer);

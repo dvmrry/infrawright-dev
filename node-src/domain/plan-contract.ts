@@ -194,8 +194,8 @@ function referenceOutputValue(
   }
   const rootModule = plannedValues.root_module;
   const childModules = rootModule.child_modules;
-  if (!Array.isArray(childModules)) {
-    fail("reference output authorization requires planned child modules");
+  if (childModules !== undefined && !Array.isArray(childModules)) {
+    fail("planned child modules must be an array");
   }
   const expected: Record<string, Record<string, string>> = Object.create(null) as Record<
     string,
@@ -203,34 +203,40 @@ function referenceOutputValue(
   >;
   for (const resourceType of resourceTypes) {
     const address = `module.${resourceType}`;
-    const matches = childModules.filter((child) => isRecord(child) && child.address === address);
-    if (matches.length !== 1 || !isRecord(matches[0])) {
-      fail(`reference output authorization requires exactly one ${address} child module`);
-    }
-    const child = matches[0];
-    const resources = child.resources ?? [];
-    if (!Array.isArray(resources)) {
-      fail(`${address}.resources must be an array`);
-    }
     const ids: Record<string, string> = Object.create(null) as Record<string, string>;
-    for (const rawResource of resources) {
-      if (!isRecord(rawResource)) {
-        fail(`${address}.resources entries must be objects`);
+    const matches = (childModules ?? []).filter((child) => {
+      return isRecord(child) && child.address === address;
+    });
+    if (matches.length > 1 || (matches.length === 1 && !isRecord(matches[0]))) {
+      fail(`reference output authorization permits at most one ${address} child module`);
+    }
+    if (matches.length === 1) {
+      const child = matches[0];
+      const resources = child.resources ?? [];
+      if (!Array.isArray(resources)) {
+        fail(`${address}.resources must be an array`);
       }
-      if (rawResource.mode !== "managed" || rawResource.type !== resourceType) continue;
-      if (
-        typeof rawResource.address !== "string"
-        || !rawResource.address.startsWith(`${address}.${resourceType}.this[`)
-        || typeof rawResource.index !== "string"
-        || !isRecord(rawResource.values)
-        || typeof rawResource.values.id !== "string"
-      ) {
-        fail(`${address} contains an invalid reference-output resource instance`);
+      for (const rawResource of resources) {
+        if (!isRecord(rawResource)) {
+          fail(`${address}.resources entries must be objects`);
+        }
+        if (rawResource.mode !== "managed" || rawResource.type !== resourceType) continue;
+        if (
+          typeof rawResource.address !== "string"
+          || !rawResource.address.startsWith(`${address}.${resourceType}.this[`)
+          || typeof rawResource.index !== "string"
+          || !isRecord(rawResource.values)
+          || typeof rawResource.values.id !== "string"
+        ) {
+          fail(`${address} contains an invalid reference-output resource instance`);
+        }
+        if (Object.hasOwn(ids, rawResource.index)) {
+          fail(`${address} contains a duplicate reference-output key`);
+        }
+        ids[rawResource.index] = rawResource.values.id;
       }
-      if (Object.hasOwn(ids, rawResource.index)) {
-        fail(`${address} contains a duplicate reference-output key`);
-      }
-      ids[rawResource.index] = rawResource.values.id;
+    } else {
+      validateEmptyReferenceModule(plan, resourceType);
     }
     expected[resourceType] = ids;
   }
@@ -249,6 +255,34 @@ function referenceOutputValue(
   return expected;
 }
 
+function validateEmptyReferenceModule(
+  plan: Record<string, unknown>,
+  resourceType: string,
+): void {
+  const configuration = plan.configuration;
+  if (!isRecord(configuration) || !isRecord(configuration.root_module)) {
+    fail("empty reference output authorization requires root-module configuration");
+  }
+  const moduleCalls = configuration.root_module.module_calls;
+  if (!isRecord(moduleCalls) || !isRecord(moduleCalls[resourceType])) {
+    fail(`empty reference output authorization requires module.${resourceType}`);
+  }
+  const module = moduleCalls[resourceType].module;
+  if (!isRecord(module) || !Array.isArray(module.resources)) {
+    fail(`empty reference output authorization requires module.${resourceType} resources`);
+  }
+  const matches = module.resources.filter((resource) => {
+    return isRecord(resource)
+      && resource.address === `${resourceType}.this`
+      && resource.mode === "managed"
+      && resource.type === resourceType
+      && resource.name === "this";
+  });
+  if (matches.length !== 1) {
+    fail(`empty reference output authorization requires ${resourceType}.this configuration`);
+  }
+}
+
 function validateReferenceOutputChange(options: {
   readonly change: Record<string, unknown>;
   readonly plan: Record<string, unknown>;
@@ -259,9 +293,9 @@ function validateReferenceOutputChange(options: {
   if (
     !Array.isArray(actions)
     || actions.length !== 1
-    || (actions[0] !== "create" && actions[0] !== "update")
+    || !["create", "update", "no-op"].includes(String(actions[0]))
   ) {
-    fail("engine reference output permits only create or update actions");
+    fail("engine reference output permits only create, update, or no-op actions");
   }
   if (
     !Object.hasOwn(options.change, "after")
@@ -272,8 +306,20 @@ function validateReferenceOutputChange(options: {
   if (actions[0] === "create" && options.change.before !== null) {
     fail("engine reference output create must start from null");
   }
-  if (actions[0] === "update" && !Object.hasOwn(options.change, "before")) {
+  if (
+    actions[0] === "update"
+    && !Object.hasOwn(options.change, "before")
+  ) {
     fail("engine reference output update must bind its prior value");
+  }
+  if (
+    actions[0] === "no-op"
+    && (
+      !Object.hasOwn(options.change, "before")
+      || !terraformJsonEqual(options.change.before, expected)
+    )
+  ) {
+    fail("engine reference output no-op must bind the provider-observed IDs");
   }
   if (Object.hasOwn(options.change, "after_unknown")) {
     validateBooleanMask(options.change.after_unknown, "output_changes after_unknown");
@@ -289,8 +335,11 @@ function validateReferenceOutputChange(options: {
   if (options.change.after_sensitive !== true) {
     fail("engine reference output must remain sensitive");
   }
-  if (actions[0] === "update" && options.change.before_sensitive !== true) {
-    fail("engine reference output update must preserve sensitivity");
+  if (
+    (actions[0] === "update" || actions[0] === "no-op")
+    && options.change.before_sensitive !== true
+  ) {
+    fail("engine reference output existing value must preserve sensitivity");
   }
 }
 
@@ -299,28 +348,29 @@ function validateOutputChanges(
   contract: AssessmentPlanContract,
 ): void {
   const value = plan.output_changes;
+  const resourceTypes = contract.referenceOutputTypes ?? [];
+  if (resourceTypes.length > 0) referenceOutputValue(plan, resourceTypes);
   if (value === undefined) {
+    if (resourceTypes.length > 0) {
+      fail("reference output contract requires output_changes evidence");
+    }
     return;
   }
   if (!isRecord(value)) {
     fail("output_changes must be an object");
   }
+  if (resourceTypes.length > 0 && !Object.hasOwn(value, INFRAWRIGHT_REFERENCE_OUTPUT)) {
+    fail("reference output contract requires the engine output change");
+  }
   for (const [name, change] of Object.entries(value)) {
     if (!isRecord(change) || !Array.isArray(change.actions)) {
       fail("output_changes entries must contain actions");
     }
+    if (name === INFRAWRIGHT_REFERENCE_OUTPUT && resourceTypes.length > 0) {
+      validateReferenceOutputChange({ change, plan, resourceTypes });
+      continue;
+    }
     if (change.actions.length !== 1 || change.actions[0] !== "no-op") {
-      if (
-        name === INFRAWRIGHT_REFERENCE_OUTPUT
-        && (contract.referenceOutputTypes?.length ?? 0) > 0
-      ) {
-        validateReferenceOutputChange({
-          change,
-          plan,
-          resourceTypes: contract.referenceOutputTypes ?? [],
-        });
-        continue;
-      }
       fail("non-no-op output changes are not supported by saved-plan assessment");
     }
     if (

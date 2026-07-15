@@ -102,6 +102,49 @@ function planWithReferenceOutput(changes: readonly unknown[] = []): object {
   };
 }
 
+function planWithEmptyReferenceOutput(changes: readonly unknown[] = []): object {
+  const value = { [RESOURCE]: {} };
+  return {
+    format_version: "1.2",
+    terraform_version: "1.15.4",
+    complete: true,
+    errored: false,
+    planned_values: {
+      outputs: {
+        infrawright_reference_ids: { sensitive: true, value },
+      },
+      root_module: {},
+    },
+    configuration: {
+      root_module: {
+        module_calls: {
+          [RESOURCE]: {
+            module: {
+              resources: [{
+                address: `${RESOURCE}.this`,
+                mode: "managed",
+                type: RESOURCE,
+                name: "this",
+              }],
+            },
+          },
+        },
+      },
+    },
+    resource_changes: changes,
+    output_changes: {
+      infrawright_reference_ids: {
+        actions: ["create"],
+        before: null,
+        after: value,
+        before_sensitive: true,
+        after_sensitive: true,
+        after_unknown: false,
+      },
+    },
+  };
+}
+
 function change(
   actions: readonly string[],
   options: {
@@ -353,6 +396,27 @@ test("exact Apply recheck accepts the bound engine reference output", async (con
   const completed = await run(item, terraform);
   assert.deepEqual(completed.result, { applied: 1 });
   assert.equal(terraform.applied.length, 1);
+
+  const emptyItem = await fixture(context, { crossState: true });
+  const emptyTerraform = new FakeTerraform();
+  emptyTerraform.currentPlan = planWithEmptyReferenceOutput();
+  assert.deepEqual((await run(emptyItem, emptyTerraform)).result, { applied: 1 });
+
+  const wrongItem = await fixture(context, { crossState: true });
+  const wrongTerraform = new FakeTerraform();
+  const wrongPlan = planWithReferenceOutput() as Record<string, unknown>;
+  const wrongValue = { [RESOURCE]: { one: "wrong" } };
+  const wrongChanges = wrongPlan.output_changes as Record<string, Record<string, unknown>>;
+  wrongChanges.infrawright_reference_ids!.actions = ["no-op"];
+  wrongChanges.infrawright_reference_ids!.before = wrongValue;
+  wrongChanges.infrawright_reference_ids!.after = wrongValue;
+  wrongChanges.infrawright_reference_ids!.before_sensitive = true;
+  const wrongPlanned = wrongPlan.planned_values as Record<string, Record<string, unknown>>;
+  const wrongOutputs = wrongPlanned.outputs as Record<string, Record<string, unknown>>;
+  wrongOutputs.infrawright_reference_ids!.value = wrongValue;
+  wrongTerraform.currentPlan = wrongPlan;
+  await assert.rejects(run(wrongItem, wrongTerraform), /reference output/u);
+  assert.equal(wrongTerraform.applied.length, 0);
 });
 
 test("branch, missing-plan, stale-after-init, and Apply-failure gates retain evidence", async (context) => {

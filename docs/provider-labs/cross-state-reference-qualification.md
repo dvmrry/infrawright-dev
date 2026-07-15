@@ -134,7 +134,7 @@ Acceptance before Apply:
 - zero create/update/replace/destroy actions;
 - only expected imports or no-op;
 - no unexpected object or sensitivity changes; the referent's fully known,
-  sensitive `infrawright_reference_ids` create/update is expected only when it
+  sensitive `infrawright_reference_ids` create/update/no-op is expected only when it
   exactly matches provider IDs reconstructed from planned module instances;
 - saved-plan fingerprint present and current.
 
@@ -191,7 +191,8 @@ no managed ID was baked into generated HCL. The run used a mechanically checked
 import-only local-state Apply for the referent and performed no tenant mutation.
 
 That run also exposed the pre-fix assessor rejection of the otherwise expected
-output create. Repository tests now cover the bound output contract for both
+output create. Repository tests now cover the bound output contract on initial,
+second-run, and empty referent plans for both
 assessment and exact Apply. A downstream rerun of `assert-adoptable` on the
 updated commit remains required before treating the live qualification as
 closed.

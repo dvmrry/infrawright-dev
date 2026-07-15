@@ -85,7 +85,7 @@
   Same-root references remain module expressions. The option is mutually
   exclusive with the legacy `bind_references` switch.
 - Expected report/count/coverage changes: assessment now accepts one
-  mechanically reconstructed engine-owned output create/update; it produces no
+  mechanically reconstructed engine-owned output create/update/no-op; it produces no
   finding and changes no report schema.
 - Expected generated-output changes: opted-in referrer roots read the exact
   referent root and opted-in referent roots publish only stable-key-to-ID maps.
@@ -108,8 +108,9 @@
 - Provider-readiness counts must stay explainable: N/A.
 - Adoption safety invariants: referent state is applied first; deployment plan
   and assessment remain the convergence gates; output acceptance is bound to
-  loaded topology and exact provider-observed planned IDs; no remote mutation
-  is added.
+  loaded topology and exact provider-observed planned IDs on initial and
+  second-run plans. Empty referents require the expected generated module
+  resource in Terraform configuration. No remote mutation is added.
 
 ## Tests Run
 

@@ -155,7 +155,7 @@ test("one transaction assesses clean plan metadata without returning plan values
   });
 });
 
-test("assessment accepts only a bound provider-observed reference output create", async () => {
+test("assessment binds create and no-op reference outputs to provider-observed IDs", async () => {
   await withFixture(async (fixture) => {
     const value = { zpa_sample: { one: "provider-id" } };
     const planJson = JSON.stringify({
@@ -203,6 +203,99 @@ test("assessment accepts only a bound provider-observed reference output create"
       assessSavedPlans(options(fixture, fake)),
       (error: unknown) => failure(error, "INVALID_ASSESSMENT_PLAN"),
     );
+
+    const noOp = JSON.parse(planJson) as Record<string, unknown>;
+    const changes = noOp.output_changes as Record<string, Record<string, unknown>>;
+    changes.infrawright_reference_ids!.actions = ["no-op"];
+    changes.infrawright_reference_ids!.before = value;
+    changes.infrawright_reference_ids!.before_sensitive = true;
+    const noOpFake = executable(
+      fixture.root,
+      `printf '%s' ${shellLiteral(JSON.stringify(noOp))}`,
+    );
+    assert.equal((await assessSavedPlans({
+      ...withContract,
+      terraformExecutable: noOpFake,
+    })).status, "clean");
+
+    const wrong = JSON.parse(JSON.stringify(noOp)) as Record<string, unknown>;
+    const wrongValue = { zpa_sample: { one: "wrong" } };
+    const wrongChanges = wrong.output_changes as Record<string, Record<string, unknown>>;
+    wrongChanges.infrawright_reference_ids!.before = wrongValue;
+    wrongChanges.infrawright_reference_ids!.after = wrongValue;
+    const wrongPlanned = wrong.planned_values as Record<string, Record<string, unknown>>;
+    const wrongOutputs = wrongPlanned.outputs as Record<string, Record<string, unknown>>;
+    wrongOutputs.infrawright_reference_ids!.value = wrongValue;
+    const wrongFake = executable(
+      fixture.root,
+      `printf '%s' ${shellLiteral(JSON.stringify(wrong))}`,
+    );
+    await assert.rejects(
+      assessSavedPlans({ ...withContract, terraformExecutable: wrongFake }),
+      (error: unknown) => failure(error, "INVALID_ASSESSMENT_PLAN"),
+    );
+
+    const missing = JSON.parse(planJson) as Record<string, unknown>;
+    delete (missing.output_changes as Record<string, unknown>).infrawright_reference_ids;
+    const missingFake = executable(
+      fixture.root,
+      `printf '%s' ${shellLiteral(JSON.stringify(missing))}`,
+    );
+    await assert.rejects(
+      assessSavedPlans({ ...withContract, terraformExecutable: missingFake }),
+      (error: unknown) => failure(error, "INVALID_ASSESSMENT_PLAN"),
+    );
+  });
+});
+
+test("assessment accepts a topology-bound empty reference module", async () => {
+  await withFixture(async (fixture) => {
+    const value = { zpa_sample: {} };
+    const planJson = JSON.stringify({
+      format_version: "1.2",
+      terraform_version: "1.15.4",
+      complete: true,
+      errored: false,
+      planned_values: {
+        outputs: {
+          infrawright_reference_ids: { sensitive: true, value },
+        },
+        root_module: {},
+      },
+      configuration: {
+        root_module: {
+          module_calls: {
+            zpa_sample: {
+              module: {
+                resources: [{
+                  address: "zpa_sample.this",
+                  mode: "managed",
+                  type: "zpa_sample",
+                  name: "this",
+                }],
+              },
+            },
+          },
+        },
+      },
+      resource_changes: [],
+      output_changes: {
+        infrawright_reference_ids: {
+          actions: ["create"],
+          before: null,
+          after: value,
+          before_sensitive: true,
+          after_sensitive: true,
+          after_unknown: false,
+        },
+      },
+    });
+    const fake = executable(fixture.root, `printf '%s' ${shellLiteral(planJson)}`);
+    const result = await assessSavedPlans({
+      ...options(fixture, fake),
+      roots: [{ ...fixture.assessmentRoot, referenceOutputTypes: ["zpa_sample"] }],
+    });
+    assert.equal(result.status, "clean");
   });
 });
 

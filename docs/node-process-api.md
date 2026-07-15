@@ -1702,7 +1702,7 @@ HTML/Unicode/CSV normalization, grouped variable names, escaped HCL strings,
 key swaps, occupied destinations, ambiguous identities, and mixed safe and
 suppressed moves.
 
-The bundled Zscaler assessment operation uses the internal saved-plan
+The bundled Zscaler process assessment operation uses the internal saved-plan
 assessment kernel, which provides:
 
 - strict v1 drift-policy validation for every policy lane, plus matching and
@@ -1712,11 +1712,15 @@ assessment kernel, which provides:
   unknown-value, and partial-tolerance behavior for valid plan documents; and
 - a fail-closed entry point that accepts only supported Terraform JSON format
   `1.x`, complete and non-errored plans, structurally valid change records,
-  known action sequences, valid import markers, no non-no-op output changes
-  except the bound cross-state `infrawright_reference_ids` create/update whose
-  sensitive value exactly matches provider-observed IDs reconstructed from the
-  planned child modules, no action invocations, and no failed checks before
-  classification.
+  known action sequences, valid import markers, no non-no-op output changes,
+  no action invocations, and no failed checks before classification.
+
+The loaded-pack operational CLI assessment and exact-Apply paths additionally
+bind cross-state topology to `infrawright_reference_ids`. They require that
+output on every referent plan, accept only create/update/no-op, and verify its
+fully known sensitive stable-key map exactly against provider-observed IDs from
+the planned module instances. An empty referent is accepted only when the plan
+configuration still declares the expected generated module resource.
 
 The valid-plan comparison intentionally hardens four Python edge cases:
 drift-policy versions must be the JSON number `1` rather than `true`, policy

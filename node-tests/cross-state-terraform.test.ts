@@ -50,7 +50,7 @@ test("real Terraform emits the reference-output shape accepted by assessment", a
     'output "items" { value = terraform_data.this }',
     "",
   ].join("\n"), "utf8");
-  await writeFile(path.join(workspace, "main.tf"), [
+  const rootConfiguration = (outputExpression: string | null): string => [
     'terraform { required_version = ">= 1.8" }',
     'module "terraform_data" {',
     '  source = "./terraform_data"',
@@ -59,6 +59,82 @@ test("real Terraform emits the reference-output shape accepted by assessment", a
     "import {",
     '  to = module.terraform_data.terraform_data.this["one"]',
     '  id = "provider-id"',
+    "}",
+    ...(outputExpression === null
+      ? []
+      : [
+          'output "infrawright_reference_ids" {',
+          "  sensitive = true",
+          "  value = {",
+          `    terraform_data = ${outputExpression}`,
+          "  }",
+          "}",
+        ]),
+    "",
+  ].join("\n");
+  await writeFile(path.join(workspace, "main.tf"), rootConfiguration(
+    "{ for key, item in module.terraform_data.items : key => item.id }",
+  ), "utf8");
+  terraform(workspace, ["init", "-backend=false", "-input=false"]);
+  terraform(workspace, ["plan", "-out=tfplan", "-input=false"]);
+  const plan = JSON.parse(terraform(workspace, ["show", "-json", "tfplan"])) as unknown;
+  assert.doesNotThrow(() => validateAssessmentPlan(plan, {
+    referenceOutputTypes: ["terraform_data"],
+  }));
+  assert.throws(() => validateAssessmentPlan(plan));
+
+  terraform(workspace, ["apply", "-input=false", "tfplan"]);
+  terraform(workspace, ["plan", "-out=second.tfplan", "-input=false"]);
+  const second = JSON.parse(
+    terraform(workspace, ["show", "-json", "second.tfplan"]),
+  ) as unknown;
+  assert.doesNotThrow(() => validateAssessmentPlan(second, {
+    referenceOutputTypes: ["terraform_data"],
+  }));
+
+  await writeFile(
+    path.join(workspace, "main.tf"),
+    rootConfiguration('{ for key, item in module.terraform_data.items : key => "WRONG" }'),
+    "utf8",
+  );
+  terraform(workspace, ["apply", "-auto-approve", "-input=false"]);
+  terraform(workspace, ["plan", "-out=wrong.tfplan", "-input=false"]);
+  const wrong = JSON.parse(
+    terraform(workspace, ["show", "-json", "wrong.tfplan"]),
+  ) as unknown;
+  assert.throws(() => validateAssessmentPlan(wrong, {
+    referenceOutputTypes: ["terraform_data"],
+  }));
+
+  await writeFile(path.join(workspace, "main.tf"), rootConfiguration(null), "utf8");
+  terraform(workspace, ["plan", "-out=missing.tfplan", "-input=false"]);
+  const missing = JSON.parse(
+    terraform(workspace, ["show", "-json", "missing.tfplan"]),
+  ) as unknown;
+  assert.throws(() => validateAssessmentPlan(missing, {
+    referenceOutputTypes: ["terraform_data"],
+  }));
+});
+
+test("real Terraform empty referent output retains configuration authority", async (context) => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "infrawright-empty-reference-plan-"));
+  context.after(() => rm(workspace, { force: true, recursive: true }));
+  const moduleDirectory = path.join(workspace, "terraform_data");
+  await mkdir(moduleDirectory, { recursive: true });
+  await writeFile(path.join(moduleDirectory, "main.tf"), [
+    "variable \"items\" { type = map(any) }",
+    'resource "terraform_data" "this" {',
+    "  for_each = var.items",
+    "  input    = each.value",
+    "}",
+    'output "items" { value = terraform_data.this }',
+    "",
+  ].join("\n"), "utf8");
+  await writeFile(path.join(workspace, "main.tf"), [
+    'terraform { required_version = ">= 1.8" }',
+    'module "terraform_data" {',
+    '  source = "./terraform_data"',
+    "  items  = {}",
     "}",
     'output "infrawright_reference_ids" {',
     "  sensitive = true",
@@ -74,7 +150,9 @@ test("real Terraform emits the reference-output shape accepted by assessment", a
   assert.doesNotThrow(() => validateAssessmentPlan(plan, {
     referenceOutputTypes: ["terraform_data"],
   }));
-  assert.throws(() => validateAssessmentPlan(plan));
+  assert.throws(() => validateAssessmentPlan(plan, {
+    referenceOutputTypes: ["wrong_resource"],
+  }));
 });
 
 test("local referent state is consumable before the referrer plan and converges", async (context) => {

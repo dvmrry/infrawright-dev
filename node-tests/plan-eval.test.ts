@@ -29,7 +29,9 @@ function update(before: unknown, after: unknown): unknown {
   };
 }
 
-function referenceOutputPlan(action: "create" | "update" = "create"): Record<string, unknown> {
+function referenceOutputPlan(
+  action: "create" | "update" | "no-op" = "create",
+): Record<string, unknown> {
   const value = { zpa_segment_group: { segment_one: "72059380790653545" } };
   return {
     format_version: "1.2",
@@ -56,7 +58,11 @@ function referenceOutputPlan(action: "create" | "update" = "create"): Record<str
     output_changes: {
       infrawright_reference_ids: {
         actions: [action],
-        before: action === "create" ? null : { zpa_segment_group: {} },
+        before: action === "create"
+          ? null
+          : action === "no-op"
+          ? value
+          : { zpa_segment_group: {} },
         after: value,
         before_sensitive: action === "create" ? false : true,
         after_sensitive: true,
@@ -115,10 +121,24 @@ test("plan classification preserves clean, blocked, import, and opaque semantics
 
 test("only the bound provider-observed reference output may change", () => {
   const contract = { referenceOutputTypes: ["zpa_segment_group"] };
-  for (const action of ["create", "update"] as const) {
+  for (const action of ["create", "update", "no-op"] as const) {
     assert.equal(classifyPlan(referenceOutputPlan(action), null, contract).status, CLEAN);
   }
   assert.throws(() => classifyPlan(referenceOutputPlan(), null), AssessmentPlanError);
+
+  const missing = referenceOutputPlan();
+  delete (missing.output_changes as Record<string, unknown>).infrawright_reference_ids;
+  assert.throws(() => classifyPlan(missing, null, contract), AssessmentPlanError);
+
+  const wrongNoOp = referenceOutputPlan("no-op");
+  const wrongChanges = wrongNoOp.output_changes as Record<string, Record<string, unknown>>;
+  const wrong = { zpa_segment_group: { segment_one: "wrong" } };
+  wrongChanges.infrawright_reference_ids!.before = wrong;
+  wrongChanges.infrawright_reference_ids!.after = wrong;
+  const wrongValues = wrongNoOp.planned_values as Record<string, Record<string, unknown>>;
+  const wrongOutputs = wrongValues.outputs as Record<string, Record<string, unknown>>;
+  wrongOutputs.infrawright_reference_ids!.value = wrong;
+  assert.throws(() => classifyPlan(wrongNoOp, null, contract), AssessmentPlanError);
 
   const mutations: Array<(plan: Record<string, unknown>) => void> = [
     (plan) => {
@@ -162,6 +182,57 @@ test("only the bound provider-observed reference output may change", () => {
     mutate(candidate);
     assert.throws(() => classifyPlan(candidate, null, contract), AssessmentPlanError);
   }
+});
+
+test("a bound empty reference output requires the configured generated resource", () => {
+  const value = { zpa_segment_group: {} };
+  const candidate = {
+    format_version: "1.2",
+    complete: true,
+    errored: false,
+    planned_values: {
+      outputs: {
+        infrawright_reference_ids: { sensitive: true, value },
+      },
+      root_module: {},
+    },
+    configuration: {
+      root_module: {
+        module_calls: {
+          zpa_segment_group: {
+            module: {
+              resources: [{
+                address: "zpa_segment_group.this",
+                mode: "managed",
+                type: "zpa_segment_group",
+                name: "this",
+              }],
+            },
+          },
+        },
+      },
+    },
+    resource_changes: [],
+    output_changes: {
+      infrawright_reference_ids: {
+        actions: ["create"],
+        before: null,
+        after: value,
+        before_sensitive: true,
+        after_sensitive: true,
+        after_unknown: false,
+      },
+    },
+  };
+  const contract = { referenceOutputTypes: ["zpa_segment_group"] };
+  assert.equal(classifyPlan(candidate, null, contract).status, CLEAN);
+  const malformed = structuredClone(candidate);
+  const calls = malformed.configuration.root_module.module_calls as Record<
+    string,
+    unknown
+  >;
+  delete calls.zpa_segment_group;
+  assert.throws(() => classifyPlan(malformed, null, contract), AssessmentPlanError);
 });
 
 test("diff paths matches Python missing-null and nested list behavior", () => {
