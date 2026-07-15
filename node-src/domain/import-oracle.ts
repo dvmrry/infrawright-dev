@@ -90,6 +90,7 @@ export interface OracleCommandRunner {
 const BACKEND_BLOCK = /\bbackend\s+"[^"]+"\s*\{/u;
 const CLOUD_BLOCK = /\bcloud\s*\{/u;
 const DEFAULT_TIMEOUT_MS = 300_000;
+const ORACLE_PLAN_DEBUG_HINT = "rerun with INFRAWRIGHT_KEEP_ORACLE=1 to retain the sensitive scratch workdir for local inspection";
 
 export type OracleStateSource = "accepted-plan" | "applied-state";
 
@@ -270,6 +271,10 @@ function providerName(source: string): string {
     : source;
 }
 
+function oraclePlanRefusal(message: string): OracleError {
+  return new OracleError(`${message}; ${ORACLE_PLAN_DEBUG_HINT}`);
+}
+
 function assertImportOnlyBatchPlan(options: {
   readonly expected: ReadonlyMap<string, ExpectedOracleInstance>;
   readonly plan: unknown;
@@ -293,11 +298,11 @@ function assertImportOnlyBatchPlan(options: {
     || !optionalEmptyArray(plan.resource_drift)
     || !optionalEmptyRecord(plan.output_changes)
   ) {
-    throw new OracleError(`${context}oracle import plan was incomplete, errored, non-applyable, deferred, or contained non-import effects; refusing to apply the scratch plan`);
+    throw oraclePlanRefusal(`${context}oracle import plan was incomplete, errored, non-applyable, deferred, or contained non-import effects; refusing to apply the scratch plan`);
   }
   const changes = Array.isArray(plan.resource_changes) ? plan.resource_changes : null;
   if (changes === null || changes.length !== options.expected.size) {
-    throw new OracleError(
+    throw oraclePlanRefusal(
       `${context}oracle import plan reported ${changes?.length ?? "malformed"} resource change(s), expected ${options.expected.size} import(s); refusing to apply the scratch plan`,
     );
   }
@@ -320,8 +325,9 @@ function assertImportOnlyBatchPlan(options: {
       || importing === null
       || importing.id !== expected.importId
     ) {
-      throw new OracleError(
-        `${context}oracle import plan was not the exact requested import for ${address}; refusing to apply the scratch plan`,
+      const safeAddress = expected === undefined ? "<unexpected address>" : address;
+      throw oraclePlanRefusal(
+        `${context}oracle import plan was not the exact requested import for ${safeAddress}; refusing to apply the scratch plan`,
       );
     }
     addresses.add(address);
@@ -329,7 +335,7 @@ function assertImportOnlyBatchPlan(options: {
   const missing = [...options.expected.keys()].filter((address) => !addresses.has(address)).sort();
   const unexpected = [...addresses].filter((address) => !options.expected.has(address)).sort();
   if (missing.length > 0 || unexpected.length > 0) {
-    throw new OracleError(
+    throw oraclePlanRefusal(
       `${context}oracle import plan addresses did not match expected scratch addresses (missing=${missing.join(", ") || "<none>"} unexpected=${unexpected.join(", ") || "<none>"}); refusing to apply the scratch plan`,
     );
   }

@@ -482,6 +482,71 @@ test("provider batch validates each address type, provider, and import ID before
   }
 });
 
+test("exact-import rejection points to retained diagnostics without leaking plan evidence", async () => {
+  const root = await committedRoot();
+  const fake = new FakeTerraform();
+  const candidate = plan(["update"]) as Record<string, unknown>;
+  const change = ((candidate.resource_changes as Record<string, unknown>[])[0]!.change) as Record<
+    string,
+    unknown
+  >;
+  Object.assign(change, {
+    after: { message: "new secret", nested: { "tenant-secret-key": "new value" } },
+    before: { message: "old secret", nested: { "tenant-secret-key": "old value" } },
+  });
+  fake.plan = candidate;
+
+  let rejection: unknown;
+  try {
+    await importProviderState({
+      keyToImportId: new Map([[KEY, IMPORT_ID]]),
+      resourceType: RESOURCE,
+      root,
+      runner: fake,
+    });
+  } catch (error: unknown) {
+    rejection = error;
+  }
+
+  assert.ok(rejection instanceof Error);
+  assert.match(rejection.message, /INFRAWRIGHT_KEEP_ORACLE=1/u);
+  for (const secret of [
+    IMPORT_ID,
+    "new secret",
+    "old secret",
+    "tenant-secret-key",
+    "new value",
+    "old value",
+  ]) {
+    assert.equal(rejection.message.includes(secret), false);
+  }
+  assert.equal(fake.requests.some((request) => request.debugName === "apply-imports"), false);
+});
+
+test("exact-import rejection redacts an unexpected plan address", () => {
+  const unexpectedAddress = "tenant-controlled-address-secret";
+  const candidate = plan() as Record<string, unknown>;
+  (candidate.resource_changes as Record<string, unknown>[])[0]!.address = unexpectedAddress;
+
+  let rejection: unknown;
+  try {
+    assertImportOnlyPlan({
+      expectedImports: new Map([[ADDRESS, IMPORT_ID]]),
+      plan: candidate,
+      providerName: "registry.terraform.io/zscaler/zia",
+      resourceType: RESOURCE,
+    });
+  } catch (error: unknown) {
+    rejection = error;
+  }
+
+  assert.ok(rejection instanceof Error);
+  assert.match(rejection.message, /<unexpected address>/u);
+  assert.match(rejection.message, /INFRAWRIGHT_KEEP_ORACLE=1/u);
+  assert.equal(rejection.message.includes(unexpectedAddress), false);
+  assert.equal(rejection.message.includes(IMPORT_ID), false);
+});
+
 test("provider batch applies per-type generated-config policy with at most one corrected plan", async () => {
   const generated = `resource "${RESOURCE}" "${ADDRESS.split(".")[1]}" {\n  configured_name = "Example"\n  description = "DROP"\n}\n\n`
     + `resource "${BATCH_RESOURCE}" "${BATCH_ADDRESS.split(".")[1]}" {\n  name = "Second"\n}\n`;
