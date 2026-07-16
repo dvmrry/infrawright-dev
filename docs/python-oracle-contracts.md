@@ -154,3 +154,34 @@ test retains its exact `INVALID_FILENAME_ENCODING` failure for each case; the
 Python digests prove the files affected the retired authority rather than
 disappearing from its walk. No provider, Terraform, backend, pack, credential,
 or network behavior is involved.
+
+## Plan evaluation contract
+
+The fifth archive slice was produced at baseline
+`397a30c1dc6996283729648d16c1e258ec3627ec`. The original live-comparison test
+was Git blob `396c74bb12ab34b66a7bac2ba4944a93f1bf4abe`; the Python authorities were
+`engine/plan_eval.py` blob `f15e4f44193d517384065a1d320533ea74a47a15`,
+`engine/drift_policy.py` blob `852517958dc18f37019f369a08ab9bfbd91441c9`,
+and `engine/paths.py` blob `63ffb562172405c27a880345cd85b93af7b1ba94`.
+
+Re-run the original live differential from that exact state with:
+
+```sh
+git worktree add /tmp/iw-python-plan-eval \
+  397a30c1dc6996283729648d16c1e258ec3627ec
+cd /tmp/iw-python-plan-eval
+PYTHON=python3 npm run build:test
+PYTHON=python3 node --test \
+  .node-test/node-tests/plan-eval.test.js
+```
+
+The complete CPython 3.13.13 / UCD 15.1.0 authority is recorded without
+normalization in `node-tests/fixtures/python-plan-eval-v1.json`. The 14,579-byte
+fixture has SHA-256
+`83924f81dc073e2dc9fef5f20ec96331fa674db09de9ab3bfac9b8770df0eaf8`.
+Its 16 cases preserve the exact input JSON lexemes and complete classifier
+results for prototype-like own keys, six valid plan shapes, wildcard policy
+matching with stale-entry accounting, and eight lossless numeric pairs. The
+tests parse the recorded inputs and compare complete results; the fixture
+digest and recorded source blobs prevent the frozen authority from becoming a
+Node-to-Node self-comparison.

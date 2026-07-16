@@ -1,6 +1,7 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 
 import {
@@ -20,6 +21,66 @@ import {
   validateAssessmentPlan,
 } from "../node-src/domain/plan-contract.js";
 import { parseDataJsonLosslessly } from "../node-src/json/control.js";
+
+interface PythonPlanEvalCase {
+  readonly group: string;
+  readonly name: string;
+  readonly input_json: string;
+  readonly result: unknown;
+  readonly stale: unknown;
+}
+
+interface PythonPlanEvalAuthority {
+  readonly kind: string;
+  readonly version: number;
+  readonly baseline: string;
+  readonly authority: {
+    readonly implementation: string;
+    readonly python: string;
+    readonly unicode: string;
+  };
+  readonly source_blobs: Record<string, string>;
+  readonly normalization: string;
+  readonly cases: readonly PythonPlanEvalCase[];
+}
+
+const PLAN_EVAL_AUTHORITY_SHA256 =
+  "83924f81dc073e2dc9fef5f20ec96331fa674db09de9ab3bfac9b8770df0eaf8";
+const planEvalAuthorityBytes = readFileSync(
+  path.join(process.cwd(), "node-tests", "fixtures", "python-plan-eval-v1.json"),
+);
+assert.equal(
+  createHash("sha256").update(planEvalAuthorityBytes).digest("hex"),
+  PLAN_EVAL_AUTHORITY_SHA256,
+  "frozen CPython plan-eval authority changed",
+);
+const planEvalAuthority = JSON.parse(
+  planEvalAuthorityBytes.toString("utf8"),
+) as PythonPlanEvalAuthority;
+assert.equal(planEvalAuthority.kind, "infrawright.python-plan-eval-authority");
+assert.equal(planEvalAuthority.version, 1);
+assert.equal(planEvalAuthority.baseline, "397a30c1dc6996283729648d16c1e258ec3627ec");
+assert.equal(planEvalAuthority.normalization, "none");
+assert.deepEqual(planEvalAuthority.authority, {
+  implementation: "cpython",
+  python: "3.13.13",
+  unicode: "15.1.0",
+});
+assert.deepEqual(planEvalAuthority.source_blobs, {
+  test: "396c74bb12ab34b66a7bac2ba4944a93f1bf4abe",
+  python_plan_eval: "f15e4f44193d517384065a1d320533ea74a47a15",
+  python_drift_policy: "852517958dc18f37019f369a08ab9bfbd91441c9",
+  python_paths: "63ffb562172405c27a880345cd85b93af7b1ba94",
+  node_plan_eval: "af72faf37582142d51f1bf3e854ae94ccb9fdc0a",
+  node_drift_policy: "ac6f61ece107213e23a5ef9533fa2477448915d1",
+});
+assert.equal(planEvalAuthority.cases.length, 16);
+
+function authorityCase(name: string): PythonPlanEvalCase {
+  const matches = planEvalAuthority.cases.filter((entry) => entry.name === name);
+  assert.equal(matches.length, 1, `expected one frozen plan-eval case named ${name}`);
+  return matches[0]!;
+}
 
 function update(before: unknown, after: unknown): unknown {
   return {
@@ -287,18 +348,17 @@ test("prototype-like own keys cannot disappear behind tolerated drift", () => {
   const actual = classifyPlan(plan, new DriftPolicy(policyData));
   assert.equal(actual.status, BLOCKED);
   assert.deepEqual(actual.findings[0]?.paths, [["__proto__"]]);
-  const python = spawnSync(PYTHON_ORACLE, ["-c", [
-    "import json,sys",
-    "from engine.drift_policy import DriftPolicy",
-    "from engine.plan_eval import classify_plan",
-    "value=json.load(sys.stdin)",
-    "print(json.dumps(classify_plan(value['plan'], DriftPolicy(value['policy'])), sort_keys=True))",
-  ].join("; ")], {
-    input: JSON.stringify({ plan, policy: policyData }),
-    encoding: "utf8",
-  });
-  assert.equal(python.status, 0, python.stderr);
-  assert.deepEqual(actual, JSON.parse(python.stdout));
+  const frozen = authorityCase("prototype-like-own-key-remains-blocked");
+  assert.equal(frozen.group, "prototype-like own keys cannot disappear behind tolerated drift");
+  const frozenInput = JSON.parse(frozen.input_json) as {
+    readonly plan: unknown;
+    readonly policy: unknown;
+  };
+  assert.deepEqual(
+    classifyPlan(frozenInput.plan, new DriftPolicy(frozenInput.policy)),
+    frozen.result,
+  );
+  assert.deepEqual(actual, frozen.result);
 });
 
 test("lossless number equality follows Python integer/float behavior", () => {
@@ -313,53 +373,13 @@ test("lossless number equality follows Python integer/float behavior", () => {
 });
 
 test("valid-plan corpus matches Python classifier exactly", () => {
-  const plans = [
-    {
-      format_version: "1.2",
-      complete: true,
-      errored: false,
-      resource_changes: [update({ status: "UP" }, { status: "DOWN" })],
-    },
-    { format_version: "1.2", complete: true, errored: false, resource_changes: [{
-      address: "sample_resource.this",
-      type: "sample_resource",
-      change: { actions: ["delete", "create"], before: {}, after: {} },
-    }] },
-    { format_version: "1.2", complete: true, errored: false, resource_changes: [{
-      address: "sample_resource.this",
-      type: "sample_resource",
-      change: {
-        actions: ["update"],
-        before: { name: "same" },
-        after: { name: "same" },
-        after_unknown: { token: true },
-      },
-    }] },
-    {
-      format_version: "1.2",
-      complete: true,
-      errored: false,
-      resource_changes: [],
-      resource_drift: [update({ rules: [{ id: 1 }] }, { rules: [{ id: 2 }] })],
-    },
-    { format_version: "1.2", complete: true, errored: false, resource_changes: [{
-      address: "sample_resource.this",
-      type: "sample_resource",
-      change: { actions: ["forget"], before: {}, after: null },
-    }] },
-    { format_version: "1.2", complete: true, errored: false, resource_changes: [{
-      address: "sample_resource.this",
-      type: "sample_resource",
-      change: { actions: ["create", "forget"], before: {}, after: {} },
-    }] },
-  ];
-  for (const plan of plans) {
-    const python = spawnSync(PYTHON_ORACLE, [
-      "-c",
-      "import json,sys; from engine.plan_eval import classify_plan; print(json.dumps(classify_plan(json.load(sys.stdin)), sort_keys=True))",
-    ], { input: JSON.stringify(plan), encoding: "utf8" });
-    assert.equal(python.status, 0, python.stderr);
-    assert.deepEqual(classifyPlan(plan), JSON.parse(python.stdout));
+  const cases = planEvalAuthority.cases.filter(
+    (entry) => entry.group === "valid-plan corpus matches Python classifier exactly",
+  );
+  assert.equal(cases.length, 6);
+  for (const frozen of cases) {
+    const plan = parseDataJsonLosslessly(frozen.input_json);
+    assert.deepEqual(classifyPlan(plan), frozen.result, frozen.name);
   }
 });
 
@@ -528,21 +548,25 @@ test("policy classification and stale tracking match Python", () => {
     resourceTypes: new Set(["sample_resource"]),
     modes: ["plan_tolerate"],
   });
-  const python = spawnSync(PYTHON_ORACLE, [
-    "-c",
-    [
-      "import json,sys",
-      "from engine.drift_policy import DriftPolicy",
-      "from engine.plan_eval import classify_plan",
-      "data=json.load(sys.stdin)",
-      "p=DriftPolicy(data['policy'])",
-      "r=classify_plan(data['plan'], policy=p)",
-      "s=[{'resource_type':a,'mode':b,'path':c} for a,b,c in p.stale_entries(resource_types={'sample_resource'}, modes=('plan_tolerate',))]",
-      "print(json.dumps({'result':r,'stale':s}, sort_keys=True))",
-    ].join(";"),
-  ], { input: JSON.stringify({ plan, policy: policyData }), encoding: "utf8" });
-  assert.equal(python.status, 0, python.stderr);
-  assert.deepEqual({ result: nodeResult, stale: nodeStale }, JSON.parse(python.stdout));
+  const frozen = authorityCase("wildcard-tolerance-with-unused-stale-entry");
+  const frozenInput = JSON.parse(frozen.input_json) as {
+    readonly plan: unknown;
+    readonly policy: unknown;
+  };
+  const frozenPolicy = new DriftPolicy(frozenInput.policy);
+  const frozenResult = classifyPlan(frozenInput.plan, frozenPolicy);
+  const frozenStale = frozenPolicy.staleEntries({
+    resourceTypes: new Set(["sample_resource"]),
+    modes: ["plan_tolerate"],
+  });
+  assert.deepEqual({ result: frozenResult, stale: frozenStale }, {
+    result: frozen.result,
+    stale: frozen.stale,
+  });
+  assert.deepEqual({ result: nodeResult, stale: nodeStale }, {
+    result: frozen.result,
+    stale: frozen.stale,
+  });
 });
 
 test("partial tolerance reports only unmatched paths in Python order", () => {
@@ -837,25 +861,13 @@ test("import markers cannot hide no-op sensitivity changes", () => {
 });
 
 test("lossless numeric classification corpus matches Python", () => {
-  const pairs = [
-    ["9007199254740992", "9007199254740993"],
-    ["9007199254740993", "9007199254740993.0"],
-    ["1", "1.0"],
-    ["true", "1"],
-    ["false", "0"],
-    ["-0.0", "0"],
-    ["1e400", "1e400"],
-    ["1e400", "-1e400"],
-  ];
-  for (const [before, after] of pairs) {
-    const source = `{"format_version":"1.2","complete":true,"errored":false,"resource_changes":[{"address":"sample_resource.this","type":"sample_resource","change":{"actions":["update"],"before":{"value":${before}},"after":{"value":${after}}}}]}`;
-    const nodeResult = classifyPlan(parseDataJsonLosslessly(source));
-    const python = spawnSync(PYTHON_ORACLE, [
-      "-c",
-      "import json,sys; from engine.plan_eval import classify_plan; print(json.dumps(classify_plan(json.load(sys.stdin)), sort_keys=True))",
-    ], { input: source, encoding: "utf8" });
-    assert.equal(python.status, 0, python.stderr);
-    assert.deepEqual(nodeResult, JSON.parse(python.stdout), `${before} -> ${after}`);
+  const cases = planEvalAuthority.cases.filter(
+    (entry) => entry.group === "lossless numeric classification corpus matches Python",
+  );
+  assert.equal(cases.length, 8);
+  for (const frozen of cases) {
+    const nodeResult = classifyPlan(parseDataJsonLosslessly(frozen.input_json));
+    assert.deepEqual(nodeResult, frozen.result, frozen.name);
   }
 });
 
