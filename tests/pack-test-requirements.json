@@ -402,6 +402,16 @@
       "reason": "This regression intentionally asserts the upstream full-distribution profile."
     },
     {
+      "prefix": "tests.test_reconcile_openapi_authority_generator.",
+      "packs": [
+        "zia"
+      ],
+      "shared": [
+        "zscaler"
+      ],
+      "reason": "The authority mutation regression copies the committed ZIA registry as its material source input."
+    },
+    {
       "prefix": "tests.test_registry.PackRegistryValidationTest.test_resolved_zia_name_holds_are_removed_precisely.",
       "packs": [
         "zia"

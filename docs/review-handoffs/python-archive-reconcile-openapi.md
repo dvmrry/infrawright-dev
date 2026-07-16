@@ -87,3 +87,9 @@ and the shared Zscaler metadata as requirements. The suite selector excludes
 it with `missing-pack-requirements` in reduced checkouts and still selects it
 in the complete checkout. Neither production code nor frozen authority bytes
 changed.
+
+The rerun then exposed the same physical-input rule in the retained Python
+generator mutation test: it deliberately copies `packs/zia/registry.json`, so
+an empty checkout cannot execute it. That single test now declares ZIA and the
+shared Zscaler metadata in the legacy test selector. The empty checkout omits
+it while the ZIA and complete profiles still execute the mutation guard.
