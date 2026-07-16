@@ -15,7 +15,9 @@
 
 - Base: `4f2ece4979d1de837c5d4637ab1bd91b6c458a61`
 - Implementation head: `9bd4c06f3c01675825ae82cc4d9d7dae4243d62c`
-- Diff command: `git diff 4f2ece4979d1de837c5d4637ab1bd91b6c458a61..9bd4c06f3c01675825ae82cc4d9d7dae4243d62c`
+- Remediated implementation head:
+  `0f612c660ebba2899c1801bb97a87648116f56fa`
+- Diff command: `git diff 4f2ece4979d1de837c5d4637ab1bd91b6c458a61..0f612c660ebba2899c1801bb97a87648116f56fa`
 
 ## Files Changed
 
@@ -84,8 +86,32 @@
 - `make check-all`
 - Relevant output summary: all commands passed; the new renderer exactly
   reproduced the 151-resource all-Zscaler catalog and its existing digest.
+- Review-remediation additions: the six-case focused suite passed against both
+  the full pack root and a physically reduced Zscaler-only pack root. It now
+  covers exact Python-compatible non-ASCII escaping and a selected pack with
+  no registry file.
 - Tests not run and why: no live provider/backend tests; this change reads only
   repository metadata and does not contact external systems.
+
+## Adversarial Review Disposition
+
+The initial fresh-context review requested changes at the implementation head.
+Both blocking findings were accepted and fixed in
+`0f612c660ebba2899c1801bb97a87648116f56fa`:
+
+1. The root-catalog tests previously hardcoded the full `packs/` root and
+   profile. They now resolve the effective pack root, profile, and catalog from
+   the same environment used by the pruned distribution jobs, and CLI tests
+   pass that root explicitly. The focused suite passes with only ZCC, ZIA,
+   ZPA, ZTC, and the shared Zscaler component physically present.
+2. The initial renderer used `JSON.stringify`, which emits literal non-ASCII
+   characters. It now uses the existing Python-compatible JSON renderer, and
+   an exact-byte fixture proves ASCII escaping for non-ASCII provider,
+   resource, product, and slug strings.
+
+The review's nonblocking absent-registry coverage note was also accepted and
+added. Empty `--providers` remains a CLI usage error; that malformed-input
+behavior is intentionally not part of catalog compatibility.
 
 ## Known Deferrals
 
