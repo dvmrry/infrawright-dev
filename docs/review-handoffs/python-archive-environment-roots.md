@@ -50,8 +50,8 @@
   exact for path, byte length, and SHA-256.
 - Representative root bytes are compared without normalization.
 - Group-local binding and duplicate-name behavior remain tested in Node.
-- Reduced profiles exclude the authority test unless ZIA, ZPA, and shared
-  Zscaler metadata are present.
+- Reduced profiles exclude the authority test unless the complete eight-pack
+  catalog and shared Zscaler metadata are present.
 
 ## Tests run
 
