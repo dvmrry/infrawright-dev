@@ -84,21 +84,43 @@ async function captureFailure(
   assert.fail(`expected ${code}`);
 }
 
-async function waitForProcessExit(pid: number): Promise<void> {
+interface LinuxProcessIdentity {
+  readonly startTime: string;
+  readonly state: string;
+}
+
+async function linuxProcessIdentity(pid: number): Promise<LinuxProcessIdentity | null> {
+  if (process.platform !== "linux") return null;
+  try {
+    const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+    const close = stat.lastIndexOf(")");
+    const fields = close >= 0
+      ? stat.slice(close + 2).trim().split(/\s+/u)
+      : [];
+    if (fields.length <= 19) return null;
+    return { state: fields[0] ?? "", startTime: fields[19] ?? "" };
+  } catch {
+    return null;
+  }
+}
+
+async function waitForProcessExit(
+  pid: number,
+  expectedLinuxStartTime?: string,
+): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const deadline = Date.now() + 1_000;
     const check = async (): Promise<void> => {
       try {
         process.kill(pid, 0);
         if (process.platform === "linux") {
-          try {
-            const stat = await readFile(`/proc/${pid}/stat`, "utf8");
-            const close = stat.lastIndexOf(")");
-            if (close >= 0 && stat.slice(close + 2, close + 3) === "Z") {
-              resolve();
-              return;
-            }
-          } catch {
+          const identity = await linuxProcessIdentity(pid);
+          if (
+            identity === null
+            || identity.state === "Z"
+            || (expectedLinuxStartTime !== undefined
+              && identity.startTime !== expectedLinuxStartTime)
+          ) {
             resolve();
             return;
           }
@@ -672,11 +694,15 @@ test("termination signals reap every active Terraform group and retain signal ex
       const descendantPid = Number((await readFile(descendantPidFile, "utf8")).trim());
       assert.equal(Number.isSafeInteger(directPid) && directPid > 0, true);
       assert.equal(Number.isSafeInteger(descendantPid) && descendantPid > 0, true);
+      const [directIdentity, descendantIdentity] = await Promise.all([
+        linuxProcessIdentity(directPid),
+        linuxProcessIdentity(descendantPid),
+      ]);
       harness.kill(signal);
       assert.deepEqual(await closed, { code: null, signal });
       await Promise.all([
-        waitForProcessExit(directPid),
-        waitForProcessExit(descendantPid),
+        waitForProcessExit(directPid, directIdentity?.startTime),
+        waitForProcessExit(descendantPid, descendantIdentity?.startTime),
       ]);
     }
   });
