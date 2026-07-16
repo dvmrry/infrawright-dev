@@ -1,9 +1,9 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   mkdtempSync,
   mkdirSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -32,49 +32,8 @@ import {
 } from "../node-src/domain/plan-fingerprint.js";
 import { ReadBudget } from "../node-src/io/bounded-files.js";
 
-const PYTHON_FINGERPRINT = String.raw`
-import hashlib
-import json
-import sys
-from engine import ops
-
-i = json.loads(sys.stdin.read())
-payload = {
-    "backend": ops._backend_fingerprint(i.get("backend_config"), i.get("backend_key")),
-    "member_types": sorted(i["member_types"]),
-    "modules": ops._module_fingerprints(i["env_dir"], i["member_types"]),
-    "root_tf": ops._root_tf_fingerprints(i["env_dir"]),
-    "var_files": ops._var_file_fingerprints(i["var_files"]),
-}
-canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-init_payload = {
-    "backend": ops._backend_fingerprint(i.get("backend_config"), i.get("backend_key")),
-    "modules": ops._module_fingerprints(i["env_dir"], i["member_types"]),
-    "root_config": ops._root_config_fingerprints(i["env_dir"]),
-}
-init_canonical = json.dumps(init_payload, sort_keys=True, separators=(",", ":"))
-print(json.dumps({
-    "canonical": canonical,
-    "digest": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
-    "init_digest": hashlib.sha256(init_canonical.encode("utf-8")).hexdigest(),
-    "init_payload": init_payload,
-    "module_sources": ops._root_module_sources(i["env_dir"]),
-    "payload": payload,
-}, sort_keys=True))
-`;
-
-const PYTHON_SCANNER = String.raw`
-import json
-import sys
-from engine import ops
-
-env_dir = json.loads(sys.stdin.read())["env_dir"]
-try:
-    result = {"ok": True, "sources": ops._root_module_sources(env_dir)}
-except Exception as exc:
-    result = {"ok": False, "message": str(exc), "type": type(exc).__name__}
-print(json.dumps(result, sort_keys=True))
-`;
+const AUTHORITY_SHA256 =
+  "69ebf724f468e72c37ffaac33f78055e37cc944397fa923a31ff08331030a1b6";
 
 interface PythonFingerprintResult {
   readonly canonical: string;
@@ -92,14 +51,92 @@ interface ScannerResult {
   readonly type?: string;
 }
 
-function python<T>(script: string, input: unknown): T {
-  const result = spawnSync(PYTHON_ORACLE, ["-c", script], {
-    cwd: process.cwd(),
-    encoding: "utf8",
-    input: JSON.stringify(input),
+interface PythonPlanFingerprintAuthority {
+  readonly authority: {
+    readonly implementation: string;
+    readonly python: string;
+    readonly unicode: string;
+  };
+  readonly baseline: string;
+  readonly kind: string;
+  readonly leading_feff: PythonFingerprintResult;
+  readonly linux_invalid_filename: {
+    readonly authority: {
+      readonly implementation: string;
+      readonly platform: string;
+      readonly python: string;
+      readonly unicode: string;
+    };
+    readonly results: readonly {
+      readonly after_digest: string;
+      readonly before_digest: string;
+      readonly kind: string;
+    }[];
+  };
+  readonly main: PythonFingerprintResult;
+  readonly scanner: {
+    readonly accepted: ScannerResult;
+    readonly duplicate_modules: ScannerResult;
+    readonly failures: readonly {
+      readonly name: string;
+      readonly result: ScannerResult;
+    }[];
+  };
+  readonly source_blobs: {
+    readonly node_implementation: string;
+    readonly python_authority: string;
+    readonly test: string;
+  };
+  readonly top_level_symlink_tree: readonly (readonly [string, string])[];
+  readonly version: number;
+}
+
+function pythonAuthority(): PythonPlanFingerprintAuthority {
+  const bytes = readFileSync(join(
+    process.cwd(),
+    "node-tests",
+    "fixtures",
+    "python-plan-fingerprint-v1.json",
+  ));
+  assert.equal(
+    createHash("sha256").update(bytes).digest("hex"),
+    AUTHORITY_SHA256,
+    "frozen Python plan-fingerprint authority changed without re-adjudication",
+  );
+  const authority = JSON.parse(
+    bytes.toString("utf8"),
+  ) as PythonPlanFingerprintAuthority;
+  assert.deepEqual({
+    authority: authority.authority,
+    baseline: authority.baseline,
+    kind: authority.kind,
+    source_blobs: authority.source_blobs,
+    version: authority.version,
+  }, {
+    authority: {
+      implementation: "cpython",
+      python: "3.13.13",
+      unicode: "15.1.0",
+    },
+    baseline: "b999edfb3255c644100935991171ad4fcee003c9",
+    kind: "infrawright.python-plan-fingerprint-authority",
+    source_blobs: {
+      node_implementation: "8c57fda681df654f956646b2adbf09d485a689f8",
+      python_authority: "f160a796f6078d96ee423d1ca7f1d169598c8160",
+      test: "40de74a1738ce2d0773a0687e4d102f56d71ce33",
+    },
+    version: 1,
   });
-  assert.equal(result.status, 0, result.stderr);
-  return JSON.parse(result.stdout) as T;
+  return authority;
+}
+
+function expandScannerResult(
+  result: ScannerResult,
+  envDir: string,
+): ScannerResult {
+  return result.message === undefined
+    ? result
+    : { ...result, message: result.message.replace("{env_dir}", envDir) };
 }
 
 async function withTemp(
@@ -202,13 +239,7 @@ test("fingerprint v2 payload and digest are byte-identical to Python", async () 
         configUnicode,
       ],
     };
-    const oracle = python<PythonFingerprintResult>(PYTHON_FINGERPRINT, {
-      backend_config: input.backendConfig,
-      backend_key: input.backendKey,
-      env_dir: input.envDir,
-      member_types: input.memberTypes,
-      var_files: input.varFiles,
-    });
+    const oracle = pythonAuthority().main;
 
     const payload = await capturePlanSourcesPayload(input);
     const initPayload = await captureInitSourcesPayload(input);
@@ -268,10 +299,7 @@ test("module tree top-level symlinks follow Python os.walk semantics", async () 
     const link = join(temp, "link");
     write(join(target, "file.txt"), "content\n");
     symlinkSync(target, link);
-    const expected = python<readonly (readonly [string, string])[]>(
-      "import json,sys; from engine import ops; print(json.dumps(ops._tree_fingerprints(json.loads(sys.stdin.read())['root'])))",
-      { root: link },
-    );
+    const expected = pythonAuthority().top_level_symlink_tree;
     assert.deepEqual(await treeFingerprints(link), expected);
     assert.equal((await treeFingerprints(link)).length, 1);
   });
@@ -294,11 +322,7 @@ test("leading U+FEFF filename bytes are preserved in root and module fingerprint
       memberTypes: ["zpa_sample"],
       varFiles: [],
     };
-    const oracle = python<PythonFingerprintResult>(PYTHON_FINGERPRINT, {
-      env_dir: envDir,
-      member_types: input.memberTypes,
-      var_files: [],
-    });
+    const oracle = pythonAuthority().leading_feff;
     const payload = await capturePlanSourcesPayload(input);
     assert.deepEqual(payload, oracle.payload);
     assert.equal((await planFingerprintV2(input)).sha256, oracle.digest);
@@ -405,7 +429,7 @@ test("generated-root HCL scanner acceptance matches Python", async () => {
         + "  items = var.bom_items\n"
         + "}\n",
     );
-    const oracle = python<ScannerResult>(PYTHON_SCANNER, { env_dir: envDir });
+    const oracle = pythonAuthority().scanner.accepted;
     assert.deepEqual(await scannerResult(envDir), oracle);
     assert.deepEqual(oracle.sources, {
       alpha: "../modules/alpha",
@@ -476,11 +500,17 @@ test("generated-root HCL scanner failures match Python exactly", async () => {
     ],
   ];
 
-  for (const [name, text] of cases) {
+  const authority = pythonAuthority().scanner.failures;
+  assert.deepEqual(authority.map((item) => item.name), cases.map(([name]) => name));
+  for (const [index, [name, text]] of cases.entries()) {
     await withTemp(async (temp) => {
       const envDir = join(temp, "root");
       write(join(envDir, "main.tf"), text);
-      const oracle = python<ScannerResult>(PYTHON_SCANNER, { env_dir: envDir });
+      const frozen = authority[index];
+      if (frozen === undefined) {
+        assert.fail(`missing frozen scanner authority for ${name}`);
+      }
+      const oracle = expandScannerResult(frozen.result, envDir);
       assert.equal(oracle.ok, false, name);
       assert.deepEqual(await scannerResult(envDir), oracle, name);
     });
@@ -492,7 +522,10 @@ test("duplicate modules across root files fail like Python", async () => {
     const envDir = join(temp, "root");
     write(join(envDir, "a.tf"), moduleBlock("alpha", "../modules/alpha"));
     write(join(envDir, "b.tf"), moduleBlock("alpha", "../modules/alpha"));
-    const oracle = python<ScannerResult>(PYTHON_SCANNER, { env_dir: envDir });
+    const oracle = expandScannerResult(
+      pythonAuthority().scanner.duplicate_modules,
+      envDir,
+    );
     assert.equal(oracle.ok, false);
     assert.deepEqual(await scannerResult(envDir), oracle);
   });
@@ -503,6 +536,30 @@ test("Linux filenames with undecodable bytes fail closed instead of disappearing
     t.skip("Linux permits non-UTF-8 directory entry bytes");
     return;
   }
+  const linux = pythonAuthority().linux_invalid_filename;
+  assert.deepEqual(linux.authority, {
+    implementation: "cpython",
+    platform: "linux",
+    python: "3.13.13",
+    unicode: "15.1.0",
+  });
+  assert.deepEqual(linux.results, [
+    {
+      after_digest: "f55bfc8f268b952751975428560aa040426782e42c72fd85576163451981b4f5",
+      before_digest: "14f7eaba7c0e5e38f4b9e54c06de86279b6dfd0a0419cfb57b02347a6e1675ca",
+      kind: "root file",
+    },
+    {
+      after_digest: "6c29bcfd5f334e3e039a8b9d1865a36c4a8e97b728a842dca8fa7a387a65756f",
+      before_digest: "14f7eaba7c0e5e38f4b9e54c06de86279b6dfd0a0419cfb57b02347a6e1675ca",
+      kind: "module file",
+    },
+    {
+      after_digest: "655895ac143b2de15c777d38ab61ce910b72cd37e756b802413cdabacc988212",
+      before_digest: "14f7eaba7c0e5e38f4b9e54c06de86279b6dfd0a0419cfb57b02347a6e1675ca",
+      kind: "module directory",
+    },
+  ]);
   for (const kind of ["root file", "module file", "module directory"] as const) {
     await t.test(kind, async () => {
       await withTemp(async (temp) => {
@@ -520,11 +577,11 @@ test("Linux filenames with undecodable bytes fail closed instead of disappearing
           memberTypes: ["zpa_sample"],
           varFiles: [],
         };
-        const before = python<PythonFingerprintResult>(PYTHON_FINGERPRINT, {
-          env_dir: envDir,
-          member_types: input.memberTypes,
-          var_files: [],
-        });
+        const frozen = linux.results.find((item) => item.kind === kind);
+        if (frozen === undefined) {
+          assert.fail(`missing frozen Linux authority for ${kind}`);
+        }
+        assert.notEqual(frozen.after_digest, frozen.before_digest);
         const parent = kind === "root file" ? envDir : moduleDir;
         const rawPath = Buffer.concat([
           Buffer.from(`${parent}/bad-`),
@@ -540,12 +597,6 @@ test("Linux filenames with undecodable bytes fail closed instead of disappearing
         } else {
           writeFileSync(rawPath, "# raw filename\n");
         }
-        const after = python<PythonFingerprintResult>(PYTHON_FINGERPRINT, {
-          env_dir: envDir,
-          member_types: input.memberTypes,
-          var_files: [],
-        });
-        assert.notEqual(after.digest, before.digest);
         await assert.rejects(
           kind === "root file"
             ? rootTfFingerprints(envDir)
