@@ -89,10 +89,14 @@
 ## Tests Run
 
 - `npm run typecheck`
-- Focused seven-file suite with `PYTHON=/definitely/missing/python`: 50 passed.
+- Post-remediation focused seven-file suite with
+  `PYTHON=/definitely/missing/python`: 51 passed.
 - `PYTHON=/definitely/missing/python npm test`: passed; 48 selected, 20
   Python-oracle-excluded.
-- `npm run test:all`: 662 tests, 661 passed and one platform skip, zero failed.
+- Pre-remediation `npm run test:all`: 662 tests, 661 passed and one platform
+  skip, zero failed. The remediation changes only the guidance-attribution
+  test and selector assertions; both passed again at the final implementation
+  head.
 - `PYTHON=/definitely/missing/python make check-all`: passed, including module,
   pack, vendor-boundary, demo, and root-catalog gates.
 - Empty-profile selected suite with `--test-concurrency=1`: 237 passed, zero
