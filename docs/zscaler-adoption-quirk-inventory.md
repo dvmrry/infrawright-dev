@@ -19,11 +19,10 @@ adversarial review when the repository policy requires it.
 
 ## Core Finding
 
-The local transform path already has a real Zscaler quirk catalog:
-
-- 21 ZIA resources with semantic transform keys.
-- 7 ZPA resources with semantic transform keys.
-- 3 ZCC resources with semantic transform keys.
+The local transform path already has a real Zscaler quirk catalog spanning
+ZIA, ZPA, and ZCC. The table below is qualitative; the active override-file
+inventory is validated mechanically rather than duplicated as a hand-maintained
+resource count here.
 
 Those transformations run through
 [engine/transform.py](../engine/transform.py#L445-L533). The adopt/oracle path
@@ -80,9 +79,11 @@ pure metadata such as `sample`, `import_id`, `key_field`, `ranges`, and
 | `zpa_segment_group` | `drop_if_default.microtenant_id="0"`, `drops.applications` ([source](../packs/zpa/overrides/zpa_segment_group.json#L17-L23)) | Medium: broad default microtenant handling is not covered upstream. |
 | `zpa_application_server` | `drop_if_default.microtenant_id="0"` ([source](../packs/zpa/overrides/zpa_application_server.json#L9-L12)) | Medium: same microtenant stub class. |
 | `zpa_microtenant_controller` | `skip_if.id="0"` | Medium: upstream corroborates controller-only default skip. |
-| `zia_ssl_inspection_rules` | `skip_if.default_rule=true`, `skip_if.predefined=true` | Medium: upstream has name-based default lists too. |
+| `zia_dlp_dictionaries` | `drop_if_default.confidence_level_for_predefined_dict=""`, `drop_if_default.confidence_threshold=""` | Medium: reported provider 4.7.26 empty-enum readback is omitted exactly; nonempty values remain. |
+| `zia_http_header_profile` | nested `drop_if_default` for `http_header_profile_criteria.operator` and `user_agent` | Medium: reported provider 4.7.26 empty-enum readback in repeated criteria blocks is omitted exactly. |
+| `zia_ssl_inspection_rules` | `skip_if.default_rule=true`, `skip_if.predefined=true`, nested `drop_if_default.action.do_not_decrypt_sub_actions.min_tls_version=""` | Medium: upstream has name-based default lists; reported provider 4.7.26 empty-enum readback is omitted exactly. |
 | `zia_dlp_engines` | `renames.predefined_engine_name=name` | High: provider Read stores raw `name`, while transform deliberately promotes `predefined_engine_name`; predefined engines can therefore adopt a wrong-but-first-plan-clean name. Resolve the intended name contract before adding policy. |
-| `zia_location_management` | `renames.ipv6_dns64_prefix=ipv6_dns_64prefix` | Low/medium. |
+| `zia_location_management` | `renames.ipv6_dns64_prefix=ipv6_dns_64prefix`; `drop_if_default` for `display_time_unit`, `sub_loc_scope`, and `surrogate_refresh_time_unit` | Low/medium: the rename remains local, and reported provider 4.7.26 empty-enum readback is omitted exactly. |
 | `zia_url_categories` | `sort_lists.urls` | Low/medium: set/list canonicalization. |
 | `zia_url_filtering_and_cloud_app_settings` | singleton default id plus 6 prompt-setting renames | Low/medium. |
 | ZIA singleton/default-id resources | `defaults.id=...` for advanced settings, ATP settings, auth settings URLs, browser control, EUN, FTP control, mobile malware, and similar singleton/settings resources | Mostly low for oracle once constant-key adoption is in place; still useful as no-match ledger items. |

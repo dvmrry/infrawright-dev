@@ -17,10 +17,12 @@
 ## Base / Head
 
 - Base: `26c17ce34e126a8320f1b0e95bd3d47db35c2cc5` (draft PR #226 head).
-- Head: `12052f4fc6f38c2ceb8d357e89e32063058cb319` (implementation commit; this
-  handoff is a review-only follow-up commit).
+- Reviewed implementation/remediation head:
+  `8676684b3ec725b62826ed1dcbc1be0f33a2f711`. A subsequent documentation-only
+  cleanup updates this handoff and the qualitative inventory without changing
+  pack behavior.
 - Diff command:
-  `git diff 26c17ce34e126a8320f1b0e95bd3d47db35c2cc5..12052f4fc6f38c2ceb8d357e89e32063058cb319`.
+  `git diff 26c17ce34e126a8320f1b0e95bd3d47db35c2cc5..8676684b3ec725b62826ed1dcbc1be0f33a2f711`.
 
 ## Files Changed
 
@@ -52,8 +54,8 @@
   strings and are not computed or required.
 - OpenAPI/API contracts: none.
 - Provider source files: ZIA 4.7.26 forwarding-control schema validation at
-  `resource_zia_forwarding_control_rule.go#L167-L173` and protected-name Read
-  handling at `#L239-L246`, cited in the committed fixture.
+  `resource_zia_forwarding_control_rule.go#L167-L173` and protected-name
+  write-side validation at `#L239-L246`, cited in the committed fixture.
 - Pack metadata: the five named ZIA overrides, ZIA registry, provider pin, and
   the generic default `{id}` adoption import template.
 - Existing docs or design records:
@@ -82,8 +84,7 @@
 - Expected behavior change: exact empty strings at the eight paths are omitted
   in all three pack-policy consumers; the reported protected-name variant is
   classified before identity derivation and Oracle work.
-- Expected report/count/coverage changes: committed override count 73 -> 74;
-  ZIA resources with semantic overrides 20 -> 21.
+- Expected report/count/coverage changes: committed override count 73 -> 74.
 - Expected generated-output changes: only affected empty-string leaves and
   system-owned forwarding objects disappear.
 - Expected no-op areas: nonempty strings, arbitrary non-positive and
