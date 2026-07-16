@@ -21,50 +21,40 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+
+	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 )
-
-// ArtifactError is RenderLosslessArtifactJSON's single failure shape. It
-// carries the same {code, category, message} triple as the
-// node-src/domain/errors.ts ProcessFailure that
-// node-src/json/python-lossless-artifact.ts's internal invalidArtifactJson()
-// helper throws -- verbatim, including the message text -- even though this
-// package does not otherwise port ProcessFailure itself (that type lives
-// outside node-src/json/ and is out of this port's scope).
-type ArtifactError struct {
-	// Code is "INVALID_ARTIFACT_JSON", verbatim from
-	// python-lossless-artifact.ts's invalidArtifactJson().
-	Code string
-	// Category is "domain", verbatim from the same call site.
-	Category string
-	// Message is INVALID_ARTIFACT_JSON_MESSAGE, verbatim:
-	// "artifact JSON must contain plain JSON values with finite lossless
-	// numbers".
-	Message string
-}
-
-// Error returns Message, matching how a caller reading a ProcessFailure's
-// own .message would see the identical text in the Node source.
-func (e *ArtifactError) Error() string {
-	return e.Message
-}
 
 // ErrInvalidArtifactJSON is the single error RenderLosslessArtifactJSON
 // ever returns on failure, ported from python-lossless-artifact.ts's
-// invalidArtifactJson(). The Node source's own top-level try/catch
-// collapses literally any failure during encoding -- an unsupported value,
-// a cyclic reference, or even a caller-supplied error thrown from
-// arbitrary code reachable during encoding -- into this exact same
-// ProcessFailure, specifically so that no detail about the offending value
-// (e.g. a hidden property's name or a getter's return value) can leak into
-// the error text. This package's Value model has no analogue for hidden
-// properties, getters, or proxies, but the fail-closed, no-detail contract
-// is preserved: every failure path in this file returns this identical
-// sentinel, never a value- or type-specific message.
-var ErrInvalidArtifactJSON = &ArtifactError{
+// invalidArtifactJson(): a *procerr.ProcessFailure carrying the same
+// {code, category, message} triple that helper's
+// `new ProcessFailure({code, category, message})` call constructs --
+// verbatim, including the message text -- and retryable false/no details,
+// the same constructor defaults that call site relies on (see
+// procerr.NewProcessFailure). Using procerr.ProcessFailure here (rather
+// than a canonjson-local error type) means this sentinel is already the
+// exact type the CLI's procerr.RenderCLIProcessFailure renders, with no
+// translation step at that boundary.
+//
+// The Node source's own top-level try/catch collapses literally any
+// failure during encoding -- an unsupported value, a cyclic reference, or
+// even a caller-supplied error thrown from arbitrary code reachable during
+// encoding -- into this exact same ProcessFailure, specifically so that no
+// detail about the offending value (e.g. a hidden property's name or a
+// getter's return value) can leak into the error text. This package's
+// Value model has no analogue for hidden properties, getters, or proxies,
+// but the fail-closed, no-detail contract is preserved: every failure path
+// in this file returns this identical sentinel, never a value- or
+// type-specific message. Every ported test compares against this sentinel
+// by pointer identity (`err != ErrInvalidArtifactJSON`), never by field
+// access, so it stays a package-level var rather than something
+// constructed fresh per call.
+var ErrInvalidArtifactJSON = procerr.NewProcessFailure(procerr.NewProcessFailureOptions{
 	Code:     "INVALID_ARTIFACT_JSON",
-	Category: "domain",
+	Category: procerr.CategoryDomain,
 	Message:  "artifact JSON must contain plain JSON values with finite lossless numbers",
-}
+})
 
 // artifactAncestors tracks the map/slice data pointers currently being
 // encoded on the current recursion path, ported from python-lossless-
