@@ -34,6 +34,11 @@ import {
 } from "./provider-probe.js";
 import { runVendorBoundaryAudit } from "./vendor-boundary.js";
 import { auditZpaProviderEvidence } from "./zpa-provider-evidence.js";
+import {
+  buildParityReport,
+  loadParityFixture,
+  renderParityReport,
+} from "../domain/transform-adopt-parity.js";
 
 export class AuthoringCliUsageError extends Error {
   constructor(message: string) {
@@ -49,6 +54,7 @@ export const AUTHORING_COMMANDS = new Set([
   "reconcile",
   "source-evidence-eval",
   "source-operation-map",
+  "transform-adopt-parity",
   "zpa-provider-evidence",
 ]);
 
@@ -487,6 +493,34 @@ async function zpaProviderEvidenceCommand(
   }
 }
 
+async function transformAdoptParityCommand(
+  arguments_: readonly string[],
+  context: AuthoringCliContext,
+): Promise<number> {
+  const parsed = parseArguments(arguments_, new Set());
+  if (parsed.positional.length === 0) {
+    throw new AuthoringCliUsageError(
+      "transform-adopt-parity requires at least one fixture path",
+    );
+  }
+  try {
+    const root = await loadPackRoot({
+      packsRoot: context.environment.INFRAWRIGHT_PACKS
+        || path.join(context.repositoryRoot, "packs"),
+    });
+    const parityContext = { repositoryRoot: context.repositoryRoot, root };
+    const fixtures = await Promise.all(parsed.positional.map((source) => {
+      return loadParityFixture(source, parityContext);
+    }));
+    const report = await buildParityReport(fixtures, parityContext);
+    context.stdout(renderParityReport(report));
+    return report.result === "equal" || report.result === "classified_differences" ? 0 : 1;
+  } catch (error: unknown) {
+    context.stderr(`error: ${error instanceof Error ? error.message : String(error)}\n`);
+    return 2;
+  }
+}
+
 export async function runAuthoringCommand(options: {
   readonly arguments: readonly string[];
   readonly command: string;
@@ -517,6 +551,9 @@ export async function runAuthoringCommand(options: {
   }
   if (options.command === "zpa-provider-evidence") {
     return zpaProviderEvidenceCommand(options.arguments, context);
+  }
+  if (options.command === "transform-adopt-parity") {
+    return transformAdoptParityCommand(options.arguments, context);
   }
   throw new AuthoringCliUsageError(`unknown authoring command ${options.command}`);
 }

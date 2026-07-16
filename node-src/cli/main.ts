@@ -140,6 +140,7 @@ const USAGE = [
   "  iw provider-probe <recipe.json> [--work-dir <dir>] [--out <summary.json>] [--markdown <summary.md>] [--debug-traceback]",
   "  iw audit-vendor-boundary [--root <repository>] [--allowlist <file>]",
   "  iw zpa-provider-evidence [--matrix <matrix.json>] [--provider-root <terraform-provider-zpa-checkout>]",
+  "  iw transform-adopt-parity <fixture.json> [<fixture.json> ...]",
 ].join("\n");
 
 class CliExit extends Error {

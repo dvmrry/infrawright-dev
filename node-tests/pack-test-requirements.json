@@ -3,6 +3,18 @@
   "version": 1,
   "rules": [
     {
+      "file": "adopt-runner.test.js",
+      "packs": [
+        "zcc",
+        "zia",
+        "zpa"
+      ],
+      "shared": [
+        "zscaler"
+      ],
+      "reason": "The frozen Transform/Adopt artifact cases load committed Zscaler schemas, overrides, and registry metadata."
+    },
+    {
       "file": "adoption-meta.test.js",
       "packs": [
         "aws",
@@ -281,6 +293,18 @@
         "zscaler"
       ],
       "reason": "The state-projection suite loads committed cross-pack schemas and ZIA policy from the complete pack tree."
+    },
+    {
+      "file": "transform-adopt-parity.test.js",
+      "packs": [
+        "zcc",
+        "zia",
+        "zpa"
+      ],
+      "shared": [
+        "zscaler"
+      ],
+      "reason": "The source-pinned transform/adopt parity fixtures load committed Zscaler schemas, overrides, and registry metadata."
     },
     {
       "file": "transform-runtime-artifacts.test.js",

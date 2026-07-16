@@ -153,6 +153,22 @@ function shouldUnescape(root: LoadedPackRoot, resourceType: string): boolean {
   });
 }
 
+/** Run the production transform semantics for one already-loaded resource. */
+export async function transformResourceItems(options: {
+  readonly rawItems: readonly unknown[];
+  readonly resource: LoadedResourceMetadata;
+  readonly root: LoadedPackRoot;
+  readonly schema?: Readonly<JsonObject>;
+}): Promise<PullTransformResult> {
+  return transformLoadedItems({
+    resource: options.resource,
+    schema: options.schema ?? await options.root.loadResourceSchema(options.resource.type),
+    rawItems: options.rawItems,
+    htmlUnescape: pythonHtmlUnescapeGeneric,
+    unescapeHtml: shouldUnescape(options.root, options.resource.type),
+  });
+}
+
 async function knownHoldPaths(
   root: LoadedPackRoot,
   resourceType: string,
@@ -310,12 +326,11 @@ export async function runTransformBatch(options: {
       }
       const schema = await options.root.loadResourceSchema(resourceType);
       warnIfSlim({ rawItems: raw, resourceType, schema, write });
-      const result: PullTransformResult = transformLoadedItems({
-        resource,
-        schema,
+      const result = await transformResourceItems({
         rawItems: raw,
-        htmlUnescape: pythonHtmlUnescapeGeneric,
-        unescapeHtml: shouldUnescape(options.root, resourceType),
+        resource,
+        root: options.root,
+        schema,
       });
       await options.beforeArtifactWrite?.(resourceType);
       await writeTransformArtifacts({

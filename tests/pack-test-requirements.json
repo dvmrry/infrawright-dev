@@ -475,18 +475,6 @@
         "zscaler"
       ],
       "reason": "The transform suite asserts committed Zscaler schemas, overrides, and fixtures."
-    },
-    {
-      "prefix": "tests.test_transform_adopt_parity.TransformAdoptParityTest.",
-      "packs": [
-        "zcc",
-        "zia",
-        "zpa"
-      ],
-      "shared": [
-        "zscaler"
-      ],
-      "reason": "The parity fixtures are source-pinned to the committed Zscaler packs."
     }
   ]
 }
