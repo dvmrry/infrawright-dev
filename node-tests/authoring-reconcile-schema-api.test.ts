@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import { LosslessNumber } from "lossless-json";
@@ -10,6 +15,7 @@ import {
   providerSchemaFromTerraformDump,
   reconcileItems,
   resourceSchemaFromData,
+  type ApiMetadata,
 } from "../node-src/authoring/reconcile-schema-api.js";
 import {
   apiMetadataFromOpenApi,
@@ -20,7 +26,82 @@ import {
 } from "../node-src/authoring/openapi.js";
 import { parseDataJsonLosslessly } from "../node-src/json/control.js";
 import type { JsonObject } from "../node-src/metadata/validation.js";
-import { PYTHON_ORACLE } from "./python-oracle.js";
+
+const ROOT = process.cwd();
+const CLI = path.join(ROOT, ".node-test", "node-src", "cli", "main.js");
+const AUTHORITY_SHA256 = "e44663ac77b8bc7be8b2af65f2bf39e7f6dbca12b7d79805b9fa133e99f7c9ff";
+
+interface FrozenReconcileInput {
+  readonly api_metadata?: ApiMetadata | null;
+  readonly items: readonly unknown[];
+  readonly metadata?: ApiMetadata | null;
+  readonly override?: JsonObject | null;
+  readonly resource_type: string;
+  readonly schema: JsonObject;
+}
+
+interface FrozenReportCase {
+  readonly input: FrozenReconcileInput;
+  readonly name: string;
+  readonly report: JsonObject;
+}
+
+interface FrozenNodeReportCase {
+  readonly input: FrozenReconcileInput;
+  readonly name: string;
+  readonly python_report: JsonObject;
+}
+
+interface FrozenHelperCase {
+  readonly input: JsonObject;
+  readonly name: string;
+  readonly output: unknown;
+}
+
+interface FrozenCliCase {
+  readonly artifacts: Readonly<Record<string, string>>;
+  readonly exit: number;
+  readonly input: {
+    readonly argv: readonly string[];
+    readonly files: readonly {
+      readonly bytes: string;
+      readonly option: string;
+      readonly path: string;
+    }[];
+  };
+  readonly name: string;
+  readonly stderr: string;
+  readonly stdout: string;
+}
+
+interface FrozenAuthority {
+  readonly kind: string;
+  readonly node_live_differential: {
+    readonly report_cases: readonly FrozenNodeReportCase[];
+  };
+  readonly retained_unittest: {
+    readonly cli_cases: readonly FrozenCliCase[];
+    readonly helper_cases: readonly FrozenHelperCase[];
+    readonly report_cases: readonly FrozenReportCase[];
+    readonly tests_run: number;
+  };
+  readonly version: number;
+}
+
+const authorityBytes = readFileSync(path.join(
+  ROOT,
+  "node-tests",
+  "fixtures",
+  "python-reconcile-schema-api-v1.json",
+));
+assert.equal(
+  createHash("sha256").update(authorityBytes).digest("hex"),
+  AUTHORITY_SHA256,
+  "frozen CPython reconcile authority changed without re-adjudication",
+);
+const authority = JSON.parse(authorityBytes.toString("utf8")) as FrozenAuthority;
+assert.equal(authority.kind, "infrawright.python-reconcile-schema-api-authority");
+assert.equal(authority.version, 1);
 
 const SCHEMA: JsonObject = {
   block: {
@@ -53,22 +134,76 @@ function paths(report: ReturnType<typeof reconcileItems>, bucket: string): Set<s
   return new Set((byBucket[bucket] ?? []).map((entry) => entry.path));
 }
 
-function pythonReport(payload: JsonObject): unknown {
-  const script = [
-    "import json,sys",
-    "from engine import reconcile_schema_api as r",
-    "p=json.load(sys.stdin)",
-    "m=p.get('metadata')",
-    "x=r.reconcile_items(p['resource_type'],p['items'],p['schema'],override=p.get('override'),api_metadata=m)",
-    "json.dump(x.as_dict(),sys.stdout,sort_keys=True,separators=(',',':'))",
-  ].join(";");
-  const result = spawnSync(PYTHON_ORACLE, ["-c", script], {
-    cwd: process.cwd(),
-    encoding: "utf8",
-    input: JSON.stringify(payload),
+function replayReport(input: FrozenReconcileInput): JsonObject {
+  const apiMetadata = input.api_metadata ?? input.metadata ?? undefined;
+  return reconcileItems({
+    ...(apiMetadata === undefined ? {} : { apiMetadata }),
+    items: input.items,
+    ...(input.override === undefined || input.override === null
+      ? {} : { override: input.override }),
+    resourceSchema: input.schema,
+    resourceType: input.resource_type,
+  }).asDict();
+}
+
+function frozenNodeReport(name: string): JsonObject {
+  const matches = authority.node_live_differential.report_cases.filter((item) => item.name === name);
+  assert.equal(matches.length, 1, `expected one frozen Node differential named ${name}`);
+  return matches[0]!.python_report;
+}
+
+function replayHelper(frozen: FrozenHelperCase): unknown {
+  if (frozen.name.startsWith("api_metadata_from_options:")) {
+    const input = frozen.input as unknown as {
+      readonly source: string;
+      readonly value: JsonObject;
+    };
+    return apiMetadataFromOptions(input.value, input.source);
+  }
+  if (frozen.name.startsWith("load_resource_schema:")) {
+    const input = frozen.input as unknown as {
+      readonly provider_source: string | null;
+      readonly resource_type: string;
+      readonly schema: { readonly json: JsonObject };
+    };
+    return resourceSchemaFromData(
+      input.schema.json,
+      input.resource_type,
+      input.provider_source ?? undefined,
+    );
+  }
+  if (frozen.name.startsWith("api_metadata_from_openapi:")) {
+    const input = frozen.input as unknown as {
+      readonly read_operations: readonly string[];
+      readonly spec: JsonObject;
+      readonly write_operations: readonly string[];
+    };
+    return apiMetadataFromOpenApi(input.spec, {
+      readOperations: input.read_operations,
+      writeOperations: input.write_operations,
+    });
+  }
+  assert.fail(`unsupported frozen reconcile helper ${frozen.name}`);
+}
+
+async function materializeCliCase(
+  frozen: FrozenCliCase,
+  root: string,
+): Promise<readonly string[]> {
+  const paths = new Map<string, string>();
+  for (const input of frozen.input.files) {
+    const filename = path.join(root, input.path);
+    await mkdir(path.dirname(filename), { recursive: true });
+    await writeFile(filename, input.bytes, "utf8");
+    paths.set(input.path, filename);
+  }
+  return frozen.input.argv.map((argument) => {
+    if (paths.has(argument)) return paths.get(argument)!;
+    if (argument.startsWith(".reconcile-openapi-authority/")) {
+      return path.join(root, argument);
+    }
+    return argument;
   });
-  assert.equal(result.status, 0, result.stderr);
-  return JSON.parse(result.stdout);
 }
 
 test("API object, list, and results envelopes preserve item forms", () => {
@@ -255,9 +390,7 @@ test("reconciliation covers overrides, skips, nested shapes, relationships, API 
   assert(paths(report, "shape_mismatch").has("settings.api_only") === false);
   assert(paths(report, "unknown").has("api_only"));
   assert(paths(report, "unknown").has("interfaces[].mystery"));
-  assert.deepEqual(report.asDict(), pythonReport({
-    items, metadata, override, resource_type: "sample_widget", schema,
-  }));
+  assert.deepEqual(report.asDict(), frozenNodeReport("comprehensive_reconciliation"));
 });
 
 test("relationship aliases, acknowledged drops, unknowns, and shape mismatch retain Python buckets", () => {
@@ -299,9 +432,51 @@ test("report path ordering is exact Python code-point ordering", () => {
   const schema: JsonObject = { block: { attributes: {} } };
   const items = [{ a: 1, z: 1, "ä": 1 }];
   const report = reconcileItems({ items, resourceSchema: schema, resourceType: "sample_widget" });
-  assert.deepEqual(report.asDict(), pythonReport({
-    items, resource_type: "sample_widget", schema,
-  }));
+  assert.deepEqual(report.asDict(), frozenNodeReport("codepoint_path_ordering"));
   const unknown = (report.asDict().paths as Record<string, Array<{ path: string }>>).unknown ?? [];
   assert.deepEqual(unknown.map((entry) => entry.path), ["a", "z", "ä"]);
+});
+
+test("all retained Python reconcile reports remain exact", async (context) => {
+  assert.equal(authority.retained_unittest.tests_run, 9);
+  assert.equal(authority.retained_unittest.report_cases.length, 7);
+  for (const frozen of authority.retained_unittest.report_cases) {
+    await context.test(frozen.name, () => {
+      assert.deepEqual(replayReport(frozen.input), frozen.report);
+    });
+  }
+});
+
+test("all retained Python reconcile helpers remain exact", async (context) => {
+  assert.equal(authority.retained_unittest.helper_cases.length, 5);
+  for (const frozen of authority.retained_unittest.helper_cases) {
+    await context.test(frozen.name, () => {
+      assert.deepEqual(replayHelper(frozen), frozen.output);
+    });
+  }
+});
+
+test("retained reconcile CLI artifacts retain exact Python bytes through built Node", async (context) => {
+  assert.equal(authority.retained_unittest.cli_cases.length, 1);
+  for (const frozen of authority.retained_unittest.cli_cases) {
+    await context.test(frozen.name, async (caseContext) => {
+      const root = await mkdtemp(path.join(os.tmpdir(), "reconcile-frozen-cli-"));
+      caseContext.after(async () => rm(root, { force: true, recursive: true }));
+      const arguments_ = await materializeCliCase(frozen, root);
+      const result = spawnSync(process.execPath, [CLI, "reconcile", ...arguments_], {
+        cwd: ROOT,
+        encoding: "utf8",
+        env: { ...process.env, PYTHON: path.join(root, "python-must-not-run") },
+      });
+      assert.equal(result.status, frozen.exit, result.stderr);
+      assert.equal(result.stdout, frozen.stdout);
+      assert.equal(result.stderr, frozen.stderr);
+      assert.deepEqual(Object.keys(frozen.artifacts), ["report"]);
+      const outputIndex = arguments_.indexOf("--out");
+      assert.notEqual(outputIndex, -1, "frozen CLI case must record --out");
+      const output = arguments_[outputIndex + 1];
+      assert.ok(output, "frozen CLI case must record an --out value");
+      assert.equal(await readFile(output, "utf8"), frozen.artifacts.report);
+    });
+  }
 });

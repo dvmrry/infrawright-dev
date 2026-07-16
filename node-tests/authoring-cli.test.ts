@@ -7,10 +7,33 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { PYTHON_ORACLE } from "./python-oracle.js";
-
 const ROOT = process.cwd();
 const CLI = path.join(ROOT, ".node-test", "node-src", "cli", "main.js");
+
+interface FrozenCliCase {
+  readonly name: string;
+  readonly python_exit: number;
+  readonly python_stderr: string;
+  readonly python_stdout: string;
+}
+
+function loadFrozenCliCases(filename: string, expectedSha256: string): readonly FrozenCliCase[] {
+  const bytes = readFileSync(path.join(ROOT, "node-tests", "fixtures", filename));
+  assert.equal(createHash("sha256").update(bytes).digest("hex"), expectedSha256);
+  const authority = JSON.parse(bytes.toString("utf8")) as {
+    readonly node_live_differential: { readonly cli_cases: readonly FrozenCliCase[] };
+  };
+  return authority.node_live_differential.cli_cases;
+}
+
+const reconcileCliCases = loadFrozenCliCases(
+  "python-reconcile-schema-api-v1.json",
+  "e44663ac77b8bc7be8b2af65f2bf39e7f6dbca12b7d79805b9fa133e99f7c9ff",
+);
+const openApiCliCases = loadFrozenCliCases(
+  "python-openapi-resource-map-v1.json",
+  "fc730c4adda0fb599f37d712adc75c1b9132350a5e714511e3f2c6e81581bd8a",
+);
 const sourceOperationAuthorityBytes = readFileSync(path.join(
   ROOT,
   "node-tests",
@@ -112,43 +135,33 @@ function runNode(arguments_: readonly string[], environment?: NodeJS.ProcessEnv)
   });
 }
 
-function runPython(module: string, arguments_: readonly string[]) {
-  return spawnSync(PYTHON_ORACLE, ["-m", module, ...arguments_], {
-    cwd: ROOT,
-    encoding: "utf8",
-    env: process.env,
-  });
-}
-
-test("authoring CLI reports remain byte-compatible with Python", async (context) => {
+test("authoring CLI reports remain byte-compatible with frozen Python", async (context) => {
   const data = await fixture();
   context.after(async () => rm(data.root, { force: true, recursive: true }));
   const comparisons = [
     {
       node: ["reconcile", "example_widget", "--api", data.api, "--schema", data.schema],
-      python: ["example_widget", "--api", data.api, "--schema", data.schema],
-      module: "engine.reconcile_schema_api",
+      authority: reconcileCliCases,
+      name: "authoring_cli_reconcile",
     },
     {
       node: [
         "openapi-map", "--schema", data.schema, "--openapi", data.openApi,
         "--resource-prefix", "example", "--api-prefix", "/",
       ],
-      python: [
-        "--schema", data.schema, "--openapi", data.openApi,
-        "--resource-prefix", "example", "--api-prefix", "/",
-      ],
-      module: "engine.openapi_resource_map",
+      authority: openApiCliCases,
+      name: "authoring_cli_openapi_map",
     },
   ] as const;
   for (const comparison of comparisons) {
     const node = runNode(comparison.node);
-    const python = runPython(comparison.module, comparison.python);
-    assert.equal(node.status, 0, node.stderr);
-    assert.equal(python.status, 0, python.stderr);
-    assert.equal(node.stderr, python.stderr, comparison.module);
-    assert.equal(node.stdout, python.stdout, comparison.module);
-    if (comparison.module === "engine.reconcile_schema_api") {
+    const matches = comparison.authority.filter((item) => item.name === comparison.name);
+    assert.equal(matches.length, 1, comparison.name);
+    const expected = matches[0]!;
+    assert.equal(node.status, expected.python_exit, node.stderr);
+    assert.equal(node.stderr, expected.python_stderr, comparison.name);
+    assert.equal(node.stdout, expected.python_stdout, comparison.name);
+    if (comparison.name === "authoring_cli_reconcile") {
       assert.match(node.stdout, /settings\.mode/u);
       assert.doesNotMatch(node.stdout, /settings\[\]\.mode/u);
     }
