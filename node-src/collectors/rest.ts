@@ -15,6 +15,11 @@ import {
 } from "../metadata/resources.js";
 import { isObject } from "../metadata/validation.js";
 import { fetchProducts, selectFetchResources } from "./selection.js";
+import { maskCollectorIdentifiers } from "./diagnostics.js";
+import {
+  CollectorHttpStatusError,
+  collectorHttpStatus,
+} from "./http-status-error.js";
 export { collectorMaxRetries, retryDelayMs } from "./retry.js";
 import type {
   CollectorAdapter,
@@ -74,12 +79,6 @@ export interface FetchResourceOptions {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function maskIdentifiers(text: string): string {
-  return text
-    .replace(/([/.]|^)([^/.]+)(\.zslogin[a-z0-9]*\.net)/gi, "$1<vanity>$3")
-    .replace(/(\/customers\/)[^/]+/gi, "$1<customer-id>");
 }
 
 function queryScalar(value: unknown): string {
@@ -161,20 +160,25 @@ async function getJson(options: {
     ...(options.performance === undefined ? {} : { performance: options.performance }),
   });
   if (response.status !== 200) {
-    throw new Error(
-      `GET ${maskIdentifiers(baseUrl(options.url))} returned HTTP ${response.status}`,
+    throw new CollectorHttpStatusError(
+      `GET ${maskCollectorIdentifiers(baseUrl(options.url))} returned HTTP ${response.status}`,
+      response.status,
     );
   }
   let text: string;
   try {
     text = UTF8.decode(response.body);
   } catch {
-    throw new Error(`GET ${maskIdentifiers(baseUrl(options.url))} returned invalid UTF-8`);
+    throw new Error(
+      `GET ${maskCollectorIdentifiers(baseUrl(options.url))} returned invalid UTF-8`,
+    );
   }
   try {
     return parseDataJsonLosslessly(text);
   } catch {
-    throw new Error(`GET ${maskIdentifiers(baseUrl(options.url))} returned invalid JSON`);
+    throw new Error(
+      `GET ${maskCollectorIdentifiers(baseUrl(options.url))} returned invalid JSON`,
+    );
   }
 }
 
@@ -235,30 +239,30 @@ async function paginateZia(options: {
     if (options.entry.envelope !== undefined) {
       if (!isObject(payload)) {
         throw new Error(
-          `ZIA ${maskIdentifiers(baseUrl(options.url))} expected response object with envelope ${JSON.stringify(options.entry.envelope)}`,
+          `ZIA ${maskCollectorIdentifiers(baseUrl(options.url))} expected response object with envelope ${JSON.stringify(options.entry.envelope)}`,
         );
       }
       if (!Object.hasOwn(payload, options.entry.envelope)) {
         throw new Error(
-          `ZIA ${maskIdentifiers(baseUrl(options.url))} response missing envelope ${JSON.stringify(options.entry.envelope)}`,
+          `ZIA ${maskCollectorIdentifiers(baseUrl(options.url))} response missing envelope ${JSON.stringify(options.entry.envelope)}`,
         );
       }
       payload = payload[options.entry.envelope];
       if (!Array.isArray(payload)) {
         throw new Error(
-          `ZIA ${maskIdentifiers(baseUrl(options.url))} envelope ${JSON.stringify(options.entry.envelope)} did not contain a list page`,
+          `ZIA ${maskCollectorIdentifiers(baseUrl(options.url))} envelope ${JSON.stringify(options.entry.envelope)} did not contain a list page`,
         );
       }
     }
     const batch = itemList(
       payload,
-      `ZIA ${maskIdentifiers(baseUrl(options.url))} did not return a list page`,
+      `ZIA ${maskCollectorIdentifiers(baseUrl(options.url))} did not return a list page`,
     );
     items.push(...batch);
     if (batch.length < ZIA_PAGE_SIZE) return items;
     if (page >= ZIA_MAX_PAGES) {
       throw new Error(
-        `ZIA ${maskIdentifiers(baseUrl(options.url))} exceeded max_pages=${ZIA_MAX_PAGES}; aborting runaway pagination`,
+        `ZIA ${maskCollectorIdentifiers(baseUrl(options.url))} exceeded max_pages=${ZIA_MAX_PAGES}; aborting runaway pagination`,
       );
     }
   }
@@ -301,14 +305,16 @@ async function paginateZpa(options: {
       url: options.url,
     });
     if (!isObject(payload)) {
-      throw new Error(`ZPA ${maskIdentifiers(baseUrl(options.url))} did not return an object page`);
+      throw new Error(
+        `ZPA ${maskCollectorIdentifiers(baseUrl(options.url))} did not return an object page`,
+      );
     }
     const rawList = payload.list;
     const batch = !pythonTruthy(rawList)
       ? []
       : itemList(
           rawList,
-          `ZPA ${maskIdentifiers(baseUrl(options.url))} list did not contain a list page`,
+          `ZPA ${maskCollectorIdentifiers(baseUrl(options.url))} list did not contain a list page`,
         );
     items.push(...batch);
     const rawTotal = payload.totalPages;
@@ -367,14 +373,16 @@ async function paginateZccV2(options: {
       url: options.url,
     });
     if (!isObject(payload)) {
-      throw new Error(`ZCC v2 ${maskIdentifiers(baseUrl(options.url))} did not return an object page`);
+      throw new Error(
+        `ZCC v2 ${maskCollectorIdentifiers(baseUrl(options.url))} did not return an object page`,
+      );
     }
     const rawItems = payload.items;
     const batch = !pythonTruthy(rawItems)
       ? []
       : itemList(
           rawItems,
-          `ZCC v2 ${maskIdentifiers(baseUrl(options.url))} items did not contain a list page`,
+          `ZCC v2 ${maskCollectorIdentifiers(baseUrl(options.url))} items did not contain a list page`,
         );
     items.push(...batch);
     const count = numeric(payload.count, 0);
@@ -386,7 +394,7 @@ async function paginateZccV2(options: {
     page += 1;
     if (page >= ZCC_V2_MAX_PAGES) {
       throw new Error(
-        `ZCC v2 ${maskIdentifiers(baseUrl(options.url))} exceeded max_pages=${ZCC_V2_MAX_PAGES}; aborting runaway pagination`,
+        `ZCC v2 ${maskCollectorIdentifiers(baseUrl(options.url))} exceeded max_pages=${ZCC_V2_MAX_PAGES}; aborting runaway pagination`,
       );
     }
     skip += ZCC_V2_PAGE_SIZE;
@@ -514,26 +522,26 @@ function fetchEntry(root: LoadedPackRoot, resourceType: string): FetchEntry {
   };
 }
 
-function httpStatus(message: string): number | null {
-  const match = /HTTP (\d+)/.exec(message);
-  return match === null ? null : Number.parseInt(match[1] ?? "", 10);
-}
-
 /** Render the same cause-specific remediation hints as the Python collector. */
-export function failureHints(reasons: Iterable<string>, scoped = false): string[] {
+export function failureHints(
+  reasons: Iterable<string>,
+  scoped = false,
+  httpStatuses: Iterable<number> = [],
+): string[] {
   const blob = [...reasons].join(" ");
+  const statuses = new Set(httpStatuses);
   const hints: string[] = [];
   if (blob.includes("auth failed:")) {
     hints.push(
       "hint: a product's auth FAILED, so all its resources were skipped. 'missing required env var' means that credential is not set; a token/signin HTTP error means the credential was rejected (rotate it or check the Zidentity/ZPA console).",
     );
   }
-  if (blob.includes("returned HTTP 401") || blob.includes("returned HTTP 403")) {
+  if (statuses.has(401) || statuses.has(403)) {
     hints.push(
       "hint: HTTP 401/403 means the token was rejected or lacks scope (expired credential, or the API client is missing this product's role); re-issue credentials in the Zidentity console.",
     );
   }
-  if (blob.includes("returned HTTP 404")) {
+  if (statuses.has(404)) {
     hints.push(
       "hint: a 404 on ONE endpoint means that path/version is not mounted on the gateway for your cloud (try the v1 equivalent in the registry); 404s on EVERY endpoint of a product mean the API client lacks that product's entitlement (Zidentity console).",
     );
@@ -543,7 +551,7 @@ export function failureHints(reasons: Iterable<string>, scoped = false): string[
       );
     }
   }
-  if (blob.includes("returned HTTP 5")) {
+  if ([...statuses].some((status) => status >= 500 && status <= 599)) {
     hints.push(
       "hint: an HTTP 5xx is a transient gateway/server error or outage; retry shortly, and check the Zscaler status page if it persists.",
     );
@@ -600,6 +608,7 @@ type FetchOutcome =
     readonly durationMs: number;
     readonly endedMs: number;
     readonly kind: "failed" | "skipped";
+    readonly httpStatus: number | null;
     readonly pages: number;
     readonly product: string;
     readonly reason: string;
@@ -614,6 +623,18 @@ interface FetchWorkItem {
   readonly entry: FetchEntry;
   readonly index: number;
   readonly resourceType: string;
+}
+
+interface FetchFailureReason {
+  readonly httpStatus: number | null;
+  readonly message: string;
+}
+
+function fetchFailureReason(error: unknown): FetchFailureReason {
+  return {
+    httpStatus: collectorHttpStatus(error),
+    message: messageOf(error),
+  };
 }
 
 /**
@@ -689,9 +710,9 @@ async function fetchResourcesBatch(
     wanted.map((resourceType) => fetchEntry(options.root, resourceType).product),
   );
   const authByIdentity = new Map<string, CollectorAuthContext>();
-  const failedAuth = new Map<string, string>();
+  const failedAuth = new Map<string, FetchFailureReason>();
   const authByProduct = new Map<string, CollectorAuthContext>();
-  const failedProducts = new Map<string, string>();
+  const failedProducts = new Map<string, FetchFailureReason>();
 
   for (const product of fetchProducts(options.root)) {
     if (!neededProducts.has(product)) continue;
@@ -708,7 +729,10 @@ async function fetchResourcesBatch(
     }
     const adapter = options.adapters.get(product);
     if (adapter === undefined) {
-      const reason = `no collector adapter for product ${JSON.stringify(product)}`;
+      const reason = {
+        httpStatus: null,
+        message: `no collector adapter for product ${JSON.stringify(product)}`,
+      };
       failedAuth.set(identity, reason);
       failedProducts.set(product, reason);
       continue;
@@ -739,7 +763,7 @@ async function fetchResourcesBatch(
       authByIdentity.set(identity, auth);
       authByProduct.set(product, auth);
     } catch (error: unknown) {
-      const reason = messageOf(error);
+      const reason = fetchFailureReason(error);
       if (options.performance !== undefined) {
         options.performance.recordSpan({
           authIdentity: identity,
@@ -771,7 +795,8 @@ async function fetchResourcesBatch(
         kind: "failed",
         pages: 0,
         product: entry.product,
-        reason: `auth failed: ${productFailure}`,
+        httpStatus: productFailure.httpStatus,
+        reason: `auth failed: ${productFailure.message}`,
         resourceType,
         startedMs: 0,
       });
@@ -786,6 +811,7 @@ async function fetchResourcesBatch(
         kind: "failed",
         pages: 0,
         product: entry.product,
+        httpStatus: null,
         reason: `auth failed: no collector adapter for product ${JSON.stringify(entry.product)}`,
         resourceType,
         startedMs: 0,
@@ -832,18 +858,19 @@ async function fetchResourcesBatch(
           transport: options.transport,
         });
       } catch (error: unknown) {
-        const reason = messageOf(error);
-        const status = httpStatus(reason);
+        const failure = fetchFailureReason(error);
         const endedMs = options.performance?.now() ?? startedMs;
         return {
           durationMs: options.performance === undefined ? 0 : endedMs - startedMs,
           endedMs,
-          kind: status !== null && item.entry.optionalHttpStatuses.has(status)
+          httpStatus: failure.httpStatus,
+          kind: failure.httpStatus !== null
+            && item.entry.optionalHttpStatuses.has(failure.httpStatus)
             ? "skipped"
             : "failed",
           pages,
           product: item.entry.product,
-          reason,
+          reason: failure.message,
           resourceType: item.resourceType,
           startedMs,
         };
@@ -966,7 +993,16 @@ async function fetchResourcesBatch(
     for (const resourceType of failedNames) {
       write(`  ${resourceType}: ${failed[resourceType]}`);
     }
-    for (const hint of failureHints(Object.values(failed), options.selectors.length > 0)) {
+    const failedStatuses = [...outcomes.values()].flatMap((outcome) => {
+      return outcome.kind === "failed" && outcome.httpStatus !== null
+        ? [outcome.httpStatus]
+        : [];
+    });
+    for (const hint of failureHints(
+      Object.values(failed),
+      options.selectors.length > 0,
+      failedStatuses,
+    )) {
       write(hint);
     }
   }

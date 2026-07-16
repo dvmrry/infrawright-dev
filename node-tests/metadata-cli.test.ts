@@ -503,6 +503,43 @@ test("nonzero Fetch, Transform, and Adopt results outrank report-write failure",
   }
 });
 
+test("Transform preserves the DROPS_CHECK exit-4 contract", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-cli-drops-check-"));
+  try {
+    const input = path.join(directory, "pulls");
+    const deployment = path.join(directory, "deployment.json");
+    await writeJson(deployment, { overlay: directory, roots: {} });
+    await writeJson(path.join(input, "zia_rule_labels.json"), [{
+      id: 7,
+      name: "Example",
+      newlyObservedField: "must-review",
+    }]);
+    const result = run([
+      "transform",
+      "--in", input,
+      "--tenant", "tenant",
+      "--resource", "zia_rule_labels",
+      "--deployment", deployment,
+      "--root", path.join(ROOT, "packs"),
+      "--profile", path.join(ROOT, "packsets", "full.json"),
+      "--catalog", path.join(ROOT, "packsets", "full.json"),
+    ], { DROPS_CHECK: "1" });
+    assert.equal(result.status, 4, result.stderr);
+    assert.match(result.stderr, /DROPS_CHECK=1 makes this exit 4/u);
+    assert.equal(
+      (await stat(path.join(
+        directory,
+        "config",
+        "tenant",
+        "zia_rule_labels.auto.tfvars.json",
+      ))).isFile(),
+      true,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("Make fetch targets invoke the Node CLI instead of Python", async () => {
   const makefile = await readFile(path.join(ROOT, "Makefile"), "utf8");
   const fetchStart = makefile.search(/^fetch:/m);

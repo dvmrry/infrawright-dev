@@ -7,6 +7,10 @@ import {
   type CollectorContext,
   type HttpResponse,
 } from "./types.js";
+import { maskCollectorIdentifiers } from "./diagnostics.js";
+import { CollectorHttpStatusError } from "./http-status-error.js";
+
+export { maskCollectorIdentifiers } from "./diagnostics.js";
 
 const ONEAPI_AUDIENCE = "https://api.zscaler.com";
 const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
@@ -236,7 +240,10 @@ async function acquireOneApi(
     url: tokenUrl,
   });
   if (response.status !== 200) {
-    return fail(`OneAPI token request failed: HTTP ${response.status}`);
+    throw new CollectorHttpStatusError(
+      `OneAPI token request failed: HTTP ${response.status}`,
+      response.status,
+    );
   }
   return bearerContext(tokenField(response, "access_token", "OneAPI token"));
 }
@@ -283,7 +290,10 @@ async function acquireZiaLegacy(
     url: new URL(`${ziaLegacyBase(input.context)}/api/v1/authenticatedSession`),
   });
   if (response.status !== 200) {
-    return fail(`ZIA session auth failed: HTTP ${response.status}`);
+    throw new CollectorHttpStatusError(
+      `ZIA session auth failed: HTTP ${response.status}`,
+      response.status,
+    );
   }
   // The injected transport owns and persists the authenticated session cookie.
   return Object.freeze({ headers: ACCEPT_HEADERS });
@@ -303,7 +313,10 @@ async function acquireZpaLegacy(
     url: new URL(`${zpaLegacyBase(input.context)}/signin`),
   });
   if (response.status !== 200) {
-    return fail(`ZPA signin failed: HTTP ${response.status}`);
+    throw new CollectorHttpStatusError(
+      `ZPA signin failed: HTTP ${response.status}`,
+      response.status,
+    );
   }
   return bearerContext(tokenField(response, "access_token", "ZPA signin"));
 }
@@ -437,18 +450,6 @@ export function collectorContext(input: {
       input.environment.ZPA_LEGACY_BASE_URL,
     ),
   });
-}
-
-/** Remove tenant-identifying vanity/customer values from relay-safe diagnostics. */
-export function maskCollectorIdentifiers(value: string): string {
-  return value
-    .replace(
-      /(^|[/.])([^/.]+)(\.zslogin[a-z0-9]*\.net)/gi,
-      (_match, prefix: string, _vanity: string, suffix: string) => {
-        return `${prefix}<vanity>${suffix}`;
-      },
-    )
-    .replace(/(\/customers\/)[^/]+/gi, "$1<customer-id>");
 }
 
 function debugVerbose(environment: NodeJS.ProcessEnv): boolean {

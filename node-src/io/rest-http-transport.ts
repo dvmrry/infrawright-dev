@@ -15,6 +15,7 @@ import type {
   HttpResponse,
   HttpTransport,
 } from "../collectors/types.js";
+import { maskCollectorIdentifiers } from "../collectors/diagnostics.js";
 import { collectorMaxRetries, retryDelayMs } from "../collectors/retry.js";
 import { ProcessFailure } from "../domain/errors.js";
 import type { PerformanceRecorder } from "../performance/recorder.js";
@@ -196,19 +197,13 @@ function validateBoundedInteger(
   return value;
 }
 
-function maskIdentifiers(text: string): string {
-  return text
-    .replace(/([/.]|^)([^/.]+)(\.zslogin[a-z0-9]*\.net)/gi, "$1<vanity>$3")
-    .replace(/(\/customers\/)[^/?#]+/gi, "$1<customer-id>");
-}
-
 function requestLocation(url: URL): string {
   const safe = new URL(url);
   safe.search = "";
   safe.hash = "";
   safe.username = "";
   safe.password = "";
-  return maskIdentifiers(safe.toString());
+  return maskCollectorIdentifiers(safe.toString());
 }
 
 function failureKind(error: unknown): "certificate" | "timeout" | "connection" {

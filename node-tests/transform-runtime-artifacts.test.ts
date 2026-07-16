@@ -1269,7 +1269,12 @@ test("DROPS_CHECK records failure only after writing tfvars and imports", async 
     selectors: ["zia_rule_labels"],
     tenant: "tenant",
   });
-  assert.deepEqual(result, { failed: ["zia_rule_labels"], processed: [], skipped: [] });
+  assert.deepEqual(result, {
+    dropCheckFailed: ["zia_rule_labels"],
+    failed: ["zia_rule_labels"],
+    processed: [],
+    skipped: [],
+  });
   assert.equal(await exists(path.join(
     workspace,
     "config",

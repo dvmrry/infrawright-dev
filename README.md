@@ -85,10 +85,14 @@ acceptance.
 ## Quickstart
 
 ```bash
-make check      # full gate: unit tests + demo/module/probe checks + metadata/audit gates
+make check      # Python-independent Node/runtime gate
 make demo       # materialize the demo tenant (no credentials needed)
 make demo-contract  # credential-free demo artifact/module contract check
 ```
+
+During the Python archive window, `npm run check:all` additionally runs the
+retained Python-oracle migration differentials. Python is not required by the
+operational CLI.
 
 ### Runtime requirements
 

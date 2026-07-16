@@ -16,6 +16,7 @@ import {
   type HttpResponse,
   type HttpTransport,
 } from "../node-src/collectors/rest.js";
+import { CollectorHttpStatusError } from "../node-src/collectors/http-status-error.js";
 import { loadPackRoot, type LoadedPackRoot } from "../node-src/metadata/loader.js";
 import { PerformanceRecorder } from "../node-src/performance/recorder.js";
 
@@ -507,7 +508,7 @@ test("shared OneAPI authentication failure is isolated into every selected produ
     const rejecting: CollectorAdapter = {
       ...adapter("zia"),
       async acquire() {
-        throw new Error("token request failed: HTTP 401");
+        throw new CollectorHttpStatusError("token request failed: HTTP 401", 401);
       },
     };
     const zpa: CollectorAdapter = {
@@ -517,11 +518,13 @@ test("shared OneAPI authentication failure is isolated into every selected produ
         return auth;
       },
     };
+    const diagnostics: string[] = [];
     const result = await fetchResources({
       adapters: new Map([["zia", rejecting], ["zpa", zpa]]),
       context,
       environment: {},
       mode: "oneapi",
+      onDiagnostic: (message) => diagnostics.push(message),
       outputDirectory: directory,
       root: packRoot,
       selectors: ["zia_advanced_settings", "zpa_segment_group"],
@@ -533,6 +536,7 @@ test("shared OneAPI authentication failure is isolated into every selected produ
       "zpa_segment_group",
     ]);
     assert.match(result.failed.zpa_segment_group ?? "", /^auth failed:/);
+    assert.ok(diagnostics.some((message) => message.includes("HTTP 401/403")));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -820,7 +824,7 @@ test("bounded scheduling rotates products instead of draining one product first"
   }
 });
 
-test("retry schedule and failure hints retain Python collector behavior", () => {
+test("retry schedule and failure hints use structured HTTP status", () => {
   assert.deepEqual(
     [0, 1, 2, 3, 4].map((attempt) => retryDelayMs(attempt, null)),
     [1_000, 2_000, 4_000, 8_000, 16_000],
@@ -833,8 +837,11 @@ test("retry schedule and failure hints retain Python collector behavior", () => 
   assert.equal(retryDelayMs(0, "Infinity"), 30_000);
   assert.equal(retryDelayMs(0, "-Infinity"), 0);
   assert.equal(retryDelayMs(0, "NaN"), 0);
-  const hints = failureHints(["GET endpoint returned HTTP 404"], true);
+  const hints = failureHints(["GET endpoint returned HTTP 404"], true, [404]);
   assert.ok(hints.some((hint) => hint.includes("ONE endpoint")));
   assert.ok(hints.some((hint) => hint.includes("only= scoped")));
   assert.equal(hints.at(-1), "Successful pulls above are unaffected either way.");
+
+  const unstructured = failureHints(["arbitrary text saying returned HTTP 404"]);
+  assert.equal(unstructured.some((hint) => hint.includes("ONE endpoint")), false);
 });

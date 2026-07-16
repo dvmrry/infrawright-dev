@@ -33,6 +33,7 @@ import {
 } from "./transform-artifacts.js";
 
 export interface TransformBatchResult {
+  readonly dropCheckFailed?: readonly string[];
   readonly failed: readonly string[];
   readonly processed: readonly string[];
   readonly skipped: readonly string[];
@@ -269,6 +270,7 @@ export async function runTransformBatch(options: {
   const processed: string[] = [];
   const skipped: string[] = [];
   const failed: string[] = [];
+  const dropCheckFailed: string[] = [];
   for (const resourceType of selection.resourceTypes) {
     const sourceType = transformSourceType(options.root, resourceType);
     const sourcePath = path.join(options.inputDirectory, `${sourceType}.json`);
@@ -344,6 +346,7 @@ export async function runTransformBatch(options: {
       });
       if (unexpected.length > 0 && options.environment?.DROPS_CHECK) {
         failed.push(resourceType);
+        dropCheckFailed.push(resourceType);
       } else {
         processed.push(resourceType);
       }
@@ -353,5 +356,10 @@ export async function runTransformBatch(options: {
     }
   }
   if (failed.length > 0) write(`\ntransform FAILED for: ${failed.join(" ")}`);
-  return { failed, processed, skipped };
+  return {
+    ...(dropCheckFailed.length === 0 ? {} : { dropCheckFailed }),
+    failed,
+    processed,
+    skipped,
+  };
 }

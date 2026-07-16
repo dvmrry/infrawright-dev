@@ -9,6 +9,7 @@ import {
   type ParseCommandArgumentsOptions,
   type ParsedCommandArguments,
 } from "./arguments.js";
+import { renderCliProcessFailure } from "./process-failure.js";
 import {
   deploymentConfigDir,
   deploymentEnvsDir,
@@ -510,7 +511,11 @@ async function transform(arguments_: string[]): Promise<number> {
     selectors: resources,
     tenant,
   });
-  return result.failed.length === 0 ? 0 : 1;
+  if (result.failed.length === 0) return 0;
+  const dropCheckFailed = new Set(result.dropCheckFailed ?? []);
+  return result.failed.every((resourceType) => dropCheckFailed.has(resourceType))
+    ? 4
+    : 1;
 }
 
 async function adopt(
@@ -532,7 +537,7 @@ async function adopt(
     "--root": {},
     "--tenant": {},
     "--terraform": {},
-  } }, { command });
+  } }, { command: "adopt" });
   root = lastOption(parsed, "--root") ?? root;
   profile = lastOption(parsed, "--profile") ?? profile;
   catalog = lastOption(parsed, "--catalog") ?? catalog;
@@ -1646,6 +1651,9 @@ if (primary === undefined) {
     const stream = error.stdout ? process.stdout : process.stderr;
     stream.write(`${error.stdout ? "" : "error: "}${message}\n`);
     process.exitCode = error.status;
+  } else if (error instanceof ProcessFailure) {
+    process.stderr.write(renderCliProcessFailure(error));
+    process.exitCode = 1;
   } else {
     process.stderr.write(`error: ${message}\n`);
     process.exitCode = 1;

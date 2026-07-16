@@ -16,6 +16,7 @@ import {
   type HttpResponse,
   type HttpTransport,
 } from "../node-src/collectors/types.js";
+import { CollectorHttpStatusError } from "../node-src/collectors/http-status-error.js";
 
 const EMPTY_CONTEXT = Object.freeze({ cloud: "", customerId: "" });
 
@@ -161,6 +162,28 @@ test("all products share the exact OneAPI auth and compose their own URLs", asyn
   );
 });
 
+test("authentication failures retain HTTP status as structured data", async () => {
+  const adapters = createZscalerCollectorAdapters();
+  const zia = adapters.get("zia");
+  assert.ok(zia);
+  const failure = await zia.acquire({
+    context: EMPTY_CONTEXT,
+    environment: {
+      ZSCALER_CLIENT_ID: "client",
+      ZSCALER_CLIENT_SECRET: "secret",
+      ZSCALER_VANITY_DOMAIN: "tenant",
+    },
+    mode: "oneapi",
+    transport: new RecordingTransport(response(403)),
+  }).then(
+    () => null,
+    (error: unknown) => error,
+  );
+  assert.ok(failure instanceof CollectorHttpStatusError);
+  assert.equal(failure.status, 403);
+  assert.equal(failure.message, "OneAPI token request failed: HTTP 403");
+});
+
 test("OneAPI host inputs reject cloud and vanity smuggling", async () => {
   const adapter = createZscalerCollectorAdapters().get("zia");
   assert.ok(adapter);
@@ -301,9 +324,9 @@ test("legacy ZCC and ZTC failures retain the product-scoping remediation", async
 test("diagnostic helpers mask identities and derive the same hosts", () => {
   assert.equal(
     maskCollectorIdentifiers(
-      "https://tenant.zsloginzscalertwo.net/zpa/customers/123/segmentGroup",
+      "https://tenant.zsloginzscalertwo.net/zpa/customers/123/segmentGroup?customer=visible",
     ),
-    "https://<vanity>.zsloginzscalertwo.net/zpa/customers/<customer-id>/segmentGroup",
+    "https://<vanity>.zsloginzscalertwo.net/zpa/customers/<customer-id>/segmentGroup?customer=visible",
   );
   const environment = {
     HTTPS_PROXY: "https://secret-proxy.example",
