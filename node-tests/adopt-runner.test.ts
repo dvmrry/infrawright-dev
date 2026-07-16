@@ -1245,6 +1245,16 @@ test("forwarding system rules are excluded before the Oracle without hiding mana
     order: -5,
     forwardMethod: "DIRECT",
   }, {
+    id: "negative",
+    name: "Unclassified Negative Rule",
+    order: -1,
+    forwardMethod: "DIRECT",
+  }, {
+    id: "zero",
+    name: "Unclassified Zero Rule",
+    order: 0,
+    forwardMethod: "DIRECT",
+  }, {
     id: "managed",
     name: "Managed Forwarding Rule",
     order: 1,
@@ -1265,9 +1275,9 @@ test("forwarding system rules are excluded before the Oracle without hiding mana
         sensitiveValues: {},
         values: {
           forward_method: "DIRECT",
-          id: "managed",
-          name: "Managed Forwarding Rule",
-          order: 1,
+          id: key,
+          name: key,
+          order: key === "managed_forwarding_rule" ? 1 : key === "unclassified_zero_rule" ? 0 : -1,
         },
       }]));
     },
@@ -1275,12 +1285,20 @@ test("forwarding system rules are excluded before the Oracle without hiding mana
   });
 
   assert.deepEqual(result.failed, []);
-  assert.deepEqual(oracleKeys, ["managed_forwarding_rule"]);
+  assert.deepEqual(oracleKeys, [
+    "unclassified_negative_rule",
+    "unclassified_zero_rule",
+    "managed_forwarding_rule",
+  ]);
   const tfvars = JSON.parse(await readFile(
     path.join(workspace, "config", "tenant", `${resourceType}.auto.tfvars.json`),
     "utf8",
   )) as { readonly items: Readonly<Record<string, unknown>> };
-  assert.deepEqual(Object.keys(tfvars.items), ["managed_forwarding_rule"]);
+  assert.deepEqual(Object.keys(tfvars.items), [
+    "managed_forwarding_rule",
+    "unclassified_negative_rule",
+    "unclassified_zero_rule",
+  ]);
 });
 
 test("Adopt preserves unresolved move evidence on an identical rerun", async (context) => {

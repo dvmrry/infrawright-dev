@@ -316,6 +316,33 @@ test("committed ZIA projection omits live-proven empty enums at nested and scala
       `${fixture.resourceType} retained`,
     );
   }
+
+  const scalarNull = await projectProviderState({
+    resourceType: "zia_dlp_dictionaries",
+    root: loaded,
+    stateValues: {
+      confidence_level_for_predefined_dict: null,
+      confidence_threshold: null,
+    },
+  });
+  assert.deepEqual(plain(scalarNull), {}, "optional scalar null remains Adopt-absent");
+
+  const repeatedNull = await projectProviderState({
+    resourceType: "zia_http_header_profile",
+    root: loaded,
+    stateValues: {
+      name: "Header",
+      http_header_profile_criteria: [{
+        header: "USERAGENT",
+        operator: null,
+        user_agent: null,
+      }],
+    },
+  });
+  assert.deepEqual(plain(repeatedNull), {
+    name: "Header",
+    http_header_profile_criteria: [{ header: "USERAGENT" }],
+  }, "optional repeated-block null remains Adopt-absent");
 });
 
 test("required attributes and required nested cardinality fail closed", async () => {

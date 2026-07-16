@@ -14,11 +14,9 @@
     },
     {
       "name": "Fallback mode of ZPA Forwarding"
-    }
-  ],
-  "skip_if_lte": [
+    },
     {
-      "order": 0
+      "name": "Fallback Mode of ZPA Forwarding"
     }
   ]
 }

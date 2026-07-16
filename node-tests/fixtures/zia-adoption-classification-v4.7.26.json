@@ -119,7 +119,9 @@
         {"id": 30, "name": "client connector traffic direct"},
         {"id": 31, "name": "Client Connector Traffic Direct ", "order": true},
         {"id": 32, "name": "Prefix Client Connector Traffic Direct", "order": "not-a-number"},
-        {"id": 33, "name": "Managed Forwarding Rule", "order": 1, "forwardMethod": "DIRECT"}
+        {"id": 33, "name": "Unclassified Negative Rule", "order": -1, "forwardMethod": "DIRECT"},
+        {"id": 34, "name": "Unclassified Zero Rule", "order": 0, "forwardMethod": "DIRECT"},
+        {"id": 35, "name": "Managed Forwarding Rule", "order": 1, "forwardMethod": "DIRECT"}
       ]
     },
     "zia_forwarding_control_zpa_gateway": {

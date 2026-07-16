@@ -5,13 +5,14 @@
 - Omit eight exact empty-string enum sentinels that ZIA provider 4.7.26 was
   reported to emit during live import/Read for DLP dictionaries, HTTP header
   profiles, locations, and SSL inspection rules.
-- Exclude forwarding-control system rules whose provider-observed `order` is
-  non-positive while retaining the four existing exact-name protections.
+- Exclude the live-reported protected-name capitalization variant while
+  retaining the four existing exact-name protections.
 - Apply the same committed pack rules in Transform, generated import config,
   and final Adopt provider-state projection without changing generic matcher
   semantics.
-- Preserve explicit `null`, every nonempty enum, managed forwarding rules, all
-  deployment topology defaults, and provider behavior.
+- Preserve existing `null` semantics (Transform/generated HCL retain explicit
+  `null`; Adopt treats optional `null` as absent), every nonempty enum, managed
+  forwarding rules, all deployment topology defaults, and provider behavior.
 
 ## Base / Head
 
@@ -73,29 +74,32 @@
 - Demo or lab outputs: none.
 - Artifact drift intentionally expected: Transform and Adopt tfvars, plus
   generated import HCL, omit only the eight exact `""` leaves; forwarding
-  rules matching either the retained exact-name set or numeric `order <= 0`
-  do not reach Transform/Oracle output.
+  rules matching the retained exact-name set or the reported exact
+  capitalization variant do not reach Transform/Oracle output.
 
 ## Expected Delta
 
 - Expected behavior change: exact empty strings at the eight paths are omitted
-  consistently in all three pack-policy consumers; non-positive forwarding
-  system rules are classified before identity derivation and Oracle work.
+  in all three pack-policy consumers; the reported protected-name variant is
+  classified before identity derivation and Oracle work.
 - Expected report/count/coverage changes: committed override count 73 -> 74;
   ZIA resources with semantic overrides 20 -> 21.
 - Expected generated-output changes: only affected empty-string leaves and
   system-owned forwarding objects disappear.
-- Expected no-op areas: `null`, nonempty strings, positive-order forwarding
-  rules, the existing four exact-name skips, provider execution, identity and
-  import-ID defaults, deployment grouping, cross-state references, and every
-  non-ZIA pack.
+- Expected no-op areas: nonempty strings, arbitrary non-positive and
+  positive-order forwarding rules, the existing four exact-name skips,
+  provider execution, identity and import-ID defaults, deployment grouping,
+  cross-state references, and every non-ZIA pack. Transform/generated HCL
+  preserve explicit `null`; Adopt retains its existing optional-null-as-absent
+  schema projection.
 
 ## Invariants Claimed
 
 - Evidence must not be silently dropped: each default is exact `""` equality
   on a schema-optional path; all nonempty values and explicit raw `null` values
-  remain distinct in Transform tests. Numeric forwarding classification is
-  additive to rather than a replacement for the source-backed name set.
+  remain distinct in Transform/generated-HCL tests, while Adopt's pre-existing
+  optional-null omission is explicit. The new forwarding classification is an
+  exact name, additive to rather than a replacement for the source-backed set.
 - Generic matcher evidence must not outrank source-backed evidence: no matcher
   implementation changes; the fixture retains exact provider-source anchors.
 - Source precedence/provenance must remain explicit: provider 4.7.26 is the
@@ -106,9 +110,9 @@
   added.
 - Provider-readiness counts must stay explainable: only the new DLP override
   file changes the committed override inventory.
-- Adoption safety invariants: forwarding system skips run before identity and
-  Oracle; managed positive-order objects survive; no deployment Apply or
-  provider mutation is introduced.
+- Adoption safety invariants: exact forwarding system skips run before identity
+  and Oracle; arbitrary non-positive and positive-order objects survive to the
+  Oracle; no deployment Apply or provider mutation is introduced.
 
 ## Tests Run
 
@@ -148,8 +152,8 @@
   generated-HCL policy test, and forwarding classification fixture.
 - Specific assumptions to attack: every path is optional and writable; dotted
   paths correctly traverse nested singleton/list blocks; exact matching does
-  not collapse `null` or nonempty values; the new forwarding predicate cannot
-  hide a representable managed rule under provider 4.7.26.
+  not collapse `null` or nonempty values; the new exact forwarding name cannot
+  hide an unrelated managed rule under provider 4.7.26.
 - Source evidence the reviewer should verify: committed schema flags, provider
   `order` validation, provider protected-name handling, generic `{id}` import
   fallback, and version pin.
@@ -157,5 +161,5 @@
   import HCL after policy, final Adopt JSON tfvars, and classification survivors.
 - Edge cases that could silently overclaim, remap, drop, or weaken evidence:
   explicit `null`, nested empty lists, repeated nested blocks, absent or
-  nonnumeric order, `order=0`, negative order, retained exact protected names,
-  and a provider upgrade changing the valid order range.
+  nonnumeric order, arbitrary `order=0`/negative rules, retained exact protected
+  names, and a provider upgrade changing the protected-name contract.
