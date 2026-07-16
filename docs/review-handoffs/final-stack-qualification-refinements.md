@@ -12,11 +12,11 @@
 
 ## Base / Head
 
-- Base: `8c53269513b3d6b0cec80bb5897413f24a307dcb`
-- Implementation head: `f6d3813830c92128163a403537f66e25bb3f77f9`
+- Base: `99a5fc2a0a8d3435ab848d444dc2cc05f1dacd0c`
+- Implementation head: `da7078493f5554dc6acd16dd82142a0d258f1095`
 - Exact rebased head used for the final local gates:
-  `0cd3a16fc456a1913241236d98f2e5b04ec36fea`
-- Review diff: `git diff 8c53269513b3d6b0cec80bb5897413f24a307dcb..HEAD`
+  `da7078493f5554dc6acd16dd82142a0d258f1095`
+- Review diff: `git diff 99a5fc2a0a8d3435ab848d444dc2cc05f1dacd0c..HEAD`
 - This handoff correction is the only change after the exact-head local gates.
 
 ## Files Changed
@@ -66,8 +66,10 @@
 - Expected behavior change: `iw` is the canonical operational CLI name while
   `infrawright` remains a compatibility alias for the same bundled entrypoint.
   The release smoke now requires the packed artifact to contain the CLI bundle
-  and checksum, installs it offline into a temporary prefix, and proves both
-  aliases return identical canonical `iw` help.
+  and checksum, installs it through the configured build registry into a
+  temporary prefix, and proves both aliases return identical canonical `iw`
+  help. The separate stripped-runtime smoke continues to prove that executing
+  the shipped bundle needs neither npm nor Python.
 - Expected report/count/coverage changes: none.
 - Expected generated-output changes: CLI usage and diagnostics now spell the
   canonical command `iw`; Terraform and adoption artifacts are unchanged.
@@ -97,13 +99,13 @@
   - `npm run check:all`
   - `make check`
   - `git diff --check`
-- Relevant output summary: on exact rebased head `0cd3a16`, full Node 1,284
+- Relevant output summary: on exact rebased head `da70784`, full Node 1,284
   passed, 0 failed, 1 skipped; repository gate 850 passed, 0 failed; pack
   validation and vendor-boundary audit passed. The exact-archive runtime release
-  smoke, including offline temporary installation and both aliases, passed on
-  the immediately preceding implementation-equivalent rebased head `61f7694`.
-  The only subsequent edit is this handoff correction; the reviewer should
-  rerun the focused runtime smoke on the final handoff head.
+  smoke also passed at `da70784`, including temporary installation through the
+  configured registry and both aliases. The only subsequent edit is this
+  handoff correction; the reviewer should rerun the focused runtime smoke on
+  the final handoff head.
 - Tests not run and why: live final-head cross-state qualification remains the
   downstream pre-production gate and requires approved credentials/backend;
   no live provider/backend/Apply was authorized here.
