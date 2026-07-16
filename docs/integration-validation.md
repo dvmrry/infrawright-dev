@@ -10,7 +10,7 @@ for a selected tenant/resource scope.
 This runbook is intentionally conservative. A validation failure is evidence to
 classify, not an automatic engine feature request.
 
-The commands below run through the generic Node 24 `infrawright` CLI. Python
+The commands below run through the generic Node 24 `iw` CLI. Python
 must be unavailable when qualifying the operational runtime; retained Python
 tests, differentials, probes, and authoring tools are outside this workflow.
 Repository fake-Terraform tests establish readiness to qualify, not live
@@ -68,12 +68,11 @@ make unstage-imports TENANT=<tenant> RESOURCE=<resource-or-provider>
 ```
 
 Run this persistent-writer sequence in one job-owned physical workspace and
-serialize it for the complete materialization output root. Concurrent jobs,
-including runs of the same branch, require disjoint workspaces and output
-roots. Configure that root as the exact canonical deployment overlay; a
-containing ancestor is not a second valid authority. The ADO path convention,
-single-writer behavior, and stale cleanup rules are defined in
-[ADR 0001](adr/0001-publisher-ownership.md).
+serialize writes to the active deployment overlay. Concurrent jobs, including
+runs of the same branch, require disjoint checkouts, overlays, generated
+artifacts, environment roots, saved plans, and Terraform working directories.
+The supported generic runtime does not provide a cross-process publisher lock:
+the pipeline owns workspace isolation and serialization for persistent writers.
 
 Selective `gen-modules`, `validate-modules`, `gen-env`, staging, planning, and
 Apply resolve through the same deployment topology. Selecting either member
@@ -88,7 +87,7 @@ fails before changing config, imports, lookups, bindings, or moves. Remove a
 move file explicitly only after confirming that its state migration has been
 applied (and after any required staged copy is no longer needed).
 
-### Frozen ZCC migration note
+### ZCC provider qualification
 
 Before qualifying ZCC adoption, use the
 [ZCC beta provider audit and downstream matrix](provider-labs/zcc-beta-provider-audit.md).
@@ -96,21 +95,11 @@ It pins the provider/SDK authority, separates pack-policy candidates from
 provider-only limitations, and records the live gates for the v1/v2 trusted
 network boundary and the two source-less v2 resources.
 
-The following process-host lane is retained only for consumers of the frozen
-ZCC migration architecture; it is not the primary generic operational path.
-For the exact five-resource Node ZCC provider-observed bootstrap lane, use a
-protected Python-reference workspace to obtain a complete exit-`0`
-`compare_adoption_artifacts` assertion, then submit that assertion unchanged to
-`materialize_adoption_artifacts` in the target job-owned workspace. Configure
-the existing adoption-oracle host authority and set
-`INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT` to the exact canonical target overlay.
-The guard is acquired before target binding; once binding derives the artifact
-coordinates, exact-root authority is proved before the materializer re-runs
-the provider oracle. Its receipt is byte/publication evidence, not a live plan
-result. Only after its exit `0` may the serialized workflow continue with
-`gen-env`, `stage-imports`, `plan SAVE=1`, and `assert-adoptable`. Do not treat
-fake-provider or repository differentials as live-tenant qualification, and do
-not apply from the materialization receipt alone.
+Qualify ZCC through the same generic Fetch, Adopt, module/root, staging, saved
+plan, assessment, and exact-plan Apply commands shown above. The retired ZCC
+process-host candidate/receipt/materialization lane is not a supported or
+required compatibility path. Do not treat fake-provider or repository
+differentials as live-tenant qualification.
 
 ### Saved-plan and Apply evidence
 
@@ -133,13 +122,6 @@ plan is bound to an unchanged referent-state version.
 When using a remote backend, also pass the same `BACKEND_CONFIG=<file>` to
 `plan`, `assert-adoptable` (or `assert-clean`), and `apply`. The saved-plan
 fingerprint treats a missing or changed backend config as stale.
-
-For a frozen Node ZCC refresh that returned `awaiting_apply`, call the versioned
-`acknowledge_pull_refresh` process operation only after the apply and unstage
-steps succeed. The acknowledgement requires the complete parity assertion,
-the complete publication receipt, `INFRAWRIGHT_MATERIALIZE_OUTPUT_ROOT`, and
-the host-only `INFRAWRIGHT_ALLOW_EXTERNAL_APPLY_ACK=1` capability. It is an
-explicit trusted-pipeline statement, not independent Terraform apply proof.
 
 Useful inspection and cleanup commands:
 
