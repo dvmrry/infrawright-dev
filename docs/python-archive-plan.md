@@ -23,6 +23,7 @@ The retained compatibility implementation contains approximately:
 | `engine/` | 49 | 15,946 | Remove after differential evidence is frozen. |
 | `tests/` | 49 | 23,474 | Replace live-oracle comparisons, then remove. |
 | pack collectors | 10 | 383 | Remove after collector fixtures no longer invoke them. |
+| archive generators | 4 | 2,170 | Remove atomically after their producing commits remain reachable. |
 
 The former `tools/zpa_provider_evidence.py` authority is now owned by the
 dedicated `iw zpa-provider-evidence` validator and its source-bound Node tests.
@@ -39,10 +40,11 @@ CPython authority retired `engine/gen_env.py`, `tests/test_gen_env.py`, and the
 two remaining Python environment-integration cases from
 `tests/test_group_bindings.py`.
 
-The shipped `iw` CLI is already Python-independent. The remaining dependency
-is a qualification dependency: 3 Node test files still import the live Python
-oracle during `npm run test:all`, CI still installs Python, and release guards
-still require representative Python files. Twenty-one direct contracts are now
+The shipped `iw` CLI is already Python-independent. All former live Python
+oracle calls in the Node suite now replay frozen authority and pass with
+`PYTHON=/usr/bin/false`; the oracle resolver and suite exclusion are removed.
+CI still installs Python, the legacy Python test lane remains, and release
+guards still require representative Python files. The direct contracts are
 frozen with their resurrection procedures in
 [Frozen Python oracle contracts](python-oracle-contracts.md).
 

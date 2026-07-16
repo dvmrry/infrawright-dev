@@ -1,7 +1,6 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,18 +16,112 @@ import {
   renderLegacyRootDiagnostics,
   renderLegacyRootTopology,
 } from "../node-src/cli/python-compatible-output.js";
+import { loadPackRoot } from "../node-src/metadata/loader.js";
+import { renderRootCatalog } from "../node-src/metadata/root-catalog.js";
 
 const WORKSPACE = process.cwd();
 const CATALOG = path.join(
   WORKSPACE,
   "catalogs/zscaler-root-catalog.v1.json",
 );
+const AUTHORITY_PATH = path.join(
+  WORKSPACE,
+  "node-tests/fixtures/python-differential-v1.json",
+);
+const AUTHORITY_SHA256 = "a77718b7710feea17a5dd82818e4c1acd7cf31a5779d22520fb9a7a173017dc4";
+
+interface FrozenBytes {
+  readonly base64: string;
+  readonly sha256: string;
+  readonly size: number;
+}
+
+interface FrozenRecord {
+  readonly arguments: readonly string[];
+  readonly exit_status: number;
+  readonly stderr: FrozenBytes;
+  readonly stdout: FrozenBytes;
+}
+
+interface DifferentialAuthority {
+  readonly kind: string;
+  readonly record_count: number;
+  readonly records: readonly FrozenRecord[];
+  readonly schema_version: number;
+  readonly suite: string;
+}
+
+let recordCursor = 0;
+const authorityPromise = readFile(AUTHORITY_PATH).then((bytes) => {
+  assert.equal(createHash("sha256").update(bytes).digest("hex"), AUTHORITY_SHA256);
+  const authority = JSON.parse(bytes.toString("utf8")) as DifferentialAuthority;
+  assert.equal(authority.kind, "python-engine-ops-delegation-authority");
+  assert.equal(authority.schema_version, 1);
+  assert.equal(authority.suite, "differential");
+  assert.equal(authority.record_count, 30);
+  assert.equal(authority.records.length, authority.record_count);
+  return authority;
+});
+
+function frozenText(blob: FrozenBytes): string {
+  const bytes = Buffer.from(blob.base64, "base64");
+  assert.equal(bytes.length, blob.size);
+  assert.equal(createHash("sha256").update(bytes).digest("hex"), blob.sha256);
+  return bytes.toString("utf8");
+}
+
+async function consumeRecord(arguments_: readonly string[]): Promise<FrozenRecord> {
+  const authority = await authorityPromise;
+  const record = authority.records[recordCursor];
+  assert.ok(record, `missing frozen differential record ${recordCursor}`);
+  assert.deepEqual(record.arguments, arguments_, `frozen differential record ${recordCursor}`);
+  assert.equal(record.exit_status, 0);
+  recordCursor += 1;
+  return record;
+}
+
+function normalizedText(
+  text: string,
+  roots: readonly (readonly [string, string, string?])[] = [],
+): string {
+  const replacements = new Map<string, string>();
+  for (const [root, placeholder, relativePlaceholder] of roots) {
+    replacements.set(root, placeholder);
+    const relative = path.relative(WORKSPACE, root);
+    if (relative !== "") replacements.set(relative, relativePlaceholder ?? placeholder);
+  }
+  let normalized = text;
+  for (const [source, target] of [...replacements].sort(([left], [right]) => {
+    return right.length - left.length;
+  })) {
+    normalized = normalized.replaceAll(source, target);
+  }
+  return normalized;
+}
+
+async function checkCatalog(packsRoot?: string): Promise<void> {
+  const record = await consumeRecord([
+    "-m", "engine.root_catalog", "--providers", "zcc,zia,zpa,ztc",
+    "--check", "<REPOSITORY_ROOT>/catalogs/zscaler-root-catalog.v1.json",
+  ]);
+  assert.equal(frozenText(record.stdout), "");
+  assert.equal(frozenText(record.stderr), "");
+  const expected = await readFile(CATALOG, "utf8");
+  assert.equal(
+    await renderRootCatalog(
+      await loadPackRoot({ packsRoot: packsRoot ?? path.join(WORKSPACE, "packs") }),
+      ["zcc", "zia", "zpa", "ztc"],
+    ),
+    expected,
+  );
+}
 
 async function compare(options: {
   deployment: string;
   tenant: string | null;
   selectors: readonly string[];
   packsRoot?: string;
+  normalize?: readonly (readonly [string, string, string?])[];
 }): Promise<void> {
   const catalog = await loadRootCatalog(CATALOG);
   const deployment = await loadDeployment(options.deployment);
@@ -43,25 +136,20 @@ async function compare(options: {
     args.push("--tenant", options.tenant);
   }
   args.push(...options.selectors);
-  const python = spawnSync(PYTHON_ORACLE, args, {
-    cwd: WORKSPACE,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      INFRAWRIGHT_DEPLOYMENT: options.deployment,
-      INFRAWRIGHT_PACKS: options.packsRoot ?? path.join(WORKSPACE, "packs"),
-    },
-  });
-  assert.equal(python.status, 0, python.stderr);
-  assert.equal(renderLegacyRootTopology(nodeResult.topology), python.stdout);
-  assert.equal(renderLegacyRootDiagnostics(nodeResult.diagnostics), python.stderr);
-  assert.deepEqual(nodeResult.topology, JSON.parse(python.stdout));
+  const record = await consumeRecord(args);
+  const stdout = frozenText(record.stdout);
+  const stderr = frozenText(record.stderr);
+  const rendered = normalizedText(renderLegacyRootTopology(nodeResult.topology), options.normalize);
+  assert.equal(rendered, stdout);
+  assert.equal(normalizedText(renderLegacyRootDiagnostics(nodeResult.diagnostics), options.normalize), stderr);
+  assert.deepEqual(JSON.parse(rendered), JSON.parse(stdout));
 }
 
 async function compareScope(options: {
   deployment: string;
   paths: readonly string[];
   packsRoot?: string;
+  normalize?: readonly (readonly [string, string, string?])[];
 }): Promise<void> {
   const catalog = await loadRootCatalog(CATALOG);
   const deployment = await loadDeployment(options.deployment);
@@ -72,23 +160,13 @@ async function compareScope(options: {
     workspace: WORKSPACE,
     paths: options.paths,
   });
-  const python = spawnSync(
-    PYTHON_ORACLE,
-    ["-m", "engine.ops", "scope-paths", "--json", "--paths-json", "-"],
-    {
-      cwd: WORKSPACE,
-      input: JSON.stringify(options.paths),
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        INFRAWRIGHT_DEPLOYMENT: options.deployment,
-        INFRAWRIGHT_PACKS: options.packsRoot ?? path.join(WORKSPACE, "packs"),
-      },
-    },
-  );
-  assert.equal(python.status, 0, python.stderr);
-  assert.equal(renderLegacyChangedPathScope(nodeResult), python.stdout);
-  assert.deepEqual(nodeResult, JSON.parse(python.stdout));
+  const record = await consumeRecord([
+    "-m", "engine.ops", "scope-paths", "--json", "--paths-json", "-",
+  ]);
+  const stdout = frozenText(record.stdout);
+  const rendered = normalizedText(renderLegacyChangedPathScope(nodeResult), options.normalize);
+  assert.equal(rendered, stdout);
+  assert.deepEqual(JSON.parse(rendered), JSON.parse(stdout));
 }
 
 async function comparePlanRoots(options: {
@@ -96,6 +174,7 @@ async function comparePlanRoots(options: {
   tenant: string | null;
   selectors: readonly string[];
   packsRoot?: string;
+  normalize?: readonly (readonly [string, string, string?])[];
 }): Promise<Awaited<ReturnType<typeof planRoots>>> {
   const catalog = await loadRootCatalog(CATALOG);
   const deployment = await loadDeployment(options.deployment);
@@ -111,36 +190,18 @@ async function comparePlanRoots(options: {
     args.push("--tenant", options.tenant);
   }
   args.push(...options.selectors);
-  const python = spawnSync(PYTHON_ORACLE, args, {
-    cwd: WORKSPACE,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      INFRAWRIGHT_DEPLOYMENT: options.deployment,
-      INFRAWRIGHT_PACKS: options.packsRoot ?? path.join(WORKSPACE, "packs"),
-    },
-  });
-  assert.equal(python.status, 0, python.stderr);
-  assert.equal(renderLegacyPlanRoots(nodeResult.result), python.stdout);
-  assert.equal(renderLegacyRootDiagnostics(nodeResult.diagnostics), python.stderr);
-  assert.deepEqual(nodeResult.result, JSON.parse(python.stdout));
+  const record = await consumeRecord(args);
+  const stdout = frozenText(record.stdout);
+  const stderr = frozenText(record.stderr);
+  const rendered = normalizedText(renderLegacyPlanRoots(nodeResult.result), options.normalize);
+  assert.equal(rendered, stdout);
+  assert.equal(normalizedText(renderLegacyRootDiagnostics(nodeResult.diagnostics), options.normalize), stderr);
+  assert.deepEqual(JSON.parse(rendered), JSON.parse(stdout));
   return nodeResult;
 }
 
-test("committed Zscaler catalog is current", () => {
-  const check = spawnSync(
-    PYTHON_ORACLE,
-    [
-      "-m",
-      "engine.root_catalog",
-      "--providers",
-      "zcc,zia,zpa,ztc",
-      "--check",
-      CATALOG,
-    ],
-    { cwd: WORKSPACE, encoding: "utf8" },
-  );
-  assert.equal(check.status, 0, check.stderr);
+test("committed Zscaler catalog is current", async () => {
+  await checkCatalog();
 });
 
 test("pruned Zscaler pack root produces the same catalog and topology", async () => {
@@ -160,23 +221,7 @@ test("pruned Zscaler pack root produces the same catalog and topology", async ()
       path.join(packsRoot, "_shared/zscaler"),
       { recursive: true },
     );
-    const check = spawnSync(
-      PYTHON_ORACLE,
-      [
-        "-m",
-        "engine.root_catalog",
-        "--providers",
-        "zcc,zia,zpa,ztc",
-        "--check",
-        CATALOG,
-      ],
-      {
-        cwd: WORKSPACE,
-        encoding: "utf8",
-        env: { ...process.env, INFRAWRIGHT_PACKS: packsRoot },
-      },
-    );
-    assert.equal(check.status, 0, check.stderr);
+    await checkCatalog(packsRoot);
     await compare({
       deployment: path.join(directory, "missing.json"),
       tenant: "prod",
@@ -236,6 +281,7 @@ test("grouping, notes, and unnormalized overlay paths match Python", async () =>
       deployment,
       tenant: "prod",
       selectors: ["zpa_application_segment"],
+      normalize: [[directory, "<NODE_WORKSPACE_ROOT>"]],
     });
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -264,6 +310,7 @@ test("empty deployments, Python-falsey overlays, and slug roots match", async ()
       deployment,
       tenant: "prod",
       selectors: ["zpa_application_segment"],
+      normalize: [[directory, "<NODE_WORKSPACE_ROOT>"]],
     });
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -388,6 +435,7 @@ test("changed-path scope bytes match Python across artifact kinds", async () => 
         deployment,
         "unrelated/file.txt",
       ],
+      normalize: [[directory, "<NODE_WORKSPACE_ROOT>"]],
     });
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -415,6 +463,7 @@ test("changed-path scope bytes match Python for overlay and module_dir", async (
         `${overlay}/imports/prod/zia_url_filtering_rules_moves.tf`,
         `${moduleDir}/zpa_application_segment/variables.tf`,
       ],
+      normalize: [[directory, "<NODE_WORKSPACE_ROOT>"]],
     });
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -451,7 +500,18 @@ test("external overlay spellings and missing leaves match Python", async () => {
       "config/prod/zpa_segment_group.auto.tfvars.json",
     );
     for (const spelling of [absolute, relative, alias]) {
-      await compareScope({ deployment, paths: [spelling] });
+      await compareScope({
+        deployment,
+        paths: [spelling],
+        normalize: [
+          [directory, "<NODE_WORKSPACE_ROOT>"],
+          [
+            external,
+            "<OVERLAY_ROOT>",
+            spelling === relative ? "../../..<OVERLAY_ROOT>" : "<OVERLAY_ROOT>",
+          ],
+        ],
+      });
     }
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -468,7 +528,15 @@ test("external deployment absolute, relative, and alias spellings match Python",
     const alias = path.join(directory, "deployment-alias.json");
     await symlink(deployment, alias);
     for (const spelling of [deployment, relative, alias]) {
-      await compareScope({ deployment, paths: [spelling] });
+      await compareScope({
+        deployment,
+        paths: [spelling],
+        normalize: [[
+          directory,
+          "<NODE_WORKSPACE_ROOT>",
+          spelling === relative ? "../../..<NODE_WORKSPACE_ROOT>" : "<NODE_WORKSPACE_ROOT>",
+        ]],
+      });
     }
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -481,7 +549,11 @@ test("dangling deployment aliases retain deleted-target scoping parity", async (
     const target = path.join(directory, "deleted-deployment.json");
     const alias = path.join(directory, "deployment-alias.json");
     await symlink(target, alias);
-    await compareScope({ deployment: alias, paths: [alias, target] });
+    await compareScope({
+      deployment: alias,
+      paths: [alias, target],
+      normalize: [[directory, "<NODE_WORKSPACE_ROOT>"]],
+    });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -501,6 +573,10 @@ test("dangling targets resolve symlink components before parent traversal", asyn
     await compareScope({
       deployment: deploymentAlias,
       paths: [deploymentAlias, deletedDeployment],
+      normalize: [
+        [directory, "<NODE_WORKSPACE_ROOT>"],
+        [external, "<TARGET_ROOT>"],
+      ],
     });
 
     const deployment = path.join(directory, "deployment.json");
@@ -514,6 +590,10 @@ test("dangling targets resolve symlink components before parent traversal", asyn
       paths: [
         path.join(overlayAlias, relativeArtifact),
         path.join(deletedOverlay, relativeArtifact),
+      ],
+      normalize: [
+        [directory, "<NODE_WORKSPACE_ROOT>"],
+        [external, "<TARGET_ROOT>"],
       ],
     });
   } finally {
@@ -586,11 +666,13 @@ test("materialized plan-root artifact states and grouped diagnostics match Pytho
       deployment,
       tenant: null,
       selectors: ["zpa_application_segment", "zpa_application_segment"],
+      normalize: [[directory, "<NODE_WORKSPACE_ROOT>"]],
     });
     await comparePlanRoots({
       deployment,
       tenant: "complete",
       selectors: ["zpa"],
+      normalize: [[directory, "<NODE_WORKSPACE_ROOT>"]],
     });
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -612,6 +694,7 @@ test("relative unnormalized plan-root overlays preserve Python path bytes", asyn
       deployment,
       tenant: "prod",
       selectors: ["zpa/application_segment"],
+      normalize: [[directory, "<PLAN_ROOTS_WORKSPACE>"]],
     });
     assert.equal(compared.result.roots.length, 1);
     assert.equal(
@@ -649,6 +732,7 @@ test("plan-root discovery validates only selected recognized tenant roots", asyn
       deployment: deploymentPath,
       tenant: null,
       selectors: ["zia/url_categories"],
+      normalize: [[directory, "<NODE_WORKSPACE_ROOT>"]],
     });
     assert.deepEqual(ignored.result.roots, []);
     await mkdir(path.join(overlay, "envs/also bad/unknown_root"), {
@@ -658,6 +742,7 @@ test("plan-root discovery validates only selected recognized tenant roots", asyn
       deployment: deploymentPath,
       tenant: null,
       selectors: ["ztc/dns_gateway"],
+      normalize: [[directory, "<NODE_WORKSPACE_ROOT>"]],
     });
     assert.deepEqual(unknownIgnored.result.roots, []);
   } finally {
@@ -680,4 +765,9 @@ test("plan_roots validates unknown selectors before semantic root resolution", a
     }),
     /unknown or non-generated resource selector/,
   );
+});
+
+test("frozen differential authority is consumed exactly once in recorded order", async () => {
+  const authority = await authorityPromise;
+  assert.equal(recordCursor, authority.record_count);
 });

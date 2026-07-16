@@ -20,7 +20,6 @@ const DEFAULT_REQUIREMENTS = path.join(
   "pack-test-requirements.json",
 );
 const COMPONENT_NAME = /^[a-z0-9][a-z0-9_-]*$/u;
-const PYTHON_ORACLE_IMPORT = /^[\t ]*(?:import\b|[}]?[\t ]*from\b)[^\r\n]*["']\.\/python-oracle\.js["']/mu;
 const HARDCODED_PYTHON_SUBPROCESS = /^(?![\t ]*(?:\/\/|\*))[^\r\n"'`]*(?:\b|\.)(?:execFile|execFileSync|spawn|spawnSync)\s*\(\s*["'`]python(?:3(?:\.\d+)*)?["'`]/mu;
 
 function usage(message) {
@@ -167,7 +166,7 @@ function missingItems(required, active) {
   return required.filter((item) => !installed.has(item));
 }
 
-async function loadSelection(options, files, pythonOracleFiles) {
+async function loadSelection(options, files) {
   const [profile, catalog, document] = await Promise.all([
     packSet(options.profile, "pack profile"),
     packSet(options.catalog, "pack catalog"),
@@ -192,7 +191,6 @@ async function loadSelection(options, files, pythonOracleFiles) {
   }
 
   const available = new Set(files);
-  const pythonOracle = new Set(pythonOracleFiles);
   const rules = new Map();
   let previous;
   for (const [index, rule] of document.rules.entries()) {
@@ -230,9 +228,6 @@ async function loadSelection(options, files, pythonOracleFiles) {
     if (!available.has(rule.file)) {
       throw new Error(`${label} targets stale or missing file ${rule.file}`);
     }
-    if (pythonOracle.has(rule.file)) {
-      throw new Error(`${label} redundantly targets a Python-oracle test`);
-    }
     rules.set(rule.file, { packs, shared });
   }
   return { profile, rules };
@@ -258,27 +253,18 @@ async function discover(options) {
   }
 
   const sources = new Map();
-  const pythonOracleFiles = [];
   for (const name of files) {
     const file = path.join(compiledDirectory, name);
     const source = await readFile(file, "utf8");
     sources.set(name, { file, source });
-    if (PYTHON_ORACLE_IMPORT.test(source)) {
-      pythonOracleFiles.push(name);
-    }
   }
 
-  const selection = await loadSelection(options, files, pythonOracleFiles);
-  const pythonOracle = new Set(pythonOracleFiles);
+  const selection = await loadSelection(options, files);
   const selected = [];
   const excluded = [];
   const violations = [];
   for (const name of files) {
     const { file, source } = sources.get(name);
-    if (pythonOracle.has(name)) {
-      excluded.push({ file, name, reason: "imports-python-oracle" });
-      continue;
-    }
     const rule = selection.rules.get(name);
     if (rule !== undefined) {
       const missingPacks = missingItems(rule.packs, selection.profile.packs);
@@ -297,9 +283,6 @@ async function discover(options) {
 }
 
 function reportFor(discovery) {
-  const pythonOracleCount = discovery.excluded.filter(({ reason }) => {
-    return reason === "imports-python-oracle";
-  }).length;
   const missingPackCount = discovery.excluded.filter(({ reason }) => {
     return reason === "missing-pack-requirements";
   }).length;
@@ -307,7 +290,6 @@ function reportFor(discovery) {
     excluded: discovery.excluded.map(({ name, reason }) => ({ name, reason })),
     excluded_count: discovery.excluded.length,
     excluded_missing_pack_requirements_count: missingPackCount,
-    excluded_python_oracle_count: pythonOracleCount,
     selected: discovery.selected.map(({ name }) => name),
     selected_count: discovery.selected.length,
     total_count: discovery.total,
@@ -317,7 +299,6 @@ function reportFor(discovery) {
 function renderSummary(discovery) {
   const report = reportFor(discovery);
   return `node-test-suite: selected=${discovery.selected.length} `
-    + `excluded_python_oracle=${report.excluded_python_oracle_count} `
     + `excluded_missing_pack_requirements=${report.excluded_missing_pack_requirements_count} `
     + `total=${discovery.total}`;
 }
