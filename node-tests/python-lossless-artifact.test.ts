@@ -1,6 +1,7 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 
 import { LosslessNumber } from "lossless-json";
@@ -10,6 +11,75 @@ import { parseDataJsonLosslessly } from "../node-src/json/control.js";
 import {
   renderPythonLosslessArtifactJson,
 } from "../node-src/json/python-lossless-artifact.js";
+
+const INTEGER_JSON_CONTRACT = [
+  "{",
+  '  "10": "ten",',
+  '  "2": "two",',
+  '  "ascii": "\\u00e9/\\\\\\\"\\n",',
+  '  "astral": "\\ud83d\\ude00",',
+  '  "bmp": "\\ue000",',
+  '  "huge": 900719925474099312345678901234567890,',
+  '  "negative_zero": 0,',
+  '  "nested": [',
+  "    true,",
+  "    null,",
+  "    9007199254740991",
+  "  ]",
+  "}",
+  "",
+].join("\n");
+const ESCAPE_BOUNDARY_SHA256 =
+  "2d907bca66a50050764468e30d33122bbdbc17bafddfd47e60301c1248b789d6";
+const FINITE_FLOAT_JSON_CONTRACT = [
+  "[",
+  "  0.0,",
+  "  -0.0,",
+  "  1.0,",
+  "  0.0001,",
+  "  1e-05,",
+  "  1000000000000000.0,",
+  "  1e+16,",
+  "  1e+20,",
+  "  9.999999999999999e-05,",
+  "  100000000000000.1,",
+  "  1.0000000000000002,",
+  "  0.0,",
+  "  5e-324,",
+  "  1.7976931348623157e+308",
+  "]",
+  "",
+].join("\n");
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function binary64Contract(): {
+  readonly authority: {
+    readonly python: string;
+    readonly unicode: string;
+  };
+  readonly baseline: string;
+  readonly contract: string;
+  readonly corpus: {
+    readonly finite_values: number;
+    readonly generated_values: number;
+  };
+  readonly kind: string;
+  readonly output: {
+    readonly bytes: number;
+    readonly sha256: string;
+  };
+  readonly version: number;
+} {
+  return JSON.parse(readFileSync(path.join(
+    process.cwd(),
+    "node-tests",
+    "fixtures",
+    "python-lossless-binary64-v1.json",
+  ), "utf8")) as ReturnType<typeof binary64Contract>;
+}
 
 function expectInvalid(run: () => unknown, secret?: string): ProcessFailure {
   let failure: unknown;
@@ -27,7 +97,7 @@ function expectInvalid(run: () => unknown, secret?: string): ProcessFailure {
   return failure;
 }
 
-test("lossless artifact renderer matches Python bytes for integer JSON", () => {
+test("lossless artifact renderer matches frozen Python bytes for integer JSON", () => {
   const source = [
     "{",
     '"2":"two",',
@@ -40,19 +110,10 @@ test("lossless artifact renderer matches Python bytes for integer JSON", () => {
     '"nested":[true,null,9007199254740991]',
     "}",
   ].join("");
-  const python = spawnSync(
-    PYTHON_ORACLE,
-    [
-      "-c",
-      "import json,sys; value=json.loads(sys.stdin.read()); sys.stdout.write(json.dumps(value, indent=2, sort_keys=True)+'\\n')",
-    ],
-    { input: source, encoding: "utf8" },
-  );
-  assert.equal(python.status, 0, python.stderr);
   const rendered = renderPythonLosslessArtifactJson(
     parseDataJsonLosslessly(source),
   );
-  assert.equal(rendered, python.stdout);
+  assert.equal(rendered, INTEGER_JSON_CONTRACT);
   assert.match(rendered, /900719925474099312345678901234567890/);
   assert.match(rendered, /"negative_zero": 0/);
   assert.match(rendered, /\\u00e9/);
@@ -61,7 +122,7 @@ test("lossless artifact renderer matches Python bytes for integer JSON", () => {
   assert.ok(rendered.indexOf('"bmp"') < rendered.indexOf('"huge"'));
 });
 
-test("ASCII and Unicode escape boundaries match Python in keys and values", () => {
+test("ASCII and Unicode escape boundaries match frozen Python bytes", () => {
   const boundaryPoints = [
     0x00,
     0x07,
@@ -97,18 +158,9 @@ test("ASCII and Unicode escape boundaries match Python in keys and values", () =
   }
   value.sequence = boundaryPoints.map((point) => String.fromCodePoint(point)).join("");
 
-  const source = JSON.stringify(value);
-  const python = spawnSync(
-    PYTHON_ORACLE,
-    [
-      "-c",
-      "import json,sys; value=json.loads(sys.stdin.read()); sys.stdout.write(json.dumps(value, indent=2, sort_keys=True)+'\\n')",
-    ],
-    { input: source, encoding: "utf8" },
-  );
-  assert.equal(python.status, 0, python.stderr);
   const rendered = renderPythonLosslessArtifactJson(value);
-  assert.equal(rendered, python.stdout);
+  assert.equal(Buffer.byteLength(rendered, "utf8"), 539);
+  assert.equal(sha256(rendered), ESCAPE_BOUNDARY_SHA256);
   assert.match(rendered, /"\\u007f": "\\u007f"/);
   assert.match(rendered, /"\\u0080": "\\u0080"/);
   assert.match(rendered, /"~": "~"/);
@@ -154,7 +206,7 @@ test("safe native integers and integral lossless tokens render canonically", () 
   );
 });
 
-test("finite lossless floats match Python bytes across notation boundaries", () => {
+test("finite lossless floats match frozen Python bytes across notation boundaries", () => {
   const source = [
     "0.0",
     "-0.0",
@@ -171,24 +223,15 @@ test("finite lossless floats match Python bytes across notation boundaries", () 
     "5e-324",
     "1.7976931348623157e308",
   ];
-  const python = spawnSync(
-    PYTHON_ORACLE,
-    [
-      "-c",
-      "import json,sys; value=json.loads(sys.stdin.read()); sys.stdout.write(json.dumps(value, indent=2)+'\\n')",
-    ],
-    { input: `[${source.join(",")}]`, encoding: "utf8" },
-  );
-  assert.equal(python.status, 0, python.stderr);
   assert.equal(
     renderPythonLosslessArtifactJson(
       source.map((token) => new LosslessNumber(token)),
     ),
-    python.stdout,
+    FINITE_FLOAT_JSON_CONTRACT,
   );
 });
 
-test("finite float spelling matches Python across deterministic binary64 values", () => {
+test("finite float spelling matches the frozen Python binary64 corpus", () => {
   const buffer = new ArrayBuffer(8);
   const view = new DataView(buffer);
   const mask = (1n << 64n) - 1n;
@@ -207,26 +250,26 @@ test("finite float spelling matches Python across deterministic binary64 values"
     }
     tokens.push(token);
   }
-  const python = spawnSync(
-    PYTHON_ORACLE,
-    [
-      "-c",
-      "import json,sys; value=json.loads(sys.stdin.read()); sys.stdout.write(json.dumps(value, separators=(',', ':')))",
-    ],
-    { input: `[${tokens.join(",")}]`, encoding: "utf8" },
-  );
-  assert.equal(python.status, 0, python.stderr);
   const rendered = renderPythonLosslessArtifactJson(
     tokens.map((token) => new LosslessNumber(token)),
   );
-  assert.deepEqual(
-    JSON.parse(rendered),
-    JSON.parse(python.stdout),
-  );
-  // JSON.parse numeric equality alone would not catch exponent padding or
-  // fixed/scientific notation differences, so also compare compact tokens.
   const compactNode = rendered.replace(/\s+/g, "");
-  assert.equal(compactNode, python.stdout);
+  const contract = binary64Contract();
+  assert.deepEqual(contract, {
+    authority: { python: "3.13.13", unicode: "15.1.0" },
+    baseline: "7e1e65487a248c4484c9df75d3b0202e0a6c106a",
+    contract: "json.dumps(value, separators=(',', ':'))",
+    corpus: { finite_values: 2047, generated_values: 2048 },
+    kind: "infrawright.python-oracle-contract",
+    output: {
+      bytes: 48113,
+      sha256: "b9aa893f014c62d6922b519b7e870a9c45379b1baeb5925bd8c95ab1fcabf620",
+    },
+    version: 1,
+  });
+  assert.equal(tokens.length, contract.corpus.finite_values);
+  assert.equal(Buffer.byteLength(compactNode, "utf8"), contract.output.bytes);
+  assert.equal(sha256(compactNode), contract.output.sha256);
 });
 
 test("native floats, non-finite lexemes, and unsafe native numbers fail", () => {
