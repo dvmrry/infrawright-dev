@@ -12,20 +12,31 @@
 
 ## Base / Head
 
-- Base: `5144422147f02cc0adec8e1bc642a2c943306fd0`
-- Head: `caf824150d37ca65e858f306a4f990a27564c745`
-- Diff command:
-  `git diff 5144422147f02cc0adec8e1bc642a2c943306fd0..caf824150d37ca65e858f306a4f990a27564c745`
+- Base: `8c53269513b3d6b0cec80bb5897413f24a307dcb`
+- Implementation head: `f6d3813830c92128163a403537f66e25bb3f77f9`
+- Exact rebased head used for the final local gates:
+  `0cd3a16fc456a1913241236d98f2e5b04ec36fea`
+- Review diff: `git diff 8c53269513b3d6b0cec80bb5897413f24a307dcb..HEAD`
+- This handoff correction is the only change after the exact-head local gates.
 
 ## Files Changed
 
 - Files:
+  - `README.md`
   - `docs/integration-validation.md`
+  - `docs/node-process-api.md`
+  - `docs/operational-runtime.md`
   - `docs/provider-labs/cross-state-reference-qualification.md`
+  - `docs/provider-probes.md`
+  - `node-src/cli/main.ts`
+  - `node-tests/cli-bundle.test.ts`
+  - `package-lock.json`
+  - `package.json`
   - `scripts/test-runtime-release.mjs`
-- Files intentionally left untouched: package metadata, bundle generation,
-  runtime verification, all production TypeScript, packs, providers, Terraform
-  topology, saved-plan contracts, assessment, and exact Apply.
+  - `scripts/verify-runtime-release.mjs`
+  - this review handoff
+- Files intentionally left untouched: packs, providers, Terraform topology,
+  saved-plan contracts, assessment, and exact Apply.
 
 ## Source Inputs Consulted
 
@@ -52,14 +63,16 @@
 
 ## Expected Delta
 
-- Expected behavior change: test-only. A release smoke now requires the packed
-  artifact to contain the CLI bundle and checksum, installs it offline into a
-  temporary prefix, and proves both aliases return identical canonical `iw`
-  help.
+- Expected behavior change: `iw` is the canonical operational CLI name while
+  `infrawright` remains a compatibility alias for the same bundled entrypoint.
+  The release smoke now requires the packed artifact to contain the CLI bundle
+  and checksum, installs it offline into a temporary prefix, and proves both
+  aliases return identical canonical `iw` help.
 - Expected report/count/coverage changes: none.
-- Expected generated-output changes: none.
-- Expected no-op areas: every shipped runtime operation and all Terraform
-  behavior.
+- Expected generated-output changes: CLI usage and diagnostics now spell the
+  canonical command `iw`; Terraform and adoption artifacts are unchanged.
+- Expected no-op areas: every shipped runtime operation other than its command
+  spelling and all Terraform behavior.
 
 ## Invariants Claimed
 
@@ -84,10 +97,13 @@
   - `npm run check:all`
   - `make check`
   - `git diff --check`
-- Relevant output summary: exact-archive runtime release smoke passed, including
-  offline temporary installation and both aliases; full Node 1,284 passed,
-  0 failed, 1 skipped; repository gate 850 passed, 0 failed; pack validation
-  and vendor-boundary audit passed.
+- Relevant output summary: on exact rebased head `0cd3a16`, full Node 1,284
+  passed, 0 failed, 1 skipped; repository gate 850 passed, 0 failed; pack
+  validation and vendor-boundary audit passed. The exact-archive runtime release
+  smoke, including offline temporary installation and both aliases, passed on
+  the immediately preceding implementation-equivalent rebased head `61f7694`.
+  The only subsequent edit is this handoff correction; the reviewer should
+  rerun the focused runtime smoke on the final handoff head.
 - Tests not run and why: live final-head cross-state qualification remains the
   downstream pre-production gate and requires approved credentials/backend;
   no live provider/backend/Apply was authorized here.
