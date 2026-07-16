@@ -20,8 +20,8 @@ The retained compatibility implementation contains approximately:
 
 | Surface | Files | Lines | Disposition |
 |---|---:|---:|---|
-| `engine/` | 53 | 21,205 | Remove after differential evidence is frozen. |
-| `tests/` | 52 | 28,723 | Replace live-oracle comparisons, then remove. |
+| `engine/` | 51 | 18,523 | Remove after differential evidence is frozen. |
+| `tests/` | 50 | 25,351 | Replace live-oracle comparisons, then remove. |
 | pack collectors | 10 | 383 | Remove after collector fixtures no longer invoke them. |
 
 The former `tools/zpa_provider_evidence.py` authority is now owned by the
@@ -40,9 +40,9 @@ two remaining Python environment-integration cases from
 `tests/test_group_bindings.py`.
 
 The shipped `iw` CLI is already Python-independent. The remaining dependency
-is a qualification dependency: 8 Node test files still import the live Python
+is a qualification dependency: 6 Node test files still import the live Python
 oracle during `npm run test:all`, CI still installs Python, and release guards
-still require representative Python files. Seventeen direct contracts are now
+still require representative Python files. Nineteen direct contracts are now
 frozen with their resurrection procedures in
 [Frozen Python oracle contracts](python-oracle-contracts.md).
 

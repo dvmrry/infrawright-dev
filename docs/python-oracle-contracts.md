@@ -301,6 +301,65 @@ authority. The source blobs and fixture digest prevent the evidence from
 becoming a Node-to-Node self-comparison. No provider, backend, credentials,
 network access, deployment plan, or Apply is involved.
 
+## Source-operation and SDK-path contracts
+
+The tenth archive slice was produced from baseline
+`7d90752ac4b800c5509b380d02dc828749f891a6`, using CPython 3.13.13 with
+UCD 15.1.0. Re-run the complete retired authorities from that exact state:
+
+```sh
+git worktree add /tmp/iw-python-source-operation \
+  7d90752ac4b800c5509b380d02dc828749f891a6
+cp scripts/archive/generate-source-operation-authority.py \
+  /tmp/iw-python-source-operation/scripts/archive/
+cd /tmp/iw-python-source-operation
+python3 scripts/archive/generate-source-operation-authority.py
+PYTHON=python3 npm run build:test
+PYTHON=python3 node --test \
+  .node-test/node-tests/authoring-source-operation-map.test.js \
+  .node-test/node-tests/authoring-sdk-path-evidence.test.js \
+  .node-test/node-tests/authoring-cli.test.js
+PYTHON=python3 python -m unittest \
+  tests.test_source_operation_map tests.test_sdk_path_evidence
+```
+
+The reproduction script is 31,602 bytes with SHA-256
+`4a3df279ba4f4b561373e57aebd13a297161ffb5f3cea0000896a46bc884a12a`.
+It validates the checked-out baseline, CPython/UCD authority, and all twenty
+Python, Node, test, and transitive source locks before importing the retired
+implementation. It regenerates both frozen fixtures and is temporary migration
+evidence; remove it with the final Python archive after this commit is reachable
+in git history.
+
+`node-tests/fixtures/python-source-operation-map-v1.json` is 134,767 bytes
+with SHA-256
+`7d80eb5271b82469b0acd5499d88e4a79e22a802379e7f9d1d3c92064a463a10`.
+It records all 42 retired Python tests as 39 complete derive reports, two
+exact CLI file-artifact cases, one exact authoring-CLI stdout/stderr case, and
+seven helper authorities. It also freezes all ten distinct reports from the
+former live Node/Python differential inputs, including the complete AST
+comparison report. Every CLI case preserves its exit status, stdout, stderr,
+and output artifacts. The corpus preserves registrations and callbacks,
+AST references, provider-framework heuristics, false-positive suppression,
+ambiguity, relationship lists, synthetic operations, raw REST evidence, and
+all source-file diagnostics. Only each original unittest temporary root is
+replaced with `<FIXTURE_ROOT>`.
+
+`node-tests/fixtures/python-sdk-path-evidence-v1.json` is 43,531 bytes with
+SHA-256
+`55ce661ede25de0428cd7ecede97a02089e666cb4b68b1ce9c9ee953e17dceb6`.
+Its thirteen authorities preserve complete SDK scanner and source-operation
+reports, resolved actions, unresolved diagnostics, AST SDK actions, fuzzy
+fallback, and exact `--sdk-root` CLI registry/diagnostic bytes. The same
+baseline-validated generator recreates the fixture directly from the retired
+SDK tests. No normalization is applied.
+
+Both fixtures record the Python, Node, test, and transitive authoring sources
+that produced their evidence. Current tests replay every frozen input through
+the production Node functions and compare complete reports or exact bytes; the
+digests are provenance locks rather than substitute assertions. No provider,
+Terraform, credential, backend, network, deployment plan, or Apply is involved.
+
 ## Authoring leaf contracts
 
 The ninth archive slice was produced from baseline
