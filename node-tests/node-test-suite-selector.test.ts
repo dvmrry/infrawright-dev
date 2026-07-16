@@ -227,6 +227,7 @@ test("repository discovery naturally selects the operational smoke and Oracle te
       readonly reason: string;
     }[];
     readonly excluded_count: number;
+    readonly excluded_python_oracle_count: number;
     readonly selected: readonly string[];
     readonly selected_count: number;
     readonly total_count: number;
@@ -235,7 +236,16 @@ test("repository discovery naturally selects the operational smoke and Oracle te
   assert.ok(report.selected.includes("operational-runtime-smoke.test.js"));
   assert.ok(report.selected.includes("node-test-suite-selector.test.js"));
   assert.ok(report.selected.includes("provider-probe.test.js"));
-  assert.ok(report.selected.includes("rest-collector-python-parity.test.js"));
+  for (const name of [
+    "drift-policy.test.js",
+    "exact-plan-apply.test.js",
+    "json.test.js",
+    "paths.test.js",
+    "rest-collector-python-parity.test.js",
+    "zscaler-assessment.test.js",
+  ]) {
+    assert.ok(report.selected.includes(name), name);
+  }
   assert.ok(report.selected.includes("rest-collector.test.js"));
   assert.ok(report.selected.includes("zscaler-generic-fetch.test.js"));
   assert.ok(!report.selected.includes("provider-probe-parity.test.js"));
@@ -246,5 +256,37 @@ test("repository discovery naturally selects the operational smoke and Oracle te
   }
   assert.ok(report.selected_count > 0);
   assert.ok(report.excluded_count > 0);
+  assert.equal(report.selected_count, 48);
+  assert.equal(report.excluded_python_oracle_count, 20);
   assert.equal(report.selected_count + report.excluded_count, report.total_count);
+
+  const reducedResult = run("check", directory, [
+    "--profile", path.join(ROOT, "packsets", "zia.json"),
+    "--catalog", path.join(ROOT, "packsets", "full.json"),
+    "--json",
+  ]);
+  assert.equal(reducedResult.status, 0, reducedResult.stderr);
+  const reduced = JSON.parse(reducedResult.stdout) as {
+    readonly excluded: readonly {
+      readonly name: string;
+      readonly reason: string;
+    }[];
+    readonly selected: readonly string[];
+  };
+  for (const name of [
+    "drift-policy.test.js",
+    "json.test.js",
+    "paths.test.js",
+    "rest-collector-python-parity.test.js",
+  ]) {
+    assert.ok(reduced.selected.includes(name), name);
+  }
+  for (const name of [
+    "exact-plan-apply.test.js",
+    "zscaler-assessment.test.js",
+  ]) {
+    assert.ok(reduced.excluded.some((entry) => {
+      return entry.name === name && entry.reason === "missing-pack-requirements";
+    }), name);
+  }
 });
