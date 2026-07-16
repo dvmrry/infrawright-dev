@@ -27,6 +27,12 @@
       "reason": "The cross-state Terraform smoke resolves the committed ZPA segment-group reference."
     },
     {
+      "file": "generated-config-policy.test.js",
+      "packs": ["zia"],
+      "shared": ["zscaler"],
+      "reason": "The committed empty-enum cases load ZIA override and provider-schema metadata."
+    },
+    {
       "file": "generic-transform-core.test.js",
       "packs": ["aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"],
       "shared": ["zscaler"],

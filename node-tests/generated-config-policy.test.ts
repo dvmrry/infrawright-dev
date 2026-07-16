@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import path from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
 
 import { DriftPolicy } from "../node-src/domain/drift-policy.js";
@@ -10,6 +10,14 @@ import {
 } from "../node-src/domain/generated-config-policy.js";
 import { loadPackRoot, type LoadedPackRoot } from "../node-src/metadata/loader.js";
 import type { JsonObject } from "../node-src/metadata/validation.js";
+
+const ROOT = process.cwd();
+const PACKS_ROOT = resolve(
+  process.env.INFRAWRIGHT_PACKS?.trim() || join(ROOT, "packs"),
+);
+const PACK_PROFILE = resolve(
+  process.env.PACK_PROFILE?.trim() || join(ROOT, "packsets", "full.json"),
+);
 
 const SCHEMA: JsonObject = {
   block: {
@@ -134,9 +142,9 @@ test("pack drop_if_default preserves nonmatching provider values", async () => {
 
 test("committed ZIA pack defaults remove only exact empty enums from generated config", async () => {
   const committed = await loadPackRoot({
-    packsRoot: path.join(process.cwd(), "packs"),
-    profilePath: path.join(process.cwd(), "packsets", "full.json"),
-    catalogPath: path.join(process.cwd(), "packsets", "full.json"),
+    packsRoot: PACKS_ROOT,
+    profilePath: PACK_PROFILE,
+    catalogPath: PACK_PROFILE,
   });
   const cases = [{
     resourceType: "zia_dlp_dictionaries",
