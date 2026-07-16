@@ -1,6 +1,7 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
   access,
   cp,
@@ -29,6 +30,85 @@ import { loadPackRoot, type LoadedPackRoot } from "../node-src/metadata/loader.j
 const ROOT = process.cwd();
 const TERRAFORM = process.env.TF || "terraform";
 let fullRoot: Promise<LoadedPackRoot> | undefined;
+
+interface FrozenEnvironmentAuthority {
+  readonly authority: {
+    readonly implementation: string;
+    readonly python: string;
+    readonly unicode: string;
+  };
+  readonly baseline: string;
+  readonly dangling_symlinks: {
+    readonly config_symlinks: Readonly<Record<string, string>>;
+    readonly output_symlinks: Readonly<Record<string, string>>;
+    readonly tree: Readonly<Record<string, string>>;
+  };
+  readonly full_profile: {
+    readonly file_count: number;
+    readonly manifest: readonly {
+      readonly length: number;
+      readonly path: string;
+      readonly sha256: string;
+    }[];
+  };
+  readonly kind: string;
+  readonly normalization: string;
+  readonly representative_cases: readonly {
+    readonly name: string;
+    readonly tree: Readonly<Record<string, string>>;
+  }[];
+  readonly source_blobs: Readonly<Record<string, string>>;
+  readonly version: number;
+}
+
+const ENVIRONMENT_AUTHORITY_SHA256 =
+  "034ff9be97c273dc6851689786b80b6eb8a7a770d38ca451af284a818b2a95b0";
+const environmentAuthorityBytes = readFileSync(path.join(
+  ROOT,
+  "node-tests",
+  "fixtures",
+  "python-environment-roots-v1.json",
+));
+assert.equal(
+  createHash("sha256").update(environmentAuthorityBytes).digest("hex"),
+  ENVIRONMENT_AUTHORITY_SHA256,
+  "frozen CPython environment-root authority changed",
+);
+const environmentAuthority = JSON.parse(
+  environmentAuthorityBytes.toString("utf8"),
+) as FrozenEnvironmentAuthority;
+assert.equal(environmentAuthority.kind, "infrawright.python-environment-roots-authority");
+assert.equal(environmentAuthority.version, 1);
+assert.equal(environmentAuthority.baseline, "55f6189efe888564b515a6c2f5a505348f921f6e");
+assert.equal(environmentAuthority.normalization, "none");
+assert.deepEqual(environmentAuthority.authority, {
+  implementation: "cpython",
+  python: "3.13.13",
+  unicode: "15.1.0",
+});
+assert.deepEqual(environmentAuthority.source_blobs, {
+  node_environment_generator: "ff20e50dd48a4956452e3bffc8b1c4e222ba5fcc",
+  packset_full: "ddea3183e5e9eaadc102a14544da27cbf59d09ea",
+  python_artifacts: "ad53594534e65f8bcd018757f409982039a43983",
+  python_deployment: "9da5237c915102eef937341d399ba97a323db9ca",
+  python_expression_bindings: "d80478081d66e29641254dd105e5b8f2602bb41f",
+  python_gen_env: "dea7692fb6fb8c634e59635083bd416fb65f1650",
+  python_lookup: "596c6c010827aab2a8b39a3a9d5cfb2f8061883f",
+  python_packs: "e128e51381aac05ba141c63f31c6f9831d84661d",
+  python_root_catalog: "0cf89ab18487450f1b9d59d4efc22c3340c8bd7e",
+  python_test_gen_env: "ae3042cee968171b3213417dee7e7266123875de",
+  python_test_group_bindings: "778006a669222e48bd56855ed2e579bb65f8e6e7",
+  registry_zcc: "3e23f6a3471c83860988a7353b4f4d59feafd52c",
+  registry_zia: "0aa87786b50e36a03c09304aa9ce63a0c4641e7e",
+  registry_zpa: "17be526eefecdeeed682ed6f90d35a26b66d185b",
+  registry_ztc: "76dbb464a9ae10e3bed96f504019fb25731edaf5",
+});
+
+function representativeAuthority(name: string): Readonly<Record<string, string>> {
+  const matches = environmentAuthority.representative_cases.filter((entry) => entry.name === name);
+  assert.equal(matches.length, 1, `expected one frozen environment-root case named ${name}`);
+  return matches[0]!.tree;
+}
 
 function committedRoot(profile = "full.json", packsRoot = path.join(ROOT, "packs")): Promise<LoadedPackRoot> {
   if (profile === "full.json" && packsRoot === path.join(ROOT, "packs")) {
@@ -81,7 +161,7 @@ async function reducedPackRootForProfile(parent: string, profile: string): Promi
 }
 
 async function snapshotTree(directory: string): Promise<Readonly<Record<string, string>>> {
-  const output: Record<string, string> = Object.create(null) as Record<string, string>;
+  const output: Record<string, string> = {};
   const visit = async (current: string): Promise<void> => {
     for (const entry of await readdir(current, { withFileTypes: true })) {
       const candidate = path.join(current, entry.name);
@@ -93,13 +173,13 @@ async function snapshotTree(directory: string): Promise<Readonly<Record<string, 
   return output;
 }
 
-async function pythonThenNodeTree(options: {
+async function nodeTreeMatchingAuthority(options: {
   readonly backend?: string;
   readonly deployment: Readonly<Record<string, unknown>>;
   readonly prepare?: (workspace: string) => Promise<void>;
   readonly selectors: readonly string[];
   readonly tenant?: string;
-}, context: { after(callback: () => Promise<unknown> | unknown): void }): Promise<{
+}, context: { after(callback: () => Promise<unknown> | unknown): void }, authorityName: string): Promise<{
   readonly diagnostics: readonly string[];
   readonly tree: Readonly<Record<string, string>>;
 }> {
@@ -113,32 +193,7 @@ async function pythonThenNodeTree(options: {
     ...options.deployment,
   });
   await options.prepare?.(workspace);
-  const python = spawnSync(PYTHON_ORACLE, [
-    "-c",
-    [
-      "import json, sys",
-      "from engine.gen_env import generate_env",
-      "opts=json.loads(sys.argv[1])",
-      "generate_env(opts['tenant'], out_root=opts['out'], fmt=True, backend=opts.get('backend'), selectors=opts['selectors'])",
-    ].join(";"),
-    JSON.stringify({
-      tenant,
-      out: outputRoot,
-      selectors: options.selectors,
-      ...(options.backend === undefined ? {} : { backend: options.backend }),
-    }),
-  ], {
-    cwd: ROOT,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      INFRAWRIGHT_DEPLOYMENT: deploymentPath,
-      INFRAWRIGHT_PACK_PROFILE: path.join(ROOT, "packsets", "full.json"),
-    },
-  });
-  assert.equal(python.status, 0, `${python.stdout}\n${python.stderr}`);
-  const expected = await snapshotTree(outputRoot);
-  await rm(outputRoot, { force: true, recursive: true });
+  const expected = representativeAuthority(authorityName);
   const diagnostics: string[] = [];
   await generateEnvironmentRoots({
     ...(options.backend === undefined ? {} : { backend: options.backend }),
@@ -507,16 +562,16 @@ test("pack-declared nested ZPA references validate indexed paths and dependency 
 });
 
 test("complete generated root trees match Python for ungrouped, grouped/bound, singleton HCL, and slug roots", async (context) => {
-  await pythonThenNodeTree({
+  await nodeTreeMatchingAuthority({
     deployment: {},
     prepare: async (workspace) => writeJson(
       path.join(workspace, "config", "tenant", "zia_url_categories.auto.tfvars.json"),
       { items: { example: { configured_name: "Example", custom_category: true, urls: [] } } },
     ),
     selectors: ["zia_url_categories"],
-  }, context);
+  }, context, "ungrouped-json");
 
-  const grouped = await pythonThenNodeTree({
+  const grouped = await nodeTreeMatchingAuthority({
     backend: "azurerm",
     deployment: {
       roots: {
@@ -552,12 +607,12 @@ test("complete generated root trees match Python for ungrouped, grouped/bound, s
       });
     },
     selectors: ["zpa_application_segment"],
-  }, context);
+  }, context, "grouped-bound-azurerm");
   assert.equal(grouped.tree["tenant/.backend"], "azurerm\n");
   assert.match(grouped.tree["tenant/zpa_custom/expression_bindings.tf"] ?? "", /operator/);
   assert.doesNotMatch(grouped.tree["tenant/zpa_custom/expression_bindings.tf"] ?? "", /generated/);
 
-  const hcl = await pythonThenNodeTree({
+  const hcl = await nodeTreeMatchingAuthority({
     deployment: {
       tfvars_format: "hcl",
       roots: { zpa: { groups: { zpa_solo: ["zpa_segment_group"] } } },
@@ -575,14 +630,14 @@ test("complete generated root trees match Python for ungrouped, grouped/bound, s
       });
     },
     selectors: ["zpa_segment_group"],
-  }, context);
+  }, context, "singleton-hcl");
   assert.equal(hcl.diagnostics.some((message) => message.includes("hcl tfvars; validation reads json only")), true);
   assert.doesNotMatch(hcl.tree["tenant/zpa_solo/tests/smoke.tftest.hcl"] ?? "", /config_plan/);
 
-  const slug = await pythonThenNodeTree({
+  const slug = await nodeTreeMatchingAuthority({
     deployment: { roots: { zia: { strategy: "slug" } } },
     selectors: ["zia_url_categories"],
-  }, context);
+  }, context, "slug-root");
   assert.match(slug.tree["tenant/zia_url/main.tf"] ?? "", /module "zia_url_filtering_rules"/);
   assert.doesNotMatch(
     slug.tree["tenant/zia_url/main.tf"] ?? "",
@@ -590,13 +645,79 @@ test("complete generated root trees match Python for ungrouped, grouped/bound, s
   );
 });
 
+test("duplicate referent names do not synthesize a group binding", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-gen-env-duplicate-referents-");
+  const deploymentPath = path.join(workspace, "deployment.json");
+  const outputRoot = path.join(workspace, "generated");
+  await writeJson(deploymentPath, {
+    module_dir: path.join(workspace, "modules"),
+    overlay: workspace,
+    roots: {
+      zpa: {
+        bind_references: true,
+        groups: { zpa_custom: ["zpa_application_segment", "zpa_segment_group"] },
+      },
+    },
+  });
+  const config = path.join(workspace, "config", "tenant");
+  await writeJson(path.join(config, "zpa_segment_group.auto.tfvars.json"), {
+    zpa_segment_group_items: {
+      first: { enabled: true, name: "Segment One" },
+      second: { enabled: true, name: "Segment One" },
+    },
+  });
+  await writeJson(path.join(config, "zpa_application_segment.auto.tfvars.json"), {
+    zpa_application_segment_items: {
+      app: {
+        domain_names: ["app.example.com"],
+        name: "App One",
+        segment_group_id: "sg-1",
+      },
+    },
+  });
+  await generateEnvironmentRoots({
+    deployment: await loadDeployment(deploymentPath),
+    formatHcl: async (source) => source,
+    outputRoot,
+    root: await committedRoot(),
+    selectors: ["zpa_application_segment"],
+    tenant: "tenant",
+  });
+  const rootDirectory = path.join(outputRoot, "tenant", "zpa_custom");
+  assert.match(await readFile(path.join(rootDirectory, "main.tf"), "utf8"), /module "zpa_segment_group"/u);
+  await assert.rejects(
+    () => access(path.join(rootDirectory, "expression_bindings.tf")),
+    /ENOENT/u,
+  );
+});
+
 test("the complete full-profile generated root tree is byte-identical to Python", async (context) => {
-  const result = await pythonThenNodeTree({
-    deployment: {},
+  const workspace = await temporaryDirectory(context, "infrawright-gen-env-full-authority-");
+  const outputRoot = path.join(workspace, "generated");
+  const deploymentPath = path.join(workspace, "deployment.json");
+  await writeJson(deploymentPath, {
+    module_dir: path.join(workspace, "modules"),
+    overlay: workspace,
+  });
+  await generateEnvironmentRoots({
+    deployment: await loadDeployment(deploymentPath),
+    formatHcl: terraformHclFormatter({ executable: TERRAFORM }),
+    outputRoot,
+    root: await committedRoot(),
     selectors: [],
     tenant: "full-profile-parity",
-  }, context);
-  assert.equal(Object.keys(result.tree).length, 151 * 3);
+  });
+  const tree = await snapshotTree(outputRoot);
+  const manifest = Object.entries(tree).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(
+    ([file, text]) => ({
+      length: Buffer.byteLength(text),
+      path: file,
+      sha256: createHash("sha256").update(text).digest("hex"),
+    }),
+  );
+  assert.equal(manifest.length, 151 * 3);
+  assert.equal(environmentAuthority.full_profile.file_count, 151 * 3);
+  assert.deepEqual(manifest, environmentAuthority.full_profile.manifest);
 });
 
 test("operator precedence, stale generated filtering, stale HCL removal, and cycles are fail-closed", async (context) => {
@@ -725,21 +846,16 @@ test("dangling artifact paths retain Python existence and stale-file semantics",
     await symlink("missing-backend", backendPath);
   };
   await seedDanglingOutputs();
-  const python = spawnSync(PYTHON_ORACLE, [
-    "-c",
-    "import sys; from engine.gen_env import generate_env; generate_env('tenant', out_root=sys.argv[1], selectors=['zia_url_categories'])",
-    outputRoot,
-  ], {
-    cwd: ROOT,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      INFRAWRIGHT_DEPLOYMENT: deploymentPath,
-      INFRAWRIGHT_PACK_PROFILE: path.join(ROOT, "packsets", "full.json"),
-    },
+  const expected = environmentAuthority.dangling_symlinks.tree;
+  assert.deepEqual(environmentAuthority.dangling_symlinks.config_symlinks, {
+    "zia_url_categories.auto.tfvars.json": "missing-zia_url_categories.auto.tfvars.json",
+    "zia_url_categories.expressions.json": "missing-zia_url_categories.expressions.json",
+    "zia_url_categories.generated.expressions.json": "missing-zia_url_categories.generated.expressions.json",
   });
-  assert.equal(python.status, 0, `${python.stdout}\n${python.stderr}`);
-  const expected = await snapshotTree(outputRoot);
+  assert.deepEqual(environmentAuthority.dangling_symlinks.output_symlinks, {
+    "tenant/.backend": "missing-backend",
+    "tenant/zia_url_categories/expression_bindings.tf": "missing-expression-bindings.tf",
+  });
   assert.doesNotMatch(expected["tenant/zia_url_categories/main.tf"] ?? "", /backend "/);
   assert.doesNotMatch(expected["tenant/zia_url_categories/tests/smoke.tftest.hcl"] ?? "", /config_plan/);
   assert.equal((await lstat(expressionPath)).isSymbolicLink(), true);
