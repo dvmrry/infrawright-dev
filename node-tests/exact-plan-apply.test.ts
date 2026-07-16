@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { assertCliFailureExtendsLegacy } from "./cli-failure-assertions.js";
 import {
   applyExactSavedPlans,
   createExactPlanApplyTerraform,
@@ -848,7 +849,11 @@ test("Make Apply is Python-disabled and Node/Python blocked diagnostics agree", 
   ], environment);
   assert.equal(node.status, python.status);
   assert.equal(node.stdout, python.stdout);
-  assert.equal(node.stderr, python.stderr);
+  assertCliFailureExtendsLegacy(node.stderr, python.stderr, {
+    category: "domain",
+    code: "APPLY_BLOCKED_PLAN_REFUSED",
+    retryable: false,
+  });
   assert.equal(await readFile(item.tfplan, "utf8"), "opaque saved plan\n");
 
   await writeText(planJson, JSON.stringify(plan([change(["create"], {

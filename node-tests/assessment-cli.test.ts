@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { assertCliFailureExtendsLegacy } from "./cli-failure-assertions.js";
 import { planFingerprintV2 } from "../node-src/domain/plan-fingerprint.js";
 
 const ROOT = process.cwd();
@@ -231,7 +232,15 @@ test("operational assessment reports, diagnostics, and exits match Python", asyn
       const node = command(process.execPath, nodeArguments, item.environment);
       assert.equal(node.status, python.status, node.stderr);
       assert.equal(node.stdout, python.stdout, selected.name);
-      assert.equal(node.stderr, python.stderr, selected.name);
+      if (selected.name === "blocked guidance") {
+        assertCliFailureExtendsLegacy(node.stderr, python.stderr, {
+          category: "domain",
+          code: "PLAN_NOT_ADOPTABLE",
+          retryable: false,
+        }, selected.name);
+      } else {
+        assert.equal(node.stderr, python.stderr, selected.name);
+      }
       assert.equal(
         await readFile(nodeReport, "utf8"),
         await readFile(pythonReport, "utf8"),
@@ -313,7 +322,11 @@ test("no-saved-plan CLI failure and error report match Python without Terraform"
   assert.equal(node.status, python.status);
   assert.equal(node.status, 1);
   assert.equal(node.stdout, python.stdout);
-  assert.equal(node.stderr, python.stderr);
+  assertCliFailureExtendsLegacy(node.stderr, python.stderr, {
+    category: "domain",
+    code: "NO_SAVED_PLANS",
+    retryable: false,
+  });
   assert.equal(await readFile(nodeReport, "utf8"), await readFile(pythonReport, "utf8"));
 });
 
@@ -487,7 +500,15 @@ test("invalid policy and missing Terraform retain legacy diagnostics and reports
     const node = command(process.execPath, nodeArgs, item.environment);
     assert.equal(node.status, python.status, selected.name);
     assert.equal(node.stdout, python.stdout, selected.name);
-    assert.equal(node.stderr, python.stderr, selected.name);
+    if (selected.name === "missing-terraform") {
+      assertCliFailureExtendsLegacy(node.stderr, python.stderr, {
+        category: "internal",
+        code: "ASSESSMENT_FAILED",
+        retryable: false,
+      }, selected.name);
+    } else {
+      assert.equal(node.stderr, python.stderr, selected.name);
+    }
     assert.equal(
       await readFile(nodeReport, "utf8"),
       await readFile(pythonReport, "utf8"),

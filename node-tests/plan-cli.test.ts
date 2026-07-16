@@ -7,6 +7,8 @@ import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 
+import { assertCliFailureExtendsLegacy } from "./cli-failure-assertions.js";
+
 const ROOT = process.cwd();
 const PROFILE = path.join(ROOT, "packsets", "zia.json");
 const CATALOG = path.join(ROOT, "packsets", "full.json");
@@ -253,10 +255,15 @@ test("unsupported Windows plan refuses before preflight and preserves the saved 
   );
   assert.equal(result.status, 1);
   assert.equal(result.stdout, "");
-  assert.equal(
+  assertCliFailureExtendsLegacy(
     result.stderr,
     "error: Terraform execution through Infrawright is supported on Linux and macOS; "
       + "Windows is not a supported operational platform.\n",
+    {
+      category: "domain",
+      code: "UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM",
+      retryable: false,
+    },
   );
   assert.equal(await readFile(plan, "utf8"), "existing saved plan\n");
   assert.equal(await readFile(fingerprint, "utf8"), "existing fingerprint\n");
