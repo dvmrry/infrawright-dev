@@ -75,3 +75,40 @@ constants in the test. Non-finite draws are excluded exactly as they were in
 the live comparison. The import-staging contract retains injected Terraform
 state output and never contacts a backend. The shared `python-oracle.ts`
 resolver remains until every retained live-oracle consumer has been converted.
+
+## Import and move derivation contract
+
+The third archive slice was produced at baseline
+`71da6c267119c8f8531accce4906414a8c7c1e84`. Its original live-comparison test
+was Git blob `952071f1aae881d9c361b40b9e44dfe2bee0d384`, and its Python transform
+authority was Git blob `ba382610c45ab6c0a7f870599c133edc69c5199a`. The selected authority remained
+CPython 3.13.13 with UCD 15.1.0.
+
+Re-run the original live differential from that exact state with:
+
+```sh
+git worktree add /tmp/iw-python-import-moves \
+  71da6c267119c8f8531accce4906414a8c7c1e84
+cd /tmp/iw-python-import-moves
+PYTHON=python3 npm run build:test
+PYTHON=python3 node --test \
+  .node-test/node-tests/import-moves-differential.test.js
+```
+
+The unchanged 12-case `CASES` value was fed to the original test's embedded
+Python source. Python recorded the complete result for each case—name, exact
+old/new import bytes, parsed pairs, derived and suppressed moves, and exact
+moved-block bytes—in
+`node-tests/fixtures/python-import-moves-v1.json`. The fixture is 15,981 bytes
+with SHA-256
+`5dc5a25751c2990ee36c550180b0516eea3e40ab4e7405a846bdc05d8d25387d`.
+The compact ordered `results` value is 11,001 UTF-8 bytes with SHA-256
+`8300db560009cdff81a3f8385dc02d3e142029f32c334345dbe83cec8882b8e0`.
+
+The corpus covers empty and unchanged output, one and multiple safe renames,
+add/remove without rename, hostile HCL escapes and Unicode, exact string import
+IDs, key swaps, occupied destinations, duplicate sources, ambiguous old IDs,
+and a three-member occupied-destination cycle. Tests compare every recorded
+field; the digest is an additional provenance lock, not a replacement for the
+byte and semantic assertions. The test is pack-independent and makes no
+provider, Terraform, backend, or network call.

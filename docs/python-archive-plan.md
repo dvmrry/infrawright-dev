@@ -26,9 +26,9 @@ The retained compatibility implementation contains approximately:
 | `tools/zpa_provider_evidence.py` | 1 | 440 | Remove after its Node provider-probe replacement is fixture-bound. |
 
 The shipped `iw` CLI is already Python-independent. The remaining dependency
-is a qualification dependency: 17 Node test files still import the live Python
+is a qualification dependency: 16 Node test files still import the live Python
 oracle during `npm run test:all`, CI still installs Python, and release guards
-still require representative Python files. Nine direct contracts are now
+still require representative Python files. Ten direct contracts are now
 frozen with their resurrection procedures in
 [Frozen Python oracle contracts](python-oracle-contracts.md).
 
