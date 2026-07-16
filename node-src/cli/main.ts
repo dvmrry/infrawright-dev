@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,6 +28,7 @@ import {
   validatePackAuthoring,
 } from "../metadata/packs.js";
 import { loadPackRoot } from "../metadata/loader.js";
+import { renderRootCatalog } from "../metadata/root-catalog.js";
 import { validatePackResources } from "../metadata/resources.js";
 import {
   activeGeneratedResourceTypes,
@@ -113,6 +114,7 @@ const USAGE = [
   "usage:",
   "  iw check-pack [--pack <name>|PACK=<name>] [--root <packs>]",
   "  iw check-pack-set [--profile <file>] [--catalog <file>] [--requirements <file>] [--root <packs>]",
+  "  iw root-catalog [--providers <a,b>] [--out <file>|--check <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
   "  iw deployment [--deployment <file>] <overlay|tfvars-format|module-dir|tenant-root|config-dir|imports-dir|envs-dir> [tenant]",
   "  iw modules <generate|validate> [--resource <type>] [--out <dir>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>] [--terraform <path>]",
   "  iw transform --in <dir> --tenant <name> [--resource <selector>] [--deployment <file>] [--root <packs>] [--profile <file>] [--catalog <file>]",
@@ -313,6 +315,58 @@ async function checkPackSet(arguments_: string[]): Promise<number> {
   process.stdout.write(
     `validated pack set: packs=[${result.active.packs.join(",")}] shared=[${result.active.shared.join(",")}]\n`,
   );
+  return 0;
+}
+
+async function rootCatalog(arguments_: string[]): Promise<number> {
+  const rootDirectory = await packageRoot();
+  const parsed = commandArguments(arguments_, { values: {
+    "--catalog": {},
+    "--check": {},
+    "--out": {},
+    "--profile": {},
+    "--providers": {},
+    "--root": {},
+  } });
+  const output = lastOption(parsed, "--out");
+  const check = lastOption(parsed, "--check");
+  if (output !== undefined && check !== undefined) {
+    usageError("root-catalog accepts only one of --out or --check");
+  }
+  const providersValue = lastOption(parsed, "--providers");
+  const providers = providersValue === undefined
+    ? undefined
+    : providersValue.split(",").filter((provider) => provider.length > 0);
+  if (providersValue !== undefined && providers?.length === 0) {
+    usageError("--providers requires at least one provider");
+  }
+  const root = lastOption(parsed, "--root")
+    ?? process.env.INFRAWRIGHT_PACKS
+    ?? path.join(rootDirectory, "packs");
+  const profile = lastOption(parsed, "--profile")
+    ?? process.env.INFRAWRIGHT_PACK_PROFILE
+    ?? path.join(rootDirectory, "packsets", "full.json");
+  const catalog = lastOption(parsed, "--catalog")
+    ?? path.join(rootDirectory, "packsets", "full.json");
+  const loaded = await loadPackRoot({
+    packsRoot: root,
+    profilePath: profile,
+    catalogPath: catalog,
+  });
+  const rendered = await renderRootCatalog(loaded, providers);
+  if (check !== undefined) {
+    const actual = await readFile(check, "utf8");
+    if (actual !== rendered) {
+      throw new ProcessFailure({
+        code: "STALE_ROOT_CATALOG",
+        category: "domain",
+        message: `root catalog is stale: ${check}`,
+      });
+    }
+    return 0;
+  }
+  if (output !== undefined) await writeFile(output, rendered, "utf8");
+  else process.stdout.write(rendered);
   return 0;
 }
 
@@ -1511,6 +1565,7 @@ async function main(
   }
   if (command === "check-pack") return checkPack(arguments_.slice(1));
   if (command === "check-pack-set") return checkPackSet(arguments_.slice(1));
+  if (command === "root-catalog") return rootCatalog(arguments_.slice(1));
   if (command === "deployment") return deployment(arguments_.slice(1));
   if (command === "modules") return modules(arguments_.slice(1));
   if (command === "transform") return transform(arguments_.slice(1));
