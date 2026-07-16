@@ -5,14 +5,19 @@
     {
       "file": "adopt-runner.test.js",
       "packs": [
+        "aws",
+        "cloudflare",
+        "google",
+        "netbox",
         "zcc",
         "zia",
-        "zpa"
+        "zpa",
+        "ztc"
       ],
       "shared": [
         "zscaler"
       ],
-      "reason": "The frozen Transform/Adopt artifact cases load committed Zscaler schemas, overrides, and registry metadata."
+      "reason": "The suite exercises full, provider, Zscaler, and reduced profile selection against the complete committed pack catalog."
     },
     {
       "file": "adoption-meta.test.js",
