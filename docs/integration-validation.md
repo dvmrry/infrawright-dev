@@ -72,7 +72,7 @@ serialize it for the complete materialization output root. Concurrent jobs,
 including runs of the same branch, require disjoint workspaces and output
 roots. Configure that root as the exact canonical deployment overlay; a
 containing ancestor is not a second valid authority. The ADO path convention,
-publisher-guard behavior, and stale cleanup rules are defined in
+single-writer behavior, and stale cleanup rules are defined in
 [ADR 0001](adr/0001-publisher-ownership.md).
 
 Selective `gen-modules`, `validate-modules`, `gen-env`, staging, planning, and

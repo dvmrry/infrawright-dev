@@ -29,9 +29,8 @@ maintained development evidence.
 ## Current Layout Boundaries
 
 - Root `Makefile` targets are the stable product command surface.
-- The Node process contract is documented in
-  [Node Process API Migration](node-process-api.md); it remains a differential
-  migration surface until each operation is cut over.
+- The supported Node command surface is the `iw` CLI documented in
+  [Operational Node Runtime](operational-runtime.md).
 - The adoption command contract and collector boundary are documented in
   [Adoption Command Surface](adoption-command-surface.md).
 - The validated pack metadata contract is documented in

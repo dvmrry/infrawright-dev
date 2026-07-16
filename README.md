@@ -137,17 +137,16 @@ the credential-free repository tests.
 
 See [Operational Node Runtime](docs/operational-runtime.md) for the authoritative
 Make/CLI inventory, release contract, support policy, external qualification
-checklist, and frozen-architecture inventory. The retained
-`dist/infrawright.mjs` process host and ZCC collector child are frozen legacy
-migration artifacts; their detailed contracts remain in
-[Node Process API Migration](docs/node-process-api.md).
+checklist, and retained-architecture inventory. The unused legacy process host,
+ZCC collector child, and exact-five migration protocols were retired after a
+repository and downstream-consumer inventory found no callers.
 
 ## Layout
 
 | Path | Role |
 |------|------|
 | `engine/` | retained Python implementations used by tests, differentials, and maintainer/migration tools; not required by the operational Node runtime |
-| `node-src/` | generic typed Node 24 operational library/CLI plus frozen migration process-host code |
+| `node-src/` | generic typed Node 24 operational library and `iw` CLI |
 | `catalogs/` | frozen versioned transition catalogs retained for migration consumers; not required by the generic CLI |
 | `packs/<name>/` | provider metadata: `pack.json`, collection registry, overrides, and schemas; retained Python collector modules may coexist but are not runtime dependencies |
 | `[<overlay>/]config/<tenant>/<resource_type>.auto.tfvars[.json]` | generated tenant config; `deployment.json` `tfvars_format` selects `json` by default or opt-in `hcl` |

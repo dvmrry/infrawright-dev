@@ -96,7 +96,7 @@ import {
   renderLegacyPlanRoots,
   renderLegacyRootDiagnostics,
   renderLegacyRootTopology,
-} from "../process/legacy.js";
+} from "./python-compatible-output.js";
 import { sortedStrings } from "../json/python-compatible.js";
 import { writePerformanceReport } from "../io/performance-report.js";
 import {

@@ -4,116 +4,263 @@
   "rules": [
     {
       "file": "adoption-meta.test.js",
-      "packs": ["aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"],
-      "shared": ["zscaler"],
+      "packs": [
+        "aws",
+        "cloudflare",
+        "google",
+        "netbox",
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
       "reason": "The suite validates adoption metadata across the complete committed pack catalog."
     },
     {
       "file": "assessment-guidance.test.js",
-      "packs": ["aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"],
-      "shared": ["zscaler"],
+      "packs": [
+        "aws",
+        "cloudflare",
+        "google",
+        "netbox",
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
       "reason": "The real-pack guidance cases load metadata classes from the complete committed catalog."
     },
     {
       "file": "collector-authority.test.js",
-      "packs": ["zcc", "zia", "zpa", "ztc"],
-      "shared": ["zscaler"],
+      "packs": [
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
       "reason": "The authority suite validates every committed Zscaler provider source and Node collector binding."
     },
     {
       "file": "cross-state-terraform.test.js",
-      "packs": ["zpa"],
-      "shared": ["zscaler"],
+      "packs": [
+        "zpa"
+      ],
+      "shared": [
+        "zscaler"
+      ],
       "reason": "The cross-state Terraform smoke resolves the committed ZPA segment-group reference."
     },
     {
       "file": "generated-config-policy.test.js",
-      "packs": ["zia"],
-      "shared": ["zscaler"],
+      "packs": [
+        "zia"
+      ],
+      "shared": [
+        "zscaler"
+      ],
       "reason": "The committed empty-enum cases load ZIA override and provider-schema metadata."
     },
     {
       "file": "generic-transform-core.test.js",
-      "packs": ["aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"],
-      "shared": ["zscaler"],
+      "packs": [
+        "aws",
+        "cloudflare",
+        "google",
+        "netbox",
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
       "reason": "The committed transform-policy cases resolve their authority from the complete repository pack root."
     },
     {
       "file": "import-oracle.test.js",
-      "packs": ["aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"],
-      "shared": ["zscaler"],
+      "packs": [
+        "aws",
+        "cloudflare",
+        "google",
+        "netbox",
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
       "reason": "The Oracle integration fixtures resolve committed provider and projection metadata from the complete pack root."
     },
     {
       "file": "metadata-cli.test.js",
-      "packs": ["aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"],
-      "shared": ["zscaler"],
+      "packs": [
+        "aws",
+        "cloudflare",
+        "google",
+        "netbox",
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
       "reason": "The CLI suite intentionally exercises complete-catalog validation and cross-pack command behavior."
     },
     {
       "file": "metadata-loader.test.js",
-      "packs": ["aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"],
-      "shared": ["zscaler"],
+      "packs": [
+        "aws",
+        "cloudflare",
+        "google",
+        "netbox",
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
       "reason": "The loader suite validates every committed pack and every profile from a complete source tree."
     },
     {
       "file": "module-generator.test.js",
-      "packs": ["aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"],
-      "shared": ["zscaler"],
+      "packs": [
+        "aws",
+        "cloudflare",
+        "google",
+        "netbox",
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
       "reason": "The module goldens and profile matrix cover all committed provider schemas."
     },
     {
       "file": "operational-runtime-smoke.test.js",
-      "packs": ["zia"],
-      "shared": ["zscaler"],
+      "packs": [
+        "zia"
+      ],
+      "shared": [
+        "zscaler"
+      ],
       "reason": "The Python-disabled operational smoke uses the committed ZIA adoption workflow."
     },
     {
       "file": "plan-assessment-inputs.test.js",
-      "packs": ["zpa"],
-      "shared": ["zscaler"],
+      "packs": [
+        "zpa"
+      ],
+      "shared": [
+        "zscaler"
+      ],
       "reason": "The cross-state assessment case binds the committed ZPA segment-group reference output."
     },
     {
       "file": "plan-lifecycle.test.js",
-      "packs": ["aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"],
-      "shared": ["zscaler"],
+      "packs": [
+        "aws",
+        "cloudflare",
+        "google",
+        "netbox",
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
       "reason": "The lifecycle suite resolves complete-root topology and fixtures against the complete pack tree."
     },
     {
       "file": "reference-topology.test.js",
-      "packs": ["zpa"],
-      "shared": ["zscaler"],
+      "packs": [
+        "zpa"
+      ],
+      "shared": [
+        "zscaler"
+      ],
       "reason": "The reference-topology suite exercises the committed ZPA segment-group dependency."
     },
     {
       "file": "rest-collector.test.js",
-      "packs": ["aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"],
-      "shared": ["zscaler"],
+      "packs": [
+        "aws",
+        "cloudflare",
+        "google",
+        "netbox",
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
       "reason": "The committed registry-selection cases load the complete pack catalog."
     },
     {
       "file": "state-project.test.js",
-      "packs": ["aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"],
-      "shared": ["zscaler"],
+      "packs": [
+        "aws",
+        "cloudflare",
+        "google",
+        "netbox",
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
       "reason": "The state-projection suite loads committed cross-pack schemas and ZIA policy from the complete pack tree."
     },
     {
       "file": "transform-runtime-artifacts.test.js",
-      "packs": ["aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"],
-      "shared": ["zscaler"],
+      "packs": [
+        "aws",
+        "cloudflare",
+        "google",
+        "netbox",
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
       "reason": "The artifact differential suite compiles every active override and the complete committed golden corpus."
     },
     {
-      "file": "zcc-collector.test.js",
-      "packs": ["zcc"],
-      "shared": ["zscaler"],
-      "reason": "The exact-five collector contract is bound to the committed ZCC pack."
-    },
-    {
       "file": "zscaler-generic-fetch.test.js",
-      "packs": ["zcc", "ztc"],
-      "shared": ["zscaler"],
+      "packs": [
+        "zcc",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
       "reason": "The Python-free regression exercises committed ZCC and ZTC Fetch metadata."
     }
   ]

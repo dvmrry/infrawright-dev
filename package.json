@@ -1,19 +1,18 @@
 {
-  "name": "@infrawright/process",
+  "name": "@infrawright/cli",
   "version": "0.0.0",
   "private": true,
-  "description": "Infrawright Node library, CLI, and machine process migration foundation",
+  "description": "Infrawright operational Node library and CLI",
   "type": "module",
   "engines": {
     "node": ">=24 <25"
   },
   "bin": {
     "iw": "dist/infrawright-cli.mjs",
-    "infrawright": "dist/infrawright-cli.mjs",
-    "infrawright-process": "dist/infrawright.mjs"
+    "infrawright": "dist/infrawright-cli.mjs"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json --noEmit && node scripts/build-node.mjs && node scripts/build-metadata-cli.mjs",
+    "build": "tsc -p tsconfig.json --noEmit && node scripts/build-metadata-cli.mjs",
     "build:metadata-cli": "tsc -p tsconfig.json --noEmit && node scripts/build-metadata-cli.mjs",
     "check": "npm run typecheck && npm run test",
     "check:all": "npm run typecheck && npm run test:all",

@@ -236,13 +236,11 @@ test("repository discovery naturally selects the operational smoke and Oracle te
   assert.ok(report.selected.includes("node-test-suite-selector.test.js"));
   assert.ok(report.selected.includes("provider-probe.test.js"));
   assert.ok(report.selected.includes("rest-collector.test.js"));
-  assert.ok(report.selected.includes("zcc-collector.test.js"));
   assert.ok(report.selected.includes("zscaler-generic-fetch.test.js"));
   assert.ok(!report.selected.includes("provider-probe-parity.test.js"));
   for (const name of [
     "provider-probe-parity.test.js",
     "rest-collector-python-parity.test.js",
-    "zcc-collector-python-parity.test.js",
   ]) {
     assert.ok(report.excluded.some((entry) => {
       return entry.name === name && entry.reason === "imports-python-oracle";

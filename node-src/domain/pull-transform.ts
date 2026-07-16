@@ -11,7 +11,6 @@ import {
   canonicalPythonNumberToken,
   pythonFiniteFloatToken,
 } from "../json/python-number.js";
-import { pythonHtmlUnescape } from "./python-html-unescape.js";
 import { pythonLower151 } from "../json/python-lower-151.js";
 import type { LoadedResourceMetadata } from "../metadata/loader.js";
 import { isObject, type JsonObject } from "../metadata/validation.js";
@@ -27,11 +26,6 @@ import {
   terraformResourceInputAttributes,
   type TerraformTypeEncoding,
 } from "../metadata/terraform-schema.js";
-import type {
-  TransformCatalog,
-  TransformCatalogResource,
-} from "./transform-catalog.js";
-import { requireSupportedZccTransformCatalog } from "./transform-catalog.js";
 
 type TransformRecord = Record<string, unknown>;
 
@@ -1331,56 +1325,6 @@ export function projectLoadedRawField(options: {
   return hasOwn(coerced, options.target) ? coerced[options.target] : undefined;
 }
 
-function runtimeProjectionFromCatalog(
-  projection: TransformCatalogResource["projection"],
-): RuntimeProjection {
-  const blocks: Record<string, RuntimeProjectionBlock> = Object.create(null) as Record<
-    string,
-    RuntimeProjectionBlock
-  >;
-  for (const [name, block] of Object.entries(projection.blocks)) {
-    blocks[name] = {
-      cardinality: block.cardinality,
-      merge: false,
-      projection: runtimeProjectionFromCatalog(block.projection),
-    };
-  }
-  return {
-    attributes: projection.attributes as Readonly<Record<string, TerraformTypeEncoding>>,
-    blocks,
-    knownMembers: sortedStrings(new Set([
-      ...Object.keys(projection.attributes),
-      ...Object.keys(projection.blocks),
-      ...projection.silently_ignored_attributes,
-    ])),
-    silentlyIgnoredAttributes: projection.silently_ignored_attributes,
-    strictFrozenCompatibility: true,
-  };
-}
-
-function runtimeResourceFromCatalog(
-  resource: TransformCatalogResource,
-): RuntimeTransformResource {
-  const override: JsonObject = {
-    acknowledged_drops: resource.acknowledged_drops,
-    invert_bool: resource.invert_bool,
-    key_field: resource.key_fields.length === 1
-      ? resource.key_fields[0]
-      : resource.key_fields,
-    renames: resource.renames,
-    skip_if: resource.skip_if ?? [],
-    sort_lists: resource.sort_lists ?? [],
-    split_csv: resource.split_csv,
-  };
-  return {
-    type: resource.type,
-    projection: runtimeProjectionFromCatalog(resource.projection),
-    override,
-    htmlUnescapePasses: resource.html_unescape_passes,
-    strictFrozenCompatibility: true,
-  };
-}
-
 function compileProjection(
   block: JsonObject,
   label: string,
@@ -1557,62 +1501,6 @@ function executeTransform(options: {
     originals: safeRecord(originals) as PullTransformResult["originals"],
     drops: sortedStrings(new Set(drops.filter((drop) => !acknowledged.has(drop)))),
   };
-}
-
-function catalogResource(
-  catalog: TransformCatalog,
-  resourceType: string,
-): TransformCatalogResource {
-  const resource = catalog.resources.find((entry) => entry.type === resourceType);
-  if (resource === undefined) {
-    throw new Error(`resource type ${JSON.stringify(resourceType)} is not in the transform catalog`);
-  }
-  return resource;
-}
-
-/**
- * Pure detail-pull transform for the five catalogued ZCC resources.
- *
- * The ordering mirrors engine.transform.transform_items exactly for the
- * reachable override vocabulary captured by the closed transform catalog.
- * Raw data must come from a lossless JSON parser: every JSON number token is
- * required to be a LosslessNumber so `1` cannot be confused with `1.0` after
- * JavaScript conversion. Finite float lexemes are canonicalized through the
- * same binary64 model and spelling used by Python's JSON implementation.
- */
-export function transformPullItems(options: {
-  readonly catalog: TransformCatalog;
-  readonly rawItems: readonly unknown[];
-  readonly resourceType: string;
-}): PullTransformResult {
-  const catalog = requireSupportedZccTransformCatalog(options.catalog);
-  const resource = catalogResource(catalog, options.resourceType);
-  return transformPullItemsKernel({
-    compatibility: catalog.python_compatibility,
-    rawItems: options.rawItems,
-    resource,
-  });
-}
-
-/**
- * Product-neutral pure transform seam. Callers must supply a structurally
- * validated catalog resource; public operations retain the exact embedded-ZCC
- * gate in `transformPullItems`.
- *
- * @internal Catalog differential and future product-catalog integration only.
- */
-export function transformPullItemsKernel(options: {
-  readonly compatibility: TransformCatalog["python_compatibility"];
-  readonly rawItems: readonly unknown[];
-  readonly resource: TransformCatalogResource;
-}): PullTransformResult {
-  return executeTransform({
-    rawItems: options.rawItems,
-    resource: runtimeResourceFromCatalog(options.resource),
-    htmlUnescape: (value: string) => {
-      return pythonHtmlUnescape(value, options.compatibility.html_unescape);
-    },
-  });
 }
 
 export interface TransformLoadedItemsOptions {

@@ -210,11 +210,11 @@ If the preflight says the source build is unavailable, obtain the approved
 `make verify-runtime`, and use that artifact with Node 24. Mirror readiness is
 required only when the restricted environment must compile the bundle itself.
 
-`dist/infrawright.mjs` and
-`dist/infrawright-zcc-collector-child.mjs` remain frozen legacy migration
-artifacts with their existing package entries. They are not the primary
-operational CLI and are not prerequisites of its self-containment check. They
-remain staged until their possible external consumers are inventoried.
+The former `infrawright-process` host, ZCC collector child, and their
+candidate/receipt/materialization/publication protocols are not runtime
+compatibility surfaces. A repository and downstream-consumer inventory found
+no callers, so they were removed together. The supported bundle is
+`dist/infrawright-cli.mjs`.
 
 ## Terraform and Platform Support
 
@@ -274,26 +274,14 @@ authorize deployment mutation.
 7. Require a clean/no-op second plan.
 8. Switch an external operational lane only after separate approval.
 
-## Frozen Architecture Inventory
+## Retained Architecture Inventory
 
-Nothing in this inventory is deleted, refactored, archived, or declared
-unused by this slice.
+The legacy process-host/ZCC migration silo has been retired. The following
+surfaces remain intentionally pending separate decisions.
 
 | Frozen surface | Current in-repository consumers | External-consumer risk | Likely later action | Prerequisite |
 |---|---|---|---|---|
-| Transition catalogs under `catalogs/` | Legacy process-host operations and migration tests | Unknown callers may supply or bind their digests | Keep, then archive/delete candidate by catalog | External consumer inventory and accepted generic-runtime qualification |
-| ZCC compare/parity operations | Frozen process host and Python/Node differential tests | Existing migration jobs may call the operations | Archive candidate | Confirm no work-side or ADO callers and preserve any required regression fixtures |
-| Assertions and content-free receipts | ZCC comparison/publication flows | Callers may treat them as authorization records | Extract or archive | Consumer inventory and replacement decision |
-| Acknowledgements | Protected ZCC refresh/publication transitions | Unknown retained migration coordination | Archive candidate | No active transition runs and documented record-retention decision |
-| Materializers and publishers | ZCC bootstrap/refresh artifact flows | They may own external artifact lifecycles | Keep until inventoried | Identify every writer/reader and migrate or retire each workflow |
-| Old process-host operations | `infrawright-process`, schemas, validators, extensive tests | Public package entry may have unknown users | Extract retained consumers or archive | Versioned external-consumer inventory and deprecation plan |
-| `dist/infrawright.mjs` | Legacy `infrawright-process` package binary and CI smokes | Unknown direct bundle consumers | Keep | Usage inventory plus approved compatibility retirement |
-| `dist/infrawright-zcc-collector-child.mjs` | Legacy process parent and ZCC child tests | Parent/bundle users require the sibling | Keep | Retire or replace the parent/child protocol together |
 | Draft PR #191 | Historical ZIA resource-specific migration path | Branch may be referenced during audit/recovery | Archive or close candidate | Independent review and explicit approval |
 | Draft PR #192 | Historical ZIA plan workflow stacked on #191 | Same, plus stack relationship | Archive or close candidate | Independent review and explicit approval |
 | Python operational implementations | Python tests, differential baselines, and possible unknown external callers | Highest unknown-caller risk | Archive/delete candidate after extraction | Live generic qualification, pipeline cutover, and consumer inventory |
-| Python migration tests | Differential evidence for the port and frozen ZCC lanes | Little runtime risk; high regression value | Keep, then selectively archive | Final stack integration and an approved cleanup plan |
-
-The detailed ZCC operation and schema contracts remain in
-[Node Process API Migration](node-process-api.md). That document describes
-frozen migration infrastructure, not the primary operational runtime.
+| Python migration tests | Differential evidence for the operational port | Little runtime risk; high regression value | Keep, then selectively archive | Final stack integration and an approved cleanup plan |

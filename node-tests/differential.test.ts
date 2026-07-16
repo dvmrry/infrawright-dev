@@ -16,7 +16,7 @@ import {
   renderLegacyPlanRoots,
   renderLegacyRootDiagnostics,
   renderLegacyRootTopology,
-} from "../node-src/process/legacy.js";
+} from "../node-src/cli/python-compatible-output.js";
 
 const WORKSPACE = process.cwd();
 const CATALOG = path.join(

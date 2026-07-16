@@ -12,17 +12,7 @@ import { pythonLower151 } from "../node-src/json/python-lower-151.js";
 import {
   snakeName,
   slugifyTransformKey,
-  transformPullItems,
 } from "../node-src/domain/pull-transform.js";
-import {
-  compileZccPullArtifactSet,
-  ZCC_TRANSFORM_CATALOG_SHA256,
-} from "../node-src/domain/zcc-pull-artifacts.js";
-import { loadZccTransformCatalog } from "../node-src/domain/transform-catalog.js";
-import { loadZccAdoptionCatalog } from "../node-src/domain/zcc-adoption-catalog.js";
-import {
-  deriveZccAdoptionIdentities,
-} from "../node-src/domain/zcc-adoption-projection.js";
 
 const HASH_CONTRACT = "infrawright-python-lower-15.1-exhaustive-v1\0";
 const HASH_VECTORS = [
@@ -77,51 +67,6 @@ json.dump({
     "python": "%d.%d" % runtime,
     "ucd": unicodedata.unidata_version,
 }, sys.stdout, sort_keys=True, separators=(",", ":"))
-`;
-
-const PYTHON_ADOPTION_KEY_ORACLE = String.raw`
-import json
-import sys
-
-from engine.adoption_meta import (
-    adoption_entry,
-    derive_import_id_from_identity,
-    derive_key_from_identity,
-    identity_item,
-)
-
-payload = json.load(sys.stdin)
-meta = adoption_entry("zcc_forwarding_profile")
-results = []
-for raw in payload["items"]:
-    item = identity_item(raw, "zcc_forwarding_profile")
-    key = derive_key_from_identity(item, meta)
-    results.append({
-        "key": key,
-        "import_id": derive_import_id_from_identity(
-            item, meta, "zcc_forwarding_profile", key
-        ),
-    })
-
-collision = None
-seen = set()
-try:
-    for raw in payload["collision"]:
-        item = identity_item(raw, "zcc_forwarding_profile")
-        key = derive_key_from_identity(item, meta)
-        if key in seen:
-            raise ValueError("duplicate derived key %r" % key)
-        seen.add(key)
-except ValueError as exc:
-    collision = str(exc)
-
-json.dump(
-    {"results": results, "collision": collision},
-    sys.stdout,
-    ensure_ascii=False,
-    sort_keys=True,
-    separators=(",", ":"),
-)
 `;
 
 function expanded(ranges: readonly number[]): number[] {
@@ -286,115 +231,6 @@ test("slug output and collisions retain Python expansion behavior", () => {
   assert.equal(slugifyTransformKey("\u0130"), "i");
   assert.equal(slugifyTransformKey("A\u03a3C"), "a_c");
   assert.equal(slugifyTransformKey("\ua7cb"), "");
-
-  const catalog = loadZccTransformCatalog();
-  assert.throws(
-    () => transformPullItems({
-      catalog,
-      rawItems: [
-        { id: "one", name: "I" },
-        { id: "two", name: "\u0130" },
-      ],
-      resourceType: "zcc_forwarding_profile",
-    }),
-    /duplicate derived key "i"/,
-  );
-});
-
-test("public ZCC artifacts expose Python snake bytes for Unicode edge drops", () => {
-  const result = compileZccPullArtifactSet({
-    catalog: loadZccTransformCatalog(),
-    catalogSha256: ZCC_TRANSFORM_CATALOG_SHA256,
-    rawItems: [{
-      id: "edge-lower-1",
-      name: "\u0130",
-      "A\u0897\u03a3Noise": true,
-      "A\u1acf\u03a3Noise": true,
-      "\u0295\u03a3Noise": true,
-      "\ua7ceNoise": true,
-      "\ua7cbNoise": true,
-    }],
-    source: {
-      path: "pulls/demo/zcc_forwarding_profile.json",
-      sha256: "5".repeat(64),
-      size_bytes: 0,
-    },
-    target: {
-      tenant: "demo",
-      resourceType: "zcc_forwarding_profile",
-      rootLabel: "zcc_forwarding_profile",
-      rootMembers: ["zcc_forwarding_profile"],
-      variableName: "items",
-      configPath: "config/demo/zcc_forwarding_profile.auto.tfvars.json",
-      importsPath: "imports/demo/zcc_forwarding_profile_imports.tf",
-      lookupPath: null,
-    },
-  });
-  assert.equal(result.status, "review_required");
-  assert.deepEqual(result.unexpected_drops, [
-    "a\u0897\u03c3_noise",
-    "a\u1acf\u03c3_noise",
-    "\u0295\u03c2_noise",
-    "\ua7cb_noise",
-    "\ua7ce_noise",
-  ]);
-  assert.match(result.artifacts.tfvars.content, /"i": \{/);
-  assert.match(result.artifacts.tfvars.content, /"name": "\\u0130"/);
-  assert.match(result.artifacts.imports.content, /this\["i"\]/);
-});
-
-test("private ZCC adoption identities match live Python slug semantics", () => {
-  const items = [
-    { id: "edge-i", name: "\u0130" },
-    { id: "edge-sigma", name: "A\u03a3C" },
-    { id: "edge-a7cb", name: "\ua7cb" },
-    { id: "edge-ignorable", name: "A\u{1171e}\u03a3" },
-  ] as const;
-  const collision = [
-    { id: "collision-one", name: "I" },
-    { id: "collision-two", name: "\u0130" },
-  ] as const;
-  const python = spawnSync(PYTHON_ORACLE, ["-c", PYTHON_ADOPTION_KEY_ORACLE], {
-    cwd: process.cwd(),
-    encoding: "utf8",
-    input: JSON.stringify({ collision, items }),
-  });
-  assert.equal(python.status, 0, python.stderr);
-  assert.equal(python.stderr, "");
-  const expected = JSON.parse(python.stdout) as {
-    readonly collision: string | null;
-    readonly results: readonly {
-      readonly import_id: string;
-      readonly key: string;
-    }[];
-  };
-  const catalog = loadZccAdoptionCatalog();
-  const actual = items.map((raw) => {
-    const result = deriveZccAdoptionIdentities({
-      catalog,
-      rawItems: [raw],
-      resourceType: "zcc_forwarding_profile",
-    });
-    const key = Object.keys(result.import_ids)[0];
-    assert.notEqual(key, undefined);
-    return { import_id: result.import_ids[key ?? ""], key };
-  });
-  assert.deepEqual(actual, expected.results);
-  assert.deepEqual(actual.map((entry) => entry.key), [
-    "i",
-    "a_c",
-    "id_edge_a7cb",
-    "a",
-  ]);
-  assert.match(expected.collision ?? "", /duplicate derived key 'i'/);
-  assert.throws(
-    () => deriveZccAdoptionIdentities({
-      catalog,
-      rawItems: collision,
-      resourceType: "zcc_forwarding_profile",
-    }),
-    /duplicate derived adoption key "i"/,
-  );
 });
 
 test("lowercase helper rejects Node Unicode runtime drift", () => {
