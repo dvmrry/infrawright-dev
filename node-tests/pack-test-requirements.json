@@ -63,6 +63,12 @@
       "reason": "The Python-disabled operational smoke uses the committed ZIA adoption workflow."
     },
     {
+      "file": "plan-assessment-inputs.test.js",
+      "packs": ["zpa"],
+      "shared": ["zscaler"],
+      "reason": "The cross-state assessment case binds the committed ZPA segment-group reference output."
+    },
+    {
       "file": "plan-lifecycle.test.js",
       "packs": ["aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc"],
       "shared": ["zscaler"],

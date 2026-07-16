@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
 
 import { ProcessFailure } from "../node-src/domain/errors.js";
@@ -11,6 +11,17 @@ import {
 } from "../node-src/domain/plan-assessment-inputs.js";
 import type { Deployment, RootCatalog } from "../node-src/domain/types.js";
 import { loadPackRoot } from "../node-src/metadata/loader.js";
+
+const ROOT = process.cwd();
+const PACKS_ROOT = resolve(
+  process.env.INFRAWRIGHT_PACKS?.trim() || join(ROOT, "packs"),
+);
+const PACK_PROFILE = resolve(
+  process.env.PACK_PROFILE?.trim() || join(ROOT, "packsets", "full.json"),
+);
+const PACK_CATALOG = resolve(
+  process.env.PACK_CATALOG?.trim() || join(ROOT, "packsets", "full.json"),
+);
 
 const CATALOG: RootCatalog = {
   kind: "infrawright.root_catalog",
@@ -198,9 +209,9 @@ test("loaded assessment binds the cross-state referent output contract", async (
     mkdirSync(envDir, { recursive: true });
     writeFileSync(join(envDir, "tfplan"), "plan\n");
     const root = await loadPackRoot({
-      packsRoot: join(process.cwd(), "packs"),
-      profilePath: join(process.cwd(), "packsets", "full.json"),
-      catalogPath: join(process.cwd(), "packsets", "full.json"),
+      packsRoot: PACKS_ROOT,
+      profilePath: PACK_PROFILE,
+      catalogPath: PACK_CATALOG,
     });
     const resolved = await resolveLoadedSavedPlanAssessment({
       workspace,
