@@ -487,14 +487,6 @@
         "zscaler"
       ],
       "reason": "The parity fixtures are source-pinned to the committed Zscaler packs."
-    },
-    {
-      "prefix": "tests.test_zpa_provider_evidence.",
-      "packs": [
-        "zpa"
-      ],
-      "shared": [],
-      "reason": "The evidence audit derives the exact fetch set and state-shape summaries from the committed ZPA registry and provider schema."
     }
   ]
 }

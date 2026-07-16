@@ -21,9 +21,14 @@ The retained compatibility implementation contains approximately:
 | Surface | Files | Lines | Disposition |
 |---|---:|---:|---|
 | `engine/` | 57 | 23,884 | Remove after differential evidence is frozen. |
-| `tests/` | 57 | 31,484 | Replace live-oracle comparisons, then remove. |
+| `tests/` | 56 | 31,335 | Replace live-oracle comparisons, then remove. |
 | pack collectors | 10 | 383 | Remove after collector fixtures no longer invoke them. |
-| `tools/zpa_provider_evidence.py` | 1 | 440 | Remove after its Node provider-probe replacement is fixture-bound. |
+
+The former `tools/zpa_provider_evidence.py` authority is now owned by the
+dedicated `iw zpa-provider-evidence` validator and its source-bound Node tests.
+The Python tool and its 149-line test were archived after the replacement
+proved the same 16-resource matrix, local input digests, schema-derived state
+shapes, 17 provider source-file bindings, and 45 inclusive source anchors.
 
 The shipped `iw` CLI is already Python-independent. The remaining dependency
 is a qualification dependency: 15 Node test files still import the live Python
