@@ -12,8 +12,10 @@
 ## Base / Head
 
 - Base: `7e1e65487a248c4484c9df75d3b0202e0a6c106a`
-- Implementation head: `cc33757cbca0adc9b350b6363f888b6e716801cd`
-- Diff command: `git diff 7e1e65487a248c4484c9df75d3b0202e0a6c106a..cc33757cbca0adc9b350b6363f888b6e716801cd`
+- Remediated implementation head: `10b2d5ed440ab882edc3730ee81d34c32ea281fe`
+- Diff command: `git diff 7e1e65487a248c4484c9df75d3b0202e0a6c106a..10b2d5ed440ab882edc3730ee81d34c32ea281fe`
+- The subsequent commit changes only this handoff. The reviewer must bind the
+  final verdict to the actual requested candidate head.
 
 ## Files Changed
 
@@ -71,8 +73,8 @@
 
 - Evidence must not be silently dropped: Unicode coverage remains exhaustive
   over every scalar and five context vectors; lossless JSON checks exact bytes
-  or exact-byte digests; import staging retains all eight parser cases and all
-  canonical/CR/CRLF/BOM cases.
+  or exact-byte digests and retains raw JSON validity/value equality; import
+  staging retains all eight parser cases and all canonical/CR/CRLF/BOM cases.
 - Generic matcher evidence must not outrank source-backed evidence: N/A; no
   matching or source-evidence behavior changed.
 - Source precedence/provenance must remain explicit: both the documentation and
@@ -102,6 +104,8 @@
 - Python-disabled non-test `check-all` remainder (`check-pack-set`, examples,
   modules, tfvars format, packs, vendor boundary, root catalog): passed.
 - `git diff --check`: passed.
+- Post-remediation Python-disabled lossless-artifact suite: 7 passed; typecheck
+  passed.
 - The default concurrent `make check-all` was attempted twice. Both attempts
   reached 504 passing selected tests before the unchanged 500 ms
   `terraform-command.test.ts` descendant-PID case read `descendant.pid` before
@@ -110,6 +114,21 @@
   its implementation.
 - Tests not run: live credentials, provider calls, remote backends, or
   deployment Apply; no affected behavior requires them.
+
+## Adversarial Review Disposition
+
+- Initial review at `de38cd83f5c6ac329c95d643c69f583e98b0edbe`:
+  Request changes.
+- Accepted blocking finding: the binary64 verifier compacted all whitespace
+  before its byte/digest assertion but had removed the former raw
+  `JSON.parse`/value-equality assertion. Invalid JSON with whitespace inside a
+  number token could therefore retain the compact authority digest.
+- Remediation at `10b2d5ed440ab882edc3730ee81d34c32ea281fe`:
+  parse the unmodified renderer output and compare all values with the
+  deterministic input corpus before compact-byte verification. The exact
+  Python digest remains the independent byte authority.
+- The reviewer independently reproduced every frozen authority value and found
+  no defect in the Unicode, import-staging, selector, or pack contracts.
 
 ## Known Deferrals
 
@@ -132,8 +151,9 @@
   authority, especially the binary64 byte count/digest and BOM behavior.
 - Verify that the Unicode digest still covers the entire scalar domain and all
   original framing/context vectors rather than a sample.
-- Verify that compacting the numeric-only binary64 output has exactly the same
-  scope as the retired test and cannot hide number-token differences.
+- Verify that raw binary64 output parsing/value equality rejects malformed JSON
+  before compact-byte authority checks, including whitespace inserted within a
+  numeric token.
 - Compare all eight import-filter expected objects and canonical/CR/CRLF/BOM
   staged bytes with the original Python results.
 - Verify pack-requirement ordering and the 51/17 full/reduced-profile selector
