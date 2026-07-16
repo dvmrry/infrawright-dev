@@ -84,24 +84,40 @@ async function captureFailure(
   assert.fail(`expected ${code}`);
 }
 
-interface LinuxProcessIdentity {
+interface ObservedLinuxProcessIdentity {
+  readonly kind: "observed";
   readonly startTime: string;
   readonly state: string;
 }
 
-async function linuxProcessIdentity(pid: number): Promise<LinuxProcessIdentity | null> {
-  if (process.platform !== "linux") return null;
+type LinuxProcessIdentity =
+  | { readonly kind: "missing" }
+  | { readonly kind: "unreadable" }
+  | ObservedLinuxProcessIdentity;
+
+async function linuxProcessIdentity(pid: number): Promise<LinuxProcessIdentity> {
+  if (process.platform !== "linux") return { kind: "unreadable" };
+  let stat: string;
   try {
-    const stat = await readFile(`/proc/${pid}/stat`, "utf8");
-    const close = stat.lastIndexOf(")");
-    const fields = close >= 0
-      ? stat.slice(close + 2).trim().split(/\s+/u)
-      : [];
-    if (fields.length <= 19) return null;
-    return { state: fields[0] ?? "", startTime: fields[19] ?? "" };
-  } catch {
-    return null;
+    stat = await readFile(`/proc/${pid}/stat`, "utf8");
+  } catch (error: unknown) {
+    const code = error !== null && typeof error === "object" && "code" in error
+      ? (error as { readonly code?: unknown }).code
+      : undefined;
+    return code === "ENOENT" || code === "ESRCH"
+      ? { kind: "missing" }
+      : { kind: "unreadable" };
   }
+  const close = stat.lastIndexOf(")");
+  const fields = close >= 0
+    ? stat.slice(close + 2).trim().split(/\s+/u)
+    : [];
+  if (fields.length <= 19) return { kind: "unreadable" };
+  return {
+    kind: "observed",
+    state: fields[0] ?? "",
+    startTime: fields[19] ?? "",
+  };
 }
 
 async function waitForProcessExit(
@@ -116,9 +132,10 @@ async function waitForProcessExit(
         if (process.platform === "linux") {
           const identity = await linuxProcessIdentity(pid);
           if (
-            identity === null
-            || identity.state === "Z"
+            identity.kind === "missing"
+            || (identity.kind === "observed" && identity.state === "Z")
             || (expectedLinuxStartTime !== undefined
+              && identity.kind === "observed"
               && identity.startTime !== expectedLinuxStartTime)
           ) {
             resolve();
@@ -701,8 +718,16 @@ test("termination signals reap every active Terraform group and retain signal ex
       harness.kill(signal);
       assert.deepEqual(await closed, { code: null, signal });
       await Promise.all([
-        waitForProcessExit(directPid, directIdentity?.startTime),
-        waitForProcessExit(descendantPid, descendantIdentity?.startTime),
+        waitForProcessExit(
+          directPid,
+          directIdentity.kind === "observed" ? directIdentity.startTime : undefined,
+        ),
+        waitForProcessExit(
+          descendantPid,
+          descendantIdentity.kind === "observed"
+            ? descendantIdentity.startTime
+            : undefined,
+        ),
       ]);
     }
   });
