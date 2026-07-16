@@ -1,0 +1,854 @@
+package metadata
+
+// packs.go ports node-src/metadata/packs.ts: pack.json/registry.json
+// pack-set validation, provider-prefix ownership, manifest loading, and
+// pack-set/profile checks.
+//
+// Every exported function here is a thin (defer recoverMetadataError(&err))
+// wrapper around an unexported function of the same name (see the
+// fail/recoverMetadataError doc comments in validation.go for why): the
+// unexported function holds the actual ported logic and panics on
+// validation failure exactly like the Node source's `throw`; any other
+// package-private function in this port that needs the same operation
+// calls the unexported version directly, so panics propagate naturally up
+// to whichever exported entry point is on the call stack, never through
+// more than one recover.
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+
+	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
+)
+
+// PACK_SET_KIND, REQUIREMENTS_KIND, and PACK_SET_VERSION port the
+// like-named constants from node-src/metadata/packs.ts.
+const (
+	PackSetKind      = "infrawright.pack-set"
+	RequirementsKind = "infrawright.pack-requirements"
+	PackSetVersion   = 1
+)
+
+// componentName ports COMPONENT_NAME from node-src/metadata/packs.ts.
+var componentName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+
+var packSetKeys = stringSet("kind", "version", "packs", "shared")
+
+var manifestKeys = stringSet(
+	"absent_defaults", "drift_policy", "dynamic_schema", "lookup_sources",
+	"pin", "provider_config", "provider_prefixes", "provider_sources",
+	"references", "requires_shared", "scope_segments", "sensitive_required",
+	"unescape_products", "vendor",
+)
+
+var manifestObjectKeys = []string{
+	"absent_defaults", "drift_policy", "dynamic_schema", "lookup_sources",
+	"provider_config", "provider_prefixes", "provider_sources",
+	"references", "scope_segments", "sensitive_required",
+}
+
+var manifestStringKeys = []string{"pin", "vendor"}
+var manifestListKeys = []string{"requires_shared", "unescape_products"}
+
+// PackSelection ports the PackSelection interface from
+// node-src/metadata/packs.ts.
+type PackSelection struct {
+	Packs  []string
+	Shared []string
+}
+
+// PackSetDocument ports the PackSetDocument interface from
+// node-src/metadata/packs.ts.
+type PackSetDocument struct {
+	Kind    string
+	Version int
+	PackSelection
+}
+
+// PackManifest ports the PackManifest interface from
+// node-src/metadata/packs.ts.
+type PackManifest struct {
+	Name             string
+	Directory        string
+	Path             string
+	Data             JsonObject
+	ProviderPrefixes map[string]string
+	ProviderSources  map[string]string
+	RequiresShared   []string
+}
+
+// PackMetadata ports the PackMetadata interface from
+// node-src/metadata/packs.ts.
+type PackMetadata struct {
+	Root             string
+	Manifests        []PackManifest
+	ProviderPrefixes map[string]string
+	ProviderSources  map[string]string
+	ProviderOwners   map[string]string
+}
+
+// ActivePackSetResult ports the ActivePackSetResult interface from
+// node-src/metadata/packs.ts.
+type ActivePackSetResult struct {
+	Profile  PackSetDocument
+	Active   PackSelection
+	Metadata PackMetadata
+}
+
+// RequirementsResult ports the RequirementsResult interface from
+// node-src/metadata/packs.ts.
+type RequirementsResult struct {
+	Requirements PackSetDocument
+	Active       PackSelection
+	Missing      PackSelection
+	Available    bool
+}
+
+func isDirectory(candidate string) bool {
+	info, err := os.Stat(candidate)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
+
+func isFile(candidate string) bool {
+	info, err := os.Stat(candidate)
+	if err != nil {
+		return false
+	}
+	return info.Mode().IsRegular()
+}
+
+// setKeys returns set's members as a plain slice, in no particular order.
+func setKeys(set map[string]struct{}) []string {
+	keys := make([]string, 0, len(set))
+	for key := range set {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+// orEmptyObject ports a JavaScript `value ?? {}` nullish-coalesce: a
+// missing map key (Go's zero `any`, nil) and an explicit JSON null both
+// decode to Go nil here, exactly the two cases `??` treats as absent.
+func orEmptyObject(value any) any {
+	if value == nil {
+		return JsonObject{}
+	}
+	return value
+}
+
+// validateNames ports validateNames from node-src/metadata/packs.ts.
+func validateNames(value any, label string) []string {
+	arr, ok := value.([]any)
+	if !ok {
+		failf("%s must be a list", label)
+		return nil
+	}
+	names := make([]string, 0, len(arr))
+	seen := make(map[string]struct{}, len(arr))
+	for index, item := range arr {
+		s, isString := item.(string)
+		if !isString || !componentName.MatchString(s) {
+			failf("%s[%d] must be a lowercase pack name", label, index)
+		}
+		if _, duplicate := seen[s]; duplicate {
+			failf("%s duplicates %s", label, jsonQuote(s))
+		}
+		seen[s] = struct{}{}
+		names = append(names, s)
+	}
+	if !canonjson.SameStringSequence(names, canonjson.SortedStrings(names)) {
+		failf("%s must be sorted", label)
+	}
+	return names
+}
+
+// isPackSetVersionOne reports whether value is the pack-set version 1,
+// accepting either a plain float64 1 or a losslessly preserved json.Number
+// token "1" -- node-src/metadata/packs.ts's own version check explicitly
+// special-cases a LosslessNumber here (`data.version instanceof
+// LosslessNumber && data.version.toString() === "1"`), unlike
+// isDriftPolicyVersionOne's bare `!== 1` in driftpolicy.go.
+func isPackSetVersionOne(value any) bool {
+	switch v := value.(type) {
+	case float64:
+		return v == float64(PackSetVersion)
+	case json.Number:
+		return string(v) == "1"
+	default:
+		return false
+	}
+}
+
+// validatePackSetDocument ports validatePackSetDocument from
+// node-src/metadata/packs.ts.
+func validatePackSetDocument(value any, source, expectedKind string) PackSetDocument {
+	data := requireObject(value, source)
+	rejectUnknownKeys(data, packSetKeys, source)
+	requireKeys(data, packSetKeys, source)
+	if kind, ok := data["kind"].(string); !ok || kind != expectedKind {
+		failf("%s.kind must be %s", source, jsonQuote(expectedKind))
+	}
+	if !isPackSetVersionOne(data["version"]) {
+		failf("%s.version must be %d", source, PackSetVersion)
+	}
+	return PackSetDocument{
+		Kind:    expectedKind,
+		Version: PackSetVersion,
+		PackSelection: PackSelection{
+			Packs:  validateNames(data["packs"], source+".packs"),
+			Shared: validateNames(data["shared"], source+".shared"),
+		},
+	}
+}
+
+// ValidatePackSetDocument ports validatePackSetDocument from
+// node-src/metadata/packs.ts.
+func ValidatePackSetDocument(value any, source, expectedKind string) (doc PackSetDocument, err error) {
+	defer recoverMetadataError(&err)
+	return validatePackSetDocument(value, source, expectedKind), nil
+}
+
+// loadPackSetDocument ports loadPackSetDocument from
+// node-src/metadata/packs.ts.
+func loadPackSetDocument(source, expectedKind string) PackSetDocument {
+	absolute, err := filepath.Abs(source)
+	if err != nil {
+		failf("failed to resolve %s: %s", source, err.Error())
+	}
+	value := readJSON(absolute, readJSONOptions{preserveNumericTokens: true})
+	return validatePackSetDocument(value, absolute, expectedKind)
+}
+
+// LoadPackSetDocument ports loadPackSetDocument from
+// node-src/metadata/packs.ts.
+func LoadPackSetDocument(source, expectedKind string) (doc PackSetDocument, err error) {
+	defer recoverMetadataError(&err)
+	return loadPackSetDocument(source, expectedKind), nil
+}
+
+// discoverDirectories ports discoverDirectories from
+// node-src/metadata/packs.ts. Unlike the Node source (which lets a
+// non-ENOENT readdir error propagate as a raw, unwrapped error), this
+// panics via fail() for any such error, keeping this package's error
+// surface uniform; no fixture in this port's scope exercises that path.
+// Returns a non-nil, empty slice (never nil) when root does not exist,
+// matching the Node source returning `[]` rather than undefined/null on
+// ENOENT.
+func discoverDirectories(root string) []string {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}
+		}
+		failf("failed to list %s: %s", root, err.Error())
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if isDirectory(filepath.Join(root, entry.Name())) {
+			names = append(names, entry.Name())
+		}
+	}
+	return canonjson.SortedStrings(names)
+}
+
+// activePackSelection ports activePackSelection from
+// node-src/metadata/packs.ts.
+func activePackSelection(root string) PackSelection {
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		failf("failed to resolve %s: %s", root, err.Error())
+	}
+	directories := discoverDirectories(absolute)
+	packs := make([]string, 0, len(directories))
+	for _, name := range directories {
+		if name != "_shared" {
+			packs = append(packs, name)
+		}
+	}
+	sharedRoot := filepath.Join(absolute, "_shared")
+	return PackSelection{Packs: packs, Shared: discoverDirectories(sharedRoot)}
+}
+
+// ActivePackSelection ports activePackSelection from
+// node-src/metadata/packs.ts.
+func ActivePackSelection(root string) (selection PackSelection, err error) {
+	defer recoverMetadataError(&err)
+	return activePackSelection(root), nil
+}
+
+func requireObjectKey(data JsonObject, key, source string) {
+	if value, ok := data[key]; ok {
+		if !isObject(value) {
+			failf("%s.%s must be an object", source, key)
+		}
+	}
+}
+
+func validateRuleGroup(data JsonObject, key, source string) {
+	groupValue, ok := data[key]
+	if !ok {
+		return
+	}
+	group, ok := groupValue.(JsonObject)
+	if !ok {
+		failf("%s.%s must be an object", source, key)
+		return
+	}
+	rulesKeySet := stringSet("rules")
+	label := fmt.Sprintf("%s.%s", source, key)
+	rejectUnknownKeys(group, rulesKeySet, label)
+	requireKeys(group, rulesKeySet, label)
+	if _, isArray := group["rules"].([]any); !isArray {
+		failf("%s.rules must be a list", label)
+	}
+}
+
+func validateLookupSources(value JsonObject, source string) {
+	for _, resourceType := range sortedKeys(value) {
+		item := value[resourceType]
+		if len(resourceType) == 0 {
+			failf("%s keys must be non-empty strings", source)
+		}
+		itemObj, ok := item.(JsonObject)
+		if !ok {
+			failf("%s.%s must be an object", source, resourceType)
+			continue
+		}
+		label := fmt.Sprintf("%s.%s", source, resourceType)
+		keys := stringSet("name_field")
+		rejectUnknownKeys(itemObj, keys, label)
+		requireKeys(itemObj, keys, label)
+		requireNonEmptyString(itemObj["name_field"], label+".name_field")
+	}
+}
+
+func validateReferences(value JsonObject, source string) {
+	for _, resourceType := range sortedKeys(value) {
+		rawFields := value[resourceType]
+		if len(resourceType) == 0 {
+			failf("%s keys must be non-empty strings", source)
+		}
+		fieldsObj, ok := rawFields.(JsonObject)
+		if !ok {
+			failf("%s.%s must be an object", source, resourceType)
+			continue
+		}
+		for _, field := range sortedKeys(fieldsObj) {
+			rawReference := fieldsObj[field]
+			if len(field) == 0 {
+				failf("%s.%s keys must be non-empty strings", source, resourceType)
+			}
+			label := fmt.Sprintf("%s.%s.%s", source, resourceType, field)
+			referenceObj, ok := rawReference.(JsonObject)
+			if !ok {
+				failf("%s must be an object", label)
+				continue
+			}
+			keys := stringSet("name_field", "referent")
+			rejectUnknownKeys(referenceObj, keys, label)
+			requireKeys(referenceObj, keys, label)
+			requireNonEmptyString(referenceObj["name_field"], label+".name_field")
+			requireNonEmptyString(referenceObj["referent"], label+".referent")
+		}
+	}
+}
+
+func validateProviderConfig(value JsonObject, source string) {
+	keys := stringSet("requirements")
+	rejectUnknownKeys(value, keys, source)
+	requireKeys(value, keys, source)
+	if _, isArray := value["requirements"].([]any); !isArray {
+		failf("%s.requirements must be a list", source)
+	}
+}
+
+// validatePackManifest ports validatePackManifest from
+// node-src/metadata/packs.ts.
+func validatePackManifest(value any, source string) JsonObject {
+	data := requireObject(value, source)
+	rejectUnknownKeys(data, manifestKeys, source)
+	for _, key := range manifestObjectKeys {
+		requireObjectKey(data, key, source)
+	}
+	for _, key := range manifestStringKeys {
+		if v, ok := data[key]; ok {
+			requireNonEmptyString(v, fmt.Sprintf("%s.%s", source, key))
+		}
+	}
+	for _, key := range manifestListKeys {
+		if v, ok := data[key]; ok {
+			if _, isArray := v.([]any); !isArray {
+				failf("%s.%s must be a list", source, key)
+			}
+		}
+	}
+	validateStringMap(orEmptyObject(data["provider_prefixes"]), source+".provider_prefixes")
+	validateStringMap(orEmptyObject(data["provider_sources"]), source+".provider_sources")
+	validateStringMap(orEmptyObject(data["scope_segments"]), source+".scope_segments")
+	if arr, ok := data["unescape_products"].([]any); ok {
+		for index, item := range arr {
+			requireNonEmptyString(item, fmt.Sprintf("%s.unescape_products[%d]", source, index))
+		}
+	}
+	if arr, ok := data["requires_shared"].([]any); ok {
+		dependencies := make([]string, 0, len(arr))
+		seen := make(map[string]struct{}, len(arr))
+		for index, item := range arr {
+			s, isString := item.(string)
+			if !isString || !componentName.MatchString(s) {
+				failf("%s.requires_shared[%d] must be a lowercase shared-component name", source, index)
+			}
+			if _, duplicate := seen[s]; duplicate {
+				failf("%s.requires_shared duplicates %s", source, jsonQuote(s))
+			}
+			seen[s] = struct{}{}
+			dependencies = append(dependencies, s)
+		}
+		if !canonjson.SameStringSequence(dependencies, canonjson.SortedStrings(dependencies)) {
+			failf("%s.requires_shared must be sorted", source)
+		}
+	}
+	if lookupSources, ok := data["lookup_sources"].(JsonObject); ok {
+		validateLookupSources(lookupSources, source+".lookup_sources")
+	}
+	if references, ok := data["references"].(JsonObject); ok {
+		validateReferences(references, source+".references")
+	}
+	for _, key := range []string{"absent_defaults", "dynamic_schema", "sensitive_required"} {
+		validateRuleGroup(data, key, source)
+	}
+	if driftPolicyValue, hasDriftPolicy := data["drift_policy"]; hasDriftPolicy {
+		if driftErr := validateDriftPolicy(driftPolicyValue, source+".drift_policy"); driftErr != nil {
+			fail(driftErr.Error())
+		}
+	}
+	if providerConfig, ok := data["provider_config"].(JsonObject); ok {
+		validateProviderConfig(providerConfig, source+".provider_config")
+	}
+	return data
+}
+
+// ValidatePackManifest ports validatePackManifest from
+// node-src/metadata/packs.ts.
+func ValidatePackManifest(value any, source string) (data JsonObject, err error) {
+	defer recoverMetadataError(&err)
+	return validatePackManifest(value, source), nil
+}
+
+func manifestRecord(name, directory, manifestPath string, data JsonObject) PackManifest {
+	var requiresShared []string
+	if arr, ok := data["requires_shared"].([]any); ok {
+		requiresShared = make([]string, 0, len(arr))
+		for _, item := range arr {
+			if s, ok := item.(string); ok {
+				requiresShared = append(requiresShared, s)
+			}
+		}
+	}
+	return PackManifest{
+		Name:      name,
+		Directory: directory,
+		Path:      manifestPath,
+		Data:      data,
+		ProviderPrefixes: validateStringMap(
+			orEmptyObject(data["provider_prefixes"]), manifestPath+".provider_prefixes",
+		),
+		ProviderSources: validateStringMap(
+			orEmptyObject(data["provider_sources"]), manifestPath+".provider_sources",
+		),
+		RequiresShared: requiresShared,
+	}
+}
+
+// loadPackMetadata ports loadPackMetadata from
+// node-src/metadata/packs.ts.
+func loadPackMetadata(root string) PackMetadata {
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		failf("failed to resolve %s: %s", root, err.Error())
+	}
+	var manifests []PackManifest
+	for _, name := range discoverDirectories(absolute) {
+		if name == "_shared" {
+			continue
+		}
+		directory := filepath.Join(absolute, name)
+		manifestPath := filepath.Join(directory, "pack.json")
+		if !isFile(manifestPath) {
+			continue
+		}
+		data := validatePackManifest(readJSON(manifestPath, readJSONOptions{
+			preserveNumericTokensUnderKeys: stringSet("observed_value", "value"),
+		}), manifestPath)
+		manifests = append(manifests, manifestRecord(name, directory, manifestPath, data))
+	}
+
+	prefixes := make(map[string]string)
+	sources := make(map[string]string)
+	providerOwners := make(map[string]string)
+	prefixOwners := make(map[string]string)
+	for _, manifest := range manifests {
+		for _, prefix := range canonjson.SortedStrings(setKeys(toStringSet(manifest.ProviderPrefixes))) {
+			if prior, ok := prefixOwners[prefix]; ok && prior != manifest.Name {
+				failf(
+					"provider prefix %s is declared by multiple packs: %s, %s",
+					jsonQuote(prefix), prior, manifest.Name,
+				)
+			}
+			provider, ok := manifest.ProviderPrefixes[prefix]
+			if !ok {
+				continue
+			}
+			prefixOwners[prefix] = manifest.Name
+			prefixes[prefix] = provider
+			if providerPrior, ok := providerOwners[provider]; ok && providerPrior != manifest.Name {
+				failf(
+					"provider %s is declared by multiple packs: %s, %s",
+					jsonQuote(provider), providerPrior, manifest.Name,
+				)
+			}
+			providerOwners[provider] = manifest.Name
+		}
+		for key, value := range manifest.ProviderSources {
+			sources[key] = value
+		}
+	}
+	return PackMetadata{
+		Root:             absolute,
+		Manifests:        manifests,
+		ProviderPrefixes: prefixes,
+		ProviderSources:  sources,
+		ProviderOwners:   providerOwners,
+	}
+}
+
+func toStringSet(m map[string]string) map[string]struct{} {
+	out := make(map[string]struct{}, len(m))
+	for key := range m {
+		out[key] = struct{}{}
+	}
+	return out
+}
+
+// LoadPackMetadata ports loadPackMetadata from
+// node-src/metadata/packs.ts.
+func LoadPackMetadata(root string) (metadata PackMetadata, err error) {
+	defer recoverMetadataError(&err)
+	return loadPackMetadata(root), nil
+}
+
+// validateSharedDependencies ports validateSharedDependencies from
+// node-src/metadata/packs.ts. packNames nil means "no restriction" (every
+// manifest), matching the Node source's `packNames?: readonly string[]`
+// left undefined; a non-nil (even empty) slice restricts to exactly those
+// pack names, matching a defined (possibly empty) array there.
+func validateSharedDependencies(metadata PackMetadata, packNames []string) {
+	var selected map[string]struct{}
+	if packNames != nil {
+		selected = make(map[string]struct{}, len(packNames))
+		for _, name := range packNames {
+			selected[name] = struct{}{}
+		}
+	}
+	for _, manifest := range metadata.Manifests {
+		if selected != nil {
+			if _, ok := selected[manifest.Name]; !ok {
+				continue
+			}
+		}
+		for _, dependency := range manifest.RequiresShared {
+			sharedRoot := filepath.Join(metadata.Root, "_shared")
+			if !isDirectory(filepath.Join(sharedRoot, dependency)) {
+				failf(
+					"pack %s requires missing shared component %s under %s",
+					manifest.Name, dependency, sharedRoot,
+				)
+			}
+		}
+	}
+}
+
+// ValidateSharedDependencies ports validateSharedDependencies from
+// node-src/metadata/packs.ts.
+func ValidateSharedDependencies(metadata PackMetadata, packNames []string) (err error) {
+	defer recoverMetadataError(&err)
+	validateSharedDependencies(metadata, packNames)
+	return nil
+}
+
+func selectionDelta(expected, actual []string) (missing, extra []string) {
+	expectedSet := make(map[string]struct{}, len(expected))
+	for _, name := range expected {
+		expectedSet[name] = struct{}{}
+	}
+	actualSet := make(map[string]struct{}, len(actual))
+	for _, name := range actual {
+		actualSet[name] = struct{}{}
+	}
+	var missingList, extraList []string
+	for name := range expectedSet {
+		if _, ok := actualSet[name]; !ok {
+			missingList = append(missingList, name)
+		}
+	}
+	for name := range actualSet {
+		if _, ok := expectedSet[name]; !ok {
+			extraList = append(extraList, name)
+		}
+	}
+	return canonjson.SortedStrings(missingList), canonjson.SortedStrings(extraList)
+}
+
+func validateKnownSelection(selection, catalog PackSelection, label string) {
+	var errorList []string
+	checks := []struct {
+		key      string
+		selected []string
+		known    []string
+	}{
+		{"packs", selection.Packs, catalog.Packs},
+		{"shared", selection.Shared, catalog.Shared},
+	}
+	for _, check := range checks {
+		known := make(map[string]struct{}, len(check.known))
+		for _, name := range check.known {
+			known[name] = struct{}{}
+		}
+		var unknown []string
+		for _, name := range check.selected {
+			if _, ok := known[name]; !ok {
+				unknown = append(unknown, name)
+			}
+		}
+		unknown = canonjson.SortedStrings(unknown)
+		if len(unknown) > 0 {
+			errorList = append(errorList, fmt.Sprintf("unknown %s: %s", check.key, strings.Join(unknown, ", ")))
+		}
+	}
+	if len(errorList) > 0 {
+		failf("%s is outside the pack catalog; %s", label, strings.Join(errorList, "; "))
+	}
+}
+
+// ValidateActivePackSetOptions ports the options bag validateActivePackSet
+// accepts in node-src/metadata/packs.ts. CatalogPath nil means the
+// optional `catalogPath` field was omitted.
+type ValidateActivePackSetOptions struct {
+	ProfilePath string
+	Root        string
+	CatalogPath *string
+}
+
+// validateActivePackSet ports validateActivePackSet from
+// node-src/metadata/packs.ts.
+func validateActivePackSet(options ValidateActivePackSetOptions) ActivePackSetResult {
+	profile := loadPackSetDocument(options.ProfilePath, PackSetKind)
+	if options.CatalogPath != nil {
+		catalog := loadPackSetDocument(*options.CatalogPath, PackSetKind)
+		absoluteProfile, err := filepath.Abs(options.ProfilePath)
+		if err != nil {
+			failf("failed to resolve %s: %s", options.ProfilePath, err.Error())
+		}
+		validateKnownSelection(profile.PackSelection, catalog.PackSelection, absoluteProfile)
+	}
+	active := activePackSelection(options.Root)
+	packMissing, packExtra := selectionDelta(profile.Packs, active.Packs)
+	sharedMissing, sharedExtra := selectionDelta(profile.Shared, active.Shared)
+	var errorList []string
+	if len(packMissing) > 0 {
+		errorList = append(errorList, fmt.Sprintf("missing packs: %s", strings.Join(packMissing, ", ")))
+	}
+	if len(packExtra) > 0 {
+		errorList = append(errorList, fmt.Sprintf("undeclared packs: %s", strings.Join(packExtra, ", ")))
+	}
+	if len(sharedMissing) > 0 {
+		errorList = append(errorList, fmt.Sprintf("missing shared: %s", strings.Join(sharedMissing, ", ")))
+	}
+	if len(sharedExtra) > 0 {
+		errorList = append(errorList, fmt.Sprintf("undeclared shared: %s", strings.Join(sharedExtra, ", ")))
+	}
+	if len(errorList) > 0 {
+		failf("pack set mismatch; %s", strings.Join(errorList, "; "))
+	}
+	metadata := loadPackMetadata(options.Root)
+	validateSharedDependencies(metadata, profile.Packs)
+	return ActivePackSetResult{Profile: profile, Active: active, Metadata: metadata}
+}
+
+// ValidateActivePackSet ports validateActivePackSet from
+// node-src/metadata/packs.ts.
+func ValidateActivePackSet(options ValidateActivePackSetOptions) (result ActivePackSetResult, err error) {
+	defer recoverMetadataError(&err)
+	return validateActivePackSet(options), nil
+}
+
+// CheckPackRequirementsOptions ports the options bag
+// checkPackRequirements accepts in node-src/metadata/packs.ts.
+type CheckPackRequirementsOptions struct {
+	RequirementsPath string
+	Root             string
+	CatalogPath      *string
+}
+
+// checkPackRequirements ports checkPackRequirements from
+// node-src/metadata/packs.ts.
+func checkPackRequirements(options CheckPackRequirementsOptions) RequirementsResult {
+	requirements := loadPackSetDocument(options.RequirementsPath, RequirementsKind)
+	if options.CatalogPath != nil {
+		catalog := loadPackSetDocument(*options.CatalogPath, PackSetKind)
+		absoluteRequirements, err := filepath.Abs(options.RequirementsPath)
+		if err != nil {
+			failf("failed to resolve %s: %s", options.RequirementsPath, err.Error())
+		}
+		validateKnownSelection(requirements.PackSelection, catalog.PackSelection, absoluteRequirements)
+	}
+	active := activePackSelection(options.Root)
+	activePacks := make(map[string]struct{}, len(active.Packs))
+	for _, name := range active.Packs {
+		activePacks[name] = struct{}{}
+	}
+	activeShared := make(map[string]struct{}, len(active.Shared))
+	for _, name := range active.Shared {
+		activeShared[name] = struct{}{}
+	}
+	missingPacks := make([]string, 0)
+	for _, name := range requirements.Packs {
+		if _, ok := activePacks[name]; !ok {
+			missingPacks = append(missingPacks, name)
+		}
+	}
+	missingShared := make([]string, 0)
+	for _, name := range requirements.Shared {
+		if _, ok := activeShared[name]; !ok {
+			missingShared = append(missingShared, name)
+		}
+	}
+	return RequirementsResult{
+		Requirements: requirements,
+		Active:       active,
+		Missing:      PackSelection{Packs: missingPacks, Shared: missingShared},
+		Available:    len(missingPacks) == 0 && len(missingShared) == 0,
+	}
+}
+
+// CheckPackRequirements ports checkPackRequirements from
+// node-src/metadata/packs.ts.
+func CheckPackRequirements(options CheckPackRequirementsOptions) (result RequirementsResult, err error) {
+	defer recoverMetadataError(&err)
+	return checkPackRequirements(options), nil
+}
+
+// ProviderForResource ports providerForResource from
+// node-src/metadata/packs.ts. It never fails: an unrecognized resource
+// type falls back to its own leading `_`-delimited segment, exactly as
+// the Node source does.
+func ProviderForResource(metadata PackMetadata, resourceType string) string {
+	prefixes := canonjson.SortedStrings(setKeys(toStringSet(metadata.ProviderPrefixes)))
+	sort.SliceStable(prefixes, func(i, j int) bool { return len(prefixes[i]) > len(prefixes[j]) })
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(resourceType, prefix) {
+			if provider, ok := metadata.ProviderPrefixes[prefix]; ok {
+				return provider
+			}
+		}
+	}
+	if index := strings.IndexByte(resourceType, '_'); index >= 0 {
+		return resourceType[:index]
+	}
+	return resourceType
+}
+
+func manifestForProvider(metadata PackMetadata, provider string) PackManifest {
+	owner, ok := metadata.ProviderOwners[provider]
+	if !ok {
+		failf("no pack declares provider %s", jsonQuote(provider))
+		return PackManifest{}
+	}
+	for _, manifest := range metadata.Manifests {
+		if manifest.Name == owner {
+			return manifest
+		}
+	}
+	failf("no manifest found for provider owner %s", jsonQuote(owner))
+	return PackManifest{}
+}
+
+// ManifestForProvider ports manifestForProvider from
+// node-src/metadata/packs.ts.
+func ManifestForProvider(metadata PackMetadata, provider string) (manifest PackManifest, err error) {
+	defer recoverMetadataError(&err)
+	return manifestForProvider(metadata, provider), nil
+}
+
+func packDirectoryForProvider(metadata PackMetadata, provider string) string {
+	return manifestForProvider(metadata, provider).Directory
+}
+
+// PackDirectoryForProvider ports packDirectoryForProvider from
+// node-src/metadata/packs.ts.
+func PackDirectoryForProvider(metadata PackMetadata, provider string) (directory string, err error) {
+	defer recoverMetadataError(&err)
+	return packDirectoryForProvider(metadata, provider), nil
+}
+
+// ValidatePackAuthoringOptions ports the options bag
+// validatePackAuthoring accepts in node-src/metadata/packs.ts. Pack nil
+// means the optional `pack` field was omitted (validate every manifest).
+type ValidatePackAuthoringOptions struct {
+	Root string
+	Pack *string
+}
+
+// ValidatePackAuthoringResult ports validatePackAuthoring's return shape
+// from node-src/metadata/packs.ts.
+type ValidatePackAuthoringResult struct {
+	Names    []string
+	Metadata PackMetadata
+}
+
+func validatePackAuthoring(options ValidatePackAuthoringOptions) ValidatePackAuthoringResult {
+	root, err := filepath.Abs(options.Root)
+	if err != nil {
+		failf("failed to resolve %s: %s", options.Root, err.Error())
+	}
+	if options.Pack != nil && *options.Pack == "_shared" {
+		fail("_shared is a reserved component root, not a pack")
+	}
+	metadata := loadPackMetadata(root)
+	var names []string
+	if options.Pack == nil {
+		names = make([]string, 0, len(metadata.Manifests))
+		for _, manifest := range metadata.Manifests {
+			names = append(names, manifest.Name)
+		}
+	} else {
+		names = []string{*options.Pack}
+		found := false
+		for _, manifest := range metadata.Manifests {
+			if manifest.Name == *options.Pack {
+				found = true
+				break
+			}
+		}
+		if !found {
+			failf("unknown pack %s under %s", jsonQuote(*options.Pack), root)
+		}
+	}
+	validateSharedDependencies(metadata, names)
+	return ValidatePackAuthoringResult{Names: names, Metadata: metadata}
+}
+
+// ValidatePackAuthoring ports validatePackAuthoring from
+// node-src/metadata/packs.ts.
+func ValidatePackAuthoring(options ValidatePackAuthoringOptions) (result ValidatePackAuthoringResult, err error) {
+	defer recoverMetadataError(&err)
+	return validatePackAuthoring(options), nil
+}
