@@ -62,7 +62,7 @@ interface FrozenEnvironmentAuthority {
 }
 
 const ENVIRONMENT_AUTHORITY_SHA256 =
-  "034ff9be97c273dc6851689786b80b6eb8a7a770d38ca451af284a818b2a95b0";
+  "9dd1cc8d90ff639ff27d00ed1364b4a829de0d80b1c140a7eab62fb8440706b5";
 const environmentAuthorityBytes = readFileSync(path.join(
   ROOT,
   "node-tests",

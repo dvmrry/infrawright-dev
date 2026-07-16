@@ -2293,7 +2293,7 @@
   },
   "kind": "infrawright.python-environment-roots-authority",
   "normalization": "none",
-  "producing_command": "PYTHON=/run/current-system/sw/bin/python3.13 python3.13 /tmp/generate_env_authority.py at baseline 55f6189efe888564b515a6c2f5a505348f921f6e",
+  "producing_command": "PYTHON=python3.13 python3.13 scripts/archive/generate-python-environment-roots-authority.py <baseline-worktree> <output>",
   "representative_cases": [
     {
       "name": "ungrouped-json",

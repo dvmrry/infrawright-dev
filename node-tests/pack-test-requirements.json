@@ -79,13 +79,19 @@
     {
       "file": "environment-generator.test.js",
       "packs": [
+        "aws",
+        "cloudflare",
+        "google",
+        "netbox",
+        "zcc",
         "zia",
-        "zpa"
+        "zpa",
+        "ztc"
       ],
       "shared": [
         "zscaler"
       ],
-      "reason": "The frozen environment-root authority exercises committed ZIA/ZPA schemas, bindings, and topology."
+      "reason": "The complete 151-root frozen authority loads every committed pack plus Zscaler bindings and topology."
     },
     {
       "file": "exact-plan-apply.test.js",

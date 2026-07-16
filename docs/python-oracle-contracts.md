@@ -268,10 +268,26 @@ PYTHON=python3 python -m unittest \
   tests.test_gen_env tests.test_group_bindings
 ```
 
+From the archive slice that contains the reproduction script, regenerate and
+verify the exact committed fixture with:
+
+```sh
+/run/current-system/sw/bin/python3.13 \
+  scripts/archive/generate-python-environment-roots-authority.py \
+  /tmp/iw-python-environment-roots /tmp/python-environment-roots-v1.json
+test "$(shasum -a 256 /tmp/python-environment-roots-v1.json | cut -d' ' -f1)" = \
+  9dd1cc8d90ff639ff27d00ed1364b4a829de0d80b1c140a7eab62fb8440706b5
+```
+
+The script rejects any baseline other than the recorded commit and any
+interpreter other than CPython 3.13.13 / UCD 15.1.0. It is temporary migration
+evidence and is removed with the final Python archive after this producing
+commit remains reachable in git history.
+
 The complete authority is recorded in
-`node-tests/fixtures/python-environment-roots-v1.json`. The 105,043-byte
+`node-tests/fixtures/python-environment-roots-v1.json`. The 105,024-byte
 fixture has SHA-256
-`034ff9be97c273dc6851689786b80b6eb8a7a770d38ca451af284a818b2a95b0`.
+`9dd1cc8d90ff639ff27d00ed1364b4a829de0d80b1c140a7eab62fb8440706b5`.
 It preserves exact bytes for ungrouped JSON, grouped binding/backend,
 singleton HCL, and slug-root cases; the path, byte length, and SHA-256 of all
 453 files in the full 151-root output tree; and exact dangling config/output
