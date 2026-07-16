@@ -164,14 +164,10 @@ objects.
 
 ## Adoption Metadata Inventory
 
-A read-only cross-class inventory report now aggregates committed metadata:
-
-- `engine/adoption_inventory_report.py` normalizes `provider_config.requirements`, `absent_defaults.rules`, `dynamic_schema.rules`, and `sensitive_required.rules` into a single inventory.
-- `python -m engine.adoption_inventory_report` emits JSON or markdown for humans/operators and supports `--class sensitive_required`.
-- The report is read-only: it does not project, omit, change drift policy, alter `assert-adoptable`, render provider configuration, render placeholder values or blocks, run Terraform/OpenTofu, or enforce cross-class rules.
-- It includes cross-class overlap diagnostics (warnings and info), but it is not an adoption decision engine and does not enforce cross-design rules.
-- Sensitive-required rules are now integrated into the inventory as a read-only visibility lane, with warning-level overlap diagnostics against `absent_default` and `dynamic_schema` paths.
-- Sensitive-required pack metadata remains pending; no sensitive-required rules have been committed to pack manifests yet.
+The former Python-only cross-class inventory report was retired with the
+compatibility implementation. The committed provider-config, absent-default,
+dynamic-schema, and sensitive-required pack metadata remain authoritative and
+are consumed by the Node adoption and assessment paths where applicable.
 
 ## Absent/Default Assert-Adoptable Guidance
 
@@ -202,7 +198,9 @@ The sensitive-required failure class is now documented in `docs/sensitive-requir
 - It is distinct from `provider_config`, `absent_defaults`, `dynamic_schema`, `raw_api_only_provider_blind`, `projection_omit`, and `assert-adoptable` downgrade.
 - The design preserves the absolute safety invariant: never synthesize, guess, echo, persist, or project sensitive values.
 - The V1 validator contract is now frozen in `docs/sensitive-required-remediation.md`: accepted keys, required fields, value-carrying field rejection, closed enums, kind/sensitivity/structural matrix with kind specificity rules, canonical path identity, deterministic provider-version strings, rule identity/conflict rules, sensitive-path static matching, provider/resource checking, cross-class deferral, error categories, and a test matrix are all specified.
-- The V1 validator is implemented in `engine/sensitive_required_validator.py` and exposed through `packs.sensitive_required_rules(provider=None)` in `engine/packs.py`.
+- The retired standalone validator's contract is preserved in the design and
+  frozen evidence. Current Node pack loading validates the rule-group envelope
+  in `node-src/metadata/packs.ts`; no sensitive-required rules are committed.
 - The validator only validates metadata; it does not project, render, omit, or change any behavior.
 - The Grafana illustrative example uses `one_of_block_required` to match the lab error.
 - `grafana_contact_point.webhook` remains manual-review/unclassified in pack metadata; no sensitive-required pack metadata has been committed yet.

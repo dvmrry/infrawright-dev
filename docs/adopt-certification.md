@@ -27,22 +27,13 @@ drift policy
 This restores the early warning signal from the legacy transform path: raw API
 surface that Terraform cannot see or does not project.
 
-## Command
+## Archived command
 
-```sh
-python -m engine.adopt_certify \
-  --resource-type sample_resource \
-  --raw raw.json \
-  --oracle-state oracle_state.json \
-  --projected projected.auto.tfvars.json \
-  --policy policy.json
-```
-
-The command is fixture-driven. It does not run oracle import, projection, or Terraform plan.
-Plan cleanliness comes from `assert-adoptable`, not from the advisory report.
-It does not compute `required_missing`.
-It can derive `sensitive_present` and `sensitive_blocked` from oracle-state
-`sensitive_values`.
+The Python-only advisory command was retired with the compatibility
+implementation. Its behavior and fixtures remain available in Git history.
+Current adoption evidence comes from `iw adopt`, provider-state projection,
+and `iw assert-adoptable`; this advisory document does not describe a current
+CLI command.
 
 ## Inputs
 

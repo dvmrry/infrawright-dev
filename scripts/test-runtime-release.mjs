@@ -52,14 +52,6 @@ function runExpectedFailure(command, arguments_, options = {}) {
   return result;
 }
 
-async function removePythonFiles(directory) {
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const candidate = path.join(directory, entry.name);
-    if (entry.isDirectory()) await removePythonFiles(candidate);
-    else if (entry.isFile() && entry.name.endsWith(".py")) await rm(candidate);
-  }
-}
-
 async function mustBeAbsent(file) {
   try {
     await access(file);
@@ -91,6 +83,11 @@ try {
   await mkdir(stage);
   run(gitExecutable, ["archive", "--format=tar", `--output=${archive}`, commit]);
   run("tar", ["-xf", archive, "-C", stage]);
+  run(process.execPath, [
+    path.join(stage, "scripts", "verify-runtime-release.mjs"),
+    stage,
+    "--artifacts-only",
+  ], { cwd: temporary });
   run("npm", ["ci", "--ignore-scripts"], { cwd: stage, timeout: 240_000 });
   run("npm", ["run", "build"], { cwd: stage, timeout: 240_000 });
 
@@ -123,6 +120,16 @@ try {
       ? packed[0].files.map((file) => file?.path).filter((file) => typeof file === "string")
       : [],
   );
+  const packedPythonPath = [...packedPaths].sort().find((relative) =>
+    relative.split("/").some((component) =>
+      component === "__pycache__"
+      || component.endsWith(".py")
+      || component.endsWith(".pyc"),
+    )
+  );
+  if (packedPythonPath !== undefined) {
+    throw new Error(`npm package contains Python artifact ${packedPythonPath}`);
+  }
   for (const required of [
     "dist/infrawright-cli.mjs",
     "dist/infrawright-cli.mjs.sha256",
@@ -194,7 +201,6 @@ try {
   ]) {
     await cp(path.join(stage, relative), path.join(generic, relative));
   }
-  await removePythonFiles(generic);
   await Promise.all([
     mustBeAbsent(path.join(generic, "node_modules")),
     mustBeAbsent(path.join(generic, "node-src")),
@@ -284,6 +290,47 @@ try {
     "--profile",
     path.join(externalProfiles, "selected.json"),
   ], { cwd: temporary, env: environment });
+
+  for (const [relative, expected] of [
+    ["packs/rejected.py", "packs/rejected.py"],
+    ["packs/rejected.pyc", "packs/rejected.pyc"],
+    ["packs/__pycache__/marker", "packs/__pycache__"],
+  ]) {
+    const candidate = path.join(generic, relative);
+    await mkdir(path.dirname(candidate), { recursive: true });
+    await writeFile(candidate, "forbidden\n", "utf8");
+    const rejected = runExpectedFailure(process.execPath, [verifier, generic], {
+      cwd: temporary,
+      env: environment,
+    });
+    if (!rejected.stderr.includes(`runtime tree contains Python artifact ${expected}`)) {
+      throw new Error(`unexpected Python-artifact diagnostic: ${rejected.stderr}`);
+    }
+    await rm(
+      relative.includes("__pycache__")
+        ? path.join(generic, "packs", "__pycache__")
+        : candidate,
+      { force: true, recursive: true },
+    );
+  }
+
+  const externalPython = path.join(temporary, "external.py");
+  const ignoredPythonLink = path.join(generic, "packs", "external-python-link");
+  await writeFile(externalPython, "external\n", "utf8");
+  await symlink(externalPython, ignoredPythonLink);
+  run(process.execPath, [verifier, generic], { cwd: temporary, env: environment });
+  await rm(ignoredPythonLink);
+
+  const rejectedPythonLink = path.join(generic, "packs", "rejected.py");
+  await symlink(externalPython, rejectedPythonLink);
+  const rejectedLink = runExpectedFailure(process.execPath, [verifier, generic], {
+    cwd: temporary,
+    env: environment,
+  });
+  if (!rejectedLink.stderr.includes("runtime tree contains Python artifact packs/rejected.py")) {
+    throw new Error(`unexpected Python-symlink diagnostic: ${rejectedLink.stderr}`);
+  }
+  await rm(rejectedPythonLink);
 
   await writeFile(path.join(generic, "packsets", "broken.json"), "{}\n", "utf8");
   const brokenProfile = runExpectedFailure(process.execPath, [verifier, generic], {

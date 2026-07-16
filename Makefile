@@ -1,4 +1,3 @@
-PYTHON ?= python3
 NODE ?= node
 NPM ?= npm
 TF ?= terraform
@@ -27,7 +26,7 @@ endif
 override INFRAWRIGHT_DEPLOYMENT = $(DEPLOYMENT)
 export INFRAWRIGHT_DEPLOYMENT
 
-.PHONY: metadata-cli verify-runtime source-build-preflight check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set root-catalog check-root-catalog deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-node check-all check-core test test-node test-python-legacy fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: metadata-cli verify-runtime source-build-preflight check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set root-catalog check-root-catalog deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-node check-all check-core test test-node fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 dist/infrawright-cli.mjs:
 	$(NPM) run build:metadata-cli
@@ -130,11 +129,8 @@ check-core: ## Prove the pack-independent engine surface with an empty pack root
 
 test: test-node ## Default repository tests use the Python-independent Node suite
 
-test-node: check-pack-set ## Run every Node test file that has no Python parity-oracle dependency
+test-node: check-pack-set ## Run the complete Node test suite for the active pack profile
 	PACK_PROFILE="$(PACK_PROFILE)" PACK_CATALOG="$(PACK_CATALOG)" $(NPM) run test:node
-
-test-python-legacy: check-pack-set ## Retained Python implementation and migration tests pending archive
-	$(PYTHON) -m tests.run --catalog "$(PACK_CATALOG)" -v
 
 fetch: dist/infrawright-cli.mjs ## Pull API JSON into pulls/<tenant> (TENANT=<name> [RESOURCE="<type|provider> ..."])
 	@test -n "$(TENANT)" || { echo "usage: make fetch TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }

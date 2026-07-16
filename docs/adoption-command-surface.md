@@ -3,8 +3,7 @@
 The root `Makefile` is the stable product command surface. Overlay Makefiles may
 add local workflows, but they should not redefine the meaning of the core
 adoption commands. These targets are thin adapters over the generic Node 24
-`infrawright` CLI; the authoritative production inventory and the intentionally
-retained Python maintainer surfaces are listed in
+`iw` CLI; the authoritative production inventory is listed in
 [Operational Node Runtime](operational-runtime.md).
 
 ## Primary Adoption Flow
@@ -89,7 +88,7 @@ saved plan stale before classification or apply.
 ## Machine-Readable Downstream Contracts
 
 Downstream delivery and drift pipelines must consume stable JSON instead of
-importing engine-internal Python helpers or parsing human stderr.
+importing internal implementation modules or parsing human stderr.
 
 Emit configured root topology with:
 
@@ -473,8 +472,7 @@ These commands keep the shipped demo and generators healthy:
 | `make demo-contract` | Credential-free demo contract check: consumes the shipped bundle without npm/Python, materializes the demo, verifies committed demo config/import artifacts do not drift, rejects stale demo moved-block files, and checks the generated demo module tree. |
 | `make check-demo` | Verifies committed demo config/import artifacts do not drift. |
 | `make check-modules` | Generates modules in a temporary deployment and checks generator output. |
-| `make test` / `make test-node` | Runs the Python-independent Node suite selected for the active pack profile and separately reports pack-excluded and retained Python differential files. |
-| `make test-python-legacy` | Runs the retained Python implementation and migration suite during the archive window. |
+| `make test` / `make test-node` | Runs the complete Node suite selected for the active pack profile and reports pack-excluded files. |
 | `make check` / `make check-node` | Runs the Node suite, demo drift checks, module generator checks, pack validation, and formatting checks without invoking Python. |
 
 The generated demo module tree remains local/ignored. It is not part of the

@@ -82,7 +82,7 @@ Packs can already declare provider-config requirements:
 }
 ```
 
-`engine.provider_config` reads saved plan JSON and reports whether changed paths
+`iw assert-adoptable` reads saved plan JSON and reports whether changed paths
 match declared requirements. It does not render provider configuration.
 
 Requirements with no `remediation` block remain valid diagnostic-only metadata.
@@ -253,7 +253,7 @@ tolerated or clean.
 ## Expected Workflow
 
 1. A lab finds provider-level drift in saved plan JSON.
-2. `engine.provider_config` reports the drift as unmatched.
+2. `iw assert-adoptable` reports the drift as unmatched.
 3. The pack adds a `provider_config.requirements` entry with `plan_paths`,
    `setting`, `value` when appropriate, and `reason`.
 4. The diagnostic reports the drift as a provider-config requirement.

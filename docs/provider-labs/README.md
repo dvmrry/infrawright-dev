@@ -37,16 +37,11 @@ smallest engine or pack follow-ups needed to productize adoption.
    advisory reports under the temporary root.
 7. Run `make adopt`, `make stage-imports`, `make plan SAVE=1`, and
    `make assert-adoptable` against the temporary overlay.
-8. Run static advisory reports with `python -m engine.adopt_certify`.
-9. Classify temporary dynamic/schema prunes with
-   `python -m engine.dynamic_schema`.
-10. Classify absent/default placeholder drift with
-   `python -m engine.absent_defaults`.
-11. Classify sensitive required candidates with
-   `python -m engine.sensitive_required`.
-12. Destroy live resources and run a separate cleanup verification pass.
-13. Run validation and artifact checks.
-14. Commit only the report.
+8. Review provider-state projection, the saved-plan assessment, and committed
+   pack-policy guidance for unexplained paths.
+9. Destroy live resources and run a separate cleanup verification pass.
+10. Run validation and artifact checks.
+11. Commit only the report.
 
 ## Credential Safety Checklist
 
@@ -100,11 +95,8 @@ The PR body should explicitly state that only the report is committed.
 Use one realpath-normalized lab root:
 
 ```bash
-export LAB_ROOT="$(python3 - <<'PY'
-import os
-print(os.path.realpath("local/provider-labs/<provider>-lab"))
-PY
-)"
+mkdir -p local/provider-labs/<provider>-lab
+export LAB_ROOT="$(cd local/provider-labs/<provider>-lab && pwd -P)"
 ```
 
 If the lab root is inside the worktree, keep it uncommitted. Add it to

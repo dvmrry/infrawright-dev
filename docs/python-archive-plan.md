@@ -1,7 +1,7 @@
 # Python implementation archive plan
 
-Status: active cleanup plan after the Node runtime integration merge
-(`4f2ece4979d1de837c5d4637ab1bd91b6c458a61`).
+Status: completed. The implementation remains recoverable from Git history;
+reviewed frozen authorities preserve the qualified byte and semantic contracts.
 
 ## Goal
 
@@ -14,16 +14,16 @@ tripwires.
 Git history is the archive for the retired implementation. Python source is
 not copied into a second in-tree archive.
 
-## Current inventory
+## Archived inventory
 
 The retained compatibility implementation contains approximately:
 
 | Surface | Files | Lines | Disposition |
 |---|---:|---:|---|
-| `engine/` | 49 | 15,946 | Remove after differential evidence is frozen. |
-| `tests/` | 49 | 23,474 | Replace live-oracle comparisons, then remove. |
-| pack collectors | 10 | 383 | Remove after collector fixtures no longer invoke them. |
-| archive generators | 4 | 2,170 | Remove atomically after their producing commits remain reachable. |
+| `engine/` | 49 | 15,946 | Removed after differential evidence was frozen. |
+| Python tests | 49 | 23,474 | Replaced by direct Node coverage and frozen authorities, then removed. |
+| pack collectors | 10 | 383 | Removed after Node collector authority became complete. |
+| archive generators | 4 | 2,170 | Removed after their producing commits and source were embedded in authority metadata. |
 
 The former `tools/zpa_provider_evidence.py` authority is now owned by the
 dedicated `iw zpa-provider-evidence` validator and its source-bound Node tests.
@@ -43,8 +43,7 @@ two remaining Python environment-integration cases from
 The shipped `iw` CLI is already Python-independent. All former live Python
 oracle calls in the Node suite now replay frozen authority and pass with
 `PYTHON=/usr/bin/false`; the oracle resolver and suite exclusion are removed.
-CI still installs Python, the legacy Python test lane remains, and release
-guards still require representative Python files. The direct contracts are
+CI, Make, release, and all test lanes are Node-only. The direct contracts are
 frozen with their resurrection procedures in
 [Frozen Python oracle contracts](python-oracle-contracts.md).
 
@@ -52,7 +51,7 @@ Names such as `python-compatible`, `python-number`, and
 `python-lower-15.1` describe frozen byte and Unicode semantics. They are not
 runtime Python dependencies and are not renamed as part of the archive.
 
-## Ordered removal
+## Completed removal sequence
 
 ### 1. Replace Python-owned generated authorities
 

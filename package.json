@@ -17,7 +17,7 @@
     "check": "npm run typecheck && npm run test",
     "check:all": "npm run typecheck && npm run test:all",
     "test": "npm run test:node",
-    "test:all": "npm run build:test && node --test .node-test/node-tests/*.test.js",
+    "test:all": "npm run test:node",
     "test:node": "npm run build:test && node scripts/run-node-test-suite.mjs run",
     "test:node:check": "npm run build:test && node scripts/run-node-test-suite.mjs check",
     "build:test": "node scripts/clean-node-test-build.mjs && tsc -p tsconfig.test.json",

@@ -15,7 +15,7 @@ The current workflow is:
    `make check-demo`.
 
 If `packs/<provider>/overrides/<resource_type>/main.tf` exists,
-`engine.gen_module` uses it verbatim instead of the rendered `main.tf` for that
+`iw gen-modules` uses it verbatim instead of the rendered `main.tf` for that
 resource. This is the escape hatch for provider quirks the generator cannot
 express. Each override is a carried bug: record why in a comment at the top of
 the file, and delete the override (then regenerate) when upstream fixes land.

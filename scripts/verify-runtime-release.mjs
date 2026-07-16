@@ -21,6 +21,33 @@ async function requireFile(file, label) {
   return file;
 }
 
+async function firstPythonArtifact(root) {
+  async function visit(directory, relativeDirectory) {
+    const entries = (await readdir(directory, { withFileTypes: true }))
+      .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+    for (const entry of entries) {
+      const relative = relativeDirectory === ""
+        ? entry.name
+        : path.posix.join(relativeDirectory, entry.name);
+      if (entry.name === ".git") continue;
+      if (
+        entry.name === "__pycache__"
+        || entry.name.endsWith(".py")
+        || entry.name.endsWith(".pyc")
+      ) return relative;
+      const absolute = path.join(directory, entry.name);
+      const metadata = await lstat(absolute);
+      if (metadata.isSymbolicLink()) continue;
+      if (metadata.isDirectory()) {
+        const found = await visit(absolute, relative);
+        if (found !== undefined) return found;
+      }
+    }
+    return undefined;
+  }
+  return visit(root, "");
+}
+
 function runCli(root, cli, ...arguments_) {
   const result = spawnSync(process.execPath, [cli, ...arguments_], {
     cwd: path.dirname(root),
@@ -48,6 +75,7 @@ function runCli(root, cli, ...arguments_) {
 function parseArguments(arguments_) {
   let root = ".";
   const selected = {};
+  let artifactsOnly = false;
   for (let index = 0; index < arguments_.length;) {
     const argument = arguments_[index];
     if (!argument.startsWith("-") && index === 0) {
@@ -70,9 +98,14 @@ function parseArguments(arguments_) {
       index += 2;
       continue;
     }
+    if (argument === "--artifacts-only") {
+      artifactsOnly = true;
+      index += 1;
+      continue;
+    }
     fail(`unknown argument ${argument}`);
   }
-  return { root: path.resolve(root), selected };
+  return { artifactsOnly, root: path.resolve(root), selected };
 }
 
 function selectedPath(root, value, fallback) {
@@ -81,6 +114,14 @@ function selectedPath(root, value, fallback) {
 
 const parsed = parseArguments(process.argv.slice(2));
 const root = parsed.root;
+const pythonArtifact = await firstPythonArtifact(root);
+if (pythonArtifact !== undefined) {
+  fail(`runtime tree contains Python artifact ${pythonArtifact}`);
+}
+if (parsed.artifactsOnly) {
+  process.stdout.write("runtime tree contains no Python artifacts\n");
+  process.exit(0);
+}
 const packageFile = await requireFile(
   path.join(root, "package.json"),
   "package.json package-root metadata",

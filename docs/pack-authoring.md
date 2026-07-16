@@ -16,8 +16,7 @@ packs/<name>/
 
 Set `INFRAWRIGHT_PACKS=/path/to/packs` to validate or run against a different
 packs root. The effective root is authoritative for manifest discovery,
-registries, schemas, overrides, and shared pack data. The operational Node CLI
-does not load `collector.py`: for every selected Fetch resource, it resolves
+registries, schemas, overrides, and shared pack data. For every selected Fetch resource, it resolves
 the resource's actual provider owner and existing `provider_sources`
 declaration before binding a caller-approved `CollectorAdapter`.
 The bundled CLI recognizes its shipped Zscaler provider sources; a library
@@ -247,7 +246,7 @@ provider-specific read/write inconsistencies:
 }
 ```
 
-This pack policy is merged into `make adopt` / `engine.adopt` only. Saved-plan
+This pack policy is merged into `make adopt` / `iw adopt` only. Saved-plan
 classification and apply still use the operator-supplied `POLICY=<file>`; pack
 metadata must not silently tolerate plan drift. Keep pack declarations narrow,
 source-backed, and provider-version-specific in their reason text. Do not use
@@ -289,7 +288,7 @@ Allowed top-level keys:
 | `drops` | Fields or dotted nested-block attribute paths to remove from projected config. Dotted paths are applied during schema filtering. |
 | `html_escape_fields` | Top-level string fields to HTML-escape after normal override transforms, matching provider read behavior for specific resources. |
 | `identity_fields` | Identity/import aliases copied from raw or normalized item paths for oracle adoption metadata fallback. Prefer `registry.json` `adopt.identity_fields` for new packs. |
-| `import_id` | Python format string used to render Terraform import IDs from the normalized item, defaulting to `{id}`. |
+| `import_id` | Brace-format template used to render Terraform import IDs from the normalized item, defaulting to `{id}`. |
 | `invert_bool` | Fields whose API boolean/int meaning is inverted relative to Terraform config; values are coerced to bool and flipped. |
 | `key_field` | Field name or list of field names used to derive the stable `items` map key, defaulting to `name`. |
 | `merge_blocks` | Nested block names whose API list elements should be merged into one block before schema coercion. |
@@ -373,6 +372,5 @@ that adapter. Resources sharing a product cannot span different provider
 sources.
 Custom sources require a library caller to supply the matching adapter.
 
-The remaining `packs/*/collector.py` files are retained Python parity and
-archive inputs. They are not loaded, imported, or required by `make fetch`,
-`fetch-diag`, the bundled CLI, or an external operational pack root.
+Product collection is implemented only by typed Node adapters; pack roots
+contain no executable collector shims.
