@@ -51,7 +51,7 @@ class ZpaTransformCohortCatalogTest(unittest.TestCase):
         self.assertEqual(committed, cohort_catalog.render_catalog())
         self.assertEqual(
             hashlib.sha256(committed.encode("utf-8")).hexdigest(),
-            "eab7f5ce8f3e508629cd6a3cebd344332f57647442741717762e7373e2ae5694",
+            "671e0594c3777e5503a38a8dfa40dcb627b67fefa26ef2848251d55e0d937141",
         )
 
     def test_catalog_is_exactly_the_reviewed_two_resource_cohort(self):
@@ -81,7 +81,7 @@ class ZpaTransformCohortCatalogTest(unittest.TestCase):
         )
         self.assertEqual(
             catalog["sources_sha256"],
-            "e1dbc94cd82cfb824e88cfa2db3cc7398787369557d16dc23b660a1c2302a149",
+            "13d13e91de9c5f5d1da77148dd37bd70651d71ece17dd07036b2e7f36769a02a",
         )
 
     def test_evidence_decorator_preserves_exact_generic_resources(self):

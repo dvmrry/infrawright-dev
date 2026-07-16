@@ -20,6 +20,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           # Module generation formats HCL through `terraform fmt -`, which needs stdin.
+          terraform_version: "1.15.4"
           terraform_wrapper: false
       - name: Install pinned build dependencies
         run: npm ci --ignore-scripts
@@ -367,6 +368,7 @@ jobs:
         run: npm ci --ignore-scripts
       - uses: hashicorp/setup-terraform@v3
         with:
+          terraform_version: "1.15.4"
           terraform_wrapper: false
       - name: Full gate
         run: make check
@@ -411,6 +413,7 @@ jobs:
         run: npm ci --ignore-scripts
       - uses: hashicorp/setup-terraform@v3
         with:
+          terraform_version: "1.15.4"
           terraform_wrapper: false
       - name: Materialize selected pack root
         env:
@@ -465,6 +468,7 @@ jobs:
           cache: npm
       - uses: hashicorp/setup-terraform@v3
         with:
+          terraform_version: "1.15.4"
           terraform_wrapper: false
       - name: Build checkout without omitted packs
         env:

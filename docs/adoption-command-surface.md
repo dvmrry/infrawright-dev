@@ -385,8 +385,14 @@ address fields, for example:
 }
 ```
 
-Do not put `key`, access keys, SAS tokens, client secrets, OIDC tokens, or
-certificate credentials in that file. Authentication remains environment- or
+The projection into `terraform_remote_state` is a strict allowlist. String
+fields are limited to `storage_account_name`, `container_name`,
+`resource_group_name`, `subscription_id`, and `tenant_id`; reviewed boolean
+fields are limited to `lookup_blob_endpoint`, `use_azuread_auth`, `use_cli`,
+`use_msi`, and `use_oidc`. Every other field fails closed. In particular, do
+not put `key`, client identifiers, access keys, SAS tokens, client secrets,
+OIDC token values or files, MSI endpoints, or certificate paths or credentials
+in that file. Credential material remains environment- or
 managed-identity-owned. Pass the same file to `stage-imports`, `plan`,
 `assert-adoptable`, and `apply`; its bytes remain covered by saved-plan
 fingerprinting.

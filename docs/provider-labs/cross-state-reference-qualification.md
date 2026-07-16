@@ -52,9 +52,11 @@ Existing grouped state must not be split by this runbook. A topology change
 requires an explicit state-migration decision.
 
 For `azurerm`, create a private JSON `BACKEND_CONFIG` containing non-secret
-address fields only. Do not include `key` or credentials. Authentication stays
-in the approved environment. The engine derives each state key as
-`<tenant>/<root-label>.tfstate`.
+address fields only. The engine accepts only the documented strict allowlist
+and rejects every unknown field; do not include `key`, client identifiers,
+credential values, token or certificate paths, or MSI endpoints.
+Authentication stays in the approved environment. The engine derives each
+state key as `<tenant>/<root-label>.tfstate`.
 
 The `terraform_remote_state` reader requires access to the complete referent
 state snapshot even though generated expressions consume only the minimal ID

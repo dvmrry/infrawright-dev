@@ -6,6 +6,10 @@ import test from "node:test";
 
 import { ProcessFailure } from "../node-src/domain/errors.js";
 import {
+  REFERENCE_BACKEND_ENVIRONMENT,
+  referenceBackendEnvironment,
+} from "../node-src/domain/reference-backend.js";
+import {
   cleanPlans,
   createPlanTerraform,
   planEnvironmentRoots,
@@ -395,6 +399,86 @@ test("cross-state plans derive a non-secret azurerm remote-state variable from J
     (error) => {
       const failure = assertFailure(error, "UNSAFE_REFERENCE_BACKEND_CONFIG");
       assert.doesNotMatch(failure.message, /must-not-enter-state/u);
+      return true;
+    },
+  );
+});
+
+test("cross-state backend projection allowlists only reviewed non-secret AzureRM fields", async (context) => {
+  const workspace = await temporaryDirectory(context);
+  const backend = path.join(workspace, "backend.json");
+  const allowed = {
+    container_name: "tfstate",
+    lookup_blob_endpoint: false,
+    resource_group_name: "state-rg",
+    storage_account_name: "example",
+    subscription_id: "00000000-0000-0000-0000-000000000001",
+    tenant_id: "00000000-0000-0000-0000-000000000002",
+    use_azuread_auth: true,
+    use_cli: false,
+    use_msi: false,
+    use_oidc: true,
+  };
+  await writeText(backend, JSON.stringify(allowed));
+  const environment = await referenceBackendEnvironment(backend);
+  assert.deepEqual(
+    JSON.parse(environment[REFERENCE_BACKEND_ENVIRONMENT] ?? "null"),
+    allowed,
+  );
+
+  for (const key of [
+    "access_key",
+    "client_id",
+    "oidc_token_file_path",
+    "oidc_token",
+    "oidc_request_token",
+    "client_secret_file_path",
+    "client_certificate_path",
+    "key",
+    "msi_endpoint",
+    "sas_token",
+    "unknown_authentication_material",
+  ]) {
+    const secret = `must-not-echo-${key}`;
+    await writeText(backend, JSON.stringify({
+      container_name: "tfstate",
+      [key]: secret,
+      storage_account_name: "example",
+    }));
+    await assert.rejects(
+      referenceBackendEnvironment(backend),
+      (error) => {
+        const failure = assertFailure(error, "UNSAFE_REFERENCE_BACKEND_CONFIG");
+        assert.doesNotMatch(failure.message, new RegExp(secret, "u"));
+        return true;
+      },
+      key,
+    );
+  }
+});
+
+test("cross-state backend projection enforces field types and a stable 64 KiB read", async (context) => {
+  const workspace = await temporaryDirectory(context);
+  const backend = path.join(workspace, "backend.json");
+  for (const document of [
+    { container_name: true, storage_account_name: "example" },
+    { container_name: "tfstate", storage_account_name: "example", use_oidc: "true" },
+  ]) {
+    await writeText(backend, JSON.stringify(document));
+    await assert.rejects(
+      referenceBackendEnvironment(backend),
+      (error) => {
+        assertFailure(error, "INVALID_REFERENCE_BACKEND_CONFIG");
+        return true;
+      },
+    );
+  }
+
+  await writeText(backend, `{"storage_account_name":"${"x".repeat(64 * 1024)}"}`);
+  await assert.rejects(
+    referenceBackendEnvironment(backend),
+    (error) => {
+      assertFailure(error, "INVALID_REFERENCE_BACKEND_CONFIG");
       return true;
     },
   );
