@@ -50,13 +50,6 @@ maintained development evidence.
 - Root-global `modules/` is not required for demo operation after the
   overlay-scoped module-dir migration. The root `modules/` fallback exists only
   for deployments with no overlay and no explicit `module_dir`.
-- `make audit-vendor-boundary` runs through the Node CLI and scans the retained
-  `engine/**/*.py` compatibility tree for configured
-  provider/vendor tokens and fails on matches not listed in
-  `engine/vendor_boundary_allowlist.json`. The allowlist is transitional
-  documentation; retire or retarget this audit when the Python tree is
-  archived rather than silently leaving an empty audit behind.
-
 ## Prune Policy
 
 Delete, move, or archive files when they no longer match their surface:

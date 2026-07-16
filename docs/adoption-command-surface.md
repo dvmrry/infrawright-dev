@@ -475,7 +475,7 @@ These commands keep the shipped demo and generators healthy:
 | `make check-modules` | Generates modules in a temporary deployment and checks generator output. |
 | `make test` / `make test-node` | Runs the Python-independent Node suite selected for the active pack profile and separately reports pack-excluded and retained Python differential files. |
 | `make test-python-legacy` | Runs the retained Python implementation and migration suite during the archive window. |
-| `make check` / `make check-node` | Runs the Node suite, demo drift checks, module generator checks, pack validation, and the Node vendor-boundary audit without invoking Python. |
+| `make check` / `make check-node` | Runs the Node suite, demo drift checks, module generator checks, pack validation, and formatting checks without invoking Python. |
 
 The generated demo module tree remains local/ignored. It is not part of the
 public committed surface. `make demo-contract` is intentionally not a live

@@ -12,8 +12,7 @@ The core adoption/codegen contract is provider-agnostic: provider-specific
 enumeration, identity, schema, and diagnostic metadata live in **packs** under
 `packs/<name>/`. Zscaler is the reference pack; Cloudflare, Google, AWS, and
 NetBox provide additional provider-lab and metadata evidence. Engine-edge
-vendor references are tracked by `make audit-vendor-boundary` so the current
-exceptions stay visible instead of quietly growing.
+vendor behavior belongs in pack metadata rather than the generic runtime.
 
 ## Primary Adoption Workflow
 

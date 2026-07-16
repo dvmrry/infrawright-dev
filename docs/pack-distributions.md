@@ -67,8 +67,7 @@ profile/catalog or validation fails.
 ## Check Layers
 
 - `make check` validates the active distribution: exact profile, selected unit
-  tests, available examples, generated modules, pack metadata, formatting, and
-  the vendor boundary.
+  tests, available examples, generated modules, pack metadata, and formatting.
 - `make check-all` ignores a caller's selected root and proves the complete
   upstream catalog against `packsets/full.json`.
 - `make check-core` runs the pack-independent test surface and generators with

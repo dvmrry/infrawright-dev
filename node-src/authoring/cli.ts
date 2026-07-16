@@ -32,7 +32,6 @@ import {
   renderProviderProbeMarkdown,
   runProviderProbe,
 } from "./provider-probe.js";
-import { runVendorBoundaryAudit } from "./vendor-boundary.js";
 import { auditZpaProviderEvidence } from "./zpa-provider-evidence.js";
 import {
   buildParityReport,
@@ -48,7 +47,6 @@ export class AuthoringCliUsageError extends Error {
 }
 
 export const AUTHORING_COMMANDS = new Set([
-  "audit-vendor-boundary",
   "openapi-map",
   "provider-probe",
   "reconcile",
@@ -440,25 +438,6 @@ async function providerProbeCommand(
   }
 }
 
-async function vendorBoundaryCommand(
-  arguments_: readonly string[],
-  context: AuthoringCliContext,
-): Promise<number> {
-  const parsed = parseArguments(arguments_, new Set(["--allowlist", "--root"]));
-  if (parsed.positional.length !== 0) {
-    throw new AuthoringCliUsageError("audit-vendor-boundary does not accept positional arguments");
-  }
-  const result = await runVendorBoundaryAudit({
-    ...(option(parsed, "--allowlist") === undefined
-      ? {}
-      : { allowlist: option(parsed, "--allowlist") as string }),
-    root: option(parsed, "--root") ?? context.repositoryRoot,
-  });
-  if (result.stdout !== "") context.stdout(result.stdout);
-  if (result.stderr !== "") context.stderr(result.stderr);
-  return result.exitCode;
-}
-
 async function zpaProviderEvidenceCommand(
   arguments_: readonly string[],
   context: AuthoringCliContext,
@@ -545,9 +524,6 @@ export async function runAuthoringCommand(options: {
   }
   if (options.command === "provider-probe") {
     return providerProbeCommand(options.arguments, context);
-  }
-  if (options.command === "audit-vendor-boundary") {
-    return vendorBoundaryCommand(options.arguments, context);
   }
   if (options.command === "zpa-provider-evidence") {
     return zpaProviderEvidenceCommand(options.arguments, context);

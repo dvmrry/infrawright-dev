@@ -97,9 +97,7 @@ superseded Python tool. Then remove:
 - Python setup and inline Python scripts from GitHub Actions;
 - Python file requirements from release packaging;
 - stale generated comments and active documentation that instruct users to
-  run `python -m engine.*`;
-- the Python-engine vendor-boundary allowlist after the Node boundary remains
-  the sole enforced authority.
+  run `python -m engine.*`.
 
 Inline CI data transformations must be replaced by small Node scripts or
 existing `iw` commands, not shell JSON rewriting.
