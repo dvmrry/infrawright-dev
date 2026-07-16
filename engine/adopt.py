@@ -10,15 +10,62 @@ from engine import lookup
 from engine import transform
 from engine.adoption_meta import (
     adoption_entry,
+    classify_raw_items,
     derive_import_id_from_identity,
     derive_key_from_identity,
     identity_item,
-    skip_identity_item_reason,
 )
 from engine.drift_policy import DriftPolicy
 from engine.import_oracle import import_state
 from engine.registry import derive_entry
 from engine.state_project import project_item
+
+
+def _prepare_adoption_items(raw_items, resource_type):
+    """Classify and report every item before identity or runtime checks."""
+    classification = classify_raw_items(raw_items, resource_type)
+    for skipped in classification["skipped"]:
+        item = skipped["item"]
+        sys.stderr.write(
+            "skipped %s item %r (identity %s matched)\n"
+            % (
+                resource_type,
+                item.get("name") or item.get("id"),
+                skipped["reason"],
+            )
+        )
+    for unsupported in classification["unsupported"]:
+        item = unsupported["item"]
+        sys.stderr.write(
+            "unsupported %s item %r (matched static unsupported rule)\n"
+            % (resource_type, item.get("name") or item.get("id"))
+        )
+    matched_rules = []
+    matched_rule_ids = set()
+    for unsupported in classification["unsupported"]:
+        rule = unsupported["rule"]
+        if id(rule) in matched_rule_ids:
+            continue
+        matched_rule_ids.add(id(rule))
+        matched_rules.append(rule)
+    for rule in matched_rules:
+        sys.stderr.write(
+            "unsupported %s rule for %s %s: %s; evidence=%s\n"
+            % (
+                resource_type,
+                rule["provider"]["source"],
+                rule["provider"]["version"],
+                rule["reason"],
+                json.dumps(rule["evidence"], separators=(",", ":")),
+            )
+        )
+    if classification["unsupported"]:
+        raise ValueError(
+            "%s contains %d unsupported item(s); no Oracle command or "
+            "artifact publication is permitted"
+            % (resource_type, len(classification["unsupported"]))
+        )
+    return classification
 
 
 def adopt_items(raw_items, resource_type, policy=None, state_loader=None):
@@ -28,6 +75,17 @@ def adopt_items(raw_items, resource_type, policy=None, state_loader=None):
     credential-free parity fixtures. Production callers leave it unset and
     retain the existing live import behavior.
     """
+    classification = _prepare_adoption_items(raw_items, resource_type)
+    return _adopt_classified_items(
+        classification,
+        resource_type,
+        policy=policy,
+        state_loader=state_loader,
+    )
+
+
+def _adopt_classified_items(classification, resource_type, policy=None,
+                            state_loader=None):
     if state_loader is None:
         state_loader = import_state
     meta = adoption_entry(resource_type)
@@ -36,19 +94,8 @@ def adopt_items(raw_items, resource_type, policy=None, state_loader=None):
     key_to_raw = {}
     import_id_to_key = {}
     identities = []
-    for raw in raw_items:
+    for raw in classification["eligible"]:
         ident = identity_item(raw, resource_type)
-        skip_reason = skip_identity_item_reason(ident, meta)
-        if skip_reason:
-            sys.stderr.write(
-                "skipped %s item %r (identity %s matched)\n"
-                % (
-                    resource_type,
-                    ident.get("name") or ident.get("id"),
-                    skip_reason,
-                )
-            )
-            continue
         identities.append((ident, raw))
 
     if meta.get("constant_key") is not None and len(identities) > 1:
@@ -78,24 +125,39 @@ def adopt_items(raw_items, resource_type, policy=None, state_loader=None):
 
     oracle = state_loader(
         resource_type, key_to_import_id, policy=policy, raw_items=key_to_raw)
+    override = transform.load_override(resource_type)
     items = {}
     for key in sorted(oracle):
         state_obj = oracle[key]
+        projection_options = {
+            "sensitive_values": state_obj.get("sensitive_values"),
+            "policy": policy,
+            "raw_item": key_to_raw.get(key),
+        }
+        if override:
+            projection_options["override"] = override
         items[key] = project_item(
             resource_type,
             state_obj["values"],
-            sensitive_values=state_obj.get("sensitive_values"),
-            policy=policy,
-            raw_item=key_to_raw.get(key),
+            **projection_options
         )
     return items, key_to_identity
 
 
 def write_outputs(resource_type, raw_items, tenant, policy):
+    classification = _prepare_adoption_items(raw_items, resource_type)
+    _write_classified_outputs(resource_type, tenant, policy, classification)
+
+
+def _write_classified_outputs(resource_type, tenant, policy, classification):
     artifacts.assert_no_pending_moves(tenant, resource_type)
     config_dir = deployment.config_dir(tenant)
     imports_dir = deployment.imports_dir(tenant)
-    items, originals = adopt_items(raw_items, resource_type, policy=policy)
+    items, originals = _adopt_classified_items(
+        classification,
+        resource_type,
+        policy=policy,
+    )
     artifacts.assert_no_pending_moves(tenant, resource_type)
     os.makedirs(config_dir, exist_ok=True)
     os.makedirs(imports_dir, exist_ok=True)
@@ -161,11 +223,6 @@ def main(argv=None):
     resource_type, input_path, tenant = argv
     artifacts.validate_tenant(tenant)
     artifacts.validate_resource_type(resource_type)
-    try:
-        artifacts.assert_no_pending_moves(tenant, resource_type)
-    except RuntimeError as exc:
-        sys.stderr.write("error: %s\n" % exc)
-        return 1
     policy = DriftPolicy.load_for_adoption(policy_path)
     try:
         with open(input_path, encoding="utf-8") as f:
@@ -177,6 +234,17 @@ def main(argv=None):
         sys.stderr.write("error: %s must be a JSON LIST of items\n" % input_path)
         return 2
 
+    try:
+        classification = _prepare_adoption_items(raw_items, resource_type)
+    except Exception as exc:
+        sys.stderr.write("error: %s\n" % exc)
+        return 1
+    try:
+        artifacts.assert_no_pending_moves(tenant, resource_type)
+    except RuntimeError as exc:
+        sys.stderr.write("error: %s\n" % exc)
+        return 1
+
     derive = derive_entry(resource_type)
     if derive is not None:
         sys.stderr.write(
@@ -185,7 +253,12 @@ def main(argv=None):
         )
         return transform.main([resource_type, input_path, tenant])
     try:
-        write_outputs(resource_type, raw_items, tenant, policy)
+        _write_classified_outputs(
+            resource_type,
+            tenant,
+            policy,
+            classification,
+        )
     except Exception as exc:
         sys.stderr.write("error: %s\n" % exc)
         return 1

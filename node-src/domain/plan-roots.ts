@@ -5,14 +5,17 @@ import { ProcessFailure } from "./errors.js";
 import { pythonPosixJoin } from "./paths.js";
 import {
   expandCatalogResources,
+  loadedRootTopology,
   rootTopology,
   validateTenant,
 } from "./roots.js";
+import type { LoadedPackRoot } from "../metadata/loader.js";
 import type {
   Deployment,
   MaterializedPlanRoot,
   PlanRoots,
   RootCatalog,
+  RootTopology,
   RootTopologyRoot,
   WholeRootDiagnostic,
 } from "./types.js";
@@ -110,32 +113,19 @@ async function discover(options: {
   return discovered;
 }
 
-export async function planRoots(options: {
+async function planRootsFromTopologies(options: {
   workspace: string;
   deployment: Deployment;
-  catalog: RootCatalog;
   tenant: string | null;
   selectors: readonly string[];
+  all: RootTopology;
+  selected: { topology: RootTopology; diagnostics: readonly WholeRootDiagnostic[] };
 }): Promise<{ result: PlanRoots; diagnostics: WholeRootDiagnostic[] }> {
   if (options.tenant !== null) {
     validateTenant(options.tenant);
   }
-  if (options.selectors.length > 0) {
-    // Python expands non-empty selectors before resolving deployment roots.
-    expandCatalogResources(options.catalog, options.selectors);
-  }
-  const all = rootTopology({
-    catalog: options.catalog,
-    deployment: options.deployment,
-    tenant: null,
-    selectors: [],
-  }).topology;
-  const selected = rootTopology({
-    catalog: options.catalog,
-    deployment: options.deployment,
-    tenant: null,
-    selectors: options.selectors,
-  });
+  const all = options.all;
+  const selected = options.selected;
   const selectedLabels = new Set(selected.topology.roots.map((root) => root.label));
   const diagnosticsByLabel = new Map(
     selected.diagnostics.map((diagnostic) => [diagnostic.root, diagnostic]),
@@ -191,4 +181,57 @@ export async function planRoots(options: {
     },
     diagnostics,
   };
+}
+
+export async function planRoots(options: {
+  workspace: string;
+  deployment: Deployment;
+  catalog: RootCatalog;
+  tenant: string | null;
+  selectors: readonly string[];
+}): Promise<{ result: PlanRoots; diagnostics: WholeRootDiagnostic[] }> {
+  if (options.selectors.length > 0) {
+    // Preserve the historical explicit validation before root resolution.
+    expandCatalogResources(options.catalog, options.selectors);
+  }
+  return planRootsFromTopologies({
+    ...options,
+    all: rootTopology({
+      catalog: options.catalog,
+      deployment: options.deployment,
+      tenant: null,
+      selectors: [],
+    }).topology,
+    selected: rootTopology({
+      catalog: options.catalog,
+      deployment: options.deployment,
+      tenant: null,
+      selectors: options.selectors,
+    }),
+  });
+}
+
+/** Enumerate materialized roots from the active pack metadata loader. */
+export async function loadedPlanRoots(options: {
+  workspace: string;
+  deployment: Deployment;
+  root: LoadedPackRoot;
+  tenant: string | null;
+  selectors: readonly string[];
+}): Promise<{ result: PlanRoots; diagnostics: WholeRootDiagnostic[] }> {
+  return planRootsFromTopologies({
+    ...options,
+    all: loadedRootTopology({
+      deployment: options.deployment,
+      root: options.root,
+      tenant: null,
+      selectors: [],
+    }).topology,
+    selected: loadedRootTopology({
+      deployment: options.deployment,
+      root: options.root,
+      tenant: null,
+      selectors: options.selectors,
+    }),
+  });
 }

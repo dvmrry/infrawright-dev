@@ -155,6 +155,42 @@ class RegistryTest(unittest.TestCase):
                     "managed-fetch",
                 )
 
+    def test_zia_generate_only_resources_declare_automatic_group_intent(self):
+        registry = load_registry()
+        generate_only = {
+            resource_type: entry
+            for resource_type, entry in registry.items()
+            if entry["product"] == "zia"
+            and entry.get("generate") is True
+            and "fetch" not in entry
+            and "derive" not in entry
+        }
+        self.assertEqual(len(generate_only), 18)
+        self.assertTrue(generate_only)
+        for resource_type, entry in sorted(generate_only.items()):
+            with self.subTest(resource_type=resource_type):
+                self.assertIn("slug_group", entry)
+                self.assertIs(entry["slug_group"], False)
+
+    def test_corrected_zia_pagination_modes_match_endpoint_shapes(self):
+        paginated = {
+            "zia_casb_dlp_rules",
+            "zia_casb_malware_rules",
+        }
+        single_read = {
+            "zia_dc_exclusions",
+            "zia_extranet",
+            "zia_firewall_filtering_ip_source_groups",
+            "zia_ssl_inspection_rules",
+            "zia_url_filtering_rules",
+        }
+        for resource_type in sorted(paginated):
+            with self.subTest(resource_type=resource_type):
+                self.assertEqual(fetch_entry(resource_type)["pagination"], "zia")
+        for resource_type in sorted(single_read):
+            with self.subTest(resource_type=resource_type):
+                self.assertEqual(fetch_entry(resource_type)["pagination"], "single")
+
     def test_fetch_entry_unknown_raises(self):
         with self.assertRaises(KeyError):
             fetch_entry("zpa_nope")
@@ -378,6 +414,48 @@ class PackRegistryValidationTest(unittest.TestCase):
             validate_registry(data, path="packs/sample/registry.json")
         self.assertIn("finite JSON number", str(ctx.exception))
 
+    def test_adopt_unsupported_if_is_closed_and_not_valid_for_derived_types(self):
+        rule = {
+            "evidence": ["https://example.invalid/provider-source"],
+            "match": {"action": "ISOLATE"},
+            "provider": {"source": "example/sample", "version": "1.2.3"},
+            "reason": "provider cannot round-trip this object",
+        }
+        data = self._registry_metadata()
+        data["sample_resource"]["adopt"] = {"unsupported_if": [rule]}
+        validate_registry(data, path="packs/sample/registry.json")
+
+        invalid = [
+            [],
+            [dict(rule, evidence=[])],
+            [dict(rule, evidence=["same", "same"])],
+            [dict(rule, match={})],
+            [dict(rule, match={"nested": {"value": True}})],
+            [dict(rule, provider={"source": "example/sample"})],
+            [dict(rule, reason="")],
+            [dict(rule, unexpected=True)],
+            [rule, rule],
+        ]
+        for rules in invalid:
+            data = self._registry_metadata()
+            data["sample_resource"]["adopt"] = {
+                "unsupported_if": rules,
+            }
+            with self.assertRaises(ValueError):
+                validate_registry(data, path="packs/sample/registry.json")
+
+        data = {
+            "sample_derived": {
+                "adopt": {"unsupported_if": [rule]},
+                "derive": {"from": "sample_resource"},
+                "generate": True,
+                "product": "sample",
+            },
+        }
+        with self.assertRaises(ValueError) as ctx:
+            validate_registry(data, path="packs/sample/registry.json")
+        self.assertIn("not valid for a derived resource", str(ctx.exception))
+
     def test_unknown_key_in_pack_json_fails(self):
         data = self._pack_metadata()
         data["rename"] = {}
@@ -405,6 +483,16 @@ class PackRegistryValidationTest(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             validate_registry(data, path="packs/sample/registry.json")
         self.assertIn("unknown key rename", str(ctx.exception))
+
+    def test_slug_group_must_be_boolean(self):
+        data = self._registry_metadata()
+        data["sample_resource"]["slug_group"] = False
+        validate_registry(data, path="packs/sample/registry.json")
+
+        data["sample_resource"]["slug_group"] = "false"
+        with self.assertRaises(ValueError) as ctx:
+            validate_registry(data, path="packs/sample/registry.json")
+        self.assertIn("sample_resource.slug_group", str(ctx.exception))
 
     def test_missing_required_per_resource_key_in_registry_fails(self):
         data = self._registry_metadata()

@@ -253,6 +253,8 @@ class ImportOracleTest(unittest.TestCase):
                                         if os.environ.get("FAKE_TF_GENERATED_SENTINEL") == "1":
                                             f.write("  size_quota = 0\\n")
                                             f.write("  ports {\\n    start = 443\\n    end = 0\\n  }\\n")
+                                        if os.environ.get("FAKE_TF_GENERATED_QUOTA") == "1":
+                                            f.write("  size_quota = 0\\n")
                                         if os.environ.get("FAKE_TF_GENERATED_COMPLEX") == "1":
                                             f.write("  size_quota = [0]\\n")
                                         f.write("}\\n\\n")
@@ -357,6 +359,7 @@ class ImportOracleTest(unittest.TestCase):
         os.environ.pop("FAKE_TF_BAD_SHOW_JSON", None)
         os.environ.pop("FAKE_TF_BAD_SHOW_JSON_SECRET", None)
         os.environ.pop("FAKE_TF_GENERATED_SENTINEL", None)
+        os.environ.pop("FAKE_TF_GENERATED_QUOTA", None)
         os.environ.pop("FAKE_TF_GENERATED_COMPLEX", None)
         os.environ.pop("FAKE_TF_SKIP_GENERATED_CONFIG", None)
         os.environ.pop("FAKE_TF_FAIL_GENERATED_CONFIG", None)
@@ -435,6 +438,27 @@ class ImportOracleTest(unittest.TestCase):
         self.assertEqual(out["prod_app"]["values"]["id"], "123")
         self.assertEqual(policy.stale_entries(
             modes=("projection_omit_if",)), [])
+        commands = self._fake_commands()
+        self.assertEqual([cmd[0] for cmd in commands], [
+            "init", "plan", "plan", "show", "apply", "show",
+        ])
+        self.assertTrue(any(
+            arg.startswith("-generate-config-out=") for arg in commands[1]))
+        self.assertFalse(any(
+            arg.startswith("-generate-config-out=") for arg in commands[2]))
+
+    def test_pack_drop_if_default_rescues_provider_validation_failure(self):
+        os.environ["FAKE_TF_GENERATED_QUOTA"] = "1"
+        os.environ["FAKE_TF_FAIL_GENERATED_CONFIG"] = "1"
+        os.environ["FAKE_TF_REJECT_GENERATED_SENTINEL"] = "1"
+
+        with mock.patch.object(
+                import_oracle,
+                "load_override",
+                return_value={"drop_if_default": {"size_quota": 0}}):
+            out = import_state("sample_resource", {"prod_app": "123"})
+
+        self.assertEqual(out["prod_app"]["values"]["id"], "123")
         commands = self._fake_commands()
         self.assertEqual([cmd[0] for cmd in commands], [
             "init", "plan", "plan", "show", "apply", "show",
@@ -902,6 +926,43 @@ class ImportOracleTest(unittest.TestCase):
         self.assertEqual(policy.stale_entries(
             modes=("projection_omit_if",)),
             [("sample_resource", "projection_omit_if", "enabled")])
+
+    def test_pack_default_precedes_overlapping_conditional_omit(self):
+        policy = self._policy({
+            "projection_omit_if": [
+                {
+                    "path": "size_quota",
+                    "values": [0],
+                    "reason": "overlap",
+                    "approved_by": "unit",
+                },
+            ],
+        })
+        lines = [
+            'resource "sample_resource" "iw_prod_app" {\n',
+            "  size_quota = 0\n",
+            "}\n",
+        ]
+        with mock.patch.object(
+                import_oracle,
+                "load_override",
+                return_value={"drop_if_default": {"size_quota": 0}}):
+            entries = import_oracle._generated_config_policy_entries(
+                "sample_resource", policy)
+
+        filtered, removed = import_oracle._filter_generated_config_lines(
+            "sample_resource",
+            {"sample_resource.iw_prod_app"},
+            lines,
+            entries,
+            policy,
+        )
+
+        self.assertEqual(removed, 1)
+        self.assertNotIn("size_quota", "".join(filtered))
+        self.assertEqual(policy.stale_entries(
+            modes=("projection_omit_if",)),
+            [("sample_resource", "projection_omit_if", "size_quota")])
 
     def test_generated_config_policy_removes_nested_scalar_leaf_only(self):
         policy = self._policy({

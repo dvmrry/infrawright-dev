@@ -7,6 +7,7 @@ This is deliberately narrower than transform overrides:
 
 It must not decide Terraform field coverage.
 """
+from engine import packs
 from engine import transform
 from engine.registry import load_registry
 
@@ -51,6 +52,55 @@ def adoption_entry(resource_type):
             "skip_if_lte", override.get("skip_if_lte", [])
         ),
     }
+
+
+def unsupported_rules(resource_type):
+    """Return unsupported adoption rules after enforcing provider pin scope."""
+    reg = load_registry().get(resource_type, {})
+    explicit = reg.get("adopt") or {}
+    rules = explicit.get("unsupported_if") or []
+    provider = packs.provider_of(resource_type)
+    expected_source = packs.provider_sources().get(provider)
+    expected_version = packs.provider_pins().get(provider)
+    for index, rule in enumerate(rules):
+        scoped = rule["provider"]
+        label = "%s.adopt.unsupported_if[%d].provider" % (
+            resource_type, index)
+        if scoped["source"] != expected_source:
+            raise ValueError(
+                "%s.source %r does not match active provider source %r"
+                % (label, scoped["source"], expected_source)
+            )
+        if scoped["version"] != expected_version:
+            raise ValueError(
+                "%s.version %r does not match active provider pin %r"
+                % (label, scoped["version"], expected_version)
+            )
+    return rules
+
+
+def classify_raw_items(raw_items, resource_type):
+    """Classify raw input before identity shaping or Terraform execution."""
+    meta = adoption_entry(resource_type)
+    rules = unsupported_rules(resource_type)
+    result = {"eligible": [], "skipped": [], "unsupported": []}
+    for raw in raw_items:
+        item = transform.snake_keys(raw)
+        reason = transform.skip_item_match_reason(item, meta)
+        if reason:
+            result["skipped"].append({"item": item, "reason": reason})
+            continue
+        matched = None
+        for rule in rules:
+            if transform.strict_json_scalar_matcher_matches(
+                    item, rule["match"]):
+                matched = rule
+                break
+        if matched is not None:
+            result["unsupported"].append({"item": item, "rule": matched})
+            continue
+        result["eligible"].append(raw)
+    return result
 
 
 def identity_item(raw, resource_type):

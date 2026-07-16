@@ -1,0 +1,155 @@
+{
+  "provider": {
+    "source": "zscaler/zia",
+    "version": "4.7.26",
+    "sdk": "github.com/zscaler/zscaler-sdk-go/v3@v3.8.40"
+  },
+  "resources": {
+    "zia_admin_roles": {
+      "evidence": [
+        "https://github.com/zscaler/zscaler-sdk-go/blob/v3.8.40/zscaler/zia/services/adminuserrolemgmt/roles/adminroles.go#L64-L65"
+      ],
+      "skip": [
+        {"id": 1, "name": "System Role", "isNonEditable": true}
+      ],
+      "keep": [
+        {"id": 2, "name": "Managed Role", "isNonEditable": false}
+      ]
+    },
+    "zia_firewall_filtering_ip_source_groups": {
+      "evidence": [
+        "https://github.com/zscaler/zscaler-sdk-go/blob/v3.8.40/zscaler/zia/services/firewallpolicies/ipsourcegroups/ipsourcegroups.go#L30-L31"
+      ],
+      "skip": [
+        {"id": 3, "name": "System Source Group", "isNonEditable": true}
+      ],
+      "keep": [
+        {"id": 4, "name": "Managed Source Group", "isNonEditable": false}
+      ]
+    },
+    "zia_firewall_filtering_destination_groups": {
+      "evidence": [
+        "https://github.com/zscaler/zscaler-sdk-go/blob/v3.8.40/zscaler/zia/services/firewallpolicies/ipdestinationgroups/ipdestinationgroups.go#L40-L41"
+      ],
+      "skip": [
+        {"id": 5, "name": "System Destination Group", "isNonEditable": true}
+      ],
+      "keep": [
+        {"id": 6, "name": "Managed Destination Group", "isNonEditable": false}
+      ]
+    },
+    "zia_firewall_filtering_rule": {
+      "evidence": [
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_firewall_filtering_rules.go#L275-L281"
+      ],
+      "skip": [
+        {"id": 7, "name": "Predefined Rule", "predefined": true, "defaultRule": false}
+      ],
+      "keep": [
+        {"id": 8, "name": "Default Rule", "predefined": false, "defaultRule": true},
+        {"id": 9, "name": "Managed Rule", "predefined": false, "defaultRule": false}
+      ]
+    },
+    "zia_firewall_ips_rule": {
+      "evidence": [
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_firewall_ips_rules.go#L279-L285"
+      ],
+      "skip": [
+        {"id": 10, "name": "Predefined IPS Rule", "predefined": true, "defaultRule": false}
+      ],
+      "keep": [
+        {"id": 11, "name": "Default IPS Rule", "predefined": false, "defaultRule": true},
+        {"id": 12, "name": "Managed IPS Rule", "predefined": false, "defaultRule": false}
+      ]
+    },
+    "zia_firewall_dns_rule": {
+      "evidence": [
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_firewall_dns_rules.go#L371-L377"
+      ],
+      "skip": [
+        {"id": 13, "name": "Predefined DNS Rule", "order": 1, "predefined": true, "defaultRule": false},
+        {"id": 15, "name": "Nonpositive DNS Rule", "order": 0, "predefined": false, "defaultRule": false}
+      ],
+      "keep": [
+        {"id": 14, "name": "Default DNS Rule", "order": 1, "predefined": false, "defaultRule": true},
+        {"id": 16, "name": "Managed DNS Rule", "order": 1, "predefined": false, "defaultRule": false}
+      ]
+    },
+    "zia_nat_control_rules": {
+      "evidence": [
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_nat_control_rules.go#L258-L264"
+      ],
+      "skip": [
+        {"id": 17, "name": "Predefined NAT Rule", "predefined": true, "defaultRule": false}
+      ],
+      "keep": [
+        {"id": 18, "name": "Default NAT Rule", "predefined": false, "defaultRule": true},
+        {"id": 19, "name": "Managed NAT Rule", "predefined": false, "defaultRule": false}
+      ]
+    },
+    "zia_sandbox_rules": {
+      "evidence": [
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_sandbox_rules.go#L316-L320"
+      ],
+      "skip": [
+        {"id": 20, "name": "Default BA Rule", "order": 126, "defaultRule": true}
+      ],
+      "unsupported": [
+        {"id": 21, "name": "Managed order 127", "order": 127, "defaultRule": false}
+      ],
+      "keep": [
+        {"id": 22, "name": "default ba rule", "order": 126, "defaultRule": true},
+        {"id": 23, "name": "Default BA Rule ", "order": 126, "defaultRule": true},
+        {"id": 24, "name": "Managed order 126", "order": 126, "defaultRule": false}
+      ]
+    },
+    "zia_forwarding_control_rule": {
+      "evidence": [
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_forwarding_control_rule.go#L167-L173",
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_forwarding_control_rule.go#L239-L246"
+      ],
+      "skip": [
+        {"id": 25, "name": "Client Connector Traffic Direct"},
+        {"id": 26, "name": "ZPA Pool For Stray Traffic"},
+        {"id": 27, "name": "ZIA Inspected ZPA Apps"},
+        {"id": 28, "name": "Fallback mode of ZPA Forwarding"},
+        {"id": 29, "name": "Fallback Mode of ZPA Forwarding", "order": -5, "forwardMethod": "DIRECT"}
+      ],
+      "keep": [
+        {"id": 30, "name": "client connector traffic direct"},
+        {"id": 31, "name": "Client Connector Traffic Direct ", "order": true},
+        {"id": 32, "name": "Prefix Client Connector Traffic Direct", "order": "not-a-number"},
+        {"id": 33, "name": "Unclassified Negative Rule", "order": -1, "forwardMethod": "DIRECT"},
+        {"id": 34, "name": "Unclassified Zero Rule", "order": 0, "forwardMethod": "DIRECT"},
+        {"id": 35, "name": "Managed Forwarding Rule", "order": 1, "forwardMethod": "DIRECT"}
+      ]
+    },
+    "zia_forwarding_control_zpa_gateway": {
+      "evidence": [
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_forwarding_control_zpa_gateway.go#L132-L136"
+      ],
+      "skip": [
+        {"id": 32, "name": "Auto ZPA Gateway"}
+      ],
+      "keep": [
+        {"id": 33, "name": "auto zpa gateway"},
+        {"id": 34, "name": "Auto ZPA Gateway "}
+      ]
+    },
+    "zia_url_filtering_rules": {
+      "evidence": [
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L52-L63",
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L536-L544"
+      ],
+      "system_skip": [
+        {"id": 35, "name": "Predefined Isolate", "action": "ISOLATE", "predefined": true}
+      ],
+      "unsupported": [
+        {"id": 36, "name": "Managed Isolate", "action": "ISOLATE", "predefined": false, "cbiProfile": {"id": 99, "name": "Profile", "profileSeq": 1, "url": "https://example.invalid"}}
+      ],
+      "keep": [
+        {"id": 37, "name": "Managed Block", "action": "BLOCK", "predefined": false}
+      ]
+    }
+  }
+}

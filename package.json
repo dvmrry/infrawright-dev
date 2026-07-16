@@ -1,30 +1,40 @@
 {
-  "name": "@infrawright/process",
+  "name": "@infrawright/cli",
   "version": "0.0.0",
   "private": true,
-  "description": "Machine-only Infrawright process host migration foundation",
+  "description": "Infrawright operational Node library and CLI",
   "type": "module",
   "engines": {
     "node": ">=24 <25"
   },
   "bin": {
-    "infrawright-process": "dist/infrawright.mjs"
+    "iw": "dist/infrawright-cli.mjs",
+    "infrawright": "dist/infrawright-cli.mjs"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json --noEmit && node scripts/build-node.mjs",
+    "build": "tsc -p tsconfig.json --noEmit && node scripts/build-metadata-cli.mjs",
+    "build:metadata-cli": "tsc -p tsconfig.json --noEmit && node scripts/build-metadata-cli.mjs",
     "check": "npm run typecheck && npm run test",
-    "test": "npm run build:test && node --test .node-test/node-tests/*.test.js",
+    "check:all": "npm run typecheck && npm run test:all",
+    "test": "npm run test:node",
+    "test:all": "npm run build:test && node --test .node-test/node-tests/*.test.js",
+    "test:node": "npm run build:test && node scripts/run-node-test-suite.mjs run",
+    "test:node:check": "npm run build:test && node scripts/run-node-test-suite.mjs check",
     "build:test": "tsc -p tsconfig.test.json",
     "typecheck": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
+    "@apidevtools/swagger-parser": "12.1.0",
     "ajv": "8.20.0",
+    "entities": "8.0.0",
     "lossless-json": "4.3.0",
+    "tough-cookie": "6.0.2",
     "undici": "7.28.0"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
     "esbuild": "0.25.12",
+    "fast-check": "4.9.0",
     "typescript": "7.0.2"
   }
 }

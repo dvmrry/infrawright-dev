@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
@@ -25,6 +26,49 @@ function update(before: unknown, after: unknown): unknown {
     address: "sample_resource.this",
     type: "sample_resource",
     change: { actions: ["update"], before, after },
+  };
+}
+
+function referenceOutputPlan(
+  action: "create" | "update" | "no-op" = "create",
+): Record<string, unknown> {
+  const value = { zpa_segment_group: { segment_one: "72059380790653545" } };
+  return {
+    format_version: "1.2",
+    complete: true,
+    errored: false,
+    planned_values: {
+      outputs: {
+        infrawright_reference_ids: { sensitive: true, value },
+      },
+      root_module: {
+        child_modules: [{
+          address: "module.zpa_segment_group",
+          resources: [{
+            address: 'module.zpa_segment_group.zpa_segment_group.this["segment_one"]',
+            index: "segment_one",
+            mode: "managed",
+            type: "zpa_segment_group",
+            values: { id: "72059380790653545", name: "Segment One" },
+          }],
+        }],
+      },
+    },
+    resource_changes: [],
+    output_changes: {
+      infrawright_reference_ids: {
+        actions: [action],
+        before: action === "create"
+          ? null
+          : action === "no-op"
+          ? value
+          : { zpa_segment_group: {} },
+        after: value,
+        before_sensitive: action === "create" ? false : true,
+        after_sensitive: true,
+        after_unknown: false,
+      },
+    },
   };
 }
 
@@ -57,7 +101,7 @@ test("plan classification preserves clean, blocked, import, and opaque semantics
       type: "sample_resource",
       change: { actions: ["create"], importing: { id: "1" } },
     }],
-  }).status, BLOCKED);
+  }).status, CLEAN);
   assert.equal(classifyPlan({
     format_version: "1.2",
     complete: true,
@@ -73,6 +117,143 @@ test("plan classification preserves clean, blocked, import, and opaque semantics
       },
     }],
   }).status, CLEAN);
+});
+
+test("only the bound provider-observed reference output may change", () => {
+  const contract = { referenceOutputTypes: ["zpa_segment_group"] };
+  for (const action of ["create", "update", "no-op"] as const) {
+    assert.equal(classifyPlan(referenceOutputPlan(action), null, contract).status, CLEAN);
+  }
+  assert.throws(() => classifyPlan(referenceOutputPlan(), null), AssessmentPlanError);
+
+  const missing = referenceOutputPlan();
+  delete (missing.output_changes as Record<string, unknown>).infrawright_reference_ids;
+  assert.throws(() => classifyPlan(missing, null, contract), AssessmentPlanError);
+
+  const wrongNoOp = referenceOutputPlan("no-op");
+  const wrongChanges = wrongNoOp.output_changes as Record<string, Record<string, unknown>>;
+  const wrong = { zpa_segment_group: { segment_one: "wrong" } };
+  wrongChanges.infrawright_reference_ids!.before = wrong;
+  wrongChanges.infrawright_reference_ids!.after = wrong;
+  const wrongValues = wrongNoOp.planned_values as Record<string, Record<string, unknown>>;
+  const wrongOutputs = wrongValues.outputs as Record<string, Record<string, unknown>>;
+  wrongOutputs.infrawright_reference_ids!.value = wrong;
+  assert.throws(() => classifyPlan(wrongNoOp, null, contract), AssessmentPlanError);
+
+  const mutations: Array<(plan: Record<string, unknown>) => void> = [
+    (plan) => {
+      const changes = plan.output_changes as Record<string, unknown>;
+      changes.other = changes.infrawright_reference_ids;
+      delete changes.infrawright_reference_ids;
+    },
+    (plan) => {
+      const changes = plan.output_changes as Record<string, Record<string, unknown>>;
+      changes.infrawright_reference_ids!.after = {
+        zpa_segment_group: { segment_one: "wrong" },
+      };
+    },
+    (plan) => {
+      const changes = plan.output_changes as Record<string, Record<string, unknown>>;
+      changes.infrawright_reference_ids!.after_unknown = true;
+    },
+    (plan) => {
+      const changes = plan.output_changes as Record<string, Record<string, unknown>>;
+      changes.infrawright_reference_ids!.after_sensitive = false;
+    },
+    (plan) => {
+      const values = plan.planned_values as Record<string, Record<string, unknown>>;
+      const outputs = values.outputs as Record<string, Record<string, unknown>>;
+      outputs.infrawright_reference_ids!.sensitive = false;
+    },
+    (plan) => {
+      const values = plan.planned_values as Record<string, Record<string, unknown>>;
+      const root = values.root_module as Record<string, unknown>;
+      const children = root.child_modules as unknown[];
+      root.child_modules = [...children, structuredClone(children[0])];
+    },
+    (plan) => {
+      const changes = plan.output_changes as Record<string, Record<string, unknown>>;
+      changes.infrawright_reference_ids!.actions = ["delete"];
+      changes.infrawright_reference_ids!.after = null;
+    },
+  ];
+  for (const mutate of mutations) {
+    const candidate = referenceOutputPlan();
+    mutate(candidate);
+    assert.throws(() => classifyPlan(candidate, null, contract), AssessmentPlanError);
+  }
+});
+
+test("a bound empty reference output requires the configured generated resource", () => {
+  const value = { zpa_segment_group: {} };
+  const candidate = {
+    format_version: "1.2",
+    complete: true,
+    errored: false,
+    planned_values: {
+      outputs: {
+        infrawright_reference_ids: { sensitive: true, value },
+      },
+      root_module: {},
+    },
+    configuration: {
+      root_module: {
+        module_calls: {
+          zpa_segment_group: {
+            module: {
+              resources: [{
+                address: "zpa_segment_group.this",
+                mode: "managed",
+                type: "zpa_segment_group",
+                name: "this",
+              }],
+            },
+          },
+        },
+      },
+    },
+    resource_changes: [],
+    output_changes: {
+      infrawright_reference_ids: {
+        actions: ["create"],
+        before: null,
+        after: value,
+        before_sensitive: true,
+        after_sensitive: true,
+        after_unknown: false,
+      },
+    },
+  };
+  const contract = { referenceOutputTypes: ["zpa_segment_group"] };
+  assert.equal(classifyPlan(candidate, null, contract).status, CLEAN);
+  const malformed = structuredClone(candidate);
+  const calls = malformed.configuration.root_module.module_calls as Record<
+    string,
+    unknown
+  >;
+  delete calls.zpa_segment_group;
+  assert.throws(() => classifyPlan(malformed, null, contract), AssessmentPlanError);
+
+  const mismatchedChild = structuredClone(candidate);
+  mismatchedChild.planned_values.root_module = {
+    child_modules: [{
+      address: "module.zpa_segment_group",
+      resources: [{
+        address: "module.zpa_segment_group.terraform_data.other",
+        index: "other",
+        mode: "managed",
+        type: "terraform_data",
+        values: { id: "unrelated" },
+      }],
+    }],
+  };
+  delete (
+    mismatchedChild.configuration.root_module.module_calls as Record<string, unknown>
+  ).zpa_segment_group;
+  assert.throws(
+    () => classifyPlan(mismatchedChild, null, contract),
+    AssessmentPlanError,
+  );
 });
 
 test("diff paths matches Python missing-null and nested list behavior", () => {
@@ -106,7 +287,7 @@ test("prototype-like own keys cannot disappear behind tolerated drift", () => {
   const actual = classifyPlan(plan, new DriftPolicy(policyData));
   assert.equal(actual.status, BLOCKED);
   assert.deepEqual(actual.findings[0]?.paths, [["__proto__"]]);
-  const python = spawnSync("python3", ["-c", [
+  const python = spawnSync(PYTHON_ORACLE, ["-c", [
     "import json,sys",
     "from engine.drift_policy import DriftPolicy",
     "from engine.plan_eval import classify_plan",
@@ -173,7 +354,7 @@ test("valid-plan corpus matches Python classifier exactly", () => {
     }] },
   ];
   for (const plan of plans) {
-    const python = spawnSync("python3", [
+    const python = spawnSync(PYTHON_ORACLE, [
       "-c",
       "import json,sys; from engine.plan_eval import classify_plan; print(json.dumps(classify_plan(json.load(sys.stdin)), sort_keys=True))",
     ], { input: JSON.stringify(plan), encoding: "utf8" });
@@ -347,7 +528,7 @@ test("policy classification and stale tracking match Python", () => {
     resourceTypes: new Set(["sample_resource"]),
     modes: ["plan_tolerate"],
   });
-  const python = spawnSync("python3", [
+  const python = spawnSync(PYTHON_ORACLE, [
     "-c",
     [
       "import json,sys",
@@ -669,7 +850,7 @@ test("lossless numeric classification corpus matches Python", () => {
   for (const [before, after] of pairs) {
     const source = `{"format_version":"1.2","complete":true,"errored":false,"resource_changes":[{"address":"sample_resource.this","type":"sample_resource","change":{"actions":["update"],"before":{"value":${before}},"after":{"value":${after}}}}]}`;
     const nodeResult = classifyPlan(parseDataJsonLosslessly(source));
-    const python = spawnSync("python3", [
+    const python = spawnSync(PYTHON_ORACLE, [
       "-c",
       "import json,sys; from engine.plan_eval import classify_plan; print(json.dumps(classify_plan(json.load(sys.stdin)), sort_keys=True))",
     ], { input: source, encoding: "utf8" });

@@ -619,10 +619,36 @@ def _skip_if_lte_matches(snake_raw, matcher):
     return True
 
 
+def _json_scalar_kind(value):
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    return None
+
+
+def strict_json_scalar_matcher_matches(snake_raw, matcher):
+    """Match exact JSON scalar fields without treating absence as null."""
+    for raw_field, expected in matcher.items():
+        field = snake(raw_field)
+        if field not in snake_raw:
+            return False
+        expected_kind = _json_scalar_kind(expected)
+        if (expected_kind is None
+                or _json_scalar_kind(snake_raw[field]) != expected_kind
+                or snake_raw[field] != expected):
+            return False
+    return True
+
+
 def skip_item_match_reason(snake_raw, override):
     """Return the matched item-level skip key for a snake_cased raw item."""
     for matcher in override.get("skip_if") or []:
-        if all(snake_raw.get(snake(f)) == v for f, v in matcher.items()):
+        if strict_json_scalar_matcher_matches(snake_raw, matcher):
             return "skip_if"
     for matcher in override.get("skip_if_lte") or []:
         if _skip_if_lte_matches(snake_raw, matcher):

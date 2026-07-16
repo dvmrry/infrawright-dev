@@ -144,7 +144,12 @@ def _validate_member(provider, resource_type, generated):
 
 def _root_resolution():
     roots = deployment.roots_config()
+    registry = load_registry()
     generated = set(generated_types())
+    slug_grouped = set(
+        resource_type for resource_type in generated
+        if registry.get(resource_type, {}).get("slug_group", True)
+    )
     labels_to_members = dict((rt, [rt]) for rt in sorted(generated))
     type_to_label = dict((rt, rt) for rt in sorted(generated))
     if not roots:
@@ -184,6 +189,8 @@ def _root_resolution():
         derived = set(derived_types())
         for resource_type in sorted(generated):
             if resource_type in derived:
+                continue
+            if resource_type not in slug_grouped:
                 continue
             if type_to_label[resource_type] != resource_type:
                 continue

@@ -1,4 +1,9 @@
 {
+  "skip_if": [
+    {
+      "predefined": true
+    }
+  ],
   "skip_if_lte": [
     {
       "order": 0

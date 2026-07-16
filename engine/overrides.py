@@ -42,6 +42,10 @@ def _snake(name):
     return _SNAKE_2.sub(r"\1_\2", half).lower()
 
 
+def snake_matcher_field(name):
+    return _snake(name)
+
+
 def _is_numeric_threshold(value):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return False
@@ -84,7 +88,7 @@ def validate_skip_matcher_metadata(data, path=None):
 
 
 def _validate_skip_rename_conflicts(data, label, fields):
-    renames = data.get("renames") or {}
+    renames = data.get("renames") or data.get("identity_renames") or {}
     if not isinstance(renames, dict):
         return
     renamed = set()
@@ -99,10 +103,14 @@ def _validate_skip_rename_conflicts(data, label, fields):
     if conflicts:
         raise ValueError(
             "skip predicates in %s reference renamed field(s) %s; "
-            "skip predicates run before transform renames and after adoption "
-            "identity renames, so keep skip fields independent of renames"
+            "skip predicates run on snake-cased raw input before transform or "
+            "adoption identity renames, so keep skip fields independent of renames"
             % (label, ", ".join(conflicts))
         )
+
+
+def validate_skip_rename_conflicts(data, path, fields):
+    _validate_skip_rename_conflicts(data, path, fields)
 
 
 def validate_override_metadata(data, path=None):

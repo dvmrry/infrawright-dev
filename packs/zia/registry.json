@@ -1,7 +1,8 @@
 {
   "zia_activation_status": {
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_admin_roles": {
     "fetch": {
@@ -13,7 +14,8 @@
   },
   "zia_admin_users": {
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_advanced_settings": {
     "adopt": {
@@ -133,11 +135,13 @@
   },
   "zia_bandwidth_classes_file_size": {
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_bandwidth_classes_web_conferencing": {
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_bandwidth_control_rule": {
     "fetch": {
@@ -162,7 +166,7 @@
   },
   "zia_casb_dlp_rules": {
     "fetch": {
-      "pagination": "single",
+      "pagination": "zia",
       "path": "casbDlpRules/all"
     },
     "generate": true,
@@ -170,7 +174,7 @@
   },
   "zia_casb_malware_rules": {
     "fetch": {
-      "pagination": "single",
+      "pagination": "zia",
       "path": "casbMalwareRules/all"
     },
     "generate": true,
@@ -204,11 +208,13 @@
   },
   "zia_cloud_application_instance": {
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_cloud_nss_feed": {
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_custom_file_types": {
     "fetch": {
@@ -220,7 +226,7 @@
   },
   "zia_dc_exclusions": {
     "fetch": {
-      "pagination": "zia",
+      "pagination": "single",
       "path": "dcExclusions"
     },
     "generate": true,
@@ -261,7 +267,8 @@
   },
   "zia_email_profile": {
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_end_user_notification": {
     "adopt": {
@@ -281,7 +288,7 @@
         401,
         403
       ],
-      "pagination": "zia",
+      "pagination": "single",
       "path": "extranet"
     },
     "generate": true,
@@ -313,7 +320,7 @@
   },
   "zia_firewall_filtering_ip_source_groups": {
     "fetch": {
-      "pagination": "zia",
+      "pagination": "single",
       "path": "ipSourceGroups"
     },
     "generate": true,
@@ -413,7 +420,8 @@
   },
   "zia_ips_signature_rules": {
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_location_management": {
     "fetch": {
@@ -481,13 +489,32 @@
   },
   "zia_sandbox_behavioral_analysis_v2": {
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_sandbox_file_submission": {
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_sandbox_rules": {
+    "adopt": {
+      "unsupported_if": [
+        {
+          "evidence": [
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_sandbox_rules.go#L316-L322"
+          ],
+          "match": {
+            "order": 127
+          },
+          "provider": {
+            "source": "zscaler/zia",
+            "version": "4.7.26"
+          },
+          "reason": "provider 4.7.26 removes every sandbox rule with order 127 from Terraform state, so ownership cannot be represented durably even when the rule name is not the known provider-owned Default BA Rule"
+        }
+      ]
+    },
     "fetch": {
       "pagination": "zia",
       "path": "sandboxRules"
@@ -501,11 +528,12 @@
       "import_id": "all_urls"
     },
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_ssl_inspection_rules": {
     "fetch": {
-      "pagination": "zia",
+      "pagination": "single",
       "path": "sslInspectionRules"
     },
     "generate": true,
@@ -513,7 +541,8 @@
   },
   "zia_sub_cloud": {
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_subscription_alert": {
     "fetch": {
@@ -525,11 +554,13 @@
   },
   "zia_tenant_restriction_profile": {
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_traffic_capture_rules": {
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_traffic_forwarding_gre_tunnel": {
     "fetch": {
@@ -568,7 +599,8 @@
   },
   "zia_url_categories_predefined": {
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_url_filtering_and_cloud_app_settings": {
     "adopt": {
@@ -583,8 +615,26 @@
     "product": "zia"
   },
   "zia_url_filtering_rules": {
+    "adopt": {
+      "unsupported_if": [
+        {
+          "evidence": [
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L52-L63",
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L536-L544"
+          ],
+          "match": {
+            "action": "ISOLATE"
+          },
+          "provider": {
+            "source": "zscaler/zia",
+            "version": "4.7.26"
+          },
+          "reason": "provider 4.7.26 requires cbi_profile for ISOLATE configuration but a fresh import Read cannot reconstruct the block when the API omits it"
+        }
+      ]
+    },
     "fetch": {
-      "pagination": "zia",
+      "pagination": "single",
       "path": "urlFilteringRules"
     },
     "generate": true,
@@ -592,15 +642,18 @@
   },
   "zia_user_management": {
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_virtual_service_edge_cluster": {
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_virtual_service_edge_node": {
     "generate": true,
-    "product": "zia"
+    "product": "zia",
+    "slug_group": false
   },
   "zia_workload_groups": {
     "fetch": {

@@ -76,6 +76,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_activation",
       "type": "zia_activation_status"
     },
@@ -94,6 +95,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_admin",
       "type": "zia_admin_users"
     },
@@ -193,6 +195,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_bandwidth",
       "type": "zia_bandwidth_classes_file_size"
     },
@@ -202,6 +205,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_bandwidth",
       "type": "zia_bandwidth_classes_web_conferencing"
     },
@@ -256,6 +260,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_cloud",
       "type": "zia_cloud_application_instance"
     },
@@ -265,6 +270,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_cloud",
       "type": "zia_cloud_nss_feed"
     },
@@ -328,6 +334,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_email",
       "type": "zia_email_profile"
     },
@@ -490,6 +497,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_ips",
       "type": "zia_ips_signature_rules"
     },
@@ -562,6 +570,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_sandbox",
       "type": "zia_sandbox_behavioral_analysis_v2"
     },
@@ -571,6 +580,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_sandbox",
       "type": "zia_sandbox_file_submission"
     },
@@ -589,6 +599,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_security",
       "type": "zia_security_settings"
     },
@@ -607,6 +618,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_sub",
       "type": "zia_sub_cloud"
     },
@@ -625,6 +637,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_tenant",
       "type": "zia_tenant_restriction_profile"
     },
@@ -634,6 +647,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_traffic",
       "type": "zia_traffic_capture_rules"
     },
@@ -679,6 +693,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_url",
       "type": "zia_url_categories_predefined"
     },
@@ -706,6 +721,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_user",
       "type": "zia_user_management"
     },
@@ -715,6 +731,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_virtual",
       "type": "zia_virtual_service_edge_cluster"
     },
@@ -724,6 +741,7 @@
       "generated": true,
       "product": "zia",
       "provider": "zia",
+      "slug_group": false,
       "slug_label": "zia_virtual",
       "type": "zia_virtual_service_edge_node"
     },
@@ -1378,5 +1396,5 @@
     "ztc/pack.json",
     "ztc/registry.json"
   ],
-  "sources_sha256": "08e0e355236509c60f290b8e7eb31bc4c03c4f38ef12c6176fc9c9c3aa3c41e0"
+  "sources_sha256": "bf0a3903b431c3ae4d96b2df7fbb15afdcc1ea9217dfd5eb7a41d98d36c898a3"
 }

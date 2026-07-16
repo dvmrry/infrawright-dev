@@ -4,6 +4,22 @@ const INTEGER_TOKEN = /^-?(?:0|[1-9][0-9]*)$/;
 const NUMBER_TOKEN = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/;
 const MAX_JSON_DEPTH = 128;
 
+/** SyntaxError whose message matches CPython's JSONDecodeError text. */
+export class PythonJsonDecodeError extends SyntaxError {
+  readonly position: number;
+
+  constructor(reason: string, source: string, position: number) {
+    const bounded = Math.max(0, Math.min(position, source.length));
+    const before = source.slice(0, bounded);
+    const line = 1 + (before.match(/\n/g)?.length ?? 0);
+    const lastNewline = before.lastIndexOf("\n");
+    const column = bounded - lastNewline;
+    super(`${reason}: line ${line} column ${column} (char ${bounded})`);
+    this.name = "PythonJsonDecodeError";
+    this.position = bounded;
+  }
+}
+
 function parseControlNumber(token: string): number {
   const value = Number(token);
   if (!Number.isFinite(value)) {
@@ -30,7 +46,7 @@ class JsonContractScanner {
     this.scanValue(0);
     this.skipWhitespace();
     if (this.index !== this.text.length) {
-      throw new SyntaxError("unexpected content after JSON value");
+      throw new PythonJsonDecodeError("Extra data", this.text, this.index);
     }
   }
 
@@ -71,7 +87,11 @@ class JsonContractScanner {
     const keys = new Set<string>();
     while (true) {
       if (this.text[this.index] !== '"') {
-        throw new SyntaxError("object keys must be JSON strings");
+        throw new PythonJsonDecodeError(
+          "Expecting property name enclosed in double quotes",
+          this.text,
+          this.index,
+        );
       }
       const key = this.scanString();
       if (keys.has(key)) {
@@ -79,7 +99,7 @@ class JsonContractScanner {
       }
       keys.add(key);
       this.skipWhitespace();
-      this.expect(":");
+      this.expect(":", "Expecting ':' delimiter");
       this.scanValue(depth);
       this.skipWhitespace();
       const separator = this.text[this.index];
@@ -87,7 +107,7 @@ class JsonContractScanner {
         this.index += 1;
         return;
       }
-      this.expect(",");
+      this.expect(",", "Expecting ',' delimiter");
       this.skipWhitespace();
     }
   }
@@ -108,7 +128,7 @@ class JsonContractScanner {
         this.index += 1;
         return;
       }
-      this.expect(",");
+      this.expect(",", "Expecting ',' delimiter");
       this.skipWhitespace();
     }
   }
@@ -128,12 +148,16 @@ class JsonContractScanner {
         this.index += 1;
       }
     }
-    throw new SyntaxError("unterminated JSON string");
+    throw new PythonJsonDecodeError(
+      "Unterminated string starting at",
+      this.text,
+      start,
+    );
   }
 
   private scanLiteral(literal: "true" | "false" | "null"): void {
     if (this.text.slice(this.index, this.index + literal.length) !== literal) {
-      throw new SyntaxError(`invalid JSON token at offset ${this.index}`);
+      throw new PythonJsonDecodeError("Expecting value", this.text, this.index);
     }
     this.index += literal.length;
   }
@@ -141,7 +165,7 @@ class JsonContractScanner {
   private scanNumber(): void {
     const match = NUMBER_TOKEN.exec(this.text.slice(this.index));
     if (match === null) {
-      throw new SyntaxError(`invalid JSON token at offset ${this.index}`);
+      throw new PythonJsonDecodeError("Expecting value", this.text, this.index);
     }
     const token = match[0];
     if (this.validateNumbers) {
@@ -150,11 +174,9 @@ class JsonContractScanner {
     this.index += token.length;
   }
 
-  private expect(character: ":" | ","): void {
+  private expect(character: ":" | ",", reason: string): void {
     if (this.text[this.index] !== character) {
-      throw new SyntaxError(
-        `expected ${JSON.stringify(character)} at offset ${this.index}`,
-      );
+      throw new PythonJsonDecodeError(reason, this.text, this.index);
     }
     this.index += 1;
   }

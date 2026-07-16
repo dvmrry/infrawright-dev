@@ -17,8 +17,9 @@ raw API fetch
   -> derive stable key + import ID
   -> render scratch Terraform/provider header + import blocks
   -> plan with generated provider config into ephemeral local state
-  -> apply the import-only scratch plan
-  -> terraform/tofu show -json state
+  -> validate the exact import-only saved plan
+  -> by default, apply the import-only scratch plan
+  -> by default, terraform/tofu show -json state
   -> project provider-observed state through provider schema
      (projection_omit applies inline)
   -> apply consumer-owned post-projection policy
@@ -27,6 +28,44 @@ raw API fetch
   -> run normal plan
   -> classify clean / tolerated provider noise / blocked
 ```
+
+## Experimental Accepted-Plan State Source
+
+The default Oracle state source remains the post-Apply ephemeral local state:
+
+```sh
+INFRAWRIGHT_ORACLE_STATE_SOURCE=applied-state make adopt \
+  IN=pulls/prod TENANT=prod RESOURCE="zia_url_categories"
+```
+
+An opt-in performance experiment can use a fully observed accepted import plan:
+
+```sh
+INFRAWRIGHT_ORACLE_STATE_SOURCE=accepted-plan make adopt \
+  IN=pulls/prod TENANT=prod RESOURCE="zia_url_categories"
+```
+
+This mode still runs the provider and still authorizes the exact import-only
+plan. It skips the scratch Apply and state show only when every expected root
+resource has identical:
+
+- planned values;
+- resource-change `before` and `after` values;
+- prior-state values;
+- planned, before, after, and prior sensitivity masks.
+
+It also requires a complete unknown-value mask containing no unknown leaves,
+exact address/type/provider coverage, and no child, deposed, tainted, extra, or
+missing resource. Incomplete or inconsistent evidence fails closed; it never
+silently falls back to applied state. Rerun without the variable (or with
+`applied-state`) when a provider does not expose complete plan-time state.
+
+Repository tests prove the extractor against a retained Terraform-core
+plan/state pair, lossless synthetic provider observations, projection-policy
+tests, and the four retained artifact-parity fixtures. Those tests do not prove
+that a real provider's plan-time and post-Apply Read results are equivalent.
+Keep this mode opt-in until same-cohort work-machine evidence confirms identical
+provider observations, sensitivity masks, artifacts, and final plan results.
 
 ## What It Does Not Do
 
@@ -270,29 +309,14 @@ single top-level raw source name. It never overwrites provider readback: if the
 projected provider state already contains the target, even as an empty list or
 object, the fill entry remains stale. It also refuses sensitive targets.
 
-The ZIA URL filtering rule policy below handles ISOLATE rules where provider
-readback omits `cbi_profile`, but provider write validation requires
-`cbi_profile` when `action = "ISOLATE"`. The raw `urlFilteringRules` API pull
-carries `cbiProfile` with `id`, `name`, `profileSeq`, and `url`, so the value is
-recoverable without synthesis:
-
-```json
-{
-  "version": 1,
-  "resource_types": {
-    "zia_url_filtering_rules": {
-      "projection_fill": [
-        {
-          "path": "cbi_profile",
-          "source": "cbiProfile",
-          "reason": "ZIA provider 4.7.26 read omits cbi_profile for ISOLATE URL filtering rules, while write validation requires cbi_profile when action is ISOLATE; the raw urlFilteringRules API pull carries cbiProfile with id/name/profileSeq/url.",
-          "approved_by": "zscaler-adoption"
-        }
-      ]
-    }
-  }
-}
-```
+The current ZIA pack intentionally does not use `projection_fill` for URL
+filtering ISOLATE rules. With the pinned `zscaler/zia` provider 4.7.26,
+`cbi_profile` is required on write but a fresh import Read cannot reliably
+reconstruct the block when the API omits it. The pack therefore classifies
+`action = "ISOLATE"` as version-scoped unsupported before identity derivation
+or any Oracle call. The earlier ZIA `cbi_profile` fill was removed; support for
+a later provider version requires new source/readback evidence and an updated
+provider scope rather than reusing that fill.
 
 The oracle also applies `projection_omit`, `projection_omit_if`, and
 `projection_fill` to Terraform/OpenTofu generated import config before provider

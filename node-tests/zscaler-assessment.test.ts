@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
@@ -24,7 +25,7 @@ test("assessment accepts only the exact embedded Zscaler catalog", () => {
 
 test("supported Zscaler packs have no guidance lanes hidden from Node", () => {
   const providers = [...zscalerCatalog.declared_providers];
-  const result = spawnSync("python3", ["-c", [
+  const result = spawnSync(PYTHON_ORACLE, ["-c", [
     "import json",
     "import sys",
     "from engine import packs",

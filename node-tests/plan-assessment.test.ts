@@ -155,6 +155,150 @@ test("one transaction assesses clean plan metadata without returning plan values
   });
 });
 
+test("assessment binds create and no-op reference outputs to provider-observed IDs", async () => {
+  await withFixture(async (fixture) => {
+    const value = { zpa_sample: { one: "provider-id" } };
+    const planJson = JSON.stringify({
+      format_version: "1.2",
+      terraform_version: "1.15.4",
+      complete: true,
+      errored: false,
+      planned_values: {
+        outputs: {
+          infrawright_reference_ids: { sensitive: true, value },
+        },
+        root_module: {
+          child_modules: [{
+            address: "module.zpa_sample",
+            resources: [{
+              address: 'module.zpa_sample.zpa_sample.this["one"]',
+              index: "one",
+              mode: "managed",
+              type: "zpa_sample",
+              values: { id: "provider-id" },
+            }],
+          }],
+        },
+      },
+      resource_changes: [],
+      output_changes: {
+        infrawright_reference_ids: {
+          actions: ["create"],
+          before: null,
+          after: value,
+          before_sensitive: false,
+          after_sensitive: true,
+          after_unknown: false,
+        },
+      },
+    });
+    const fake = executable(fixture.root, `printf '%s' ${shellLiteral(planJson)}`);
+    const withContract: SavedPlanAssessmentOptions = {
+      ...options(fixture, fake),
+      roots: [{ ...fixture.assessmentRoot, referenceOutputTypes: ["zpa_sample"] }],
+    };
+    const result = await assessSavedPlans(withContract);
+    assert.equal(result.status, "clean");
+    await assert.rejects(
+      assessSavedPlans(options(fixture, fake)),
+      (error: unknown) => failure(error, "INVALID_ASSESSMENT_PLAN"),
+    );
+
+    const noOp = JSON.parse(planJson) as Record<string, unknown>;
+    const changes = noOp.output_changes as Record<string, Record<string, unknown>>;
+    changes.infrawright_reference_ids!.actions = ["no-op"];
+    changes.infrawright_reference_ids!.before = value;
+    changes.infrawright_reference_ids!.before_sensitive = true;
+    const noOpFake = executable(
+      fixture.root,
+      `printf '%s' ${shellLiteral(JSON.stringify(noOp))}`,
+    );
+    assert.equal((await assessSavedPlans({
+      ...withContract,
+      terraformExecutable: noOpFake,
+    })).status, "clean");
+
+    const wrong = JSON.parse(JSON.stringify(noOp)) as Record<string, unknown>;
+    const wrongValue = { zpa_sample: { one: "wrong" } };
+    const wrongChanges = wrong.output_changes as Record<string, Record<string, unknown>>;
+    wrongChanges.infrawright_reference_ids!.before = wrongValue;
+    wrongChanges.infrawright_reference_ids!.after = wrongValue;
+    const wrongPlanned = wrong.planned_values as Record<string, Record<string, unknown>>;
+    const wrongOutputs = wrongPlanned.outputs as Record<string, Record<string, unknown>>;
+    wrongOutputs.infrawright_reference_ids!.value = wrongValue;
+    const wrongFake = executable(
+      fixture.root,
+      `printf '%s' ${shellLiteral(JSON.stringify(wrong))}`,
+    );
+    await assert.rejects(
+      assessSavedPlans({ ...withContract, terraformExecutable: wrongFake }),
+      (error: unknown) => failure(error, "INVALID_ASSESSMENT_PLAN"),
+    );
+
+    const missing = JSON.parse(planJson) as Record<string, unknown>;
+    delete (missing.output_changes as Record<string, unknown>).infrawright_reference_ids;
+    const missingFake = executable(
+      fixture.root,
+      `printf '%s' ${shellLiteral(JSON.stringify(missing))}`,
+    );
+    await assert.rejects(
+      assessSavedPlans({ ...withContract, terraformExecutable: missingFake }),
+      (error: unknown) => failure(error, "INVALID_ASSESSMENT_PLAN"),
+    );
+  });
+});
+
+test("assessment accepts a topology-bound empty reference module", async () => {
+  await withFixture(async (fixture) => {
+    const value = { zpa_sample: {} };
+    const planJson = JSON.stringify({
+      format_version: "1.2",
+      terraform_version: "1.15.4",
+      complete: true,
+      errored: false,
+      planned_values: {
+        outputs: {
+          infrawright_reference_ids: { sensitive: true, value },
+        },
+        root_module: {},
+      },
+      configuration: {
+        root_module: {
+          module_calls: {
+            zpa_sample: {
+              module: {
+                resources: [{
+                  address: "zpa_sample.this",
+                  mode: "managed",
+                  type: "zpa_sample",
+                  name: "this",
+                }],
+              },
+            },
+          },
+        },
+      },
+      resource_changes: [],
+      output_changes: {
+        infrawright_reference_ids: {
+          actions: ["create"],
+          before: null,
+          after: value,
+          before_sensitive: true,
+          after_sensitive: true,
+          after_unknown: false,
+        },
+      },
+    });
+    const fake = executable(fixture.root, `printf '%s' ${shellLiteral(planJson)}`);
+    const result = await assessSavedPlans({
+      ...options(fixture, fake),
+      roots: [{ ...fixture.assessmentRoot, referenceOutputTypes: ["zpa_sample"] }],
+    });
+    assert.equal(result.status, "clean");
+  });
+});
+
 test("policy bytes drive tolerated classification and stale-entry reporting", async () => {
   await withFixture(async (fixture) => {
     const policyPath = join(fixture.root, "policy.json");
@@ -461,7 +605,7 @@ test("report outcome retains completed roots when a later root fails", async () 
     assert.deepEqual(outcome.report.roots.map((root) => root.label), ["zpa_sample"]);
     assert.deepEqual(outcome.report.error, {
       kind: "assessment_error",
-      message: "Terraform show did not emit valid plan JSON",
+      message: "Expecting value: line 1 column 1 (char 0)",
     });
   });
 });

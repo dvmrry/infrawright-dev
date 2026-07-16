@@ -1,0 +1,7 @@
+{
+  "import_id": "{type}:{id}",
+  "key_field": [
+    "type",
+    "id"
+  ]
+}

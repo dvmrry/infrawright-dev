@@ -165,8 +165,9 @@ class MakefileOverlayTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             missing_overlay = os.path.join(td, "missing")
             proc = _run_make(["OVERLAY=%s" % missing_overlay, "-n", "test"])
-            self.assertIn("python3 -m engine.pack_set", proc.stdout)
-            self.assertIn("python3 -m tests.run --catalog", proc.stdout)
+            self.assertIn("node dist/infrawright-cli.mjs check-pack-set", proc.stdout)
+            self.assertIn("npm run test:node", proc.stdout)
+            self.assertNotIn("python", proc.stdout.lower())
 
     def test_check_demo_reenters_demo_overlay(self):
         with tempfile.TemporaryDirectory() as td:
@@ -183,7 +184,7 @@ class MakefileOverlayTest(unittest.TestCase):
             self.assertIn("OVERLAY=demo", proc.stdout)
             self.assertIn(" demo > /dev/null", proc.stdout)
             self.assertIn("INFRAWRIGHT_DEPLOYMENT=\"demo/deployment.json\"", proc.stdout)
-            self.assertIn("engine.gen_module --check-output", proc.stdout)
+            self.assertIn("modules validate", proc.stdout)
 
     def test_check_demo_propagates_git_status_failure(self):
         with tempfile.TemporaryDirectory() as td:
@@ -217,11 +218,11 @@ class MakefileOverlayTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             missing_overlay = os.path.join(td, "missing")
             proc = _run_make(["OVERLAY=%s" % missing_overlay, "-n", "check"])
-            modules = proc.stdout.index("engine.gen_module --check-output")
+            modules = proc.stdout.index("modules validate")
             tfvars = proc.stdout.index("check-tfvars-fmt")
             self.assertLess(modules, tfvars)
 
-    def test_deployment_export_reaches_engine_invocations(self):
+    def test_deployment_authority_reaches_engine_invocations(self):
         with tempfile.TemporaryDirectory() as td:
             missing_overlay = os.path.join(td, "missing")
             hcl_dep = os.path.join(td, "hcl-deployment.json")
@@ -252,6 +253,14 @@ class MakefileOverlayTest(unittest.TestCase):
                 "--no-print-directory",
                 "OVERLAY=%s" % missing_overlay,
                 "DEPLOYMENT=%s" % hcl_dep,
+                probe,
+                "probe",
+            ], env=env)
+            self.assertEqual(proc.stdout, "hcl\n")
+
+            proc = _run_make([
+                "--no-print-directory",
+                "OVERLAY=%s" % missing_overlay,
                 probe,
                 "probe",
             ], env=env)

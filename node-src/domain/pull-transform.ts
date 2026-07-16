@@ -11,20 +11,45 @@ import {
   canonicalPythonNumberToken,
   pythonFiniteFloatToken,
 } from "../json/python-number.js";
-import {
-  pythonHtmlUnescapePasses,
-} from "./python-html-unescape.js";
 import { pythonLower151 } from "../json/python-lower-151.js";
-import type {
-  TransformCatalog,
-  TransformCatalogResource,
-  TransformProjection,
-  TransformPrimitiveEncoding,
-  TransformValueEncoding,
-} from "./transform-catalog.js";
-import { requireSupportedZccTransformCatalog } from "./transform-catalog.js";
+import type { LoadedResourceMetadata } from "../metadata/loader.js";
+import { isObject, type JsonObject } from "../metadata/validation.js";
+import {
+  terraformAttributeType,
+  terraformAttributesForBlock,
+  terraformBlockForSchema,
+  terraformBlockIsSingle,
+  terraformBlockTypesForBlock,
+  terraformClassifyAttributes,
+  terraformInputBlockTypes,
+  terraformRequireObject,
+  terraformResourceInputAttributes,
+  type TerraformTypeEncoding,
+} from "../metadata/terraform-schema.js";
 
 type TransformRecord = Record<string, unknown>;
+
+interface RuntimeProjectionBlock {
+  readonly cardinality: "many" | "single";
+  readonly merge: boolean;
+  readonly projection: RuntimeProjection;
+}
+
+interface RuntimeProjection {
+  readonly attributes: Readonly<Record<string, TerraformTypeEncoding>>;
+  readonly blocks: Readonly<Record<string, RuntimeProjectionBlock>>;
+  readonly knownMembers: readonly string[];
+  readonly silentlyIgnoredAttributes: readonly string[];
+  readonly strictFrozenCompatibility: boolean;
+}
+
+interface RuntimeTransformResource {
+  readonly type: string;
+  readonly projection: RuntimeProjection;
+  readonly override: Readonly<JsonObject>;
+  readonly htmlUnescapePasses: 0 | 2;
+  readonly strictFrozenCompatibility: boolean;
+}
 
 // Unicode 15.1 Decimal_Number zero code points, matching the Python 3.13
 // authoring oracle. Every Nd block is one contiguous run of ten values.
@@ -126,9 +151,15 @@ export function snakeName(name: string): string {
   );
 }
 
-function snakeKeys(value: unknown, path = "$raw"): unknown {
+function snakeKeys(
+  value: unknown,
+  path = "$raw",
+  strictCollisions = true,
+): unknown {
   if (Array.isArray(value)) {
-    return value.map((item, index) => snakeKeys(item, `${path}[${index}]`));
+    return value.map((item, index) => {
+      return snakeKeys(item, `${path}[${index}]`, strictCollisions);
+    });
   }
   if (isPlainJsonRecord(value)) {
     const output = safeRecord([]);
@@ -136,7 +167,7 @@ function snakeKeys(value: unknown, path = "$raw"): unknown {
     for (const key of Object.keys(value)) {
       const normalized = snakeName(key);
       const previous = originalKeys.get(normalized);
-      if (previous !== undefined) {
+      if (strictCollisions && previous !== undefined) {
         throw new TypeError(
           `snake_case key collision at ${path}: ${JSON.stringify(previous)} and ${JSON.stringify(key)} both map to ${JSON.stringify(normalized)}`,
         );
@@ -145,11 +176,33 @@ function snakeKeys(value: unknown, path = "$raw"): unknown {
       Object.defineProperty(output, normalized, {
         configurable: true,
         enumerable: true,
-        value: snakeKeys(value[key], `${path}.${key}`),
+        value: snakeKeys(value[key], `${path}.${key}`, strictCollisions),
         writable: true,
       });
     }
     return output;
+  }
+  return cloneJson(value);
+}
+
+/** Recursively snake-case a losslessly parsed JSON value using Python rules. */
+export function snakeJsonKeys(value: unknown): unknown {
+  return snakeKeys(value, "$raw", false);
+}
+
+/** Recursively snake-case authoring inputs, which may be constructed with
+ * ordinary finite JavaScript numbers instead of coming from the lossless
+ * runtime JSON parser. */
+export function snakeJsonKeysForAuthoring(value: unknown): unknown {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new TypeError("authoring input numbers must be finite");
+    return value;
+  }
+  if (Array.isArray(value)) return value.map((item) => snakeJsonKeysForAuthoring(item));
+  if (isPlainJsonRecord(value)) {
+    return safeRecord(Object.keys(value).map((key) => {
+      return [snakeName(key), snakeJsonKeysForAuthoring(value[key])] as const;
+    }));
   }
   return cloneJson(value);
 }
@@ -171,34 +224,81 @@ function losslessIntegerToken(value: unknown): string | null {
   return null;
 }
 
-function identityComponent(value: unknown, field: string): string {
-  if (typeof value === "string") {
-    if (value.trim() === "") {
-      throw new TypeError(
-        `key field ${JSON.stringify(field)} must not be blank`,
-      );
-    }
-    return value;
+function stringArray(
+  value: unknown,
+  label: string,
+): readonly string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new TypeError(`${label} must be a list of strings`);
   }
-  if (value instanceof LosslessNumber) {
-    const integer = losslessIntegerToken(value);
-    if (integer !== null) {
-      return BigInt(integer).toString(10);
-    }
-  }
-  throw new TypeError(
-    `key field ${JSON.stringify(field)} must be a nonblank string or integral LosslessNumber`,
-  );
+  return value;
 }
 
-function deriveKey(item: TransformRecord, resource: TransformCatalogResource): string {
-  const parts = resource.key_fields.map((field) => {
+function stringMap(value: unknown, label: string): Readonly<Record<string, string>> {
+  if (value === undefined || value === null) return Object.freeze({});
+  if (!isObject(value)) throw new TypeError(`${label} must be an object`);
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item !== "string") {
+      throw new TypeError(`${label}.${key} must be a string`);
+    }
+  }
+  return value as Readonly<Record<string, string>>;
+}
+
+function keyFields(resource: RuntimeTransformResource): readonly string[] {
+  const field = resource.override.key_field;
+  if (field === undefined || field === null) return ["name"];
+  if (typeof field === "string") return [field];
+  return stringArray(field, `${resource.type}.override.key_field`);
+}
+
+function identityComponent(
+  value: unknown,
+  field: string,
+  strict: boolean,
+): string {
+  if (strict) {
+    if (typeof value === "string") {
+      if (value.trim() === "") {
+        throw new TypeError(
+          `key field ${JSON.stringify(field)} must not be blank`,
+        );
+      }
+      return value;
+    }
+    if (value instanceof LosslessNumber) {
+      const integer = losslessIntegerToken(value);
+      if (integer !== null) return BigInt(integer).toString(10);
+    }
+    throw new TypeError(
+      `key field ${JSON.stringify(field)} must be a nonblank string or integral LosslessNumber`,
+    );
+  }
+  if (typeof value === "string") return value;
+  if (typeof value === "boolean") return value ? "True" : "False";
+  if (value instanceof LosslessNumber) {
+    const token = canonicalPythonNumberToken(value.toString());
+    if (token !== null) return token;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (value === null) return "None";
+  return String(value);
+}
+
+function deriveKey(item: TransformRecord, resource: RuntimeTransformResource): string {
+  const fields = keyFields(resource);
+  const parts = fields.map((field) => {
     if (!hasOwn(item, field)) {
       throw new Error(
         `key field ${JSON.stringify(field)} missing from item; set key_field in the override map`,
       );
     }
-    return identityComponent(item[field], field);
+    return identityComponent(
+      item[field],
+      field,
+      resource.strictFrozenCompatibility,
+    );
   });
   let key = slugifyTransformKey(parts.join(" "));
   if (key !== "") {
@@ -209,8 +309,12 @@ function deriveKey(item: TransformRecord, resource: TransformCatalogResource): s
       `derived key is empty and item has no 'id' to fall back on`,
     );
   }
-  const fallback = slugifyTransformKey(identityComponent(item.id, "id"));
-  if (fallback === "") {
+  const fallback = slugifyTransformKey(identityComponent(
+    item.id,
+    "id",
+    resource.strictFrozenCompatibility,
+  ));
+  if (resource.strictFrozenCompatibility && fallback === "") {
     throw new TypeError(
       "fallback key field \"id\" must contain at least one ASCII letter or digit",
     );
@@ -221,17 +325,19 @@ function deriveKey(item: TransformRecord, resource: TransformCatalogResource): s
 
 function unescapeDisplayFields(
   item: TransformRecord,
-  resource: TransformCatalogResource,
-  compatibility: TransformCatalog["python_compatibility"],
+  resource: RuntimeTransformResource,
+  htmlUnescape: ((value: string) => string) | undefined,
 ): void {
+  if (resource.htmlUnescapePasses === 0) return;
+  if (htmlUnescape === undefined) {
+    throw new TypeError(
+      `${resource.type} requires Python-compatible HTML unescape metadata`,
+    );
+  }
   for (const field of ["name", "description"] as const) {
     const value = item[field];
     if (typeof value === "string") {
-      item[field] = pythonHtmlUnescapePasses(
-        value,
-        resource.html_unescape_passes,
-        compatibility.html_unescape,
-      );
+      item[field] = htmlUnescape(htmlUnescape(value));
     }
   }
 }
@@ -343,10 +449,7 @@ function normalizedPythonFloatString(value: string): string | null {
   return stripped.replaceAll("_", "");
 }
 
-function coercePrimitive(
-  value: unknown,
-  encoding: TransformPrimitiveEncoding,
-): unknown {
+function coercePrimitive(value: unknown, encoding: "bool" | "number" | "string"): unknown {
   if (encoding === "string") {
     if (typeof value === "boolean") {
       return value ? "true" : "false";
@@ -355,6 +458,17 @@ function coercePrimitive(
       const token = canonicalPythonNumberToken(value.toString());
       if (token === null) {
         throw new TypeError("transform string coercion requires a finite JSON number");
+      }
+      return token;
+    }
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) {
+        throw new TypeError("transform string coercion requires a finite number");
+      }
+      if (Number.isSafeInteger(value)) return String(value);
+      const token = pythonFiniteFloatToken(value);
+      if (token === null) {
+        throw new TypeError("transform string coercion requires a finite number");
       }
       return token;
     }
@@ -389,18 +503,66 @@ function unwrapReference(value: unknown): unknown {
   return isPlainJsonRecord(value) && hasOwn(value, "id") ? value.id : value;
 }
 
-function coerceValue(value: unknown, encoding: TransformValueEncoding): unknown {
+function pythonSetSortKey(value: unknown): string {
+  if (value === null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "boolean") return value ? "True" : "False";
+  if (value instanceof LosslessNumber) {
+    return canonicalPythonNumberToken(value.toString()) ?? value.toString();
+  }
+  if (typeof value === "number") return String(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => pythonSetSortKey(item)).join(", ")}]`;
+  }
+  if (isPlainJsonRecord(value)) {
+    return `{${Object.keys(value).map((key) => {
+      return `${JSON.stringify(key)}: ${pythonSetSortKey(value[key])}`;
+    }).join(", ")}}`;
+  }
+  return String(value);
+}
+
+function coerceObjectMembers(
+  value: unknown,
+  members: Readonly<Record<string, TerraformTypeEncoding>>,
+  strictFrozenCompatibility: boolean,
+): unknown {
+  if (!isPlainJsonRecord(value)) return value;
+  return safeRecord(sortedStrings(Object.keys(value)).flatMap((key) => {
+    const member = members[key];
+    return member === undefined
+      ? []
+      : [[key, coerceValue(value[key], member, strictFrozenCompatibility)] as const];
+  }));
+}
+
+function coerceValue(
+  value: unknown,
+  encoding: TerraformTypeEncoding,
+  strictFrozenCompatibility = false,
+): unknown {
   if (typeof encoding === "string") {
     return coercePrimitive(unwrapReference(value), encoding);
   }
   const kind = encoding[0];
   const inner = encoding[1];
+  if (kind === "object") {
+    return coerceObjectMembers(
+      value,
+      inner as Readonly<Record<string, TerraformTypeEncoding>>,
+      strictFrozenCompatibility,
+    );
+  }
+  const childEncoding = inner as TerraformTypeEncoding;
   if (kind === "map") {
     if (!isPlainJsonRecord(value)) {
       return value;
     }
     return safeRecord(sortedStrings(Object.keys(value)).map((key) => {
-      return [key, coercePrimitive(unwrapReference(value[key]), inner)] as const;
+      return [
+        key,
+        coerceValue(value[key], childEncoding, strictFrozenCompatibility),
+      ] as const;
     }));
   }
   if (value === "") {
@@ -408,24 +570,30 @@ function coerceValue(value: unknown, encoding: TransformValueEncoding): unknown 
   }
   let output: unknown[];
   if (Array.isArray(value)) {
-    output = value.map((item) => coercePrimitive(unwrapReference(item), inner));
+    output = value.map((item) => {
+      return coerceValue(item, childEncoding, strictFrozenCompatibility);
+    });
   } else if (value === null) {
     return value;
   } else {
-    output = [coercePrimitive(unwrapReference(value), inner)];
+    output = [coerceValue(value, childEncoding, strictFrozenCompatibility)];
   }
   if (kind === "set") {
+    if (
+      strictFrozenCompatibility
+      && childEncoding === "string"
+      && output.some((item) => item !== null && typeof item !== "string")
+    ) {
+      throw new TypeError(
+        "set(string) coercion produced a non-string provider value",
+      );
+    }
     return output
       .map((item, index) => {
-        if (item !== null && typeof item !== "string") {
-          throw new TypeError(
-            "set(string) coercion produced a non-string provider value",
-          );
-        }
         return {
           index,
           item,
-          key: item ?? "",
+          key: pythonSetSortKey(item),
         };
       })
       .sort((left, right) => {
@@ -456,7 +624,7 @@ function nullStubValue(value: unknown): boolean {
 
 function isNullObject(
   value: unknown,
-  projection: TransformProjection,
+  projection: RuntimeProjection,
   path: string,
   acknowledgedDrops: ReadonlySet<string>,
 ): boolean {
@@ -467,7 +635,7 @@ function isNullObject(
   if (!hasOwn(value, "id") && !keys.every((key) => key.endsWith("id"))) {
     return false;
   }
-  const ignored = new Set(projection.silently_ignored_attributes);
+  const known = new Set(projection.knownMembers);
   for (const key of keys) {
     const currentPath = childPath(path, key);
     // `id` is the provider's universal stub discriminator even when an
@@ -475,9 +643,7 @@ function isNullObject(
     // schema or acknowledgement evidence.
     const identityKey = key === "id";
     if (
-      projection.attributes[key] === undefined
-      && projection.blocks[key] === undefined
-      && !ignored.has(key)
+      !known.has(key)
       && !identityKey
       && !acknowledgedDrops.has(currentPath)
     ) {
@@ -493,13 +659,13 @@ function childPath(path: string, key: string): string {
 
 function mergeSingleBlockElements(
   elements: readonly TransformRecord[],
-  projection: TransformProjection,
+  projection: RuntimeProjection,
   path: string,
   drops: string[],
   acknowledgedDrops: ReadonlySet<string>,
 ): TransformRecord {
   const entries = new Map<string, unknown>();
-  const ignored = new Set(projection.silently_ignored_attributes);
+  const known = new Set(projection.knownMembers);
   for (const element of elements) {
     for (const key of sortedStrings(Object.keys(element))) {
       const value = element[key];
@@ -507,9 +673,7 @@ function mergeSingleBlockElements(
         const memberPath = childPath(path, key);
         const identityKey = key === "id";
         if (
-          projection.attributes[key] === undefined
-          && projection.blocks[key] === undefined
-          && !ignored.has(key)
+          !known.has(key)
           && !identityKey
           && !acknowledgedDrops.has(memberPath)
           && !drops.includes(memberPath)
@@ -546,18 +710,28 @@ function mergeSingleBlockElements(
 
 function filterItem(
   item: TransformRecord,
-  projection: TransformProjection,
+  projection: RuntimeProjection,
   path: string,
   drops: string[],
   acknowledgedDrops: ReadonlySet<string>,
+  overrideDrops: ReadonlySet<string>,
+  overrideDropDefaults: Readonly<Record<string, unknown>>,
 ): TransformRecord {
   const output: Array<readonly [string, unknown]> = [];
-  const ignored = new Set(projection.silently_ignored_attributes);
+  const ignored = new Set(projection.silentlyIgnoredAttributes);
   for (const key of sortedStrings(Object.keys(item))) {
     const value = item[key];
     const currentPath = childPath(path, key);
     const encoding = projection.attributes[key];
     if (encoding !== undefined) {
+      const dotted = currentPath.replaceAll("[]", "");
+      if (overrideDrops.has(dotted)) continue;
+      if (
+        hasOwn(overrideDropDefaults, dotted)
+        && matchesTransformDefault(value, overrideDropDefaults[dotted])
+      ) {
+        continue;
+      }
       output.push([key, value]);
       continue;
     }
@@ -572,11 +746,18 @@ function filterItem(
           const elements: TransformRecord[] = [];
           for (const [index, entry] of single.entries()) {
             if (!isPlainJsonRecord(entry)) {
-              throw new TypeError(
-                `block ${currentPath}[${index}] must be a JSON object`,
-              );
+              if (projection.strictFrozenCompatibility) {
+                throw new TypeError(
+                  `block ${currentPath}[${index}] must be a JSON object`,
+                );
+              }
+              continue;
             }
             elements.push(entry);
+          }
+          if (elements.length === 0) {
+            drops.push(currentPath);
+            continue;
           }
           single = elements.length === 1
             ? elements[0]
@@ -603,6 +784,8 @@ function filterItem(
                 currentPath,
                 drops,
                 acknowledgedDrops,
+                overrideDrops,
+                overrideDropDefaults,
               ),
             ]);
           }
@@ -617,9 +800,12 @@ function filterItem(
         const elements: TransformRecord[] = [];
         for (const [index, entry] of value.entries()) {
           if (!isPlainJsonRecord(entry)) {
-            throw new TypeError(
-              `block ${currentPath}[${index}] must be a JSON object`,
-            );
+            if (projection.strictFrozenCompatibility) {
+              throw new TypeError(
+                `block ${currentPath}[${index}] must be a JSON object`,
+              );
+            }
+            continue;
           }
           if (!isNullObject(
             entry,
@@ -630,15 +816,26 @@ function filterItem(
             elements.push(entry);
           }
         }
+        const shaped = block.merge && elements.length > 1
+          ? [mergeSingleBlockElements(
+            elements,
+            block.projection,
+            manyPath,
+            drops,
+            acknowledgedDrops,
+          )]
+          : elements;
         output.push([
           key,
-          elements.map((entry) => {
+          shaped.map((entry) => {
             return filterItem(
               entry,
               block.projection,
               manyPath,
               drops,
               acknowledgedDrops,
+              overrideDrops,
+              overrideDropDefaults,
             );
           }),
         ]);
@@ -658,6 +855,8 @@ function filterItem(
               manyPath,
               drops,
               acknowledgedDrops,
+              overrideDrops,
+              overrideDropDefaults,
             )],
         ]);
       } else {
@@ -674,7 +873,7 @@ function filterItem(
 
 function coerceItem(
   item: TransformRecord,
-  projection: TransformProjection,
+  projection: RuntimeProjection,
 ): TransformRecord {
   const output: Array<readonly [string, unknown]> = [];
   for (const key of sortedStrings(Object.keys(item))) {
@@ -703,24 +902,116 @@ function coerceItem(
       continue;
     }
     const encoding = projection.attributes[key];
-    output.push([key, encoding === undefined ? value : coerceValue(value, encoding)]);
+    output.push([
+      key,
+      encoding === undefined
+        ? value
+        : coerceValue(value, encoding, projection.strictFrozenCompatibility),
+    ]);
   }
   return safeRecord(output);
 }
 
+function objectMap(value: unknown, label: string): Readonly<JsonObject> {
+  if (value === undefined || value === null) return Object.freeze({});
+  if (!isObject(value)) throw new TypeError(`${label} must be an object`);
+  return value;
+}
+
+function integerValue(value: unknown): bigint | null {
+  const token = losslessIntegerToken(value);
+  if (token !== null) return BigInt(token);
+  return null;
+}
+
+export function matchesTransformDefault(value: unknown, defaultValue: unknown): boolean {
+  const defaultInteger = integerValue(defaultValue);
+  let comparable = value;
+  if (defaultInteger !== null && typeof value === "string") {
+    const parsed = parsePythonInteger(value);
+    if (parsed !== null) comparable = parsed;
+  }
+  return pythonJsonEqual(comparable, defaultValue);
+}
+
+function divideInteger(value: bigint, divisor: bigint): bigint {
+  const quotient = value / divisor;
+  const remainder = value % divisor;
+  return remainder !== 0n && ((value < 0n) !== (divisor < 0n))
+    ? quotient - 1n
+    : quotient;
+}
+
+function dividedValue(value: unknown, divisorValue: unknown, label: string): unknown {
+  const divisor = integerValue(divisorValue);
+  if (divisor === null || divisor === 0n) {
+    throw new TypeError(`${label} must be a non-zero integer`);
+  }
+  let candidate = value;
+  if (typeof candidate === "string") {
+    const parsed = parsePythonInteger(candidate);
+    if (parsed === null) return value;
+    candidate = parsed;
+  }
+  if (typeof candidate === "boolean") return value;
+  const integer = integerValue(candidate);
+  if (integer === null) return value;
+  const divided = divideInteger(integer, divisor);
+  return divided >= BigInt(Number.MIN_SAFE_INTEGER)
+    && divided <= BigInt(Number.MAX_SAFE_INTEGER)
+    ? Number(divided)
+    : new LosslessNumber(divided.toString(10));
+}
+
+function goHtmlEscape(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("'", "&#39;")
+    .replaceAll("\"", "&#34;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function escapeHtmlFields(
+  item: TransformRecord,
+  resource: RuntimeTransformResource,
+  htmlUnescape: ((value: string) => string) | undefined,
+): void {
+  for (const field of stringArray(
+    resource.override.html_escape_fields,
+    `${resource.type}.override.html_escape_fields`,
+  )) {
+    const value = item[field];
+    if (typeof value !== "string") continue;
+    if (htmlUnescape === undefined) {
+      throw new TypeError(
+        `${resource.type} HTML escaping requires a Python-compatible HTML decoder`,
+      );
+    }
+    const unescaped = htmlUnescape(htmlUnescape(value));
+    item[field] = goHtmlEscape(unescaped);
+  }
+}
+
 function applyReachableOverrides(
   item: TransformRecord,
-  resource: TransformCatalogResource,
+  resource: RuntimeTransformResource,
 ): TransformRecord {
   const output = safeRecord(Object.keys(item).map((key) => [key, item[key]] as const));
-  for (const oldName of sortedStrings(Object.keys(resource.renames))) {
+  const override = resource.override;
+  const renames = stringMap(override.renames, `${resource.type}.override.renames`);
+  for (const oldName of sortedStrings(Object.keys(renames))) {
     if (hasOwn(output, oldName)) {
-      const newName = resource.renames[oldName];
+      const newName = renames[oldName];
       if (newName === undefined) {
         throw new TypeError(`rename for ${oldName} is missing`);
       }
       const value = output[oldName];
-      if (oldName !== newName && hasOwn(output, newName)) {
+      if (
+        resource.strictFrozenCompatibility
+        && oldName !== newName
+        && hasOwn(output, newName)
+      ) {
         throw new TypeError(
           `rename destination collision: ${JSON.stringify(oldName)} cannot overwrite existing ${JSON.stringify(newName)}`,
         );
@@ -734,7 +1025,10 @@ function applyReachableOverrides(
       });
     }
   }
-  for (const field of sortedStrings(resource.split_csv)) {
+  for (const field of sortedStrings(stringArray(
+    override.split_csv,
+    `${resource.type}.override.split_csv`,
+  ))) {
     const value = output[field];
     if (typeof value === "string") {
       output[field] = value
@@ -743,7 +1037,10 @@ function applyReachableOverrides(
         .filter((part) => part !== "");
     }
   }
-  for (const field of sortedStrings(resource.sort_lists ?? [])) {
+  for (const field of sortedStrings(stringArray(
+    override.sort_lists,
+    `${resource.type}.override.sort_lists`,
+  ))) {
     const value = output[field];
     if (
       Array.isArray(value)
@@ -752,7 +1049,37 @@ function applyReachableOverrides(
       output[field] = [...value].sort(comparePythonStrings);
     }
   }
-  for (const field of sortedStrings(resource.invert_bool)) {
+  for (const field of sortedStrings(stringArray(
+    override.drops,
+    `${resource.type}.override.drops`,
+  ))) {
+    delete output[field];
+  }
+  const references = objectMap(
+    override.references,
+    `${resource.type}.override.references`,
+  );
+  for (const field of sortedStrings(Object.keys(references))) {
+    if (!hasOwn(output, field)) continue;
+    const value = output[field];
+    output[field] = Array.isArray(value)
+      ? value.map((item) => unwrapReference(item))
+      : unwrapReference(value);
+  }
+  const divide = objectMap(override.divide, `${resource.type}.override.divide`);
+  for (const field of sortedStrings(Object.keys(divide))) {
+    if (hasOwn(output, field)) {
+      output[field] = dividedValue(
+        output[field],
+        divide[field],
+        `${resource.type}.override.divide.${field}`,
+      );
+    }
+  }
+  for (const field of sortedStrings(stringArray(
+    override.invert_bool,
+    `${resource.type}.override.invert_bool`,
+  ))) {
     if (hasOwn(output, field)) {
       const coerced = coerceBoolean(output[field]);
       if (typeof coerced === "boolean") {
@@ -760,69 +1087,397 @@ function applyReachableOverrides(
       }
     }
   }
+  const valueMap = objectMap(override.value_map, `${resource.type}.override.value_map`);
+  for (const field of sortedStrings(Object.keys(valueMap))) {
+    const mapping = objectMap(valueMap[field], `${resource.type}.override.value_map.${field}`);
+    const value = output[field];
+    if (typeof value === "string" && hasOwn(mapping, value)) {
+      output[field] = cloneJson(mapping[value]);
+    }
+  }
+  const stripPrefix = stringMap(
+    override.strip_prefix,
+    `${resource.type}.override.strip_prefix`,
+  );
+  for (const field of sortedStrings(Object.keys(stripPrefix))) {
+    const prefix = stripPrefix[field] ?? "";
+    const value = output[field];
+    if (typeof value === "string" && value.startsWith(prefix)) {
+      output[field] = value.slice(prefix.length);
+    } else if (Array.isArray(value)) {
+      output[field] = value.map((item) => {
+        return typeof item === "string" && item.startsWith(prefix)
+          ? item.slice(prefix.length)
+          : item;
+      });
+    }
+  }
+  const defaults = objectMap(override.defaults, `${resource.type}.override.defaults`);
+  for (const field of sortedStrings(Object.keys(defaults))) {
+    const value = output[field];
+    if (!hasOwn(output, field) || value === null || value === "" || (Array.isArray(value) && value.length === 0)) {
+      output[field] = cloneJson(defaults[field]);
+    }
+  }
+  const dropDefaults = objectMap(
+    override.drop_if_default,
+    `${resource.type}.override.drop_if_default`,
+  );
+  for (const field of sortedStrings(Object.keys(dropDefaults))) {
+    if (hasOwn(output, field) && matchesTransformDefault(output[field], dropDefaults[field])) {
+      delete output[field];
+    }
+  }
   return output;
 }
 
-function catalogResource(
-  catalog: TransformCatalog,
+/** Apply the ordinary read-side override vocabulary without schema shaping.
+ *
+ * Authoring analyzers use this seam to classify the exact values that the
+ * runtime transform would subsequently project. Keeping the operation here
+ * prevents the authoring side stack from acquiring a second implementation
+ * of override ordering or numeric behavior.
+ */
+export function applyTransformOverridesForAuthoring(
+  item: Readonly<Record<string, unknown>>,
+  override: Readonly<JsonObject>,
   resourceType: string,
-): TransformCatalogResource {
-  const resource = catalog.resources.find((entry) => entry.type === resourceType);
-  if (resource === undefined) {
-    throw new Error(`resource type ${JSON.stringify(resourceType)} is not in the transform catalog`);
-  }
-  return resource;
+): Readonly<Record<string, unknown>> {
+  return applyReachableOverrides(
+    safeRecord(Object.keys(item).map((key) => [key, item[key]] as const)),
+    {
+      htmlUnescapePasses: 0,
+      override,
+      projection: {
+        attributes: Object.freeze({}),
+        blocks: Object.freeze({}),
+        knownMembers: Object.freeze([]),
+        silentlyIgnoredAttributes: Object.freeze([]),
+        strictFrozenCompatibility: false,
+      },
+      strictFrozenCompatibility: false,
+      type: resourceType,
+    },
+  );
 }
 
-/**
- * Pure detail-pull transform for the five catalogued ZCC resources.
- *
- * The ordering mirrors engine.transform.transform_items exactly for the
- * reachable override vocabulary captured by the closed transform catalog.
- * Raw data must come from a lossless JSON parser: every JSON number token is
- * required to be a LosslessNumber so `1` cannot be confused with `1.0` after
- * JavaScript conversion. Finite float lexemes are canonicalized through the
- * same binary64 model and spelling used by Python's JSON implementation.
- */
-export function transformPullItems(options: {
-  readonly catalog: TransformCatalog;
-  readonly rawItems: readonly unknown[];
-  readonly resourceType: string;
-}): PullTransformResult {
-  const catalog = requireSupportedZccTransformCatalog(options.catalog);
-  const resource = catalogResource(catalog, options.resourceType);
-  return transformPullItemsKernel({
-    compatibility: catalog.python_compatibility,
-    rawItems: options.rawItems,
-    resource,
+/** Authoring classification seam for the runtime's primitive coercion rules. */
+export function coerceTransformPrimitiveForAuthoring(
+  value: unknown,
+  primitive: "bool" | "number" | "string",
+): unknown {
+  return coerceValue(value, primitive, false);
+}
+
+/** Authoring classification seam for runtime drop-if-default comparison. */
+export function transformValueMatchesDefaultForAuthoring(
+  value: unknown,
+  defaultValue: unknown,
+): boolean {
+  return matchesTransformDefault(value, defaultValue);
+}
+
+function skipMatchers(value: unknown, label: string): readonly JsonObject[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new TypeError(`${label} must be a list`);
+  return value.map((matcher, index) => {
+    if (!isObject(matcher) || Object.keys(matcher).length === 0) {
+      throw new TypeError(`${label}[${index}] must be a non-empty object`);
+    }
+    return matcher;
   });
 }
 
-/**
- * Product-neutral pure transform seam. Callers must supply a structurally
- * validated catalog resource; public operations retain the exact embedded-ZCC
- * gate in `transformPullItems`.
- *
- * @internal Catalog differential and future product-catalog integration only.
- */
-export function transformPullItemsKernel(options: {
-  readonly compatibility: TransformCatalog["python_compatibility"];
+function jsonScalarKind(value: unknown): "boolean" | "null" | "number" | "string" | null {
+  if (value === null) return "null";
+  if (typeof value === "boolean") return "boolean";
+  if (typeof value === "string") return "string";
+  if (value instanceof LosslessNumber || typeof value === "number") return "number";
+  return null;
+}
+
+/** Match a snake-cased item against exact, presence-aware JSON scalar fields. */
+export function strictJsonScalarMatcherMatches(
+  item: Readonly<Record<string, unknown>>,
+  matcher: Readonly<JsonObject>,
+): boolean {
+  return Object.entries(matcher).every(([rawField, expected]) => {
+    const field = snakeName(rawField);
+    if (!hasOwn(item, field)) return false;
+    const expectedKind = jsonScalarKind(expected);
+    if (expectedKind === null || jsonScalarKind(item[field]) !== expectedKind) return false;
+    return expectedKind === "number"
+      ? pythonJsonEqual(item[field], expected)
+      : item[field] === expected;
+  });
+}
+
+type LteNumber =
+  | { readonly integer: bigint; readonly kind: "integer" }
+  | { readonly float: number; readonly kind: "float" };
+
+function lteNumber(value: unknown): LteNumber | null {
+  if (value === null || typeof value === "boolean") return null;
+  if (value instanceof LosslessNumber) {
+    const token = losslessIntegerToken(value);
+    if (token !== null) return { integer: BigInt(token), kind: "integer" };
+    const float = Number(value.toString());
+    return Number.isFinite(float) ? { float, kind: "float" } : null;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return null;
+    return Number.isSafeInteger(value)
+      ? { integer: BigInt(value), kind: "integer" }
+      : { float: value, kind: "float" };
+  }
+  if (typeof value === "string") {
+    const normalized = normalizedPythonFloatString(value);
+    if (normalized === null) return null;
+    const float = Number(normalized);
+    return Number.isFinite(float) ? { float, kind: "float" } : null;
+  }
+  return null;
+}
+
+function numberIsLte(value: LteNumber, threshold: LteNumber): boolean {
+  if (value.kind === "integer" && threshold.kind === "integer") {
+    return value.integer <= threshold.integer;
+  }
+  if (value.kind === "float" && threshold.kind === "float") {
+    return value.float <= threshold.float;
+  }
+  if (value.kind === "integer" && threshold.kind === "float") {
+    return value.integer <= BigInt(Math.floor(threshold.float));
+  }
+  return BigInt(Math.ceil((value as { readonly float: number }).float))
+    <= (threshold as { readonly integer: bigint }).integer;
+}
+
+function skipMatchReason(
+  item: TransformRecord,
+  resource: RuntimeTransformResource,
+): "skip_if" | "skip_if_lte" | null {
+  return transformSkipMatchReason(item, resource.override, resource.type);
+}
+
+/** Evaluate the transform/adoption skip vocabulary against a snake-cased item. */
+export function transformSkipMatchReason(
+  item: Readonly<Record<string, unknown>>,
+  metadata: Readonly<JsonObject>,
+  label: string,
+): "skip_if" | "skip_if_lte" | null {
+  for (const matcher of skipMatchers(
+    metadata.skip_if,
+    `${label}.skip_if`,
+  )) {
+    if (strictJsonScalarMatcherMatches(item, matcher)) {
+      return "skip_if";
+    }
+  }
+  for (const matcher of skipMatchers(
+    metadata.skip_if_lte,
+    `${label}.skip_if_lte`,
+  )) {
+    if (Object.entries(matcher).every(([field, thresholdValue]) => {
+      const threshold = lteNumber(thresholdValue);
+      if (threshold === null) {
+        throw new TypeError(`skip_if_lte threshold for ${JSON.stringify(field)} must be numeric`);
+      }
+      const value = lteNumber(item[snakeName(field)]);
+      return value !== null && numberIsLte(value, threshold);
+    })) {
+      return "skip_if_lte";
+    }
+  }
+  return null;
+}
+
+/** Shape one raw API value through the ordinary loaded-resource schema kernel. */
+export function projectLoadedRawField(options: {
+  readonly rawValue: unknown;
+  readonly resourceType: string;
+  readonly schema: Readonly<JsonObject>;
+  readonly target: string;
+}): unknown | undefined {
+  const block = terraformBlockForSchema(
+    options.schema as JsonObject,
+    options.resourceType,
+  );
+  const projection = compileProjection(
+    block,
+    `${options.resourceType}.block`,
+    { mergeBlocks: new Set(), topLevel: true },
+  );
+  const shaped = safeRecord([[
+    options.target,
+    snakeKeys(options.rawValue, `$raw.${options.target}`, false),
+  ]]);
+  const filtered = filterItem(
+    shaped,
+    projection,
+    "",
+    [],
+    new Set(),
+    new Set(),
+    safeRecord([]),
+  );
+  const coerced = coerceItem(filtered, projection);
+  return hasOwn(coerced, options.target) ? coerced[options.target] : undefined;
+}
+
+function compileProjection(
+  block: JsonObject,
+  label: string,
+  options: {
+    readonly mergeBlocks: ReadonlySet<string>;
+    readonly topLevel: boolean;
+  },
+): RuntimeProjection {
+  const classified = options.topLevel
+    ? terraformResourceInputAttributes(block, label)
+    : terraformClassifyAttributes(block, label);
+  const rawAttributes = terraformAttributesForBlock(block, label);
+  const attributes: Record<string, TerraformTypeEncoding> = Object.create(null) as Record<
+    string,
+    TerraformTypeEncoding
+  >;
+  for (const name of [...classified.required, ...classified.optional]) {
+    attributes[name] = terraformAttributeType(
+      terraformRequireObject(rawAttributes[name], `${label}.attributes.${name}`),
+      `${label}.attributes.${name}`,
+    );
+  }
+  const blocks: Record<string, RuntimeProjectionBlock> = Object.create(null) as Record<
+    string,
+    RuntimeProjectionBlock
+  >;
+  for (const [name, blockType] of terraformInputBlockTypes(block, label)) {
+    const childLabel = `${label}.block_types.${name}.block`;
+    blocks[name] = {
+      cardinality: terraformBlockIsSingle(blockType) ? "single" : "many",
+      merge: options.topLevel && options.mergeBlocks.has(name),
+      projection: compileProjection(
+        terraformRequireObject(blockType.block, childLabel),
+        childLabel,
+        { mergeBlocks: new Set(), topLevel: false },
+      ),
+    };
+  }
+  const id = rawAttributes.id;
+  const rawBlockTypes = terraformBlockTypesForBlock(block, label);
+  const silentlyIgnoredAttributes = options.topLevel
+    && id !== undefined
+    && terraformRequireObject(id, `${label}.attributes.id`).computed === true
+    ? ["id"]
+    : [];
+  return {
+    attributes,
+    blocks,
+    knownMembers: sortedStrings(new Set([
+      ...Object.keys(rawAttributes),
+      ...Object.keys(rawBlockTypes),
+    ])),
+    silentlyIgnoredAttributes,
+    strictFrozenCompatibility: false,
+  };
+}
+
+function validateLoadedOverride(
+  resourceType: string,
+  override: Readonly<JsonObject>,
+  block: JsonObject,
+): void {
+  const divide = objectMap(override.divide, `${resourceType}.override.divide`);
+  for (const [field, divisor] of Object.entries(divide)) {
+    if (integerValue(divisor) === 0n) {
+      throw new TypeError(`divide divisor for ${JSON.stringify(field)} must be non-zero`);
+    }
+  }
+  const renames = stringMap(override.renames, `${resourceType}.override.renames`);
+  const topDrops = stringArray(override.drops, `${resourceType}.override.drops`)
+    .filter((field) => !field.includes("."));
+  const conflicts = sortedStrings(topDrops.filter((field) => hasOwn(renames, field)));
+  if (conflicts.length > 0) {
+    throw new TypeError(
+      `drops uses pre-rename name(s) ${conflicts.join(", ")} — renames run first; drop the NEW name instead`,
+    );
+  }
+  const dottedSorts = stringArray(
+    override.sort_lists,
+    `${resourceType}.override.sort_lists`,
+  ).filter((field) => field.includes("."));
+  if (dottedSorts.length > 0) {
+    throw new TypeError(
+      `sort_lists does not support nested (dotted) paths: ${dottedSorts.join(", ")}`,
+    );
+  }
+  const dropDefaults = objectMap(
+    override.drop_if_default,
+    `${resourceType}.override.drop_if_default`,
+  );
+  const dotted = [
+    ...stringArray(override.drops, `${resourceType}.override.drops`),
+    ...Object.keys(dropDefaults),
+  ].filter((field) => field.includes("."));
+  for (const field of sortedStrings(dotted)) {
+    const segments = field.split(".");
+    let current = block;
+    for (const segment of segments.slice(0, -1)) {
+      const blockType = terraformInputBlockTypes(current, resourceType).get(segment);
+      if (blockType === undefined) {
+        throw new TypeError(
+          `dotted path ${JSON.stringify(field)}: ${JSON.stringify(segment)} is not a nested block in the ${resourceType} schema`,
+        );
+      }
+      current = terraformRequireObject(blockType.block, `${resourceType}.${field}.${segment}`);
+    }
+    const last = segments.at(-1) ?? "";
+    if (!hasOwn(terraformAttributesForBlock(current, resourceType), last)) {
+      throw new TypeError(
+        `dotted path ${JSON.stringify(field)}: ${JSON.stringify(last)} is not an attribute of that block in the ${resourceType} schema`,
+      );
+    }
+  }
+}
+
+function executeTransform(options: {
   readonly rawItems: readonly unknown[];
-  readonly resource: TransformCatalogResource;
+  readonly resource: RuntimeTransformResource;
+  readonly htmlUnescape?: (value: string) => string;
+  readonly onSkip?: (item: unknown, reason: "skip_if" | "skip_if_lte") => void;
 }): PullTransformResult {
   const { resource } = options;
   const items = new Map<string, Readonly<Record<string, unknown>>>();
   const originals = new Map<string, Readonly<Record<string, unknown>>>();
   const drops: string[] = [];
-  const acknowledged = new Set(resource.acknowledged_drops);
+  const acknowledged = new Set(stringArray(
+    resource.override.acknowledged_drops,
+    `${resource.type}.override.acknowledged_drops`,
+  ));
+  const nestedDrops = new Set(stringArray(
+    resource.override.drops,
+    `${resource.type}.override.drops`,
+  ).filter((field) => field.includes(".")));
+  const dropDefaults = objectMap(
+    resource.override.drop_if_default,
+    `${resource.type}.override.drop_if_default`,
+  );
+  const nestedDropDefaults = safeRecord(Object.entries(dropDefaults)
+    .filter(([field]) => field.includes(".")));
 
   for (const raw of options.rawItems) {
-    const snakeRaw = snakeKeys(raw);
+    const snakeRaw = snakeKeys(raw, "$raw", resource.strictFrozenCompatibility);
     if (!isPlainJsonRecord(snakeRaw)) {
       throw new TypeError("each raw transform item must be a JSON object");
     }
-    unescapeDisplayFields(snakeRaw, resource, options.compatibility);
+    unescapeDisplayFields(snakeRaw, resource, options.htmlUnescape);
+    const skipReason = skipMatchReason(snakeRaw, resource);
+    if (skipReason !== null) {
+      options.onSkip?.(snakeRaw, skipReason);
+      continue;
+    }
     const normalized = applyReachableOverrides(snakeRaw, resource);
+    escapeHtmlFields(normalized, resource, options.htmlUnescape);
     const key = deriveKey(normalized, resource);
     if (items.has(key)) {
       throw new Error(
@@ -835,17 +1490,131 @@ export function transformPullItemsKernel(options: {
       "",
       drops,
       acknowledged,
+      nestedDrops,
+      nestedDropDefaults,
     );
     items.set(key, coerceItem(filtered, resource.projection));
     originals.set(key, normalized);
   }
-
-  const reportedDrops = sortedStrings(
-    new Set(drops.filter((drop) => !acknowledged.has(drop))),
-  );
   return {
     items: safeRecord(items) as PullTransformResult["items"],
     originals: safeRecord(originals) as PullTransformResult["originals"],
-    drops: reportedDrops,
+    drops: sortedStrings(new Set(drops.filter((drop) => !acknowledged.has(drop)))),
   };
+}
+
+export interface TransformLoadedItemsOptions {
+  readonly resource: LoadedResourceMetadata;
+  readonly schema: Readonly<JsonObject>;
+  readonly rawItems: readonly unknown[];
+  /** One Python-compatible html.unescape pass. The engine applies two. */
+  readonly htmlUnescape?: (value: string) => string;
+  /** True only when the owning pack lists this resource prefix for unescape. */
+  readonly unescapeHtml?: boolean;
+  readonly onSkip?: (item: unknown, reason: "skip_if" | "skip_if_lte") => void;
+}
+
+/** Transform already-collected items directly from active pack metadata. */
+export function transformLoadedItems(
+  options: TransformLoadedItemsOptions,
+): PullTransformResult {
+  const override: Readonly<JsonObject> = options.resource.override
+    ?? Object.freeze({} as JsonObject);
+  const block = terraformBlockForSchema(
+    options.schema as JsonObject,
+    options.resource.type,
+  );
+  validateLoadedOverride(options.resource.type, override, block);
+  const mergeBlocks = new Set(stringArray(
+    override.merge_blocks,
+    `${options.resource.type}.override.merge_blocks`,
+  ));
+  const noHtmlUnescape = override.no_html_unescape === true;
+  const resource: RuntimeTransformResource = {
+    type: options.resource.type,
+    override,
+    projection: compileProjection(
+      block,
+      `${options.resource.type}.block`,
+      { mergeBlocks, topLevel: true },
+    ),
+    htmlUnescapePasses: options.unescapeHtml === true && !noHtmlUnescape ? 2 : 0,
+    strictFrozenCompatibility: false,
+  };
+  return executeTransform({
+    rawItems: options.rawItems,
+    resource,
+    ...(options.htmlUnescape === undefined
+      ? {}
+      : { htmlUnescape: options.htmlUnescape }),
+    ...(options.onSkip === undefined ? {} : { onSkip: options.onSkip }),
+  });
+}
+
+function compareDerivedRules(
+  left: Readonly<{ id: string; order: string }>,
+  right: Readonly<{ id: string; order: string }>,
+): number {
+  const leftInteger = parsePythonInteger(left.order);
+  const rightInteger = parsePythonInteger(right.order);
+  const leftToken = leftInteger === null ? null : integerValue(leftInteger);
+  const rightToken = rightInteger === null ? null : integerValue(rightInteger);
+  if (leftToken !== null && rightToken !== null) {
+    if (leftToken < rightToken) return -1;
+    if (leftToken > rightToken) return 1;
+  } else if (leftToken !== null) {
+    return -1;
+  } else if (rightToken !== null) {
+    return 1;
+  } else {
+    const byOrder = comparePythonStrings(left.order, right.order);
+    if (byOrder !== 0) return byOrder;
+  }
+  return comparePythonStrings(left.id, right.id);
+}
+
+/** Port of the registry-driven, config-only reorder derivation. */
+export function deriveReorderItems(
+  rawItems: readonly unknown[],
+  derive: Readonly<JsonObject>,
+): Readonly<Record<string, Readonly<Record<string, unknown>>>> {
+  const source = derive.from;
+  const policyType = derive.policy_type;
+  if (typeof source !== "string" || source.length === 0) {
+    throw new TypeError("derive.from must be a non-empty string");
+  }
+  if (typeof policyType !== "string" || policyType.length === 0) {
+    throw new TypeError("derive.policy_type must be a non-empty string");
+  }
+  const rules: Array<{ id: string; order: string }> = [];
+  for (const raw of rawItems) {
+    const item = snakeKeys(raw, "$raw", false);
+    if (!isPlainJsonRecord(item)) {
+      throw new TypeError("each derived source item must be a JSON object");
+    }
+    const id = item.id;
+    const order = item.rule_order;
+    if (id === undefined || id === null || order === undefined || order === null) {
+      const missing = id === undefined || id === null ? "id" : "rule_order";
+      throw new Error(
+        `cannot derive the reorder resource from ${source}: a source rule is missing ${missing} — refusing to emit a partial reorder`,
+      );
+    }
+    rules.push({
+      id: identityComponent(id, "id", false),
+      order: identityComponent(order, "rule_order", false),
+    });
+  }
+  rules.sort(compareDerivedRules);
+  if (rules.length === 0) return Object.freeze({});
+  return safeRecord([[
+    policyType,
+    safeRecord([
+      ["policy_type", policyType],
+      ["rules", rules.map((rule) => safeRecord([
+        ["id", rule.id],
+        ["order", rule.order],
+      ]))],
+    ]),
+  ]]) as Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 }

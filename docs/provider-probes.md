@@ -13,7 +13,8 @@ Recipes live under `docs/recipes/providers/` and pin:
 
 - `provider_source` and `provider_version`: the Terraform provider schema to
   inspect.
-- `source`: the matching provider repository and tag, or a local source path.
+- `source`: the matching provider repository and requested Git ref (normally a
+  version tag), or a local source path.
 - `openapi`: the published OpenAPI document, or a local OpenAPI path.
 - `resource_prefix` and `api_prefix`: provider-specific matching hints.
 
@@ -31,6 +32,9 @@ terraform providers schema -json
 ```
 
 YAML OpenAPI specs are converted to JSON with Ruby's standard YAML support.
+The probe coordinator, source mapper, OpenAPI mapper, artifact renderer, and
+CLI are Node 24 code; Ruby is used only for the existing safe YAML-to-JSON
+conversion and Python is not part of the probe execution path.
 
 ## Running
 
@@ -38,6 +42,9 @@ YAML OpenAPI specs are converted to JSON with Ruby's standard YAML support.
 make provider-probe RECIPE=docs/recipes/providers/github.json
 make provider-probe RECIPE=docs/recipes/providers/digitalocean.json
 ```
+
+Set `PYTHON` to a failing tripwire when qualifying the migrated path; neither
+the Make target nor `iw provider-probe` consults it.
 
 By default, outputs are written under:
 

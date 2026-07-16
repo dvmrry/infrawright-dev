@@ -45,12 +45,12 @@ fi
 git -C "$DEV_ROOT" archive "$TAG" | tar -x -C "$STAGE"
 echo "staged $TAG tree: $(find "$STAGE" -type f ! -path '*/.git/*' | wc -l | tr -d ' ') files"
 
-# 3. Build the portable Node process bundle inside the tracked release tree.
+# 3. Build the portable Node bundles inside the tracked release tree.
 #    npm is a release-time dependency only; downstream runs the bundled file
 #    with Node 24 and does not install packages.
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || true)"
 test "$NODE_MAJOR" = 24 || {
-  echo "FATAL: release requires Node 24 to build the process bundle"; exit 2;
+  echo "FATAL: release requires Node 24 to build the CLI bundle"; exit 2;
 }
 (
   cd "$STAGE"
@@ -58,26 +58,25 @@ test "$NODE_MAJOR" = 24 || {
   npm run check
   npm run build
   rm -rf node_modules .node-test
-  shasum -a 256 dist/infrawright.mjs > dist/infrawright.mjs.sha256
-  shasum -a 256 dist/infrawright-zcc-collector-child.mjs \
-    > dist/infrawright-zcc-collector-child.mjs.sha256
 )
 
-# 4. Self-containment guard — a release missing the shared pack or engine is broken.
-#    (This is the exact failure mode a fresh clone would hit; catch it before publish.)
-for must in packs/_shared/zscaler/collector.py engine/transform.py packs/zia/registry.json catalogs/zscaler-root-catalog.v1.json catalogs/zcc-transform-catalog.v1.json dist/infrawright.mjs dist/infrawright.mjs.sha256 dist/infrawright-zcc-collector-child.mjs dist/infrawright-zcc-collector-child.mjs.sha256 LICENSE README.md; do
+# 4. Verify the generic runtime without Python, transition catalogs, or source
+#    build dependencies.
+node "$STAGE/scripts/verify-runtime-release.mjs" "$STAGE"
+
+# The published runtime surface is the generic CLI bundle. No consumer of the
+# retired process host or ZCC child remained when those bundles were removed.
+for must in packs/_shared/zscaler/collector.py engine/transform.py packs/zia/registry.json catalogs/zscaler-root-catalog.v1.json dist/infrawright-cli.mjs dist/infrawright-cli.mjs.sha256 LICENSE README.md; do
   test -f "$STAGE/$must" || { echo "FATAL: release is missing $must — aborting"; exit 2; }
 done
-echo "self-containment guard: OK"
+echo "runtime release guard: OK"
 
 # 5. One clean commit + tag on the public repo. No push (that's your call).
 cd "$STAGE"
 git add -A
 git add -f \
-  dist/infrawright.mjs \
-  dist/infrawright.mjs.sha256 \
-  dist/infrawright-zcc-collector-child.mjs \
-  dist/infrawright-zcc-collector-child.mjs.sha256
+  dist/infrawright-cli.mjs \
+  dist/infrawright-cli.mjs.sha256
 git commit -q -m "infrawright $TAG"
 git tag -f "$TAG" >/dev/null
 

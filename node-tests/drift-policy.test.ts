@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
@@ -203,7 +204,7 @@ test("policy validation corpus agrees with Python", () => {
       return false;
     }
   });
-  const python = spawnSync("python3", [
+  const python = spawnSync(PYTHON_ORACLE, [
     "-c",
     [
       "import json,sys",

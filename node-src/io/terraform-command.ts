@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessByStdio } from "node:child_process";
-import { lstat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, lstat, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { Readable } from "node:stream";
 import { types as utilTypes } from "node:util";
@@ -7,24 +8,41 @@ import { types as utilTypes } from "node:util";
 import { ProcessFailure } from "../domain/errors.js";
 
 export interface TerraformCommandLimits {
-  readonly timeoutMs: number;
+  readonly timeoutMs: number | null;
   readonly maxStdoutBytes: number;
   readonly maxStderrBytes: number;
 }
 
 export const DEFAULT_TERRAFORM_COMMAND_LIMITS: TerraformCommandLimits = Object.freeze({
-  timeoutMs: 120_000,
+  timeoutMs: null,
   maxStdoutBytes: 8 * 1024 * 1024,
   maxStderrBytes: 1024 * 1024,
 });
 
-const MAX_TERRAFORM_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
+export const UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM_MESSAGE =
+  "Terraform execution through Infrawright is supported on Linux and macOS; Windows is not a supported operational platform.";
+
+export function assertSupportedTerraformExecutionPlatform(
+  platform: NodeJS.Platform = process.platform,
+): void {
+  if (platform === "win32") {
+    fail(
+      "UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM",
+      UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM_MESSAGE,
+    );
+  }
+}
+
 const MAX_TERRAFORM_COMMAND_STDOUT_BYTES = 8 * 1024 * 1024;
 const MAX_TERRAFORM_COMMAND_STDERR_BYTES = 16 * 1024 * 1024;
 const MAX_TERRAFORM_COMMAND_ARGUMENTS = 128;
 const MAX_TERRAFORM_COMMAND_ARGUMENT_BYTES = 256 * 1024;
 const MAX_TERRAFORM_COMMAND_ENVIRONMENT_ENTRIES = 256;
 const MAX_TERRAFORM_COMMAND_ENVIRONMENT_BYTES = 256 * 1024;
+
+function monotonicMilliseconds(): number {
+  return Number(process.hrtime.bigint() / 1_000_000n);
+}
 
 export interface TerraformCommandBaseOptions {
   /** Trusted absolute Terraform binary selected by the process host. */
@@ -51,9 +69,21 @@ export interface TerraformCommandDiscardOptions
   readonly output: "discard";
 }
 
+export interface TerraformCommandInheritOptions
+  extends TerraformCommandBaseOptions {
+  readonly output: "inherit";
+}
+
+export interface TerraformCommandInheritStderrOptions
+  extends TerraformCommandBaseOptions {
+  readonly output: "inherit-stderr";
+}
+
 export type TerraformCommandOptions =
   | TerraformCommandCaptureOptions
-  | TerraformCommandDiscardOptions;
+  | TerraformCommandDiscardOptions
+  | TerraformCommandInheritOptions
+  | TerraformCommandInheritStderrOptions;
 
 export interface TerraformCommandCaptureResult {
   readonly kind: "captured";
@@ -64,9 +94,74 @@ export interface TerraformCommandDiscardResult {
   readonly kind: "discarded";
 }
 
+export interface TerraformCommandInheritResult {
+  readonly kind: "inherited";
+}
+
 export type TerraformCommandResult =
   | TerraformCommandCaptureResult
-  | TerraformCommandDiscardResult;
+  | TerraformCommandDiscardResult
+  | TerraformCommandInheritResult;
+
+const TERMINATION_SIGNALS = ["SIGTERM", "SIGINT", "SIGHUP"] as const;
+type TerminationSignal = (typeof TERMINATION_SIGNALS)[number];
+const activeTerraformProcessGroups = new Set<number>();
+const terminationSignalHandlers = new Map<TerminationSignal, () => void>();
+let exitHandlerInstalled = false;
+
+function killPosixProcessGroup(pid: number): void {
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    // The isolated process group may already be empty.
+  }
+}
+
+function killActiveTerraformProcessGroups(): void {
+  for (const pid of activeTerraformProcessGroups) {
+    killPosixProcessGroup(pid);
+  }
+}
+
+function removeTerminationHandlers(): void {
+  for (const [signal, handler] of terminationSignalHandlers) {
+    process.removeListener(signal, handler);
+  }
+  terminationSignalHandlers.clear();
+  if (exitHandlerInstalled) {
+    process.removeListener("exit", killActiveTerraformProcessGroups);
+    exitHandlerInstalled = false;
+  }
+}
+
+function installTerminationHandlers(): void {
+  if (process.platform === "win32" || terminationSignalHandlers.size > 0) return;
+  for (const signal of TERMINATION_SIGNALS) {
+    const handler = (): void => {
+      killActiveTerraformProcessGroups();
+      activeTerraformProcessGroups.clear();
+      removeTerminationHandlers();
+      process.kill(process.pid, signal);
+    };
+    terminationSignalHandlers.set(signal, handler);
+    process.once(signal, handler);
+  }
+  process.once("exit", killActiveTerraformProcessGroups);
+  exitHandlerInstalled = true;
+}
+
+function registerTerraformProcessGroup(pid: number | undefined): () => void {
+  if (process.platform === "win32" || pid === undefined) return () => undefined;
+  activeTerraformProcessGroups.add(pid);
+  installTerminationHandlers();
+  let registered = true;
+  return () => {
+    if (!registered) return;
+    registered = false;
+    activeTerraformProcessGroups.delete(pid);
+    if (activeTerraformProcessGroups.size === 0) removeTerminationHandlers();
+  };
+}
 
 function fail(
   code: string,
@@ -116,14 +211,13 @@ export function snapshotTerraformCommandLimits(
     );
   }
   const limits: TerraformCommandLimits = {
-    timeoutMs: timeoutDescriptor.value as number,
+    timeoutMs: timeoutDescriptor.value as number | null,
     maxStdoutBytes: stdoutDescriptor.value as number,
     maxStderrBytes: stderrDescriptor.value as number,
   };
   if (
-    !Number.isSafeInteger(limits.timeoutMs)
-    || limits.timeoutMs <= 0
-    || limits.timeoutMs > MAX_TERRAFORM_COMMAND_TIMEOUT_MS
+    (limits.timeoutMs !== null
+      && (!Number.isSafeInteger(limits.timeoutMs) || limits.timeoutMs <= 0))
     || !Number.isSafeInteger(limits.maxStdoutBytes)
     || limits.maxStdoutBytes <= 0
     || limits.maxStdoutBytes > MAX_TERRAFORM_COMMAND_STDOUT_BYTES
@@ -137,6 +231,83 @@ export function snapshotTerraformCommandLimits(
     );
   }
   return Object.freeze(limits);
+}
+
+/**
+ * Resolve CLI/TF overrides using host path semantics without mistaking a
+ * Windows absolute path for a PATH lookup merely because the host separator
+ * differs. Exported for focused portability tests and other typed adapters.
+ */
+export function terraformExecutableCandidates(
+  selected: string | undefined,
+  environment: NodeJS.ProcessEnv,
+  options?: { readonly cwd?: string; readonly platform?: NodeJS.Platform },
+): string[] {
+  const requested = selected && selected.length > 0 ? selected : "terraform";
+  if (requested.includes("\0")) {
+    return fail(
+      "UNRESOLVED_TERRAFORM_COMMAND_PATH",
+      "Terraform executable path contains an embedded null character",
+    );
+  }
+  const platform = options?.platform ?? process.platform;
+  const pathModule = platform === "win32" ? path.win32 : path.posix;
+  const cwd = options?.cwd ?? process.cwd();
+  const explicit = path.posix.isAbsolute(requested)
+    || path.win32.isAbsolute(requested)
+    || requested.includes("/")
+    || (platform === "win32" && requested.includes("\\"));
+  if (explicit) {
+    if (path.win32.isAbsolute(requested) && platform !== "win32") {
+      return [requested];
+    }
+    return [pathModule.resolve(cwd, requested)];
+  }
+
+  const pathValue = environment.PATH ?? environment.Path ?? environment.path;
+  if (pathValue === undefined) return [];
+  const delimiter = platform === "win32" ? ";" : ":";
+  const components = pathValue.split(delimiter);
+  const directories = platform === "win32"
+    ? components.filter((entry) => entry.length > 0)
+    : components.map((entry) => {
+        // POSIX execvp treats every empty PATH component as the current working
+        // directory. Preserve its position instead of silently dropping it.
+        return entry.length === 0 ? cwd : entry;
+      });
+  const names = platform === "win32" && path.win32.extname(requested) === ""
+    ? (environment.PATHEXT ?? ".COM;.EXE;.BAT;.CMD")
+      .split(";")
+      .filter((extension) => extension.length > 0)
+      .map((extension) => `${requested}${extension.toLowerCase()}`)
+    : [requested];
+  return directories.flatMap((directory) => {
+    return names.map((name) => pathModule.resolve(directory, name));
+  });
+}
+
+/** Resolve and validate the Terraform executable selected by CLI then TF. */
+export async function resolveTerraformExecutable(
+  selected: string | undefined,
+  environment: NodeJS.ProcessEnv,
+): Promise<string> {
+  const requested = selected && selected.length > 0 ? selected : "terraform";
+  for (const candidate of terraformExecutableCandidates(selected, environment)) {
+    try {
+      await access(candidate, constants.X_OK);
+      const resolved = await realpath(candidate);
+      const metadata = await lstat(resolved);
+      if (metadata.isFile() && (process.platform === "win32" || (metadata.mode & 0o111) !== 0)) {
+        return resolved;
+      }
+    } catch {
+      // Continue searching PATH candidates.
+    }
+  }
+  const pythonPath = `'${requested
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")}'`;
+  throw new Error(`[Errno 2] No such file or directory: ${pythonPath}`);
 }
 
 function snapshotArgv(value: readonly string[]): string[] {
@@ -251,7 +422,7 @@ async function requireTrustedExecutable(filePath: string): Promise<void> {
     if (
       !metadata.isFile()
       || metadata.isSymbolicLink()
-      || (metadata.mode & 0o111) === 0
+      || (process.platform !== "win32" && (metadata.mode & 0o111) === 0)
     ) {
       fail(
         "UNTRUSTED_TERRAFORM_EXECUTABLE",
@@ -278,11 +449,18 @@ export function runTerraformCommand(
   options: TerraformCommandDiscardOptions,
 ): Promise<TerraformCommandDiscardResult>;
 export function runTerraformCommand(
+  options: TerraformCommandInheritOptions,
+): Promise<TerraformCommandInheritResult>;
+export function runTerraformCommand(
+  options: TerraformCommandInheritStderrOptions,
+): Promise<TerraformCommandInheritResult>;
+export function runTerraformCommand(
   options: TerraformCommandOptions,
 ): Promise<TerraformCommandResult>;
 /**
  * Run one bounded Terraform process without a shell or inherited environment.
- * Child diagnostics are counted and discarded; they never enter a failure.
+ * Child output is counted and either captured, discarded, or streamed; it
+ * never enters a structured failure.
  * Terraform and its provider executables are trusted: on POSIX the runner
  * kills their isolated process group, but a deliberately daemonized descendant
  * that creates a new session is outside this in-process containment boundary.
@@ -290,6 +468,7 @@ export function runTerraformCommand(
 export async function runTerraformCommand(
   options: TerraformCommandOptions,
 ): Promise<TerraformCommandResult> {
+  assertSupportedTerraformExecutionPlatform();
   const terraformExecutable = options.terraformExecutable;
   const cwd = options.cwd;
   const outputMode = options.output;
@@ -306,7 +485,12 @@ export async function runTerraformCommand(
       "Terraform command requires resolved absolute paths",
     );
   }
-  if (outputMode !== "capture" && outputMode !== "discard") {
+  if (
+    outputMode !== "capture"
+    && outputMode !== "discard"
+    && outputMode !== "inherit"
+    && outputMode !== "inherit-stderr"
+  ) {
     return fail(
       "INVALID_TERRAFORM_COMMAND_OUTPUT",
       "Terraform command output mode is not allowed",
@@ -317,9 +501,12 @@ export async function runTerraformCommand(
   );
   const argv = snapshotArgv(options.argv);
   const environment = snapshotTerraformCommandEnvironment(options.environment);
-  const deadline = Date.now() + limits.timeoutMs;
+  const startedAt = monotonicMilliseconds();
   await requireTrustedExecutable(terraformExecutable);
-  if (Date.now() >= deadline) {
+  if (
+    limits.timeoutMs !== null
+    && monotonicMilliseconds() - startedAt >= limits.timeoutMs
+  ) {
     return fail(
       "TERRAFORM_COMMAND_TIMEOUT",
       "Terraform command exceeded its execution deadline",
@@ -347,6 +534,7 @@ export async function runTerraformCommand(
       }));
       return;
     }
+    const unregisterProcessGroup = registerTerraformProcessGroup(child.pid);
 
     const output = outputMode === "capture"
       ? Buffer.allocUnsafe(limits.maxStdoutBytes)
@@ -377,13 +565,38 @@ export async function runTerraformCommand(
         killProcessTree();
       }
     };
-    const timer = setTimeout(() => {
-      terminate(new ProcessFailure({
-        code: "TERRAFORM_COMMAND_TIMEOUT",
-        category: "io",
-        message: "Terraform command exceeded its execution deadline",
-      }));
-    }, Math.max(1, deadline - Date.now()));
+    let timer: NodeJS.Timeout | null = null;
+    const armTimeout = (): void => {
+      if (limits.timeoutMs === null || terminalFailure !== null || closed) {
+        return;
+      }
+      const remaining = limits.timeoutMs - (monotonicMilliseconds() - startedAt);
+      if (remaining <= 0) {
+        terminate(new ProcessFailure({
+          code: "TERRAFORM_COMMAND_TIMEOUT",
+          category: "io",
+          message: "Terraform command exceeded its execution deadline",
+        }));
+        return;
+      }
+      // Node clamps larger delays to 1 ms. Chunk long practical deadlines so
+      // they cannot accidentally fire immediately through timer overflow.
+      timer = setTimeout(armTimeout, Math.max(1, Math.min(remaining, 2_147_483_647)));
+    };
+    armTimeout();
+
+    const streamOutput = (
+      source: Readable,
+      destination: NodeJS.WriteStream,
+      chunk: Buffer,
+      enabled: boolean,
+    ): void => {
+      if (!enabled) return;
+      if (!destination.write(chunk)) {
+        source.pause();
+        destination.once("drain", () => source.resume());
+      }
+    };
 
     child.stdout.on("data", (chunk: Buffer) => {
       if (chunk.length > limits.maxStdoutBytes - stdoutBytes) {
@@ -398,6 +611,7 @@ export async function runTerraformCommand(
         chunk.copy(output, stdoutBytes);
       }
       stdoutBytes += chunk.length;
+      streamOutput(child.stdout, process.stdout, chunk, outputMode === "inherit");
     });
     child.stderr.on("data", (chunk: Buffer) => {
       if (chunk.length > limits.maxStderrBytes - stderrBytes) {
@@ -409,6 +623,12 @@ export async function runTerraformCommand(
         return;
       }
       stderrBytes += chunk.length;
+      streamOutput(
+        child.stderr,
+        process.stderr,
+        chunk,
+        outputMode === "inherit" || outputMode === "inherit-stderr",
+      );
     });
     child.stdout.on("error", () => {
       terminate(new ProcessFailure({
@@ -441,8 +661,9 @@ export async function runTerraformCommand(
         return;
       }
       closed = true;
-      clearTimeout(timer);
+      if (timer !== null) clearTimeout(timer);
       killProcessTree();
+      unregisterProcessGroup();
       if (terminalFailure !== null) {
         output?.fill(0);
         reject(terminalFailure);
@@ -453,6 +674,8 @@ export async function runTerraformCommand(
           category: "domain",
           message: "Terraform command did not complete successfully",
         }));
+      } else if (outputMode === "inherit" || outputMode === "inherit-stderr") {
+        resolve({ kind: "inherited" });
       } else if (output === null) {
         resolve({ kind: "discarded" });
       } else {

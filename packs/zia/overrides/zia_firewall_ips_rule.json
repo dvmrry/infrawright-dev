@@ -1,0 +1,7 @@
+{
+  "skip_if": [
+    {
+      "predefined": true
+    }
+  ]
+}

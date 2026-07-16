@@ -21,6 +21,8 @@ from engine import schema_paths
 from engine.drift_policy import parse_path
 from engine.ops import _same_json_value
 from engine.tfschema import block_is_single
+from engine.transform import _matches_default
+from engine.transform import load_override
 from engine.transform import parse_hcl_string_literal
 
 
@@ -345,10 +347,11 @@ def _run_process(args, cwd, env, debug_dir=None, debug_name=None,
 
 
 def _generated_config_policy_entries(resource_type, policy):
-    if not policy:
-        return []
     entries = []
-    for mode in ("projection_omit", "projection_omit_if"):
+
+    def add_policy_entries(mode):
+        if not policy:
+            return
         for entry in policy.entries(resource_type, mode):
             selector = parse_path(entry["path"])
             if schema_paths.schema_status(resource_type, selector) == "required":
@@ -358,7 +361,29 @@ def _generated_config_policy_entries(resource_type, policy):
                 )
             if _has_exact_index(selector):
                 continue
-            entries.append((mode, entry, selector))
+            entries.append((mode, entry, selector, True))
+
+    add_policy_entries("projection_omit")
+    override = load_override(resource_type)
+    for path, default in sorted(
+            (override.get("drop_if_default") or {}).items()):
+        selector = parse_path(path)
+        status = schema_paths.schema_status(resource_type, selector)
+        if status != "optional":
+            raise OracleError(
+                "%s generated import config pack drop_if_default path %s "
+                "is not optional (schema status %s)"
+                % (resource_type, path, status)
+            )
+        if _has_exact_index(selector):
+            continue
+        entries.append((
+            "pack_drop_if_default",
+            {"path": path, "values": [default]},
+            selector,
+            False,
+        ))
+    add_policy_entries("projection_omit_if")
     return entries
 
 
@@ -494,7 +519,9 @@ def _filter_generated_config_lines(
                 matched_entry = _generated_config_match(
                     resource_type, actual_path, value_known, value, entries)
                 if matched_entry is not None:
-                    policy.mark_matched(matched_entry)
+                    entry, track_policy = matched_entry
+                    if track_policy:
+                        policy.mark_matched(entry)
                     removed += 1
                     continue
                 heredoc_end = _hcl_heredoc_end(raw_value)
@@ -802,8 +829,14 @@ def _generated_config_match(resource_type, actual_path, value_known, value,
                             entries):
     if not value_known:
         return None
-    for mode, entry, selector in entries:
-        if not paths.selector_matches(selector, actual_path):
+    for mode, entry, selector, track_policy in entries:
+        match_path = (
+            tuple(segment for segment in actual_path
+                  if not isinstance(segment, int))
+            if mode == "pack_drop_if_default"
+            else actual_path
+        )
+        if not paths.selector_matches(selector, match_path):
             continue
         status = schema_paths.schema_status(resource_type, selector)
         if status != "optional":
@@ -813,11 +846,16 @@ def _generated_config_match(resource_type, actual_path, value_known, value,
                 % (resource_type, entry["path"], status)
             )
         if mode == "projection_omit":
-            return entry
+            return entry, track_policy
+        comparator = (
+            _matches_default
+            if mode == "pack_drop_if_default"
+            else _same_json_value
+        )
         if value_known and any(
-                _same_json_value(value, candidate)
+                comparator(value, candidate)
                 for candidate in entry["values"]):
-            return entry
+            return entry, track_policy
     return None
 
 

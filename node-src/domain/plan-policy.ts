@@ -8,7 +8,10 @@ import {
   sha256StableFile,
   type StableFileDigest,
 } from "../io/bounded-files.js";
-import { parseControlJson } from "../json/control.js";
+import {
+  parseControlJson,
+  PythonJsonDecodeError,
+} from "../json/control.js";
 
 export interface BoundDriftPolicy {
   readonly path: string | null;
@@ -19,11 +22,11 @@ export interface BoundDriftPolicy {
 export class DriftPolicyLoadFailure extends ProcessFailure {
   readonly file: StableFileDigest;
 
-  constructor(file: StableFileDigest) {
+  constructor(file: StableFileDigest, message: string) {
     super({
       code: "INVALID_DRIFT_POLICY",
       category: "domain",
-      message: "saved-plan drift policy is invalid",
+      message,
     });
     this.name = "DriftPolicyLoadFailure";
     this.file = file;
@@ -58,8 +61,13 @@ export async function loadBoundDriftPolicy(
       file: source.digest,
       policy: new DriftPolicy(parseControlJson(text), "<policy>"),
     };
-  } catch {
-    throw new DriftPolicyLoadFailure(source.digest);
+  } catch (error: unknown) {
+    throw new DriftPolicyLoadFailure(
+      source.digest,
+      error instanceof PythonJsonDecodeError
+        ? error.message
+        : "saved-plan drift policy is invalid",
+    );
   }
 }
 

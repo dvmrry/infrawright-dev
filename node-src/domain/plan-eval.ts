@@ -1,5 +1,8 @@
 import type { DriftPolicy } from "./drift-policy.js";
-import { validateAssessmentPlan } from "./plan-contract.js";
+import {
+  validateAssessmentPlan,
+  type AssessmentPlanContract,
+} from "./plan-contract.js";
 import {
   isJsonRecord as isRecord,
   pythonJsonEqual,
@@ -185,6 +188,20 @@ function classifyChange(
   if (typeof resourceType !== "string") {
     throw new TypeError(`${source} type must be a string`);
   }
+  if (
+    isRecord(change.importing)
+    && Object.keys(change.importing).length > 0
+    && actions.size === 1
+    && actions.has("create")
+  ) {
+    return [{
+      status: CLEAN,
+      source,
+      address,
+      actions: sortedStrings(actions),
+      paths: [],
+    }];
+  }
   if (actions.has("delete")) {
     return [blocked(source, address, actions, [["<delete>"]])];
   }
@@ -231,7 +248,8 @@ function classifyPlanUnchecked(
 export function classifyPlan(
   plan: unknown,
   policy: DriftPolicy | null = null,
+  contract: AssessmentPlanContract = {},
 ): PlanClassification {
-  validateAssessmentPlan(plan);
+  validateAssessmentPlan(plan, contract);
   return classifyPlanUnchecked(plan, policy);
 }

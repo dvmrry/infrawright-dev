@@ -16,6 +16,20 @@
       "segment_group_id": {
         "name_field": "name",
         "referent": "zpa_segment_group"
+      },
+      "server_groups.id": {
+        "name_field": "name",
+        "referent": "zpa_server_group"
+      }
+    },
+    "zpa_server_group": {
+      "app_connector_groups.id": {
+        "name_field": "name",
+        "referent": "zpa_app_connector_group"
+      },
+      "servers.id": {
+        "name_field": "name",
+        "referent": "zpa_application_server"
       }
     }
   },

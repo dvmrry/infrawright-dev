@@ -9,11 +9,17 @@ import os
 
 from engine import manifest_checks
 from engine import packs
-from engine.overrides import validate_skip_matcher_metadata
+from engine.overrides import (
+    snake_matcher_field,
+    validate_skip_matcher_metadata,
+    validate_skip_rename_conflicts,
+)
 
 _cache = {}
 
-REGISTRY_RESOURCE_KEYS = set(["adopt", "derive", "fetch", "generate", "product"])
+REGISTRY_RESOURCE_KEYS = set([
+    "adopt", "derive", "fetch", "generate", "product", "slug_group",
+])
 REGISTRY_REQUIRED_RESOURCE_KEYS = set(["product"])
 FETCH_KEYS = set([
     "envelope",
@@ -34,7 +40,10 @@ ADOPT_KEYS = set([
     "key_field",
     "skip_if",
     "skip_if_lte",
+    "unsupported_if",
 ])
+UNSUPPORTED_IF_KEYS = set(["evidence", "match", "provider", "reason"])
+UNSUPPORTED_PROVIDER_KEYS = set(["source", "version"])
 
 
 def load_registry():
@@ -185,7 +194,76 @@ def _validate_adopt(adopt, path):
     for key in ("identity_renames", "identity_fields"):
         if key in adopt:
             manifest_checks.validate_string_map(adopt[key], "%s.%s" % (path, key))
-    validate_skip_matcher_metadata(adopt, path=path)
+    skip_fields = list(validate_skip_matcher_metadata(adopt, path=path))
+    if "unsupported_if" in adopt:
+        rules = adopt["unsupported_if"]
+        if not isinstance(rules, list) or not rules:
+            raise ValueError("%s.unsupported_if must be a non-empty list" % path)
+        conditions = set()
+        for index, rule in enumerate(rules):
+            rule_path = "%s.unsupported_if[%d]" % (path, index)
+            if not isinstance(rule, dict):
+                raise ValueError("%s must be an object" % rule_path)
+            manifest_checks.reject_unknown_keys(
+                rule, UNSUPPORTED_IF_KEYS, rule_path)
+            manifest_checks.require_keys(rule, UNSUPPORTED_IF_KEYS, rule_path)
+            match = rule.get("match")
+            if not isinstance(match, dict) or not match:
+                raise ValueError("%s.match must be a non-empty object" % rule_path)
+            for field, expected in match.items():
+                if not isinstance(field, str) or not field:
+                    raise ValueError(
+                        "%s.match field names must be non-empty strings"
+                        % rule_path
+                    )
+                if not isinstance(expected, (str, int, float, bool)) \
+                        and expected is not None:
+                    raise ValueError(
+                        "%s.match.%s must be a scalar" % (rule_path, field)
+                    )
+                skip_fields.append(
+                    ("unsupported_if", field, snake_matcher_field(field)))
+            condition = json.dumps(
+                dict((snake_matcher_field(field), expected)
+                     for field, expected in match.items()),
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            if condition in conditions:
+                raise ValueError(
+                    "%s.unsupported_if contains duplicate match %s"
+                    % (path, condition)
+                )
+            conditions.add(condition)
+            provider = rule.get("provider")
+            provider_path = "%s.provider" % rule_path
+            if not isinstance(provider, dict):
+                raise ValueError("%s must be an object" % provider_path)
+            manifest_checks.reject_unknown_keys(
+                provider, UNSUPPORTED_PROVIDER_KEYS, provider_path)
+            manifest_checks.require_keys(
+                provider, UNSUPPORTED_PROVIDER_KEYS, provider_path)
+            for key in ("source", "version"):
+                manifest_checks.require_non_empty_string(
+                    provider.get(key), "%s.%s" % (provider_path, key))
+            manifest_checks.require_non_empty_string(
+                rule.get("reason"), "%s.reason" % rule_path)
+            evidence = rule.get("evidence")
+            if not isinstance(evidence, list) or not evidence:
+                raise ValueError(
+                    "%s.evidence must be a non-empty list" % rule_path)
+            seen = set()
+            for evidence_index, item in enumerate(evidence):
+                manifest_checks.require_non_empty_string(
+                    item,
+                    "%s.evidence[%d]" % (rule_path, evidence_index),
+                )
+                if item in seen:
+                    raise ValueError(
+                        "%s.evidence contains duplicate %r" % (rule_path, item)
+                    )
+                seen.add(item)
+    validate_skip_rename_conflicts(adopt, path, skip_fields)
 
 
 def validate_registry(data, path=None):
@@ -203,6 +281,9 @@ def validate_registry(data, path=None):
         manifest_checks.require_keys(entry, REGISTRY_REQUIRED_RESOURCE_KEYS, label)
         if "generate" in entry and not isinstance(entry.get("generate"), bool):
             raise ValueError("%s.generate must be a boolean" % label)
+        if "slug_group" in entry and not isinstance(
+                entry.get("slug_group"), bool):
+            raise ValueError("%s.slug_group must be a boolean" % label)
         manifest_checks.require_non_empty_string(
             entry.get("product"), "%s.product" % label
         )
@@ -212,6 +293,11 @@ def validate_registry(data, path=None):
             _validate_derive(entry["derive"], "%s.derive" % label)
         if "adopt" in entry:
             _validate_adopt(entry["adopt"], "%s.adopt" % label)
+            if "derive" in entry and "unsupported_if" in entry["adopt"]:
+                raise ValueError(
+                    "%s.adopt.unsupported_if is not valid for a derived resource"
+                    % label
+                )
     return data
 
 

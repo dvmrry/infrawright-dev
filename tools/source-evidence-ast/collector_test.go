@@ -54,9 +54,10 @@ func resourceRepositoryRead() {
 		fmt.Sprintf("orgs/%s/actions/hosted-runners/%s", orgName, runnerID),
 		nil,
 	)
+	unknown, err := client.NewRequest(http.MethodGet, dynamicPath, nil)
 	location, _, err := locationmanagement.Get(ctx, service, id)
 	_, _, err = githubv4Client.Query(ctx, query, nil)
-	_, _, _, _ = repo, req, location, err
+	_, _, _, _, _ = repo, req, unknown, location, err
 }
 
 func (r *Resource) Read() {}
@@ -121,6 +122,12 @@ func Ignored() {
 		Symbol:   "client.NewRequest",
 		Method:   "GET",
 		Path:     "orgs/%s/actions/hosted-runners/%s",
+	})
+	assertRawRESTCall(t, report, RawRESTCall{
+		File:     "resource_github_repository.go",
+		Function: "resourceRepositoryRead",
+		Symbol:   "client.NewRequest",
+		Method:   "GET",
 	})
 	assertFunction(t, report, FunctionFact{
 		Name:     "Read",

@@ -1,7 +1,15 @@
 {
+  "acknowledged_drops": [
+    "default_rule"
+  ],
   "sample": {
     "protocols": [
       "ANY_RULE"
     ]
-  }
+  },
+  "skip_if": [
+    {
+      "name": "Default BA Rule"
+    }
+  ]
 }

@@ -6,8 +6,10 @@ import unittest
 
 from engine import packs
 from engine import registry
+from engine import transform
 from engine.adoption_meta import (
     adoption_entry,
+    classify_raw_items,
     derive_import_id_from_identity,
     derive_key_from_identity,
     identity_item,
@@ -28,6 +30,7 @@ class AdoptionMetaTest(unittest.TestCase):
         os.environ["INFRAWRIGHT_PACKS"] = self.tmp
         os.makedirs(os.path.join(self.tmp, "sample", "overrides"), exist_ok=True)
         _write_json(os.path.join(self.tmp, "sample", "pack.json"), {
+            "pin": "1.2.3",
             "provider_prefixes": {"sample_": "sample"},
             "provider_sources": {"sample": "example/sample"},
         })
@@ -99,6 +102,146 @@ class AdoptionMetaTest(unittest.TestCase):
                           "sample_resource"),
             meta,
         ))
+
+    def test_raw_system_and_strict_unsupported_classification_precede_identity(self):
+        rule = {
+            "evidence": ["https://example.invalid/provider-source"],
+            "match": {"action": "ISOLATE"},
+            "provider": {"source": "example/sample", "version": "1.2.3"},
+            "reason": "provider cannot round-trip this object",
+        }
+        self._registry({
+            "sample_resource": {
+                "adopt": {
+                    "identity_fields": {"import_id": "details.missing"},
+                    "key_field": "missing_name",
+                    "skip_if": [{"system": True}],
+                    "unsupported_if": [rule],
+                },
+                "generate": True,
+                "product": "sample",
+            },
+        })
+        classified = classify_raw_items([
+            {"action": "ISOLATE", "system": True},
+            {"action": "ISOLATE", "system": False},
+            {"action": "BLOCK", "system": False},
+        ], "sample_resource")
+        self.assertEqual(len(classified["skipped"]), 1)
+        self.assertEqual(len(classified["unsupported"]), 1)
+        self.assertEqual(len(classified["eligible"]), 1)
+
+        self._registry({
+            "sample_resource": {
+                "adopt": {
+                    "unsupported_if": [dict(rule, match={"marker": 1})],
+                },
+                "generate": True,
+                "product": "sample",
+            },
+        })
+        strict = classify_raw_items([
+            {"id": "bool", "name": "Boolean", "marker": True},
+            {"id": "number", "name": "Number", "marker": 1},
+        ], "sample_resource")
+        self.assertEqual([item["id"] for item in strict["eligible"]], ["bool"])
+        self.assertEqual(
+            [item["item"]["id"] for item in strict["unsupported"]],
+            ["number"],
+        )
+
+    def test_strict_scalar_matchers_keep_transform_and_adopt_aligned(self):
+        cases = [
+            (
+                "true does not equal one",
+                {"system": True},
+                [
+                    {"id": "true", "system": True},
+                    {"id": "one", "system": 1},
+                ],
+                ["true"],
+            ),
+            (
+                "one does not equal true",
+                {"system": 1},
+                [
+                    {"id": "one", "system": 1},
+                    {"id": "true", "system": True},
+                ],
+                ["one"],
+            ),
+            (
+                "false does not equal zero",
+                {"system": False},
+                [
+                    {"id": "false", "system": False},
+                    {"id": "zero", "system": 0},
+                ],
+                ["false"],
+            ),
+            (
+                "zero does not equal false",
+                {"system": 0},
+                [
+                    {"id": "zero", "system": 0},
+                    {"id": "false", "system": False},
+                ],
+                ["zero"],
+            ),
+            (
+                "explicit null does not equal absence",
+                {"system": None},
+                [
+                    {"id": "null", "system": None},
+                    {"id": "absent"},
+                ],
+                ["null"],
+            ),
+        ]
+        rule = {
+            "evidence": ["https://example.invalid/provider-source"],
+            "provider": {"source": "example/sample", "version": "1.2.3"},
+            "reason": "provider cannot round-trip this object",
+        }
+
+        for name, matcher, items, expected_ids in cases:
+            with self.subTest(name=name):
+                transform_ids = [
+                    item["id"] for item in items
+                    if transform.skip_item_match_reason(
+                        transform.snake_keys(item), {"skip_if": [matcher]}
+                    ) == "skip_if"
+                ]
+                self._registry({
+                    "sample_resource": {
+                        "adopt": {"skip_if": [matcher]},
+                        "generate": True,
+                        "product": "sample",
+                    },
+                })
+                skipped_ids = [
+                    entry["item"]["id"]
+                    for entry in classify_raw_items(items, "sample_resource")["skipped"]
+                ]
+                self._registry({
+                    "sample_resource": {
+                        "adopt": {
+                            "unsupported_if": [dict(rule, match=matcher)],
+                        },
+                        "generate": True,
+                        "product": "sample",
+                    },
+                })
+                unsupported_ids = [
+                    entry["item"]["id"]
+                    for entry in classify_raw_items(
+                        items, "sample_resource"
+                    )["unsupported"]
+                ]
+
+                self.assertEqual(transform_ids, expected_ids)
+                self.assertEqual(skipped_ids, expected_ids)
+                self.assertEqual(unsupported_ids, expected_ids)
 
     def test_registry_adopt_overrides_legacy_override(self):
         self._registry({

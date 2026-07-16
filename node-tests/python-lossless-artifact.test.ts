@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
@@ -40,7 +41,7 @@ test("lossless artifact renderer matches Python bytes for integer JSON", () => {
     "}",
   ].join("");
   const python = spawnSync(
-    "python3",
+    PYTHON_ORACLE,
     [
       "-c",
       "import json,sys; value=json.loads(sys.stdin.read()); sys.stdout.write(json.dumps(value, indent=2, sort_keys=True)+'\\n')",
@@ -98,7 +99,7 @@ test("ASCII and Unicode escape boundaries match Python in keys and values", () =
 
   const source = JSON.stringify(value);
   const python = spawnSync(
-    "python3",
+    PYTHON_ORACLE,
     [
       "-c",
       "import json,sys; value=json.loads(sys.stdin.read()); sys.stdout.write(json.dumps(value, indent=2, sort_keys=True)+'\\n')",
@@ -171,7 +172,7 @@ test("finite lossless floats match Python bytes across notation boundaries", () 
     "1.7976931348623157e308",
   ];
   const python = spawnSync(
-    "python3",
+    PYTHON_ORACLE,
     [
       "-c",
       "import json,sys; value=json.loads(sys.stdin.read()); sys.stdout.write(json.dumps(value, indent=2)+'\\n')",
@@ -207,7 +208,7 @@ test("finite float spelling matches Python across deterministic binary64 values"
     tokens.push(token);
   }
   const python = spawnSync(
-    "python3",
+    PYTHON_ORACLE,
     [
       "-c",
       "import json,sys; value=json.loads(sys.stdin.read()); sys.stdout.write(json.dumps(value, separators=(',', ':')))",

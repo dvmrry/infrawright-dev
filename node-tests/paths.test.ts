@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
@@ -38,7 +39,7 @@ test("non-strict realpath canonicalizes prefixes before symlink loops", async ()
     await symlink("a", path.join(realParent, "b"));
     const candidate = path.join(aliasParent, "a", "deleted-child");
     const python = spawnSync(
-      "python3",
+      PYTHON_ORACLE,
       ["-c", "import os,sys; print(os.path.realpath(sys.argv[1]))", candidate],
       { encoding: "utf8" },
     );

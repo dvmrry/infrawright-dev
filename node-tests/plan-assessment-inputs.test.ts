@@ -1,12 +1,27 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
 
 import { ProcessFailure } from "../node-src/domain/errors.js";
-import { resolveSavedPlanAssessmentOptions } from "../node-src/domain/plan-assessment-inputs.js";
+import {
+  resolveLoadedSavedPlanAssessment,
+  resolveSavedPlanAssessmentOptions,
+} from "../node-src/domain/plan-assessment-inputs.js";
 import type { Deployment, RootCatalog } from "../node-src/domain/types.js";
+import { loadPackRoot } from "../node-src/metadata/loader.js";
+
+const ROOT = process.cwd();
+const PACKS_ROOT = resolve(
+  process.env.INFRAWRIGHT_PACKS?.trim() || join(ROOT, "packs"),
+);
+const PACK_PROFILE = resolve(
+  process.env.PACK_PROFILE?.trim() || join(ROOT, "packsets", "full.json"),
+);
+const PACK_CATALOG = resolve(
+  process.env.PACK_CATALOG?.trim() || join(ROOT, "packsets", "full.json"),
+);
 
 const CATALOG: RootCatalog = {
   kind: "infrawright.root_catalog",
@@ -182,6 +197,42 @@ test("resolver snapshots mutable options before asynchronous discovery", async (
     );
     assert.equal(resolved.backendConfig, join(workspace, "backend.hcl"));
     assert.equal(resolved.policyPath, join(workspace, "policy.json"));
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("loaded assessment binds the cross-state referent output contract", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "assessment-reference-output-"));
+  try {
+    const envDir = join(workspace, "envs", "tenant", "zpa_segment_group");
+    mkdirSync(envDir, { recursive: true });
+    writeFileSync(join(envDir, "tfplan"), "plan\n");
+    const root = await loadPackRoot({
+      packsRoot: PACKS_ROOT,
+      profilePath: PACK_PROFILE,
+      catalogPath: PACK_CATALOG,
+    });
+    const resolved = await resolveLoadedSavedPlanAssessment({
+      workspace,
+      deployment: {
+        overlay: ".",
+        roots: { zpa: { cross_state_references: true } },
+      },
+      root,
+      tenant: "tenant",
+      selectors: ["zpa_segment_group"],
+      terraformExecutable: "/opt/terraform",
+      backendConfig: null,
+      policyPath: null,
+    });
+    assert.deepEqual(resolved.assessment.roots[0]?.referenceOutputTypes, [
+      "zpa_segment_group",
+    ]);
+    assert.equal(
+      resolved.assessment.loadedContext?.deployment.roots.zpa?.cross_state_references,
+      true,
+    );
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }

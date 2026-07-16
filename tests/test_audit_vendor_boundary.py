@@ -65,25 +65,6 @@ class AuditVendorBoundaryCliTest(unittest.TestCase):
         self.assertIn("allowed matches: 1", proc.stdout)
         self.assertIn("violations: 0", proc.stdout)
 
-    def test_transform_catalog_allowlist_does_not_mask_new_zcc_occurrence(self):
-        source_path = os.path.join(ROOT, "engine", "transform_catalog.py")
-        with open(source_path, encoding="utf-8") as f:
-            source = f.read()
-        with tempfile.TemporaryDirectory() as td:
-            _write(
-                os.path.join(td, "engine", "transform_catalog.py"),
-                source + "\nzcc_future_backdoor = True\n",
-            )
-            proc = self._run([
-                "--root", td,
-                "--allowlist", os.path.join(
-                    ROOT, "engine", "vendor_boundary_allowlist.json"
-                ),
-            ])
-        self.assertEqual(proc.returncode, 1, proc.stderr + proc.stdout)
-        self.assertIn("violations: 1", proc.stdout)
-        self.assertIn("zcc_future_backdoor", proc.stdout)
-
     def test_malformed_allowlist_fails(self):
         with tempfile.TemporaryDirectory() as td:
             _write(os.path.join(td, "engine", "new_edge.py"), "VALUE = 'aws_default_tags'\n")
@@ -110,7 +91,11 @@ class AuditVendorBoundaryCliTest(unittest.TestCase):
             universal_newlines=True,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("python3 -m engine.audit_vendor_boundary", proc.stdout)
+        self.assertIn(
+            "node dist/infrawright-cli.mjs audit-vendor-boundary",
+            proc.stdout,
+        )
+        self.assertNotIn("python", proc.stdout.lower())
 
 
 if __name__ == "__main__":

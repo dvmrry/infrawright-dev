@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
@@ -16,6 +17,10 @@ import {
   sortedStrings,
   type JsonValue,
 } from "../node-src/json/python-compatible.js";
+import {
+  terraformJsonEqual,
+  terraformJsonExactlyEqual,
+} from "../node-src/json/python-equality.js";
 import { snapshotPlainJsonGraph } from "../node-src/json/supported-json-graph.js";
 
 test("shared Python string semantics preserve exact sequence and code-point order", () => {
@@ -37,7 +42,7 @@ test("integer-only compatibility renderer matches Python bytes", () => {
     nested: [true, null, 9007199254740991],
   } as const;
   const python = spawnSync(
-    "python3",
+    PYTHON_ORACLE,
     [
       "-c",
       "import json,sys; value=json.loads(sys.stdin.read()); sys.stdout.write(json.dumps(value, indent=2, sort_keys=True)+'\\n')",
@@ -106,14 +111,44 @@ test("data parser preserves numeric lexemes beyond JavaScript precision", () => 
   );
 });
 
-test("initial compatibility renderer refuses floats instead of changing bytes", () => {
-  assert.throws(
-    () => renderPythonCompatibleJson({ value: 1.0 / 2 } as JsonValue),
-    /safe integers only/,
+test("exact Terraform evidence equality avoids binary rounding", () => {
+  const values = parseDataJsonLosslessly(
+    "[1,1.0,10e-1,0.10e1,9007199254740992.0,9007199254740993.0,1e100000,10e99999]",
+  ) as readonly unknown[];
+  assert.equal(terraformJsonExactlyEqual(values[0], values[1]), true);
+  assert.equal(terraformJsonExactlyEqual(values[1], values[2]), true);
+  assert.equal(terraformJsonExactlyEqual(values[2], values[3]), true);
+  assert.equal(terraformJsonExactlyEqual(values[4], values[5]), false);
+  assert.equal(terraformJsonExactlyEqual(values[6], values[7]), true);
+  assert.equal(terraformJsonExactlyEqual(true, values[0]), false);
+
+  // Existing parity and plan-classification callers retain Python's numeric
+  // equality contract; only the accepted-plan authorization gate is exact.
+  assert.equal(terraformJsonEqual(values[4], values[5]), true);
+});
+
+test("compatibility renderer preserves Python float spelling and numeric tokens", () => {
+  assert.equal(
+    renderPythonCompatibleJson({ value: 1.0 / 2 } as JsonValue),
+    "{\n  \"value\": 0.5\n}\n",
   );
-  assert.throws(
-    () => renderPythonCompatibleJson({ value: -0 } as JsonValue),
-    /safe integers only/,
+  assert.equal(
+    renderPythonCompatibleJson({ value: -0 } as JsonValue),
+    "{\n  \"value\": -0.0\n}\n",
+  );
+  assert.equal(
+    renderPythonCompatibleJson({ value: 1e-6 } as JsonValue),
+    "{\n  \"value\": 1e-06\n}\n",
+  );
+  assert.equal(
+    renderPythonCompatibleJson({ value: 1e20 } as JsonValue),
+    "{\n  \"value\": 1e+20\n}\n",
+  );
+  assert.equal(
+    renderPythonCompatibleJson({
+      value: new LosslessNumber("1.0"),
+    } as JsonValue),
+    "{\n  \"value\": 1.0\n}\n",
   );
 });
 

@@ -3,5 +3,9 @@
     "deleted",
     "http_header_profile_criteria[].id"
   ],
+  "drop_if_default": {
+    "http_header_profile_criteria.operator": "",
+    "http_header_profile_criteria.user_agent": ""
+  },
   "import_id": "{id}"
 }

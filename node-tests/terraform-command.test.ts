@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import {
   chmodSync,
   mkdirSync,
@@ -10,12 +11,16 @@ import {
 } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
+import { performance } from "node:perf_hooks";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 
 import { ProcessFailure } from "../node-src/domain/errors.js";
 import {
+  resolveTerraformExecutable,
   runTerraformCommand,
+  terraformExecutableCandidates,
   type TerraformCommandLimits,
 } from "../node-src/io/terraform-command.js";
 
@@ -79,23 +84,88 @@ async function captureFailure(
   assert.fail(`expected ${code}`);
 }
 
-async function waitForProcessExit(pid: number): Promise<void> {
+interface ObservedLinuxProcessIdentity {
+  readonly kind: "observed";
+  readonly startTime: string;
+  readonly state: string;
+}
+
+type LinuxProcessIdentity =
+  | { readonly kind: "missing" }
+  | { readonly kind: "unreadable" }
+  | ObservedLinuxProcessIdentity;
+
+async function linuxProcessIdentity(pid: number): Promise<LinuxProcessIdentity> {
+  if (process.platform !== "linux") return { kind: "unreadable" };
+  let stat: string;
+  try {
+    stat = await readFile(`/proc/${pid}/stat`, "utf8");
+  } catch (error: unknown) {
+    const code = error !== null && typeof error === "object" && "code" in error
+      ? (error as { readonly code?: unknown }).code
+      : undefined;
+    return code === "ENOENT" || code === "ESRCH"
+      ? { kind: "missing" }
+      : { kind: "unreadable" };
+  }
+  const close = stat.lastIndexOf(")");
+  const fields = close >= 0
+    ? stat.slice(close + 2).trim().split(/\s+/u)
+    : [];
+  if (fields.length <= 19) return { kind: "unreadable" };
+  return {
+    kind: "observed",
+    state: fields[0] ?? "",
+    startTime: fields[19] ?? "",
+  };
+}
+
+async function waitForProcessExit(
+  pid: number,
+  expectedLinuxStartTime?: string,
+): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const deadline = Date.now() + 1_000;
-    const check = (): void => {
+    const check = async (): Promise<void> => {
       try {
         process.kill(pid, 0);
+        if (process.platform === "linux") {
+          const identity = await linuxProcessIdentity(pid);
+          if (
+            identity.kind === "missing"
+            || (identity.kind === "observed" && identity.state === "Z")
+            || (expectedLinuxStartTime !== undefined
+              && identity.kind === "observed"
+              && identity.startTime !== expectedLinuxStartTime)
+          ) {
+            resolve();
+            return;
+          }
+        }
         if (Date.now() >= deadline) {
           reject(new Error("Terraform descendant survived process cleanup"));
         } else {
-          setTimeout(check, 10);
+          setTimeout(() => void check(), 10);
         }
       } catch {
         resolve();
       }
     };
-    check();
+    void check();
   });
+}
+
+async function waitForFile(file: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    try {
+      await readFile(file);
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  throw new Error(`timed out waiting for ${file}`);
 }
 
 test("runs exact argv, cwd, stdin, and allowlisted environment without a shell", async () => {
@@ -183,6 +253,262 @@ test("discard mode returns no child output", async () => {
       output: "discard",
     });
     assert.deepEqual(result, { kind: "discarded" });
+  });
+});
+
+test("inherit mode streams both channels and preserves nonzero failure", async () => {
+  await withTemp(async (fixture) => {
+    const success = executable(
+      fixture.root,
+      "printf '%s' 'visible-stdout'; printf '%s' 'visible-stderr' >&2",
+    );
+    let stdout = "";
+    let stderr = "";
+    const originalStdout = process.stdout.write;
+    const originalStderr = process.stderr.write;
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      stdout += Buffer.from(chunk).toString("utf8");
+      return true;
+    }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += Buffer.from(chunk).toString("utf8");
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      assert.deepEqual(await runTerraformCommand({
+        ...baseOptions(fixture, success),
+        output: "inherit",
+      }), { kind: "inherited" });
+    } finally {
+      process.stdout.write = originalStdout;
+      process.stderr.write = originalStderr;
+    }
+    assert.equal(stdout.endsWith("visible-stdout"), true);
+    assert.equal(stderr.includes("visible-stderr"), true);
+
+    const failure = executable(fixture.root, "exit 37");
+    await captureFailure(runTerraformCommand({
+      ...baseOptions(fixture, failure),
+      output: "inherit",
+    }), "TERRAFORM_COMMAND_FAILED");
+  });
+});
+
+test("inherit-stderr mode suppresses stdout, streams stderr, and preserves failure", async () => {
+  await withTemp(async (fixture) => {
+    const fake = executable(
+      fixture.root,
+      "printf '%s' 'hidden-stdout'; printf '%s' 'visible-stderr' >&2; exit \"${TF_EXIT:-0}\"",
+    );
+    let stdout = "";
+    let stderr = "";
+    const originalStdout = process.stdout.write;
+    const originalStderr = process.stderr.write;
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      stdout += Buffer.from(chunk).toString("utf8");
+      return true;
+    }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += Buffer.from(chunk).toString("utf8");
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      assert.deepEqual(await runTerraformCommand({
+        ...baseOptions(fixture, fake),
+        output: "inherit-stderr",
+      }), { kind: "inherited" });
+      await captureFailure(runTerraformCommand({
+        ...baseOptions(fixture, fake),
+        environment: { TF_EXIT: "37" },
+        output: "inherit-stderr",
+      }), "TERRAFORM_COMMAND_FAILED");
+    } finally {
+      process.stdout.write = originalStdout;
+      process.stderr.write = originalStderr;
+    }
+    assert.equal(stdout.includes("hidden-stdout"), false);
+    assert.equal(stderr, "visible-stderrvisible-stderr");
+  });
+});
+
+test("no-deadline and long practical deadlines do not inherit the old ten-minute ceiling", async () => {
+  await withTemp(async (fixture) => {
+    const delayed = executable(fixture.root, "sleep 0.05; exit 0");
+    assert.deepEqual(await runTerraformCommand({
+      ...baseOptions(fixture, delayed),
+      limits: { ...LIMITS, timeoutMs: null },
+      output: "discard",
+    }), { kind: "discarded" });
+    const immediate = executable(fixture.root, "exit 0");
+    assert.deepEqual(await runTerraformCommand({
+      ...baseOptions(fixture, immediate),
+      limits: { ...LIMITS, timeoutMs: 86_400_000 },
+      output: "discard",
+    }), { kind: "discarded" });
+    assert.deepEqual(await runTerraformCommand({
+      ...baseOptions(fixture, immediate),
+      limits: { ...LIMITS, timeoutMs: Number.MAX_SAFE_INTEGER },
+      output: "discard",
+    }), { kind: "discarded" });
+  });
+});
+
+test("child timeout uses an independent monotonic clock", async (context) => {
+  await withTemp(async (fixture) => {
+    context.mock.method(performance, "now", () => 0);
+    const blocked = executable(fixture.root, "while :; do sleep 1; done");
+    await captureFailure(runTerraformCommand({
+      ...baseOptions(fixture, blocked),
+      limits: { ...LIMITS, timeoutMs: 30 },
+      output: "discard",
+    }), "TERRAFORM_COMMAND_TIMEOUT");
+  });
+});
+
+test("Terraform executable candidates use POSIX and Windows path semantics", async () => {
+  assert.deepEqual(terraformExecutableCandidates(
+    "C:\\tools\\terraform.exe",
+    {},
+    { cwd: "D:\\work", platform: "win32" },
+  ), ["C:\\tools\\terraform.exe"]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "C:/tools/terraform.exe",
+    {},
+    { cwd: "D:\\work", platform: "win32" },
+  ), ["C:\\tools\\terraform.exe"]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "..\\bin\\terraform.exe",
+    {},
+    { cwd: "C:\\work\\repo", platform: "win32" },
+  ), ["C:\\work\\bin\\terraform.exe"]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "./bin/terraform",
+    {},
+    { cwd: "/work/repo", platform: "linux" },
+  ), ["/work/repo/bin/terraform"]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "terraform",
+    { PATH: "/first:/second" },
+    { cwd: "/work", platform: "linux" },
+  ), ["/first/terraform", "/second/terraform"]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "terraform",
+    { PATH: ":/usr/bin" },
+    { cwd: "/work", platform: "linux" },
+  ), ["/work/terraform", "/usr/bin/terraform"]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "terraform",
+    { PATH: "/usr/bin:" },
+    { cwd: "/work", platform: "linux" },
+  ), ["/usr/bin/terraform", "/work/terraform"]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "terraform",
+    { PATH: "/usr/bin::/bin" },
+    { cwd: "/work", platform: "linux" },
+  ), ["/usr/bin/terraform", "/work/terraform", "/bin/terraform"]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "terraform",
+    { PATH: "::/usr/bin::" },
+    { cwd: "/work", platform: "linux" },
+  ), [
+    "/work/terraform",
+    "/work/terraform",
+    "/usr/bin/terraform",
+    "/work/terraform",
+    "/work/terraform",
+  ]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "terraform",
+    {},
+    { cwd: "/work", platform: "linux" },
+  ), []);
+  assert.deepEqual(terraformExecutableCandidates(
+    "terraform\\literal",
+    { PATH: "/first" },
+    { cwd: "/work", platform: "linux" },
+  ), ["/first/terraform\\literal"]);
+  assert.deepEqual(terraformExecutableCandidates(
+    "terraform",
+    { PATH: "C:\\first;D:\\second", PATHEXT: ".EXE;.CMD" },
+    { cwd: "C:\\work", platform: "win32" },
+  ), [
+    "C:\\first\\terraform.exe",
+    "C:\\first\\terraform.cmd",
+    "D:\\second\\terraform.exe",
+    "D:\\second\\terraform.cmd",
+  ]);
+  for (const pathValue of [
+    ";C:\\tools",
+    "C:\\tools;",
+    "C:\\first;;D:\\second",
+    ";;C:\\tools;;",
+  ]) {
+    assert.deepEqual(terraformExecutableCandidates(
+      "terraform",
+      { PATH: pathValue, PATHEXT: ".EXE" },
+      { cwd: "D:\\work", platform: "win32" },
+    ), pathValue.split(";").filter((entry) => entry.length > 0).map((entry) => {
+      return `${entry}\\terraform.exe`;
+    }));
+  }
+
+  await withTemp(async (fixture) => {
+    const fake = executable(fixture.root, "exit 0");
+    assert.equal(
+      await resolveTerraformExecutable(relative(process.cwd(), fake), process.env),
+      fake,
+    );
+    const target = join(fixture.root, "terraform-from-path");
+    writeFileSync(target, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    chmodSync(target, 0o700);
+    assert.equal(
+      await resolveTerraformExecutable("terraform-from-path", { PATH: fixture.root }),
+      realpathSync(target),
+    );
+    const other = join(fixture.root, "other");
+    mkdirSync(other);
+    const fallback = join(other, "terraform-fallback");
+    writeFileSync(fallback, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    chmodSync(fallback, 0o700);
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(fixture.cwd);
+      assert.equal(
+        await resolveTerraformExecutable(
+          "terraform-fallback",
+          { PATH: `:${other}` },
+        ),
+        realpathSync(fallback),
+      );
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+});
+
+test("Windows Terraform execution fails before spawning a child", async () => {
+  await withTemp(async (fixture) => {
+    const marker = join(fixture.root, "spawned");
+    const fake = executable(fixture.root, `printf '%s' spawned > '${marker}'`);
+    const platform = Object.getOwnPropertyDescriptor(process, "platform");
+    assert.notEqual(platform, undefined);
+    try {
+      Object.defineProperty(process, "platform", {
+        ...platform,
+        value: "win32",
+      });
+      const failure = await captureFailure(runTerraformCommand({
+        ...baseOptions(fixture, fake),
+        output: "discard",
+      }), "UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM");
+      assert.equal(
+        failure.message,
+        "Terraform execution through Infrawright is supported on Linux and macOS; Windows is not a supported operational platform.",
+      );
+    } finally {
+      Object.defineProperty(process, "platform", platform ?? {});
+    }
+    await assert.rejects(readFile(marker));
   });
 });
 
@@ -338,6 +664,75 @@ test("timeout, overflow, nonzero exit, and success reap descendant groups", asyn
   }
 });
 
+test("termination signals reap every active Terraform group and retain signal exits", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("POSIX process-group contract");
+    return;
+  }
+  await withTemp(async (fixture) => {
+    const runnerUrl = pathToFileURL(join(
+      process.cwd(),
+      ".node-test/node-src/io/terraform-command.js",
+    )).href;
+    for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+      const directPidFile = join(fixture.root, `${signal}.direct.pid`);
+      const descendantPidFile = join(fixture.root, `${signal}.descendant.pid`);
+      const fake = executable(fixture.root, [
+        `printf '%s' "$$" > '${directPidFile}'`,
+        "sleep 31337 &",
+        "descendant=$!",
+        `printf '%s' "$descendant" > '${descendantPidFile}'`,
+        "wait",
+      ].join("\n"));
+      const harnessFile = join(fixture.root, `${signal}.mjs`);
+      writeFileSync(harnessFile, [
+        `import { runTerraformCommand } from ${JSON.stringify(runnerUrl)};`,
+        "await runTerraformCommand({",
+        `  terraformExecutable: ${JSON.stringify(fake)},`,
+        "  argv: [],",
+        `  cwd: ${JSON.stringify(fixture.cwd)},`,
+        "  environment: {},",
+        "  limits: { timeoutMs: null, maxStdoutBytes: 65536, maxStderrBytes: 4096 },",
+        '  output: "discard",',
+        "});",
+      ].join("\n"));
+      const harness = spawn(process.execPath, [harnessFile], {
+        env: { LANG: "C", LC_ALL: "C", TZ: "UTC" },
+        stdio: "ignore",
+      });
+      const closed = new Promise<{
+        readonly code: number | null;
+        readonly signal: NodeJS.Signals | null;
+      }>((resolve) => {
+        harness.once("close", (code, observedSignal) => resolve({ code, signal: observedSignal }));
+      });
+      await Promise.all([waitForFile(directPidFile), waitForFile(descendantPidFile)]);
+      const directPid = Number((await readFile(directPidFile, "utf8")).trim());
+      const descendantPid = Number((await readFile(descendantPidFile, "utf8")).trim());
+      assert.equal(Number.isSafeInteger(directPid) && directPid > 0, true);
+      assert.equal(Number.isSafeInteger(descendantPid) && descendantPid > 0, true);
+      const [directIdentity, descendantIdentity] = await Promise.all([
+        linuxProcessIdentity(directPid),
+        linuxProcessIdentity(descendantPid),
+      ]);
+      harness.kill(signal);
+      assert.deepEqual(await closed, { code: null, signal });
+      await Promise.all([
+        waitForProcessExit(
+          directPid,
+          directIdentity.kind === "observed" ? directIdentity.startTime : undefined,
+        ),
+        waitForProcessExit(
+          descendantPid,
+          descendantIdentity.kind === "observed"
+            ? descendantIdentity.startTime
+            : undefined,
+        ),
+      ]);
+    }
+  });
+});
+
 test("unresolved, missing, non-executable, and symlink executables fail closed", async (t) => {
   await withTemp(async (fixture) => {
     await t.test("relative executable", async () => {
@@ -454,7 +849,7 @@ test("argument, environment, output, and limit bounds reject hostile inputs", as
           ...baseOptions(fixture, fake),
           limits: {
             ...LIMITS,
-            timeoutMs: 10 * 60 * 1000 + 1,
+            timeoutMs: 1.5,
           },
           output: "discard",
         },

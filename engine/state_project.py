@@ -6,6 +6,7 @@ from engine import projection_fill
 from engine import schema_paths
 from engine.drift_policy import parse_path
 from engine.ops import _same_json_value
+from engine.transform import _matches_default
 from engine.tfschema import (
     attr_type,
     block_is_single,
@@ -22,12 +23,13 @@ class ProjectionError(ValueError):
 
 def project_item(
         resource_type, state_values, sensitive_values=None, policy=None,
-        raw_item=None):
+        raw_item=None, override=None):
     """Project one provider state object into tfvars input shape.
 
     projection_omit applies inline during schema projection and may suppress
     sensitive, absent, or optional fields. Post-projection policy then applies
-    projection_sync, projection_fill, and projection_omit_if in that order.
+    projection_sync, projection_fill, pack drop_if_default, and
+    projection_omit_if in that order.
     """
     _validate_sensitive_mask_shape(sensitive_values, state_values)
     block = load_resource(resource_type)["block"]
@@ -41,8 +43,13 @@ def project_item(
         resource_type=resource_type,
         policy=policy,
     )
-    if policy:
-        _apply_projection_policy(resource_type, out, policy, raw_item=raw_item)
+    _apply_projection_policy(
+        resource_type,
+        out,
+        policy,
+        raw_item=raw_item,
+        override=override,
+    )
     return out
 
 
@@ -235,10 +242,33 @@ def _is_sensitive_attr(sens, name):
     return _any_sensitive(sens.get(name))
 
 
-def _apply_projection_policy(resource_type, out, policy, raw_item=None):
-    _apply_projection_sync(resource_type, out, policy)
-    _apply_projection_fill(resource_type, out, policy, raw_item)
-    _apply_projection_omit_if(resource_type, out, policy)
+def _apply_projection_policy(
+        resource_type, out, policy, raw_item=None, override=None):
+    if policy:
+        _apply_projection_sync(resource_type, out, policy)
+        _apply_projection_fill(resource_type, out, policy, raw_item)
+    _apply_pack_drop_if_default(resource_type, out, override or {})
+    if policy:
+        _apply_projection_omit_if(resource_type, out, policy)
+
+
+def _apply_pack_drop_if_default(resource_type, out, override):
+    for path, default in sorted(
+            (override.get("drop_if_default") or {}).items()):
+        selector = parse_path(path)
+        status = schema_paths.schema_status(resource_type, selector)
+        if status != "optional":
+            raise ProjectionError(
+                "%s pack drop_if_default path %s is not optional "
+                "(schema status %s)" % (resource_type, path, status)
+            )
+        _remove_matching_leaves(
+            out,
+            selector,
+            lambda value, candidate=default: _matches_default(
+                value, candidate),
+            ignore_collection_indexes=True,
+        )
 
 
 def _apply_projection_sync(resource_type, out, policy):
@@ -463,36 +493,56 @@ def _is_absent_or_empty(value):
     )
 
 
-def _remove_matching_leaves(value, selector, predicate, path=()):
+def _remove_matching_leaves(
+        value, selector, predicate, path=(),
+        ignore_collection_indexes=False):
     removed = 0
     if isinstance(value, dict):
         for key in sorted(list(value), key=str):
             child_path = path + (str(key),)
             child = value[key]
+            match_path = (
+                tuple(segment for segment in child_path
+                      if not isinstance(segment, int))
+                if ignore_collection_indexes else child_path
+            )
             if (
                     _is_leaf(child)
-                    and paths.selector_matches(selector, child_path)
+                    and paths.selector_matches(selector, match_path)
                     and predicate(child)):
                 del value[key]
                 removed += 1
                 continue
             removed += _remove_matching_leaves(
-                child, selector, predicate, child_path
+                child,
+                selector,
+                predicate,
+                child_path,
+                ignore_collection_indexes,
             )
         return removed
     if isinstance(value, list):
         for idx in range(len(value) - 1, -1, -1):
             child_path = path + (idx,)
             child = value[idx]
+            match_path = (
+                tuple(segment for segment in child_path
+                      if not isinstance(segment, int))
+                if ignore_collection_indexes else child_path
+            )
             if (
                     _is_leaf(child)
-                    and paths.selector_matches(selector, child_path)
+                    and paths.selector_matches(selector, match_path)
                     and predicate(child)):
                 del value[idx]
                 removed += 1
                 continue
             removed += _remove_matching_leaves(
-                child, selector, predicate, child_path
+                child,
+                selector,
+                predicate,
+                child_path,
+                ignore_collection_indexes,
             )
     return removed
 

@@ -1,3 +1,4 @@
+import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
@@ -213,7 +214,7 @@ for case in payload["cases"]:
     })
 sys.stdout.write(json.dumps(results, ensure_ascii=False))
 `;
-  const child = spawnSync("python3", ["-c", source], {
+  const child = spawnSync(PYTHON_ORACLE, ["-c", source], {
     cwd: process.cwd(),
     encoding: "utf8",
     input: JSON.stringify({ resourceType: RESOURCE_TYPE, cases }),

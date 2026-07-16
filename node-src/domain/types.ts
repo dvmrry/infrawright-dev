@@ -6,6 +6,8 @@ export interface RootCatalogResource {
   readonly slug_label: string | null;
   readonly generated: boolean;
   readonly derived: boolean;
+  /** Whether automatic slug grouping may include this generated module. */
+  readonly slug_group?: boolean;
 }
 
 export interface RootCatalog {
@@ -21,6 +23,7 @@ export interface RootProviderConfig {
   readonly strategy?: "explicit" | "slug";
   readonly groups?: Readonly<Record<string, readonly string[]>>;
   readonly bind_references?: boolean;
+  readonly cross_state_references?: boolean;
 }
 
 export interface Deployment {

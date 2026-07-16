@@ -26,7 +26,7 @@ const MODES = [
   "plan_tolerate",
 ] as const;
 type PolicyMode = typeof MODES[number];
-type PolicyEntry = Record<string, unknown>;
+export type PolicyEntry = Record<string, unknown>;
 
 const MAX_POLICY_ENTRIES = 50_000;
 const MAX_PLAN_TOLERATE_WILDCARDS_PER_RESOURCE = 1_000;
@@ -356,6 +356,19 @@ export class DriftPolicy {
 
   markMatched(entry: PolicyEntry): void {
     this.matched.add(entry);
+  }
+
+  projectionOmits(
+    resourceType: string,
+    path: readonly ConcretePathSegment[],
+  ): boolean {
+    for (const entry of this.entries(resourceType, "projection_omit")) {
+      if (policySelectorMatches(policyPath(entry.path), path)) {
+        this.matched.add(entry);
+        return true;
+      }
+    }
+    return false;
   }
 
   toleratesPlanPath(

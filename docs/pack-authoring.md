@@ -16,13 +16,14 @@ packs/<name>/
 
 Set `INFRAWRIGHT_PACKS=/path/to/packs` to validate or run against a different
 packs root. The effective root is authoritative for manifest discovery,
-registries, pack data, provider collector modules, and collector imports below
-`packs._shared`; collector code cannot fall back to the checkout's bundled
-packs. Changing the environment variable in a long-running Python process
-switches roots on the next pack lookup. Call `engine.packs.reset()` after
-editing metadata in place at the same root. Restart the Python process after
-editing collector source in place; `reset()` does not override Python's normal
-same-path bytecode-cache rules.
+registries, schemas, overrides, and shared pack data. The operational Node CLI
+does not load `collector.py`: for every selected Fetch resource, it resolves
+the resource's actual provider owner and existing `provider_sources`
+declaration before binding a caller-approved `CollectorAdapter`.
+The bundled CLI recognizes its shipped Zscaler provider sources; a library
+caller may inject an adapter for a different provider source. Copying or
+pruning a pack root therefore does not require copying Python code, while an
+unknown provider source fails before credentials or transport are initialized.
 
 For a deliberately reduced pack root, pair that setting with an exact
 `PACK_PROFILE`. See [Pack Distributions And Modular Checks](pack-distributions.md)
@@ -31,12 +32,15 @@ for the profile contract, reduced-root checks, and CI expectations.
 Validate packs with:
 
 ```bash
+npm ci --ignore-scripts
+npm run build:metadata-cli
+
 make check-pack
 make check-pack PACK=zia
 
-python -m engine.check_pack
-python -m engine.check_pack --pack zia
-python -m engine.check_pack PACK=zia
+node dist/infrawright-cli.mjs check-pack
+node dist/infrawright-cli.mjs check-pack --pack zia
+node dist/infrawright-cli.mjs check-pack PACK=zia
 ```
 
 ## `pack.json`
@@ -98,9 +102,9 @@ Detailed diagnostic rule semantics are validated by their lane-specific
 validators. The pack structural validator only checks the containing vocabulary
 and simple types.
 
-`requires_shared` declares runtime code dependencies under
+`requires_shared` declares pack-data dependencies under
 `<packs-root>/_shared/<name>`. Pack validation, exact pack-profile validation,
-and collector loading fail when a declared component is absent. Distribution
+and metadata loading fail when a declared component is absent. Distribution
 profiles and example/test requirements should list those components explicitly
 in their `shared` arrays so the required closure remains visible. The four
 Zscaler provider packs, for example, each declare `requires_shared: ["zscaler"]`.
@@ -228,13 +232,13 @@ provider-specific read/write inconsistencies:
   "drift_policy": {
     "version": 1,
     "resource_types": {
-      "zia_url_filtering_rules": {
+      "sample_widget": {
         "projection_fill": [
           {
-            "path": "cbi_profile",
-            "source": "cbiProfile",
+            "path": "write_profile",
+            "source": "rawProfile",
             "reason": "Provider read omits a write-required field; raw pull carries it.",
-            "approved_by": "zscaler-adoption"
+            "approved_by": "pack-owner"
           }
         ]
       }
@@ -249,6 +253,11 @@ metadata must not silently tolerate plan drift. Keep pack declarations narrow,
 source-backed, and provider-version-specific in their reason text. Do not use
 pack policy for tenant secrets, synthetic defaults, placeholders, or
 environment-specific choices.
+
+This is a generic authoring example, not current ZIA policy. The pinned ZIA
+4.7.26 pack classifies URL-filtering ISOLATE rules as version-scoped
+unsupported before Oracle and intentionally has no `cbi_profile`
+`projection_fill`.
 
 ## Overrides
 
@@ -354,10 +363,16 @@ silently change:
 - generic collector behavior
 
 Provider-specific collector behavior remains code, not declarative metadata.
-A collector-bearing pack directory must be a valid Python identifier and place
-its implementation at `packs/<name>/collector.py`. The pack that declares a
-provider token in `provider_prefixes` owns that provider's collector; its
-directory name does not need to equal the provider token. Absolute imports such
-as `packs._shared.<component>` resolve from the same effective pack root.
-`requires_shared` declares that code dependency without defining or changing
-its behavior.
+In the maintained runtime it is an ordinary typed Node `CollectorAdapter` that
+owns authentication and URL composition. The pack that declares a provider
+token in `provider_prefixes` and its Terraform source in `provider_sources`
+owns that product's registry metadata; its directory name need not equal the
+provider token. The CLI resolves only provider sources for which it ships an
+adapter and verifies that each selected resource's registry product matches
+that adapter. Resources sharing a product cannot span different provider
+sources.
+Custom sources require a library caller to supply the matching adapter.
+
+The remaining `packs/*/collector.py` files are retained Python parity and
+archive inputs. They are not loaded, imported, or required by `make fetch`,
+`fetch-diag`, the bundled CLI, or an external operational pack root.

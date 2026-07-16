@@ -7,9 +7,17 @@ import type { Deployment, RootProviderConfig } from "./types.js";
 import { readOptionalUtf8 } from "../io/files.js";
 import { parseControlJson } from "../json/control.js";
 import { sortedStrings } from "../json/python-compatible.js";
+import path from "node:path";
 
 const ROOT_LABEL = /^[a-z0-9_]+$/;
-const PROVIDER_KEYS = new Set(["strategy", "groups", "bind_references"]);
+const PROVIDER_KEYS = new Set([
+  "strategy",
+  "groups",
+  "bind_references",
+  "cross_state_references",
+]);
+
+export type ReferenceBindingMode = "disabled" | "same_root" | "cross_state";
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -105,10 +113,22 @@ function validateRootConfig(
   ) {
     return malformed(`roots.${provider}.bind_references must be a bool`);
   }
+  if (
+    value.cross_state_references !== undefined
+    && typeof value.cross_state_references !== "boolean"
+  ) {
+    return malformed(`roots.${provider}.cross_state_references must be a bool`);
+  }
+  if (value.bind_references === true && value.cross_state_references === true) {
+    return malformed(
+      `roots.${provider}.bind_references and cross_state_references are mutually exclusive`,
+    );
+  }
   const output: {
     strategy?: "explicit" | "slug";
     groups?: Readonly<Record<string, readonly string[]>>;
     bind_references?: boolean;
+    cross_state_references?: boolean;
   } = {};
   if (strategy !== undefined) {
     output.strategy = strategy;
@@ -119,7 +139,20 @@ function validateRootConfig(
   if (typeof value.bind_references === "boolean") {
     output.bind_references = value.bind_references;
   }
+  if (typeof value.cross_state_references === "boolean") {
+    output.cross_state_references = value.cross_state_references;
+  }
   return output;
+}
+
+export function deploymentReferenceBindingMode(
+  deployment: Deployment,
+  provider: string,
+): ReferenceBindingMode {
+  const config = deployment.roots[provider];
+  if (config?.cross_state_references === true) return "cross_state";
+  if (config?.bind_references === true) return "same_root";
+  return "disabled";
 }
 
 function validateDeployment(value: unknown): Deployment {
@@ -178,6 +211,84 @@ function deploymentFromText(text: string | null): Deployment {
 
 export async function loadDeployment(path: string): Promise<Deployment> {
   return deploymentFromText(await readOptionalUtf8(path, "deployment"));
+}
+
+export function deploymentPath(options?: {
+  readonly explicit?: string;
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly cwd?: string;
+}): string {
+  const environment = options?.environment ?? process.env;
+  const selected = options?.explicit || environment.INFRAWRIGHT_DEPLOYMENT;
+  return selected || path.join(options?.cwd ?? process.cwd(), "deployment.json");
+}
+
+export function deploymentOverlay(deployment: Deployment): string {
+  if (typeof deployment.overlay !== "string") {
+    return malformed("deployment overlay must be a string");
+  }
+  return deployment.overlay || ".";
+}
+
+export function deploymentTfvarsFormat(deployment: Deployment): "json" | "hcl" {
+  const value = deployment.tfvars_format ?? "json";
+  if (value !== "json" && value !== "hcl") {
+    return malformed("deployment tfvars_format must be 'json' or 'hcl'");
+  }
+  return value;
+}
+
+export function deploymentModuleDir(deployment: Deployment): string {
+  if (deployment.module_dir !== undefined) {
+    if (typeof deployment.module_dir !== "string") {
+      return malformed("deployment module_dir must be a string");
+    }
+    if (deployment.module_dir.length > 0) return deployment.module_dir;
+  }
+  const overlay = deploymentOverlay(deployment);
+  return overlay === "." ? "modules" : path.join(overlay, "modules", "default");
+}
+
+export function deploymentTenantRoot(
+  deployment: Deployment,
+  _tenant: string,
+): string {
+  return deploymentOverlay(deployment);
+}
+
+function deploymentTenantPath(
+  deployment: Deployment,
+  tenant: string,
+  kind: "config" | "imports" | "envs",
+): string {
+  const relative = path.join(kind, tenant);
+  const root = deploymentTenantRoot(deployment, tenant);
+  return root === "." ? relative : path.join(root, relative);
+}
+
+export function deploymentConfigDir(
+  deployment: Deployment,
+  tenant: string,
+): string {
+  return deploymentTenantPath(deployment, tenant, "config");
+}
+
+export function deploymentImportsDir(
+  deployment: Deployment,
+  tenant: string,
+): string {
+  return deploymentTenantPath(deployment, tenant, "imports");
+}
+
+export function deploymentEnvsDir(
+  deployment: Deployment,
+  tenant: string,
+): string {
+  return deploymentTenantPath(deployment, tenant, "envs");
+}
+
+export function deploymentPullsDir(tenant: string): string {
+  return path.join("pulls", tenant);
 }
 
 export async function loadBoundAssessmentDeployment(

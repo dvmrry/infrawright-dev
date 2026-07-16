@@ -2,7 +2,10 @@
 
 The root `Makefile` is the stable product command surface. Overlay Makefiles may
 add local workflows, but they should not redefine the meaning of the core
-adoption commands.
+adoption commands. These targets are thin adapters over the generic Node 24
+`infrawright` CLI; the authoritative production inventory and the intentionally
+retained Python maintainer surfaces are listed in
+[Operational Node Runtime](operational-runtime.md).
 
 ## Primary Adoption Flow
 
@@ -11,6 +14,7 @@ These commands are the normal import-oracle adoption workflow:
 ```text
 fetch
   -> adopt
+  -> gen-modules
   -> gen-env
   -> stage-imports
   -> plan SAVE=1
@@ -24,11 +28,18 @@ Command responsibilities:
 |---|---|
 | `make fetch` | Collect raw provider inventory/detail JSON into `pulls/<tenant>`. |
 | `make adopt` | Use Terraform/OpenTofu import as the provider-state oracle and write projected config/import artifacts. |
+| `make gen-modules` | Generate the deployment-selected reusable Terraform/OpenTofu modules. |
 | `make gen-env` | Generate isolated Terraform/OpenTofu env roots that source the deployment-selected module set. |
 | `make stage-imports` | Copy generated `import {}` and `moved {}` blocks into env roots. |
 | `make plan SAVE=1` | Run Terraform/OpenTofu plans and save plan artifacts for later gates. |
 | `make assert-adoptable` | Classify saved plans as clean, tolerated by explicit policy, or blocked. Guidance annotations never make a blocked plan clean. |
 | `make apply` | Reclassify saved plans and apply only when they are clean/import-only or fully tolerated by explicit policy; destructive or non-main workflows still require explicit safety flags. |
+
+Adopt's provider Oracle may execute a mechanically verified import-only plan
+against ephemeral local scratch state so provider Read can supply projected
+configuration. That local-only transaction cannot create, update, replace, or
+destroy remote objects and is distinct from the later deployment `make apply`.
+Deployment Apply rechecks and executes only the exact saved `tfplan`.
 
 Supporting adoption commands:
 
@@ -84,7 +95,7 @@ Emit configured root topology with:
 
 ```sh
 make roots TENANT=prod RESOURCE="zpa_application_segment zpa_segment_group"
-# or: python -m engine.ops roots --json --tenant prod zpa
+# or: node dist/infrawright-cli.mjs roots --tenant prod --resource zpa
 ```
 
 The topology is derived from deployment configuration and pack metadata; env
@@ -103,10 +114,9 @@ tenant values fail before any topology JSON is emitted.
 Map changed paths directly to affected resources and whole logical roots with:
 
 ```sh
-python -m engine.ops scope-paths --json \
-  --path config/prod/zpa_application_segment.auto.tfvars.json
-# or pass a JSON array produced by downstream changed.py
 make scope-paths PATHS_JSON=changed-paths.json
+# or: node dist/infrawright-cli.mjs scope-paths \
+#       --paths-json changed-paths.json
 ```
 
 `scope-paths` is deliberately VCS-agnostic: it never invokes Git and accepts
@@ -135,7 +145,8 @@ Enumerate materialized env roots and their plan-artifact pair with:
 
 ```sh
 make plan-roots TENANT=prod RESOURCE=zpa_application_segment
-# or: python -m engine.ops plan-roots --json --tenant prod zpa
+# or: node dist/infrawright-cli.mjs plan-roots \
+#       --tenant prod --resource zpa_application_segment
 ```
 
 Each result includes the tenant, logical root, complete member list, provider,
@@ -170,6 +181,9 @@ before and after `terraform show`, and the plan, fingerprint, and current plan
 sources (plus policy, when supplied) are rechecked immediately before report
 publication. A concurrent change writes an error assessment and fails the gate
 instead of publishing a successful classification bound to different evidence.
+Import-only actions remain part of the internal clean classification evidence;
+because `clean` is an aggregate v1 status rather than a reportable finding
+status, clean/import-only roots emit an empty `findings` list.
 
 Finding paths and guidance paths deliberately expose two domains. Each
 `findings[].paths` and `guidance[].finding_path` is a concrete plan-space path
@@ -215,11 +229,15 @@ fail closed on new, stale, or still-evidence-gated differences. It is a
 diagnostic and does not make either path authoritative.
 
 Full `make transform` and `make adopt` runs process selected resource types in
-pack reference order, so a referent lookup sidecar is refreshed before same-root
-referrers derive generated bindings. A selective transform of only a referrer
-derives bindings from the committed referent sidecar by design; backfill
-pipelines commit sidecars, and operators should re-run the referent first when
-that referent changed.
+pack reference order. Explicit `lookup_sources` remain always-on pack outputs.
+When `bind_references` or `cross_state_references` is enabled, the engine also
+derives the lookup needed by each declared referent from the reference's
+`name_field`, so that sidecar is refreshed before referrers derive generated
+bindings. Those reference-derived sidecars are mode-scoped and are removed on
+a later disabled run; a deployment with neither option retains the legacy
+artifact tree. A selective transform of only a referrer consumes the committed
+referent sidecar by design, so operators should run the referent first whenever
+its identity evidence changed.
 
 Generated tenant config is JSON by default. Set `tfvars_format` to `hcl` in the
 active `deployment.json` to write `<resource_type>.auto.tfvars` instead of
@@ -260,6 +278,7 @@ provider entry supports:
 | `strategy` | `"explicit"` or `"slug"`; absent means `"explicit"`. |
 | `groups` | Optional map of `<root_label>` to resource type list. Listed members share `envs/<tenant>/<root_label>/`. |
 | `bind_references` | Optional boolean, default `false`; when true, generate group-local expression bindings for pack-declared references whose referent is in the same grouped root. |
+| `cross_state_references` | Optional boolean, default `false`; when true, same-root references use module outputs and cross-root references use minimal remote-state ID outputs. Mutually exclusive with `bind_references`. |
 
 Explicit `groups` always win for their listed members. With `strategy: "slug"`,
 remaining resource types are grouped by provider prefix plus the first token
@@ -279,11 +298,24 @@ CLI prints:
 NOTE: selecting <member> selects whole root <root_label>; also operating on <other_members>
 ```
 
+The operational `gen-modules` and `validate-modules` commands use this same
+expansion whenever a deployment and selector are supplied. Thus selecting
+either grouped member materializes and validates the complete module set that
+`gen-env` references. The low-level module renderer remains exact-resource.
+
 `stage-imports` copies every selected root member's
 `<resource_type>_imports.tf` and `<resource_type>_moves.tf` into the shared root.
 `plan` passes one `-var-file` for each member config file that exists and emits
 a skip note for missing member config. `assert-clean`, `assert-adoptable`,
 `clean-plans`, and `apply` operate once per root plan.
+
+An existing generated moves file is durable unresolved migration evidence.
+Transform and Adopt preserve it byte-for-byte when a rerun derives no new move
+or rederives the same bytes. A different newly derived move set fails closed
+before any config, lookup, binding, imports, or moves output is changed. The
+engine never removes an existing moves file merely because the imports
+baseline has advanced; explicit removal is an operator decision after the
+corresponding state migration is confirmed.
 
 When `bind_references` is true, transform/adopt may write
 `config/<tenant>/<resource_type>.generated.expressions.json` beside the
@@ -295,13 +327,104 @@ target same-root references and resolve them through sibling module outputs:
 
 Bindings are explicit generated artifacts; tfvars keep the raw IDs and readback still round-trips.
 
+### Opt-in Cross-state References
+
+For a new deployment, cross-state references normally replace automatic slug
+grouping rather than supplement it. Keep the default `"explicit"` strategy (or
+omit `strategy`) so every resource type retains its singleton state, and opt in
+per provider:
+
+```json
+{
+  "roots": {
+    "zia": { "cross_state_references": true },
+    "zpa": { "cross_state_references": true }
+  }
+}
+```
+
+Pack-declared references within one explicit group still use `module.*`.
+References between roots use `terraform_remote_state` and a generated,
+sensitive `infrawright_reference_ids` root output containing only stable config
+keys mapped to provider IDs. Complete resource objects are never exported.
+Predefined or system identifiers absent from a managed referent lookup remain
+literal values with a visible binding diagnostic.
+
+Explicit groups remain supported for existing state topology and for a genuine
+reference cycle. Enabling cross-state mode never splits or migrates an existing
+group. A declared cycle between states fails before root files or Terraform
+commands; group every member of that cycle deliberately if one state is the
+correct ownership boundary.
+
+The first import is dependency ordered, not plan-all/apply-all. Materialize and
+apply each referent state before planning its referrers. The existing
+`make resources-reference-order` output supplies referent-first resource order.
+When `gen-env` selects a referrer, it automatically materializes that root's
+complete cross-state referent dependency closure so every producer root contains
+the required output. Later plan and Apply commands remain explicitly
+referent-first; they do not silently widen a deployment operation.
+Do not mutate, replace, or re-adopt a referent between planning and applying a
+dependent referrer. A referent-state change invalidates the dependent plan
+operationally even though the saved-plan fingerprint covers only the dependent
+root's local inputs; regenerate and reassess every affected referrer plan.
+After the last import-only Apply, repeat the complete sequence from a fresh
+workspace and require no-op plans.
+
+Local roots read sibling `terraform.tfstate` files. Generated `azurerm` roots
+reuse the same backend address data passed to `terraform init`, but each data
+source derives its own `<tenant>/<referent-root>.tfstate` key. In cross-state
+mode `BACKEND_CONFIG` must be a JSON object containing non-secret backend
+address fields, for example:
+
+```json
+{
+  "resource_group_name": "terraform-state",
+  "storage_account_name": "example",
+  "container_name": "tfstate",
+  "use_azuread_auth": true
+}
+```
+
+The projection into `terraform_remote_state` is a strict allowlist. String
+fields are limited to `storage_account_name`, `container_name`,
+`resource_group_name`, `subscription_id`, and `tenant_id`; reviewed boolean
+fields are limited to `lookup_blob_endpoint`, `use_azuread_auth`, `use_cli`,
+`use_msi`, and `use_oidc`. Every other field fails closed. In particular, do
+not put `key`, client identifiers, access keys, SAS tokens, client secrets,
+OIDC token values or files, MSI endpoints, or certificate paths or credentials
+in that file. Credential material remains environment- or
+managed-identity-owned. Pass the same file to `stage-imports`, `plan`,
+`assert-adoptable`, and `apply`; its bytes remain covered by saved-plan
+fingerprinting.
+
+Terraform's `terraform_remote_state` data source grants the referrer access to
+the complete referent state snapshot, not only its declared outputs. The
+generated root exposes only the minimal ID map to Terraform expressions, but
+backend authorization must still treat the referrer as a reader of the full
+referent state. Use this mode only where that trust boundary is acceptable.
+
 ### Binding Validation Limits
 
-When `tfvars_format: hcl` is active, operator-authored expression sidecars are
-validated by Terraform/OpenTofu at plan time only. The engine does not parse HCL
-tfvars back into data; generated bindings are leaf-exact by construction before
-the HCL file is written. Generated reference binding derivation supports only
-top-level reference fields. Dotted or nested referent paths are not derived.
+Expression-binding target paths are validated against the pinned provider
+schema for both JSON and native-HCL tfvars. Exact canonical numeric selectors
+such as `server_groups[0].id` may traverse ordered lists. Wildcard, identity,
+negative, quoted, noncanonical, and unordered multi-element set selectors are
+rejected. A path that crosses a list without an explicit index also fails
+closed. JSON tfvars receive an additional concrete leaf/index existence check;
+the engine does not parse HCL tfvars back into data, so a structurally valid but
+out-of-range HCL selector fails during Terraform validation or planning.
+
+Generated reference binding derivation remains limited to pack-declared,
+source-backed reference fields. Indexed-path support does not infer new nested
+references from matching field names and does not expand the current pack
+reference inventory by itself.
+
+This capability does not make ZIA URL-filtering `ISOLATE` rules adoptable with
+the pinned `zscaler/zia` provider 4.7.26. Version-scoped `unsupported_if`
+classification occurs before identity derivation and the import Oracle, while
+root expression bindings are applied later during environment generation. The
+provider's import Read still does not reconstruct `cbi_profile`; do not remove
+that fail-closed classification on the strength of an indexed root binding.
 
 Generated binding skip/fallback semantics:
 
@@ -311,7 +434,16 @@ Generated binding skip/fallback semantics:
 | ID is absent from the referent lookup | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
 | Referent lookup sidecar has no `key_by_id` map | Leave the literal ID in tfvars and print a `NOTE bindings:` skip; rerun transform/adopt for the referent to refresh the sidecar. |
 | Referent key contains Terraform template interpolation syntax | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
-| Reference crosses a group/root boundary | No generated binding is considered; existing literal/comment behavior applies. |
+| Reference crosses a group/root boundary with cross-state mode disabled | No generated binding is considered; existing literal/comment behavior applies. |
+| Reference crosses a root boundary with cross-state mode enabled | Bind through the referent root's minimal `infrawright_reference_ids` output. |
+
+The saved-plan assessor and exact-plan Apply do not trust that output by name.
+For a referent root selected from the loaded pack/deployment context, they bind
+the expected referent resource types from the cross-state topology and rebuild
+the exact stable-key-to-provider-ID map from Terraform's planned child-module
+resources. Only a fully known, sensitive create/update matching that map is
+treated as engine-owned plan metadata. Every other non-no-op output remains
+outside the saved-plan contract.
 
 Group membership is fixed at first import. Changing it later means a fresh re-bootstrap of the affected types into new state — there is no regroup tooling, by design.
 
@@ -338,11 +470,12 @@ These commands keep the shipped demo and generators healthy:
 | Command | Responsibility |
 |---|---|
 | `make demo` | Overlay-owned demo workflow from `demo/Makefile`; materializes demo config/import artifacts and local generated modules. |
-| `make demo-contract` | Credential-free demo contract check: materializes the demo, verifies committed demo config/import artifacts do not drift, rejects stale demo moved-block files, and checks the generated demo module tree. |
+| `make demo-contract` | Credential-free demo contract check: consumes the shipped bundle without npm/Python, materializes the demo, verifies committed demo config/import artifacts do not drift, rejects stale demo moved-block files, and checks the generated demo module tree. |
 | `make check-demo` | Verifies committed demo config/import artifacts do not drift. |
 | `make check-modules` | Generates modules in a temporary deployment and checks generator output. |
-| `make test` | Runs unit tests. |
-| `make check` | Runs unit tests, demo drift checks, module generator checks, pack validation, and vendor-boundary audit. |
+| `make test` / `make test-node` | Runs the Python-independent Node suite selected for the active pack profile and separately reports pack-excluded and retained Python differential files. |
+| `make test-python-legacy` | Runs the retained Python implementation and migration suite during the archive window. |
+| `make check` / `make check-node` | Runs the Node suite, demo drift checks, module generator checks, pack validation, and the Node vendor-boundary audit without invoking Python. |
 
 The generated demo module tree remains local/ignored. It is not part of the
 public committed surface. `make demo-contract` is intentionally not a live
@@ -353,15 +486,17 @@ flow.
 
 Collectors gather provider data. They do not own adoption semantics.
 
-`make fetch` currently invokes the shared REST collector entrypoint:
+`make fetch` invokes the bundled Node CLI's shared REST collector coordinator:
 
 ```text
-python -m engine.collectors.rest
+node dist/infrawright-cli.mjs fetch
 ```
 
-That entrypoint is product code, but provider-specific collection behavior
-belongs in packs and pack-owned helpers. A collector may know how to authenticate,
-page, call list/detail endpoints, and write raw JSON into `pulls/<tenant>`.
+The generic Node library owns registry selection, pagination, retries, failure
+aggregation, and deterministic pull-file output. Resource list/detail metadata
+remains in pack registries; built-in product adapters own authentication and URL
+composition. A collector may authenticate, page, call list/detail endpoints,
+and write raw JSON into `pulls/<tenant>`.
 
 A collector must not:
 

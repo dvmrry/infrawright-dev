@@ -1,0 +1,10 @@
+{
+  "acknowledged_drops": [
+    "is_non_editable"
+  ],
+  "skip_if": [
+    {
+      "is_non_editable": true
+    }
+  ]
+}
