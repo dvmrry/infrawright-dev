@@ -93,6 +93,80 @@ try {
   run("tar", ["-xf", archive, "-C", stage]);
   run("npm", ["ci", "--ignore-scripts"], { cwd: stage, timeout: 240_000 });
   run("npm", ["run", "build"], { cwd: stage, timeout: 240_000 });
+
+  const packed = JSON.parse(run("npm", [
+    "pack",
+    "--ignore-scripts",
+    "--json",
+    "--silent",
+    "--pack-destination",
+    temporary,
+  ], { cwd: stage }).stdout);
+  if (
+    !Array.isArray(packed)
+    || packed.length !== 1
+    || typeof packed[0] !== "object"
+    || packed[0] === null
+  ) {
+    throw new Error("npm pack did not describe exactly one runtime package");
+  }
+  const packedFilename = packed[0].filename;
+  if (
+    typeof packedFilename !== "string"
+    || packedFilename.length === 0
+    || path.basename(packedFilename) !== packedFilename
+  ) {
+    throw new Error("npm pack returned an unsafe runtime package filename");
+  }
+  const packedPaths = new Set(
+    Array.isArray(packed[0].files)
+      ? packed[0].files.map((file) => file?.path).filter((file) => typeof file === "string")
+      : [],
+  );
+  for (const required of [
+    "dist/infrawright-cli.mjs",
+    "dist/infrawright-cli.mjs.sha256",
+  ]) {
+    if (!packedPaths.has(required)) {
+      throw new Error(`npm package omits required runtime file ${required}`);
+    }
+  }
+  const packedArchive = path.join(temporary, packedFilename);
+  const installedPrefix = path.join(temporary, "installed-cli");
+  run("npm", [
+    "install",
+    "--global",
+    "--ignore-scripts",
+    "--no-audit",
+    "--no-fund",
+    "--no-package-lock",
+    "--offline",
+    "--prefix",
+    installedPrefix,
+    packedArchive,
+  ], { cwd: temporary, timeout: 240_000 });
+  const iwHelp = run(path.join(installedPrefix, "bin", "iw"), ["--help"], {
+    cwd: temporary,
+  });
+  const compatibilityHelp = run(
+    path.join(installedPrefix, "bin", "infrawright"),
+    ["--help"],
+    { cwd: temporary },
+  );
+  if (iwHelp.stderr !== "" || compatibilityHelp.stderr !== "") {
+    throw new Error("installed CLI aliases wrote unexpected help diagnostics");
+  }
+  if (iwHelp.stdout !== compatibilityHelp.stdout) {
+    throw new Error("installed CLI aliases do not expose identical help output");
+  }
+  if (
+    !iwHelp.stdout.startsWith("usage:\n")
+    || !iwHelp.stdout.includes("  iw check-pack")
+    || /^  infrawright /mu.test(iwHelp.stdout)
+  ) {
+    throw new Error("installed CLI help does not present iw as the canonical command");
+  }
+
   await rm(path.join(stage, "node_modules"), { force: true, recursive: true });
   await rm(path.join(stage, ".node-test"), { force: true, recursive: true });
   run(process.execPath, [path.join(stage, "scripts", "verify-runtime-release.mjs"), stage], {
