@@ -6,7 +6,11 @@ import type {
   RootCatalog,
   RootCatalogResource,
 } from "../domain/types.js";
-import { sortedStrings } from "../json/python-compatible.js";
+import {
+  renderPythonCompatibleJson,
+  sortedStrings,
+  type JsonValue,
+} from "../json/python-compatible.js";
 import type { LoadedPackRoot } from "./loader.js";
 import { fail } from "./validation.js";
 
@@ -141,9 +145,7 @@ export async function renderRootCatalog(
   root: LoadedPackRoot,
   requestedProviders?: readonly string[],
 ): Promise<string> {
-  return `${JSON.stringify(
-    await buildRootCatalog(root, requestedProviders),
-    null,
-    2,
-  )}\n`;
+  return renderPythonCompatibleJson(
+    await buildRootCatalog(root, requestedProviders) as unknown as JsonValue,
+  );
 }
