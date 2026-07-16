@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
 
 import { DriftPolicy } from "../node-src/domain/drift-policy.js";
@@ -7,7 +8,7 @@ import {
   applyGeneratedConfigPolicy,
   GeneratedConfigPolicyError,
 } from "../node-src/domain/generated-config-policy.js";
-import type { LoadedPackRoot } from "../node-src/metadata/loader.js";
+import { loadPackRoot, type LoadedPackRoot } from "../node-src/metadata/loader.js";
 import type { JsonObject } from "../node-src/metadata/validation.js";
 
 const SCHEMA: JsonObject = {
@@ -129,6 +130,91 @@ test("pack drop_if_default preserves nonmatching provider values", async () => {
     root: root({ drop_if_default: { size_quota: 0 } }),
   });
   assert.deepEqual(result, { edits: 0, text: generated });
+});
+
+test("committed ZIA pack defaults remove only exact empty enums from generated config", async () => {
+  const committed = await loadPackRoot({
+    packsRoot: path.join(process.cwd(), "packs"),
+    profilePath: path.join(process.cwd(), "packsets", "full.json"),
+    catalogPath: path.join(process.cwd(), "packsets", "full.json"),
+  });
+  const cases = [{
+    resourceType: "zia_dlp_dictionaries",
+    edits: 2,
+    generated: `resource "zia_dlp_dictionaries" "iw_deadbeef" {
+  confidence_level_for_predefined_dict = ""
+  confidence_threshold                 = ""
+}
+`,
+  }, {
+    resourceType: "zia_http_header_profile",
+    edits: 2,
+    generated: `resource "zia_http_header_profile" "iw_deadbeef" {
+  name = "Header"
+
+  http_header_profile_criteria {
+    header     = "USERAGENT"
+    operator   = ""
+    user_agent = ""
+  }
+}
+`,
+  }, {
+    resourceType: "zia_location_management",
+    edits: 3,
+    generated: `resource "zia_location_management" "iw_deadbeef" {
+  display_time_unit           = ""
+  name                        = "Location"
+  sub_loc_scope               = ""
+  surrogate_refresh_time_unit = ""
+}
+`,
+  }, {
+    resourceType: "zia_ssl_inspection_rules",
+    edits: 1,
+    generated: `resource "zia_ssl_inspection_rules" "iw_deadbeef" {
+  name  = "SSL"
+  order = 1
+
+  action {
+    type = "DO_NOT_DECRYPT"
+
+    do_not_decrypt_sub_actions {
+      bypass_other_policies = true
+      min_tls_version       = ""
+    }
+  }
+}
+`,
+  }] as const;
+
+  for (const fixture of cases) {
+    const address = `${fixture.resourceType}.iw_deadbeef`;
+    const empty = await applyGeneratedConfigPolicy({
+      addressToKey: new Map([[address, "example"]]),
+      generatedConfig: fixture.generated,
+      policy: null,
+      resourceType: fixture.resourceType,
+      root: committed,
+    });
+    assert.equal(empty.edits, fixture.edits, `${fixture.resourceType} empty edits`);
+    const nonempty = await applyGeneratedConfigPolicy({
+      addressToKey: new Map([[address, "example"]]),
+      generatedConfig: fixture.generated.replaceAll('= ""', '= "SET"'),
+      policy: null,
+      resourceType: fixture.resourceType,
+      root: committed,
+    });
+    assert.equal(nonempty.edits, 0, `${fixture.resourceType} nonempty edits`);
+    const nullable = await applyGeneratedConfigPolicy({
+      addressToKey: new Map([[address, "example"]]),
+      generatedConfig: fixture.generated.replaceAll('= ""', "= null"),
+      policy: null,
+      resourceType: fixture.resourceType,
+      root: committed,
+    });
+    assert.equal(nullable.edits, 0, `${fixture.resourceType} null edits`);
+  }
 });
 
 test("pack defaults precede overlapping conditional drift omissions", async () => {

@@ -2553,6 +2553,28 @@ class OverrideAuthoringValidationTest(unittest.TestCase):
         self.assertEqual(
             load_override("zia_browser_control_policy")
             ["drop_if_default"]["plugin_check_frequency"], "")
+        self.assertEqual(
+            load_override("zia_dlp_dictionaries")["drop_if_default"],
+            {
+                "confidence_level_for_predefined_dict": "",
+                "confidence_threshold": "",
+            })
+        self.assertEqual(
+            load_override("zia_http_header_profile")["drop_if_default"],
+            {
+                "http_header_profile_criteria.operator": "",
+                "http_header_profile_criteria.user_agent": "",
+            })
+        self.assertEqual(
+            load_override("zia_location_management")["drop_if_default"],
+            {
+                "display_time_unit": "",
+                "sub_loc_scope": "",
+                "surrogate_refresh_time_unit": "",
+            })
+        self.assertEqual(
+            load_override("zia_ssl_inspection_rules")["drop_if_default"],
+            {"action.do_not_decrypt_sub_actions.min_tls_version": ""})
 
 
 

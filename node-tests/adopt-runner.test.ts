@@ -1133,7 +1133,7 @@ test("committed ZIA empty-string defaults are absent from adopted tfvars", async
     resourceType: "zia_firewall_filtering_network_service",
     raw: { id: "42", name: "Example" },
     stateValues: { id: "42", name: "Example", tag: "" },
-    field: "tag",
+    fields: ["tag"],
   }, {
     resourceType: "zia_browser_control_policy",
     raw: {},
@@ -1141,7 +1141,49 @@ test("committed ZIA empty-string defaults are absent from adopted tfvars", async
       id: "browser_settings",
       plugin_check_frequency: "",
     },
-    field: "plugin_check_frequency",
+    fields: ["plugin_check_frequency"],
+  }, {
+    resourceType: "zia_dlp_dictionaries",
+    raw: { id: "43", name: "Dictionary" },
+    stateValues: {
+      id: "43",
+      confidence_level_for_predefined_dict: "",
+      confidence_threshold: "",
+    },
+    fields: ["confidence_level_for_predefined_dict", "confidence_threshold"],
+  }, {
+    resourceType: "zia_http_header_profile",
+    raw: { id: "44", name: "Header" },
+    stateValues: {
+      id: "44",
+      name: "Header",
+      http_header_profile_criteria: [{ header: "USERAGENT", operator: "", user_agent: "" }],
+    },
+    fields: ["operator", "user_agent"],
+  }, {
+    resourceType: "zia_location_management",
+    raw: { id: "45", name: "Location" },
+    stateValues: {
+      id: "45",
+      name: "Location",
+      display_time_unit: "",
+      sub_loc_scope: "",
+      surrogate_refresh_time_unit: "",
+    },
+    fields: ["display_time_unit", "sub_loc_scope", "surrogate_refresh_time_unit"],
+  }, {
+    resourceType: "zia_ssl_inspection_rules",
+    raw: { id: "46", name: "SSL", order: 1 },
+    stateValues: {
+      id: "46",
+      name: "SSL",
+      order: 1,
+      action: [{
+        type: "DO_NOT_DECRYPT",
+        do_not_decrypt_sub_actions: [{ bypass_other_policies: true, min_tls_version: "" }],
+      }],
+    },
+    fields: ["min_tls_version"],
   }] as const;
 
   for (const fixture of fixtures) {
@@ -1182,8 +1224,63 @@ test("committed ZIA empty-string defaults are absent from adopted tfvars", async
       Object.values(items)[0],
       `${fixture.resourceType}.items[0]`,
     );
-    assert.equal(Object.hasOwn(adoptedItem, fixture.field), false, fixture.resourceType);
+    const serialized = JSON.stringify(adoptedItem);
+    for (const field of fixture.fields) {
+      assert.equal(
+        serialized.includes(`${JSON.stringify(field)}:`),
+        false,
+        `${fixture.resourceType}.${field}`,
+      );
+    }
   }
+});
+
+test("forwarding system rules are excluded before the Oracle without hiding managed rules", async (context) => {
+  const workspace = await temporaryDirectory(context, "infrawright-adopt-forwarding-system-");
+  const input = path.join(workspace, "pulls");
+  const resourceType = "zia_forwarding_control_rule";
+  await writeJson(path.join(input, `${resourceType}.json`), [{
+    id: "system",
+    name: "Fallback Mode of ZPA Forwarding",
+    order: -5,
+    forwardMethod: "DIRECT",
+  }, {
+    id: "managed",
+    name: "Managed Forwarding Rule",
+    order: 1,
+    forwardMethod: "DIRECT",
+  }]);
+  const root = await committedRoot();
+  let oracleKeys: readonly string[] = [];
+  const result = await runAdoptBatch({
+    deployment: deployment(workspace),
+    inputDirectory: input,
+    policy: await loadAdoptionPolicy({ root }),
+    root,
+    selectors: [resourceType],
+    stateLoader: async (request) => {
+      oracleKeys = [...request.keyToImportId.keys()];
+      return new Map(oracleKeys.map((key) => [key, {
+        address: `${resourceType}.fixture`,
+        sensitiveValues: {},
+        values: {
+          forward_method: "DIRECT",
+          id: "managed",
+          name: "Managed Forwarding Rule",
+          order: 1,
+        },
+      }]));
+    },
+    tenant: "tenant",
+  });
+
+  assert.deepEqual(result.failed, []);
+  assert.deepEqual(oracleKeys, ["managed_forwarding_rule"]);
+  const tfvars = JSON.parse(await readFile(
+    path.join(workspace, "config", "tenant", `${resourceType}.auto.tfvars.json`),
+    "utf8",
+  )) as { readonly items: Readonly<Record<string, unknown>> };
+  assert.deepEqual(Object.keys(tfvars.items), ["managed_forwarding_rule"]);
 });
 
 test("Adopt preserves unresolved move evidence on an identical rerun", async (context) => {

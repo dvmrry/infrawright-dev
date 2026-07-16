@@ -159,6 +159,196 @@ test("committed ZIA overrides drop raw empty-string sentinels", async () => {
   }
 });
 
+test("committed ZIA overrides omit live-proven empty enums and retain real values", async () => {
+  const root = await loadPackRoot({
+    packsRoot: path.join(process.cwd(), "packs"),
+    profilePath: path.join(process.cwd(), "packsets", "full.json"),
+    catalogPath: path.join(process.cwd(), "packsets", "full.json"),
+  });
+  const cases = [{
+    resourceType: "zia_dlp_dictionaries",
+    empty: {
+      id: "1",
+      name: "Dictionary",
+      confidenceLevelForPredefinedDict: "",
+      confidenceThreshold: "",
+    },
+    nullable: {
+      id: "1",
+      name: "Dictionary",
+      confidenceLevelForPredefinedDict: null,
+      confidenceThreshold: null,
+    },
+    retained: {
+      id: "1",
+      name: "Dictionary",
+      confidenceLevelForPredefinedDict: "HIGH",
+      confidenceThreshold: "MEDIUM",
+    },
+    emptyExpected: { name: "Dictionary" },
+    nullExpected: {
+      confidence_level_for_predefined_dict: null,
+      confidence_threshold: null,
+      name: "Dictionary",
+    },
+    retainedExpected: {
+      confidence_level_for_predefined_dict: "HIGH",
+      confidence_threshold: "MEDIUM",
+      name: "Dictionary",
+    },
+  }, {
+    resourceType: "zia_http_header_profile",
+    empty: {
+      id: "2",
+      name: "Header",
+      httpHeaderProfileCriteria: [{ header: "USERAGENT", operator: "", userAgent: "" }],
+    },
+    nullable: {
+      id: "2",
+      name: "Header",
+      httpHeaderProfileCriteria: [{ header: "USERAGENT", operator: null, userAgent: null }],
+    },
+    retained: {
+      id: "2",
+      name: "Header",
+      httpHeaderProfileCriteria: [{
+        header: "USERAGENT",
+        operator: "UAVERSIONEQ",
+        userAgent: "FIREFOX",
+      }],
+    },
+    emptyExpected: {
+      http_header_profile_criteria: [{ header: "USERAGENT" }],
+      name: "Header",
+    },
+    nullExpected: {
+      http_header_profile_criteria: [{ header: "USERAGENT", operator: null, user_agent: null }],
+      name: "Header",
+    },
+    retainedExpected: {
+      http_header_profile_criteria: [{
+        header: "USERAGENT",
+        operator: "UAVERSIONEQ",
+        user_agent: "FIREFOX",
+      }],
+      name: "Header",
+    },
+  }, {
+    resourceType: "zia_location_management",
+    empty: {
+      id: "3",
+      name: "Location",
+      displayTimeUnit: "",
+      subLocScope: "",
+      surrogateRefreshTimeUnit: "",
+    },
+    nullable: {
+      id: "3",
+      name: "Location",
+      displayTimeUnit: null,
+      subLocScope: null,
+      surrogateRefreshTimeUnit: null,
+    },
+    retained: {
+      id: "3",
+      name: "Location",
+      displayTimeUnit: "MINUTE",
+      subLocScope: "SUB_LOCATION",
+      surrogateRefreshTimeUnit: "HOUR",
+    },
+    emptyExpected: { name: "Location" },
+    nullExpected: {
+      display_time_unit: null,
+      name: "Location",
+      sub_loc_scope: null,
+      surrogate_refresh_time_unit: null,
+    },
+    retainedExpected: {
+      display_time_unit: "MINUTE",
+      name: "Location",
+      sub_loc_scope: "SUB_LOCATION",
+      surrogate_refresh_time_unit: "HOUR",
+    },
+  }, {
+    resourceType: "zia_ssl_inspection_rules",
+    empty: {
+      id: "4",
+      name: "SSL",
+      action: [{
+        type: "DO_NOT_DECRYPT",
+        doNotDecryptSubActions: [{ bypassOtherPolicies: true, minTlsVersion: "" }],
+      }],
+    },
+    nullable: {
+      id: "4",
+      name: "SSL",
+      action: [{
+        type: "DO_NOT_DECRYPT",
+        doNotDecryptSubActions: [{ bypassOtherPolicies: true, minTlsVersion: null }],
+      }],
+    },
+    retained: {
+      id: "4",
+      name: "SSL",
+      action: [{
+        type: "DO_NOT_DECRYPT",
+        doNotDecryptSubActions: [{ bypassOtherPolicies: true, minTlsVersion: "TLSV1_2" }],
+      }],
+    },
+    emptyExpected: {
+      action: [{
+        do_not_decrypt_sub_actions: [{ bypass_other_policies: true }],
+        type: "DO_NOT_DECRYPT",
+      }],
+      name: "SSL",
+    },
+    nullExpected: {
+      action: [{
+        do_not_decrypt_sub_actions: [{
+          bypass_other_policies: true,
+          min_tls_version: null,
+        }],
+        type: "DO_NOT_DECRYPT",
+      }],
+      name: "SSL",
+    },
+    retainedExpected: {
+      action: [{
+        do_not_decrypt_sub_actions: [{
+          bypass_other_policies: true,
+          min_tls_version: "TLSV1_2",
+        }],
+        type: "DO_NOT_DECRYPT",
+      }],
+      name: "SSL",
+    },
+  }] as const;
+
+  for (const fixture of cases) {
+    const loaded = root.resources.get(fixture.resourceType);
+    assert.ok(loaded, fixture.resourceType);
+    const schema = await root.loadResourceSchema(fixture.resourceType);
+    const empty = transformLoadedItems({ resource: loaded, schema, rawItems: [fixture.empty] });
+    const nullable = transformLoadedItems({ resource: loaded, schema, rawItems: [fixture.nullable] });
+    const retained = transformLoadedItems({ resource: loaded, schema, rawItems: [fixture.retained] });
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(Object.values(empty.items)[0])),
+      fixture.emptyExpected,
+      `${fixture.resourceType} empty`,
+    );
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(Object.values(nullable.items)[0])),
+      fixture.nullExpected,
+      `${fixture.resourceType} null`,
+    );
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(Object.values(retained.items)[0])),
+      fixture.retainedExpected,
+      `${fixture.resourceType} retained`,
+    );
+  }
+});
+
 test("generic schema shaping merges configured blocks and records conflicts", () => {
   const schema: JsonObject = {
     block: {

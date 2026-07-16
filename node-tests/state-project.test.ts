@@ -186,6 +186,138 @@ test("committed ZIA overrides remove provider empty-string sentinels", async () 
   assert.deepEqual(plain(retainedBrowser), { plugin_check_frequency: "weekly" });
 });
 
+test("committed ZIA projection omits live-proven empty enums at nested and scalar paths", async () => {
+  const loaded = await committedRoot();
+  const fixtures: ReadonlyArray<{
+    readonly resourceType: string;
+    readonly stateValues: Readonly<Record<string, unknown>>;
+    readonly expected: Readonly<Record<string, unknown>>;
+    readonly retainedStateValues: Readonly<Record<string, unknown>>;
+    readonly retainedExpected: Readonly<Record<string, unknown>>;
+  }> = [{
+    resourceType: "zia_dlp_dictionaries",
+    stateValues: {
+      confidence_level_for_predefined_dict: "",
+      confidence_threshold: "",
+    },
+    expected: {},
+    retainedStateValues: {
+      confidence_level_for_predefined_dict: "HIGH",
+      confidence_threshold: "MEDIUM",
+    },
+    retainedExpected: {
+      confidence_level_for_predefined_dict: "HIGH",
+      confidence_threshold: "MEDIUM",
+    },
+  }, {
+    resourceType: "zia_http_header_profile",
+    stateValues: {
+      name: "Header",
+      http_header_profile_criteria: [{ header: "USERAGENT", operator: "", user_agent: "" }],
+    },
+    expected: {
+      name: "Header",
+      http_header_profile_criteria: [{ header: "USERAGENT" }],
+    },
+    retainedStateValues: {
+      name: "Header",
+      http_header_profile_criteria: [{
+        header: "USERAGENT",
+        operator: "UAVERSIONEQ",
+        user_agent: "FIREFOX",
+      }],
+    },
+    retainedExpected: {
+      name: "Header",
+      http_header_profile_criteria: [{
+        header: "USERAGENT",
+        operator: "UAVERSIONEQ",
+        user_agent: "FIREFOX",
+      }],
+    },
+  }, {
+    resourceType: "zia_location_management",
+    stateValues: {
+      name: "Location",
+      display_time_unit: "",
+      sub_loc_scope: "",
+      surrogate_refresh_time_unit: "",
+    },
+    expected: { name: "Location" },
+    retainedStateValues: {
+      name: "Location",
+      display_time_unit: "MINUTE",
+      sub_loc_scope: "SUB_LOCATION",
+      surrogate_refresh_time_unit: "HOUR",
+    },
+    retainedExpected: {
+      name: "Location",
+      display_time_unit: "MINUTE",
+      sub_loc_scope: "SUB_LOCATION",
+      surrogate_refresh_time_unit: "HOUR",
+    },
+  }, {
+    resourceType: "zia_ssl_inspection_rules",
+    stateValues: {
+      name: "SSL",
+      order: 1,
+      action: [{
+        type: "DO_NOT_DECRYPT",
+        do_not_decrypt_sub_actions: [{ bypass_other_policies: true, min_tls_version: "" }],
+      }],
+    },
+    expected: {
+      name: "SSL",
+      order: 1,
+      action: [{
+        type: "DO_NOT_DECRYPT",
+        do_not_decrypt_sub_actions: [{ bypass_other_policies: true }],
+      }],
+    },
+    retainedStateValues: {
+      name: "SSL",
+      order: 1,
+      action: [{
+        type: "DO_NOT_DECRYPT",
+        do_not_decrypt_sub_actions: [{
+          bypass_other_policies: true,
+          min_tls_version: "TLSV1_2",
+        }],
+      }],
+    },
+    retainedExpected: {
+      name: "SSL",
+      order: 1,
+      action: [{
+        type: "DO_NOT_DECRYPT",
+        do_not_decrypt_sub_actions: [{
+          bypass_other_policies: true,
+          min_tls_version: "TLSV1_2",
+        }],
+      }],
+    },
+  }];
+
+  for (const fixture of fixtures) {
+    const output = await projectProviderState({
+      resourceType: fixture.resourceType,
+      root: loaded,
+      stateValues: fixture.stateValues,
+    });
+    assert.deepEqual(plain(output), fixture.expected, fixture.resourceType);
+    const retained = await projectProviderState({
+      resourceType: fixture.resourceType,
+      root: loaded,
+      stateValues: fixture.retainedStateValues,
+    });
+    assert.deepEqual(
+      plain(retained),
+      fixture.retainedExpected,
+      `${fixture.resourceType} retained`,
+    );
+  }
+});
+
 test("required attributes and required nested cardinality fail closed", async () => {
   await assert.rejects(
     () => projectProviderState({

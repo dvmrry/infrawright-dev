@@ -105,18 +105,21 @@
     },
     "zia_forwarding_control_rule": {
       "evidence": [
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_forwarding_control_rule.go#L167-L173",
         "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_forwarding_control_rule.go#L239-L246"
       ],
       "skip": [
         {"id": 25, "name": "Client Connector Traffic Direct"},
         {"id": 26, "name": "ZPA Pool For Stray Traffic"},
         {"id": 27, "name": "ZIA Inspected ZPA Apps"},
-        {"id": 28, "name": "Fallback mode of ZPA Forwarding"}
+        {"id": 28, "name": "Fallback mode of ZPA Forwarding"},
+        {"id": 29, "name": "Fallback Mode of ZPA Forwarding", "order": -5, "forwardMethod": "DIRECT"}
       ],
       "keep": [
-        {"id": 29, "name": "client connector traffic direct"},
-        {"id": 30, "name": "Client Connector Traffic Direct "},
-        {"id": 31, "name": "Prefix Client Connector Traffic Direct"}
+        {"id": 30, "name": "client connector traffic direct"},
+        {"id": 31, "name": "Client Connector Traffic Direct ", "order": true},
+        {"id": 32, "name": "Prefix Client Connector Traffic Direct", "order": "not-a-number"},
+        {"id": 33, "name": "Managed Forwarding Rule", "order": 1, "forwardMethod": "DIRECT"}
       ]
     },
     "zia_forwarding_control_zpa_gateway": {

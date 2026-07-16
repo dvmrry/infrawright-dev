@@ -30,6 +30,11 @@
     "vpn_credentials[].location",
     "vpn_credentials[].managed_by"
   ],
+  "drop_if_default": {
+    "display_time_unit": "",
+    "sub_loc_scope": "",
+    "surrogate_refresh_time_unit": ""
+  },
   "import_id": "{id}",
   "ranges": {
     "dn_bandwidth": [

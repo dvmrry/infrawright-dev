@@ -27,6 +27,9 @@
     "users.name",
     "zpa_app_segments[].id"
   ],
+  "drop_if_default": {
+    "action.do_not_decrypt_sub_actions.min_tls_version": ""
+  },
   "import_id": "{id}",
   "skip_if": [
     {

@@ -250,12 +250,12 @@ test("runTransformBatch materializes all seven detailed transform goldens exactl
   }
 });
 
-test("all 73 active overrides compile and accept an empty transform", async () => {
+test("all 74 active overrides compile and accept an empty transform", async () => {
   const root = await committedRoot();
   const overridden = [...root.resources.values()].filter((resource) => {
     return resource.override !== null;
   });
-  assert.equal(overridden.length, 73);
+  assert.equal(overridden.length, 74);
   for (const resource of overridden) {
     const result = transformLoadedItems({
       htmlUnescape: decodeHTML,
