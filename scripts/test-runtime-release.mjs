@@ -140,7 +140,6 @@ try {
     "--no-audit",
     "--no-fund",
     "--no-package-lock",
-    "--offline",
     "--prefix",
     installedPrefix,
     packedArchive,
