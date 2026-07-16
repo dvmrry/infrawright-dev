@@ -312,6 +312,7 @@ function anchor(value: unknown, label: string): JsonObject {
 }
 
 export async function validateZpaProviderEvidenceLocal(options: {
+  readonly packsRoot?: string;
   readonly report: unknown;
   readonly repositoryRoot: string;
 }): Promise<ZpaProviderEvidenceReport> {
@@ -330,9 +331,17 @@ export async function validateZpaProviderEvidenceLocal(options: {
   ) {
     fail("provider source pin is unsupported");
   }
-  const root = await loadPackRoot({ packsRoot: path.join(repositoryRoot, "packs") });
+  const canonicalPacksRoot = path.join(repositoryRoot, "packs");
+  const canonicalRoot = await loadPackRoot({ packsRoot: canonicalPacksRoot });
+  const effectivePacksRoot = path.resolve(options.packsRoot ?? canonicalPacksRoot);
+  const root = effectivePacksRoot === path.resolve(canonicalPacksRoot)
+    ? canonicalRoot
+    : await loadPackRoot({ packsRoot: effectivePacksRoot });
   const expectedTypes = fetchResources(root);
-  if (!equalJson(report.local_inputs, await localInputs(root, repositoryRoot, expectedTypes))) {
+  if (!equalJson(
+    report.local_inputs,
+    await localInputs(canonicalRoot, repositoryRoot, expectedTypes),
+  )) {
     fail("local pack/schema input bindings are stale");
   }
   const resources = list(report.resources, "resources");
@@ -569,6 +578,7 @@ export async function readZpaProviderEvidence(filename: string): Promise<unknown
 export async function auditZpaProviderEvidence(options: {
   readonly host?: ZpaEvidenceGitHost;
   readonly matrix?: string;
+  readonly packsRoot?: string;
   readonly providerRoot?: string;
   readonly repositoryRoot: string;
 }): Promise<ZpaProviderEvidenceReport> {
@@ -576,6 +586,7 @@ export async function auditZpaProviderEvidence(options: {
   const matrix = options.matrix
     ?? path.join(repositoryRoot, "docs", "evidence", "zpa-provider-v4.4.6.json");
   const report = await validateZpaProviderEvidenceLocal({
+    ...(options.packsRoot === undefined ? {} : { packsRoot: options.packsRoot }),
     report: await readZpaProviderEvidence(matrix),
     repositoryRoot,
   });

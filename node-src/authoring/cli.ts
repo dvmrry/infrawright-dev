@@ -465,12 +465,14 @@ async function zpaProviderEvidenceCommand(
   }
   try {
     const providerRoot = option(parsed, "--provider-root");
+    const packsRoot = context.environment.INFRAWRIGHT_PACKS?.trim();
     const report = await auditZpaProviderEvidence({
       repositoryRoot: context.repositoryRoot,
       ...(option(parsed, "--matrix") === undefined
         ? {}
         : { matrix: option(parsed, "--matrix") as string }),
       ...(providerRoot === undefined ? {} : { providerRoot }),
+      ...(packsRoot === undefined || packsRoot === "" ? {} : { packsRoot }),
     });
     const resources = Array.isArray(report.resources) ? report.resources.length : 0;
     context.stdout(

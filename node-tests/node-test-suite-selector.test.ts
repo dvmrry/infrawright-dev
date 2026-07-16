@@ -324,4 +324,15 @@ test("repository discovery naturally selects the operational smoke and Oracle te
       return entry.name === name && entry.reason === "missing-pack-requirements";
     }), name);
   }
+
+  const zpaResult = run("check", directory, [
+    "--profile", path.join(ROOT, "packsets", "zpa.json"),
+    "--catalog", path.join(ROOT, "packsets", "full.json"),
+    "--json",
+  ]);
+  assert.equal(zpaResult.status, 0, zpaResult.stderr);
+  const zpa = JSON.parse(zpaResult.stdout) as {
+    readonly selected: readonly string[];
+  };
+  assert.ok(zpa.selected.includes("zpa-provider-evidence.test.js"));
 });

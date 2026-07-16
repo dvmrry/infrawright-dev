@@ -69,6 +69,9 @@
 - Local pack/schema hashes, exact fetch set/order, derived Terraform state
   shapes, import metadata, read identities, source files, source ranges, and
   summary counts all fail closed.
+- Canonical committed input hashes remain bound to the repository, while all
+  derived metadata is evaluated against the effective `INFRAWRIGHT_PACKS`
+  root selected by the caller.
 - Provider source paths must additionally be safe relative paths; this
   hardening does not alter the accepted matrix.
 - Static source evidence does not upgrade any row beyond
@@ -83,6 +86,8 @@
   skip
 - bundled CLI subprocess test with `python`, `python3`, and `PYTHON` tripwires,
   covering exits 0/1/2 and help exposure
+- missing and independently copied effective pack roots, including registry,
+  schema, and adoption-identity override drift
 - `PYTHON=/usr/bin/false npm test`: 556 pass, 2 skip
 - `make test-python-legacy`: 1,345 pass from a neutral worktree path
 - `git diff --check`
@@ -95,6 +100,21 @@
   Git host and synthetic exact bytes; the original source-bound matrix is
   unchanged.
 - Other Python engines/tests/collector shims remain for later archive slices.
+
+## Accepted review finding
+
+- Finding: the first Node implementation ignored `INFRAWRIGHT_PACKS` and could
+  validate bundled metadata instead of the selected distribution.
+- Root cause: canonical committed-input binding and effective-root semantic
+  derivation used one unconditionally bundled `LoadedPackRoot`.
+- Fix: preserve the canonical root for matrix input hashes, load the effective
+  root separately, and derive fetch, schema, override, and adoption metadata
+  from that selected root.
+- Regression tests: missing effective root, copied registry drift, copied
+  provider-schema drift, copied import-identity override drift, direct CLI,
+  bundled CLI, and ZPA-profile selection.
+- Verification: focused suite passes with 45 tests and one optional external
+  source-checkout skip; patch-focused adversarial re-review required.
 
 ## Review Focus
 

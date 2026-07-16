@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -45,6 +45,30 @@ function resources(report: JsonObject): JsonObject[] {
 
 async function validate(report: JsonObject): Promise<ZpaProviderEvidenceReport> {
   return validateZpaProviderEvidenceLocal({ report, repositoryRoot: ROOT });
+}
+
+async function copiedZpaPacksRoot(parent: string): Promise<string> {
+  const packsRoot = path.join(parent, "packs");
+  await Promise.all([
+    cp(path.join(ROOT, "packs", "zpa"), path.join(packsRoot, "zpa"), {
+      recursive: true,
+    }),
+    cp(
+      path.join(ROOT, "packs", "_shared", "zscaler"),
+      path.join(packsRoot, "_shared", "zscaler"),
+      { recursive: true },
+    ),
+  ]);
+  return packsRoot;
+}
+
+async function rewriteJson(
+  filename: string,
+  mutate: (value: JsonObject) => void,
+): Promise<void> {
+  const value = JSON.parse(await readFile(filename, "utf8")) as JsonObject;
+  mutate(value);
+  await writeFile(filename, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
 test("committed ZPA provider matrix is locally current and source-bound", async () => {
@@ -108,6 +132,77 @@ test("committed ZPA provider matrix is locally current and source-bound", async 
     }
   }
   assert.equal(anchors, 45);
+});
+
+test("the effective pack root remains authoritative for every derived claim", async (t) => {
+  const baseline = await matrix();
+  const missing = path.join(os.tmpdir(), `iw-zpa-missing-${String(process.pid)}`);
+  await assert.rejects(
+    validateZpaProviderEvidenceLocal({
+      packsRoot: missing,
+      report: baseline,
+      repositoryRoot: ROOT,
+    }),
+    /local pack\/schema input bindings are stale/u,
+  );
+
+  const mutations: readonly {
+    readonly message: RegExp;
+    readonly mutate: (packsRoot: string) => Promise<void>;
+    readonly name: string;
+  }[] = [
+    {
+      name: "registry fetch metadata",
+      message: /fetch metadata is stale/u,
+      mutate: async (packsRoot) => rewriteJson(
+        path.join(packsRoot, "zpa", "registry.json"),
+        (registry) => {
+          const entry = registry.zpa_segment_group as JsonObject;
+          (entry.fetch as JsonObject).path = "segmentGroupDrifted";
+        },
+      ),
+    },
+    {
+      name: "provider schema shape",
+      message: /state-shape summary is stale/u,
+      mutate: async (packsRoot) => rewriteJson(
+        path.join(packsRoot, "zpa", "schemas", "provider", "zpa.json"),
+        (schema) => {
+          const resources = schema.resource_schemas as JsonObject;
+          const segment = resources.zpa_segment_group as JsonObject;
+          const block = segment.block as JsonObject;
+          (block.attributes as JsonObject).future_input = {
+            optional: true,
+            type: "string",
+          };
+        },
+      ),
+    },
+    {
+      name: "override import identity",
+      message: /engine import template is stale/u,
+      mutate: async (packsRoot) => rewriteJson(
+        path.join(packsRoot, "zpa", "overrides", "zpa_segment_group.json"),
+        (override) => { override.import_id = "{name}"; },
+      ),
+    },
+  ];
+  for (const entry of mutations) {
+    await t.test(entry.name, async (context) => {
+      const temporary = await mkdtemp(path.join(os.tmpdir(), "iw-zpa-packs-"));
+      context.after(async () => rm(temporary, { force: true, recursive: true }));
+      const packsRoot = await copiedZpaPacksRoot(temporary);
+      await entry.mutate(packsRoot);
+      await assert.rejects(
+        validateZpaProviderEvidenceLocal({
+          packsRoot,
+          report: baseline,
+          repositoryRoot: ROOT,
+        }),
+        entry.message,
+      );
+    });
+  }
 });
 
 test("local evidence validation fails closed across every authority class", async (t) => {
@@ -279,6 +374,16 @@ test("ZPA evidence CLI is Python-free and preserves success and failure exits", 
   ]);
   assert.deepEqual(stderr, []);
 
+  assert.equal(await runAuthoringCommand({
+    ...context,
+    arguments: [],
+    environment: {
+      ...context.environment,
+      INFRAWRIGHT_PACKS: "/definitely/missing-zpa-pack-root",
+    },
+  }), 1);
+  assert.match(stderr.pop() ?? "", /local pack\/schema input bindings are stale/u);
+
   const temp = await mkdtemp(path.join(os.tmpdir(), "iw-zpa-evidence-cli-"));
   try {
     const invalid = path.join(temp, "invalid.json");
@@ -312,13 +417,16 @@ test("bundled iw dispatches the ZPA evidence audit without Python", async (conte
     env: environment,
   });
   assert.equal(built.status, 0, built.stderr);
-  const run = (arguments_: readonly string[]) => spawnSync(
+  const run = (
+    arguments_: readonly string[],
+    environmentOverrides: NodeJS.ProcessEnv = {},
+  ) => spawnSync(
     process.execPath,
     [BUNDLED_CLI, ...arguments_],
     {
       cwd: ROOT,
       encoding: "utf8",
-      env: environment,
+      env: { ...environment, ...environmentOverrides },
     },
   );
   const result = run(["zpa-provider-evidence"]);
@@ -328,6 +436,14 @@ test("bundled iw dispatches the ZPA evidence audit without Python", async (conte
     "ZPA provider evidence valid (16 resources; source=not requested)\n",
   );
   assert.equal(result.stderr, "");
+
+  const missingRoot = run(
+    ["zpa-provider-evidence"],
+    { INFRAWRIGHT_PACKS: "/definitely/missing-zpa-pack-root" },
+  );
+  assert.equal(missingRoot.status, 1);
+  assert.equal(missingRoot.stdout, "");
+  assert.match(missingRoot.stderr, /local pack\/schema input bindings are stale/u);
 
   const temporary = await mkdtemp(path.join(os.tmpdir(), "iw-zpa-bundle-"));
   context.after(async () => rm(temporary, { force: true, recursive: true }));
