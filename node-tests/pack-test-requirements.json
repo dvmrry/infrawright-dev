@@ -219,6 +219,19 @@
       "reason": "The committed registry-selection cases load the complete pack catalog."
     },
     {
+      "file": "root-catalog.test.js",
+      "packs": [
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
+      "reason": "The catalog freshness suite derives the bundled all-Zscaler compatibility catalog from every committed Zscaler pack."
+    },
+    {
       "file": "state-project.test.js",
       "packs": [
         "aws",
