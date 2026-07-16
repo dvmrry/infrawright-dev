@@ -241,6 +241,7 @@ test("repository discovery naturally selects the operational smoke and Oracle te
   for (const name of [
     "adopt-runner.test.js",
     "drift-policy.test.js",
+    "environment-generator.test.js",
     "exact-plan-apply.test.js",
     "import-staging.test.js",
     "import-moves-differential.test.js",
@@ -322,6 +323,7 @@ test("repository discovery naturally selects the operational smoke and Oracle te
   }
   for (const name of [
     "adopt-runner.test.js",
+    "environment-generator.test.js",
     "exact-plan-apply.test.js",
     "import-staging.test.js",
     "transform-adopt-parity.test.js",

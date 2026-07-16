@@ -150,17 +150,6 @@
       "reason": "The committed demo fixtures and goldens are the Zscaler example distribution."
     },
     {
-      "prefix": "tests.test_gen_env.",
-      "packs": [
-        "zia",
-        "zpa"
-      ],
-      "shared": [
-        "zscaler"
-      ],
-      "reason": "The environment-generation goldens use committed ZIA/ZPA schemas and root topology."
-    },
-    {
       "prefix": "tests.test_gen_module.",
       "packs": [
         "zcc",
