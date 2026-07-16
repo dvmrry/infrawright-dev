@@ -1,7 +1,5 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -38,13 +36,13 @@ test("non-strict realpath canonicalizes prefixes before symlink loops", async ()
     await symlink("b", path.join(realParent, "a"));
     await symlink("a", path.join(realParent, "b"));
     const candidate = path.join(aliasParent, "a", "deleted-child");
-    const python = spawnSync(
-      PYTHON_ORACLE,
-      ["-c", "import os,sys; print(os.path.realpath(sys.argv[1]))", candidate],
-      { encoding: "utf8" },
+    // Python 3.13 canonicalizes the existing parent and alias but retains the
+    // first unresolved loop member. Freeze that semantic shape while deriving
+    // only the platform-specific canonical temporary prefix at runtime.
+    assert.equal(
+      pythonPosixRealpath(candidate),
+      path.join(await realpath(directory), "real-parent", "a", "deleted-child"),
     );
-    assert.equal(python.status, 0, python.stderr);
-    assert.equal(pythonPosixRealpath(candidate), python.stdout.trimEnd());
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

@@ -1,12 +1,26 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import path from "node:path";
 import test from "node:test";
 
 import zscalerCatalog from "../catalogs/zscaler-root-catalog.v1.json" with { type: "json" };
 import { ProcessFailure } from "../node-src/domain/errors.js";
 import type { RootCatalog } from "../node-src/domain/types.js";
 import { requireSupportedAssessmentCatalog } from "../node-src/domain/zscaler-assessment.js";
+import { loadPackRoot } from "../node-src/metadata/loader.js";
+
+function guidanceRuleCount(
+  data: Readonly<Record<string, unknown>>,
+  group: string,
+  field: string,
+): number {
+  const rawGroup = data[group];
+  if (rawGroup === undefined) return 0;
+  assert.ok(rawGroup !== null && typeof rawGroup === "object" && !Array.isArray(rawGroup));
+  const rules = (rawGroup as Readonly<Record<string, unknown>>)[field];
+  if (rules === undefined) return 0;
+  assert.ok(Array.isArray(rules), `${group}.${field} must be an array`);
+  return rules.length;
+}
 
 test("assessment accepts only the exact embedded Zscaler catalog", () => {
   requireSupportedAssessmentCatalog(zscalerCatalog as RootCatalog);
@@ -23,25 +37,25 @@ test("assessment accepts only the exact embedded Zscaler catalog", () => {
   }
 });
 
-test("supported Zscaler packs have no guidance lanes hidden from Node", () => {
+test("supported Zscaler packs have no assessment-guidance rules", async () => {
   const providers = [...zscalerCatalog.declared_providers];
-  const result = spawnSync(PYTHON_ORACLE, ["-c", [
-    "import json",
-    "import sys",
-    "from engine import packs",
-    "providers = json.load(sys.stdin)",
-    "print(json.dumps({p: [",
-    "  len(packs.provider_config_requirements(p)),",
-    "  len(packs.absent_default_rules(p)),",
-    "  len(packs.dynamic_schema_rules(p)),",
-    "] for p in providers}, sort_keys=True))",
-  ].join("\n")], {
-    encoding: "utf8",
-    input: JSON.stringify(providers),
+  const repository = process.cwd();
+  const root = await loadPackRoot({
+    packsRoot: path.join(repository, "packs"),
+    profilePath: path.join(repository, "packsets", "full.json"),
+    catalogPath: path.join(repository, "packsets", "full.json"),
   });
-  assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(
-    JSON.parse(result.stdout),
-    Object.fromEntries(providers.map((provider) => [provider, [0, 0, 0]])),
-  );
+  const counts = Object.fromEntries(providers.map((provider) => {
+    const manifests = root.packs.manifests.filter((manifest) => {
+      return Object.values(manifest.providerPrefixes).includes(provider);
+    });
+    assert.ok(manifests.length > 0, `missing manifest for ${provider}`);
+    return [provider, manifests.reduce((total, manifest) => {
+      return total
+        + guidanceRuleCount(manifest.data, "provider_config", "requirements")
+        + guidanceRuleCount(manifest.data, "absent_defaults", "rules")
+        + guidanceRuleCount(manifest.data, "dynamic_schema", "rules");
+    }, 0)];
+  }));
+  assert.deepEqual(counts, Object.fromEntries(providers.map((provider) => [provider, 0])));
 });

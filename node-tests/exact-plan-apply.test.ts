@@ -1,4 +1,3 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import {
@@ -788,7 +787,7 @@ function command(
   });
 }
 
-test("Make Apply is Python-disabled and Node/Python blocked diagnostics agree", async (context) => {
+test("Make Apply is Python-disabled and preserves blocked diagnostics", async (context) => {
   const item = await fixture(context);
   const deploymentPath = path.join(item.workspace, "deployment.json");
   const executable = path.join(item.workspace, "terraform-fake");
@@ -842,14 +841,14 @@ test("Make Apply is Python-disabled and Node/Python blocked diagnostics agree", 
     "--catalog", path.join(ROOT, "packsets", "full.json"),
     "--deployment", deploymentPath,
   ], environment);
-  const python = command(PYTHON_ORACLE, [
-    "-m", "engine.ops", "apply",
-    "--tenant", "tenant",
-    RESOURCE,
-  ], environment);
-  assert.equal(node.status, python.status);
-  assert.equal(node.stdout, python.stdout);
-  assertCliFailureExtendsLegacy(node.stderr, python.stderr, {
+  const legacyDiagnostic = [
+    "== apply tenant/zia_url_categories",
+    "error: tenant/zia_url_categories saved plan is blocked by untolerated changes; refused. Run assert-adoptable for review, pass POLICY=<file> for explicit tolerated drift, or use --allow-plan-changes only as a broad unsafe override.",
+    "",
+  ].join("\n");
+  assert.equal(node.status, 1);
+  assert.equal(node.stdout, "");
+  assertCliFailureExtendsLegacy(node.stderr, legacyDiagnostic, {
     category: "domain",
     code: "APPLY_BLOCKED_PLAN_REFUSED",
     retryable: false,
