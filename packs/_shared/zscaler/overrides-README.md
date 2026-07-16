@@ -11,7 +11,7 @@ The current workflow is:
    labs to identify a provider mismatch.
 2. Encode the narrow exception in `packs/<provider>/overrides/` or the
    provider pack metadata.
-3. Regenerate and verify with `python -m engine.gen_module`, `make check`, and
+3. Regenerate and verify with `make gen-modules`, `make check`, and
    `make check-demo`.
 
 If `packs/<provider>/overrides/<resource_type>/main.tf` exists,
