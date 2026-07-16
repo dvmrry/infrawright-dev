@@ -13,7 +13,9 @@
 ## Base / Head
 
 - Base: `df301a4` (draft PR #245).
-- Implementation head: to be filled after the deletion commit.
+- Implementation commit: `2f064c24fd125da850c27177c761be904c08c25d`.
+- Review head: the current branch head (this handoff-only follow-up is stacked
+  directly on the implementation commit).
 - Diff command: `git diff df301a4..HEAD`.
 
 ## Removed Surface
@@ -59,8 +61,9 @@ The active demo fixtures and exact transform goldens remain intact.
 - `PYTHON=/usr/bin/false npm test`: 784 tests, 782 passed, 2 skipped, 0 failed
 - `node scripts/verify-runtime-release.mjs . --artifacts-only`
 - `git diff --check`
-- Final committed-tree release/archive/package/profile gates are pending the
-  deletion commit because they intentionally inspect `HEAD`.
+- `PYTHON=/usr/bin/false make check-all`
+- `PYTHON=/usr/bin/false node scripts/test-runtime-release.mjs`
+- Git tree, exact Git archive, and `npm pack --dry-run` Python-artifact checks
 
 No live provider, backend, credentials, Terraform deployment Apply, or remote
 mutation is part of this change.
