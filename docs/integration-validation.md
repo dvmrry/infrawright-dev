@@ -124,6 +124,12 @@ topology names that referent and the sensitive, fully known output exactly
 matches provider-observed IDs reconstructed from Terraform's planned child
 modules. Arbitrary output changes remain outside the assessment contract.
 
+Cross-state validation is limited to the conditional pre-production cohort and
+dependency-state restrictions in
+[Cross-state Reference Qualification](provider-labs/cross-state-reference-qualification.md).
+A clean plan does not qualify undeclared pairs or prove that a saved referrer
+plan is bound to an unchanged referent-state version.
+
 When using a remote backend, also pass the same `BACKEND_CONFIG=<file>` to
 `plan`, `assert-adoptable` (or `assert-clean`), and `apply`. The saved-plan
 fingerprint treats a missing or changed backend config as stale.

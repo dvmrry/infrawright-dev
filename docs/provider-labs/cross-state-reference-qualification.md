@@ -33,6 +33,36 @@ as version-scoped unsupported before identity derivation or the import Oracle,
 and the provider import Read does not reconstruct `cbi_profile`. Root bindings
 run after Adopt and cannot repair that provider limitation.
 
+## Initial Pre-production Cohort
+
+Cross-state references remain opt-in and fail closed. The initial cohort is a
+conditional qualification cohort, not general Zscaler production support.
+
+| Pair | Pre-production status |
+|---|---|
+| `zpa_segment_group -> zpa_application_segment.segment_group_id` | Candidate only. Eligible after the exact release head completes referent-first import-only Apply, referrer assessment, and fresh-workspace no-op plans for both roots. |
+| The three declared ZPA indexed-list pairs | Qualification-only until the ordered-list procedure below passes on the exact release head, including fresh-workspace no-op and invalid-index cases. |
+| `zia_url_categories -> zia_url_filtering_rules` | Excluded from the initial cohort when any fetched rule is version-scoped unsupported, including `action = "ISOLATE"` on provider 4.7.26. The resource-level all-or-nothing preflight remains authoritative. |
+
+Anything not explicitly admitted by this table remains excluded. In
+particular, this cohort does not authorize:
+
+- `zia_dlp_notification_templates` affected by the provider 4.7.26
+  dollar-placeholder round-trip defect;
+- `zia_dlp_engines` predefined-name behavior until its intended name contract
+  is resolved;
+- resource behavior identified in the Zscaler quirk inventory as requiring
+  later-plan, refresh, multi-apply, or targeted live qualification, unless the
+  exact cohort procedure closes that named gate;
+- entitlement-gated or permission-gated surfaces not exercised successfully
+  in the selected tenant;
+- additional reference pairs inferred only from provider field names.
+
+Qualification of one field does not qualify unrelated behavior on the same
+resource. For example, the scalar ZPA pair qualifies `segment_group_id`; it
+does not qualify application-segment ordering, computed back-references, or
+undeclared nested relationships.
+
 ## Deployment And Backend
 
 Start from a fresh, disposable checkout and set the relevant provider to
@@ -121,6 +151,26 @@ has separate approval.
 Once a referrer plan is saved, do not mutate, replace, or re-adopt its referent
 before that exact plan is applied. If referent state changes, discard and
 regenerate every affected referrer plan before assessment or Apply.
+
+The saved-plan evidence currently binds the local backend-config bytes and
+derived state key, but it does not bind the referrer plan to the referent
+state's lineage, serial, remote object version or ETag, or a digest of the exact
+`infrawright_reference_ids` output consumed during planning. The current
+fingerprint therefore must not be described as detecting referent-state
+changes.
+
+Until dependency evidence binding or an engine-owned locked transaction is
+implemented, pre-production qualification requires:
+
+- one serialized referent/referrer chain with concurrency one;
+- no referent mutation between referrer plan and Apply;
+- no manual Terraform operations outside the sanctioned workflow;
+- short-lived saved plans;
+- immediate discard of every dependent saved plan after any referent
+  operation.
+
+This operational restriction is an explicit deferred production gate, not a
+substitute for dependency binding.
 
 ```sh
 make stage-imports TENANT="$TENANT" RESOURCE="$REFERENT" \
