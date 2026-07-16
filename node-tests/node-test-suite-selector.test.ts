@@ -309,7 +309,6 @@ test("repository discovery naturally selects the operational smoke and Oracle te
   };
   for (const name of [
     "authoring-cli.test.js",
-    "authoring-openapi-resource-map.test.js",
     "authoring-reconcile-schema-api.test.js",
     "authoring-sdk-path-evidence.test.js",
     "authoring-source-operation-map.test.js",
@@ -328,6 +327,7 @@ test("repository discovery naturally selects the operational smoke and Oracle te
   }
   for (const name of [
     "adopt-runner.test.js",
+    "authoring-openapi-resource-map.test.js",
     "environment-generator.test.js",
     "exact-plan-apply.test.js",
     "import-staging.test.js",

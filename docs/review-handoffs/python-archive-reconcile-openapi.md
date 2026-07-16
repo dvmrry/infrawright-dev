@@ -68,8 +68,22 @@ approved both corrections.
 - Report objects and helper values remain complete and exact; valid CLI cases
   retain exact status/stdout/stderr, and the historical invalid OpenAPI CLI
   case retains its explicit validation-divergence test.
-- Reduced profiles select the three converted Node test files.
+- Reduced profiles select the converted tests whose replay inputs are
+  self-contained. The OpenAPI replay is selected only when all four Zscaler
+  registries recorded by its frozen authority are physically present.
 - Historical source hashes in earlier frozen authorities remain unchanged.
 - Vendor allowances exist only for files that remain.
 - No new runtime, provider, pack, Terraform, credential, or network behavior
   appears.
+
+## Pruned-checkout CI remediation
+
+The first exact-head run exposed that
+`authoring-openapi-resource-map.test.js` was still selected in the physically
+pruned empty checkout. Its frozen full-pack reports include registry evidence
+from ZCC, ZIA, ZPA, and ZTC, so replaying them without those recorded inputs
+correctly produced a different report. The test now declares those four packs
+and the shared Zscaler metadata as requirements. The suite selector excludes
+it with `missing-pack-requirements` in reduced checkouts and still selects it
+in the complete checkout. Neither production code nor frozen authority bytes
+changed.
