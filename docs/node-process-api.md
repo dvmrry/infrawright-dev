@@ -38,8 +38,9 @@ npm run build
 ```
 
 The primary generic build artifact is `dist/infrawright-cli.mjs` with checksum
-`dist/infrawright-cli.mjs.sha256`; it is exposed as `infrawright` and needs no
-runtime install or Python. The legacy migration build additionally produces
+`dist/infrawright-cli.mjs.sha256`; it is exposed as `iw`, with `infrawright`
+retained as a compatibility alias, and needs no runtime install or Python. The
+legacy migration build additionally produces
 the executable `dist/infrawright.mjs` parent and its exact
 integrity-bound sibling `dist/infrawright-zcc-collector-child.mjs`. Ship and
 relocate those two files together in the same directory. The parent verifies

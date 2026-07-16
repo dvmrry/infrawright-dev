@@ -118,11 +118,14 @@ const packageDocument = JSON.parse(await readFile(packageFile, "utf8"));
 if (packageDocument.engines?.node !== ">=24 <25") {
   fail("package.json must require Node >=24 <25");
 }
-if (packageDocument.bin?.infrawright !== "dist/infrawright-cli.mjs") {
-  fail("package.json must expose dist/infrawright-cli.mjs as infrawright");
+if (packageDocument.bin?.iw !== "dist/infrawright-cli.mjs") {
+  fail("package.json must expose dist/infrawright-cli.mjs as iw");
 }
-if (path.resolve(root, packageDocument.bin.infrawright) !== cli) {
-  fail("package.json infrawright binary does not resolve to the verified CLI");
+if (path.resolve(root, packageDocument.bin.iw) !== cli) {
+  fail("package.json iw binary does not resolve to the verified CLI");
+}
+if (packageDocument.bin?.infrawright !== "dist/infrawright-cli.mjs") {
+  fail("package.json must retain infrawright as a compatibility alias");
 }
 let discoveredRoot = path.dirname(cli);
 while (true) {

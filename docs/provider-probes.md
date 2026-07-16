@@ -44,7 +44,7 @@ make provider-probe RECIPE=docs/recipes/providers/digitalocean.json
 ```
 
 Set `PYTHON` to a failing tripwire when qualifying the migrated path; neither
-the Make target nor `infrawright provider-probe` consults it.
+the Make target nor `iw provider-probe` consults it.
 
 By default, outputs are written under:
 

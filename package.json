@@ -8,6 +8,7 @@
     "node": ">=24 <25"
   },
   "bin": {
+    "iw": "dist/infrawright-cli.mjs",
     "infrawright": "dist/infrawright-cli.mjs",
     "infrawright-process": "dist/infrawright.mjs"
   },

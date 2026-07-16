@@ -119,9 +119,11 @@ Python authorities.
 The primary release artifact and package binary are:
 
 ```text
-infrawright -> dist/infrawright-cli.mjs
+iw ---------> dist/infrawright-cli.mjs
               dist/infrawright-cli.mjs.sha256
 ```
+
+`infrawright` remains a compatibility alias for the same bundle.
 
 The bundle targets Node 24, contains its runtime npm dependencies, and is
 executable where the platform preserves executable mode. Running the accepted

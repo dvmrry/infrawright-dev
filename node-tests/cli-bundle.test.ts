@@ -130,12 +130,13 @@ test("the authoritative operational inventory expands only to built Node CLI rou
     const command = route.split(" ")[0] ?? "";
     assert.match(
       help.stdout,
-      new RegExp(`^  infrawright ${command.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(?: |$)`, "mu"),
+      new RegExp(`^  iw ${command.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(?: |$)`, "mu"),
       `built CLI help omits ${command}`,
     );
   }
-  assert.match(help.stdout, /infrawright modules <generate\|validate>/u);
-  assert.match(help.stdout, /infrawright resources \[--order=references\]/u);
+  assert.match(help.stdout, /iw modules <generate\|validate>/u);
+  assert.match(help.stdout, /iw resources \[--order=references\]/u);
+  assert.doesNotMatch(help.stdout, /^  infrawright /mu);
 
   const unknown = spawnSync(process.execPath, [
     path.join(ROOT, "dist", "infrawright-cli.mjs"),

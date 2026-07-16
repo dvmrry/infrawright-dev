@@ -107,7 +107,8 @@ Terraform/OpenTofu plan; the live plan contract begins with the primary
 adoption workflow above and requires real provider credentials.
 
 The primary runtime is the executable, dependency-bundled
-`dist/infrawright-cli.mjs`, exposed as `infrawright`, with checksum
+`dist/infrawright-cli.mjs`, exposed as `iw` (with `infrawright` retained as a
+compatibility alias), with checksum
 `dist/infrawright-cli.mjs.sha256`. Verify an approved prebuilt runtime with
 `make verify-runtime`; this checks its checksum, Node 24, command surface, and
 selected pack/profile/deployment inputs without invoking npm or Python. The
