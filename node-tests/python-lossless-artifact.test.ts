@@ -253,6 +253,10 @@ test("finite float spelling matches the frozen Python binary64 corpus", () => {
   const rendered = renderPythonLosslessArtifactJson(
     tokens.map((token) => new LosslessNumber(token)),
   );
+  assert.deepEqual(
+    JSON.parse(rendered),
+    tokens.map((token) => Number(token)),
+  );
   const compactNode = rendered.replace(/\s+/g, "");
   const contract = binary64Contract();
   assert.deepEqual(contract, {
