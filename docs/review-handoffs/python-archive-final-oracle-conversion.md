@@ -42,7 +42,7 @@ in selected Node tests.
 - `npm run build:test`
 - the three converted suites plus selector suite with
   `PYTHON=/usr/bin/false`: 39/39 passed
-- full-profile selector: 70 selected, 0 excluded
+- full-profile selector: 69 selected, 0 excluded
 - whitespace check
 
 ## Review focus
