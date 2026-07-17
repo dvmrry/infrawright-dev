@@ -31,6 +31,16 @@ import {
 const ROOT = process.cwd();
 const CLI = path.join(ROOT, ".node-test", "node-src", "cli", "main.js");
 
+test("committed provider recipes pin remote OpenAPI URLs", async () => {
+  for (const name of ["digitalocean", "github"]) {
+    const recipe = JSON.parse(await readFile(
+      path.join(ROOT, "docs", "recipes", "providers", `${name}.json`),
+      "utf8",
+    )) as { readonly openapi: { readonly url: string } };
+    assert.doesNotMatch(recipe.openapi.url, /\/(?:main|master)\//u, name);
+  }
+});
+
 test("local provider probe writes deterministic provider-readiness artifacts", async (context) => {
   const data = await createProviderProbeFixture();
   const workDirectory = path.join(data.root, "work");
@@ -338,6 +348,62 @@ test("provider probe schema materialization uses the injected Terraform host", a
   ].join("\n"));
 });
 
+test("provider probe command failures retain bounded streamed and file output", async (context) => {
+  const data = await createProviderProbeFixture();
+  context.after(async () => rm(data.root, { force: true, recursive: true }));
+  const recipe = path.join(data.root, "command-failure-recipe.json");
+  const terraform = path.join(data.root, "fake-terraform");
+  await writeProviderProbeJson(recipe, {
+    name: "command-failure",
+    openapi: { path: "openapi.json" },
+    provider_source: "registry.terraform.io/example/example",
+    provider_version: "1.2.3",
+    resource_prefix: "example",
+    source: { path: "provider" },
+    tools: { terraform },
+  });
+  await writeFile(terraform, [
+    "#!/usr/bin/env node",
+    'const { writeFileSync } = require("node:fs");',
+    'writeFileSync(1, "x".repeat(70000) + "STDOUT-SIGNAL\\n");',
+    'writeFileSync(2, "y".repeat(70000) + "STDERR-SIGNAL\\n");',
+    "process.exit(7);",
+    "",
+  ].join("\n"), "utf8");
+  await chmod(terraform, 0o755);
+  await assert.rejects(
+    runProviderProbe({ recipe, workDirectory: path.join(data.root, "streamed-failure") }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /command failed \(7\)/u);
+      assert.match(error.message, /stdout:\n\.\.\. <truncated \d+ chars>/u);
+      assert.match(error.message, /STDOUT-SIGNAL/u);
+      assert.match(error.message, /stderr:\n\.\.\. <truncated \d+ chars>/u);
+      assert.match(error.message, /STDERR-SIGNAL/u);
+      return true;
+    },
+  );
+
+  await writeFile(terraform, [
+    "#!/usr/bin/env node",
+    'if (process.argv[2] === "init") process.exit(0);',
+    'process.stdout.write("FILE-STDOUT-SIGNAL\\n");',
+    'process.stderr.write("FILE-STDERR-SIGNAL\\n");',
+    "process.exit(9);",
+    "",
+  ].join("\n"), "utf8");
+  await assert.rejects(
+    runProviderProbe({ recipe, workDirectory: path.join(data.root, "file-failure") }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /command failed \(9\)/u);
+      assert.match(error.message, /FILE-STDOUT-SIGNAL/u);
+      assert.match(error.message, /FILE-STDERR-SIGNAL/u);
+      return true;
+    },
+  );
+});
+
 test("empty recipe primaries fall back to URL, git, Terraform, and derived HCL values", async (context) => {
   const data = await createProviderProbeFixture();
   const workDirectory = path.join(data.root, "falsey-work");
@@ -490,6 +556,24 @@ test("provider probe clones the requested branch or tag and replaces only its ow
 test("provider probe YAML conversion stays safe and URL failures clean temporary files", async (context) => {
   const data = await createProviderProbeFixture();
   context.after(async () => rm(data.root, { force: true, recursive: true }));
+  const implicitYaml = path.join(data.root, "implicit-yaml.txt");
+  const implicitYamlRecipe = path.join(data.root, "implicit-yaml-recipe.json");
+  await writeFile(implicitYaml, "openapi: 3.0.3\npaths: {}\n", "utf8");
+  await writeProviderProbeJson(implicitYamlRecipe, {
+    name: "implicit-yaml",
+    openapi: { path: "implicit-yaml.txt" },
+    provider_source: "registry.terraform.io/example/example",
+    provider_version: "1.2.3",
+    source: { path: "provider" },
+    terraform_schema: { path: "schema.json" },
+  });
+  await assert.rejects(
+    runProviderProbe({
+      recipe: implicitYamlRecipe,
+      workDirectory: path.join(data.root, "implicit-yaml-work"),
+    }),
+    /failed to parse OpenAPI as JSON.*openapi\.format/u,
+  );
   const ruby = spawnSync("ruby", ["--version"], { encoding: "utf8" });
   if (ruby.status === 0) {
     const unsafe = path.join(data.root, "unsafe.yaml");

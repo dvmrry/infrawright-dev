@@ -300,3 +300,45 @@ tree and all 453 manifest entries, then compare them with the frozen CPython
 authority. The source blobs and fixture digest prevent the evidence from
 becoming a Node-to-Node self-comparison. No provider, backend, credentials,
 network access, deployment plan, or Apply is involved.
+
+## Authoring leaf contracts
+
+The ninth archive slice was produced from baseline
+`501bd09384aa2e825342083141abc11789ed9bb1`, using CPython 3.13.13 with
+UCD 15.1.0. Re-run the original live differentials and Python unit authorities
+from that exact state with:
+
+```sh
+git worktree add /tmp/iw-python-authoring-leaves \
+  501bd09384aa2e825342083141abc11789ed9bb1
+cd /tmp/iw-python-authoring-leaves
+PYTHON=python3 npm run build:test
+PYTHON=python3 node --test \
+  .node-test/node-tests/provider-probe-parity.test.js \
+  .node-test/node-tests/authoring-source-evidence-eval.test.js \
+  .node-test/node-tests/authoring-cli.test.js
+PYTHON=python3 python -m unittest \
+  tests.test_provider_probe tests.test_source_evidence_eval
+```
+
+`node-tests/fixtures/python-provider-probe-v1.json` is 29,772 bytes with
+SHA-256
+`235cdbad249822ee70f3b947feffbc802af3a357a8fdf5d108f2454b78838824`.
+It preserves exact bytes for all five artifacts emitted by both retained
+provider-probe cases, including falsey recipe fallbacks. The only normalization
+replaces the exact ephemeral fixture-root prefix with `<fixture-root>`.
+
+`node-tests/fixtures/python-source-evidence-eval-v1.json` is 101,267 bytes
+with SHA-256
+`5f94567238aabfc6522b07863b764719ceef7708bc8f55b8e12db13f88bf299e`.
+It preserves complete evaluation objects and exact Markdown for all change
+classifications and shortcoming buckets, the 106-change row-cap case, explicit
+null metrics, and all five exact authoring-CLI artifact files. Its only
+normalization replaces the exact authoring-CLI fixture root with
+`<FIXTURE_ROOT>`.
+
+Both fixtures record their Python and Node authorities, transitive authoring
+sources, tests, and helpers. Current tests compare complete objects and every
+artifact byte; the fixture digests and source hashes are additional provenance
+locks, not substitutes for those comparisons. No provider, Terraform,
+credential, backend, network, deployment plan, or Apply is involved.

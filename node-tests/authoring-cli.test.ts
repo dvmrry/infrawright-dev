@@ -150,40 +150,6 @@ test("authoring CLI reports remain byte-compatible with Python", async (context)
   }
 });
 
-test("source evidence evaluation writes the Python-compatible artifact set", async (context) => {
-  const data = await fixture();
-  context.after(async () => rm(data.root, { force: true, recursive: true }));
-  const nodeOutput = path.join(data.root, "node-eval");
-  const pythonOutput = path.join(data.root, "python-eval");
-  const common = [
-    "--schema", data.schema, "--openapi", data.openApi,
-    "--source-root", data.source, "--resource-prefix", "example",
-    "--source-facts", data.facts,
-  ];
-  const node = runNode(["source-evidence-eval", ...common, "--out-dir", nodeOutput]);
-  const python = runPython(
-    "engine.source_evidence_eval",
-    [...common, "--out-dir", pythonOutput],
-  );
-  assert.equal(node.status, 0, node.stderr);
-  assert.equal(python.status, 0, python.stderr);
-  for (const filename of [
-    "ast-report.json", "control-report.json", "source-facts-compare.json",
-    "source-evidence-eval.md",
-  ]) {
-    assert.equal(
-      await readFile(path.join(nodeOutput, filename), "utf8"),
-      await readFile(path.join(pythonOutput, filename), "utf8"),
-      filename,
-    );
-  }
-  const nodeEvaluation = JSON.parse(node.stdout) as Record<string, unknown>;
-  const pythonEvaluation = JSON.parse(python.stdout) as Record<string, unknown>;
-  delete nodeEvaluation.artifacts;
-  delete pythonEvaluation.artifacts;
-  assert.deepEqual(nodeEvaluation, pythonEvaluation);
-});
-
 test("source evidence CLI can invoke the AST producer without Python", async (context) => {
   const data = await fixture();
   context.after(async () => rm(data.root, { force: true, recursive: true }));

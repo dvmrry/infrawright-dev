@@ -1,0 +1,2802 @@
+{
+  "cases": {
+    "authoring_cli_artifact_set": {
+      "artifacts": {
+        "ast-report.json": "{\n  \"diagnostics\": [\n    {\n      \"ambiguous\": [],\n      \"files\": [\n        \"resource_widget.go\"\n      ],\n      \"hits\": [\n        {\n          \"client_symbol\": \"Widgets.Get\",\n          \"list_score\": 163,\n          \"method\": \"GET\",\n          \"operation_id\": \"GetWidget\",\n          \"path\": \"/widgets/{id}\",\n          \"path_kind\": \"detail\",\n          \"read_score\": 218,\n          \"source_role\": \"read\"\n        },\n        {\n          \"client_symbol\": \"Widgets.Get\",\n          \"list_score\": 158,\n          \"method\": \"GET\",\n          \"operation_id\": \"ListWidgets\",\n          \"path\": \"/widgets\",\n          \"path_kind\": \"list\",\n          \"read_score\": 113,\n          \"source_role\": \"read\"\n        }\n      ],\n      \"reason\": null,\n      \"resource\": \"example_widget\",\n      \"status\": \"mapped\"\n    }\n  ],\n  \"registry\": {\n    \"example_widget\": {\n      \"product\": \"example\",\n      \"read\": {\n        \"confidence\": \"high\",\n        \"evidence_kind\": \"read\",\n        \"hops\": [\n          {\n            \"client_symbol\": \"Widgets.Get\",\n            \"kind\": \"provider_call\",\n            \"matched_aliases\": [\n              \"Widgets.Get\"\n            ],\n            \"sdk_method\": \"Get\",\n            \"source_files\": [\n              \"resource_widget.go\"\n            ],\n            \"source_role\": \"read\"\n          },\n          {\n            \"kind\": \"openapi_operation\",\n            \"method\": \"GET\",\n            \"operation_id\": \"GetWidget\",\n            \"path\": \"/widgets/{id}\"\n          }\n        ],\n        \"method\": \"GET\",\n        \"operation_id\": \"GetWidget\",\n        \"path\": \"/widgets/{id}\",\n        \"path_kind\": \"detail\"\n      },\n      \"reason\": null,\n      \"source\": {\n        \"candidate_count\": 2,\n        \"client_call_count\": 1,\n        \"client_calls\": [\n          \"Widgets.Get\"\n        ],\n        \"evidence_backend\": \"ast_facts\",\n        \"files\": [\n          \"resource_widget.go\"\n        ]\n      },\n      \"status\": \"mapped\",\n      \"surface\": \"example\"\n    }\n  },\n  \"summary\": {\n    \"ambiguous\": 0,\n    \"graphql_source\": 0,\n    \"mapped\": 1,\n    \"resources\": 1,\n    \"resources_with_source_files\": 1,\n    \"resources_without_source_files\": 0,\n    \"unmapped\": 0\n  }\n}\n",
+        "control-report.json": "{\n  \"diagnostics\": [\n    {\n      \"ambiguous\": [],\n      \"files\": [\n        \"resource_widget.go\"\n      ],\n      \"hits\": [\n        {\n          \"client_symbol\": \"Widgets.Get\",\n          \"list_score\": 163,\n          \"method\": \"GET\",\n          \"operation_id\": \"GetWidget\",\n          \"path\": \"/widgets/{id}\",\n          \"path_kind\": \"detail\",\n          \"read_score\": 218,\n          \"source_role\": \"read\"\n        },\n        {\n          \"client_symbol\": \"Widgets.Get\",\n          \"list_score\": 158,\n          \"method\": \"GET\",\n          \"operation_id\": \"ListWidgets\",\n          \"path\": \"/widgets\",\n          \"path_kind\": \"list\",\n          \"read_score\": 113,\n          \"source_role\": \"read\"\n        }\n      ],\n      \"reason\": null,\n      \"resource\": \"example_widget\",\n      \"status\": \"mapped\"\n    }\n  ],\n  \"registry\": {\n    \"example_widget\": {\n      \"product\": \"example\",\n      \"read\": {\n        \"confidence\": \"high\",\n        \"evidence_kind\": \"read\",\n        \"hops\": [\n          {\n            \"client_symbol\": \"Widgets.Get\",\n            \"kind\": \"provider_call\",\n            \"matched_aliases\": [\n              \"Widgets.Get\"\n            ],\n            \"sdk_method\": \"Get\",\n            \"source_files\": [\n              \"resource_widget.go\"\n            ],\n            \"source_role\": \"read\"\n          },\n          {\n            \"kind\": \"openapi_operation\",\n            \"method\": \"GET\",\n            \"operation_id\": \"GetWidget\",\n            \"path\": \"/widgets/{id}\"\n          }\n        ],\n        \"method\": \"GET\",\n        \"operation_id\": \"GetWidget\",\n        \"path\": \"/widgets/{id}\",\n        \"path_kind\": \"detail\"\n      },\n      \"reason\": null,\n      \"source\": {\n        \"candidate_count\": 2,\n        \"client_call_count\": 1,\n        \"client_calls\": [\n          \"Widgets.Get\"\n        ],\n        \"files\": [\n          \"resource_widget.go\"\n        ]\n      },\n      \"status\": \"mapped\",\n      \"surface\": \"example\"\n    }\n  },\n  \"summary\": {\n    \"ambiguous\": 0,\n    \"graphql_source\": 0,\n    \"mapped\": 1,\n    \"resources\": 1,\n    \"resources_with_source_files\": 1,\n    \"resources_without_source_files\": 0,\n    \"unmapped\": 0\n  }\n}\n",
+        "source-evidence-eval.json": "{\n  \"artifacts\": {\n    \"ast_report\": \"<FIXTURE_ROOT>/python-eval/ast-report.json\",\n    \"compare\": \"<FIXTURE_ROOT>/python-eval/source-facts-compare.json\",\n    \"control_report\": \"<FIXTURE_ROOT>/python-eval/control-report.json\",\n    \"evaluation\": \"<FIXTURE_ROOT>/python-eval/source-evidence-eval.json\",\n    \"markdown\": \"<FIXTURE_ROOT>/python-eval/source-evidence-eval.md\",\n    \"source_facts\": \"<FIXTURE_ROOT>/facts.json\"\n  },\n  \"changes\": [],\n  \"shortcomings\": {\n    \"buckets\": {\n      \"mapped_read_without_list\": {\n        \"count\": 1,\n        \"resources\": [\n          {\n            \"candidate_count\": 2,\n            \"candidate_samples\": [\n              {\n                \"client_symbol\": \"Widgets.Get\",\n                \"list_score\": 163,\n                \"method\": \"GET\",\n                \"operation_id\": \"GetWidget\",\n                \"path\": \"/widgets/{id}\",\n                \"path_kind\": \"detail\",\n                \"read_score\": 218,\n                \"source_role\": \"read\"\n              },\n              {\n                \"client_symbol\": \"Widgets.Get\",\n                \"list_score\": 158,\n                \"method\": \"GET\",\n                \"operation_id\": \"ListWidgets\",\n                \"path\": \"/widgets\",\n                \"path_kind\": \"list\",\n                \"read_score\": 113,\n                \"source_role\": \"read\"\n              }\n            ],\n            \"client_call_count\": 1,\n            \"client_calls\": [\n              \"Widgets.Get\"\n            ],\n            \"files\": [\n              \"resource_widget.go\"\n            ],\n            \"package_call_count\": 0,\n            \"raw_rest_call_count\": 0,\n            \"read_operation_id\": \"GetWidget\",\n            \"read_path\": \"/widgets/{id}\",\n            \"reason\": null,\n            \"resource\": \"example_widget\",\n            \"status\": \"mapped\"\n          }\n        ],\n        \"severity\": \"notice\"\n      }\n    },\n    \"severity_summary\": {\n      \"notice\": 1\n    },\n    \"summary\": {\n      \"mapped_read_without_list\": 1\n    }\n  },\n  \"summary\": {\n    \"acceptable\": 0,\n    \"candidate\": {\n      \"ambiguous\": 0,\n      \"graphql_source\": 0,\n      \"mapped\": 1,\n      \"resources\": 1,\n      \"resources_with_source_files\": 1,\n      \"resources_without_source_files\": 0,\n      \"unmapped\": 0\n    },\n    \"changed\": 0,\n    \"control\": {\n      \"ambiguous\": 0,\n      \"graphql_source\": 0,\n      \"mapped\": 1,\n      \"resources\": 1,\n      \"resources_with_source_files\": 1,\n      \"resources_without_source_files\": 0,\n      \"unmapped\": 0\n    },\n    \"reasons\": {},\n    \"regressions\": 0,\n    \"resources\": 1,\n    \"review_required\": 0,\n    \"unchanged\": 1\n  }\n}\n",
+        "source-evidence-eval.md": "# Source Evidence A/B Evaluation\n\n| Metric | Text Scanner | AST Facts |\n|---|---:|---:|\n| `resources` | `1` | `1` |\n| `mapped` | `1` | `1` |\n| `ambiguous` | `0` | `0` |\n| `graphql_source` | `0` | `0` |\n| `unmapped` | `0` | `0` |\n| `resources_with_source_files` | `1` | `1` |\n\n## Delta Summary\n\n| Classification | Count |\n|---|---:|\n| `regression` | `0` |\n| `review` | `0` |\n| `acceptable` | `0` |\n| `unchanged` | `1` |\n\n## Shortcomings\n\n| Bucket | Severity | Count | Sample Resources |\n|---|---|---:|---|\n| `mapped_read_without_list` | `notice` | `1` | `example_widget` |\n",
+        "source-facts-compare.json": "{\n  \"changes\": [],\n  \"summary\": {\n    \"candidate\": {\n      \"ambiguous\": 0,\n      \"graphql_source\": 0,\n      \"mapped\": 1,\n      \"resources\": 1,\n      \"resources_with_source_files\": 1,\n      \"resources_without_source_files\": 0,\n      \"unmapped\": 0\n    },\n    \"changed\": 0,\n    \"control\": {\n      \"ambiguous\": 0,\n      \"graphql_source\": 0,\n      \"mapped\": 1,\n      \"resources\": 1,\n      \"resources_with_source_files\": 1,\n      \"resources_without_source_files\": 0,\n      \"unmapped\": 0\n    },\n    \"file_changes\": 0,\n    \"read_path_changes\": 0,\n    \"resources\": 1,\n    \"status_changes\": 0,\n    \"unchanged\": 1\n  }\n}\n"
+      },
+      "stdout_without_artifacts": {
+        "changes": [],
+        "shortcomings": {
+          "buckets": {
+            "mapped_read_without_list": {
+              "count": 1,
+              "resources": [
+                {
+                  "candidate_count": 2,
+                  "candidate_samples": [
+                    {
+                      "client_symbol": "Widgets.Get",
+                      "list_score": 163,
+                      "method": "GET",
+                      "operation_id": "GetWidget",
+                      "path": "/widgets/{id}",
+                      "path_kind": "detail",
+                      "read_score": 218,
+                      "source_role": "read"
+                    },
+                    {
+                      "client_symbol": "Widgets.Get",
+                      "list_score": 158,
+                      "method": "GET",
+                      "operation_id": "ListWidgets",
+                      "path": "/widgets",
+                      "path_kind": "list",
+                      "read_score": 113,
+                      "source_role": "read"
+                    }
+                  ],
+                  "client_call_count": 1,
+                  "client_calls": [
+                    "Widgets.Get"
+                  ],
+                  "files": [
+                    "resource_widget.go"
+                  ],
+                  "package_call_count": 0,
+                  "raw_rest_call_count": 0,
+                  "read_operation_id": "GetWidget",
+                  "read_path": "/widgets/{id}",
+                  "reason": null,
+                  "resource": "example_widget",
+                  "status": "mapped"
+                }
+              ],
+              "severity": "notice"
+            }
+          },
+          "severity_summary": {
+            "notice": 1
+          },
+          "summary": {
+            "mapped_read_without_list": 1
+          }
+        },
+        "summary": {
+          "acceptable": 0,
+          "candidate": {
+            "ambiguous": 0,
+            "graphql_source": 0,
+            "mapped": 1,
+            "resources": 1,
+            "resources_with_source_files": 1,
+            "resources_without_source_files": 0,
+            "unmapped": 0
+          },
+          "changed": 0,
+          "control": {
+            "ambiguous": 0,
+            "graphql_source": 0,
+            "mapped": 1,
+            "resources": 1,
+            "resources_with_source_files": 1,
+            "resources_without_source_files": 0,
+            "unmapped": 0
+          },
+          "reasons": {},
+          "regressions": 0,
+          "resources": 1,
+          "review_required": 0,
+          "unchanged": 1
+        }
+      }
+    },
+    "classifications_shortcomings_markdown": {
+      "evaluation": {
+        "changes": [
+          {
+            "after": {
+              "files": [
+                "a.go"
+              ],
+              "status": "unmapped"
+            },
+            "before": {
+              "files": [
+                "a.go"
+              ],
+              "read_path": "/a",
+              "status": "mapped"
+            },
+            "classification": "regression",
+            "classification_reason": "mapped_to_unmapped",
+            "resource": "mapped_unmapped"
+          },
+          {
+            "after": {
+              "files": [
+                "a.go"
+              ],
+              "read_path": "/b",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "a.go"
+              ],
+              "read_path": "/a",
+              "status": "mapped"
+            },
+            "classification": "regression",
+            "classification_reason": "mapped_read_path_changed",
+            "resource": "mapped_path"
+          },
+          {
+            "after": {
+              "files": [],
+              "status": "unmapped"
+            },
+            "before": {
+              "files": [
+                "a.go"
+              ],
+              "status": "unmapped"
+            },
+            "classification": "regression",
+            "classification_reason": "source_files_dropped_to_zero",
+            "resource": "files_zero"
+          },
+          {
+            "after": {
+              "files": [
+                "a.go"
+              ],
+              "read_path": "/a",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "a.go",
+                "b.go"
+              ],
+              "read_path": "/a",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "files_narrow"
+          },
+          {
+            "after": {
+              "files": [
+                "b.go"
+              ],
+              "read_path": "/a",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "a.go"
+              ],
+              "read_path": "/a",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_changed",
+            "resource": "files_changed"
+          },
+          {
+            "after": {
+              "files": [
+                "a.go"
+              ],
+              "read_path": "/a",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "a.go"
+              ],
+              "status": "unmapped"
+            },
+            "classification": "review",
+            "classification_reason": "new_mapping",
+            "resource": "new_mapping"
+          },
+          {
+            "after": {
+              "files": [
+                "a.go"
+              ],
+              "read_path": "/a",
+              "status": "ambiguous_source_operation"
+            },
+            "before": {
+              "files": [
+                "a.go"
+              ],
+              "read_path": "/a",
+              "status": "mapped"
+            },
+            "classification": "review",
+            "classification_reason": "mapped_to_ambiguous",
+            "resource": "ambiguous"
+          },
+          {
+            "after": {
+              "files": [],
+              "list_path": "/list-b",
+              "read_path": "/a",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [],
+              "list_path": "/list-a",
+              "read_path": "/a",
+              "status": "mapped"
+            },
+            "classification": "review",
+            "classification_reason": "list_path_changed",
+            "resource": "list"
+          },
+          {
+            "after": {
+              "files": [],
+              "read_path": "/b",
+              "status": "unmapped"
+            },
+            "before": {
+              "files": [],
+              "read_path": "/a",
+              "status": "unmapped"
+            },
+            "classification": "review",
+            "classification_reason": "read_path_changed",
+            "resource": "read"
+          },
+          {
+            "after": {
+              "files": [],
+              "status": "unmapped"
+            },
+            "before": {
+              "files": [],
+              "status": "graphql_source"
+            },
+            "classification": "review",
+            "classification_reason": "status_changed",
+            "resource": "status"
+          },
+          {
+            "after": {
+              "candidate_count": 1,
+              "files": [],
+              "status": "unmapped"
+            },
+            "before": {
+              "candidate_count": 0,
+              "files": [],
+              "status": "unmapped"
+            },
+            "classification": "review",
+            "classification_reason": "diagnostic_changed",
+            "resource": "diagnostic"
+          }
+        ],
+        "shortcomings": {
+          "buckets": {
+            "ambiguous_source_operation": {
+              "count": 1,
+              "resources": [
+                {
+                  "candidate_count": 2,
+                  "candidate_samples": [
+                    {
+                      "client_symbol": "One.Get",
+                      "list_score": 10,
+                      "method": "GET",
+                      "operation_id": "GetOne",
+                      "path": "/one/{id}",
+                      "path_kind": "detail",
+                      "read_score": 50,
+                      "source_role": "read"
+                    }
+                  ],
+                  "client_call_count": 0,
+                  "files": [
+                    "ambiguous.go"
+                  ],
+                  "package_call_count": 0,
+                  "raw_rest_call_count": 0,
+                  "reason": "ambiguous_source_operation",
+                  "resource": "ambiguous",
+                  "status": "ambiguous_source_operation"
+                }
+              ],
+              "severity": "review"
+            },
+            "calls_without_openapi_match": {
+              "count": 1,
+              "resources": [
+                {
+                  "candidate_count": 0,
+                  "client_call_count": 1,
+                  "client_calls": [
+                    "Widgets.Get"
+                  ],
+                  "files": [
+                    "calls.go"
+                  ],
+                  "package_call_count": 0,
+                  "raw_rest_call_count": 0,
+                  "reason": "no_source_operation_match",
+                  "resource": "no_match",
+                  "status": "unmapped"
+                }
+              ],
+              "severity": "gap"
+            },
+            "graphql_source": {
+              "count": 1,
+              "resources": [
+                {
+                  "candidate_count": 0,
+                  "client_call_count": 0,
+                  "files": [
+                    "graphql.go"
+                  ],
+                  "package_call_count": 0,
+                  "raw_rest_call_count": 0,
+                  "reason": "graphql_source",
+                  "resource": "graphql",
+                  "status": "graphql_source"
+                }
+              ],
+              "severity": "notice"
+            },
+            "mapped_read_without_list": {
+              "count": 1,
+              "resources": [
+                {
+                  "candidate_count": 0,
+                  "client_call_count": 0,
+                  "files": [
+                    "read.go"
+                  ],
+                  "package_call_count": 0,
+                  "raw_rest_call_count": 0,
+                  "read_operation_id": "GetRead",
+                  "read_path": "/read/{id}",
+                  "reason": null,
+                  "resource": "read_only",
+                  "status": "mapped"
+                }
+              ],
+              "severity": "notice"
+            },
+            "regression": {
+              "count": 3,
+              "resources": [
+                {
+                  "after": {
+                    "files": [],
+                    "status": "unmapped"
+                  },
+                  "before": {
+                    "files": [
+                      "a.go"
+                    ],
+                    "status": "unmapped"
+                  },
+                  "reason": "source_files_dropped_to_zero",
+                  "resource": "files_zero"
+                },
+                {
+                  "after": {
+                    "files": [
+                      "a.go"
+                    ],
+                    "read_path": "/b",
+                    "status": "mapped"
+                  },
+                  "before": {
+                    "files": [
+                      "a.go"
+                    ],
+                    "read_path": "/a",
+                    "status": "mapped"
+                  },
+                  "reason": "mapped_read_path_changed",
+                  "resource": "mapped_path"
+                },
+                {
+                  "after": {
+                    "files": [
+                      "a.go"
+                    ],
+                    "status": "unmapped"
+                  },
+                  "before": {
+                    "files": [
+                      "a.go"
+                    ],
+                    "read_path": "/a",
+                    "status": "mapped"
+                  },
+                  "reason": "mapped_to_unmapped",
+                  "resource": "mapped_unmapped"
+                }
+              ],
+              "severity": "gap"
+            },
+            "resource_file_not_found": {
+              "count": 1,
+              "resources": [
+                {
+                  "candidate_count": 0,
+                  "client_call_count": 0,
+                  "files": [],
+                  "package_call_count": 0,
+                  "raw_rest_call_count": 0,
+                  "reason": "resource_file_not_found",
+                  "resource": "missing",
+                  "status": "unmapped"
+                }
+              ],
+              "severity": "gap"
+            },
+            "source_files_without_operation_calls": {
+              "count": 1,
+              "resources": [
+                {
+                  "candidate_count": 0,
+                  "client_call_count": 0,
+                  "files": [
+                    "empty.go"
+                  ],
+                  "package_call_count": 0,
+                  "raw_rest_call_count": 0,
+                  "reason": "no_source_operation_match",
+                  "resource": "no_calls",
+                  "status": "unmapped"
+                }
+              ],
+              "severity": "gap"
+            },
+            "unmapped_without_reason": {
+              "count": 1,
+              "resources": [
+                {
+                  "candidate_count": 1,
+                  "candidate_samples": [
+                    {
+                      "client_symbol": "Widgets.Get",
+                      "method": "GET",
+                      "operation_id": "GetWidget",
+                      "path": "/widgets/{id}",
+                      "read_score": 50
+                    }
+                  ],
+                  "client_call_count": 0,
+                  "files": [
+                    "unknown.go"
+                  ],
+                  "package_call_count": 0,
+                  "raw_rest_call_count": 0,
+                  "reason": null,
+                  "resource": "no_reason",
+                  "status": "unmapped"
+                }
+              ],
+              "severity": "gap"
+            }
+          },
+          "severity_summary": {
+            "gap": 7,
+            "notice": 2,
+            "review": 1
+          },
+          "summary": {
+            "ambiguous_source_operation": 1,
+            "calls_without_openapi_match": 1,
+            "graphql_source": 1,
+            "mapped_read_without_list": 1,
+            "regression": 3,
+            "resource_file_not_found": 1,
+            "source_files_without_operation_calls": 1,
+            "unmapped_without_reason": 1
+          }
+        },
+        "summary": {
+          "acceptable": 2,
+          "candidate": {
+            "ambiguous": 1,
+            "graphql_source": 1,
+            "mapped": 1,
+            "resources": 7,
+            "resources_with_source_files": 6,
+            "unmapped": 4
+          },
+          "changed": 11,
+          "control": {
+            "mapped": 5,
+            "resources": 11
+          },
+          "reasons": {
+            "diagnostic_changed": 1,
+            "list_path_changed": 1,
+            "mapped_read_path_changed": 1,
+            "mapped_to_ambiguous": 1,
+            "mapped_to_unmapped": 1,
+            "new_mapping": 1,
+            "read_path_changed": 1,
+            "source_files_changed": 1,
+            "source_files_dropped_to_zero": 1,
+            "source_files_narrowed": 1,
+            "status_changed": 1
+          },
+          "regressions": 3,
+          "resources": 11,
+          "review_required": 6,
+          "unchanged": 2
+        }
+      },
+      "markdown": "# Source Evidence A/B Evaluation\n\n| Metric | Text Scanner | AST Facts |\n|---|---:|---:|\n| `resources` | `11` | `7` |\n| `mapped` | `5` | `1` |\n| `ambiguous` | `0` | `1` |\n| `graphql_source` | `0` | `1` |\n| `unmapped` | `0` | `4` |\n| `resources_with_source_files` | `0` | `6` |\n\n## Delta Summary\n\n| Classification | Count |\n|---|---:|\n| `regression` | `3` |\n| `review` | `6` |\n| `acceptable` | `2` |\n| `unchanged` | `2` |\n\n## Reasons\n\n| Reason | Count |\n|---|---:|\n| `diagnostic_changed` | `1` |\n| `list_path_changed` | `1` |\n| `mapped_read_path_changed` | `1` |\n| `mapped_to_ambiguous` | `1` |\n| `mapped_to_unmapped` | `1` |\n| `new_mapping` | `1` |\n| `read_path_changed` | `1` |\n| `source_files_changed` | `1` |\n| `source_files_dropped_to_zero` | `1` |\n| `source_files_narrowed` | `1` |\n| `status_changed` | `1` |\n\n## Changes\n\n| Resource | Class | Reason | Before | After |\n|---|---|---|---|---|\n| `files_zero` | `regression` | `source_files_dropped_to_zero` | unmapped `None` | unmapped `None` |\n| `mapped_path` | `regression` | `mapped_read_path_changed` | mapped `/a` | mapped `/b` |\n| `mapped_unmapped` | `regression` | `mapped_to_unmapped` | mapped `/a` | unmapped `None` |\n| `ambiguous` | `review` | `mapped_to_ambiguous` | mapped `/a` | ambiguous_source_operation `/a` |\n| `diagnostic` | `review` | `diagnostic_changed` | unmapped `None` | unmapped `None` |\n| `list` | `review` | `list_path_changed` | mapped `/a` | mapped `/a` |\n| `new_mapping` | `review` | `new_mapping` | unmapped `None` | mapped `/a` |\n| `read` | `review` | `read_path_changed` | unmapped `/a` | unmapped `/b` |\n| `status` | `review` | `status_changed` | graphql_source `None` | unmapped `None` |\n| `files_changed` | `acceptable` | `source_files_changed` | mapped `/a` | mapped `/a` |\n| `files_narrow` | `acceptable` | `source_files_narrowed` | mapped `/a` | mapped `/a` |\n\n## Shortcomings\n\n| Bucket | Severity | Count | Sample Resources |\n|---|---|---:|---|\n| `calls_without_openapi_match` | `gap` | `1` | `no_match` |\n| `regression` | `gap` | `3` | `files_zero`, `mapped_path`, `mapped_unmapped` |\n| `resource_file_not_found` | `gap` | `1` | `missing` |\n| `source_files_without_operation_calls` | `gap` | `1` | `no_calls` |\n| `unmapped_without_reason` | `gap` | `1` | `no_reason` |\n| `ambiguous_source_operation` | `review` | `1` | `ambiguous` |\n| `graphql_source` | `notice` | `1` | `graphql` |\n| `mapped_read_without_list` | `notice` | `1` | `read_only` |\n"
+    },
+    "explicit_null_metrics": {
+      "evaluation": {
+        "changes": [],
+        "shortcomings": {
+          "buckets": {
+            "resource_file_not_found": {
+              "count": 1,
+              "resources": [
+                {
+                  "candidate_count": null,
+                  "client_call_count": null,
+                  "files": [],
+                  "package_call_count": null,
+                  "raw_rest_call_count": null,
+                  "reason": "resource_file_not_found",
+                  "resource": "missing",
+                  "status": "unmapped"
+                }
+              ],
+              "severity": "gap"
+            }
+          },
+          "severity_summary": {
+            "gap": 1
+          },
+          "summary": {
+            "resource_file_not_found": 1
+          }
+        },
+        "summary": {
+          "acceptable": 0,
+          "candidate": {
+            "mapped": null,
+            "resources": null
+          },
+          "changed": 0,
+          "control": {
+            "mapped": null,
+            "resources": null
+          },
+          "reasons": {},
+          "regressions": 0,
+          "resources": null,
+          "review_required": 0,
+          "unchanged": null
+        }
+      },
+      "markdown": "# Source Evidence A/B Evaluation\n\n| Metric | Text Scanner | AST Facts |\n|---|---:|---:|\n| `resources` | `None` | `None` |\n| `mapped` | `None` | `None` |\n| `ambiguous` | `0` | `0` |\n| `graphql_source` | `0` | `0` |\n| `unmapped` | `0` | `0` |\n| `resources_with_source_files` | `0` | `0` |\n\n## Delta Summary\n\n| Classification | Count |\n|---|---:|\n| `regression` | `0` |\n| `review` | `0` |\n| `acceptable` | `0` |\n| `unchanged` | `None` |\n\n## Shortcomings\n\n| Bucket | Severity | Count | Sample Resources |\n|---|---|---:|---|\n| `resource_file_not_found` | `gap` | `1` | `missing` |\n"
+    },
+    "markdown_change_cap": {
+      "evaluation": {
+        "changes": [
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_000"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_001"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_002"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_003"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_004"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_005"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_006"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_007"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_008"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_009"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_010"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_011"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_012"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_013"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_014"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_015"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_016"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_017"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_018"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_019"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_020"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_021"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_022"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_023"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_024"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_025"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_026"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_027"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_028"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_029"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_030"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_031"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_032"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_033"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_034"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_035"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_036"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_037"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_038"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_039"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_040"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_041"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_042"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_043"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_044"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_045"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_046"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_047"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_048"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_049"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_050"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_051"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_052"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_053"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_054"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_055"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_056"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_057"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_058"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_059"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_060"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_061"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_062"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_063"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_064"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_065"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_066"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_067"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_068"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_069"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_070"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_071"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_072"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_073"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_074"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_075"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_076"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_077"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_078"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_079"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_080"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_081"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_082"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_083"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_084"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_085"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_086"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_087"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_088"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_089"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_090"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_091"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_092"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_093"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_094"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_095"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_096"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_097"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_098"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_099"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_100"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_101"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_102"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_103"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "before": {
+              "files": [
+                "old.go",
+                "extra.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "acceptable",
+            "classification_reason": "source_files_narrowed",
+            "resource": "example_104"
+          },
+          {
+            "after": {
+              "files": [
+                "old.go"
+              ],
+              "status": "unmapped"
+            },
+            "before": {
+              "files": [
+                "old.go"
+              ],
+              "read_path": "/old",
+              "status": "mapped"
+            },
+            "classification": "regression",
+            "classification_reason": "mapped_to_unmapped",
+            "resource": "example_regression"
+          }
+        ],
+        "shortcomings": {
+          "buckets": {
+            "regression": {
+              "count": 1,
+              "resources": [
+                {
+                  "after": {
+                    "files": [
+                      "old.go"
+                    ],
+                    "status": "unmapped"
+                  },
+                  "before": {
+                    "files": [
+                      "old.go"
+                    ],
+                    "read_path": "/old",
+                    "status": "mapped"
+                  },
+                  "reason": "mapped_to_unmapped",
+                  "resource": "example_regression"
+                }
+              ],
+              "severity": "gap"
+            }
+          },
+          "severity_summary": {
+            "gap": 1
+          },
+          "summary": {
+            "regression": 1
+          }
+        },
+        "summary": {
+          "acceptable": 105,
+          "candidate": {},
+          "changed": 106,
+          "control": {},
+          "reasons": {
+            "mapped_to_unmapped": 1,
+            "source_files_narrowed": 105
+          },
+          "regressions": 1,
+          "resources": 106,
+          "review_required": 0,
+          "unchanged": 0
+        }
+      },
+      "markdown": "# Source Evidence A/B Evaluation\n\n| Metric | Text Scanner | AST Facts |\n|---|---:|---:|\n| `resources` | `0` | `0` |\n| `mapped` | `0` | `0` |\n| `ambiguous` | `0` | `0` |\n| `graphql_source` | `0` | `0` |\n| `unmapped` | `0` | `0` |\n| `resources_with_source_files` | `0` | `0` |\n\n## Delta Summary\n\n| Classification | Count |\n|---|---:|\n| `regression` | `1` |\n| `review` | `0` |\n| `acceptable` | `105` |\n| `unchanged` | `0` |\n\n## Reasons\n\n| Reason | Count |\n|---|---:|\n| `mapped_to_unmapped` | `1` |\n| `source_files_narrowed` | `105` |\n\n## Changes\n\n| Resource | Class | Reason | Before | After |\n|---|---|---|---|---|\n| `example_regression` | `regression` | `mapped_to_unmapped` | mapped `/old` | unmapped `None` |\n| `example_000` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_001` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_002` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_003` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_004` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_005` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_006` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_007` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_008` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_009` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_010` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_011` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_012` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_013` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_014` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_015` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_016` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_017` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_018` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_019` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_020` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_021` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_022` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_023` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_024` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_025` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_026` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_027` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_028` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_029` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_030` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_031` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_032` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_033` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_034` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_035` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_036` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_037` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_038` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_039` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_040` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_041` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_042` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_043` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_044` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_045` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_046` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_047` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_048` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_049` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_050` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_051` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_052` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_053` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_054` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_055` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_056` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_057` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_058` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_059` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_060` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_061` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_062` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_063` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_064` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_065` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_066` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_067` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_068` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_069` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_070` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_071` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_072` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_073` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_074` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_075` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_076` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_077` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_078` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_079` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_080` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_081` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_082` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_083` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_084` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_085` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_086` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_087` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_088` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_089` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_090` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_091` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_092` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_093` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_094` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_095` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_096` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_097` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n| `example_098` | `acceptable` | `source_files_narrowed` | mapped `/old` | mapped `/old` |\n\nShowing `100` of `106` changes; full detail is in JSON.\n\n## Shortcomings\n\n| Bucket | Severity | Count | Sample Resources |\n|---|---|---:|---|\n| `regression` | `gap` | `1` | `example_regression` |\n"
+    }
+  },
+  "provenance": {
+    "baseline_commit": "501bd09384aa2e825342083141abc11789ed9bb1",
+    "normalization": {
+      "placeholder": "<FIXTURE_ROOT>",
+      "rule": "replace the exact absolute authoring CLI fixture root in artifact bytes and stdout string values; no other normalization"
+    },
+    "python": "3.13.13",
+    "python_implementation": "cpython",
+    "source_blobs_sha256": {
+      "engine/openapi_resource_map.py": "6026a4d25eaa4a2d5d669c32a8d9dbdd7de29f1bf1f8ad9b25c6ed5ded513770",
+      "engine/reconcile_schema_api.py": "23deac644d9688df034cbd7f19d8bfcbcea15c3eb7a5109a89debc576037b7ea",
+      "engine/sdk_path_evidence.py": "b2bd536010df6cfab10bfe1001a0d9990797ea6505387c7a1f02890cb3df0406",
+      "engine/source_evidence_eval.py": "9e0e17686c5f6ec4cd3da4d67a9160ec3b45c2782926439c708d545a7606dfab",
+      "engine/source_operation_map.py": "343e756d19c0ed32e51c33cb7885fb103f4bd98f43b54748dc11a8febe4426c4",
+      "engine/tfschema.py": "12057bb1ec2922659afeaf1d4220283d66d67309ca047199bd7babeb32d05117",
+      "node-src/authoring/openapi-resource-map.ts": "d3c338ac8efb34a55186681eb65a9adea31a4798cd67b6571feec7ec4d71a3f5",
+      "node-src/authoring/openapi.ts": "fc50de84ef7fa7762c3961c3ca81c2ad953cd1558bf8661215ab5e359db237d4",
+      "node-src/authoring/provider-source-evidence.ts": "eb399182907201dabf016df4a6a030b207519f6b73e1d36535a0c5f176b5bdb0",
+      "node-src/authoring/reconcile-schema-api.ts": "d0a5f0fbadab3a9d3e40088c7ae9ec6200d927ee415f0d238aaf894dd405977c",
+      "node-src/authoring/sdk-path-evidence.ts": "e90aaaa3547541fe99dfbca6c178be0e78a97423e7be8f45eef9369164ac1306",
+      "node-src/authoring/source-evidence-eval.ts": "4909491eb43146672ebe2456262128869d7536913d3b94d5fe88a38b33152726",
+      "node-src/authoring/source-operation-map.ts": "571c3d3cf2413c185be2ac46eca05fe9f33b528aa439182ad972165303e0f6a9",
+      "node-src/json/python-compatible.ts": "54505a9d508f103fd40af7897508edf86dc0c8bd0028e98d178c1fb9e79749e07",
+      "node-src/metadata/terraform-schema.ts": "bee44a3c9ff079acdb39c3e2c3dc636d86cbfe3b92ff51ecd5a75c62a71a1fec",
+      "node-src/metadata/validation.ts": "b8cbc7b930ac4ee8da7dae5a4625a13d1f4902f67c75127e0e222c983c3b5693",
+      "node-tests/authoring-cli.test.ts": "99b573e7de95af5872fc1d8118a092cff5befc1160ea848cc4dcd495f3997f3c",
+      "node-tests/authoring-source-evidence-eval.test.ts": "e856697074f0be50840d0b76e9eb67ce0819c1dc7fc827c04c820af1a523a488"
+    },
+    "unicode_database": "15.1.0"
+  },
+  "schema_version": 1
+}

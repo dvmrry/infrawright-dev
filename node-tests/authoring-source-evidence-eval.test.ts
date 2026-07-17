@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,13 +14,169 @@ import {
 } from "../node-src/authoring/source-evidence-eval.js";
 import { compareSourceOperationReports, deriveSourceOperationRegistry } from "../node-src/authoring/source-operation-map.js";
 import type { JsonObject } from "../node-src/metadata/validation.js";
-import { PYTHON_ORACLE } from "./python-oracle.js";
 
-async function pythonEvaluation(compare: JsonObject, candidate: JsonObject): Promise<JsonObject> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "source-eval-python-")); const input = path.join(root, "input.json");
-  await writeFile(input, JSON.stringify({ candidate, compare }));
-  const script = ["import json,sys", "from engine import source_evidence_eval as e", "x=json.load(open(sys.argv[1]))", "v=e.classify_comparison(x['compare'])", "v['shortcomings']=e.summarize_shortcomings(x['candidate'],v)", "json.dump({'evaluation':v,'markdown':e.render_markdown(v)},sys.stdout,sort_keys=True,separators=(',',':'))"].join(";");
-  const result = spawnSync(PYTHON_ORACLE, ["-c", script, input], { cwd: process.cwd(), encoding: "utf8" }); await rm(root, { force: true, recursive: true }); assert.equal(result.status, 0, result.stderr); return JSON.parse(result.stdout) as JsonObject;
+const AUTHORITY_PATH = path.join(
+  process.cwd(),
+  "node-tests",
+  "fixtures",
+  "python-source-evidence-eval-v1.json",
+);
+const AUTHORITY_SHA256 = "5f94567238aabfc6522b07863b764719ceef7708bc8f55b8e12db13f88bf299e";
+const CLI = path.join(process.cwd(), ".node-test", "node-src", "cli", "main.js");
+
+interface FrozenEvaluationCase {
+  readonly evaluation: JsonObject;
+  readonly markdown: string;
+}
+
+interface FrozenCliCase {
+  readonly artifacts: Readonly<Record<string, string>>;
+  readonly stdout_without_artifacts: Readonly<Record<string, unknown>>;
+}
+
+interface FrozenAuthority {
+  readonly cases: Readonly<Record<string, unknown>>;
+  readonly provenance: JsonObject;
+  readonly schema_version: number;
+}
+
+let authorityPromise: Promise<FrozenAuthority> | undefined;
+
+async function frozenAuthority(): Promise<FrozenAuthority> {
+  authorityPromise ??= (async () => {
+    const bytes = await readFile(AUTHORITY_PATH);
+    assert.equal(createHash("sha256").update(bytes).digest("hex"), AUTHORITY_SHA256);
+    const authority = JSON.parse(bytes.toString("utf8")) as FrozenAuthority;
+    assert.equal(authority.schema_version, 1);
+    assert.deepEqual(authority.provenance, {
+      baseline_commit: "501bd09384aa2e825342083141abc11789ed9bb1",
+      normalization: {
+        placeholder: "<FIXTURE_ROOT>",
+        rule: "replace the exact absolute authoring CLI fixture root in artifact bytes and stdout string values; no other normalization",
+      },
+      python: "3.13.13",
+      python_implementation: "cpython",
+      source_blobs_sha256: {
+        "engine/openapi_resource_map.py": "6026a4d25eaa4a2d5d669c32a8d9dbdd7de29f1bf1f8ad9b25c6ed5ded513770",
+        "engine/reconcile_schema_api.py": "23deac644d9688df034cbd7f19d8bfcbcea15c3eb7a5109a89debc576037b7ea",
+        "engine/sdk_path_evidence.py": "b2bd536010df6cfab10bfe1001a0d9990797ea6505387c7a1f02890cb3df0406",
+        "engine/source_evidence_eval.py": "9e0e17686c5f6ec4cd3da4d67a9160ec3b45c2782926439c708d545a7606dfab",
+        "engine/source_operation_map.py": "343e756d19c0ed32e51c33cb7885fb103f4bd98f43b54748dc11a8febe4426c4",
+        "engine/tfschema.py": "12057bb1ec2922659afeaf1d4220283d66d67309ca047199bd7babeb32d05117",
+        "node-src/authoring/openapi-resource-map.ts": "d3c338ac8efb34a55186681eb65a9adea31a4798cd67b6571feec7ec4d71a3f5",
+        "node-src/authoring/openapi.ts": "fc50de84ef7fa7762c3961c3ca81c2ad953cd1558bf8661215ab5e359db237d4",
+        "node-src/authoring/provider-source-evidence.ts": "eb399182907201dabf016df4a6a030b207519f6b73e1d36535a0c5f176b5bdb0",
+        "node-src/authoring/reconcile-schema-api.ts": "d0a5f0fbadab3a9d3e40088c7ae9ec6200d927ee415f0d238aaf894dd405977c",
+        "node-src/authoring/sdk-path-evidence.ts": "e90aaaa3547541fe99dfbca6c178be0e78a97423e7be8f45eef9369164ac1306",
+        "node-src/authoring/source-evidence-eval.ts": "4909491eb43146672ebe2456262128869d7536913d3b94d5fe88a38b33152726",
+        "node-src/authoring/source-operation-map.ts": "571c3d3cf2413c185be2ac46eca05fe9f33b528aa439182ad972165303e0f6a9",
+        "node-src/json/python-compatible.ts": "54505a9d508f103fd40af7897508edf86dc0c8bd0028e98d178c1fb9e79749e07",
+        "node-src/metadata/terraform-schema.ts": "bee44a3c9ff079acdb39c3e2c3dc636d86cbfe3b92ff51ecd5a75c62a71a1fec",
+        "node-src/metadata/validation.ts": "b8cbc7b930ac4ee8da7dae5a4625a13d1f4902f67c75127e0e222c983c3b5693",
+        "node-tests/authoring-cli.test.ts": "99b573e7de95af5872fc1d8118a092cff5befc1160ea848cc4dcd495f3997f3c",
+        "node-tests/authoring-source-evidence-eval.test.ts": "e856697074f0be50840d0b76e9eb67ce0819c1dc7fc827c04c820af1a523a488",
+      },
+      unicode_database: "15.1.0",
+    });
+    return authority;
+  })();
+  return authorityPromise;
+}
+
+async function frozenEvaluation(name: string): Promise<FrozenEvaluationCase> {
+  const authority = await frozenAuthority();
+  const value = authority.cases[name];
+  assert.ok(value !== null && typeof value === "object" && !Array.isArray(value));
+  const evaluationCase = value as Readonly<Record<string, unknown>>;
+  assert.ok(evaluationCase.evaluation !== null && typeof evaluationCase.evaluation === "object");
+  assert.equal(typeof evaluationCase.markdown, "string");
+  return evaluationCase as unknown as FrozenEvaluationCase;
+}
+
+async function frozenCliCase(): Promise<FrozenCliCase> {
+  const authority = await frozenAuthority();
+  const value = authority.cases.authoring_cli_artifact_set;
+  assert.ok(value !== null && typeof value === "object" && !Array.isArray(value));
+  return value as FrozenCliCase;
+}
+
+async function writeJson(filename: string, value: unknown): Promise<void> {
+  await mkdir(path.dirname(filename), { recursive: true });
+  await writeFile(filename, `${JSON.stringify(value)}\n`, "utf8");
+}
+
+async function cliFixture(): Promise<{
+  readonly facts: string;
+  readonly openApi: string;
+  readonly root: string;
+  readonly schema: string;
+  readonly source: string;
+}> {
+  const root = await mkdtemp(path.join(os.tmpdir(), "infrawright-authoring-cli-"));
+  const source = path.join(root, "source");
+  const schema = path.join(root, "schema.json");
+  const openApi = path.join(root, "openapi.json");
+  const facts = path.join(root, "facts.json");
+  await mkdir(source, { recursive: true });
+  await writeFile(
+    path.join(source, "resource_widget.go"),
+    "package provider\nfunc resourceWidgetRead() { client.Widgets.Get(ctx, id) }\n",
+    "utf8",
+  );
+  await writeJson(schema, {
+    resource_schemas: {
+      example_widget: {
+        block: {
+          attributes: { name: { required: true, type: "string" } },
+          block_types: {
+            settings: {
+              block: { attributes: { mode: { optional: true, type: "string" } } },
+              max_items: 1,
+              nesting_mode: "list",
+            },
+          },
+        },
+      },
+    },
+  });
+  await writeJson(openApi, {
+    info: { title: "authoring CLI fixture", version: "1" },
+    openapi: "3.0.3",
+    paths: {
+      "/widgets": {
+        get: { operationId: "ListWidgets", responses: { 200: { description: "ok" } } },
+        post: { operationId: "CreateWidget", responses: { 200: { description: "ok" } } },
+      },
+      "/widgets/{id}": {
+        get: { operationId: "GetWidget", responses: { 200: { description: "ok" } } },
+      },
+    },
+  });
+  await writeJson(facts, {
+    files: [{ imports: [], package: "provider", path: "resource_widget.go" }],
+    functions: [],
+    identifier_references: [],
+    package_calls: [],
+    raw_rest_calls: [],
+    read_callbacks: [],
+    resource_references: [],
+    resource_registrations: [],
+    selector_calls: [{
+      file: "resource_widget.go",
+      parts: ["client", "Widgets", "Get"],
+      symbol: "client.Widgets.Get",
+    }],
+    source_root: source,
+  });
+  return { facts, openApi, root, schema, source };
+}
+
+function runCli(arguments_: readonly string[]) {
+  return spawnSync(process.execPath, [CLI, ...arguments_], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: process.env,
+  });
 }
 
 const changes: JsonObject[] = [
@@ -48,7 +205,7 @@ const candidate: JsonObject = { diagnostics: [{ resource: "no_reason", hits: [{ 
 
 test("all classifications, shortcomings, and Markdown are exact Python-compatible", async () => {
   const compare: JsonObject = { changes, summary: { resources: changes.length, unchanged: 2, control: { resources: 11, mapped: 5 }, candidate: candidate.summary } };
-  const evaluation = evaluateSourceEvidence({ registry: {} }, candidate, compare); const expected = await pythonEvaluation(compare, candidate);
+  const evaluation = evaluateSourceEvidence({ registry: {} }, candidate, compare); const expected = await frozenEvaluation("classifications_shortcomings_markdown");
   assert.deepEqual(evaluation, expected.evaluation); assert.equal(renderSourceEvidenceMarkdown(evaluation), expected.markdown);
   assert.deepEqual(classifySourceEvidenceChange(changes[3] as JsonObject), { classification: "acceptable", reason: "source_files_narrowed" });
 });
@@ -57,7 +214,8 @@ test("Markdown prioritizes regressions, caps rows, and remains byte-exact", asyn
   const many: JsonObject[] = Array.from({ length: MAX_MARKDOWN_CHANGE_ROWS + 5 }, (_, index) => ({ resource: `example_${String(index).padStart(3, "0")}`, before: { status: "mapped", read_path: "/old", files: ["old.go", "extra.go"] }, after: { status: "mapped", read_path: "/old", files: ["old.go"] } }));
   many.push({ resource: "example_regression", before: { status: "mapped", read_path: "/old", files: ["old.go"] }, after: { status: "unmapped", files: ["old.go"] } });
   const compare: JsonObject = { changes: many, summary: { resources: many.length, unchanged: 0, control: {}, candidate: {} } }; const empty: JsonObject = { registry: {}, diagnostics: [], summary: {} };
-  const evaluation = evaluateSourceEvidence(empty, empty, compare); const expected = await pythonEvaluation(compare, empty); const markdown = renderSourceEvidenceMarkdown(evaluation);
+  const evaluation = evaluateSourceEvidence(empty, empty, compare); const expected = await frozenEvaluation("markdown_change_cap"); const markdown = renderSourceEvidenceMarkdown(evaluation);
+  assert.deepEqual(evaluation, expected.evaluation);
   assert.equal(markdown, expected.markdown); assert.match(markdown, /Showing `100` of `106` changes/u); assert.match(markdown, /example_regression/u); assert.doesNotMatch(markdown, /example_104/u); assert.ok(markdown.endsWith("\n"));
 });
 
@@ -72,7 +230,126 @@ test("in-memory coordinator evaluates Slice-2 text and AST reports", async (cont
 test("explicit null metrics remain None instead of becoming measured zeroes", async () => {
   const compare: JsonObject = { changes: [], summary: { resources: null, unchanged: null, control: { resources: null, mapped: null }, candidate: { resources: null, mapped: null } } };
   const candidateReport: JsonObject = { diagnostics: [], registry: { missing: { status: "unmapped", reason: "resource_file_not_found", source: { candidate_count: null, client_call_count: null, package_call_count: null, raw_rest_call_count: null } } }, summary: { resources: null, mapped: null } };
-  const evaluation = evaluateSourceEvidence({}, candidateReport, compare); const expected = await pythonEvaluation(compare, candidateReport); const markdown = renderSourceEvidenceMarkdown(evaluation);
+  const evaluation = evaluateSourceEvidence({}, candidateReport, compare); const expected = await frozenEvaluation("explicit_null_metrics"); const markdown = renderSourceEvidenceMarkdown(evaluation);
   assert.deepEqual(evaluation, expected.evaluation); assert.equal(markdown, expected.markdown); assert.match(markdown, /\| `resources` \| `None` \| `None` \|/u);
   const bucket = (((evaluation.shortcomings as JsonObject).buckets as JsonObject).resource_file_not_found as JsonObject).resources as JsonObject[]; assert.equal(bucket[0]?.client_call_count, null);
+});
+
+test("source-evidence CLI emits every exact frozen artifact without Python", async (context) => {
+  const data = await cliFixture();
+  context.after(async () => rm(data.root, { force: true, recursive: true }));
+  const output = path.join(data.root, "python-eval");
+  const result = runCli([
+    "source-evidence-eval",
+    "--schema", data.schema,
+    "--openapi", data.openApi,
+    "--source-root", data.source,
+    "--resource-prefix", "example",
+    "--source-facts", data.facts,
+    "--out-dir", output,
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const expected = await frozenCliCase();
+  assert.deepEqual(Object.keys(expected.artifacts).sort(), [
+    "ast-report.json",
+    "control-report.json",
+    "source-evidence-eval.json",
+    "source-evidence-eval.md",
+    "source-facts-compare.json",
+  ]);
+  for (const [filename, expectedBytes] of Object.entries(expected.artifacts)) {
+    assert.equal(
+      (await readFile(path.join(output, filename), "utf8")).replaceAll(
+        data.root,
+        "<FIXTURE_ROOT>",
+      ),
+      expectedBytes,
+      filename,
+    );
+  }
+  const evaluation = JSON.parse(result.stdout) as Record<string, unknown>;
+  delete evaluation.artifacts;
+  assert.deepEqual(evaluation, expected.stdout_without_artifacts);
+});
+
+test("--fail-on-regression returns one after publishing diagnostic artifacts", async (context) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "source-eval-regression-"));
+  context.after(async () => rm(root, { force: true, recursive: true }));
+  const source = path.join(root, "provider");
+  const schema = path.join(root, "schema.json");
+  const openApi = path.join(root, "openapi.json");
+  const facts = path.join(root, "facts.json");
+  const output = path.join(root, "eval");
+  await mkdir(source, { recursive: true });
+  await writeFile(
+    path.join(source, "resource_example_project.go"),
+    "package provider\nfunc readProject() { client.ProjectsAPI.ProjectsRetrieve(ctx, id) }\n",
+    "utf8",
+  );
+  await writeJson(schema, {
+    provider_schemas: {
+      "registry.terraform.io/example/example": {
+        resource_schemas: {
+          example_project: {
+            block: { attributes: { name: { required: true, type: "string" } } },
+          },
+        },
+      },
+    },
+  });
+  await writeJson(openApi, {
+    info: { title: "regression fixture", version: "1" },
+    openapi: "3.0.3",
+    paths: {
+      "/projects/{id}": {
+        get: {
+          operationId: "ProjectsRetrieve",
+          responses: { 200: { description: "ok" } },
+        },
+      },
+    },
+  });
+  await writeJson(facts, {
+    source_root: source,
+    files: [{ path: "resource_example_project.go", package: "provider", imports: [] }],
+    functions: [],
+    resource_registrations: [],
+    resource_references: [],
+    identifier_references: [],
+    read_callbacks: [],
+    selector_calls: [],
+    package_calls: [],
+    raw_rest_calls: [],
+  });
+  const result = runCli([
+    "source-evidence-eval",
+    "--schema", schema,
+    "--openapi", openApi,
+    "--source-root", source,
+    "--provider-source", "registry.terraform.io/example/example",
+    "--resource-prefix", "example",
+    "--source-facts", facts,
+    "--out-dir", output,
+    "--fail-on-regression",
+  ]);
+  assert.equal(result.status, 1, result.stderr);
+  assert.equal(result.stderr, "");
+  const evaluation = JSON.parse(
+    await readFile(path.join(output, "source-evidence-eval.json"), "utf8"),
+  ) as JsonObject;
+  assert.equal((evaluation.summary as JsonObject).regressions, 1);
+  assert.equal((evaluation.changes as JsonObject[])[0]?.classification_reason, "mapped_to_unmapped");
+  const shortcomings = evaluation.shortcomings as JsonObject;
+  assert.equal((shortcomings.summary as JsonObject).regression, 1);
+  assert.equal((shortcomings.summary as JsonObject).source_files_without_operation_calls, 1);
+  assert.equal((shortcomings.severity_summary as JsonObject).gap, 2);
+  for (const filename of [
+    "ast-report.json",
+    "control-report.json",
+    "source-evidence-eval.json",
+    "source-evidence-eval.md",
+    "source-facts-compare.json",
+  ]) {
+    assert.equal(typeof await readFile(path.join(output, filename), "utf8"), "string");
+  }
 });
