@@ -340,6 +340,18 @@ func run(arguments []string) (int, error) {
 		return rootCatalog(arguments[1:])
 	case "transform":
 		return transformCommand(arguments[1:])
+	case "gen-env":
+		return genEnvCommand(arguments[1:])
+	case "modules":
+		return modulesCommand(arguments[1:])
+	case "resources":
+		return legacyPlanLifecycleCommand(func() (int, error) { return resourcesCommand(arguments[1:]) })
+	case "roots":
+		return legacyPlanLifecycleCommand(func() (int, error) { return rootsCommand(arguments[1:]) })
+	case "scope-paths":
+		return legacyPlanLifecycleCommand(func() (int, error) { return scopePathsCommand(arguments[1:]) })
+	case "plan-roots":
+		return legacyPlanLifecycleCommand(func() (int, error) { return planRootsCommand(arguments[1:]) })
 	case "-h", "--help":
 		_, err := os.Stdout.WriteString(usageText + "\n")
 		return 0, err
