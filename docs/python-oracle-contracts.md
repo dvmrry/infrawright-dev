@@ -302,7 +302,9 @@ fixture has SHA-256
 It preserves exact bytes for ungrouped JSON, grouped binding/backend,
 singleton HCL, and slug-root cases; the path, byte length, and SHA-256 of all
 453 files in the full 151-root output tree; and exact dangling config/output
-symlink targets and resulting tree bytes. No normalization is applied.
+symlink targets and resulting tree bytes. No semantic or output-tree
+normalization is applied; replay changes only the documented provenance
+pointer and records the recovered generator commit and hash.
 
 The fixture records the producing Node and Python test blobs, every Python
 module that supplied environment topology or rendering, the full packset, and
@@ -373,7 +375,8 @@ Its thirteen authorities preserve complete SDK scanner and source-operation
 reports, resolved actions, unresolved diagnostics, AST SDK actions, fuzzy
 fallback, and exact `--sdk-root` CLI registry/diagnostic bytes. The same
 baseline-validated generator recreates the fixture directly from the retired
-SDK tests. No normalization is applied.
+SDK tests. No report or evidence content is normalized; replay changes only
+the documented provenance pointer.
 
 Both fixtures record the Python, Node, test, and transitive authoring sources
 that produced their evidence. Current tests replay every frozen input through
@@ -445,7 +448,8 @@ and stderr. One retired OpenAPI unittest CLI input predates the current Swagger
 validation contract and lacks required `info`; its Python bytes remain frozen,
 while the Node test proves the same input now fails before mapping with the
 exact validation diagnostic. No Node output was recorded as Python authority,
-and no normalization is applied.
+and no report or evidence content is normalized; replay changes only the
+documented provenance pointer.
 
 ## Authoring leaf contracts
 
@@ -549,8 +553,9 @@ comparison boundaries.
 
 Together the fixtures preserve exactly 47 delegated calls, including raw
 arguments, stdin, a controlled environment, material input filesystem
-evidence, output bytes, and report artifacts. Normalization is limited to
-ephemeral workspace prefixes. Current Node tests consume every record exactly
+evidence, output bytes, and report artifacts. Semantic normalization is limited
+to ephemeral workspace prefixes; replay additionally changes only the
+documented provenance pointer. Current Node tests consume every record exactly
 once in its recorded order and pass with `PYTHON=/usr/bin/false`. No current
 test imports a Python oracle helper; the test-suite oracle exclusion and
 resolver have been removed.
