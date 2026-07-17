@@ -16,20 +16,21 @@ Authority: CPython 3.13.13, UCD 15.1, Node 24.
 Exactly 47 delegated calls are recorded:
 
 - assessment CLI: 8 records, SHA-256
-  `cc611aa957d925c2dfb48b57caccbacb8eb5364a8a4b624f84ca17d14d9f6a36`
+  `c6b46d67c75b38a171c072713a621ada1188a74e8e9f485eb063199331d04aff`
 - differential: 30 records, SHA-256
-  `a77718b7710feea17a5dd82818e4c1acd7cf31a5779d22520fb9a7a173017dc4`
+  `56f4abb71b969b4130622c51755877e873a60530dd18ce8e664d43ff4c79ae36`
 - plan CLI: 9 records, SHA-256
-  `54f2a3f6011a43e13b44e34a9caf25625ff112ed6ccbb8af8d5bdc0f08501359`
+  `613c75dbb7fb1fbf053421a9a1206e42314c9773df410fb0db33c18d1eb0d0e8`
 
 Each record binds raw arguments, stdin, a fixed environment, material input
 filesystem evidence, exact status/stdout/stderr, and report artifacts. Node
 outputs are never recorded. Normalization is limited to generated workspace
 and temporary-root prefixes.
 
-The generator pins every blob in the 739-file baseline tree, embeds its own
-source, and records a detached-worktree resurrection command. That exact
-command installs pinned dependencies with `npm ci --ignore-scripts`,
+The generator pins every blob in the 739-file baseline tree and embeds its own
+source. The final archive updated the detached-worktree resurrection command to
+recover the identical generator from owning commit `a3e39f3…` and verify its
+recorded SHA-256 before installing pinned dependencies with `npm ci --ignore-scripts`,
 regenerates all three fixtures, and compares them byte-for-byte.
 
 ## Adversarial findings and remediation

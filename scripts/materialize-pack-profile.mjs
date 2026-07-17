@@ -99,6 +99,25 @@ async function rejectSymlinks(root, label) {
   }
 }
 
+function isPythonArtifact(name) {
+  return name === "__pycache__" || name.endsWith(".py") || name.endsWith(".pyc");
+}
+
+async function rejectPythonArtifacts(root, label) {
+  const entries = (await readdir(root, { withFileTypes: true }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  for (const entry of entries) {
+    const candidate = path.join(root, entry.name);
+    if (isPythonArtifact(entry.name)) {
+      fail(`${label} contains Python artifact: ${candidate}`);
+    }
+    const status = await lstat(candidate);
+    if (!status.isSymbolicLink() && status.isDirectory()) {
+      await rejectPythonArtifacts(candidate, label);
+    }
+  }
+}
+
 async function validatePackManifest(packsRoot, pack, selectedShared) {
   const filename = path.join(packsRoot, pack, "pack.json");
   const manifest = object(await readJson(filename, filename), filename);
@@ -112,6 +131,7 @@ async function validatePackManifest(packsRoot, pack, selectedShared) {
 
 async function validateSelection(packsRoot, profile) {
   await requireDirectory(packsRoot, "packs root");
+  await rejectPythonArtifacts(packsRoot, "packs root");
   if (profile.shared.length > 0) {
     await requireDirectory(path.join(packsRoot, "_shared"), "shared packs root");
   }

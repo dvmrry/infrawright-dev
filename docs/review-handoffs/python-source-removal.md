@@ -27,7 +27,8 @@
 - The obsolete Python test pack-requirements manifest.
 
 Frozen authorities, their source hashes, embedded generator source,
-resurrection commands, and compatibility-semantic Node modules remain intact.
+historical-commit-bound resurrection commands, and compatibility-semantic Node
+modules remain intact.
 The active demo fixtures and exact transform goldens remain intact.
 
 ## Supporting Changes
@@ -64,6 +65,17 @@ The active demo fixtures and exact transform goldens remain intact.
 - `PYTHON=/usr/bin/false make check-all`
 - `PYTHON=/usr/bin/false node scripts/test-runtime-release.mjs`
 - Git tree, exact Git archive, and `npm pack --dry-run` Python-artifact checks
+
+## Review remediation
+
+- Frozen-authority resurrection no longer depends on generators in the current
+  checkout. Each of the eight authorities retrieves its exact generator from a
+  named historical commit, verifies the recorded SHA-256, and then runs the
+  original baseline workflow. Focused replay remained 162/162 green.
+- Pack-profile materialization now rejects Python artifacts anywhere in the
+  complete source pack tree before copy or prune mutation. Root-level,
+  `_shared`, and selected nested artifact regressions are covered, and the
+  pruned CI checkout runs the artifact-only release verifier before `npm ci`.
 
 No live provider, backend, credentials, Terraform deployment Apply, or remote
 mutation is part of this change.

@@ -25,7 +25,17 @@ const AUTHORITY_PATH = path.join(
   "fixtures",
   "python-sdk-path-evidence-v1.json",
 );
-const AUTHORITY_SHA256 = "55ce661ede25de0428cd7ecede97a02089e666cb4b68b1ce9c9ee953e17dceb6";
+const AUTHORITY_SHA256 = "e4cea02c594739df9316661b19236daf21704440b4d527fd6046868914041518";
+const RESURRECTION = `set -eu
+authority_checkout="\${IW_AUTHORITY_CHECKOUT:?set to the checkout containing this fixture}"
+resurrection_checkout="\${IW_RESURRECTION_CHECKOUT:?set to an empty path}"
+generator="$resurrection_checkout/scripts/archive/generate-source-operation-authority.py"
+git -C "$authority_checkout" worktree add --detach "$resurrection_checkout" 7d90752ac4b800c5509b380d02dc828749f891a6
+mkdir -p "$resurrection_checkout/scripts/archive"
+git -C "$authority_checkout" show bfaf46159f7209fdc58dbc4b85d820442aacaad4:scripts/archive/generate-source-operation-authority.py > "$generator"
+test "$(shasum -a 256 < "$generator" | awk '{print $1}')" = 4a3df279ba4f4b561373e57aebd13a297161ffb5f3cea0000896a46bc884a12a
+cd "$resurrection_checkout"
+python3 scripts/archive/generate-source-operation-authority.py`;
 
 interface FrozenAuthority {
   readonly cases: Readonly<Record<string, unknown>>;
@@ -61,7 +71,7 @@ async function frozenAuthority(): Promise<FrozenAuthority> {
       normalization: "none; scanner and source-operation reports contain only SDK-root-relative paths",
       python: "3.13.13",
       python_implementation: "cpython",
-      resurrection: "git worktree add <path> 7d90752ac4b800c5509b380d02dc828749f891a6 && cp scripts/archive/generate-source-operation-authority.py <path>/scripts/archive/ && (cd <path> && python3 scripts/archive/generate-source-operation-authority.py)",
+      resurrection: RESURRECTION,
       source_blobs_sha256: {
         "engine/openapi_resource_map.py": "6026a4d25eaa4a2d5d669c32a8d9dbdd7de29f1bf1f8ad9b25c6ed5ded513770",
         "engine/reconcile_schema_api.py": "23deac644d9688df034cbd7f19d8bfcbcea15c3eb7a5109a89debc576037b7ea",

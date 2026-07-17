@@ -5,6 +5,8 @@
     "unicode": "15.1.0"
   },
   "baseline": "55f6189efe888564b515a6c2f5a505348f921f6e",
+  "generator_commit": "c86ac17eb312da9bfdb89d2e2fc132daa0e501b7",
+  "generator_sha256": "dc3e9b139894df18da93a985955d8c469a0e0a83230222c41f85ff956fb0e5bb",
   "dangling_symlinks": {
     "config_symlinks": {
       "zia_url_categories.auto.tfvars.json": "missing-zia_url_categories.auto.tfvars.json",
@@ -2293,7 +2295,7 @@
   },
   "kind": "infrawright.python-environment-roots-authority",
   "normalization": "none",
-  "producing_command": "PYTHON=python3.13 python3.13 scripts/archive/generate-python-environment-roots-authority.py <baseline-worktree> <output>",
+  "producing_command": "set -eu\nauthority_checkout=\"${IW_AUTHORITY_CHECKOUT:?set to the checkout containing this fixture}\"\nresurrection_checkout=\"${IW_RESURRECTION_CHECKOUT:?set to an empty path}\"\noutput=\"${IW_AUTHORITY_OUTPUT:?set to the output fixture path}\"\ngenerator=\"$resurrection_checkout/scripts/archive/generate-python-environment-roots-authority.py\"\ngit -C \"$authority_checkout\" worktree add --detach \"$resurrection_checkout\" 55f6189efe888564b515a6c2f5a505348f921f6e\nmkdir -p \"$resurrection_checkout/scripts/archive\"\ngit -C \"$authority_checkout\" show c86ac17eb312da9bfdb89d2e2fc132daa0e501b7:scripts/archive/generate-python-environment-roots-authority.py > \"$generator\"\ntest \"$(shasum -a 256 < \"$generator\" | awk '{print $1}')\" = dc3e9b139894df18da93a985955d8c469a0e0a83230222c41f85ff956fb0e5bb\nPYTHON=python3.13 python3.13 \"$generator\" \"$resurrection_checkout\" \"$output\"",
   "representative_cases": [
     {
       "name": "ungrouped-json",

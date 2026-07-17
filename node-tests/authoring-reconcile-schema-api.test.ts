@@ -29,7 +29,7 @@ import type { JsonObject } from "../node-src/metadata/validation.js";
 
 const ROOT = process.cwd();
 const CLI = path.join(ROOT, ".node-test", "node-src", "cli", "main.js");
-const AUTHORITY_SHA256 = "e44663ac77b8bc7be8b2af65f2bf39e7f6dbca12b7d79805b9fa133e99f7c9ff";
+const AUTHORITY_SHA256 = "ea7a08a5a6fc8dbe323cc888c66d5a43b533227d2592dcb1015e6118a5de1388";
 
 interface FrozenReconcileInput {
   readonly api_metadata?: ApiMetadata | null;

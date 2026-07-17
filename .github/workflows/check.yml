@@ -104,6 +104,7 @@ jobs:
           node "$root/scripts/materialize-pack-profile.mjs" prune \
             --profile "$root/packsets/$PROFILE.json" \
             --packs-root "$root/packs"
+          node "$root/scripts/verify-runtime-release.mjs" "$root" --artifacts-only
           echo "PRUNED_ROOT=$root" >> "$GITHUB_ENV"
       - name: Pruned distribution gate
         env:

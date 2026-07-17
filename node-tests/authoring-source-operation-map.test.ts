@@ -17,7 +17,17 @@ import type { JsonObject } from "../node-src/metadata/validation.js";
 
 const ROOT = process.cwd();
 const CLI = path.join(ROOT, ".node-test", "node-src", "cli", "main.js");
-const AUTHORITY_SHA256 = "7d80eb5271b82469b0acd5499d88e4a79e22a802379e7f9d1d3c92064a463a10";
+const AUTHORITY_SHA256 = "1864083d2f7a912be7185042e2461846db2a31824a6e660d76af8cc97e44c640";
+const RESURRECTION = `set -eu
+authority_checkout="\${IW_AUTHORITY_CHECKOUT:?set to the checkout containing this fixture}"
+resurrection_checkout="\${IW_RESURRECTION_CHECKOUT:?set to an empty path}"
+generator="$resurrection_checkout/scripts/archive/generate-source-operation-authority.py"
+git -C "$authority_checkout" worktree add --detach "$resurrection_checkout" 7d90752ac4b800c5509b380d02dc828749f891a6
+mkdir -p "$resurrection_checkout/scripts/archive"
+git -C "$authority_checkout" show bfaf46159f7209fdc58dbc4b85d820442aacaad4:scripts/archive/generate-source-operation-authority.py > "$generator"
+test "$(shasum -a 256 < "$generator" | awk '{print $1}')" = 4a3df279ba4f4b561373e57aebd13a297161ffb5f3cea0000896a46bc884a12a
+cd "$resurrection_checkout"
+python3 scripts/archive/generate-source-operation-authority.py`;
 
 interface FrozenDeriveCase {
   readonly input: {
@@ -103,7 +113,7 @@ assert.deepEqual(authority.provenance, {
     "tests/test_source_operation_map.py": "673a0cb4e0b3eb711449e83c8a7b31a4f6e28174f247b49ad0547aa5e3c7ccc4",
   },
   generator_sha256: "4a3df279ba4f4b561373e57aebd13a297161ffb5f3cea0000896a46bc884a12a",
-  resurrection: "git worktree add <path> 7d90752ac4b800c5509b380d02dc828749f891a6 && cp scripts/archive/generate-source-operation-authority.py <path>/scripts/archive/ && (cd <path> && python3 scripts/archive/generate-source-operation-authority.py)",
+  resurrection: RESURRECTION,
   unicode_database: "15.1.0",
 });
 

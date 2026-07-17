@@ -38,6 +38,8 @@ interface FrozenEnvironmentAuthority {
     readonly unicode: string;
   };
   readonly baseline: string;
+  readonly generator_commit: string;
+  readonly generator_sha256: string;
   readonly dangling_symlinks: {
     readonly config_symlinks: Readonly<Record<string, string>>;
     readonly output_symlinks: Readonly<Record<string, string>>;
@@ -53,6 +55,7 @@ interface FrozenEnvironmentAuthority {
   };
   readonly kind: string;
   readonly normalization: string;
+  readonly producing_command: string;
   readonly representative_cases: readonly {
     readonly name: string;
     readonly tree: Readonly<Record<string, string>>;
@@ -62,7 +65,7 @@ interface FrozenEnvironmentAuthority {
 }
 
 const ENVIRONMENT_AUTHORITY_SHA256 =
-  "9dd1cc8d90ff639ff27d00ed1364b4a829de0d80b1c140a7eab62fb8440706b5";
+  "2efbd58fc5ff4d64b406ebb873d1a9e9eafb8e162a7b29ec8162353846b0c912";
 const environmentAuthorityBytes = readFileSync(path.join(
   ROOT,
   "node-tests",
@@ -80,6 +83,15 @@ const environmentAuthority = JSON.parse(
 assert.equal(environmentAuthority.kind, "infrawright.python-environment-roots-authority");
 assert.equal(environmentAuthority.version, 1);
 assert.equal(environmentAuthority.baseline, "55f6189efe888564b515a6c2f5a505348f921f6e");
+assert.equal(environmentAuthority.generator_commit, "c86ac17eb312da9bfdb89d2e2fc132daa0e501b7");
+assert.equal(
+  environmentAuthority.generator_sha256,
+  "dc3e9b139894df18da93a985955d8c469a0e0a83230222c41f85ff956fb0e5bb",
+);
+assert.ok(environmentAuthority.producing_command.includes(
+  "git -C \"$authority_checkout\" show c86ac17",
+));
+assert.match(environmentAuthority.producing_command, /dc3e9b139894df18da93a985955d8c469a0e0a83230222c41f85ff956fb0e5bb/u);
 assert.equal(environmentAuthority.normalization, "none");
 assert.deepEqual(environmentAuthority.authority, {
   implementation: "cpython",

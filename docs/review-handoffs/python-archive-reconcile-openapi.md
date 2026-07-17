@@ -22,10 +22,10 @@ already the production paths.
 
 ## Frozen evidence
 
-- Reconcile fixture: 45,068 bytes, SHA-256
-  `e44663ac77b8bc7be8b2af65f2bf39e7f6dbca12b7d79805b9fa133e99f7c9ff`
-- OpenAPI fixture: 771,787 bytes, SHA-256
-  `fc730c4adda0fb599f37d712adc75c1b9132350a5e714511e3f2c6e81581bd8a`
+- Reconcile fixture: 45,274 bytes, SHA-256
+  `ea7a08a5a6fc8dbe323cc888c66d5a43b533227d2592dcb1015e6118a5de1388`
+- OpenAPI fixture: 771,993 bytes, SHA-256
+  `f86add1ac3f0f964998e45164495fe680c013acd54f7d2953e473fdca4d01153`
 - Generator: 28,883 bytes, SHA-256
   `28b9235d1e8e9164a9c4d41fba1721779da30d96ebac27e966a173067c78fe90`
 

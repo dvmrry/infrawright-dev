@@ -28,7 +28,7 @@ const AUTHORITY_PATH = path.join(
   WORKSPACE,
   "node-tests/fixtures/python-differential-v1.json",
 );
-const AUTHORITY_SHA256 = "a77718b7710feea17a5dd82818e4c1acd7cf31a5779d22520fb9a7a173017dc4";
+const AUTHORITY_SHA256 = "56f4abb71b969b4130622c51755877e873a60530dd18ce8e664d43ff4c79ae36";
 
 interface FrozenBytes {
   readonly base64: string;

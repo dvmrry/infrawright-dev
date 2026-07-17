@@ -192,3 +192,38 @@ test("CI pack profile helper preflights the complete tree before prune mutation"
     await rm(directory, { force: true, recursive: true });
   }
 });
+
+test("CI pack profile helper rejects Python artifacts before prune mutation", async () => {
+  for (const relative of [
+    "hidden.py",
+    "_shared/common/hidden.pyc",
+    "one/__pycache__/marker",
+  ]) {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "iw-pack-prune-python-"));
+    try {
+      const packs = path.join(directory, "packs");
+      const profile = path.join(directory, "profile.json");
+      await makePack(packs, "one", ["common"]);
+      await makePack(packs, "unselected");
+      await mkdir(path.join(packs, "_shared", "common"), { recursive: true });
+      await writeJson(profile, {
+        kind: "infrawright.pack-set",
+        version: 1,
+        packs: ["one"],
+        shared: ["common"],
+      });
+      const artifact = path.join(packs, relative);
+      await mkdir(path.dirname(artifact), { recursive: true });
+      await writeFile(artifact, "forbidden\n", "utf8");
+      const before = (await readdir(packs)).sort();
+
+      const result = run("prune", "--profile", profile, "--packs-root", packs);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /packs root contains Python artifact/u);
+      assert.deepEqual((await readdir(packs)).sort(), before);
+      assert.equal(await readFile(path.join(packs, "unselected", "payload.txt"), "utf8"), "unselected\n");
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  }
+});
