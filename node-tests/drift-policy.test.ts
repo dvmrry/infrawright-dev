@@ -1,6 +1,4 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 import { DriftPolicy } from "../node-src/domain/drift-policy.js";
@@ -156,7 +154,7 @@ test("valid non-plan modes remain accepted by the complete validator", () => {
   }));
 });
 
-test("policy validation corpus agrees with Python", () => {
+test("policy validation preserves the frozen Python contract", () => {
   const valid = {
     version: 1,
     resource_types: {
@@ -204,18 +202,25 @@ test("policy validation corpus agrees with Python", () => {
       return false;
     }
   });
-  const python = spawnSync(PYTHON_ORACLE, [
-    "-c",
-    [
-      "import json,sys",
-      "from engine.drift_policy import DriftPolicy",
-      "out=[]",
-      "for value in json.load(sys.stdin):",
-      "  try: DriftPolicy(value); out.append(True)",
-      "  except (TypeError,ValueError): out.append(False)",
-      "print(json.dumps(out))",
-    ].join("\n"),
-  ], { input: JSON.stringify(corpus), encoding: "utf8" });
-  assert.equal(python.status, 0, python.stderr);
-  assert.deepEqual(node, JSON.parse(python.stdout));
+  // Frozen from engine.drift_policy at archive baseline 7d54261c. The exact
+  // resurrection command and oracle authority are recorded in
+  // docs/python-oracle-contracts.md.
+  assert.deepEqual(node, [
+    true,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+  ]);
 });

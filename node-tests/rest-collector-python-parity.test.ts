@@ -1,6 +1,4 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -64,13 +62,11 @@ test("fetch query float tokens match Python urllib encoding after registry load"
     });
     assert.deepEqual(result.processed, ["sample_resource"]);
 
-    const oracle = spawnSync(PYTHON_ORACLE, [
-      "-c",
-      "import json, sys, urllib.parse; print(urllib.parse.urlencode(json.loads(sys.argv[1])))",
-      queryJson,
-    ], { encoding: "utf8" });
-    assert.equal(oracle.status, 0, oracle.stderr);
-    assert.equal(transport.requests[0]?.url.search.slice(1), oracle.stdout.trim());
+    // urllib.parse.urlencode bytes frozen at archive baseline 7d54261c.
+    assert.equal(
+      transport.requests[0]?.url.search.slice(1),
+      "integer=1&decimal=1.0&exponent=1.0&negative_zero=-0.0&tiny=1e-07",
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

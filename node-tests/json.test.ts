@@ -1,6 +1,4 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 import { LosslessNumber, stringify as stringifyLosslessly } from "lossless-json";
@@ -41,39 +39,45 @@ test("integer-only compatibility renderer matches Python bytes", () => {
     bmp: "",
     nested: [true, null, 9007199254740991],
   } as const;
-  const python = spawnSync(
-    PYTHON_ORACLE,
-    [
-      "-c",
-      "import json,sys; value=json.loads(sys.stdin.read()); sys.stdout.write(json.dumps(value, indent=2, sort_keys=True)+'\\n')",
-    ],
-    { input: JSON.stringify(value), encoding: "utf8" },
-  );
-  assert.equal(python.status, 0, python.stderr);
+  // Exact json.dumps bytes frozen at archive baseline 7d54261c. Do not replace
+  // this byte contract with parsed-JSON equality.
+  const expected = String.raw`{
+  "10": "ten",
+  "2": "two",
+  "ascii": "\u00e9/\\\"\n",
+  "astral": "\ud83d\ude00",
+  "bmp": "\ue000",
+  "nested": [
+    true,
+    null,
+    9007199254740991
+  ]
+}
+`;
   assert.equal(
     renderPythonCompatibleJson(value as unknown as JsonValue),
-    python.stdout,
+    expected,
   );
-  assert.ok(python.stdout.indexOf('"10"') < python.stdout.indexOf('"2"'));
-  assert.match(python.stdout, /\\u00e9/);
-  assert.match(python.stdout, /\\ud83d\\ude00/);
+  assert.ok(expected.indexOf('"10"') < expected.indexOf('"2"'));
+  assert.match(expected, /\\u00e9/);
+  assert.match(expected, /\\ud83d\\ude00/);
   assert.equal(
     pythonCompatibleJsonByteLength(value as unknown as JsonValue),
-    Buffer.byteLength(python.stdout, "utf8"),
+    Buffer.byteLength(expected, "utf8"),
   );
   assert.equal(
     pythonCompatibleJsonByteLength(
       value as unknown as JsonValue,
-      Buffer.byteLength(python.stdout, "utf8"),
+      Buffer.byteLength(expected, "utf8"),
     ),
-    Buffer.byteLength(python.stdout, "utf8"),
+    Buffer.byteLength(expected, "utf8"),
   );
   assert.equal(
     pythonCompatibleJsonByteLength(
       value as unknown as JsonValue,
-      Buffer.byteLength(python.stdout, "utf8") - 1,
+      Buffer.byteLength(expected, "utf8") - 1,
     ),
-    Buffer.byteLength(python.stdout, "utf8"),
+    Buffer.byteLength(expected, "utf8"),
   );
 });
 

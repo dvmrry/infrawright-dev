@@ -60,6 +60,23 @@
       "reason": "The cross-state Terraform smoke resolves the committed ZPA segment-group reference."
     },
     {
+      "file": "exact-plan-apply.test.js",
+      "packs": [
+        "aws",
+        "cloudflare",
+        "google",
+        "netbox",
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
+      "reason": "The exact-plan Apply suite resolves complete-root topology and fixtures against the complete pack tree."
+    },
+    {
       "file": "generated-config-policy.test.js",
       "packs": [
         "zia"
@@ -264,6 +281,23 @@
         "zscaler"
       ],
       "reason": "The artifact differential suite compiles every active override and the complete committed golden corpus."
+    },
+    {
+      "file": "zscaler-assessment.test.js",
+      "packs": [
+        "aws",
+        "cloudflare",
+        "google",
+        "netbox",
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
+      "reason": "The assessment catalog invariant inspects every committed Zscaler pack manifest."
     },
     {
       "file": "zscaler-generic-fetch.test.js",
