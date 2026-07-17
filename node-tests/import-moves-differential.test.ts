@@ -1,6 +1,7 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 
 import { ProcessFailure } from "../node-src/domain/errors.js";
@@ -33,6 +34,25 @@ interface PythonDifferentialResult {
   readonly derivation: ImportMoveDerivation;
   readonly movesText: string;
 }
+
+interface PythonImportMovesAuthority {
+  readonly authority: {
+    readonly implementation: string;
+    readonly python: string;
+    readonly unicode: string;
+  };
+  readonly baseline: string;
+  readonly kind: string;
+  readonly resourceType: string;
+  readonly results: readonly PythonDifferentialResult[];
+  readonly version: number;
+}
+
+const AUTHORITY_SHA256 =
+  "5dc5a25751c2990ee36c550180b0516eea3e40ab4e7405a846bdc05d8d25387d";
+const AUTHORITY_RESULTS_BYTES = 11_001;
+const AUTHORITY_RESULTS_SHA256 =
+  "8300db560009cdff81a3f8385dc02d3e142029f32c334345dbe83cec8882b8e0";
 
 const CASES: readonly DifferentialCase[] = [
   { name: "empty", old: [], next: [] },
@@ -160,72 +180,50 @@ const CASES: readonly DifferentialCase[] = [
   },
 ];
 
-function pythonDifferential(
-  cases: readonly DifferentialCase[],
-): readonly PythonDifferentialResult[] {
-  const source = String.raw`
-import json
-import sys
-
-from engine.transform import (
-    derive_moves_with_diagnostics,
-    parse_import_pairs,
-    render_imports,
-    render_moves,
-)
-
-payload = json.loads(sys.stdin.read())
-results = []
-for case in payload["cases"]:
-    resource_type = payload["resourceType"]
-    old = dict((pair["key"], {"id": pair["importId"]}) for pair in case["old"])
-    new = dict((pair["key"], {"id": pair["importId"]}) for pair in case["next"])
-    old_text = render_imports(resource_type, old, {})
-    new_text = render_imports(resource_type, new, {})
-    result = derive_moves_with_diagnostics(old_text, new_text)
-    results.append({
-        "name": case["name"],
-        "oldText": old_text,
-        "newText": new_text,
-        "oldPairs": [
-            {"key": key, "importId": import_id}
-            for key, import_id in parse_import_pairs(old_text).items()
-        ],
-        "newPairs": [
-            {"key": key, "importId": import_id}
-            for key, import_id in parse_import_pairs(new_text).items()
-        ],
-        "derivation": {
-            "moves": [
-                {"oldKey": old_key, "newKey": new_key}
-                for old_key, new_key in result.moves
-            ],
-            "suppressed": [
-                {
-                    "oldKey": item.old_key,
-                    "newKey": item.new_key,
-                    "importId": item.import_id,
-                    "reason": item.reason,
-                }
-                for item in result.suppressed
-            ],
-        },
-        "movesText": render_moves(resource_type, result.moves),
-    })
-sys.stdout.write(json.dumps(results, ensure_ascii=False))
-`;
-  const child = spawnSync(PYTHON_ORACLE, ["-c", source], {
-    cwd: process.cwd(),
-    encoding: "utf8",
-    input: JSON.stringify({ resourceType: RESOURCE_TYPE, cases }),
-    maxBuffer: 16 * 1024 * 1024,
-  });
-  assert.equal(child.status, 0, child.stderr);
-  return JSON.parse(child.stdout) as readonly PythonDifferentialResult[];
+function pythonAuthority(): PythonImportMovesAuthority {
+  const bytes = readFileSync(path.join(
+    process.cwd(),
+    "node-tests",
+    "fixtures",
+    "python-import-moves-v1.json",
+  ));
+  assert.equal(
+    createHash("sha256").update(bytes).digest("hex"),
+    AUTHORITY_SHA256,
+    "frozen Python import/move authority changed without re-adjudication",
+  );
+  return JSON.parse(bytes.toString("utf8")) as PythonImportMovesAuthority;
 }
 
-test("generated imports and safe move derivation match Python bytes and semantics", () => {
-  const expected = pythonDifferential(CASES);
+test("generated imports and safe move derivation match frozen Python bytes and semantics", () => {
+  const authority = pythonAuthority();
+  assert.deepEqual(
+    {
+      authority: authority.authority,
+      baseline: authority.baseline,
+      kind: authority.kind,
+      resourceType: authority.resourceType,
+      version: authority.version,
+    },
+    {
+      authority: {
+        implementation: "cpython",
+        python: "3.13.13",
+        unicode: "15.1.0",
+      },
+      baseline: "71da6c267119c8f8531accce4906414a8c7c1e84",
+      kind: "infrawright.python-import-moves-authority",
+      resourceType: RESOURCE_TYPE,
+      version: 1,
+    },
+  );
+  const canonicalResults = JSON.stringify(authority.results);
+  assert.equal(Buffer.byteLength(canonicalResults, "utf8"), AUTHORITY_RESULTS_BYTES);
+  assert.equal(
+    createHash("sha256").update(canonicalResults, "utf8").digest("hex"),
+    AUTHORITY_RESULTS_SHA256,
+  );
+  const expected = authority.results;
   assert.equal(expected.length, CASES.length);
 
   for (const [index, item] of expected.entries()) {
@@ -269,7 +267,7 @@ test("generated imports and safe move derivation match Python bytes and semantic
 
 test("all four unsafe move classes remain explicitly suppressed", () => {
   const expected = new Map(
-    pythonDifferential(CASES).map((item) => [item.name, item.derivation]),
+    pythonAuthority().results.map((item) => [item.name, item.derivation]),
   );
   assert.deepEqual(
     expected.get("key-swap")?.suppressed.map((item) => item.reason),
