@@ -34,3 +34,12 @@ func readOptionalUtf8(path, label string) (*string, error) {
 	text := string(content)
 	return &text, nil
 }
+
+// ReadOptionalUTF8 exposes this package's readOptionalUtf8 (the port of
+// readOptionalUtf8 in node-src/io/files.ts) to the transform runner, which
+// needs the identical absent-file-is-nil / other-error-fails contract for
+// pull inputs and shared adoption-status sidecars. Same semantics, same
+// error text; label feeds the error message exactly as in the Node source.
+func ReadOptionalUTF8(path, label string) (*string, error) {
+	return readOptionalUtf8(path, label)
+}

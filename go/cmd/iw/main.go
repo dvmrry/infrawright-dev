@@ -23,8 +23,10 @@ import (
 	"strings"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/cliargs"
+	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
+	"github.com/dvmrry/infrawright-dev/go/internal/transformrun"
 )
 
 // usageFixture is the byte-captured stdout of `iw root-catalog -h` from the
@@ -208,6 +210,110 @@ func rootCatalog(arguments []string) (int, error) {
 	return 0, err
 }
 
+// transformCommand ports the transform command in node-src/cli/main.ts.
+// Unlike rootCatalog's nullish env reads, transform uses `||` semantics for
+// INFRAWRIGHT_PACKS / INFRAWRIGHT_PACK_PROFILE: an empty-but-set variable
+// falls through to the default — a genuine per-command asymmetry in the
+// Node source, preserved deliberately.
+func transformCommand(arguments []string) (int, error) {
+	rootDirectory, err := packageRoot()
+	if err != nil {
+		return 0, err
+	}
+	parsed, err := commandArguments(arguments, cliargs.ParseConfig{
+		Values: map[string]cliargs.ValueOption{
+			"--catalog":    {},
+			"--deployment": {},
+			"--in":         {},
+			"--profile":    {},
+			"--resource":   {},
+			"--root":       {},
+			"--tenant":     {},
+		},
+	}, commandBehavior{command: "transform"})
+	if err != nil {
+		return 0, err
+	}
+	root, hasRoot := cliargs.LastOption(parsed, "--root")
+	if !hasRoot {
+		if env := os.Getenv("INFRAWRIGHT_PACKS"); env != "" {
+			root = env
+		} else {
+			root = filepath.Join(rootDirectory, "packs")
+		}
+	}
+	profile, hasProfile := cliargs.LastOption(parsed, "--profile")
+	if !hasProfile {
+		if env := os.Getenv("INFRAWRIGHT_PACK_PROFILE"); env != "" {
+			profile = env
+		} else {
+			profile = filepath.Join(rootDirectory, "packsets", "full.json")
+		}
+	}
+	catalog, hasCatalog := cliargs.LastOption(parsed, "--catalog")
+	if !hasCatalog {
+		catalog = filepath.Join(rootDirectory, "packsets", "full.json")
+	}
+	input, hasInput := cliargs.LastOption(parsed, "--in")
+	tenant, hasTenant := cliargs.LastOption(parsed, "--tenant")
+	if !hasInput || !hasTenant {
+		return 0, usageError("transform requires --in and --tenant")
+	}
+	selectedDeployment, hasDeployment := cliargs.LastOption(parsed, "--deployment")
+	if !hasDeployment {
+		selectedDeployment, err = deployment.DeploymentPath(deployment.DeploymentPathOptions{})
+		if err != nil {
+			return 0, err
+		}
+	}
+	loadedRoot, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
+		PacksRoot:   root,
+		ProfilePath: &profile,
+		CatalogPath: &catalog,
+	})
+	if err != nil {
+		return 0, err
+	}
+	loadedDeployment, err := deployment.LoadDeployment(selectedDeployment)
+	if err != nil {
+		return 0, err
+	}
+	environment := map[string]string{}
+	if value, ok := os.LookupEnv("DROPS_CHECK"); ok {
+		environment["DROPS_CHECK"] = value
+	}
+	result, err := transformrun.RunTransformBatch(transformrun.RunTransformBatchOptions{
+		Deployment:     loadedDeployment,
+		Environment:    environment,
+		InputDirectory: input,
+		OnDiagnostic: func(message string) {
+			fmt.Fprintf(os.Stderr, "%s\n", message)
+		},
+		Root:      loadedRoot,
+		Selectors: parsed.Options["--resource"],
+		Tenant:    tenant,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if len(result.Failed) == 0 {
+		return 0, nil
+	}
+	// Post-#229 contract: exit 4 only when every failure is a DROPS_CHECK
+	// classification failure (the documented sentinel); any other failure
+	// in the batch keeps the generic exit 1.
+	dropCheckFailed := map[string]bool{}
+	for _, resourceType := range result.DropCheckFailed {
+		dropCheckFailed[resourceType] = true
+	}
+	for _, resourceType := range result.Failed {
+		if !dropCheckFailed[resourceType] {
+			return 1, nil
+		}
+	}
+	return 4, nil
+}
+
 // knownCommands derives the Node CLI's command inventory from the embedded
 // usage text ("  iw <command> ..." lines), so the not-yet-ported guard can
 // never drift from the usage fixture.
@@ -232,6 +338,8 @@ func run(arguments []string) (int, error) {
 	switch command {
 	case "root-catalog":
 		return rootCatalog(arguments[1:])
+	case "transform":
+		return transformCommand(arguments[1:])
 	case "-h", "--help":
 		_, err := os.Stdout.WriteString(usageText + "\n")
 		return 0, err

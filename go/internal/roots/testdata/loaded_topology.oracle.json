@@ -1,0 +1,1377 @@
+{
+  "diagnostics": [],
+  "topology": {
+    "directories": {
+      "config": "demo/config/demo",
+      "envs": "demo/envs/demo",
+      "imports": "demo/imports/demo"
+    },
+    "kind": "infrawright.root_topology",
+    "resource_roots": {
+      "zcc_device_cleanup": "zcc_device_cleanup",
+      "zcc_failopen_policy": "zcc_failopen_policy",
+      "zcc_forwarding_profile": "zcc_forwarding_profile",
+      "zcc_notification_template": "zcc_notification_template",
+      "zcc_trusted_network": "zcc_trusted_network",
+      "zcc_web_privacy": "zcc_web_privacy",
+      "zcc_zia_posture": "zcc_zia_posture",
+      "zia_activation_status": "zia_activation_status",
+      "zia_admin_roles": "zia_admin_roles",
+      "zia_admin_users": "zia_admin_users",
+      "zia_advanced_settings": "zia_advanced_settings",
+      "zia_advanced_threat_settings": "zia_advanced_threat_settings",
+      "zia_atp_malicious_urls": "zia_atp_malicious_urls",
+      "zia_atp_malware_inspection": "zia_atp_malware_inspection",
+      "zia_atp_malware_policy": "zia_atp_malware_policy",
+      "zia_atp_malware_protocols": "zia_atp_malware_protocols",
+      "zia_atp_malware_settings": "zia_atp_malware_settings",
+      "zia_atp_security_exceptions": "zia_atp_security_exceptions",
+      "zia_auth_settings_urls": "zia_auth_settings_urls",
+      "zia_bandwidth_classes": "zia_bandwidth_classes",
+      "zia_bandwidth_classes_file_size": "zia_bandwidth_classes_file_size",
+      "zia_bandwidth_classes_web_conferencing": "zia_bandwidth_classes_web_conferencing",
+      "zia_bandwidth_control_rule": "zia_bandwidth_control_rule",
+      "zia_browser_control_policy": "zia_browser_control_policy",
+      "zia_casb_dlp_rules": "zia_casb_dlp_rules",
+      "zia_casb_malware_rules": "zia_casb_malware_rules",
+      "zia_cloud_app_control_rule": "zia_cloud_app_control_rule",
+      "zia_cloud_application_instance": "zia_cloud_application_instance",
+      "zia_cloud_nss_feed": "zia_cloud_nss_feed",
+      "zia_custom_file_types": "zia_custom_file_types",
+      "zia_dc_exclusions": "zia_dc_exclusions",
+      "zia_dlp_dictionaries": "zia_dlp_dictionaries",
+      "zia_dlp_engines": "zia_dlp_engines",
+      "zia_dlp_notification_templates": "zia_dlp_notification_templates",
+      "zia_dlp_web_rules": "zia_dlp_web_rules",
+      "zia_email_profile": "zia_email_profile",
+      "zia_end_user_notification": "zia_end_user_notification",
+      "zia_extranet": "zia_extranet",
+      "zia_file_type_control_rules": "zia_file_type_control_rules",
+      "zia_firewall_dns_rule": "zia_firewall_dns_rule",
+      "zia_firewall_filtering_destination_groups": "zia_firewall_filtering_destination_groups",
+      "zia_firewall_filtering_ip_source_groups": "zia_firewall_filtering_ip_source_groups",
+      "zia_firewall_filtering_network_application_groups": "zia_firewall_filtering_network_application_groups",
+      "zia_firewall_filtering_network_service": "zia_firewall_filtering_network_service",
+      "zia_firewall_filtering_network_service_groups": "zia_firewall_filtering_network_service_groups",
+      "zia_firewall_filtering_rule": "zia_firewall_filtering_rule",
+      "zia_firewall_ips_rule": "zia_firewall_ips_rule",
+      "zia_forwarding_control_proxies": "zia_forwarding_control_proxies",
+      "zia_forwarding_control_rule": "zia_forwarding_control_rule",
+      "zia_forwarding_control_zpa_gateway": "zia_forwarding_control_zpa_gateway",
+      "zia_ftp_control_policy": "zia_ftp_control_policy",
+      "zia_http_header_action_profile": "zia_http_header_action_profile",
+      "zia_http_header_profile": "zia_http_header_profile",
+      "zia_ips_signature_rules": "zia_ips_signature_rules",
+      "zia_location_management": "zia_location_management",
+      "zia_mobile_malware_protection_policy": "zia_mobile_malware_protection_policy",
+      "zia_nat_control_rules": "zia_nat_control_rules",
+      "zia_nss_server": "zia_nss_server",
+      "zia_risk_profiles": "zia_risk_profiles",
+      "zia_rule_labels": "zia_rule_labels",
+      "zia_sandbox_behavioral_analysis": "zia_sandbox_behavioral_analysis",
+      "zia_sandbox_behavioral_analysis_v2": "zia_sandbox_behavioral_analysis_v2",
+      "zia_sandbox_file_submission": "zia_sandbox_file_submission",
+      "zia_sandbox_rules": "zia_sandbox_rules",
+      "zia_security_settings": "zia_security_settings",
+      "zia_ssl_inspection_rules": "zia_ssl_inspection_rules",
+      "zia_sub_cloud": "zia_sub_cloud",
+      "zia_subscription_alert": "zia_subscription_alert",
+      "zia_tenant_restriction_profile": "zia_tenant_restriction_profile",
+      "zia_traffic_capture_rules": "zia_traffic_capture_rules",
+      "zia_traffic_forwarding_gre_tunnel": "zia_traffic_forwarding_gre_tunnel",
+      "zia_traffic_forwarding_static_ip": "zia_traffic_forwarding_static_ip",
+      "zia_traffic_forwarding_vpn_credentials": "zia_traffic_forwarding_vpn_credentials",
+      "zia_url_categories": "zia_url_categories",
+      "zia_url_categories_predefined": "zia_url_categories_predefined",
+      "zia_url_filtering_and_cloud_app_settings": "zia_url_filtering_and_cloud_app_settings",
+      "zia_url_filtering_rules": "zia_url_filtering_rules",
+      "zia_user_management": "zia_user_management",
+      "zia_virtual_service_edge_cluster": "zia_virtual_service_edge_cluster",
+      "zia_virtual_service_edge_node": "zia_virtual_service_edge_node",
+      "zia_workload_groups": "zia_workload_groups",
+      "zpa_app_connector_assistant_schedule": "zpa_app_connector_assistant_schedule",
+      "zpa_app_connector_group": "zpa_app_connector_group",
+      "zpa_application_segment": "zpa_application_segment",
+      "zpa_application_segment_browser_access": "zpa_application_segment_browser_access",
+      "zpa_application_segment_inspection": "zpa_application_segment_inspection",
+      "zpa_application_segment_multimatch_bulk": "zpa_application_segment_multimatch_bulk",
+      "zpa_application_segment_pra": "zpa_application_segment_pra",
+      "zpa_application_segment_weightedlb_config": "zpa_application_segment_weightedlb_config",
+      "zpa_application_server": "zpa_application_server",
+      "zpa_ba_certificate": "zpa_ba_certificate",
+      "zpa_browser_access": "zpa_browser_access",
+      "zpa_c2c_ip_ranges": "zpa_c2c_ip_ranges",
+      "zpa_cloud_browser_isolation_banner": "zpa_cloud_browser_isolation_banner",
+      "zpa_cloud_browser_isolation_certificate": "zpa_cloud_browser_isolation_certificate",
+      "zpa_cloud_browser_isolation_external_profile": "zpa_cloud_browser_isolation_external_profile",
+      "zpa_emergency_access_user": "zpa_emergency_access_user",
+      "zpa_inspection_custom_controls": "zpa_inspection_custom_controls",
+      "zpa_inspection_profile": "zpa_inspection_profile",
+      "zpa_lss_config_controller": "zpa_lss_config_controller",
+      "zpa_microtenant_controller": "zpa_microtenant_controller",
+      "zpa_policy_access_rule": "zpa_policy_access_rule",
+      "zpa_policy_access_rule_reorder": "zpa_policy_access_rule_reorder",
+      "zpa_policy_access_rule_v2": "zpa_policy_access_rule_v2",
+      "zpa_policy_browser_protection_rule": "zpa_policy_browser_protection_rule",
+      "zpa_policy_capabilities_rule": "zpa_policy_capabilities_rule",
+      "zpa_policy_credential_rule": "zpa_policy_credential_rule",
+      "zpa_policy_forwarding_rule": "zpa_policy_forwarding_rule",
+      "zpa_policy_forwarding_rule_v2": "zpa_policy_forwarding_rule_v2",
+      "zpa_policy_inspection_rule": "zpa_policy_inspection_rule",
+      "zpa_policy_inspection_rule_v2": "zpa_policy_inspection_rule_v2",
+      "zpa_policy_isolation_rule": "zpa_policy_isolation_rule",
+      "zpa_policy_isolation_rule_v2": "zpa_policy_isolation_rule_v2",
+      "zpa_policy_portal_access_rule": "zpa_policy_portal_access_rule",
+      "zpa_policy_redirection_rule": "zpa_policy_redirection_rule",
+      "zpa_policy_timeout_rule": "zpa_policy_timeout_rule",
+      "zpa_policy_timeout_rule_v2": "zpa_policy_timeout_rule_v2",
+      "zpa_pra_approval_controller": "zpa_pra_approval_controller",
+      "zpa_pra_console_controller": "zpa_pra_console_controller",
+      "zpa_pra_credential_controller": "zpa_pra_credential_controller",
+      "zpa_pra_credential_pool": "zpa_pra_credential_pool",
+      "zpa_pra_portal_controller": "zpa_pra_portal_controller",
+      "zpa_private_cloud_group": "zpa_private_cloud_group",
+      "zpa_provisioning_key": "zpa_provisioning_key",
+      "zpa_segment_group": "zpa_segment_group",
+      "zpa_server_group": "zpa_server_group",
+      "zpa_service_edge_assistant_schedule": "zpa_service_edge_assistant_schedule",
+      "zpa_service_edge_group": "zpa_service_edge_group",
+      "zpa_tag_group": "zpa_tag_group",
+      "zpa_tag_key": "zpa_tag_key",
+      "zpa_tag_namespace": "zpa_tag_namespace",
+      "zpa_user_portal_aup": "zpa_user_portal_aup",
+      "zpa_user_portal_controller": "zpa_user_portal_controller",
+      "zpa_user_portal_link": "zpa_user_portal_link",
+      "zpa_zia_cloud_config": "zpa_zia_cloud_config",
+      "ztc_account_groups": "ztc_account_groups",
+      "ztc_activation_status": "ztc_activation_status",
+      "ztc_dns_forwarding_gateway": "ztc_dns_forwarding_gateway",
+      "ztc_dns_gateway": "ztc_dns_gateway",
+      "ztc_forwarding_gateway": "ztc_forwarding_gateway",
+      "ztc_ip_destination_groups": "ztc_ip_destination_groups",
+      "ztc_ip_pool_groups": "ztc_ip_pool_groups",
+      "ztc_ip_source_groups": "ztc_ip_source_groups",
+      "ztc_location_template": "ztc_location_template",
+      "ztc_network_service_groups": "ztc_network_service_groups",
+      "ztc_network_services": "ztc_network_services",
+      "ztc_provisioning_url": "ztc_provisioning_url",
+      "ztc_public_cloud_info": "ztc_public_cloud_info",
+      "ztc_traffic_forwarding_dns_rule": "ztc_traffic_forwarding_dns_rule",
+      "ztc_traffic_forwarding_log_rule": "ztc_traffic_forwarding_log_rule",
+      "ztc_traffic_forwarding_rule": "ztc_traffic_forwarding_rule"
+    },
+    "roots": [
+      {
+        "env_dir": "demo/envs/demo/zcc_device_cleanup",
+        "label": "zcc_device_cleanup",
+        "members": [
+          "zcc_device_cleanup"
+        ],
+        "provider": "zcc"
+      },
+      {
+        "env_dir": "demo/envs/demo/zcc_failopen_policy",
+        "label": "zcc_failopen_policy",
+        "members": [
+          "zcc_failopen_policy"
+        ],
+        "provider": "zcc"
+      },
+      {
+        "env_dir": "demo/envs/demo/zcc_forwarding_profile",
+        "label": "zcc_forwarding_profile",
+        "members": [
+          "zcc_forwarding_profile"
+        ],
+        "provider": "zcc"
+      },
+      {
+        "env_dir": "demo/envs/demo/zcc_notification_template",
+        "label": "zcc_notification_template",
+        "members": [
+          "zcc_notification_template"
+        ],
+        "provider": "zcc"
+      },
+      {
+        "env_dir": "demo/envs/demo/zcc_trusted_network",
+        "label": "zcc_trusted_network",
+        "members": [
+          "zcc_trusted_network"
+        ],
+        "provider": "zcc"
+      },
+      {
+        "env_dir": "demo/envs/demo/zcc_web_privacy",
+        "label": "zcc_web_privacy",
+        "members": [
+          "zcc_web_privacy"
+        ],
+        "provider": "zcc"
+      },
+      {
+        "env_dir": "demo/envs/demo/zcc_zia_posture",
+        "label": "zcc_zia_posture",
+        "members": [
+          "zcc_zia_posture"
+        ],
+        "provider": "zcc"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_activation_status",
+        "label": "zia_activation_status",
+        "members": [
+          "zia_activation_status"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_admin_roles",
+        "label": "zia_admin_roles",
+        "members": [
+          "zia_admin_roles"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_admin_users",
+        "label": "zia_admin_users",
+        "members": [
+          "zia_admin_users"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_advanced_settings",
+        "label": "zia_advanced_settings",
+        "members": [
+          "zia_advanced_settings"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_advanced_threat_settings",
+        "label": "zia_advanced_threat_settings",
+        "members": [
+          "zia_advanced_threat_settings"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_atp_malicious_urls",
+        "label": "zia_atp_malicious_urls",
+        "members": [
+          "zia_atp_malicious_urls"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_atp_malware_inspection",
+        "label": "zia_atp_malware_inspection",
+        "members": [
+          "zia_atp_malware_inspection"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_atp_malware_policy",
+        "label": "zia_atp_malware_policy",
+        "members": [
+          "zia_atp_malware_policy"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_atp_malware_protocols",
+        "label": "zia_atp_malware_protocols",
+        "members": [
+          "zia_atp_malware_protocols"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_atp_malware_settings",
+        "label": "zia_atp_malware_settings",
+        "members": [
+          "zia_atp_malware_settings"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_atp_security_exceptions",
+        "label": "zia_atp_security_exceptions",
+        "members": [
+          "zia_atp_security_exceptions"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_auth_settings_urls",
+        "label": "zia_auth_settings_urls",
+        "members": [
+          "zia_auth_settings_urls"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_bandwidth_classes",
+        "label": "zia_bandwidth_classes",
+        "members": [
+          "zia_bandwidth_classes"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_bandwidth_classes_file_size",
+        "label": "zia_bandwidth_classes_file_size",
+        "members": [
+          "zia_bandwidth_classes_file_size"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_bandwidth_classes_web_conferencing",
+        "label": "zia_bandwidth_classes_web_conferencing",
+        "members": [
+          "zia_bandwidth_classes_web_conferencing"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_bandwidth_control_rule",
+        "label": "zia_bandwidth_control_rule",
+        "members": [
+          "zia_bandwidth_control_rule"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_browser_control_policy",
+        "label": "zia_browser_control_policy",
+        "members": [
+          "zia_browser_control_policy"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_casb_dlp_rules",
+        "label": "zia_casb_dlp_rules",
+        "members": [
+          "zia_casb_dlp_rules"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_casb_malware_rules",
+        "label": "zia_casb_malware_rules",
+        "members": [
+          "zia_casb_malware_rules"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_cloud_app_control_rule",
+        "label": "zia_cloud_app_control_rule",
+        "members": [
+          "zia_cloud_app_control_rule"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_cloud_application_instance",
+        "label": "zia_cloud_application_instance",
+        "members": [
+          "zia_cloud_application_instance"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_cloud_nss_feed",
+        "label": "zia_cloud_nss_feed",
+        "members": [
+          "zia_cloud_nss_feed"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_custom_file_types",
+        "label": "zia_custom_file_types",
+        "members": [
+          "zia_custom_file_types"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_dc_exclusions",
+        "label": "zia_dc_exclusions",
+        "members": [
+          "zia_dc_exclusions"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_dlp_dictionaries",
+        "label": "zia_dlp_dictionaries",
+        "members": [
+          "zia_dlp_dictionaries"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_dlp_engines",
+        "label": "zia_dlp_engines",
+        "members": [
+          "zia_dlp_engines"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_dlp_notification_templates",
+        "label": "zia_dlp_notification_templates",
+        "members": [
+          "zia_dlp_notification_templates"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_dlp_web_rules",
+        "label": "zia_dlp_web_rules",
+        "members": [
+          "zia_dlp_web_rules"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_email_profile",
+        "label": "zia_email_profile",
+        "members": [
+          "zia_email_profile"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_end_user_notification",
+        "label": "zia_end_user_notification",
+        "members": [
+          "zia_end_user_notification"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_extranet",
+        "label": "zia_extranet",
+        "members": [
+          "zia_extranet"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_file_type_control_rules",
+        "label": "zia_file_type_control_rules",
+        "members": [
+          "zia_file_type_control_rules"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_firewall_dns_rule",
+        "label": "zia_firewall_dns_rule",
+        "members": [
+          "zia_firewall_dns_rule"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_firewall_filtering_destination_groups",
+        "label": "zia_firewall_filtering_destination_groups",
+        "members": [
+          "zia_firewall_filtering_destination_groups"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_firewall_filtering_ip_source_groups",
+        "label": "zia_firewall_filtering_ip_source_groups",
+        "members": [
+          "zia_firewall_filtering_ip_source_groups"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_firewall_filtering_network_application_groups",
+        "label": "zia_firewall_filtering_network_application_groups",
+        "members": [
+          "zia_firewall_filtering_network_application_groups"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_firewall_filtering_network_service",
+        "label": "zia_firewall_filtering_network_service",
+        "members": [
+          "zia_firewall_filtering_network_service"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_firewall_filtering_network_service_groups",
+        "label": "zia_firewall_filtering_network_service_groups",
+        "members": [
+          "zia_firewall_filtering_network_service_groups"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_firewall_filtering_rule",
+        "label": "zia_firewall_filtering_rule",
+        "members": [
+          "zia_firewall_filtering_rule"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_firewall_ips_rule",
+        "label": "zia_firewall_ips_rule",
+        "members": [
+          "zia_firewall_ips_rule"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_forwarding_control_proxies",
+        "label": "zia_forwarding_control_proxies",
+        "members": [
+          "zia_forwarding_control_proxies"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_forwarding_control_rule",
+        "label": "zia_forwarding_control_rule",
+        "members": [
+          "zia_forwarding_control_rule"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_forwarding_control_zpa_gateway",
+        "label": "zia_forwarding_control_zpa_gateway",
+        "members": [
+          "zia_forwarding_control_zpa_gateway"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_ftp_control_policy",
+        "label": "zia_ftp_control_policy",
+        "members": [
+          "zia_ftp_control_policy"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_http_header_action_profile",
+        "label": "zia_http_header_action_profile",
+        "members": [
+          "zia_http_header_action_profile"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_http_header_profile",
+        "label": "zia_http_header_profile",
+        "members": [
+          "zia_http_header_profile"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_ips_signature_rules",
+        "label": "zia_ips_signature_rules",
+        "members": [
+          "zia_ips_signature_rules"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_location_management",
+        "label": "zia_location_management",
+        "members": [
+          "zia_location_management"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_mobile_malware_protection_policy",
+        "label": "zia_mobile_malware_protection_policy",
+        "members": [
+          "zia_mobile_malware_protection_policy"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_nat_control_rules",
+        "label": "zia_nat_control_rules",
+        "members": [
+          "zia_nat_control_rules"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_nss_server",
+        "label": "zia_nss_server",
+        "members": [
+          "zia_nss_server"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_risk_profiles",
+        "label": "zia_risk_profiles",
+        "members": [
+          "zia_risk_profiles"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_rule_labels",
+        "label": "zia_rule_labels",
+        "members": [
+          "zia_rule_labels"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_sandbox_behavioral_analysis",
+        "label": "zia_sandbox_behavioral_analysis",
+        "members": [
+          "zia_sandbox_behavioral_analysis"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_sandbox_behavioral_analysis_v2",
+        "label": "zia_sandbox_behavioral_analysis_v2",
+        "members": [
+          "zia_sandbox_behavioral_analysis_v2"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_sandbox_file_submission",
+        "label": "zia_sandbox_file_submission",
+        "members": [
+          "zia_sandbox_file_submission"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_sandbox_rules",
+        "label": "zia_sandbox_rules",
+        "members": [
+          "zia_sandbox_rules"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_security_settings",
+        "label": "zia_security_settings",
+        "members": [
+          "zia_security_settings"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_ssl_inspection_rules",
+        "label": "zia_ssl_inspection_rules",
+        "members": [
+          "zia_ssl_inspection_rules"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_sub_cloud",
+        "label": "zia_sub_cloud",
+        "members": [
+          "zia_sub_cloud"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_subscription_alert",
+        "label": "zia_subscription_alert",
+        "members": [
+          "zia_subscription_alert"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_tenant_restriction_profile",
+        "label": "zia_tenant_restriction_profile",
+        "members": [
+          "zia_tenant_restriction_profile"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_traffic_capture_rules",
+        "label": "zia_traffic_capture_rules",
+        "members": [
+          "zia_traffic_capture_rules"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_traffic_forwarding_gre_tunnel",
+        "label": "zia_traffic_forwarding_gre_tunnel",
+        "members": [
+          "zia_traffic_forwarding_gre_tunnel"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_traffic_forwarding_static_ip",
+        "label": "zia_traffic_forwarding_static_ip",
+        "members": [
+          "zia_traffic_forwarding_static_ip"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_traffic_forwarding_vpn_credentials",
+        "label": "zia_traffic_forwarding_vpn_credentials",
+        "members": [
+          "zia_traffic_forwarding_vpn_credentials"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_url_categories",
+        "label": "zia_url_categories",
+        "members": [
+          "zia_url_categories"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_url_categories_predefined",
+        "label": "zia_url_categories_predefined",
+        "members": [
+          "zia_url_categories_predefined"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_url_filtering_and_cloud_app_settings",
+        "label": "zia_url_filtering_and_cloud_app_settings",
+        "members": [
+          "zia_url_filtering_and_cloud_app_settings"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_url_filtering_rules",
+        "label": "zia_url_filtering_rules",
+        "members": [
+          "zia_url_filtering_rules"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_user_management",
+        "label": "zia_user_management",
+        "members": [
+          "zia_user_management"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_virtual_service_edge_cluster",
+        "label": "zia_virtual_service_edge_cluster",
+        "members": [
+          "zia_virtual_service_edge_cluster"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_virtual_service_edge_node",
+        "label": "zia_virtual_service_edge_node",
+        "members": [
+          "zia_virtual_service_edge_node"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zia_workload_groups",
+        "label": "zia_workload_groups",
+        "members": [
+          "zia_workload_groups"
+        ],
+        "provider": "zia"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_app_connector_assistant_schedule",
+        "label": "zpa_app_connector_assistant_schedule",
+        "members": [
+          "zpa_app_connector_assistant_schedule"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_app_connector_group",
+        "label": "zpa_app_connector_group",
+        "members": [
+          "zpa_app_connector_group"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_application_segment",
+        "label": "zpa_application_segment",
+        "members": [
+          "zpa_application_segment"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_application_segment_browser_access",
+        "label": "zpa_application_segment_browser_access",
+        "members": [
+          "zpa_application_segment_browser_access"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_application_segment_inspection",
+        "label": "zpa_application_segment_inspection",
+        "members": [
+          "zpa_application_segment_inspection"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_application_segment_multimatch_bulk",
+        "label": "zpa_application_segment_multimatch_bulk",
+        "members": [
+          "zpa_application_segment_multimatch_bulk"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_application_segment_pra",
+        "label": "zpa_application_segment_pra",
+        "members": [
+          "zpa_application_segment_pra"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_application_segment_weightedlb_config",
+        "label": "zpa_application_segment_weightedlb_config",
+        "members": [
+          "zpa_application_segment_weightedlb_config"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_application_server",
+        "label": "zpa_application_server",
+        "members": [
+          "zpa_application_server"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_ba_certificate",
+        "label": "zpa_ba_certificate",
+        "members": [
+          "zpa_ba_certificate"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_browser_access",
+        "label": "zpa_browser_access",
+        "members": [
+          "zpa_browser_access"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_c2c_ip_ranges",
+        "label": "zpa_c2c_ip_ranges",
+        "members": [
+          "zpa_c2c_ip_ranges"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_cloud_browser_isolation_banner",
+        "label": "zpa_cloud_browser_isolation_banner",
+        "members": [
+          "zpa_cloud_browser_isolation_banner"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_cloud_browser_isolation_certificate",
+        "label": "zpa_cloud_browser_isolation_certificate",
+        "members": [
+          "zpa_cloud_browser_isolation_certificate"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_cloud_browser_isolation_external_profile",
+        "label": "zpa_cloud_browser_isolation_external_profile",
+        "members": [
+          "zpa_cloud_browser_isolation_external_profile"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_emergency_access_user",
+        "label": "zpa_emergency_access_user",
+        "members": [
+          "zpa_emergency_access_user"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_inspection_custom_controls",
+        "label": "zpa_inspection_custom_controls",
+        "members": [
+          "zpa_inspection_custom_controls"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_inspection_profile",
+        "label": "zpa_inspection_profile",
+        "members": [
+          "zpa_inspection_profile"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_lss_config_controller",
+        "label": "zpa_lss_config_controller",
+        "members": [
+          "zpa_lss_config_controller"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_microtenant_controller",
+        "label": "zpa_microtenant_controller",
+        "members": [
+          "zpa_microtenant_controller"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_policy_access_rule",
+        "label": "zpa_policy_access_rule",
+        "members": [
+          "zpa_policy_access_rule"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_policy_access_rule_reorder",
+        "label": "zpa_policy_access_rule_reorder",
+        "members": [
+          "zpa_policy_access_rule_reorder"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_policy_access_rule_v2",
+        "label": "zpa_policy_access_rule_v2",
+        "members": [
+          "zpa_policy_access_rule_v2"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_policy_browser_protection_rule",
+        "label": "zpa_policy_browser_protection_rule",
+        "members": [
+          "zpa_policy_browser_protection_rule"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_policy_capabilities_rule",
+        "label": "zpa_policy_capabilities_rule",
+        "members": [
+          "zpa_policy_capabilities_rule"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_policy_credential_rule",
+        "label": "zpa_policy_credential_rule",
+        "members": [
+          "zpa_policy_credential_rule"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_policy_forwarding_rule",
+        "label": "zpa_policy_forwarding_rule",
+        "members": [
+          "zpa_policy_forwarding_rule"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_policy_forwarding_rule_v2",
+        "label": "zpa_policy_forwarding_rule_v2",
+        "members": [
+          "zpa_policy_forwarding_rule_v2"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_policy_inspection_rule",
+        "label": "zpa_policy_inspection_rule",
+        "members": [
+          "zpa_policy_inspection_rule"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_policy_inspection_rule_v2",
+        "label": "zpa_policy_inspection_rule_v2",
+        "members": [
+          "zpa_policy_inspection_rule_v2"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_policy_isolation_rule",
+        "label": "zpa_policy_isolation_rule",
+        "members": [
+          "zpa_policy_isolation_rule"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_policy_isolation_rule_v2",
+        "label": "zpa_policy_isolation_rule_v2",
+        "members": [
+          "zpa_policy_isolation_rule_v2"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_policy_portal_access_rule",
+        "label": "zpa_policy_portal_access_rule",
+        "members": [
+          "zpa_policy_portal_access_rule"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_policy_redirection_rule",
+        "label": "zpa_policy_redirection_rule",
+        "members": [
+          "zpa_policy_redirection_rule"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_policy_timeout_rule",
+        "label": "zpa_policy_timeout_rule",
+        "members": [
+          "zpa_policy_timeout_rule"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_policy_timeout_rule_v2",
+        "label": "zpa_policy_timeout_rule_v2",
+        "members": [
+          "zpa_policy_timeout_rule_v2"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_pra_approval_controller",
+        "label": "zpa_pra_approval_controller",
+        "members": [
+          "zpa_pra_approval_controller"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_pra_console_controller",
+        "label": "zpa_pra_console_controller",
+        "members": [
+          "zpa_pra_console_controller"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_pra_credential_controller",
+        "label": "zpa_pra_credential_controller",
+        "members": [
+          "zpa_pra_credential_controller"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_pra_credential_pool",
+        "label": "zpa_pra_credential_pool",
+        "members": [
+          "zpa_pra_credential_pool"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_pra_portal_controller",
+        "label": "zpa_pra_portal_controller",
+        "members": [
+          "zpa_pra_portal_controller"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_private_cloud_group",
+        "label": "zpa_private_cloud_group",
+        "members": [
+          "zpa_private_cloud_group"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_provisioning_key",
+        "label": "zpa_provisioning_key",
+        "members": [
+          "zpa_provisioning_key"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_segment_group",
+        "label": "zpa_segment_group",
+        "members": [
+          "zpa_segment_group"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_server_group",
+        "label": "zpa_server_group",
+        "members": [
+          "zpa_server_group"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_service_edge_assistant_schedule",
+        "label": "zpa_service_edge_assistant_schedule",
+        "members": [
+          "zpa_service_edge_assistant_schedule"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_service_edge_group",
+        "label": "zpa_service_edge_group",
+        "members": [
+          "zpa_service_edge_group"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_tag_group",
+        "label": "zpa_tag_group",
+        "members": [
+          "zpa_tag_group"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_tag_key",
+        "label": "zpa_tag_key",
+        "members": [
+          "zpa_tag_key"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_tag_namespace",
+        "label": "zpa_tag_namespace",
+        "members": [
+          "zpa_tag_namespace"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_user_portal_aup",
+        "label": "zpa_user_portal_aup",
+        "members": [
+          "zpa_user_portal_aup"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_user_portal_controller",
+        "label": "zpa_user_portal_controller",
+        "members": [
+          "zpa_user_portal_controller"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_user_portal_link",
+        "label": "zpa_user_portal_link",
+        "members": [
+          "zpa_user_portal_link"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/zpa_zia_cloud_config",
+        "label": "zpa_zia_cloud_config",
+        "members": [
+          "zpa_zia_cloud_config"
+        ],
+        "provider": "zpa"
+      },
+      {
+        "env_dir": "demo/envs/demo/ztc_account_groups",
+        "label": "ztc_account_groups",
+        "members": [
+          "ztc_account_groups"
+        ],
+        "provider": "ztc"
+      },
+      {
+        "env_dir": "demo/envs/demo/ztc_activation_status",
+        "label": "ztc_activation_status",
+        "members": [
+          "ztc_activation_status"
+        ],
+        "provider": "ztc"
+      },
+      {
+        "env_dir": "demo/envs/demo/ztc_dns_forwarding_gateway",
+        "label": "ztc_dns_forwarding_gateway",
+        "members": [
+          "ztc_dns_forwarding_gateway"
+        ],
+        "provider": "ztc"
+      },
+      {
+        "env_dir": "demo/envs/demo/ztc_dns_gateway",
+        "label": "ztc_dns_gateway",
+        "members": [
+          "ztc_dns_gateway"
+        ],
+        "provider": "ztc"
+      },
+      {
+        "env_dir": "demo/envs/demo/ztc_forwarding_gateway",
+        "label": "ztc_forwarding_gateway",
+        "members": [
+          "ztc_forwarding_gateway"
+        ],
+        "provider": "ztc"
+      },
+      {
+        "env_dir": "demo/envs/demo/ztc_ip_destination_groups",
+        "label": "ztc_ip_destination_groups",
+        "members": [
+          "ztc_ip_destination_groups"
+        ],
+        "provider": "ztc"
+      },
+      {
+        "env_dir": "demo/envs/demo/ztc_ip_pool_groups",
+        "label": "ztc_ip_pool_groups",
+        "members": [
+          "ztc_ip_pool_groups"
+        ],
+        "provider": "ztc"
+      },
+      {
+        "env_dir": "demo/envs/demo/ztc_ip_source_groups",
+        "label": "ztc_ip_source_groups",
+        "members": [
+          "ztc_ip_source_groups"
+        ],
+        "provider": "ztc"
+      },
+      {
+        "env_dir": "demo/envs/demo/ztc_location_template",
+        "label": "ztc_location_template",
+        "members": [
+          "ztc_location_template"
+        ],
+        "provider": "ztc"
+      },
+      {
+        "env_dir": "demo/envs/demo/ztc_network_service_groups",
+        "label": "ztc_network_service_groups",
+        "members": [
+          "ztc_network_service_groups"
+        ],
+        "provider": "ztc"
+      },
+      {
+        "env_dir": "demo/envs/demo/ztc_network_services",
+        "label": "ztc_network_services",
+        "members": [
+          "ztc_network_services"
+        ],
+        "provider": "ztc"
+      },
+      {
+        "env_dir": "demo/envs/demo/ztc_provisioning_url",
+        "label": "ztc_provisioning_url",
+        "members": [
+          "ztc_provisioning_url"
+        ],
+        "provider": "ztc"
+      },
+      {
+        "env_dir": "demo/envs/demo/ztc_public_cloud_info",
+        "label": "ztc_public_cloud_info",
+        "members": [
+          "ztc_public_cloud_info"
+        ],
+        "provider": "ztc"
+      },
+      {
+        "env_dir": "demo/envs/demo/ztc_traffic_forwarding_dns_rule",
+        "label": "ztc_traffic_forwarding_dns_rule",
+        "members": [
+          "ztc_traffic_forwarding_dns_rule"
+        ],
+        "provider": "ztc"
+      },
+      {
+        "env_dir": "demo/envs/demo/ztc_traffic_forwarding_log_rule",
+        "label": "ztc_traffic_forwarding_log_rule",
+        "members": [
+          "ztc_traffic_forwarding_log_rule"
+        ],
+        "provider": "ztc"
+      },
+      {
+        "env_dir": "demo/envs/demo/ztc_traffic_forwarding_rule",
+        "label": "ztc_traffic_forwarding_rule",
+        "members": [
+          "ztc_traffic_forwarding_rule"
+        ],
+        "provider": "ztc"
+      }
+    ],
+    "schema_version": 1,
+    "selectors": [],
+    "tenant": "demo"
+  }
+}

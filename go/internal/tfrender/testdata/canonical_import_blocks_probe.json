@@ -1,0 +1,109 @@
+[
+  {
+    "label": "empty",
+    "ok": true,
+    "value": []
+  },
+  {
+    "label": "single",
+    "ok": true,
+    "value": [
+      {
+        "key": "k1",
+        "id": "id1"
+      }
+    ]
+  },
+  {
+    "label": "multi-unsorted-preserved",
+    "ok": true,
+    "value": [
+      {
+        "key": "b",
+        "id": "2"
+      },
+      {
+        "key": "a",
+        "id": "1"
+      }
+    ]
+  },
+  {
+    "label": "escaped",
+    "ok": true,
+    "value": [
+      {
+        "key": "k\"1\n\t",
+        "id": "id\\1"
+      }
+    ]
+  },
+  {
+    "label": "invalid-resource-type-zia",
+    "ok": false,
+    "errorName": "SyntaxError",
+    "message": "imports must use the canonical bootstrap import grammar"
+  },
+  {
+    "label": "invalid-resource-type-empty",
+    "ok": false,
+    "errorName": "SyntaxError",
+    "message": "imports must use the canonical bootstrap import grammar"
+  },
+  {
+    "label": "invalid-resource-type-uppercase",
+    "ok": false,
+    "errorName": "SyntaxError",
+    "message": "imports must use the canonical bootstrap import grammar"
+  },
+  {
+    "label": "malformed-trailing",
+    "ok": false,
+    "errorName": "SyntaxError",
+    "message": "imports must use the canonical bootstrap import grammar"
+  },
+  {
+    "label": "malformed-no-blank-line",
+    "ok": false,
+    "errorName": "SyntaxError",
+    "message": "imports must use the canonical bootstrap import grammar"
+  },
+  {
+    "label": "malformed-leading-space",
+    "ok": false,
+    "errorName": "SyntaxError",
+    "message": "imports must use the canonical bootstrap import grammar"
+  },
+  {
+    "label": "wrong-embedded-type",
+    "ok": false,
+    "errorName": "SyntaxError",
+    "message": "imports must use the canonical bootstrap import grammar"
+  },
+  {
+    "label": "unicode",
+    "ok": true,
+    "value": [
+      {
+        "key": "東京😀",
+        "id": "id-unicode"
+      }
+    ]
+  },
+  {
+    "label": "interpolation-guard",
+    "ok": true,
+    "value": [
+      {
+        "key": "pre${mid%{post",
+        "id": "id1"
+      }
+    ]
+  },
+  {
+    "label": "raw-interpolation-rejected",
+    "ok": false,
+    "errorName": "SyntaxError",
+    "message": "imports must use the canonical bootstrap import grammar"
+  }
+]
