@@ -1,7 +1,9 @@
 # Go runtime port plan
 
-> **Superseded (2026-07-17) for the wire/IO layer by
-> [go-runtime-v2.md](go-runtime-v2.md).** The byte-compatibility contract below
+> **Superseded (2026-07-17) by
+> [go-runtime-v2.md](go-runtime-v2.md)** for the wire/IO contract,
+> runtime-versus-maintainer command scope, CI/cutover strategy, and Node archive
+> timing. The byte-compatibility contract below
 > stays authoritative for the **artifact layer** (canonical JSON, tfvars /
 > imports / moved / modules / env roots / catalog, fingerprints, reports, safety
 > classifications) and the differential-oracle method. It was over-applied to

@@ -59,9 +59,11 @@ type recordedFetchRequest struct {
 }
 
 type recordedFetchFixture struct {
-	baseURL string
-	bundle  string
-	host    string
+	baseURL     string
+	bundle      string
+	host        string
+	resourceURI string
+	wireBody    []byte
 
 	mu         sync.Mutex
 	requests   []recordedFetchRequest
@@ -178,7 +180,7 @@ func (fixture *recordedFetchFixture) serveHTTP(writer http.ResponseWriter, reque
 		})
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(writer, "{}")
-	case request.Method == http.MethodGet && request.RequestURI == "/api/v1/recordedFixture":
+	case request.Method == http.MethodGet && request.RequestURI == fixture.resourceURI:
 		fixture.record(recordedFetchRequest{contract: "resource", method: request.Method, uri: request.RequestURI})
 		valid := true
 		if got := request.Header.Get("Accept"); got != "application/json" {
@@ -199,7 +201,7 @@ func (fixture *recordedFetchFixture) serveHTTP(writer http.ResponseWriter, reque
 			return
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(writer, recordedFetchWireJSON)
+		_, _ = writer.Write(fixture.wireBody)
 	default:
 		fixture.record(recordedFetchRequest{contract: "unexpected", method: request.Method, uri: request.RequestURI})
 		fixture.violation("unexpected request = %s %s", request.Method, request.RequestURI)
@@ -209,7 +211,19 @@ func (fixture *recordedFetchFixture) serveHTTP(writer http.ResponseWriter, reque
 
 func newRecordedFetchFixture(t *testing.T) *recordedFetchFixture {
 	t.Helper()
-	fixture := &recordedFetchFixture{}
+	return newRecordedFetchFixtureForResource(
+		t,
+		"/api/v1/recordedFixture",
+		[]byte(recordedFetchWireJSON),
+	)
+}
+
+func newRecordedFetchFixtureForResource(t *testing.T, resourceURI string, wireBody []byte) *recordedFetchFixture {
+	t.Helper()
+	fixture := &recordedFetchFixture{
+		resourceURI: resourceURI,
+		wireBody:    append([]byte(nil), wireBody...),
+	}
 	server := httptest.NewUnstartedServer(http.HandlerFunc(fixture.serveHTTP))
 	server.Config.ErrorLog = log.New(io.Discard, "", 0)
 	server.StartTLS()
@@ -303,19 +317,11 @@ func (transport *fetchClosingTransport) Close() error {
 
 func buildFetchTestBinary(t *testing.T, root string) string {
 	t.Helper()
-	placeholder, err := os.CreateTemp(filepath.Join(root, "dist"), "iw-go-diff-fetch-*")
-	if err != nil {
-		t.Fatalf("create unique Go CLI output: %v", err)
+	runtimeRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(runtimeRoot, "package.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write temporary package marker: %v", err)
 	}
-	goBinary := placeholder.Name()
-	t.Cleanup(func() {
-		if err := os.Remove(goBinary); err != nil && !os.IsNotExist(err) {
-			t.Errorf("remove fetch test binary: %v", err)
-		}
-	})
-	if err := placeholder.Close(); err != nil {
-		t.Fatalf("close unique Go CLI output %q: %v", goBinary, err)
-	}
+	goBinary := filepath.Join(runtimeRoot, "iw-go-diff-fetch")
 	build := exec.Command("go", "build", "-o", goBinary, ".")
 	build.Dir = filepath.Join(root, "go", "cmd", "iw")
 	if output, err := build.CombinedOutput(); err != nil {
