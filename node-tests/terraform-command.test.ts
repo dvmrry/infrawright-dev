@@ -242,6 +242,35 @@ test("runs exact argv, cwd, stdin, and allowlisted environment without a shell",
   });
 });
 
+test("accepts CI-sized environments while retaining count and byte bounds", async () => {
+  await withTemp(async (fixture) => {
+    const fake = executable(fixture.root, 'test "$CI_ENV_499" = "value"');
+    const environment = Object.fromEntries(
+      Array.from({ length: 500 }, (_, index) => [`CI_ENV_${index}`, "value"]),
+    );
+    assert.deepEqual(await runTerraformCommand({
+      ...baseOptions(fixture, fake),
+      environment,
+      output: "discard",
+    }), { kind: "discarded" });
+
+    const tooMany = Object.fromEntries(
+      Array.from({ length: 4097 }, (_, index) => [`CI_ENV_${index}`, "value"]),
+    );
+    await captureFailure(runTerraformCommand({
+      ...baseOptions(fixture, fake),
+      environment: tooMany,
+      output: "discard",
+    }), "INVALID_TERRAFORM_COMMAND_ENVIRONMENT");
+
+    await captureFailure(runTerraformCommand({
+      ...baseOptions(fixture, fake),
+      environment: { OVERSIZED: "x".repeat(256 * 1024) },
+      output: "discard",
+    }), "INVALID_TERRAFORM_COMMAND_ENVIRONMENT");
+  });
+});
+
 test("discard mode returns no child output", async () => {
   await withTemp(async (fixture) => {
     const fake = executable(
