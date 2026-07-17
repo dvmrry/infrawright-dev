@@ -185,3 +185,33 @@ matching with stale-entry accounting, and eight lossless numeric pairs. The
 tests parse the recorded inputs and compare complete results; the fixture
 digest and recorded source blobs prevent the frozen authority from becoming a
 Node-to-Node self-comparison.
+
+## Plan report contract
+
+The sixth archive slice was produced at baseline
+`ef8b4622e79bdc2e8b3c54a52bc18c6c379ef13c`. The original live test was Git
+blob `c93c39d46e0e354cf9096acfaf5c68b4c2f80bc2`; the Python authorities were
+`engine/ops.py` blob `f160a796f6078d96ee423d1ca7f1d169598c8160`,
+`engine/paths.py` blob `63ffb562172405c27a880345cd85b93af7b1ba94`,
+and `engine/plan_eval.py` blob `f15e4f44193d517384065a1d320533ea74a47a15`.
+
+Re-run the original live differential at that exact state with:
+
+```sh
+git worktree add /tmp/iw-python-plan-report \
+  ef8b4622e79bdc2e8b3c54a52bc18c6c379ef13c
+cd /tmp/iw-python-plan-report
+PYTHON=python3 npm run build:test
+PYTHON=python3 node --test \
+  .node-test/node-tests/plan-report.test.js
+```
+
+The complete CPython 3.13.13 / UCD 15.1.0 authority is recorded without
+normalization in `node-tests/fixtures/python-plan-report-v1.json`. The
+15,180-byte fixture has SHA-256
+`df9d09b903bf60d34ad567f213bd1ddbb1e8bf2aaf1fc71c49be9a050a3e343c`.
+It preserves six exact path-formatting outputs; exact input JSON and complete
+pretty JSON output bytes for clean, tolerated, and blocked reports; and the
+exact `1.0` float-provenance report bytes. Current tests compare complete
+objects and bytes. The fixture digest, producing baseline, and source blobs
+prevent a Node-to-Node self-comparison.

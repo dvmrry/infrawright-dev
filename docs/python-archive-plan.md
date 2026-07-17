@@ -31,9 +31,9 @@ proved the same 16-resource matrix, local input digests, schema-derived state
 shapes, 17 provider source-file bindings, and 45 inclusive source anchors.
 
 The shipped `iw` CLI is already Python-independent. The remaining dependency
-is a qualification dependency: 14 Node test files still import the live Python
+is a qualification dependency: 13 Node test files still import the live Python
 oracle during `npm run test:all`, CI still installs Python, and release guards
-still require representative Python files. Twelve direct contracts are now
+still require representative Python files. Thirteen direct contracts are now
 frozen with their resurrection procedures in
 [Frozen Python oracle contracts](python-oracle-contracts.md).
 

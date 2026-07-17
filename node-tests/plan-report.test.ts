@@ -1,6 +1,7 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 
 import { LosslessNumber } from "lossless-json";
@@ -15,29 +16,76 @@ import {
 } from "../node-src/domain/plan-report.js";
 import { renderPythonCompatibleJson, type JsonValue } from "../node-src/json/python-compatible.js";
 
-const PYTHON_REPORT = String.raw`
-import json
-import sys
-from engine import ops
+interface PythonPlanReportCase {
+  readonly name: string;
+  readonly input_json: string;
+  readonly output_bytes: string;
+}
 
-i = json.loads(sys.stdin.read())
-report = ops._new_assessment_report(i["mode"], {
-    "tenant": i["tenant"],
-    "selectors": i["selectors"],
-    "policy": i["policy"],
-})
-report["request"]["policy_sha256"] = i["policy_sha256"]
-ops._append_root_assessment(
-    report, i["root"]["tenant"], i["root"]["label"],
-    i["root"]["members"], i["plan"], i["classification"],
-    i["root"]["plan"]["sha256"], i["root"]["plan_fingerprint"],
-    guidance=i["guidance"],
-)
-report["stale_policy"] = i["stale_policy"]
-s = i["summary"]
-ops._finish_assessment_report(report, s["clean"], s["tolerated"], s["blocked"])
-sys.stdout.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
-`;
+interface PythonPlanReportAuthority {
+  readonly authority: {
+    readonly implementation: string;
+    readonly python_version: string;
+    readonly unicode_version: string;
+  };
+  readonly float_case: {
+    readonly name: string;
+    readonly output_bytes: string;
+    readonly token: string;
+  };
+  readonly kind: string;
+  readonly normalization: string;
+  readonly path_case: {
+    readonly input: readonly (readonly (string | number)[])[];
+    readonly name: string;
+    readonly output: readonly string[];
+  };
+  readonly producing_baseline: string;
+  readonly report_cases: readonly PythonPlanReportCase[];
+  readonly schema_version: number;
+  readonly source_blobs: Record<string, string>;
+}
+
+const PLAN_REPORT_AUTHORITY_SHA256 =
+  "df9d09b903bf60d34ad567f213bd1ddbb1e8bf2aaf1fc71c49be9a050a3e343c";
+const planReportAuthorityBytes = readFileSync(
+  path.join(process.cwd(), "node-tests", "fixtures", "python-plan-report-v1.json"),
+);
+assert.equal(
+  createHash("sha256").update(planReportAuthorityBytes).digest("hex"),
+  PLAN_REPORT_AUTHORITY_SHA256,
+  "frozen CPython plan-report authority changed",
+);
+const planReportAuthority = JSON.parse(
+  planReportAuthorityBytes.toString("utf8"),
+) as PythonPlanReportAuthority;
+assert.equal(planReportAuthority.kind, "infrawright.python-plan-report-authority");
+assert.equal(planReportAuthority.schema_version, 1);
+assert.equal(planReportAuthority.normalization, "none");
+assert.equal(
+  planReportAuthority.producing_baseline,
+  "ef8b4622e79bdc2e8b3c54a52bc18c6c379ef13c",
+);
+assert.deepEqual(planReportAuthority.authority, {
+  implementation: "CPython",
+  python_version: "3.13.13",
+  unicode_version: "15.1.0",
+});
+assert.deepEqual(planReportAuthority.source_blobs, {
+  node_plan_report: "4077ba595ab6e58ad51265102b1166b925c3cdf4",
+  node_python_compatible: "a95ef511c10bb1c727ca6a5f9616909acdea12c3",
+  node_validators: "2e29d8025f857c38af48627ef67c03385af91679",
+  python_ops: "f160a796f6078d96ee423d1ca7f1d169598c8160",
+  python_paths: "63ffb562172405c27a880345cd85b93af7b1ba94",
+  python_plan_eval: "f15e4f44193d517384065a1d320533ea74a47a15",
+  test: "c93c39d46e0e354cf9096acfaf5c68b4c2f80bc2",
+});
+
+function reportAuthorityCase(name: string): PythonPlanReportCase {
+  const matches = planReportAuthority.report_cases.filter((entry) => entry.name === name);
+  assert.equal(matches.length, 1, `expected one frozen plan-report case named ${name}`);
+  return matches[0]!;
+}
 
 function core(status: "clean" | "clean_with_tolerated_drift" | "blocked"): SavedPlanAssessmentCore {
   const counts = {
@@ -79,20 +127,11 @@ function core(status: "clean" | "clean_with_tolerated_drift" | "blocked"): Saved
 }
 
 test("concrete plan path formatting matches Python", () => {
-  const paths = [
-    [],
-    ["rules", 0, "id"],
-    [0, "id"],
-    ["rules", "[]", "id"],
-    ["rules", "*", "id"],
-    ["map.key", "quote\"slash\\"],
-  ] as const;
-  const python = spawnSync(PYTHON_ORACLE, [
-    "-c",
-    "import json,sys; from engine.paths import format_path; print(json.dumps([format_path(p) for p in json.load(sys.stdin)]))",
-  ], { input: JSON.stringify(paths), encoding: "utf8" });
-  assert.equal(python.status, 0, python.stderr);
-  assert.deepEqual(paths.map(formatConcretePlanPath), JSON.parse(python.stdout));
+  assert.equal(planReportAuthority.path_case.name, "concrete-plan-paths");
+  assert.deepEqual(
+    planReportAuthority.path_case.input.map(formatConcretePlanPath),
+    planReportAuthority.path_case.output,
+  );
 });
 
 test("saved-plan report object and bytes match Python for each summary status", () => {
@@ -126,28 +165,26 @@ test("saved-plan report object and bytes match Python for each summary status", 
       status,
       findings: input.roots[0]?.findings ?? [],
     };
-    const python = spawnSync(PYTHON_ORACLE, ["-c", PYTHON_REPORT], {
-      input: JSON.stringify({
-        mode: "assert-adoptable",
-        tenant: "tenant",
-        selectors: ["zpa/sample"],
-        policy: "policy.json",
-        policy_sha256: input.policy_sha256,
-        root: input.roots[0],
-        plan,
-        classification,
-        guidance,
-        stale_policy: input.stale_policy,
-        summary: input,
-      }),
-      encoding: "utf8",
+    const authorityInput = JSON.stringify({
+      mode: "assert-adoptable",
+      tenant: "tenant",
+      selectors: ["zpa/sample"],
+      policy: "policy.json",
+      policy_sha256: input.policy_sha256,
+      root: input.roots[0],
+      plan,
+      classification,
+      guidance,
+      stale_policy: input.stale_policy,
+      summary: input,
     });
-    assert.equal(python.status, 0, python.stderr);
-    assert.deepEqual(report, JSON.parse(python.stdout));
+    const frozen = reportAuthorityCase(status);
+    assert.equal(authorityInput, frozen.input_json);
+    assert.deepEqual(report, JSON.parse(frozen.output_bytes));
     assert.equal(validateSavedPlanAssessment(report), true);
     assert.equal(
       renderPythonCompatibleJson(report as unknown as JsonValue),
-      python.stdout,
+      frozen.output_bytes,
     );
   }
 });
@@ -348,17 +385,10 @@ test("report rendering preserves Python float provenance from guidance JSON", ()
     }],
   });
   const rendered = renderPythonCompatibleJson(report as unknown as JsonValue);
+  assert.equal(planReportAuthority.float_case.name, "guidance-float-provenance");
+  assert.equal(planReportAuthority.float_case.token, "1.0");
   assert.match(rendered, /"observed_value": 1\.0/u);
-  const python = spawnSync(PYTHON_ORACLE, ["-c", [
-    "import json, sys",
-    "value = json.loads(sys.stdin.read())",
-    "sys.stdout.write(json.dumps(value, indent=2, sort_keys=True) + '\\n')",
-  ].join("; ")], {
-    input: rendered,
-    encoding: "utf8",
-  });
-  assert.equal(python.status, 0, python.stderr);
-  assert.equal(rendered, python.stdout);
+  assert.equal(rendered, planReportAuthority.float_case.output_bytes);
 });
 
 test("assessment validator rejects contradictory report semantics", () => {
