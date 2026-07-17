@@ -267,3 +267,25 @@ re-qualification, not codegen.
 5. **`--help` byte-parity**: pin or add the one allowed divergence.
 6. **Signing scheme** (minisign vs cosign) — decide in slice 10, noted here
    so it is not re-litigated per slice.
+
+## Post-cutover simplification candidate: retire logical slug grouping (2026-07)
+
+Ported as-is for byte parity (it is a topology dimension pinned by the
+committed root catalog, variable naming, env layout, and whole-root
+scoping — not a skippable module). Scheduled for removal AFTER cutover,
+gated on:
+
+1. Cross-state reference bindings (#225) promoted from opt-in to default
+   and live-qualified — they supersede the co-location case grouping
+   existed for.
+2. A state-migration plan: degrouping changes module addresses, variable
+   names, and env paths for every grouped resource; the removal ships as
+   an identity-keyed moved{} reconciliation pass over real tenants and
+   must clear assert-adoptable, not as a plain refactor.
+3. An explicit auto-vs-full decision: removing only automatic slug
+   derivation keeps most plumbing alive via explicit groups; the
+   simplification only pays in full (labels ≡ resource types, variable
+   name always "items", catalog schema v2 without slug fields) if
+   explicit groups retire too. Check the oracle-batching/root-count
+   performance counterweight (#212 batches by logical root) before
+   committing.
