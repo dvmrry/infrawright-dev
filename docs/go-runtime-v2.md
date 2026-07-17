@@ -130,7 +130,7 @@ work. The required acceptance matrix is:
 | Terraform composition | In the generated env root, bounded `terraform init -backend=false -input=false -no-color`, `terraform validate -no-color`, and `terraform test -no-color -verbose -json` all exit 0. The structured events must prove `empty_plan` has zero resource changes and `config_plan` has exactly one `create` at `module.zia_rule_labels.zia_rule_labels.this["testlabel_vcr_integration"]` with the committed name/description, followed by an exact 2-pass/0-failure summary. The ZIA pack pin must equal the sole generated provider-lock selection. Provider installation may use the registry or a pinned filesystem mirror; all ZIA/Zscaler credentials/endpoints are removed before Terraform and no post-fetch API request is allowed. | Sanitized transcript with candidate hash, Terraform version, signed provider selection, lock hash, validation result, per-run structured plan summary, and final HTTP transcript. | **PASS locally; focused adversarial review approved** |
 | No-Node candidate | Build a CGO-disabled candidate in a temporary package root, then run the entire hermetic chain with a sanitized `PATH` containing Terraform but no usable `node`, `npm`, or `npx`; invoke only the candidate and Terraform. Any attempted name-based Node execution fails the leg. | Sanitized environment manifest and the same product/Terraform transcript. | **PASS locally; integrated into the hermetic test** |
 | One live read-only provider | Exactly `zia_end_user_notification` through ZIA OneAPI, concurrency 1: accepted Node → Go candidate → accepted Node, each into a fresh mode-0700 root. This singleton performs one `GET /zia/api/v1/eun` with no pagination. All three runs exit 0 and emit only `zia_end_user_notification.json`; Node-before equals Node-after and Go bytes equal both. No Adopt, import, plan, Apply, selector widening, retry/429, or mutation is permitted. Credentials and raw pulls remain private and are deleted. | Candidate and Node SHAs; tool/provider/pack versions; exit statuses; item count, byte size, SHA-256/tree manifest; masked diagnostic classification and secret-scan result. | **BLOCKED locally — externally confirmed read-only credentials are absent; no live call was attempted** |
-| Fresh adversarial review | A fresh Codex reviewer follows `docs/adversarial-review.md`, reviews the complete checkpoint evidence without editing, and leaves no unresolved blocking finding. | Review handoff and recorded findings using the repository templates. | **Hermetic implementation: Approve; newly recorded oracle/qualification evidence is ready for fresh review; final full-evidence review remains required after the live leg** |
+| Fresh adversarial review | A fresh Codex reviewer follows `docs/adversarial-review.md`, reviews the complete checkpoint evidence without editing, and leaves no unresolved blocking finding. | Review handoff and recorded findings using the repository templates. | **Hermetic implementation: Approve; post-247 Go parity candidate `5e7d02d` and its refreshed evidence are ready for fresh review; final full-evidence review remains required after the live leg** |
 
 Run the hermetic leg explicitly; the default test lane records a visible skip
 so provider installation is never smuggled into ordinary unit tests:
@@ -141,7 +141,7 @@ INFRAWRIGHT_V2_CHECKPOINT=1 \
   go test ./cmd/iw -run '^TestV2VerticalSliceCheckpoint$' -count=1 -v
 ```
 
-Recorded non-live evidence on 2026-07-17:
+Original pre-247 non-live evidence recorded on 2026-07-17:
 
 - The user-designated remote source of truth is
   `c86b8cafe68493705d4a9130f2a21e6dd05245c7`. Its `node-src`, `node-tests`,
@@ -168,6 +168,39 @@ Recorded non-live evidence on 2026-07-17:
   `go vet ./...` all passed. The Node lane reported 785 passes, zero failures,
   and two explicitly optional external checks skipped; neither skip is part of
   this checkpoint's required non-live evidence.
+
+Post-247 reconciliation evidence recorded on 2026-07-17:
+
+- `origin/main` differed from the qualified feature branch only by merged PR
+  247. Merge commit `821e9b4` brings that reviewed Node authority into the
+  branch without rewriting the original work-machine-tested history.
+- Candidate `5e7d02d1ce700dd01d54759f040dd1c4cc6e2cc1` ports the two PR 247
+  behaviors with existing Go kernels: the Terraform environment count bound
+  rises from 256 to 4,096 while the 256-KiB byte bound remains, and drift-policy
+  validation accepts exact lossless numeric values while rejecting equivalent
+  duplicate numeric scopes. The pack/user policy merge remains explicitly
+  deferred to the still-unauthorized Go Adopt block.
+- Two independent Node 24.15.0 builds produced the same post-247 bundle:
+  `fd4593c300cde3e8e0ef43153ef4c741b4c542be9165770bbe339d66385c7b2a`.
+  The checksum-file SHA-256 is
+  `df3709d7ab96761792ee6557d12c315351db83ee69fbf78bc0bed79a9ac45946`;
+  the runtime verifier again passed all 11 profiles.
+- RootCatalog, Transform, Topology, and Generation passed against the refreshed
+  oracle with no skips in 12.163 seconds. The focused PR 247 Node files passed
+  55 tests with no skips or failures; the Go environment, exact-version,
+  wide-number, signed-zero, scalar-separation, and duplicate-scope regressions
+  passed.
+- The hermetic checkpoint passed in 9.13 seconds. Candidate binary SHA-256:
+  `419e966397a15fe4b4df9240fde8b021ffcb0e865e039258f13f779a1553d4f4`;
+  provider lock SHA-256:
+  `5e2d47060a6a1e562a8cdf923cc60035b41700e1b3474943b6b2dff2ce9abb21`.
+  Terraform validation and both exact plan assertions passed.
+- Full Go, `npm run check:all`, and `make check-all` passed. The expanded Node
+  lane reported 788 passes, zero failures, and two known optional external
+  skips. gofmt, `go vet ./...`, and the pre-review script passed; its optional
+  `golangci-lint` step was unavailable.
+- The original work-machine report remains valid for `ade9442`; candidate
+  `5e7d02d` requires its own work-machine rerun and fresh adversarial review.
 
 The checkpoint passes only when every required leg is PASS. A skip,
 inconclusive live snapshot, Node self-drift, secret-scan hit, unexpected wire or

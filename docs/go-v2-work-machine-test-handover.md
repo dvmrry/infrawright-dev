@@ -8,10 +8,12 @@ repair or widen the implementation during the test run.
 
 - Repository branch: `feature/go-canonjson-foundation`
 - Runtime/checkpoint candidate commit:
-  `ade9442ff069bd69cdea840ce22662fc69f719be`
-- Candidate base: `863f405922e8d30ae277507a40580ead8c5a28ba`
-- The branch tip may be one documentation-only commit newer than the candidate
-  because this handover was added afterward.
+  `5e7d02d1ce700dd01d54759f040dd1c4cc6e2cc1`
+- Candidate base: `821e9b4c251c10af333990460b88f29793f4865e`,
+  the merge of main/PR 247 into the previously qualified feature branch.
+- The original pre-247 candidate `ade9442` passed this handover on the work
+  machine. This revision requalifies the post-247 Go parity candidate.
+- The branch tip may be one documentation-only commit newer than the candidate.
 - This run is entirely credential-free. Do not test a real API, source provider
   credentials, run Adopt, stage imports, run a real-provider plan, or Apply.
 
@@ -42,17 +44,19 @@ git fetch origin feature/go-canonjson-foundation
 git switch feature/go-canonjson-foundation
 git pull --ff-only origin feature/go-canonjson-foundation
 git status --short
-git show -s --format='%H %s' ade9442ff069bd69cdea840ce22662fc69f719be
-git diff --stat ade9442ff069bd69cdea840ce22662fc69f719be..HEAD
+git show -s --format='%H %s' 5e7d02d1ce700dd01d54759f040dd1c4cc6e2cc1
+git diff --stat 5e7d02d1ce700dd01d54759f040dd1c4cc6e2cc1..HEAD
 ```
 
 Expected:
 
 - `git status --short` is empty.
-- The pinned commit subject is `Add Go v2 vertical-slice checkpoint`.
-- The candidate-to-tip diff contains only this handover document. If it
-  contains code, fixtures, pack metadata, schemas, or another plan change,
-  stop and report that the test target moved.
+- The pinned commit subject is
+  `Align Go policy and Terraform bounds with PR 247`.
+- The candidate-to-tip diff contains only `docs/go-runtime-v2.md`, this
+  handover, and `docs/review-handoffs/go-pr247-parity-triage.md`. If it contains
+  code, fixtures, pack metadata, schemas, or another plan change, stop and
+  report that the test target moved.
 
 Record these versions before testing:
 
@@ -80,12 +84,31 @@ node scripts/verify-runtime-release.mjs "$(pwd)"
 Expected SHA-256 values:
 
 ```text
-b17960a361d1be929abaa37e18312b67cf18f6c291b6e5400f75acd6be1cd065  dist/infrawright-cli.mjs
-43dfe6fa352bdfa566de8446349a583ec5b1a867fcba7cc18def7f4055517cba  dist/infrawright-cli.mjs.sha256
+fd4593c300cde3e8e0ef43153ef4c741b4c542be9165770bbe339d66385c7b2a  dist/infrawright-cli.mjs
+df3709d7ab96761792ee6557d12c315351db83ee69fbf78bc0bed79a9ac45946  dist/infrawright-cli.mjs.sha256
 ```
 
 The runtime verifier must pass all 11 profiles. A bundle hash mismatch is a
 failure; record the tool versions and stop rather than accepting new bytes.
+
+## Run the focused PR 247 Go parity regressions
+
+```sh
+cd go
+go test -count=1 -v ./internal/terraformcmd ./internal/metadata \
+  -run 'TestRunTerraformCommandAcceptsCISizedEnvironment|TestCommandValidationExactBoundaries|TestDriftPolicyAcceptsLosslessNumericPolicyAndRejectsEquivalentDuplicateScopes|TestDriftPolicyNumericDuplicateScopeMarkers'
+cd ..
+```
+
+Required results:
+
+- A real child process receives all 500 CI-style environment entries.
+- Exactly 4,096 environment entries pass; 4,097 fail; the 256-KiB aggregate
+  byte limit still fails closed.
+- Lossless numeric policy versions/values are retained without rounding.
+- Equivalent integral, fractional, signed-zero, and unsafe-integer spellings
+  cannot evade duplicate-scope detection, while booleans, strings, and unequal
+  numbers remain distinct.
 
 ## Run the four artifact byte-gates
 
@@ -142,7 +165,7 @@ Expected:
 
 - All Go packages pass.
 - Formatting and vet are clean.
-- The complete Node lane reports 785 passes, zero failures, and two optional
+- The complete Node lane reports 788 passes, zero failures, and two optional
   external skips.
 - `make check-all` succeeds, including pack-set, module generation, demo drift,
   formatting, metadata, and root-catalog checks.

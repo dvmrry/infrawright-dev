@@ -15,12 +15,14 @@
 
 ## Base / Head
 
-- Base: `821e9b4` (`Merge main after downstream adoption fixes`), which merges
+- Base: `821e9b4c251c10af333990460b88f29793f4865e` (`Merge main after
+  downstream adoption fixes`), which merges
   PR 247 and no other main-only change into the feature branch.
-- Head: uncommitted working tree on `feature/go-canonjson-foundation`; intended
-  to become one reviewable parity commit above `821e9b4`.
+- Head/candidate: `5e7d02d1ce700dd01d54759f040dd1c4cc6e2cc1` on
+  `feature/go-canonjson-foundation`. A later branch tip may update only the
+  evidence and work-machine handover documents.
 - Diff command:
-  `git diff 821e9b4 -- go/internal/metadata/driftpolicy.go go/internal/metadata/driftpolicy_runtime_test.go go/internal/terraformcmd/api.go go/internal/terraformcmd/runner_test.go go/internal/terraformcmd/validation_test.go docs/review-handoffs/go-pr247-parity-triage.md`.
+  `git diff 821e9b4c251c10af333990460b88f29793f4865e..5e7d02d1ce700dd01d54759f040dd1c4cc6e2cc1`.
 
 ## Files Changed
 
