@@ -37,6 +37,23 @@
       "reason": "The suite validates adoption metadata across the complete committed pack catalog."
     },
     {
+      "file": "assessment-cli.test.js",
+      "packs": [
+        "aws",
+        "cloudflare",
+        "google",
+        "netbox",
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
+      "reason": "The frozen assessment CLI authority resolves complete-root topology and plan-policy fixtures against the complete committed pack tree."
+    },
+    {
       "file": "assessment-guidance.test.js",
       "packs": [
         "aws",
@@ -88,6 +105,19 @@
         "zscaler"
       ],
       "reason": "The cross-state Terraform smoke resolves the committed ZPA segment-group reference."
+    },
+    {
+      "file": "differential.test.js",
+      "packs": [
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
+      "reason": "The frozen topology, scope, and root-catalog authorities derive their complete compatibility surface from every committed Zscaler pack."
     },
     {
       "file": "environment-generator.test.js",
@@ -254,6 +284,16 @@
         "zscaler"
       ],
       "reason": "The cross-state assessment case binds the committed ZPA segment-group reference output."
+    },
+    {
+      "file": "plan-cli.test.js",
+      "packs": [
+        "zia"
+      ],
+      "shared": [
+        "zscaler"
+      ],
+      "reason": "The frozen plan CLI authority exercises committed ZIA root selection and deployment metadata."
     },
     {
       "file": "plan-lifecycle.test.js",

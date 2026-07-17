@@ -1,6 +1,7 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -11,6 +12,92 @@ import { planFingerprintV2 } from "../node-src/domain/plan-fingerprint.js";
 
 const ROOT = process.cwd();
 const RESOURCE = "sample_resource";
+const AUTHORITY_SHA256 = "cc611aa957d925c2dfb48b57caccbacb8eb5364a8a4b624f84ca17d14d9f6a36";
+const ASSESSMENT_ROOT = "<ASSESSMENT_CLI_ROOT>";
+
+interface FrozenBytes {
+  readonly base64: string;
+  readonly sha256: string;
+  readonly size: number;
+}
+
+interface FrozenRecord {
+  readonly arguments: readonly string[];
+  readonly exit_status: number;
+  readonly report_artifacts: readonly {
+    readonly blob: string;
+    readonly path: string;
+  }[];
+  readonly stderr: FrozenBytes;
+  readonly stdout: FrozenBytes;
+}
+
+interface FrozenAuthority {
+  readonly content_blobs: Readonly<Record<string, FrozenBytes>>;
+  readonly kind: string;
+  readonly record_count: number;
+  readonly records: readonly FrozenRecord[];
+  readonly schema_version: number;
+  readonly suite: string;
+}
+
+const authorityBytes = readFileSync(path.join(
+  ROOT,
+  "node-tests",
+  "fixtures",
+  "python-assessment-cli-v1.json",
+));
+assert.equal(
+  createHash("sha256").update(authorityBytes).digest("hex"),
+  AUTHORITY_SHA256,
+  "frozen CPython assessment CLI authority changed without re-adjudication",
+);
+const authority = JSON.parse(authorityBytes.toString("utf8")) as FrozenAuthority;
+assert.equal(authority.kind, "python-engine-ops-delegation-authority");
+assert.equal(authority.schema_version, 1);
+assert.equal(authority.suite, "assessment-cli");
+assert.equal(authority.record_count, 8);
+assert.equal(authority.records.length, authority.record_count);
+assert.equal(
+  new Set(authority.records.map((record) => JSON.stringify(record.arguments))).size,
+  authority.record_count,
+  "frozen assessment CLI invocations must map uniquely",
+);
+
+function normalizeAuthorityPath(value: string, workspace: string): string {
+  return value.replaceAll(workspace, ASSESSMENT_ROOT);
+}
+
+function frozenText(value: FrozenBytes): string {
+  const bytes = Buffer.from(value.base64, "base64");
+  assert.equal(bytes.length, value.size);
+  assert.equal(createHash("sha256").update(bytes).digest("hex"), value.sha256);
+  return bytes.toString("utf8");
+}
+
+function frozenRecord(
+  index: number,
+  pythonArguments: readonly string[],
+  workspace: string,
+): FrozenRecord {
+  const record = authority.records[index];
+  assert.ok(record, `missing frozen assessment CLI record ${index}`);
+  assert.deepEqual(
+    record.arguments,
+    pythonArguments.map((value) => normalizeAuthorityPath(value, workspace)),
+    `frozen assessment CLI invocation ${index}`,
+  );
+  return record;
+}
+
+function frozenReport(record: FrozenRecord, pythonReport: string, workspace: string): string {
+  assert.equal(record.report_artifacts.length, 1);
+  const artifact = record.report_artifacts[0]!;
+  assert.equal(artifact.path, normalizeAuthorityPath(pythonReport, workspace));
+  const blob = authority.content_blobs[artifact.blob];
+  assert.ok(blob, `missing frozen assessment report blob ${artifact.blob}`);
+  return frozenText(blob);
+}
 
 function command(
   executable: string,
@@ -164,12 +251,14 @@ test("operational assessment reports, diagnostics, and exits match Python", asyn
   const cli = path.join(ROOT, "dist", "infrawright-cli.mjs");
   const cases = [
     {
+      authorityIndex: 0,
       name: "clean",
       operation: "assert-clean",
       plan: plan({ actions: ["no-op"], before: {}, after: {} }),
       policy: null,
     },
     {
+      authorityIndex: 1,
       name: "blocked guidance",
       operation: "assert-adoptable",
       plan: plan({
@@ -180,6 +269,7 @@ test("operational assessment reports, diagnostics, and exits match Python", asyn
       policy: null,
     },
     {
+      authorityIndex: 2,
       name: "tolerated",
       operation: "assert-adoptable",
       plan: plan({
@@ -228,22 +318,24 @@ test("operational assessment reports, diagnostics, and exits match Python", asyn
         "--deployment", item.deployment,
         ...(policyPath === null ? [] : ["--policy", policyPath]),
       ];
-      const python = command(PYTHON_ORACLE, pythonArguments, item.environment);
+      const legacy = frozenRecord(selected.authorityIndex, pythonArguments, item.workspace);
       const node = command(process.execPath, nodeArguments, item.environment);
-      assert.equal(node.status, python.status, node.stderr);
-      assert.equal(node.stdout, python.stdout, selected.name);
+      const legacyStdout = frozenText(legacy.stdout);
+      const legacyStderr = frozenText(legacy.stderr);
+      assert.equal(node.status, legacy.exit_status, node.stderr);
+      assert.equal(node.stdout, legacyStdout, selected.name);
       if (selected.name === "blocked guidance") {
-        assertCliFailureExtendsLegacy(node.stderr, python.stderr, {
+        assertCliFailureExtendsLegacy(node.stderr, legacyStderr, {
           category: "domain",
           code: "PLAN_NOT_ADOPTABLE",
           retryable: false,
         }, selected.name);
       } else {
-        assert.equal(node.stderr, python.stderr, selected.name);
+        assert.equal(node.stderr, legacyStderr, selected.name);
       }
       assert.equal(
-        await readFile(nodeReport, "utf8"),
-        await readFile(pythonReport, "utf8"),
+        normalizeAuthorityPath(await readFile(nodeReport, "utf8"), item.workspace),
+        frozenReport(legacy, pythonReport, item.workspace),
         selected.name,
       );
     });
@@ -303,11 +395,12 @@ test("no-saved-plan CLI failure and error report match Python without Terraform"
   await rm(path.join(item.envDir, "tfplan.sources"));
   const pythonReport = path.join(item.workspace, "no-plans.python.json");
   const nodeReport = path.join(item.workspace, "no-plans.node.json");
-  const python = command(PYTHON_ORACLE, [
+  const pythonArguments = [
     "-m", "engine.ops", "assert-clean",
     "--tenant", "tenant",
     "--report", pythonReport,
-  ], { ...item.environment, TF: "/definitely/missing/terraform" });
+  ];
+  const legacy = frozenRecord(3, pythonArguments, item.workspace);
   const node = command(process.execPath, [
     path.join(ROOT, "dist", "infrawright-cli.mjs"),
     "assert-clean",
@@ -319,15 +412,20 @@ test("no-saved-plan CLI failure and error report match Python without Terraform"
     "--catalog", item.profile,
     "--deployment", item.deployment,
   ], item.environment);
-  assert.equal(node.status, python.status);
+  const legacyStdout = frozenText(legacy.stdout);
+  const legacyStderr = frozenText(legacy.stderr);
+  assert.equal(node.status, legacy.exit_status);
   assert.equal(node.status, 1);
-  assert.equal(node.stdout, python.stdout);
-  assertCliFailureExtendsLegacy(node.stderr, python.stderr, {
+  assert.equal(node.stdout, legacyStdout);
+  assertCliFailureExtendsLegacy(node.stderr, legacyStderr, {
     category: "domain",
     code: "NO_SAVED_PLANS",
     retryable: false,
   });
-  assert.equal(await readFile(nodeReport, "utf8"), await readFile(pythonReport, "utf8"));
+  assert.equal(
+    normalizeAuthorityPath(await readFile(nodeReport, "utf8"), item.workspace),
+    frozenReport(legacy, pythonReport, item.workspace),
+  );
 });
 
 test("missing-fingerprint assessment failure retains the report contract", async (context) => {
@@ -364,12 +462,13 @@ test("selection failures retain the Python error-report contract", async (contex
   const item = await fixture(context);
   const pythonReport = path.join(item.workspace, "selection.python.json");
   const nodeReport = path.join(item.workspace, "selection.node.json");
-  const python = command(PYTHON_ORACLE, [
+  const pythonArguments = [
     "-m", "engine.ops", "assert-clean",
     "--tenant", "tenant",
     "--report", pythonReport,
     "missing_resource",
-  ], item.environment);
+  ];
+  const legacy = frozenRecord(4, pythonArguments, item.workspace);
   const node = command(process.execPath, [
     path.join(ROOT, "dist", "infrawright-cli.mjs"),
     "assert-clean",
@@ -382,10 +481,13 @@ test("selection failures retain the Python error-report contract", async (contex
     "--catalog", item.profile,
     "--deployment", item.deployment,
   ], item.environment);
-  assert.equal(node.status, python.status);
-  assert.equal(node.stdout, python.stdout);
-  assert.equal(node.stderr, python.stderr);
-  assert.equal(await readFile(nodeReport, "utf8"), await readFile(pythonReport, "utf8"));
+  assert.equal(node.status, legacy.exit_status);
+  assert.equal(node.stdout, frozenText(legacy.stdout));
+  assert.equal(node.stderr, frozenText(legacy.stderr));
+  assert.equal(
+    normalizeAuthorityPath(await readFile(nodeReport, "utf8"), item.workspace),
+    frozenReport(legacy, pythonReport, item.workspace),
+  );
 });
 
 test("assessment CLI retains usage exits and writes loader/parser error reports", async (context) => {
@@ -430,11 +532,12 @@ test("invalid Terraform show JSON retains the legacy diagnostic, report, and exi
   await chmod(item.terraform, 0o700);
   const pythonReport = path.join(item.workspace, "invalid-show.python.json");
   const nodeReport = path.join(item.workspace, "invalid-show.node.json");
-  const python = command(PYTHON_ORACLE, [
+  const pythonArguments = [
     "-m", "engine.ops", "assert-clean",
     "--tenant", "tenant",
     "--report", pythonReport,
-  ], { ...item.environment, TF: item.terraform });
+  ];
+  const legacy = frozenRecord(5, pythonArguments, item.workspace);
   const node = command(process.execPath, [
     path.join(ROOT, "dist", "infrawright-cli.mjs"),
     "assert-clean",
@@ -446,11 +549,14 @@ test("invalid Terraform show JSON retains the legacy diagnostic, report, and exi
     "--catalog", item.profile,
     "--deployment", item.deployment,
   ], item.environment);
-  assert.equal(node.status, python.status);
+  assert.equal(node.status, legacy.exit_status);
   assert.equal(node.status, 2);
-  assert.equal(node.stdout, python.stdout);
-  assert.equal(node.stderr, python.stderr);
-  assert.equal(await readFile(nodeReport, "utf8"), await readFile(pythonReport, "utf8"));
+  assert.equal(node.stdout, frozenText(legacy.stdout));
+  assert.equal(node.stderr, frozenText(legacy.stderr));
+  assert.equal(
+    normalizeAuthorityPath(await readFile(nodeReport, "utf8"), item.workspace),
+    frozenReport(legacy, pythonReport, item.workspace),
+  );
 });
 
 test("invalid policy and missing Terraform retain legacy diagnostics and reports", async (context) => {
@@ -461,12 +567,14 @@ test("invalid policy and missing Terraform retain legacy diagnostics and reports
 
   for (const selected of [
     {
+      authorityIndex: 6,
       name: "invalid-policy",
       operation: "assert-adoptable",
       policy: invalidPolicy,
       terraform: item.terraform,
     },
     {
+      authorityIndex: 7,
       name: "missing-terraform",
       operation: "assert-clean",
       policy: null,
@@ -493,25 +601,24 @@ test("invalid policy and missing Terraform retain legacy diagnostics and reports
       "--deployment", item.deployment,
       ...(selected.policy === null ? [] : ["--policy", selected.policy]),
     ];
-    const python = command(PYTHON_ORACLE, pythonArgs, {
-      ...item.environment,
-      TF: selected.terraform,
-    });
+    const legacy = frozenRecord(selected.authorityIndex, pythonArgs, item.workspace);
     const node = command(process.execPath, nodeArgs, item.environment);
-    assert.equal(node.status, python.status, selected.name);
-    assert.equal(node.stdout, python.stdout, selected.name);
+    const legacyStdout = frozenText(legacy.stdout);
+    const legacyStderr = frozenText(legacy.stderr);
+    assert.equal(node.status, legacy.exit_status, selected.name);
+    assert.equal(node.stdout, legacyStdout, selected.name);
     if (selected.name === "missing-terraform") {
-      assertCliFailureExtendsLegacy(node.stderr, python.stderr, {
+      assertCliFailureExtendsLegacy(node.stderr, legacyStderr, {
         category: "internal",
         code: "ASSESSMENT_FAILED",
         retryable: false,
       }, selected.name);
     } else {
-      assert.equal(node.stderr, python.stderr, selected.name);
+      assert.equal(node.stderr, legacyStderr, selected.name);
     }
     assert.equal(
-      await readFile(nodeReport, "utf8"),
-      await readFile(pythonReport, "utf8"),
+      normalizeAuthorityPath(await readFile(nodeReport, "utf8"), item.workspace),
+      frozenReport(legacy, pythonReport, item.workspace),
       selected.name,
     );
   }

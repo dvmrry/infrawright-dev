@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { readdirSync } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -49,64 +49,6 @@ async function compiledFixture(files: Readonly<Record<string, string>>): Promise
   }), "utf8");
   return { directory, requirements };
 }
-
-test("check discovers an honest Python-oracle file split", async (context) => {
-  const fixture = await compiledFixture({
-    "import-oracle.test.js": "import test from 'node:test';\ntest('pure', () => {});\n",
-    "migration.test.js": "import { PYTHON_ORACLE } from './python-oracle.js';\nvoid PYTHON_ORACLE;\n",
-    "operational-runtime-smoke.test.js": "import test from 'node:test';\ntest('pure', () => {});\n",
-  });
-  context.after(async () => rm(path.dirname(fixture.directory), { recursive: true, force: true }));
-  const result = run("check", fixture.directory, ["--json"], fixture.requirements);
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stderr, "");
-  assert.deepEqual(JSON.parse(result.stdout), {
-    excluded: [{ name: "migration.test.js", reason: "imports-python-oracle" }],
-    excluded_count: 1,
-    excluded_missing_pack_requirements_count: 0,
-    excluded_python_oracle_count: 1,
-    selected: [
-      "import-oracle.test.js",
-      "operational-runtime-smoke.test.js",
-    ],
-    selected_count: 2,
-    total_count: 3,
-  });
-});
-
-test("run executes selected files and never evaluates excluded oracle files", async (context) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "infrawright-node-suite-run-"));
-  const directory = path.join(root, "node-tests");
-  const marker = path.join(root, "selected");
-  const forbidden = path.join(root, "excluded");
-  await mkdir(directory);
-  await writeFile(path.join(directory, "selected.test.js"), [
-    "import test from 'node:test';",
-    "import { writeFileSync } from 'node:fs';",
-    `test('selected', () => writeFileSync(${JSON.stringify(marker)}, 'yes'));`,
-  ].join("\n"), "utf8");
-  await writeFile(path.join(directory, "excluded.test.js"), [
-    "import { PYTHON_ORACLE } from './python-oracle.js';",
-    "import { writeFileSync } from 'node:fs';",
-    `writeFileSync(${JSON.stringify(forbidden)}, PYTHON_ORACLE);`,
-  ].join("\n"), "utf8");
-  context.after(async () => rm(root, { recursive: true, force: true }));
-
-  const requirements = path.join(root, "requirements.json");
-  await writeFile(requirements, JSON.stringify({
-    kind: "infrawright.node-test-pack-requirements",
-    rules: [],
-    version: 1,
-  }), "utf8");
-  const result = run("run", directory, [], requirements);
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(
-    result.stdout,
-    /selected=1 excluded_python_oracle=1 excluded_missing_pack_requirements=0 total=2/u,
-  );
-  assert.equal(await readFile(marker, "utf8"), "yes");
-  await assert.rejects(readFile(forbidden, "utf8"), /ENOENT/u);
-});
 
 test("selected files with hardcoded Python subprocesses fail before execution", async (context) => {
   const fixture = await compiledFixture({
@@ -229,7 +171,6 @@ test("repository discovery naturally selects the operational smoke and Oracle te
     }[];
     readonly excluded_count: number;
     readonly excluded_missing_pack_requirements_count: number;
-    readonly excluded_python_oracle_count: number;
     readonly selected: readonly string[];
     readonly selected_count: number;
     readonly total_count: number;
@@ -283,17 +224,6 @@ test("repository discovery naturally selects the operational smoke and Oracle te
       return entry.reason === "missing-pack-requirements";
     }).length,
   );
-  const oracleImports = allTests.filter((name) => {
-    return /^import .* from ["']\.\/python-oracle\.js["'];?$/mu.test(
-      readFileSync(path.join(directory, name), "utf8"),
-    );
-  });
-  const oracleExclusions = report.excluded.filter((entry) => {
-    return entry.reason === "imports-python-oracle";
-  }).map((entry) => entry.name).sort();
-  assert.deepEqual(oracleExclusions, oracleImports);
-  assert.equal(report.excluded_python_oracle_count, oracleImports.length);
-
   const reducedResult = run("check", directory, [
     "--profile", path.join(ROOT, "packsets", "zia.json"),
     "--catalog", path.join(ROOT, "packsets", "full.json"),

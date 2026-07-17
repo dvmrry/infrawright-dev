@@ -441,3 +441,40 @@ sources, tests, and helpers. Current tests compare complete objects and every
 artifact byte; the fixture digests and source hashes are additional provenance
 locks, not substitutes for those comparisons. No provider, Terraform,
 credential, backend, network, deployment plan, or Apply is involved.
+
+## Final engine-operations contracts
+
+The final live-oracle slice was produced from baseline
+`a00510b46b04767d371bf7c05286d13b52784253`, using CPython 3.13.13 with
+UCD 15.1.0 and Node 24. The clean-checkout resurrection command is embedded in
+each fixture. It creates a detached baseline worktree, restores the generator
+from the archive commit, installs the pinned test dependencies with
+`npm ci --ignore-scripts`, regenerates all three authorities, and compares
+them byte-for-byte.
+
+`node-tests/fixtures/python-assessment-cli-v1.json` records all eight former
+assessment CLI delegations and has SHA-256
+`cc611aa957d925c2dfb48b57caccbacb8eb5364a8a4b624f84ca17d14d9f6a36`.
+The current test compares exact status, stdout, stderr, and report bytes while
+retaining the Node CLI's additive structured diagnostics.
+
+`node-tests/fixtures/python-differential-v1.json` records all thirty former
+topology, scope, plan-root, and root-catalog delegations and has SHA-256
+`a77718b7710feea17a5dd82818e4c1acd7cf31a5779d22520fb9a7a173017dc4`.
+The current tests compare every recorded result in order. Root-catalog cases
+still regenerate the current Node catalog and compare it with the committed
+catalog; they are not frozen-to-frozen self-comparisons.
+
+`node-tests/fixtures/python-plan-cli-v1.json` records all nine former plan CLI
+delegations and has SHA-256
+`54f2a3f6011a43e13b44e34a9caf25625ff112ed6ccbb8af8d5bdc0f08501359`.
+The current tests preserve the exact historical status, stdout, and stderr
+comparison boundaries.
+
+Together the fixtures preserve exactly 47 delegated calls, including raw
+arguments, stdin, a controlled environment, material input filesystem
+evidence, output bytes, and report artifacts. Normalization is limited to
+ephemeral workspace prefixes. Current Node tests consume every record exactly
+once in its recorded order and pass with `PYTHON=/usr/bin/false`. No current
+test imports a Python oracle helper; the test-suite oracle exclusion and
+resolver have been removed.

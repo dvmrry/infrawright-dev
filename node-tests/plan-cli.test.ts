@@ -1,6 +1,7 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { chmod, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -15,6 +16,91 @@ const CATALOG = path.join(ROOT, "packsets", "full.json");
 const FIRST = "zia_admin_users";
 const SECOND = "zia_url_categories";
 const LABEL = "zia_pair";
+const AUTHORITY_SHA256 = "54f2a3f6011a43e13b44e34a9caf25625ff112ed6ccbb8af8d5bdc0f08501359";
+const PLAN_CLI_ROOT = "<PLAN_CLI_ROOT>";
+
+interface FrozenBytes {
+  readonly base64: string;
+  readonly sha256: string;
+  readonly size: number;
+}
+
+interface FrozenRecord {
+  readonly arguments: readonly string[];
+  readonly exit_status: number;
+  readonly stderr: FrozenBytes;
+  readonly stdout: FrozenBytes;
+}
+
+interface FrozenAuthority {
+  readonly kind: string;
+  readonly record_count: number;
+  readonly records: readonly FrozenRecord[];
+  readonly schema_version: number;
+  readonly suite: string;
+}
+
+const authorityBytes = readFileSync(path.join(
+  ROOT,
+  "node-tests",
+  "fixtures",
+  "python-plan-cli-v1.json",
+));
+assert.equal(
+  createHash("sha256").update(authorityBytes).digest("hex"),
+  AUTHORITY_SHA256,
+  "frozen CPython plan CLI authority changed without re-adjudication",
+);
+const authority = JSON.parse(authorityBytes.toString("utf8")) as FrozenAuthority;
+assert.equal(authority.kind, "python-engine-ops-delegation-authority");
+assert.equal(authority.schema_version, 1);
+assert.equal(authority.suite, "plan-cli");
+assert.equal(authority.record_count, 9);
+assert.equal(authority.records.length, authority.record_count);
+
+const EXPECTED_AUTHORITY_ARGUMENTS = [
+  ["-m", "engine.ops", "resources", "--order=references", SECOND],
+  ["-m", "engine.ops", "roots", "--json", "--tenant", "tenant", SECOND],
+  ["-m", "engine.ops", "plan-roots", "--json", "--tenant", "tenant", SECOND],
+  ["-m", "engine.ops", "scope-paths", "--json", "--paths-json", "-"],
+  ["-m", "engine.ops", "roots", "--json", "unknown_resource"],
+  ["-m", "engine.ops", "plan-roots", "--json", "--tenant", "../bad"],
+  [
+    "-m",
+    "engine.ops",
+    "scope-paths",
+    "--json",
+    "--paths-json",
+    `${PLAN_CLI_ROOT}/invalid-paths.json`,
+  ],
+  ["-m", "engine.ops", "roots", "--json"],
+  ["-m", "engine.ops", "roots", "--json"],
+] as const;
+assert.deepEqual(
+  authority.records.map((record) => record.arguments),
+  EXPECTED_AUTHORITY_ARGUMENTS,
+  "frozen plan CLI invocations changed order or identity",
+);
+
+function normalizeAuthorityPaths(value: string, workspace: string): string {
+  const replacements = [[workspace, PLAN_CLI_ROOT]] as const;
+  return [...replacements]
+    .sort(([left], [right]) => right.length - left.length)
+    .reduce((normalized, [from, to]) => normalized.replaceAll(from, to), value);
+}
+
+function frozenText(value: FrozenBytes): string {
+  const bytes = Buffer.from(value.base64, "base64");
+  assert.equal(bytes.length, value.size);
+  assert.equal(createHash("sha256").update(bytes).digest("hex"), value.sha256);
+  return bytes.toString("utf8");
+}
+
+function frozenRecord(index: number): FrozenRecord {
+  const record = authority.records[index];
+  assert.ok(record, `missing frozen plan CLI record ${index}`);
+  return record;
+}
 
 async function temporaryDirectory(
   context: { after(callback: () => Promise<unknown> | unknown): void },
@@ -77,25 +163,33 @@ test("real metadata CLI query bytes match Python on grouped materialized roots",
 
   const cases = [
     {
-      python: ["-m", "engine.ops", "resources", "--order=references", SECOND],
+      authorityIndex: 0,
       node: [cli, "resources", "--order=references", "--resource", SECOND, "--root", packs, "--profile", PROFILE, "--catalog", CATALOG],
     },
     {
-      python: ["-m", "engine.ops", "roots", "--json", "--tenant", "tenant", SECOND],
+      authorityIndex: 1,
       node: [cli, "roots", "--tenant", "tenant", "--resource", SECOND, "--root", packs, "--profile", PROFILE, "--catalog", CATALOG, "--deployment", deployment],
     },
     {
-      python: ["-m", "engine.ops", "plan-roots", "--json", "--tenant", "tenant", SECOND],
+      authorityIndex: 2,
       node: [cli, "plan-roots", "--tenant", "tenant", "--resource", SECOND, "--root", packs, "--profile", PROFILE, "--catalog", CATALOG, "--deployment", deployment],
     },
   ];
   for (const item of cases) {
-    const python = command(PYTHON_ORACLE, item.python, environment);
+    const frozen = frozenRecord(item.authorityIndex);
     const node = command(process.execPath, item.node, environment);
-    assert.equal(python.status, 0, python.stderr);
-    assert.equal(node.status, 0, node.stderr);
-    assert.equal(node.stdout, python.stdout, item.node[1]);
-    assert.equal(node.stderr, python.stderr, item.node[1]);
+    assert.equal(frozen.exit_status, 0, frozenText(frozen.stderr));
+    assert.equal(node.status, frozen.exit_status, node.stderr);
+    assert.equal(
+      normalizeAuthorityPaths(node.stdout, workspace),
+      frozenText(frozen.stdout),
+      item.node[1],
+    );
+    assert.equal(
+      normalizeAuthorityPaths(node.stderr, workspace),
+      frozenText(frozen.stderr),
+      item.node[1],
+    );
   }
 
   const changed = JSON.stringify([
@@ -103,21 +197,23 @@ test("real metadata CLI query bytes match Python on grouped materialized roots",
     path.join(workspace, "config", "tenant", `${SECOND}.auto.tfvars.json`),
     path.join(workspace, "envs", "tenant", LABEL, "main.tf"),
   ]);
-  const pythonScope = command(
-    PYTHON_ORACLE,
-    ["-m", "engine.ops", "scope-paths", "--json", "--paths-json", "-"],
-    environment,
-    changed,
-  );
+  const frozenScope = frozenRecord(3);
   const nodeScope = command(
     process.execPath,
     [cli, "scope-paths", "--paths-json", "-", "--root", packs, "--profile", PROFILE, "--catalog", CATALOG, "--deployment", deployment],
     environment,
     changed,
   );
-  assert.equal(nodeScope.status, 0, nodeScope.stderr);
-  assert.equal(nodeScope.stdout, pythonScope.stdout);
-  assert.equal(nodeScope.stderr, pythonScope.stderr);
+  assert.equal(frozenScope.exit_status, 0, frozenText(frozenScope.stderr));
+  assert.equal(nodeScope.status, frozenScope.exit_status, nodeScope.stderr);
+  assert.equal(
+    normalizeAuthorityPaths(nodeScope.stdout, workspace),
+    frozenText(frozenScope.stdout),
+  );
+  assert.equal(
+    normalizeAuthorityPaths(nodeScope.stderr, workspace),
+    frozenText(frozenScope.stderr),
+  );
 });
 
 test("query validation and changed-path file failures retain legacy status classes", async (context) => {
@@ -143,24 +239,32 @@ test("query validation and changed-path file failures retain legacy status class
   await writeText(invalidPaths, '[""]\n');
   const validationCases = [
     {
-      python: ["-m", "engine.ops", "roots", "--json", "unknown_resource"],
+      authorityIndex: 4,
       node: [cli, "roots", "--resource", "unknown_resource", ...common],
     },
     {
-      python: ["-m", "engine.ops", "plan-roots", "--json", "--tenant", "../bad"],
+      authorityIndex: 5,
       node: [cli, "plan-roots", "--tenant", "../bad", ...common],
     },
     {
-      python: ["-m", "engine.ops", "scope-paths", "--json", "--paths-json", invalidPaths],
+      authorityIndex: 6,
       node: [cli, "scope-paths", "--paths-json", invalidPaths, ...common],
     },
   ];
   for (const item of validationCases) {
-    const python = command(PYTHON_ORACLE, item.python, environment);
+    const frozen = frozenRecord(item.authorityIndex);
     const node = command(process.execPath, item.node, environment);
-    assert.equal(node.status, python.status, item.node[1]);
-    assert.equal(node.stdout, python.stdout, item.node[1]);
-    assert.equal(node.stderr, python.stderr, item.node[1]);
+    assert.equal(node.status, frozen.exit_status, item.node[1]);
+    assert.equal(
+      normalizeAuthorityPaths(node.stdout, workspace),
+      frozenText(frozen.stdout),
+      item.node[1],
+    );
+    assert.equal(
+      normalizeAuthorityPaths(node.stderr, workspace),
+      frozenText(frozen.stderr),
+      item.node[1],
+    );
     assert.equal(node.status, 2, item.node[1]);
   }
 
@@ -171,16 +275,15 @@ test("query validation and changed-path file failures retain legacy status class
     overlay: ".",
     roots: { zia: { groups: { bad_group: ["zia_not_real"] } } },
   })}\n`);
-  for (const selected of [invalidDeployment, invalidRoot]) {
+  for (const [authorityIndex, selected] of [
+    [7, invalidDeployment],
+    [8, invalidRoot],
+  ] as const) {
     const selectedEnvironment = {
       ...environment,
       INFRAWRIGHT_DEPLOYMENT: selected,
     };
-    const python = command(
-      PYTHON_ORACLE,
-      ["-m", "engine.ops", "roots", "--json"],
-      selectedEnvironment,
-    );
+    const frozen = frozenRecord(authorityIndex);
     const node = command(
       process.execPath,
       [
@@ -193,9 +296,12 @@ test("query validation and changed-path file failures retain legacy status class
       ],
       selectedEnvironment,
     );
-    assert.equal(python.status, 2, python.stderr);
-    assert.equal(node.status, python.status, node.stderr);
-    assert.equal(node.stdout, python.stdout);
+    assert.equal(frozen.exit_status, 2, frozenText(frozen.stderr));
+    assert.equal(node.status, frozen.exit_status, node.stderr);
+    assert.equal(
+      normalizeAuthorityPaths(node.stdout, workspace),
+      frozenText(frozen.stdout),
+    );
   }
 
   const malformed = path.join(workspace, "malformed.json");
