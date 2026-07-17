@@ -1,3 +1,5 @@
+import { LosslessNumber } from "lossless-json";
+
 import {
   parsePolicyPath,
   POLICY_WILDCARD,
@@ -7,6 +9,7 @@ import {
   policySelectorMatches,
   type ConcretePathSegment,
 } from "./policy-paths.js";
+import { terraformJsonExactlyEqual } from "../json/python-equality.js";
 import { sortedStrings } from "../json/python-compatible.js";
 
 const TOP_LEVEL_KEYS = new Set(["version", "resource_types"]);
@@ -50,6 +53,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function fail(message: string): never {
   throw new DriftPolicyError(message);
+}
+
+/** Accept only the exact JSON-number value one, including lossless spellings. */
+export function isSupportedDriftPolicyVersion(value: unknown): boolean {
+  return terraformJsonExactlyEqual(value, 1);
 }
 
 function rejectUnknownKeys(
@@ -117,8 +125,38 @@ function requireString(entry: PolicyEntry, key: string, context: string): string
 function isJsonScalar(value: unknown): boolean {
   return value === null
     || typeof value === "string"
-    || typeof value === "number"
-    || typeof value === "boolean";
+    || (typeof value === "number" && Number.isFinite(value))
+    || typeof value === "boolean"
+    || value instanceof LosslessNumber;
+}
+
+function numericScalarMarker(value: number | LosslessNumber): string {
+  if (value instanceof LosslessNumber) {
+    const token = value.toString();
+    if (/^-?(?:0|[1-9][0-9]*)$/u.test(token)) {
+      return `integer:${String(BigInt(token))}`;
+    }
+    const numeric = Number(token);
+    return Number.isFinite(numeric) && Number.isInteger(numeric)
+      ? `integer:${String(BigInt(numeric))}`
+      : `float:${String(numeric)}`;
+  }
+  if (Number.isSafeInteger(value) && !Object.is(value, -0)) {
+    return `integer:${String(BigInt(value))}`;
+  }
+  return Number.isInteger(value)
+    ? `integer:${String(BigInt(value))}`
+    : `float:${String(value)}`;
+}
+
+function jsonScalarMarker(value: unknown): string {
+  if (value === null) return "null";
+  if (typeof value === "boolean") return `boolean:${String(value)}`;
+  if (typeof value === "string") return `string:${JSON.stringify(value)}`;
+  if (typeof value === "number" || value instanceof LosslessNumber) {
+    return `number:${numericScalarMarker(value)}`;
+  }
+  return fail("drift policy scalar marker received a non-scalar value");
 }
 
 function policyPath(value: unknown) {
@@ -205,7 +243,7 @@ function validateEntry(
     if (!values.every(isJsonScalar)) {
       fail(`${source} projection_omit_if entry for ${resourceType} values must contain only JSON scalars`);
     }
-    return `projection_omit_if\0${pathText}\0${JSON.stringify(values)}`;
+    return `projection_omit_if\0${pathText}\0${JSON.stringify(values.map(jsonScalarMarker))}`;
   }
   if (mode === "plan_tolerate") {
     const rawActions = Object.hasOwn(entry, "actions")
@@ -243,7 +281,7 @@ function validatePolicy(data: unknown, source: string): Record<string, unknown> 
   if (!Object.hasOwn(data, "version")) {
     fail(`${source}: drift policy missing version`);
   }
-  if (data.version !== 1) {
+  if (!isSupportedDriftPolicyVersion(data.version)) {
     fail(`${source}: unsupported drift policy version`);
   }
   if (!Object.hasOwn(data, "resource_types")) {

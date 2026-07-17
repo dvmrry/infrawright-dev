@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { LosslessNumber } from "lossless-json";
 
 import { DriftPolicy } from "../node-src/domain/drift-policy.js";
 import {
   parsePolicyPath,
   policySelectorMatches,
 } from "../node-src/domain/policy-paths.js";
+import { parseDataJsonLosslessly } from "../node-src/json/control.js";
 
 function entry(path: string, extra: Record<string, unknown> = {}) {
   return { path, reason: "test", approved_by: "unit", ...extra };
@@ -152,6 +154,47 @@ test("valid non-plan modes remain accepted by the complete validator", () => {
       },
     },
   }));
+});
+
+test("losslessly parsed policies retain numeric versions and scalar identity", () => {
+  const parsed = parseDataJsonLosslessly(`{
+    "version": 10e-1,
+    "resource_types": {
+      "sample_resource": {
+        "projection_omit_if": [{
+          "path": "quota",
+          "values": [900719925474099312345678901],
+          "reason": "test",
+          "approved_by": "unit"
+        }]
+      }
+    }
+  }`);
+  const policy = new DriftPolicy(parsed);
+  const value = (policy.entries("sample_resource", "projection_omit_if")[0]?.values as unknown[])[0];
+  assert.ok(value instanceof LosslessNumber);
+  assert.equal(value.toString(), "900719925474099312345678901");
+
+  const roundedToOne = parseDataJsonLosslessly(
+    '{"version":1.0000000000000000000000001,"resource_types":{}}',
+  );
+  assert.throws(() => new DriftPolicy(roundedToOne), /unsupported drift policy version/u);
+
+  const duplicateNumericScopes = parseDataJsonLosslessly(`{
+    "version": 1,
+    "resource_types": {
+      "sample_resource": {
+        "projection_omit_if": [
+          {"path":"quota","values":[0],"reason":"first","approved_by":"unit"},
+          {"path":"quota","values":[0.0],"reason":"second","approved_by":"unit"}
+        ]
+      }
+    }
+  }`);
+  assert.throws(
+    () => new DriftPolicy(duplicateNumericScopes),
+    /duplicate projection_omit_if/u,
+  );
 });
 
 test("policy validation preserves the frozen Python contract", () => {
