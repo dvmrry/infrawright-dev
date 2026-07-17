@@ -121,6 +121,23 @@
       "reason": "The Oracle integration fixtures resolve committed provider and projection metadata from the complete pack root."
     },
     {
+      "file": "import-staging.test.js",
+      "packs": [
+        "aws",
+        "cloudflare",
+        "google",
+        "netbox",
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
+      "reason": "The staging suite validates grouped and profile-specific topology against the complete committed pack tree."
+    },
+    {
       "file": "metadata-cli.test.js",
       "packs": [
         "aws",

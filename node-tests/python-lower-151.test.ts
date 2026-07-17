@@ -1,6 +1,4 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
@@ -23,51 +21,8 @@ const HASH_VECTORS = [
   (character: string): string => `A${character}\u03a3`,
 ] as const;
 
-const PYTHON_EXHAUSTIVE_ORACLE = String.raw`
-import hashlib
-import json
-import struct
-import sys
-import unicodedata
-
-supported = {
-    (3, 12): "15.0.0",
-    (3, 13): "15.1.0",
-}
-runtime = tuple(sys.version_info[:2])
-expected_ucd = supported.get(runtime)
-if expected_ucd is None or unicodedata.unidata_version != expected_ucd:
-    sys.stderr.write(
-        "unsupported Python lowercase oracle: Python %d.%d / UCD %s\n"
-        % (runtime[0], runtime[1], unicodedata.unidata_version)
-    )
-    sys.exit(3)
-
-digest = hashlib.sha256()
-digest.update(b"infrawright-python-lower-15.1-exhaustive-v1\0")
-for code_point in range(0x110000):
-    if 0xD800 <= code_point <= 0xDFFF:
-        continue
-    character = chr(code_point)
-    vectors = (
-        character,
-        "A\u03A3" + character,
-        "A\u03A3" + character + "A",
-        character + "\u03A3",
-        "A" + character + "\u03A3",
-    )
-    digest.update(("%06x" % code_point).encode("ascii"))
-    for vector in vectors:
-        payload = vector.lower().encode("utf-8")
-        digest.update(struct.pack(">I", len(payload)))
-        digest.update(payload)
-
-json.dump({
-    "digest": digest.hexdigest(),
-    "python": "%d.%d" % runtime,
-    "ucd": unicodedata.unidata_version,
-}, sys.stdout, sort_keys=True, separators=(",", ":"))
-`;
+const PYTHON_3_13_UCD_15_1_EXHAUSTIVE_DIGEST =
+  "93acb44d32a0d2dffc6d8151c78420d4f35aea2764a74cfa939b315eb68f5db1";
 
 function expanded(ranges: readonly number[]): number[] {
   const output: number[] = [];
@@ -251,25 +206,9 @@ test("lowercase helper rejects Node Unicode runtime drift", () => {
   assert.equal(pythonLower151("A"), "a");
 });
 
-test("all Unicode scalars match the supported live Python oracle", {
+test("all Unicode scalars match the frozen CPython 3.13 UCD 15.1 contract", {
   timeout: 120_000,
 }, () => {
-  const python = spawnSync(PYTHON_ORACLE, ["-c", PYTHON_EXHAUSTIVE_ORACLE], {
-    cwd: process.cwd(),
-    encoding: "utf8",
-    maxBuffer: 1024 * 1024,
-    timeout: 120_000,
-  });
-  assert.equal(python.status, 0, python.stderr);
-  assert.equal(python.stderr, "");
-  const oracle = JSON.parse(python.stdout) as {
-    readonly digest: string;
-    readonly python: string;
-    readonly ucd: string;
-  };
-  assert.ok(oracle.python === "3.12" || oracle.python === "3.13");
-  assert.ok(oracle.ucd === "15.0.0" || oracle.ucd === "15.1.0");
   const actual = nodeExhaustiveDigest();
-  assert.equal(actual, oracle.digest);
-  assert.equal(actual, "93acb44d32a0d2dffc6d8151c78420d4f35aea2764a74cfa939b315eb68f5db1");
+  assert.equal(actual, PYTHON_3_13_UCD_15_1_EXHAUSTIVE_DIGEST);
 });

@@ -45,3 +45,33 @@ The path contract is deliberately semantic because the absolute temporary
 directory spelling differs by platform. Every other contract is exact bytes or
 a complete value sequence. No provider, Terraform, pack, projection, or
 artifact behavior changed while freezing these authorities.
+
+## Low-level contracts
+
+The second archive slice was produced from baseline
+`7e1e65487a248c4484c9df75d3b0202e0a6c106a`, using the same CPython 3.13.13
+and UCD 15.1.0 authority. Re-adjudicate all three contracts against the live
+oracle at that exact baseline:
+
+```sh
+git worktree add /tmp/iw-python-oracle-low-level \
+  7e1e65487a248c4484c9df75d3b0202e0a6c106a
+cd /tmp/iw-python-oracle-low-level
+PYTHON=python3 npm run build:test
+PYTHON=python3 node --test \
+  .node-test/node-tests/python-lower-151.test.js \
+  .node-test/node-tests/python-lossless-artifact.test.js \
+  .node-test/node-tests/import-staging.test.js
+```
+
+| Node test | Retired authority | Frozen contract |
+|---|---|---|
+| `python-lower-151.test.ts` | Python `str.lower()` under UCD 15.1 | Exhaustive SHA-256 `93acb44d32a0d2dffc6d8151c78420d4f35aea2764a74cfa939b315eb68f5db1` across every Unicode scalar and all five context vectors. The test retains the original NUL-prefixed contract label, six-digit code-point framing, and four-byte big-endian payload lengths. |
+| `python-lossless-artifact.test.ts` | `json.dumps` under CPython 3.13 | Exact inline integer and finite-float bytes; exact boundary-output byte count and digest; and the 2,048-draw deterministic binary64 corpus recorded in `node-tests/fixtures/python-lossless-binary64-v1.json`. The 2,047 finite outputs are checked as 48,113 exact compact UTF-8 bytes with SHA-256 `b9aa893f014c62d6922b519b7e870a9c45379b1baeb5925bd8c95ab1fcabf620`; raw JSON parsing and value equality remain an additional validity guard, not a replacement for the byte authority. |
+| `import-staging.test.ts` | `engine.filter_imports.filter_imports` and `engine.ops.cmd_stage_imports` | Complete expected text/count objects for the eight filter cases, plus exact state-aware staged bytes for canonical, CR, CRLF, and UTF-8 BOM inputs. CR and CRLF normalize to LF; BOM remains and prevents recognition of the first import block. Source bytes remain unchanged. |
+
+The deterministic binary64 corpus uses the unchanged 64-bit LCG seed and
+constants in the test. Non-finite draws are excluded exactly as they were in
+the live comparison. The import-staging contract retains injected Terraform
+state output and never contacts a backend. The shared `python-oracle.ts`
+resolver remains until every retained live-oracle consumer has been converted.

@@ -239,8 +239,11 @@ test("repository discovery naturally selects the operational smoke and Oracle te
   for (const name of [
     "drift-policy.test.js",
     "exact-plan-apply.test.js",
+    "import-staging.test.js",
     "json.test.js",
     "paths.test.js",
+    "python-lossless-artifact.test.js",
+    "python-lower-151.test.js",
     "rest-collector-python-parity.test.js",
     "zscaler-assessment.test.js",
   ]) {
@@ -256,8 +259,8 @@ test("repository discovery naturally selects the operational smoke and Oracle te
   }
   assert.ok(report.selected_count > 0);
   assert.ok(report.excluded_count > 0);
-  assert.equal(report.selected_count, 48);
-  assert.equal(report.excluded_python_oracle_count, 20);
+  assert.equal(report.selected_count, 51);
+  assert.equal(report.excluded_python_oracle_count, 17);
   assert.equal(report.selected_count + report.excluded_count, report.total_count);
 
   const reducedResult = run("check", directory, [
@@ -277,12 +280,15 @@ test("repository discovery naturally selects the operational smoke and Oracle te
     "drift-policy.test.js",
     "json.test.js",
     "paths.test.js",
+    "python-lossless-artifact.test.js",
+    "python-lower-151.test.js",
     "rest-collector-python-parity.test.js",
   ]) {
     assert.ok(reduced.selected.includes(name), name);
   }
   for (const name of [
     "exact-plan-apply.test.js",
+    "import-staging.test.js",
     "zscaler-assessment.test.js",
   ]) {
     assert.ok(reduced.excluded.some((entry) => {

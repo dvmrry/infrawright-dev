@@ -1,4 +1,3 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
@@ -94,30 +93,28 @@ function imports(resourceType: string, keys: readonly string[]): string {
   );
 }
 
-function pythonFilter(text: string, addresses: readonly string[]): {
-  readonly text: string;
-  readonly kept: number;
-  readonly skipped: number;
-} {
-  const result = spawnSync(PYTHON_ORACLE, [
-    "-c",
-    [
-      "import json, sys",
-      "from engine.filter_imports import filter_imports",
-      "payload = json.load(sys.stdin)",
-      "text, kept, skipped = filter_imports(payload['text'], payload['addresses'])",
-      "json.dump({'text': text, 'kept': kept, 'skipped': skipped}, sys.stdout)",
-    ].join("\n"),
-  ], {
-    cwd: ROOT,
-    encoding: "utf8",
-    input: JSON.stringify({ addresses, text }),
-  });
-  assert.equal(result.status, 0, result.stderr);
-  return JSON.parse(result.stdout) as { text: string; kept: number; skipped: number };
-}
+const FROZEN_FILTERED_ZIA_IMPORTS = [
+  "",
+  "import {",
+  '  to = module.zia_url_categories.zia_url_categories.this["new"]',
+  '  id = "id-1"',
+  "}",
+  "",
+].join("\n");
+const FROZEN_BOM_ZIA_IMPORTS = [
+  '\ufeffimport {',
+  '  to = module.zia_url_categories.zia_url_categories.this["managed"]',
+  '  id = "id-0"',
+  "}",
+  "",
+  "import {",
+  '  to = module.zia_url_categories.zia_url_categories.this["new"]',
+  '  id = "id-1"',
+  "}",
+  "",
+].join("\n");
 
-test("generated import filtering matches Python across strings and surrounding HCL", () => {
+test("generated import filtering matches frozen Python text contracts", () => {
   const managed = imports("zia_fake", ["managed"]);
   const kept = imports("zia_fake", ["keep"]);
   const dangerous = renderGeneratedImports("zia_fake", [{
@@ -128,20 +125,81 @@ test("generated import filtering matches Python across strings and surrounding H
     {
       text: imports("zia_fake", ["already_managed", "needs_import"]),
       addresses: [importAddress("zia_fake", "already_managed")],
+      expected: {
+        text: [
+          "",
+          "import {",
+          '  to = module.zia_fake.zia_fake.this["needs_import"]',
+          '  id = "id-1"',
+          "}",
+          "",
+        ].join("\n"),
+        kept: 1,
+        skipped: 1,
+      },
     },
-    { text: dangerous, addresses: [importAddress("zia_fake", "line\nkey\ttail\\\" }")] },
-    { text: dangerous, addresses: [] },
+    {
+      text: dangerous,
+      addresses: [importAddress("zia_fake", "line\nkey\ttail\\\" }")],
+      expected: { text: "", kept: 0, skipped: 1 },
+    },
+    {
+      text: dangerous,
+      addresses: [],
+      expected: { text: dangerous, kept: 1, skipped: 0 },
+    },
     {
       text: `resource "x" "y" {\n  value = "not an import } block"\n}\n${managed}locals {\n  keep = true\n}\n${kept}# tail\n`,
       addresses: [importAddress("zia_fake", "managed")],
+      expected: {
+        text: [
+          'resource "x" "y" {',
+          '  value = "not an import } block"',
+          "}",
+          "locals {",
+          "  keep = true",
+          "}",
+          "import {",
+          '  to = module.zia_fake.zia_fake.this["keep"]',
+          '  id = "id-0"',
+          "}",
+          "# tail",
+          "",
+        ].join("\n"),
+        kept: 1,
+        skipped: 1,
+      },
     },
-    { text: "resource \"x\" \"y\" {\n  value = \"abc}def\"\n}\n", addresses: ["resource.x.y"] },
-    { text: `\u00a0${managed}\u3000`, addresses: [importAddress("zia_fake", "managed")] },
-    { text: `# not a Python line\r${managed}`, addresses: [importAddress("zia_fake", "managed")] },
-    { text: `# not a Python line\u2028${managed}`, addresses: [importAddress("zia_fake", "managed")] },
+    {
+      text: "resource \"x\" \"y\" {\n  value = \"abc}def\"\n}\n",
+      addresses: ["resource.x.y"],
+      expected: {
+        text: "resource \"x\" \"y\" {\n  value = \"abc}def\"\n}\n",
+        kept: 0,
+        skipped: 0,
+      },
+    },
+    {
+      text: `\u00a0${managed}\u3000`,
+      addresses: [importAddress("zia_fake", "managed")],
+      expected: { text: `\u00a0${managed}\u3000`, kept: 0, skipped: 0 },
+    },
+    {
+      text: `# not a Python line\r${managed}`,
+      addresses: [importAddress("zia_fake", "managed")],
+      expected: { text: `# not a Python line\r${managed}`, kept: 0, skipped: 0 },
+    },
+    {
+      text: `# not a Python line\u2028${managed}`,
+      addresses: [importAddress("zia_fake", "managed")],
+      expected: { text: `# not a Python line\u2028${managed}`, kept: 0, skipped: 0 },
+    },
   ] as const;
   for (const item of cases) {
-    assert.deepEqual(filterGeneratedImports(item.text, item.addresses), pythonFilter(item.text, item.addresses));
+    assert.deepEqual(
+      filterGeneratedImports(item.text, item.addresses),
+      item.expected,
+    );
   }
 });
 
@@ -395,7 +453,7 @@ test("unstaging removes selected member copies only and preserves source artifac
   }), { removed: 0 });
 });
 
-async function prepareDifferentialWorkspace(
+async function prepareStagingWorkspace(
   workspace: string,
   importsText = imports(ZIA_RESOURCE, ["managed", "new"]),
 ): Promise<void> {
@@ -410,42 +468,10 @@ async function prepareDifferentialWorkspace(
   await mkdir(path.join(workspace, "envs", "tenant", ZIA_RESOURCE), { recursive: true });
 }
 
-function runPythonStateAwareStage(workspace: string, address: string): void {
-  const python = spawnSync(PYTHON_ORACLE, [
-    "-c",
-    [
-      "import sys",
-      "from engine import ops",
-      "class Result:",
-      "    returncode = 0",
-      `    stdout = ${JSON.stringify(`${address}\n`)}.encode('utf-8')`,
-      "ops._check_call = lambda *args, **kwargs: 0",
-      "ops.subprocess.run = lambda *args, **kwargs: Result()",
-      `raise SystemExit(ops.cmd_stage_imports({'tenant': 'tenant', 'selectors': ['${ZIA_RESOURCE}'], 'state_aware': True, 'backend_config': None}))`,
-    ].join("\n"),
-  ], {
-    cwd: workspace,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      INFRAWRIGHT_DEPLOYMENT: path.join(workspace, "deployment.json"),
-      INFRAWRIGHT_PACKS: path.join(ROOT, "packs"),
-      INFRAWRIGHT_PACK_PROFILE: path.join(ROOT, "packsets", "full.json"),
-      PYTHONPATH: ROOT,
-    },
-  });
-  assert.equal(python.status, 0, python.stderr);
-}
-
-test("state-aware staging tree matches Python with injected state output", async (context) => {
-  const pythonWorkspace = await temporaryDirectory(context, "infrawright-stage-python-");
+test("state-aware staging writes frozen Python bytes with injected state output", async (context) => {
   const nodeWorkspace = await temporaryDirectory(context, "infrawright-stage-node-");
-  await Promise.all([
-    prepareDifferentialWorkspace(pythonWorkspace),
-    prepareDifferentialWorkspace(nodeWorkspace),
-  ]);
+  await prepareStagingWorkspace(nodeWorkspace);
   const address = importAddress(ZIA_RESOURCE, "managed");
-  runPythonStateAwareStage(pythonWorkspace, address);
   await stageImports({
     deployment: { overlay: ".", roots: {} },
     root: await committedRoot(),
@@ -461,28 +487,35 @@ test("state-aware staging tree matches Python with injected state output", async
   const relative = path.join("envs", "tenant", ZIA_RESOURCE, `${ZIA_RESOURCE}_imports.tf`);
   assert.equal(
     await readFile(path.join(nodeWorkspace, relative), "utf8"),
-    await readFile(path.join(pythonWorkspace, relative), "utf8"),
+    FROZEN_FILTERED_ZIA_IMPORTS,
   );
 });
 
-test("state-aware file decoding matches Python for CR, CRLF, and UTF-8 BOM", async (context) => {
+test("state-aware decoding matches frozen Python CR, CRLF, and BOM contracts", async (context) => {
   const canonical = imports(ZIA_RESOURCE, ["managed", "new"]);
   const cases = [
-    { label: "cr", text: canonical.replaceAll("\n", "\r") },
-    { label: "crlf", text: canonical.replace("\n", "\r\n") },
-    { label: "bom", text: `\ufeff${canonical}` },
+    {
+      expected: FROZEN_FILTERED_ZIA_IMPORTS,
+      label: "cr",
+      text: canonical.replaceAll("\n", "\r"),
+    },
+    {
+      expected: FROZEN_FILTERED_ZIA_IMPORTS,
+      label: "crlf",
+      text: canonical.replace("\n", "\r\n"),
+    },
+    {
+      expected: FROZEN_BOM_ZIA_IMPORTS,
+      label: "bom",
+      text: `\ufeff${canonical}`,
+    },
   ] as const;
   const address = importAddress(ZIA_RESOURCE, "managed");
   for (const item of cases) {
-    const pythonWorkspace = await temporaryDirectory(context, `infrawright-stage-${item.label}-python-`);
     const nodeWorkspace = await temporaryDirectory(context, `infrawright-stage-${item.label}-node-`);
-    await Promise.all([
-      prepareDifferentialWorkspace(pythonWorkspace, item.text),
-      prepareDifferentialWorkspace(nodeWorkspace, item.text),
-    ]);
+    await prepareStagingWorkspace(nodeWorkspace, item.text);
     const sourceRelative = path.join("imports", "tenant", `${ZIA_RESOURCE}_imports.tf`);
     const sourceBefore = await readFile(path.join(nodeWorkspace, sourceRelative));
-    runPythonStateAwareStage(pythonWorkspace, address);
     await stageImports({
       deployment: { overlay: ".", roots: {} },
       root: await committedRoot(),
@@ -498,7 +531,7 @@ test("state-aware file decoding matches Python for CR, CRLF, and UTF-8 BOM", asy
     const stagedRelative = path.join("envs", "tenant", ZIA_RESOURCE, `${ZIA_RESOURCE}_imports.tf`);
     assert.equal(
       await readFile(path.join(nodeWorkspace, stagedRelative), "utf8"),
-      await readFile(path.join(pythonWorkspace, stagedRelative), "utf8"),
+      item.expected,
       item.label,
     );
     assert.deepEqual(await readFile(path.join(nodeWorkspace, sourceRelative)), sourceBefore);
