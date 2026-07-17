@@ -17,7 +17,7 @@ difference without automatically copying policy between the two paths.
 ## Run The Committed Fixtures
 
 ```sh
-python -m engine.transform_adopt_parity tests/fixtures/parity/*.json \
+iw transform-adopt-parity tests/fixtures/parity/*.json \
   > transform-adopt-parity.json
 ```
 
@@ -56,8 +56,9 @@ requires provider and dependency sources to use exact GitHub blob refs,
 requires every local source to exist inside the repository, and requires every
 classification evidence reference to be declared by fixture provenance.
 
-The diagnostic calls `transform.transform_items` for the raw side and
-`adopt.adopt_items` with an injected fixture state loader for the oracle side.
+The Node diagnostic calls the production transform path for the raw side and
+the production Adopt path with an injected fixture state loader for the oracle
+side.
 The injected loader replaces only the network/provider import step; identity,
 skip behavior, pack drift policy, state projection, and raw-item projection
 fills remain the production code paths.
@@ -109,7 +110,7 @@ This slice compares canonical JSON tfvars payloads only. It does not compare
 HCL formatting, imports, moved blocks, lookup sidecars, generated expression
 bindings, plan results, apply/refresh behavior, or later-plan stability. Those
 are separate extensions and must not be inferred from an equal result here.
-Scalar comparison uses canonical JSON encoding rather than Python numeric
+Scalar comparison uses canonical JSON encoding rather than JavaScript numeric
 equality, so representations such as `-0.0` and `0.0` cannot report equal. A
 second completeness check reconstructs the adopt payload from the transform
 payload plus every reported difference and requires exact rendered-byte

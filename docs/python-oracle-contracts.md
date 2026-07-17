@@ -215,3 +215,37 @@ pretty JSON output bytes for clean, tolerated, and blocked reports; and the
 exact `1.0` float-provenance report bytes. Current tests compare complete
 objects and bytes. The fixture digest, producing baseline, and source blobs
 prevent a Node-to-Node self-comparison.
+
+## Transform/Adopt parity contract
+
+The seventh archive slice was produced at baseline
+`9904cbaadd4c79b1b4b385abfe6edca05c57cfc8`, using CPython 3.13.13 with
+UCD 15.1.0. Re-run both original live authorities from that exact state with:
+
+```sh
+git worktree add /tmp/iw-python-transform-adopt-parity \
+  9904cbaadd4c79b1b4b385abfe6edca05c57cfc8
+cd /tmp/iw-python-transform-adopt-parity
+PYTHON=python3 python -m unittest tests.test_transform_adopt_parity
+PYTHON=python3 python -m engine.transform_adopt_parity \
+  tests/fixtures/parity/*.json > /tmp/transform-adopt-parity.json
+PYTHON=python3 npm run build:test
+PYTHON=python3 node --test .node-test/node-tests/adopt-runner.test.js
+```
+
+The complete authority is recorded in
+`node-tests/fixtures/python-transform-adopt-parity-v1.json`. The 13,486-byte
+fixture has SHA-256
+`87f4ef2c299c413fd87193a6f2e312fcbbcbef0f501af3ebeab32f54942127a8`.
+For all four source-pinned Zscaler cases it preserves exact Transform tfvars,
+Adopt tfvars, Adopt import bytes, and transform-drop diagnostics. It also
+preserves the complete deterministic Python diagnostic report bytes, including
+every classification, evidence gate, stale-expectation field, summary count,
+and output digest.
+
+The fixture records blobs for the retired Python diagnostic, Transform, Adopt,
+and test authorities; the compared Node Transform, Adopt, artifact, and test
+implementations; and every input parity fixture. Current tests compare every
+recorded artifact and complete report bytes. The fixture digest and source
+blobs are provenance locks, not substitutes for those exact comparisons. No
+provider, Terraform, backend, credentials, or network access is involved.

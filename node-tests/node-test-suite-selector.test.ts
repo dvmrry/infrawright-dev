@@ -239,6 +239,7 @@ test("repository discovery naturally selects the operational smoke and Oracle te
   assert.ok(report.selected.includes("node-test-suite-selector.test.js"));
   assert.ok(report.selected.includes("provider-probe.test.js"));
   for (const name of [
+    "adopt-runner.test.js",
     "drift-policy.test.js",
     "exact-plan-apply.test.js",
     "import-staging.test.js",
@@ -251,6 +252,7 @@ test("repository discovery naturally selects the operational smoke and Oracle te
     "python-lossless-artifact.test.js",
     "python-lower-151.test.js",
     "rest-collector-python-parity.test.js",
+    "transform-adopt-parity.test.js",
     "zpa-provider-evidence.test.js",
     "zscaler-assessment.test.js",
   ]) {
@@ -319,8 +321,10 @@ test("repository discovery naturally selects the operational smoke and Oracle te
     assert.ok(reduced.selected.includes(name), name);
   }
   for (const name of [
+    "adopt-runner.test.js",
     "exact-plan-apply.test.js",
     "import-staging.test.js",
+    "transform-adopt-parity.test.js",
     "zpa-provider-evidence.test.js",
     "zscaler-assessment.test.js",
   ]) {

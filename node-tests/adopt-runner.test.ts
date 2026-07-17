@@ -1,4 +1,3 @@
-import { PYTHON_ORACLE } from "./python-oracle.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { access, chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -269,25 +268,33 @@ function record(value: unknown, label: string): Readonly<Record<string, unknown>
   return value;
 }
 
-function pythonExpected(fixture: string): { readonly imports: string; readonly tfvars: string } {
-  const source = [
-    "import json, sys",
-    "from engine import adopt, transform",
-    "from engine.adoption_meta import adoption_entry",
-    "from engine.drift_policy import DriftPolicy",
-    "from engine.transform_adopt_parity import load_fixture, _fixture_state_loader",
-    "data = load_fixture(sys.argv[1])",
-    "policy = DriftPolicy.load_for_adoption(None)",
-    "items, originals = adopt.adopt_items(data['raw_items'], data['resource_type'], policy=policy, state_loader=_fixture_state_loader(data['provider_state']))",
-    "override = {'import_id': adoption_entry(data['resource_type'])['import_id']}",
-    "print(json.dumps({'tfvars': transform.render_tfvars(items), 'imports': transform.render_imports(data['resource_type'], originals, override)}))",
-  ].join("; ");
-  const result = spawnSync(PYTHON_ORACLE, ["-c", source, fixture], {
-    cwd: ROOT,
-    encoding: "utf8",
+interface FrozenParityResult {
+  readonly adopt_imports: string;
+  readonly adopt_tfvars: string;
+  readonly name: string;
+  readonly resource_type: string;
+}
+
+let frozenParityAuthority: Promise<readonly FrozenParityResult[]> | undefined;
+
+async function frozenExpected(
+  filename: string,
+): Promise<{ readonly imports: string; readonly tfvars: string }> {
+  frozenParityAuthority ??= readFile(
+    path.join(ROOT, "node-tests", "fixtures", "python-transform-adopt-parity-v1.json"),
+    "utf8",
+  ).then((source) => {
+    const parsed = record(JSON.parse(source), "frozen transform/adopt parity authority");
+    assert.ok(Array.isArray(parsed.results));
+    return parsed.results as unknown as readonly FrozenParityResult[];
   });
-  assert.equal(result.status, 0, result.stderr);
-  return JSON.parse(result.stdout) as { readonly imports: string; readonly tfvars: string };
+  const name = path.basename(filename, ".json");
+  const matches = (await frozenParityAuthority).filter((entry) => entry.name === name);
+  assert.equal(matches.length, 1, `expected one frozen parity result for ${name}`);
+  return {
+    imports: matches[0]!.adopt_imports,
+    tfvars: matches[0]!.adopt_tfvars,
+  };
 }
 
 function providerName(source: string): string {
@@ -1021,7 +1028,7 @@ test("logical-root mode falls back to per-resource Oracles for ungrouped roots",
   assert.deepEqual([...result.processed].sort(), [...ZIA_BATCH_MEMBERS].sort());
 });
 
-test("all four retained transform/adopt fixtures write byte-identical Python artifacts", async (context) => {
+test("all four retained transform/adopt fixtures match frozen CPython artifacts", async (context) => {
   const root = await committedRoot();
   for (const filename of PARITY_FIXTURES) {
     const fixturePath = path.join(PARITY, filename);
@@ -1042,7 +1049,7 @@ test("all four retained transform/adopt fixtures write byte-identical Python art
         }];
       }));
     };
-    const expected = pythonExpected(fixturePath);
+    const expected = await frozenExpected(filename);
     const artifacts: Array<{ readonly imports: string; readonly tfvars: string }> = [];
     for (const [stateSource, stateLoader] of [
       ["applied-state", appliedStateLoader],
