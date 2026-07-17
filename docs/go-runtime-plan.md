@@ -148,13 +148,34 @@ Stdlib-first. Initial allowlist, all vendored (`go mod vendor`):
 | `golang.org/x/sync` (errgroup) | ad-hoc concurrency | — |
 | `santhosh-tekuri/jsonschema/v6` | ajv | must support 2020-12 + custom keyword functions; error-detail *content* parity verified by fixtures |
 | `net/http`, `crypto/x509`, `net/http/cookiejar` | undici, tough-cookie | proxy env semantics and `REQUESTS_CA_BUNDLE`/`SSL_CERT_FILE` loading must match the transport contract; cross-origin redirect header stripping and 307/308 body-replay refusal are ported behavior |
-| (authoring phase only) `kin-openapi` or hand-port | swagger-parser | admitted only if authoring report bytes stay identical; hand-port on mismatch |
+| ~~(authoring phase only) `kin-openapi` or hand-port~~ | ~~swagger-parser~~ | Dropped 2026-07: the authoring slice goes AST-first (go/ast + go/packages, stdlib); the OpenAPI command ports are skipped rather than ported (slice 8) |
 
 Explicitly deferred past parity: `hashicorp/terraform-exec`,
 `terraform-json`, `hclwrite`, `zscaler-sdk-go`. Each changes bytes or
 behavior surface and belongs to a post-cutover ergonomics phase with its own
 differential evidence. HCL rendering is hand-ported (it is already a
 byte-exact hand renderer in Node; `hclwrite` output differs).
+
+## Interpolation-escaping contract (2026-07 adjudication)
+
+From the `zia_dlp_notification_templates` ADOPT-FAIL analysis. The renderer
+matrix is fixed and pinned by `go/internal/tfrender/
+interpolation_escaping_test.go` plus the `interpolation-literals`
+differential case:
+
+- **JSON tfvars** (`.auto.tfvars.json`): string values byte-verbatim,
+  never `${`/`%{`-munged — JSON tfvars are literal, Terraform does not
+  HCL-lex them. Provider-canonical `$${X}` stays two dollars; raw `${X}`
+  stays one dollar.
+- **HCL surfaces** (`tfvars_format=hcl`, import/moved `.tf` blocks):
+  `RenderHclQuotedString` escapes exactly once, mechanically, from the
+  value handed in (`${`→`$${`, `%{`→`%%{`); upstream stages must hand it
+  RAW/provider-canonical values and never pre-escape.
+- Provenance: the unconditional-escape defect class lives in the retiring
+  Python engine (`engine/transform.py:886` applying HCL quoting inside the
+  transform path); Node main and this Go tree are both conformant. The
+  live no-op-plan proof for the DLP template class runs during keyed
+  qualification.
 
 Go toolchain pinned via `go.mod` `toolchain` directive; version bumps are
 build-critical changes, mirroring the Node 24 pin discipline.
@@ -198,7 +219,7 @@ established build→adversarial-review→merge loop.
 | 5 | `collectors` + `zscaler` adapters | recorded-transport fixture parity: pagination queries, retry schedule, masking, preamble, failure hints, pulls-tree bytes |
 | 6 | `terraformcmd` + `adopt`/oracle + generated-config policy + staging | oracle scratch-flow parity on fixture plans; import/move artifact bytes; freshness/TOCTOU failure classes |
 | 7 | `plan` lifecycle/assessment/apply | fingerprints, saved-plan classification, reports, apply gating parity on retained plan/state fixtures |
-| 8 | authoring commands (reconcile, openapi-map, source-operation-map, source-evidence-eval, provider-probe) + absorb `tools/source-evidence-ast` natively | authoring report corpus byte-identical; AST tool merges into `iw` |
+| 8 | authoring commands, AST-first (2026-07 downstream decision): absorb `tools/source-evidence-ast` natively and grow go/ast + go/packages evidence for Go-SDK↔Terraform surface review; `source-evidence-eval` and `provider-probe` port on that basis. The OpenAPI-centric ports (`reconcile`, `openapi-map`, `source-operation-map`'s OpenAPI matching) are SKIPPED, not ported — they stay Node-only until archived or explicitly revived | AST evidence corpus gates replace the OpenAPI report corpus; any retained OpenAPI command keeps its Node oracle until a revival decision |
 | 9 | CLI shell completion: full argument/usage/exit-code surface, `fetch-diag`, remaining commands | full-command differential sweep green |
 | 10 | Release engineering: goreleaser, checksums+signing, version embedding, CI lanes, `INFRAWRIGHT_CLI` cutover flag day | `make check` green with Go CLI; runtime-release smoke rewritten for the binary |
 | 11 | Node archive by the standard method: freeze Node-oracle evidence, delete Node source/build/CI/release surface, tripwire proof | archive-plan step-4 checklist, node-substituted |

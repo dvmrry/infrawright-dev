@@ -181,6 +181,25 @@ func TestTransformDifferentialAgainstNodeOracle(t *testing.T) {
 				})
 			},
 		},
+		{
+			// The zia_dlp_notification_templates escaping class (2026-07
+			// defect report): interpolation-shaped string values must land
+			// in JSON tfvars byte-verbatim on both runtimes — provider-
+			// canonical two-dollar form and raw one-dollar form alike,
+			// with zero ${/%{ munging. The spec-level literal assertion
+			// lives below after the tree comparison.
+			name:      "interpolation-literals",
+			selectors: []string{"zia_rule_labels"},
+			input: func(t *testing.T) string {
+				return copyDemoInputs(t, demoInput, map[string]func([]byte) []byte{
+					"zia_rule_labels.json": func(content []byte) []byte {
+						return bytes.Replace(content,
+							[]byte(`"Test Description for VCR"`),
+							[]byte(`"$${TRANSACTION_ID} raw ${RAW} directive %{d}"`), 1)
+					},
+				})
+			},
+		},
 		{name: "missing-input-dir", input: func(t *testing.T) string { return t.TempDir() }},
 		{
 			name: "invalid-input-json",
@@ -257,6 +276,24 @@ func TestTransformDifferentialAgainstNodeOracle(t *testing.T) {
 			for relative := range goTree {
 				if _, ok := nodeTree[relative]; !ok {
 					t.Errorf("go output has extra file %s", relative)
+				}
+			}
+
+			if testCase.name == "interpolation-literals" {
+				// Spec pin against literal bytes (parity alone could hide a
+				// shared bug): the JSON tfvars must carry the injected value
+				// verbatim — two-dollar stays two-dollar, one-dollar stays
+				// one-dollar, %{ untouched.
+				tfvars, ok := goTree["config/demo/zia_rule_labels.auto.tfvars.json"]
+				if !ok {
+					t.Fatalf("expected zia_rule_labels tfvars in go output; files: %v", len(goTree))
+				}
+				want := `$${TRANSACTION_ID} raw ${RAW} directive %{d}`
+				if !bytes.Contains(tfvars, []byte(want)) {
+					t.Errorf("JSON tfvars does not carry the interpolation value verbatim; want %q in:\n%s", want, tfvars)
+				}
+				if bytes.Contains(tfvars, []byte(`$$$`)) || bytes.Contains(tfvars, []byte(`%%{`)) {
+					t.Errorf("JSON tfvars shows HCL munging on the literal path:\n%s", tfvars)
 				}
 			}
 		})
