@@ -33,6 +33,7 @@ import {
   runProviderProbe,
 } from "./provider-probe.js";
 import { runVendorBoundaryAudit } from "./vendor-boundary.js";
+import { auditZpaProviderEvidence } from "./zpa-provider-evidence.js";
 
 export class AuthoringCliUsageError extends Error {
   constructor(message: string) {
@@ -48,6 +49,7 @@ export const AUTHORING_COMMANDS = new Set([
   "reconcile",
   "source-evidence-eval",
   "source-operation-map",
+  "zpa-provider-evidence",
 ]);
 
 interface AuthoringCliContext {
@@ -451,6 +453,40 @@ async function vendorBoundaryCommand(
   return result.exitCode;
 }
 
+async function zpaProviderEvidenceCommand(
+  arguments_: readonly string[],
+  context: AuthoringCliContext,
+): Promise<number> {
+  const parsed = parseArguments(arguments_, new Set(["--matrix", "--provider-root"]));
+  if (parsed.positional.length !== 0) {
+    throw new AuthoringCliUsageError(
+      "zpa-provider-evidence does not accept positional arguments",
+    );
+  }
+  try {
+    const providerRoot = option(parsed, "--provider-root");
+    const packsRoot = context.environment.INFRAWRIGHT_PACKS?.trim();
+    const report = await auditZpaProviderEvidence({
+      repositoryRoot: context.repositoryRoot,
+      ...(option(parsed, "--matrix") === undefined
+        ? {}
+        : { matrix: option(parsed, "--matrix") as string }),
+      ...(providerRoot === undefined ? {} : { providerRoot }),
+      ...(packsRoot === undefined || packsRoot === "" ? {} : { packsRoot }),
+    });
+    const resources = Array.isArray(report.resources) ? report.resources.length : 0;
+    context.stdout(
+      `ZPA provider evidence valid (${String(resources)} resources; source=${
+        providerRoot === undefined ? "not requested" : "verified"
+      })\n`,
+    );
+    return 0;
+  } catch (error: unknown) {
+    context.stderr(`error: ${error instanceof Error ? error.message : String(error)}\n`);
+    return 1;
+  }
+}
+
 export async function runAuthoringCommand(options: {
   readonly arguments: readonly string[];
   readonly command: string;
@@ -478,6 +514,9 @@ export async function runAuthoringCommand(options: {
   }
   if (options.command === "audit-vendor-boundary") {
     return vendorBoundaryCommand(options.arguments, context);
+  }
+  if (options.command === "zpa-provider-evidence") {
+    return zpaProviderEvidenceCommand(options.arguments, context);
   }
   throw new AuthoringCliUsageError(`unknown authoring command ${options.command}`);
 }

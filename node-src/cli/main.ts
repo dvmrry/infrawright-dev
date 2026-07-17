@@ -139,6 +139,7 @@ const USAGE = [
   "  iw source-evidence-eval --schema <file> --openapi <file> --source-root <dir> --out-dir <dir> [--provider-source <source>] [--resource-prefix <prefix>] [--resources <a,b>] [--source-facts <file>] [--ast-tool-dir <dir>] [--fail-on-regression]",
   "  iw provider-probe <recipe.json> [--work-dir <dir>] [--out <summary.json>] [--markdown <summary.md>] [--debug-traceback]",
   "  iw audit-vendor-boundary [--root <repository>] [--allowlist <file>]",
+  "  iw zpa-provider-evidence [--matrix <matrix.json>] [--provider-root <terraform-provider-zpa-checkout>]",
 ].join("\n");
 
 class CliExit extends Error {

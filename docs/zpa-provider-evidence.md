@@ -27,13 +27,13 @@ The matrix is bound to:
 Run the local-pack audit without an upstream checkout:
 
 ```sh
-python3 tools/zpa_provider_evidence.py
+iw zpa-provider-evidence
 ```
 
 For the source-backed audit, point it at a clean checkout of the pinned tag:
 
 ```sh
-python3 tools/zpa_provider_evidence.py \
+iw zpa-provider-evidence \
   --provider-root /path/to/terraform-provider-zpa-v4.4.6
 ```
 

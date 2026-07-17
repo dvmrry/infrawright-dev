@@ -249,6 +249,7 @@ test("repository discovery naturally selects the operational smoke and Oracle te
     "python-lossless-artifact.test.js",
     "python-lower-151.test.js",
     "rest-collector-python-parity.test.js",
+    "zpa-provider-evidence.test.js",
     "zscaler-assessment.test.js",
   ]) {
     assert.ok(report.selected.includes(name), name);
@@ -316,10 +317,22 @@ test("repository discovery naturally selects the operational smoke and Oracle te
   for (const name of [
     "exact-plan-apply.test.js",
     "import-staging.test.js",
+    "zpa-provider-evidence.test.js",
     "zscaler-assessment.test.js",
   ]) {
     assert.ok(reduced.excluded.some((entry) => {
       return entry.name === name && entry.reason === "missing-pack-requirements";
     }), name);
   }
+
+  const zpaResult = run("check", directory, [
+    "--profile", path.join(ROOT, "packsets", "zpa.json"),
+    "--catalog", path.join(ROOT, "packsets", "full.json"),
+    "--json",
+  ]);
+  assert.equal(zpaResult.status, 0, zpaResult.stderr);
+  const zpa = JSON.parse(zpaResult.stdout) as {
+    readonly selected: readonly string[];
+  };
+  assert.ok(zpa.selected.includes("zpa-provider-evidence.test.js"));
 });

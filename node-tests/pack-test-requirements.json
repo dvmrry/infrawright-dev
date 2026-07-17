@@ -300,6 +300,16 @@
       "reason": "The artifact differential suite compiles every active override and the complete committed golden corpus."
     },
     {
+      "file": "zpa-provider-evidence.test.js",
+      "packs": [
+        "zpa"
+      ],
+      "shared": [
+        "zscaler"
+      ],
+      "reason": "The evidence validator binds the committed ZPA registry, overrides, and provider schema."
+    },
+    {
       "file": "zscaler-assessment.test.js",
       "packs": [
         "aws",
