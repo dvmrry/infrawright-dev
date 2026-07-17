@@ -57,9 +57,159 @@ inputs:
 | Digests | plan fingerprints, `sources_sha256` NUL framing, decision/evidence digests | Any framing re-derivation is a spec bug, not an improvement opportunity |
 | Filesystem behavior | pulls tree bytes, atomic write/rename patterns, freshness/TOCTOU checks, `O_NOFOLLOW`-class guards | Port semantics, not syscall sequences; differential compares resulting trees + failure classes |
 
-Allowed divergences: an explicit, reviewed list in this document. It starts
-**empty**. `--help` text is the only candidate expected to be proposed, and it
-still requires an entry here before it may diverge.
+Allowed divergences: an explicit, reviewed list in this document. `--help`
+text is a candidate but still requires an entry here before it may diverge.
+The approved boundaries are:
+
+- URL domain-to-ASCII Unicode versioning: the frozen Node 24.15 oracle reports
+  Unicode 16.0, while Go 1.26.3 with the pinned `golang.org/x/net/idna`
+  v0.57.0 selects that module's Unicode 15.0.0 tables
+  (`tables15.0.0.go`; its Unicode 17 table is Go 1.27-gated). The Go URL path
+  must match Node for code points covered by Unicode 15, subject to the bidi
+  validation boundary below, and fail closed for newer or status-changed code
+  points rather than silently route to a different host. Expanding that
+  boundary requires a pinned toolchain/dependency update, Node differential
+  evidence, and review.
+- Node 24.15/Ada 3.4.4 accepts at least one mixed-direction label that violates
+  the UTS-46 bidi rule (`aא.com`), while the pinned `x/net/idna` profile rejects
+  it. Go deliberately retains `BidiRule` and fails closed for that label rather
+  than disabling bidi validation and routing a broader class of Node-rejected
+  names. Removing this narrow boundary requires a complete Node/Ada bidi
+  acceptance corpus and a reviewed matcher; a one-label exception is not an
+  acceptable routing rule.
+- Performance reporting remains deferred to Block E. The Go fetch and HTTP
+  transport carry recorder seams, but production dispatch intentionally
+  passes a nil recorder today, so `INFRAWRIGHT_PERFORMANCE_REPORT` does not
+  yet create the Node-compatible report artifact or telemetry. Ordinary fetch
+  stdout, stderr, response bytes, and exit behavior are unaffected when that
+  environment variable is unset.
+- The standard frozen Node 24.15 **root authority** is exact: Go uses the
+  generated 145-certificate `tls.getCACertificates("bundled")` authority, not
+  the host OS pool, and then applies the transport's explicit
+  `REQUESTS_CA_BUNDLE` / `SSL_CERT_FILE` input. This does not claim an exact
+  OpenSSL trust oracle. Node accepts a negative-serial custom CA and performs
+  legacy Common Name fallback for a SAN-less endpoint certificate; Go
+  deliberately fails closed on both. Custom bundles reject negative serials
+  independently of ambient `GODEBUG`, and endpoint verification remains
+  SAN-only rather than weakening `crypto/x509`. The pinned fixtures
+  `negative-serial-ca.pem` and `sanless-cn.pem` gate this reviewed narrower
+  boundary.
+- Node-startup trust mutation is outside that standard root authority.
+  `NODE_EXTRA_CA_CERTS`, `NODE_USE_SYSTEM_CA`, and effective `NODE_OPTIONS`
+  selections of `--use-system-ca` or `--use-openssl-ca` therefore fail closed
+  with `REST_CA_RUNTIME_OPTIONS_UNSUPPORTED`; they must not silently select
+  Go's platform roots. The detector is pinned to Node 24.15's option
+  tokenization, boolean spelling, and the required-value arities needed to
+  distinguish an option from a value such as
+  `--title=--use-system-ca`; it is not a general validator for every unrelated
+  Node option. Malformed/evasive CA-bearing forms fail closed. Supporting a
+  startup trust mode requires a separately frozen root authority, digest
+  fixtures, live TLS acceptance/rejection evidence, and review.
+- Node's WHATWG/Undici path can emit `"`, backtick, `{`, or `}` in a hostname,
+  while Go's reviewed HTTP serializers cannot reproduce those Host and CONNECT
+  bytes without bypassing anti-smuggling validation. The Go URL shim rejects
+  exactly that punctuation class before direct or proxied network contact.
+  Widening it requires a serializer that retains the same injection defenses
+  plus direct, HTTP-proxy, and HTTPS-proxy wire evidence. This boundary applies
+  only to the URL authority used for routing and CONNECT. An explicit caller
+  `Host` override is a header field, not a URL hostname: Go accepts and emits
+  the same empty, whitespace, printable-ASCII, and Latin-1 field values as
+  Undici, and for HTTPS derives target SNI/certificate verification from that
+  value while leaving TCP routing, CONNECT, and proxy TLS URL-derived.
+- The Go collector request and injected-response seams use maps, which cannot
+  represent Node object's insertion-ordered handling of case-colliding header
+  names. Go deterministically rejects case-insensitive duplicate names instead
+  of selecting a value by randomized map iteration. Ordinary repeated values
+  under one response-header key remain supported.
+- Undici 7.28 applies Node's 16,384-byte `http.maxHeaderSize` boundary to
+  initial origin and CONNECT response heads, but live probes show that it
+  accepts chunk-trailer field values beyond that boundary (including 65,534
+  bytes) and a chunk-size line with a 65,534-byte extension. Go deliberately
+  reuses its bounded response-header parser for chunk trailers and separately
+  caps the raw chunk-size line: decoded trailer field-name plus field-value
+  bytes, and raw chunk-size-line bytes before CRLF, are accepted while their
+  respective running total is at most 16,383 and fail closed with
+  `REST_HTTP_TRANSPORT_FAILED` when it reaches 16,384. These are resource-bound
+  safety divergences; widening either requires a separately reviewed response-
+  body/framing memory and progress bound plus live Node evidence. The Node
+  acceptance and Go rejection sides are retained as distinct regressions so
+  neither boundary is mistaken for Undici parity.
+
+- Node 24.15's saved-plan snapshot helper applies `lstat` to the caller's
+  directory spelling, lexically normalizes that spelling through `path.join`,
+  and then creates with a path-based `open`. Consequently, trailing `link/` or
+  `link/.` can bypass final-symlink rejection, a parent replacement between
+  validation and creation can redirect the file, and `link/../directory` can
+  make the checked and creation directories differ in either direction. With
+  raw-safe 0700 but normalized-unsafe 0755, Node can create in the unsafe
+  directory while Go rejects; with raw-unsafe 0755 but normalized-safe 0700,
+  Node rejects while Go accepts the safe actual destination. Go preserves a
+  raw-spelling `lstat` failure before deliberately validating the normalized
+  creation target. After entropy generation, it binds Linux with
+  `O_PATH|O_DIRECTORY|O_NONBLOCK|O_NOFOLLOW|O_CLOEXEC` and Darwin with
+  `O_SEARCH|O_NONBLOCK|O_NOFOLLOW|O_CLOEXEC`, then uses the same descriptor for
+  exclusive `openat` creation, root-relative `fstatat`/`O_PATH` observation,
+  and repeated root/visible identity validation. Search/path-only binding
+  retains Node's support for owner-only mode 0300 directories and its
+  create-phase failure for private directories without search permission,
+  without a second pathname open. On Darwin, `openat`, architecture-correct
+  arm64 `fstatat` / amd64 `fstatat64`, and `fgetattrlist` use the public
+  libSystem ABI; Apple-private kernel trap numbers are not supported. Node
+  returns the source digest after post-copy stats without rereading the
+  destination or rechecking final mode/owner, so a completed same-inode
+  overwrite, truncate, or chmod can invalidate the returned snapshot claim.
+  Its Darwin mode/effective-UID checks also accept nonempty extended ACLs that
+  grant another identity access. Go opens the destination `O_RDWR`. When its
+  bound parent revalidates, it preserves Node's descriptor-stat then child-path
+  failure attribution before rereading/hashing the bound descriptor and
+  requiring source/destination digest and size equality, stable full metadata,
+  exact mode 0600, effective-UID ownership, absence of Darwin extended ACLs,
+  and final descriptor/root-path identity. In the narrow compound race where
+  parent revalidation fails while Node's currently visible child is missing,
+  symlinked, FIFO, a directory, or a replacement regular file, Go returns
+  `UNSAFE_SNAPSHOT_DIRECTORY` before child classification; Node, which has no
+  bound-parent revalidation, returns `FILE_CHANGED` for the first four and
+  `SNAPSHOT_PATH_CHANGED` for the regular replacement. This exception applies
+  only to compound parent-plus-child races; stable-parent destination races
+  retain Node's ordering and attribution. The nonblocking directory bind also
+  prevents recurrence of an interim Go direct-`os.OpenRoot` FIFO hang. In a
+  raced post-inspection parent-FIFO case, Node's child open receives `ENOTDIR`
+  and its public wrapper returns `SNAPSHOT_FAILED` / `unable to create plan
+  snapshot`; Go's extra descriptor-bind classification returns
+  `UNSAFE_SNAPSHOT_DIRECTORY`. Removing any part requires equivalent Node
+  hardening and frozen
+  ACL/symlink/normalization/parent-swap/destination-mutation evidence;
+  weakening Go to raw-path, ACL-blind, stat-only, or unbound-parent behavior
+  is not an acceptable parity fix.
+
+- Node 24.15 generates a snapshot name with `randomBytes(16)` outside the
+  snapshot `try` block; an entropy failure escapes as the original raw `Error`
+  with no `ProcessFailure` code after private-directory inspection but before
+  budget charge or destination creation. Go reads `crypto/rand.Reader` with
+  `io.ReadFull` so the same failure remains nonfatal under Go 1.26, but
+  deliberately normalizes it to the fixed I/O `ProcessFailure`
+  `SNAPSHOT_FAILED` / `unable to create plan snapshot`. Both sides charge zero
+  budget and leave no destination. Removing this normalization requires a
+  nonfatal Go entropy path that reproduces Node's raw error type, code, and
+  message while retaining frozen zero-budget/no-destination evidence.
+
+- Node 24.15's bounded-files helper has no platform gate; on Windows its
+  snapshot check omits the effective-UID comparison and otherwise proceeds.
+  Its seven production consumers are private plan/show workflow modules whose
+  supported CLI commands execute a platform check before dispatch. That Node
+  check explicitly rejects Windows; separately, the operational contract
+  supports Linux in production and macOS for development/testing. Go
+  independently enforces that narrower documented boundary inside
+  `internal/artifacts`: Linux/macOS amd64/arm64 use no-follow descriptor opens
+  plus ownership, ACL where applicable, and device/inode identity checks;
+  Android, iOS, 32-bit aliases, and every other target fail closed with
+  `UNSUPPORTED_BOUNDED_FILE_PLATFORM`. This is broader than Node's explicit
+  `win32` rejection and prevents future Go callers from silently weakening
+  those proofs. Blocks C/D must keep production consumers within those
+  supported, entry-gated CLI workflows. Widening support requires a separately
+  reviewed handle-based ownership/ACL/identity implementation and platform
+  differential evidence; removing the gate without those proofs is not an
+  acceptable parity fix.
 
 ### Filesystem error text decision (2026-07)
 
@@ -164,7 +314,8 @@ Stdlib-first. Initial allowlist, all vendored (`go mod vendor`):
 |---|---|---|
 | `golang.org/x/sync` (errgroup) | ad-hoc concurrency | — |
 | `santhosh-tekuri/jsonschema/v6` | ajv | must support 2020-12 + custom keyword functions; error-detail *content* parity verified by fixtures |
-| `net/http`, `crypto/x509`, `net/http/cookiejar` | undici, tough-cookie | proxy env semantics and `REQUESTS_CA_BUNDLE`/`SSL_CERT_FILE` loading must match the transport contract; cross-origin redirect header stripping and 307/308 body-replay refusal are ported behavior |
+| `net/http`, `crypto/x509`, `net/http/cookiejar` | undici, tough-cookie | generated Node 24.15 bundled roots, proxy env semantics, and `REQUESTS_CA_BUNDLE`/`SSL_CERT_FILE` loading must match the transport contract; cross-origin redirect header stripping and 307/308 body-replay refusal are ported behavior |
+| `golang.org/x/net/idna` v0.57.0 (`golang.org/x/text` v0.40.0 transitively) | Node 24 WHATWG URL domain-to-ASCII | use a non-transitional UTS-46 profile with WHATWG-aligned validation; vendor only the packages reached by `idna`, pin the Unicode-table boundary above, and differential-test NFC, mapped/ignored characters, A-label validation, joiners, bidi, and ASCII host edges against Node 24.15 |
 | ~~(authoring phase only) `kin-openapi` or hand-port~~ | ~~swagger-parser~~ | Dropped 2026-07: the authoring slice goes AST-first (stdlib `go/ast` + `go/parser` today); typed package loading is gated below, and dedicated OpenAPI matching surfaces are skipped rather than ported (slice 8). The non-OpenAPI `reconcile` core remains in scope. |
 
 In this plan, `go/packages` means the external module import

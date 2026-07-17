@@ -21,6 +21,7 @@ import (
 	"strconv"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
+	"github.com/dvmrry/infrawright-dev/go/internal/nodefserr"
 )
 
 // JsonObject is the dynamic JSON-object shape this package validates
@@ -51,9 +52,11 @@ func (e *MetadataError) Error() string { return e.message }
 // resources.ts, and driftpolicy.go can abandon the current operation from
 // arbitrarily deep call nesting without every intermediate function
 // threading an explicit error return -- the same non-local control flow the
-// Node source gets for free from `throw`. Any panic value that is not a
+// Node source gets for free from `throw`. Apart from the exact private
+// filesystem passthrough payload below, every panic value that is not a
 // *MetadataError is re-panicked by recoverMetadataError: only expected
-// validation failures are converted to errors, never genuine bugs.
+// validation and source-defined filesystem failures become returned errors,
+// never genuine bugs.
 func fail(message string) {
 	panic(&MetadataError{message: message})
 }
@@ -64,18 +67,41 @@ func failf(format string, args ...any) {
 	fail(fmt.Sprintf(format, args...))
 }
 
+// metadataFilesystemPassthrough is the package-private panic payload used to
+// carry a raw filesystem failure through this package's throw-like validation
+// helpers. It is deliberately not an error: recoverMetadataError recognizes
+// only this exact payload type, never an arbitrary panic that happens to
+// implement error.
+type metadataFilesystemPassthrough struct {
+	err error
+}
+
+// propagateFilesystemError carries an operation-aware nodefserr translation
+// to the nearest exported metadata boundary without turning the raw Node
+// SystemError surface into a MetadataError. Callers must invoke it immediately
+// after the filesystem call, after handling any source-defined ENOENT branch.
+func propagateFilesystemError(err error) {
+	panic(&metadataFilesystemPassthrough{err: err})
+}
+
 // recoverMetadataError is deferred by every exported entry point in this
 // package (as `defer recoverMetadataError(&err)`) to convert a recovered
-// *MetadataError panic (see fail) into a normal error return. Any other
-// recovered value is re-panicked, since it indicates a genuine bug rather
-// than an expected validation failure.
+// *MetadataError panic (see fail), or the exact private filesystem passthrough
+// payload above, into a normal error return. Any other recovered value is
+// re-panicked, since it indicates a genuine bug rather than an expected
+// validation or filesystem failure.
 func recoverMetadataError(err *error) {
 	if r := recover(); r != nil {
-		if me, ok := r.(*MetadataError); ok {
-			*err = me
+		switch recovered := r.(type) {
+		case *MetadataError:
+			*err = recovered
 			return
+		case *metadataFilesystemPassthrough:
+			*err = recovered.err
+			return
+		default:
+			panic(r)
 		}
-		panic(r)
 	}
 }
 
@@ -318,7 +344,8 @@ type readJSONOptions struct {
 func readJSON(path string, opts readJSONOptions) any {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		failf("failed to read %s: %s", path, err.Error())
+		detail := nodefserr.Call{Operation: nodefserr.ReadFile, Path: path}.Wrap(err)
+		failf("failed to read %s: %s", path, detail.Error())
 	}
 	value, err := canonjson.Decode(data)
 	if err != nil {

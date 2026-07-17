@@ -4,12 +4,14 @@ package collectors
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -639,18 +641,113 @@ func TestBoundedResourceWorkersOverlapWithoutChangingBytesOutcomesAuthDiagnostic
 	}
 }
 
+// writeFailureBarrierTransport proves write-failure ordering without timing
+// assumptions. With exactly two workers and registry order a,b,c,d, b blocks
+// in Request while c returns and fails its destination write. The worker that
+// recorded c's outcome can only then take d; d closes cRecorded, which is the
+// sole release for b. Thus b's write necessarily occurs after c's fatal
+// outcome has been recorded while both requests were genuinely in flight.
+type writeFailureBarrierTransport struct {
+	responses map[string]HTTPResponse
+	bStarted  chan struct{}
+	cRecorded chan struct{}
+
+	mu        sync.Mutex
+	active    int
+	events    []string
+	maxActive int
+}
+
+func newWriteFailureBarrierTransport(responses map[string]HTTPResponse) *writeFailureBarrierTransport {
+	return &writeFailureBarrierTransport{
+		responses: responses,
+		bStarted:  make(chan struct{}),
+		cRecorded: make(chan struct{}),
+	}
+}
+
+func (transport *writeFailureBarrierTransport) recordEvent(event string) {
+	transport.mu.Lock()
+	transport.events = append(transport.events, event)
+	transport.mu.Unlock()
+}
+
+func waitForWriteFailureBarrier(signal <-chan struct{}, name string) error {
+	select {
+	case <-signal:
+		return nil
+	case <-time.After(5 * time.Second):
+		return errors.New("timed out waiting for " + name + " write-failure barrier")
+	}
+}
+
+func (transport *writeFailureBarrierTransport) Request(request HTTPRequest) (HTTPResponse, error) {
+	pathname := request.URL.Path
+	transport.mu.Lock()
+	transport.active++
+	if transport.active > transport.maxActive {
+		transport.maxActive = transport.active
+	}
+	transport.events = append(transport.events, "request:"+pathname)
+	transport.mu.Unlock()
+	defer func() {
+		transport.mu.Lock()
+		transport.active--
+		transport.mu.Unlock()
+	}()
+
+	switch pathname {
+	case "/api/items-b":
+		close(transport.bStarted)
+		if err := waitForWriteFailureBarrier(transport.cRecorded, "sample_c outcome"); err != nil {
+			return HTTPResponse{}, err
+		}
+		transport.recordEvent("release:" + pathname)
+	case "/api/items-c":
+		if err := waitForWriteFailureBarrier(transport.bStarted, "sample_b request"); err != nil {
+			return HTTPResponse{}, err
+		}
+	case "/api/items-d":
+		// Reaching d is the proof point: this worker returned from execute(c),
+		// recorded c's fatal outcome, and only then asked for more work.
+		transport.recordEvent("after-c-record:" + pathname)
+		close(transport.cRecorded)
+	}
+
+	response, ok := transport.responses[pathname]
+	if !ok {
+		return HTTPResponse{}, errors.New("unexpected write-failure barrier request " + pathname)
+	}
+	return response, nil
+}
+
+func (transport *writeFailureBarrierTransport) Close() error { return nil }
+
+func (transport *writeFailureBarrierTransport) snapshot() ([]string, int) {
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	events := append([]string(nil), transport.events...)
+	return events, transport.maxActive
+}
+
+func indexOfString(values []string, wanted string) int {
+	for index, value := range values {
+		if value == wanted {
+			return index
+		}
+	}
+	return -1
+}
+
 // TestConcurrentWriteFailuresRetainSelectionOrderedPrimaryError ports
 // "concurrent write failures retain selection-ordered primary error and
-// prior diagnostics" from node-tests/rest-collector.test.ts. The load-
-// bearing invariant: sample_b's destination is a pre-existing directory
-// (write fails ~20ms after its GET resolves) and sample_c's is too (write
-// fails ~1ms after its GET resolves, i.e. strictly *before* sample_b's
-// failure in wall-clock time whenever both are in flight at once) -- yet
-// the error this package surfaces always names sample_b, never sample_c,
-// at every concurrency level. That is only true because
+// prior diagnostics" from node-tests/rest-collector.test.ts. The barrier
+// transport proves sample_b and sample_c overlap and that sample_c's fatal
+// outcome is recorded before sample_b's response is released, yet the error
+// this package surfaces names sample_b. That is only true because
 // fetchResourcesBatch never reports a "fatal" outcome as soon as one
 // occurs; it collects every outcome first, then walks `wanted` in fixed
-// registry order (a, b, c) and reports the *first* fatal outcome it finds
+// registry order (a, b, c, d) and reports the *first* fatal outcome it finds
 // there -- b comes before c in that order, regardless of which one's
 // goroutine actually finished first. See runFetchWorkers's doc comment in
 // rest.go for why this is provably true, not merely true given these
@@ -660,7 +757,7 @@ func TestConcurrentWriteFailuresRetainSelectionOrderedPrimaryError(t *testing.T)
 	packsRoot := filepath.Join(directory, "packs")
 	writePackJSON(t, packsRoot, "sample")
 	registry := map[string]any{}
-	for _, suffix := range []string{"a", "b", "c"} {
+	for _, suffix := range []string{"a", "b", "c", "d"} {
 		registry["sample_"+suffix] = map[string]any{
 			"product": "sample",
 			"fetch":   map[string]any{"pagination": "single", "path": "items-" + suffix},
@@ -673,9 +770,10 @@ func TestConcurrentWriteFailuresRetainSelectionOrderedPrimaryError(t *testing.T)
 		"/api/items-a": jsonResponse(t, []any{map[string]any{"id": "a"}}, 200),
 		"/api/items-b": jsonResponse(t, []any{map[string]any{"id": "b"}}, 200),
 		"/api/items-c": jsonResponse(t, []any{map[string]any{"id": "c"}}, 200),
+		"/api/items-d": jsonResponse(t, []any{map[string]any{"id": "d"}}, 200),
 	}
 
-	for _, concurrency := range []int{1, 2, 4} {
+	for _, concurrency := range []int{1, 2} {
 		output := filepath.Join(directory, "pulls-"+strconv.Itoa(concurrency))
 		if err := os.MkdirAll(filepath.Join(output, "sample_b.json"), 0o755); err != nil {
 			t.Fatalf("mkdir sample_b.json dir: %v", err)
@@ -683,11 +781,16 @@ func TestConcurrentWriteFailuresRetainSelectionOrderedPrimaryError(t *testing.T)
 		if err := os.MkdirAll(filepath.Join(output, "sample_c.json"), 0o755); err != nil {
 			t.Fatalf("mkdir sample_c.json dir: %v", err)
 		}
-		transport := newDelayedPathTransport(t, responses, map[string]time.Duration{
-			"/api/items-a": 0,
-			"/api/items-b": 20 * time.Millisecond,
-			"/api/items-c": 1 * time.Millisecond,
-		})
+		var transport HttpTransport
+		var serialTransport *delayedPathTransport
+		var barrierTransport *writeFailureBarrierTransport
+		if concurrency == 1 {
+			serialTransport = newDelayedPathTransport(t, responses, nil)
+			transport = serialTransport
+		} else {
+			barrierTransport = newWriteFailureBarrierTransport(responses)
+			transport = barrierTransport
+		}
 		var diagnostics []string
 		_, err := FetchResources(FetchResourcesOptions{
 			Adapters:        map[string]CollectorAdapter{"sample": testAdapter("sample", nil)},
@@ -704,11 +807,13 @@ func TestConcurrentWriteFailuresRetainSelectionOrderedPrimaryError(t *testing.T)
 		if err == nil {
 			t.Fatalf("concurrency %d: expected an error, got none", concurrency)
 		}
-		if !strings.Contains(err.Error(), "sample_b.json") {
-			t.Errorf("concurrency %d: error = %v, want it to mention sample_b.json", concurrency, err)
-		}
-		if strings.Contains(err.Error(), "sample_c.json") {
-			t.Errorf("concurrency %d: error = %v, want it to NOT mention sample_c.json", concurrency, err)
+		// Node v24.15.0 node:fs/promises.writeFile reports this exact
+		// SystemError for the selection-first fatal destination. Comparing the
+		// full string also proves that a faster sample_c failure never wins.
+		wantError := "EISDIR: illegal operation on a directory, open '" +
+			filepath.Join(output, "sample_b.json") + "'"
+		if err.Error() != wantError {
+			t.Errorf("concurrency %d: FetchResources() error = %q, want Node 24.15 error %q", concurrency, err.Error(), wantError)
 		}
 		wantDiagnostics := []string{"wrote " + filepath.Join(output, "sample_a.json") + " (1 items)"}
 		if !equalStrings(diagnostics, wantDiagnostics) {
@@ -723,9 +828,27 @@ func TestConcurrentWriteFailuresRetainSelectionOrderedPrimaryError(t *testing.T)
 		}
 		if concurrency == 1 {
 			wantRequests := []string{"/api/items-a", "/api/items-b"}
-			if !equalStrings(transport.requests, wantRequests) {
-				t.Errorf("concurrency 1: requests = %v, want %v (sequential mode must never reach c after b's fatal outcome)", transport.requests, wantRequests)
+			if !equalStrings(serialTransport.requests, wantRequests) {
+				t.Errorf("concurrency 1: requests = %v, want %v (sequential mode must never reach c after b's fatal outcome)", serialTransport.requests, wantRequests)
 			}
+			continue
+		}
+
+		events, maxActive := barrierTransport.snapshot()
+		if maxActive < 2 {
+			t.Errorf("concurrency 2: maxActive = %d, want >= 2 to prove sample_b/sample_c overlap; events=%v", maxActive, events)
+		}
+		bRequest := indexOfString(events, "request:/api/items-b")
+		cRequest := indexOfString(events, "request:/api/items-c")
+		cRecorded := indexOfString(events, "after-c-record:/api/items-d")
+		bReleased := indexOfString(events, "release:/api/items-b")
+		if bRequest < 0 || cRequest < 0 || cRecorded < 0 || bReleased < 0 {
+			t.Errorf("concurrency 2: barrier events = %v, want b request, c request, post-c-record d request, and b release", events)
+		} else if bRequest >= cRecorded || cRequest >= cRecorded || cRecorded >= bReleased {
+			t.Errorf("concurrency 2: barrier events = %v, want b/c requests before c recorded and b release strictly afterward", events)
+		}
+		if _, err := os.Stat(filepath.Join(output, "sample_d.json")); err != nil {
+			t.Errorf("concurrency 2: os.Stat(sample_d.json) error = %v, want d worker to complete after proving c was recorded", err)
 		}
 	}
 }

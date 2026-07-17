@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "oracle": {
+    "runtime": "node v24.15.0",
+    "package": "tough-cookie",
+    "package_version": "6.0.2",
+    "captured_at": "2026-07-17",
+    "method": "parseDate, Cookie.parse, and CookieJar setCookieSync/getCookieStringSync"
+  },
+  "date_vectors": [
+    {
+      "name": "four_digit_year",
+      "input": "Wed, 09 Jun 2099 10:18:14 GMT",
+      "want_utc": "2099-06-09T10:18:14Z"
+    },
+    {
+      "name": "legacy_delimiters",
+      "input": "Wed/09.Jun@2099 10:18:14 GMT",
+      "want_utc": "2099-06-09T10:18:14Z"
+    },
+    {
+      "name": "two_digit_year_69",
+      "input": "09-Jun-69 10:18:14 GMT",
+      "want_utc": "2069-06-09T10:18:14Z"
+    },
+    {
+      "name": "two_digit_year_70",
+      "input": "09-Jun-70 10:18:14 GMT",
+      "want_utc": "1970-06-09T10:18:14Z"
+    },
+    {
+      "name": "year_before_1601",
+      "input": "09-Jun-1599 10:18:14 GMT",
+      "want_utc": null
+    },
+    {
+      "name": "invalid_calendar_day",
+      "input": "31-Feb-2099 10:18:14 GMT",
+      "want_utc": null
+    }
+  ],
+  "max_age_vectors": [
+    {
+      "name": "plus_zero_is_not_grammar",
+      "input": "+0",
+      "want": "ignore"
+    },
+    {
+      "name": "zero_deletes",
+      "input": "0",
+      "want": "delete"
+    },
+    {
+      "name": "negative_zero_deletes",
+      "input": "-0",
+      "want": "delete"
+    },
+    {
+      "name": "negative_deletes",
+      "input": "-7",
+      "want": "delete"
+    },
+    {
+      "name": "leading_zero_positive",
+      "input": "03600",
+      "want": "keep"
+    },
+    {
+      "name": "finite_integer_overflow",
+      "input": "9999999999999999999",
+      "want": "keep"
+    },
+    {
+      "name": "javascript_infinity_overflow",
+      "input": "999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+      "want": "delete"
+    }
+  ],
+  "jar_vectors": [
+    {
+      "name": "plus_zero_falls_back_to_future_expires",
+      "set_url": "https://example.test/start",
+      "get_url": "https://example.test/final",
+      "set_cookie": "sid=plus-zero; Path=/; Max-Age=+0; Expires=Wed, 01 Jan 2099 00:00:00 GMT",
+      "want_cookie": "sid=plus-zero"
+    },
+    {
+      "name": "zero_deletes_existing_cookie",
+      "set_url": "https://example.test/start",
+      "get_url": "https://example.test/final",
+      "seed_set_cookie": "sid=seed; Path=/",
+      "set_cookie": "sid=gone; Path=/; Max-Age=0; Expires=Wed, 01 Jan 2099 00:00:00 GMT",
+      "want_cookie": ""
+    },
+    {
+      "name": "negative_deletes_existing_cookie",
+      "set_url": "https://example.test/start",
+      "get_url": "https://example.test/final",
+      "seed_set_cookie": "sid=seed; Path=/",
+      "set_cookie": "sid=gone; Path=/; Max-Age=-7; Expires=Wed, 01 Jan 2099 00:00:00 GMT",
+      "want_cookie": ""
+    },
+    {
+      "name": "leading_zero_max_age_precedes_past_expires",
+      "set_url": "https://example.test/start",
+      "get_url": "https://example.test/final",
+      "set_cookie": "sid=leading; Path=/; Max-Age=03600; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+      "want_cookie": "sid=leading"
+    },
+    {
+      "name": "finite_overflow_precedes_past_expires",
+      "set_url": "https://example.test/start",
+      "get_url": "https://example.test/final",
+      "set_cookie": "sid=finite; Path=/; Max-Age=9999999999999999999; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+      "want_cookie": "sid=finite"
+    },
+    {
+      "name": "infinity_overflow_deletes_despite_future_expires",
+      "set_url": "https://example.test/start",
+      "get_url": "https://example.test/final",
+      "seed_set_cookie": "sid=seed; Path=/",
+      "set_cookie": "sid=infinity; Path=/; Max-Age=999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999; Expires=Wed, 01 Jan 2099 00:00:00 GMT",
+      "want_cookie": ""
+    },
+    {
+      "name": "legacy_delimiters_persist",
+      "set_url": "https://example.test/start",
+      "get_url": "https://example.test/final",
+      "set_cookie": "sid=legacy; Path=/; Expires=Wed/09.Jun@2099 10:18:14 GMT",
+      "want_cookie": "sid=legacy"
+    },
+    {
+      "name": "two_digit_year_69_persists",
+      "set_url": "https://example.test/start",
+      "get_url": "https://example.test/final",
+      "set_cookie": "sid=y69; Path=/; Expires=09-Jun-69 10:18:14 GMT",
+      "want_cookie": "sid=y69"
+    },
+    {
+      "name": "two_digit_year_70_deletes",
+      "set_url": "https://example.test/start",
+      "get_url": "https://example.test/final",
+      "seed_set_cookie": "sid=seed; Path=/",
+      "set_cookie": "sid=y70; Path=/; Expires=09-Jun-70 10:18:14 GMT",
+      "want_cookie": ""
+    },
+    {
+      "name": "four_digit_expires_persists_across_redirect_target",
+      "set_url": "https://example.test/start",
+      "get_url": "https://example.test/redirected",
+      "set_cookie": "sid=redirect; Path=/; Expires=09-Jun-2099 10:18:14 GMT",
+      "want_cookie": "sid=redirect"
+    },
+    {
+      "name": "max_age_after_expires_has_precedence",
+      "set_url": "https://example.test/start",
+      "get_url": "https://example.test/final",
+      "set_cookie": "sid=precedence; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=3600",
+      "want_cookie": "sid=precedence"
+    },
+    {
+      "name": "expires_after_max_age_does_not_take_precedence",
+      "set_url": "https://example.test/start",
+      "get_url": "https://example.test/final",
+      "set_cookie": "sid=precedence; Path=/; Max-Age=3600; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+      "want_cookie": "sid=precedence"
+    }
+  ]
+}

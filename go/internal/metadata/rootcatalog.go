@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
+	"github.com/dvmrry/infrawright-dev/go/internal/nodefserr"
 )
 
 // RootCatalogResource ports the RootCatalogResource interface from
@@ -192,9 +193,19 @@ func sourceEvidence(root LoadedPackRoot, providers map[string]struct{}) ([]strin
 		}
 		selectedPaths = append(selectedPaths, manifest.Path)
 		registryPath := filepath.Join(manifest.Directory, "registry.json")
-		if isFile(registryPath) {
-			selectedPaths = append(selectedPaths, registryPath)
+		// Keep the source's deliberate presence probe separate from the digest
+		// read below. Besides preserving the TOCTOU behavior, ReadFile (rather
+		// than Stat) makes a registry directory fail with Node's EISDIR surface.
+		if _, err := os.ReadFile(registryPath); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			propagateFilesystemError(nodefserr.Call{
+				Operation: nodefserr.ReadFile,
+				Path:      registryPath,
+			}.Wrap(err))
 		}
+		selectedPaths = append(selectedPaths, registryPath)
 	}
 	sort.Slice(selectedPaths, func(i, j int) bool {
 		return portableRelative(root.Root, selectedPaths[i]) < portableRelative(root.Root, selectedPaths[j])
@@ -206,7 +217,10 @@ func sourceEvidence(root LoadedPackRoot, providers map[string]struct{}) ([]strin
 		relative := portableRelative(root.Root, file)
 		content, err := os.ReadFile(file)
 		if err != nil {
-			failf("failed to read %s: %s", file, err.Error())
+			propagateFilesystemError(nodefserr.Call{
+				Operation: nodefserr.ReadFile,
+				Path:      file,
+			}.Wrap(err))
 		}
 		files = append(files, relative)
 		hasher.Write([]byte(relative))

@@ -32,6 +32,7 @@ import (
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
+	"github.com/dvmrry/infrawright-dev/go/internal/nodefserr"
 )
 
 // ModuleFileName is the Go analogue of the ModuleFileName string-literal
@@ -898,8 +899,12 @@ func GenerateModule(root metadata.LoadedPackRoot, resourceType string, options G
 		return GeneratedModule{}, err
 	}
 	base := filepath.Join(options.OutputRoot, resourceType)
-	if err := os.MkdirAll(filepath.Join(base, "tests"), 0o755); err != nil {
-		return GeneratedModule{}, err
+	testsDirectory := filepath.Join(base, "tests")
+	if err := os.MkdirAll(testsDirectory, 0o755); err != nil {
+		return GeneratedModule{}, nodefserr.Call{
+			Operation: nodefserr.MkdirAll,
+			Path:      testsDirectory,
+		}.Wrap(err)
 	}
 	names := make([]string, len(rendered.Files))
 	for i, file := range rendered.Files {
@@ -922,7 +927,10 @@ func GenerateModule(root metadata.LoadedPackRoot, resourceType string, options G
 		}
 		destination := filepath.Join(base, relative)
 		if err := os.WriteFile(destination, []byte(output), 0o644); err != nil {
-			return GeneratedModule{}, err
+			return GeneratedModule{}, nodefserr.Call{
+				Operation: nodefserr.WriteFile,
+				Path:      destination,
+			}.Wrap(err)
 		}
 		written = append(written, destination)
 		if options.OnWrite != nil {
@@ -959,7 +967,10 @@ func ValidateGeneratedModuleTree(moduleRoot string, resourceTypes []string) ([]s
 					missing = append(missing, filepath.Join(resourceType, string(relative)))
 					continue
 				}
-				return nil, statErr
+				return nil, nodefserr.Call{
+					Operation: nodefserr.Stat,
+					Path:      candidate,
+				}.Wrap(statErr)
 			}
 			if !info.Mode().IsRegular() {
 				missing = append(missing, filepath.Join(resourceType, string(relative)))

@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
+	"github.com/dvmrry/infrawright-dev/go/internal/nodefserr"
 )
 
 var registryResourceKeys = stringSet("adopt", "derive", "fetch", "generate", "product", "slug_group")
@@ -678,7 +679,10 @@ func loadOverrides(metadata PackMetadata, packNames []string) LoadedOverrides {
 			if os.IsNotExist(err) {
 				continue
 			}
-			failf("failed to list %s: %s", overridesDirectory, err.Error())
+			propagateFilesystemError(nodefserr.Call{
+				Operation: nodefserr.ReadDir,
+				Path:      overridesDirectory,
+			}.Wrap(err))
 		}
 		var candidates []string
 		for _, dirEntry := range dirEntries {

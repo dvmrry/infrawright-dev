@@ -1,0 +1,390 @@
+{
+  "schema_version": 1,
+  "oracle": {
+    "runtime": "node v24.15.0",
+    "package": "tough-cookie",
+    "package_version": "6.0.2",
+    "wire_package": "undici",
+    "wire_package_version": "7.28.0",
+    "captured_at": "2026-07-17",
+    "method": "Cookie.parse and CookieJar setCookieSync/getCookieStringSync"
+  },
+  "value_vectors": [
+    {
+      "name": "plain",
+      "set_cookie": "sid=plain; Path=/",
+      "parsed_value": "plain",
+      "want_cookie": "sid=plain",
+      "production_wire": true
+    },
+    {
+      "name": "interior_space_remains_unquoted",
+      "set_cookie": "sid=a b; Path=/",
+      "parsed_value": "a b",
+      "want_cookie": "sid=a b",
+      "production_wire": true
+    },
+    {
+      "name": "comma_remains_unquoted",
+      "set_cookie": "sid=a,b; Path=/",
+      "parsed_value": "a,b",
+      "want_cookie": "sid=a,b",
+      "production_wire": true
+    },
+    {
+      "name": "backslash_survives",
+      "set_cookie": "sid=a\\b; Path=/",
+      "parsed_value": "a\\b",
+      "want_cookie": "sid=a\\b",
+      "production_wire": true
+    },
+    {
+      "name": "latin1_survives",
+      "set_cookie": "sid=é; Path=/",
+      "parsed_value": "é",
+      "want_cookie": "sid=é",
+      "production_wire": true
+    },
+    {
+      "name": "quoted_value_retains_quotes",
+      "set_cookie": "sid=\"a b\"; Path=/",
+      "parsed_value": "\"a b\"",
+      "want_cookie": "sid=\"a b\"",
+      "production_wire": true
+    },
+    {
+      "name": "literal_double_quote_survives",
+      "set_cookie": "sid=a\"b; Path=/",
+      "parsed_value": "a\"b",
+      "want_cookie": "sid=a\"b",
+      "production_wire": true
+    },
+    {
+      "name": "non_cookie_octet_punctuation_survives",
+      "set_cookie": "sid=()<>@,:\"/[]?={}\\; Path=/",
+      "parsed_value": "()<>@,:\"/[]?={}\\",
+      "want_cookie": "sid=()<>@,:\"/[]?={}\\",
+      "production_wire": true
+    },
+    {
+      "name": "c1_and_latin1_bytes_survive",
+      "set_cookie": "sid=\u0080\u009fÿ; Path=/",
+      "parsed_value": "\u0080\u009fÿ",
+      "want_cookie": "sid=\u0080\u009fÿ",
+      "production_wire": true
+    },
+    {
+      "name": "additional_equals_survives",
+      "set_cookie": "sid=a=b; Path=/",
+      "parsed_value": "a=b",
+      "want_cookie": "sid=a=b",
+      "production_wire": true
+    },
+    {
+      "name": "pair_whitespace_is_trimmed",
+      "set_cookie": "  sid=  padded  ; Path=/  ",
+      "parsed_value": "padded",
+      "want_cookie": "sid=padded",
+      "production_wire": true
+    },
+    {
+      "name": "empty_value_survives",
+      "set_cookie": "sid=; Path=/",
+      "parsed_value": "",
+      "want_cookie": "sid=",
+      "production_wire": true
+    },
+    {
+      "name": "del_is_stored_but_rejected_by_wire_gate",
+      "set_cookie": "sid=a\u007fb; Path=/",
+      "parsed_value": "a\u007fb",
+      "want_cookie": "sid=a\u007fb",
+      "production_wire": false
+    }
+  ],
+  "name_vectors": [
+    {
+      "name": "interior_space_survives",
+      "set_cookie": "s id=value; Path=/",
+      "parsed_key": "s id",
+      "want_cookie": "s id=value",
+      "production_wire": true
+    },
+    {
+      "name": "comma_survives",
+      "set_cookie": "s,id=value; Path=/",
+      "parsed_key": "s,id",
+      "want_cookie": "s,id=value",
+      "production_wire": true
+    },
+    {
+      "name": "backslash_survives",
+      "set_cookie": "s\\id=value; Path=/",
+      "parsed_key": "s\\id",
+      "want_cookie": "s\\id=value",
+      "production_wire": true
+    },
+    {
+      "name": "latin1_survives",
+      "set_cookie": "sé=value; Path=/",
+      "parsed_key": "sé",
+      "want_cookie": "sé=value",
+      "production_wire": true
+    },
+    {
+      "name": "literal_double_quote_survives",
+      "set_cookie": "s\"id=value; Path=/",
+      "parsed_key": "s\"id",
+      "want_cookie": "s\"id=value",
+      "production_wire": true
+    },
+    {
+      "name": "separator_punctuation_survives",
+      "set_cookie": "()<>@,:\"/[]?{}\\=value; Path=/",
+      "parsed_key": "()<>@,:\"/[]?{}\\",
+      "want_cookie": "()<>@,:\"/[]?{}\\=value",
+      "production_wire": true
+    },
+    {
+      "name": "pair_whitespace_is_trimmed",
+      "set_cookie": "  s id  =value; Path=/  ",
+      "parsed_key": "s id",
+      "want_cookie": "s id=value",
+      "production_wire": true
+    },
+    {
+      "name": "del_is_stored_but_rejected_by_wire_gate",
+      "set_cookie": "s\u007fid=value; Path=/",
+      "parsed_key": "s\u007fid",
+      "want_cookie": "s\u007fid=value",
+      "production_wire": false
+    }
+  ],
+  "attribute_vectors": [
+    {
+      "name": "secure_key_whitespace",
+      "set_cookie": "sid=secure; Secure =yes; Path = /",
+      "set_url": "https://api.example.test/start",
+      "get_url": "http://api.example.test/final",
+      "parsed": {
+        "domain": null,
+        "path": "/",
+        "secure": true,
+        "http_only": false,
+        "same_site": null,
+        "max_age": null,
+        "expires": "Infinity"
+      },
+      "want_cookie": ""
+    },
+    {
+      "name": "httponly_key_whitespace",
+      "set_cookie": "sid=http; HttpOnly =no; Path = /",
+      "set_url": "https://api.example.test/start",
+      "get_url": "https://api.example.test/final",
+      "parsed": {
+        "domain": null,
+        "path": "/",
+        "secure": false,
+        "http_only": true,
+        "same_site": null,
+        "max_age": null,
+        "expires": "Infinity"
+      },
+      "want_cookie": "sid=http"
+    },
+    {
+      "name": "domain_key_whitespace",
+      "set_cookie": "sid=domain; Domain = EXAMPLE.TEST; Path = /",
+      "set_url": "https://api.example.test/start",
+      "get_url": "https://sibling.example.test/final",
+      "parsed": {
+        "domain": "example.test",
+        "path": "/",
+        "secure": false,
+        "http_only": false,
+        "same_site": null,
+        "max_age": null,
+        "expires": "Infinity"
+      },
+      "want_cookie": "sid=domain"
+    },
+    {
+      "name": "path_key_whitespace",
+      "set_cookie": "sid=path; Path = /scope",
+      "set_url": "https://api.example.test/root/start",
+      "get_url": "https://api.example.test/scope/final",
+      "parsed": {
+        "domain": null,
+        "path": "/scope",
+        "secure": false,
+        "http_only": false,
+        "same_site": null,
+        "max_age": null,
+        "expires": "Infinity"
+      },
+      "want_cookie": "sid=path"
+    },
+    {
+      "name": "samesite_key_whitespace",
+      "set_cookie": "sid=same; SameSite = LAX; Path = /",
+      "set_url": "https://api.example.test/start",
+      "get_url": "https://api.example.test/final",
+      "parsed": {
+        "domain": null,
+        "path": "/",
+        "secure": false,
+        "http_only": false,
+        "same_site": "lax",
+        "max_age": null,
+        "expires": "Infinity"
+      },
+      "want_cookie": "sid=same"
+    },
+    {
+      "name": "expires_key_whitespace",
+      "set_cookie": "sid=expires; Expires = Wed, 09 Jun 2099 10:18:14 GMT; Path = /",
+      "set_url": "https://api.example.test/start",
+      "get_url": "https://api.example.test/final",
+      "parsed": {
+        "domain": null,
+        "path": "/",
+        "secure": false,
+        "http_only": false,
+        "same_site": null,
+        "max_age": null,
+        "expires": "2099-06-09T10:18:14.000Z"
+      },
+      "want_cookie": "sid=expires"
+    },
+    {
+      "name": "max_age_key_whitespace",
+      "set_cookie": "sid=max; Max-Age = 03600; Expires = Thu, 01 Jan 1970 00:00:00 GMT; Path = /",
+      "set_url": "https://api.example.test/start",
+      "get_url": "https://api.example.test/final",
+      "parsed": {
+        "domain": null,
+        "path": "/",
+        "secure": false,
+        "http_only": false,
+        "same_site": null,
+        "max_age": 3600,
+        "expires": "1970-01-01T00:00:00.000Z"
+      },
+      "want_cookie": "sid=max"
+    },
+    {
+      "name": "invalid_later_path_resets_to_default",
+      "set_cookie": "sid=reset; Path=/scope; Path = nope",
+      "set_url": "https://api.example.test/root/start",
+      "get_url": "https://api.example.test/scope/final",
+      "parsed": {
+        "domain": null,
+        "path": null,
+        "secure": false,
+        "http_only": false,
+        "same_site": null,
+        "max_age": null,
+        "expires": "Infinity"
+      },
+      "want_cookie": ""
+    },
+    {
+      "name": "domain_dot_remains_host_only",
+      "set_cookie": "sid=dot; Domain = .; Path = /",
+      "set_url": "https://api.example.test/start",
+      "get_url": "https://sibling.example.test/final",
+      "parsed": {
+        "domain": null,
+        "path": "/",
+        "secure": false,
+        "http_only": false,
+        "same_site": null,
+        "max_age": null,
+        "expires": "Infinity"
+      },
+      "want_cookie": ""
+    },
+    {
+      "name": "host_prefix_accepts_spaced_secure_and_path_keys",
+      "set_cookie": "__Host-id=host; Secure =yes; Path = /",
+      "set_url": "https://api.example.test/start",
+      "get_url": "https://api.example.test/final",
+      "parsed": {
+        "domain": null,
+        "path": "/",
+        "secure": true,
+        "http_only": false,
+        "same_site": null,
+        "max_age": null,
+        "expires": "Infinity"
+      },
+      "want_cookie": "__Host-id=host"
+    }
+  ],
+  "domain_scope_vectors": [
+    {
+      "name": "ipv6_domain_attribute",
+      "set_cookie": "sid=ipv6; Domain=::1; Path=/",
+      "set_url": "http://[::1]/start",
+      "get_url": "http://[::1]/final",
+      "stored_domain": "::1",
+      "host_only": false,
+      "want_cookie": "sid=ipv6"
+    },
+    {
+      "name": "ipv6_equivalent_expanded_request_host",
+      "set_cookie": "sid=ipv6; Domain=::1; Path=/",
+      "set_url": "http://[::1]/start",
+      "get_url": "http://[0:0:0:0:0:0:0:1]/final",
+      "stored_domain": "::1",
+      "host_only": false,
+      "want_cookie": "sid=ipv6"
+    },
+    {
+      "name": "multi_label_trailing_dot_same_host",
+      "set_cookie": "sid=dot; Path=/",
+      "set_url": "http://api.example.test./start",
+      "get_url": "http://api.example.test./final",
+      "stored_domain": "api.example.test.",
+      "host_only": true,
+      "want_cookie": ""
+    },
+    {
+      "name": "multi_label_trailing_dot_to_no_dot",
+      "set_cookie": "sid=dot; Path=/",
+      "set_url": "http://api.example.test./start",
+      "get_url": "http://api.example.test/final",
+      "stored_domain": "api.example.test.",
+      "host_only": true,
+      "want_cookie": ""
+    },
+    {
+      "name": "multi_label_no_dot_to_trailing_dot",
+      "set_cookie": "sid=plain; Path=/",
+      "set_url": "http://api.example.test/start",
+      "get_url": "http://api.example.test./final",
+      "stored_domain": "api.example.test",
+      "host_only": true,
+      "want_cookie": ""
+    },
+    {
+      "name": "single_label_trailing_dot_same_host",
+      "set_cookie": "sid=single; Path=/",
+      "set_url": "http://localhost./start",
+      "get_url": "http://localhost./final",
+      "stored_domain": "localhost.",
+      "host_only": true,
+      "want_cookie": "sid=single"
+    },
+    {
+      "name": "single_label_trailing_dot_rejects_domain_attribute",
+      "set_cookie": "sid=domain; Domain=invalid; Path=/",
+      "set_url": "http://invalid./start",
+      "get_url": "http://invalid./final",
+      "stored_domain": null,
+      "host_only": null,
+      "want_cookie": ""
+    }
+  ]
+}

@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
+	"github.com/dvmrry/infrawright-dev/go/internal/nodefserr"
 )
 
 // PACK_SET_KIND, REQUIREMENTS_KIND, and PACK_SET_VERSION port the
@@ -235,20 +236,18 @@ func LoadPackSetDocument(source, expectedKind string) (doc PackSetDocument, err 
 }
 
 // discoverDirectories ports discoverDirectories from
-// node-src/metadata/packs.ts. Unlike the Node source (which lets a
-// non-ENOENT readdir error propagate as a raw, unwrapped error), this
-// panics via fail() for any such error, keeping this package's error
-// surface uniform; no fixture in this port's scope exercises that path.
-// Returns a non-nil, empty slice (never nil) when root does not exist,
-// matching the Node source returning `[]` rather than undefined/null on
-// ENOENT.
+// node-src/metadata/packs.ts. A missing root returns a non-nil empty slice;
+// every other readdir failure propagates with Node's raw SystemError surface.
 func discoverDirectories(root string) []string {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []string{}
 		}
-		failf("failed to list %s: %s", root, err.Error())
+		propagateFilesystemError(nodefserr.Call{
+			Operation: nodefserr.ReadDir,
+			Path:      root,
+		}.Wrap(err))
 	}
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {

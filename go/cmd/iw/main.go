@@ -4,13 +4,13 @@
 // exit codes, and error rendering reproduce the Node CLI byte-for-byte for
 // every surface the differential corpus covers.
 //
-// Pre-cutover divergence (deliberate, excluded from the differential
-// corpus): commands that exist in the Node CLI but are not yet ported fail
-// loudly with "not yet ported" instead of pretending to be unknown, and
-// filesystem error text (e.g. a missing --check file) uses Go's wording
-// rather than Node's ENOENT format. Both divergences end when the
-// corresponding slices land; the fs-error text needs a global strategy
-// recorded in the plan.
+// Pre-cutover divergences (deliberate, excluded from the differential corpus):
+// commands that exist in the Node CLI but are not yet ported fail loudly with
+// "not yet ported" instead of pretending to be unknown, and raw filesystem
+// error text remains host-native at call sites that have not yet adopted the
+// operation-aware nodefserr boundary. Both divergences end as their owning
+// slices land; root-catalog --check/--out and scope-paths --paths-json already
+// use the Node-compatible filesystem surface.
 package main
 
 import (
@@ -25,6 +25,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/cliargs"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
+	"github.com/dvmrry/infrawright-dev/go/internal/nodefserr"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 	"github.com/dvmrry/infrawright-dev/go/internal/transformrun"
 )
@@ -192,7 +193,7 @@ func rootCatalog(arguments []string) (int, error) {
 	if hasCheck {
 		actual, err := os.ReadFile(check)
 		if err != nil {
-			return 0, err
+			return 0, (nodefserr.Call{Operation: nodefserr.ReadFile, Path: check}).Wrap(err)
 		}
 		if string(actual) != rendered {
 			return 0, procerr.NewProcessFailure(procerr.NewProcessFailureOptions{
@@ -204,7 +205,8 @@ func rootCatalog(arguments []string) (int, error) {
 		return 0, nil
 	}
 	if hasOutput {
-		return 0, os.WriteFile(output, []byte(rendered), 0o666)
+		err := os.WriteFile(output, []byte(rendered), 0o666)
+		return 0, (nodefserr.Call{Operation: nodefserr.WriteFile, Path: output}).Wrap(err)
 	}
 	_, err = os.Stdout.WriteString(rendered)
 	return 0, err
@@ -352,6 +354,10 @@ func run(arguments []string) (int, error) {
 		return legacyPlanLifecycleCommand(func() (int, error) { return scopePathsCommand(arguments[1:]) })
 	case "plan-roots":
 		return legacyPlanLifecycleCommand(func() (int, error) { return planRootsCommand(arguments[1:]) })
+	case "fetch":
+		return fetchCommand(arguments[1:], nil)
+	case "fetch-diag":
+		return fetchDiagCommand(arguments[1:])
 	case "-h", "--help":
 		_, err := os.Stdout.WriteString(usageText + "\n")
 		return 0, err
