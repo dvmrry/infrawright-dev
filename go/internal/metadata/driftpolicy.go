@@ -1,57 +1,44 @@
 package metadata
 
-// This file ports the narrow slice of node-src/domain/drift-policy.ts (and
-// its node-src/domain/policy-paths.ts path-syntax helper) that
-// node-src/metadata/packs.ts actually exercises. validatePackManifest there
-// does exactly this, and nothing else, with a manifest's drift_policy
-// value:
+// This file ports node-src/domain/drift-policy.ts and the path-syntax and
+// selector helpers it uses from node-src/domain/policy-paths.ts. In addition
+// to the validation path used by node-src/metadata/packs.ts, DriftPolicy is
+// the shared runtime used by plan evaluation and state projection. It keeps
+// declaration-order matching, canonical exact-selector alias precedence,
+// wildcard ambiguity, and identity-based stale-entry accounting from the
+// TypeScript source.
 //
-//	if (Object.hasOwn(data, "drift_policy")) {
-//	  try {
-//	    new DriftPolicy(data.drift_policy, `${source}.drift_policy`);
-//	  } catch (error: unknown) {
-//	    const detail = error instanceof Error ? error.message : String(error);
-//	    fail(detail);
-//	  }
-//	}
+// The Go representation snapshots the validated JSON tree and exposes
+// detached copies at its boundaries. That is a defensive adaptation of the
+// TypeScript readonly API: callers cannot mutate policy meaning after
+// construction, while PolicyEntry's hidden policy/id pair preserves the
+// source's object-identity semantics for MarkMatched. Match accounting is
+// mutex-protected so a policy may safely be shared by concurrent readers.
 //
-// The constructed DriftPolicy instance is never stored -- PackManifest
-// carries no drift-policy field -- or used for anything else; only whether
-// construction throws, and with what message, matters. validateDriftPolicy
-// below reproduces exactly that constructor's failure behavior:
-// validatePolicy's structural checks, per-entry validation for all five
-// modes, and the per-resource-type plan_tolerate wildcard-count limit.
-//
-// Deliberately NOT ported here, because no caller in this package's port
-// needs it and it would pull substantial, functionally distinct domain
-// logic into a package whose job is metadata *validation*: DriftPolicy's
-// runtime matching API (projectionOmits, toleratesPlanPath, staleEntries,
-// markMatched, and the compiled exact/wildcard plan_tolerate maps behind
-// them -- all of node-src/domain/drift-policy.ts's actual plan/state drift
-// matching), and the node-src/domain/policy-paths.ts helpers that exist
-// only to serve that API (policySelectorMatches, normalizePolicyPath,
-// formatPolicyPath).
-//
-// One further simplification: node-src/domain/policy-paths.ts's
-// parsePolicyPath takes an optional `what` label (default "policy path")
-// used to phrase its error messages; every call site reachable from
-// node-src/domain/drift-policy.ts's validatePolicy calls it with no
-// override, so this port hardcodes "policy path" rather than threading an
-// unused parameter.
+// parsePolicyPath retains node-src/domain/policy-paths.ts's optional `what`
+// label because the future assessment-guidance consumer supplies it when
+// normalizing report paths; validation and projection callers use the
+// source-defined "policy path" default.
 
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/big"
+	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
-// policyWildcard is the wildcard path-selector marker. Ports POLICY_WILDCARD
-// from node-src/domain/policy-paths.ts.
-const policyWildcard = "*"
+// policyListMarker and policyWildcard port POLICY_LIST_MARKER and
+// POLICY_WILDCARD from node-src/domain/policy-paths.ts.
+const (
+	policyListMarker = "[]"
+	policyWildcard   = "*"
+)
 
 // maxPolicyEntries and maxPlanTolerateWildcardsPerResource port
 // MAX_POLICY_ENTRIES and MAX_PLAN_TOLERATE_WILDCARDS_PER_RESOURCE from
@@ -61,13 +48,34 @@ const (
 	maxPlanTolerateWildcardsPerResource = 1_000
 )
 
-// policyModes ports the MODES tuple from node-src/domain/drift-policy.ts.
-var policyModes = []string{
-	"projection_omit",
-	"projection_sync",
-	"projection_fill",
-	"projection_omit_if",
-	"plan_tolerate",
+// PolicyMode identifies one entry list in node-src/domain/drift-policy.ts's
+// PolicyMode union.
+type PolicyMode string
+
+const (
+	// PolicyProjectionOmit ports MODES[0] from
+	// node-src/domain/drift-policy.ts.
+	PolicyProjectionOmit PolicyMode = "projection_omit"
+	// PolicyProjectionSync ports MODES[1] from
+	// node-src/domain/drift-policy.ts.
+	PolicyProjectionSync PolicyMode = "projection_sync"
+	// PolicyProjectionFill ports MODES[2] from
+	// node-src/domain/drift-policy.ts.
+	PolicyProjectionFill PolicyMode = "projection_fill"
+	// PolicyProjectionOmitIf ports MODES[3] from
+	// node-src/domain/drift-policy.ts.
+	PolicyProjectionOmitIf PolicyMode = "projection_omit_if"
+	// PolicyPlanTolerate ports MODES[4] from
+	// node-src/domain/drift-policy.ts.
+	PolicyPlanTolerate PolicyMode = "plan_tolerate"
+)
+
+var policyModes = []PolicyMode{
+	PolicyProjectionOmit,
+	PolicyProjectionSync,
+	PolicyProjectionFill,
+	PolicyProjectionOmitIf,
+	PolicyPlanTolerate,
 }
 
 // policyTopLevelKeys, policyResourceKeys, and policyCommonKeys port
@@ -87,16 +95,79 @@ var (
 // node-src/domain/drift-policy.ts's validatePolicy.
 var driftResourceTypeName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// driftPolicyFailure is the local panic payload used to unwind out of the
-// deeply nested validation helpers in this file, mirroring how
-// node-src/domain/drift-policy.ts's fail() (a `throw`) unwinds the
-// TypeScript call stack. validateDriftPolicy recovers it at its own
-// boundary and converts it to a normal error; no other file in this
-// package observes this panic type.
-type driftPolicyFailure struct{ message string }
-
 func driftFail(format string, args ...any) {
-	panic(driftPolicyFailure{message: fmt.Sprintf(format, args...)})
+	// node-src/domain/drift-policy.ts and policy-paths.ts throw their own
+	// error classes. This metadata package uses one exported error spine, so
+	// their exact messages travel through the existing *MetadataError panic
+	// and recoverMetadataError boundary instead of introducing parallel Go
+	// error types.
+	failf(format, args...)
+}
+
+// PolicyEntry is the immutable Go handle for PolicyEntry from
+// node-src/domain/drift-policy.ts. Its hidden policy/id pair preserves source
+// object identity without exposing mutable internals.
+type PolicyEntry struct {
+	policy *DriftPolicy
+	id     int
+}
+
+// StalePolicyEntry ports StalePolicyEntry from
+// node-src/domain/drift-policy.ts.
+type StalePolicyEntry struct {
+	// ResourceType ports StalePolicyEntry.resource_type from
+	// node-src/domain/drift-policy.ts.
+	ResourceType string `json:"resource_type"`
+	// Mode ports StalePolicyEntry.mode from
+	// node-src/domain/drift-policy.ts.
+	Mode PolicyMode `json:"mode"`
+	// Path ports StalePolicyEntry.path from
+	// node-src/domain/drift-policy.ts.
+	Path string `json:"path"`
+}
+
+// StaleEntriesOptions is the Go form of the options object accepted by
+// DriftPolicy.staleEntries in node-src/domain/drift-policy.ts. A nil or empty
+// ResourceTypes set selects every resource type; a nil or empty Modes slice
+// selects every mode in source-defined order.
+type StaleEntriesOptions struct {
+	// ResourceTypes ports DriftPolicy.staleEntries options.resourceTypes from
+	// node-src/domain/drift-policy.ts.
+	ResourceTypes map[string]struct{}
+	// Modes ports DriftPolicy.staleEntries options.modes from
+	// node-src/domain/drift-policy.ts.
+	Modes []PolicyMode
+}
+
+type policySnapshotEntry struct {
+	id   int
+	data JsonObject
+	// sourceObject keeps sourceIdentity's map alive, preventing pointer reuse
+	// while any policy or PolicyEntry handle can participate in identity matching.
+	sourceObject   JsonObject
+	sourceIdentity uintptr
+}
+
+type compiledPolicyEntry struct {
+	entry    *policySnapshotEntry
+	order    int
+	selector []policyPathSegment
+}
+
+// DriftPolicy ports DriftPolicy from node-src/domain/drift-policy.ts as an
+// immutable validated snapshot with identity-based match accounting. All
+// methods are safe for concurrent use.
+type DriftPolicy struct {
+	data JsonObject
+
+	entriesByResource    map[string]map[PolicyMode][]*compiledPolicyEntry
+	entriesByID          []*policySnapshotEntry
+	entriesBySourceID    map[uintptr]*policySnapshotEntry
+	exactPlanTolerate    map[string]map[string]*compiledPolicyEntry
+	wildcardPlanTolerate map[string][]*compiledPolicyEntry
+
+	matchedMu sync.RWMutex
+	matched   map[int]struct{}
 }
 
 func unionStringSets(sets ...map[string]struct{}) map[string]struct{} {
@@ -283,12 +354,14 @@ func parseSegment(raw []rune, fullPath, what string) []policyPathSegment {
 	return output
 }
 
-// parsePolicyPath parses the strict path dialect accepted by
-// drift-policy entries. Ports parsePolicyPath from
-// node-src/domain/policy-paths.ts with its `what` label hardcoded to
-// "policy path" (see the file-level doc comment).
-func parsePolicyPath(text string) []policyPathSegment {
-	const what = "policy path"
+// parsePolicyPath ports parsePolicyPath from
+// node-src/domain/policy-paths.ts. The optional label supplies the source
+// function's `what` argument.
+func parsePolicyPath(text string, labels ...string) []policyPathSegment {
+	what := "policy path"
+	if len(labels) > 0 {
+		what = labels[0]
+	}
 	if text == "" {
 		driftFail("%s must be a non-empty string", what)
 	}
@@ -297,6 +370,14 @@ func parsePolicyPath(text string) []policyPathSegment {
 		output = append(output, parseSegment([]rune(raw), text, what)...)
 	}
 	return output
+}
+
+// ParsePolicyPath ports parsePolicyPath from
+// node-src/domain/policy-paths.ts. Omitting what uses "policy path" in errors;
+// supplying it preserves the source's caller-specific diagnostic label.
+func ParsePolicyPath(text string, what ...string) (path []any, err error) {
+	defer recoverMetadataError(&err)
+	return parsePolicyPath(text, what...), nil
 }
 
 // isCollectionSelector ports isCollectionSelector from
@@ -382,6 +463,222 @@ func pathMarker(path []policyPathSegment) string {
 	}
 	sb.WriteByte(']')
 	return sb.String()
+}
+
+// isConcreteInteger reports whether segment is the Go representation of a
+// JavaScript integer-valued number. Go traversal code naturally produces int
+// indexes while decoded numeric values are float64, so both families map to
+// ConcretePathSegment's TypeScript `number`; json.Number and *big.Int remain
+// distinct and fail closed.
+func isConcreteInteger(segment any) bool {
+	switch value := segment.(type) {
+	case int, int8, int16, int32, int64:
+		return true
+	case uint, uint8, uint16, uint32, uint64:
+		return true
+	case float64:
+		return !math.IsNaN(value) && !math.IsInf(value, 0) && math.Trunc(value) == value
+	default:
+		return false
+	}
+}
+
+// concreteEqualsIndex compares a Go concrete-path number with a parsed policy
+// index. Parsed exact indexes are non-negative and no larger than JavaScript's
+// MAX_SAFE_INTEGER; larger selectors are bigint and intentionally never equal
+// a ConcretePathSegment number under JavaScript strict equality.
+func concreteEqualsIndex(segment any, index int64) bool {
+	switch value := segment.(type) {
+	case int:
+		return value >= 0 && uint64(value) == uint64(index)
+	case int8:
+		return value >= 0 && int64(value) == index
+	case int16:
+		return value >= 0 && int64(value) == index
+	case int32:
+		return value >= 0 && int64(value) == index
+	case int64:
+		return value == index
+	case uint:
+		return uint64(value) == uint64(index)
+	case uint8:
+		return uint64(value) == uint64(index)
+	case uint16:
+		return uint64(value) == uint64(index)
+	case uint32:
+		return uint64(value) == uint64(index)
+	case uint64:
+		return value == uint64(index)
+	case float64:
+		return isConcreteInteger(value) && value == float64(index)
+	default:
+		return false
+	}
+}
+
+// policySelectorMatches ports policySelectorMatches from
+// node-src/domain/policy-paths.ts. The literal string "*" is deliberately
+// indistinguishable from the wildcard marker after parsing, including when it
+// came from a quoted selector such as fields["*"].
+func policySelectorMatches(selector []policyPathSegment, actual []any) bool {
+	if len(selector) != len(actual) {
+		return false
+	}
+	for index, segment := range selector {
+		candidate := actual[index]
+		switch value := segment.(type) {
+		case string:
+			if value == policyWildcard {
+				if !isConcreteInteger(candidate) {
+					return false
+				}
+				continue
+			}
+			candidateString, ok := candidate.(string)
+			if !ok || candidateString != value {
+				return false
+			}
+		case int64:
+			if !concreteEqualsIndex(candidate, value) {
+				return false
+			}
+		case *big.Int:
+			// parsePolicyPath emits bigint beyond MAX_SAFE_INTEGER. The
+			// source's ConcretePathSegment excludes bigint, and strict
+			// equality never equates one with a JavaScript number.
+			return false
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// PolicySelectorMatches ports policySelectorMatches from
+// node-src/domain/policy-paths.ts. Selector must be a successful
+// ParsePolicyPath result; actual accepts Go string and integer path segments.
+func PolicySelectorMatches(selector, actual []any) bool {
+	return policySelectorMatches(selector, actual)
+}
+
+// normalizePolicyPath ports normalizePolicyPath from
+// node-src/domain/policy-paths.ts.
+func normalizePolicyPath(path []policyPathSegment) []string {
+	normalized := make([]string, len(path))
+	for index, segment := range path {
+		if isCollectionSelector(segment) {
+			normalized[index] = policyListMarker
+			continue
+		}
+		text, ok := segment.(string)
+		if !ok {
+			return nil
+		}
+		normalized[index] = text
+	}
+	return normalized
+}
+
+// NormalizePolicyPath ports normalizePolicyPath from
+// node-src/domain/policy-paths.ts. Path must be a successful ParsePolicyPath
+// result.
+func NormalizePolicyPath(path []any) []string {
+	return normalizePolicyPath(path)
+}
+
+// formatPolicyPath ports formatPolicyPath from
+// node-src/domain/policy-paths.ts. It remains unexported because no current or
+// planned plan/adopt consumer calls the source symbol.
+func formatPolicyPath(path []policyPathSegment) string {
+	if len(path) == 0 {
+		return "<root>"
+	}
+	parts := make([]string, 0, len(path))
+	appendSelector := func(rendered string) {
+		if len(parts) == 0 {
+			parts = append(parts, rendered)
+			return
+		}
+		parts[len(parts)-1] += rendered
+	}
+	for _, segment := range path {
+		switch value := segment.(type) {
+		case string:
+			if value == policyWildcard || value == policyListMarker {
+				appendSelector(policyListMarker)
+				continue
+			}
+			parts = append(parts, value)
+		case int64:
+			appendSelector(fmt.Sprintf("[%d]", value))
+		case *big.Int:
+			appendSelector("[" + value.String() + "]")
+		default:
+			return ""
+		}
+	}
+	return strings.Join(parts, ".")
+}
+
+// concretePathMarker creates pathMarker's key for an exact concrete path.
+// Exact policy indexes are always non-negative safe integers, so any other
+// numeric shape cannot select an exact compiled entry.
+func concretePathMarker(path []any) (string, bool) {
+	parsed := make([]policyPathSegment, 0, len(path))
+	for _, segment := range path {
+		switch value := segment.(type) {
+		case string:
+			parsed = append(parsed, value)
+		default:
+			var index int64
+			matched := false
+			switch number := value.(type) {
+			case int:
+				if number >= 0 && uint64(number) <= uint64(maxSafeInteger) {
+					index, matched = int64(number), true
+				}
+			case int8:
+				if number >= 0 {
+					index, matched = int64(number), true
+				}
+			case int16:
+				if number >= 0 {
+					index, matched = int64(number), true
+				}
+			case int32:
+				if number >= 0 {
+					index, matched = int64(number), true
+				}
+			case int64:
+				if number >= 0 && number <= maxSafeInteger {
+					index, matched = number, true
+				}
+			case uint:
+				if uint64(number) <= uint64(maxSafeInteger) {
+					index, matched = int64(number), true
+				}
+			case uint8:
+				index, matched = int64(number), true
+			case uint16:
+				index, matched = int64(number), true
+			case uint32:
+				index, matched = int64(number), true
+			case uint64:
+				if number <= uint64(maxSafeInteger) {
+					index, matched = int64(number), true
+				}
+			case float64:
+				if isConcreteInteger(number) && number >= 0 && number <= float64(maxSafeInteger) {
+					index, matched = int64(number), true
+				}
+			}
+			if !matched {
+				return "", false
+			}
+			parsed = append(parsed, index)
+		}
+	}
+	return pathMarker(parsed), true
 }
 
 // driftRejectUnknownKeys ports drift-policy.ts's own local
@@ -637,8 +934,9 @@ func validateDriftPolicyData(data any, source string) JsonObject {
 		}
 		driftRejectUnknownKeys(resource, policyResourceKeys, fmt.Sprintf("%s policy for %s", source, resourceType))
 		for _, mode := range policyModes {
+			modeName := string(mode)
 			var rawEntries []any
-			if rawEntriesValue, has := resource[mode]; has {
+			if rawEntriesValue, has := resource[modeName]; has {
 				arr, isArray := rawEntriesValue.([]any)
 				if !isArray {
 					driftFail("%s %s entries for %s must be a list", source, mode, resourceType)
@@ -651,7 +949,7 @@ func validateDriftPolicyData(data any, source string) JsonObject {
 			}
 			scopes := make(map[string]struct{})
 			for _, entry := range rawEntries {
-				scope := validateEntry(source, resourceType, mode, entry)
+				scope := validateEntry(source, resourceType, modeName, entry)
 				if _, duplicate := scopes[scope]; duplicate {
 					display := "unknown"
 					if entryObject, ok := entry.(JsonObject); ok {
@@ -704,6 +1002,308 @@ func validateDriftPolicyWildcardLimits(data JsonObject, source string) {
 	}
 }
 
+// clonePolicyValue recursively copies a validated policy JSON tree while
+// retaining shared object identity. JSON text cannot encode aliases, but the
+// source constructor accepts in-memory objects and its WeakSet accounting
+// observes when one entry object is deliberately reused across modes.
+func clonePolicyValue(value any) any {
+	return clonePolicyValueWithObjects(value, make(map[uintptr]JsonObject))
+}
+
+func clonePolicyValueWithObjects(value any, objects map[uintptr]JsonObject) any {
+	switch typed := value.(type) {
+	case JsonObject:
+		identity := reflect.ValueOf(typed).Pointer()
+		if prior, exists := objects[identity]; exists {
+			return prior
+		}
+		cloned := make(JsonObject, len(typed))
+		objects[identity] = cloned
+		for key, item := range typed {
+			cloned[key] = clonePolicyValueWithObjects(item, objects)
+		}
+		return cloned
+	case []any:
+		cloned := make([]any, len(typed))
+		for index, item := range typed {
+			cloned[index] = clonePolicyValueWithObjects(item, objects)
+		}
+		return cloned
+	default:
+		return value
+	}
+}
+
+// newDriftPolicy contains the port of DriftPolicy.constructor from
+// node-src/domain/drift-policy.ts.
+func newDriftPolicy(data any, source string) *DriftPolicy {
+	if data == nil {
+		data = JsonObject{"version": float64(1), "resource_types": JsonObject{}}
+	}
+	validated := validateDriftPolicyData(data, source)
+	validateDriftPolicyWildcardLimits(validated, source)
+	snapshot := clonePolicyValue(validated).(JsonObject)
+
+	policy := &DriftPolicy{
+		data:                 snapshot,
+		entriesByResource:    make(map[string]map[PolicyMode][]*compiledPolicyEntry),
+		entriesBySourceID:    make(map[uintptr]*policySnapshotEntry),
+		exactPlanTolerate:    make(map[string]map[string]*compiledPolicyEntry),
+		wildcardPlanTolerate: make(map[string][]*compiledPolicyEntry),
+		matched:              make(map[int]struct{}),
+	}
+	entryIdentity := make(map[uintptr]*policySnapshotEntry)
+	resources, _ := snapshot["resource_types"].(JsonObject)
+	for _, resourceType := range sortedKeys(resources) {
+		byMode := make(map[PolicyMode][]*compiledPolicyEntry, len(policyModes))
+		for _, mode := range policyModes {
+			rawEntries := driftEntriesFor(snapshot, resourceType, string(mode))
+			sourceEntries := driftEntriesFor(validated, resourceType, string(mode))
+			compiledEntries := make([]*compiledPolicyEntry, 0, len(rawEntries))
+			for order, rawEntry := range rawEntries {
+				identity := reflect.ValueOf(rawEntry).Pointer()
+				sourceEntry := sourceEntries[order]
+				sourceIdentity := reflect.ValueOf(sourceEntry).Pointer()
+				snapshotEntry := entryIdentity[identity]
+				if snapshotEntry == nil {
+					snapshotEntry = &policySnapshotEntry{
+						id:             len(policy.entriesByID),
+						data:           rawEntry,
+						sourceObject:   sourceEntry,
+						sourceIdentity: sourceIdentity,
+					}
+					entryIdentity[identity] = snapshotEntry
+					policy.entriesByID = append(policy.entriesByID, snapshotEntry)
+					policy.entriesBySourceID[sourceIdentity] = snapshotEntry
+				}
+				compiled := &compiledPolicyEntry{
+					entry: snapshotEntry,
+					order: order,
+				}
+				if mode == PolicyProjectionOmit || mode == PolicyPlanTolerate {
+					pathText, _ := rawEntry["path"].(string)
+					compiled.selector = parsePolicyPath(pathText)
+				}
+				compiledEntries = append(compiledEntries, compiled)
+			}
+			byMode[mode] = compiledEntries
+		}
+		policy.entriesByResource[resourceType] = byMode
+
+		exact := make(map[string]*compiledPolicyEntry)
+		var wildcard []*compiledPolicyEntry
+		for _, entry := range byMode[PolicyPlanTolerate] {
+			hasWildcard := false
+			for _, segment := range entry.selector {
+				if text, ok := segment.(string); ok && text == policyWildcard {
+					hasWildcard = true
+					break
+				}
+			}
+			if hasWildcard {
+				wildcard = append(wildcard, entry)
+				continue
+			}
+			marker := pathMarker(entry.selector)
+			if _, exists := exact[marker]; !exists {
+				// Textually distinct aliases such as field[0] and
+				// field[00] canonicalize to the same selector. Keep the
+				// first exactly as the source does; later aliases stay stale.
+				exact[marker] = entry
+			}
+		}
+		policy.exactPlanTolerate[resourceType] = exact
+		policy.wildcardPlanTolerate[resourceType] = wildcard
+	}
+	return policy
+}
+
+// NewDriftPolicy ports DriftPolicy.constructor from
+// node-src/domain/drift-policy.ts. It snapshots validated input and compiles
+// exact and wildcard plan-tolerance indexes; nil selects the source-defined
+// empty version-1 policy.
+func NewDriftPolicy(data any, source string) (policy *DriftPolicy, err error) {
+	defer recoverMetadataError(&err)
+	return newDriftPolicy(data, source), nil
+}
+
+func (e PolicyEntry) data() JsonObject {
+	if e.policy == nil || e.id < 0 || e.id >= len(e.policy.entriesByID) {
+		return nil
+	}
+	entry := e.policy.entriesByID[e.id]
+	if entry.id != e.id {
+		return nil
+	}
+	return clonePolicyValue(entry.data).(JsonObject)
+}
+
+// Data exposes the source fields of PolicyEntry from
+// node-src/domain/drift-policy.ts as a detached JSON object. This detached Go
+// view of the record has no separate Node method analogue; a zero or invalid
+// handle returns nil.
+func (e PolicyEntry) Data() JsonObject {
+	return e.data()
+}
+
+func (p *DriftPolicy) entries(resourceType string, mode PolicyMode) []PolicyEntry {
+	if p == nil {
+		return []PolicyEntry{}
+	}
+	compiled := p.entriesByResource[resourceType][mode]
+	entries := make([]PolicyEntry, len(compiled))
+	for index, entry := range compiled {
+		entries[index] = PolicyEntry{policy: p, id: entry.entry.id}
+	}
+	return entries
+}
+
+// Entries ports DriftPolicy.entries from node-src/domain/drift-policy.ts. It
+// returns immutable identity handles in declaration order and detaches the
+// returned slice from policy storage.
+func (p *DriftPolicy) Entries(resourceType string, mode PolicyMode) []PolicyEntry {
+	return p.entries(resourceType, mode)
+}
+
+func (p *DriftPolicy) markMatched(entry PolicyEntry) {
+	if p == nil || entry.policy == nil || entry.id < 0 || entry.id >= len(entry.policy.entriesByID) {
+		return
+	}
+	sourceEntry := entry.policy.entriesByID[entry.id]
+	if sourceEntry.id != entry.id {
+		return
+	}
+	localEntry := p.entriesBySourceID[sourceEntry.sourceIdentity]
+	if localEntry == nil {
+		return
+	}
+	p.markMatchedID(localEntry.id)
+}
+
+// MarkMatched ports DriftPolicy.markMatched from
+// node-src/domain/drift-policy.ts. A handle from another policy marks an entry
+// only when both policies were constructed from the same raw entry object;
+// zero, invalid, and separately allocated equal entries have no effect. This
+// matches the source WeakSet's object-identity behavior.
+func (p *DriftPolicy) MarkMatched(entry PolicyEntry) {
+	p.markMatched(entry)
+}
+
+func (p *DriftPolicy) markMatchedID(id int) {
+	p.matchedMu.Lock()
+	defer p.matchedMu.Unlock()
+	p.matched[id] = struct{}{}
+}
+
+func (p *DriftPolicy) projectionOmits(resourceType string, path []any) bool {
+	if p == nil {
+		return false
+	}
+	actual := append([]any(nil), path...)
+	for _, entry := range p.entriesByResource[resourceType][PolicyProjectionOmit] {
+		if policySelectorMatches(entry.selector, actual) {
+			p.markMatchedID(entry.entry.id)
+			return true
+		}
+	}
+	return false
+}
+
+// ProjectionOmits ports DriftPolicy.projectionOmits from
+// node-src/domain/drift-policy.ts. A match marks only the first
+// declaration-order selector.
+func (p *DriftPolicy) ProjectionOmits(resourceType string, path []any) bool {
+	return p.projectionOmits(resourceType, path)
+}
+
+func (p *DriftPolicy) toleratesPlanPath(resourceType string, path []any, action string) bool {
+	if p == nil || action != "update" {
+		return false
+	}
+	actual := append([]any(nil), path...)
+	var matched *compiledPolicyEntry
+	if marker, ok := concretePathMarker(actual); ok {
+		exact := p.exactPlanTolerate[resourceType][marker]
+		if exact != nil && policySelectorMatches(exact.selector, actual) {
+			matched = exact
+		}
+	}
+	for _, candidate := range p.wildcardPlanTolerate[resourceType] {
+		if !policySelectorMatches(candidate.selector, actual) {
+			continue
+		}
+		if matched == nil || candidate.order < matched.order {
+			matched = candidate
+		}
+	}
+	if matched == nil {
+		return false
+	}
+	p.markMatchedID(matched.entry.id)
+	return true
+}
+
+// ToleratesPlanPath ports DriftPolicy.toleratesPlanPath from
+// node-src/domain/drift-policy.ts. Only update is supported; source order
+// breaks exact/wildcard overlap and canonical-alias ties.
+func (p *DriftPolicy) ToleratesPlanPath(resourceType string, path []any, action string) bool {
+	return p.toleratesPlanPath(resourceType, path, action)
+}
+
+func (p *DriftPolicy) staleEntries(options StaleEntriesOptions) []StalePolicyEntry {
+	stale := make([]StalePolicyEntry, 0)
+	if p == nil {
+		return stale
+	}
+	resourceTypes := make(map[string]struct{}, len(options.ResourceTypes))
+	for resourceType := range options.ResourceTypes {
+		resourceTypes[resourceType] = struct{}{}
+	}
+	modes := append([]PolicyMode(nil), options.Modes...)
+	if len(modes) == 0 {
+		modes = append([]PolicyMode(nil), policyModes...)
+	}
+	p.matchedMu.RLock()
+	matched := make(map[int]struct{}, len(p.matched))
+	for id := range p.matched {
+		matched[id] = struct{}{}
+	}
+	p.matchedMu.RUnlock()
+
+	resources, _ := p.data["resource_types"].(JsonObject)
+	for _, resourceType := range sortedKeys(resources) {
+		if len(resourceTypes) > 0 {
+			if _, selected := resourceTypes[resourceType]; !selected {
+				continue
+			}
+		}
+		for _, mode := range modes {
+			for _, entry := range p.entriesByResource[resourceType][mode] {
+				if _, used := matched[entry.entry.id]; used {
+					continue
+				}
+				path, ok := entry.entry.data["path"].(string)
+				if !ok {
+					path, _ = entry.entry.data["target_path"].(string)
+				}
+				stale = append(stale, StalePolicyEntry{
+					ResourceType: resourceType,
+					Mode:         mode,
+					Path:         path,
+				})
+			}
+		}
+	}
+	return stale
+}
+
+// StaleEntries ports DriftPolicy.staleEntries from
+// node-src/domain/drift-policy.ts. Output order is resource type by source
+// code point, requested mode order (MODES by default), then declaration order.
+func (p *DriftPolicy) StaleEntries(options StaleEntriesOptions) []StalePolicyEntry {
+	return p.staleEntries(options)
+}
+
 // validateDriftPolicy reproduces the failure behavior of
 // `new DriftPolicy(data, source)` in node-src/domain/drift-policy.ts: nil
 // data is treated as the constructor's own `data === null` default (the
@@ -714,19 +1314,7 @@ func validateDriftPolicyWildcardLimits(data JsonObject, source string) {
 // through its own fail(detail) after catching the constructor's thrown
 // error.
 func validateDriftPolicy(data any, source string) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			failure, ok := r.(driftPolicyFailure)
-			if !ok {
-				panic(r)
-			}
-			err = fmt.Errorf("%s", failure.message)
-		}
-	}()
-	if data == nil {
-		data = JsonObject{"version": float64(1), "resource_types": JsonObject{}}
-	}
-	validated := validateDriftPolicyData(data, source)
-	validateDriftPolicyWildcardLimits(validated, source)
+	defer recoverMetadataError(&err)
+	_ = newDriftPolicy(data, source)
 	return nil
 }
