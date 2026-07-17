@@ -1,5 +1,14 @@
 # Go runtime port plan
 
+> **Superseded (2026-07-17) for the wire/IO layer by
+> [go-runtime-v2.md](go-runtime-v2.md).** The byte-compatibility contract below
+> stays authoritative for the **artifact layer** (canonical JSON, tfvars /
+> imports / moved / modules / env roots / catalog, fingerprints, reports, safety
+> classifications) and the differential-oracle method. It was over-applied to
+> the HTTP / filesystem / wire layer, producing a 7k-line transport emulation
+> package; v2 re-scopes those layers to product-compatibility over Go-native
+> infrastructure. Read v2 first.
+
 Status: draft specification. Blocked on completion of the
 [Python archive plan](python-archive-plan.md) (in flight as of PR #239) and on
 live-provider qualification of the Node operational path. Suggested location:
