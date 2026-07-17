@@ -17,7 +17,9 @@ import type { JsonObject } from "../node-src/metadata/validation.js";
 
 const ROOT = process.cwd();
 const CLI = path.join(ROOT, ".node-test", "node-src", "cli", "main.js");
-const AUTHORITY_SHA256 = "7d80eb5271b82469b0acd5499d88e4a79e22a802379e7f9d1d3c92064a463a10";
+const AUTHORITY_SHA256 = "0fc8279c122179047ac8895424d14ccc3922b30e840d48cfae6ec47d2fbdb767";
+const RESURRECTION =
+  "See docs/python-oracle-contracts.md for the exact clean-checkout resurrection command.";
 
 interface FrozenDeriveCase {
   readonly input: {
@@ -103,7 +105,7 @@ assert.deepEqual(authority.provenance, {
     "tests/test_source_operation_map.py": "673a0cb4e0b3eb711449e83c8a7b31a4f6e28174f247b49ad0547aa5e3c7ccc4",
   },
   generator_sha256: "4a3df279ba4f4b561373e57aebd13a297161ffb5f3cea0000896a46bc884a12a",
-  resurrection: "git worktree add <path> 7d90752ac4b800c5509b380d02dc828749f891a6 && cp scripts/archive/generate-source-operation-authority.py <path>/scripts/archive/ && (cd <path> && python3 scripts/archive/generate-source-operation-authority.py)",
+  resurrection: RESURRECTION,
   unicode_database: "15.1.0",
 });
 

@@ -25,7 +25,9 @@ const AUTHORITY_PATH = path.join(
   "fixtures",
   "python-sdk-path-evidence-v1.json",
 );
-const AUTHORITY_SHA256 = "55ce661ede25de0428cd7ecede97a02089e666cb4b68b1ce9c9ee953e17dceb6";
+const AUTHORITY_SHA256 = "ddc9b9151fcb504fefebcba1b29a3e9f20cf41c7e4406c7b55e2487256843785";
+const RESURRECTION =
+  "See docs/python-oracle-contracts.md for the exact clean-checkout resurrection command.";
 
 interface FrozenAuthority {
   readonly cases: Readonly<Record<string, unknown>>;
@@ -61,7 +63,7 @@ async function frozenAuthority(): Promise<FrozenAuthority> {
       normalization: "none; scanner and source-operation reports contain only SDK-root-relative paths",
       python: "3.13.13",
       python_implementation: "cpython",
-      resurrection: "git worktree add <path> 7d90752ac4b800c5509b380d02dc828749f891a6 && cp scripts/archive/generate-source-operation-authority.py <path>/scripts/archive/ && (cd <path> && python3 scripts/archive/generate-source-operation-authority.py)",
+      resurrection: RESURRECTION,
       source_blobs_sha256: {
         "engine/openapi_resource_map.py": "6026a4d25eaa4a2d5d669c32a8d9dbdd7de29f1bf1f8ad9b25c6ed5ded513770",
         "engine/reconcile_schema_api.py": "23deac644d9688df034cbd7f19d8bfcbcea15c3eb7a5109a89debc576037b7ea",

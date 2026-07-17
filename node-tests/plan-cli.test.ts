@@ -16,7 +16,7 @@ const CATALOG = path.join(ROOT, "packsets", "full.json");
 const FIRST = "zia_admin_users";
 const SECOND = "zia_url_categories";
 const LABEL = "zia_pair";
-const AUTHORITY_SHA256 = "54f2a3f6011a43e13b44e34a9caf25625ff112ed6ccbb8af8d5bdc0f08501359";
+const AUTHORITY_SHA256 = "e9244e12e7d5ef83f2a545bb21aeb23f784b516423345680a1595218d5251605";
 const PLAN_CLI_ROOT = "<PLAN_CLI_ROOT>";
 
 interface FrozenBytes {

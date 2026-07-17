@@ -5,15 +5,11 @@ affect adoption, but not statically represented as ordinary Terraform schema
 members. Cloudflare showed this with paths such as `data.flags` and
 `assets.config.run_worker_first`.
 
-Use the dynamic schema diagnostic command to classify those paths before
-deciding whether they should become pack metadata, provider-pack omissions,
-opaque maps, expanded observed values, or hard adoption blockers.
-
-```sh
-python -m engine.dynamic_schema \
-  --resource-type cloudflare_workers_script \
-  --path assets.config.run_worker_first
-```
+The former Python-only dynamic-schema diagnostic was retired with the
+compatibility implementation. Its statuses remain documented because they
+explain committed pack metadata and historical lab evidence. New cases should
+be evaluated through provider schema, provider-state projection, and saved-plan
+evidence before pack metadata changes.
 
 You can also classify paths from a JSON fixture:
 
@@ -23,12 +19,6 @@ You can also classify paths from a JSON fixture:
     "assets.config.run_worker_first"
   ]
 }
-```
-
-```sh
-python -m engine.dynamic_schema \
-  --resource-type cloudflare_workers_script \
-  --paths-json dynamic-paths.json
 ```
 
 Or classify `projection_omit` paths from a drift policy:
@@ -51,14 +41,8 @@ Or classify `projection_omit` paths from a drift policy:
 }
 ```
 
-```sh
-python -m engine.dynamic_schema \
-  --resource-type cloudflare_workers_script \
-  --policy policy/lab/drift-policy.json
-```
-
-The report is diagnostic only. It does not project provider state, render HCL,
-alter drift policy, or run Terraform/OpenTofu.
+The retired report was diagnostic only. It did not project provider state,
+render HCL, alter drift policy, or run Terraform/OpenTofu.
 
 Important statuses:
 

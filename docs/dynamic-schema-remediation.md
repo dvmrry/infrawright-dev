@@ -14,11 +14,11 @@ explicit behavior exists.
 
 ## Relationship To Existing `dynamic_schema` Diagnostics
 
-The engine already has diagnostic classification for dynamic or open schema paths
-through `engine.dynamic_schema`. Future dynamic-schema remediation must not reuse
-that diagnostic signal as a projection or omission authority.
+`iw assert-adoptable` has diagnostic classification for dynamic or open schema
+paths. Future dynamic-schema remediation must not reuse that diagnostic signal
+as a projection or omission authority.
 
-`engine.dynamic_schema` reports statuses such as `schema_known`,
+The diagnostic reports statuses such as `schema_known`,
 `pack_schema_gap`, `schema_computed_only`, and `unknown_schema_path`. Those are
 classifications, not permissions. A `pack_schema_gap` result means the pack
 must decide what to do; it does not mean the engine may automatically keep or

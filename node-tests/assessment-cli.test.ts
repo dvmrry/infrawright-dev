@@ -12,7 +12,7 @@ import { planFingerprintV2 } from "../node-src/domain/plan-fingerprint.js";
 
 const ROOT = process.cwd();
 const RESOURCE = "sample_resource";
-const AUTHORITY_SHA256 = "cc611aa957d925c2dfb48b57caccbacb8eb5364a8a4b624f84ca17d14d9f6a36";
+const AUTHORITY_SHA256 = "015f0314d9200a54734e40be11fd2dfb19b5386e2c34ae60813d37823a43a057";
 const ASSESSMENT_ROOT = "<ASSESSMENT_CLI_ROOT>";
 
 interface FrozenBytes {

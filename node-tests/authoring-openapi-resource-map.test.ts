@@ -22,7 +22,7 @@ import type { JsonObject } from "../node-src/metadata/validation.js";
 
 const ROOT = process.cwd();
 const CLI = path.join(ROOT, ".node-test", "node-src", "cli", "main.js");
-const AUTHORITY_SHA256 = "fc730c4adda0fb599f37d712adc75c1b9132350a5e714511e3f2c6e81581bd8a";
+const AUTHORITY_SHA256 = "e4e25a12a871c895364bce16fe05a8bcd94debd1eddc53de9fc75ca82bc8ce3c";
 const authorityBytes = readFileSync(path.join(
   ROOT,
   "node-tests",

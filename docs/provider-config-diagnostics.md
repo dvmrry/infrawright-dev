@@ -52,23 +52,11 @@ drift for specific resources. `resource_prefixes` is also supported for broad
 families. If neither is set, the requirement applies to every resource owned by
 that provider.
 
-## CLI
+## Archived diagnostic
 
-Run against a saved plan JSON fixture:
-
-```sh
-python -m engine.provider_config \
-  --provider google \
-  --plan reports/provider-config/google_pubsub_topic.tfplan.json
-```
-
-Or infer the provider from a single resource type:
-
-```sh
-python -m engine.provider_config \
-  --resource-type google_pubsub_topic \
-  --plan reports/provider-config/google_pubsub_topic.tfplan.json
-```
+The Python-only standalone report command was retired with the compatibility
+implementation. Its classification model remains documented because committed
+provider-config requirements still supply guidance to `iw assert-adoptable`.
 
 The report classifies each update path as either:
 

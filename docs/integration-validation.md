@@ -10,9 +10,9 @@ for a selected tenant/resource scope.
 This runbook is intentionally conservative. A validation failure is evidence to
 classify, not an automatic engine feature request.
 
-The commands below run through the generic Node 24 `iw` CLI. Python
-must be unavailable when qualifying the operational runtime; retained Python
-tests, differentials, probes, and authoring tools are outside this workflow.
+The commands below run through the generic Node 24 `iw` CLI. Python should be
+made unavailable during qualification as a permanent regression tripwire; all
+maintained tests, differentials, probes, and authoring tools are Node-owned.
 Repository fake-Terraform tests establish readiness to qualify, not live
 qualification. See [Operational Node Runtime](operational-runtime.md) for the
 exact bundle/checksum contract and the separately authorized read-only and

@@ -39,9 +39,9 @@ make PACK_PROFILE=packsets/zscaler.json check
 ```
 
 Copy `packs/{zcc,zia,zpa,ztc}` and `packs/_shared/zscaler` into that root. A
-selected or independently distributed root is authoritative for Python
-collectors and their `packs._shared` imports as well as metadata and registry
-data; it cannot silently import a missing collector from this checkout.
+selected or independently distributed root is authoritative for metadata,
+registry, schemas, and overrides; collector authority comes from the typed Node
+adapter bound to the owning provider source.
 
 Packs declare runtime shared-code dependencies with `requires_shared` in
 `pack.json`. Exact profile validation and `check-pack` enforce that dependency
@@ -67,8 +67,7 @@ profile/catalog or validation fails.
 ## Check Layers
 
 - `make check` validates the active distribution: exact profile, selected unit
-  tests, available examples, generated modules, pack metadata, formatting, and
-  the vendor boundary.
+  tests, available examples, generated modules, pack metadata, and formatting.
 - `make check-all` ignores a caller's selected root and proves the complete
   upstream catalog against `packsets/full.json`.
 - `make check-core` runs the pack-independent test surface and generators with
@@ -79,12 +78,10 @@ profile/catalog or validation fails.
   check.
 
 Tests are discovered normally. `node-tests/pack-test-requirements.json`
-declares the exact compiled Node test files that require committed pack data;
-the retained Python compatibility suite uses the finer-grained unittest rules
-in `tests/pack-test-requirements.json`. Tests without a declaration remain core
-and run under every profile. Both requirement surfaces are fail-closed: stale
-files or prefixes are errors, and the core/reduced CI profiles catch new
-undeclared coupling.
+declares the exact compiled Node test files that require committed pack data.
+Tests without a declaration remain core and run under every profile. The
+requirement surface is fail-closed: stale files or prefixes are errors, and the
+core/reduced CI profiles catch new undeclared coupling.
 
 ## Examples
 

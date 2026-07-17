@@ -34,8 +34,8 @@
 - `python-environment-roots-v1.json`: exact representative tree bytes,
   complete 453-file manifest, dangling symlink evidence, and provenance.
 - `scripts/archive/generate-python-environment-roots-authority.py`: pinned,
-  deterministic CPython authority reproduction; delete only with the final
-  Python archive after its producing commit remains reachable in git history.
+  deterministic CPython authority reproduction. The final archive retrieves
+  its exact SHA-256-bound blob from owning commit `c86ac17…`.
 - No production artifact changes are expected.
 
 ## Expected delta

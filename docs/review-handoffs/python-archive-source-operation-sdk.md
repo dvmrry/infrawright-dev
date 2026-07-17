@@ -35,7 +35,8 @@
 - `python-sdk-path-evidence-v1.json`: 13 complete scanner/integration/CLI
   authorities.
 - `generate-source-operation-authority.py`: pinned temporary reproduction
-  script; delete with the final Python archive.
+  script. The final archive retrieves its exact SHA-256-bound blob from owning
+  commit `bfaf461…`.
 - No production artifact changes are expected.
 
 ## Expected delta

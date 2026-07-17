@@ -28,12 +28,6 @@ async function pythonArtifacts(directory: string): Promise<string[]> {
   return found;
 }
 
-async function removePythonArtifacts(directory: string): Promise<void> {
-  for (const pathname of await pythonArtifacts(directory)) {
-    await rm(pathname, { recursive: true, force: true });
-  }
-}
-
 async function copiedRoot(products: readonly string[]): Promise<string> {
   const directory = await mkdtemp(path.join(os.tmpdir(), "infrawright-authority-"));
   await cp(
@@ -46,7 +40,6 @@ async function copiedRoot(products: readonly string[]): Promise<string> {
       recursive: true,
     });
   }
-  await removePythonArtifacts(directory);
   assert.deepEqual(await pythonArtifacts(directory), []);
   return directory;
 }

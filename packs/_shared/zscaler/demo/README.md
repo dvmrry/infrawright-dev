@@ -1,8 +1,8 @@
 # Demo Dataset — Provenance
 
-These JSON files are input fixtures for `tests/test_demo_pipeline.py`, the
-end-to-end pipeline test that exercises the full transform pipeline against
-realistic API response shapes.
+These JSON files are input fixtures for the Node end-to-end transform tests,
+which exercise the full transform pipeline against realistic API response
+shapes.
 
 ## Source
 
@@ -39,24 +39,9 @@ IDs, names, and cross-references are consistent within the cassettes (e.g.
 | `zcc_failopen_policy.json` | synthetic — shaped from ZCC provider schema | `zcc/papi/public/v1/webFailOpenPolicy/listByCompany` |
 | `zcc_web_privacy.json` | synthetic — shaped from ZCC provider schema | `zcc/papi/public/v1/getWebPrivacyInfo` |
 
-## Regeneration
-
-```bash
-# Fetch cassettes (requires gh CLI + read access to zscaler/zscaler-sdk-python)
-mkdir -p /tmp/cassettes
-for f in TestSegmentGroup TestServerGroup TestApplicationSegment; do
-  gh api repos/zscaler/zscaler-sdk-python/contents/tests/integration/zpa/cassettes/${f}.yaml \
-    --jq .content | base64 -d > /tmp/cassettes/zpa_${f}.yaml
-done
-for f in TestURLCategories TestLocationManagement TestSSLInspectionRules TestCloudAppControl; do
-  gh api repos/zscaler/zscaler-sdk-python/contents/tests/integration/zia/cassettes/${f}.yaml \
-    --jq .content | base64 -d > /tmp/cassettes/zia_${f}.yaml
-done
-
-# Run extraction (throwaway script, not committed)
-uv run --with pyyaml python /tmp/extract.py
-```
-
-The extraction script deduplicates by id (last occurrence = most complete
-post-update state), keeps only custom URL categories (`customCategory: true`),
-caps each resource at 5 items, and writes pretty-printed sorted-key JSON.
+The original extraction used the public cassette sources named above,
+deduplicated by id (last occurrence = most complete post-update state), kept
+only custom URL categories (`customCategory: true`), capped each resource at
+five items, and wrote pretty-printed sorted-key JSON. Treat these reviewed
+bytes as fixtures; replacement requires provenance review rather than an
+untracked regeneration script.

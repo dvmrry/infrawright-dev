@@ -10,9 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: "3.12"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "24"
@@ -23,7 +20,7 @@ jobs:
           terraform_wrapper: false
       - name: Install pinned build dependencies
         run: npm ci --ignore-scripts
-      - name: Complete Node and retained differential gate
+      - name: Complete Node gate
         run: npm run check:all
       - name: Build supported CLI bundle
         run: npm run build
@@ -36,9 +33,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: "3.12"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "24"
@@ -54,25 +48,6 @@ jobs:
       - name: Whitespace hygiene
         run: git diff --check
 
-  floor:
-    # The engine documents a Python 3.6 floor; 3.6 runners are gone, so pin
-    # the oldest interpreter GitHub still hosts as the enforced floor and
-    # keep syntax honest (no f-strings, no walrus, no 3.7+-only kwargs).
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: "3.7"
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: "24"
-          cache: npm
-      - name: Install pinned Node dependencies
-        run: npm ci --ignore-scripts
-      - name: Unit tests on floor interpreter
-        run: make test-python-legacy
-
   pack-profiles:
     runs-on: ubuntu-latest
     strategy:
@@ -81,9 +56,6 @@ jobs:
         profile: [empty, aws, cloudflare, google, netbox, zcc, zia, zpa, ztc, zscaler]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: "3.12"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "24"
@@ -99,37 +71,14 @@ jobs:
           PROFILE: ${{ matrix.profile }}
         run: |
           root="$RUNNER_TEMP/packs-$PROFILE"
-          mkdir -p "$root"
-          python3 - "$PROFILE" "$root" <<'PY'
-          import json
-          import os
-          import shutil
-          import sys
-
-          profile_name, output_root = sys.argv[1:]
-          with open("packsets/%s.json" % profile_name, encoding="utf-8") as f:
-              profile = json.load(f)
-          for name in profile["packs"]:
-              shutil.copytree(
-                  os.path.join("packs", name),
-                  os.path.join(output_root, name),
-              )
-          if profile["shared"]:
-              shared_root = os.path.join(output_root, "_shared")
-              os.makedirs(shared_root)
-              for name in profile["shared"]:
-                  shutil.copytree(
-                      os.path.join("packs", "_shared", name),
-                      os.path.join(shared_root, name),
-                  )
-          PY
+          node scripts/materialize-pack-profile.mjs copy \
+            --profile "packsets/$PROFILE.json" \
+            --packs-root packs \
+            --destination "$root"
           echo "INFRAWRIGHT_PACKS=$root" >> "$GITHUB_ENV"
           echo "PACK_PROFILE=$GITHUB_WORKSPACE/packsets/$PROFILE.json" >> "$GITHUB_ENV"
       - name: Selected distribution gate
         run: make check
-      - name: Selected legacy Python compatibility gate
-        run: make test-python-legacy
-
   pruned-checkouts:
     runs-on: ubuntu-latest
     strategy:
@@ -138,9 +87,6 @@ jobs:
         profile: [empty, zscaler]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: "3.12"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "24"
@@ -155,36 +101,10 @@ jobs:
         run: |
           root="$RUNNER_TEMP/pruned-$PROFILE"
           git worktree add --detach "$root" HEAD
-          python3 - "$PROFILE" "$root" <<'PY'
-          import json
-          import os
-          import shutil
-          import sys
-
-          profile_name, checkout = sys.argv[1:]
-          with open(
-                  os.path.join(checkout, "packsets", profile_name + ".json"),
-                  encoding="utf-8") as f:
-              profile = json.load(f)
-
-          packs_root = os.path.join(checkout, "packs")
-          selected_packs = set(profile["packs"])
-          for name in os.listdir(packs_root):
-              path = os.path.join(packs_root, name)
-              if (name != "_shared" and os.path.isdir(path)
-                      and name not in selected_packs):
-                  shutil.rmtree(path)
-
-          shared_root = os.path.join(packs_root, "_shared")
-          selected_shared = set(profile["shared"])
-          if os.path.isdir(shared_root):
-              for name in os.listdir(shared_root):
-                  path = os.path.join(shared_root, name)
-                  if os.path.isdir(path) and name not in selected_shared:
-                      shutil.rmtree(path)
-              if not selected_shared:
-                  shutil.rmtree(shared_root)
-          PY
+          node "$root/scripts/materialize-pack-profile.mjs" prune \
+            --profile "$root/packsets/$PROFILE.json" \
+            --packs-root "$root/packs"
+          node "$root/scripts/verify-runtime-release.mjs" "$root" --artifacts-only
           echo "PRUNED_ROOT=$root" >> "$GITHUB_ENV"
       - name: Pruned distribution gate
         env:
@@ -192,10 +112,3 @@ jobs:
         run: |
           npm --prefix "$PRUNED_ROOT" ci --ignore-scripts
           make -C "$PRUNED_ROOT" PACK_PROFILE="packsets/$PROFILE.json" check
-      - name: Pruned legacy Python compatibility gate
-        env:
-          PROFILE: ${{ matrix.profile }}
-        run: >-
-          make -C "$PRUNED_ROOT"
-          PACK_PROFILE="packsets/$PROFILE.json"
-          test-python-legacy

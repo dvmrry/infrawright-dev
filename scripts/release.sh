@@ -44,6 +44,7 @@ fi
 # 2. Lay down the tag's TRACKED tree (git archive = tracked files only; no .git, no cruft).
 git -C "$DEV_ROOT" archive "$TAG" | tar -x -C "$STAGE"
 echo "staged $TAG tree: $(find "$STAGE" -type f ! -path '*/.git/*' | wc -l | tr -d ' ') files"
+node "$STAGE/scripts/verify-runtime-release.mjs" "$STAGE" --artifacts-only
 
 # 3. Build the portable Node bundles inside the tracked release tree.
 #    npm is a release-time dependency only; downstream runs the bundled file
@@ -60,13 +61,12 @@ test "$NODE_MAJOR" = 24 || {
   rm -rf node_modules .node-test
 )
 
-# 4. Verify the generic runtime without Python, transition catalogs, or source
-#    build dependencies.
+# 4. Verify the generic runtime without Python or source build dependencies.
 node "$STAGE/scripts/verify-runtime-release.mjs" "$STAGE"
 
 # The published runtime surface is the generic CLI bundle. No consumer of the
 # retired process host or ZCC child remained when those bundles were removed.
-for must in packs/_shared/zscaler/collector.py engine/transform.py packs/zia/registry.json catalogs/zscaler-root-catalog.v1.json dist/infrawright-cli.mjs dist/infrawright-cli.mjs.sha256 LICENSE README.md; do
+for must in packs/zia/registry.json catalogs/zscaler-root-catalog.v1.json dist/infrawright-cli.mjs dist/infrawright-cli.mjs.sha256 LICENSE README.md; do
   test -f "$STAGE/$must" || { echo "FATAL: release is missing $must — aborting"; exit 2; }
 done
 echo "runtime release guard: OK"

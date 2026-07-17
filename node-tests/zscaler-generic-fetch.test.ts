@@ -70,21 +70,15 @@ test("generic Fetch collects real ZCC and ZTC registries from a Python-free exte
   try {
     await Promise.all([
       cp(path.join(ROOT, "packs", "zcc"), path.join(packsRoot, "zcc"), {
-        filter: (source) => !source.endsWith(".py") && !source.endsWith(".pyc")
-          && path.basename(source) !== "__pycache__",
         recursive: true,
       }),
       cp(path.join(ROOT, "packs", "ztc"), path.join(packsRoot, "ztc"), {
-        filter: (source) => !source.endsWith(".py") && !source.endsWith(".pyc")
-          && path.basename(source) !== "__pycache__",
         recursive: true,
       }),
       cp(
         path.join(ROOT, "packs", "_shared", "zscaler"),
         path.join(packsRoot, "_shared", "zscaler"),
         {
-          filter: (source) => !source.endsWith(".py") && !source.endsWith(".pyc")
-            && path.basename(source) !== "__pycache__",
           recursive: true,
         },
       ),

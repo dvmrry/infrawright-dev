@@ -12,25 +12,11 @@ existing `projection_omit` path with explicit evidence, or stay hard adoption
 blockers. These diagnostics must not become a second omission system or drift
 tolerance policy.
 
-Classify projected tfvars:
-
-```sh
-python -m engine.absent_defaults \
-  --resource-type netbox_device \
-  --projected netbox_device.auto.tfvars.json
-```
-
-Classify a saved Terraform/OpenTofu plan JSON:
-
-```sh
-python -m engine.absent_defaults \
-  --resource-type cloudflare_zone_hold \
-  --plan tfplan.json
-```
-
-You can pass both fixtures in one run. The report is diagnostic only. It does
-not run projection, normalize values, change drift policy, alter
-`assert-adoptable`, or run Terraform/OpenTofu.
+The former Python-only classification command was retired with the
+compatibility implementation. Its statuses remain documented below because
+they explain committed metadata and historical provider-lab evidence. Current
+behavior is enforced through pack projection policy and `iw assert-adoptable`;
+there is no standalone current-tree diagnostic command.
 
 Important statuses:
 

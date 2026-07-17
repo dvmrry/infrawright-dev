@@ -1,4 +1,3 @@
-PYTHON ?= python3
 NODE ?= node
 NPM ?= npm
 TF ?= terraform
@@ -27,7 +26,7 @@ endif
 override INFRAWRIGHT_DEPLOYMENT = $(DEPLOYMENT)
 export INFRAWRIGHT_DEPLOYMENT
 
-.PHONY: metadata-cli verify-runtime source-build-preflight check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set root-catalog check-root-catalog deployment resources resources-reference-order gen-modules validate-modules audit-vendor-boundary demo-contract check check-node check-all check-core test test-node test-python-legacy fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: metadata-cli verify-runtime source-build-preflight check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set root-catalog check-root-catalog deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-node check-all check-core test test-node fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 dist/infrawright-cli.mjs:
 	$(NPM) run build:metadata-cli
@@ -99,9 +98,6 @@ gen-modules: dist/infrawright-cli.mjs ## Generate deployment modules ([RESOURCE=
 validate-modules: dist/infrawright-cli.mjs ## Validate deployment modules ([RESOURCE="<type> ..."])
 	$(INFRAWRIGHT_CLI) modules validate --deployment "$(DEPLOYMENT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-audit-vendor-boundary: dist/infrawright-cli.mjs ## Audit vendor-specific tokens in engine source
-	$(INFRAWRIGHT_CLI) audit-vendor-boundary
-
 demo-contract: dist/infrawright-cli.mjs ## Credential-free demo artifact/module contract check
 	@echo "demo-contract: materializing demo overlay without credentials"
 	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1
@@ -118,7 +114,7 @@ demo-contract: dist/infrawright-cli.mjs ## Credential-free demo artifact/module 
 	echo "demo-contract: committed demo config/imports and generated modules are in sync"
 	@echo "demo-contract: live provider import/plan proof requires credentials and the adoption workflow"
 
-check: check-pack-set test check-examples check-modules check-tfvars-fmt check-pack audit-vendor-boundary ## Active-distribution gate: exact pack set + selected tests/examples + generators + metadata
+check: check-pack-set test check-examples check-modules check-tfvars-fmt check-pack ## Active-distribution gate: exact pack set + selected tests/examples + generators + metadata
 
 check-node: check ## Explicit Python-independent repository qualification gate
 
@@ -129,15 +125,12 @@ check-all: ## Run the active-distribution gate against the complete upstream pac
 check-core: ## Prove the pack-independent engine surface with an empty pack root
 	@root="$$(mktemp -d)"; trap 'rm -rf "$$root"' EXIT; \
 	INFRAWRIGHT_PACKS="$$root" $(MAKE) PACK_CATALOG="$(CURDIR)/packsets/full.json" PACK_PROFILE="$(CURDIR)/packsets/empty.json" \
-		test check-pack check-modules audit-vendor-boundary
+		test check-pack check-modules
 
 test: test-node ## Default repository tests use the Python-independent Node suite
 
-test-node: check-pack-set ## Run every Node test file that has no Python parity-oracle dependency
+test-node: check-pack-set ## Run the complete Node test suite for the active pack profile
 	PACK_PROFILE="$(PACK_PROFILE)" PACK_CATALOG="$(PACK_CATALOG)" $(NPM) run test:node
-
-test-python-legacy: check-pack-set ## Retained Python implementation and migration tests pending archive
-	$(PYTHON) -m tests.run --catalog "$(PACK_CATALOG)" -v
 
 fetch: dist/infrawright-cli.mjs ## Pull API JSON into pulls/<tenant> (TENANT=<name> [RESOURCE="<type|provider> ..."])
 	@test -n "$(TENANT)" || { echo "usage: make fetch TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }

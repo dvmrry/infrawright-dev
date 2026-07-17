@@ -87,14 +87,8 @@ members that `gen-env` will reference; ungrouped resources remain narrow.
 
 The maintained authoring targets `reconcile`, `openapi-map`,
 `source-operation-map`, `source-evidence-eval`, and `provider-probe` use the
-same bundled Node CLI. Tests that execute Python comparison implementations
-and the frozen ZCC migration machinery are explicitly retained parity and
-compatibility surfaces, not runtime prerequisites.
-Node migration differentials resolve their test-only Python oracle from a
-nonempty `PYTHON`, then `python3`, then `python`. The retained parity authority
-accepts Python 3.12/UCD 15.0.0 and Python 3.13/UCD 15.1.0; set `PYTHON` to one
-of those interpreters when the system default is newer. This selection affects
-tests only and does not add Python to any operational command.
+same bundled Node CLI. Migration parity is retained as reviewed frozen
+authority; current tests do not execute Python.
 
 The default repository/Make qualification path is Python-independent:
 
@@ -103,16 +97,13 @@ npm run test:node
 make check-node
 ```
 
-The Node selector runs every compiled test file without a Python-oracle import
-whose explicit pack requirements are present, rejects direct hardcoded Python
-subprocesses in that selected set, and includes the import Oracle tests plus the
-bundled operational workflow smoke in the full distribution. Unmarked tests
-remain core and run in reduced distributions, so undeclared coupling fails
-closed. The selector separately reports Python-oracle and missing-pack
-exclusions so neither remaining surface can be mistaken for Node coverage.
-During the archive window, `npm run check:all` and
-`make test-python-legacy` remain explicit compatibility gates for the retained
-Python authorities.
+The Node selector runs every compiled test file whose explicit pack
+requirements are present, rejects direct hardcoded Python subprocesses, and
+includes the import Oracle tests plus the bundled operational workflow smoke
+in the full distribution. Unmarked tests remain core and run in reduced
+distributions, so undeclared coupling fails closed. Frozen Python provenance
+and resurrection commands remain historical evidence in
+`docs/python-oracle-contracts.md`, not executable current-tree dependencies.
 
 ## Runtime and Release Contract
 
@@ -151,8 +142,8 @@ bundle. It neither invokes npm nor Python.
 
 The exact-archive stripped-runtime smoke runs `make verify-runtime`, a pure
 resource query, and `make demo-contract` from a tree without `node_modules`,
-`node-src`, `node-tests`, the lockfile, TypeScript configuration, Python
-operational sources, transition catalogs, or legacy bundles. npm, npx, and
+`node-src`, `node-tests`, the lockfile, TypeScript configuration, transition
+catalogs, or legacy bundles. npm, npx, and
 Python tripwires prove the demo consumes only the shipped generic bundle plus
 fake Terraform.
 
@@ -166,13 +157,11 @@ manifests, registries, schemas, and overrides selected by those profiles.
 pack root. For every selected Fetch resource, collector authority comes from
 the resource's actual provider owner, that owning pack's existing
 `provider_sources` value, and the caller's closed source-to-adapter map—not
-from the registry product alone, the pack's filesystem location, or
-`collector.py`. The bundled CLI fails an unknown source, cross-provider product
+from the registry product alone or the pack's filesystem location. The bundled CLI fails an unknown source, cross-provider product
 reuse, or adapter-product mismatch before credential parsing, CA-bundle
 loading, transport creation, or pull-directory creation. The
 operational smoke exercises a nonempty `make fetch` from a root outside the
-runtime bundle after physically deleting every `.py`, `.pyc`, and
-`__pycache__` entry.
+runtime bundle and asserts that no Python artifact exists.
 
 ### Source-build registry contract
 
@@ -283,5 +272,5 @@ surfaces remain intentionally pending separate decisions.
 |---|---|---|---|---|
 | Draft PR #191 | Historical ZIA resource-specific migration path | Branch may be referenced during audit/recovery | Archive or close candidate | Independent review and explicit approval |
 | Draft PR #192 | Historical ZIA plan workflow stacked on #191 | Same, plus stack relationship | Archive or close candidate | Independent review and explicit approval |
-| Python operational implementations | Python tests, differential baselines, and possible unknown external callers | Highest unknown-caller risk | Archive/delete candidate after extraction | Live generic qualification, pipeline cutover, and consumer inventory |
-| Python migration tests | Differential evidence for the operational port | Little runtime risk; high regression value | Keep, then selectively archive | Final stack integration and an approved cleanup plan |
+The Python implementation and live migration tests are archived in Git history;
+their reviewed frozen authorities remain active Node regression evidence.

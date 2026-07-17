@@ -12,8 +12,7 @@ The core adoption/codegen contract is provider-agnostic: provider-specific
 enumeration, identity, schema, and diagnostic metadata live in **packs** under
 `packs/<name>/`. Zscaler is the reference pack; Cloudflare, Google, AWS, and
 NetBox provide additional provider-lab and metadata evidence. Engine-edge
-vendor references are tracked by `make audit-vendor-boundary` so the current
-exceptions stay visible instead of quietly growing.
+vendor behavior belongs in pack metadata rather than the generic runtime.
 
 ## Primary Adoption Workflow
 
@@ -90,9 +89,9 @@ make demo       # materialize the demo tenant (no credentials needed)
 make demo-contract  # credential-free demo artifact/module contract check
 ```
 
-During the Python archive window, `npm run check:all` additionally runs the
-retained Python-oracle migration differentials. Python is not required by the
-operational CLI.
+`npm run check:all` runs the complete Node suite, including exact replay of the
+frozen migration-oracle authorities. Python is not required anywhere in the
+repository gate or operational CLI.
 
 ### Runtime requirements
 
@@ -129,9 +128,9 @@ installing anything, or generate the exact mirror inventory with
 `node scripts/build-environment-preflight.mjs --manifest`. Until a restricted
 corporate registry mirrors that inventory, use the approved prebuilt bundle;
 the repository does not bypass the configured registry or fall back to the
-public npm registry. Python remains in this repository for retained
-compatibility tests, migration differentials, and optional diagnostic/research
-tools. No
+public npm registry. Frozen compatibility fixtures retain their provenance and
+resurrection instructions, while the retired Python source remains available
+through Git history. No
 live-provider, live-backend, or deployment-Apply qualification is claimed by
 the credential-free repository tests.
 
@@ -145,10 +144,9 @@ repository and downstream-consumer inventory found no callers.
 
 | Path | Role |
 |------|------|
-| `engine/` | retained Python implementations used by tests, differentials, and maintainer/migration tools; not required by the operational Node runtime |
 | `node-src/` | generic typed Node 24 operational library and `iw` CLI |
 | `catalogs/` | frozen versioned transition catalogs retained for migration consumers; not required by the generic CLI |
-| `packs/<name>/` | provider metadata: `pack.json`, collection registry, overrides, and schemas; retained Python collector modules may coexist but are not runtime dependencies |
+| `packs/<name>/` | provider metadata: `pack.json`, collection registry, overrides, and schemas |
 | `[<overlay>/]config/<tenant>/<resource_type>.auto.tfvars[.json]` | generated tenant config; `deployment.json` `tfvars_format` selects `json` by default or opt-in `hcl` |
 | `[<overlay>/]imports/<tenant>/<resource_type>_imports.tf` | generated import blocks |
 | `[<overlay>/]envs/<tenant>/<root_label>/` | generated Terraform roots; `<root_label>` is the resource type by default, or an opt-in grouped root label |

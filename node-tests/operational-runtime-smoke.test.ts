@@ -100,20 +100,17 @@ async function pythonArtifacts(directory: string): Promise<string[]> {
   const found: string[] = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const pathname = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name === "__pycache__") found.push(pathname);
-      else found.push(...await pythonArtifacts(pathname));
-    } else if (entry.name.endsWith(".py") || entry.name.endsWith(".pyc")) {
+    if (
+      entry.name === "__pycache__"
+      || entry.name.endsWith(".py")
+      || entry.name.endsWith(".pyc")
+    ) {
       found.push(pathname);
+    } else if (entry.isDirectory()) {
+      found.push(...await pythonArtifacts(pathname));
     }
   }
   return found;
-}
-
-async function removePythonArtifacts(directory: string): Promise<void> {
-  for (const pathname of await pythonArtifacts(directory)) {
-    await rm(pathname, { recursive: true, force: true });
-  }
 }
 
 test("built generic CLI completes a Python-disabled import-only workflow", {
@@ -171,10 +168,6 @@ test("built generic CLI completes a Python-disabled import-only workflow", {
       ),
       cp(path.join(ROOT, "packsets", "zia.json"), profile),
       cp(path.join(ROOT, "packsets", "full.json"), catalog),
-    ]);
-    await Promise.all([
-      removePythonArtifacts(runtime),
-      removePythonArtifacts(packs),
     ]);
     await chmod(cli, 0o755);
     assert.equal(await exists(path.join(runtime, "node_modules")), false);
