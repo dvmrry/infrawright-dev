@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +11,22 @@ import { PYTHON_ORACLE } from "./python-oracle.js";
 
 const ROOT = process.cwd();
 const CLI = path.join(ROOT, ".node-test", "node-src", "cli", "main.js");
+const sourceOperationAuthorityBytes = readFileSync(path.join(
+  ROOT,
+  "node-tests",
+  "fixtures",
+  "python-source-operation-map-v1.json",
+));
+assert.equal(
+  createHash("sha256").update(sourceOperationAuthorityBytes).digest("hex"),
+  "7d80eb5271b82469b0acd5499d88e4a79e22a802379e7f9d1d3c92064a463a10",
+);
+const sourceOperationAuthority = JSON.parse(sourceOperationAuthorityBytes.toString("utf8")) as {
+  readonly cli_cases: readonly {
+    readonly artifacts: { readonly stderr: string; readonly stdout: string };
+    readonly name: string;
+  }[];
+};
 
 interface Fixture {
   readonly api: string;
@@ -122,19 +140,6 @@ test("authoring CLI reports remain byte-compatible with Python", async (context)
       ],
       module: "engine.openapi_resource_map",
     },
-    {
-      node: [
-        "source-operation-map", "--schema", data.schema, "--openapi", data.openApi,
-        "--source-root", data.source, "--resource-prefix", "example",
-        "--source-facts", data.facts,
-      ],
-      python: [
-        "--schema", data.schema, "--openapi", data.openApi,
-        "--source-root", data.source, "--resource-prefix", "example",
-        "--source-facts", data.facts,
-      ],
-      module: "engine.source_operation_map",
-    },
   ] as const;
   for (const comparison of comparisons) {
     const node = runNode(comparison.node);
@@ -148,6 +153,27 @@ test("authoring CLI reports remain byte-compatible with Python", async (context)
       assert.doesNotMatch(node.stdout, /settings\[\]\.mode/u);
     }
   }
+});
+
+test("source-operation CLI output remains byte-compatible with frozen Python", async (context) => {
+  const data = await fixture();
+  context.after(async () => rm(data.root, { force: true, recursive: true }));
+  const result = runNode([
+    "source-operation-map",
+    "--schema", data.schema,
+    "--openapi", data.openApi,
+    "--source-root", data.source,
+    "--resource-prefix", "example",
+    "--source-facts", data.facts,
+  ]);
+  const matches = sourceOperationAuthority.cli_cases.filter((item) => {
+    return item.name === "authoring_cli_stdout";
+  });
+  assert.equal(matches.length, 1);
+  const expected = matches[0]!.artifacts;
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.replaceAll(data.root, "<FIXTURE_ROOT>"), expected.stdout);
+  assert.equal(result.stderr.replaceAll(data.root, "<FIXTURE_ROOT>"), expected.stderr);
 });
 
 test("source evidence CLI can invoke the AST producer without Python", async (context) => {

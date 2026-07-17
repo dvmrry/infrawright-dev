@@ -151,18 +151,6 @@
       "token": "zpa"
     },
     {
-      "path": "engine/source_operation_map.py",
-      "pattern": "\"cloudflare\",",
-      "reason": "Provider-readiness source mapping contains current provider-specific heuristics under audit.",
-      "token": "cloudflare"
-    },
-    {
-      "path": "engine/source_operation_map.py",
-      "pattern": "if part in (\"services\", \"zscaler\", \"v3\"):",
-      "reason": "Provider-readiness source mapping contains current provider-specific heuristics under audit.",
-      "token": "zscaler"
-    },
-    {
       "path": "engine/tfschema.py",
       "pattern": "ZIA ID-group pattern — one block whose members are lists, e.g.",
       "reason": "Terraform schema helper comments document known provider schema edge cases.",
