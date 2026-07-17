@@ -20,8 +20,8 @@ The retained compatibility implementation contains approximately:
 
 | Surface | Files | Lines | Disposition |
 |---|---:|---:|---|
-| `engine/` | 56 | 23,054 | Remove after differential evidence is frozen. |
-| `tests/` | 55 | 30,992 | Replace live-oracle comparisons, then remove. |
+| `engine/` | 55 | 22,437 | Remove after differential evidence is frozen. |
+| `tests/` | 54 | 29,440 | Replace live-oracle comparisons, then remove. |
 | pack collectors | 10 | 383 | Remove after collector fixtures no longer invoke them. |
 
 The former `tools/zpa_provider_evidence.py` authority is now owned by the
@@ -33,11 +33,16 @@ The Node-owned Transform/Adopt parity diagnostic and its complete frozen
 CPython authority also retired `engine/transform_adopt_parity.py` and
 `tests/test_transform_adopt_parity.py` without changing the four committed
 source-backed fixture results.
+The Node environment generator now owns the complete 151-root output tree,
+representative exact root bytes, and dangling-artifact behavior. Its frozen
+CPython authority retired `engine/gen_env.py`, `tests/test_gen_env.py`, and the
+two remaining Python environment-integration cases from
+`tests/test_group_bindings.py`.
 
 The shipped `iw` CLI is already Python-independent. The remaining dependency
-is a qualification dependency: 12 Node test files still import the live Python
+is a qualification dependency: 10 Node test files still import the live Python
 oracle during `npm run test:all`, CI still installs Python, and release guards
-still require representative Python files. Fourteen direct contracts are now
+still require representative Python files. Fifteen direct contracts are now
 frozen with their resurrection procedures in
 [Frozen Python oracle contracts](python-oracle-contracts.md).
 

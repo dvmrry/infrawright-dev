@@ -7,7 +7,7 @@ The artifact layout is flat by Terraform resource type:
 
 Provider packs own behavior and metadata; they do not create path segments.
 Single home for tenant/resource label validation and artifact path helpers;
-ops (CLI), transform, adopt, gen_env, and lookup all consume this module.
+ops (CLI), transform, adopt, and lookup all consume this module.
 """
 import os
 import re

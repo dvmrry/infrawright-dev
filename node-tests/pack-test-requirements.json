@@ -77,6 +77,23 @@
       "reason": "The cross-state Terraform smoke resolves the committed ZPA segment-group reference."
     },
     {
+      "file": "environment-generator.test.js",
+      "packs": [
+        "aws",
+        "cloudflare",
+        "google",
+        "netbox",
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
+      "reason": "The complete 151-root frozen authority loads every committed pack plus Zscaler bindings and topology."
+    },
+    {
       "file": "exact-plan-apply.test.js",
       "packs": [
         "aws",

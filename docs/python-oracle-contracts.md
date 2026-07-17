@@ -249,3 +249,54 @@ implementations; and every input parity fixture. Current tests compare every
 recorded artifact and complete report bytes. The fixture digest and source
 blobs are provenance locks, not substitutes for those exact comparisons. No
 provider, Terraform, backend, credentials, or network access is involved.
+
+## Environment-root contract
+
+The eighth archive slice freezes the CPython 3.13.13 / UCD 15.1.0 authority
+produced at baseline `55f6189efe888564b515a6c2f5a505348f921f6e`.
+Re-run the original live environment differential and Python unit suite from
+that exact state with:
+
+```sh
+git worktree add /tmp/iw-python-environment-roots \
+  55f6189efe888564b515a6c2f5a505348f921f6e
+cd /tmp/iw-python-environment-roots
+PYTHON=python3 npm run build:test
+PYTHON=python3 node --test \
+  .node-test/node-tests/environment-generator.test.js
+PYTHON=python3 python -m unittest \
+  tests.test_gen_env tests.test_group_bindings
+```
+
+From the archive slice that contains the reproduction script, regenerate and
+verify the exact committed fixture with:
+
+```sh
+/run/current-system/sw/bin/python3.13 \
+  scripts/archive/generate-python-environment-roots-authority.py \
+  /tmp/iw-python-environment-roots /tmp/python-environment-roots-v1.json
+test "$(shasum -a 256 /tmp/python-environment-roots-v1.json | cut -d' ' -f1)" = \
+  9dd1cc8d90ff639ff27d00ed1364b4a829de0d80b1c140a7eab62fb8440706b5
+```
+
+The script rejects any baseline other than the recorded commit and any
+interpreter other than CPython 3.13.13 / UCD 15.1.0. It is temporary migration
+evidence and is removed with the final Python archive after this producing
+commit remains reachable in git history.
+
+The complete authority is recorded in
+`node-tests/fixtures/python-environment-roots-v1.json`. The 105,024-byte
+fixture has SHA-256
+`9dd1cc8d90ff639ff27d00ed1364b4a829de0d80b1c140a7eab62fb8440706b5`.
+It preserves exact bytes for ungrouped JSON, grouped binding/backend,
+singleton HCL, and slug-root cases; the path, byte length, and SHA-256 of all
+453 files in the full 151-root output tree; and exact dangling config/output
+symlink targets and resulting tree bytes. No normalization is applied.
+
+The fixture records the producing Node and Python test blobs, every Python
+module that supplied environment topology or rendering, the full packset, and
+all four Zscaler registries. Current tests regenerate every representative
+tree and all 453 manifest entries, then compare them with the frozen CPython
+authority. The source blobs and fixture digest prevent the evidence from
+becoming a Node-to-Node self-comparison. No provider, backend, credentials,
+network access, deployment plan, or Apply is involved.
