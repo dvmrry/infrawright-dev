@@ -117,6 +117,23 @@ func fetchExpansionSafetyViolation(value string) *string {
 	return nil
 }
 
+// FetchPathSafetyViolation is the exported form of
+// fetchPathSafetyViolation, for go/internal/collectors (rest.go's
+// expandedPaths, porting node-src/collectors/rest.ts), which shares this
+// exact check with node-src/metadata/resources.ts's own registry
+// validation -- both sides of a single source of truth in the Node source,
+// where resources.ts exports the function and rest.ts imports it.
+func FetchPathSafetyViolation(value string) *string {
+	return fetchPathSafetyViolation(value)
+}
+
+// FetchExpansionSafetyViolation is the exported form of
+// fetchExpansionSafetyViolation; see FetchPathSafetyViolation's doc
+// comment.
+func FetchExpansionSafetyViolation(value string) *string {
+	return fetchExpansionSafetyViolation(value)
+}
+
 func validateFetchPathValue(value, source string) {
 	if violation := fetchPathSafetyViolation(value); violation != nil {
 		failf("%s %s", source, *violation)
