@@ -27,6 +27,7 @@ import (
 	"math/big"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -762,21 +763,66 @@ func driftRequireString(entry JsonObject, key, context string) string {
 	return s
 }
 
-// driftIsJsonScalar ports drift-policy.ts's own local isJsonScalar, which
-// -- unlike validation.ts's isJsonScalar -- does not accept a
-// losslessly-preserved json.Number token as scalar, only a plain
-// (already-demoted) float64. This is a faithful, if obscure, port of a
-// real asymmetry in the Node source between its two same-named local
-// helpers.
+// driftIsJsonScalar ports drift-policy.ts's own local isJsonScalar. PR 247
+// widened it to retain losslessly parsed numeric policy values while still
+// rejecting non-finite native numbers.
 func driftIsJsonScalar(value any) bool {
 	if value == nil {
 		return true
 	}
-	switch value.(type) {
-	case string, bool, float64:
+	switch v := value.(type) {
+	case string, bool, json.Number:
 		return true
+	case float64:
+		return !math.IsNaN(v) && !math.IsInf(v, 0)
 	default:
 		return false
+	}
+}
+
+// driftNumericScalarMarker ports numericScalarMarker from
+// node-src/domain/drift-policy.ts. The literal marker bytes are internal; the
+// contract is that values Node maps to the same Terraform numeric scope map to
+// the same deterministic Go marker as well.
+func driftNumericScalarMarker(value any) string {
+	if token, ok := value.(json.Number); ok && jsonIntegerToken.MatchString(string(token)) {
+		integer, valid := new(big.Int).SetString(string(token), 10)
+		if valid {
+			return "integer:" + integer.String()
+		}
+	}
+
+	var numeric float64
+	switch v := value.(type) {
+	case json.Number:
+		numeric, _ = strconv.ParseFloat(string(v), 64)
+	case float64:
+		numeric = v
+	default:
+		driftFail("drift policy numeric scalar marker received a non-number")
+	}
+	if !math.IsNaN(numeric) && !math.IsInf(numeric, 0) && math.Trunc(numeric) == numeric {
+		integer, _ := new(big.Float).SetFloat64(numeric).Int(nil)
+		return "integer:" + integer.String()
+	}
+	return "float:" + strconv.FormatFloat(numeric, 'g', -1, 64)
+}
+
+// driftJSONScalarMarker ports jsonScalarMarker from
+// node-src/domain/drift-policy.ts for projection_omit_if duplicate scopes.
+func driftJSONScalarMarker(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return "boolean:" + strconv.FormatBool(v)
+	case string:
+		return "string:" + jsonQuote(v)
+	case json.Number, float64:
+		return "number:" + driftNumericScalarMarker(v)
+	default:
+		driftFail("drift policy scalar marker received a non-scalar value")
+		return ""
 	}
 }
 
@@ -847,7 +893,11 @@ func validateEntry(source, resourceType, mode string, entryValue any) string {
 				driftFail("%s projection_omit_if entry for %s values must contain only JSON scalars", source, resourceType)
 			}
 		}
-		return fmt.Sprintf("projection_omit_if\x00%s\x00%s", pathText, mustMarshalJSON(values))
+		markers := make([]string, len(values))
+		for index, item := range values {
+			markers[index] = driftJSONScalarMarker(item)
+		}
+		return fmt.Sprintf("projection_omit_if\x00%s\x00%s", pathText, mustMarshalJSON(markers))
 	case "plan_tolerate":
 		var rawActions []any
 		if actionsRaw, hasActions := entry["actions"]; hasActions {
@@ -884,18 +934,11 @@ func validateEntry(source, resourceType, mode string, entryValue any) string {
 	}
 }
 
-// isDriftPolicyVersionOne reports whether value is the plain (already
-// numeric-token-demoted) number 1, matching a real asymmetry in the Node
-// source: node-src/domain/drift-policy.ts's own version check is a bare
-// `data.version !== 1`, with no LosslessNumber special-case (unlike
-// node-src/metadata/packs.ts's PACK_SET_VERSION check, which explicitly
-// treats a LosslessNumber("1") as equal to 1). A drift_policy document
-// whose version token happened to survive as a preserved json.Number
-// would therefore fail this check even though its numeric value is 1 --
-// ported here exactly as the Node source has it, oddity included.
+// isDriftPolicyVersionOne ports isSupportedDriftPolicyVersion from
+// node-src/domain/drift-policy.ts. Equivalent exact decimal spellings of one
+// are accepted without rounding a near-one value through binary64.
 func isDriftPolicyVersionOne(value any) bool {
-	number, ok := value.(float64)
-	return ok && number == 1
+	return canonjson.TerraformJSONExactlyEqual(value, float64(1))
 }
 
 // validateDriftPolicyData ports the structural half of validatePolicy from

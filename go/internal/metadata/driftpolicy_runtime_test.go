@@ -6,8 +6,11 @@ import (
 	"math"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
+
+	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
 func runtimePolicyEntry(path string, extra JsonObject) JsonObject {
@@ -314,6 +317,112 @@ func TestDriftPolicyAcceptsCompleteNonPlanModeVector(t *testing.T) {
 		if got := len(policy.Entries("sample_resource", mode)); got != 1 {
 			t.Errorf("Entries(sample_resource, %s) length = %d, want 1", mode, got)
 		}
+	}
+}
+
+func TestDriftPolicyAcceptsLosslessNumericPolicyAndRejectsEquivalentDuplicateScopes(t *testing.T) {
+	parsed, err := canonjson.ParseDataJSONLosslessly(`{
+		"version": 10e-1,
+		"resource_types": {
+			"sample_resource": {
+				"projection_omit_if": [{
+					"path": "quota",
+					"values": [900719925474099312345678901],
+					"reason": "test",
+					"approved_by": "unit"
+				}]
+			}
+		}
+	}`)
+	if err != nil {
+		t.Fatalf("ParseDataJSONLosslessly(lossless policy) error = %v, want nil", err)
+	}
+	policy, err := NewDriftPolicy(parsed, "lossless policy")
+	if err != nil {
+		t.Fatalf("NewDriftPolicy(lossless policy) error = %v, want nil", err)
+	}
+	entries := policy.Entries("sample_resource", PolicyProjectionOmitIf)
+	if len(entries) != 1 {
+		t.Fatalf("Entries(sample_resource, projection_omit_if) length = %d, want 1", len(entries))
+	}
+	values, ok := entries[0].Data()["values"].([]any)
+	if !ok || len(values) != 1 || values[0] != json.Number("900719925474099312345678901") {
+		t.Errorf("lossless policy values = %#v, want preserved json.Number", values)
+	}
+
+	roundedNearOne, err := canonjson.ParseDataJSONLosslessly(`{"version":1.0000000000000000000000001,"resource_types":{}}`)
+	if err != nil {
+		t.Fatalf("ParseDataJSONLosslessly(near-one policy) error = %v, want nil", err)
+	}
+	if _, err := NewDriftPolicy(roundedNearOne, "near-one policy"); err == nil || !strings.Contains(err.Error(), "unsupported drift policy version") {
+		t.Errorf("NewDriftPolicy(near-one policy) error = %v, want unsupported-version error", err)
+	}
+
+	duplicateNumbers, err := canonjson.ParseDataJSONLosslessly(`{
+		"version": 1,
+		"resource_types": {
+			"sample_resource": {
+				"projection_omit_if": [
+					{"path":"quota","values":[0],"reason":"first","approved_by":"unit"},
+					{"path":"quota","values":[0.0],"reason":"second","approved_by":"unit"}
+				]
+			}
+		}
+	}`)
+	if err != nil {
+		t.Fatalf("ParseDataJSONLosslessly(duplicate numeric scopes) error = %v, want nil", err)
+	}
+	if _, err := NewDriftPolicy(duplicateNumbers, "duplicate numeric scopes"); err == nil || !strings.Contains(err.Error(), "duplicate projection_omit_if") {
+		t.Errorf("NewDriftPolicy(duplicate numeric scopes) error = %v, want duplicate-scope error", err)
+	}
+}
+
+func TestDriftPolicyNumericDuplicateScopeMarkers(t *testing.T) {
+	tests := []struct {
+		name          string
+		first         string
+		second        string
+		wantDuplicate bool
+	}{
+		{name: "integral spellings", first: "0", second: "0.0", wantDuplicate: true},
+		{name: "signed zero", first: "-0", second: "0.0", wantDuplicate: true},
+		{name: "fractional spellings", first: "1e-1", second: "0.1", wantDuplicate: true},
+		{name: "unsafe integral spelling", first: "9007199254740992", second: "9007199254740992.0", wantDuplicate: true},
+		{name: "boolean and number", first: "false", second: "0", wantDuplicate: false},
+		{name: "string and number", first: `"0"`, second: "0", wantDuplicate: false},
+		{name: "different fractions", first: "0.1", second: "0.2", wantDuplicate: false},
+		{name: "exact unsafe integer versus rounded float", first: "9007199254740993", second: "9007199254740992.0", wantDuplicate: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			text := `{"version":1,"resource_types":{"sample_resource":{"projection_omit_if":[` +
+				`{"path":"quota","values":[` + test.first + `],"reason":"first","approved_by":"unit"},` +
+				`{"path":"quota","values":[` + test.second + `],"reason":"second","approved_by":"unit"}` +
+				`]}}}`
+			data, err := canonjson.ParseDataJSONLosslessly(text)
+			if err != nil {
+				t.Fatalf("ParseDataJSONLosslessly(%s) error = %v, want nil", text, err)
+			}
+			_, err = NewDriftPolicy(data, test.name)
+			gotDuplicate := err != nil && strings.Contains(err.Error(), "duplicate projection_omit_if")
+			if gotDuplicate != test.wantDuplicate {
+				t.Errorf("NewDriftPolicy(%s, %s) duplicate = %t (error %v), want %t", test.first, test.second, gotDuplicate, err, test.wantDuplicate)
+			}
+		})
+	}
+
+	nonFinite := JsonObject{
+		"version": float64(1),
+		"resource_types": JsonObject{
+			"sample_resource": JsonObject{
+				"projection_omit_if": []any{
+					runtimePolicyEntry("quota", JsonObject{"values": []any{math.Inf(1)}}),
+				},
+			},
+		},
+	}
+	if _, err := NewDriftPolicy(nonFinite, "non-finite native number"); err == nil || !strings.Contains(err.Error(), "only JSON scalars") {
+		t.Errorf("NewDriftPolicy(non-finite native number) error = %v, want JSON-scalar error", err)
 	}
 }
 

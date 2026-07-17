@@ -53,6 +53,19 @@ printf '%s\n' "$PWD" "$ONLY" "${PARENT_POISON-unset}" "$#" "$1" "$2" "$3"
 	}
 }
 
+func TestRunTerraformCommandAcceptsCISizedEnvironment(t *testing.T) {
+	requirePOSIX(t)
+	executable := writeExecutable(t, `test "$CI_ENV_499" = value`)
+	options := baseCommandOptions(t, executable)
+	options.Environment = make(map[string]string, 500)
+	for index := 0; index < 500; index++ {
+		options.Environment["CI_ENV_"+strconv.Itoa(index)] = "value"
+	}
+	if _, err := RunTerraformCommand(options); err != nil {
+		t.Fatalf("RunTerraformCommand(500 environment entries) error = %v, want nil", err)
+	}
+}
+
 func TestRunTerraformCommandOutputModes(t *testing.T) {
 	requirePOSIX(t)
 	executable := writeExecutable(t, `printf '%s' visible-stdout; printf '%s' visible-stderr >&2`)

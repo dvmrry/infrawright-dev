@@ -1,6 +1,7 @@
 package terraformcmd
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -164,14 +165,14 @@ func TestCommandValidationExactBoundaries(t *testing.T) {
 
 	environment := make(map[string]string, maxTerraformEnvironmentEntries)
 	for index := 0; index < maxTerraformEnvironmentEntries; index++ {
-		environment["K"+strings.Repeat("x", index)] = ""
+		environment["K"+strconv.Itoa(index)] = ""
 	}
 	if _, err := SnapshotTerraformCommandEnvironment(environment); err != nil {
-		t.Fatalf("256 environment entries: %v", err)
+		t.Fatalf("4096 environment entries: %v", err)
 	}
 	environment["overflow"] = ""
 	if _, err := SnapshotTerraformCommandEnvironment(environment); err == nil {
-		t.Fatal("257 environment entries unexpectedly accepted")
+		t.Fatal("4097 environment entries unexpectedly accepted")
 	}
 	if _, err := SnapshotTerraformCommandEnvironment(map[string]string{
 		"K": strings.Repeat("x", int(maxTerraformEnvironmentBytes)-1),

@@ -9,7 +9,7 @@ const (
 	maxTerraformCommandStderrBytes   int64 = 16 * 1024 * 1024
 	maxTerraformCommandArguments           = 128
 	maxTerraformCommandArgumentBytes int64 = 256 * 1024
-	maxTerraformEnvironmentEntries         = 256
+	maxTerraformEnvironmentEntries         = 4096
 	maxTerraformEnvironmentBytes     int64 = 256 * 1024
 	maximumJavaScriptSafeInteger     int64 = 9_007_199_254_740_991
 )
