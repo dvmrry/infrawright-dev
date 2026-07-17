@@ -17,17 +17,9 @@ import type { JsonObject } from "../node-src/metadata/validation.js";
 
 const ROOT = process.cwd();
 const CLI = path.join(ROOT, ".node-test", "node-src", "cli", "main.js");
-const AUTHORITY_SHA256 = "1864083d2f7a912be7185042e2461846db2a31824a6e660d76af8cc97e44c640";
-const RESURRECTION = `set -eu
-authority_checkout="\${IW_AUTHORITY_CHECKOUT:?set to the checkout containing this fixture}"
-resurrection_checkout="\${IW_RESURRECTION_CHECKOUT:?set to an empty path}"
-generator="$resurrection_checkout/scripts/archive/generate-source-operation-authority.py"
-git -C "$authority_checkout" worktree add --detach "$resurrection_checkout" 7d90752ac4b800c5509b380d02dc828749f891a6
-mkdir -p "$resurrection_checkout/scripts/archive"
-git -C "$authority_checkout" show bfaf46159f7209fdc58dbc4b85d820442aacaad4:scripts/archive/generate-source-operation-authority.py > "$generator"
-test "$(shasum -a 256 < "$generator" | awk '{print $1}')" = 4a3df279ba4f4b561373e57aebd13a297161ffb5f3cea0000896a46bc884a12a
-cd "$resurrection_checkout"
-python3 scripts/archive/generate-source-operation-authority.py`;
+const AUTHORITY_SHA256 = "0fc8279c122179047ac8895424d14ccc3922b30e840d48cfae6ec47d2fbdb767";
+const RESURRECTION =
+  "See docs/python-oracle-contracts.md for the exact clean-checkout resurrection command.";
 
 interface FrozenDeriveCase {
   readonly input: {

@@ -1170,7 +1170,7 @@
     "normalization": "none; scanner and source-operation reports contain only SDK-root-relative paths",
     "python": "3.13.13",
     "python_implementation": "cpython",
-    "resurrection": "set -eu\nauthority_checkout=\"${IW_AUTHORITY_CHECKOUT:?set to the checkout containing this fixture}\"\nresurrection_checkout=\"${IW_RESURRECTION_CHECKOUT:?set to an empty path}\"\ngenerator=\"$resurrection_checkout/scripts/archive/generate-source-operation-authority.py\"\ngit -C \"$authority_checkout\" worktree add --detach \"$resurrection_checkout\" 7d90752ac4b800c5509b380d02dc828749f891a6\nmkdir -p \"$resurrection_checkout/scripts/archive\"\ngit -C \"$authority_checkout\" show bfaf46159f7209fdc58dbc4b85d820442aacaad4:scripts/archive/generate-source-operation-authority.py > \"$generator\"\ntest \"$(shasum -a 256 < \"$generator\" | awk '{print $1}')\" = 4a3df279ba4f4b561373e57aebd13a297161ffb5f3cea0000896a46bc884a12a\ncd \"$resurrection_checkout\"\npython3 scripts/archive/generate-source-operation-authority.py",
+    "resurrection": "See docs/python-oracle-contracts.md for the exact clean-checkout resurrection command.",
     "source_blobs_sha256": {
       "engine/openapi_resource_map.py": "6026a4d25eaa4a2d5d669c32a8d9dbdd7de29f1bf1f8ad9b25c6ed5ded513770",
       "engine/reconcile_schema_api.py": "23deac644d9688df034cbd7f19d8bfcbcea15c3eb7a5109a89debc576037b7ea",

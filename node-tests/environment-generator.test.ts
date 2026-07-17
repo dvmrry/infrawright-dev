@@ -65,7 +65,7 @@ interface FrozenEnvironmentAuthority {
 }
 
 const ENVIRONMENT_AUTHORITY_SHA256 =
-  "2efbd58fc5ff4d64b406ebb873d1a9e9eafb8e162a7b29ec8162353846b0c912";
+  "ff33657d72f1856442d3915981ccfdb45bafb7d43624c604028eb457357c7a59";
 const environmentAuthorityBytes = readFileSync(path.join(
   ROOT,
   "node-tests",
@@ -88,10 +88,10 @@ assert.equal(
   environmentAuthority.generator_sha256,
   "dc3e9b139894df18da93a985955d8c469a0e0a83230222c41f85ff956fb0e5bb",
 );
-assert.ok(environmentAuthority.producing_command.includes(
-  "git -C \"$authority_checkout\" show c86ac17",
-));
-assert.match(environmentAuthority.producing_command, /dc3e9b139894df18da93a985955d8c469a0e0a83230222c41f85ff956fb0e5bb/u);
+assert.equal(
+  environmentAuthority.producing_command,
+  "See docs/python-oracle-contracts.md for the exact clean-checkout resurrection command.",
+);
 assert.equal(environmentAuthority.normalization, "none");
 assert.deepEqual(environmentAuthority.authority, {
   implementation: "cpython",

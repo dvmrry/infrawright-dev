@@ -28,11 +28,11 @@ function loadFrozenCliCases(filename: string, expectedSha256: string): readonly 
 
 const reconcileCliCases = loadFrozenCliCases(
   "python-reconcile-schema-api-v1.json",
-  "ea7a08a5a6fc8dbe323cc888c66d5a43b533227d2592dcb1015e6118a5de1388",
+  "464121fe2e7edcc09861ea046c10aa54d4d101145803d5af13adb41b56c5cbd7",
 );
 const openApiCliCases = loadFrozenCliCases(
   "python-openapi-resource-map-v1.json",
-  "f86add1ac3f0f964998e45164495fe680c013acd54f7d2953e473fdca4d01153",
+  "e4e25a12a871c895364bce16fe05a8bcd94debd1eddc53de9fc75ca82bc8ce3c",
 );
 const sourceOperationAuthorityBytes = readFileSync(path.join(
   ROOT,
@@ -42,7 +42,7 @@ const sourceOperationAuthorityBytes = readFileSync(path.join(
 ));
 assert.equal(
   createHash("sha256").update(sourceOperationAuthorityBytes).digest("hex"),
-  "1864083d2f7a912be7185042e2461846db2a31824a6e660d76af8cc97e44c640",
+  "0fc8279c122179047ac8895424d14ccc3922b30e840d48cfae6ec47d2fbdb767",
 );
 const sourceOperationAuthority = JSON.parse(sourceOperationAuthorityBytes.toString("utf8")) as {
   readonly cli_cases: readonly {

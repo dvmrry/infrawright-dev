@@ -25,17 +25,9 @@ const AUTHORITY_PATH = path.join(
   "fixtures",
   "python-sdk-path-evidence-v1.json",
 );
-const AUTHORITY_SHA256 = "e4cea02c594739df9316661b19236daf21704440b4d527fd6046868914041518";
-const RESURRECTION = `set -eu
-authority_checkout="\${IW_AUTHORITY_CHECKOUT:?set to the checkout containing this fixture}"
-resurrection_checkout="\${IW_RESURRECTION_CHECKOUT:?set to an empty path}"
-generator="$resurrection_checkout/scripts/archive/generate-source-operation-authority.py"
-git -C "$authority_checkout" worktree add --detach "$resurrection_checkout" 7d90752ac4b800c5509b380d02dc828749f891a6
-mkdir -p "$resurrection_checkout/scripts/archive"
-git -C "$authority_checkout" show bfaf46159f7209fdc58dbc4b85d820442aacaad4:scripts/archive/generate-source-operation-authority.py > "$generator"
-test "$(shasum -a 256 < "$generator" | awk '{print $1}')" = 4a3df279ba4f4b561373e57aebd13a297161ffb5f3cea0000896a46bc884a12a
-cd "$resurrection_checkout"
-python3 scripts/archive/generate-source-operation-authority.py`;
+const AUTHORITY_SHA256 = "ddc9b9151fcb504fefebcba1b29a3e9f20cf41c7e4406c7b55e2487256843785";
+const RESURRECTION =
+  "See docs/python-oracle-contracts.md for the exact clean-checkout resurrection command.";
 
 interface FrozenAuthority {
   readonly cases: Readonly<Record<string, unknown>>;

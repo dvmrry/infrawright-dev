@@ -6,6 +6,9 @@ import process from "node:process";
 
 const PROVENANCE_POINTER =
   "See docs/python-oracle-contracts.md for the exact clean-checkout resurrection command.";
+const ENVIRONMENT_GENERATOR_COMMIT = "c86ac17eb312da9bfdb89d2e2fc132daa0e501b7";
+const ENVIRONMENT_GENERATOR_SHA256 =
+  "dc3e9b139894df18da93a985955d8c469a0e0a83230222c41f85ff956fb0e5bb";
 
 const PROFILES = Object.freeze({
   "engine-ops": Object.freeze([
@@ -57,16 +60,38 @@ function replaceStringProperty(source, property, expectedGenerator) {
   return `${source.slice(0, start)}${JSON.stringify(PROVENANCE_POINTER)}${source.slice(end + 1)}`;
 }
 
+function addEnvironmentGeneratorProvenance(source) {
+  const commitProperty = `  "generator_commit": ${JSON.stringify(ENVIRONMENT_GENERATOR_COMMIT)},\n`;
+  const hashProperty = `  "generator_sha256": ${JSON.stringify(ENVIRONMENT_GENERATOR_SHA256)},\n`;
+  if (source.includes('"generator_commit"') || source.includes('"generator_sha256"')) {
+    if (source.includes(commitProperty) && source.includes(hashProperty)) return source;
+    throw new Error("environment generator provenance conflicts with the frozen authority");
+  }
+  const kind = '  "kind": "infrawright.python-environment-roots-authority",\n';
+  const first = source.indexOf(kind);
+  if (first < 0 || source.indexOf(kind, first + kind.length) >= 0) {
+    throw new Error("expected exactly one environment authority kind property");
+  }
+  return source.replace(kind, `${commitProperty}${hashProperty}${kind}`);
+}
+
 async function normalizeProfile(profile, fixturesRoot) {
   const entries = PROFILES[profile];
   if (entries === undefined) {
     throw new Error(`unknown frozen-authority profile: ${profile}`);
   }
+  const outputs = [];
   for (const [name, property, expectedGenerator] of entries) {
     const file = path.join(fixturesRoot, name);
     const source = await readFile(file, "utf8");
-    const normalized = replaceStringProperty(source, property, expectedGenerator);
+    let normalized = replaceStringProperty(source, property, expectedGenerator);
+    if (profile === "environment") {
+      normalized = addEnvironmentGeneratorProvenance(normalized);
+    }
     JSON.parse(normalized);
+    outputs.push([file, normalized]);
+  }
+  for (const [file, normalized] of outputs) {
     await writeFile(file, normalized, "utf8");
   }
 }

@@ -272,16 +272,21 @@ Recover the exact deleted generator from its owning commit, verify it, then
 regenerate and verify the exact committed fixture with:
 
 ```sh
+authority_checkout="$(git rev-parse --show-toplevel)"
 git show \
   c86ac17eb312da9bfdb89d2e2fc132daa0e501b7:scripts/archive/generate-python-environment-roots-authority.py \
-  > /tmp/generate-python-environment-roots-authority.py
-test "$(shasum -a 256 /tmp/generate-python-environment-roots-authority.py | cut -d' ' -f1)" = \
+  > /tmp/iw-python-environment-roots/scripts/archive/generate-python-environment-roots-authority.py
+test "$(shasum -a 256 /tmp/iw-python-environment-roots/scripts/archive/generate-python-environment-roots-authority.py | cut -d' ' -f1)" = \
   dc3e9b139894df18da93a985955d8c469a0e0a83230222c41f85ff956fb0e5bb
 /run/current-system/sw/bin/python3.13 \
-  /tmp/generate-python-environment-roots-authority.py \
-  /tmp/iw-python-environment-roots /tmp/python-environment-roots-v1.json
-test "$(shasum -a 256 /tmp/python-environment-roots-v1.json | cut -d' ' -f1)" = \
-  2efbd58fc5ff4d64b406ebb873d1a9e9eafb8e162a7b29ec8162353846b0c912
+  /tmp/iw-python-environment-roots/scripts/archive/generate-python-environment-roots-authority.py \
+  /tmp/iw-python-environment-roots \
+  /tmp/iw-python-environment-roots/node-tests/fixtures/python-environment-roots-v1.json
+node "$authority_checkout/scripts/normalize-frozen-authority-provenance.mjs" \
+  --profile environment \
+  --fixtures-root /tmp/iw-python-environment-roots/node-tests/fixtures
+cmp "$authority_checkout/node-tests/fixtures/python-environment-roots-v1.json" \
+  /tmp/iw-python-environment-roots/node-tests/fixtures/python-environment-roots-v1.json
 ```
 
 The script rejects any baseline other than the recorded commit and any
@@ -290,9 +295,9 @@ evidence and is removed with the final Python archive after this producing
 commit remains reachable in git history.
 
 The complete authority is recorded in
-`node-tests/fixtures/python-environment-roots-v1.json`. The 105,953-byte
+`node-tests/fixtures/python-environment-roots-v1.json`. The 105,146-byte
 fixture has SHA-256
-`2efbd58fc5ff4d64b406ebb873d1a9e9eafb8e162a7b29ec8162353846b0c912`.
+`ff33657d72f1856442d3915981ccfdb45bafb7d43624c604028eb457357c7a59`.
 It preserves exact bytes for ungrouped JSON, grouped binding/backend,
 singleton HCL, and slug-root cases; the path, byte length, and SHA-256 of all
 453 files in the full 151-root output tree; and exact dangling config/output
@@ -313,6 +318,7 @@ The tenth archive slice was produced from baseline
 UCD 15.1.0. Re-run the complete retired authorities from that exact state:
 
 ```sh
+authority_checkout="$(git rev-parse --show-toplevel)"
 git worktree add /tmp/iw-python-source-operation \
   7d90752ac4b800c5509b380d02dc828749f891a6
 git show \
@@ -322,6 +328,12 @@ test "$(shasum -a 256 /tmp/iw-python-source-operation/scripts/archive/generate-s
   4a3df279ba4f4b561373e57aebd13a297161ffb5f3cea0000896a46bc884a12a
 cd /tmp/iw-python-source-operation
 python3 scripts/archive/generate-source-operation-authority.py
+node "$authority_checkout/scripts/normalize-frozen-authority-provenance.mjs" \
+  --profile source-operation --fixtures-root node-tests/fixtures
+cmp "$authority_checkout/node-tests/fixtures/python-source-operation-map-v1.json" \
+  node-tests/fixtures/python-source-operation-map-v1.json
+cmp "$authority_checkout/node-tests/fixtures/python-sdk-path-evidence-v1.json" \
+  node-tests/fixtures/python-sdk-path-evidence-v1.json
 PYTHON=python3 npm run build:test
 PYTHON=python3 node --test \
   .node-test/node-tests/authoring-source-operation-map.test.js \
@@ -339,9 +351,9 @@ implementation. It regenerates both frozen fixtures and is temporary migration
 evidence; remove it with the final Python archive after this commit is reachable
 in git history.
 
-`node-tests/fixtures/python-source-operation-map-v1.json` is 135,358 bytes
+`node-tests/fixtures/python-source-operation-map-v1.json` is 134,623 bytes
 with SHA-256
-`1864083d2f7a912be7185042e2461846db2a31824a6e660d76af8cc97e44c640`.
+`0fc8279c122179047ac8895424d14ccc3922b30e840d48cfae6ec47d2fbdb767`.
 It records all 42 retired Python tests as 39 complete derive reports, two
 exact CLI file-artifact cases, one exact authoring-CLI stdout/stderr case, and
 seven helper authorities. It also freezes all ten distinct reports from the
@@ -353,9 +365,9 @@ ambiguity, relationship lists, synthetic operations, raw REST evidence, and
 all source-file diagnostics. Only each original unittest temporary root is
 replaced with `<FIXTURE_ROOT>`.
 
-`node-tests/fixtures/python-sdk-path-evidence-v1.json` is 44,122 bytes with
+`node-tests/fixtures/python-sdk-path-evidence-v1.json` is 43,387 bytes with
 SHA-256
-`e4cea02c594739df9316661b19236daf21704440b4d527fd6046868914041518`.
+`ddc9b9151fcb504fefebcba1b29a3e9f20cf41c7e4406c7b55e2487256843785`.
 Its thirteen authorities preserve complete SDK scanner and source-operation
 reports, resolved actions, unresolved diagnostics, AST SDK actions, fuzzy
 fallback, and exact `--sdk-root` CLI registry/diagnostic bytes. The same
@@ -372,11 +384,36 @@ Terraform, credential, backend, network, deployment plan, or Apply is involved.
 
 The next archive slice was produced from baseline
 `bfaf46159f7209fdc58dbc4b85d820442aacaad4`, using CPython 3.13.13 with
-UCD 15.1.0. The exact clean-checkout resurrection command is recorded in both
-fixtures. It creates a detached baseline worktree, restores the generator from
+UCD 15.1.0. Both fixtures point to this exact clean-checkout resurrection
+command. It creates a detached baseline worktree, restores the generator from
 its pinned owning commit `538d34c80d2d3503e0e76d758e34009c62e3bf6b`, verifies its
 recorded SHA-256, installs the pinned test dependencies without scripts,
-regenerates both authorities, and copies them back for comparison.
+regenerates both authorities, rewrites only the stale producing-command field,
+and compares the complete resulting bytes:
+
+```sh
+authority_checkout="$(git rev-parse --show-toplevel)"
+test ! -e /private/tmp/iw-python-reconcile-openapi
+git worktree add /private/tmp/iw-python-reconcile-openapi \
+  bfaf46159f7209fdc58dbc4b85d820442aacaad4
+git show \
+  538d34c80d2d3503e0e76d758e34009c62e3bf6b:scripts/archive/generate-reconcile-openapi-authority.py \
+  > /private/tmp/iw-python-reconcile-openapi/scripts/archive/generate-reconcile-openapi-authority.py
+test "$(shasum -a 256 /private/tmp/iw-python-reconcile-openapi/scripts/archive/generate-reconcile-openapi-authority.py | cut -d' ' -f1)" = \
+  28b9235d1e8e9164a9c4d41fba1721779da30d96ebac27e966a173067c78fe90
+(
+  cd /private/tmp/iw-python-reconcile-openapi
+  npm ci --ignore-scripts
+  python3.13 scripts/archive/generate-reconcile-openapi-authority.py
+)
+node "$authority_checkout/scripts/normalize-frozen-authority-provenance.mjs" \
+  --profile reconcile-openapi \
+  --fixtures-root /private/tmp/iw-python-reconcile-openapi/node-tests/fixtures
+for fixture in python-reconcile-schema-api-v1.json python-openapi-resource-map-v1.json; do
+  cmp "$authority_checkout/node-tests/fixtures/$fixture" \
+    "/private/tmp/iw-python-reconcile-openapi/node-tests/fixtures/$fixture"
+done
+```
 
 The 28,883-byte reproduction script has SHA-256
 `28b9235d1e8e9164a9c4d41fba1721779da30d96ebac27e966a173067c78fe90`.
@@ -385,16 +422,16 @@ CPython/UCD authority, and 41 exact Python, Node, test, pack-registry, pack
 manifest, and loader source locks. A focused regression proves that changing a
 material registry byte fails source validation before capture.
 
-`node-tests/fixtures/python-reconcile-schema-api-v1.json` is 45,274 bytes with
+`node-tests/fixtures/python-reconcile-schema-api-v1.json` is 44,402 bytes with
 SHA-256
-`ea7a08a5a6fc8dbe323cc888c66d5a43b533227d2592dcb1015e6118a5de1388`.
+`464121fe2e7edcc09861ea046c10aa54d4d101145803d5af13adb41b56c5cbd7`.
 It preserves nine retired unittest runs as seven complete reconciliation
 reports, five helper results, and one exact CLI case, plus both distinct former
 live Node/Python differential reports and the authoring CLI comparison.
 
-`node-tests/fixtures/python-openapi-resource-map-v1.json` is 771,993 bytes
+`node-tests/fixtures/python-openapi-resource-map-v1.json` is 771,121 bytes
 with SHA-256
-`f86add1ac3f0f964998e45164495fe680c013acd54f7d2953e473fdca4d01153`.
+`e4e25a12a871c895364bce16fe05a8bcd94debd1eddc53de9fc75ca82bc8ce3c`.
 It preserves thirteen complete retired reports and one exact CLI case, plus all
 six distinct former live Node/Python differential inputs and the authoring CLI
 comparison. The corpus includes ambiguity, wrong-product suppression,
@@ -455,29 +492,57 @@ credential, backend, network, deployment plan, or Apply is involved.
 
 The final live-oracle slice was produced from baseline
 `a00510b46b04767d371bf7c05286d13b52784253`, using CPython 3.13.13 with
-UCD 15.1.0 and Node 24. The clean-checkout resurrection command is embedded in
-each fixture. It creates a detached baseline worktree, restores the generator
+UCD 15.1.0 and Node 24. Each fixture points to the clean-checkout command below.
+It creates a detached baseline worktree, restores the generator
 from its pinned owning commit `a3e39f3eb7c0a1b344453500dc7d7463d2d72a84`,
 verifies its recorded SHA-256, installs the pinned test dependencies with
 `npm ci --ignore-scripts`, regenerates all three authorities, and compares
-them byte-for-byte.
+them byte-for-byte. The direct child of `/private/tmp` is intentional: two
+scope-path cases preserve relative-path evidence, so a deeper checkout would
+change that evidence rather than reproduce the authority.
+
+```sh
+authority_checkout="$(git rev-parse --show-toplevel)"
+test ! -e /private/tmp/iw-python-engine-ops
+git worktree add /private/tmp/iw-python-engine-ops \
+  a00510b46b04767d371bf7c05286d13b52784253
+git show \
+  a3e39f3eb7c0a1b344453500dc7d7463d2d72a84:scripts/archive/generate-engine-ops-authority.py \
+  > /private/tmp/iw-python-engine-ops/scripts/archive/generate-engine-ops-authority.py
+test "$(shasum -a 256 /private/tmp/iw-python-engine-ops/scripts/archive/generate-engine-ops-authority.py | cut -d' ' -f1)" = \
+  8359732e143d628c730d4f6a411a6c0e13e282e28fc6ffc5319e173e78a9530d
+(
+  cd /private/tmp/iw-python-engine-ops
+  npm ci --ignore-scripts
+  /run/current-system/sw/bin/python3.13 \
+    scripts/archive/generate-engine-ops-authority.py \
+    --output-dir node-tests/fixtures
+)
+node "$authority_checkout/scripts/normalize-frozen-authority-provenance.mjs" \
+  --profile engine-ops \
+  --fixtures-root /private/tmp/iw-python-engine-ops/node-tests/fixtures
+for fixture in python-assessment-cli-v1.json python-differential-v1.json python-plan-cli-v1.json; do
+  cmp "$authority_checkout/node-tests/fixtures/$fixture" \
+    "/private/tmp/iw-python-engine-ops/node-tests/fixtures/$fixture"
+done
+```
 
 `node-tests/fixtures/python-assessment-cli-v1.json` records all eight former
 assessment CLI delegations and has SHA-256
-`c6b46d67c75b38a171c072713a621ada1188a74e8e9f485eb063199331d04aff`.
+`015f0314d9200a54734e40be11fd2dfb19b5386e2c34ae60813d37823a43a057`.
 The current test compares exact status, stdout, stderr, and report bytes while
 retaining the Node CLI's additive structured diagnostics.
 
 `node-tests/fixtures/python-differential-v1.json` records all thirty former
 topology, scope, plan-root, and root-catalog delegations and has SHA-256
-`56f4abb71b969b4130622c51755877e873a60530dd18ce8e664d43ff4c79ae36`.
+`339d1cd700aaa15d508292a4bdce651b912fd3485914a9174d4426ca1dbfc739`.
 The current tests compare every recorded result in order. Root-catalog cases
 still regenerate the current Node catalog and compare it with the committed
 catalog; they are not frozen-to-frozen self-comparisons.
 
 `node-tests/fixtures/python-plan-cli-v1.json` records all nine former plan CLI
 delegations and has SHA-256
-`613c75dbb7fb1fbf053421a9a1206e42314c9773df410fb0db33c18d1eb0d0e8`.
+`e9244e12e7d5ef83f2a545bb21aeb23f784b516423345680a1595218d5251605`.
 The current tests preserve the exact historical status, stdout, and stderr
 comparison boundaries.
 

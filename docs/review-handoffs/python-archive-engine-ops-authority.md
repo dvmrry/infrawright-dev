@@ -16,11 +16,11 @@ Authority: CPython 3.13.13, UCD 15.1, Node 24.
 Exactly 47 delegated calls are recorded:
 
 - assessment CLI: 8 records, SHA-256
-  `c6b46d67c75b38a171c072713a621ada1188a74e8e9f485eb063199331d04aff`
+  `015f0314d9200a54734e40be11fd2dfb19b5386e2c34ae60813d37823a43a057`
 - differential: 30 records, SHA-256
-  `56f4abb71b969b4130622c51755877e873a60530dd18ce8e664d43ff4c79ae36`
+  `339d1cd700aaa15d508292a4bdce651b912fd3485914a9174d4426ca1dbfc739`
 - plan CLI: 9 records, SHA-256
-  `613c75dbb7fb1fbf053421a9a1206e42314c9773df410fb0db33c18d1eb0d0e8`
+  `e9244e12e7d5ef83f2a545bb21aeb23f784b516423345680a1595218d5251605`
 
 Each record binds raw arguments, stdin, a fixed environment, material input
 filesystem evidence, exact status/stdout/stderr, and report artifacts. Node
