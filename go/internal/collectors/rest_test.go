@@ -807,13 +807,14 @@ func TestConcurrentWriteFailuresRetainSelectionOrderedPrimaryError(t *testing.T)
 		if err == nil {
 			t.Fatalf("concurrency %d: expected an error, got none", concurrency)
 		}
-		// Node v24.15.0 node:fs/promises.writeFile reports this exact
-		// SystemError for the selection-first fatal destination. Comparing the
-		// full string also proves that a faster sample_c failure never wins.
-		wantError := "EISDIR: illegal operation on a directory, open '" +
-			filepath.Join(output, "sample_b.json") + "'"
+		// os.WriteFile reports this exact *fs.PathError for the
+		// selection-first fatal destination (Go-native wording; see
+		// docs/go-runtime-v2.md §2 -- filesystem error text is not part of
+		// the compatibility contract). Comparing the full string also
+		// proves that a faster sample_c failure never wins.
+		wantError := "open " + filepath.Join(output, "sample_b.json") + ": is a directory"
 		if err.Error() != wantError {
-			t.Errorf("concurrency %d: FetchResources() error = %q, want Node 24.15 error %q", concurrency, err.Error(), wantError)
+			t.Errorf("concurrency %d: FetchResources() error = %q, want %q", concurrency, err.Error(), wantError)
 		}
 		wantDiagnostics := []string{"wrote " + filepath.Join(output, "sample_a.json") + " (1 items)"}
 		if !equalStrings(diagnostics, wantDiagnostics) {

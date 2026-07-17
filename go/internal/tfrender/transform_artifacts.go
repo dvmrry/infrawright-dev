@@ -69,7 +69,6 @@ import (
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
-	"github.com/dvmrry/infrawright-dev/go/internal/nodefserr"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 )
 
@@ -1441,25 +1440,16 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 
 	configDirectory := path.Dir(compiled.Paths.Config)
 	if err := os.MkdirAll(configDirectory, 0o777); err != nil {
-		return TransformArtifactWriteResult{}, (nodefserr.Call{
-			Operation: nodefserr.MkdirAll,
-			Path:      configDirectory,
-		}).Wrap(err)
+		return TransformArtifactWriteResult{}, err
 	}
 	importsDirectory := path.Dir(compiled.Paths.Imports)
 	if err := os.MkdirAll(importsDirectory, 0o777); err != nil {
-		return TransformArtifactWriteResult{}, (nodefserr.Call{
-			Operation: nodefserr.MkdirAll,
-			Path:      importsDirectory,
-		}).Wrap(err)
+		return TransformArtifactWriteResult{}, err
 	}
 
 	if compiled.LookupText != nil {
 		if err := os.WriteFile(compiled.Paths.Lookup, []byte(*compiled.LookupText), 0o666); err != nil {
-			return TransformArtifactWriteResult{}, (nodefserr.Call{
-				Operation: nodefserr.WriteFile,
-				Path:      compiled.Paths.Lookup,
-			}).Wrap(err)
+			return TransformArtifactWriteResult{}, err
 		}
 		written = append(written, compiled.Paths.Lookup)
 		note("wrote " + compiled.Paths.Lookup)
@@ -1476,10 +1466,7 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 
 	if compiled.ExistingMoves == nil && compiled.RenderedMoves != nil {
 		if err := os.WriteFile(compiled.Paths.Moves, []byte(*compiled.RenderedMoves), 0o666); err != nil {
-			return TransformArtifactWriteResult{}, (nodefserr.Call{
-				Operation: nodefserr.WriteFile,
-				Path:      compiled.Paths.Moves,
-			}).Wrap(err)
+			return TransformArtifactWriteResult{}, err
 		}
 		written = append(written, compiled.Paths.Moves)
 		note(fmt.Sprintf(
@@ -1510,10 +1497,7 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 		note("removed stale " + compiled.Paths.StaleConfig)
 	}
 	if err := os.WriteFile(compiled.Paths.Config, []byte(compiled.ConfigText), 0o666); err != nil {
-		return TransformArtifactWriteResult{}, (nodefserr.Call{
-			Operation: nodefserr.WriteFile,
-			Path:      compiled.Paths.Config,
-		}).Wrap(err)
+		return TransformArtifactWriteResult{}, err
 	}
 	written = append(written, compiled.Paths.Config)
 
@@ -1526,10 +1510,7 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 			return TransformArtifactWriteResult{}, err
 		}
 		if err := os.WriteFile(compiled.Paths.GeneratedBindings, []byte(rendered), 0o666); err != nil {
-			return TransformArtifactWriteResult{}, (nodefserr.Call{
-				Operation: nodefserr.WriteFile,
-				Path:      compiled.Paths.GeneratedBindings,
-			}).Wrap(err)
+			return TransformArtifactWriteResult{}, err
 		}
 		written = append(written, compiled.Paths.GeneratedBindings)
 		note("wrote " + compiled.Paths.GeneratedBindings)
@@ -1545,10 +1526,7 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 	}
 
 	if err := os.WriteFile(compiled.Paths.Imports, []byte(compiled.NewImports), 0o666); err != nil {
-		return TransformArtifactWriteResult{}, (nodefserr.Call{
-			Operation: nodefserr.WriteFile,
-			Path:      compiled.Paths.Imports,
-		}).Wrap(err)
+		return TransformArtifactWriteResult{}, err
 	}
 	written = append(written, compiled.Paths.Imports)
 	note("wrote " + compiled.Paths.Config)
@@ -1571,7 +1549,7 @@ func assertRegularBatchArtifactTarget(target string) error {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
-		return (nodefserr.Call{Operation: nodefserr.Lstat, Path: target}).Wrap(err)
+		return err
 	}
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("transform artifact batch target is not a regular file: %s", target)
@@ -1699,10 +1677,7 @@ func prepareBatchArtifactMutationsWithFilesystem(
 	for index, mutation := range mutations {
 		parent := path.Dir(mutation.target)
 		if err := os.MkdirAll(parent, 0o777); err != nil {
-			return fail((nodefserr.Call{
-				Operation: nodefserr.MkdirAll,
-				Path:      parent,
-			}).Wrap(err))
+			return fail(err)
 		}
 		transactionDirectory, ok := transactionDirectoryByParent[parent]
 		if !ok {
@@ -1721,10 +1696,7 @@ func prepareBatchArtifactMutationsWithFilesystem(
 			}
 			s := path.Join(transactionDirectory, fmt.Sprintf("stage-%d", index))
 			if err := writeStageFile(s, []byte(*mutation.contents), 0o666); err != nil {
-				return fail((nodefserr.Call{
-					Operation: nodefserr.WriteFile,
-					Path:      s,
-				}).Wrap(err))
+				return fail(err)
 			}
 			stagePath = &s
 		}
@@ -1789,11 +1761,7 @@ func applyBatchArtifactMutationsWithLstat(
 			}
 			if rollbackErr == nil && mutation.hadOriginal {
 				if err := os.Rename(mutation.backupPath, mutation.target); err != nil {
-					rollbackErr = (nodefserr.Call{
-						Operation: nodefserr.Rename,
-						Path:      mutation.backupPath,
-						Dest:      mutation.target,
-					}).Wrap(err)
+					rollbackErr = err
 				}
 			}
 			if rollbackErr != nil {
@@ -1825,11 +1793,7 @@ func applyBatchArtifactMutationsWithLstat(
 		hadOriginal := false
 		if err := os.Rename(mutation.target, mutation.backupPath); err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
-				return fail((nodefserr.Call{
-					Operation: nodefserr.Rename,
-					Path:      mutation.target,
-					Dest:      mutation.backupPath,
-				}).Wrap(err))
+				return fail(err)
 			}
 		} else {
 			hadOriginal = true
@@ -1843,10 +1807,7 @@ func applyBatchArtifactMutationsWithLstat(
 		if hadOriginal {
 			info, err := lstatBackup(mutation.backupPath)
 			if err != nil {
-				return fail((nodefserr.Call{
-					Operation: nodefserr.Lstat,
-					Path:      mutation.backupPath,
-				}).Wrap(err))
+				return fail(err)
 			}
 			previous = info
 		}
@@ -1863,11 +1824,7 @@ func applyBatchArtifactMutationsWithLstat(
 				}
 			}
 			if err := os.Rename(*mutation.stagePath, mutation.target); err != nil {
-				return fail((nodefserr.Call{
-					Operation: nodefserr.Rename,
-					Path:      *mutation.stagePath,
-					Dest:      mutation.target,
-				}).Wrap(err))
+				return fail(err)
 			}
 		}
 	}
@@ -2032,10 +1989,7 @@ func WriteDerivedTransformArtifact(
 	}
 	configDirectory := path.Dir(paths.Config)
 	if err := os.MkdirAll(configDirectory, 0o777); err != nil {
-		return "", (nodefserr.Call{
-			Operation: nodefserr.MkdirAll,
-			Path:      configDirectory,
-		}).Wrap(err)
+		return "", err
 	}
 	removedStale, err := removeIfPresent(paths.StaleConfig)
 	if err != nil {
@@ -2049,10 +2003,7 @@ func WriteDerivedTransformArtifact(
 		return "", err
 	}
 	if err := os.WriteFile(paths.Config, []byte(configText), 0o666); err != nil {
-		return "", (nodefserr.Call{
-			Operation: nodefserr.WriteFile,
-			Path:      paths.Config,
-		}).Wrap(err)
+		return "", err
 	}
 	if onDiagnostic != nil {
 		onDiagnostic(fmt.Sprintf("wrote %s (derived from %s; not importable — no imports)", paths.Config, sourceType))

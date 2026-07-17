@@ -21,7 +21,6 @@ import (
 	"strconv"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
-	"github.com/dvmrry/infrawright-dev/go/internal/nodefserr"
 )
 
 // JsonObject is the dynamic JSON-object shape this package validates
@@ -76,10 +75,10 @@ type metadataFilesystemPassthrough struct {
 	err error
 }
 
-// propagateFilesystemError carries an operation-aware nodefserr translation
-// to the nearest exported metadata boundary without turning the raw Node
-// SystemError surface into a MetadataError. Callers must invoke it immediately
-// after the filesystem call, after handling any source-defined ENOENT branch.
+// propagateFilesystemError carries a raw filesystem error to the nearest
+// exported metadata boundary without turning it into a MetadataError.
+// Callers must invoke it immediately after the filesystem call, after
+// handling any source-defined ENOENT branch.
 func propagateFilesystemError(err error) {
 	panic(&metadataFilesystemPassthrough{err: err})
 }
@@ -344,7 +343,7 @@ type readJSONOptions struct {
 func readJSON(path string, opts readJSONOptions) any {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		detail := nodefserr.Call{Operation: nodefserr.ReadFile, Path: path}.Wrap(err)
+		detail := err
 		failf("failed to read %s: %s", path, detail.Error())
 	}
 	value, err := canonjson.Decode(data)

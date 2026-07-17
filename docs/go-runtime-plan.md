@@ -220,23 +220,6 @@ The approved boundaries are:
   differential evidence; removing the gate without those proofs is not an
   acceptable parity fix.
 
-### Filesystem error text decision (2026-07)
-
-Filesystem error wording is part of the byte contract; the Go port does not
-accept host-native `os.PathError` text as a divergence. Raw Node `SystemError`
-forms must live behind operation-aware wrappers in `internal/nodefserr`;
-deliberately Python-compatible spellings such as Terraform executable
-resolution remain separate, narrow constructors in `internal/pyoserr`. Both
-use fixed English text and are added only for source-pinned call sites. They
-are not blanket CLI rewriters: code that maps an I/O failure to a fixed
-`ProcessFailure` continues
-to emit that fixed failure instead. Raw Node path quoting must not reuse the
-Terraform resolver's Python escaping rules. Additional errno or two-path forms
-require a frozen Node vector before they are added. Call sites must supply the
-requested operation/path context when Node reports it; Go's `PathError` may
-instead name an offending ancestor or even classify the host failure
-differently, so a top-level error-string translator is insufficient.
-
 Names such as `python-compatible`, `python-number`, and `python-lower-15.1`
 remain: they describe frozen byte and Unicode semantics that the Go port
 implements identically. Same non-goal as the Python archive — no renaming to

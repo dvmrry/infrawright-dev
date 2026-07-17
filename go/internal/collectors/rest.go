@@ -16,7 +16,6 @@ import (
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
-	"github.com/dvmrry/infrawright-dev/go/internal/nodefserr"
 )
 
 // rest.go ports node-src/collectors/rest.ts: the registry-driven REST fetch
@@ -1041,14 +1040,9 @@ func perfDurationSince(performance PerformanceRecorder, startedMs float64) float
 }
 
 // mkdirFetchOutputDirectory ports promises.mkdir(path, {recursive:true}) at
-// the collector's raw output boundary. It deliberately performs no follow-up
-// mutation after a failure: nodefserr owns only the source-evidenced error
-// spelling, while os.MkdirAll owns the filesystem semantics.
+// the collector's raw output boundary.
 func mkdirFetchOutputDirectory(path string) error {
-	return (nodefserr.Call{
-		Operation: nodefserr.MkdirAll,
-		Path:      path,
-	}).Wrap(os.MkdirAll(path, 0o777))
+	return os.MkdirAll(path, 0o777)
 }
 
 // fetchResourcesBatch ports the unexported fetchResourcesBatch from
@@ -1235,10 +1229,7 @@ func fetchResourcesBatch(options FetchResourcesOptions, concurrency int) (FetchR
 		}
 		rendered, renderErr := canonjson.RenderLosslessArtifactJSON(items)
 		if renderErr == nil {
-			renderErr = (nodefserr.Call{
-				Operation: nodefserr.WriteFile,
-				Path:      item.destination,
-			}).Wrap(os.WriteFile(item.destination, []byte(rendered), 0o666))
+			renderErr = os.WriteFile(item.destination, []byte(rendered), 0o666)
 		}
 		if renderErr != nil {
 			endedMs := perfNowOrStarted(options.Performance, startedMs)

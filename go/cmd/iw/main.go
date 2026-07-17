@@ -4,13 +4,11 @@
 // exit codes, and error rendering reproduce the Node CLI byte-for-byte for
 // every surface the differential corpus covers.
 //
-// Pre-cutover divergences (deliberate, excluded from the differential corpus):
+// Pre-cutover divergence (deliberate, excluded from the differential corpus):
 // commands that exist in the Node CLI but are not yet ported fail loudly with
-// "not yet ported" instead of pretending to be unknown, and raw filesystem
-// error text remains host-native at call sites that have not yet adopted the
-// operation-aware nodefserr boundary. Both divergences end as their owning
-// slices land; root-catalog --check/--out and scope-paths --paths-json already
-// use the Node-compatible filesystem surface.
+// "not yet ported" instead of pretending to be unknown. Filesystem error text
+// is Go-native throughout (docs/go-runtime-v2.md §2: Node's filesystem-error
+// wording is explicitly not part of the compatibility contract).
 package main
 
 import (
@@ -25,7 +23,6 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/cliargs"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
-	"github.com/dvmrry/infrawright-dev/go/internal/nodefserr"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 	"github.com/dvmrry/infrawright-dev/go/internal/transformrun"
 )
@@ -193,7 +190,7 @@ func rootCatalog(arguments []string) (int, error) {
 	if hasCheck {
 		actual, err := os.ReadFile(check)
 		if err != nil {
-			return 0, (nodefserr.Call{Operation: nodefserr.ReadFile, Path: check}).Wrap(err)
+			return 0, err
 		}
 		if string(actual) != rendered {
 			return 0, procerr.NewProcessFailure(procerr.NewProcessFailureOptions{
@@ -206,7 +203,7 @@ func rootCatalog(arguments []string) (int, error) {
 	}
 	if hasOutput {
 		err := os.WriteFile(output, []byte(rendered), 0o666)
-		return 0, (nodefserr.Call{Operation: nodefserr.WriteFile, Path: output}).Wrap(err)
+		return 0, err
 	}
 	_, err = os.Stdout.WriteString(rendered)
 	return 0, err

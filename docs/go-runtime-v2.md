@@ -136,25 +136,56 @@ open-ended migration.
 The `INFRAWRIGHT_CLI` Make variable is the cutover seam; it flips per-stage, not
 flag-day.
 
-## 7. Cleanup execution (the immediate work)
+## 7. Cleanup execution
 
-Ordered, each a reviewed commit on `feature/go-canonjson-foundation`:
+Each a reviewed commit on `feature/go-canonjson-foundation`.
 
-1. **Wire rewrite**: build `internal/httptransport` over `net/http` satisfying
-   `collectors.HttpTransport`; re-point collectors at it; **preserve the
-   behavioral test corpus** (429 handling, redirect cap, CA-bundle-load failure,
-   proxy-from-env, masking, response bound) as product-level tests; delete
-   `resthttp`; drop `x/net`/`x/text` vendoring; confirm the fetch differential
-   passes at the product-output level.
-2. **Drop `nodefserr`**: revert the ~8 adoption sites to plain Go errors, delete
-   the package + its 5 differential test files, remove the filesystem-error
-   allowed-divergence churn from the plan.
-3. **Simplify `terraformcmd` + drop `pyoserr`**: keep safety (isolation,
-   timeout, bounded output, redaction, `complete` gate); drop path-resolution +
-   error-string emulation; collapse `pyoserr` to a plain error.
-4. **Audit `pyunicode`**: confirm which tables feed artifact bytes; keep those,
-   drop the rest.
+1. ✅ **Wire rewrite (`6a4f8ae`)**: `internal/httptransport` (821 LOC) over
+   `net/http` satisfies `collectors.HttpTransport`; `resthttp` deleted (−14,498
+   LOC incl. tests); `x/net`/`x/text`/`go/vendor`/check-vendor gate all removed;
+   module back to zero third-party deps. Behavioral test corpus preserved
+   (CA-bundle-load failure, proxy-from-env, redirect cap + cross-origin
+   stripping + 307/308 refusal, response bound, masking, close, legacy-ZIA
+   cookie jar). Two documented behavior changes (both improvements): lazy proxy
+   resolution (fetch-diag degrades to a masked FAIL instead of crashing);
+   `Location: //` empty-authority edge dropped. Artifact byte-gates confirmed
+   byte-identical vs the Node oracle.
+3. ✅ **Simplify `terraformcmd` + drop `pyoserr` (`8571d8f`)**: kept isolation,
+   process-group kill, timeouts, bounded output, redaction, platform gate,
+   executable precedence, the downstream `complete` gate, and all operator error
+   codes; dropped the Node path-resolution + PATHEXT unicode-lowering emulation
+   (`unicode_lower.go`) and the `[Errno 2]` spelling. Net −1,006 LOC.
+2. ✅ **Drop `nodefserr`** (uncommitted — awaiting review): reverted 72
+   adoption sites across 10 files (metadata: packs.go, resources.go,
+   rootcatalog.go, validation.go; tfrender/transform_artifacts.go incl. its
+   batch-rollback path; envgen/environment_generator.go; modulesgen/
+   generator.go; collectors/rest.go; cmd/iw/main.go,
+   commands_topology.go) to plain Go errors; deleted `internal/nodefserr`
+   (package + tests, 1,928 LOC) and its 6 differential test files/fixtures
+   (`filesystem_cli_differential_test.go`,
+   `rest_filesystem_parity_test.go`, three
+   `filesystem_error_differential_test.go` copies,
+   `transform_artifacts_fserr_test.go`, plus the
+   `capture-node24-transform-filesystem-errors.mjs`/`.json` oracle fixtures);
+   updated one surviving non-differential assertion in
+   `collectors/rest_test.go` that still expected Node's `EISDIR` wording to
+   the Go-native `*fs.PathError` text; removed the stale "Filesystem error
+   text decision" divergence section from `go-runtime-plan.md`. Net −4,955
+   LOC. `metadata.propagateFilesystemError`'s panic/recover routing and
+   `tfrender`'s reverse-order rollback aggregation are untouched — only the
+   wrapped error text was dropped. gofmt/vet/build/test all green; the four
+   artifact byte-gates (RootCatalog, Transform, Topology, Generation)
+   confirmed byte-identical vs the Node oracle.
+4. ✅ **Audit `pyunicode`**: KEEP ENTIRELY. Both exports feed committed artifact
+   bytes — `PythonLower151` → `SnakeName`/`SlugifyTransformKey` (transform), and
+   the slug is the tfvars map key = the Terraform **state address** (a drift here
+   is destroy/recreate); `PythonHTMLUnescapeGeneric` → the transform kernel's
+   HTML-unescape of provider field **values**. Nothing to drop; this emulation is
+   load-bearing, squarely in the §2 "preserve exactly" column.
 
-After wave 1, re-run the full artifact byte-gate corpus — the KEEP column must
-stay byte-identical. Only then proceed to blocks C/D (plan lifecycle,
-adopt/apply) under the v2 contract.
+After each cleanup commit, the full artifact byte-gate corpus (RootCatalog,
+Transform, Topology, Generation vs the Node oracle) must stay byte-identical —
+that is the standing proof the reset touched nothing infrastructure depends on.
+Once §7 is clear, the **§5 vertical-slice checkpoint** is the go/no-go before any
+further breadth (blocks C/D — plan lifecycle, adopt/apply — under the v2
+contract).

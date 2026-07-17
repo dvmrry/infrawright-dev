@@ -24,7 +24,6 @@ import (
 	"strings"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
-	"github.com/dvmrry/infrawright-dev/go/internal/nodefserr"
 )
 
 // PACK_SET_KIND, REQUIREMENTS_KIND, and PACK_SET_VERSION port the
@@ -237,17 +236,14 @@ func LoadPackSetDocument(source, expectedKind string) (doc PackSetDocument, err 
 
 // discoverDirectories ports discoverDirectories from
 // node-src/metadata/packs.ts. A missing root returns a non-nil empty slice;
-// every other readdir failure propagates with Node's raw SystemError surface.
+// every other readdir failure propagates as the raw Go filesystem error.
 func discoverDirectories(root string) []string {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []string{}
 		}
-		propagateFilesystemError(nodefserr.Call{
-			Operation: nodefserr.ReadDir,
-			Path:      root,
-		}.Wrap(err))
+		propagateFilesystemError(err)
 	}
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {

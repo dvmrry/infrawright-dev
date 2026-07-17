@@ -61,7 +61,6 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
-	"github.com/dvmrry/infrawright-dev/go/internal/nodefserr"
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
 	"github.com/dvmrry/infrawright-dev/go/internal/tfrender"
 )
@@ -601,7 +600,7 @@ func validateBindingsAgainstConfig(bindings []ExpressionBinding, config string, 
 	}
 	raw, err := os.ReadFile(config)
 	if err != nil {
-		return nodefserr.Call{Operation: nodefserr.ReadFile, Path: config}.Wrap(err)
+		return err
 	}
 	data, err := canonjson.ParseDataJSONLosslessly(string(raw))
 	if err != nil {
@@ -1145,10 +1144,7 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 	if backend == nil && fileExists(marker) {
 		raw, readErr := os.ReadFile(marker)
 		if readErr != nil {
-			return EnvironmentGenerationResult{}, nodefserr.Call{
-				Operation: nodefserr.ReadFile,
-				Path:      marker,
-			}.Wrap(readErr)
+			return EnvironmentGenerationResult{}, readErr
 		}
 		trimmed := strings.TrimSpace(string(raw))
 		if trimmed != "" {
@@ -1156,17 +1152,11 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 		}
 	}
 	if err := os.MkdirAll(tenantDirectory, 0o777); err != nil {
-		return EnvironmentGenerationResult{}, nodefserr.Call{
-			Operation: nodefserr.MkdirAll,
-			Path:      tenantDirectory,
-		}.Wrap(err)
+		return EnvironmentGenerationResult{}, err
 	}
 	if backend != nil && *backend != "" {
 		if err := os.WriteFile(marker, []byte(*backend+"\n"), 0o666); err != nil {
-			return EnvironmentGenerationResult{}, nodefserr.Call{
-				Operation: nodefserr.WriteFile,
-				Path:      marker,
-			}.Wrap(err)
+			return EnvironmentGenerationResult{}, err
 		}
 	}
 
@@ -1178,10 +1168,7 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 			return EnvironmentGenerationResult{}, err
 		}
 		if err := os.MkdirAll(directory, 0o777); err != nil {
-			return EnvironmentGenerationResult{}, nodefserr.Call{
-				Operation: nodefserr.MkdirAll,
-				Path:      directory,
-			}.Wrap(err)
+			return EnvironmentGenerationResult{}, err
 		}
 
 		bindingsByType := map[string][]ExpressionBinding{}
@@ -1266,10 +1253,7 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 		}
 		mainPath := path.Join(directory, "main.tf")
 		if err := os.WriteFile(mainPath, []byte(main), 0o666); err != nil {
-			return EnvironmentGenerationResult{}, nodefserr.Call{
-				Operation: nodefserr.WriteFile,
-				Path:      mainPath,
-			}.Wrap(err)
+			return EnvironmentGenerationResult{}, err
 		}
 		onDiagnostic("wrote " + mainPath)
 
@@ -1284,10 +1268,7 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 				return EnvironmentGenerationResult{}, err
 			}
 			if err := os.WriteFile(expressionPath, []byte(formatted), 0o666); err != nil {
-				return EnvironmentGenerationResult{}, nodefserr.Call{
-					Operation: nodefserr.WriteFile,
-					Path:      expressionPath,
-				}.Wrap(err)
+				return EnvironmentGenerationResult{}, err
 			}
 			onDiagnostic("wrote " + expressionPath)
 		} else {
@@ -1309,18 +1290,12 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 		}
 		readmePath := path.Join(directory, "README.md")
 		if err := os.WriteFile(readmePath, []byte(readme), 0o666); err != nil {
-			return EnvironmentGenerationResult{}, nodefserr.Call{
-				Operation: nodefserr.WriteFile,
-				Path:      readmePath,
-			}.Wrap(err)
+			return EnvironmentGenerationResult{}, err
 		}
 
 		testsDirectory := path.Join(directory, "tests")
 		if err := os.MkdirAll(testsDirectory, 0o777); err != nil {
-			return EnvironmentGenerationResult{}, nodefserr.Call{
-				Operation: nodefserr.MkdirAll,
-				Path:      testsDirectory,
-			}.Wrap(err)
+			return EnvironmentGenerationResult{}, err
 		}
 		hasConfig := map[string]bool{}
 		for _, resourceType := range members {
@@ -1352,10 +1327,7 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 		}
 		smokePath := path.Join(testsDirectory, "smoke.tftest.hcl")
 		if err := os.WriteFile(smokePath, []byte(smokeFormatted), 0o666); err != nil {
-			return EnvironmentGenerationResult{}, nodefserr.Call{
-				Operation: nodefserr.WriteFile,
-				Path:      smokePath,
-			}.Wrap(err)
+			return EnvironmentGenerationResult{}, err
 		}
 		onDiagnostic("wrote " + smokePath)
 

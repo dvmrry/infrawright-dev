@@ -19,7 +19,6 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/envgen"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/modulesgen"
-	"github.com/dvmrry/infrawright-dev/go/internal/nodefserr"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
 	"github.com/dvmrry/infrawright-dev/go/internal/transform"
@@ -259,9 +258,6 @@ func scopePathsCommand(arguments []string) (int, error) {
 			text, err = io.ReadAll(os.Stdin)
 		} else {
 			text, err = os.ReadFile(pathsJSON)
-			if err != nil {
-				err = (nodefserr.Call{Operation: nodefserr.ReadFile, Path: pathsJSON}).Wrap(err)
-			}
 		}
 		if err != nil {
 			return 0, err
