@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -227,6 +228,7 @@ test("repository discovery naturally selects the operational smoke and Oracle te
       readonly reason: string;
     }[];
     readonly excluded_count: number;
+    readonly excluded_missing_pack_requirements_count: number;
     readonly excluded_python_oracle_count: number;
     readonly selected: readonly string[];
     readonly selected_count: number;
@@ -243,6 +245,7 @@ test("repository discovery naturally selects the operational smoke and Oracle te
     "import-moves-differential.test.js",
     "json.test.js",
     "paths.test.js",
+    "plan-fingerprint.test.js",
     "python-lossless-artifact.test.js",
     "python-lower-151.test.js",
     "rest-collector-python-parity.test.js",
@@ -258,11 +261,32 @@ test("repository discovery naturally selects the operational smoke and Oracle te
       return entry.name === name && entry.reason === "imports-python-oracle";
     }), name);
   }
-  assert.ok(report.selected_count > 0);
-  assert.ok(report.excluded_count > 0);
-  assert.equal(report.selected_count, 52);
-  assert.equal(report.excluded_python_oracle_count, 16);
-  assert.equal(report.selected_count + report.excluded_count, report.total_count);
+  const allTests = readdirSync(directory)
+    .filter((name) => name.endsWith(".test.js"))
+    .sort();
+  const selected = [...report.selected].sort();
+  const excluded = report.excluded.map((entry) => entry.name).sort();
+  assert.deepEqual([...selected, ...excluded].sort(), allTests);
+  assert.equal(new Set([...selected, ...excluded]).size, allTests.length);
+  assert.equal(report.selected_count, report.selected.length);
+  assert.equal(report.excluded_count, report.excluded.length);
+  assert.equal(report.total_count, allTests.length);
+  assert.equal(
+    report.excluded_missing_pack_requirements_count,
+    report.excluded.filter((entry) => {
+      return entry.reason === "missing-pack-requirements";
+    }).length,
+  );
+  const oracleImports = allTests.filter((name) => {
+    return /^import .* from ["']\.\/python-oracle\.js["'];?$/mu.test(
+      readFileSync(path.join(directory, name), "utf8"),
+    );
+  });
+  const oracleExclusions = report.excluded.filter((entry) => {
+    return entry.reason === "imports-python-oracle";
+  }).map((entry) => entry.name).sort();
+  assert.deepEqual(oracleExclusions, oracleImports);
+  assert.equal(report.excluded_python_oracle_count, oracleImports.length);
 
   const reducedResult = run("check", directory, [
     "--profile", path.join(ROOT, "packsets", "zia.json"),
@@ -282,6 +306,7 @@ test("repository discovery naturally selects the operational smoke and Oracle te
     "import-moves-differential.test.js",
     "json.test.js",
     "paths.test.js",
+    "plan-fingerprint.test.js",
     "python-lossless-artifact.test.js",
     "python-lower-151.test.js",
     "rest-collector-python-parity.test.js",

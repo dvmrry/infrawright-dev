@@ -112,3 +112,45 @@ and a three-member occupied-destination cycle. Tests compare every recorded
 field; the digest is an additional provenance lock, not a replacement for the
 byte and semantic assertions. The test is pack-independent and makes no
 provider, Terraform, backend, or network call.
+
+## Plan fingerprint contract
+
+The fourth archive slice was produced at baseline
+`b999edfb3255c644100935991171ad4fcee003c9`. Its original live test was Git
+blob `40de74a1738ce2d0773a0687e4d102f56d71ce33`; the Python `engine/ops.py`
+authority was blob `f160a796f6078d96ee423d1ca7f1d169598c8160`; and the Node implementation
+under comparison was blob `8c57fda681df654f956646b2adbf09d485a689f8`.
+
+Re-run the original live differential at that exact state with:
+
+```sh
+git worktree add /tmp/iw-python-plan-fingerprint \
+  b999edfb3255c644100935991171ad4fcee003c9
+cd /tmp/iw-python-plan-fingerprint
+PYTHON=python3 npm run build:test
+PYTHON=python3 node --test \
+  .node-test/node-tests/plan-fingerprint.test.js
+```
+
+The complete CPython 3.13.13 / UCD 15.1.0 results are recorded in
+`node-tests/fixtures/python-plan-fingerprint-v1.json`. The fixture is 13,364
+bytes with SHA-256
+`69ebf724f468e72c37ffaac33f78055e37cc944397fa923a31ff08331030a1b6`.
+It preserves the full plan/init payloads and canonical bytes, both digests,
+module-source map, top-level symlink traversal, leading-U+FEFF filenames,
+scanner acceptance, all eleven scanner failures, and duplicate-module failure.
+
+Scanner diagnostics normalize only the generated temporary environment-root
+prefix to `{env_dir}`. Filenames, separators, Unicode, ordering, hashes, line
+numbers, error type, and diagnostic suffixes remain exact. Tests reconstruct
+the current temporary prefix before comparing the complete result.
+
+Linux-only invalid-filename evidence was produced independently with the same
+baseline under `python:3.13.13` image digest
+`sha256:15a460e69443a42f2fa947b565bfade376510f54400bd9aa44f35c0c5078b7ec`.
+The fixture records the common pre-mutation digest and distinct post-mutation
+digests for a raw-byte root file, module file, and module directory. The Node
+test retains its exact `INVALID_FILENAME_ENCODING` failure for each case; the
+Python digests prove the files affected the retired authority rather than
+disappearing from its walk. No provider, Terraform, backend, pack, credential,
+or network behavior is involved.
