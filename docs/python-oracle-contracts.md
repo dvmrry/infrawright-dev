@@ -273,6 +273,7 @@ regenerate and verify the exact committed fixture with:
 
 ```sh
 authority_checkout="$(git rev-parse --show-toplevel)"
+mkdir -p /tmp/iw-python-environment-roots/scripts/archive
 git show \
   c86ac17eb312da9bfdb89d2e2fc132daa0e501b7:scripts/archive/generate-python-environment-roots-authority.py \
   > /tmp/iw-python-environment-roots/scripts/archive/generate-python-environment-roots-authority.py
