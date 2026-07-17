@@ -360,6 +360,46 @@ the production Node functions and compare complete reports or exact bytes; the
 digests are provenance locks rather than substitute assertions. No provider,
 Terraform, credential, backend, network, deployment plan, or Apply is involved.
 
+## Reconcile and OpenAPI authoring contracts
+
+The next archive slice was produced from baseline
+`bfaf46159f7209fdc58dbc4b85d820442aacaad4`, using CPython 3.13.13 with
+UCD 15.1.0. The exact clean-checkout resurrection command is recorded in both
+fixtures. It creates a detached baseline worktree, restores the generator from
+this archive commit, installs the pinned test dependencies without scripts,
+regenerates both authorities, and copies them back for comparison.
+
+The 28,883-byte reproduction script has SHA-256
+`28b9235d1e8e9164a9c4d41fba1721779da30d96ebac27e966a173067c78fe90`.
+Before importing the retired implementation it validates the baseline,
+CPython/UCD authority, and 41 exact Python, Node, test, pack-registry, pack
+manifest, and loader source locks. A focused regression proves that changing a
+material registry byte fails source validation before capture.
+
+`node-tests/fixtures/python-reconcile-schema-api-v1.json` is 45,068 bytes with
+SHA-256
+`e44663ac77b8bc7be8b2af65f2bf39e7f6dbca12b7d79805b9fa133e99f7c9ff`.
+It preserves nine retired unittest runs as seven complete reconciliation
+reports, five helper results, and one exact CLI case, plus both distinct former
+live Node/Python differential reports and the authoring CLI comparison.
+
+`node-tests/fixtures/python-openapi-resource-map-v1.json` is 771,787 bytes
+with SHA-256
+`fc730c4adda0fb599f37d712adc75c1b9132350a5e714511e3f2c6e81581bd8a`.
+It preserves thirteen complete retired reports and one exact CLI case, plus all
+six distinct former live Node/Python differential inputs and the authoring CLI
+comparison. The corpus includes ambiguity, wrong-product suppression,
+parent-scoped paths, action resources, registry coverage, and half-even ratio
+rounding.
+
+Current tests replay every recorded library input and compare complete reports
+and helper values. The valid former live CLI cases compare exact status, stdout,
+and stderr. One retired OpenAPI unittest CLI input predates the current Swagger
+validation contract and lacks required `info`; its Python bytes remain frozen,
+while the Node test proves the same input now fails before mapping with the
+exact validation diagnostic. No Node output was recorded as Python authority,
+and no normalization is applied.
+
 ## Authoring leaf contracts
 
 The ninth archive slice was produced from baseline

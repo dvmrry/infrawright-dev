@@ -19,24 +19,6 @@
       "token": "zia"
     },
     {
-      "path": "engine/openapi_resource_map.py",
-      "pattern": "\"zia\": (\"zia\", \"internet access\"),",
-      "reason": "Provider-readiness OpenAPI mapping uses product aliases as explicit mapping hints.",
-      "token": "zia"
-    },
-    {
-      "path": "engine/openapi_resource_map.py",
-      "pattern": "\"zpa\": (\"zpa\", \"private access\"),",
-      "reason": "Provider-readiness OpenAPI mapping uses product aliases as explicit mapping hints.",
-      "token": "zpa"
-    },
-    {
-      "path": "engine/openapi_resource_map.py",
-      "pattern": "\"zcc\": (\"zcc\", \"client connector\"),",
-      "reason": "Provider-readiness OpenAPI mapping uses product aliases as explicit mapping hints.",
-      "token": "zcc"
-    },
-    {
       "path": "engine/packs.py",
       "pattern": "Longest-match-wins so overlapping prefixes (e.g. zpa_ vs a future",
       "reason": "Pack metadata merge and committed diagnostic guidance mention provider names as metadata references.",
@@ -137,12 +119,6 @@
       "pattern": "\"evidence\": \"docs/provider-labs/cloudflare-free-tier-pr32.md\",",
       "reason": "Pack metadata merge and committed diagnostic guidance mention provider names as metadata references.",
       "token": "cloudflare"
-    },
-    {
-      "path": "engine/reconcile_schema_api.py",
-      "pattern": "raise ValueError(\"%s must be a JSON object, list, or NetBox-style \"",
-      "reason": "Schema/API reconciler accepts documented NetBox-style list response shapes.",
-      "token": "netbox"
     },
     {
       "path": "engine/registry.py",

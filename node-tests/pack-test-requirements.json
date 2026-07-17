@@ -54,6 +54,19 @@
       "reason": "The real-pack guidance cases load metadata classes from the complete committed catalog."
     },
     {
+      "file": "authoring-openapi-resource-map.test.js",
+      "packs": [
+        "zcc",
+        "zia",
+        "zpa",
+        "ztc"
+      ],
+      "shared": [
+        "zscaler"
+      ],
+      "reason": "The frozen OpenAPI authority report includes registry evidence from every committed Zscaler pack."
+    },
+    {
       "file": "collector-authority.test.js",
       "packs": [
         "zcc",
