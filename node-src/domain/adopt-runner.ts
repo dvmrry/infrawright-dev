@@ -13,7 +13,10 @@ import {
   deriveAdoptionIdentities,
   type AdoptionRawClassification,
 } from "./adoption-meta.js";
-import { DriftPolicy } from "./drift-policy.js";
+import {
+  DriftPolicy,
+  isSupportedDriftPolicyVersion,
+} from "./drift-policy.js";
 import {
   createOracleCommandRunner,
   importProviderState,
@@ -95,8 +98,13 @@ function emptyPolicy(): Record<string, unknown> {
 function mergePolicyData(base: unknown, override: unknown): unknown {
   const output = isObject(cloneJson(base)) ? cloneJson(base) as Record<string, unknown> : emptyPolicy();
   if (!isObject(override)) return override;
-  if (output.version !== (override.version ?? 1)) return override;
-  output.version = override.version ?? output.version ?? 1;
+  if (
+    !isSupportedDriftPolicyVersion(output.version ?? 1)
+    || !isSupportedDriftPolicyVersion(override.version ?? 1)
+  ) {
+    return override;
+  }
+  output.version = 1;
   const resources = isObject(output.resource_types)
     ? output.resource_types
     : (output.resource_types = {} as Record<string, unknown>);

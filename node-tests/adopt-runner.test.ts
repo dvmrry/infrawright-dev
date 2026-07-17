@@ -4,6 +4,7 @@ import { access, chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } f
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { LosslessNumber } from "lossless-json";
 
 import {
   loadAdoptionPolicy,
@@ -390,6 +391,55 @@ test("logical-root Oracle batching is opt-in and validates its environment value
     () => oracleBatchMode({ INFRAWRIGHT_ORACLE_BATCH_MODE: "root" }),
     /must be per-resource-type or logical-root/u,
   );
+});
+
+test("file adoption policy preserves pack policy and lossless numeric values", async (context) => {
+  const directory = await temporaryDirectory(context, "infrawright-adoption-policy-");
+  const policyPath = path.join(directory, "drift-policy.json");
+  await writeFile(policyPath, `{
+    "version": 1,
+    "resource_types": {
+      "sample_resource": {
+        "projection_omit_if": [{
+          "path": "quota",
+          "values": [900719925474099312345678901],
+          "reason": "provider sentinel",
+          "approved_by": "unit"
+        }]
+      }
+    }
+  }\n`);
+  const root = {
+    active: { packs: ["base"] },
+    packs: {
+      manifests: [{
+        data: {
+          drift_policy: {
+            version: 1,
+            resource_types: {
+              sample_resource: {
+                projection_omit: [{
+                  path: "description",
+                  reason: "pack default",
+                  approved_by: "pack",
+                }],
+              },
+            },
+          },
+        },
+        name: "base",
+      }],
+    },
+  } as unknown as LoadedPackRoot;
+
+  const policy = await loadAdoptionPolicy({ path: policyPath, root });
+  assert.equal(policy.data.version, 1);
+  assert.equal(policy.entries("sample_resource", "projection_omit").length, 1);
+  const value = (
+    policy.entries("sample_resource", "projection_omit_if")[0]?.values as unknown[]
+  )[0];
+  assert.ok(value instanceof LosslessNumber);
+  assert.equal(value.toString(), "900719925474099312345678901");
 });
 
 test("logical-root adoption uses one batch Oracle and preserves per-resource artifact bytes", async (context) => {
