@@ -16,8 +16,8 @@ import (
 
 	"github.com/dvmrry/infrawright-dev/go/internal/cliargs"
 	"github.com/dvmrry/infrawright-dev/go/internal/collectors"
+	"github.com/dvmrry/infrawright-dev/go/internal/httptransport"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
-	"github.com/dvmrry/infrawright-dev/go/internal/resthttp"
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
 )
 
@@ -25,22 +25,17 @@ const fetchDiagnosticTimeoutMs = 15_000
 
 var positiveFetchConcurrency = regexp.MustCompile(`^[1-9][0-9]*$`)
 
-// fetchPerformanceRecorder is the composition-root view of the two narrow
-// recorder seams used by collectors and resthttp. Block E will provide the
-// real recorder and atomic report writer. Until then dispatch passes nil; the
-// interface keeps this command from inventing a second telemetry contract.
-type fetchPerformanceRecorder interface {
-	collectors.PerformanceRecorder
-	resthttp.PerformanceRecorder
-}
-
-// deferredFetchPerformanceRecorder is a compile-time witness that one value
-// can satisfy both current recorder seams. It is deliberately not a
-// performance-report implementation, and production dispatch does not install
-// it in response to INFRAWRIGHT_PERFORMANCE_REPORT.
+// deferredFetchPerformanceRecorder is a compile-time witness that a value
+// can satisfy collectors.PerformanceRecorder, the one recorder seam this
+// command still has (httptransport, unlike the retired resthttp package,
+// does not expose a per-attempt/per-retry HTTP telemetry seam of its own --
+// nothing wired it to real telemetry, so there was nothing to preserve; see
+// docs/go-runtime-v2.md §7). Block E will provide the real recorder and
+// atomic report writer. Until then dispatch passes nil; the interface keeps
+// this command from inventing a second telemetry contract.
 type deferredFetchPerformanceRecorder struct{}
 
-var _ fetchPerformanceRecorder = deferredFetchPerformanceRecorder{}
+var _ collectors.PerformanceRecorder = deferredFetchPerformanceRecorder{}
 
 func (deferredFetchPerformanceRecorder) Now() float64 { return 0 }
 
@@ -49,14 +44,6 @@ func (deferredFetchPerformanceRecorder) DurationSince(float64) float64 { return 
 func (deferredFetchPerformanceRecorder) SetFetchConcurrency(int) error { return nil }
 
 func (deferredFetchPerformanceRecorder) RecordSpan(collectors.PerformanceSpan) error {
-	return nil
-}
-
-func (deferredFetchPerformanceRecorder) RecordHTTPAttempt(resthttp.HTTPAttemptPerformance) error {
-	return nil
-}
-
-func (deferredFetchPerformanceRecorder) RecordHTTPRetry(resthttp.HTTPRetryPerformance) error {
 	return nil
 }
 
@@ -207,9 +194,9 @@ func (transport *deferredProbeTransport) Request(
 ) (collectors.HTTPResponse, error) {
 	if !transport.setupDone {
 		transport.setupDone = true
-		transport.transport, transport.setupErr = resthttp.CreateRestHTTPTransport(
+		transport.transport, transport.setupErr = httptransport.New(
 			transport.environment,
-			resthttp.RestHTTPTransportOptions{
+			httptransport.Options{
 				IncludeCustomCA:  &transport.includeCustomCA,
 				RequestTimeoutMs: &transport.timeoutMs,
 			},
@@ -230,7 +217,7 @@ func (transport *deferredProbeTransport) Close() error {
 
 func fetchCommand(
 	arguments []string,
-	performance fetchPerformanceRecorder,
+	performance collectors.PerformanceRecorder,
 ) (int, error) {
 	options, err := fetchCLIOptions(arguments, true)
 	if err != nil {
@@ -284,9 +271,7 @@ func fetchCommand(
 	for _, line := range debugLines {
 		fmt.Fprintf(os.Stderr, "%s\n", line)
 	}
-	transport, err := resthttp.CreateRestHTTPTransport(environment, resthttp.RestHTTPTransportOptions{
-		Performance: performance,
-	})
+	transport, err := httptransport.New(environment, httptransport.Options{})
 	if err != nil {
 		return 0, err
 	}

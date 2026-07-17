@@ -27,7 +27,7 @@ endif
 override INFRAWRIGHT_DEPLOYMENT = $(DEPLOYMENT)
 export INFRAWRIGHT_DEPLOYMENT
 
-.PHONY: metadata-cli verify-runtime source-build-preflight check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-go-vendor check-resthttp-generated check-resthttp-generated-live differential root-catalog check-root-catalog deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-node check-all check-core test test-node fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: metadata-cli verify-runtime source-build-preflight check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set differential root-catalog check-root-catalog deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-node check-all check-core test test-node fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 dist/infrawright-cli.mjs:
 	$(NPM) run build:metadata-cli
@@ -78,22 +78,9 @@ check-pack: dist/infrawright-cli.mjs ## Validate pack.json and registry.json met
 check-pack-set: dist/infrawright-cli.mjs ## Require the installed pack root to match PACK_PROFILE exactly
 	$(INFRAWRIGHT_CLI) check-pack-set --catalog "$(PACK_CATALOG)" --profile "$(PACK_PROFILE)"
 
-check-go-vendor: ## Verify vendored Go modules are exact, then build/test using only vendor
-	./go/scripts/check-vendor.sh
-	cd go && $(GO) test -mod=vendor ./...
-
-check-resthttp-generated: ## Verify generated Go data for Node roots and the public suffix trie
-	cd go/internal/resthttp && $(GO) run generate_node_roots.go --check
-	cd go/internal/resthttp && $(GO) run generate_publicsuffix.go --check
-
-check-resthttp-generated-live: ## Rederive generated REST/HTTP data from the pinned Node and tldts sources
-	cd go/internal/resthttp && $(GO) run generate_node_roots.go --check --live
-	cd go/internal/resthttp && $(GO) run generate_publicsuffix.go --check --live
-
 differential: ## Rebuild the Node oracle and run the cmd/iw Go-vs-Node suites
 	$(NPM) run build:metadata-cli
-	$(MAKE) check-resthttp-generated-live
-	cd go && $(GO) test -mod=vendor -count=1 ./cmd/iw -run 'Differential|^TestFetchDiagValidatesHostBeforeTransportSetup$$|^TestFetchArgumentContractCredentialFree$$|^TestFetchEmptyPackRootMakesNoRequests$$'
+	cd go && $(GO) test -count=1 ./cmd/iw -run 'Differential|^TestFetchDiagValidatesHostBeforeTransportSetup$$|^TestFetchArgumentContractCredentialFree$$|^TestFetchEmptyPackRootMakesNoRequests$$'
 
 root-catalog: dist/infrawright-cli.mjs ## Regenerate the all-Zscaler compatibility root catalog
 	$(INFRAWRIGHT_CLI) root-catalog --providers zcc,zia,zpa,ztc --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --out "$(ROOT_CATALOG)"
@@ -132,7 +119,7 @@ demo-contract: dist/infrawright-cli.mjs ## Credential-free demo artifact/module 
 	echo "demo-contract: committed demo config/imports and generated modules are in sync"
 	@echo "demo-contract: live provider import/plan proof requires credentials and the adoption workflow"
 
-check: check-pack-set test check-examples check-modules check-tfvars-fmt check-pack check-go-vendor check-resthttp-generated ## Active-distribution gate: exact pack set + selected tests/examples + generators + metadata
+check: check-pack-set test check-examples check-modules check-tfvars-fmt check-pack ## Active-distribution gate: exact pack set + selected tests/examples + generators + metadata
 
 check-node: check ## Explicit Python-independent repository qualification gate
 

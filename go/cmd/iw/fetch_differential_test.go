@@ -609,47 +609,45 @@ func TestFetchDiagValidatesHostBeforeTransportSetup(t *testing.T) {
 		"--profile", pack.profile,
 		"--catalog", pack.profile,
 	}
-	// The first case is the credential-free zia-only adversarial-review
-	// reproducer. HTTPS_PROXY is intentionally invalid: if transport setup runs
-	// before ProbeRestHost validates the ZIA-derived target, INVALID_REST_PROXY
-	// wins. The second case proves that deferring setup did not demote a genuine
-	// construction failure into a nonfatal connectivity result.
-	cases := []struct {
+	// The credential-free zia-only adversarial-review reproducer: an
+	// invalid ZIA_CLOUD must fail host validation before any transport
+	// work runs, regardless of proxy configuration. This ordering is
+	// unaffected by the httptransport rewrite (docs/go-runtime-v2.md §7)
+	// and still holds byte-for-byte against the Node oracle.
+	//
+	// The companion "a valid target survives a broken proxy" case that
+	// used to live here asserted Node/resthttp's eager, WHATWG-flavored
+	// HTTPS_PROXY validation (INVALID_REST_PROXY, a fail-fast transport-
+	// construction error). httptransport deliberately does not reproduce
+	// that validation -- it delegates proxy selection entirely to
+	// net/http's stdlib ProxyFromEnvironment (docs/go-runtime-v2.md §3's
+	// "allowed to change" column), which resolves the proxy lazily, per
+	// request, with no upfront URL-shape check. See
+	// TestFetchDiagReportsBrokenProxyAsHostFailureRatherThanCrashing
+	// below for the product-level behavior that replaces it.
+	testCase := struct {
 		name       string
 		cloud      string
 		wantStderr string
 	}{
-		{
-			name:       "invalid-target-precedes-invalid-proxy",
-			cloud:      "bad@evil",
-			wantStderr: "error: diagnostic host must be a hostname with an optional port\n",
-		},
-		{
-			name:  "valid-target-preserves-transport-setup-error",
-			cloud: "example",
-			wantStderr: "error: HTTP proxy configuration must be an http:// or https:// URL\n" +
-				"  code: INVALID_REST_PROXY\n" +
-				"  category: io\n" +
-				"  retryable: no\n",
-		},
+		name:       "invalid-target-precedes-invalid-proxy",
+		cloud:      "bad@evil",
+		wantStderr: "error: diagnostic host must be a hostname with an optional port\n",
 	}
-	candidates := make(map[string]runResult, len(cases))
-	for _, testCase := range cases {
-		t.Run("go/"+testCase.name, func(t *testing.T) {
-			environment := []string{
-				"HTTPS_PROXY=not-a-url",
-				"ZIA_CLOUD=" + testCase.cloud,
-				"ZSCALER_USE_LEGACY_CLIENT=1",
-			}
-			directory := t.TempDir()
-			candidate := runBinaryWithEnv(t, directory, goBinary, arguments, environment)
-			requireRunResult(t, candidate, 1, "", testCase.wantStderr)
-			if artifacts := treeBytes(t, directory); len(artifacts) != 0 {
-				t.Errorf("fetch-diag wrote artifacts before failing: %v", artifacts)
-			}
-			candidates[testCase.name] = candidate
-		})
+	environment := []string{
+		"HTTPS_PROXY=not-a-url",
+		"ZIA_CLOUD=" + testCase.cloud,
+		"ZSCALER_USE_LEGACY_CLIENT=1",
 	}
+	var candidate runResult
+	t.Run("go/"+testCase.name, func(t *testing.T) {
+		directory := t.TempDir()
+		candidate = runBinaryWithEnv(t, directory, goBinary, arguments, environment)
+		requireRunResult(t, candidate, 1, "", testCase.wantStderr)
+		if artifacts := treeBytes(t, directory); len(artifacts) != 0 {
+			t.Errorf("fetch-diag wrote artifacts before failing: %v", artifacts)
+		}
+	})
 
 	oracleBundle := filepath.Join(root, "dist", "infrawright-cli.mjs")
 	if _, err := os.Stat(oracleBundle); err != nil {
@@ -662,27 +660,62 @@ func TestFetchDiagValidatesHostBeforeTransportSetup(t *testing.T) {
 	if err != nil {
 		t.Skip("node not on PATH; the differential lane needs the pinned Node 24")
 	}
-	for _, testCase := range cases {
-		t.Run("node/"+testCase.name, func(t *testing.T) {
-			environment := []string{
-				"HTTPS_PROXY=not-a-url",
-				"ZIA_CLOUD=" + testCase.cloud,
-				"ZSCALER_USE_LEGACY_CLIENT=1",
-			}
-			directory := t.TempDir()
-			oracle := runBinaryWithEnv(
-				t,
-				directory,
-				nodeBinary,
-				append([]string{oracleBundle}, arguments...),
-				environment,
-			)
-			requireRunResult(t, oracle, 1, "", testCase.wantStderr)
-			if artifacts := treeBytes(t, directory); len(artifacts) != 0 {
-				t.Errorf("Node fetch-diag wrote artifacts before failing: %v", artifacts)
-			}
-			requireRunParity(t, oracle, candidates[testCase.name])
-		})
+	t.Run("node/"+testCase.name, func(t *testing.T) {
+		directory := t.TempDir()
+		oracle := runBinaryWithEnv(
+			t,
+			directory,
+			nodeBinary,
+			append([]string{oracleBundle}, arguments...),
+			environment,
+		)
+		requireRunResult(t, oracle, 1, "", testCase.wantStderr)
+		if artifacts := treeBytes(t, directory); len(artifacts) != 0 {
+			t.Errorf("Node fetch-diag wrote artifacts before failing: %v", artifacts)
+		}
+		requireRunParity(t, oracle, candidate)
+	})
+}
+
+// TestFetchDiagReportsBrokenProxyAsHostFailureRatherThanCrashing is the
+// Go-only product-behavior replacement for the "valid-target-preserves-
+// transport-setup-error" case dropped from
+// TestFetchDiagValidatesHostBeforeTransportSetup above: with a valid ZIA
+// target but a malformed HTTPS_PROXY, httptransport no longer fails
+// transport construction (see that function's doc comment). fetch-diag
+// must still behave sensibly -- it must not crash before reporting
+// anything, must not silently claim the host is reachable, and must mask
+// the vanity/customer identifiers in whatever connectivity detail it does
+// report, exactly as it already does for any other unreachable host.
+func TestFetchDiagReportsBrokenProxyAsHostFailureRatherThanCrashing(t *testing.T) {
+	root := repoRoot(t)
+	goBinary := buildFetchTestBinary(t, root)
+	pack := reviewerZIAOnlyPack(t, root)
+	arguments := []string{
+		"fetch-diag",
+		"--root", pack.root,
+		"--profile", pack.profile,
+		"--catalog", pack.profile,
+	}
+	environment := []string{
+		"HTTPS_PROXY=not-a-url",
+		"ZIA_CLOUD=example",
+		"ZSCALER_USE_LEGACY_CLIENT=1",
+	}
+	directory := t.TempDir()
+	candidate := runBinaryWithEnv(t, directory, goBinary, arguments, environment)
+	if candidate.exit != 0 {
+		t.Errorf("exit=%d, want 0 (fetch-diag reports per-host connectivity, it does not fail the process)\nstderr: %s", candidate.exit, candidate.stderr)
+	}
+	stderr := string(candidate.stderr)
+	if !strings.Contains(stderr, "zsapi.example.net: system-trust FAIL") {
+		t.Errorf("stderr = %q, want a system-trust FAIL line for zsapi.example.net", stderr)
+	}
+	if strings.Contains(stderr, "not-a-url") {
+		t.Errorf("stderr = %q, must not echo the raw HTTPS_PROXY value", stderr)
+	}
+	if artifacts := treeBytes(t, directory); len(artifacts) != 0 {
+		t.Errorf("fetch-diag wrote artifacts: %v", artifacts)
 	}
 }
 
