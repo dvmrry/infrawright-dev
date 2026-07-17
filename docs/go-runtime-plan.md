@@ -272,20 +272,28 @@ re-qualification, not codegen.
 
 Ported as-is for byte parity (it is a topology dimension pinned by the
 committed root catalog, variable naming, env layout, and whole-root
-scoping — not a skippable module). Scheduled for removal AFTER cutover,
-gated on:
+scoping — not a skippable module). Removal is scheduled, and its window
+is deadline-shaped: with no consumers AND no applied state under grouped
+addresses yet (no real Apply has run), degrouping today is a pure
+code+goldens change. That stops being true at the FIRST real Apply,
+which keyed qualification will perform — after that, removal becomes an
+identity-keyed moved{} migration over live tenant state, forever.
 
-1. Cross-state reference bindings (#225) promoted from opt-in to default
-   and live-qualified — they supersede the co-location case grouping
-   existed for.
-2. A state-migration plan: degrouping changes module addresses, variable
-   names, and env paths for every grouped resource; the removal ships as
-   an identity-keyed moved{} reconciliation pass over real tenants and
-   must clear assert-adoptable, not as a plain refactor.
-3. An explicit auto-vs-full decision: removing only automatic slug
+Preferred slot: in NODE, immediately after the Python archive completes
+and BEFORE keyed qualification applies anything. Ship as a deliberate
+behavior change with adversarial review: regenerate demo goldens and the
+root catalog as schema v2 (slug fields removed, labels ≡ resource types,
+variable name always "items"), then simplify the Go tree to match
+(bounded deletions in roots, root-catalog, envgen, scope-paths) and
+re-anchor the differential corpus.
+
+Gates that remain regardless of state:
+
+1. Cross-root references must have a qualified DEFAULT mechanism first —
+   promote #225 cross-state bindings or the inferred lookup-sidecar path
+   from opt-in; grouping's co-location was the fallback being removed.
+2. An explicit auto-vs-full decision: removing only automatic slug
    derivation keeps most plumbing alive via explicit groups; the
-   simplification only pays in full (labels ≡ resource types, variable
-   name always "items", catalog schema v2 without slug fields) if
-   explicit groups retire too. Check the oracle-batching/root-count
-   performance counterweight (#212 batches by logical root) before
-   committing.
+   simplification only pays in full if explicit groups retire too. Check
+   the oracle-batching/root-count performance counterweight (#212
+   batches by logical root) before committing.
