@@ -1,5 +1,10 @@
 # Go PR 247 Parity Triage Review Handoff
 
+Review status: **Approve**. The fresh-context result is recorded in
+`docs/review-handoffs/go-pr247-parity-triage-review.md`. Its sole forward
+watch-item is to re-confirm during block C that the internal duplicate-scope
+marker never enters plan-report bytes.
+
 ## Intent
 
 - Reconcile merged PR 247 (`3e3fa3bb419966a3f81e304118509c3f88ae1d5d`)

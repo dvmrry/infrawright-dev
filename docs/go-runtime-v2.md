@@ -130,7 +130,7 @@ work. The required acceptance matrix is:
 | Terraform composition | In the generated env root, bounded `terraform init -backend=false -input=false -no-color`, `terraform validate -no-color`, and `terraform test -no-color -verbose -json` all exit 0. The structured events must prove `empty_plan` has zero resource changes and `config_plan` has exactly one `create` at `module.zia_rule_labels.zia_rule_labels.this["testlabel_vcr_integration"]` with the committed name/description, followed by an exact 2-pass/0-failure summary. The ZIA pack pin must equal the sole generated provider-lock selection. Provider installation may use the registry or a pinned filesystem mirror; all ZIA/Zscaler credentials/endpoints are removed before Terraform and no post-fetch API request is allowed. | Sanitized transcript with candidate hash, Terraform version, signed provider selection, lock hash, validation result, per-run structured plan summary, and final HTTP transcript. | **PASS locally; focused adversarial review approved** |
 | No-Node candidate | Build a CGO-disabled candidate in a temporary package root, then run the entire hermetic chain with a sanitized `PATH` containing Terraform but no usable `node`, `npm`, or `npx`; invoke only the candidate and Terraform. Any attempted name-based Node execution fails the leg. | Sanitized environment manifest and the same product/Terraform transcript. | **PASS locally; integrated into the hermetic test** |
 | One live read-only provider | Exactly `zia_end_user_notification` through ZIA OneAPI, concurrency 1: accepted Node → Go candidate → accepted Node, each into a fresh mode-0700 root. This singleton performs one `GET /zia/api/v1/eun` with no pagination. All three runs exit 0 and emit only `zia_end_user_notification.json`; Node-before equals Node-after and Go bytes equal both. No Adopt, import, plan, Apply, selector widening, retry/429, or mutation is permitted. Credentials and raw pulls remain private and are deleted. | Candidate and Node SHAs; tool/provider/pack versions; exit statuses; item count, byte size, SHA-256/tree manifest; masked diagnostic classification and secret-scan result. | **BLOCKED locally — externally confirmed read-only credentials are absent; no live call was attempted** |
-| Fresh adversarial review | A fresh Codex reviewer follows `docs/adversarial-review.md`, reviews the complete checkpoint evidence without editing, and leaves no unresolved blocking finding. | Review handoff and recorded findings using the repository templates. | **Hermetic implementation: Approve; post-247 Go parity candidate `5e7d02d` and its refreshed evidence are ready for fresh review; final full-evidence review remains required after the live leg** |
+| Fresh adversarial review | A fresh Codex reviewer follows `docs/adversarial-review.md`, reviews the complete checkpoint evidence without editing, and leaves no unresolved blocking finding. | Review handoff and recorded findings using the repository templates. | **Hermetic implementation: Approve; post-247 Go parity candidate `5e7d02d`: Approve; work-machine rerun and final full-evidence review after the live leg remain required** |
 
 Run the hermetic leg explicitly; the default test lane records a visible skip
 so provider installation is never smuggled into ordinary unit tests:
@@ -199,8 +199,13 @@ Post-247 reconciliation evidence recorded on 2026-07-17:
   lane reported 788 passes, zero failures, and two known optional external
   skips. gofmt, `go vet ./...`, and the pre-review script passed; its optional
   `golangci-lint` step was unavailable.
+- Fresh adversarial review of `5e7d02d` returned **Approve** after independently
+  reproducing the oracle and gates. The reviewer confirmed Go/Node marker text
+  differences are inert because the marker is confined to same-run duplicate
+  detection. Forward watch-item: when block C adds plan-report behavior,
+  re-confirm that internal marker bytes do not enter reports.
 - The original work-machine report remains valid for `ade9442`; candidate
-  `5e7d02d` requires its own work-machine rerun and fresh adversarial review.
+  `5e7d02d` still requires its own work-machine rerun.
 
 The checkpoint passes only when every required leg is PASS. A skip,
 inconclusive live snapshot, Node self-drift, secret-scan hit, unexpected wire or

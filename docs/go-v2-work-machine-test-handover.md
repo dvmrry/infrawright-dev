@@ -54,9 +54,21 @@ Expected:
 - The pinned commit subject is
   `Align Go policy and Terraform bounds with PR 247`.
 - The candidate-to-tip diff contains only `docs/go-runtime-v2.md`, this
-  handover, and `docs/review-handoffs/go-pr247-parity-triage.md`. If it contains
-  code, fixtures, pack metadata, schemas, or another plan change, stop and
-  report that the test target moved.
+  handover, `docs/review-handoffs/go-pr247-parity-triage.md`, and
+  `docs/review-handoffs/go-pr247-parity-triage-review.md`. If it contains code,
+  fixtures, pack metadata, schemas, or another plan change, stop and report
+  that the test target moved.
+
+## Review status and forward watch-item
+
+- Fresh adversarial review of candidate `5e7d02d` returned **Approve** after
+  independently reproducing its oracle and gates.
+- The Go/Node textual spelling difference for exponential numeric scope
+  markers is accepted as inert: the marker is internal to same-run duplicate
+  detection and never enters current artifacts or reports.
+- When block C later adds Go plan-report behavior, re-confirm that the internal
+  marker remains absent from report bytes. This is a forward watch-item, not a
+  failure condition for this work-machine rerun.
 
 Record these versions before testing:
 
