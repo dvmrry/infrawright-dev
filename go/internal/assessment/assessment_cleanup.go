@@ -22,6 +22,9 @@ type assessmentCleanupSnapshot struct {
 
 type assessmentCleanupHooks struct {
 	afterDirectoryIdentity func() error
+	beforeDirectoryRemoval func() error
+	removeSnapshot         func(*os.Root, string) error
+	removeDirectory        func(*os.Root, string) error
 }
 
 func assessmentCleanupFailure(code, message string) *procerr.ProcessFailure {
@@ -111,14 +114,28 @@ func readAssessmentCleanupNames(root *os.Root) ([]string, error) {
 	return names, nil
 }
 
-// cleanupAssessmentTemporaryDirectory binds the actual temporary directory,
+func removeAssessmentCleanupName(
+	root *os.Root,
+	name string,
+	hook func(*os.Root, string) error,
+) (err error) {
+	if hook == nil {
+		return root.Remove(name)
+	}
+	defer func() {
+		if recover() != nil {
+			err = errors.New("assessment cleanup remove hook panicked")
+		}
+	}()
+	return hook(root, name)
+}
+
+// cleanupAssessmentTemporaryDirectory binds the actual temporary directory and
 // verifies that it contains exactly the zero-length snapshot inodes already
-// scrubbed by CleanupSavedPlanEvidence, and performs no pathname-recursive
-// deletion. There is no portable unlink-by-inode primitive: even Root.Remove
-// could unlink a name rebound after its identity check, and removing the
-// directory by pathname could delete a replacement. The fail-closed contract
-// therefore leaves the bound directory containing only its zero-length bound
-// snapshot entries. A later trusted janitor may remove those inert remnants.
+// scrubbed by CleanupSavedPlanEvidence. It then removes those verified names
+// through the bound root and removes the empty directory through a bound parent
+// root after rechecking its identity. Removal failures are best effort: they
+// leave only scrubbed randomized remnants and cannot exhaust later runs.
 func cleanupAssessmentTemporaryDirectory(
 	directory string,
 	expectedDirectory assessmentCleanupIdentity,
@@ -132,8 +149,13 @@ func cleanupAssessmentTemporaryDirectory(
 	if err != nil {
 		return assessmentCleanupFailed()
 	}
+	validated := false
+	closed := false
 	defer func() {
-		if err := root.Close(); err != nil && failure == nil {
+		if closed {
+			return
+		}
+		if err := root.Close(); err != nil && !validated && failure == nil {
 			failure = assessmentCleanupFailed()
 		}
 	}()
@@ -193,6 +215,76 @@ func cleanupAssessmentTemporaryDirectory(
 	if !ok || pathInfo == nil || !pathInfo.IsDir() ||
 		pathInfo.Mode()&os.ModeSymlink != 0 || pathIdentity != expectedDirectory {
 		return assessmentCleanupRefused()
+	}
+	validated = true
+
+	for _, name := range names {
+		expectedIdentity := expected[name]
+		info, err := root.Lstat(name)
+		if err != nil || info == nil || !info.Mode().IsRegular() || info.Size() != 0 {
+			return assessmentCleanupRefused()
+		}
+		identity, ok := assessmentCleanupFileIdentity(info)
+		if !ok || identity != expectedIdentity {
+			return assessmentCleanupRefused()
+		}
+		if err := removeAssessmentCleanupName(root, name, hooks.removeSnapshot); err != nil {
+			return nil
+		}
+	}
+	remaining, err := readAssessmentCleanupNames(root)
+	if err != nil {
+		return nil
+	}
+	if len(remaining) != 0 {
+		return assessmentCleanupRefused()
+	}
+	pathInfo, err = os.Lstat(directory)
+	if err != nil {
+		return assessmentCleanupRefused()
+	}
+	pathIdentity, ok = assessmentCleanupFileIdentity(pathInfo)
+	if !ok || pathInfo == nil || !pathInfo.IsDir() ||
+		pathInfo.Mode()&os.ModeSymlink != 0 || pathIdentity != expectedDirectory {
+		return assessmentCleanupRefused()
+	}
+	if err := root.Close(); err != nil {
+		closed = true
+		return nil
+	}
+	closed = true
+
+	parent := filepath.Dir(directory)
+	name := filepath.Base(directory)
+	if name == "." || name == string(filepath.Separator) {
+		return assessmentCleanupRefused()
+	}
+	parentRoot, err := os.OpenRoot(parent)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = parentRoot.Close() }()
+	childInfo, err := parentRoot.Lstat(name)
+	if err != nil || childInfo == nil || !childInfo.IsDir() || childInfo.Mode()&os.ModeSymlink != 0 {
+		return assessmentCleanupRefused()
+	}
+	childIdentity, ok := assessmentCleanupFileIdentity(childInfo)
+	if !ok || childIdentity != expectedDirectory {
+		return assessmentCleanupRefused()
+	}
+	if err := invokeAssessmentCleanupHook(hooks.beforeDirectoryRemoval); err != nil {
+		return nil
+	}
+	childInfo, err = parentRoot.Lstat(name)
+	if err != nil || childInfo == nil || !childInfo.IsDir() || childInfo.Mode()&os.ModeSymlink != 0 {
+		return assessmentCleanupRefused()
+	}
+	childIdentity, ok = assessmentCleanupFileIdentity(childInfo)
+	if !ok || childIdentity != expectedDirectory {
+		return assessmentCleanupRefused()
+	}
+	if err := removeAssessmentCleanupName(parentRoot, name, hooks.removeDirectory); err != nil {
+		return nil
 	}
 	return nil
 }

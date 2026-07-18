@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -54,145 +53,128 @@ func requireAssessmentTemporaryUnavailable(t *testing.T, err error) {
 	}
 }
 
-func assessmentTemporarySlotPath(root string, slot int) string {
-	return filepath.Join(
-		root,
-		fmt.Sprintf("%s%02d", assessmentTemporaryDirectoryPrefix, slot),
-	)
+func requirePrivateAssessmentDirectory(t *testing.T, path string) os.FileInfo {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("os.Lstat(%q) error = %v, want nil", path, err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
+		t.Errorf("assessment temporary directory %q mode = %v, want non-symlink directory no broader than 0700", path, info.Mode())
+	}
+	return info
 }
 
-func TestMakeAssessmentTemporaryDirectoryHasExactFiniteCapacity(t *testing.T) {
-	if retainedSnapshotBound := maxAssessmentTemporaryDirectorySlots * MaxSavedPlanAssessmentRoots; retainedSnapshotBound != 32_000 {
-		t.Fatalf("retained snapshot inode bound = %d, want 32,000 plus 32 slot directories", retainedSnapshotBound)
+func readAssessmentTemporaryEntries(t *testing.T, root string) []os.DirEntry {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("os.ReadDir(%q) error = %v, want nil", root, err)
 	}
+	return entries
+}
+
+func TestMakeAssessmentTemporaryDirectoryCreatesRandomPrivateDirectories(t *testing.T) {
 	root := t.TempDir()
-	created := make(map[string]os.FileInfo, maxAssessmentTemporaryDirectorySlots)
-	for slot := 0; slot < maxAssessmentTemporaryDirectorySlots; slot++ {
+	const count = 48
+	created := make(map[string]os.FileInfo, count)
+	for index := 0; index < count; index++ {
 		path, err := makeAssessmentTemporaryDirectory(root)
 		if err != nil {
-			t.Fatalf("makeAssessmentTemporaryDirectory(slot %d) error = %v, want nil", slot, err)
+			t.Fatalf("makeAssessmentTemporaryDirectory(run %d) error = %v, want nil", index+1, err)
 		}
-		if path != assessmentTemporarySlotPath(root, slot) {
-			t.Errorf("slot %d path = %q, want deterministic slot path", slot, path)
+		if filepath.Dir(path) != root || !strings.HasPrefix(filepath.Base(path), assessmentTemporaryDirectoryPrefix) {
+			t.Errorf("makeAssessmentTemporaryDirectory(run %d) path = %q, want randomized child of %q with prefix %q", index+1, path, root, assessmentTemporaryDirectoryPrefix)
 		}
-		info, err := os.Lstat(path)
-		if err != nil {
-			t.Fatalf("os.Lstat(created slot %d) error = %v, want nil", slot, err)
+		if _, duplicate := created[path]; duplicate {
+			t.Errorf("makeAssessmentTemporaryDirectory(run %d) path = %q, want unique name", index+1, path)
 		}
-		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&^os.FileMode(0o700) != 0 {
-			t.Errorf("slot %d mode = %v, want non-symlink directory no broader than requested 0700", slot, info.Mode())
-		}
+		info := requirePrivateAssessmentDirectory(t, path)
 		for previousPath, previousInfo := range created {
 			if os.SameFile(previousInfo, info) {
-				t.Errorf("slot %q and %q share an inode, want distinct atomic claims", previousPath, path)
+				t.Errorf("assessment temporary directories %q and %q share an inode, want distinct claims", previousPath, path)
 			}
 		}
 		created[path] = info
 	}
-
-	path, err := makeAssessmentTemporaryDirectory(root)
-	if path != "" {
-		t.Errorf("makeAssessmentTemporaryDirectory(exhausted) path = %q, want empty", path)
+	if len(created) != count {
+		t.Errorf("random assessment directory count = %d, want %d", len(created), count)
 	}
-	requireAssessmentTemporaryUnavailable(t, err)
-	entries, readErr := os.ReadDir(root)
-	if readErr != nil {
-		t.Fatalf("os.ReadDir(exhausted root) error = %v, want nil", readErr)
-	}
-	if len(entries) != maxAssessmentTemporaryDirectorySlots {
-		t.Errorf("exhausted root entry count = %d, want exact cap %d", len(entries), maxAssessmentTemporaryDirectorySlots)
+	for path := range created {
+		if err := os.Remove(path); err != nil {
+			t.Errorf("os.Remove(test-owned empty directory %q) error = %v, want nil", path, err)
+		}
 	}
 }
 
-func TestMakeAssessmentTemporaryDirectoryClaimsSlotsConcurrently(t *testing.T) {
+func TestMakeAssessmentTemporaryDirectoryIsConcurrent(t *testing.T) {
 	root := t.TempDir()
+	const workers = 64
 	type result struct {
 		path string
 		err  error
 	}
 	start := make(chan struct{})
-	results := make(chan result, maxAssessmentTemporaryDirectorySlots*2)
-	var workers sync.WaitGroup
-	for worker := 0; worker < maxAssessmentTemporaryDirectorySlots*2; worker++ {
-		workers.Add(1)
+	// One result per bounded worker lets every goroutine terminate before the
+	// test goroutine begins validation.
+	results := make(chan result, workers)
+	var wait sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		wait.Add(1)
 		go func() {
-			defer workers.Done()
+			defer wait.Done()
 			<-start
 			path, err := makeAssessmentTemporaryDirectory(root)
 			results <- result{path: path, err: err}
 		}()
 	}
 	close(start)
-	workers.Wait()
+	wait.Wait()
 	close(results)
 
-	created := make(map[string]struct{}, maxAssessmentTemporaryDirectorySlots)
-	failures := 0
+	created := make(map[string]struct{}, workers)
 	for result := range results {
 		if result.err != nil {
-			failures++
-			if result.path != "" {
-				t.Errorf("failed concurrent claim path = %q, want empty", result.path)
-			}
-			var failure *procerr.ProcessFailure
-			if !errors.As(result.err, &failure) ||
-				failure.Code != "ASSESSMENT_TEMPORARY_DIRECTORY_UNAVAILABLE" {
-				t.Errorf("concurrent claim error = %T(%v), want fixed unavailable failure", result.err, result.err)
-			}
+			t.Errorf("makeAssessmentTemporaryDirectory(concurrent) error = %v, want nil", result.err)
 			continue
 		}
 		if _, duplicate := created[result.path]; duplicate {
-			t.Errorf("concurrent slot %q claimed more than once", result.path)
+			t.Errorf("makeAssessmentTemporaryDirectory(concurrent) path = %q, want unique name", result.path)
 		}
 		created[result.path] = struct{}{}
+		requirePrivateAssessmentDirectory(t, result.path)
 	}
-	if len(created) != maxAssessmentTemporaryDirectorySlots ||
-		failures != maxAssessmentTemporaryDirectorySlots {
-		t.Errorf("concurrent claims = %d success/%d failure, want %d/%d", len(created), failures, maxAssessmentTemporaryDirectorySlots, maxAssessmentTemporaryDirectorySlots)
+	if len(created) != workers {
+		t.Errorf("concurrent assessment directory count = %d, want %d", len(created), workers)
+	}
+	for path := range created {
+		if err := os.Remove(path); err != nil {
+			t.Errorf("os.Remove(test-owned concurrent directory %q) error = %v, want nil", path, err)
+		}
 	}
 }
 
-func TestMakeAssessmentTemporaryDirectorySkipsExistingEntriesWithoutChangingThem(t *testing.T) {
+func TestMakeAssessmentTemporaryDirectoryDoesNotReuseRetainedRemnant(t *testing.T) {
 	root := t.TempDir()
-	filePath := assessmentTemporarySlotPath(root, 0)
-	if err := os.WriteFile(filePath, []byte("keep file\n"), 0o600); err != nil {
-		t.Fatalf("os.WriteFile(preexisting slot) error = %v, want nil", err)
+	retained := filepath.Join(root, assessmentTemporaryDirectoryPrefix+"retained")
+	if err := os.Mkdir(retained, 0o700); err != nil {
+		t.Fatalf("os.Mkdir(retained remnant) error = %v, want nil", err)
 	}
-	target := filepath.Join(root, "symlink-target")
-	if err := os.WriteFile(target, []byte("keep target\n"), 0o600); err != nil {
-		t.Fatalf("os.WriteFile(symlink target) error = %v, want nil", err)
-	}
-	symlinkPath := assessmentTemporarySlotPath(root, 1)
-	if err := os.Symlink(target, symlinkPath); err != nil {
-		t.Fatalf("os.Symlink(preexisting slot) error = %v, want nil", err)
-	}
-	directoryPath := assessmentTemporarySlotPath(root, 2)
-	if err := os.Mkdir(directoryPath, 0o755); err != nil {
-		t.Fatalf("os.Mkdir(preexisting slot) error = %v, want nil", err)
-	}
-	sentinelPath := filepath.Join(directoryPath, "sentinel")
-	if err := os.WriteFile(sentinelPath, []byte("keep directory\n"), 0o600); err != nil {
-		t.Fatalf("os.WriteFile(preexisting directory sentinel) error = %v, want nil", err)
+	sentinel := filepath.Join(retained, "sentinel")
+	if err := os.WriteFile(sentinel, []byte("keep\n"), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(retained sentinel) error = %v, want nil", err)
 	}
 
-	claimed, err := makeAssessmentTemporaryDirectory(root)
+	created, err := makeAssessmentTemporaryDirectory(root)
 	if err != nil {
-		t.Fatalf("makeAssessmentTemporaryDirectory(preexisting entries) error = %v, want nil", err)
+		t.Fatalf("makeAssessmentTemporaryDirectory(retained remnant) error = %v, want nil", err)
 	}
-	if claimed != assessmentTemporarySlotPath(root, 3) {
-		t.Errorf("claimed path = %q, want first untouched free slot", claimed)
+	if created == retained {
+		t.Errorf("makeAssessmentTemporaryDirectory(retained remnant) path = %q, want fresh name", created)
 	}
-	if contents, err := os.ReadFile(filePath); err != nil || string(contents) != "keep file\n" {
-		t.Errorf("preexisting file after claim = %q, %v, want untouched", contents, err)
-	}
-	if got, err := os.Readlink(symlinkPath); err != nil || got != target {
-		t.Errorf("preexisting symlink after claim = %q, %v, want target %q", got, err, target)
-	}
-	if contents, err := os.ReadFile(target); err != nil || string(contents) != "keep target\n" {
-		t.Errorf("symlink target after claim = %q, %v, want untouched", contents, err)
-	}
-	if contents, err := os.ReadFile(sentinelPath); err != nil || string(contents) != "keep directory\n" {
-		t.Errorf("preexisting directory after claim = %q, %v, want untouched", contents, err)
+	contents, err := os.ReadFile(sentinel)
+	if err != nil || string(contents) != "keep\n" {
+		t.Errorf("retained remnant sentinel after fresh creation = %q, %v, want untouched", contents, err)
 	}
 }
 
@@ -209,8 +191,23 @@ func TestMakeAssessmentTemporaryDirectoryRedactsFilesystemErrors(t *testing.T) {
 	}
 }
 
-func TestSavedPlanAssessmentUsesBoundedTemporaryDirectoryPolicy(t *testing.T) {
-	t.Run("post_claim_symlink_swap_does_not_chmod_target", func(t *testing.T) {
+func runRemnantAssessment(
+	fixture assessmentTransactionFixture,
+	executable string,
+	hooks assessmentHooks,
+) (SavedPlanAssessmentCore, error) {
+	return runSavedPlanAssessment(
+		SavedPlanAssessmentTransactionOptions{Assessment: assessmentOptions(fixture, executable, nil)},
+		func(core SavedPlanAssessmentCore, _ []AssessmentGuidanceGroup) (SavedPlanAssessmentCore, error) {
+			return core, nil
+		},
+		nil,
+		hooks,
+	)
+}
+
+func TestSavedPlanAssessmentRandomizedTemporaryLifecycle(t *testing.T) {
+	t.Run("post_claim_symlink_swap_is_refused_without_target_mutation", func(t *testing.T) {
 		fixture := newAssessmentTransactionFixture(t)
 		executable := assessmentExecutable(t, fixture.root, "printf '%s' "+assessmentShellLiteral(cleanAssessmentPlanJSON(t)))
 		temporary := filepath.Join(fixture.root, "private-assessment")
@@ -240,14 +237,7 @@ func TestSavedPlanAssessmentUsesBoundedTemporaryDirectoryPolicy(t *testing.T) {
 			prepareCalls++
 			return nil, errors.New("prepare must not run after a temporary-directory swap")
 		}
-		core, err := runSavedPlanAssessment(
-			SavedPlanAssessmentTransactionOptions{Assessment: assessmentOptions(fixture, executable, nil)},
-			func(core SavedPlanAssessmentCore, _ []AssessmentGuidanceGroup) (SavedPlanAssessmentCore, error) {
-				return core, nil
-			},
-			nil,
-			hooks,
-		)
+		core, err := runRemnantAssessment(fixture, executable, hooks)
 		failure := requireSavedPlanAssessmentFailure(t, err, "UNSAFE_SNAPSHOT_DIRECTORY")
 		if prepareCalls != 0 {
 			t.Errorf("prepareEvidence call count = %d, want zero after temporary-directory swap", prepareCalls)
@@ -261,7 +251,7 @@ func TestSavedPlanAssessmentUsesBoundedTemporaryDirectoryPolicy(t *testing.T) {
 			t.Fatalf("os.Lstat(replacement target) error = %v, want nil", statErr)
 		}
 		if info.Mode().Perm() != 0o755 {
-			t.Errorf("replacement target mode = %#o, want unchanged 0755 (no pathname chmod)", info.Mode().Perm())
+			t.Errorf("replacement target mode = %#o, want unchanged 0755", info.Mode().Perm())
 		}
 		linkTarget, readlinkErr := os.Readlink(temporary)
 		if readlinkErr != nil || linkTarget != target {
@@ -269,100 +259,120 @@ func TestSavedPlanAssessmentUsesBoundedTemporaryDirectoryPolicy(t *testing.T) {
 		}
 	})
 
-	t.Run("success_leaves_one_bounded_remnant", func(t *testing.T) {
+	t.Run("forty_eight_sequential_assessments_self_clean", func(t *testing.T) {
 		temporaryRoot := t.TempDir()
 		t.Setenv("TMPDIR", temporaryRoot)
 		fixture := newAssessmentTransactionFixture(t)
 		executable := assessmentExecutable(t, fixture.root, "printf '%s' "+assessmentShellLiteral(cleanAssessmentPlanJSON(t)))
-		core, err := AssessSavedPlans(assessmentOptions(fixture, executable, nil))
-		if err != nil {
-			t.Fatalf("AssessSavedPlans(bounded temporary success) error = %v, want nil", err)
-		}
-		if core.Checked != 1 {
-			t.Errorf("AssessSavedPlans(bounded temporary success).Checked = %d, want 1", core.Checked)
-		}
-		entries, err := os.ReadDir(assessmentTemporarySlotPath(temporaryRoot, 0))
-		if err != nil {
-			t.Fatalf("os.ReadDir(bounded remnant) error = %v, want nil", err)
-		}
-		if len(entries) != 1 {
-			t.Fatalf("bounded remnant entry count = %d, want one scrubbed snapshot", len(entries))
-		}
-		info, err := entries[0].Info()
-		if err != nil {
-			t.Fatalf("bounded remnant snapshot info error = %v, want nil", err)
-		}
-		if !info.Mode().IsRegular() || info.Size() != 0 {
-			t.Errorf("bounded remnant snapshot = {mode:%v size:%d}, want zero-length regular inode", info.Mode(), info.Size())
+		for transaction := 0; transaction < 48; transaction++ {
+			core, err := AssessSavedPlans(assessmentOptions(fixture, executable, nil))
+			if err != nil {
+				t.Fatalf("AssessSavedPlans(sequential run %d) error = %v, want nil", transaction+1, err)
+			}
+			if core.Checked != 1 || core.Clean != 1 {
+				t.Errorf("AssessSavedPlans(sequential run %d) counts = %+v, want one clean root", transaction+1, core)
+			}
+			if entries := readAssessmentTemporaryEntries(t, temporaryRoot); len(entries) != 0 {
+				t.Fatalf("assessment temp entries after sequential run %d = %d, want zero", transaction+1, len(entries))
+			}
 		}
 	})
 
-	t.Run("thirty_third_transaction_fails_before_snapshot_creation", func(t *testing.T) {
+	t.Run("forced_snapshot_removal_failure_does_not_restore_ceiling", func(t *testing.T) {
 		temporaryRoot := t.TempDir()
 		t.Setenv("TMPDIR", temporaryRoot)
 		fixture := newAssessmentTransactionFixture(t)
 		executable := assessmentExecutable(t, fixture.root, "printf '%s' "+assessmentShellLiteral(cleanAssessmentPlanJSON(t)))
 		hooks := productionAssessmentHooks()
-		prepareCalls := 0
-		hooks.prepareEvidence = func(plan.PrepareSavedPlanEvidenceOptions) (*plan.SavedPlanEvidence, error) {
-			prepareCalls++
-			return nil, assessmentDomainFailure("STOP_AFTER_TEMPORARY_CLAIM", "stop after temporary claim")
+		removalCalls := 0
+		hooks.cleanupHooks.removeSnapshot = func(*os.Root, string) error {
+			removalCalls++
+			return errors.New("forced descriptor-relative snapshot removal failure")
 		}
-		for transaction := 0; transaction < maxAssessmentTemporaryDirectorySlots; transaction++ {
-			core, err := runSavedPlanAssessment(
-				SavedPlanAssessmentTransactionOptions{Assessment: assessmentOptions(fixture, executable, nil)},
-				func(core SavedPlanAssessmentCore, _ []AssessmentGuidanceGroup) (SavedPlanAssessmentCore, error) {
-					return core, nil
-				},
-				nil,
-				hooks,
-			)
-			failure := requireSavedPlanAssessmentFailure(t, err, "STOP_AFTER_TEMPORARY_CLAIM")
-			if core.Checked != 0 || len(core.Roots) != 0 ||
-				failure.Partial.Checked != 0 || len(failure.Partial.Roots) != 0 {
-				t.Errorf("transaction %d result/partial = %+v/%+v, want zero values", transaction+1, core, failure.Partial)
+		for transaction := 0; transaction < 40; transaction++ {
+			core, err := runRemnantAssessment(fixture, executable, hooks)
+			if err != nil {
+				t.Fatalf("runSavedPlanAssessment(forced cleanup run %d) error = %v, want nil", transaction+1, err)
+			}
+			if core.Checked != 1 || core.Clean != 1 {
+				t.Errorf("runSavedPlanAssessment(forced cleanup run %d) counts = %+v, want one clean root", transaction+1, core)
+			}
+		}
+		entries := readAssessmentTemporaryEntries(t, temporaryRoot)
+		if len(entries) != 40 || removalCalls != 40 {
+			t.Errorf("forced cleanup after 40 runs = %d remnants/%d removal calls, want 40/40", len(entries), removalCalls)
+		}
+		for _, entry := range entries {
+			path := filepath.Join(temporaryRoot, entry.Name())
+			requirePrivateAssessmentDirectory(t, path)
+			children := readAssessmentTemporaryEntries(t, path)
+			if len(children) != 1 {
+				t.Errorf("forced cleanup remnant %q entry count = %d, want one scrubbed snapshot", path, len(children))
+				continue
+			}
+			info, err := children[0].Info()
+			if err != nil || !info.Mode().IsRegular() || info.Size() != 0 {
+				t.Errorf("forced cleanup remnant %q snapshot = {info:%v error:%v}, want zero-length regular inode", path, info, err)
 			}
 		}
 
-		core, err := runSavedPlanAssessment(
-			SavedPlanAssessmentTransactionOptions{Assessment: assessmentOptions(fixture, executable, nil)},
-			func(core SavedPlanAssessmentCore, _ []AssessmentGuidanceGroup) (SavedPlanAssessmentCore, error) {
-				return core, nil
-			},
-			nil,
-			hooks,
-		)
-		failure := requireSavedPlanAssessmentFailure(t, err, "ASSESSMENT_TEMPORARY_DIRECTORY_UNAVAILABLE")
-		if failure.Category != procerr.CategoryIO ||
-			failure.Message != "unable to create private assessment directory" {
-			t.Errorf("assessment exhaustion failure = %+v, want fixed redacted IO failure", failure.ProcessFailure)
+		core, err := AssessSavedPlans(assessmentOptions(fixture, executable, nil))
+		if err != nil {
+			t.Fatalf("AssessSavedPlans(run 41 after forced cleanup failures) error = %v, want nil", err)
 		}
-		if core.Checked != 0 || len(core.Roots) != 0 ||
-			failure.Partial.Checked != 0 || len(failure.Partial.Roots) != 0 {
-			t.Errorf("assessment exhaustion result/partial = %+v/%+v, want zero values", core, failure.Partial)
+		if core.Checked != 1 || core.Clean != 1 {
+			t.Errorf("AssessSavedPlans(run 41 after forced cleanup failures) counts = %+v, want one clean root", core)
 		}
-		entries, readErr := os.ReadDir(temporaryRoot)
-		if readErr != nil {
-			t.Fatalf("os.ReadDir(exhausted assessment root) error = %v, want nil", readErr)
+		if got := len(readAssessmentTemporaryEntries(t, temporaryRoot)); got != 40 {
+			t.Errorf("assessment remnants after successful run 41 = %d, want retained 40 only", got)
 		}
-		names := make([]string, 0, maxAssessmentTemporaryDirectorySlots)
-		for _, entry := range entries {
-			if strings.HasPrefix(entry.Name(), assessmentTemporaryDirectoryPrefix) {
-				names = append(names, entry.Name())
+	})
+
+	t.Run("parallel_assessments_do_not_collide", func(t *testing.T) {
+		temporaryRoot := t.TempDir()
+		t.Setenv("TMPDIR", temporaryRoot)
+		fixture := newAssessmentTransactionFixture(t)
+		executable := assessmentExecutable(t, fixture.root, "printf '%s' "+assessmentShellLiteral(cleanAssessmentPlanJSON(t)))
+		const workers = 16
+		type result struct {
+			core SavedPlanAssessmentCore
+			err  error
+		}
+		start := make(chan struct{})
+		// One result per bounded assessment worker ensures all goroutines can
+		// terminate before the test goroutine validates outcomes.
+		results := make(chan result, workers)
+		var wait sync.WaitGroup
+		for worker := 0; worker < workers; worker++ {
+			wait.Add(1)
+			go func() {
+				defer wait.Done()
+				<-start
+				core, err := AssessSavedPlans(assessmentOptions(fixture, executable, nil))
+				results <- result{core: core, err: err}
+			}()
+		}
+		close(start)
+		wait.Wait()
+		close(results)
+
+		completed := 0
+		for result := range results {
+			if result.err != nil {
+				t.Errorf("AssessSavedPlans(parallel) error = %v, want nil", result.err)
+				continue
 			}
-		}
-		sort.Strings(names)
-		if len(names) != maxAssessmentTemporaryDirectorySlots {
-			t.Errorf("assessment exhaustion slot count = %d, want %d", len(names), maxAssessmentTemporaryDirectorySlots)
-		}
-		if prepareCalls != maxAssessmentTemporaryDirectorySlots {
-			t.Errorf("prepareEvidence call count = %d, want %d (33rd transaction must fail before snapshot preparation)", prepareCalls, maxAssessmentTemporaryDirectorySlots)
-		}
-		for slot := 0; slot < maxAssessmentTemporaryDirectorySlots; slot++ {
-			entries, readErr := os.ReadDir(assessmentTemporarySlotPath(temporaryRoot, slot))
-			if readErr != nil || len(entries) != 0 {
-				t.Errorf("retained slot %d = %d entries, %v, want untouched empty remnant", slot, len(entries), readErr)
+			if result.core.Checked != 1 || result.core.Clean != 1 {
+				t.Errorf("AssessSavedPlans(parallel) counts = %+v, want one clean root", result.core)
+				continue
 			}
+			completed++
+		}
+		if completed != workers {
+			t.Errorf("parallel successful assessments = %d, want %d", completed, workers)
+		}
+		if entries := readAssessmentTemporaryEntries(t, temporaryRoot); len(entries) != 0 {
+			t.Errorf("assessment temp entries after parallel runs = %d, want zero", len(entries))
 		}
 	})
 }

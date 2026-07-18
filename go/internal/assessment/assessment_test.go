@@ -201,23 +201,12 @@ func TestAssessSavedPlansReturnsOnlyReportSafeCleanMetadataAndCleansSnapshot(t *
 	if err != nil {
 		t.Fatalf("os.ReadFile(%q) error = %v, want nil", marker, err)
 	}
-	snapshotInfo, err := os.Lstat(string(snapshotPath))
-	if err != nil {
-		t.Fatalf("os.Lstat(scrubbed snapshot %q) error = %v, want nil", snapshotPath, err)
-	}
-	if !snapshotInfo.Mode().IsRegular() || snapshotInfo.Size() != 0 {
-		t.Errorf("scrubbed snapshot %q info = {mode:%v size:%d}, want zero-length regular file", snapshotPath, snapshotInfo.Mode(), snapshotInfo.Size())
-	}
 	directory := filepath.Dir(string(snapshotPath))
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		t.Fatalf("os.ReadDir(scrubbed directory %q) error = %v, want nil", directory, err)
+	if _, err := os.Lstat(string(snapshotPath)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("os.Lstat(removed snapshot %q) error = %v, want not-exist", snapshotPath, err)
 	}
-	if len(entries) != 1 || entries[0].Name() != filepath.Base(string(snapshotPath)) {
-		t.Errorf("os.ReadDir(scrubbed directory %q) = %+v, want only bound snapshot", directory, entries)
-	}
-	if err := os.RemoveAll(directory); err != nil {
-		t.Fatalf("os.RemoveAll(test-owned scrubbed directory %q) error = %v, want nil", directory, err)
+	if _, err := os.Lstat(directory); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("os.Lstat(removed assessment directory %q) error = %v, want not-exist", directory, err)
 	}
 }
 
@@ -787,7 +776,7 @@ func TestAssessmentTemporaryCleanupRefusesUnexpectedOrReplacedEntries(t *testing
 		return directory, identity, assessmentCleanupSnapshot{name: "snapshot", identity: fileIdentity}
 	}
 
-	t.Run("successful_validation_leaves_bound_zero_inode", func(t *testing.T) {
+	t.Run("successful_validation_removes_bound_directory", func(t *testing.T) {
 		directory, identity, snapshot := newBinding(t)
 		if failure := cleanupAssessmentTemporaryDirectory(
 			directory,
@@ -797,12 +786,8 @@ func TestAssessmentTemporaryCleanupRefusesUnexpectedOrReplacedEntries(t *testing
 		); failure != nil {
 			t.Fatalf("cleanupAssessmentTemporaryDirectory(bound zero inode) failure = %+v, want nil", failure)
 		}
-		info, err := os.Lstat(filepath.Join(directory, snapshot.name))
-		if err != nil {
-			t.Fatalf("os.Lstat(validated bound snapshot) error = %v, want nil", err)
-		}
-		if info.Size() != 0 {
-			t.Errorf("validated bound snapshot size = %d, want retained zero-length inode", info.Size())
+		if _, err := os.Lstat(directory); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("os.Lstat(removed bound directory %q) error = %v, want not-exist", directory, err)
 		}
 	})
 
@@ -844,6 +829,42 @@ func TestAssessmentTemporaryCleanupRefusesUnexpectedOrReplacedEntries(t *testing
 		)
 		if failure == nil || failure.Code != "ASSESSMENT_CLEANUP_REFUSED" {
 			t.Errorf("cleanupAssessmentTemporaryDirectory(replaced snapshot) = %+v, want ASSESSMENT_CLEANUP_REFUSED", failure)
+		}
+	})
+
+	t.Run("directory_rebound_before_rmdir", func(t *testing.T) {
+		directory, identity, snapshot := newBinding(t)
+		original := directory + ".original"
+		target := t.TempDir()
+		sentinel := filepath.Join(target, "sentinel")
+		if err := os.WriteFile(sentinel, []byte("keep me\n"), 0o600); err != nil {
+			t.Fatalf("os.WriteFile(rebound target sentinel) error = %v, want nil", err)
+		}
+		failure := cleanupAssessmentTemporaryDirectory(
+			directory,
+			identity,
+			[]assessmentCleanupSnapshot{snapshot},
+			assessmentCleanupHooks{beforeDirectoryRemoval: func() error {
+				if err := os.Rename(directory, original); err != nil {
+					return err
+				}
+				return os.Symlink(target, directory)
+			}},
+		)
+		if failure == nil || failure.Code != "ASSESSMENT_CLEANUP_REFUSED" {
+			t.Errorf("cleanupAssessmentTemporaryDirectory(rebound before rmdir) = %+v, want ASSESSMENT_CLEANUP_REFUSED", failure)
+		}
+		linkTarget, err := os.Readlink(directory)
+		if err != nil || linkTarget != target {
+			t.Errorf("rebound directory symlink after refused rmdir = %q, %v, want untouched target %q", linkTarget, err, target)
+		}
+		contents, err := os.ReadFile(sentinel)
+		if err != nil || string(contents) != "keep me\n" {
+			t.Errorf("rebound target sentinel after refused rmdir = %q, %v, want untouched", contents, err)
+		}
+		entries, err := os.ReadDir(original)
+		if err != nil || len(entries) != 0 {
+			t.Errorf("original directory after refused rmdir = %d entries, %v, want empty scrubbed remnant", len(entries), err)
 		}
 	})
 }
