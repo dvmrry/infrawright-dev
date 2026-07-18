@@ -1,14 +1,10 @@
-# Block D dependency plan — Adopt/import/oracle/apply (not authorized)
+# Block D dependency plan — Adopt/import/oracle/apply
 
-Status: dependency-plan correction only, recorded 2026-07-18 from
-`feature/go-canonjson-foundation` at `9fc3f30`. This document does **not**
-authorize Block D, add a dependency, or implement any Adopt/import/oracle/apply
-behavior.
-
-Block D remains closed until the §5 live Node → Go → Node read-only comparison
-passes, its evidence receives the required review, and the user makes a
-separate explicit Block D authorization decision. Those governance gates are
-unchanged.
+Status: implementation authorized by the user on 2026-07-18 from
+`feature/go-canonjson-foundation` at `b6f6e66`, after the §5 read-path evidence
+and dependency preconditions were accepted. This authorization does not permit
+an Apply against live provider state or a real tenant; that qualification
+remains a separate human-gated event.
 
 ## 1. Corrected dependency rule
 
@@ -17,7 +13,7 @@ bytes are committed infrastructure artifacts. In Block D that means:
 
 | Surface | Dependency posture | Boundary |
 |---|---|---|
-| Terraform scratch flow | `github.com/hashicorp/terraform-exec` | Run the oracle's `init` → `import` → `plan` → `apply` → `show` flow against the project-generated provider configuration. Preserve Infrawright's bounded execution, environment, redaction, and fail-closed decisions around the library. |
+| Terraform scratch flow | Existing `internal/terraformcmd` | Run the oracle's `init` → `import` → `plan` → `apply` → `show` flow through the already-qualified bounded process boundary. D1 adversarial review rejected `terraform-exec v0.25.2` because it cannot preserve the required stderr bound and Darwin process-tree containment. |
 | Terraform plan/state decode | `github.com/hashicorp/terraform-json` | Decode plan/state into typed structures. Project validation layers on top; typed decoding is not authorization. |
 | Schema validation | `github.com/santhosh-tekuri/jsonschema/v6` | Preferred for validation added or revisited in future work, behind deterministic project error mapping. Do not redo Block C's accepted hand-port merely to adopt it. |
 | Provider access | `github.com/zscaler/zscaler-sdk-go/v3` | Use for provider authentication and transport. Evidence readback remains the raw provider response; do not route evidence through SDK model normalization or reserialization. |
@@ -26,9 +22,9 @@ bytes are committed infrastructure artifacts. In Block D that means:
 
 ### Complete-field gate layers on top
 
-The oracle scratch flow is built on `terraform-exec` plus `terraform-json`.
-`terraform-json` supplies typed plan/state structures; it does not make the
-Infrawright safety decision. The Node contract at
+The oracle scratch flow uses the existing bounded `terraformcmd` runner plus
+`terraform-json`. `terraform-json` supplies typed plan/state structures; it
+does not make the Infrawright safety decision. The Node contract at
 `node-src/domain/plan-contract.ts:463` accepts only literal
 `complete === true`. The Go adapter must enforce the equivalent fail-closed
 gate **after** typed decode and before classification or Apply. Missing, nil,
@@ -100,17 +96,20 @@ The existing `internal/terraformcmd` Terraform invocation and
 replace. Do not rewrite either as dependency cleanup. `canonjson` remains the
 artifact renderer regardless.
 
-Open decision for an authorized Block D dependency spike: if adopting
-`terraform-exec` for the oracle makes a single Terraform invocation path
-clearly simpler while preserving Infrawright's bounds, redaction, environment,
-timeouts, process cleanup, and error classifications, evaluate unifying it with
-`terraformcmd`. Otherwise keep the two paths. This document authorizes neither
-choice and no migration now.
+The D1 spike resolved the Terraform-invocation decision: `terraform-exec
+v0.25.2` internally buffers stderr without Infrawright's bound and does not
+preserve the qualified Darwin process-tree contract. D1 therefore reuses
+`terraformcmd` for every phase. Reconsidering that decision requires a future
+library version or wrapper that demonstrably restores the complete execution
+boundary; later Block D parcels must not reintroduce the rejected adapter.
 
 ## 5. Authorization boundary
 
-- No Go source or generated artifact changes are authorized here.
-- Do not add these modules to `go.mod` until Block D is separately authorized.
-- The module remains zero-dependency today.
-- The §5 live comparison and evidence review remain prerequisites.
-- Block D implementation remains a separate explicit user decision.
+- Go implementation and honest Block D dependencies are authorized.
+- Only dependencies with real consumers belong in `go.mod`; D1 adds
+  `terraform-json`, while `jsonschema/v6` and `zscaler-sdk-go/v3` remain
+  available for the future validation/auth seams described above.
+- All automated gates remain fixture-only or local/ephemeral. They must not
+  inherit provider credentials or reach a live provider Apply.
+- A controlled Apply against real provider state remains separately blocked
+  until the user explicitly authorizes that event.
