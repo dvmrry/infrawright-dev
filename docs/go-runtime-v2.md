@@ -1,6 +1,6 @@
 # Go runtime v2 — scope reset
 
-Status: authoritative plan as of 2026-07-17. Where it conflicts with
+Status: authoritative plan as of 2026-07-18. Where it conflicts with
 [go-runtime-plan.md](go-runtime-plan.md), this v2 plan controls the wire/IO
 contract, runtime-versus-maintainer command scope, CI and cutover strategy, and
 Node archive timing. The old plan remains useful implementation inventory, but
@@ -130,7 +130,7 @@ work. The required acceptance matrix is:
 | Terraform composition | In the generated env root, bounded `terraform init -backend=false -input=false -no-color`, `terraform validate -no-color`, and `terraform test -no-color -verbose -json` all exit 0. The structured events must prove `empty_plan` has zero resource changes and `config_plan` has exactly one `create` at `module.zia_rule_labels.zia_rule_labels.this["testlabel_vcr_integration"]` with the committed name/description, followed by an exact 2-pass/0-failure summary. The ZIA pack pin must equal the sole generated provider-lock selection. Provider installation may use the registry or a pinned filesystem mirror; all ZIA/Zscaler credentials/endpoints are removed before Terraform and no post-fetch API request is allowed. | Sanitized transcript with candidate hash, Terraform version, signed provider selection, lock hash, validation result, per-run structured plan summary, and final HTTP transcript. | **PASS locally; focused adversarial review approved** |
 | No-Node candidate | Build a CGO-disabled candidate in a temporary package root, then run the entire hermetic chain with a sanitized `PATH` containing Terraform but no usable `node`, `npm`, or `npx`; invoke only the candidate and Terraform. Any attempted name-based Node execution fails the leg. | Sanitized environment manifest and the same product/Terraform transcript. | **PASS locally; integrated into the hermetic test** |
 | One live read-only provider | Exactly `zia_end_user_notification` through ZIA OneAPI, concurrency 1: accepted Node → Go candidate → accepted Node, each into a fresh mode-0700 root. This singleton performs one `GET /zia/api/v1/eun` with no pagination. All three runs exit 0 and emit only `zia_end_user_notification.json`; Node-before equals Node-after and Go bytes equal both. No Adopt, import, plan, Apply, selector widening, retry/429, or mutation is permitted. Credentials and raw pulls remain private and are deleted. | Candidate and Node SHAs; tool/provider/pack versions; exit statuses; item count, byte size, SHA-256/tree manifest; masked diagnostic classification and secret-scan result. | **BLOCKED locally — externally confirmed read-only credentials are absent; no live call was attempted** |
-| Fresh adversarial review | A fresh Codex reviewer follows `docs/adversarial-review.md`, reviews the complete checkpoint evidence without editing, and leaves no unresolved blocking finding. | Review handoff and recorded findings using the repository templates. | **Hermetic implementation: Approve; post-247 Go parity candidate `5e7d02d`: Approve; work-machine rerun and final full-evidence review after the live leg remain required** |
+| Fresh adversarial review | A fresh Codex reviewer follows `docs/adversarial-review.md`, reviews the complete checkpoint evidence without editing, and leaves no unresolved blocking finding. | Review handoff and recorded findings using the repository templates. | **Hermetic implementation: Approve; post-247 Go parity candidate `5e7d02d`: Approve; credential-free work-machine evidence accepted by the user; the live leg and its final full-evidence review remain required** |
 
 Run the hermetic leg explicitly; the default test lane records a visible skip
 so provider installation is never smuggled into ordinary unit tests:
@@ -204,8 +204,10 @@ Post-247 reconciliation evidence recorded on 2026-07-17:
   differences are inert because the marker is confined to same-run duplicate
   detection. Forward watch-item: when block C adds plan-report behavior,
   re-confirm that internal marker bytes do not enter reports.
-- The original work-machine report remains valid for `ade9442`; candidate
-  `5e7d02d` still requires its own work-machine rerun.
+- The credential-free work-machine report was accepted by the user together
+  with the focused PR 247 reconciliation and adversarial review. That closes
+  the non-live rerun question; it does not supply or waive the still-missing
+  live-provider evidence.
 
 The checkpoint passes only when every required leg is PASS. A skip,
 inconclusive live snapshot, Node self-drift, secret-scan hit, unexpected wire or
@@ -215,8 +217,11 @@ path stayed stdlib-based and materially smaller; infrastructure bytes are
 equivalent; every wire difference is within §2 and documented; and the no-Node
 operator path works end to end.
 
-Until all legs pass and the fresh adversarial review completes, blocks C/D
-(Adopt/import/oracle and plan/apply breadth) are **not authorized**.
+Until all legs pass and the fresh adversarial review completes, Block D
+(Adopt/import/oracle/apply) and any other unscoped breadth are **not
+authorized**. The user made one recorded exception: Block C plan lifecycle was
+separately authorized on the accepted credential-free evidence and is now
+complete (§7). That scoped exception does not waive or pass the full checkpoint.
 
 ## 6. Gradual cutover — Node is not archived on day one
 
@@ -283,6 +288,12 @@ Each a reviewed commit on `feature/go-canonjson-foundation`.
 After each cleanup commit, the full artifact byte-gate corpus (RootCatalog,
 Transform, Topology, Generation vs the Node oracle) must stay byte-identical —
 that is the standing proof the reset touched nothing infrastructure depends on.
-§7 is complete at `863f405`. The **§5 checkpoint is now the only authorized
-implementation work**; blocks C/D remain closed under the v2 contract until
-the complete matrix passes and receives fresh adversarial review.
+§7 is complete at `863f405`. The user accepted the credential-free §5 evidence
+and explicitly authorized **Block C only** while leaving the live singleton
+pending; this was a scoped authorization, not a declaration that the complete
+§5 matrix passed. Block C completed at `3daaf07`: the saved-plan lifecycle,
+bound evidence, assessment/report path, four command entry points, and bounded
+direct Node/Go differential all landed under fresh adversarial review. The
+module remains zero-dependency and the four standing artifact byte-gates remain
+identical. **Block D remains closed** until separately authorized; the live
+read-only provider leg remains pending and was not attempted by Block C.

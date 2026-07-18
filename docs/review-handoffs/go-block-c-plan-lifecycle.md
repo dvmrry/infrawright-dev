@@ -1,5 +1,29 @@
 # Block C handover — plan lifecycle (for GPT Sol)
 
+## Completion record — 2026-07-18
+
+Block C is complete at `3daaf07` on `feature/go-canonjson-foundation`.
+
+- C1 landed fingerprint and bound plan evidence, including all four freshness
+  classes and deterministic serial budget charging.
+- C2 landed the exact contract/lifecycle path, including the fail-closed
+  `complete === true` gate and saved-pair cleanup behavior.
+- C3 landed assessment, policy, semantics, byte-exact REPORT rendering, bound
+  deployment/control evidence, and the saved-plan runner. The explicit
+  projection-scope-marker non-leak test is green.
+- C4 landed `plan`, `clean-plans`, `assert-clean`, and `assert-adoptable`
+  command functions and production dispatch. The bounded direct differential
+  proves save/clean artifacts, clean REPORT bytes, Terraform argv, streams,
+  exits, and mode-distinguishing dispatch against the frozen Node oracle.
+- Every high-risk parcel passed the repository's fresh read-only adversarial
+  review loop. Final integration passed the full Go suite, command-package
+  race lane, vet, zero-dependency check, all four standing artifact byte-gates,
+  Node `788 pass / 0 fail / 2 known optional skips`, and `make check-all`.
+
+This completion does **not** authorize Block D, does not claim the live §5 leg
+passed, and made no real provider/API call. The next implementation block
+requires a separate user decision.
+
 Date: 2026-07-17. From: Claude (reviewer/coordinator). To: Sol Ultra,
 coordinating GPT implementor agents. Self-contained. Normative specs:
 [go-runtime-v2.md](../go-runtime-v2.md) (the scope contract) and the Node
