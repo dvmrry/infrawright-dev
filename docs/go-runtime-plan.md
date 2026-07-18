@@ -238,12 +238,12 @@ distinctions this product exists to preserve. The spec therefore mandates:
   **lossless number** that preserves the source token (decode via
   `json.Decoder.UseNumber()`; `json.Number` is the raw literal). Absence is
   map-key absence, never a zero value.
-- All artifact and contract paths operate on this tree, as the TS code
-  already does (its `unknown`-walking guards). Static structs and ecosystem
-  parsing libraries are an ergonomics play for **after** parity, and only
-  where a strictness wrapper preserves every fail-closed check (e.g.
-  `terraform-json` does not know about the `complete`-field fail-closed
-  gate — the hand-ported strict decode keeps that job in v1).
+- All artifact-rendering paths operate on this tree, as the TS code already
+  does (its `unknown`-walking guards). Consuming/orchestrating code may use
+  static structs and ecosystem parsing libraries behind strict adapters, but
+  must not feed their normalized values back into artifact or raw-evidence
+  rendering. `terraform-json` exposes the `complete` field but does not enforce
+  Infrawright's fail-closed decision; the explicit project gate keeps that job.
 - Rendering implements the Python-compatible emitter over this tree: code
   point key sort, ASCII escaping, float repr (including `-0.0`, `1e-06`
   forms), indent, trailing newline — proven by the exhaustive binary64
@@ -321,11 +321,14 @@ and imports `go/ast` and `go/parser`, not `go/packages`. Slice 8 must not add
 allowlist is deliberately updated. This gate does not change the AST-first
 direction.
 
-Explicitly deferred past parity: `hashicorp/terraform-exec`,
-`terraform-json`, `hclwrite`, `zscaler-sdk-go`. Each changes bytes or
-behavior surface and belongs to a post-cutover ergonomics phase with its own
-differential evidence. HCL rendering is hand-ported (it is already a
-byte-exact hand renderer in Node; `hclwrite` output differs).
+**Corrected by the authoritative v2 dependency boundary (§2.1):**
+`hashicorp/terraform-exec`, `terraform-json`, `jsonschema`, and
+`zscaler-sdk-go` are preferred for consuming and orchestrating once their block
+is authorized; they are not deferred merely because artifact parity exists.
+`canonjson` and HCL rendering remain hand-ported because they produce committed
+artifact bytes (`hclwrite` output differs). Raw provider evidence also remains
+raw; `zscaler-sdk-go` may supply auth/transport but must not normalize evidence
+bytes.
 
 ## Interpolation-escaping contract (2026-07 adjudication)
 
@@ -464,8 +467,9 @@ re-qualification, not codegen.
 - Behavior or artifact changes of any kind, including "obvious" improvements
   found during porting (file them; fix on both sides post-cutover or not at
   all).
-- Ecosystem library adoption that alters bytes (`terraform-exec`,
-  `terraform-json`, `hclwrite`, `zscaler-sdk-go`) — post-cutover phase.
+- Library output replacing byte-exact artifact renderers (`canonjson`,
+  `tfrender`, including adoption of `hclwrite`) or normalizing raw provider
+  evidence. Libraries for consuming/orchestrating are allowed under v2 §2.1.
 - Make-chain replacement, `iw`-native task runner, or CLI surface redesign.
 - Renaming `python-*` semantic modules.
 - Windows support expansion beyond the current best-effort posture.

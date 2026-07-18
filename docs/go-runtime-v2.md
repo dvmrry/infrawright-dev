@@ -49,6 +49,32 @@ that the wire/IO layer is validated at the **behavioral/product** level
 (controlled servers, recorded provider responses, product-output equivalence),
 not by reproducing bytes.
 
+### 2.1 Dependency boundary — consume/orchestrate with libraries; render exactly
+
+Libraries for **CONSUMING and ORCHESTRATING** — `terraform-exec` (running
+Terraform), `terraform-json` (decoding Terraform plan/state), `jsonschema`
+(schema validation), `zscaler-sdk-go` (provider auth/transport) — because no
+operator-visible bytes are produced, so no byte-parity requirement. **HAND-ROLL**
+only where the output is committed artifact bytes that must match existing
+state: the canonical JSON renderer (`canonjson`) and HCL generation (`tfrender`;
+`hclwrite`'s bytes differ from committed goldens). Raw provider readback for
+evidence stays raw (`zscaler-sdk-go` used for auth/transport, **NOT** for
+normalizing evidence bytes).
+
+This rule supersedes the original plan's blanket deferral of these libraries
+"past parity." Library decoding and orchestration do not replace Infrawright's
+fail-closed product gates: typed Terraform values are inputs to the explicit
+`complete === true` and adopt/apply checks, and schema-library errors must pass
+through the project's deterministic report adapter anywhere their content
+reaches operator-visible bytes. The module's current zero-dependency state is
+a fact about the completed work, not an architectural goal for Block D.
+
+Two completed implementations stay sunk: the existing `terraformcmd`
+invocation path and `canonjson` strict decoder are working and low-ROI to
+replace. Reconsider `terraformcmd` only if authorized Block D work using
+`terraform-exec` makes one unified invocation path clearly worth the migration;
+that is an open design decision, not work authorized by this plan correction.
+
 ## 3. Keep / Rewrite / Drop inventory (cleanup complete)
 
 **KEEP — the genuinely valuable Go work (byte-exact where it matters):**

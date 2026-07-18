@@ -125,17 +125,24 @@ DriftPolicy runtime API, `canonjson` (render/equality), `roots`
    `String()` and is only inert while it stays internal. When `plan-report`
    lands, prove by test that the marker bytes never appear in `REPORT` output.
 
-## 5. Dependency decision — hand-port schema validation, stay zero-dep
+## 5. Dependency decision — corrected: prefer jsonschema for future validation
 
-The assessment path validates against `saved-plan-assessment.schema.json` and
-the semantics keywords, and **schema-error `details` content is REPORT bytes**
-(byte-exact). The module returned to **zero third-party deps** in the v2 reset —
-do not reintroduce `santhosh-tekuri/jsonschema` casually. Recommendation:
-**hand-port** the small schema + semantics validation (2 relevant schemas),
-matching the Node ajv error-detail text on the ported vectors, keeping the
-module stdlib-only. If a genuine blocker emerges, escalate before adding a dep —
-it must clear the v2 dependency bar (a strictness wrapper that preserves every
-fail-closed check), not merely be convenient.
+The original recommendation to hand-port schema validation solely to keep the
+module zero-dependency was a byte-parity-reflex artifact, not a product
+requirement. Consuming a schema through a library does not itself produce
+committed artifact bytes. For any schema validation revisited or added after
+Block C, the preferred path is `github.com/santhosh-tekuri/jsonschema/v6`, which
+the user previously validated in the enterprise Artifactory, behind a narrow
+Infrawright adapter that preserves fail-closed semantics and deterministic
+REPORT error ordering/rendering.
+
+Block C is already built and accepted; **do not reimplement its hand-ported
+validation now**. Its current zero-dependency result remains valid sunk work.
+Where schema-error `details` enter REPORT bytes, the REPORT contract still
+governs the adapter's output and default library error strings must not leak
+through unreviewed. Availability must be rechecked in the build environment
+when future dependency adoption is authorized; the 2026-07-18 local recheck
+could verify upstream `v6.0.2` but had no configured Artifactory access.
 
 ## 6. Parcels (fan-out plan)
 
