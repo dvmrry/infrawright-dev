@@ -1,8 +1,8 @@
 // Command iw is the Go port of the Infrawright CLI entry point
 // (node-src/cli/main.ts). The current Go slice carries the credential-free
-// command families through saved-plan assessment; the usage text, dispatch
-// shape, exit codes, and error rendering reproduce the Node CLI byte-for-byte
-// for every surface the differential corpus covers.
+// command families through adopt and exact saved-plan Apply; the usage text,
+// dispatch shape, exit codes, and error rendering reproduce the Node CLI
+// byte-for-byte for every surface the differential corpus covers.
 //
 // Pre-cutover divergence (deliberate, excluded from the differential corpus):
 // commands that exist in the Node CLI but are not yet ported fail loudly with
@@ -426,8 +426,14 @@ func run(arguments []string) (int, error) {
 		return rootCatalog(arguments[1:])
 	case "transform":
 		return transformCommand(arguments[1:])
+	case "adopt":
+		return adoptCommand(arguments[1:])
 	case "gen-env":
 		return genEnvCommand(arguments[1:])
+	case "stage-imports":
+		return stageImportsCommand(arguments[1:])
+	case "unstage-imports":
+		return unstageImportsCommand(arguments[1:])
 	case "modules":
 		return modulesCommand(arguments[1:])
 	case "resources":
@@ -446,6 +452,8 @@ func run(arguments []string) (int, error) {
 		return legacyPlanLifecycleCommand(func() (int, error) { return assertCleanCommand(arguments[1:]) })
 	case "assert-adoptable":
 		return legacyPlanLifecycleCommand(func() (int, error) { return assertAdoptableCommand(arguments[1:]) })
+	case "apply":
+		return legacyPlanLifecycleCommand(func() (int, error) { return applyCommand(arguments[1:]) })
 	case "fetch":
 		return fetchCommand(arguments[1:], nil)
 	case "fetch-diag":

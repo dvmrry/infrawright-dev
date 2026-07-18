@@ -441,7 +441,13 @@ func TestApplyExactSavedPlansCleanFlowAndCompleteGate(t *testing.T) {
 		options.AllowDestroy = true
 		options.AllowPlanChanges = true
 		_, err = applyExactSavedPlans(options, exactApplyTestHooks(fixture))
-		requireExactApplyFailure(t, err, "INCOMPLETE_TERRAFORM_PLAN")
+		if err == nil || err.Error() != "plan must be complete before assessment" {
+			t.Fatalf("typed incomplete plan error = %T(%v), want plan-contract parity", err, err)
+		}
+		var failure *procerr.ProcessFailure
+		if errors.As(err, &failure) {
+			t.Fatalf("typed incomplete plan error = ProcessFailure(%s), want Node-compatible plain error", failure.Code)
+		}
 		if len(candidate.applied) != 0 {
 			t.Fatalf("typed incomplete plan Apply calls = %d, want zero", len(candidate.applied))
 		}

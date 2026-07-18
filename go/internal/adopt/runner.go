@@ -1,7 +1,6 @@
 package adopt
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -135,7 +134,7 @@ func writeUnsupportedDiagnostics(classification AdoptionRawClassification, resou
 			continue
 		}
 		seen[rule] = struct{}{}
-		evidence, _ := json.Marshal(rule.Evidence)
+		evidence, _ := adoptionJSONMarshal(rule.Evidence)
 		write(fmt.Sprintf("unsupported %s rule for %s %s: %s; evidence=%s", resource.Type, rule.ProviderSource, rule.ProviderVersion, rule.Reason, evidence))
 	}
 }
@@ -158,12 +157,16 @@ func prepareAdoptionItems(rawItems []any, resource metadata.LoadedResourceMetada
 	}
 	counts := adoptionItemCountsFor(len(rawItems), classification)
 	for _, skipped := range classification.Skipped {
-		value, ok := skipped.Item["name"]
-		if !ok || value == nil {
-			value = skipped.Item["id"]
+		value, present := skipped.Item["name"]
+		if !present || value == nil {
+			value, present = skipped.Item["id"]
 		}
 		if write != nil {
-			write(fmt.Sprintf("skipped %s item %s (identity %s matched)", resource.Type, adoptionJSONValue(value), skipped.Reason))
+			label := "undefined"
+			if present {
+				label = adoptionJSONValue(value)
+			}
+			write(fmt.Sprintf("skipped %s item %s (identity %s matched)", resource.Type, label, skipped.Reason))
 		}
 	}
 	writeUnsupportedDiagnostics(classification, resource, write)

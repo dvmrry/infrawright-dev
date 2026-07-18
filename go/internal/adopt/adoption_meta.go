@@ -1,6 +1,7 @@
 package adopt
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -554,14 +555,80 @@ func DeriveAdoptionIdentities(rawItems []any, resource metadata.LoadedResourceMe
 }
 
 func adoptionJSONString(value string) string {
-	encoded, _ := json.Marshal(value)
+	encoded, _ := adoptionJSONMarshal(value)
 	return string(encoded)
 }
 
 func adoptionJSONValue(value any) string {
-	encoded, err := json.Marshal(value)
+	encoded, err := adoptionJSONMarshal(value)
 	if err != nil {
 		return fmt.Sprintf("%v", value)
 	}
 	return string(encoded)
+}
+
+type adoptionLosslessNumberJSON struct {
+	IsLosslessNumber bool   `json:"isLosslessNumber"`
+	Value            string `json:"value"`
+}
+
+func adoptionDiagnosticJSONValue(value any) any {
+	switch typed := value.(type) {
+	case json.Number:
+		return adoptionLosslessNumberJSON{IsLosslessNumber: true, Value: string(typed)}
+	case []any:
+		output := make([]any, len(typed))
+		for index, child := range typed {
+			output[index] = adoptionDiagnosticJSONValue(child)
+		}
+		return output
+	case map[string]any:
+		output := make(map[string]any, len(typed))
+		for key, child := range typed {
+			output[key] = adoptionDiagnosticJSONValue(child)
+		}
+		return output
+	default:
+		return value
+	}
+}
+
+func adoptionJSONWithLiteralLineSeparators(encoded []byte) []byte {
+	var output bytes.Buffer
+	for index := 0; index < len(encoded); {
+		if index+6 <= len(encoded) && encoded[index] == '\\' &&
+			(string(encoded[index:index+6]) == `\u2028` || string(encoded[index:index+6]) == `\u2029`) {
+			precedingBackslashes := 0
+			for prior := index - 1; prior >= 0 && encoded[prior] == '\\'; prior-- {
+				precedingBackslashes++
+			}
+			if precedingBackslashes%2 == 0 {
+				if encoded[index+5] == '8' {
+					output.WriteRune('\u2028')
+				} else {
+					output.WriteRune('\u2029')
+				}
+				index += 6
+				continue
+			}
+		}
+		output.WriteByte(encoded[index])
+		index++
+	}
+	return output.Bytes()
+}
+
+// adoptionJSONMarshal matches JSON.stringify's non-HTML JSON spelling for
+// reachable scalar diagnostic bytes. Go's encoding/json defaults to HTML
+// escaping and represents json.Number as a bare token, while the Node source
+// emits literal line separators and lossless-json's LosslessNumber object.
+func adoptionJSONMarshal(value any) ([]byte, error) {
+	var output bytes.Buffer
+	encoder := json.NewEncoder(&output)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(adoptionDiagnosticJSONValue(value)); err != nil {
+		return nil, err
+	}
+	encoded := bytes.TrimSuffix(output.Bytes(), []byte{'\n'})
+	return adoptionJSONWithLiteralLineSeparators(encoded), nil
 }

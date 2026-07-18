@@ -307,11 +307,10 @@ func decodeExactApplyTypedPlan(raw canonjson.Value) (*tfjson.Plan, error) {
 
 func requireExactApplyTypedComplete(shown ExactPlanApplyShownPlan) error {
 	if shown.Typed == nil || shown.Typed.Complete == nil || !*shown.Typed.Complete {
-		return exactPlanApplyFailure(
-			"INCOMPLETE_TERRAFORM_PLAN",
-			"Terraform plan must be complete before Apply",
-			procerr.CategoryDomain,
-		)
+		// Keep the independent terraform-json typed gate before raw
+		// classification, but preserve plan-contract.ts's operator-visible
+		// failure bytes instead of inventing a second CLI classification.
+		return errors.New("plan must be complete before assessment")
 	}
 	return nil
 }
