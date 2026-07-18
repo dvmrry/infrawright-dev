@@ -155,8 +155,8 @@ work. The required acceptance matrix is:
 | Hermetic product chain | The opt-in `TestV2VerticalSliceCheckpoint` in `go/cmd/iw/v2_vertical_slice_test.go` uses a temporary-CA local TLS server and accepts only legacy-ZIA auth followed by `GET /api/v1/ruleLabels?page=1&pageSize=1000`. It uses a temporary ZIA-only pack root containing the complete production `packs/zia` and `packs/_shared/zscaler` trees with `packsets/zia.json`. Go `fetch` must equal `packs/_shared/zscaler/demo/zia_rule_labels.json`; Go `transform` must equal committed `demo/config/demo/zia_rule_labels.auto.tfvars.json` and `demo/imports/demo/zia_rule_labels_imports.tf`; the four core module files must equal committed `tests/fixtures/gen/zia_rule_labels`; the complete generated overlay must match an exact 12-file manifest. No unexpected request or output is allowed, including after Terraform. | Visible `INFRAWRIGHT_V2_CHECKPOINT=1` transcript, full-tree/manifest checks, and exact byte comparisons; all writes stay in mode-restricted temporary roots while pack authorities are referenced through repository symlinks. | **PASS locally; focused adversarial review approved** |
 | Terraform composition | In the generated env root, bounded `terraform init -backend=false -input=false -no-color`, `terraform validate -no-color`, and `terraform test -no-color -verbose -json` all exit 0. The structured events must prove `empty_plan` has zero resource changes and `config_plan` has exactly one `create` at `module.zia_rule_labels.zia_rule_labels.this["testlabel_vcr_integration"]` with the committed name/description, followed by an exact 2-pass/0-failure summary. The ZIA pack pin must equal the sole generated provider-lock selection. Provider installation may use the registry or a pinned filesystem mirror; all ZIA/Zscaler credentials/endpoints are removed before Terraform and no post-fetch API request is allowed. | Sanitized transcript with candidate hash, Terraform version, signed provider selection, lock hash, validation result, per-run structured plan summary, and final HTTP transcript. | **PASS locally; focused adversarial review approved** |
 | No-Node candidate | Build a CGO-disabled candidate in a temporary package root, then run the entire hermetic chain with a sanitized `PATH` containing Terraform but no usable `node`, `npm`, or `npx`; invoke only the candidate and Terraform. Any attempted name-based Node execution fails the leg. | Sanitized environment manifest and the same product/Terraform transcript. | **PASS locally; integrated into the hermetic test** |
-| One live read-only provider | Exactly `zia_end_user_notification` through ZIA OneAPI, concurrency 1: accepted Node → Go candidate → accepted Node, each into a fresh mode-0700 root. This singleton performs one `GET /zia/api/v1/eun` with no pagination. All three runs exit 0 and emit only `zia_end_user_notification.json`; Node-before equals Node-after and Go bytes equal both. No Adopt, import, plan, Apply, selector widening, retry/429, or mutation is permitted. Credentials and raw pulls remain private and are deleted. | Candidate and Node SHAs; tool/provider/pack versions; exit statuses; item count, byte size, SHA-256/tree manifest; masked diagnostic classification and secret-scan result. | **BLOCKED locally — externally confirmed read-only credentials are absent; no live call was attempted** |
-| Fresh adversarial review | A fresh Codex reviewer follows `docs/adversarial-review.md`, reviews the complete checkpoint evidence without editing, and leaves no unresolved blocking finding. | Review handoff and recorded findings using the repository templates. | **Hermetic implementation: Approve; post-247 Go parity candidate `5e7d02d`: Approve; credential-free work-machine evidence accepted by the user; the live leg and its final full-evidence review remain required** |
+| One live read-only provider | Exactly `zia_end_user_notification` through ZIA OneAPI, concurrency 1: accepted Node → Go candidate → accepted Node, each into a fresh mode-0700 root. This singleton performs one `GET /zia/api/v1/eun` with no pagination. All three runs exit 0 and emit only `zia_end_user_notification.json`; Node-before equals Node-after and Go bytes equal both. No Adopt, import, plan, Apply, selector widening, retry/429, or mutation is permitted. Credentials and raw pulls remain private and are deleted. | Candidate and Node SHAs; tool/provider/pack versions; exit statuses; item count, byte size, SHA-256/tree manifest; masked diagnostic classification and secret-scan result. | **PASS by user-accepted external field evidence on 2026-07-18; the external transcript/manifests, credentials, and private raw pulls are not stored in this checkout** |
+| Fresh adversarial review | A fresh Codex reviewer follows `docs/adversarial-review.md`, reviews the complete checkpoint evidence without editing, and leaves no unresolved blocking finding. | Review handoff and recorded findings using the repository templates. | **PASS for the hermetic and post-247 candidates; the user accepted the external live read-path evidence and explicitly authorized Block D at `b6f6e66` on 2026-07-18** |
 
 Run the hermetic leg explicitly; the default test lane records a visible skip
 so provider installation is never smuggled into ordinary unit tests:
@@ -243,11 +243,12 @@ path stayed stdlib-based and materially smaller; infrastructure bytes are
 equivalent; every wire difference is within §2 and documented; and the no-Node
 operator path works end to end.
 
-Until all legs pass and the fresh adversarial review completes, Block D
-(Adopt/import/oracle/apply) and any other unscoped breadth are **not
-authorized**. The user made one recorded exception: Block C plan lifecycle was
-separately authorized on the accepted credential-free evidence and is now
-complete (§7). That scoped exception does not waive or pass the full checkpoint.
+On 2026-07-18 the user accepted the external live read-path evidence and
+explicitly authorized Block D (Adopt/import/oracle/staging/exact saved-plan
+Apply) at `b6f6e66`. That authorization covered implementation and fixture/
+local-fake differential proof only. It did **not** authorize a Terraform Apply
+against real provider state or a live tenant; controlled live Apply remains a
+separate human-gated qualification event.
 
 ## 6. Gradual cutover — Node is not archived on day one
 
@@ -314,12 +315,16 @@ Each a reviewed commit on `feature/go-canonjson-foundation`.
 After each cleanup commit, the full artifact byte-gate corpus (RootCatalog,
 Transform, Topology, Generation vs the Node oracle) must stay byte-identical —
 that is the standing proof the reset touched nothing infrastructure depends on.
-§7 is complete at `863f405`. The user accepted the credential-free §5 evidence
-and explicitly authorized **Block C only** while leaving the live singleton
-pending; this was a scoped authorization, not a declaration that the complete
-§5 matrix passed. Block C completed at `3daaf07`: the saved-plan lifecycle,
-bound evidence, assessment/report path, four command entry points, and bounded
-direct Node/Go differential all landed under fresh adversarial review. The
-module remains zero-dependency and the four standing artifact byte-gates remain
-identical. **Block D remains closed** until separately authorized; the live
-read-only provider leg remains pending and was not attempted by Block C.
+§7 is complete at `863f405`. Block C completed at `3daaf07`: the saved-plan
+lifecycle, bound evidence, assessment/report path, four command entry points,
+and bounded direct Node/Go differential all landed under fresh adversarial
+review. After the user accepted the external live read-path evidence, Block D
+was separately authorized at `b6f6e66` and completed through `714302e` in five
+reviewed parcels: bounded import Oracle, transactional import staging, adopt
+orchestration and policy merge, exact saved-plan Apply, and CLI/frozen-oracle
+differential wiring. `terraform-json v0.28.0` is the sole direct module
+dependency; the existing bounded `terraformcmd` runner and byte-exact
+`canonjson`/`tfrender` paths remain in place. The four standing artifact byte
+gates remain identical. No Block D test used credentials, a provider API,
+remote state, or a real/live Apply; that controlled qualification remains
+explicitly unauthorized until a later human decision.
