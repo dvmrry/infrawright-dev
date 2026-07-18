@@ -140,7 +140,7 @@ func productionAssessmentHooks() assessmentHooks {
 		recheckPolicy:   RecheckBoundDriftPolicy,
 		collectGuidance: CollectAssessmentGuidance,
 		makeTemporary: func() (string, error) {
-			return os.MkdirTemp("", "infrawright-assessment-")
+			return makeAssessmentTemporaryDirectory(os.TempDir())
 		},
 	}
 }
@@ -908,10 +908,6 @@ func runSavedPlanAssessment[T any](
 	}
 	temporary, err = hooks.makeTemporary()
 	if err != nil {
-		primaryFailure = safeAssessmentFailure(err)
-		return completed, nil
-	}
-	if err := os.Chmod(temporary, 0o700); err != nil {
 		primaryFailure = safeAssessmentFailure(err)
 		return completed, nil
 	}
