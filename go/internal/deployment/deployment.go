@@ -9,15 +9,6 @@
 // (or node-src/domain/types.ts, for the Deployment/RootProviderConfig
 // shapes) export it ports; that TypeScript remains the differential oracle
 // until this port is independently qualified, per docs/go-runtime-plan.md.
-//
-// Deliberately not ported: loadBoundAssessmentDeployment, the one
-// deployment.ts export this package omits. It exists solely to bind a
-// loaded deployment to assessment control-evidence bookkeeping
-// (node-src/domain/control-evidence.ts's BoundAssessmentControlFile,
-// itself built on node-src/io/bounded-files.ts's bounded-read machinery) --
-// a concern that belongs to this port's later plan/assessment slice
-// (docs/go-runtime-plan.md's internal/plan), not to the roots runner's
-// dependency set this package was ported for.
 package deployment
 
 import (
