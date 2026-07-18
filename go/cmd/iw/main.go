@@ -1,8 +1,8 @@
 // Command iw is the Go port of the Infrawright CLI entry point
-// (node-src/cli/main.ts). Slice 2 of docs/go-runtime-plan.md: only the
-// root-catalog command is ported so far; the usage text, dispatch shape,
-// exit codes, and error rendering reproduce the Node CLI byte-for-byte for
-// every surface the differential corpus covers.
+// (node-src/cli/main.ts). The current Go slice carries the credential-free
+// command families through saved-plan assessment; the usage text, dispatch
+// shape, exit codes, and error rendering reproduce the Node CLI byte-for-byte
+// for every surface the differential corpus covers.
 //
 // Pre-cutover divergence (deliberate, excluded from the differential corpus):
 // commands that exist in the Node CLI but are not yet ported fail loudly with
@@ -24,6 +24,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
+	"github.com/dvmrry/infrawright-dev/go/internal/terraformcmd"
 	"github.com/dvmrry/infrawright-dev/go/internal/transformrun"
 )
 
@@ -327,9 +328,95 @@ func knownCommands() map[string]bool {
 	return known
 }
 
+var terraformCommandValueOptions = map[string]bool{
+	"--backend":        true,
+	"--backend-config": true,
+	"--catalog":        true,
+	"--deployment":     true,
+	"--in":             true,
+	"--main-branch":    true,
+	"--out":            true,
+	"--policy":         true,
+	"--profile":        true,
+	"--report":         true,
+	"--resource":       true,
+	"--root":           true,
+	"--tenant":         true,
+	"--terraform":      true,
+}
+
+var terraformCommandFlags = map[string]bool{
+	"--allow-destroy":      true,
+	"--allow-non-main":     true,
+	"--allow-plan-changes": true,
+	"--imports-only":       true,
+	"--save":               true,
+	"--state-aware":        true,
+}
+
+// hasStandaloneTerraformHelp ports the deliberately shallow source scan. It
+// recognizes help only while walking a syntactically complete prefix of known
+// Terraform-command options; an unknown token or missing value stops the scan.
+func hasStandaloneTerraformHelp(arguments []string) bool {
+	for index := 1; index < len(arguments); {
+		argument := arguments[index]
+		if argument == "-h" || argument == "--help" {
+			return true
+		}
+		if terraformCommandValueOptions[argument] {
+			if index+1 >= len(arguments) {
+				return false
+			}
+			index += 2
+			continue
+		}
+		if terraformCommandFlags[argument] ||
+			(index == 1 && arguments[0] == "modules" && argument == "generate") {
+			index++
+			continue
+		}
+		return false
+	}
+	return false
+}
+
+// requiresTerraformExecution ports the source's pre-dispatch platform-gate
+// selection. Standalone command help is available on every platform.
+func requiresTerraformExecution(arguments []string) bool {
+	if hasStandaloneTerraformHelp(arguments) {
+		return false
+	}
+	if len(arguments) == 0 {
+		return false
+	}
+	command := arguments[0]
+	return command == "adopt" ||
+		command == "gen-env" ||
+		command == "plan" ||
+		command == "assert-clean" ||
+		command == "assert-adoptable" ||
+		command == "apply" ||
+		(command == "modules" && len(arguments) > 1 && arguments[1] == "generate") ||
+		(command == "stage-imports" && slicesContain(arguments, "--state-aware"))
+}
+
+func slicesContain(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
 // run ports the main dispatch in node-src/cli/main.ts for the commands this
 // slice carries, and fails loudly for the rest.
 func run(arguments []string) (int, error) {
+	if requiresTerraformExecution(arguments) {
+		if err := terraformcmd.AssertSupportedTerraformExecutionPlatform(""); err != nil {
+			return 0, err
+		}
+	}
 	if len(arguments) == 0 {
 		return 0, usageError(usageText)
 	}
@@ -351,6 +438,14 @@ func run(arguments []string) (int, error) {
 		return legacyPlanLifecycleCommand(func() (int, error) { return scopePathsCommand(arguments[1:]) })
 	case "plan-roots":
 		return legacyPlanLifecycleCommand(func() (int, error) { return planRootsCommand(arguments[1:]) })
+	case "plan":
+		return legacyPlanLifecycleCommand(func() (int, error) { return planCommand(arguments[1:]) })
+	case "clean-plans":
+		return legacyPlanLifecycleCommand(func() (int, error) { return cleanPlansCommand(arguments[1:]) })
+	case "assert-clean":
+		return legacyPlanLifecycleCommand(func() (int, error) { return assertCleanCommand(arguments[1:]) })
+	case "assert-adoptable":
+		return legacyPlanLifecycleCommand(func() (int, error) { return assertAdoptableCommand(arguments[1:]) })
 	case "fetch":
 		return fetchCommand(arguments[1:], nil)
 	case "fetch-diag":
