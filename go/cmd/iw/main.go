@@ -58,15 +58,18 @@ func usageError(message string) error {
 var unknownArgumentMessage = regexp.MustCompile(`^unknown argument (.+)$`)
 
 // commandBehavior ports the behavior options of commandArguments in
-// node-src/cli/main.ts. Only the fields the ported commands use are
-// carried; helpStatus/helpStdout keep the TS defaults (0, true).
+// node-src/cli/main.ts. The zero value keeps the TS help defaults (status 0,
+// stdout); helpStderr represents the source's explicit `stdout: false`
+// without making the Go zero value invert the default.
 type commandBehavior struct {
-	command string
+	command    string
+	helpStatus int
+	helpStderr bool
 }
 
 // commandArguments ports commandArguments in node-src/cli/main.ts: parse
 // failures become usage errors (optionally reworded per command), and
-// --help short-circuits with the full usage text on stdout.
+// --help short-circuits with the behavior-selected status and output stream.
 func commandArguments(
 	arguments []string,
 	config cliargs.ParseConfig,
@@ -87,7 +90,11 @@ func commandArguments(
 		return cliargs.ParsedArguments{}, err
 	}
 	if _, help := parsed.Flags["--help"]; help {
-		return cliargs.ParsedArguments{}, &cliExit{message: usageText, status: 0, stdout: true}
+		return cliargs.ParsedArguments{}, &cliExit{
+			message: usageText,
+			status:  behavior.helpStatus,
+			stdout:  !behavior.helpStderr,
+		}
 	}
 	return parsed, nil
 }
@@ -422,8 +429,14 @@ func run(arguments []string) (int, error) {
 	}
 	command := arguments[0]
 	switch command {
+	case "check-pack":
+		return checkPackCommand(arguments[1:])
+	case "check-pack-set":
+		return checkPackSetCommand(arguments[1:])
 	case "root-catalog":
 		return rootCatalog(arguments[1:])
+	case "deployment":
+		return deploymentCommand(arguments[1:])
 	case "transform":
 		return transformCommand(arguments[1:])
 	case "adopt":
