@@ -376,6 +376,84 @@ func TestStageImportsExpandsWholeRootAndOrdersDiagnostics(t *testing.T) {
 	}
 }
 
+func TestStageImportsStateAwareSnapshotsStateOncePerLogicalRoot(t *testing.T) {
+	workspace := t.TempDir()
+	first := "zpa_segment_group"
+	second := "zpa_server_group"
+	dep := stagingDeployment(workspace)
+	dep.Roots["zpa"] = deployment.RootProviderConfig{
+		HasGroups: true,
+		Groups:    map[string][]string{"zpa_custom": {first, second}},
+	}
+	firstSource := filepath.Join(workspace, "imports", "tenant", first+"_imports.tf")
+	secondSource := filepath.Join(workspace, "imports", "tenant", second+"_imports.tf")
+	firstText := stagingImports(t, first, "managed", "new")
+	secondText := stagingImports(t, second, "managed", "new")
+	writeStagingText(t, firstSource, firstText)
+	writeStagingText(t, secondSource, secondText)
+	environmentRoot := filepath.Join(workspace, "envs", "tenant", "zpa_custom")
+	if err := os.MkdirAll(environmentRoot, 0o700); err != nil {
+		t.Fatalf("os.MkdirAll(%q) error = %v, want nil", environmentRoot, err)
+	}
+	fake := &fakeImportStagingTerraform{result: ImportStagingStateResult{
+		Success: true,
+		Stdout: strings.Join([]string{
+			stagingImportAddress(t, first, "managed"),
+			stagingImportAddress(t, second, "managed"),
+			"",
+		}, "\n"),
+	}}
+
+	result, err := StageImports(StageImportsOptions{
+		Deployment: dep,
+		Root:       stagingTestRoot(first, second),
+		Selectors:  []string{first},
+		StateAware: true,
+		Tenant:     "tenant",
+		Terraform:  fake,
+		Workspace:  workspace,
+	})
+	if err != nil {
+		t.Fatalf("StageImports(grouped state-aware) error = %v, want nil", err)
+	}
+	if result != (StageImportsResult{Sources: 2, Staged: 2}) {
+		t.Errorf("StageImports(grouped state-aware) = %#v, want sources=2 staged=2", result)
+	}
+	if len(fake.calls) != 2 || fake.calls[0].Kind != "init" || fake.calls[1].Kind != "list" {
+		t.Fatalf("StageImports(grouped state-aware) Terraform calls = %#v, want one init then one list", fake.calls)
+	}
+	request := fake.calls[0].Request
+	if request.Directory != environmentRoot || request.Label != "zpa_custom" || request.Tenant != "tenant" {
+		t.Errorf("StageImports(grouped state-aware) Terraform request = %#v, want grouped root directory/label/tenant", request)
+	}
+	if fake.calls[1].Request != request {
+		t.Errorf("StageImports(grouped state-aware) state-list request = %#v, want init request %#v", fake.calls[1].Request, request)
+	}
+	for _, resource := range []struct {
+		resourceType string
+		source       string
+		text         string
+	}{
+		{resourceType: first, source: firstSource, text: firstText},
+		{resourceType: second, source: secondSource, text: secondText},
+	} {
+		want, err := FilterGeneratedImports(
+			resource.text,
+			[]string{
+				stagingImportAddress(t, first, "managed"),
+				stagingImportAddress(t, second, "managed"),
+			},
+		)
+		if err != nil {
+			t.Fatalf("FilterGeneratedImports(%s) error = %v, want nil", resource.resourceType, err)
+		}
+		destination := filepath.Join(environmentRoot, filepath.Base(resource.source))
+		if got := readStagingText(t, destination); got != want.Text {
+			t.Errorf("StageImports(grouped state-aware) %s bytes = %q, want %q", resource.resourceType, got, want.Text)
+		}
+	}
+}
+
 func TestStageImportsStateAwareBackendPreflightAndExactFiltering(t *testing.T) {
 	workspace := t.TempDir()
 	dep := stagingDeployment(workspace)

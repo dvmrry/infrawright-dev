@@ -419,7 +419,7 @@ func verifyStableSnapshotDestination(
 	}
 
 	hasher := sha256.New()
-	buffer := make([]byte, readChunkBytes)
+	buffer := make([]byte, stableReadBufferSize(expected.Size))
 	defer scrubBytes(buffer, scrubReadBuffer, nil)
 	consumed, err := io.CopyBuffer(
 		hasher,

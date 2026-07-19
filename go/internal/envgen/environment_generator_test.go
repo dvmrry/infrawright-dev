@@ -399,6 +399,51 @@ func rootLabels(result EnvironmentGenerationResult) []string {
 	return labels
 }
 
+func TestValidateRemoteStateReferencesEmptySetNeedsNoIndex(t *testing.T) {
+	if err := validateRemoteStateReferences(
+		remoteStateReferenceValidationIndex{},
+		"current",
+		nil,
+	); err != nil {
+		t.Errorf("validateRemoteStateReferences(empty) error = %v, want nil", err)
+	}
+}
+
+func BenchmarkValidateRemoteStateReferencesSharedIndex(b *testing.B) {
+	const rootCount = 151
+	rootsByLabel := make(map[string]roots.RootTopologyRoot, rootCount)
+	for i := range rootCount {
+		label := fmt.Sprintf("root_%03d", i)
+		root := roots.RootTopologyRoot{Label: label, Members: []string{label + "_resource"}}
+		rootsByLabel[label] = root
+	}
+	crossState := CrossStateReferenceTopology{Edges: []CrossStateReferenceEdge{{
+		Field:        "target_id",
+		Referrer:     "root_001_resource",
+		ReferrerRoot: "root_001",
+		Referent:     "root_000_resource",
+		ReferentRoot: "root_000",
+	}}}
+	index := newRemoteStateReferenceValidationIndex(crossState, rootsByLabel)
+	references := []boundRemoteStateReference{{
+		RemoteStateReference: RemoteStateReference{
+			Key:          "target",
+			ResourceType: "root_000_resource",
+			Root:         "root_000",
+		},
+		Field:    "target_id",
+		Referrer: "root_001_resource",
+	}}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if err := validateRemoteStateReferences(index, "root_001", references); err != nil {
+			b.Fatalf("validateRemoteStateReferences(shared index) error = %v, want nil", err)
+		}
+	}
+}
+
 func TestOperatorDataSelectorsDoNotActivateCrossStateWithoutOptIn(t *testing.T) {
 	workspace := temporaryDirectory(t, "infrawright-gen-env-operator-data-")
 	deploymentPath := filepath.Join(workspace, "deployment.json")

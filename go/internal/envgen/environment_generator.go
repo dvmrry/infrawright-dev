@@ -705,26 +705,64 @@ func compareBoundReference(left, right boundRemoteStateReference) int {
 	return canonjson.ComparePythonStrings(left.Key, right.Key)
 }
 
-// validateRemoteStateReferences ports the local
-// validateRemoteStateReferences helper from
-// node-src/domain/environment-generator.ts.
-func validateRemoteStateReferences(
+// remoteStateReferenceValidationIndex is an immutable, invocation-scoped view
+// of the topology and pack-declared cross-state edges used by every generated
+// root's binding validation.
+type remoteStateReferenceValidationIndex struct {
+	declared     map[string]bool
+	rootsByLabel map[string]roots.RootTopologyRoot
+}
+
+// remoteStateDeclaredEdgeKey preserves the Node port's exact composite key for
+// matching a generated binding to its pack-declared reference edge.
+func remoteStateDeclaredEdgeKey(
+	referrer string,
+	referrerRoot string,
+	field string,
+	referent string,
+	referentRoot string,
+) string {
+	return referrer + "\x00" + referrerRoot + "\x00" + field + "\x00" + referent + "\x00" + referentRoot
+}
+
+// newRemoteStateReferenceValidationIndex builds the shared validation maps once
+// for a GenerateEnvironmentRoots invocation.
+func newRemoteStateReferenceValidationIndex(
 	crossState CrossStateReferenceTopology,
-	currentRoot string,
-	fullTopology roots.RootTopology,
-	references []boundRemoteStateReference,
-) error {
-	rootsByLabel := map[string]roots.RootTopologyRoot{}
-	for _, r := range fullTopology.Roots {
-		rootsByLabel[r.Label] = r
-	}
-	declared := map[string]bool{}
+	rootsByLabel map[string]roots.RootTopologyRoot,
+) remoteStateReferenceValidationIndex {
+	declared := make(map[string]bool, len(crossState.Edges))
 	for _, edge := range crossState.Edges {
-		key := edge.Referrer + "\x00" + edge.ReferrerRoot + "\x00" + edge.Field + "\x00" + edge.Referent + "\x00" + edge.ReferentRoot
+		key := remoteStateDeclaredEdgeKey(
+			edge.Referrer,
+			edge.ReferrerRoot,
+			edge.Field,
+			edge.Referent,
+			edge.ReferentRoot,
+		)
 		declared[key] = true
 	}
+	return remoteStateReferenceValidationIndex{
+		declared:     declared,
+		rootsByLabel: rootsByLabel,
+	}
+}
+
+// validateRemoteStateReferences ports the local
+// validateRemoteStateReferences helper from
+// node-src/domain/environment-generator.ts. The Go port receives a shared
+// immutable index so a multi-root generation does not rebuild the complete
+// topology and declared-edge maps for every generated root.
+func validateRemoteStateReferences(
+	index remoteStateReferenceValidationIndex,
+	currentRoot string,
+	references []boundRemoteStateReference,
+) error {
+	if len(references) == 0 {
+		return nil
+	}
 	for _, reference := range references {
-		target, ok := rootsByLabel[reference.Root]
+		target, ok := index.rootsByLabel[reference.Root]
 		if !ok {
 			return fmt.Errorf("cross-state binding targets unknown root %s", reference.Root)
 		}
@@ -734,8 +772,14 @@ func validateRemoteStateReferences(
 		if !containsString(target.Members, reference.ResourceType) {
 			return fmt.Errorf("cross-state binding expects %s in root %s", reference.ResourceType, reference.Root)
 		}
-		key := reference.Referrer + "\x00" + currentRoot + "\x00" + reference.Field + "\x00" + reference.ResourceType + "\x00" + reference.Root
-		if !declared[key] {
+		key := remoteStateDeclaredEdgeKey(
+			reference.Referrer,
+			currentRoot,
+			reference.Field,
+			reference.ResourceType,
+			reference.Root,
+		)
+		if !index.declared[key] {
 			return fmt.Errorf(
 				"cross-state binding %s.%s to %s in root %s is not declared by pack reference metadata",
 				reference.Referrer, reference.Field, reference.ResourceType, reference.Root,
@@ -1125,6 +1169,7 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 	for _, r := range fullTopology.Roots {
 		rootsByLabel[r.Label] = r
 	}
+	remoteStateValidation := newRemoteStateReferenceValidationIndex(crossState, rootsByLabel)
 	generationRoots := make([]roots.RootTopologyRoot, 0, len(generationLabels))
 	for _, label := range generationLabels {
 		selected, ok := rootsByLabel[label]
@@ -1216,7 +1261,7 @@ func GenerateEnvironmentRoots(options GenerateEnvironmentRootsOptions) (Environm
 				return EnvironmentGenerationResult{}, err
 			}
 		}
-		if err := validateRemoteStateReferences(crossState, selectedRoot.Label, fullTopology, remoteStateReferences); err != nil {
+		if err := validateRemoteStateReferences(remoteStateValidation, selectedRoot.Label, remoteStateReferences); err != nil {
 			return EnvironmentGenerationResult{}, err
 		}
 

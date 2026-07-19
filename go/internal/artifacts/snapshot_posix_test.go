@@ -107,6 +107,66 @@ func TestSnapshotBindsBytesDigestSizeIdentityAndPrivateMode(t *testing.T) {
 	}
 }
 
+func TestSnapshotEmptyFileVerificationUsesOneByteBufferFloor(t *testing.T) {
+	directory := privateTemporaryDirectory(t)
+	snapshots := filepath.Join(directory, "snapshots")
+	if err := os.Mkdir(snapshots, 0o700); err != nil {
+		t.Fatalf("os.Mkdir(%q, 0700) error = %v, want nil", snapshots, err)
+	}
+	source := filepath.Join(directory, "empty.tfplan")
+	writePrivateFile(t, source, nil)
+
+	snapshot, err := SnapshotStableFile(SnapshotStableFileOptions{
+		SourcePath:       source,
+		PrivateDirectory: snapshots,
+		Budget:           mustReadBudget(t, smallReadLimits()),
+	})
+	if err != nil {
+		t.Fatalf("SnapshotStableFile(%q) error = %v, want nil", source, err)
+	}
+	if snapshot.Size != 0 {
+		t.Errorf("SnapshotStableFile(%q).Size = %d, want 0", source, snapshot.Size)
+	}
+	wantHash := sha256.Sum256(nil)
+	if snapshot.SHA256 != hex.EncodeToString(wantHash[:]) {
+		t.Errorf("SnapshotStableFile(%q).SHA256 = %q, want %x", source, snapshot.SHA256, wantHash)
+	}
+}
+
+func BenchmarkVerifyStableSnapshotDestinationTinyFile(b *testing.B) {
+	directory := b.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		b.Fatalf("os.Chmod(%q, 0700) error = %v, want nil", directory, err)
+	}
+	path := filepath.Join(directory, "snapshot")
+	content := []byte("tiny snapshot")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		b.Fatalf("os.WriteFile(%q) error = %v, want nil", path, err)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		b.Fatalf("os.Open(%q) error = %v, want nil", path, err)
+	}
+	b.Cleanup(func() {
+		if err := file.Close(); err != nil {
+			b.Errorf("os.File.Close(%q) error = %v, want nil", path, err)
+		}
+	})
+	digest := sha256.Sum256(content)
+	expected := StableFileDigest{
+		SHA256: hex.EncodeToString(digest[:]),
+		Size:   int64(len(content)),
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, err := verifyStableSnapshotDestination(file, expected); err != nil {
+			b.Fatalf("verifyStableSnapshotDestination(%q) error = %v, want nil", path, err)
+		}
+	}
+}
+
 func TestSnapshotAllowsOwnerWriteSearchDirectoryWithoutReadPermission(t *testing.T) {
 	directory := privateTemporaryDirectory(t)
 	snapshots := filepath.Join(directory, "snapshots")

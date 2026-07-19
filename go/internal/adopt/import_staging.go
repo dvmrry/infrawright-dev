@@ -476,6 +476,41 @@ func StageImports(options StageImportsOptions) (StageImportsResult, error) {
 		if err != nil {
 			return StageImportsResult{}, err
 		}
+		stateLoaded := false
+		var rootStateAddresses []string
+		loadRootStateAddresses := func() ([]string, error) {
+			if stateLoaded {
+				return rootStateAddresses, nil
+			}
+			if options.Terraform == nil {
+				return nil, stagingFailure(
+					"TERRAFORM_REQUIRED",
+					"state-aware import staging requires Terraform",
+					procerr.CategoryDomain,
+				)
+			}
+			if err := requireBackendConfiguration(backendConfig, directory, selectedRoot.Label); err != nil {
+				return nil, err
+			}
+			request := ImportStagingTerraformRequest{
+				BackendConfig: backendConfig,
+				Directory:     directory,
+				Label:         selectedRoot.Label,
+				Tenant:        options.Tenant,
+			}
+			if err := options.Terraform.Initialize(request); err != nil {
+				return nil, err
+			}
+			state, err := options.Terraform.ListState(request)
+			if err != nil {
+				return nil, err
+			}
+			if state.Success {
+				rootStateAddresses = stateAddresses(state.Stdout)
+			}
+			stateLoaded = true
+			return rootStateAddresses, nil
+		}
 		for _, resourceType := range selectedRoot.Members {
 			artifacts, err := tfrender.ComputeTransformArtifactPaths(
 				options.Deployment,
@@ -509,36 +544,13 @@ func StageImports(options StageImportsOptions) (StageImportsResult, error) {
 				}
 				destination := filepath.Join(directory, basename)
 				if artifact.kind == "imports" && options.StateAware {
-					if options.Terraform == nil {
-						return StageImportsResult{}, stagingFailure(
-							"TERRAFORM_REQUIRED",
-							"state-aware import staging requires Terraform",
-							procerr.CategoryDomain,
-						)
-					}
-					if err := requireBackendConfiguration(backendConfig, directory, selectedRoot.Label); err != nil {
-						return StageImportsResult{}, err
-					}
-					request := ImportStagingTerraformRequest{
-						BackendConfig: backendConfig,
-						Directory:     directory,
-						Label:         selectedRoot.Label,
-						Tenant:        options.Tenant,
-					}
-					if err := options.Terraform.Initialize(request); err != nil {
-						return StageImportsResult{}, err
-					}
-					state, err := options.Terraform.ListState(request)
+					addresses, err := loadRootStateAddresses()
 					if err != nil {
 						return StageImportsResult{}, err
 					}
 					text, err := readPythonTextUTF8(source, resourceType+" imports")
 					if err != nil {
 						return StageImportsResult{}, err
-					}
-					var addresses []string
-					if state.Success {
-						addresses = stateAddresses(state.Stdout)
 					}
 					filtered, err := FilterGeneratedImports(text, addresses)
 					if err != nil {

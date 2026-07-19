@@ -8,12 +8,10 @@ package metadata
 // convention.
 //
 // providerSchemaCache (below) is a Go-only addition with no Node
-// counterpart: node-src/metadata/loader.ts re-derives its closures on every
-// loadPackRoot call but never re-parses a provider schema file it has
-// already read within one process, since Node's module-level require()
-// cache (and this port's callers historically re-reading the same schema
-// path per module/per-adopted-object) made re-parsing cheap enough not to
-// matter there. This port's callers (modulesgen.buildModuleContext,
+// counterpart: node-src/metadata/loader.ts delegates every method call to
+// loadProviderSchema/loadResourceSchema, whose readJson path re-reads and
+// re-parses the provider schema on every lookup. This port's callers
+// (modulesgen.buildModuleContext,
 // adopt.ProjectProviderState) call LoadedPackRoot.LoadResourceSchema once
 // per module and once per adopted object respectively, so without a cache
 // a large adoption run re-reads and re-decodes the same handful of
