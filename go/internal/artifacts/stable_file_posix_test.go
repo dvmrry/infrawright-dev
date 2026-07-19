@@ -281,7 +281,8 @@ func TestCollectedChunksAreScrubbedWhenFinalHookFails(t *testing.T) {
 				collectedScrubs++
 			}
 		case scrubReadBuffer:
-			if len(value) == readChunkBytes {
+			// The read buffer is now sized to the file, not the full ceiling.
+			if len(value) == len(content) {
 				readBufferScrubs++
 			}
 		}
@@ -345,7 +346,8 @@ func TestBoundedFileBytesAreCallerOwned(t *testing.T) {
 func TestStableReadHookPanicIsMappedAndBuffersAreScrubbed(t *testing.T) {
 	directory := privateTemporaryDirectory(t)
 	source := filepath.Join(directory, "source")
-	writePrivateFile(t, source, []byte("secret"))
+	content := []byte("secret")
+	writePrivateFile(t, source, content)
 	readBufferScrubs := 0
 	_, err := readBoundedFileBytes(
 		source,
@@ -358,7 +360,8 @@ func TestStableReadHookPanicIsMappedAndBuffersAreScrubbed(t *testing.T) {
 			},
 		},
 		func(kind scrubKind, value []byte) {
-			if kind == scrubReadBuffer && len(value) == readChunkBytes {
+			// The read buffer is now sized to the file, not the full ceiling.
+			if kind == scrubReadBuffer && len(value) == len(content) {
 				readBufferScrubs++
 			}
 		},
@@ -366,5 +369,81 @@ func TestStableReadHookPanicIsMappedAndBuffersAreScrubbed(t *testing.T) {
 	requireFailure(t, err, "READ_FAILED", procerr.CategoryIO)
 	if readBufferScrubs != 1 {
 		t.Errorf("panic read-buffer scrub count = %d, want 1", readBufferScrubs)
+	}
+}
+
+// TestEmptyFileReadsToStableEmptyResult confirms the file-sized buffer (floored
+// at one byte for a zero-length file) still reads an empty file to an empty,
+// caller-owned byte snapshot with the canonical empty-input digest.
+func TestEmptyFileReadsToStableEmptyResult(t *testing.T) {
+	directory := privateTemporaryDirectory(t)
+	source := filepath.Join(directory, "empty")
+	writePrivateFile(t, source, []byte{})
+
+	result, err := ReadBoundedFileBytes(source, mustReadBudget(t, smallReadLimits()), StableReadOptions{})
+	if err != nil {
+		t.Fatalf("ReadBoundedFileBytes(empty) error = %v, want nil", err)
+	}
+	if len(result.Bytes) != 0 {
+		t.Errorf("empty read Bytes = %d bytes, want 0", len(result.Bytes))
+	}
+	wantHash := sha256.Sum256([]byte{})
+	if result.Digest.SHA256 != hex.EncodeToString(wantHash[:]) || result.Digest.Size != 0 {
+		t.Errorf("empty read digest = %+v, want empty sha256 %x and size 0", result.Digest, wantHash)
+	}
+}
+
+// TestEmptyFileGrowDuringReadIsDetectedByOneByteProbe pins the one-byte floor:
+// a file recorded as empty that grows after its size is captured (AfterOpen)
+// but before the read loop must still trip the grow-during-read probe. A
+// zero-length buffer could never observe the appended bytes; the one-byte
+// buffer reads one and detects consumed > before.size exactly as the previous
+// fixed-size buffer did.
+func TestEmptyFileGrowDuringReadIsDetectedByOneByteProbe(t *testing.T) {
+	directory := privateTemporaryDirectory(t)
+	source := filepath.Join(directory, "grows")
+	writePrivateFile(t, source, []byte{})
+
+	_, err := SHA256StableFile(source, mustReadBudget(t, smallReadLimits()), StableReadOptions{
+		Hooks: StableReadHooks{
+			AfterOpen: func() error {
+				return os.WriteFile(source, []byte("GROWN"), 0o600)
+			},
+		},
+	})
+	requireFailure(t, err, "FILE_CHANGED", procerr.CategoryIO)
+}
+
+// BenchmarkReadBoundedFileBytesTinyFile exercises the read-buffer allocation on
+// a tiny file. Before the fix every read allocated the full readChunkBytes
+// (1 MiB) buffer regardless of file size; now it allocates min(size, 1 MiB).
+func BenchmarkReadBoundedFileBytesTinyFile(b *testing.B) {
+	directory := b.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		b.Fatalf("chmod: %v", err)
+	}
+	source := filepath.Join(directory, "tiny")
+	if err := os.WriteFile(source, []byte("tiny-file-contents"), 0o600); err != nil {
+		b.Fatalf("write: %v", err)
+	}
+	budget, err := NewReadBudget(BoundedReadLimits{
+		MaxFiles:            1 << 30,
+		MaxDirectories:      1 << 30,
+		MaxDirectoryEntries: 1 << 30,
+		MaxDepth:            1024,
+		MaxTotalBytes:       new(big.Int).Lsh(big.NewInt(1), 60),
+		MaxFileBytes:        new(big.Int).Lsh(big.NewInt(1), 60),
+	})
+	if err != nil {
+		b.Fatalf("NewReadBudget: %v", err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		result, err := ReadBoundedFileBytes(source, budget, StableReadOptions{})
+		if err != nil {
+			b.Fatalf("ReadBoundedFileBytes: %v", err)
+		}
+		clear(result.Bytes)
 	}
 }

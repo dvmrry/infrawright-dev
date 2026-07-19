@@ -869,3 +869,78 @@ func (w *blockingRecordingWriter) String() string {
 	defer w.mu.Unlock()
 	return w.buffer.String()
 }
+
+// TestRunTerraformCommandCaptureLimitBoundaryUnchanged proves the smaller
+// initial capture capacity did not move the enforced byte boundary: an output
+// at exactly the limit succeeds with identical bytes, and one at limit+1 fails
+// identically. The capture slice now starts at 64 KiB and grows via append.
+func TestRunTerraformCommandCaptureLimitBoundaryUnchanged(t *testing.T) {
+	requirePOSIX(t)
+	const limit = 100
+	atLimit := writeExecutable(t, fmt.Sprintf(`i=0; while [ "$i" -lt %d ]; do printf x; i=$((i + 1)); done`, limit))
+	options := baseCommandOptions(t, atLimit)
+	options.Output = TerraformCommandOutputCapture
+	options.Limits.MaxStdoutBytes = limit
+	result, err := RunTerraformCommand(options)
+	if err != nil {
+		t.Fatalf("output at exactly the limit: error = %v, want nil", err)
+	}
+	if result.Kind != TerraformCommandResultCaptured {
+		t.Fatalf("kind = %v, want captured", result.Kind)
+	}
+	if len(result.Stdout) != limit || !bytes.Equal(result.Stdout, bytes.Repeat([]byte("x"), limit)) {
+		t.Errorf("stdout = %d bytes, want exactly %d 'x' bytes", len(result.Stdout), limit)
+	}
+
+	overLimit := writeExecutable(t, fmt.Sprintf(`i=0; while [ "$i" -lt %d ]; do printf x; i=$((i + 1)); done`, limit+1))
+	options = baseCommandOptions(t, overLimit)
+	options.Output = TerraformCommandOutputCapture
+	options.Limits.MaxStdoutBytes = limit
+	_, err = RunTerraformCommand(options)
+	failure := requireProcessFailure(t, err, "TERRAFORM_COMMAND_STDOUT_LIMIT")
+	if failure.Message != "Terraform command exceeded its output limit" {
+		t.Errorf("message = %q, want stdout-limit message", failure.Message)
+	}
+}
+
+// BenchmarkRunTerraformCommandCaptureTinyOutput exercises the small-capture
+// allocation path. Before the fix each capture pre-reserved int(limit) bytes
+// (the 8 MiB hard ceiling in production); now it starts at 64 KiB and grows.
+func BenchmarkRunTerraformCommandCaptureTinyOutput(b *testing.B) {
+	if runtime.GOOS == "windows" {
+		b.Skip("Terraform execution is intentionally unsupported on Windows")
+	}
+	executable := filepath.Join(b.TempDir(), "terraform")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nprintf tiny\n"), 0o700); err != nil {
+		b.Fatalf("write executable: %v", err)
+	}
+	cwd, err := filepath.EvalSymlinks(b.TempDir())
+	if err != nil {
+		b.Fatalf("canonicalize cwd: %v", err)
+	}
+	timeout := int64(30_000)
+	options := TerraformCommandOptions{
+		TerraformExecutable: executable,
+		Argv:                []string{},
+		CWD:                 cwd,
+		Environment:         map[string]string{},
+		// Production hard ceiling: this is exactly what the old code pre-reserved.
+		Limits: &TerraformCommandLimits{
+			TimeoutMs:      &timeout,
+			MaxStdoutBytes: 8 * 1024 * 1024,
+			MaxStderrBytes: 1024 * 1024,
+		},
+		Output: TerraformCommandOutputCapture,
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		result, err := RunTerraformCommand(options)
+		if err != nil {
+			b.Fatalf("RunTerraformCommand: %v", err)
+		}
+		if string(result.Stdout) != "tiny" {
+			b.Fatalf("stdout = %q, want %q", result.Stdout, "tiny")
+		}
+	}
+}

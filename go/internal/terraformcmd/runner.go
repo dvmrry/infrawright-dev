@@ -17,7 +17,11 @@ import (
 
 const (
 	commandReadBufferBytes = 64 * 1024
-	maximumTimerChunkMs    = int64(2_147_483_647)
+	// commandCaptureInitialBytes is the starting capacity of a captured-output
+	// slice. append grows it toward the enforced per-stream ceiling, so tiny
+	// captures (show / state list) no longer pre-reserve the full hard limit.
+	commandCaptureInitialBytes = 64 * 1024
+	maximumTimerChunkMs        = int64(2_147_483_647)
 )
 
 var terraformCommandHostOutput = struct {
@@ -322,7 +326,14 @@ func readBoundedCommandStream(
 	buffer := make([]byte, commandReadBufferBytes)
 	var captured []byte
 	if capture {
-		captured = make([]byte, 0, int(limit))
+		// Start small and let append grow toward the ceiling. The hard limit is
+		// enforced solely by the count check below, never by this capacity, so an
+		// output at limit+1 still fails identically to a full pre-reservation.
+		initialCapacity := int64(commandCaptureInitialBytes)
+		if limit < initialCapacity {
+			initialCapacity = limit
+		}
+		captured = make([]byte, 0, int(initialCapacity))
 	}
 	var count int64
 	for {

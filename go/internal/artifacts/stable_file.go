@@ -198,7 +198,7 @@ func consumeOpenedStableFile(
 	}
 
 	hasher := sha256.New()
-	readBuffer = make([]byte, readChunkBytes)
+	readBuffer = make([]byte, stableReadBufferSize(before.size))
 	var consumed int64
 	for {
 		bytesRead, readErr := handle.Read(readBuffer)
@@ -259,6 +259,22 @@ func consumeOpenedStableFile(
 	result.identity = before.stableIdentity()
 	chunksTransferred = true
 	return result, nil
+}
+
+// stableReadBufferSize sizes the read buffer to the file rather than always
+// allocating the full readChunkBytes ceiling. It never returns less than one
+// byte: the trailing read into a non-empty buffer is what lets the loop observe
+// a file that grew past before.size (an empty file with a zero-length buffer
+// could never read those bytes), so the one-byte floor preserves the exact
+// grow-during-read / EOF-detection behavior of the fixed-size buffer.
+func stableReadBufferSize(size int64) int64 {
+	if size < 1 {
+		return 1
+	}
+	if size > readChunkBytes {
+		return readChunkBytes
+	}
+	return size
 }
 
 func invokeStableReadHook(hook func() error) (err error) {
