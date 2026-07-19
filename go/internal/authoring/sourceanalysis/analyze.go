@@ -1,6 +1,7 @@
 package sourceanalysis
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"go/parser"
 	"go/token"
 	"path"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -52,6 +54,14 @@ type QualifiedEvidence struct {
 	digest    string
 }
 
+// UnverifiedEvidence is a sealed, diagnostic-only source-evidence report. It
+// is deliberately distinct from QualifiedEvidence: callers cannot use an
+// explicit unverified run to satisfy qualified-evidence APIs.
+type UnverifiedEvidence struct {
+	canonical []byte
+	digest    string
+}
+
 // CanonicalBytes returns a detached copy of the canonical report bytes.
 func (e QualifiedEvidence) CanonicalBytes() ([]byte, error) {
 	if len(e.canonical) == 0 || e.digest == "" {
@@ -72,6 +82,30 @@ func (e QualifiedEvidence) SHA256() (string, error) {
 func (e QualifiedEvidence) Snapshot() (contracts.SourceEvidenceReport, error) {
 	if len(e.canonical) == 0 || e.digest == "" {
 		return contracts.SourceEvidenceReport{}, fmt.Errorf("qualified evidence must come from Analyze")
+	}
+	return contracts.DecodeSourceEvidenceReport(e.canonical)
+}
+
+// CanonicalBytes returns a detached copy of the diagnostic report bytes.
+func (e UnverifiedEvidence) CanonicalBytes() ([]byte, error) {
+	if len(e.canonical) == 0 || e.digest == "" {
+		return nil, fmt.Errorf("unverified evidence must come from AnalyzeUnverified")
+	}
+	return append([]byte(nil), e.canonical...), nil
+}
+
+// SHA256 returns the digest of CanonicalBytes.
+func (e UnverifiedEvidence) SHA256() (string, error) {
+	if len(e.canonical) == 0 || e.digest == "" {
+		return "", fmt.Errorf("unverified evidence must come from AnalyzeUnverified")
+	}
+	return e.digest, nil
+}
+
+// Snapshot returns a detached, strictly decoded diagnostic report.
+func (e UnverifiedEvidence) Snapshot() (contracts.SourceEvidenceReport, error) {
+	if len(e.canonical) == 0 || e.digest == "" {
+		return contracts.SourceEvidenceReport{}, fmt.Errorf("unverified evidence must come from AnalyzeUnverified")
 	}
 	return contracts.DecodeSourceEvidenceReport(e.canonical)
 }
@@ -109,6 +143,258 @@ func Analyze(ctx context.Context, inputs sourcebind.QualifiedInputs) (QualifiedE
 	return QualifiedEvidence{canonical: canonical, digest: hex.EncodeToString(digest[:])}, nil
 }
 
+// AnalyzeUnverified derives diagnostic evidence from exactly one defensive
+// copy of explicitly unverified captured bytes. It never grants qualification,
+// reads a path, consults a network, or invokes tools.
+func AnalyzeUnverified(ctx context.Context, inputs sourcebind.UnverifiedInputs) (UnverifiedEvidence, error) {
+	if err := ctx.Err(); err != nil {
+		return UnverifiedEvidence{}, fmt.Errorf("source analysis cancelled: %w", err)
+	}
+	snapshot, err := snapshotUnverified(inputs)
+	if err != nil {
+		return UnverifiedEvidence{}, fmt.Errorf("snapshot unverified inputs: %w", err)
+	}
+	index, err := newUnverifiedIndex(ctx, snapshot)
+	if err != nil {
+		return UnverifiedEvidence{}, err
+	}
+	report, err := index.report(ctx)
+	if err != nil {
+		return UnverifiedEvidence{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return UnverifiedEvidence{}, fmt.Errorf("source analysis cancelled: %w", err)
+	}
+	if err := contracts.ValidateSourceEvidenceReportAgainstInput(report, snapshot.inputProvenance); err != nil {
+		return UnverifiedEvidence{}, fmt.Errorf("validate derived unverified source evidence: %w", err)
+	}
+	rendered, err := contracts.RenderSourceEvidenceReport(report)
+	if err != nil {
+		return UnverifiedEvidence{}, fmt.Errorf("render derived unverified source evidence: %w", err)
+	}
+	canonical := []byte(rendered)
+	digest := sha256.Sum256(canonical)
+	return UnverifiedEvidence{canonical: canonical, digest: hex.EncodeToString(digest[:])}, nil
+}
+
+type unverifiedSnapshot struct {
+	observation       contracts.UnverifiedSourceObservation
+	provider          sourcebind.CapturedTree
+	sdks              map[string]sourcebind.CapturedTree
+	inputProvenance   contracts.InputProvenance
+	inputProvenanceID string
+}
+
+func snapshotUnverified(inputs sourcebind.UnverifiedInputs) (unverifiedSnapshot, error) {
+	return snapshotCapturedUnverified(cloneUnverifiedInputs(inputs))
+}
+
+func cloneUnverifiedInputs(inputs sourcebind.UnverifiedInputs) sourcebind.UnverifiedInputs {
+	// Copy all caller-owned fields before validation or traversal. The remainder
+	// of analysis sees only the returned snapshot.
+	return sourcebind.UnverifiedInputs{
+		Observation:           cloneUnverifiedObservation(inputs.Observation),
+		Provider:              cloneCapturedTree(inputs.Provider),
+		SDKs:                  cloneCapturedTrees(inputs.SDKs),
+		TerraformSchema:       cloneCapturedFile(inputs.TerraformSchema),
+		InputProvenance:       cloneInputProvenance(inputs.InputProvenance),
+		InputProvenanceBytes:  append([]byte(nil), inputs.InputProvenanceBytes...),
+		InputProvenanceSHA256: inputs.InputProvenanceSHA256,
+	}
+}
+
+func snapshotCapturedUnverified(captured sourcebind.UnverifiedInputs) (unverifiedSnapshot, error) {
+	// This helper accepts only the already-detached snapshot so tests can prove
+	// that post-capture mutation of the caller-owned input cannot affect it.
+	rendered, err := contracts.RenderInputProvenance(captured.InputProvenance)
+	if err != nil {
+		return unverifiedSnapshot{}, fmt.Errorf("validate input provenance: %w", err)
+	}
+	decoded, err := contracts.DecodeInputProvenance([]byte(rendered))
+	if err != nil {
+		return unverifiedSnapshot{}, fmt.Errorf("copy input provenance: %w", err)
+	}
+	captured.InputProvenance = decoded
+	if captured.InputProvenance.SourceTrust != contracts.SourceTrustUnverified ||
+		captured.InputProvenance.UnverifiedObservation == nil ||
+		!reflect.DeepEqual(captured.Observation, *captured.InputProvenance.UnverifiedObservation) {
+		return unverifiedSnapshot{}, fmt.Errorf("unverified input observation is not bound to input provenance")
+	}
+	if !bytes.Equal(captured.InputProvenanceBytes, []byte(rendered)) {
+		return unverifiedSnapshot{}, fmt.Errorf("input provenance bytes are not canonical")
+	}
+	digest := sha256.Sum256(captured.InputProvenanceBytes)
+	if captured.InputProvenanceSHA256 != hex.EncodeToString(digest[:]) {
+		return unverifiedSnapshot{}, fmt.Errorf("input provenance digest does not bind captured bytes")
+	}
+	if err := verifyUnverifiedCapture(captured); err != nil {
+		return unverifiedSnapshot{}, err
+	}
+	return unverifiedSnapshot{
+		observation:       captured.Observation,
+		provider:          captured.Provider,
+		sdks:              captured.SDKs,
+		inputProvenance:   decoded,
+		inputProvenanceID: captured.InputProvenanceSHA256,
+	}, nil
+}
+
+func verifyUnverifiedCapture(inputs sourcebind.UnverifiedInputs) error {
+	if inputs.Provider.ModulePath != inputs.Observation.ProviderModulePath ||
+		!sameCapturedBindings(inputs.Provider.Files, inputs.Observation.ProviderFiles) ||
+		!sameCapturedFile(inputs.TerraformSchema, inputs.Observation.TerraformSchema) {
+		return fmt.Errorf("captured provider or schema bytes do not match the input observation")
+	}
+	if len(inputs.SDKs) != len(inputs.Observation.SDKs) {
+		return fmt.Errorf("captured SDK trees do not match the input observation")
+	}
+	for _, observed := range inputs.Observation.SDKs {
+		tree, ok := inputs.SDKs[observed.ModulePath]
+		if !ok || tree.ModulePath != observed.ModulePath || !sameCapturedBindings(tree.Files, observed.Files) {
+			return fmt.Errorf("captured SDK tree %q does not match the input observation", observed.ModulePath)
+		}
+	}
+	return nil
+}
+
+func sameCapturedBindings(files []sourcebind.CapturedFile, bindings []contracts.FileBinding) bool {
+	if len(files) != len(bindings) {
+		return false
+	}
+	for index, file := range files {
+		if file.Path != bindings[index].Path || !sameCapturedFile(file, bindings[index]) {
+			return false
+		}
+	}
+	return true
+}
+
+func sameCapturedFile(file sourcebind.CapturedFile, binding contracts.FileBinding) bool {
+	digest := sha256.Sum256(file.Bytes)
+	return file.Path == binding.Path && file.SHA256 == binding.SHA256 && file.SHA256 == hex.EncodeToString(digest[:])
+}
+
+func cloneCapturedFile(file sourcebind.CapturedFile) sourcebind.CapturedFile {
+	return sourcebind.CapturedFile{Path: file.Path, Bytes: append([]byte(nil), file.Bytes...), SHA256: file.SHA256}
+}
+
+func cloneCapturedTree(tree sourcebind.CapturedTree) sourcebind.CapturedTree {
+	if tree.Files == nil {
+		return sourcebind.CapturedTree{ModulePath: tree.ModulePath}
+	}
+	files := make([]sourcebind.CapturedFile, len(tree.Files))
+	for index, file := range tree.Files {
+		files[index] = cloneCapturedFile(file)
+	}
+	return sourcebind.CapturedTree{ModulePath: tree.ModulePath, Files: files}
+}
+
+func cloneCapturedTrees(trees map[string]sourcebind.CapturedTree) map[string]sourcebind.CapturedTree {
+	if trees == nil {
+		return nil
+	}
+	result := make(map[string]sourcebind.CapturedTree, len(trees))
+	for module, tree := range trees {
+		result[module] = cloneCapturedTree(tree)
+	}
+	return result
+}
+
+func cloneUnverifiedObservation(observation contracts.UnverifiedSourceObservation) contracts.UnverifiedSourceObservation {
+	result := observation
+	result.ProviderFiles = cloneFileBindings(observation.ProviderFiles)
+	if observation.SDKs != nil {
+		result.SDKs = make([]contracts.UnverifiedSDKObservation, len(observation.SDKs))
+		for index, sdk := range observation.SDKs {
+			result.SDKs[index] = sdk
+			result.SDKs[index].Files = cloneFileBindings(sdk.Files)
+		}
+	}
+	result.Selection = cloneSelection(observation.Selection)
+	return result
+}
+
+func cloneInputProvenance(provenance contracts.InputProvenance) contracts.InputProvenance {
+	result := provenance
+	result.SourceManifestSHA256 = cloneStringPointer(provenance.SourceManifestSHA256)
+	if provenance.SourceManifest != nil {
+		manifest := cloneSourceProvenance(*provenance.SourceManifest)
+		result.SourceManifest = &manifest
+	}
+	if provenance.UnverifiedObservation != nil {
+		observation := cloneUnverifiedObservation(*provenance.UnverifiedObservation)
+		result.UnverifiedObservation = &observation
+	}
+	return result
+}
+
+func cloneSourceProvenance(provenance contracts.SourceProvenance) contracts.SourceProvenance {
+	result := provenance
+	result.Provider.Files = cloneFileBindings(provenance.Provider.Files)
+	result.ProviderModule.GoSum = cloneFileBindingPointer(provenance.ProviderModule.GoSum)
+	if provenance.ProviderModule.LocalReplaces != nil {
+		result.ProviderModule.LocalReplaces = make([]contracts.LocalModuleReplaceBinding, len(provenance.ProviderModule.LocalReplaces))
+		for index, replacement := range provenance.ProviderModule.LocalReplaces {
+			result.ProviderModule.LocalReplaces[index] = replacement
+			result.ProviderModule.LocalReplaces[index].ModuleVersion = cloneStringPointer(replacement.ModuleVersion)
+		}
+	}
+	if provenance.SDKs != nil {
+		result.SDKs = make([]contracts.SDKSourceBinding, len(provenance.SDKs))
+		for index, sdk := range provenance.SDKs {
+			result.SDKs[index] = sdk
+			result.SDKs[index].Revision = cloneStringPointer(sdk.Revision)
+			result.SDKs[index].TreeSHA256 = cloneStringPointer(sdk.TreeSHA256)
+			result.SDKs[index].Files = cloneFileBindings(sdk.Files)
+		}
+	}
+	result.UnavailableSDKs = append([]contracts.UnavailableSDKBinding(nil), provenance.UnavailableSDKs...)
+	result.Selection = cloneSelection(provenance.Selection)
+	if provenance.OpenAPI != nil {
+		openAPI := *provenance.OpenAPI
+		openAPI.LocalRefs = cloneFileBindings(provenance.OpenAPI.LocalRefs)
+		result.OpenAPI = &openAPI
+	}
+	return result
+}
+
+func cloneStringPointer(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	result := *value
+	return &result
+}
+
+func cloneFileBindingPointer(value *contracts.FileBinding) *contracts.FileBinding {
+	if value == nil {
+		return nil
+	}
+	result := *value
+	return &result
+}
+
+func cloneFileBindings(bindings []contracts.FileBinding) []contracts.FileBinding {
+	if bindings == nil {
+		return nil
+	}
+	return append([]contracts.FileBinding(nil), bindings...)
+}
+
+func cloneSelection(selection contracts.SelectionBinding) contracts.SelectionBinding {
+	result := selection
+	result.ResourceTypes = append([]string(nil), selection.ResourceTypes...)
+	if selection.Filters == nil {
+		return result
+	}
+	result.Filters = make([]contracts.SelectionFilterBinding, len(selection.Filters))
+	for index, filter := range selection.Filters {
+		result.Filters[index] = filter
+		result.Filters[index].Values = append([]string(nil), filter.Values...)
+	}
+	return result
+}
+
 type sourceFile struct {
 	origin      contracts.SourceLocationOrigin
 	modulePath  string
@@ -135,6 +421,10 @@ type typeReference struct {
 
 type analysisIndex struct {
 	snapshot          sourcebind.VerifiedSnapshot
+	selection         contracts.SelectionBinding
+	sourceTrust       contracts.SourceTrust
+	manifestSHA256    *string
+	inputProvenanceID string
 	providerModule    string
 	files             []*sourceFile
 	functions         map[string]*function
@@ -169,8 +459,34 @@ func newIndex(ctx context.Context, snapshot sourcebind.VerifiedSnapshot) (*analy
 }
 
 func newIndexWithCaps(ctx context.Context, snapshot sourcebind.VerifiedSnapshot, caps analysisCaps) (*analysisIndex, error) {
+	manifestSHA := snapshot.ManifestSHA256
+	return newIndexFromSnapshot(ctx, snapshot, snapshot.Manifest.Selection, contracts.SourceTrustVerified, &manifestSHA, snapshot.InputProvenanceSHA256, caps)
+}
+
+func newUnverifiedIndex(ctx context.Context, captured unverifiedSnapshot) (*analysisIndex, error) {
+	manifest := contracts.SourceProvenance{Selection: captured.observation.Selection, SDKs: make([]contracts.SDKSourceBinding, len(captured.observation.SDKs))}
+	for index, sdk := range captured.observation.SDKs {
+		manifest.SDKs[index] = contracts.SDKSourceBinding{ModulePath: sdk.ModulePath, ModuleVersion: sdk.ModuleVersion}
+	}
+	snapshot := sourcebind.VerifiedSnapshot{Manifest: manifest, Provider: captured.provider, SDKs: captured.sdks}
+	return newIndexFromSnapshot(ctx, snapshot, captured.observation.Selection, contracts.SourceTrustUnverified, nil, captured.inputProvenanceID, defaultCaps())
+}
+
+func newIndexFromSnapshot(
+	ctx context.Context,
+	snapshot sourcebind.VerifiedSnapshot,
+	selection contracts.SelectionBinding,
+	sourceTrust contracts.SourceTrust,
+	manifestSHA256 *string,
+	inputProvenanceID string,
+	caps analysisCaps,
+) (*analysisIndex, error) {
 	i := &analysisIndex{
 		snapshot:          snapshot,
+		selection:         selection,
+		sourceTrust:       sourceTrust,
+		manifestSHA256:    manifestSHA256,
+		inputProvenanceID: inputProvenanceID,
 		providerModule:    snapshot.Provider.ModulePath,
 		functions:         make(map[string]*function),
 		providerFunctions: make(map[string]*function),
@@ -188,14 +504,14 @@ func newIndexWithCaps(ctx context.Context, snapshot sourcebind.VerifiedSnapshot,
 		selectedResources: make(map[string]struct{}),
 		caps:              caps,
 	}
-	for _, filter := range snapshot.Manifest.Selection.Filters {
+	for _, filter := range selection.Filters {
 		if filter.Name == contracts.SelectionFilterReviewedNotApplicable {
 			for _, value := range filter.Values {
 				i.filter[value] = struct{}{}
 			}
 		}
 	}
-	for _, resource := range snapshot.Manifest.Selection.ResourceTypes {
+	for _, resource := range selection.ResourceTypes {
 		i.selectedResources[resource] = struct{}{}
 	}
 	if err := i.addTree(ctx, snapshot.Provider, contracts.SourceLocationProvider, ""); err != nil {
@@ -912,8 +1228,8 @@ func resourceLiteral(expr ast.Expr) *ast.CompositeLit {
 }
 
 func (i *analysisIndex) report(ctx context.Context) (contracts.SourceEvidenceReport, error) {
-	resources := make(map[string]contracts.SourceEvidenceRow, len(i.snapshot.Manifest.Selection.ResourceTypes))
-	for _, resource := range i.snapshot.Manifest.Selection.ResourceTypes {
+	resources := make(map[string]contracts.SourceEvidenceRow, len(i.selection.ResourceTypes))
+	for _, resource := range i.selection.ResourceTypes {
 		if err := ctx.Err(); err != nil {
 			return contracts.SourceEvidenceReport{}, fmt.Errorf("source analysis cancelled: %w", err)
 		}
@@ -922,8 +1238,7 @@ func (i *analysisIndex) report(ctx context.Context) (contracts.SourceEvidenceRep
 			return contracts.SourceEvidenceReport{}, fmt.Errorf("source analysis cancelled: %w", err)
 		}
 	}
-	manifestSHA := i.snapshot.ManifestSHA256
-	report := contracts.SourceEvidenceReport{Kind: "infrawright.source_evidence_report", SchemaVersion: 1, SourceTrust: contracts.SourceTrustVerified, SourceManifestSHA256: &manifestSHA, InputProvenanceSHA256: i.snapshot.InputProvenanceSHA256, Resources: resources}
+	report := contracts.SourceEvidenceReport{Kind: "infrawright.source_evidence_report", SchemaVersion: 1, SourceTrust: i.sourceTrust, SourceManifestSHA256: i.manifestSHA256, InputProvenanceSHA256: i.inputProvenanceID, Resources: resources}
 	report.Summary = summary(resources)
 	return report, nil
 }
@@ -979,7 +1294,7 @@ func (i *analysisIndex) resourceRow(ctx context.Context, resource string) contra
 		row.Classification = contracts.SourceUnresolved
 		row.ReasonCode = reason(contracts.ReasonCallChainUnresolved)
 	}
-	row.LegacyMapped = row.Classification == contracts.SourceObservedHTTP
+	row.LegacyMapped = i.sourceTrust == contracts.SourceTrustVerified && row.Classification == contracts.SourceObservedHTTP
 	return row
 }
 

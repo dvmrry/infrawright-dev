@@ -1,7 +1,8 @@
 # Go authoring port roadmap
 
-Status: DECIDED DESIGN, ready for adversarial review — implementation is the
-first leg of the authority-handoff gate in
+Status: DECIDED DESIGN. A1 and A2 are accepted after their independent
+adversarial reviews. Implementation is the first leg of the authority-handoff
+gate in
 [singleton-state-topology-v2.md](singleton-state-topology-v2.md). This document
 does not authorize degrouping or Node archive by itself.
 
@@ -432,10 +433,43 @@ not acceptable evidence.
 
 ### A2 — Source operation and evaluation (after A1)
 
-- Port `source-operation-map` around the source-first engine.
-- Port `source-evidence-eval` classification and Markdown.
-- Preserve frozen OpenAPI-backed Node behavior where inputs overlap; add the
-  new source-only v2 corpus and fail-closed ambiguity/count gates.
+**Status: implemented and accepted after two fresh adversarial reviews.** The
+bounded A2 implementation has these subparcels:
+
+- A v2 source-operation bundle compiler retains the exact sealed A1 source
+  report as `source-registry.json`; that filename carries the
+  `source-evidence-report-v1` schema rather than a new registry schema.
+- `source-diagnostics.json`, `summary.json`, and `summary.md` are derived
+  views. They bind the SHA-256 of that exact source-report byte stream and
+  validation rejects any changed classification, reason, chain count, summary,
+  or count. Derived artifacts cannot change readiness accounting.
+- A2 emits only the ordinary OpenAPI document state `absent`, with every row
+  `not_attempted`. It owns no OpenAPI parser, validation, comparison, or other
+  adapter state; A3 alone owns usable, degraded, unavailable, and all
+  adapter-backed comparison behavior.
+- Explicit unverified analysis uses a separate sealed
+  `UnverifiedEvidence` capability and compiles only a visibly
+  `source_trust: unverified`, diagnostic bundle. It cannot satisfy the
+  qualified-evidence API, has no source-manifest identity, and forces every
+  `legacy_mapped` projection false. It remains ineligible for readiness,
+  qualification, handoff, and legacy-`mapped` consumers.
+- The frozen v1 mapper/evaluator, comparator, and Markdown renderer are
+  isolated `legacy_*` compatibility surfaces. They remain bound to their
+  frozen Node authorities and cannot consume, project, or contribute to v2
+  source-first readiness counts.
+- A2 stops at a sealed, validated in-memory bundle containing the fixed core
+  artifact vocabulary. It deliberately exposes no filesystem publisher. The
+  first candidate tried to make portable pathname replacement safe against an
+  active same-UID writer; fresh review proved that claim impossible with
+  `os.Root` because create/bind, validate/rename, and check/remove retain
+  unavoidable check-to-action windows. A6 owns publication under a separately
+  reviewed and explicitly stated ownership/concurrency contract, together with
+  CLI flags, stdout/help contracts, Make targets, and command wiring.
+
+The frozen OpenAPI-backed Node behavior remains a differential compatibility
+surface. A2 adds only hand-authored source-first v2 diagnostics and summary
+goldens, plus fail-closed ambiguity/count and bundle-boundary tests; it
+does not modify existing fixtures or Node authority bytes.
 
 ### A3 — Reconcile and optional OpenAPI adapter (parallel with A2 after A0)
 
@@ -461,6 +495,10 @@ not acceptable evidence.
 ### A6 — CLI, Make, and handoff gate (last)
 
 - Wire the six retained commands and their argument/env/exit/output contracts.
+- Implement the §3.5 complete-set publisher only after declaring an enforceable
+  ownership/concurrency boundary. Do not claim portable protection from an
+  active same-UID writer; ordinary failure must still leave no mixed bundle,
+  and stale optional artifacts must be removed on success.
 - Assert all six names appear in the single `iw` help surface and execute
   through that binary with no Node path or second authoring executable.
 - Route authoring Make targets to Go.
