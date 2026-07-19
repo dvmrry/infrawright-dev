@@ -398,12 +398,10 @@ func requiresTerraformExecution(arguments []string) bool {
 	}
 	command := arguments[0]
 	return command == "adopt" ||
-		command == "gen-env" ||
 		command == "plan" ||
 		command == "assert-clean" ||
 		command == "assert-adoptable" ||
 		command == "apply" ||
-		(command == "modules" && len(arguments) > 1 && arguments[1] == "generate") ||
 		(command == "stage-imports" && slicesContain(arguments, "--state-aware"))
 }
 

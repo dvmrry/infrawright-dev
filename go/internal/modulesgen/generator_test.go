@@ -9,6 +9,7 @@ package modulesgen
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -405,14 +406,11 @@ func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t
 	}
 }
 
-// TestAllExistingCommittedHCLGoldensMatchAfterTerraformFormatting ports
-// "all existing committed HCL goldens match after Terraform formatting".
-// Skips (rather than fails) if no terraform executable is on PATH -- see
-// terraformExecutable's doc comment.
-func TestAllExistingCommittedHCLGoldensMatchAfterTerraformFormatting(t *testing.T) {
-	executable := terraformExecutable(t)
+// TestAllExistingCommittedHCLGoldensMatchAfterInProcessFormatting preserves
+// the committed byte gate previously exercised through terraform fmt.
+func TestAllExistingCommittedHCLGoldensMatchAfterInProcessFormatting(t *testing.T) {
 	root := committedRoot(t)
-	formatter := NewTerraformFormatter(TerraformFormatterOptions{Executable: executable})
+	formatter := NewHCLFormatter()
 	fixtures := filepath.Join(repoRoot(t), "tests", "fixtures", "gen")
 
 	entries, err := os.ReadDir(fixtures)
@@ -466,6 +464,75 @@ func TestAllExistingCommittedHCLGoldensMatchAfterTerraformFormatting(t *testing.
 	}
 }
 
+// TestHCLFormatterMatchesTerraformAcrossFullGeneratedCorpus proves that the
+// in-process token formatter is byte-identical to terraform fmt for every HCL
+// artifact produced by the full 151-resource profile. Terraform formats one
+// temporary tree recursively so this differential gate does not recreate the
+// per-file subprocess cost that production has removed.
+func TestHCLFormatterMatchesTerraformAcrossFullGeneratedCorpus(t *testing.T) {
+	if testing.Short() {
+		t.Skip("full generated-corpus Terraform differential skipped under -short")
+	}
+	executable := terraformExecutable(t)
+	root := committedRoot(t)
+	formatter := NewHCLFormatter()
+	oracleRoot := t.TempDir()
+
+	type formattedFile struct {
+		path string
+		want string
+	}
+	var formatted []formattedFile
+	for _, resourceType := range ActiveGeneratedResourceTypes(root) {
+		rendered, err := RenderModuleFiles(root, resourceType)
+		if err != nil {
+			t.Fatalf("RenderModuleFiles(%s): %v", resourceType, err)
+		}
+		for _, name := range ExpectedModuleFiles {
+			if !needsTerraformFormat(name) {
+				continue
+			}
+			source, ok := rendered.Get(name)
+			if !ok {
+				t.Fatalf("RenderModuleFiles(%s) omitted %s", resourceType, name)
+			}
+			want, err := formatter.FormatHCL(source)
+			if err != nil {
+				t.Fatalf("FormatHCL(%s/%s): %v", resourceType, name, err)
+			}
+			path := filepath.Join(oracleRoot, resourceType, string(name))
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatalf("MkdirAll(%s): %v", filepath.Dir(path), err)
+			}
+			if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+				t.Fatalf("WriteFile(%s): %v", path, err)
+			}
+			formatted = append(formatted, formattedFile{path: path, want: want})
+		}
+	}
+
+	command := exec.Command(executable, "fmt", "-recursive", oracleRoot)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("terraform fmt -recursive %s: %v\n%s", oracleRoot, err, output)
+	}
+	for _, file := range formatted {
+		got, err := os.ReadFile(file.path)
+		if err != nil {
+			t.Fatalf("ReadFile(%s): %v", file.path, err)
+		}
+		if string(got) != file.want {
+			relative, relErr := filepath.Rel(oracleRoot, file.path)
+			if relErr != nil {
+				relative = file.path
+			}
+			t.Errorf("%s differs after hclwrite.Format and terraform fmt", relative)
+		}
+	}
+	if len(formatted) != 151*5 {
+		t.Errorf("compared = %d, want %d", len(formatted), 151*5)
+	}
+}
+
 // TestMissingMetadataAndUnsupportedNestingModesFailLoudly ports "missing
 // metadata and unsupported nesting modes fail loudly".
 func TestMissingMetadataAndUnsupportedNestingModesFailLoudly(t *testing.T) {
@@ -503,10 +570,10 @@ func TestMissingMetadataAndUnsupportedNestingModesFailLoudly(t *testing.T) {
 	}
 }
 
-// TestTreeValidationAndTerraformFormatterFailuresPreserveConcreteDiagnostics
-// ports "tree validation and Terraform formatter failures preserve
-// concrete diagnostics".
-func TestTreeValidationAndTerraformFormatterFailuresPreserveConcreteDiagnostics(t *testing.T) {
+// TestTreeValidationAndFormatterFailuresPreserveConcreteDiagnostics ports
+// "tree validation and Terraform formatter failures preserve concrete
+// diagnostics" while exercising the in-process formatter's fail-closed path.
+func TestTreeValidationAndFormatterFailuresPreserveConcreteDiagnostics(t *testing.T) {
 	directory := t.TempDir()
 
 	if _, err := ValidateGeneratedModuleTree(directory, []string{"sample_resource"}); err == nil ||
@@ -514,11 +581,9 @@ func TestTreeValidationAndTerraformFormatterFailuresPreserveConcreteDiagnostics(
 		t.Errorf("ValidateGeneratedModuleTree: err = %v, want message containing %q", err, filepath.Join("sample_resource", "main.tf"))
 	}
 
-	missing := NewTerraformFormatter(TerraformFormatterOptions{
-		Executable: filepath.Join(directory, "missing-terraform"),
-	})
-	if _, err := missing.FormatHCL("x\n"); err == nil {
-		t.Error("FormatHCL with a missing executable: expected an error, got nil")
+	if _, err := NewHCLFormatter().FormatHCL("resource \"x\" \"y\" {\n"); err == nil ||
+		!strings.Contains(err.Error(), "generated HCL is invalid") {
+		t.Errorf("FormatHCL invalid source: err = %v, want generated-HCL diagnostic", err)
 	}
 }
 

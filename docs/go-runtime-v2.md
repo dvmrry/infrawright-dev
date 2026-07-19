@@ -56,18 +56,21 @@ Terraform), `terraform-json` (decoding Terraform plan/state), `jsonschema`
 (schema validation), `zscaler-sdk-go` (provider auth/transport) — because no
 operator-visible bytes are produced, so no byte-parity requirement. **HAND-ROLL**
 only where the output is committed artifact bytes that must match existing
-state: the canonical JSON renderer (`canonjson`) and HCL generation (`tfrender`;
-`hclwrite`'s bytes differ from committed goldens). Raw provider readback for
-evidence stays raw (`zscaler-sdk-go` used for auth/transport, **NOT** for
-normalizing evidence bytes).
+state: the canonical JSON renderer (`canonjson`) and HCL generation (`tfrender`).
+`hclwrite` AST construction does not replace `tfrender` because its emitted
+bytes differ from committed goldens. Token-only `hclwrite.Format` may normalize
+source already emitted by `tfrender` when a fail-closed parse precedes it and
+the complete artifact corpus remains byte-identical to Terraform formatting.
+Raw provider readback for evidence stays raw (`zscaler-sdk-go` used for
+auth/transport, **NOT** for normalizing evidence bytes).
 
 This rule supersedes the original plan's blanket deferral of these libraries
 "past parity." Library decoding and orchestration do not replace Infrawright's
 fail-closed product gates: typed Terraform values are inputs to the explicit
 `complete === true` and adopt/apply checks, and schema-library errors must pass
 through the project's deterministic report adapter anywhere their content
-reaches operator-visible bytes. The module's current zero-dependency state is
-a fact about the completed work, not an architectural goal for Block D.
+reaches operator-visible bytes. A small dependency footprint is an outcome,
+not an architectural goal.
 
 Two completed implementations stay sunk: the existing `terraformcmd`
 invocation path and `canonjson` strict decoder are working and low-ROI to

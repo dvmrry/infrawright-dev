@@ -18,7 +18,7 @@ bytes are committed infrastructure artifacts. In Block D that means:
 | Schema validation | `github.com/santhosh-tekuri/jsonschema/v6` | Preferred for validation added or revisited in future work, behind deterministic project error mapping. Do not redo Block C's accepted hand-port merely to adopt it. |
 | Provider access | `github.com/zscaler/zscaler-sdk-go/v3` | Use for provider authentication and transport. Evidence readback remains the raw provider response; do not route evidence through SDK model normalization or reserialization. |
 | Canonical JSON artifacts | Existing `internal/canonjson` | Keep the byte-exact hand renderer. Generated JSON must continue to match committed state and goldens. |
-| Import/config/moved HCL artifacts | Existing `internal/tfrender` | Keep the byte-exact hand renderer. Do not adopt `hclwrite`; its bytes differ from the committed goldens. |
+| Import/config/moved HCL artifacts | Existing `internal/tfrender` | Keep the byte-exact hand renderer. Do not replace it with `hclwrite` AST construction; those emitted bytes differ from committed goldens. A separately byte-gated token-only `hclwrite.Format` pass over already-rendered source is outside that prohibition. |
 
 ### Complete-field gate layers on top
 

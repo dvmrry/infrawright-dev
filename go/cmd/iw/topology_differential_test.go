@@ -110,6 +110,7 @@ func TestGenerationDifferentialAgainstNodeOracle(t *testing.T) {
 	t.Run("modules-generate-and-validate", func(t *testing.T) {
 		nodeOut := filepath.Join(t.TempDir(), "modules")
 		goOut := filepath.Join(t.TempDir(), "modules")
+		missingTerraform := filepath.Join(t.TempDir(), "missing-terraform")
 		for _, side := range []struct {
 			argv0 string
 			args  []string
@@ -120,6 +121,11 @@ func TestGenerationDifferentialAgainstNodeOracle(t *testing.T) {
 		} {
 			generateArguments := append(append([]string{}, side.args...),
 				"modules", "generate", "--out", side.out, "--resource", "zcc_web_privacy", "--resource", "zia_rule_labels")
+			if side.argv0 == goBinary {
+				// The flag remains accepted for Node CLI compatibility, but the Go
+				// formatter must not execute the supplied Terraform path.
+				generateArguments = append(generateArguments, "--terraform", missingTerraform)
+			}
 			result := runBinaryWithEnv(t, root, side.argv0, generateArguments, nil)
 			if result.exit != 0 {
 				t.Fatalf("%s modules generate failed: %s", side.argv0, result.stderr)
@@ -161,7 +167,9 @@ func TestGenerationDifferentialAgainstNodeOracle(t *testing.T) {
 		oracle := runBinaryWithEnv(t, root, nodeBinary,
 			append([]string{oracleBundle}, arguments...),
 			[]string{"INFRAWRIGHT_DEPLOYMENT=" + nodeDeployment})
-		candidate := runBinaryWithEnv(t, root, goBinary, arguments,
+		candidateArguments := append(append([]string{}, arguments...),
+			"--terraform", filepath.Join(t.TempDir(), "missing-terraform"))
+		candidate := runBinaryWithEnv(t, root, goBinary, candidateArguments,
 			[]string{"INFRAWRIGHT_DEPLOYMENT=" + goDeployment})
 		if oracle.exit != candidate.exit {
 			t.Errorf("exit: node=%d go=%d\nnode stderr:\n%s\ngo stderr:\n%s",

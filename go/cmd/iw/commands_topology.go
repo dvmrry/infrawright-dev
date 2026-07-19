@@ -368,11 +368,9 @@ func genEnvCommand(arguments []string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	formatterOptions := modulesgen.TerraformFormatterOptions{Environment: environMap()}
-	if terraform, ok := cliargs.LastOption(parsed, "--terraform"); ok {
-		formatterOptions.Executable = terraform
-	}
-	formatter := modulesgen.NewTerraformFormatter(formatterOptions)
+	// --terraform remains accepted for Node CLI compatibility, but gen-env
+	// formatting is now an in-process post-render operation.
+	formatter := modulesgen.NewHCLFormatter()
 	generateOptions := envgen.GenerateEnvironmentRootsOptions{
 		Deployment: loadedDeployment,
 		FormatHcl:  formatter.FormatHCL,
@@ -517,13 +515,11 @@ func modulesCommand(arguments []string) (int, error) {
 		fmt.Fprintf(os.Stdout, "validated generated module tree %s: %d module(s)\n", outputRoot, len(selected))
 		return 0, nil
 	}
-	formatterOptions := modulesgen.TerraformFormatterOptions{Environment: environMap()}
-	if terraform, ok := cliargs.LastOption(parsed, "--terraform"); ok {
-		formatterOptions.Executable = terraform
-	}
+	// --terraform remains accepted for Node CLI compatibility, but modules
+	// generation no longer shells out merely to format rendered HCL.
 	generateOptions := modulesgen.GenerateModuleOptions{
 		OutputRoot: outputRoot,
-		FormatHCL:  modulesgen.NewTerraformFormatter(formatterOptions),
+		FormatHCL:  modulesgen.NewHCLFormatter(),
 		OnWrite: func(destination string) {
 			fmt.Fprintf(os.Stderr, "wrote %s\n", destination)
 		},

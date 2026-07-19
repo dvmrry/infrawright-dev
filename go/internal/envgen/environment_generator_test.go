@@ -56,6 +56,7 @@ import (
 
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
+	"github.com/dvmrry/infrawright-dev/go/internal/modulesgen"
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
 )
 
@@ -115,10 +116,7 @@ func identityFormatter(source string) (string, error) { return source, nil }
 // fmt -`, exactly as the TS source's child_process.spawn call does.
 func terraformFmtFormatter(t *testing.T) HclFormatter {
 	t.Helper()
-	executable := os.Getenv("TF")
-	if executable == "" {
-		executable = "terraform"
-	}
+	executable := terraformTestExecutable(t)
 	return func(source string) (string, error) {
 		cmd := exec.Command(executable, "fmt", "-")
 		cmd.Stdin = strings.NewReader(source)
@@ -132,6 +130,18 @@ func terraformFmtFormatter(t *testing.T) HclFormatter {
 		}
 		return string(output), nil
 	}
+}
+
+func terraformTestExecutable(t *testing.T) string {
+	t.Helper()
+	if executable := strings.TrimSpace(os.Getenv("TF")); executable != "" {
+		return executable
+	}
+	if executable, err := exec.LookPath("terraform"); err == nil {
+		return executable
+	}
+	t.Skip("no terraform executable on PATH; set TF to enable this cross-check")
+	return ""
 }
 
 // snapshotTree ports the `snapshotTree` test helper from
@@ -730,11 +740,11 @@ func TestPythonParityScenariosMatchStructurally(t *testing.T) {
 
 // TestFullProfileTreeGeneratesAllRoots ports the Go-reachable half of "the
 // complete full-profile generated root tree is byte-identical to Python"
-// (151 generated roots, 151*3 files); see this file's package doc comment
-// for why the Python byte-comparison itself is dropped.
+// (151 generated roots, 151*3 files). It also proves the production in-process
+// formatter byte-identical to a single recursive Terraform oracle pass.
 func TestFullProfileTreeGeneratesAllRoots(t *testing.T) {
 	if testing.Short() {
-		t.Skip("full-profile generation shells out to terraform fmt for every root; skipped under -short")
+		t.Skip("full-profile Terraform differential skipped under -short")
 	}
 	root := committedRootForTopology(t)
 	workspace := temporaryDirectory(t, "infrawright-gen-env-full-profile-")
@@ -742,8 +752,9 @@ func TestFullProfileTreeGeneratesAllRoots(t *testing.T) {
 	writeJSONFile(t, deploymentPath, map[string]any{"overlay": workspace, "module_dir": filepath.Join(workspace, "modules"), "roots": map[string]any{}})
 	dep := loadDeploymentFile(t, deploymentPath)
 	outputRoot := filepath.Join(workspace, "generated")
+	formatter := modulesgen.NewHCLFormatter()
 	result, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
-		Deployment: dep, FormatHcl: terraformFmtFormatter(t), OutputRoot: &outputRoot, Root: root,
+		Deployment: dep, FormatHcl: formatter.FormatHCL, OutputRoot: &outputRoot, Root: root,
 		Selectors: []string{}, Tenant: "full-profile-parity",
 	})
 	if err != nil {
@@ -755,6 +766,35 @@ func TestFullProfileTreeGeneratesAllRoots(t *testing.T) {
 	tree := snapshotTree(t, outputRoot)
 	if len(tree) != 151*3 {
 		t.Fatalf("len(tree) = %d, want %d", len(tree), 151*3)
+	}
+
+	oracleRoot := filepath.Join(workspace, "terraform-oracle")
+	oracleResult, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+		Deployment: dep, FormatHcl: identityFormatter, OutputRoot: &oracleRoot, Root: root,
+		Selectors: []string{}, Tenant: "full-profile-parity",
+	})
+	if err != nil {
+		t.Fatalf("GenerateEnvironmentRoots (raw Terraform oracle tree): %v", err)
+	}
+	if len(oracleResult.Roots) != 151 {
+		t.Fatalf("len(oracleResult.Roots) = %d, want 151", len(oracleResult.Roots))
+	}
+	command := exec.Command(terraformTestExecutable(t), "fmt", "-recursive", oracleRoot)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("terraform fmt -recursive %s: %v\n%s", oracleRoot, err, output)
+	}
+	oracleTree := snapshotTree(t, oracleRoot)
+	if !reflect.DeepEqual(tree, oracleTree) {
+		for path, got := range tree {
+			if want, ok := oracleTree[path]; !ok || got != want {
+				t.Errorf("in-process and Terraform-formatted environment trees differ at %s", path)
+			}
+		}
+		for path := range oracleTree {
+			if _, ok := tree[path]; !ok {
+				t.Errorf("Terraform-formatted environment tree has extra path %s", path)
+			}
+		}
 	}
 }
 

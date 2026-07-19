@@ -326,9 +326,11 @@ direction.
 `zscaler-sdk-go` are preferred for consuming and orchestrating once their block
 is authorized; they are not deferred merely because artifact parity exists.
 `canonjson` and HCL rendering remain hand-ported because they produce committed
-artifact bytes (`hclwrite` output differs). Raw provider evidence also remains
-raw; `zscaler-sdk-go` may supply auth/transport but must not normalize evidence
-bytes.
+artifact bytes. `hclwrite` AST construction remains excluded because its output
+differs, while parse-then-`hclwrite.Format` is permitted solely as a token-only
+post-render step behind full artifact-byte gates. Raw provider evidence also
+remains raw; `zscaler-sdk-go` may supply auth/transport but must not normalize
+evidence bytes.
 
 ## Interpolation-escaping contract (2026-07 adjudication)
 
@@ -468,8 +470,10 @@ re-qualification, not codegen.
   found during porting (file them; fix on both sides post-cutover or not at
   all).
 - Library output replacing byte-exact artifact renderers (`canonjson`,
-  `tfrender`, including adoption of `hclwrite`) or normalizing raw provider
-  evidence. Libraries for consuming/orchestrating are allowed under v2 §2.1.
+  `tfrender`, including `hclwrite` AST construction) or normalizing raw provider
+  evidence. A byte-gated token-only formatter applied after `tfrender` is not a
+  renderer replacement. Libraries for consuming/orchestrating are allowed
+  under v2 §2.1.
 - Make-chain replacement, `iw`-native task runner, or CLI surface redesign.
 - Renaming `python-*` semantic modules.
 - Windows support expansion beyond the current best-effort posture.
