@@ -6,8 +6,23 @@ package metadata
 // view root-catalog.go's renderer builds on. See packs.go's file doc
 // comment for this package's exported-wrapper/unexported-implementation
 // convention.
-
-import "fmt"
+//
+// providerSchemaCache (below) is a Go-only addition with no Node
+// counterpart: node-src/metadata/loader.ts re-derives its closures on every
+// loadPackRoot call but never re-parses a provider schema file it has
+// already read within one process, since Node's module-level require()
+// cache (and this port's callers historically re-reading the same schema
+// path per module/per-adopted-object) made re-parsing cheap enough not to
+// matter there. This port's callers (modulesgen.buildModuleContext,
+// adopt.ProjectProviderState) call LoadedPackRoot.LoadResourceSchema once
+// per module and once per adopted object respectively, so without a cache
+// a large adoption run re-reads and re-decodes the same handful of
+// provider schema JSON files thousands of times. See each type's doc
+// comment for the caching contract.
+import (
+	"fmt"
+	"sync"
+)
 
 // LoadedResourceMetadata ports the LoadedResourceMetadata interface from
 // node-src/metadata/loader.ts. Pack is nil when no manifest declares the
@@ -36,12 +51,106 @@ type LoadedPackRoot struct {
 	Registry  LoadedRegistry
 	Overrides LoadedOverrides
 	Resources map[string]LoadedResourceMetadata
+
+	// schemaCache backs LoadProviderSchema/LoadResourceSchema with a lazy,
+	// per-provider memo scoped to this LoadedPackRoot (see
+	// providerSchemaCache's doc comment). It is a pointer specifically so
+	// that copying a LoadedPackRoot by value -- which happens throughout
+	// this codebase, e.g. every time the LoadedPackRoot a single
+	// loadPackRoot call produced is assigned into another struct's
+	// LoadedPackRoot-typed field, or into a *LoadedPackRoot-typed field via
+	// &root -- still shares one cache with the original: only a fresh call
+	// to loadPackRoot starts a new cache. (A zero-value LoadedPackRoot built
+	// directly by a test, bypassing loadPackRoot, leaves this nil; every
+	// method below falls back to the uncached package-level function in
+	// that case, so correctness never depends on how the root was built.)
+	// It is never a package-level variable, so two independently loaded
+	// pack roots never share entries, and a root's cache is freed with it.
+	schemaCache *providerSchemaCache
+}
+
+// providerSchemaCache memoizes loadProviderSchema's result per provider
+// name for one LoadedPackRoot, so that a run touching the same provider's
+// schema many times (once per generated module, once per adopted object)
+// re-reads and re-decodes the underlying schema JSON at most once per
+// provider rather than once per call.
+//
+// Concurrency: cache population uses one sync.Once per provider key, so
+// concurrent callers requesting different providers proceed in parallel,
+// concurrent callers requesting the same provider block on the same
+// in-flight load, and every caller past the first observes the exact
+// (ProviderSchema, error) pair the first caller computed -- including a
+// cached failure, which is safe here only because loadProviderSchema's
+// outcome is a pure function of the immutable schema file on disk within
+// one process's lifetime (see LoadProviderSchema's own doc comment for
+// why a cached error is not a behavior change). mu only ever guards
+// inserting a new *schemaCacheEntry into entries, never the load itself.
+//
+// Immutability: the cached ProviderSchema (and every JsonObject reachable
+// through its Data/ResourceSchemas fields) must never be mutated by a
+// caller, since every caller after the first receives the identical
+// value, not a copy. This is not merely assumed: every call site reachable
+// from LoadResourceSchema/LoadProviderSchema was audited (resources.go,
+// terraformschema.go, modulesgen/generator.go, adopt/state_project.go,
+// adopt/generated_config_schema.go, transformrun/runner.go,
+// envgen/environment_generator.go, envgen/expression_bindings.go,
+// transform/kernel.go) and every one of them only reads through the
+// schema (classifying attributes, walking blocks, building separate
+// output structures) -- none assigns into a schema-derived map or slice.
+type providerSchemaCache struct {
+	mu      sync.Mutex
+	entries map[string]*schemaCacheEntry
+}
+
+// schemaCacheEntry holds one provider's memoized load: sync.Once ensures
+// the closure passed to once.Do runs at most once no matter how many
+// goroutines call it concurrently (Go's sync.Once marks itself done even
+// if the wrapped function panics, but the closure here calls the exported
+// LoadProviderSchema, which already recovers its own panics into a
+// returned error -- see recoverMetadataError -- so no panic ever reaches
+// once.Do in practice).
+type schemaCacheEntry struct {
+	once   sync.Once
+	schema ProviderSchema
+	err    error
+}
+
+func newProviderSchemaCache() *providerSchemaCache {
+	return &providerSchemaCache{entries: make(map[string]*schemaCacheEntry)}
+}
+
+// load returns provider's schema, computing and memoizing it on the first
+// call for that provider (per this cache instance) and returning the
+// memoized (schema, err) pair -- including a memoized error -- on every
+// subsequent call.
+func (c *providerSchemaCache) load(metadata PackMetadata, provider string) (ProviderSchema, error) {
+	c.mu.Lock()
+	entry, ok := c.entries[provider]
+	if !ok {
+		entry = &schemaCacheEntry{}
+		c.entries[provider] = entry
+	}
+	c.mu.Unlock()
+
+	entry.once.Do(func() {
+		entry.schema, entry.err = LoadProviderSchema(metadata, provider)
+	})
+	return entry.schema, entry.err
 }
 
 // LoadProviderSchema ports the loadProviderSchema method the Node source's
-// loadPackRoot attaches to its returned LoadedPackRoot.
+// loadPackRoot attaches to its returned LoadedPackRoot, additionally
+// memoizing the result per provider for this root's lifetime (see
+// providerSchemaCache). root.schemaCache is nil only for a LoadedPackRoot
+// built directly (e.g. a test constructing the struct literal rather than
+// calling LoadPackRoot), in which case this falls back to the uncached
+// package-level call so correctness never depends on how the root was
+// constructed.
 func (root *LoadedPackRoot) LoadProviderSchema(provider string) (ProviderSchema, error) {
-	return LoadProviderSchema(root.Packs, provider)
+	if root.schemaCache == nil {
+		return LoadProviderSchema(root.Packs, provider)
+	}
+	return root.schemaCache.load(root.Packs, provider)
 }
 
 // LoadResourceMainOverride ports the loadResourceMainOverride method the
@@ -56,9 +165,40 @@ func (root *LoadedPackRoot) LoadResourceMainOverride(resourceType string) (*stri
 }
 
 // LoadResourceSchema ports the loadResourceSchema method the Node source's
-// loadPackRoot attaches to its returned LoadedPackRoot.
-func (root *LoadedPackRoot) LoadResourceSchema(resourceType string) (JsonObject, error) {
-	return LoadResourceSchema(root.Packs, resourceType)
+// loadPackRoot attaches to its returned LoadedPackRoot. This is deliberately
+// not a thin call to the package-level LoadResourceSchema function (unlike
+// LoadResourceMainOverride above): that function calls the unexported,
+// uncached loadProviderSchema directly, which would bypass this root's
+// schemaCache entirely. Routing through root.LoadProviderSchema instead
+// means every caller of this method -- modulesgen.buildModuleContext,
+// adopt.ProjectProviderState, adopt's generated-config policy checks,
+// transformrun's per-resource-type transform, and envgen's expression-
+// binding validation -- gets the memoized schema for free, with no change
+// at any of those call sites.
+//
+// The "not in schema" failure below still goes through failf plus this
+// method's own deferred recoverMetadataError, exactly like
+// loadResourceSchema's original panic/recover round-trip (see
+// resources.go), rather than a bare fmt.Errorf: at least one caller
+// (assessment.runnerSafeFailure, go/internal/assessment/runner.go)
+// type-switches on *metadata.MetadataError specifically to classify a
+// failure as INVALID_ASSESSMENT_INPUT/CategoryRequest, so this error's
+// concrete type is part of its observable behavior, not just its message
+// text. schema.ResourceSchemas lookups from the provider-schema cache never
+// panic on their own, so recoverMetadataError here only ever fires for this
+// method's own failf call.
+func (root *LoadedPackRoot) LoadResourceSchema(resourceType string) (schema JsonObject, err error) {
+	defer recoverMetadataError(&err)
+	provider := ProviderForResource(root.Packs, resourceType)
+	providerSchema, loadErr := root.LoadProviderSchema(provider)
+	if loadErr != nil {
+		return nil, loadErr
+	}
+	resource, ok := providerSchema.ResourceSchemas[resourceType]
+	if !ok {
+		failf("resource type %s not in %s schema", jsonQuote(resourceType), provider)
+	}
+	return resource, nil
 }
 
 func ownerForProvider(metadata PackMetadata, provider string) (PackManifest, bool) {
@@ -144,13 +284,14 @@ func loadPackRoot(options LoadPackRootOptions) LoadedPackRoot {
 	validateUnsupportedProviderScopes(metadata, registry)
 	resources := resourceMap(metadata, registry, overrides)
 	return LoadedPackRoot{
-		Root:      metadata.Root,
-		Profile:   profile,
-		Active:    active,
-		Packs:     metadata,
-		Registry:  registry,
-		Overrides: overrides,
-		Resources: resources,
+		Root:        metadata.Root,
+		Profile:     profile,
+		Active:      active,
+		Packs:       metadata,
+		Registry:    registry,
+		Overrides:   overrides,
+		Resources:   resources,
+		schemaCache: newProviderSchemaCache(),
 	}
 }
 
