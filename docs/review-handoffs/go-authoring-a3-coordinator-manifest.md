@@ -9,8 +9,10 @@
   preserving source-first precedence and the frozen Node compatibility
   authorities. A3 adds no CLI and publishes no files.
 - Current parcel status: A3-R is implemented and accepted after fresh-context
-  adversarial review. A3-O remains blocked on the internal-only Artifactory
-  probe below; A3-M and A3-I remain downstream of A3-O.
+  adversarial review. On 2026-07-19 the user confirmed that the selected
+  `kin-openapi v0.140.0` dependency is available in the internal Artifactory.
+  A3-O is implemented and accepted after its two required fresh-context
+  adversarial reviews. A3-M and A3-I are unblocked and may proceed in parallel.
 
 ## Settled architecture
 
@@ -50,6 +52,11 @@
 ## Dependency decision
 
 - Exact candidate: `github.com/getkin/kin-openapi v0.140.0`.
+- The strict raw JSON/YAML boundary also pins `github.com/oasdiff/yaml v0.1.0`
+  and its parser `github.com/oasdiff/yaml3 v0.0.13`. `yaml3` is used only to
+  recover source numeric lexemes from the same YAML parse so overflow and large
+  integers remain lossless; neither package is a second OpenAPI implementation
+  or validator.
 - Upstream probe: downloaded successfully with Go 1.26.3; module checksum
   `h1:JFn675aXRFjyiZKa/BFWploGldQlI0gobp4J5k0EZ2g=` and `go.mod` checksum
   `h1:lISrB64F0CPcuDJ3LdtPTMJBY8VENjR9wJBdrcT6J3g=`. The module declares Go
@@ -57,9 +64,13 @@
   three packages under Go 1.26.3. The full upstream test suite is not an
   Infrawright gate: it includes network-dependent cases and fixtures
   that try to write inside Go's read-only module cache.
-- Internal status: unverified. This host exposes only public/direct module
-  access. A3-O must not edit `go.mod` until the exact version and module graph
-  have been fetched through the internal Artifactory-backed `GOPROXY`.
+- Internal status: user-confirmed available on 2026-07-19. This host still
+  exposes only public/direct module access, so it cannot independently name or
+  interrogate the internal proxy. A3-O pins the exact version and minimal
+  module graph in `go.mod`/`go.sum`; the acceptance gate includes a fresh
+  `GOPROXY=off` build after that graph is populated. The internal-only probe
+  below remains the downstream work-machine reproduction command, not an A3-O
+  implementation blocker.
 - Loader rule: a custom `ReadFromURIFunc` bypasses the library's
   `IsExternalRefsAllowed` guard. A3-O therefore must install a closed reader
   that serves only the manifest-bound in-memory map and rejects every other
@@ -72,13 +83,13 @@
   proves every comparison-required closure independently resolvable; a defect
   in a required closure is `unavailable`. The raw pass classifies scope but is
   not a second OpenAPI validator.
-- Preserve the retained Swagger 2 field-metadata behavior. Use kin-openapi's
-  `openapi2` model and `openapi2conv` for the current single-document/internal-
-  ref behavior; do not send Swagger 2 bytes to `openapi3.Loader`. Multi-file
-  Swagger 2 refs are not a frozen capability and must fail closed unless the
-  bounded raw resolver can prove and inline them without changing `$ref`
-  sibling semantics. That limitation must be explicit in tests and the A3
-  handoff rather than silently routed through OAS3.
+- Preserve the retained Swagger 2 field-metadata behavior in the bounded raw
+  helper and do not send Swagger 2 bytes to `openapi3.Loader`. A whole-document
+  `openapi2conv` pass is intentionally not used: it can reject an unrelated
+  operation before the explicit requested-operation fence, which is stricter
+  than the frozen Node helper. Metadata refs therefore remain fragment-local;
+  a requested external-file ref fails explicitly while unreferenced captured
+  files remain outside the processing fence.
 - The validation clone may replace out-of-range lossless numeric constraints
   with finite same-sign values, matching the Node validator's validation-only
   graph. The authoritative raw tree and captured bytes retain the exact number
@@ -106,21 +117,24 @@ GOMODCACHE="$A3_MODULE_CACHE" GOWORK=off GOPROXY=off GOSUMDB=off \
   go list -m all
 ```
 
-The coordinator records the sanitized proxy identity, exact module list, and
-success of the offline second pass before A3-O begins. The probe directories
-contain only disposable module metadata/cache and may then be removed.
+The work-machine reproduction records the sanitized proxy identity, exact
+module list, and success of the offline second pass. The probe directories
+contain only disposable module metadata/cache and may then be removed. The
+user's 2026-07-19 availability confirmation cleared the implementation gate;
+this checkout does not claim it independently interrogated the internal proxy.
 
 ## Work manifest and integration order
 
 | ID | Deliverable | Owned files | Dependencies | Focused verification |
 |---|---|---|---|---|
 | A3-R | Reconciliation kernel and frozen report/helper tests | new `go/internal/authoring/reconcile/**` | none | all non-OpenAPI helper vectors and all report vectors in `python-reconcile-schema-api-v1.json` |
-| A3-O | Strict adapter, field metadata, source-first comparison diagnostics | new `go/internal/authoring/openapiadapter/**`, `go/go.mod`, `go/go.sum` | recorded Artifactory check | JSON/YAML, local refs, unavailable/degraded, no external reads, comparison partition |
+| A3-O | Strict adapter, field metadata, source-first comparison diagnostics | new `go/internal/authoring/openapiadapter/**`, `go/go.mod`, `go/go.sum` | accepted | JSON/YAML, local refs, unavailable/degraded, no external reads, comparison partition |
 | A3-M | Frozen generic OpenAPI map kernel | new `go/internal/authoring/openapimap/**` | A3-R, A3-O | all report vectors in `python-openapi-resource-map-v1.json`; no readiness imports |
 | A3-I | Sealed adapter-to-bundle integration | `go/internal/authoring/sourceoperation/{v2.go,bundle_test.go,doc.go}` and adapter goldens | A3-O | exact six names; source/provenance bytes unchanged; non-absent diagnostics validated |
 
 Integration order is A3-R, then A3-O after the Artifactory gate, then A3-M and
-A3-I in parallel, followed by coordinator integration and fresh review.
+A3-I in parallel. A3-R and A3-O are accepted; A3-M and A3-I are the current
+parallel frontier, followed by coordinator integration and fresh review.
 
 ## Authority and gates
 

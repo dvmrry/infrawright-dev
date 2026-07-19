@@ -251,10 +251,8 @@ When usable OpenAPI is supplied:
   corpus until the authority handoff.
 
 `kin-openapi` is the selected candidate. Upstream `v0.140.0` is compatible with
-the repository's Go 1.26 toolchain and is the exact A3 probe version, but this
-checkout has only public/direct module access. The adapter parcel remains
-blocked until that exact version and its module graph are fetched through the
-internal Artifactory-backed `GOPROXY` and the result is recorded. Library
+the repository's Go 1.26 toolchain and is the exact A3 version; on 2026-07-19
+the user confirmed it is available through the internal Artifactory. Library
 validation must not turn an optional, partial specification into a blocker for
 source-only evidence.
 External `$ref` resolution and network/file fetching are disabled inside the
@@ -263,8 +261,10 @@ kin-openapi eagerly resolves and validates the whole document, A3 uses a
 lossless generic tree only to prove whether a validation defect lies outside
 every comparison-required operation/ref closure; only that proof permits the
 `degraded` state. The raw tree is not a competing OpenAPI validator. Retained
-single-document Swagger 2 field-metadata behavior uses kin-openapi's v2 model
-and converter rather than being silently passed to the v3 loader.
+single-document Swagger 2 field-metadata behavior stays in the bounded retained
+helper over the strict generic tree and is never passed to the v3 loader. A
+whole-document v2 conversion is deliberately excluded because it would inspect
+unrequested operations and violate that helper's frozen Node processing fence.
 
 ### 3.5 Command and artifact modes
 
@@ -487,9 +487,10 @@ does not modify existing fixtures or Node authority bytes.
 
 ### A3 — Reconcile and optional OpenAPI adapter (parallel with A2 after A0)
 
-**Status: A3-R accepted; A3-O is gated on the recorded internal Artifactory
-probe.** A3 is package work only. A6 retains all command parsing, help,
-exit/stdout/stderr contracts, Make routing, and filesystem publication.
+**Status: A3-R and A3-O accepted after fresh-context adversarial review; A3-M
+and A3-I are unblocked and may proceed in parallel.** A3 is package work only.
+A6 retains all command parsing, help, exit/stdout/stderr contracts, Make
+routing, and filesystem publication.
 
 - A3-R ports the API/schema/override reconciliation core into an isolated
   package and preserves the frozen report/helper authorities. It owns the
