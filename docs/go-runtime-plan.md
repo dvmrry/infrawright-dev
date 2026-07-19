@@ -495,6 +495,15 @@ re-qualification, not codegen.
 
 ## Post-cutover simplification candidate: retire logical slug grouping (2026-07)
 
+> **SUPERSEDED (2026-07-19)** by
+> [singleton-state-topology-v2.md](singleton-state-topology-v2.md),
+> which decides full retirement (auto AND explicit), promotes
+> cross-state references to default, and corrects two stale premises
+> below: the removal no longer lands "in Node before the Go port"
+> (both runtimes change, Node first as oracle), and the
+> oracle-batching counterweight in gate 2 was rejected during Block D
+> and never implemented. Retained for history only.
+
 Ported as-is for byte parity (it is a topology dimension pinned by the
 committed root catalog, variable naming, env layout, and whole-root
 scoping — not a skippable module). Removal is scheduled, and its window
