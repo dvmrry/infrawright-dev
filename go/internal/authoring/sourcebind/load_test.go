@@ -142,6 +142,45 @@ func TestLoadVerifiedRejectsBoundMismatchAndSDKRootSet(t *testing.T) {
 	requireCode(t, err, ErrorInvalidRoots)
 }
 
+func TestLoadVerifiedRequiresExactUnavailableSDKGoModAuthorization(t *testing.T) {
+	updateProviderModule := func(t *testing.T, fixture *verifiedFixture, content string) {
+		t.Helper()
+		writeFile(t, filepath.Join(fixture.roots.ProviderRoot, "go.mod"), content)
+		fixture.manifest.ProviderModule.GoMod.SHA256 = shaText([]byte(content))
+		fixture.manifest.Provider.TreeSHA256 = treeDigest([]CapturedFile{
+			{Path: "provider.go", SHA256: shaText([]byte("package provider\n"))},
+			{Path: "go.mod", SHA256: fixture.manifest.ProviderModule.GoMod.SHA256},
+		})
+	}
+	const withMissing = "module example.test/provider\n\ngo 1.26\n\nrequire example.test/sdk v1.2.3\nrequire example.test/missing v1.2.3\n\nreplace example.test/sdk => ../sdk\n"
+	for _, test := range []struct {
+		name      string
+		module    string
+		version   string
+		goMod     string
+		wantError bool
+	}{
+		{name: "path mismatch", module: "example.test/missing", version: "v1.2.3", wantError: true},
+		{name: "version mismatch", module: "example.test/missing", version: "v1.9.9", goMod: withMissing, wantError: true},
+		{name: "exact captured requirement", module: "example.test/missing", version: "v1.2.3", goMod: withMissing},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := writeVerifiedFixture(t, false)
+			if test.goMod != "" {
+				updateProviderModule(t, fixture, test.goMod)
+			}
+			fixture.manifest.UnavailableSDKs = []contracts.UnavailableSDKBinding{{ModulePath: test.module, ModuleVersion: test.version}}
+			writeManifest(t, fixture.roots.ManifestPath, fixture.manifest)
+			_, err := loadVerified(context.Background(), fixture.roots, loadOptions{gitRunner: fixture.git})
+			if test.wantError {
+				requireCode(t, err, ErrorModule)
+			} else if err != nil {
+				t.Fatalf("loadVerified(exact unavailable SDK requirement) error = %v, want nil", err)
+			}
+		})
+	}
+}
+
 func TestLoadVerifiedRejectsModuleReplaceTreeAndRevisionDrift(t *testing.T) {
 	for _, mutation := range []struct {
 		name   string

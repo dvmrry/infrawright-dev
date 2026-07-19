@@ -10,3 +10,7 @@ var resources = map[string]*fixture.Resource{
 	"sourcefirst_dynamic":     resourceDynamic(),
 	"sourcefirst_unresolved":  resourceUnresolved(),
 }
+
+func Provider() *fixture.Provider {
+	return &fixture.Provider{ResourcesMap: resources}
+}

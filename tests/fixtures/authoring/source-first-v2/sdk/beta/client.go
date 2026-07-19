@@ -20,5 +20,6 @@ func (client *Client) Get(_ context.Context, id string) (*Request, error) {
 }
 
 func (*Client) NewRequest(method, path string, _ any) (*Request, error) {
+	_, _ = http.NewRequest(method, path, nil)
 	return &Request{Method: method, Path: path}, nil
 }

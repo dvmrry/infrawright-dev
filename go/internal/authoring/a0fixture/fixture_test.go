@@ -23,7 +23,7 @@ import (
 
 const (
 	fixtureSDKModule        = "example.invalid/sourcefirst-sdk"
-	fixtureProviderRevision = "17c9925c11b16bf1c8f5a34c0d6b7b930631eb95"
+	fixtureProviderRevision = "c37dc3c4bdd98adf61862e76d67803469bd5b35d"
 	commandTimeout          = 30 * time.Second
 )
 

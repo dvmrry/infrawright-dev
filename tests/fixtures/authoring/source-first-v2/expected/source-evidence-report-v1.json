@@ -1,5 +1,5 @@
 {
-  "input_provenance_sha256": "04ef5f42d6155e877cb6cd29c3fb68211eb3e2e5b9a3a6bcdfaf7ba12283a40f",
+  "input_provenance_sha256": "105428ec55e30e3291a18bac4886c57417a52da5057a74927de576e4daf18ff1",
   "kind": "infrawright.source_evidence_report",
   "resources": {
     "sourcefirst_ambiguous": {
@@ -783,43 +783,6 @@
                 "sdk_module_path": null
               },
               "symbol": "opaque.Lookup"
-            },
-            {
-              "callee": {
-                "location": {
-                  "column": 23,
-                  "function": "(*Client).Lookup",
-                  "line": 19,
-                  "origin": "sdk",
-                  "path": "opaque/opaque.go",
-                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
-                },
-                "package_path": "example.invalid/sourcefirst-sdk/opaque",
-                "symbol": "(*Client).Lookup"
-              },
-              "caller": {
-                "location": {
-                  "column": 6,
-                  "function": "Lookup",
-                  "line": 15,
-                  "origin": "sdk",
-                  "path": "opaque/opaque.go",
-                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
-                },
-                "package_path": "example.invalid/sourcefirst-sdk/opaque",
-                "symbol": "Lookup"
-              },
-              "import_path": "example.invalid/sourcefirst-sdk/opaque",
-              "kind": "sdk_receiver_method",
-              "location": {
-                "column": 16,
-                "function": "Lookup",
-                "line": 16,
-                "origin": "sdk",
-                "path": "opaque/opaque.go",
-                "sdk_module_path": "example.invalid/sourcefirst-sdk"
-              },
-              "symbol": "(*opaque.Client).Lookup"
             }
           ]
         }
@@ -918,7 +881,7 @@
     }
   },
   "schema_version": 1,
-  "source_manifest_sha256": "8d65f243e15f1128f5c32f17c726550ca83f177d30c0ca6bf5d4adf9bbcab99f",
+  "source_manifest_sha256": "f12cf9a5321e46a776e88da4610bfb834e81cdfb02e708e5d1ecbf2e0996c9c7",
   "source_trust": "verified",
   "summary": {
     "applicable_total": 7,

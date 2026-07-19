@@ -78,6 +78,7 @@ func cloneSourceProvenance(value contracts.SourceProvenance) contracts.SourcePro
 	result.ProviderModule.GoSum = cloneFileBindingPointer(value.ProviderModule.GoSum)
 	result.ProviderModule.LocalReplaces = cloneLocalReplaces(value.ProviderModule.LocalReplaces)
 	result.SDKs = cloneSDKBindings(value.SDKs)
+	result.UnavailableSDKs = cloneUnavailableSDKBindings(value.UnavailableSDKs)
 	result.Selection = cloneSelection(value.Selection)
 	if value.OpenAPI != nil {
 		openAPI := *value.OpenAPI
@@ -143,6 +144,13 @@ func cloneSDKBindings(values []contracts.SDKSourceBinding) []contracts.SDKSource
 		result[index].Files = cloneFileBindings(value.Files)
 	}
 	return result
+}
+
+func cloneUnavailableSDKBindings(values []contracts.UnavailableSDKBinding) []contracts.UnavailableSDKBinding {
+	if values == nil {
+		return nil
+	}
+	return append([]contracts.UnavailableSDKBinding(nil), values...)
 }
 
 func cloneSelection(value contracts.SelectionBinding) contracts.SelectionBinding {

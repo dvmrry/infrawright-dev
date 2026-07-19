@@ -42,7 +42,7 @@ git rev-parse HEAD
 ```
 
 The resulting HEAD is
-`17c9925c11b16bf1c8f5a34c0d6b7b930631eb95`. The SDK has no Git revision claim:
+`c37dc3c4bdd98adf61862e76d67803469bd5b35d`. The SDK has no Git revision claim:
 its portable `tree_sha256` is SHA-256 of the lexically sorted sequence
 `path NUL file_sha256 NUL`, covering `go.mod` and every SDK Go file. The
 provider uses the same tree-digest construction over `go.mod` and every
@@ -55,10 +55,10 @@ OpenAPI diagnostics.
 
 The reviewed canonical SHA-256 chain is:
 
-- source manifest: `8d65f243e15f1128f5c32f17c726550ca83f177d30c0ca6bf5d4adf9bbcab99f`
-- input provenance: `04ef5f42d6155e877cb6cd29c3fb68211eb3e2e5b9a3a6bcdfaf7ba12283a40f`
-- source evidence report: `b98e6252ae0578b4f3abeb993d5ab7d48982fa7b3a3c810f2ffeda47da9e83bc`
-- OpenAPI diagnostics: `e323c91a9b1f6ad7b74a8179f0abf6cd71a5923c14b452883ffc3715f9838ca2`
+- source manifest: `f12cf9a5321e46a776e88da4610bfb834e81cdfb02e708e5d1ecbf2e0996c9c7`
+- input provenance: `105428ec55e30e3291a18bac4886c57417a52da5057a74927de576e4daf18ff1`
+- source evidence report: `af9f19e3a02957d0607e9f4dd7de74f1911adf8f8373cc9f4d3f2dae8573cdf6`
+- OpenAPI diagnostics: `c4ea16d5408898a02e022596c4a40e4e3400a21e250641ec378919179919b9c2`
 
 Each populated `provider_registration` identifies the actual resource-map
 binding in `provider/provider.go`: its symbol is the resolved constructor

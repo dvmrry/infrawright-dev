@@ -24,6 +24,10 @@
       "type": "array",
       "items": { "$ref": "#/$defs/sdkSource" }
     },
+    "unavailable_sdks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/unavailableSDK" }
+    },
     "selection": { "$ref": "#/$defs/selection" },
     "openapi": {
       "oneOf": [
@@ -116,6 +120,15 @@
         { "required": ["revision"], "properties": { "revision": { "type": "string" } } },
         { "required": ["tree_sha256"], "properties": { "tree_sha256": { "$ref": "#/$defs/sha256" } } }
       ]
+    },
+    "unavailableSDK": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["module_path", "module_version"],
+      "properties": {
+        "module_path": { "type": "string", "minLength": 1 },
+        "module_version": { "type": "string", "minLength": 1 }
+      }
     },
     "selectionFilter": {
       "type": "object",

@@ -89,6 +89,33 @@ func TestSourceProvenanceBindsPortableLocalReplace(t *testing.T) {
 	}
 }
 
+func TestUnavailableSDKsAreCanonicalAndDisjointFromBoundSources(t *testing.T) {
+	provenance := validProvenance()
+	provenance.UnavailableSDKs = []UnavailableSDKBinding{{ModulePath: "example.test/missing", ModuleVersion: "v1.2.3"}}
+	rendered, err := RenderSourceProvenance(provenance)
+	if err != nil {
+		t.Fatalf("RenderSourceProvenance(unavailable SDK) error = %v, want nil", err)
+	}
+	if !strings.Contains(rendered, "\"unavailable_sdks\"") {
+		t.Errorf("RenderSourceProvenance(unavailable SDK) omitted explicit authorization: %s", rendered)
+	}
+	if err := ValidateSourceProvenance(provenance); err != nil {
+		t.Fatalf("ValidateSourceProvenance(unavailable SDK) error = %v, want nil", err)
+	}
+
+	overlap := validProvenance()
+	overlap.UnavailableSDKs = []UnavailableSDKBinding{{ModulePath: "example.test/sdk", ModuleVersion: "v1.2.3"}}
+	if err := ValidateSourceProvenance(overlap); err == nil {
+		t.Error("ValidateSourceProvenance(overlapping unavailable SDK) error = nil, want rejection")
+	}
+
+	unsorted := validProvenance()
+	unsorted.UnavailableSDKs = []UnavailableSDKBinding{{ModulePath: "example.test/zeta", ModuleVersion: "v1.2.3"}, {ModulePath: "example.test/alpha", ModuleVersion: "v1.2.3"}}
+	if err := ValidateSourceProvenance(unsorted); err == nil {
+		t.Error("ValidateSourceProvenance(unsorted unavailable SDKs) error = nil, want rejection")
+	}
+}
+
 func TestPublicProvenanceRejectsInvalidGoModuleIdentitiesWithoutReflection(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -575,6 +602,8 @@ func TestSDKSourceMissingPreservesProviderCallsiteWithoutInventedSDKBinding(t *t
 		t.Errorf("DecodeSourceEvidenceReport(valid sdk_source_missing) error = %v, want nil", err)
 	}
 	input := bindReportToVerifiedInput(t, &report)
+	input.SourceManifest.UnavailableSDKs = []UnavailableSDKBinding{{ModulePath: "example.test/missing-sdk", ModuleVersion: "v1.2.3"}}
+	input = rebindReportToInput(t, &report, input)
 	if err := ValidateSourceEvidenceReportAgainstInput(report, input); err != nil {
 		t.Errorf("ValidateSourceEvidenceReportAgainstInput(sdk_source_missing callsite) error = %v, want nil", err)
 	}
@@ -584,6 +613,83 @@ func TestSDKSourceMissingPreservesProviderCallsiteWithoutInventedSDKBinding(t *t
 	if viableChain(report.Resources["resource_no_source"].Chains[0]) {
 		t.Error("viableChain(sdk_source_missing) = true, want false")
 	}
+
+	t.Run("multiple canonical missing callsites", func(t *testing.T) {
+		candidate := validSDKSourceMissingReport()
+		row := candidate.Resources["resource_no_source"]
+		second := row.Chains[0]
+		second.Steps = append([]SourceCallStep(nil), second.Steps...)
+		second.Steps[0].Symbol = "widgets.List"
+		row.Chains = append(row.Chains, second)
+		candidate.Resources["resource_no_source"] = row
+		if err := ValidateSourceEvidenceReport(candidate); err != nil {
+			t.Fatalf("ValidateSourceEvidenceReport(multiple missing callsites) error = %v, want nil", err)
+		}
+		mixed := candidate.Resources["resource_no_source"]
+		mixed.Chains = append(mixed.Chains, candidate.Resources["resource_observed_http"].Chains[0])
+		mixed.Classification = SourceAmbiguous
+		mixed.ReasonCode = reasonPointer(ReasonMultipleCandidates)
+		candidate.Resources["resource_no_source"] = mixed
+		candidate.Summary.ClassificationCounts.NoSource--
+		candidate.Summary.ClassificationCounts.Ambiguous++
+		if err := ValidateSourceEvidenceReport(candidate); err != nil {
+			t.Errorf("ValidateSourceEvidenceReport(mixed missing and viable chains) error = %v, want canonical ambiguous preservation", err)
+		}
+		input := bindReportToVerifiedInput(t, &candidate)
+		input.SourceManifest.UnavailableSDKs = []UnavailableSDKBinding{{ModulePath: "example.test/missing-sdk", ModuleVersion: "v1.2.3"}}
+		input = rebindReportToInput(t, &candidate, input)
+		if err := ValidateSourceEvidenceReportAgainstInput(candidate, input); err != nil {
+			t.Errorf("ValidateSourceEvidenceReportAgainstInput(mixed missing and viable chains) error = %v, want source-bound ambiguous preservation", err)
+		}
+	})
+
+	t.Run("mixed missing chain must stay structurally terminal", func(t *testing.T) {
+		for _, test := range []struct {
+			name   string
+			mutate func(*SourceEvidenceChain, SourceEvidenceReport)
+		}{
+			{name: "endpoint", mutate: func(chain *SourceEvidenceChain, report SourceEvidenceReport) {
+				endpoint := *report.Resources["resource_observed_http"].Chains[0].Endpoint
+				chain.Endpoint = &endpoint
+			}},
+			{name: "sdk call", mutate: func(chain *SourceEvidenceChain, report SourceEvidenceReport) {
+				sdk := *report.Resources["resource_observed_sdk"].Chains[0].SDKCall
+				chain.SDKCall = &sdk
+			}},
+			{name: "unresolved dispatch", mutate: func(chain *SourceEvidenceChain, _ SourceEvidenceReport) {
+				chain.Steps = append(chain.Steps, SourceCallStep{Kind: CallUnresolvedDispatch, Symbol: "opaque.Call", Caller: chain.Steps[0].Caller, Location: chain.Steps[0].Location})
+			}},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				candidate := validSDKSourceMissingReport()
+				row := candidate.Resources["resource_no_source"]
+				row.Classification = SourceAmbiguous
+				row.ReasonCode = reasonPointer(ReasonMultipleCandidates)
+				row.Chains = append(row.Chains, candidate.Resources["resource_observed_http"].Chains[0])
+				candidate.Summary.ClassificationCounts.NoSource--
+				candidate.Summary.ClassificationCounts.Ambiguous++
+				test.mutate(&row.Chains[0], candidate)
+				candidate.Resources["resource_no_source"] = row
+				if err := ValidateSourceEvidenceReport(candidate); err == nil {
+					t.Fatal("ValidateSourceEvidenceReport(non-terminal authorized missing chain) error = nil, want rejection")
+				}
+				input := bindReportToVerifiedInput(t, &candidate)
+				input.SourceManifest.UnavailableSDKs = []UnavailableSDKBinding{{ModulePath: "example.test/missing-sdk", ModuleVersion: "v1.2.3"}}
+				input = rebindReportToInput(t, &candidate, input)
+				if err := ValidateSourceEvidenceReportAgainstInput(candidate, input); err == nil {
+					t.Fatal("ValidateSourceEvidenceReportAgainstInput(non-terminal authorized missing chain) error = nil, want rejection")
+				}
+			})
+		}
+	})
+
+	t.Run("explicit unavailable owner required", func(t *testing.T) {
+		candidate := validSDKSourceMissingReport()
+		unlisted := bindReportToVerifiedInput(t, &candidate)
+		if err := ValidateSourceEvidenceReportAgainstInput(candidate, unlisted); err == nil {
+			t.Error("ValidateSourceEvidenceReportAgainstInput(unlisted sdk_source_missing) error = nil, want authorization rejection")
+		}
+	})
 
 	t.Run("bound SDK owner", func(t *testing.T) {
 		candidate := validSDKSourceMissingReport()

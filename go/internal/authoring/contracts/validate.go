@@ -72,7 +72,10 @@ func ValidateSourceProvenance(provenance SourceProvenance) error {
 	if err := validateSortedSDKs(provenance.SDKs); err != nil {
 		return err
 	}
-	if err := validateLocalReplaces(provenance.ProviderModule.LocalReplaces, provenance.SDKs); err != nil {
+	if err := validateUnavailableSDKs(provenance.UnavailableSDKs, provenance.SDKs); err != nil {
+		return err
+	}
+	if err := validateLocalReplaces(provenance.ProviderModule.LocalReplaces, provenance.SDKs, provenance.UnavailableSDKs); err != nil {
 		return err
 	}
 	if provenance.OpenAPI != nil {
@@ -184,11 +187,15 @@ func validateUnverifiedObservation(observation UnverifiedSourceObservation) erro
 	return validateSelection(observation.Selection)
 }
 
-func validateLocalReplaces(replaces []LocalModuleReplaceBinding, sdks []SDKSourceBinding) error {
+func validateLocalReplaces(replaces []LocalModuleReplaceBinding, sdks []SDKSourceBinding, unavailable []UnavailableSDKBinding) error {
 	keys := make([]string, len(replaces))
 	sdkModules := make(map[string]struct{}, len(sdks))
 	for _, sdk := range sdks {
 		sdkModules[sdk.ModulePath] = struct{}{}
+	}
+	unavailableModules := make(map[string]struct{}, len(unavailable))
+	for _, sdk := range unavailable {
+		unavailableModules[sdk.ModulePath] = struct{}{}
 	}
 	for index, replacement := range replaces {
 		base := "$.provider_module.local_replaces[" + integerText(index) + "]"
@@ -205,6 +212,9 @@ func validateLocalReplaces(replaces []LocalModuleReplaceBinding, sdks []SDKSourc
 			return semanticErrorf(sourceProvenanceContract, base+".local_path", "must be a normalized relative slash-separated path")
 		}
 		if _, exists := sdkModules[replacement.ModulePath]; !exists {
+			if _, unavailable := unavailableModules[replacement.ModulePath]; unavailable {
+				return semanticErrorf(sourceProvenanceContract, base+".module_path", "must not name an unavailable SDK module")
+			}
 			return semanticErrorf(sourceProvenanceContract, base+".module_path", "must name a bound SDK module")
 		}
 		version := ""
@@ -214,6 +224,26 @@ func validateLocalReplaces(replaces []LocalModuleReplaceBinding, sdks []SDKSourc
 		keys[index] = replacement.ModulePath + "\x00" + version
 	}
 	return validateSortedUnique(keys, "$.provider_module.local_replaces", "local replacements")
+}
+
+func validateUnavailableSDKs(unavailable []UnavailableSDKBinding, bound []SDKSourceBinding) error {
+	if unavailable == nil {
+		return nil
+	}
+	modules := make([]string, len(unavailable))
+	for index, sdk := range unavailable {
+		base := "$.unavailable_sdks[" + integerText(index) + "]"
+		if err := validateModuleVersion(sdk.ModulePath, sdk.ModuleVersion, sourceProvenanceContract, base); err != nil {
+			return err
+		}
+		for _, source := range bound {
+			if packageInModule(sdk.ModulePath, source.ModulePath) || packageInModule(source.ModulePath, sdk.ModulePath) {
+				return semanticErrorf(sourceProvenanceContract, base+".module_path", "must not overlap a manifest-bound SDK module")
+			}
+		}
+		modules[index] = sdk.ModulePath
+	}
+	return validateSortedUnique(modules, "$.unavailable_sdks", "unavailable SDK module paths")
 }
 
 func validateProviderBinding(provider ProviderSourceBinding) error {
@@ -490,12 +520,18 @@ type sourceInputBindings struct {
 	providerModulePath    string
 	providerFiles         map[string]struct{}
 	sdks                  []sourceSDKBinding
+	unavailableSDKs       []sourceUnavailableSDKBinding
 }
 
 type sourceSDKBinding struct {
 	modulePath string
 	version    string
 	files      map[string]struct{}
+}
+
+type sourceUnavailableSDKBinding struct {
+	modulePath string
+	version    string
 }
 
 func sourceBindingsFromInput(input InputProvenance) sourceInputBindings {
@@ -507,6 +543,7 @@ func sourceBindingsFromInput(input InputProvenance) sourceInputBindings {
 			providerModulePath:    manifest.Provider.ModulePath,
 			providerFiles:         fileBindingSet(manifest.Provider.Files),
 			sdks:                  make([]sourceSDKBinding, len(manifest.SDKs)),
+			unavailableSDKs:       make([]sourceUnavailableSDKBinding, len(manifest.UnavailableSDKs)),
 		}
 		for index, sdk := range manifest.SDKs {
 			bindings.sdks[index] = sourceSDKBinding{
@@ -514,6 +551,9 @@ func sourceBindingsFromInput(input InputProvenance) sourceInputBindings {
 				version:    sdk.ModuleVersion,
 				files:      fileBindingSet(sdk.Files),
 			}
+		}
+		for index, sdk := range manifest.UnavailableSDKs {
+			bindings.unavailableSDKs[index] = sourceUnavailableSDKBinding{modulePath: sdk.ModulePath, version: sdk.ModuleVersion}
 		}
 		return bindings
 	}
@@ -647,6 +687,9 @@ func validateChainSourceBindings(
 			if _, ok := sdkForPackage(bindings.sdks, *step.ImportPath); ok {
 				return semanticErrorf(sourceReportContract, stepBase+".import_path", "sdk_source_missing requires no manifest-bound SDK source owner")
 			}
+			if _, ok := unavailableSDKForPackage(bindings.unavailableSDKs, *step.ImportPath); !ok {
+				return semanticErrorf(sourceReportContract, stepBase+".import_path", "sdk_source_missing requires an explicit unavailable SDK owner")
+			}
 		}
 	}
 	if firstSDK != nil {
@@ -742,6 +785,18 @@ func sdkByIdentity(sdks []sourceSDKBinding, modulePath, version string) (sourceS
 
 func sdkForPackage(sdks []sourceSDKBinding, packagePath string) (sourceSDKBinding, bool) {
 	var selected sourceSDKBinding
+	found := false
+	for _, sdk := range sdks {
+		if packageInModule(packagePath, sdk.modulePath) && (!found || len(sdk.modulePath) > len(selected.modulePath)) {
+			selected = sdk
+			found = true
+		}
+	}
+	return selected, found
+}
+
+func unavailableSDKForPackage(sdks []sourceUnavailableSDKBinding, packagePath string) (sourceUnavailableSDKBinding, bool) {
+	var selected sourceUnavailableSDKBinding
 	found := false
 	for _, sdk := range sdks {
 		if packageInModule(packagePath, sdk.modulePath) && (!found || len(sdk.modulePath) > len(selected.modulePath)) {
@@ -867,11 +922,11 @@ func validateSourceEvidenceRow(resource string, row SourceEvidenceRow) error {
 		}
 	case SourceAmbiguous:
 		if !hasRoot || !reasonIs(row.ReasonCode, ReasonMultipleCandidates) || len(row.Chains) < 2 {
-			return semanticErrorf(sourceReportContract, base, "ambiguous requires at least two complete viable Read-rooted chains")
+			return semanticErrorf(sourceReportContract, base, "ambiguous requires at least two complete Read-rooted candidate chains")
 		}
 		for _, chain := range row.Chains {
-			if !viableChain(chain) {
-				return semanticErrorf(sourceReportContract, base+".chains", "ambiguous chains must each preserve a viable endpoint, SDK, or dynamic outcome")
+			if !viableChain(chain) && !missingSDKChain(chain) {
+				return semanticErrorf(sourceReportContract, base+".chains", "ambiguous chains must each preserve a viable outcome or authorized missing-SDK call")
 			}
 		}
 		if err := validateCanonicalChains(row.Chains, base+".chains"); err != nil {
@@ -910,16 +965,18 @@ func validateSourceEvidenceRow(resource string, row SourceEvidenceRow) error {
 			(row.ProviderRegistration != nil || row.ReadCallback != nil || len(row.Chains) != 0) {
 			return semanticErrorf(sourceReportContract, base, "provider_source_missing cannot carry provider source evidence")
 		}
-		if reasonIs(row.ReasonCode, ReasonSDKSourceMissing) && (!hasRoot || len(row.Chains) != 1 ||
-			!reasonIs(row.Chains[0].ReasonCode, ReasonSDKSourceMissing) ||
-			!chainHasCallKind(row.Chains[0], CallSDKSourceMissing)) {
-			return semanticErrorf(sourceReportContract, base, "sdk_source_missing requires the provider Read-rooted call site")
-		}
-		if len(row.Chains) == 1 && (row.Chains[0].Endpoint != nil || row.Chains[0].SDKCall != nil) {
-			return semanticErrorf(sourceReportContract, base+".chains", "no_source cannot carry endpoint or SDK evidence")
-		}
-		if len(row.Chains) == 1 && chainHasCallKind(row.Chains[0], CallUnresolvedDispatch) {
-			return semanticErrorf(sourceReportContract, base+".chains", "no_source cannot substitute unresolved dispatch for missing source")
+		if reasonIs(row.ReasonCode, ReasonSDKSourceMissing) {
+			if !hasRoot || len(row.Chains) == 0 {
+				return semanticErrorf(sourceReportContract, base, "sdk_source_missing requires provider Read-rooted call sites")
+			}
+			for _, chain := range row.Chains {
+				if !missingSDKChain(chain) {
+					return semanticErrorf(sourceReportContract, base+".chains", "sdk_source_missing retains only terminal missing-SDK call sites")
+				}
+			}
+			if err := validateCanonicalChains(row.Chains, base+".chains"); err != nil {
+				return err
+			}
 		}
 	case SourceNotApplicable:
 		if len(row.Chains) != 0 || !reasonIs(row.ReasonCode, ReasonReviewedNotApplicable) {
@@ -1005,11 +1062,8 @@ func validateSourceChain(chain SourceEvidenceChain, base string) error {
 		}
 	}
 	if chainHasCallKind(chain, CallSDKSourceMissing) {
-		if chain.Endpoint != nil || chain.SDKCall != nil {
-			return semanticErrorf(sourceReportContract, base, "sdk_source_missing must terminate before SDK or endpoint evidence")
-		}
-		if !reasonIs(chain.ReasonCode, ReasonSDKSourceMissing) {
-			return semanticErrorf(sourceReportContract, base+".reason_code", "sdk_source_missing requires the sdk_source_missing reason")
+		if !missingSDKChain(chain) {
+			return semanticErrorf(sourceReportContract, base, "sdk_source_missing must be a pure terminal missing-SDK chain")
 		}
 	} else if reasonIs(chain.ReasonCode, ReasonSDKSourceMissing) {
 		return semanticErrorf(sourceReportContract, base+".steps", "sdk_source_missing reason requires a terminal sdk_source_missing call")
@@ -1037,6 +1091,13 @@ func viableChain(chain SourceEvidenceChain) bool {
 		(chain.SDKCall != nil && reasonIs(chain.ReasonCode, ReasonEndpointNotRecovered)) ||
 		oneOfReasons(chain.ReasonCode, ReasonDynamicDispatch, ReasonDynamicMethod, ReasonDynamicPath) ||
 		(chainHasCallKind(chain, CallUnresolvedDispatch) && reasonIs(chain.ReasonCode, ReasonCallChainUnresolved))
+}
+
+func missingSDKChain(chain SourceEvidenceChain) bool {
+	return reasonIs(chain.ReasonCode, ReasonSDKSourceMissing) &&
+		chain.Endpoint == nil && chain.SDKCall == nil &&
+		len(chain.Steps) != 0 && chain.Steps[len(chain.Steps)-1].Kind == CallSDKSourceMissing &&
+		!chainHasCallKind(chain, CallUnresolvedDispatch)
 }
 
 func chainHasCallKind(chain SourceEvidenceChain, kind SourceCallKind) bool {

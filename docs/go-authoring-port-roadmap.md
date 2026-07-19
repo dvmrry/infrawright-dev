@@ -103,6 +103,14 @@ For each Terraform resource selected from the provider schema:
    receiver chains.
 5. Bind every fact to a portable source path, function, and source position.
 
+Registration authority is closed: analysis accepts only an exact reachable
+HashiCorp `plugin.Serve` `ProviderFunc`, or an exact root-package `Provider()`
+factory when no reachable Serve authority exists. A package-scope `resources`
+map is never an authority by itself. Imported calls are likewise preserved as
+unresolved dispatch unless their package is Go standard library or an explicit
+Terraform framework/tooling allowlist; arbitrary external calls cannot vanish
+from the candidate set.
+
 The analyzer consumes an explicit, pinned provider source root. It does not
 download source, consult the network, or infer a provider version from an
 uncontrolled workspace.
@@ -158,6 +166,18 @@ stable bytes it hashed, and fails closed before publishing source artifacts if
 the revision, module, schema, tree, file bytes, or selected-resource binding is
 wrong. The result records the manifest hash and `source_trust: verified`.
 
+`sdk_source_missing` is not an inference from an arbitrary missing provider
+`go.mod` requirement. It is authorized only by the optional
+`unavailable_sdks` manifest entries, each of which names the exact SDK module
+path **and the provider-required version**. Ordinary unavailable framework or
+tooling dependencies are not service-SDK evidence and must not produce a
+resource-level missing-SDK classification. If a listed unavailable SDK call
+coexists with an otherwise viable chain, the row still fails closed as
+`ambiguous` with `multiple_viable_candidates` and retains **all** canonical
+chains, including the authorized missing-source chain. `no_source` applies
+only when every canonical chain is `sdk_source_missing`; no candidate is ever
+selected or silently hidden.
+
 Ad-hoc local analysis remains possible only with explicit
 `--allow-unverified-source`. Such a report records `source_trust: unverified`,
 may show diagnostic classifications, but is rejected by provider-readiness,
@@ -189,7 +209,7 @@ resource-keyed table:
 |---|---|---:|---:|---:|
 | `observed_http` | One source-backed Read chain ends at a recoverable HTTP method and path template. | yes | yes | yes |
 | `observed_sdk_call` | One source-backed Read chain reaches a pinned SDK symbol but no HTTP path is recoverable. | yes | no | yes |
-| `ambiguous` | Multiple viable source chains or endpoints remain and none may be selected. | separate count | no | yes |
+| `ambiguous` | Multiple candidate chains remain—including an authorized missing-SDK chain mixed with viable, dynamic, or unresolved evidence—and none may be selected. | separate count | no | yes |
 | `dynamic` | A source request exists but its method/path cannot be reduced by the reviewed expression set. | yes | no | yes |
 | `unresolved` | Source exists, but the Read-rooted chain cannot be resolved far enough to assert a request. | no | no | yes |
 | `no_source` | Required pinned provider or SDK source is absent for this resource. | no | no | yes |
@@ -391,9 +411,24 @@ not acceptable evidence.
 - Add SDK package-function resolution plus bounded path extraction. Receiver
   methods are linked only where their construction/type is statically proven;
   otherwise they remain explicit unlinked calls.
-- Emit provider-to-SDK-to-HTTP evidence without OpenAPI.
+- Emit Read-rooted provider-to-SDK-to-HTTP evidence independently of OpenAPI.
+  This is source-operation tracing, not an AST-derived provider-to-SDK mapping
+  guessed from an OpenAPI document. OpenAPI remains optional corroboration;
+  that distinction matters for Zscaler, where no complete published OpenAPI
+  authority exists.
+- Treat a raw HTTP endpoint as recovered only when the reached request-builder
+  declaration directly proves an exact `net/http.NewRequest` or
+  `net/http.NewRequestWithContext` sink with the method/path formals in the
+  required positions. A name or signature such as `NewRequest` or
+  `NewRequestDo` is not evidence. Zscaler's
+  `NewRequestDo` → `ExecuteRequest` → `buildRequest` wrapper is therefore an
+  `observed_sdk_call` / `endpoint_not_recovered` result in A1, pending a
+  separately reviewed bounded wrapper/dataflow qualification.
 - Qualify against synthetic patterns and the frozen ZPA corpus without claiming
   automatic proof of its hand-curated semantic labels.
+- Keep A1 as a reusable qualified-input package foundation. CLI wiring and
+  explicit unverified-mode behavior belong to A2; A1 does not mint
+  qualification from ad-hoc roots.
 
 ### A2 — Source operation and evaluation (after A1)
 

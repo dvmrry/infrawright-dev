@@ -76,6 +76,16 @@ type SDKSourceBinding struct {
 	Files []FileBinding `json:"files"`
 }
 
+// UnavailableSDKBinding authorizes a provider go.mod dependency for which no
+// source tree was captured. It is evidence of an intentional absence only;
+// unlike SDKSourceBinding it has no repository, revision, root, or files.
+type UnavailableSDKBinding struct {
+	// ModulePath is the unavailable SDK's declared Go module path.
+	ModulePath string `json:"module_path"`
+	// ModuleVersion is the exact provider-required version.
+	ModuleVersion string `json:"module_version"`
+}
+
 // SelectionFilterBinding records one normalized selection input from
 // docs/go-authoring-port-roadmap.md §3.2.1.
 type SelectionFilterBinding struct {
@@ -115,6 +125,9 @@ type SourceProvenance struct {
 	TerraformSchema FileBinding `json:"terraform_schema"`
 	// SDKs binds every SDK source tree used by analysis.
 	SDKs []SDKSourceBinding `json:"sdks"`
+	// UnavailableSDKs authorizes exact provider dependencies whose source was
+	// deliberately not captured. It is omitted when no absence is authorized.
+	UnavailableSDKs []UnavailableSDKBinding `json:"unavailable_sdks,omitempty"`
 	// Selection binds the resource/filter inputs defining the evidence table.
 	Selection SelectionBinding `json:"selection"`
 	// OpenAPI optionally binds adapter inputs without changing provider/SDK source trust.

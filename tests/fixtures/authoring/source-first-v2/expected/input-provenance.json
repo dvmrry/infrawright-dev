@@ -8,11 +8,11 @@
       "files": [
         {
           "path": "internal/fixture/runtime.go",
-          "sha256": "05aaeee812012ad1b466115d5927d5ec96ef42bf327891a3e8139a886639a363"
+          "sha256": "65ed2b2a867720b473c76f5f8ead104b9532ea13dcece4068460b709b228b888"
         },
         {
           "path": "provider.go",
-          "sha256": "b98cc7bc15bd7d05ebf06955150fb11198289163c2723e77eeeddc12d075f028"
+          "sha256": "79fff59e478c19c478c7d0d471ce90793360871464b2d282a565df17c75a2ea8"
         },
         {
           "path": "resource_ambiguous.go",
@@ -41,8 +41,8 @@
       ],
       "module_path": "example.invalid/terraform-provider-sourcefirst",
       "repository": "fixture/sourcefirst-provider",
-      "revision": "17c9925c11b16bf1c8f5a34c0d6b7b930631eb95",
-      "tree_sha256": "4f337318b5fe8a343a3d3b3cc5e5f2458fe2d35f784442a6b5e3d29986fb5191"
+      "revision": "c37dc3c4bdd98adf61862e76d67803469bd5b35d",
+      "tree_sha256": "d8088f0de778b1a689dc78d20797a1fde5fd7db2fbf01e145d272d1a03257ce6"
     },
     "provider_module": {
       "go_mod": {
@@ -64,15 +64,15 @@
         "files": [
           {
             "path": "alpha/client.go",
-            "sha256": "b53ef684b2354d7b95bdfa0eddf966e2fc803a787546be35f7212740ce71fd16"
+            "sha256": "7cbff5bf7e2d575b678baa4e76575785993d719fcfbe352169af162c9941f213"
           },
           {
             "path": "beta/client.go",
-            "sha256": "8c82326457c79b4cab7a9c9cc2fe68f3a4981c196b26afade2c453a2286ec406"
+            "sha256": "84e5d499e30b67340f9b5ebe82825b08a0287a849d1df01df7bd2644ff88e98c"
           },
           {
             "path": "catalog/catalog.go",
-            "sha256": "3da8d6544e98dcf4123680bb23187dd47ff5d62c256f04fc3eabd21750c278ba"
+            "sha256": "8344c8f69718977bd3a4097bd6a4e107853c8e3c412597f7a6b83e87a942e6b7"
           },
           {
             "path": "go.mod",
@@ -87,7 +87,7 @@
         "module_version": "v0.0.0",
         "repository": "fixture/sourcefirst-sdk",
         "revision": null,
-        "tree_sha256": "a5ae6c6aefdad8c5cb6b8cfee19eeeb4172d3fd483a22b160aca8102187d20a3"
+        "tree_sha256": "06068ec6c7370d83eefab54b9a7679dd513a3e01a31301b4bd220640a6e35737"
       }
     ],
     "selection": {
@@ -115,7 +115,7 @@
       "sha256": "4f25680ef6ec3e8d6014e4683edb1e3c47cf54b5c7a0299af7b21ce4a85bfbe3"
     }
   },
-  "source_manifest_sha256": "8d65f243e15f1128f5c32f17c726550ca83f177d30c0ca6bf5d4adf9bbcab99f",
+  "source_manifest_sha256": "f12cf9a5321e46a776e88da4610bfb834e81cdfb02e708e5d1ecbf2e0996c9c7",
   "source_trust": "verified",
   "unverified_observation": null
 }

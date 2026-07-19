@@ -402,6 +402,11 @@ func verifyModules(manifest contracts.SourceProvenance, providerModule map[strin
 			return failure(ErrorModule, "sdks."+sdk.ModulePath+".go.mod", "module path does not match manifest")
 		}
 	}
+	for _, sdk := range manifest.UnavailableSDKs {
+		if got, exists := requires[sdk.ModulePath]; !exists || got != sdk.ModuleVersion {
+			return failure(ErrorModule, "provider.go.mod", "unavailable SDK module requirement does not match manifest")
+		}
+	}
 	return verifyLocalReplaces(manifest.ProviderModule.LocalReplaces, provider.Replace)
 }
 
