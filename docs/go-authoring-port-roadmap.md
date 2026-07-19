@@ -1,8 +1,9 @@
 # Go authoring port roadmap
 
-Status: DECIDED DESIGN. A1 and A2 are accepted after their independent
-adversarial reviews. Implementation is the first leg of the authority-handoff
-gate in
+Status: DECIDED DESIGN. A1, A2, and the dependency-free A3-R reconciliation
+parcel are accepted after independent adversarial review. The remaining A3
+OpenAPI parcels are planned but not yet implemented. Implementation is the
+first leg of the authority-handoff gate in
 [singleton-state-topology-v2.md](singleton-state-topology-v2.md). This document
 does not authorize degrouping or Node archive by itself.
 
@@ -249,12 +250,21 @@ When usable OpenAPI is supplied:
 - retain current Node output bytes for the frozen OpenAPI-backed differential
   corpus until the authority handoff.
 
-`kin-openapi` is the preferred candidate, subject to current Artifactory
-availability/version verification and a compatibility probe against the
-retained JSON and YAML fixtures. Library validation must not turn an optional,
-partial specification into a blocker for source-only evidence.
+`kin-openapi` is the selected candidate. Upstream `v0.140.0` is compatible with
+the repository's Go 1.26 toolchain and is the exact A3 probe version, but this
+checkout has only public/direct module access. The adapter parcel remains
+blocked until that exact version and its module graph are fetched through the
+internal Artifactory-backed `GOPROXY` and the result is recorded. Library
+validation must not turn an optional, partial specification into a blocker for
+source-only evidence.
 External `$ref` resolution and network/file fetching are disabled inside the
-adapter; all inputs are explicit local files prepared by the caller.
+adapter; all inputs are explicit local files prepared by the caller. Because
+kin-openapi eagerly resolves and validates the whole document, A3 uses a
+lossless generic tree only to prove whether a validation defect lies outside
+every comparison-required operation/ref closure; only that proof permits the
+`degraded` state. The raw tree is not a competing OpenAPI validator. Retained
+single-document Swagger 2 field-metadata behavior uses kin-openapi's v2 model
+and converter rather than being silently passed to the v3 loader.
 
 ### 3.5 Command and artifact modes
 
@@ -267,9 +277,12 @@ required for source-first output. It is mutually exclusive with the legacy
 prints no report JSON to stdout. The command stages and publishes one
 all-or-nothing directory containing `source-registry.json`,
 `source-diagnostics.json`, `summary.json`, `summary.md`,
-`input-provenance.json`, and `openapi-diagnostics.json`, plus the optional
-OpenAPI map/comparison files defined in §3.6. Replacing that complete set also
-removes stale optional artifacts from a prior run. Warnings use stderr.
+`input-provenance.json`, and `openapi-diagnostics.json`. This six-file core is
+fixed: `openapi-diagnostics.json` already contains the complete per-resource
+comparison partition, so a second v2 comparison file would create a competing
+authority. The generic `openapi-map.json` remains a legacy/probe-specific
+artifact and never enters the source-first bundle or readiness accounting.
+Warnings use stderr.
 Passing either `--source-manifest` or `--allow-unverified-source` selects v2
 mode and therefore also requires `--artifact-dir`; omitting it is a usage error
 (exit 2).
@@ -329,14 +342,13 @@ In the v2 bundle modes from §3.5, `source-operation-map`,
 artifact set when source analysis succeeds. Absent, partial, degraded, or
 unavailable OpenAPI never suppresses those artifacts. An
 unavailable explicitly supplied document emits one deterministic warning and
-`openapi-diagnostics.json`, omits all OpenAPI-map/comparison artifacts, removes
-any stale optional artifacts during atomic publication, and exits zero by
-default because the adapter is optional. A future strict-OpenAPI flag may exit
-nonzero only after publishing the same source artifacts and diagnostics.
-Usable or degraded input emits the optional map/comparison set atomically;
-source/OpenAPI conflict is reported and exits nonzero under the existing
-fail-on-regression gate, otherwise zero. Existing frozen OpenAPI-backed vectors
-retain their exact Node exit/output behavior.
+`openapi-diagnostics.json` and exits zero by default because the adapter is
+optional. A future strict-OpenAPI flag may exit nonzero only after publishing
+the same six source artifacts and diagnostics. Usable or degraded input changes
+only the validated contents of `openapi-diagnostics.json`; source/OpenAPI
+conflict is reported and exits nonzero under the existing fail-on-regression
+gate, otherwise zero. Existing frozen OpenAPI-backed vectors retain their exact
+Node exit/output behavior.
 
 The standalone `openapi-map` command remains strict rather than becoming a
 source fallback. `--openapi` is required. Unreadable, malformed, invalid, or
@@ -360,10 +372,12 @@ On successful source analysis the probe atomically publishes this core set:
 - complete input provenance and hashes; and
 - `openapi-diagnostics.json`, including when its state is `absent`.
 
-With usable or degraded OpenAPI it atomically publishes an additional OpenAPI
-map and explicit comparison set. With unavailable OpenAPI it publishes only the
-core set and guarantees no stale optional artifact survives. Absence of OpenAPI
-is ordinary source-only mode, not an error and not an implied coverage failure.
+With usable or degraded OpenAPI it may atomically publish the probe-specific
+legacy `openapi-map.json`; the explicit source-first comparison remains solely
+inside the core `openapi-diagnostics.json`. With unavailable OpenAPI it
+publishes only the core set and guarantees no stale probe-specific map survives.
+Absence of OpenAPI is ordinary source-only mode, not an error and not an implied
+coverage failure.
 Existing OpenAPI-backed GitHub and DigitalOcean recipes remain differential
 cases; a source-only Zscaler fixture qualifies the new path without credentials
 or network access.
@@ -473,9 +487,23 @@ does not modify existing fixtures or Node authority bytes.
 
 ### A3 — Reconcile and optional OpenAPI adapter (parallel with A2 after A0)
 
-- Port the API/schema/override reconciliation core.
-- Integrate the reviewed OpenAPI library for optional augmentation and the
-  standalone `openapi-map` command.
+**Status: A3-R accepted; A3-O is gated on the recorded internal Artifactory
+probe.** A3 is package work only. A6 retains all command parsing, help,
+exit/stdout/stderr contracts, Make routing, and filesystem publication.
+
+- A3-R ports the API/schema/override reconciliation core into an isolated
+  package and preserves the frozen report/helper authorities. It owns the
+  shared field-alias function consumed by the legacy map kernel.
+- A3-O integrates `kin-openapi v0.140.0` over only sourcebind-captured bytes,
+  with a closed in-memory local-ref reader and no filesystem or network
+  fallback. It owns usable/degraded/unavailable state and the source-first
+  comparison report, but cannot alter the source report or its counts.
+- A3-M ports the frozen legacy `openapi-map` kernel behind a package API. Its
+  generic matching remains differential-only and cannot feed v2 readiness.
+- A3-I layers the sealed adapter result into A2's compiler by replacing only
+  `openapi-diagnostics.json` within the fixed six-artifact bundle.
+- The reusable behavior behind the standalone `openapi-map` command lands in
+  A3-M; the actual CLI surface lands only in A6.
 - Preserve raw/source evidence precedence and exact retained report bytes.
 
 ### A4 — Provider probe orchestration (after A2 and A3)
