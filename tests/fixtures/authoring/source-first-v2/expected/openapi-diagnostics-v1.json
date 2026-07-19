@@ -53,8 +53,8 @@
   "kind": "infrawright.openapi_diagnostics",
   "reason_code": null,
   "schema_version": 1,
-  "source_manifest_sha256": "7349f278a67806c488a3854ddca9a8346a5acac4551bc305489e06f1c6336837",
-  "source_report_sha256": "b9252b9ecd9b25968bba058c059080c2e8bd1f3e0717b11f558a7eed17e259ef",
+  "source_manifest_sha256": "8d65f243e15f1128f5c32f17c726550ca83f177d30c0ca6bf5d4adf9bbcab99f",
+  "source_report_sha256": "b98e6252ae0578b4f3abeb993d5ab7d48982fa7b3a3c810f2ffeda47da9e83bc",
   "source_trust": "verified",
   "summary": {
     "comparison_counts": {

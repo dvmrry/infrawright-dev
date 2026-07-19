@@ -287,6 +287,10 @@ func validateSelection(selection SelectionBinding) error {
 		return semanticErrorf(sourceProvenanceContract, "$.selection.filters", "must be an array")
 	}
 	names := make([]string, len(selection.Filters))
+	selected := make(map[string]struct{}, len(selection.ResourceTypes))
+	for _, resource := range selection.ResourceTypes {
+		selected[resource] = struct{}{}
+	}
 	for index, filter := range selection.Filters {
 		base := "$.selection.filters[" + integerText(index) + "]"
 		if filter.Name == "" {
@@ -295,12 +299,20 @@ func validateSelection(selection SelectionBinding) error {
 		if filter.Values == nil {
 			return semanticErrorf(sourceProvenanceContract, base+".values", "must be an array")
 		}
+		if filter.Name == SelectionFilterReviewedNotApplicable && len(filter.Values) == 0 {
+			return semanticErrorf(sourceProvenanceContract, base+".values", "reviewed_not_applicable must authorize at least one selected resource")
+		}
 		for valueIndex, value := range filter.Values {
 			if value == "" {
 				return semanticErrorf(sourceProvenanceContract, base+".values["+integerText(valueIndex)+"]", "must be non-empty")
 			}
 			if looksAbsolutePath(value) {
 				return semanticErrorf(sourceProvenanceContract, base+".values["+integerText(valueIndex)+"]", "must not contain an absolute local path")
+			}
+			if filter.Name == SelectionFilterReviewedNotApplicable {
+				if _, ok := selected[value]; !ok {
+					return semanticErrorf(sourceProvenanceContract, base+".values["+integerText(valueIndex)+"]", "reviewed_not_applicable values must name selected resource types")
+				}
 			}
 		}
 		if err := validateSortedUnique(filter.Values, base+".values", "filter values"); err != nil {
@@ -473,10 +485,11 @@ func ValidateSourceEvidenceReportAgainstInput(report SourceEvidenceReport, input
 }
 
 type sourceInputBindings struct {
-	resourceTypes      []string
-	providerModulePath string
-	providerFiles      map[string]struct{}
-	sdks               []sourceSDKBinding
+	resourceTypes         []string
+	reviewedNotApplicable []string
+	providerModulePath    string
+	providerFiles         map[string]struct{}
+	sdks                  []sourceSDKBinding
 }
 
 type sourceSDKBinding struct {
@@ -489,10 +502,11 @@ func sourceBindingsFromInput(input InputProvenance) sourceInputBindings {
 	if input.SourceTrust == SourceTrustVerified {
 		manifest := input.SourceManifest
 		bindings := sourceInputBindings{
-			resourceTypes:      manifest.Selection.ResourceTypes,
-			providerModulePath: manifest.Provider.ModulePath,
-			providerFiles:      fileBindingSet(manifest.Provider.Files),
-			sdks:               make([]sourceSDKBinding, len(manifest.SDKs)),
+			resourceTypes:         manifest.Selection.ResourceTypes,
+			reviewedNotApplicable: reviewedNotApplicableValues(manifest.Selection),
+			providerModulePath:    manifest.Provider.ModulePath,
+			providerFiles:         fileBindingSet(manifest.Provider.Files),
+			sdks:                  make([]sourceSDKBinding, len(manifest.SDKs)),
 		}
 		for index, sdk := range manifest.SDKs {
 			bindings.sdks[index] = sourceSDKBinding{
@@ -506,10 +520,11 @@ func sourceBindingsFromInput(input InputProvenance) sourceInputBindings {
 
 	observation := input.UnverifiedObservation
 	bindings := sourceInputBindings{
-		resourceTypes:      observation.Selection.ResourceTypes,
-		providerModulePath: observation.ProviderModulePath,
-		providerFiles:      fileBindingSet(observation.ProviderFiles),
-		sdks:               make([]sourceSDKBinding, len(observation.SDKs)),
+		resourceTypes:         observation.Selection.ResourceTypes,
+		reviewedNotApplicable: reviewedNotApplicableValues(observation.Selection),
+		providerModulePath:    observation.ProviderModulePath,
+		providerFiles:         fileBindingSet(observation.ProviderFiles),
+		sdks:                  make([]sourceSDKBinding, len(observation.SDKs)),
 	}
 	for index, sdk := range observation.SDKs {
 		bindings.sdks[index] = sourceSDKBinding{
@@ -521,6 +536,15 @@ func sourceBindingsFromInput(input InputProvenance) sourceInputBindings {
 	return bindings
 }
 
+func reviewedNotApplicableValues(selection SelectionBinding) []string {
+	for _, filter := range selection.Filters {
+		if filter.Name == SelectionFilterReviewedNotApplicable {
+			return append([]string(nil), filter.Values...)
+		}
+	}
+	return nil
+}
+
 func fileBindingSet(files []FileBinding) map[string]struct{} {
 	set := make(map[string]struct{}, len(files))
 	for _, file := range files {
@@ -530,6 +554,9 @@ func fileBindingSet(files []FileBinding) map[string]struct{} {
 }
 
 func validateReportSourceBindings(report SourceEvidenceReport, bindings sourceInputBindings) error {
+	if err := validateReviewedNotApplicableAuthorization(report, bindings.reviewedNotApplicable); err != nil {
+		return err
+	}
 	for _, resource := range sortedMapKeys(report.Resources) {
 		row := report.Resources[resource]
 		base := "$.resources." + resource
@@ -547,6 +574,35 @@ func validateReportSourceBindings(report SourceEvidenceReport, bindings sourceIn
 			); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func validateReviewedNotApplicableAuthorization(report SourceEvidenceReport, authorized []string) error {
+	authorizedSet := make(map[string]struct{}, len(authorized))
+	for _, resource := range authorized {
+		authorizedSet[resource] = struct{}{}
+		row := report.Resources[resource]
+		if row.Classification != SourceNotApplicable || !reasonIs(row.ReasonCode, ReasonReviewedNotApplicable) {
+			return semanticErrorf(
+				sourceReportContract,
+				"$.resources."+resource,
+				"reviewed_not_applicable authorization requires a matching not_applicable row",
+			)
+		}
+	}
+	for _, resource := range sortedMapKeys(report.Resources) {
+		row := report.Resources[resource]
+		if row.Classification != SourceNotApplicable {
+			continue
+		}
+		if _, ok := authorizedSet[resource]; !ok {
+			return semanticErrorf(
+				sourceReportContract,
+				"$.resources."+resource,
+				"not_applicable requires exact reviewed_not_applicable selection authorization",
+			)
 		}
 	}
 	return nil
@@ -586,6 +642,10 @@ func validateChainSourceBindings(
 				firstSDKCallee = step.Callee
 			} else if firstSDK.modulePath != sdk.modulePath {
 				return semanticErrorf(sourceReportContract, stepBase+".import_path", "cross-SDK call-chain transitions are unsupported and fail closed")
+			}
+		} else if step.Kind == CallSDKSourceMissing {
+			if _, ok := sdkForPackage(bindings.sdks, *step.ImportPath); ok {
+				return semanticErrorf(sourceReportContract, stepBase+".import_path", "sdk_source_missing requires no manifest-bound SDK source owner")
 			}
 		}
 	}
@@ -850,7 +910,9 @@ func validateSourceEvidenceRow(resource string, row SourceEvidenceRow) error {
 			(row.ProviderRegistration != nil || row.ReadCallback != nil || len(row.Chains) != 0) {
 			return semanticErrorf(sourceReportContract, base, "provider_source_missing cannot carry provider source evidence")
 		}
-		if reasonIs(row.ReasonCode, ReasonSDKSourceMissing) && (!hasRoot || len(row.Chains) != 1 || !reasonIs(row.Chains[0].ReasonCode, ReasonSDKSourceMissing)) {
+		if reasonIs(row.ReasonCode, ReasonSDKSourceMissing) && (!hasRoot || len(row.Chains) != 1 ||
+			!reasonIs(row.Chains[0].ReasonCode, ReasonSDKSourceMissing) ||
+			!chainHasCallKind(row.Chains[0], CallSDKSourceMissing)) {
 			return semanticErrorf(sourceReportContract, base, "sdk_source_missing requires the provider Read-rooted call site")
 		}
 		if len(row.Chains) == 1 && (row.Chains[0].Endpoint != nil || row.Chains[0].SDKCall != nil) {
@@ -884,7 +946,8 @@ func validateSourceChain(chain SourceEvidenceChain, base string) error {
 				return semanticErrorf(sourceReportContract, base+".steps["+integerText(index)+"].caller", "must exactly equal the preceding resolved callee")
 			}
 		}
-		if (step.Kind == CallRawHTTP || step.Kind == CallUnresolvedDispatch) && index != len(chain.Steps)-1 {
+		if (step.Kind == CallRawHTTP || step.Kind == CallUnresolvedDispatch || step.Kind == CallSDKSourceMissing) &&
+			index != len(chain.Steps)-1 {
 			return semanticErrorf(sourceReportContract, base+".steps["+integerText(index)+"]", "%s must be terminal", step.Kind)
 		}
 		if step.Kind == CallSDKPackageFunction || step.Kind == CallSDKReceiverMethod {
@@ -940,6 +1003,16 @@ func validateSourceChain(chain SourceEvidenceChain, base string) error {
 		if !oneOfReasons(chain.ReasonCode, ReasonCallChainUnresolved, ReasonDynamicDispatch) {
 			return semanticErrorf(sourceReportContract, base+".reason_code", "unresolved_dispatch requires call_chain_unresolved or dynamic_dispatch")
 		}
+	}
+	if chainHasCallKind(chain, CallSDKSourceMissing) {
+		if chain.Endpoint != nil || chain.SDKCall != nil {
+			return semanticErrorf(sourceReportContract, base, "sdk_source_missing must terminate before SDK or endpoint evidence")
+		}
+		if !reasonIs(chain.ReasonCode, ReasonSDKSourceMissing) {
+			return semanticErrorf(sourceReportContract, base+".reason_code", "sdk_source_missing requires the sdk_source_missing reason")
+		}
+	} else if reasonIs(chain.ReasonCode, ReasonSDKSourceMissing) {
+		return semanticErrorf(sourceReportContract, base+".steps", "sdk_source_missing reason requires a terminal sdk_source_missing call")
 	}
 	return nil
 }
@@ -1013,7 +1086,7 @@ func validateSourceCallStep(step SourceCallStep, base string) error {
 		if step.ImportPath != nil {
 			return semanticErrorf(sourceReportContract, base+".import_path", "%s step must not carry an import path", step.Kind)
 		}
-	case CallSDKPackageFunction, CallSDKReceiverMethod:
+	case CallSDKPackageFunction, CallSDKReceiverMethod, CallSDKSourceMissing:
 		if step.ImportPath == nil || module.CheckImportPath(*step.ImportPath) != nil {
 			return semanticErrorf(sourceReportContract, base+".import_path", "%s step requires an import path", step.Kind)
 		}
@@ -1043,6 +1116,13 @@ func validateSourceCallStep(step SourceCallStep, base string) error {
 	case CallSDKPackageFunction, CallSDKReceiverMethod:
 		if step.Callee == nil || step.Callee.Location.Origin != SourceLocationSDK {
 			return semanticErrorf(sourceReportContract, base+".callee", "%s requires a resolved SDK callee", step.Kind)
+		}
+	case CallSDKSourceMissing:
+		if step.Caller.Location.Origin != SourceLocationProvider || step.Location.Origin != SourceLocationProvider {
+			return semanticErrorf(sourceReportContract, base, "sdk_source_missing requires a provider caller and callsite")
+		}
+		if step.Callee != nil {
+			return semanticErrorf(sourceReportContract, base+".callee", "sdk_source_missing must not claim a resolved callee")
 		}
 	case CallRawHTTP, CallUnresolvedDispatch:
 		if step.Callee != nil {
@@ -1115,7 +1195,8 @@ func equalSourceLocation(left, right SourceLocation) bool {
 }
 
 func equalSourceSymbol(left, right SourceSymbol) bool {
-	return left.Symbol == right.Symbol && equalSourceLocation(left.Location, right.Location)
+	return left.PackagePath == right.PackagePath && left.Symbol == right.Symbol &&
+		equalSourceLocation(left.Location, right.Location)
 }
 
 func sameSourceScope(left, right SourceLocation) bool {

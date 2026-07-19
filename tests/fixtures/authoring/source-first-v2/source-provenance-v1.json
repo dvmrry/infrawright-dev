@@ -88,7 +88,14 @@
     }
   ],
   "selection": {
-    "filters": [],
+    "filters": [
+      {
+        "name": "reviewed_not_applicable",
+        "values": [
+          "sourcefirst_not_applicable"
+        ]
+      }
+    ],
     "resource_types": [
       "sourcefirst_ambiguous",
       "sourcefirst_direct_http",

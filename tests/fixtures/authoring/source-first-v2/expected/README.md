@@ -13,6 +13,11 @@ provider `local_replaces` entry records Go's `../sdk` replacement as a portable
 relationship; it is not a checkout locator. Repository strings are reviewed
 fixture identities, not network locations.
 
+The manifest selection binds the reviewed exclusion explicitly as
+`{"name":"reviewed_not_applicable","values":["sourcefirst_not_applicable"]}`.
+That reviewer-authored filter is the authority for the corresponding
+`not_applicable` row; it is not inferred by the analyzer.
+
 ## Deterministic provider Git materialization
 
 The provider revision in the manifest is reproducible without network access.
@@ -50,10 +55,10 @@ OpenAPI diagnostics.
 
 The reviewed canonical SHA-256 chain is:
 
-- source manifest: `7349f278a67806c488a3854ddca9a8346a5acac4551bc305489e06f1c6336837`
-- input provenance: `eee246e72a2c919b7f7b72e6ad47f42c7fbae9eab03fd8734802deecad1e88eb`
-- source evidence report: `b9252b9ecd9b25968bba058c059080c2e8bd1f3e0717b11f558a7eed17e259ef`
-- OpenAPI diagnostics: `7672f7a8fefa72a11beab92935d5b08681ba2c71921002c498395fd941ef3d12`
+- source manifest: `8d65f243e15f1128f5c32f17c726550ca83f177d30c0ca6bf5d4adf9bbcab99f`
+- input provenance: `04ef5f42d6155e877cb6cd29c3fb68211eb3e2e5b9a3a6bcdfaf7ba12283a40f`
+- source evidence report: `b98e6252ae0578b4f3abeb993d5ab7d48982fa7b3a3c810f2ffeda47da9e83bc`
+- OpenAPI diagnostics: `e323c91a9b1f6ad7b74a8179f0abf6cd71a5923c14b452883ffc3715f9838ca2`
 
 Each populated `provider_registration` identifies the actual resource-map
 binding in `provider/provider.go`: its symbol is the resolved constructor

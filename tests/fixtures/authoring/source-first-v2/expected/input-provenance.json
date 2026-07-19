@@ -91,7 +91,14 @@
       }
     ],
     "selection": {
-      "filters": [],
+      "filters": [
+        {
+          "name": "reviewed_not_applicable",
+          "values": [
+            "sourcefirst_not_applicable"
+          ]
+        }
+      ],
       "resource_types": [
         "sourcefirst_ambiguous",
         "sourcefirst_direct_http",
@@ -108,7 +115,7 @@
       "sha256": "4f25680ef6ec3e8d6014e4683edb1e3c47cf54b5c7a0299af7b21ce4a85bfbe3"
     }
   },
-  "source_manifest_sha256": "7349f278a67806c488a3854ddca9a8346a5acac4551bc305489e06f1c6336837",
+  "source_manifest_sha256": "8d65f243e15f1128f5c32f17c726550ca83f177d30c0ca6bf5d4adf9bbcab99f",
   "source_trust": "verified",
   "unverified_observation": null
 }

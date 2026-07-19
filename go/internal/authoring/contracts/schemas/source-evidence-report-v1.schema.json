@@ -39,7 +39,7 @@
     "step": {
       "type":"object", "additionalProperties":false, "required":["kind","symbol","import_path","caller","callee","location"],
       "properties":{
-        "kind":{"enum":["provider_helper","sdk_package_function","sdk_receiver_method","raw_http","unresolved_dispatch"]},
+        "kind":{"enum":["provider_helper","sdk_package_function","sdk_receiver_method","sdk_source_missing","raw_http","unresolved_dispatch"]},
         "symbol":{"type":"string","minLength":1}, "import_path":{"type":["string","null"],"minLength":1},
         "caller":{"$ref":"#/$defs/symbol"},
         "callee":{"$ref":"#/$defs/nullableSymbol"},

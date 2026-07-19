@@ -85,6 +85,12 @@ type SelectionFilterBinding struct {
 	Values []string `json:"values"`
 }
 
+const (
+	// SelectionFilterReviewedNotApplicable is the reserved exact authorization
+	// list for resources excluded from endpoint applicability by human review.
+	SelectionFilterReviewedNotApplicable = "reviewed_not_applicable"
+)
+
 // SelectionBinding defines the resource table covered by evidence under
 // docs/go-authoring-port-roadmap.md §3.2.1.
 type SelectionBinding struct {
@@ -218,6 +224,9 @@ const (
 	CallSDKPackageFunction SourceCallKind = "sdk_package_function"
 	// CallSDKReceiverMethod is a statically proven SDK receiver method.
 	CallSDKReceiverMethod SourceCallKind = "sdk_receiver_method"
+	// CallSDKSourceMissing is a provider call into an SDK package whose source
+	// owner is absent from the exact input manifest.
+	CallSDKSourceMissing SourceCallKind = "sdk_source_missing"
 	// CallRawHTTP is a direct provider or SDK request-construction call.
 	CallRawHTTP SourceCallKind = "raw_http"
 	// CallUnresolvedDispatch is a truthful partial-chain interface or dynamic dispatch.
@@ -231,12 +240,12 @@ type SourceCallStep struct {
 	Kind SourceCallKind `json:"kind"`
 	// Symbol is the source spelling retained for diagnostics.
 	Symbol string `json:"symbol"`
-	// ImportPath is set only for imported SDK calls.
+	// ImportPath is set only for resolved SDK calls or a terminal missing-SDK call.
 	ImportPath *string `json:"import_path"`
 	// Caller is the declaration containing this call site.
 	Caller SourceSymbol `json:"caller"`
 	// Callee is the resolved declaration, and is nil only for terminal raw HTTP
-	// construction or unresolved dispatch.
+	// construction, unresolved dispatch, or missing SDK source.
 	Callee *SourceSymbol `json:"callee"`
 	// Location is the portable provider or SDK call site.
 	Location SourceLocation `json:"location"`

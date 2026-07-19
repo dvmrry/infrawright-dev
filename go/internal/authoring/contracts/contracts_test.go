@@ -356,6 +356,113 @@ func TestSourceReportBindsExactInputProvenance(t *testing.T) {
 	}
 }
 
+func TestReviewedNotApplicableSelectionAuthorizationIsExact(t *testing.T) {
+	report := validSevenStateReport()
+	input := bindReportToVerifiedInput(t, &report)
+	if err := ValidateSourceEvidenceReportAgainstInput(report, input); err != nil {
+		t.Fatalf("ValidateSourceEvidenceReportAgainstInput(valid reviewed authorization) error = %v, want nil", err)
+	}
+
+	t.Run("generic filters remain opaque", func(t *testing.T) {
+		candidate := validSevenStateReport()
+		candidateInput := bindReportToVerifiedInput(t, &candidate)
+		candidateInput.SourceManifest.Selection.Filters = append(
+			candidateInput.SourceManifest.Selection.Filters,
+			SelectionFilterBinding{Name: "suffix", Values: []string{"_widget"}},
+		)
+		candidateInput = rebindReportToInput(t, &candidate, candidateInput)
+		if err := ValidateSourceEvidenceReportAgainstInput(candidate, candidateInput); err != nil {
+			t.Errorf("ValidateSourceEvidenceReportAgainstInput(generic filter) error = %v, want nil", err)
+		}
+	})
+
+	t.Run("not applicable row without filter", func(t *testing.T) {
+		candidate := validSevenStateReport()
+		candidateInput := bindReportToVerifiedInput(t, &candidate)
+		candidateInput.SourceManifest.Selection.Filters = []SelectionFilterBinding{{Name: "prefix", Values: []string{"example_"}}}
+		candidateInput = rebindReportToInput(t, &candidate, candidateInput)
+		if err := ValidateSourceEvidenceReportAgainstInput(candidate, candidateInput); err == nil {
+			t.Error("ValidateSourceEvidenceReportAgainstInput(not_applicable without authorization) error = nil, want exact-authorization error")
+		}
+	})
+
+	t.Run("filter value not selected", func(t *testing.T) {
+		candidate := validSevenStateReport()
+		candidateInput := bindReportToVerifiedInput(t, &candidate)
+		filters := candidateInput.SourceManifest.Selection.Filters
+		filters[1].Values = append(filters[1].Values, "resource_not_selected")
+		if err := ValidateSourceEvidenceReportAgainstInput(candidate, candidateInput); err == nil {
+			t.Error("ValidateSourceEvidenceReportAgainstInput(unselected reviewed authorization) error = nil, want selection error")
+		}
+	})
+
+	t.Run("filter value row remains applicable", func(t *testing.T) {
+		candidate := validSevenStateReport()
+		candidateInput := bindReportToVerifiedInput(t, &candidate)
+		candidateInput.SourceManifest.Selection.Filters[1].Values = []string{"resource_observed_http"}
+		candidateInput = rebindReportToInput(t, &candidate, candidateInput)
+		if err := ValidateSourceEvidenceReportAgainstInput(candidate, candidateInput); err == nil {
+			t.Error("ValidateSourceEvidenceReportAgainstInput(authorization for applicable row) error = nil, want correspondence error")
+		}
+	})
+
+	t.Run("new not applicable row absent from filter", func(t *testing.T) {
+		candidate := validSevenStateReport()
+		candidateInput := bindReportToVerifiedInput(t, &candidate)
+		row := candidate.Resources["resource_no_source"]
+		row.Classification = SourceNotApplicable
+		row.ReasonCode = reasonPointer(ReasonReviewedNotApplicable)
+		candidate.Resources["resource_no_source"] = row
+		candidate.Summary.ClassificationCounts.NoSource--
+		candidate.Summary.ClassificationCounts.NotApplicable++
+		candidate.Summary.ApplicableTotal--
+		candidate.Summary.EndpointCoverage.Denominator--
+		if err := ValidateSourceEvidenceReport(candidate); err != nil {
+			t.Fatalf("ValidateSourceEvidenceReport(additional not_applicable row) error = %v, want nil before input join", err)
+		}
+		if err := ValidateSourceEvidenceReportAgainstInput(candidate, candidateInput); err == nil {
+			t.Error("ValidateSourceEvidenceReportAgainstInput(not_applicable absent from filter) error = nil, want correspondence error")
+		}
+	})
+
+	for _, test := range []struct {
+		name   string
+		mutate func(*InputProvenance)
+	}{
+		{
+			name: "duplicate reserved filter",
+			mutate: func(candidateInput *InputProvenance) {
+				candidateInput.SourceManifest.Selection.Filters = append(
+					candidateInput.SourceManifest.Selection.Filters,
+					SelectionFilterBinding{Name: SelectionFilterReviewedNotApplicable, Values: []string{"resource_not_applicable"}},
+				)
+			},
+		},
+		{
+			name: "duplicate reserved value",
+			mutate: func(candidateInput *InputProvenance) {
+				values := candidateInput.SourceManifest.Selection.Filters[1].Values
+				candidateInput.SourceManifest.Selection.Filters[1].Values = append(values, values[0])
+			},
+		},
+		{
+			name: "empty reserved filter",
+			mutate: func(candidateInput *InputProvenance) {
+				candidateInput.SourceManifest.Selection.Filters[1].Values = []string{}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := validSevenStateReport()
+			candidateInput := bindReportToVerifiedInput(t, &candidate)
+			test.mutate(&candidateInput)
+			if err := ValidateSourceEvidenceReportAgainstInput(candidate, candidateInput); err == nil {
+				t.Errorf("ValidateSourceEvidenceReportAgainstInput(%s) error = nil, want filter error", test.name)
+			}
+		})
+	}
+}
+
 func TestSourceReportExactSelectionAndSourceIdentityBindings(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -445,25 +552,159 @@ func TestUnverifiedReportStillBindsObservedModuleVersionAndFiles(t *testing.T) {
 	if err := ValidateSourceEvidenceReportAgainstInput(report, input); err == nil {
 		t.Error("ValidateSourceEvidenceReportAgainstInput(unverified wrong SDK version) error = nil, want identity-binding error")
 	}
+
+	missingAuthorization := validSevenStateReport()
+	unverifiedInput := bindReportToUnverifiedInput(t, &missingAuthorization)
+	unverifiedInput.UnverifiedObservation.Selection.Filters = []SelectionFilterBinding{}
+	unverifiedInput = rebindReportToInput(t, &missingAuthorization, unverifiedInput)
+	if err := ValidateSourceEvidenceReportAgainstInput(missingAuthorization, unverifiedInput); err == nil {
+		t.Error("ValidateSourceEvidenceReportAgainstInput(unverified missing reviewed authorization) error = nil, want exact-authorization error")
+	}
 }
 
 func TestSDKSourceMissingPreservesProviderCallsiteWithoutInventedSDKBinding(t *testing.T) {
-	report := validSevenStateReport()
-	row := report.Resources["resource_observed_http"]
-	row.Chains = append([]SourceEvidenceChain(nil), row.Chains...)
-	chain := row.Chains[0]
-	chain.Steps = append([]SourceCallStep(nil), chain.Steps[:1]...)
-	row.Classification = SourceNoSource
-	row.LegacyMapped = false
-	row.ReasonCode = reasonPointer(ReasonSDKSourceMissing)
-	chain.SDKCall = nil
-	chain.Endpoint = nil
-	chain.ReasonCode = reasonPointer(ReasonSDKSourceMissing)
-	row.Chains[0] = chain
-	report.Resources["resource_no_source"] = row
+	report := validSDKSourceMissingReport()
+	if err := ValidateSourceEvidenceReport(report); err != nil {
+		t.Fatalf("ValidateSourceEvidenceReport(valid sdk_source_missing) error = %v, want nil", err)
+	}
+	rendered, err := RenderSourceEvidenceReport(report)
+	if err != nil {
+		t.Fatalf("RenderSourceEvidenceReport(valid sdk_source_missing) error = %v, want nil", err)
+	}
+	if _, err := DecodeSourceEvidenceReport([]byte(rendered)); err != nil {
+		t.Errorf("DecodeSourceEvidenceReport(valid sdk_source_missing) error = %v, want nil", err)
+	}
 	input := bindReportToVerifiedInput(t, &report)
 	if err := ValidateSourceEvidenceReportAgainstInput(report, input); err != nil {
 		t.Errorf("ValidateSourceEvidenceReportAgainstInput(sdk_source_missing callsite) error = %v, want nil", err)
+	}
+	if got, want := report.Summary.SourceCallObservedTotal, 3; got != want {
+		t.Errorf("validSDKSourceMissingReport().Summary.SourceCallObservedTotal = %d, want %d", got, want)
+	}
+	if viableChain(report.Resources["resource_no_source"].Chains[0]) {
+		t.Error("viableChain(sdk_source_missing) = true, want false")
+	}
+
+	t.Run("bound SDK owner", func(t *testing.T) {
+		candidate := validSDKSourceMissingReport()
+		boundInput := bindReportToVerifiedInput(t, &candidate)
+		row := candidate.Resources["resource_no_source"]
+		row.Chains[0].Steps[0].ImportPath = stringPointer("example.test/sdk/widgets")
+		candidate.Resources["resource_no_source"] = row
+		if err := ValidateSourceEvidenceReport(candidate); err != nil {
+			t.Fatalf("ValidateSourceEvidenceReport(bound-owner claim shape) error = %v, want nil before input join", err)
+		}
+		if err := ValidateSourceEvidenceReportAgainstInput(candidate, boundInput); err == nil {
+			t.Error("ValidateSourceEvidenceReportAgainstInput(bound-owner sdk_source_missing) error = nil, want false-claim error")
+		}
+	})
+
+	tests := []struct {
+		name   string
+		mutate func(*SourceEvidenceReport)
+	}{
+		{
+			name: "nil import",
+			mutate: func(candidate *SourceEvidenceReport) {
+				row := candidate.Resources["resource_no_source"]
+				row.Chains[0].Steps[0].ImportPath = nil
+				candidate.Resources["resource_no_source"] = row
+			},
+		},
+		{
+			name: "invalid import",
+			mutate: func(candidate *SourceEvidenceReport) {
+				row := candidate.Resources["resource_no_source"]
+				row.Chains[0].Steps[0].ImportPath = stringPointer("example.test/sdk//widgets")
+				candidate.Resources["resource_no_source"] = row
+			},
+		},
+		{
+			name: "nonterminal",
+			mutate: func(candidate *SourceEvidenceReport) {
+				row := candidate.Resources["resource_no_source"]
+				row.Chains[0].Steps = append(row.Chains[0].Steps, SourceCallStep{
+					Kind: CallRawHTTP, Symbol: "client.NewRequest", Caller: *row.ReadCallback,
+					Location: sourceLocation("provider/resource_widget.go", "resourceWidgetRead"),
+				})
+				candidate.Resources["resource_no_source"] = row
+			},
+		},
+		{
+			name: "SDK callsite",
+			mutate: func(candidate *SourceEvidenceReport) {
+				row := candidate.Resources["resource_no_source"]
+				row.Chains[0].Steps[0].Location = sdkSourceLocation("example.test/sdk", "widgets/get.go", "Get")
+				candidate.Resources["resource_no_source"] = row
+			},
+		},
+		{
+			name: "callee",
+			mutate: func(candidate *SourceEvidenceReport) {
+				row := candidate.Resources["resource_no_source"]
+				callee := sdkSourceSymbol("example.test/sdk", "widgets/get.go", "Get", "Get")
+				row.Chains[0].Steps[0].Callee = &callee
+				candidate.Resources["resource_no_source"] = row
+			},
+		},
+		{
+			name: "SDK call evidence",
+			mutate: func(candidate *SourceEvidenceReport) {
+				row := candidate.Resources["resource_no_source"]
+				callee := sdkSourceSymbol("example.test/sdk", "widgets/get.go", "Get", "Get")
+				row.Chains[0].SDKCall = sdkCallPointer(SDKCallEvidence{
+					ModulePath: "example.test/sdk", ModuleVersion: "v1.2.3",
+					PackagePath: callee.PackagePath, Symbol: callee.Symbol, Location: callee.Location,
+				})
+				candidate.Resources["resource_no_source"] = row
+			},
+		},
+		{
+			name: "endpoint evidence",
+			mutate: func(candidate *SourceEvidenceReport) {
+				row := candidate.Resources["resource_no_source"]
+				row.Chains[0].Endpoint = &HTTPEndpointEvidence{
+					Origin: EndpointOriginProvider, Method: "GET", PathTemplate: "/widgets/{id}",
+					Location: row.Chains[0].Steps[0].Location,
+				}
+				candidate.Resources["resource_no_source"] = row
+			},
+		},
+		{
+			name: "wrong row reason",
+			mutate: func(candidate *SourceEvidenceReport) {
+				row := candidate.Resources["resource_no_source"]
+				row.ReasonCode = reasonPointer(ReasonProviderSourceMissing)
+				candidate.Resources["resource_no_source"] = row
+			},
+		},
+		{
+			name: "wrong chain reason",
+			mutate: func(candidate *SourceEvidenceReport) {
+				row := candidate.Resources["resource_no_source"]
+				row.Chains[0].ReasonCode = reasonPointer(ReasonCallChainUnresolved)
+				candidate.Resources["resource_no_source"] = row
+			},
+		},
+		{
+			name: "wrong classification",
+			mutate: func(candidate *SourceEvidenceReport) {
+				row := candidate.Resources["resource_no_source"]
+				row.Classification = SourceUnresolved
+				candidate.Resources["resource_no_source"] = row
+				candidate.Summary.ClassificationCounts.NoSource--
+				candidate.Summary.ClassificationCounts.Unresolved++
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := validSDKSourceMissingReport()
+			test.mutate(&candidate)
+			if err := ValidateSourceEvidenceReport(candidate); err == nil {
+				t.Errorf("ValidateSourceEvidenceReport(sdk_source_missing %s) error = nil, want fail-closed error", test.name)
+			}
+		})
 	}
 }
 
@@ -666,6 +907,14 @@ func TestReadRootedEdgesRejectCreateDecoysAndBrokenAdjacency(t *testing.T) {
 	brokenAdjacency.Resources["resource_observed_http"] = row
 	if err := ValidateSourceEvidenceReport(brokenAdjacency); err == nil {
 		t.Error("ValidateSourceEvidenceReport(broken caller/callee adjacency) error = nil, want edge error")
+	}
+
+	packageDecoy := validSevenStateReport()
+	row = packageDecoy.Resources["resource_observed_http"]
+	row.Chains[0].Steps[1].Caller.PackagePath = "example.test/provider/forged"
+	packageDecoy.Resources["resource_observed_http"] = row
+	if err := ValidateSourceEvidenceReport(packageDecoy); err == nil {
+		t.Error("ValidateSourceEvidenceReport(package-path-only adjacency decoy) error = nil, want full-symbol edge error")
 	}
 
 	unscoped := validSevenStateReport()
@@ -1167,6 +1416,25 @@ func validSevenStateReport() SourceEvidenceReport {
 	}
 }
 
+func validSDKSourceMissingReport() SourceEvidenceReport {
+	report := validSevenStateReport()
+	row := report.Resources["resource_observed_http"]
+	missingImport := "example.test/missing-sdk/widgets"
+	row.Classification = SourceNoSource
+	row.LegacyMapped = false
+	row.ReasonCode = reasonPointer(ReasonSDKSourceMissing)
+	row.Chains = []SourceEvidenceChain{{
+		Steps: []SourceCallStep{{
+			Kind: CallSDKSourceMissing, Symbol: "widgets.Get", ImportPath: &missingImport,
+			Caller:   *row.ReadCallback,
+			Location: sourceLocation("provider/resource_widget.go", "resourceWidgetRead"),
+		}},
+		ReasonCode: reasonPointer(ReasonSDKSourceMissing),
+	}}
+	report.Resources["resource_no_source"] = row
+	return report
+}
+
 func validAbsentDiagnostics(source SourceEvidenceReport) OpenAPIDiagnosticsReport {
 	comparisons := make(map[string]OpenAPIComparisonRow, len(source.Resources))
 	for resource := range source.Resources {
@@ -1260,6 +1528,10 @@ func bindReportToVerifiedInput(t *testing.T, report *SourceEvidenceReport) Input
 	t.Helper()
 	manifest := validProvenance()
 	manifest.Selection.ResourceTypes = sortedMapKeys(report.Resources)
+	manifest.Selection.Filters = append(
+		manifest.Selection.Filters,
+		reviewedNotApplicableFilter(report)...,
+	)
 	renderedManifest, err := RenderSourceProvenance(manifest)
 	if err != nil {
 		t.Fatalf("RenderSourceProvenance(report binding) error = %v, want nil", err)
@@ -1285,8 +1557,22 @@ func bindReportToUnverifiedInput(t *testing.T, report *SourceEvidenceReport) Inp
 	report.Resources["resource_observed_http"] = row
 	input := validUnverifiedInputProvenance()
 	input.UnverifiedObservation.Selection.ResourceTypes = sortedMapKeys(report.Resources)
+	input.UnverifiedObservation.Selection.Filters = reviewedNotApplicableFilter(report)
 	bindReportToInput(t, report, input)
 	return input
+}
+
+func reviewedNotApplicableFilter(report *SourceEvidenceReport) []SelectionFilterBinding {
+	values := make([]string, 0)
+	for _, resource := range sortedMapKeys(report.Resources) {
+		if report.Resources[resource].Classification == SourceNotApplicable {
+			values = append(values, resource)
+		}
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	return []SelectionFilterBinding{{Name: SelectionFilterReviewedNotApplicable, Values: values}}
 }
 
 func validUnverifiedInputProvenance() InputProvenance {
