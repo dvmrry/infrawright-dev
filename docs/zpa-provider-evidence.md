@@ -1,5 +1,14 @@
 # ZPA Provider v4.4.6 Evidence
 
+Planned disposition: the current `iw zpa-provider-evidence` Node command remains
+available only until the final Node authority freeze. It is not ported as a
+standalone Go command. Under
+[go-authoring-port-roadmap.md](go-authoring-port-roadmap.md), this matrix and
+its local/source binding checks become the frozen generic static source-binding
+corpus. Provider-to-SDK-to-HTTP qualification uses the roadmap's separate
+provider+SDK-pinned endpoint fixture. The commands below describe the current
+pre-handoff workflow and remain valid until that transition lands.
+
 This evidence lane freezes the provider-source facts needed before the Node
 adoption oracle can support the 16 fetch-backed ZPA resources. The canonical
 machine-readable matrix is

@@ -118,19 +118,25 @@ remains accepted (now redundant) for one release, then warns.
 protocol.) Node is never modified for this change. The gate that
 unblocks every parcel below:
 
-1. **Authoring parity complete.** The seven authoring commands
+1. **Authoring authority complete.** The six retained authoring commands
    (reconcile, openapi-map, source-operation-map, source-evidence-eval,
-   provider-probe, transform-adopt-parity, zpa-provider-evidence) are
-   ported to Go against the *current* frozen Node behavior and pass
-   their own differential gates.
+   provider-probe, transform-adopt-parity) are ported under
+   [go-authoring-port-roadmap.md](go-authoring-port-roadmap.md). Existing
+   OpenAPI-backed behavior passes against the current frozen Node corpus;
+   the new source-first/OpenAPI-optional behavior passes its independently
+   reviewed source-bound goldens. The version-specific
+   `zpa-provider-evidence` command retires into the generic analyzer's
+   frozen ZPA corpus, whose pack/schema/source binding checks stay green.
 2. **Final freeze.** The Node runtime is frozen as the immutable v1
-   oracle: tagged, bundle SHA recorded, and the full differential
-   corpus run green one final time at that commit. Node changes for no
-   reason after this point.
+   provenance oracle: tagged, bundle SHA recorded, and the full
+   differential corpus (including the retiring ZPA validator) run green
+   one final time at that commit. Node changes for no reason after this
+   point. After the eventual archive the bundle is retained by digest as
+   evidence, not executed in CI or shipped as a dependency.
 3. **Authority transfer.** Go is formally declared the product
-   authority in [go-runtime-v2.md](go-runtime-v2.md) (whose §command
-   boundary must be corrected at the same time — it still records the
-   authoring commands as permanently Node).
+   authority in [go-runtime-v2.md](go-runtime-v2.md). The single released
+   `iw` binary must expose both the operator surface and all six retained
+   authoring commands, with no executable Node fallback.
 
 After the gate, degrouping is implemented directly in Go as a
 versioned v2 change. Consequence, stated so nobody trips on it later:

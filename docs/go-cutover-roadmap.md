@@ -52,13 +52,17 @@ IW_MAINTAINER ?= $(NODE) dist/infrawright-cli.mjs # Node, unchanged
   check-pack, check-pack-set, deployment, resources, …) use
   `IW_OPERATOR` and drop their `dist/infrawright-cli.mjs` build
   prerequisite entirely.
-- The seven authoring commands (reconcile, openapi-map,
+- The six retained authoring commands (reconcile, openapi-map,
   source-operation-map, source-evidence-eval, provider-probe,
-  transform-adopt-parity, zpa-provider-evidence) use `IW_MAINTAINER`
+  transform-adopt-parity) use `IW_MAINTAINER`
   **as a transitional lane only**: it points at the Node bundle until
   authoring parity lands, flips to the Go binary at the authority
   handoff, and is collapsed into `IW_OPERATOR` (single binary, single
   variable) during the archive phase.
+- The version-specific `zpa-provider-evidence` CLI does not cross the
+  handoff. Its v4.4.6 matrix, source anchors, and fail-closed binding checks
+  become a frozen corpus of the generic source analyzer as specified by
+  [go-authoring-port-roadmap.md](go-authoring-port-roadmap.md).
 - During the candidate period only, `INFRAWRIGHT_CLI` remains honored
   as an explicit override of `IW_OPERATOR` (this is the opt-in/rollback
   lever); it is deleted at the end of the rollback window.
@@ -148,12 +152,16 @@ Tripwires, both enforced in the Go lane:
 ## 6. Authoring commands position
 
 (Amended 2026-07-19; the previous revision kept these Node
-indefinitely.) The seven authoring commands are in cutover scope:
-their Go port proceeds now, against the current frozen Node behavior,
-independent of and before degrouping. Authoring parity is precondition
-1 of this roadmap and the first leg of the authority-handoff gate in
-singleton-state-topology-v2.md §3 D6. After the archive phase, no
-executable Node dependency remains anywhere in the product.
+indefinitely.) The six retained authoring commands are in cutover scope
+under [go-authoring-port-roadmap.md](go-authoring-port-roadmap.md). Existing
+command behavior remains differential-gated; the source-first,
+OpenAPI-optional extension uses independently reviewed source-bound
+goldens because Node has no equivalent output. The ZPA-specific validator
+retires into that corpus rather than being ported as a seventh command.
+Authoring authority is precondition 1 of this roadmap and the first leg
+of the authority-handoff gate in singleton-state-topology-v2.md §3 D6.
+After the archive phase, no executable Node dependency remains anywhere
+in the product.
 
 ## 7. Exit criteria
 

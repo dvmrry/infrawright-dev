@@ -120,25 +120,39 @@ vendored `x/net`/`x/text` source**. The module is stdlib-only. Nothing in the
 KEEP column changed artifact behavior; all four artifact byte-gates remained
 byte-identical.
 
-## 4. Command scope: runtime binary vs retained Node tools
+## 4. Command scope: one Go authority
 
-The Go binary carries only what an operator/pipeline runs:
+The single released `iw` binary carries the complete retained command surface.
+Its operator/pipeline commands are:
 
 `fetch · fetch-diag · transform · adopt · gen-env · modules · stage-imports · unstage-imports
 · roots · scope-paths · plan-roots · plan · clean-plans · assert-clean ·
 assert-adoptable · apply · resources · deployment · check-pack · check-pack-set
 · root-catalog`
 
-**Retained as Node repository/maintainer tools** (not ported, not a runtime
-dependency): `reconcile · openapi-map · source-operation-map ·
-source-evidence-eval · provider-probe · zpa-provider-evidence ·
-transform-adopt-parity · audit-vendor-boundary`. These are
-developer-facing authoring/readiness tools; Node stays a *development*
-dependency for them. This removes the entire uncertain authoring-port block.
+Six authoring commands are also part of that same `iw` binary before the
+authority handoff:
+`reconcile · openapi-map · source-operation-map · source-evidence-eval ·
+provider-probe · transform-adopt-parity`. Their controlling design is
+[go-authoring-port-roadmap.md](go-authoring-port-roadmap.md): provider and SDK
+source produce the primary HTTP-path evidence, while OpenAPI is optional
+corroboration and cannot outrank source.
 
-The product requirement is **"no Node required on the operator's machine,"** not
-"no Node anywhere in CI." That relaxation alone deletes the make-check
-Node-dependency blocker's root cause.
+`zpa-provider-evidence` does not become a seventh Go command. Its pinned v4.4.6
+matrix and binding checks become a frozen qualification corpus for the generic
+source analyzer. `audit-vendor-boundary` is a repository verification
+obligation rather than a released CLI surface; any still-required import/token
+boundary is implemented as a Go/CI check before Node archive.
+
+Existing Node-backed command behavior remains the differential authority until
+handoff. New source-only behavior has no Node equivalent and therefore uses an
+independently reviewed, source-bound golden corpus. At full archive Node is
+neither a runtime nor CI execution dependency; its final bundle digest and
+historical fixtures remain provenance only.
+
+The A6 handoff gate asserts that all six authoring names appear in `iw` help,
+route through that binary, and have no executable Node fallback. There is no
+second authoring binary and no post-handoff Node command lane.
 
 ## 5. Vertical-slice checkpoint (go/no-go before any more breadth)
 
