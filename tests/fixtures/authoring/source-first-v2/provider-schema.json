@@ -1,0 +1,48 @@
+{
+  "format_version": "1.0",
+  "provider_schemas": {
+    "registry.terraform.io/fixture/sourcefirst": {
+      "provider": {
+        "version": 0,
+        "block": {
+          "attributes": {},
+          "block_types": {}
+        }
+      },
+      "resource_schemas": {
+        "sourcefirst_ambiguous": {
+          "version": 0,
+          "block": { "attributes": { "id": { "type": "string", "computed": true } }, "block_types": {} }
+        },
+        "sourcefirst_direct_http": {
+          "version": 0,
+          "block": { "attributes": { "id": { "type": "string", "computed": true } }, "block_types": {} }
+        },
+        "sourcefirst_dynamic": {
+          "version": 0,
+          "block": { "attributes": { "id": { "type": "string", "computed": true } }, "block_types": {} }
+        },
+        "sourcefirst_no_source": {
+          "version": 0,
+          "block": { "attributes": { "id": { "type": "string", "computed": true } }, "block_types": {} }
+        },
+        "sourcefirst_not_applicable": {
+          "version": 0,
+          "block": { "attributes": { "id": { "type": "string", "computed": true } }, "block_types": {} }
+        },
+        "sourcefirst_sdk_http": {
+          "version": 0,
+          "block": { "attributes": { "id": { "type": "string", "computed": true } }, "block_types": {} }
+        },
+        "sourcefirst_sdk_symbol": {
+          "version": 0,
+          "block": { "attributes": { "id": { "type": "string", "computed": true } }, "block_types": {} }
+        },
+        "sourcefirst_unresolved": {
+          "version": 0,
+          "block": { "attributes": { "id": { "type": "string", "computed": true } }, "block_types": {} }
+        }
+      }
+    }
+  }
+}

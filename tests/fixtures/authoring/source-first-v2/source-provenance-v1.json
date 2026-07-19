@@ -1,0 +1,107 @@
+{
+  "kind": "infrawright.source_provenance",
+  "openapi": null,
+  "provider": {
+    "files": [
+      {
+        "path": "internal/fixture/runtime.go",
+        "sha256": "05aaeee812012ad1b466115d5927d5ec96ef42bf327891a3e8139a886639a363"
+      },
+      {
+        "path": "provider.go",
+        "sha256": "b98cc7bc15bd7d05ebf06955150fb11198289163c2723e77eeeddc12d075f028"
+      },
+      {
+        "path": "resource_ambiguous.go",
+        "sha256": "815b4d88e059c1c8d5cc5a43c8645d7e2606de6fad0f3cf4fb818e279a5592a1"
+      },
+      {
+        "path": "resource_direct_http.go",
+        "sha256": "e713ca339e6d1618557f3c5d6713c9ed73981b29e4de3d77ba8b06611a36e652"
+      },
+      {
+        "path": "resource_dynamic.go",
+        "sha256": "58192dc424e8fde9b519e252ea92e6822dbf7a448a5f54b5cfda9e99560b5a0a"
+      },
+      {
+        "path": "resource_sdk_http.go",
+        "sha256": "c4cc1f34c1c0279f9b4a8c35dfdde67ab8ce4205d37318bb7e728a4becd92259"
+      },
+      {
+        "path": "resource_sdk_symbol.go",
+        "sha256": "cc10da03b3f7b185948b4ec326e9ba87427b0534d246980a4ea827baa32550df"
+      },
+      {
+        "path": "resource_unresolved.go",
+        "sha256": "fd6efaaf14cdb3db7c2a21b37d20445363badc124de03e068a410b9db946e8e8"
+      }
+    ],
+    "module_path": "example.invalid/terraform-provider-sourcefirst",
+    "repository": "fixture/sourcefirst-provider",
+    "revision": "17c9925c11b16bf1c8f5a34c0d6b7b930631eb95",
+    "tree_sha256": "4f337318b5fe8a343a3d3b3cc5e5f2458fe2d35f784442a6b5e3d29986fb5191"
+  },
+  "provider_module": {
+    "go_mod": {
+      "path": "go.mod",
+      "sha256": "76469f905711de518637fa0daf8f5acdfc7a3959086925bb4c08a191e2eb72cc"
+    },
+    "go_sum": null,
+    "local_replaces": [
+      {
+        "local_path": "../sdk",
+        "module_path": "example.invalid/sourcefirst-sdk",
+        "module_version": null
+      }
+    ]
+  },
+  "schema_version": 1,
+  "sdks": [
+    {
+      "files": [
+        {
+          "path": "alpha/client.go",
+          "sha256": "b53ef684b2354d7b95bdfa0eddf966e2fc803a787546be35f7212740ce71fd16"
+        },
+        {
+          "path": "beta/client.go",
+          "sha256": "8c82326457c79b4cab7a9c9cc2fe68f3a4981c196b26afade2c453a2286ec406"
+        },
+        {
+          "path": "catalog/catalog.go",
+          "sha256": "3da8d6544e98dcf4123680bb23187dd47ff5d62c256f04fc3eabd21750c278ba"
+        },
+        {
+          "path": "go.mod",
+          "sha256": "076d79d19843c6770551e49b253ab91a104c1b4724e3db74634fd291a07bab07"
+        },
+        {
+          "path": "opaque/opaque.go",
+          "sha256": "7d2445b1900707ee98a5fbd2c4619d48a5c07143302e069f76bb42325875047a"
+        }
+      ],
+      "module_path": "example.invalid/sourcefirst-sdk",
+      "module_version": "v0.0.0",
+      "repository": "fixture/sourcefirst-sdk",
+      "revision": null,
+      "tree_sha256": "a5ae6c6aefdad8c5cb6b8cfee19eeeb4172d3fd483a22b160aca8102187d20a3"
+    }
+  ],
+  "selection": {
+    "filters": [],
+    "resource_types": [
+      "sourcefirst_ambiguous",
+      "sourcefirst_direct_http",
+      "sourcefirst_dynamic",
+      "sourcefirst_no_source",
+      "sourcefirst_not_applicable",
+      "sourcefirst_sdk_http",
+      "sourcefirst_sdk_symbol",
+      "sourcefirst_unresolved"
+    ]
+  },
+  "terraform_schema": {
+    "path": "provider-schema.json",
+    "sha256": "4f25680ef6ec3e8d6014e4683edb1e3c47cf54b5c7a0299af7b21ce4a85bfbe3"
+  }
+}

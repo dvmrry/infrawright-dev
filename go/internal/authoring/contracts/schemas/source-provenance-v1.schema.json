@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infrawright.local/schemas/source-provenance-v1.schema.json",
+  "title": "Infrawright verified source manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "schema_version",
+    "provider",
+    "provider_module",
+    "terraform_schema",
+    "sdks",
+    "selection",
+    "openapi"
+  ],
+  "properties": {
+    "kind": { "const": "infrawright.source_provenance" },
+    "schema_version": { "const": 1 },
+    "provider": { "$ref": "#/$defs/providerSource" },
+    "provider_module": { "$ref": "#/$defs/providerModule" },
+    "terraform_schema": { "$ref": "#/$defs/fileBinding" },
+    "sdks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/sdkSource" }
+    },
+    "selection": { "$ref": "#/$defs/selection" },
+    "openapi": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/openapiInput" }
+      ]
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nullableSha256": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/sha256" }
+      ]
+    },
+    "fileBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "providerSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "module_path", "revision", "tree_sha256", "files"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "module_path": { "type": "string", "minLength": 1 },
+        "revision": { "type": "string", "minLength": 1 },
+        "tree_sha256": { "$ref": "#/$defs/sha256" },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/fileBinding" }
+        }
+      }
+    },
+    "providerModule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["go_mod", "go_sum", "local_replaces"],
+      "properties": {
+        "go_mod": { "$ref": "#/$defs/fileBinding" },
+        "go_sum": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/fileBinding" }
+          ]
+        },
+        "local_replaces": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/localReplace" }
+        }
+      }
+    },
+    "localReplace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["module_path", "module_version", "local_path"],
+      "properties": {
+        "module_path": { "type": "string", "minLength": 1 },
+        "module_version": { "type": ["string", "null"], "minLength": 1 },
+        "local_path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "sdkSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["module_path", "module_version", "repository", "revision", "tree_sha256", "files"],
+      "properties": {
+        "module_path": { "type": "string", "minLength": 1 },
+        "module_version": { "type": "string", "minLength": 1 },
+        "repository": { "type": "string", "minLength": 1 },
+        "revision": { "type": ["string", "null"], "minLength": 1 },
+        "tree_sha256": { "$ref": "#/$defs/nullableSha256" },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/fileBinding" }
+        }
+      },
+      "anyOf": [
+        { "required": ["revision"], "properties": { "revision": { "type": "string" } } },
+        { "required": ["tree_sha256"], "properties": { "tree_sha256": { "$ref": "#/$defs/sha256" } } }
+      ]
+    },
+    "selectionFilter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "values"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "values": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource_types", "filters"],
+      "properties": {
+        "resource_types": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "filters": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/selectionFilter" }
+        }
+      }
+    },
+    "openapiInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document", "local_refs"],
+      "properties": {
+        "document": { "$ref": "#/$defs/fileBinding" },
+        "local_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/fileBinding" }
+        }
+      }
+    },
+    "unverifiedSDK": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["module_path", "module_version", "files"],
+      "properties": {
+        "module_path": { "type": "string", "minLength": 1 },
+        "module_version": { "type": "string", "minLength": 1 },
+        "files": { "type": "array", "items": { "$ref": "#/$defs/fileBinding" } }
+      }
+    },
+    "unverifiedObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider_module_path", "provider_files", "terraform_schema", "sdks", "selection"],
+      "properties": {
+        "provider_module_path": { "type": "string", "minLength": 1 },
+        "provider_files": { "type": "array", "items": { "$ref": "#/$defs/fileBinding" } },
+        "terraform_schema": { "$ref": "#/$defs/fileBinding" },
+        "sdks": { "type": "array", "items": { "$ref": "#/$defs/unverifiedSDK" } },
+        "selection": { "$ref": "#/$defs/selection" }
+      }
+    },
+    "inputProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "schema_version", "source_trust", "source_manifest_sha256", "source_manifest", "unverified_observation"],
+      "properties": {
+        "kind": { "const": "infrawright.input_provenance" },
+        "schema_version": { "const": 1 },
+        "source_trust": { "enum": ["verified", "unverified"] },
+        "source_manifest_sha256": { "oneOf": [{"type":"null"},{"$ref":"#/$defs/sha256"}] },
+        "source_manifest": { "oneOf": [{"type":"null"},{"$ref":"#"}] },
+        "unverified_observation": { "oneOf": [{"type":"null"},{"$ref":"#/$defs/unverifiedObservation"}] }
+      },
+      "allOf": [{
+        "if": { "properties": { "source_trust": { "const": "verified" } }, "required": ["source_trust"] },
+        "then": { "properties": { "source_manifest_sha256": { "$ref": "#/$defs/sha256" }, "source_manifest": { "$ref": "#" }, "unverified_observation": { "type": "null" } } },
+        "else": { "properties": { "source_manifest_sha256": { "type": "null" }, "source_manifest": { "type": "null" }, "unverified_observation": { "$ref": "#/$defs/unverifiedObservation" } } }
+      }]
+    }
+  }
+}

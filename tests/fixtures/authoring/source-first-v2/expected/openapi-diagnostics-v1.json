@@ -1,0 +1,71 @@
+{
+  "comparisons": {
+    "sourcefirst_ambiguous": {
+      "basis": null,
+      "basis_reference": null,
+      "operations": [],
+      "state": "not_attempted"
+    },
+    "sourcefirst_direct_http": {
+      "basis": null,
+      "basis_reference": null,
+      "operations": [],
+      "state": "not_attempted"
+    },
+    "sourcefirst_dynamic": {
+      "basis": null,
+      "basis_reference": null,
+      "operations": [],
+      "state": "not_attempted"
+    },
+    "sourcefirst_no_source": {
+      "basis": null,
+      "basis_reference": null,
+      "operations": [],
+      "state": "not_attempted"
+    },
+    "sourcefirst_not_applicable": {
+      "basis": null,
+      "basis_reference": null,
+      "operations": [],
+      "state": "not_attempted"
+    },
+    "sourcefirst_sdk_http": {
+      "basis": null,
+      "basis_reference": null,
+      "operations": [],
+      "state": "not_attempted"
+    },
+    "sourcefirst_sdk_symbol": {
+      "basis": null,
+      "basis_reference": null,
+      "operations": [],
+      "state": "not_attempted"
+    },
+    "sourcefirst_unresolved": {
+      "basis": null,
+      "basis_reference": null,
+      "operations": [],
+      "state": "not_attempted"
+    }
+  },
+  "document_state": "absent",
+  "kind": "infrawright.openapi_diagnostics",
+  "reason_code": null,
+  "schema_version": 1,
+  "source_manifest_sha256": "7349f278a67806c488a3854ddca9a8346a5acac4551bc305489e06f1c6336837",
+  "source_report_sha256": "b9252b9ecd9b25968bba058c059080c2e8bd1f3e0717b11f558a7eed17e259ef",
+  "source_trust": "verified",
+  "summary": {
+    "comparison_counts": {
+      "ambiguous": 0,
+      "conflict": 0,
+      "corroborated": 0,
+      "missing_path": 0,
+      "not_attempted": 8,
+      "not_comparable": 0
+    },
+    "comparison_eligible_total": 2,
+    "degraded_comparison_total": 0
+  }
+}

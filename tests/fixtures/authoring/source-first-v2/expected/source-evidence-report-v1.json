@@ -1,0 +1,943 @@
+{
+  "input_provenance_sha256": "eee246e72a2c919b7f7b72e6ad47f42c7fbae9eab03fd8734802deecad1e88eb",
+  "kind": "infrawright.source_evidence_report",
+  "resources": {
+    "sourcefirst_ambiguous": {
+      "chains": [
+        {
+          "endpoint": {
+            "location": {
+              "column": 16,
+              "function": "(*Client).Get",
+              "line": 19,
+              "origin": "sdk",
+              "path": "alpha/client.go",
+              "sdk_module_path": "example.invalid/sourcefirst-sdk"
+            },
+            "method": "GET",
+            "origin": "sdk",
+            "path_template": "/v1/alpha/{id}"
+          },
+          "reason_code": null,
+          "sdk_call": {
+            "location": {
+              "column": 23,
+              "function": "(*Client).Get",
+              "line": 18,
+              "origin": "sdk",
+              "path": "alpha/client.go",
+              "sdk_module_path": "example.invalid/sourcefirst-sdk"
+            },
+            "module_path": "example.invalid/sourcefirst-sdk",
+            "module_version": "v0.0.0",
+            "package_path": "example.invalid/sourcefirst-sdk/alpha",
+            "symbol": "(*Client).Get"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).Get",
+                  "line": 18,
+                  "origin": "sdk",
+                  "path": "alpha/client.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/alpha",
+                "symbol": "(*Client).Get"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourceAmbiguousRead",
+                  "line": 15,
+                  "origin": "provider",
+                  "path": "resource_ambiguous.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "example.invalid/terraform-provider-sourcefirst",
+                "symbol": "resourceAmbiguousRead"
+              },
+              "import_path": "example.invalid/sourcefirst-sdk/alpha",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 33,
+                "function": "resourceAmbiguousRead",
+                "line": 16,
+                "origin": "provider",
+                "path": "resource_ambiguous.go",
+                "sdk_module_path": null
+              },
+              "symbol": "(*alpha.Client).Get"
+            },
+            {
+              "callee": null,
+              "caller": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).Get",
+                  "line": 18,
+                  "origin": "sdk",
+                  "path": "alpha/client.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/alpha",
+                "symbol": "(*Client).Get"
+              },
+              "import_path": null,
+              "kind": "raw_http",
+              "location": {
+                "column": 16,
+                "function": "(*Client).Get",
+                "line": 19,
+                "origin": "sdk",
+                "path": "alpha/client.go",
+                "sdk_module_path": "example.invalid/sourcefirst-sdk"
+              },
+              "symbol": "(*alpha.Client).NewRequest"
+            }
+          ]
+        },
+        {
+          "endpoint": {
+            "location": {
+              "column": 16,
+              "function": "(*Client).Get",
+              "line": 19,
+              "origin": "sdk",
+              "path": "beta/client.go",
+              "sdk_module_path": "example.invalid/sourcefirst-sdk"
+            },
+            "method": "GET",
+            "origin": "sdk",
+            "path_template": "/v2/beta/{id}"
+          },
+          "reason_code": null,
+          "sdk_call": {
+            "location": {
+              "column": 23,
+              "function": "(*Client).Get",
+              "line": 18,
+              "origin": "sdk",
+              "path": "beta/client.go",
+              "sdk_module_path": "example.invalid/sourcefirst-sdk"
+            },
+            "module_path": "example.invalid/sourcefirst-sdk",
+            "module_version": "v0.0.0",
+            "package_path": "example.invalid/sourcefirst-sdk/beta",
+            "symbol": "(*Client).Get"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).Get",
+                  "line": 18,
+                  "origin": "sdk",
+                  "path": "beta/client.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/beta",
+                "symbol": "(*Client).Get"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourceAmbiguousRead",
+                  "line": 15,
+                  "origin": "provider",
+                  "path": "resource_ambiguous.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "example.invalid/terraform-provider-sourcefirst",
+                "symbol": "resourceAmbiguousRead"
+              },
+              "import_path": "example.invalid/sourcefirst-sdk/beta",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 29,
+                "function": "resourceAmbiguousRead",
+                "line": 19,
+                "origin": "provider",
+                "path": "resource_ambiguous.go",
+                "sdk_module_path": null
+              },
+              "symbol": "(*beta.Client).Get"
+            },
+            {
+              "callee": null,
+              "caller": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).Get",
+                  "line": 18,
+                  "origin": "sdk",
+                  "path": "beta/client.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/beta",
+                "symbol": "(*Client).Get"
+              },
+              "import_path": null,
+              "kind": "raw_http",
+              "location": {
+                "column": 16,
+                "function": "(*Client).Get",
+                "line": 19,
+                "origin": "sdk",
+                "path": "beta/client.go",
+                "sdk_module_path": "example.invalid/sourcefirst-sdk"
+              },
+              "symbol": "(*beta.Client).NewRequest"
+            }
+          ]
+        }
+      ],
+      "classification": "ambiguous",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 29,
+          "function": null,
+          "line": 9,
+          "origin": "provider",
+          "path": "provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "example.invalid/terraform-provider-sourcefirst",
+        "symbol": "resourceAmbiguous"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourceAmbiguousRead",
+          "line": 15,
+          "origin": "provider",
+          "path": "resource_ambiguous.go",
+          "sdk_module_path": null
+        },
+        "package_path": "example.invalid/terraform-provider-sourcefirst",
+        "symbol": "resourceAmbiguousRead"
+      },
+      "reason_code": "multiple_viable_candidates"
+    },
+    "sourcefirst_direct_http": {
+      "chains": [
+        {
+          "endpoint": {
+            "location": {
+              "column": 19,
+              "function": "readDirectHTTP",
+              "line": 20,
+              "origin": "provider",
+              "path": "resource_direct_http.go",
+              "sdk_module_path": null
+            },
+            "method": "GET",
+            "origin": "provider",
+            "path_template": "/v1/direct/{id}"
+          },
+          "reason_code": null,
+          "sdk_call": null,
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "readDirectHTTP",
+                  "line": 19,
+                  "origin": "provider",
+                  "path": "resource_direct_http.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "example.invalid/terraform-provider-sourcefirst",
+                "symbol": "readDirectHTTP"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourceDirectHTTPRead",
+                  "line": 15,
+                  "origin": "provider",
+                  "path": "resource_direct_http.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "example.invalid/terraform-provider-sourcefirst",
+                "symbol": "resourceDirectHTTPRead"
+              },
+              "import_path": null,
+              "kind": "provider_helper",
+              "location": {
+                "column": 9,
+                "function": "resourceDirectHTTPRead",
+                "line": 16,
+                "origin": "provider",
+                "path": "resource_direct_http.go",
+                "sdk_module_path": null
+              },
+              "symbol": "readDirectHTTP"
+            },
+            {
+              "callee": null,
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "readDirectHTTP",
+                  "line": 19,
+                  "origin": "provider",
+                  "path": "resource_direct_http.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "example.invalid/terraform-provider-sourcefirst",
+                "symbol": "readDirectHTTP"
+              },
+              "import_path": null,
+              "kind": "raw_http",
+              "location": {
+                "column": 19,
+                "function": "readDirectHTTP",
+                "line": 20,
+                "origin": "provider",
+                "path": "resource_direct_http.go",
+                "sdk_module_path": null
+              },
+              "symbol": "(*fixture.Client).NewRequest"
+            }
+          ]
+        }
+      ],
+      "classification": "observed_http",
+      "legacy_mapped": true,
+      "provider_registration": {
+        "location": {
+          "column": 29,
+          "function": null,
+          "line": 6,
+          "origin": "provider",
+          "path": "provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "example.invalid/terraform-provider-sourcefirst",
+        "symbol": "resourceDirectHTTP"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourceDirectHTTPRead",
+          "line": 15,
+          "origin": "provider",
+          "path": "resource_direct_http.go",
+          "sdk_module_path": null
+        },
+        "package_path": "example.invalid/terraform-provider-sourcefirst",
+        "symbol": "resourceDirectHTTPRead"
+      },
+      "reason_code": null
+    },
+    "sourcefirst_dynamic": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "dynamic_path",
+          "sdk_call": null,
+          "steps": [
+            {
+              "callee": null,
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourceDynamicRead",
+                  "line": 16,
+                  "origin": "provider",
+                  "path": "resource_dynamic.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "example.invalid/terraform-provider-sourcefirst",
+                "symbol": "resourceDynamicRead"
+              },
+              "import_path": null,
+              "kind": "raw_http",
+              "location": {
+                "column": 19,
+                "function": "resourceDynamicRead",
+                "line": 17,
+                "origin": "provider",
+                "path": "resource_dynamic.go",
+                "sdk_module_path": null
+              },
+              "symbol": "(*fixture.Client).NewRequest"
+            }
+          ]
+        }
+      ],
+      "classification": "dynamic",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 29,
+          "function": null,
+          "line": 10,
+          "origin": "provider",
+          "path": "provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "example.invalid/terraform-provider-sourcefirst",
+        "symbol": "resourceDynamic"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourceDynamicRead",
+          "line": 16,
+          "origin": "provider",
+          "path": "resource_dynamic.go",
+          "sdk_module_path": null
+        },
+        "package_path": "example.invalid/terraform-provider-sourcefirst",
+        "symbol": "resourceDynamicRead"
+      },
+      "reason_code": null
+    },
+    "sourcefirst_no_source": {
+      "chains": [],
+      "classification": "no_source",
+      "legacy_mapped": false,
+      "provider_registration": null,
+      "read_callback": null,
+      "reason_code": "provider_source_missing"
+    },
+    "sourcefirst_not_applicable": {
+      "chains": [],
+      "classification": "not_applicable",
+      "legacy_mapped": false,
+      "provider_registration": null,
+      "read_callback": null,
+      "reason_code": "reviewed_not_applicable"
+    },
+    "sourcefirst_sdk_http": {
+      "chains": [
+        {
+          "endpoint": {
+            "location": {
+              "column": 16,
+              "function": "(*Client).newGetRequest",
+              "line": 38,
+              "origin": "sdk",
+              "path": "catalog/catalog.go",
+              "sdk_module_path": "example.invalid/sourcefirst-sdk"
+            },
+            "method": "GET",
+            "origin": "sdk",
+            "path_template": "/v1/catalog/{id}"
+          },
+          "reason_code": null,
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "Get",
+              "line": 18,
+              "origin": "sdk",
+              "path": "catalog/catalog.go",
+              "sdk_module_path": "example.invalid/sourcefirst-sdk"
+            },
+            "module_path": "example.invalid/sourcefirst-sdk",
+            "module_version": "v0.0.0",
+            "package_path": "example.invalid/sourcefirst-sdk/catalog",
+            "symbol": "Get"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 18,
+                  "origin": "sdk",
+                  "path": "catalog/catalog.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/catalog",
+                "symbol": "Get"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourceSDKHTTPRead",
+                  "line": 14,
+                  "origin": "provider",
+                  "path": "resource_sdk_http.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "example.invalid/terraform-provider-sourcefirst",
+                "symbol": "resourceSDKHTTPRead"
+              },
+              "import_path": "example.invalid/sourcefirst-sdk/catalog",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 20,
+                "function": "resourceSDKHTTPRead",
+                "line": 15,
+                "origin": "provider",
+                "path": "resource_sdk_http.go",
+                "sdk_module_path": null
+              },
+              "symbol": "catalog.Get"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).Get",
+                  "line": 22,
+                  "origin": "sdk",
+                  "path": "catalog/catalog.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/catalog",
+                "symbol": "(*Client).Get"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 18,
+                  "origin": "sdk",
+                  "path": "catalog/catalog.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/catalog",
+                "symbol": "Get"
+              },
+              "import_path": "example.invalid/sourcefirst-sdk/catalog",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 16,
+                "function": "Get",
+                "line": 19,
+                "origin": "sdk",
+                "path": "catalog/catalog.go",
+                "sdk_module_path": "example.invalid/sourcefirst-sdk"
+              },
+              "symbol": "(*catalog.Client).Get"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).lookupA",
+                  "line": 26,
+                  "origin": "sdk",
+                  "path": "catalog/catalog.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/catalog",
+                "symbol": "(*Client).lookupA"
+              },
+              "caller": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).Get",
+                  "line": 22,
+                  "origin": "sdk",
+                  "path": "catalog/catalog.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/catalog",
+                "symbol": "(*Client).Get"
+              },
+              "import_path": "example.invalid/sourcefirst-sdk/catalog",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 16,
+                "function": "(*Client).Get",
+                "line": 23,
+                "origin": "sdk",
+                "path": "catalog/catalog.go",
+                "sdk_module_path": "example.invalid/sourcefirst-sdk"
+              },
+              "symbol": "(*catalog.Client).lookupA"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).lookupB",
+                  "line": 33,
+                  "origin": "sdk",
+                  "path": "catalog/catalog.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/catalog",
+                "symbol": "(*Client).lookupB"
+              },
+              "caller": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).lookupA",
+                  "line": 26,
+                  "origin": "sdk",
+                  "path": "catalog/catalog.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/catalog",
+                "symbol": "(*Client).lookupA"
+              },
+              "import_path": "example.invalid/sourcefirst-sdk/catalog",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 16,
+                "function": "(*Client).lookupA",
+                "line": 30,
+                "origin": "sdk",
+                "path": "catalog/catalog.go",
+                "sdk_module_path": "example.invalid/sourcefirst-sdk"
+              },
+              "symbol": "(*catalog.Client).lookupB"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).lookupA",
+                  "line": 26,
+                  "origin": "sdk",
+                  "path": "catalog/catalog.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/catalog",
+                "symbol": "(*Client).lookupA"
+              },
+              "caller": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).lookupB",
+                  "line": 33,
+                  "origin": "sdk",
+                  "path": "catalog/catalog.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/catalog",
+                "symbol": "(*Client).lookupB"
+              },
+              "import_path": "example.invalid/sourcefirst-sdk/catalog",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 16,
+                "function": "(*Client).lookupB",
+                "line": 34,
+                "origin": "sdk",
+                "path": "catalog/catalog.go",
+                "sdk_module_path": "example.invalid/sourcefirst-sdk"
+              },
+              "symbol": "(*catalog.Client).lookupA"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).newGetRequest",
+                  "line": 37,
+                  "origin": "sdk",
+                  "path": "catalog/catalog.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/catalog",
+                "symbol": "(*Client).newGetRequest"
+              },
+              "caller": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).lookupA",
+                  "line": 26,
+                  "origin": "sdk",
+                  "path": "catalog/catalog.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/catalog",
+                "symbol": "(*Client).lookupA"
+              },
+              "import_path": "example.invalid/sourcefirst-sdk/catalog",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 17,
+                "function": "(*Client).lookupA",
+                "line": 28,
+                "origin": "sdk",
+                "path": "catalog/catalog.go",
+                "sdk_module_path": "example.invalid/sourcefirst-sdk"
+              },
+              "symbol": "(*catalog.Client).newGetRequest"
+            },
+            {
+              "callee": null,
+              "caller": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).newGetRequest",
+                  "line": 37,
+                  "origin": "sdk",
+                  "path": "catalog/catalog.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/catalog",
+                "symbol": "(*Client).newGetRequest"
+              },
+              "import_path": null,
+              "kind": "raw_http",
+              "location": {
+                "column": 16,
+                "function": "(*Client).newGetRequest",
+                "line": 38,
+                "origin": "sdk",
+                "path": "catalog/catalog.go",
+                "sdk_module_path": "example.invalid/sourcefirst-sdk"
+              },
+              "symbol": "(*catalog.Client).NewRequest"
+            }
+          ]
+        }
+      ],
+      "classification": "observed_http",
+      "legacy_mapped": true,
+      "provider_registration": {
+        "location": {
+          "column": 29,
+          "function": null,
+          "line": 7,
+          "origin": "provider",
+          "path": "provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "example.invalid/terraform-provider-sourcefirst",
+        "symbol": "resourceSDKHTTP"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourceSDKHTTPRead",
+          "line": 14,
+          "origin": "provider",
+          "path": "resource_sdk_http.go",
+          "sdk_module_path": null
+        },
+        "package_path": "example.invalid/terraform-provider-sourcefirst",
+        "symbol": "resourceSDKHTTPRead"
+      },
+      "reason_code": null
+    },
+    "sourcefirst_sdk_symbol": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "endpoint_not_recovered",
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "Lookup",
+              "line": 15,
+              "origin": "sdk",
+              "path": "opaque/opaque.go",
+              "sdk_module_path": "example.invalid/sourcefirst-sdk"
+            },
+            "module_path": "example.invalid/sourcefirst-sdk",
+            "module_version": "v0.0.0",
+            "package_path": "example.invalid/sourcefirst-sdk/opaque",
+            "symbol": "Lookup"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "Lookup",
+                  "line": 15,
+                  "origin": "sdk",
+                  "path": "opaque/opaque.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/opaque",
+                "symbol": "Lookup"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourceSDKSymbolRead",
+                  "line": 20,
+                  "origin": "provider",
+                  "path": "resource_sdk_symbol.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "example.invalid/terraform-provider-sourcefirst",
+                "symbol": "resourceSDKSymbolRead"
+              },
+              "import_path": "example.invalid/sourcefirst-sdk/opaque",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 19,
+                "function": "resourceSDKSymbolRead",
+                "line": 21,
+                "origin": "provider",
+                "path": "resource_sdk_symbol.go",
+                "sdk_module_path": null
+              },
+              "symbol": "opaque.Lookup"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).Lookup",
+                  "line": 19,
+                  "origin": "sdk",
+                  "path": "opaque/opaque.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/opaque",
+                "symbol": "(*Client).Lookup"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "Lookup",
+                  "line": 15,
+                  "origin": "sdk",
+                  "path": "opaque/opaque.go",
+                  "sdk_module_path": "example.invalid/sourcefirst-sdk"
+                },
+                "package_path": "example.invalid/sourcefirst-sdk/opaque",
+                "symbol": "Lookup"
+              },
+              "import_path": "example.invalid/sourcefirst-sdk/opaque",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 16,
+                "function": "Lookup",
+                "line": 16,
+                "origin": "sdk",
+                "path": "opaque/opaque.go",
+                "sdk_module_path": "example.invalid/sourcefirst-sdk"
+              },
+              "symbol": "(*opaque.Client).Lookup"
+            }
+          ]
+        }
+      ],
+      "classification": "observed_sdk_call",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 29,
+          "function": null,
+          "line": 8,
+          "origin": "provider",
+          "path": "provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "example.invalid/terraform-provider-sourcefirst",
+        "symbol": "resourceSDKSymbol"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourceSDKSymbolRead",
+          "line": 20,
+          "origin": "provider",
+          "path": "resource_sdk_symbol.go",
+          "sdk_module_path": null
+        },
+        "package_path": "example.invalid/terraform-provider-sourcefirst",
+        "symbol": "resourceSDKSymbolRead"
+      },
+      "reason_code": null
+    },
+    "sourcefirst_unresolved": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "call_chain_unresolved",
+          "sdk_call": null,
+          "steps": [
+            {
+              "callee": null,
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourceUnresolvedRead",
+                  "line": 25,
+                  "origin": "provider",
+                  "path": "resource_unresolved.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "example.invalid/terraform-provider-sourcefirst",
+                "symbol": "resourceUnresolvedRead"
+              },
+              "import_path": null,
+              "kind": "unresolved_dispatch",
+              "location": {
+                "column": 16,
+                "function": "resourceUnresolvedRead",
+                "line": 27,
+                "origin": "provider",
+                "path": "resource_unresolved.go",
+                "sdk_module_path": null
+              },
+              "symbol": "unresolvedReader.Read"
+            }
+          ]
+        }
+      ],
+      "classification": "unresolved",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 29,
+          "function": null,
+          "line": 11,
+          "origin": "provider",
+          "path": "provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "example.invalid/terraform-provider-sourcefirst",
+        "symbol": "resourceUnresolved"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourceUnresolvedRead",
+          "line": 25,
+          "origin": "provider",
+          "path": "resource_unresolved.go",
+          "sdk_module_path": null
+        },
+        "package_path": "example.invalid/terraform-provider-sourcefirst",
+        "symbol": "resourceUnresolvedRead"
+      },
+      "reason_code": "call_chain_unresolved"
+    }
+  },
+  "schema_version": 1,
+  "source_manifest_sha256": "7349f278a67806c488a3854ddca9a8346a5acac4551bc305489e06f1c6336837",
+  "source_trust": "verified",
+  "summary": {
+    "applicable_total": 7,
+    "classification_counts": {
+      "ambiguous": 1,
+      "dynamic": 1,
+      "no_source": 1,
+      "not_applicable": 1,
+      "observed_http": 2,
+      "observed_sdk_call": 1,
+      "unresolved": 1
+    },
+    "endpoint_coverage": {
+      "denominator": 7,
+      "numerator": 2,
+      "state": "ratio"
+    },
+    "endpoint_observed_total": 2,
+    "selected_total": 8,
+    "source_call_observed_total": 4
+  }
+}

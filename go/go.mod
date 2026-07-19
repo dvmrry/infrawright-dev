@@ -7,6 +7,8 @@ toolchain go1.26.3
 require (
 	github.com/hashicorp/hcl/v2 v2.19.1
 	github.com/hashicorp/terraform-json v0.28.0
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
+	golang.org/x/mod v0.29.0
 )
 
 require (

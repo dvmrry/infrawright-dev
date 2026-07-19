@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "path": "dist/infrawright-cli.mjs",
+      "size": 3037661,
+      "sha256": "fd4593c300cde3e8e0ef43153ef4c741b4c542be9165770bbe339d66385c7b2a"
+    },
+    {
+      "path": "docs/evidence/zpa-provider-v4.4.6.json",
+      "size": 50408,
+      "sha256": "5694623da0f3d5e1871b6c62a28649d47e902093cc4a33da8069bb0f6ba97140"
+    },
+    {
+      "path": "docs/schemas/source-operation-evidence.schema.json",
+      "size": 6701,
+      "sha256": "4bf3a05e53fc229100981dcfd9789ff44ce7ba89531b353148235a9a49d36047"
+    },
+    {
+      "path": "node-tests/fixtures/python-openapi-resource-map-v1.json",
+      "size": 771121,
+      "sha256": "e4e25a12a871c895364bce16fe05a8bcd94debd1eddc53de9fc75ca82bc8ce3c"
+    },
+    {
+      "path": "node-tests/fixtures/python-provider-probe-v1.json",
+      "size": 29772,
+      "sha256": "235cdbad249822ee70f3b947feffbc802af3a357a8fdf5d108f2454b78838824"
+    },
+    {
+      "path": "node-tests/fixtures/python-reconcile-schema-api-v1.json",
+      "size": 44402,
+      "sha256": "464121fe2e7edcc09861ea046c10aa54d4d101145803d5af13adb41b56c5cbd7"
+    },
+    {
+      "path": "node-tests/fixtures/python-sdk-path-evidence-v1.json",
+      "size": 43387,
+      "sha256": "ddc9b9151fcb504fefebcba1b29a3e9f20cf41c7e4406c7b55e2487256843785"
+    },
+    {
+      "path": "node-tests/fixtures/python-source-evidence-eval-v1.json",
+      "size": 101267,
+      "sha256": "5f94567238aabfc6522b07863b764719ceef7708bc8f55b8e12db13f88bf299e"
+    },
+    {
+      "path": "node-tests/fixtures/python-source-operation-map-v1.json",
+      "size": 134623,
+      "sha256": "0fc8279c122179047ac8895424d14ccc3922b30e840d48cfae6ec47d2fbdb767"
+    },
+    {
+      "path": "node-tests/fixtures/python-transform-adopt-parity-v1.json",
+      "size": 13486,
+      "sha256": "87f4ef2c299c413fd87193a6f2e312fcbbcbef0f501af3ebeab32f54942127a8"
+    }
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infrawright.local/schemas/source-evidence-report-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "source_trust", "source_manifest_sha256", "input_provenance_sha256", "resources", "summary"],
+  "properties": {
+    "kind": { "const": "infrawright.source_evidence_report" },
+    "schema_version": { "const": 1 },
+    "source_trust": { "enum": ["verified", "unverified"] },
+    "source_manifest_sha256": { "oneOf": [{"type":"null"}, {"$ref":"#/$defs/sha256"}] },
+    "input_provenance_sha256": {"$ref":"#/$defs/sha256"},
+    "resources": { "type":"object", "propertyNames":{"minLength":1}, "additionalProperties":{"$ref":"#/$defs/sourceRow"} },
+    "summary": { "$ref":"#/$defs/sourceSummary" }
+  },
+  "allOf": [{
+    "if": {"properties":{"source_trust":{"const":"verified"}}, "required":["source_trust"]},
+    "then": {"properties":{"source_manifest_sha256":{"$ref":"#/$defs/sha256"}}},
+    "else": {"properties":{"source_manifest_sha256":{"type":"null"}}}
+  }],
+  "$defs": {
+    "sha256": {"type":"string", "pattern":"^[0-9a-f]{64}$"},
+    "location": {
+      "type":"object", "additionalProperties":false,
+      "required":["origin","sdk_module_path","path","function","line","column"],
+      "properties":{
+        "origin":{"enum":["provider","sdk"]},
+        "sdk_module_path":{"type":["string","null"],"minLength":1},
+        "path":{"type":"string","minLength":1}, "function":{"type":["string","null"],"minLength":1},
+        "line":{"type":"integer","minimum":1}, "column":{"type":"integer","minimum":1}
+      },
+      "allOf":[{"if":{"properties":{"origin":{"const":"sdk"}},"required":["origin"]},"then":{"properties":{"sdk_module_path":{"type":"string","minLength":1}}},"else":{"properties":{"sdk_module_path":{"type":"null"}}}}]
+    },
+    "symbol": {
+      "type":"object", "additionalProperties":false, "required":["package_path","symbol","location"],
+      "properties":{"package_path":{"type":"string","minLength":1},"symbol":{"type":"string","minLength":1},"location":{"$ref":"#/$defs/location"}}
+    },
+    "nullableSymbol": {"oneOf":[{"type":"null"},{"$ref":"#/$defs/symbol"}]},
+    "step": {
+      "type":"object", "additionalProperties":false, "required":["kind","symbol","import_path","caller","callee","location"],
+      "properties":{
+        "kind":{"enum":["provider_helper","sdk_package_function","sdk_receiver_method","raw_http","unresolved_dispatch"]},
+        "symbol":{"type":"string","minLength":1}, "import_path":{"type":["string","null"],"minLength":1},
+        "caller":{"$ref":"#/$defs/symbol"},
+        "callee":{"$ref":"#/$defs/nullableSymbol"},
+        "location":{"$ref":"#/$defs/location"}
+      }
+    },
+    "sdkCall": {
+      "type":"object", "additionalProperties":false,
+      "required":["module_path","module_version","package_path","symbol","location"],
+      "properties":{
+        "module_path":{"type":"string","minLength":1}, "module_version":{"type":"string","minLength":1},
+        "package_path":{"type":"string","minLength":1}, "symbol":{"type":"string","minLength":1},
+        "location":{"$ref":"#/$defs/location"}
+      }
+    },
+    "endpoint": {
+      "type":"object", "additionalProperties":false, "required":["origin","method","path_template","location"],
+      "properties":{
+        "origin":{"enum":["provider","sdk"]}, "method":{"type":"string","pattern":"^[A-Z]+$"},
+        "path_template":{"type":"string","minLength":1}, "location":{"$ref":"#/$defs/location"}
+      }
+    },
+    "reason": {"enum":["provider_source_missing","sdk_source_missing","read_callback_unresolved","call_chain_unresolved","endpoint_not_recovered","dynamic_dispatch","dynamic_method","dynamic_path","multiple_viable_candidates","reviewed_not_applicable"]},
+    "nullableReason": {"oneOf":[{"type":"null"},{"$ref":"#/$defs/reason"}]},
+    "chain": {
+      "type":"object", "additionalProperties":false, "required":["steps","sdk_call","endpoint","reason_code"],
+      "properties":{
+        "steps":{"type":"array","minItems":1,"items":{"$ref":"#/$defs/step"}},
+        "sdk_call":{"oneOf":[{"type":"null"},{"$ref":"#/$defs/sdkCall"}]},
+        "endpoint":{"oneOf":[{"type":"null"},{"$ref":"#/$defs/endpoint"}]},
+        "reason_code":{"$ref":"#/$defs/nullableReason"}
+      }
+    },
+    "sourceRow": {
+      "type":"object", "additionalProperties":false,
+      "required":["classification","legacy_mapped","provider_registration","read_callback","chains","reason_code"],
+      "properties":{
+        "classification":{"enum":["observed_http","observed_sdk_call","ambiguous","dynamic","unresolved","no_source","not_applicable"]},
+        "legacy_mapped":{"type":"boolean"}, "provider_registration":{"$ref":"#/$defs/nullableSymbol"},
+        "read_callback":{"$ref":"#/$defs/nullableSymbol"},
+        "chains":{"type":"array","items":{"$ref":"#/$defs/chain"}},
+        "reason_code":{"$ref":"#/$defs/nullableReason"}
+      }
+    },
+    "sourceCounts": {
+      "type":"object", "additionalProperties":false,
+      "required":["observed_http","observed_sdk_call","ambiguous","dynamic","unresolved","no_source","not_applicable"],
+      "properties":{
+        "observed_http":{"type":"integer","minimum":0}, "observed_sdk_call":{"type":"integer","minimum":0},
+        "ambiguous":{"type":"integer","minimum":0}, "dynamic":{"type":"integer","minimum":0},
+        "unresolved":{"type":"integer","minimum":0}, "no_source":{"type":"integer","minimum":0},
+        "not_applicable":{"type":"integer","minimum":0}
+      }
+    },
+    "coverage": {
+      "type":"object", "additionalProperties":false, "required":["state","numerator","denominator"],
+      "properties":{"state":{"enum":["ratio","not_applicable"]},"numerator":{"type":"integer","minimum":0},"denominator":{"type":"integer","minimum":0}}
+    },
+    "sourceSummary": {
+      "type":"object", "additionalProperties":false,
+      "required":["selected_total","applicable_total","source_call_observed_total","endpoint_observed_total","classification_counts","endpoint_coverage"],
+      "properties":{
+        "selected_total":{"type":"integer","minimum":0}, "applicable_total":{"type":"integer","minimum":0},
+        "source_call_observed_total":{"type":"integer","minimum":0}, "endpoint_observed_total":{"type":"integer","minimum":0},
+        "classification_counts":{"$ref":"#/$defs/sourceCounts"}, "endpoint_coverage":{"$ref":"#/$defs/coverage"}
+      }
+    }
+  }
+}
