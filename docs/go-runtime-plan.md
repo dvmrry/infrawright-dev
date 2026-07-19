@@ -499,10 +499,10 @@ re-qualification, not codegen.
 > [singleton-state-topology-v2.md](singleton-state-topology-v2.md),
 > which decides full retirement (auto AND explicit), promotes
 > cross-state references to default, and corrects two stale premises
-> below: the removal no longer lands "in Node before the Go port"
-> (both runtimes change, Node first as oracle), and the
-> oracle-batching counterweight in gate 2 was rejected during Block D
-> and never implemented. Retained for history only.
+> below: the removal does not land in Node at all (Go-only, after the
+> authority-handoff gate freezes Node as the immutable v1 oracle), and
+> the oracle-batching counterweight in gate 2 was rejected during
+> Block D and never implemented. Retained for history only.
 
 Ported as-is for byte parity (it is a topology dimension pinned by the
 committed root catalog, variable naming, env layout, and whole-root

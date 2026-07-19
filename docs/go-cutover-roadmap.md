@@ -1,22 +1,40 @@
 # Go operational cutover roadmap
 
-Status: DECIDED — second of two roadmaps; runs strictly after
-[singleton-state-topology-v2.md](singleton-state-topology-v2.md)
-completes its qualification gates. The Go operator runtime is built
-and lifecycle-qualified; what remains is routing, release engineering,
-and a controlled default switch. Nothing here changes artifact bytes.
+Status: DECIDED, sequencing AMENDED 2026-07-19 — second of two
+roadmaps. The original revision assumed the seven authoring commands
+would remain Node indefinitely; the goal is now **full Node archival**,
+so the authoring surface is in cutover scope and the master sequence
+is:
+
+1. Authoring port completes in Go against the current frozen Node
+   behavior (in progress; unaffected by degrouping — the authoring
+   packages are largely independent of logical-root topology).
+2. Authority handoff gate: final Node runtime frozen as the immutable
+   v1 oracle, Go declared product authority
+   (singleton-state-topology-v2.md §3 D6).
+3. Degrouping implemented Go-only as versioned v2.
+4. State inventory, full 151-type generation gates, Kubernetes
+   qualification, Zscaler canaries.
+5. Cutover and archive of all executable Node dependencies (this
+   document's phases).
+
+The Go operator runtime is built and lifecycle-qualified; what remains
+is the authoring port, routing, release engineering, and a controlled
+default switch.
 
 ## 0. Preconditions
 
-1. Singleton-state v2 landed and re-qualified (all five gates in that
-   document), so the cutover ships the simplified topology once instead
-   of cutting over twice.
-2. `747f613` and the v2 parcels pushed; integration PR flow current.
-3. Kubernetes qualification evidence recorded in-repo (sanitized) and
+1. Authoring parity complete and the authority handoff gate passed.
+2. Singleton-state v2 landed Go-only and re-qualified (all five gates
+   in that document), so the cutover ships the simplified topology
+   once instead of cutting over twice.
+3. `747f613` and subsequent parcels pushed; integration PR flow
+   current.
+4. Kubernetes qualification evidence recorded in-repo (sanitized) and
    the live-Apply status corrected in
    [go-runtime-v2.md](go-runtime-v2.md), which still describes
    controlled Apply as outstanding.
-4. Go toolchain bumped 1.26.3 → 1.26.5 (security) before any release
+5. Go toolchain bumped 1.26.3 → 1.26.5 (security) before any release
    artifact is produced.
 
 ## 1. CLI routing: two lanes, one variable each
@@ -34,10 +52,13 @@ IW_MAINTAINER ?= $(NODE) dist/infrawright-cli.mjs # Node, unchanged
   check-pack, check-pack-set, deployment, resources, …) use
   `IW_OPERATOR` and drop their `dist/infrawright-cli.mjs` build
   prerequisite entirely.
-- The seven maintainer commands (reconcile, openapi-map,
+- The seven authoring commands (reconcile, openapi-map,
   source-operation-map, source-evidence-eval, provider-probe,
   transform-adopt-parity, zpa-provider-evidence) use `IW_MAINTAINER`
-  and keep the Node build prerequisite.
+  **as a transitional lane only**: it points at the Node bundle until
+  authoring parity lands, flips to the Go binary at the authority
+  handoff, and is collapsed into `IW_OPERATOR` (single binary, single
+  variable) during the archive phase.
 - During the candidate period only, `INFRAWRIGHT_CLI` remains honored
   as an explicit override of `IW_OPERATOR` (this is the opt-in/rollback
   lever); it is deleted at the end of the rollback window.
@@ -67,12 +88,17 @@ IW_MAINTAINER ?= $(NODE) dist/infrawright-cli.mjs # Node, unchanged
 
 `check.yml` becomes two lanes:
 
-- **Go operator lane:** build all platforms, `gofmt`/`go vet`, full
-  `go test ./...` including the differential corpus against a *pinned
-  oracle artifact* (the frozen bundle checked in or fetched by SHA —
-  the lane needs Node only to execute the oracle, never to build it).
-- **Node maintainer/oracle lane:** existing Node build + tests, scoped
-  to maintainer tools and oracle-bundle reproducibility.
+- **Go lane:** build all platforms, `gofmt`/`go vet`, full
+  `go test ./...` including whatever differential gates survive the
+  authority handoff against the *pinned v1 oracle artifact* (the
+  frozen bundle by SHA — the lane needs Node only to execute the
+  oracle, never to build it). Once degrouping retires the
+  topology-dependent gates and golden gates replace them, the
+  remaining oracle executions shrink accordingly; when none remain,
+  Node leaves this lane entirely.
+- **Node lane (transitional):** existing Node build + tests, scoped to
+  the not-yet-ported authoring tools and oracle-bundle
+  reproducibility. Retires at the archive phase.
 
 Tripwires, both enforced in the Go lane:
 1. Static: operator Make targets must not reference `$(NODE)`, `npm`,
@@ -90,9 +116,10 @@ Tripwires, both enforced in the Go lane:
   prefix outside any checkout, run the §3 smoke there.
 - Release contents (frozen list): binaries, SHA256SUMS + signature,
   `catalogs/`, `packs/`, `packsets/`, `demo/`, LICENSE, and a
-  RELEASE.md stating the version, oracle SHA lineage, and the
-  operator/maintainer boundary. `package.json` continues to publish
-  the Node CLI unchanged until the archive phase.
+  RELEASE.md stating the version, oracle SHA lineage, and which
+  commands (if any) still route to the transitional Node lane.
+  `package.json` continues to publish the Node CLI unchanged until the
+  archive phase.
 
 ## 5. Rollout phases
 
@@ -102,31 +129,38 @@ Tripwires, both enforced in the Go lane:
    test-tenant read → import → plan → exact-Apply cycle on the Go
    binary, per provider family.
 2. **Default switch:** `IW_OPERATOR ?= dist/iw` becomes the committed
-   default; Node operator path reachable only by explicit override.
-   This is the **stable tag**: operator = Go, maintainer = Node, the
-   coexistence boundary documented in RELEASE.md and go-runtime-v2.md.
-3. **Rollback window (one release):** Node operator bundle still built
-   and published; `INFRAWRIGHT_CLI` override still honored. Any parity
-   regression found downstream reverts by variable, not by release.
-4. **Archive:** delete the `INFRAWRIGHT_CLI` compatibility override,
-   stop building the Node operator bundle, retire operator-command
-   code paths from the Node build (maintainer tools and the frozen
-   differential oracle remain). The oracle bundle stays pinned by SHA
-   for as long as the differential corpus is retained.
+   default; the Node path reachable only by explicit override. This is
+   the **stable tag**: the full command surface — operator and
+   authoring — routes to Go, documented in RELEASE.md and
+   go-runtime-v2.md.
+3. **Rollback window (one release):** the frozen Node bundle still
+   built and published; `INFRAWRIGHT_CLI` override still honored. Any
+   parity regression found downstream reverts by variable, not by
+   release.
+4. **Archive:** delete the `INFRAWRIGHT_CLI` compatibility override
+   and the `IW_MAINTAINER` split, stop building and publishing the
+   Node bundle (including the `package.json` bin entries), and retire
+   `node-src` executable paths from the build. The frozen v1 oracle
+   bundle is retained by SHA as an immutable provenance artifact; it
+   is executed in CI only while pre-handoff differential gates remain,
+   and never modified.
 
-## 6. Maintainer lane position
+## 6. Authoring commands position
 
-The seven maintainer commands remain Node indefinitely; they are
-authoring-time tools whose migration has no operator-facing payoff.
-Any future port is an independent workstream with its own
-justification — it is explicitly out of scope for the stable tag and
-must not be treated as cutover debt.
+(Amended 2026-07-19; the previous revision kept these Node
+indefinitely.) The seven authoring commands are in cutover scope:
+their Go port proceeds now, against the current frozen Node behavior,
+independent of and before degrouping. Authoring parity is precondition
+1 of this roadmap and the first leg of the authority-handoff gate in
+singleton-state-topology-v2.md §3 D6. After the archive phase, no
+executable Node dependency remains anywhere in the product.
 
 ## 7. Exit criteria
 
 - Default switch shipped and tagged; rollback window elapsed with no
   parity regressions.
-- CI green on both lanes with tripwires active.
+- CI green with tripwires active and the Node lane retired.
 - Relocated-binary and pruned-profile checks in CI, not just run once.
-- go-runtime-v2.md updated: cutover recorded as complete, remaining
-  Node surface enumerated as maintainer-only.
+- go-runtime-v2.md updated: cutover recorded as complete, no
+  executable Node dependencies remaining; the v1 oracle bundle listed
+  as provenance-only.
