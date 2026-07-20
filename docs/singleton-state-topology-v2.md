@@ -127,10 +127,11 @@ unblocks every parcel below:
    reviewed source-bound goldens. The version-specific
    `zpa-provider-evidence` command retires into the generic analyzer's
    frozen ZPA corpus, whose pack/schema/source binding checks stay green.
-   The implementation portion of this step is locally complete and accepted
-   after fresh adversarial review. It does not pass D6 by itself: the user's
-   external Opus, GPT-5.6 Pro, and Fable review sequence still precedes steps 2
-   and 3.
+   The implementation portion of this step is complete and accepted after
+   fresh adversarial review. The user's external Opus, GPT-5.6 Pro, and Fable
+   sequence completed on 2026-07-20 against the candidate culminating at
+   `c3e18a67e4b61b90860e02b782342b3e98ebbd80`, with no blocking findings.
+   Steps 2 and 3 remain pending.
 2. **Final freeze.** The Node runtime is frozen as the immutable v1
    provenance oracle: tagged, bundle SHA recorded, and the full
    differential corpus (including the retiring ZPA validator) run green

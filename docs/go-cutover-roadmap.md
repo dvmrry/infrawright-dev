@@ -7,8 +7,8 @@ so the authoring surface is in cutover scope and the master sequence
 is:
 
 1. Authoring port completes in Go against the current frozen Node
-   behavior (implementation complete and locally accepted; formal external
-   review and freeze remain pending; unaffected by degrouping — the authoring
+   behavior (implementation and external review complete; formal freeze remains
+   pending; unaffected by degrouping — the authoring
    packages are largely independent of logical-root topology).
 2. Authority handoff gate: final Node runtime frozen as the immutable
    v1 oracle, Go declared product authority
@@ -19,10 +19,12 @@ is:
 5. Cutover and archive of all executable Node dependencies (this
    document's phases).
 
-The Go operator runtime is built and lifecycle-qualified, and the authoring
-implementation is locally accepted. What remains is the formal authoring
-authority handoff, routing, release engineering, and a controlled default
-switch.
+The Go operator runtime is built and fixture/lab-qualified, and the authoring
+implementation passed the external Opus, GPT-5.6 Pro, and Fable review sequence
+on 2026-07-20 at `c3e18a67e4b61b90860e02b782342b3e98ebbd80`. This does not
+imply a production/provider-controlled exact Apply; that remains separately
+human-gated. What remains is the formal authoring authority handoff, routing,
+release engineering, and a controlled default switch.
 
 ## 0. Preconditions
 
@@ -39,14 +41,14 @@ switch.
 5. Go toolchain pinned to 1.26.5 (security prerequisite completed 2026-07-20)
    before any release artifact is produced.
 
-## 1. CLI routing: two lanes, one variable each
+## 1. CLI routing: transitional split, then one Go lane
 
-The Makefile's single `INFRAWRIGHT_CLI` currently routes everything to
-the Node bundle. It splits along the v2 command boundary:
+The Makefile already routes the six authoring targets through the Go binary via
+`IW_MAINTAINER`; operator targets still route through the Node bundle via
+`INFRAWRIGHT_CLI`. At the authority handoff the operator lane becomes:
 
 ```
-IW_OPERATOR   ?= dist/iw                          # Go binary
-IW_MAINTAINER ?= $(NODE) dist/infrawright-cli.mjs # Node, unchanged
+IW_OPERATOR   ?= dist/iw # Go binary
 ```
 
 - All operator targets (fetch, transform, adopt, roots, scope-paths,
@@ -56,11 +58,9 @@ IW_MAINTAINER ?= $(NODE) dist/infrawright-cli.mjs # Node, unchanged
   prerequisite entirely.
 - The six retained authoring commands (reconcile, openapi-map,
   source-operation-map, source-evidence-eval, provider-probe,
-  transform-adopt-parity) use `IW_MAINTAINER`
-  **as a transitional lane only**: it points at the Node bundle until
-  authoring parity lands, flips to the Go binary at the authority
-  handoff, and is collapsed into `IW_OPERATOR` (single binary, single
-  variable) during the archive phase.
+  transform-adopt-parity) already use `IW_MAINTAINER ?= dist/iw`. The variable
+  is transitional only and is collapsed into `IW_OPERATOR` (single binary,
+  single variable) during the archive phase.
 - The version-specific `zpa-provider-evidence` CLI does not cross the
   handoff. Its v4.4.6 matrix, source anchors, and fail-closed binding checks
   become a frozen corpus of the generic source analyzer as specified by

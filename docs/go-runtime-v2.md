@@ -1,6 +1,6 @@
 # Go runtime v2 — scope reset
 
-Status: authoritative plan as of 2026-07-18. Where it conflicts with
+Status: authoritative plan as of 2026-07-20. Where it conflicts with
 [go-runtime-plan.md](go-runtime-plan.md), this v2 plan controls the wire/IO
 contract, runtime-versus-maintainer command scope, CI and cutover strategy, and
 Node archive timing. The old plan remains useful implementation inventory, but
@@ -134,9 +134,11 @@ adopt/Apply safety gate remain separately qualified contracts.
 Actual cleanup result: approximately **20,000 lines of hand-written emulation
 and its tests removed** across the three waves, with an 821-LOC production
 transport in their place. The transport wave separately removed **37,324 lines of generated
-vendored `x/net`/`x/text` source**. The module is stdlib-only. Nothing in the
-KEEP column changed artifact behavior; all four artifact byte-gates remained
-byte-identical.
+vendored `x/net`/`x/text` source**. At this cleanup milestone the module was
+stdlib-only. Later authorized consuming/orchestrating, CLI, and authoring work
+added dependencies under §2.1; none replaced the byte-exact `canonjson` or
+`tfrender` paths. Nothing in the KEEP column changed artifact behavior; all four
+artifact byte-gates remained byte-identical.
 
 ## 4. Command scope: one Go authority
 
@@ -172,11 +174,13 @@ The A6 handoff gate asserts that all six authoring names appear in `iw` help,
 route through that binary, and have no executable Node fallback. There is no
 second authoring binary and no post-handoff Node command lane.
 
-The A6 implementation candidate now satisfies the local six-name routing,
-frozen differential, artifact-publication, and Node-free command gates and has
-passed fresh adversarial review. This is not yet the formal authority transfer:
-the final Node freeze/tag and product-authority declaration remain pending the
-external Opus, GPT-5.6 Pro, and Fable review sequence.
+The A6 implementation candidate satisfies the six-name routing, frozen
+differential, artifact-publication, and Node-free command gates. The external
+Opus, GPT-5.6 Pro, and Fable review sequence completed on 2026-07-20 against the
+candidate culminating at `c3e18a67e4b61b90860e02b782342b3e98ebbd80`, with no
+blocking findings. This is not yet the formal authority transfer: the final
+Node freeze/tag, last full-corpus ceremony, and product-authority declaration
+remain pending.
 
 ## 5. Vertical-slice checkpoint (go/no-go before any more breadth)
 
@@ -297,9 +301,9 @@ The checkpoint passes only when every required leg is PASS. A skip,
 inconclusive live snapshot, Node self-drift, secret-scan hit, unexpected wire or
 filesystem behavior, artifact mismatch, or undocumented §2 difference is a
 failure—not a waiver. Passing must answer yes from recorded evidence: the Go
-path stayed stdlib-based and materially smaller; infrastructure bytes are
-equivalent; every wire difference is within §2 and documented; and the no-Node
-operator path works end to end.
+path stayed within the dependency boundaries of §2.1 and materially smaller;
+infrastructure bytes are equivalent; every wire difference is within §2 and
+documented; and the no-Node operator path works end to end.
 
 On 2026-07-18 the user accepted the external live read-path evidence and
 explicitly authorized Block D (Adopt/import/oracle/staging/exact saved-plan
@@ -380,9 +384,12 @@ review. After the user accepted the external live read-path evidence, Block D
 was separately authorized at `b6f6e66` and completed through `714302e` in five
 reviewed parcels: bounded import Oracle, transactional import staging, adopt
 orchestration and policy merge, exact saved-plan Apply, and CLI/frozen-oracle
-differential wiring. `terraform-json v0.28.0` is the sole direct module
-dependency; the existing bounded `terraformcmd` runner and byte-exact
+differential wiring. Block D introduced `terraform-json`; subsequent authorized
+CLI and authoring work brought the direct dependency set to eight packages:
+`kin-openapi`, `hcl/v2`, `terraform-json`, `oasdiff/yaml`, `oasdiff/yaml3`,
+`jsonschema/v6`, `cobra`, and `x/mod`. Each consumes or orchestrates under
+§2.1. The existing bounded `terraformcmd` runner and byte-exact
 `canonjson`/`tfrender` paths remain in place. The four standing artifact byte
 gates remain identical. No Block D test used credentials, a provider API,
-remote state, or a real/live Apply; that controlled qualification remains
-explicitly unauthorized until a later human decision.
+remote state, or a real/live Apply; controlled provider qualification remains
+a separately human-gated event.
