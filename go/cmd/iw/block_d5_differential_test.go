@@ -14,7 +14,7 @@ import (
 	"testing"
 )
 
-const blockD5OracleSHA256 = "fd4593c300cde3e8e0ef43153ef4c741b4c542be9165770bbe339d66385c7b2a"
+const blockD5OracleSHA256 = "ce48c2c6a1cc01254866c5a7eb98b3eef1c90e6c45b69aff7df7aed80c822fa2"
 
 // blockD5Runtime is deliberately stricter than the older optional differential
 // lanes: D5 is accepted only against this exact frozen Node authority. A
@@ -372,7 +372,8 @@ func runBlockD5ApplySide(t *testing.T, runtime blockC4Runtime, fixture blockC4Fi
 func normalizeBlockD5ApplyLog(content []byte) string {
 	lines := strings.Split(string(content), "\n")
 	for index, line := range lines {
-		if strings.HasPrefix(line, "arg=") && strings.Contains(line, "/plan-") {
+		if strings.HasPrefix(line, "arg=") && (strings.Contains(line, "/plan-") ||
+			line == "arg=/dev/fd/3" || line == "arg=/proc/self/fd/3") {
 			lines[index] = "arg=<assessment-snapshot>"
 		}
 	}

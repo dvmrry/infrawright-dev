@@ -17,7 +17,7 @@ import type { JsonObject } from "../node-src/metadata/validation.js";
 
 const ROOT = process.cwd();
 const CLI = path.join(ROOT, ".node-test", "node-src", "cli", "main.js");
-const AUTHORITY_SHA256 = "0fc8279c122179047ac8895424d14ccc3922b30e840d48cfae6ec47d2fbdb767";
+const AUTHORITY_SHA256 = "1ca673c06162f24e9c3a10a91724a98ce9c317af8906d6105cbb0c226ec8fd14";
 const RESURRECTION =
   "See docs/python-oracle-contracts.md for the exact clean-checkout resurrection command.";
 
@@ -97,7 +97,7 @@ assert.deepEqual(authority.provenance, {
     "node-src/authoring/source-operation-map.ts": "571c3d3cf2413c185be2ac46eca05fe9f33b528aa439182ad972165303e0f6a9",
     "node-src/json/python-compatible.ts": "54505a9d508f103fd40af7897508edf86d0c8bd0028e98d178c1fb9e79749e07",
     "node-src/metadata/terraform-schema.ts": "bee44a3c9ff079acdb39c3e2c3dc636d86cbfe3b92ff51ecd5a75c62a71a1fec",
-    "node-src/metadata/validation.ts": "b8cbc7b930ac4ee8da7dae5a4625a13d1f4902f67c75127e0e222c983c3b5693",
+    "node-src/metadata/validation.ts": "7022a90888e263735eba798bc9ee73b666d7d484f85b61dbaa843c705d174842",
     "node-tests/authoring-cli.test.ts": "0247a7f3710b1f94a57c60f97f9ea3ed929c4a30be379e364d7d62576ba980f3",
     "node-tests/authoring-sdk-path-evidence.test.ts": "2ac9c2512daa9a5d5d300028e2c3f7ac2c1da45858ae8efc67e2265e084aa0a6",
     "node-tests/authoring-source-operation-map.test.ts": "80461adad1b994fdba1f4f5907dd85d473bcbe23b18431aa11a0b3923ac389fd",

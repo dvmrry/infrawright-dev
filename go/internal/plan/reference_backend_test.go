@@ -58,26 +58,29 @@ func TestReferenceBackendEnvironmentFromConfigProjectsExactAllowlist(t *testing.
 	}
 }
 
-func TestReferenceBackendEnvironmentFromConfigPreservesJSONStringifyUTF16Semantics(t *testing.T) {
+func TestReferenceBackendEnvironmentFromConfigRejectsUnpairedUTF16Surrogates(t *testing.T) {
+	for _, input := range []string{
+		`{"tenant_id":"\ud800"}`,
+		`{"tenant_id":"\uDFFF"}`,
+		`{"\ud800":"tenant"}`,
+		`{"tenant_id":"\ud800\ud800"}`,
+	} {
+		backend := writeReferenceBackendTestFile(t, []byte(input))
+		_, err := ReferenceBackendEnvironmentFromConfig(backend)
+		requireReferenceBackendFailure(t, err, "INVALID_REFERENCE_BACKEND_CONFIG")
+	}
+}
+
+func TestReferenceBackendEnvironmentFromConfigPreservesJSONStringifyStringSemantics(t *testing.T) {
 	// Frozen with Node v24.15.0:
 	//   JSON.stringify(Object.fromEntries(Object.entries(JSON.parse(input)).sort()))
-	// These vectors pin the distinction encoding/json's semantic tree cannot
-	// retain on its own: a lone surrogate escape is not U+FFFD.
+	// Unpaired UTF-16 surrogates are rejected by canonjson before reaching this
+	// renderer; these are the valid strings still projected byte-for-byte.
 	tests := []struct {
 		name  string
 		input string
 		want  string
 	}{
-		{
-			name:  "lone_high_surrogate",
-			input: `{"tenant_id":"\ud800"}`,
-			want:  `{"tenant_id":"\ud800"}`,
-		},
-		{
-			name:  "lone_low_surrogate_normalizes_hex_case",
-			input: `{"tenant_id":"\uDFFF"}`,
-			want:  `{"tenant_id":"\udfff"}`,
-		},
 		{
 			name:  "replacement_character",
 			input: `{"tenant_id":"�"}`,

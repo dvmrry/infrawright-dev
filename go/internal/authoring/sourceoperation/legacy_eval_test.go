@@ -10,7 +10,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
-const legacyV1AuthoritySHA256 = "5f94567238aabfc6522b07863b764719ceef7708bc8f55b8e12db13f88bf299e"
+const legacyV1AuthoritySHA256 = "f8d8a910b797f2564e1217b8cd69bcd70c6ec851083a2ef817b954050127eea8"
 
 func legacyV1Authority(t *testing.T) LegacyV1Artifact {
 	t.Helper()

@@ -3,8 +3,8 @@
   "entries": [
     {
       "path": "dist/infrawright-cli.mjs",
-      "size": 3037661,
-      "sha256": "fd4593c300cde3e8e0ef43153ef4c741b4c542be9165770bbe339d66385c7b2a"
+      "size": 3040955,
+      "sha256": "ce48c2c6a1cc01254866c5a7eb98b3eef1c90e6c45b69aff7df7aed80c822fa2"
     },
     {
       "path": "docs/evidence/zpa-provider-v4.4.6.json",
@@ -19,32 +19,32 @@
     {
       "path": "node-tests/fixtures/python-openapi-resource-map-v1.json",
       "size": 771121,
-      "sha256": "e4e25a12a871c895364bce16fe05a8bcd94debd1eddc53de9fc75ca82bc8ce3c"
+      "sha256": "9ce98cb64a64c519374d582b2f0572896cdaabe25f26ed048f10b63b13a73efc"
     },
     {
       "path": "node-tests/fixtures/python-provider-probe-v1.json",
       "size": 29772,
-      "sha256": "235cdbad249822ee70f3b947feffbc802af3a357a8fdf5d108f2454b78838824"
+      "sha256": "5337acada00b380e79468af316c9caa287a4e1f044b850567a97e58c79e49bf2"
     },
     {
       "path": "node-tests/fixtures/python-reconcile-schema-api-v1.json",
       "size": 44402,
-      "sha256": "464121fe2e7edcc09861ea046c10aa54d4d101145803d5af13adb41b56c5cbd7"
+      "sha256": "fff36234703a253bf903b97c2396a8d2d65a7b50b82407eff752eeb86c521004"
     },
     {
       "path": "node-tests/fixtures/python-sdk-path-evidence-v1.json",
       "size": 43387,
-      "sha256": "ddc9b9151fcb504fefebcba1b29a3e9f20cf41c7e4406c7b55e2487256843785"
+      "sha256": "5414a3eb08b07e41c4ba9680da79268aa742e8a8ded005d34c0321d5b1d6f477"
     },
     {
       "path": "node-tests/fixtures/python-source-evidence-eval-v1.json",
       "size": 101267,
-      "sha256": "5f94567238aabfc6522b07863b764719ceef7708bc8f55b8e12db13f88bf299e"
+      "sha256": "f8d8a910b797f2564e1217b8cd69bcd70c6ec851083a2ef817b954050127eea8"
     },
     {
       "path": "node-tests/fixtures/python-source-operation-map-v1.json",
       "size": 134623,
-      "sha256": "0fc8279c122179047ac8895424d14ccc3922b30e840d48cfae6ec47d2fbdb767"
+      "sha256": "1ca673c06162f24e9c3a10a91724a98ce9c317af8906d6105cbb0c226ec8fd14"
     },
     {
       "path": "node-tests/fixtures/python-transform-adopt-parity-v1.json",

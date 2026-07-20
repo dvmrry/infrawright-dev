@@ -21,7 +21,7 @@ const AUTHORITY_PATH = path.join(
   "fixtures",
   "python-source-evidence-eval-v1.json",
 );
-const AUTHORITY_SHA256 = "5f94567238aabfc6522b07863b764719ceef7708bc8f55b8e12db13f88bf299e";
+const AUTHORITY_SHA256 = "f8d8a910b797f2564e1217b8cd69bcd70c6ec851083a2ef817b954050127eea8";
 const CLI = path.join(process.cwd(), ".node-test", "node-src", "cli", "main.js");
 
 interface FrozenEvaluationCase {
@@ -72,7 +72,7 @@ async function frozenAuthority(): Promise<FrozenAuthority> {
         "node-src/authoring/source-operation-map.ts": "571c3d3cf2413c185be2ac46eca05fe9f33b528aa439182ad972165303e0f6a9",
         "node-src/json/python-compatible.ts": "54505a9d508f103fd40af7897508edf86dc0c8bd0028e98d178c1fb9e79749e07",
         "node-src/metadata/terraform-schema.ts": "bee44a3c9ff079acdb39c3e2c3dc636d86cbfe3b92ff51ecd5a75c62a71a1fec",
-        "node-src/metadata/validation.ts": "b8cbc7b930ac4ee8da7dae5a4625a13d1f4902f67c75127e0e222c983c3b5693",
+        "node-src/metadata/validation.ts": "7022a90888e263735eba798bc9ee73b666d7d484f85b61dbaa843c705d174842",
         "node-tests/authoring-cli.test.ts": "99b573e7de95af5872fc1d8118a092cff5befc1160ea848cc4dcd495f3997f3c",
         "node-tests/authoring-source-evidence-eval.test.ts": "e856697074f0be50840d0b76e9eb67ce0819c1dc7fc827c04c820af1a523a488",
       },

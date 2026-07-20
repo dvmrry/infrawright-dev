@@ -37,7 +37,7 @@ interface FrozenProviderProbeAuthority {
 }
 
 const PROVIDER_PROBE_AUTHORITY_SHA256 =
-  "235cdbad249822ee70f3b947feffbc802af3a357a8fdf5d108f2454b78838824";
+  "5337acada00b380e79468af316c9caa287a4e1f044b850567a97e58c79e49bf2";
 const providerProbeAuthorityBytes = readFileSync(path.join(
   ROOT,
   "node-tests",
@@ -69,8 +69,8 @@ assert.deepEqual(providerProbeAuthority.authority, {
 });
 assert.deepEqual(providerProbeAuthority.source_blobs, {
   node_authoring_json: "1949cc56686c39b141f66c152be5457b67fd820b",
-  node_json_control: "cf977f680817aae2105f8e601d290a32461e4782",
-  node_metadata_validation: "c6111184b0c2aa8b65883be73ac9150506547f4a",
+  node_json_control: "15ce4ab7bd6e6a6511432faaaabf87e0b8f692e5",
+  node_metadata_validation: "e8edf910f8ecd8276d13134b5ee5261e37e54ae4",
   node_openapi: "241e8e2234516f239ec673d7ec2ac5ff362c9bae",
   node_openapi_resource_map: "aa0ade348b3c8b0208f4248b0c1a968f03e727ab",
   node_provider_probe: "539729822e6048062b4859d11fb5d3da2cbec5f7",

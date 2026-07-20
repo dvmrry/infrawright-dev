@@ -410,18 +410,14 @@ func TestPlanEnvironmentRootsCrossStateReferenceEnvironmentFailsClosedOnInitRace
 	}
 }
 
-func TestPlanEnvironmentRootsCrossStateLoneSurrogateMutationFailsClosed(t *testing.T) {
+func TestPlanEnvironmentRootsRejectsMixedEscapeSurrogateBeforeTerraform(t *testing.T) {
 	workspace := t.TempDir()
 	backendType := "azurerm"
 	writeLifecycleRoot(t, workspace, "tenant", lifecycleTestResource, []string{lifecycleTestResource}, &backendType, true)
 	writeLifecycleText(t, lifecycleTestConfigPath(workspace, "tenant", lifecycleTestResource, ".auto.tfvars.json"), `{"zia_url_categories_items":{}}`+"\n")
 	backend := filepath.Join(workspace, "backend.json")
-	writeLifecycleText(t, backend, `{"tenant_id":"\ud800"}`)
+	writeLifecycleText(t, backend, `{"tenant_id":"\ud800\n\udc00"}`)
 	fake := &lifecycleFakeTerraform{}
-	fake.onInitialize = func(PlanTerraformRequest) error {
-		writeLifecycleText(t, backend, `{"tenant_id":"�"}`)
-		return nil
-	}
 
 	_, err := PlanEnvironmentRoots(PlanEnvironmentRootsOptions{
 		BackendConfig: &backend,
@@ -432,9 +428,9 @@ func TestPlanEnvironmentRootsCrossStateLoneSurrogateMutationFailsClosed(t *testi
 		Terraform:     fake,
 		Workspace:     workspace,
 	})
-	requireLifecycleFailure(t, err, "INIT_INPUTS_CHANGED")
-	if len(fake.planned) != 0 {
-		t.Errorf("Plan calls after lone-surrogate init race = %d, want 0", len(fake.planned))
+	requireLifecycleFailure(t, err, "INVALID_REFERENCE_BACKEND_CONFIG")
+	if len(fake.initialized) != 0 || len(fake.planned) != 0 {
+		t.Errorf("Terraform calls = (%d init, %d plan), want (0, 0)", len(fake.initialized), len(fake.planned))
 	}
 }
 

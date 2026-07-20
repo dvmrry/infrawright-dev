@@ -18,7 +18,7 @@ import (
 	"testing"
 )
 
-const a6FrozenNodeOracleSHA256 = "fd4593c300cde3e8e0ef43153ef4c741b4c542be9165770bbe339d66385c7b2a"
+const a6FrozenNodeOracleSHA256 = "ce48c2c6a1cc01254866c5a7eb98b3eef1c90e6c45b69aff7df7aed80c822fa2"
 
 type a6Runtime struct {
 	repository string

@@ -14,7 +14,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
-const authoritySHA256 = "e4e25a12a871c895364bce16fe05a8bcd94debd1eddc53de9fc75ca82bc8ce3c"
+const authoritySHA256 = "9ce98cb64a64c519374d582b2f0572896cdaabe25f26ed048f10b63b13a73efc"
 
 func TestFrozenV1Reports(t *testing.T) {
 	t.Parallel()

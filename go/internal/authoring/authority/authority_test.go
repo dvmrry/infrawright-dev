@@ -23,7 +23,7 @@ import (
 
 const (
 	authorityManifestRelativePath = "tests/fixtures/authoring/node-v1/authority.json"
-	authorityManifestSHA256       = "68fb9f445740442ac6590c0f83a12750cb4527b234dd983478da405c29c59f41"
+	authorityManifestSHA256       = "463562762dea9234aaf959e3e957f00d0a871a14456f178507a68429cc5c3dea"
 	authorityManifestEntryCount   = 10
 )
 

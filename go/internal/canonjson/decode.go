@@ -16,13 +16,15 @@ import (
 // parseDataJsonLosslessly) performs before handing values to
 // renderPythonCompatibleJson.
 //
-// This intentionally does not reimplement control.ts's stricter validation
-// (duplicate-key rejection, nesting-depth limits, safe-integer checks for
-// the "control" dialect): those are separate concerns layered on top of
-// decoding in the Node source, out of scope for this package. Object-key
-// absence is represented the same way a Go map already represents it, and
-// duplicate keys resolve exactly the way encoding/json resolves them: the
-// last occurrence of a key wins, silently discarding earlier ones.
+// This intentionally does not reimplement control.ts's stricter structural
+// validation (duplicate-key rejection, nesting-depth limits, safe-integer
+// checks for the "control" dialect): those are separate concerns layered on
+// top of decoding in the Node source. It does enforce the shared JSON-string
+// invariant that UTF-16 surrogate units occur only as pairs, because
+// encoding/json otherwise silently replaces a lone escape with U+FFFD.
+// Object-key absence is represented the same way a Go map already represents
+// it, and duplicate keys resolve exactly the way encoding/json resolves them:
+// the last occurrence of a repeated key wins, silently discarding earlier ones.
 //
 // Decode rejects trailing content after the first JSON value (anything
 // other than trailing whitespace), so callers get a clear error instead of
@@ -39,6 +41,12 @@ func Decode(data []byte) (Value, error) {
 			return nil, fmt.Errorf("canonjson: decode: trailing content after JSON value")
 		}
 		return nil, fmt.Errorf("canonjson: decode: %w", err)
+	}
+	// Keep encoding/json's syntax failures authoritative. Only after it has
+	// accepted the complete document do we inspect raw string tokens, because
+	// encoding/json otherwise normalizes lone surrogate escapes to U+FFFD.
+	if err := validateJSONDocumentSurrogates(string(data)); err != nil {
+		return nil, err
 	}
 	return value, nil
 }

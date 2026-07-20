@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-const providerProbeAuthoritySHA256 = "235cdbad249822ee70f3b947feffbc802af3a357a8fdf5d108f2454b78838824"
+const providerProbeAuthoritySHA256 = "5337acada00b380e79468af316c9caa287a4e1f044b850567a97e58c79e49bf2"
 
 func TestLegacyFixtureParity(t *testing.T) {
 	authorityPath := filepath.Join("..", "..", "..", "..", "node-tests", "fixtures", "python-provider-probe-v1.json")

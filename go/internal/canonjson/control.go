@@ -88,12 +88,13 @@ func newPythonJSONDecodeError(reason string, units []uint16, position int) *Pyth
 
 // The CPython-style failure reasons control.ts's scanner throws, verbatim.
 const (
-	reasonExtraData             = "Extra data"
-	reasonExpectingPropertyName = "Expecting property name enclosed in double quotes"
-	reasonExpectingColon        = "Expecting ':' delimiter"
-	reasonExpectingComma        = "Expecting ',' delimiter"
-	reasonUnterminatedString    = "Unterminated string starting at"
-	reasonExpectingValue        = "Expecting value"
+	reasonExtraData              = "Extra data"
+	reasonExpectingPropertyName  = "Expecting property name enclosed in double quotes"
+	reasonExpectingColon         = "Expecting ':' delimiter"
+	reasonExpectingComma         = "Expecting ',' delimiter"
+	reasonUnterminatedString     = "Unterminated string starting at"
+	reasonExpectingValue         = "Expecting value"
+	reasonUnpairedUTF16Surrogate = "Unpaired UTF-16 surrogate"
 )
 
 // Sentinel errors for the control dialect's non-position-anchored
@@ -233,13 +234,15 @@ func isJSONWhitespaceUnit(unit uint16) bool {
 // contract-valid JSON; ParseControlJSON/ParseDataJSONLosslessly still hand
 // the same text to Decode afterward to actually build the Value.
 type controlScanner struct {
-	units           []uint16
-	validateNumbers bool
-	index           int
+	units                          []uint16
+	validateNumbers                bool
+	index                          int
+	firstUnpairedSurrogateOffset   int
+	lastStringHasUnpairedSurrogate bool
 }
 
 func newControlScanner(units []uint16, validateNumbers bool) *controlScanner {
-	return &controlScanner{units: units, validateNumbers: validateNumbers}
+	return &controlScanner{units: units, validateNumbers: validateNumbers, firstUnpairedSurrogateOffset: -1}
 }
 
 // charAt returns the UTF-16 code unit at i, or 0 if i is out of range --
@@ -271,6 +274,9 @@ func (s *controlScanner) scan() error {
 	}
 	if s.index != len(s.units) {
 		return s.decodeError(reasonExtraData, s.index)
+	}
+	if s.firstUnpairedSurrogateOffset >= 0 {
+		return s.decodeError(reasonUnpairedUTF16Surrogate, s.firstUnpairedSurrogateOffset)
 	}
 	return nil
 }
@@ -335,10 +341,12 @@ func (s *controlScanner) scanObject(depth int) error {
 		if err != nil {
 			return err
 		}
-		if _, dup := seen[key]; dup {
-			return fmt.Errorf("%w %s", ErrDuplicateJSONKey, jsonQuoteJSString(key))
+		if !s.lastStringHasUnpairedSurrogate {
+			if _, dup := seen[key]; dup {
+				return fmt.Errorf("%w %s", ErrDuplicateJSONKey, jsonQuoteJSString(key))
+			}
+			seen[key] = struct{}{}
 		}
-		seen[key] = struct{}{}
 		if err := s.skipWhitespace(); err != nil {
 			return err
 		}
@@ -408,6 +416,7 @@ func (s *controlScanner) scanArray(depth int) error {
 // the Node scanner, not an oversight.
 func (s *controlScanner) scanString() (string, error) {
 	start := s.index
+	s.lastStringHasUnpairedSurrogate = false
 	s.index++
 	for s.index < len(s.units) {
 		if s.units[s.index] == '"' {
@@ -416,6 +425,12 @@ func (s *controlScanner) scanString() (string, error) {
 			var decoded string
 			if err := json.Unmarshal([]byte(literal), &decoded); err != nil {
 				return "", fmt.Errorf("canonjson: %w", err)
+			}
+			if offset := firstUnpairedJSONStringSurrogateOffset(s.units, start, s.index); offset >= 0 {
+				s.lastStringHasUnpairedSurrogate = true
+				if s.firstUnpairedSurrogateOffset < 0 {
+					s.firstUnpairedSurrogateOffset = offset
+				}
 			}
 			return decoded, nil
 		}
@@ -426,6 +441,128 @@ func (s *controlScanner) scanString() (string, error) {
 		}
 	}
 	return "", s.decodeError(reasonUnterminatedString, start)
+}
+
+func isHighSurrogate(unit uint16) bool {
+	return unit >= 0xd800 && unit <= 0xdbff
+}
+
+func isLowSurrogate(unit uint16) bool {
+	return unit >= 0xdc00 && unit <= 0xdfff
+}
+
+func hexJSONUnit(units []uint16) uint16 {
+	var value uint16
+	for _, unit := range units {
+		value <<= 4
+		switch {
+		case unit >= '0' && unit <= '9':
+			value |= unit - '0'
+		case unit >= 'a' && unit <= 'f':
+			value |= unit - 'a' + 10
+		case unit >= 'A' && unit <= 'F':
+			value |= unit - 'A' + 10
+		}
+	}
+	return value
+}
+
+func standardJSONEscapeUnit(escape uint16) uint16 {
+	switch escape {
+	case '"', '\\', '/':
+		return escape
+	case 'b':
+		return '\b'
+	case 'f':
+		return '\f'
+	case 'n':
+		return '\n'
+	case 'r':
+		return '\r'
+	case 't':
+		return '\t'
+	default:
+		return 0
+	}
+}
+
+// firstUnpairedJSONStringSurrogateOffset walks decoded UTF-16 units in an
+// already-syntax-checked JSON string literal and returns the first invalid raw
+// offset, or -1. A \uXXXX unit reports its backslash and a literal unit its
+// own UTF-16 source index.
+func firstUnpairedJSONStringSurrogateOffset(units []uint16, start, end int) int {
+	pendingHighOffset := -1
+	accept := func(unit uint16, offset int) int {
+		if pendingHighOffset >= 0 {
+			if isLowSurrogate(unit) {
+				pendingHighOffset = -1
+				return -1
+			}
+			return pendingHighOffset
+		}
+		if isHighSurrogate(unit) {
+			pendingHighOffset = offset
+			return -1
+		}
+		if isLowSurrogate(unit) {
+			return offset
+		}
+		return -1
+	}
+
+	for index := start + 1; index < end-1; {
+		offset := index
+		if units[index] == '\\' {
+			if units[index+1] == 'u' {
+				if invalidOffset := accept(hexJSONUnit(units[index+2:index+6]), offset); invalidOffset >= 0 {
+					return invalidOffset
+				}
+				index += 6
+			} else {
+				if invalidOffset := accept(standardJSONEscapeUnit(units[index+1]), offset); invalidOffset >= 0 {
+					return invalidOffset
+				}
+				index += 2
+			}
+			continue
+		}
+		if invalidOffset := accept(units[index], offset); invalidOffset >= 0 {
+			return invalidOffset
+		}
+		index++
+	}
+	return pendingHighOffset
+}
+
+// validateJSONDocumentSurrogates is the document-level counterpart used by
+// Decode after encoding/json has accepted the document. It intentionally
+// imposes only the string invariant, not the control parser's duplicate-key,
+// depth, or numeric restrictions.
+func validateJSONDocumentSurrogates(text string) error {
+	units := utf16Units(text)
+	for index := 0; index < len(units); {
+		if units[index] != '"' {
+			index++
+			continue
+		}
+		start := index
+		index++
+		for index < len(units) {
+			if units[index] == '"' {
+				index++
+				if offset := firstUnpairedJSONStringSurrogateOffset(units, start, index); offset >= 0 {
+					return newPythonJSONDecodeError(reasonUnpairedUTF16Surrogate, units, offset)
+				}
+				break
+			}
+			if units[index] == '\\' {
+				index += 2
+			} else {
+				index++
+			}
+		}
+	}
+	return nil
 }
 
 // scanLiteral ports JsonContractScanner.scanLiteral. literal is always one
@@ -532,8 +669,8 @@ func validateJSONContract(text string, validateNumbers bool) error {
 //
 // Validation runs first and entirely separately from decoding (matching
 // the Node source's own two-pass structure): only once text is known to
-// satisfy the contract does this hand the same bytes to this package's
-// Decode (decode.go, unmodified) to build the Value tree.
+// satisfy the contract does this hand the same bytes to Decode to build the
+// Value tree.
 func ParseControlJSON(text string) (Value, error) {
 	if err := validateJSONContract(text, true); err != nil {
 		return nil, err

@@ -1,14 +1,11 @@
 package plan
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
-	"strconv"
 	"strings"
 	"unicode/utf16"
-	"unicode/utf8"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/artifacts"
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
@@ -166,155 +163,12 @@ func ReferenceBackendEnvironmentFromConfig(backendConfig string) (map[string]str
 		}
 		config[key] = value
 	}
-	rawStrings, err := referenceBackendRawStringValues(source.Text, config)
-	if err != nil {
-		// ParseControlJSON has already validated the complete JSON grammar and
-		// the loop above has narrowed this particular contract to a flat object
-		// of strings and booleans. Reaching this branch therefore indicates a
-		// disagreement in this domain-specific token projection, not a second
-		// externally visible parser failure mode.
-		return nil, invalidReferenceBackendFailure(
-			"cross-state azurerm BACKEND_CONFIG must be a JSON object; HCL backend files remain supported when cross-state references are disabled",
-		)
-	}
-
 	return map[string]string{
-		ReferenceBackendEnvironment: renderReferenceBackendConfig(keys, config, rawStrings),
+		ReferenceBackendEnvironment: renderReferenceBackendConfig(keys, config),
 	}, nil
 }
 
-// referenceBackendRawStringValues walks only the already-validated, flat
-// reference-backend object. It is deliberately not a general JSON parser: the
-// strict control parser owns grammar, duplicate-key, depth, and number checks;
-// this token pass retains the raw lexemes of the five allowed string fields so a
-// lone UTF-16 surrogate is not collapsed by encoding/json to U+FFFD.
-func referenceBackendRawStringValues(text string, config map[string]any) (map[string][]uint16, error) {
-	decoder := json.NewDecoder(strings.NewReader(text))
-	opening, err := decoder.Token()
-	if err != nil || opening != json.Delim('{') {
-		return nil, errors.New("reference-backend JSON value is not an object")
-	}
-
-	values := make(map[string][]uint16)
-	for decoder.More() {
-		keyToken, err := decoder.Token()
-		if err != nil {
-			return nil, err
-		}
-		key, ok := keyToken.(string)
-		if !ok {
-			return nil, errors.New("reference-backend JSON key is not a string")
-		}
-		beforeValue := int(decoder.InputOffset())
-		if _, err := decoder.Token(); err != nil {
-			return nil, err
-		}
-		if _, isString := config[key].(string); !isString {
-			continue
-		}
-		start, err := referenceBackendValueStart(text, beforeValue)
-		if err != nil {
-			return nil, err
-		}
-		units, err := decodeReferenceBackendStringToken(text[start:int(decoder.InputOffset())])
-		if err != nil {
-			return nil, err
-		}
-		values[key] = units
-	}
-	if _, err := decoder.Token(); err != nil {
-		return nil, err
-	}
-	return values, nil
-}
-
-func referenceBackendValueStart(text string, offset int) (int, error) {
-	for offset < len(text) {
-		switch text[offset] {
-		case ' ', '\t', '\n', '\r':
-			offset++
-		default:
-			if text[offset] != ':' {
-				return 0, errors.New("reference-backend JSON member has no value delimiter")
-			}
-			offset++
-			for offset < len(text) {
-				switch text[offset] {
-				case ' ', '\t', '\n', '\r':
-					offset++
-				default:
-					return offset, nil
-				}
-			}
-		}
-	}
-	return 0, errors.New("reference-backend JSON member has no value")
-}
-
-func decodeReferenceBackendStringToken(token string) ([]uint16, error) {
-	if len(token) < 2 || token[0] != '"' || token[len(token)-1] != '"' {
-		return nil, errors.New("invalid reference-backend JSON string token")
-	}
-	units := make([]uint16, 0, len(token)-2)
-	for index := 1; index < len(token)-1; {
-		if token[index] != '\\' {
-			character, size := utf8.DecodeRuneInString(token[index : len(token)-1])
-			if character == utf8.RuneError && size == 1 {
-				return nil, errors.New("invalid UTF-8 in reference-backend JSON string")
-			}
-			units = appendReferenceBackendRune(units, character)
-			index += size
-			continue
-		}
-		index++
-		if index >= len(token)-1 {
-			return nil, errors.New("incomplete reference-backend JSON escape")
-		}
-		switch token[index] {
-		case '"', '\\', '/':
-			units = append(units, uint16(token[index]))
-			index++
-		case 'b':
-			units = append(units, '\b')
-			index++
-		case 'f':
-			units = append(units, '\f')
-			index++
-		case 'n':
-			units = append(units, '\n')
-			index++
-		case 'r':
-			units = append(units, '\r')
-			index++
-		case 't':
-			units = append(units, '\t')
-			index++
-		case 'u':
-			if index+5 >= len(token) {
-				return nil, errors.New("incomplete reference-backend Unicode escape")
-			}
-			decoded, err := strconv.ParseUint(token[index+1:index+5], 16, 16)
-			if err != nil {
-				return nil, errors.New("invalid reference-backend Unicode escape")
-			}
-			units = append(units, uint16(decoded))
-			index += 5
-		default:
-			return nil, errors.New("invalid reference-backend JSON escape")
-		}
-	}
-	return units, nil
-}
-
-func appendReferenceBackendRune(units []uint16, character rune) []uint16 {
-	if character <= 0xffff {
-		return append(units, uint16(character))
-	}
-	high, low := utf16.EncodeRune(character)
-	return append(units, uint16(high), uint16(low))
-}
-
-func renderReferenceBackendConfig(keys []string, config map[string]any, rawStrings map[string][]uint16) string {
+func renderReferenceBackendConfig(keys []string, config map[string]any) string {
 	var out strings.Builder
 	out.WriteByte('{')
 	for index, key := range keys {
@@ -325,7 +179,7 @@ func renderReferenceBackendConfig(keys []string, config map[string]any, rawStrin
 		out.WriteByte(':')
 		switch value := config[key].(type) {
 		case string:
-			writeJSONStringUnits(&out, rawStrings[key])
+			writeJSONString(&out, value)
 		case bool:
 			if value {
 				out.WriteString("true")

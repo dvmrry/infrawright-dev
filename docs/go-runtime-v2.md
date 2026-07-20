@@ -265,6 +265,23 @@ Post-247 reconciliation evidence recorded on 2026-07-17:
   the non-live rerun question; it does not supply or waive the still-missing
   live-provider evidence.
 
+UTF-16 contract reconciliation evidence recorded on 2026-07-20:
+
+- Node and Go now reject unpaired UTF-16 surrogate units in every decoded JSON
+  key and value with the same reason and raw UTF-16 source offset. Valid pairs,
+  literal astral text, U+FFFD, ordinary malformed-JSON priority, numeric
+  handling, and valid artifact bytes remain unchanged.
+- Two consecutive Node 24.15.0 builds produced the same 3,040,955-byte bundle:
+  `ce48c2c6a1cc01254866c5a7eb98b3eef1c90e6c45b69aff7df7aed80c822fa2`.
+  The checksum-file SHA-256 is
+  `b955f56a128a590f7811472959ce580cb344ed4fe400906377e6a2e30263f63e`.
+  The active authoring-authority manifest SHA-256 is
+  `463562762dea9234aaf959e3e957f00d0a871a14456f178507a68429cc5c3dea`.
+- The complete Node lane passed 793 tests with zero failures and two known
+  optional external skips. The complete Go suite, vet, A6/D5 frozen-oracle
+  lanes, and RootCatalog, Transform, Topology, and Generation byte gates
+  passed against the rebuilt authority.
+
 The checkpoint passes only when every required leg is PASS. A skip,
 inconclusive live snapshot, Node self-drift, secret-scan hit, unexpected wire or
 filesystem behavior, artifact mismatch, or undocumented §2 difference is a

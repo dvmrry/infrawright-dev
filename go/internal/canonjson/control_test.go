@@ -3,6 +3,7 @@ package canonjson
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -239,5 +240,124 @@ func TestJSONContractScannerIgnoresBracketsWithinStrings(t *testing.T) {
 	source := `["` + strings.Repeat("[", 500) + `"]`
 	if err := validateJSONContract(source, false); err != nil {
 		t.Errorf("validateJSONContract(%d brackets inside a string) = %v, want nil", 500, err)
+	}
+}
+
+func TestControlParsersRejectUnpairedUTF16SurrogatesAtRawOffsets(t *testing.T) {
+	cases := []struct {
+		name     string
+		source   string
+		position int
+	}{
+		{name: "high value", source: `{"value":"\ud800"}`, position: 10},
+		{name: "low value", source: `{"value":"\udfff"}`, position: 10},
+		{name: "high key", source: `{"\ud800":true}`, position: 2},
+		{name: "low key", source: `{"\udfff":true}`, position: 2},
+		{name: "adjacent highs", source: `{"value":"\ud800\ud800"}`, position: 10},
+		{name: "high before scalar", source: `{"value":"\ud800x"}`, position: 10},
+		{name: "high key before replacement key", source: `{"\ud800":1,"�":2}`, position: 2},
+		{name: "high key before low key", source: `{"\ud800":1,"\udfff":2}`, position: 2},
+		{name: "repeated high keys", source: `{"\ud800":1,"\ud800":2}`, position: 2},
+	}
+	parsers := []struct {
+		name  string
+		parse func(string) (Value, error)
+	}{
+		{name: "control", parse: ParseControlJSON},
+		{name: "data", parse: ParseDataJSONLosslessly},
+	}
+	for _, parser := range parsers {
+		for _, tc := range cases {
+			t.Run(parser.name+"/"+tc.name, func(t *testing.T) {
+				_, err := parser.parse(tc.source)
+				var decodeErr *PythonJSONDecodeError
+				if !errors.As(err, &decodeErr) {
+					t.Fatalf("error = %v (%T), want *PythonJSONDecodeError", err, err)
+				}
+				want := fmt.Sprintf("Unpaired UTF-16 surrogate: line 1 column %d (char %d)", tc.position+1, tc.position)
+				if decodeErr.Error() != want {
+					t.Errorf("error = %q, want %q", decodeErr.Error(), want)
+				}
+			})
+		}
+	}
+}
+
+func TestControlParsersAllowPairedAndNonSurrogateStrings(t *testing.T) {
+	for _, parse := range []func(string) (Value, error){ParseControlJSON, ParseDataJSONLosslessly} {
+		for _, source := range []string{
+			`{"value":"\ud83d\ude00"}`,
+			`{"value":"😀"}`,
+			`{"value":"�"}`,
+		} {
+			if _, err := parse(source); err != nil {
+				t.Errorf("parse(%s): %v", source, err)
+			}
+		}
+	}
+}
+
+func TestControlParsersRejectEveryOrdinaryEscapeBetweenSurrogateHalves(t *testing.T) {
+	escapes := []string{`\"`, `\\`, `\/`, `\b`, `\f`, `\n`, `\r`, `\t`}
+	parsers := []struct {
+		name  string
+		parse func(string) (Value, error)
+	}{
+		{name: "control", parse: ParseControlJSON},
+		{name: "data", parse: ParseDataJSONLosslessly},
+	}
+	for _, parser := range parsers {
+		for _, escape := range escapes {
+			for _, source := range []string{
+				`{"value":"\ud800` + escape + `\udc00"}`,
+				`{"\ud800` + escape + `\udc00":true}`,
+			} {
+				t.Run(parser.name+"/"+escape+"/"+source[:2], func(t *testing.T) {
+					_, err := parser.parse(source)
+					var decodeErr *PythonJSONDecodeError
+					if !errors.As(err, &decodeErr) {
+						t.Fatalf("error = %v (%T), want *PythonJSONDecodeError", err, err)
+					}
+					if decodeErr.Reason != reasonUnpairedUTF16Surrogate {
+						t.Errorf("reason = %q, want %q", decodeErr.Reason, reasonUnpairedUTF16Surrogate)
+					}
+					if want := strings.Index(source, `\ud800`); decodeErr.Position != want {
+						t.Errorf("position = %d, want %d", decodeErr.Position, want)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestSurrogateTokenScannerAllowsMixedRawAndEscapedPairs(t *testing.T) {
+	for _, units := range [][]uint16{
+		{'"', 0xd800, '\\', 'u', 'd', 'c', '0', '0', '"'},
+		{'"', '\\', 'u', 'd', '8', '0', '0', 0xdc00, '"'},
+	} {
+		if got := firstUnpairedJSONStringSurrogateOffset(units, 0, len(units)); got != -1 {
+			t.Errorf("firstUnpairedJSONStringSurrogateOffset(%#v) = %d, want -1", units, got)
+		}
+	}
+}
+
+func TestControlParsersPreserveContractErrorsAheadOfSurrogates(t *testing.T) {
+	cases := []struct {
+		source string
+		reason string
+	}{
+		{source: `{"value":"\ud800",}`, reason: reasonExpectingPropertyName},
+		{source: `{"value":"\ud800" "next":1}`, reason: reasonExpectingComma},
+		{source: `{"value":"\ud800"} garbage`, reason: reasonExtraData},
+		{source: `{"value":"\ud800","next":?}`, reason: reasonExpectingValue},
+	}
+	for _, parse := range []func(string) (Value, error){ParseControlJSON, ParseDataJSONLosslessly} {
+		for _, tc := range cases {
+			_, err := parse(tc.source)
+			var decodeErr *PythonJSONDecodeError
+			if !errors.As(err, &decodeErr) || decodeErr.Reason != tc.reason {
+				t.Errorf("parse(%q) error = %v, want reason %q", tc.source, err, tc.reason)
+			}
+		}
 	}
 }

@@ -13,7 +13,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
-const authoritySHA256 = "464121fe2e7edcc09861ea046c10aa54d4d101145803d5af13adb41b56c5cbd7"
+const authoritySHA256 = "fff36234703a253bf903b97c2396a8d2d65a7b50b82407eff752eeb86c521004"
 
 type frozenAuthority struct {
 	Kind                 string                 `json:"kind"`
