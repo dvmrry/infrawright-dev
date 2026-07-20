@@ -50,8 +50,38 @@ func TestLegacyFixtureParity(t *testing.T) {
 			t.Fatalf("%s differs from frozen authority\nwant: %s\ngot: %s", artifact.Name, want, artifact.Bytes)
 		}
 	}
+	markdownCopy, copyErr := result.MarkdownCopy()
+	if copyErr != nil {
+		t.Fatalf("Result.MarkdownCopy: %v", copyErr)
+	}
+	if strings.Contains(string(markdownCopy), "## Artifacts\n") {
+		t.Fatalf("legacy Markdown copy contains published artifact appendix: %q", markdownCopy)
+	}
+	publishedMarkdown := artifacts[len(artifacts)-1].Bytes
+	if !strings.Contains(string(publishedMarkdown), "## Artifacts\n") {
+		t.Fatalf("published Markdown lacks artifact appendix: %q", publishedMarkdown)
+	}
+	if len(markdownCopy) == 0 {
+		t.Fatal("legacy Markdown copy is empty")
+	}
+	markdownCopy[0] ^= 1
+	freshCopy, freshErr := result.MarkdownCopy()
+	if freshErr != nil {
+		t.Fatalf("Result.MarkdownCopy second call: %v", freshErr)
+	}
+	if freshCopy[0] == markdownCopy[0] {
+		t.Fatal("Result.MarkdownCopy returned caller-mutable bytes")
+	}
 	if _, err := os.Stat(filepath.Join(result.WorkDirectory(), "artifacts")); !os.IsNotExist(err) {
 		t.Fatalf("legacy runner created public artifact directory: %v", err)
+	}
+}
+
+func TestResultMarkdownCopyRejectsIncompleteResult(t *testing.T) {
+	for _, result := range []Result{{}, {mode: LegacyV1}, {mode: QualifiedV2}} {
+		if _, err := result.MarkdownCopy(); err == nil {
+			t.Fatalf("Result(%q).MarkdownCopy error = nil, want incomplete-result rejection", result.mode)
+		}
 	}
 }
 

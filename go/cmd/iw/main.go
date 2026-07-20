@@ -414,8 +414,18 @@ func slicesContain(values []string, target string) bool {
 	return false
 }
 
-// run ports the main dispatch in node-src/cli/main.ts for the commands this
-// slice carries, and fails loudly for the rest.
+func retainedAuthoringCommand(command string) bool {
+	switch command {
+	case "reconcile", "openapi-map", "source-operation-map", "source-evidence-eval", "provider-probe", "transform-adopt-parity":
+		return true
+	default:
+		return false
+	}
+}
+
+// run ports the main dispatch in node-src/cli/main.ts. The retained authoring
+// surface is served by this same binary; there is no Node fallback or second
+// authoring executable.
 func run(arguments []string) (int, error) {
 	if requiresTerraformExecution(arguments) {
 		if err := terraformcmd.AssertSupportedTerraformExecutionPlatform(""); err != nil {
@@ -426,6 +436,11 @@ func run(arguments []string) (int, error) {
 		return 0, usageError(usageText)
 	}
 	command := arguments[0]
+	if retainedAuthoringCommand(command) && len(arguments) > 1 &&
+		(arguments[1] == "-h" || arguments[1] == "--help") {
+		_, err := os.Stdout.WriteString(usageText + "\n")
+		return 0, err
+	}
 	switch command {
 	case "check-pack":
 		return checkPackCommand(arguments[1:])
@@ -469,6 +484,18 @@ func run(arguments []string) (int, error) {
 		return fetchCommand(arguments[1:], nil)
 	case "fetch-diag":
 		return fetchDiagCommand(arguments[1:])
+	case "reconcile":
+		return reconcileCommand(arguments[1:])
+	case "openapi-map":
+		return openAPIMapCommand(arguments[1:])
+	case "source-operation-map":
+		return sourceOperationMapCommand(arguments[1:])
+	case "source-evidence-eval":
+		return sourceEvidenceEvalCommand(arguments[1:])
+	case "provider-probe":
+		return providerProbeCommand(arguments[1:])
+	case "transform-adopt-parity":
+		return transformAdoptParityCommand(arguments[1:])
 	case "-h", "--help":
 		_, err := os.Stdout.WriteString(usageText + "\n")
 		return 0, err

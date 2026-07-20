@@ -256,10 +256,10 @@ func compareBlockC4RunResult(t *testing.T, operation string, oracle, candidate r
 		t.Errorf("%s exit = %d, want Node %d\nNode stderr: %s\nGo stderr: %s",
 			operation, candidate.exit, oracle.exit, oracle.stderr, candidate.stderr)
 	}
-	if !bytes.Equal(candidate.stdout, oracle.stdout) {
+	if !equalAfterA6Usage(candidate.stdout, oracle.stdout) {
 		t.Errorf("%s stdout = %q, want Node %q", operation, candidate.stdout, oracle.stdout)
 	}
-	if !bytes.Equal(candidate.stderr, oracle.stderr) {
+	if !equalAfterA6Usage(candidate.stderr, oracle.stderr) {
 		t.Errorf("%s stderr = %q, want Node %q", operation, candidate.stderr, oracle.stderr)
 	}
 }

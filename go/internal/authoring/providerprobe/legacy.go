@@ -106,7 +106,11 @@ func runLegacy(ctx context.Context, recipe loadedRecipe, options RunOptions) (Re
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{mode: LegacyV1, workDirectory: work, artifacts: []Artifact{{Name: "source-registry.json", Bytes: registryBytes}, {Name: "source-diagnostics.json", Bytes: diagnosticsBytes}, {Name: "openapi-map.json", Bytes: mapBytes}, {Name: "summary.json", Bytes: summaryBytes}, {Name: "summary.md", Bytes: []byte(markdown)}}}, nil
+	markdownCopy, err := renderLegacyMarkdown(summary, nil)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{mode: LegacyV1, workDirectory: work, markdownCopy: []byte(markdownCopy), artifacts: []Artifact{{Name: "source-registry.json", Bytes: registryBytes}, {Name: "source-diagnostics.json", Bytes: diagnosticsBytes}, {Name: "openapi-map.json", Bytes: mapBytes}, {Name: "summary.json", Bytes: summaryBytes}, {Name: "summary.md", Bytes: []byte(markdown)}}}, nil
 }
 
 func legacyWorkDirectory(recipe loadedRecipe, requested string) (string, error) {

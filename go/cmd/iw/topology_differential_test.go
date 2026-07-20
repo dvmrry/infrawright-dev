@@ -72,7 +72,7 @@ func TestTopologyDifferentialAgainstNodeOracle(t *testing.T) {
 				t.Errorf("exit: node=%d go=%d\nnode stderr:\n%s\ngo stderr:\n%s",
 					oracle.exit, candidate.exit, oracle.stderr, candidate.stderr)
 			}
-			if !bytes.Equal(oracle.stdout, candidate.stdout) {
+			if !equalAfterA6Usage(oracle.stdout, candidate.stdout) {
 				t.Errorf("stdout diverges\nnode:\n%s\ngo:\n%s", oracle.stdout, candidate.stdout)
 			}
 			scrubbedNode := strings.ReplaceAll(string(oracle.stderr), scopeList, "<paths>")

@@ -154,6 +154,12 @@ The A6 handoff gate asserts that all six authoring names appear in `iw` help,
 route through that binary, and have no executable Node fallback. There is no
 second authoring binary and no post-handoff Node command lane.
 
+The A6 implementation candidate now satisfies the local six-name routing,
+frozen differential, artifact-publication, and Node-free command gates and has
+passed fresh adversarial review. This is not yet the formal authority transfer:
+the final Node freeze/tag and product-authority declaration remain pending the
+external Opus, GPT-5.6 Pro, and Fable review sequence.
+
 ## 5. Vertical-slice checkpoint (go/no-go before any more breadth)
 
 The checkpoint is deliberately one resource wide:

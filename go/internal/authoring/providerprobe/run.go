@@ -5,6 +5,16 @@ import (
 	"fmt"
 )
 
+// InspectRecipeMode parses and validates one local recipe without running its
+// legacy preparation or qualified source-analysis pipeline.
+func InspectRecipeMode(path string) (Mode, error) {
+	recipe, err := loadRecipe(path)
+	if err != nil {
+		return "", err
+	}
+	return recipe.mode, nil
+}
+
 // Run loads one local recipe, chooses its categorical contract, and returns
 // only detached in-memory artifacts. It neither publishes artifacts nor lets a
 // qualified recipe reach a legacy preparation capability.
@@ -19,6 +29,9 @@ func Run(ctx context.Context, options RunOptions) (Result, error) {
 	recipe, err := loadRecipe(options.RecipePath)
 	if err != nil {
 		return Result{}, err
+	}
+	if options.ExpectedMode != "" && recipe.mode != options.ExpectedMode {
+		return Result{}, fmt.Errorf("provider probe recipe mode changed after preflight: got %q, want %q", recipe.mode, options.ExpectedMode)
 	}
 	if err := ctx.Err(); err != nil {
 		return Result{}, fmt.Errorf("provider probe cancelled: %w", err)

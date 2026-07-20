@@ -4,6 +4,7 @@ package providerprobe
 
 import (
 	"context"
+	"fmt"
 	"os"
 )
 
@@ -35,6 +36,7 @@ type Artifact struct {
 type Result struct {
 	mode          Mode
 	artifacts     []Artifact
+	markdownCopy  []byte
 	workDirectory string
 }
 
@@ -48,6 +50,31 @@ func (r Result) Artifacts() []Artifact {
 		result[i] = Artifact{Name: artifact.Name, Bytes: append([]byte(nil), artifact.Bytes...)}
 	}
 	return result
+}
+
+// MarkdownCopy returns the sealed Markdown bytes for provider-probe's
+// --markdown copy destination. Legacy v1 intentionally omits the published
+// artifact-path appendix, matching node-src/authoring/cli.ts; qualified v2's
+// source-first summary has no such appendix and reuses its sealed summary.md.
+// A zero or manually incomplete Result is rejected rather than returning an
+// ambiguous nil byte stream.
+func (r Result) MarkdownCopy() ([]byte, error) {
+	if r.mode != LegacyV1 && r.mode != QualifiedV2 {
+		return nil, fmt.Errorf("provider probe result has unsupported mode %q", r.mode)
+	}
+	if r.markdownCopy == nil {
+		return nil, fmt.Errorf("provider probe result has no Markdown copy")
+	}
+	return append([]byte(nil), r.markdownCopy...), nil
+}
+
+func markdownCopyFromArtifacts(artifacts []Artifact) ([]byte, error) {
+	for _, artifact := range artifacts {
+		if artifact.Name == "summary.md" {
+			return append([]byte(nil), artifact.Bytes...), nil
+		}
+	}
+	return nil, fmt.Errorf("provider probe result is missing summary.md")
 }
 
 // WorkDirectory returns the private legacy preparation directory. Qualified
@@ -65,6 +92,9 @@ type RunOptions struct {
 	WorkDirectory string
 	Environment   map[string]string
 	LegacyHost    LegacyHost
+	// ExpectedMode, when non-empty, fails closed if the recipe changed modes
+	// after a caller performed a read-only mode preflight.
+	ExpectedMode Mode
 }
 
 // LegacyHost contains the only external preparation capabilities used by the

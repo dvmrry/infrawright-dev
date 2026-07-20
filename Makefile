@@ -11,6 +11,7 @@ ROOT_CATALOG ?= catalogs/zscaler-root-catalog.v1.json
 DEMO_PACK_REQUIREMENTS ?= demo/pack-requirements.json
 DEMO_DEPLOYMENT ?= demo/deployment.json
 INFRAWRIGHT_CLI ?= $(NODE) dist/infrawright-cli.mjs
+IW_MAINTAINER ?= dist/iw
 MODULE_DIR ?= $(shell INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(INFRAWRIGHT_CLI) deployment module-dir)
 OPTIONAL_TENANT_ARG = $(if $(filter undefined,$(origin TENANT)),,--tenant "$(TENANT)")
 
@@ -27,10 +28,13 @@ endif
 override INFRAWRIGHT_DEPLOYMENT = $(DEPLOYMENT)
 export INFRAWRIGHT_DEPLOYMENT
 
-.PHONY: metadata-cli verify-runtime source-build-preflight check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set differential root-catalog check-root-catalog deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-node check-all check-core test test-node fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: metadata-cli verify-runtime source-build-preflight check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set differential root-catalog check-root-catalog deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-node check-all check-core test test-node fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 dist/infrawright-cli.mjs:
 	$(NPM) run build:metadata-cli
+
+dist/iw:
+	cd go && $(GO) build -o ../dist/iw ./cmd/iw
 
 metadata-cli: ## Explicitly rebuild the generic CLI for development
 	$(NPM) run build:metadata-cli
@@ -152,29 +156,33 @@ transform: dist/infrawright-cli.mjs ## Transform pulled JSON for a tenant (IN=<d
 	@test -n "$(IN)" -a -n "$(TENANT)" || { echo "usage: make transform IN=pulls/<tenant> TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
 	$(INFRAWRIGHT_CLI) transform --in "$(IN)" --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-reconcile: dist/infrawright-cli.mjs ## Compare API JSON to Terraform schema (RESOURCE=<type> IN=<api.json> [SCHEMA=<schema.json>] [API_OPTIONS=<options.json>] [OPENAPI=<spec.json>] [OPENAPI_READ=<METHOD:/path>] [OPENAPI_WRITE="<METHOD:/path> ..."] [OVERRIDE=<override.json>] [OUT=<report.json>] [STRICT=1])
+reconcile: dist/iw ## Compare API JSON to Terraform schema (RESOURCE=<type> IN=<api.json> [SCHEMA=<schema.json>] [API_OPTIONS=<options.json>] [OPENAPI=<spec.json>] [OPENAPI_READ=<METHOD:/path>] [OPENAPI_WRITE="<METHOD:/path> ..."] [OVERRIDE=<override.json>] [OUT=<report.json>] [STRICT=1])
 	@test -n "$(RESOURCE)" -a -n "$(IN)" || { echo "usage: make reconcile RESOURCE=<type> IN=<api.json> [SCHEMA=<schema.json>] [API_OPTIONS=<options.json>] [OPENAPI=<spec.json>] [OPENAPI_READ=<METHOD:/path>] [OPENAPI_WRITE=\"<METHOD:/path> ...\"] [OVERRIDE=<override.json>] [OUT=<report.json>] [STRICT=1]"; exit 2; }
-	$(INFRAWRIGHT_CLI) reconcile "$(RESOURCE)" --api "$(IN)" $(if $(SCHEMA),--schema "$(SCHEMA)") $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(API_OPTIONS),--api-options "$(API_OPTIONS)") $(if $(OPENAPI),--openapi "$(OPENAPI)") $(if $(OPENAPI_READ),--openapi-read "$(OPENAPI_READ)") $(foreach op,$(OPENAPI_WRITE),--openapi-write "$(op)") $(if $(OVERRIDE),--override "$(OVERRIDE)") $(if $(OUT),--out "$(OUT)") $(if $(STRICT),--fail-on-unknown)
+	$(IW_MAINTAINER) reconcile "$(RESOURCE)" --api "$(IN)" $(if $(SCHEMA),--schema "$(SCHEMA)") $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(API_OPTIONS),--api-options "$(API_OPTIONS)") $(if $(OPENAPI),--openapi "$(OPENAPI)") $(if $(OPENAPI_READ),--openapi-read "$(OPENAPI_READ)") $(foreach op,$(OPENAPI_WRITE),--openapi-write "$(op)") $(if $(OVERRIDE),--override "$(OVERRIDE)") $(if $(OUT),--out "$(OUT)") $(if $(STRICT),--fail-on-unknown)
 
-openapi-map: dist/infrawright-cli.mjs ## Map provider resources to OpenAPI CRUD endpoints (SCHEMA=<schema.json> OPENAPI=<spec.json> [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [API_PREFIX=/api/] [REGISTRY=<registry.json>] [OUT=<report.json>])
+openapi-map: dist/iw ## Map provider resources to OpenAPI CRUD endpoints (SCHEMA=<schema.json> OPENAPI=<spec.json> [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [API_PREFIX=/api/] [REGISTRY=<registry.json>] [OUT=<report.json>])
 	@test -n "$(SCHEMA)" -a -n "$(OPENAPI)" || { echo "usage: make openapi-map SCHEMA=<schema.json> OPENAPI=<spec.json> [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [API_PREFIX=/api/] [REGISTRY=<registry.json>] [OUT=<report.json>]"; exit 2; }
-	$(INFRAWRIGHT_CLI) openapi-map --schema "$(SCHEMA)" --openapi "$(OPENAPI)" $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(API_PREFIX),--api-prefix "$(API_PREFIX)") $(if $(REGISTRY),--registry "$(REGISTRY)") $(if $(OUT),--out "$(OUT)")
+	$(IW_MAINTAINER) openapi-map --schema "$(SCHEMA)" --openapi "$(OPENAPI)" $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(API_PREFIX),--api-prefix "$(API_PREFIX)") $(if $(REGISTRY),--registry "$(REGISTRY)") $(if $(OUT),--out "$(OUT)")
 
-source-operation-map: dist/infrawright-cli.mjs ## Derive read registry from provider source OpenAPI operation calls (SCHEMA=<schema.json> OPENAPI=<spec.json> SOURCE_ROOT=<dir> [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [RESOURCES=a,b] [SDK_ROOT=<dir>] [OUT=<registry.json>] [DIAGNOSTICS=<report.json>])
-	@test -n "$(SCHEMA)" -a -n "$(OPENAPI)" -a -n "$(SOURCE_ROOT)" || { echo "usage: make source-operation-map SCHEMA=<schema.json> OPENAPI=<spec.json> SOURCE_ROOT=<dir> [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [RESOURCES=a,b] [SDK_ROOT=<dir>] [OUT=<registry.json>] [DIAGNOSTICS=<report.json>]"; exit 2; }
-	$(INFRAWRIGHT_CLI) source-operation-map --schema "$(SCHEMA)" --openapi "$(OPENAPI)" --source-root "$(SOURCE_ROOT)" $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(RESOURCES),--resources "$(RESOURCES)") $(if $(SDK_ROOT),--sdk-root "$(SDK_ROOT)") $(if $(OUT),--out "$(OUT)") $(if $(DIAGNOSTICS),--diagnostics "$(DIAGNOSTICS)")
+source-operation-map: dist/iw ## Derive source-operation evidence (SCHEMA=<schema.json> SOURCE_ROOT=<dir>; legacy: OPENAPI=<spec.json>; v2: SOURCE_MANIFEST=<file> ARTIFACT_DIR=<dir>)
+	@test -n "$(SCHEMA)" -a -n "$(SOURCE_ROOT)" || { echo "usage: make source-operation-map SCHEMA=<schema.json> SOURCE_ROOT=<dir> [OPENAPI=<spec.json>] [SOURCE_MANIFEST=<manifest.json>|ALLOW_UNVERIFIED_SOURCE=1] [ARTIFACT_DIR=<dir>]"; exit 2; }
+	$(IW_MAINTAINER) source-operation-map --schema "$(SCHEMA)" --source-root "$(SOURCE_ROOT)" $(if $(OPENAPI),--openapi "$(OPENAPI)") $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(RESOURCES),--resources "$(RESOURCES)") $(foreach root,$(SDK_ROOT),--sdk-root "$(root)") $(if $(SOURCE_MANIFEST),--source-manifest "$(SOURCE_MANIFEST)") $(if $(ALLOW_UNVERIFIED_SOURCE),--allow-unverified-source) $(if $(PROVIDER_MODULE),--provider-module "$(PROVIDER_MODULE)") $(foreach file,$(PROVIDER_FILE),--provider-file "$(file)") $(foreach file,$(SDK_FILE),--sdk-file "$(file)") $(if $(ARTIFACT_DIR),--artifact-dir "$(ARTIFACT_DIR)") $(if $(OUT),--out "$(OUT)") $(if $(DIAGNOSTICS),--diagnostics "$(DIAGNOSTICS)")
 
-source-evidence-eval: dist/infrawright-cli.mjs ## A/B evaluate text source scanning vs AST facts (SCHEMA=<schema.json> OPENAPI=<spec.json> SOURCE_ROOT=<dir> OUT_DIR=<dir> [SOURCE_FACTS=<facts.json>] [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [RESOURCES=a,b] [FAIL_ON_REGRESSION=1])
-	@test -n "$(SCHEMA)" -a -n "$(OPENAPI)" -a -n "$(SOURCE_ROOT)" -a -n "$(OUT_DIR)" || { echo "usage: make source-evidence-eval SCHEMA=<schema.json> OPENAPI=<spec.json> SOURCE_ROOT=<dir> OUT_DIR=<dir> [SOURCE_FACTS=<facts.json>] [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [RESOURCES=a,b] [FAIL_ON_REGRESSION=1]"; exit 2; }
-	$(INFRAWRIGHT_CLI) source-evidence-eval --schema "$(SCHEMA)" --openapi "$(OPENAPI)" --source-root "$(SOURCE_ROOT)" --out-dir "$(OUT_DIR)" $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(RESOURCES),--resources "$(RESOURCES)") $(if $(SOURCE_FACTS),--source-facts "$(SOURCE_FACTS)") $(if $(AST_TOOL_DIR),--ast-tool-dir "$(AST_TOOL_DIR)") $(if $(FAIL_ON_REGRESSION),--fail-on-regression)
+source-evidence-eval: dist/iw ## Evaluate source evidence (SCHEMA=<schema.json> SOURCE_ROOT=<dir> OUT_DIR=<dir>; legacy: OPENAPI=<spec.json>)
+	@test -n "$(SCHEMA)" -a -n "$(SOURCE_ROOT)" -a -n "$(OUT_DIR)" || { echo "usage: make source-evidence-eval SCHEMA=<schema.json> SOURCE_ROOT=<dir> OUT_DIR=<dir> [OPENAPI=<spec.json>] [SOURCE_MANIFEST=<manifest.json>|ALLOW_UNVERIFIED_SOURCE=1]"; exit 2; }
+	$(IW_MAINTAINER) source-evidence-eval --schema "$(SCHEMA)" --source-root "$(SOURCE_ROOT)" --out-dir "$(OUT_DIR)" $(if $(OPENAPI),--openapi "$(OPENAPI)") $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(RESOURCES),--resources "$(RESOURCES)") $(if $(SOURCE_FACTS),--source-facts "$(SOURCE_FACTS)") $(if $(SOURCE_MANIFEST),--source-manifest "$(SOURCE_MANIFEST)") $(if $(ALLOW_UNVERIFIED_SOURCE),--allow-unverified-source) $(if $(PROVIDER_MODULE),--provider-module "$(PROVIDER_MODULE)") $(foreach root,$(SDK_ROOT),--sdk-root "$(root)") $(foreach file,$(PROVIDER_FILE),--provider-file "$(file)") $(foreach file,$(SDK_FILE),--sdk-file "$(file)") $(if $(FAIL_ON_REGRESSION),--fail-on-regression)
 
 adopt: dist/infrawright-cli.mjs ## Transform pulled JSON using Terraform/OpenTofu import oracle (IN=<dir> TENANT=<name> [RESOURCE="<type|provider> ..."] [POLICY=<file>])
 	@test -n "$(IN)" -a -n "$(TENANT)" || { echo "usage: make adopt IN=pulls/<tenant> TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"] [POLICY=<file>]"; exit 2; }
 	$(INFRAWRIGHT_CLI) adopt --in "$(IN)" --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)") $(if $(POLICY),--policy "$(POLICY)")
 
-provider-probe: dist/infrawright-cli.mjs ## Run provider readiness probe (RECIPE=<recipe.json> [WORK_DIR=<dir>] [OUT=<summary.json>] [MARKDOWN=<summary.md>])
+provider-probe: dist/iw ## Run provider readiness probe (RECIPE=<recipe.json> [WORK_DIR=<dir>] [OUT=<summary.json>] [MARKDOWN=<summary.md>])
 	@test -n "$(RECIPE)" || { echo "usage: make provider-probe RECIPE=<recipe.json> [WORK_DIR=<dir>] [OUT=<summary.json>] [MARKDOWN=<summary.md>]"; exit 2; }
-	$(INFRAWRIGHT_CLI) provider-probe "$(RECIPE)" $(if $(WORK_DIR),--work-dir "$(WORK_DIR)") $(if $(OUT),--out "$(OUT)") $(if $(MARKDOWN),--markdown "$(MARKDOWN)")
+	$(IW_MAINTAINER) provider-probe "$(RECIPE)" $(if $(WORK_DIR),--work-dir "$(WORK_DIR)") $(if $(OUT),--out "$(OUT)") $(if $(MARKDOWN),--markdown "$(MARKDOWN)")
+
+transform-adopt-parity: dist/iw ## Compare Transform/Adopt fixtures (FIXTURES="<fixture.json> ...")
+	@test -n "$(FIXTURES)" || { echo "usage: make transform-adopt-parity FIXTURES=\"<fixture.json> ...\""; exit 2; }
+	$(IW_MAINTAINER) transform-adopt-parity $(FIXTURES)
 
 roots: dist/infrawright-cli.mjs ## Emit root topology JSON ([TENANT=<label>] [RESOURCE=<type|provider>])
 	@$(INFRAWRIGHT_CLI) roots $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")

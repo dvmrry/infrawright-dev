@@ -69,7 +69,6 @@ func TestFrozenV1Reports(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				want += "\n"
 				if string(got) != want {
 					t.Fatalf("frozen report differs at %s", firstDifference(string(want), string(got)))
 				}

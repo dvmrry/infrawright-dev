@@ -403,10 +403,10 @@ func compareFetchOracle(t *testing.T, root, goBinary string, args, environment [
 		t.Errorf("exit: node=%d go=%d\nnode stderr: %s\ngo stderr: %s",
 			oracle.exit, candidate.exit, oracle.stderr, candidate.stderr)
 	}
-	if !bytes.Equal(oracle.stdout, candidate.stdout) {
+	if !equalAfterA6Usage(oracle.stdout, candidate.stdout) {
 		t.Errorf("stdout diverges\nnode: %q\ngo:   %q", oracle.stdout, candidate.stdout)
 	}
-	if !bytes.Equal(oracle.stderr, candidate.stderr) {
+	if !equalAfterA6Usage(oracle.stderr, candidate.stderr) {
 		t.Errorf("stderr diverges\nnode: %q\ngo:   %q", oracle.stderr, candidate.stderr)
 	}
 }
@@ -417,10 +417,10 @@ func requireRunParity(t *testing.T, oracle, candidate runResult) {
 		t.Errorf("exit: node=%d go=%d\nnode stderr: %s\ngo stderr: %s",
 			oracle.exit, candidate.exit, oracle.stderr, candidate.stderr)
 	}
-	if !bytes.Equal(oracle.stdout, candidate.stdout) {
+	if !equalAfterA6Usage(oracle.stdout, candidate.stdout) {
 		t.Errorf("stdout diverges\nnode: %q\ngo:   %q", oracle.stdout, candidate.stdout)
 	}
-	if !bytes.Equal(oracle.stderr, candidate.stderr) {
+	if !equalAfterA6Usage(oracle.stderr, candidate.stderr) {
 		t.Errorf("stderr diverges\nnode: %q\ngo:   %q", oracle.stderr, candidate.stderr)
 	}
 }

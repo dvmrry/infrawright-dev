@@ -187,6 +187,24 @@ func TestRunRejectsNilAndCancelledContextBeforeRecipeLoad(t *testing.T) {
 	}
 }
 
+func TestInspectRecipeModeAndRunExpectedModeFailClosedBeforeQualifiedWork(t *testing.T) {
+	root := t.TempDir()
+	recipePath := filepath.Join(root, "recipe.json")
+	writeQualifiedRecipe(t, recipePath, map[string]any{
+		"source_provenance": map[string]any{
+			"manifest": "missing-manifest.json", "provider_root": "missing-provider", "schema_root": "missing-schema",
+		},
+	})
+	mode, err := InspectRecipeMode(recipePath)
+	if err != nil || mode != QualifiedV2 {
+		t.Fatalf("InspectRecipeMode() = (%q, %v), want (%q, nil)", mode, err, QualifiedV2)
+	}
+	_, err = Run(context.Background(), RunOptions{RecipePath: recipePath, ExpectedMode: LegacyV1, LegacyHost: panicLegacyHost{t: t}})
+	if err == nil || !strings.Contains(err.Error(), "recipe mode changed after preflight") {
+		t.Fatalf("Run(expected legacy after qualified preflight) error = %v, want mode-change rejection", err)
+	}
+}
+
 func TestRunQualifiedSourceOnlyMatchesSealedComposition(t *testing.T) {
 	recipePath, roots := materializeQualifiedSourceOnlyFixture(t)
 	ctx := context.Background()
@@ -231,6 +249,20 @@ func TestRunQualifiedSourceOnlyMatchesSealedComposition(t *testing.T) {
 	again := result.Artifacts()
 	if !bytes.Equal(again[0].Bytes, want[0].Bytes) {
 		t.Fatal("mutating returned artifact bytes changed Result.Artifacts()")
+	}
+	markdownCopy, copyErr := result.MarkdownCopy()
+	if copyErr != nil {
+		t.Fatalf("Result.MarkdownCopy: %v", copyErr)
+	}
+	var publishedMarkdown []byte
+	for _, artifact := range again {
+		if artifact.Name == "summary.md" {
+			publishedMarkdown = artifact.Bytes
+			break
+		}
+	}
+	if !bytes.Equal(markdownCopy, publishedMarkdown) {
+		t.Fatalf("qualified Markdown copy = %q, want sealed summary.md %q", markdownCopy, publishedMarkdown)
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(recipePath), "artifacts")); !os.IsNotExist(err) {
 		t.Fatalf("qualified Run created artifacts directory: %v", err)

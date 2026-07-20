@@ -4,7 +4,8 @@ package main
 // docs/go-runtime-plan.md: run the built Node CLI bundle and this Go binary
 // on the same argv/env/cwd and require byte-identical stdout and stderr and
 // identical exit codes. The corpus covers every root-catalog surface pinned
-// during slice 2, plus the shared usage/help/unknown-command shell paths.
+// during slice 2. A6 deliberately retires one Node-only authoring command and
+// owns the resulting Go-authority help/usage surface separately.
 //
 // Oracle resolution: <repo>/dist/infrawright-cli.mjs run by `node` from
 // PATH. When either is missing the test skips loudly — CI decides where the
@@ -43,6 +44,46 @@ type runResult struct {
 	exit   int
 	stdout []byte
 	stderr []byte
+}
+
+// normalizeA6Usage preserves differential coverage for every unchanged usage
+// line while allowing A6's deliberate authoring-surface handoff: the frozen
+// Node block still lists zpa-provider-evidence and the legacy-only source
+// arguments, whereas Go help lists the retained six and their v2 modes.
+func normalizeA6Usage(value []byte) []byte {
+	const start = "  iw reconcile "
+	const endPrefix = "  iw transform-adopt-parity "
+	current := usageText + "\n"
+	currentStart := bytes.Index([]byte(current), []byte(start))
+	currentEndStart := bytes.Index([]byte(current), []byte(endPrefix))
+	if currentStart < 0 || currentEndStart < 0 {
+		return append([]byte(nil), value...)
+	}
+	currentEndOffset := bytes.IndexByte([]byte(current)[currentEndStart:], '\n')
+	if currentEndOffset < 0 {
+		return append([]byte(nil), value...)
+	}
+	currentBlock := []byte(current)[currentStart : currentEndStart+currentEndOffset+1]
+
+	startIndex := bytes.Index(value, []byte(start))
+	endStart := bytes.Index(value, []byte(endPrefix))
+	if startIndex < 0 || endStart < startIndex {
+		return append([]byte(nil), value...)
+	}
+	endOffset := bytes.IndexByte(value[endStart:], '\n')
+	if endOffset < 0 {
+		return append([]byte(nil), value...)
+	}
+	endIndex := endStart + endOffset + 1
+	result := make([]byte, 0, len(value)-endIndex+startIndex+len(currentBlock))
+	result = append(result, value[:startIndex]...)
+	result = append(result, currentBlock...)
+	result = append(result, value[endIndex:]...)
+	return result
+}
+
+func equalAfterA6Usage(left, right []byte) bool {
+	return bytes.Equal(normalizeA6Usage(left), normalizeA6Usage(right))
 }
 
 func runBinary(t *testing.T, root string, argv0 string, args []string) runResult {
@@ -137,11 +178,11 @@ func TestRootCatalogDifferentialAgainstNodeOracle(t *testing.T) {
 				t.Errorf("exit: node=%d go=%d\nnode stderr: %s\ngo stderr: %s",
 					oracle.exit, candidate.exit, oracle.stderr, candidate.stderr)
 			}
-			if !bytes.Equal(oracle.stdout, candidate.stdout) {
+			if !equalAfterA6Usage(oracle.stdout, candidate.stdout) {
 				t.Errorf("stdout diverges\nnode (%d bytes): %.400q\ngo (%d bytes): %.400q",
 					len(oracle.stdout), oracle.stdout, len(candidate.stdout), candidate.stdout)
 			}
-			if !bytes.Equal(oracle.stderr, candidate.stderr) {
+			if !equalAfterA6Usage(oracle.stderr, candidate.stderr) {
 				t.Errorf("stderr diverges\nnode (%d bytes): %.400q\ngo (%d bytes): %.400q",
 					len(oracle.stderr), oracle.stderr, len(candidate.stderr), candidate.stderr)
 			}

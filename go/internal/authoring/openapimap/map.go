@@ -51,7 +51,7 @@ func (r Report) Render() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("render OpenAPI map report: %w", err)
 	}
-	return []byte(rendered + "\n"), nil
+	return []byte(rendered), nil
 }
 
 func renderableJSON(value any) any {

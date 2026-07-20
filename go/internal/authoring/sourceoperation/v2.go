@@ -45,6 +45,16 @@ type Artifact struct {
 // set. It contains no local filesystem paths.
 type Bundle struct {
 	artifacts []Artifact
+	status    BundleStatus
+	sealed    bool
+}
+
+// BundleStatus is the sealed command-decision surface derived from validated
+// OpenAPI diagnostics. It exposes no report map and cannot alter evidence.
+type BundleStatus struct {
+	DocumentState   contracts.OpenAPIDocumentState
+	ReasonCode      *contracts.OpenAPIReasonCode
+	OpenAPIConflict bool
 }
 
 // Artifacts returns a detached copy in deterministic bundle order.
@@ -54,6 +64,36 @@ func (b Bundle) Artifacts() []Artifact {
 		result[i] = Artifact{Name: artifact.Name, Bytes: append([]byte(nil), artifact.Bytes...)}
 	}
 	return result
+}
+
+// Status returns the typed warning and fail-on-regression decisions for a
+// compiled source-first bundle. CompileQualified and CompileUnverified seal
+// the value only after validating the diagnostics against the exact source
+// report; callers cannot manufacture it from artifact maps.
+func (b Bundle) Status() (BundleStatus, error) {
+	if !b.sealed {
+		return BundleStatus{}, errors.New("source-operation bundle must come from CompileQualified or CompileUnverified")
+	}
+	if err := validateBundle(b); err != nil {
+		return BundleStatus{}, fmt.Errorf("validate source-operation bundle status: %w", err)
+	}
+	report, err := contracts.DecodeSourceEvidenceReport(b.artifacts[0].Bytes)
+	if err != nil {
+		return BundleStatus{}, fmt.Errorf("decode source-operation bundle status source report: %w", err)
+	}
+	diagnostics, err := contracts.DecodeOpenAPIDiagnosticsReport(b.artifacts[len(b.artifacts)-1].Bytes, report)
+	if err != nil {
+		return BundleStatus{}, fmt.Errorf("decode source-operation bundle status OpenAPI diagnostics: %w", err)
+	}
+	wantConflict := diagnostics.Summary.ComparisonCounts.Conflict > 0
+	if b.status.DocumentState != diagnostics.DocumentState ||
+		!sameOpenAPIReason(b.status.ReasonCode, diagnostics.ReasonCode) ||
+		b.status.OpenAPIConflict != wantConflict {
+		return BundleStatus{}, errors.New("source-operation bundle status does not match validated OpenAPI diagnostics")
+	}
+	status := b.status
+	status.ReasonCode = cloneOpenAPIReason(status.ReasonCode)
+	return status, nil
 }
 
 // input holds canonical bytes produced by the source-first evidence pipeline.
@@ -150,6 +190,10 @@ func compile(ctx context.Context, input input, trust contracts.SourceTrust, open
 	if err != nil {
 		return Bundle{}, err
 	}
+	validatedOpenAPI, err := contracts.DecodeOpenAPIDiagnosticsReport(openAPIDiagnostics, report)
+	if err != nil {
+		return Bundle{}, fmt.Errorf("decode compiled OpenAPI diagnostics: %w", err)
+	}
 	bundle := Bundle{artifacts: []Artifact{
 		{Name: sourceRegistryName, Bytes: registry},
 		{Name: sourceDiagnosticsName, Bytes: diagnostics},
@@ -157,11 +201,30 @@ func compile(ctx context.Context, input input, trust contracts.SourceTrust, open
 		{Name: summaryMarkdownName, Bytes: markdown},
 		{Name: inputProvenanceName, Bytes: inputBytes},
 		{Name: openAPIDiagnosticsName, Bytes: openAPIDiagnostics},
-	}}
+	}, status: BundleStatus{
+		DocumentState:   validatedOpenAPI.DocumentState,
+		ReasonCode:      cloneOpenAPIReason(validatedOpenAPI.ReasonCode),
+		OpenAPIConflict: validatedOpenAPI.Summary.ComparisonCounts.Conflict > 0,
+	}, sealed: true}
 	if err := validateBundle(bundle); err != nil {
 		return Bundle{}, fmt.Errorf("validate compiled source-operation bundle: %w", err)
 	}
 	return bundle, nil
+}
+
+func cloneOpenAPIReason(value *contracts.OpenAPIReasonCode) *contracts.OpenAPIReasonCode {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func sameOpenAPIReason(left, right *contracts.OpenAPIReasonCode) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 // renderOpenAPIDiagnostics accepts only an optional sealed adapter capability.

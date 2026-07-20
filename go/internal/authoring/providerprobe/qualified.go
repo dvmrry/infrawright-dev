@@ -57,7 +57,11 @@ func runQualified(ctx context.Context, recipe loadedRecipe) (Result, error) {
 	if ok {
 		artifacts = append(artifacts, mapArtifact)
 	}
-	return Result{mode: QualifiedV2, artifacts: artifacts}, nil
+	markdownCopy, err := markdownCopyFromArtifacts(artifacts)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{mode: QualifiedV2, artifacts: artifacts, markdownCopy: markdownCopy}, nil
 }
 
 func qualifiedRoots(recipe loadedRecipe) (sourcebind.LocalRoots, error) {

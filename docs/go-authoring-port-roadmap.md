@@ -1,9 +1,11 @@
 # Go authoring port roadmap
 
-Status: DECIDED DESIGN. A1, A2, all four A3 parcels (A3-R, A3-O, A3-M, and
-A3-I), A4, and A5 are implemented and accepted after independent adversarial
-review. A6 is the final authoring frontier. This authoring work is the first
-leg of the authority-handoff gate in
+Status: IMPLEMENTED, FORMAL AUTHORITY HANDOFF PENDING. A1, A2, all four A3
+parcels (A3-R, A3-O, A3-M, and A3-I), A4, A5, and A6 are implemented and
+accepted after independent adversarial review. A6 completed the local
+implementation leg; the final Node freeze/tag and product-authority declaration
+wait for the external Opus, GPT-5.6 Pro, and Fable review sequence. This
+authoring work is the first leg of the authority-handoff gate in
 [singleton-state-topology-v2.md](singleton-state-topology-v2.md). This document
 does not authorize degrouping or Node archive by itself.
 
@@ -548,6 +550,10 @@ A5 is pure package work; A6 retains the public command boundary.
   publication.
 
 ### A6 — CLI, Make, and handoff gate (last)
+
+Implementation status: complete and locally accepted after a fresh adversarial
+review and one consolidated remediation cycle. The formal handoff ceremony in
+the final bullet remains pending external review.
 
 - Wire the six retained commands and their argument/env/exit/output contracts.
 - Consume Transform/Adopt parity results only from the A5 `Compare`/`Build`

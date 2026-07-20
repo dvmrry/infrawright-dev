@@ -7,7 +7,8 @@ so the authoring surface is in cutover scope and the master sequence
 is:
 
 1. Authoring port completes in Go against the current frozen Node
-   behavior (in progress; unaffected by degrouping — the authoring
+   behavior (implementation complete and locally accepted; formal external
+   review and freeze remain pending; unaffected by degrouping — the authoring
    packages are largely independent of logical-root topology).
 2. Authority handoff gate: final Node runtime frozen as the immutable
    v1 oracle, Go declared product authority
@@ -18,9 +19,10 @@ is:
 5. Cutover and archive of all executable Node dependencies (this
    document's phases).
 
-The Go operator runtime is built and lifecycle-qualified; what remains
-is the authoring port, routing, release engineering, and a controlled
-default switch.
+The Go operator runtime is built and lifecycle-qualified, and the authoring
+implementation is locally accepted. What remains is the formal authoring
+authority handoff, routing, release engineering, and a controlled default
+switch.
 
 ## 0. Preconditions
 
