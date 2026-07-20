@@ -2,7 +2,7 @@ module github.com/dvmrry/infrawright-dev/go
 
 go 1.26
 
-toolchain go1.26.3
+toolchain go1.26.5
 
 require (
 	github.com/getkin/kin-openapi v0.140.0

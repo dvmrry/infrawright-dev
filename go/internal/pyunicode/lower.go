@@ -49,7 +49,7 @@
 //     unicode.ToLower cannot express a one-rune-to-many-runes mapping.
 //
 // Go's stdlib unicode.Version is a fixed string burned in at Go-toolchain
-// build time (currently "15.0.0" as of Go 1.26.3), not a value that can be
+// build time (currently "15.0.0" as of Go 1.26.5), not a value that can be
 // ahead of Python's 15.1 contract the way V8's can. Every codepoint the
 // transcribed 16.0/17.0 deltas flag as a *newer-runtime-only* Cased,
 // Case_Ignorable, or lowercase-mapped codepoint was cross-checked against

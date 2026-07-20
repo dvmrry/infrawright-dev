@@ -30,19 +30,20 @@ safe.
 
 ### Native Go CLI contract
 
-`go/cmd/iw/main.go` embeds the frozen Node help text, discovers the repository
-by walking to `package.json`, retains a "not yet ported" dispatch guard, and
-uses a top-level `recover` to reproduce JavaScript's catch-all entry point.
-`go/cmd/iw/commands_topology.go` retains legacy usage-exit translation and
-accepts unused `--terraform` flags for Node CLI compatibility.
+The completed Cobra command tree now owns native Go help, command inventory,
+and completion, and no production "not yet ported" dispatch guard remains.
+`go/cmd/iw/main.go` still discovers the repository by walking to
+`package.json` and uses a top-level `recover` to reproduce JavaScript's
+catch-all entry point. `go/cmd/iw/commands_topology.go` retains legacy
+usage-exit translation and accepts unused `--terraform` flags for Node CLI
+compatibility.
 
 After the rollback window:
 
-- generate native Go help and command inventory;
 - replace `package.json` discovery with the release package-root contract;
-- delete the unported-command guard once the operator/maintainer split is the
-  only dispatch boundary;
 - remove accepted-but-unused compatibility flags;
+- decide whether the top-level catch-all remains part of the supported Go CLI
+  failure boundary or can become ordinary error propagation;
 - publish the intended Go stdout, stderr, and exit-code contract rather than
   inheriting every historical Node spelling.
 

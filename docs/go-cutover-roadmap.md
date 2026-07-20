@@ -36,8 +36,8 @@ switch.
    the live-Apply status corrected in
    [go-runtime-v2.md](go-runtime-v2.md), which still describes
    controlled Apply as outstanding.
-5. Go toolchain bumped 1.26.3 → 1.26.5 (security) before any release
-   artifact is produced.
+5. Go toolchain pinned to 1.26.5 (security prerequisite completed 2026-07-20)
+   before any release artifact is produced.
 
 ## 1. CLI routing: two lanes, one variable each
 
