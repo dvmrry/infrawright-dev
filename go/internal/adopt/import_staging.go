@@ -246,6 +246,32 @@ func readPythonTextUTF8(file, label string) (string, error) {
 	if err != nil {
 		return "", stagingFailure("READ_FAILED", "unable to read "+label, procerr.CategoryIO)
 	}
+	return decodePythonTextUTF8(content, label)
+}
+
+func readPythonTextUTF8WithMode(file, label string) (string, os.FileMode, error) {
+	input, err := os.Open(file)
+	if err != nil {
+		return "", 0, stagingFailure("READ_FAILED", "unable to read "+label, procerr.CategoryIO)
+	}
+	info, statErr := input.Stat()
+	if statErr != nil {
+		_ = input.Close() // Preserve the structured read failure; close cannot recover a failed stat.
+		return "", 0, stagingFailure("READ_FAILED", "unable to read "+label, procerr.CategoryIO)
+	}
+	content, readErr := io.ReadAll(input)
+	closeErr := input.Close()
+	if readErr != nil || closeErr != nil {
+		return "", 0, stagingFailure("READ_FAILED", "unable to read "+label, procerr.CategoryIO)
+	}
+	text, err := decodePythonTextUTF8(content, label)
+	if err != nil {
+		return "", 0, err
+	}
+	return text, info.Mode().Perm(), nil
+}
+
+func decodePythonTextUTF8(content []byte, label string) (string, error) {
 	if !utf8.Valid(content) {
 		return "", stagingFailure("INVALID_UTF8", label+" is not valid UTF-8", procerr.CategoryDomain)
 	}
@@ -338,16 +364,12 @@ func joinStagingCopyFailure(primary error, cleanup ...error) error {
 	return errors.Join(errs...)
 }
 
-func copyStagingArtifact(source, destination string, hooks *stagingCopyHooks) error {
-	input, err := os.Open(source)
-	if err != nil {
-		return err
-	}
-	info, err := input.Stat()
-	if err != nil {
-		return joinStagingCopyFailure(err, input.Close())
-	}
-
+func publishStagingArtifact(
+	input io.ReadCloser,
+	sourceMode os.FileMode,
+	destination string,
+	hooks *stagingCopyHooks,
+) error {
 	directory, destinationBase := filepath.Dir(destination), filepath.Base(destination)
 	root, err := os.OpenRoot(directory)
 	if err != nil {
@@ -383,7 +405,7 @@ func copyStagingArtifact(source, destination string, hooks *stagingCopyHooks) er
 			return abort(err)
 		}
 	}
-	chmodErr := output.Chmod(info.Mode().Perm())
+	chmodErr := output.Chmod(sourceMode.Perm())
 	if chmodErr != nil {
 		return abort(chmodErr)
 	}
@@ -432,6 +454,32 @@ func copyStagingArtifact(source, destination string, hooks *stagingCopyHooks) er
 		_ = root.Close()
 	}
 	return nil
+}
+
+func copyStagingArtifact(source, destination string, hooks *stagingCopyHooks) error {
+	input, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	info, err := input.Stat()
+	if err != nil {
+		return joinStagingCopyFailure(err, input.Close())
+	}
+	return publishStagingArtifact(input, info.Mode(), destination, hooks)
+}
+
+func publishFilteredStagingArtifact(
+	text string,
+	sourceMode os.FileMode,
+	destination string,
+	hooks *stagingCopyHooks,
+) error {
+	return publishStagingArtifact(
+		io.NopCloser(strings.NewReader(text)),
+		sourceMode,
+		destination,
+		hooks,
+	)
 }
 
 // StageImports copies generated import/move artifacts into complete
@@ -548,7 +596,7 @@ func StageImports(options StageImportsOptions) (StageImportsResult, error) {
 					if err != nil {
 						return StageImportsResult{}, err
 					}
-					text, err := readPythonTextUTF8(source, resourceType+" imports")
+					text, sourceMode, err := readPythonTextUTF8WithMode(source, resourceType+" imports")
 					if err != nil {
 						return StageImportsResult{}, err
 					}
@@ -557,7 +605,12 @@ func StageImports(options StageImportsOptions) (StageImportsResult, error) {
 						return StageImportsResult{}, err
 					}
 					if filtered.Text != "" {
-						if err := os.WriteFile(destination, []byte(filtered.Text), 0o666); err != nil {
+						if err := publishFilteredStagingArtifact(
+							filtered.Text,
+							sourceMode,
+							destination,
+							options.copyHooks,
+						); err != nil {
 							return StageImportsResult{}, err
 						}
 						onDiagnostic(fmt.Sprintf(

@@ -92,6 +92,55 @@ func requireStagingFailure(t *testing.T, err error, code string) *procerr.Proces
 	return failure
 }
 
+type stateAwareStagingFixture struct {
+	destination     string
+	environmentRoot string
+	filteredText    string
+	source          string
+	terraform       *fakeImportStagingTerraform
+	workspace       string
+}
+
+func newStateAwareStagingFixture(t *testing.T) stateAwareStagingFixture {
+	t.Helper()
+	workspace := t.TempDir()
+	sourceText := stagingImports(t, stagingTestResource, "managed", "new")
+	source := filepath.Join(workspace, "imports", "tenant", stagingTestResource+"_imports.tf")
+	writeStagingText(t, source, sourceText)
+	environmentRoot := filepath.Join(workspace, "envs", "tenant", stagingTestResource)
+	if err := os.MkdirAll(environmentRoot, 0o700); err != nil {
+		t.Fatalf("os.MkdirAll(%q) error: %v", environmentRoot, err)
+	}
+	managedAddress := stagingImportAddress(t, stagingTestResource, "managed")
+	filtered, err := FilterGeneratedImports(sourceText, []string{managedAddress})
+	if err != nil {
+		t.Fatalf("FilterGeneratedImports(fixture) error: %v", err)
+	}
+	return stateAwareStagingFixture{
+		destination:     filepath.Join(environmentRoot, filepath.Base(source)),
+		environmentRoot: environmentRoot,
+		filteredText:    filtered.Text,
+		source:          source,
+		terraform: &fakeImportStagingTerraform{result: ImportStagingStateResult{
+			Success: true,
+			Stdout:  managedAddress + "\n",
+		}},
+		workspace: workspace,
+	}
+}
+
+func (f stateAwareStagingFixture) options() StageImportsOptions {
+	return StageImportsOptions{
+		Deployment: stagingDeployment(f.workspace),
+		Root:       stagingTestRoot(stagingTestResource),
+		Selectors:  []string{stagingTestResource},
+		StateAware: true,
+		Tenant:     "tenant",
+		Terraform:  f.terraform,
+		Workspace:  f.workspace,
+	}
+}
+
 func TestStageImportsCopiesExactImportsAndMovesAndReportsMissingRoots(t *testing.T) {
 	workspace := t.TempDir()
 	dep := stagingDeployment(workspace)
@@ -524,6 +573,138 @@ func TestStageImportsStateAwareBackendPreflightAndExactFiltering(t *testing.T) {
 		if diagnostics[index] != wantDiagnostics[index] {
 			t.Errorf("StageImports(state-aware) diagnostic[%d] = %q, want %q", index, diagnostics[index], wantDiagnostics[index])
 		}
+	}
+}
+
+func TestStageImportsStateAwarePublicationDoesNotFollowDestinationSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink publication test is not portable to Windows")
+	}
+	fixture := newStateAwareStagingFixture(t)
+	victim := filepath.Join(fixture.workspace, "outside-victim.tf")
+	const victimText = "outside victim must remain unchanged\n"
+	writeStagingText(t, victim, victimText)
+	if err := os.Symlink(victim, fixture.destination); err != nil {
+		t.Fatalf("os.Symlink(%q, %q) error: %v", victim, fixture.destination, err)
+	}
+
+	result, err := StageImports(fixture.options())
+	if err != nil {
+		t.Fatalf("StageImports(state-aware symlink destination) error: %v", err)
+	}
+	if result != (StageImportsResult{Sources: 1, Staged: 1}) {
+		t.Errorf("StageImports(state-aware symlink destination) = %#v, want sources=1 staged=1", result)
+	}
+	if got := readStagingText(t, victim); got != victimText {
+		t.Errorf("outside victim bytes = %q, want untouched %q", got, victimText)
+	}
+	if got := readStagingText(t, fixture.destination); got != fixture.filteredText {
+		t.Errorf("state-aware destination bytes = %q, want filtered %q", got, fixture.filteredText)
+	}
+	destinationInfo, err := os.Lstat(fixture.destination)
+	if err != nil {
+		t.Fatalf("os.Lstat(%q) error: %v", fixture.destination, err)
+	}
+	if destinationInfo.Mode()&os.ModeSymlink != 0 {
+		t.Errorf("state-aware destination mode = %v, want symlink replaced by regular file", destinationInfo.Mode())
+	}
+}
+
+func TestStageImportsStateAwarePublicationBreaksDestinationHardLink(t *testing.T) {
+	fixture := newStateAwareStagingFixture(t)
+	victim := filepath.Join(fixture.workspace, "outside-hard-link-victim.tf")
+	const victimText = "hard-linked victim must remain unchanged\n"
+	writeStagingText(t, victim, victimText)
+	if err := os.Link(victim, fixture.destination); err != nil {
+		t.Fatalf("os.Link(%q, %q) error: %v", victim, fixture.destination, err)
+	}
+
+	result, err := StageImports(fixture.options())
+	if err != nil {
+		t.Fatalf("StageImports(state-aware hard-link destination) error: %v", err)
+	}
+	if result != (StageImportsResult{Sources: 1, Staged: 1}) {
+		t.Errorf("StageImports(state-aware hard-link destination) = %#v, want sources=1 staged=1", result)
+	}
+	if got := readStagingText(t, victim); got != victimText {
+		t.Errorf("hard-linked victim bytes = %q, want untouched %q", got, victimText)
+	}
+	if got := readStagingText(t, fixture.destination); got != fixture.filteredText {
+		t.Errorf("state-aware destination bytes = %q, want filtered %q", got, fixture.filteredText)
+	}
+	victimInfo, err := os.Stat(victim)
+	if err != nil {
+		t.Fatalf("os.Stat(%q) error: %v", victim, err)
+	}
+	destinationInfo, err := os.Stat(fixture.destination)
+	if err != nil {
+		t.Fatalf("os.Stat(%q) error: %v", fixture.destination, err)
+	}
+	if os.SameFile(victimInfo, destinationInfo) {
+		t.Error("state-aware destination still aliases the outside hard-link victim after publication")
+	}
+}
+
+func TestStageImportsStateAwarePreRenameFailurePreservesDestination(t *testing.T) {
+	fixture := newStateAwareStagingFixture(t)
+	const previous = "known-good state-aware destination\n"
+	writeStagingText(t, fixture.destination, previous)
+	if err := os.Chmod(fixture.destination, 0o640); err != nil {
+		t.Fatalf("os.Chmod(%q) error: %v", fixture.destination, err)
+	}
+	injected := errors.New("injected state-aware pre-rename failure")
+	options := fixture.options()
+	options.copyHooks = &stagingCopyHooks{afterClose: func() error { return injected }}
+
+	_, err := StageImports(options)
+	if !errors.Is(err, injected) {
+		t.Fatalf("StageImports(state-aware pre-rename failure) error = %v, want injected failure", err)
+	}
+	if got := readStagingText(t, fixture.destination); got != previous {
+		t.Errorf("state-aware destination bytes = %q, want preserved %q", got, previous)
+	}
+	destinationInfo, err := os.Stat(fixture.destination)
+	if err != nil {
+		t.Fatalf("os.Stat(%q) error: %v", fixture.destination, err)
+	}
+	if got, want := destinationInfo.Mode().Perm(), os.FileMode(0o640); got != want {
+		t.Errorf("state-aware destination mode = %04o, want preserved %04o", got, want)
+	}
+	entries, err := os.ReadDir(fixture.environmentRoot)
+	if err != nil {
+		t.Fatalf("os.ReadDir(%q) error: %v", fixture.environmentRoot, err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(fixture.destination) {
+		t.Errorf("state-aware environment entries = %v, want only preserved destination and no transaction remnant", entries)
+	}
+}
+
+func TestStageImportsStateAwarePublicationPreservesSourceMode(t *testing.T) {
+	fixture := newStateAwareStagingFixture(t)
+	if err := os.Chmod(fixture.source, 0o600); err != nil {
+		t.Fatalf("os.Chmod(%q) error: %v", fixture.source, err)
+	}
+	writeStagingText(t, fixture.destination, "stale destination\n")
+	if err := os.Chmod(fixture.destination, 0o644); err != nil {
+		t.Fatalf("os.Chmod(%q) error: %v", fixture.destination, err)
+	}
+
+	result, err := StageImports(fixture.options())
+	if err != nil {
+		t.Fatalf("StageImports(state-aware source mode) error: %v", err)
+	}
+	if result != (StageImportsResult{Sources: 1, Staged: 1}) {
+		t.Errorf("StageImports(state-aware source mode) = %#v, want sources=1 staged=1", result)
+	}
+	destinationInfo, err := os.Stat(fixture.destination)
+	if err != nil {
+		t.Fatalf("os.Stat(%q) error: %v", fixture.destination, err)
+	}
+	if got, want := destinationInfo.Mode().Perm(), os.FileMode(0o600); got != want {
+		t.Errorf("state-aware destination mode = %04o, want source mode %04o", got, want)
+	}
+	if got := readStagingText(t, fixture.destination); got != fixture.filteredText {
+		t.Errorf("state-aware destination bytes = %q, want filtered %q", got, fixture.filteredText)
 	}
 }
 
