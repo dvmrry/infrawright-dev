@@ -1,9 +1,9 @@
 # Go authoring port roadmap
 
-Status: DECIDED DESIGN. A1, A2, and all four A3 parcels (A3-R, A3-O,
-A3-M, and A3-I) are implemented and accepted after independent adversarial
-review. A4 is the next sequential authoring frontier. Implementation is the
-first leg of the authority-handoff gate in
+Status: DECIDED DESIGN. A1, A2, all four A3 parcels (A3-R, A3-O, A3-M, and
+A3-I), and A4 are implemented and accepted after independent adversarial
+review. A5 is the next sequential authoring frontier, followed by A6. This
+authoring work is the first leg of the authority-handoff gate in
 [singleton-state-topology-v2.md](singleton-state-topology-v2.md). This document
 does not authorize degrouping or Node archive by itself.
 
@@ -508,11 +508,25 @@ exit/stdout/stderr contracts, Make routing, and filesystem publication.
 
 ### A4 — Provider probe orchestration (after A2 and A3)
 
-- Port recipe loading, pinned local/download preparation, Terraform schema
-  capture, artifact publication, and summary rendering.
-- Add source-only recipes; keep network disabled in tests.
-- Retain private temporary directories, bounded subprocess output, redaction,
-  and atomic complete-set publication.
+**Status: implemented and accepted after fresh-context adversarial review.**
+A4 is package work only; A6 retains CLI parsing and complete-set publication.
+
+- Legacy v1 ports recipe loading, pinned local/download/Git preparation,
+  Terraform schema capture, validation, and the exact frozen five-artifact
+  result into a detached in-memory bundle.
+- Qualified v2 accepts only manifest-bound local source provenance and composes
+  the accepted A1-A3 pipeline. Its six source-first core artifacts are sealed
+  before an optional diagnostic-only `openapi-map.json` is attempted.
+- Legacy OpenAPI validation pins the frozen schemas and source behavior. URI
+  pointers, intermediate refs, extended targets, cycles, and ordinary
+  high-fanout refs are covered; the documented stricter Go safety boundaries
+  fail closed rather than reproducing JavaScript-native pointer/cache quirks.
+- Private randomized work roots, descriptor-bound replacement, bounded and
+  redacted host adapters, and context cancellation through HTTP/Git/Terraform
+  preserve the orchestration boundary. Tests use only local/injected seams.
+- Public artifact-directory mutation, stale optional-artifact removal,
+  stdout/stderr/exit contracts, and lifecycle cleanup remain an A6 transaction
+  under its declared ownership/concurrency contract.
 
 ### A5 — Transform/Adopt parity (parallel with A1–A4)
 

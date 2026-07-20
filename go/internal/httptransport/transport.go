@@ -58,10 +58,13 @@ type Options struct {
 type transport struct {
 	roundTripper  http.RoundTripper
 	jar           http.CookieJar
+	parent        context.Context
 	timeoutMs     int
 	responseLimit int64
 	maxRedirects  int
 	sleep         func(float64) error
+	contextSleep  func(context.Context, float64) error
+	defaultSleep  bool
 	closed        atomic.Bool
 }
 
@@ -81,6 +84,17 @@ func boundedOption(value *int, fallback, maximum int, label string) (int, error)
 func defaultSleep(milliseconds float64) error {
 	time.Sleep(time.Duration(milliseconds * float64(time.Millisecond)))
 	return nil
+}
+
+func sleepWithContext(ctx context.Context, milliseconds float64) error {
+	timer := time.NewTimer(time.Duration(milliseconds * float64(time.Millisecond)))
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // New builds a collectors.HttpTransport backed by net/http, satisfying
@@ -125,6 +139,16 @@ func defaultSleep(milliseconds float64) error {
 // every redirect decision -- and its error shape -- under this package's
 // control.
 func New(environment collectors.Environment, options Options) (collectors.HttpTransport, error) {
+	return NewContext(context.Background(), environment, options)
+}
+
+// NewContext builds a collectors.HttpTransport whose requests and production
+// retry waits are cancelled when parent is cancelled. The legacy New entry
+// point remains detached from caller cancellation by using context.Background.
+func NewContext(parent context.Context, environment collectors.Environment, options Options) (collectors.HttpTransport, error) {
+	if parent == nil {
+		parent = context.Background()
+	}
 	timeoutMs, err := boundedOption(options.RequestTimeoutMs, DefaultTimeoutMs, maxTimeoutMs, "request timeout")
 	if err != nil {
 		return nil, err
@@ -171,16 +195,20 @@ func New(environment collectors.Environment, options Options) (collectors.HttpTr
 		}
 	}
 	sleep := options.Sleep
-	if sleep == nil {
+	usesDefaultSleep := sleep == nil
+	if usesDefaultSleep {
 		sleep = defaultSleep
 	}
 	return &transport{
 		roundTripper:  roundTripper,
 		jar:           jar,
+		parent:        parent,
 		timeoutMs:     timeoutMs,
 		responseLimit: int64(responseLimit),
 		maxRedirects:  maxRedirects,
 		sleep:         sleep,
+		contextSleep:  sleepWithContext,
+		defaultSleep:  usesDefaultSleep,
 	}, nil
 }
 
@@ -287,6 +315,9 @@ func (t *transport) buildRequest(
 // caller (Request, below), which wraps the complete chain -- a fresh
 // requestOnce call per attempt, exactly like the retired transport.
 func (t *transport) requestOnce(input collectors.HTTPRequest) (collectors.HTTPResponse, error) {
+	if err := t.parent.Err(); err != nil {
+		return collectors.HTTPResponse{}, err
+	}
 	if input.URL == nil {
 		return collectors.HTTPResponse{}, connectionFailure(nil, errors.New("request URL is nil"))
 	}
@@ -310,6 +341,9 @@ func (t *transport) requestOnce(input collectors.HTTPRequest) (collectors.HTTPRe
 	baseHeaders := cloneStringMap(input.Headers)
 
 	for redirect := 0; ; redirect++ {
+		if err := t.parent.Err(); err != nil {
+			return collectors.HTTPResponse{}, err
+		}
 		if redirect > t.maxRedirects {
 			return collectors.HTTPResponse{}, ioFailure(
 				"REST_HTTP_REDIRECT_LIMIT",
@@ -317,7 +351,7 @@ func (t *transport) requestOnce(input collectors.HTTPRequest) (collectors.HTTPRe
 			)
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMs)*time.Millisecond)
+		ctx, cancel := context.WithTimeout(t.parent, time.Duration(timeoutMs)*time.Millisecond)
 		request, buildErr := t.buildRequest(ctx, target, method, body, baseHeaders)
 		if buildErr != nil {
 			cancel()
@@ -331,7 +365,15 @@ func (t *transport) requestOnce(input collectors.HTTPRequest) (collectors.HTTPRe
 		response, doErr := t.roundTripper.RoundTrip(request)
 		if doErr != nil {
 			cancel()
+			if parentErr := t.parent.Err(); parentErr != nil {
+				return collectors.HTTPResponse{}, parentErr
+			}
 			return collectors.HTTPResponse{}, connectionFailure(target, doErr)
+		}
+		if parentErr := t.parent.Err(); parentErr != nil {
+			closeBody(response.Body)
+			cancel()
+			return collectors.HTTPResponse{}, parentErr
 		}
 		if cookies := response.Cookies(); len(cookies) != 0 {
 			t.jar.SetCookies(target, cookies)
@@ -346,6 +388,9 @@ func (t *transport) requestOnce(input collectors.HTTPRequest) (collectors.HTTPRe
 		if !redirectStatus(status) {
 			responseBody, bodyErr := readBoundedBody(response, t.responseLimit)
 			cancel()
+			if parentErr := t.parent.Err(); parentErr != nil {
+				return collectors.HTTPResponse{}, parentErr
+			}
 			if bodyErr != nil {
 				return collectors.HTTPResponse{}, bodyErr
 			}
@@ -359,6 +404,9 @@ func (t *transport) requestOnce(input collectors.HTTPRequest) (collectors.HTTPRe
 		location, hasLocation := firstHeaderValue(response.Header, "Location")
 		closeBody(response.Body)
 		cancel()
+		if parentErr := t.parent.Err(); parentErr != nil {
+			return collectors.HTTPResponse{}, parentErr
+		}
 		if (status == http.StatusTemporaryRedirect || status == http.StatusPermanentRedirect) && len(body) != 0 {
 			return collectors.HTTPResponse{}, ioFailure(
 				"REST_HTTP_REDIRECT_REFUSED",
@@ -408,6 +456,9 @@ func (t *transport) requestOnce(input collectors.HTTPRequest) (collectors.HTTPRe
 func (t *transport) Request(request collectors.HTTPRequest) (collectors.HTTPResponse, error) {
 	maximumRetries := collectors.CollectorMaxRetries()
 	for attempt := 0; attempt <= maximumRetries; attempt++ {
+		if err := t.parent.Err(); err != nil {
+			return collectors.HTTPResponse{}, err
+		}
 		if t.closed.Load() {
 			return collectors.HTTPResponse{}, ioFailure("REST_HTTP_CLOSED", "HTTP transport is already closed")
 		}
@@ -420,7 +471,16 @@ func (t *transport) Request(request collectors.HTTPRequest) (collectors.HTTPResp
 		}
 		retryAfter, _ := firstMapValue(response.Headers, "retry-after")
 		delay := collectors.RetryDelayMs(attempt, retryAfter)
-		if err := t.sleep(delay); err != nil {
+		var sleepErr error
+		if t.defaultSleep {
+			sleepErr = t.contextSleep(t.parent, delay)
+		} else {
+			sleepErr = t.sleep(delay)
+		}
+		if parentErr := t.parent.Err(); parentErr != nil {
+			return collectors.HTTPResponse{}, parentErr
+		}
+		if sleepErr != nil {
 			return collectors.HTTPResponse{}, ioFailure("REST_HTTP_RETRY_CLOCK_FAILED", "HTTP retry clock failed", true)
 		}
 	}

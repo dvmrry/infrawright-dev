@@ -1,6 +1,7 @@
 package terraformcmd
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -64,6 +65,19 @@ type commandWaitResult struct {
 // RunTerraformCommand runs one bounded Terraform process without a shell or
 // inherited environment. Child output never enters a structured failure.
 func RunTerraformCommand(options TerraformCommandOptions) (TerraformCommandResult, error) {
+	return RunTerraformCommandContext(context.Background(), options)
+}
+
+// RunTerraformCommandContext runs one bounded Terraform process and stops its
+// isolated process group when parent is cancelled. A contextual cancellation
+// is returned directly after the child and both output streams are drained.
+func RunTerraformCommandContext(parent context.Context, options TerraformCommandOptions) (TerraformCommandResult, error) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	if err := parent.Err(); err != nil {
+		return TerraformCommandResult{}, err
+	}
 	if err := AssertSupportedTerraformExecutionPlatform(runtime.GOOS); err != nil {
 		return TerraformCommandResult{}, err
 	}
@@ -105,6 +119,9 @@ func RunTerraformCommand(options TerraformCommandOptions) (TerraformCommandResul
 	if deadlineReached(startedAt, limits.TimeoutMs) {
 		return TerraformCommandResult{}, commandTimeoutFailure()
 	}
+	if err := parent.Err(); err != nil {
+		return TerraformCommandResult{}, err
+	}
 
 	stdoutReader, stdoutWriter, err := os.Pipe()
 	if err != nil {
@@ -124,6 +141,13 @@ func RunTerraformCommand(options TerraformCommandOptions) (TerraformCommandResul
 	command.Stdout = stdoutWriter
 	command.Stderr = stderrWriter
 	configureTerraformProcess(command)
+	if err := parent.Err(); err != nil {
+		_ = stdoutReader.Close()
+		_ = stdoutWriter.Close()
+		_ = stderrReader.Close()
+		_ = stderrWriter.Close()
+		return TerraformCommandResult{}, err
+	}
 	unregister, err := startTerraformProcess(command)
 	if err != nil {
 		_ = stdoutReader.Close()
@@ -201,6 +225,18 @@ func RunTerraformCommand(options TerraformCommandOptions) (TerraformCommandResul
 			stderrPump.abort()
 		}
 	}
+	var cancellationErr error
+	cancelForParent := func() {
+		if cancellationErr != nil {
+			return
+		}
+		if err := parent.Err(); err != nil {
+			cancellationErr = err
+			abortHostOutput()
+			killTerraformProcessGroup(pid, command.Process)
+		}
+	}
+	cancelForParent()
 	// TypeScript's armTimeout checks remaining time synchronously immediately
 	// after spawn. Do not let a fast successful child beat an already-expired
 	// deadline while a Go timer is still waiting to be scheduled.
@@ -218,15 +254,21 @@ func RunTerraformCommand(options TerraformCommandOptions) (TerraformCommandResul
 	}
 
 	for streamsRemaining > 0 || waitRemaining ||
-		(terminalFailure == nil && (stdoutPumpDone != nil || stderrPumpDone != nil)) {
+		(terminalFailure == nil && cancellationErr == nil && (stdoutPumpDone != nil || stderrPumpDone != nil)) {
+		cancelForParent()
 		var timeout <-chan time.Time
 		if timer != nil {
 			timeout = timer.C
 		}
+		var parentDone <-chan struct{}
+		if cancellationErr == nil {
+			parentDone = parent.Done()
+		}
 		select {
 		case stream := <-streamResults:
 			streamsRemaining--
-			if stream.err != nil && terminalFailure == nil {
+			cancelForParent()
+			if stream.err != nil && terminalFailure == nil && cancellationErr == nil {
 				terminalFailure = commandStreamFailure(stream.stdout, stream.err)
 				abortHostOutput()
 				killTerraformProcessGroup(pid, command.Process)
@@ -236,6 +278,7 @@ func RunTerraformCommand(options TerraformCommandOptions) (TerraformCommandResul
 			}
 		case wait := <-waitResults:
 			waitRemaining = false
+			cancelForParent()
 			// Node's close event follows both stdio streams. Defer exit-status
 			// classification so a stream limit/read failure wins even when Go's
 			// Wait result is selected first.
@@ -244,8 +287,11 @@ func RunTerraformCommand(options TerraformCommandOptions) (TerraformCommandResul
 			stdoutPumpDone = nil
 		case <-stderrPumpDone:
 			stderrPumpDone = nil
+		case <-parentDone:
+			cancelForParent()
 		case <-timeout:
-			if terminalFailure == nil && deadlineReached(startedAt, limits.TimeoutMs) {
+			cancelForParent()
+			if terminalFailure == nil && cancellationErr == nil && deadlineReached(startedAt, limits.TimeoutMs) {
 				terminalFailure = commandTimeoutFailure()
 				abortHostOutput()
 				killTerraformProcessGroup(pid, command.Process)
@@ -259,6 +305,11 @@ func RunTerraformCommand(options TerraformCommandOptions) (TerraformCommandResul
 	}
 
 	killTerraformProcessGroup(pid, command.Process)
+	cancelForParent()
+	if cancellationErr != nil {
+		clearBytes(stdoutBytes)
+		return TerraformCommandResult{}, cancellationErr
+	}
 	if terminalFailure == nil && waitErr != nil {
 		var exitError *exec.ExitError
 		if errors.As(waitErr, &exitError) {
