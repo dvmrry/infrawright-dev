@@ -1,7 +1,7 @@
 # Singleton-state topology v2 (degrouping roadmap)
 
-Status: DECIDED, sequencing AMENDED 2026-07-19 — implementation is
-**Go-only** and **paused behind the authority-handoff gate** (§3 D6).
+Status: AUTHORIZED AND IN PROGRESS. G0 completed the authority handoff on
+2026-07-20; implementation is **Go-only** (§3 D6).
 The original revision of this document scheduled Node-first parcels
 (N1/N2) with an oracle re-pin; that assumed the seven authoring
 commands would remain Node indefinitely. The product goal is now full
@@ -9,8 +9,7 @@ Node archival: the authoring surface is being ported to Go against the
 current frozen Node behavior, so changing Node's topology first would
 mean implementing degrouping twice and then archiving the copy we just
 changed. Instead, degrouping lands once, directly in Go, after Go
-formally becomes the product authority. Do not start any parcel here
-until the handoff gate has passed.
+formally becomes the product authority. That gate is now complete.
 
 This document supersedes the "Post-cutover simplification candidate:
 retire logical slug grouping" section of
@@ -103,9 +102,12 @@ remains accepted (now redundant) for one release, then warns.
 ### D5 — Schema versions
 - Root catalog: new `catalogs/zscaler-root-catalog.v2.json`, with
   `schema_version` bumped and `slug_label` removed from resource
-  entries. The v1 file is deleted in the same change (single
-  authority; the Make variable `ROOT_CATALOG` moves with it).
-- Deployment roots config: validation version bump; no file rename.
+  entries. The Make variable `ROOT_CATALOG` moves with it. The frozen v1 file
+  remains byte-immutable at its existing path only because the frozen Node
+  build/rollback lane imports it; it is deleted at Node archive and is never a
+  competing product authority.
+- Deployment roots config: the code-owned validation contract becomes v2; no
+  deployment schema version exists to bump and no new version field is added.
 - Topology command outputs (`roots`, `plan-roots`, reports): shape
   unchanged (members arrays now always length 1). This is a deliberate
   API-stability choice, not an oversight.
@@ -131,17 +133,23 @@ unblocks every parcel below:
    fresh adversarial review. The user's external Opus, GPT-5.6 Pro, and Fable
    sequence completed on 2026-07-20 against the candidate culminating at
    `c3e18a67e4b61b90860e02b782342b3e98ebbd80`, with no blocking findings.
-   Steps 2 and 3 remain pending.
+   This step is complete.
 2. **Final freeze.** The Node runtime is frozen as the immutable v1
    provenance oracle: tagged, bundle SHA recorded, and the full
    differential corpus (including the retiring ZPA validator) run green
    one final time at that commit. Node changes for no reason after this
    point. After the eventual archive the bundle is retained by digest as
    evidence, not executed in CI or shipped as a dependency.
+   **Complete:** tag `node-oracle-v1-final` points to
+   `047e39e5f2d0d0a1a5415587255200dea775ac0b`; the bundle/checksum/manifest
+   digests and final green main run are recorded in
+   [go-authority-handoff.md](review-handoffs/go-authority-handoff.md).
 3. **Authority transfer.** Go is formally declared the product
    authority in [go-runtime-v2.md](go-runtime-v2.md). The single released
    `iw` binary must expose both the operator surface and all six retained
    authoring commands, with no executable Node fallback.
+   **Complete:** [go-runtime-v2.md](go-runtime-v2.md) declares Go product-source
+   authority. Release-default routing remains a separate cutover phase.
 
 After the gate, degrouping is implemented directly in Go as a
 versioned v2 change. Consequence, stated so nobody trips on it later:
@@ -156,19 +164,21 @@ rest rather than pinning v1 behavior by accident.
 
 ## 4. Implementation parcels (Go-only, stacked, each independently reviewed)
 
-- **G0 — Authority handoff gate** (§3 D6). Not a code parcel: authoring
+- **G0 — Authority handoff gate (complete).** Not a code parcel: authoring
   parity, final Node freeze + tag + last full corpus run, authority
   declaration, differential-gate disposition recorded. Blocks all of
   the below.
 - **G1 — Go degroup core.** `go/internal/deployment` (remove
-  `strategy`/`groups`/`bind_references`, D2 defaulting, D4 errors),
+  `strategy`/`groups`/`bind_references`, retain explicit true/false cross-state
+  parsing, D4 errors),
   `roots` (derivation becomes identity over generated types),
   `metadata/{resources,rootcatalog}` (v2 emit, drop `slug_label`).
   Regenerate catalog v2 + demo goldens from Go; goldens reviewed as
   the new byte authority. Remove `slug_group` inputs from
   `packs/zia/registry.json`.
-- **G2 — Reference promotion + cycle gate.** D2 default wiring in
-  `envgen` (including `reference_topology.go` default flip), D3 cycle
+- **G2 — Reference promotion + cycle gate.** D2 defaulting is applied centrally
+  through the deployment binding mode and wired through Transform and `envgen`
+  as one artifact-semantic parcel; D3 cycle
   check with tests (synthetic cyclic pack fixture), stale-binding
   message text updated; scope-paths and plan-roots simplified;
   retiring topology-dependent differential gates lands here with the

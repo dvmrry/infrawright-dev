@@ -1,12 +1,13 @@
 # Go authoring port roadmap
 
-Status: IMPLEMENTED AND EXTERNALLY REVIEWED, FORMAL AUTHORITY HANDOFF PENDING.
+Status: IMPLEMENTED, EXTERNALLY REVIEWED, AND HANDED OFF TO GO AUTHORITY.
 A1, A2, all four A3 parcels (A3-R, A3-O, A3-M, and A3-I), A4, A5, and A6 are
 implemented and accepted after independent adversarial review. The external
 Opus, GPT-5.6 Pro, and Fable sequence completed on 2026-07-20 against the
 candidate culminating at `c3e18a67e4b61b90860e02b782342b3e98ebbd80`, with no
-blocking findings. The final Node freeze/tag, last full-corpus ceremony, and
-product-authority declaration remain pending. This
+blocking findings. G0 completed the final Node freeze/tag, last full-corpus
+ceremony, and product-authority declaration; see
+[go-authority-handoff.md](review-handoffs/go-authority-handoff.md). This
 authoring work is the first leg of the authority-handoff gate in
 [singleton-state-topology-v2.md](singleton-state-topology-v2.md). This document
 does not authorize degrouping or Node archive by itself.
@@ -553,10 +554,9 @@ A5 is pure package work; A6 retains the public command boundary.
 
 ### A6 — CLI, Make, and handoff gate (last)
 
-Implementation status: complete and externally accepted after the Opus,
-GPT-5.6 Pro, and Fable review sequence and its consolidated remediation cycles.
-The formal Node freeze/tag, last full-corpus run, and authority declaration in
-the final bullet remain pending.
+Implementation status: complete, externally accepted after the Opus, GPT-5.6
+Pro, and Fable review sequence and its consolidated remediation cycles, and
+formally handed off under G0.
 
 - Wire the six retained commands and their argument/env/exit/output contracts.
 - Consume Transform/Adopt parity results only from the A5 `Compare`/`Build`

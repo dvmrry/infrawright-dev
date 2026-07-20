@@ -7,12 +7,11 @@ so the authoring surface is in cutover scope and the master sequence
 is:
 
 1. Authoring port completes in Go against the current frozen Node
-   behavior (implementation and external review complete; formal freeze remains
-   pending; unaffected by degrouping — the authoring
+   behavior (complete; unaffected by degrouping — the authoring
    packages are largely independent of logical-root topology).
 2. Authority handoff gate: final Node runtime frozen as the immutable
    v1 oracle, Go declared product authority
-   (singleton-state-topology-v2.md §3 D6).
+   (complete; singleton-state-topology-v2.md §3 D6).
 3. Degrouping implemented Go-only as versioned v2.
 4. State inventory, full 151-type generation gates, Kubernetes
    qualification, Zscaler canaries.
@@ -23,12 +22,13 @@ The Go operator runtime is built and fixture/lab-qualified, and the authoring
 implementation passed the external Opus, GPT-5.6 Pro, and Fable review sequence
 on 2026-07-20 at `c3e18a67e4b61b90860e02b782342b3e98ebbd80`. This does not
 imply a production/provider-controlled exact Apply; that remains separately
-human-gated. What remains is the formal authoring authority handoff, routing,
-release engineering, and a controlled default switch.
+human-gated. The formal authority handoff is complete. What remains is
+singleton-state v2, routing, release engineering, and a controlled default
+switch.
 
 ## 0. Preconditions
 
-1. Authoring parity complete and the authority handoff gate passed.
+1. Authoring parity complete and the authority handoff gate passed. **Complete.**
 2. Singleton-state v2 landed Go-only and re-qualified (all five gates
    in that document), so the cutover ships the simplified topology
    once instead of cutting over twice.
