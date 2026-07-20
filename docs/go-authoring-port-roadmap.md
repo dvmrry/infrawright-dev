@@ -1,9 +1,9 @@
 # Go authoring port roadmap
 
 Status: DECIDED DESIGN. A1, A2, all four A3 parcels (A3-R, A3-O, A3-M, and
-A3-I), and A4 are implemented and accepted after independent adversarial
-review. A5 is the next sequential authoring frontier, followed by A6. This
-authoring work is the first leg of the authority-handoff gate in
+A3-I), A4, and A5 are implemented and accepted after independent adversarial
+review. A6 is the final authoring frontier. This authoring work is the first
+leg of the authority-handoff gate in
 [singleton-state-topology-v2.md](singleton-state-topology-v2.md). This document
 does not authorize degrouping or Node archive by itself.
 
@@ -530,13 +530,29 @@ A4 is package work only; A6 retains CLI parsing and complete-set publication.
 
 ### A5 — Transform/Adopt parity (parallel with A1–A4)
 
-- Port fixture validation, structural differences, replay, report generation,
-  and CLI behavior using the existing Go Transform and Adopt kernels.
-- Keep it package-disjoint from provider-readiness evidence.
+**Status: implemented and accepted after fresh-context adversarial review.**
+A5 is pure package work; A6 retains the public command boundary.
+
+- Closed fixture/provenance/state/expectation validation, strict structural
+  differences, replay completeness, result aggregation, and report rendering
+  exercise the existing production Go Transform and Adopt kernels.
+- The four-fixture report is byte-identical to the frozen Node authority,
+  including CPython-compatible ordering, lossless numeric kinds, signed zero,
+  DEL escaping, artifact hashes, evidence classifications, and counts.
+- Canonical-render failures propagate through comparison and expectation-key
+  construction. Exact provider-state coverage is enforced even when every
+  item is skipped and Adopt never invokes its state loader.
+- The package remains sequential, dependency-free beyond the existing module,
+  and package-disjoint from provider-readiness evidence. It performs no
+  environment reads, network/provider/Terraform operations, or artifact
+  publication.
 
 ### A6 — CLI, Make, and handoff gate (last)
 
 - Wire the six retained commands and their argument/env/exit/output contracts.
+- Consume Transform/Adopt parity results only from the A5 `Compare`/`Build`
+  path (or replace the narrow accessor with a typed result); do not treat an
+  arbitrary external report map as validated command input.
 - Implement the §3.5 complete-set publisher only after declaring an enforceable
   ownership/concurrency boundary. Do not claim portable protection from an
   active same-UID writer; ordinary failure must still leave no mixed bundle,

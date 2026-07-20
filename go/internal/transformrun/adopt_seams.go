@@ -6,6 +6,14 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/tfrender"
 )
 
+// ShouldUnescapeForTransform exposes the ordinary transform runner's
+// manifest-derived HTML-unescape decision to authoring diagnostics. Keeping
+// this as a read-only seam prevents a second interpretation of
+// unescape_products outside the production runner.
+func ShouldUnescapeForTransform(root metadata.LoadedPackRoot, resourceType string) bool {
+	return shouldUnescape(root, resourceType)
+}
+
 // TransformReferenceSpecsForAdopt exposes transformReferenceSpecs to the
 // adoption runner without duplicating transform-runner metadata semantics.
 func TransformReferenceSpecsForAdopt(
