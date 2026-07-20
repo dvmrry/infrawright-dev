@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 )
@@ -229,10 +230,22 @@ func TestSameSizeMutationIsDetectedThroughOpenedDescriptor(t *testing.T) {
 	directory := privateTemporaryDirectory(t)
 	source := filepath.Join(directory, "source")
 	writePrivateFile(t, source, []byte("before"))
-	_, err := SHA256StableFile(source, mustReadBudget(t, smallReadLimits()), StableReadOptions{
+	initial, err := os.Stat(source)
+	if err != nil {
+		t.Fatalf("os.Stat(%q) error = %v, want nil", source, err)
+	}
+	changedTime := initial.ModTime().Add(time.Second)
+	_, err = SHA256StableFile(source, mustReadBudget(t, smallReadLimits()), StableReadOptions{
 		Hooks: StableReadHooks{
 			AfterOpen: func() error {
-				return os.WriteFile(source, []byte("after!"), 0o600)
+				if err := os.WriteFile(source, []byte("after!"), 0o600); err != nil {
+					return err
+				}
+				// Linux filesystems may coalesce an immediate same-size write
+				// into the same timestamp tick as the preceding descriptor stat.
+				// Pin a distinct mtime so this test measures the metadata-identity
+				// comparison rather than filesystem clock granularity.
+				return os.Chtimes(source, changedTime, changedTime)
 			},
 		},
 	})

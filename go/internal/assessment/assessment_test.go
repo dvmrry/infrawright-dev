@@ -815,8 +815,12 @@ func TestAssessmentTemporaryCleanupRefusesUnexpectedOrReplacedEntries(t *testing
 	t.Run("replaced_snapshot", func(t *testing.T) {
 		directory, identity, snapshot := newBinding(t)
 		filePath := filepath.Join(directory, snapshot.name)
-		if err := os.Remove(filePath); err != nil {
-			t.Fatalf("os.Remove(%q) error = %v, want nil", filePath, err)
+		original := filePath + ".original"
+		// Keep the original inode allocated. Linux may immediately reuse a
+		// freed inode after unlink, so remove-then-create does not necessarily
+		// construct a different file identity.
+		if err := os.Rename(filePath, original); err != nil {
+			t.Fatalf("os.Rename(%q, %q) error = %v, want nil", filePath, original, err)
 		}
 		if err := os.WriteFile(filePath, []byte{}, 0o600); err != nil {
 			t.Fatalf("os.WriteFile(replacement %q) error = %v, want nil", filePath, err)
