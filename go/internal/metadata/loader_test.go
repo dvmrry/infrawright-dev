@@ -218,6 +218,36 @@ func TestStrictVocabulariesRejectSilentTypos(t *testing.T) {
 	}
 }
 
+func TestRegistryResourceKeysRequireCanonicalTerraformTypes(t *testing.T) {
+	valid, err := ValidateRegistry(JsonObject{
+		"sample_resource_2": JsonObject{"product": "sample"},
+	}, "registry.json")
+	if err != nil {
+		t.Fatalf("ValidateRegistry(valid key) error = %v, want nil", err)
+	}
+	if _, ok := valid["sample_resource_2"]; !ok {
+		t.Error("ValidateRegistry(valid key) omitted sample_resource_2")
+	}
+
+	invalid := []string{
+		"sample_Foo",
+		"sample-foo",
+		"2sample_resource",
+		"sample_caf\u00e9",
+		"sample_cafe\u0301",
+	}
+	for _, resourceType := range invalid {
+		t.Run(resourceType, func(t *testing.T) {
+			_, err := ValidateRegistry(JsonObject{
+				resourceType: JsonObject{"product": "sample"},
+			}, "registry.json")
+			if err == nil || !strings.Contains(err.Error(), "must match ^[a-z][a-z0-9_]*$") {
+				t.Errorf("ValidateRegistry(resourceType=%q) error = %v, want canonical-resource-type error", resourceType, err)
+			}
+		})
+	}
+}
+
 func cloneRule(rule JsonObject, overrides JsonObject) JsonObject {
 	out := make(JsonObject, len(rule)+len(overrides))
 	for k, v := range rule {

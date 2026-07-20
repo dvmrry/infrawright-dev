@@ -17,6 +17,8 @@ import (
 
 var registryResourceKeys = stringSet("adopt", "derive", "fetch", "generate", "product", "slug_group")
 
+var canonicalResourceType = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
 var fetchKeys = stringSet("envelope", "expand", "optional_http_statuses", "pagination", "path", "query")
 
 var paginationStyles = stringSet("single", "zcc_v2", "zia", "zpa")
@@ -46,6 +48,14 @@ var overrideKeys = stringSet(
 	"renames", "sample", "skip_if", "skip_if_lte", "sort_lists", "split_csv",
 	"strip_prefix", "value_map",
 )
+
+// IsCanonicalResourceType reports whether value is a canonical Terraform
+// resource type suitable for use as a cross-platform artifact identity. This
+// is Go-only evidence-integrity hardening: lowercase ASCII prevents distinct
+// registry keys from aliasing on case-folding or Unicode-normalizing filesystems.
+func IsCanonicalResourceType(value string) bool {
+	return canonicalResourceType.MatchString(value)
+}
 
 // LoadedRegistry ports the LoadedRegistry interface from
 // node-src/metadata/resources.ts.
@@ -466,6 +476,12 @@ func validateRegistry(value any, source string) JsonObject {
 		rawEntry := data[resourceType]
 		if len(resourceType) == 0 {
 			failf("%s resource keys must be non-empty strings", source)
+		}
+		if !IsCanonicalResourceType(resourceType) {
+			failf(
+				"%s resource key %s must match ^[a-z][a-z0-9_]*$",
+				source, jsonQuote(resourceType),
+			)
 		}
 		label := fmt.Sprintf("%s.%s", source, resourceType)
 		entry, ok := rawEntry.(JsonObject)

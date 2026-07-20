@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
+	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
 func intPtr(v int) *int { return &v }
@@ -767,6 +768,28 @@ func indexOfString(values []string, wanted string) int {
 	return -1
 }
 
+func rootWithFetchResources(resourceTypes ...string) metadata.LoadedPackRoot {
+	resources := make(map[string]metadata.LoadedResourceMetadata, len(resourceTypes))
+	registry := make(map[string]metadata.JsonObject, len(resourceTypes))
+	for _, resourceType := range resourceTypes {
+		entry := metadata.JsonObject{
+			"product": "sample",
+			"fetch": metadata.JsonObject{
+				"pagination": "single",
+				"path":       "items",
+			},
+		}
+		registry[resourceType] = entry
+		resources[resourceType] = metadata.LoadedResourceMetadata{
+			Type: resourceType, Product: "sample", Registry: entry,
+		}
+	}
+	return metadata.LoadedPackRoot{
+		Registry:  metadata.LoadedRegistry{Entries: registry},
+		Resources: resources,
+	}
+}
+
 func TestFetchRejectsUnsafeResourceDestinationBeforeAuthOrMutation(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -791,15 +814,7 @@ func TestFetchRejectsUnsafeResourceDestinationBeforeAuthOrMutation(t *testing.T)
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			directory := t.TempDir()
-			packsRoot := filepath.Join(directory, "packs")
-			writePackJSON(t, packsRoot, "sample")
-			writeRegistryJSON(t, packsRoot, "sample", map[string]any{
-				test.resourceType: map[string]any{
-					"product": "sample",
-					"fetch":   map[string]any{"pagination": "single", "path": "items"},
-				},
-			})
-			root := loadRootFromPacksDir(t, packsRoot)
+			root := rootWithFetchResources(test.resourceType)
 			output := filepath.Join(directory, "pulls")
 			if err := os.MkdirAll(output, 0o755); err != nil {
 				t.Fatalf("os.MkdirAll(%q) error = %v, want nil", output, err)
@@ -836,6 +851,62 @@ func TestFetchRejectsUnsafeResourceDestinationBeforeAuthOrMutation(t *testing.T)
 			}
 			if len(transport.requests) != 0 {
 				t.Errorf("FetchResources(resourceType=%q) requests = %v, want none", test.resourceType, transport.requests)
+			}
+			if content, readErr := os.ReadFile(victim); readErr != nil || string(content) != "retain\n" {
+				t.Errorf("os.ReadFile(%q) = (%q, %v), want unchanged victim", victim, content, readErr)
+			}
+		})
+	}
+}
+
+func TestFetchRejectsFilesystemEquivalentResourceNamesBeforeAuthOrMutation(t *testing.T) {
+	tests := []struct {
+		name          string
+		resourceTypes []string
+	}{
+		{name: "case folding", resourceTypes: []string{"sample_Foo", "sample_foo"}},
+		{name: "unicode normalization", resourceTypes: []string{"sample_caf\u00e9", "sample_cafe\u0301"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			output := filepath.Join(directory, "pulls")
+			victim := filepath.Join(directory, "unrelated.json")
+			if err := os.WriteFile(victim, []byte("retain\n"), 0o644); err != nil {
+				t.Fatalf("os.WriteFile(%q) error = %v, want nil", victim, err)
+			}
+
+			acquisitions := 0
+			adapter := testAdapter("sample", nil)
+			adapter.Acquire = func(CollectorAcquireInput) (CollectorAuthContext, error) {
+				acquisitions++
+				return sharedAuth, nil
+			}
+			transport := newDelayedPathTransport(t, map[string]HTTPResponse{
+				"/api/items": jsonResponse(t, []any{map[string]any{"id": "a"}}, 200),
+			}, nil)
+
+			_, err := FetchResources(FetchResourcesOptions{
+				Adapters:        map[string]CollectorAdapter{"sample": adapter},
+				Context:         sharedContext,
+				Environment:     Environment{},
+				Mode:            AuthModeOneAPI,
+				OutputDirectory: output,
+				Root:            rootWithFetchResources(test.resourceTypes...),
+				Selectors:       []string{"sample"},
+				Transport:       transport,
+			})
+			if err == nil || !strings.Contains(err.Error(), "is not a safe output filename") {
+				t.Errorf("FetchResources(resourceTypes=%q) error = %v, want unsafe-output error", test.resourceTypes, err)
+			}
+			if acquisitions != 0 {
+				t.Errorf("FetchResources(resourceTypes=%q) acquisitions = %d, want zero", test.resourceTypes, acquisitions)
+			}
+			if len(transport.requests) != 0 {
+				t.Errorf("FetchResources(resourceTypes=%q) requests = %v, want none", test.resourceTypes, transport.requests)
+			}
+			if _, statErr := os.Lstat(output); !errors.Is(statErr, os.ErrNotExist) {
+				t.Errorf("os.Lstat(%q) error = %v, want os.ErrNotExist", output, statErr)
 			}
 			if content, readErr := os.ReadFile(victim); readErr != nil || string(content) != "retain\n" {
 				t.Errorf("os.ReadFile(%q) = (%q, %v), want unchanged victim", victim, content, readErr)

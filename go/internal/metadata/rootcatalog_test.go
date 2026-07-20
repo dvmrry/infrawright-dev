@@ -103,7 +103,7 @@ func TestCatalogRenderingPreservesAsciiEscapingForNonAsciiMetadata(t *testing.T)
 		"provider_prefixes": map[string]string{"x_": "π"},
 	})
 	writeJSONFile(t, filepath.Join(temporary, "sample", "registry.json"), JsonObject{
-		"x_é": JsonObject{"generate": true, "product": "café"},
+		"x_resource": JsonObject{"generate": true, "product": "café"},
 	})
 	digest := evidenceDigest(t, temporary, []string{"sample/pack.json", "sample/registry.json"})
 
@@ -133,13 +133,13 @@ func TestCatalogRenderingPreservesAsciiEscapingForNonAsciiMetadata(t *testing.T)
 		"  \"kind\": \"infrawright.root_catalog\",",
 		"  \"resources\": [",
 		"    {",
-		"      \"bare_name\": \"" + escapedEAcute + "\",",
+		"      \"bare_name\": \"resource\",",
 		"      \"derived\": false,",
 		"      \"generated\": true,",
 		"      \"product\": \"caf" + escapedEAcute + "\",",
 		"      \"provider\": \"" + escapedPi + "\",",
-		"      \"slug_label\": \"x_" + escapedEAcute + "\",",
-		"      \"type\": \"x_" + escapedEAcute + "\"",
+		"      \"slug_label\": \"x_resource\",",
+		"      \"type\": \"x_resource\"",
 		"    }",
 		"  ],",
 		"  \"schema_version\": 1,",

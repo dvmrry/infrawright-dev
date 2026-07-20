@@ -1046,7 +1046,8 @@ func mkdirFetchOutputDirectory(path string) error {
 }
 
 func fetchDestination(outputDirectory, resourceType string) (string, error) {
-	if resourceType == "." || resourceType == ".." ||
+	if !metadata.IsCanonicalResourceType(resourceType) ||
+		resourceType == "." || resourceType == ".." ||
 		filepath.Base(resourceType) != resourceType || strings.ContainsAny(resourceType, "/\\\x00") {
 		return "", fmt.Errorf("fetch resource type %s is not a safe output filename", jsonQuote(resourceType))
 	}
