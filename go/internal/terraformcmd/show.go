@@ -56,6 +56,7 @@ type TerraformShowOptions struct {
 	TerraformExecutable string
 	EnvDir              string
 	SnapshotPath        string
+	SnapshotFile        *os.File
 	Environment         map[string]string
 	Limits              *TerraformShowLimits
 }
@@ -128,15 +129,19 @@ func TerraformShowPlan(options TerraformShowOptions) (canonjson.Value, error) {
 	if err := AssertSupportedTerraformExecutionPlatform(runtime.GOOS); err != nil {
 		return nil, err
 	}
+	hasSnapshotPath := options.SnapshotPath != ""
+	if hasSnapshotPath && options.SnapshotFile != nil {
+		return nil, ioFailure("INVALID_PLAN_SNAPSHOT", "trusted Terraform input is not an allowed regular file")
+	}
 	if strings.IndexByte(options.TerraformExecutable, 0) >= 0 ||
 		strings.IndexByte(options.EnvDir, 0) >= 0 ||
-		strings.IndexByte(options.SnapshotPath, 0) >= 0 ||
+		options.SnapshotFile == nil && strings.IndexByte(options.SnapshotPath, 0) >= 0 ||
 		!utf8.ValidString(options.TerraformExecutable) ||
 		!utf8.ValidString(options.EnvDir) ||
-		!utf8.ValidString(options.SnapshotPath) ||
+		options.SnapshotFile == nil && !utf8.ValidString(options.SnapshotPath) ||
 		!filepath.IsAbs(options.TerraformExecutable) ||
 		!filepath.IsAbs(options.EnvDir) ||
-		!filepath.IsAbs(options.SnapshotPath) {
+		options.SnapshotFile == nil && !filepath.IsAbs(options.SnapshotPath) {
 		return nil, domainFailure(
 			"UNRESOLVED_TERRAFORM_SHOW_PATH",
 			"Terraform show requires resolved absolute paths",
@@ -165,8 +170,19 @@ func TerraformShowPlan(options TerraformShowOptions) (canonjson.Value, error) {
 	if err := requireRegularTerraformInput(options.TerraformExecutable, "UNTRUSTED_TERRAFORM_EXECUTABLE", true); err != nil {
 		return nil, err
 	}
-	if err := requireRegularTerraformInput(options.SnapshotPath, "INVALID_PLAN_SNAPSHOT", false); err != nil {
-		return nil, err
+	if options.SnapshotFile == nil {
+		if err := requireRegularTerraformInput(options.SnapshotPath, "INVALID_PLAN_SNAPSHOT", false); err != nil {
+			return nil, err
+		}
+	} else if validateErr := validateInheritedPlanFile(options.SnapshotFile); validateErr != nil {
+		return nil, ioFailure("INVALID_PLAN_SNAPSHOT", "trusted Terraform input is not an allowed regular file")
+	}
+	childSnapshotPath := options.SnapshotPath
+	if options.SnapshotFile != nil {
+		childSnapshotPath, err = inheritedPlanFilePath()
+		if err != nil {
+			return nil, ioFailure("INVALID_PLAN_SNAPSHOT", "trusted Terraform input is not an allowed regular file")
+		}
 	}
 	if err := checkShowDeadline(deadline); err != nil {
 		return nil, err
@@ -182,7 +198,7 @@ func TerraformShowPlan(options TerraformShowOptions) (canonjson.Value, error) {
 			"-chdir=" + options.EnvDir,
 			"show",
 			"-json",
-			options.SnapshotPath,
+			childSnapshotPath,
 		},
 		CWD:         options.EnvDir,
 		Environment: environment,
@@ -191,7 +207,8 @@ func TerraformShowPlan(options TerraformShowOptions) (canonjson.Value, error) {
 			MaxStdoutBytes: limits.MaxStdoutBytes,
 			MaxStderrBytes: limits.MaxStderrBytes,
 		},
-		Output: TerraformCommandOutputCapture,
+		Output:       TerraformCommandOutputCapture,
+		SnapshotFile: options.SnapshotFile,
 	})
 	if err != nil {
 		return nil, mapTerraformCommandFailure(err)
@@ -286,6 +303,8 @@ func mapTerraformCommandFailure(err error) error {
 		return domainFailure("INVALID_TERRAFORM_SHOW_LIMIT", "Terraform show limits must be positive")
 	case "INVALID_TERRAFORM_COMMAND_ENVIRONMENT":
 		return domainFailure("INVALID_TERRAFORM_SHOW_ENVIRONMENT", "Terraform show environment is not allowed")
+	case "INVALID_TERRAFORM_COMMAND_SNAPSHOT":
+		return ioFailure("INVALID_PLAN_SNAPSHOT", "trusted Terraform input is not an allowed regular file")
 	case "TERRAFORM_COMMAND_FAILED":
 		return domainFailure("TERRAFORM_SHOW_FAILED", "Terraform could not render the saved plan")
 	default:

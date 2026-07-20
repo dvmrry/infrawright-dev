@@ -1,8 +1,12 @@
 package plan
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -127,6 +131,114 @@ func sameEvidenceDigest(left, right artifacts.StableFileDigest) bool {
 
 func sameEvidenceIdentity(left, right artifacts.StableFileIdentity) bool {
 	return left.Dev == right.Dev && left.Ino == right.Ino
+}
+
+// OpenSavedPlanSnapshot opens the active private snapshot as a read-only,
+// descriptor-bound capability. The caller must close the returned file before
+// CleanupSavedPlanEvidence. A supplied budget is charged for the exact bytes
+// verified through the descriptor.
+func OpenSavedPlanSnapshot(evidence *SavedPlanEvidence, budget *artifacts.ReadBudget) (*os.File, error) {
+	if evidence == nil || evidence.binding == nil {
+		return nil, evidenceDomainFailure("INVALID_EVIDENCE_BINDING", "saved-plan evidence is not active")
+	}
+	binding := evidence.binding
+	binding.mu.Lock()
+	defer binding.mu.Unlock()
+	if binding.owner != evidence || binding.cleaned {
+		return nil, evidenceDomainFailure("INVALID_EVIDENCE_BINDING", "saved-plan evidence is not active")
+	}
+	if err := requireEvidencePlatform(); err != nil {
+		return nil, err
+	}
+	file, err := openEvidenceSnapshotFile(binding.state.snapshot.Path)
+	if err != nil {
+		return nil, evidenceDomainFailure("PLAN_SNAPSHOT_CHANGED", "saved-plan snapshot changed before exact Apply")
+	}
+	if err := recheckOpenedSavedPlanSnapshot(binding, file, budget); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return file, nil
+}
+
+// RecheckSavedPlanSnapshot verifies that an already-open snapshot descriptor
+// still names the exact inode and bytes prepared as saved-plan evidence.
+func RecheckSavedPlanSnapshot(evidence *SavedPlanEvidence, file *os.File, budget *artifacts.ReadBudget) error {
+	if evidence == nil || evidence.binding == nil {
+		return evidenceDomainFailure("INVALID_EVIDENCE_BINDING", "saved-plan evidence is not active")
+	}
+	binding := evidence.binding
+	binding.mu.Lock()
+	defer binding.mu.Unlock()
+	if binding.owner != evidence || binding.cleaned {
+		return evidenceDomainFailure("INVALID_EVIDENCE_BINDING", "saved-plan evidence is not active")
+	}
+	if err := requireEvidencePlatform(); err != nil {
+		return err
+	}
+	return recheckOpenedSavedPlanSnapshot(binding, file, budget)
+}
+
+func recheckOpenedSavedPlanSnapshot(binding *savedPlanEvidenceBinding, file *os.File, budget *artifacts.ReadBudget) error {
+	if file == nil {
+		return evidenceDomainFailure("PLAN_SNAPSHOT_CHANGED", "saved-plan snapshot changed before exact Apply")
+	}
+	info, err := file.Stat()
+	identity, identityOK := evidenceFileIdentity(info)
+	if err != nil || info == nil || !info.Mode().IsRegular() || !identityOK || !sameEvidenceIdentity(binding.file, identity) {
+		return evidenceDomainFailure("PLAN_SNAPSHOT_CHANGED", "saved-plan snapshot changed before exact Apply")
+	}
+	digest, err := digestOpenedSavedPlanSnapshot(file, budget)
+	if err != nil {
+		return err
+	}
+	if !sameEvidenceDigest(digest, binding.state.snapshot.StableFileDigest) {
+		return evidenceDomainFailure("PLAN_SNAPSHOT_CHANGED", "saved-plan snapshot changed before exact Apply")
+	}
+	return nil
+}
+
+func digestOpenedSavedPlanSnapshot(file *os.File, budget *artifacts.ReadBudget) (artifacts.StableFileDigest, error) {
+	info, err := file.Stat()
+	if err != nil || info == nil || !info.Mode().IsRegular() || info.Size() < 0 {
+		return artifacts.StableFileDigest{}, errors.New("invalid snapshot descriptor")
+	}
+	if err := budget.Reserve(big.NewInt(info.Size())); err != nil {
+		return artifacts.StableFileDigest{}, err
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return artifacts.StableFileDigest{}, err
+	}
+	buffer := make([]byte, 64*1024)
+	defer clear(buffer)
+	hash := sha256.New()
+	var consumed int64
+	for {
+		count, readErr := file.Read(buffer)
+		if count > 0 {
+			consumed += int64(count)
+			if consumed > info.Size() {
+				return artifacts.StableFileDigest{}, errors.New("snapshot grew while read")
+			}
+			_, _ = hash.Write(buffer[:count])
+		}
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+			return artifacts.StableFileDigest{}, readErr
+		}
+		if count == 0 {
+			break
+		}
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil || consumed != info.Size() {
+		return artifacts.StableFileDigest{}, errors.New("snapshot changed while read")
+	}
+	sum := hash.Sum(nil)
+	digest := artifacts.StableFileDigest{SHA256: hex.EncodeToString(sum), Size: consumed}
+	clear(sum)
+	return digest, nil
 }
 
 func samePlanFingerprint(left, right PlanFingerprintV2) bool {

@@ -3,6 +3,7 @@ package assessment
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,6 +17,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/plan"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
+	"github.com/dvmrry/infrawright-dev/go/internal/terraformcmd"
 )
 
 const exactApplyTenant = "tenant"
@@ -146,7 +148,10 @@ func (fake *fakeExactPlanApplyTerraform) Initialize(request plan.PlanTerraformRe
 
 func (fake *fakeExactPlanApplyTerraform) Show(request ExactPlanApplyShowRequest) (ExactPlanApplyShownPlan, error) {
 	fake.shown = append(fake.shown, request)
-	if info, err := os.Stat(request.SnapshotPath); err != nil || !info.Mode().IsRegular() {
+	if request.SnapshotFile == nil {
+		return ExactPlanApplyShownPlan{}, errors.New("shown snapshot is not a regular file")
+	}
+	if info, err := request.SnapshotFile.Stat(); err != nil || !info.Mode().IsRegular() {
 		return ExactPlanApplyShownPlan{}, errors.New("shown snapshot is not a regular file")
 	}
 	var raw canonjson.Value
@@ -454,6 +459,69 @@ func TestApplyExactSavedPlansCleanFlowAndCompleteGate(t *testing.T) {
 	})
 }
 
+func TestApplyExactSavedPlansUsesOneDescriptorAfterFinalRecheck(t *testing.T) {
+	fixture := newExactApplyFixture(t)
+	fixture.restoreSavedPair(t, fixture.roots[0])
+	fake := &fakeExactPlanApplyTerraform{currentPlan: exactApplyCleanPlan()}
+	fake.onApply = func(request ExactPlanApplyRequest) error {
+		if len(fake.shown) != 1 || request.SnapshotFile == nil || request.SnapshotFile != fake.shown[0].SnapshotFile {
+			return errors.New("Show and Apply did not share one snapshot descriptor")
+		}
+		root := fixture.roots[0]
+		if err := os.Rename(root.SavedPlanPath, root.SavedPlanPath+".rebound"); err != nil {
+			return err
+		}
+		if err := os.WriteFile(root.SavedPlanPath, []byte("public replacement"), 0o600); err != nil {
+			return err
+		}
+		snapshotPath := request.SnapshotFile.Name()
+		if err := os.Rename(snapshotPath, snapshotPath+".rebound"); err != nil {
+			return err
+		}
+		if err := os.WriteFile(snapshotPath, []byte("private replacement"), 0o600); err != nil {
+			return err
+		}
+		if _, err := request.SnapshotFile.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+		bytes, err := io.ReadAll(request.SnapshotFile)
+		if err != nil {
+			return err
+		}
+		if string(bytes) != "opaque saved plan\n" {
+			return errors.New("Apply descriptor did not retain assessed bytes")
+		}
+		return nil
+	}
+	result, err := applyExactSavedPlans(exactApplyOptions(fixture, fake), exactApplyTestHooks(fixture))
+	if result.Applied != 1 || err == nil {
+		t.Fatalf("applyExactSavedPlans(rebound snapshot) = %#v, %v, want committed apply plus cleanup refusal", result, err)
+	}
+	if len(fake.applied) != 1 {
+		t.Fatalf("Apply calls = %d, want 1", len(fake.applied))
+	}
+	if _, err := fake.applied[0].SnapshotFile.Stat(); err == nil {
+		t.Error("Apply snapshot descriptor remained open after exact Apply")
+	}
+}
+
+func TestApplyExactSavedPlansRecordsCommittedApplyWhenDescriptorCloseFails(t *testing.T) {
+	fixture := newExactApplyFixture(t)
+	fixture.restoreSavedPair(t, fixture.roots[0])
+	fake := &fakeExactPlanApplyTerraform{currentPlan: exactApplyCleanPlan()}
+	fake.onApply = func(request ExactPlanApplyRequest) error {
+		if request.SnapshotFile == nil {
+			return errors.New("missing snapshot descriptor")
+		}
+		return request.SnapshotFile.Close()
+	}
+	result, err := applyExactSavedPlans(exactApplyOptions(fixture, fake), exactApplyTestHooks(fixture))
+	if result.Applied != 1 {
+		t.Errorf("applyExactSavedPlans(close failure).Applied = %d, want 1", result.Applied)
+	}
+	requireExactApplyFailure(t, err, "PLAN_SNAPSHOT_CHANGED")
+}
+
 func TestApplyExactSavedPlansDestroyAndBlockedOverrideMatrix(t *testing.T) {
 	fixture := newExactApplyFixture(t)
 	tests := []struct {
@@ -732,6 +800,7 @@ func TestExactPlanApplyAdapterUsesOnlyExplicitFakeExecutable(t *testing.T) {
 	planJSON := `{"format_version":"1.2","terraform_version":"1.15.4","complete":true,"errored":false,"resource_changes":[],"output_changes":{}}`
 	executable := assessmentExecutable(t, root, strings.Join([]string{
 		"printf '%s|%s|%s\\n' \"$*\" \"${SAFE-unset}\" \"${CHECKPOINT_DISABLE-unset}\" >> " + assessmentShellLiteral(logPath),
+		"if [ \"$1\" != init ]; then path=$3; [ \"$2\" = show ] && path=$4; IFS= read -r snapshot < \"$path\" || exit 97; [ \"$snapshot\" = opaque ] || exit 98; fi",
 		"if [ \"$2\" = show ]; then printf '%s\\n' " + assessmentShellLiteral(planJSON) + "; fi",
 	}, "\n"))
 	adapter, err := CreateExactPlanApplyTerraform(CreateExactPlanApplyTerraformOptions{
@@ -743,10 +812,19 @@ func TestExactPlanApplyAdapterUsesOnlyExplicitFakeExecutable(t *testing.T) {
 	if err := adapter.Initialize(plan.PlanTerraformRequest{Directory: envDir, VarFiles: []string{}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := adapter.Show(ExactPlanApplyShowRequest{Directory: envDir, SnapshotPath: snapshot}); err != nil {
+	snapshotFile, err := os.Open(snapshot)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := adapter.Apply(ExactPlanApplyRequest{Directory: envDir}); err != nil {
+	defer snapshotFile.Close()
+	if _, err := adapter.Show(ExactPlanApplyShowRequest{Directory: envDir, SnapshotFile: snapshotFile}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(snapshot, snapshot+".rebound"); err != nil {
+		t.Fatal(err)
+	}
+	writeAssessmentTransactionFile(t, snapshot, []byte("replacement\n"), 0o600)
+	if err := adapter.Apply(ExactPlanApplyRequest{Directory: envDir, SnapshotFile: snapshotFile}); err != nil {
 		t.Fatal(err)
 	}
 	content, err := os.ReadFile(logPath)
@@ -754,13 +832,38 @@ func TestExactPlanApplyAdapterUsesOnlyExplicitFakeExecutable(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
+	childSnapshotPath, err := terraformcmd.InheritedPlanFilePath()
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []string{
 		"init -input=false|one|unset",
-		"-chdir=" + envDir + " show -json " + snapshot + "|unset|1",
-		"apply -input=false tfplan|one|unset",
+		"-chdir=" + envDir + " show -json " + childSnapshotPath + "|unset|1",
+		"apply -input=false " + childSnapshotPath + "|one|unset",
 	}
 	if !reflect.DeepEqual(lines, want) {
 		t.Errorf("fake Terraform log = %#v, want %#v", lines, want)
+	}
+}
+
+func TestExactPlanApplyAdapterRejectsNilDescriptorBeforeSpawn(t *testing.T) {
+	root := t.TempDir()
+	envDir := filepath.Join(root, "env")
+	if err := os.Mkdir(envDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(root, "spawned")
+	executable := assessmentExecutable(t, root, "printf x > "+assessmentShellLiteral(marker))
+	adapter, err := CreateExactPlanApplyTerraform(CreateExactPlanApplyTerraformOptions{
+		Environment: map[string]string{}, TerraformExecutable: executable,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = adapter.Apply(ExactPlanApplyRequest{Directory: envDir})
+	requireExactApplyFailure(t, err, "INVALID_PLAN_SNAPSHOT")
+	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+		t.Errorf("Apply(nil descriptor) spawned Terraform: marker stat = %v", statErr)
 	}
 }
 

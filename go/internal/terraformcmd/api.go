@@ -2,7 +2,11 @@
 // non-shell contract used by Infrawright's Node implementation.
 package terraformcmd
 
-import "github.com/dvmrry/infrawright-dev/go/internal/procerr"
+import (
+	"os"
+
+	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
+)
 
 const (
 	maxTerraformCommandStdoutBytes   int64 = 8 * 1024 * 1024
@@ -57,6 +61,10 @@ type TerraformCommandOptions struct {
 	Environment         map[string]string
 	Limits              *TerraformCommandLimits
 	Output              TerraformCommandOutput
+	// SnapshotFile is the sole inherited file capability. When non-nil it is
+	// passed to the child as descriptor 3; callers use InheritedPlanFilePath
+	// for the fixed child-visible pathname.
+	SnapshotFile *os.File
 }
 
 // TerraformCommandResultKind identifies the successful output disposition.
@@ -73,6 +81,13 @@ const (
 type TerraformCommandResult struct {
 	Kind   TerraformCommandResultKind
 	Stdout []byte
+}
+
+// InheritedPlanFilePath is the fixed child-visible pathname for SnapshotFile.
+// It fails closed when the operating system does not provide the required
+// descriptor filesystem.
+func InheritedPlanFilePath() (string, error) {
+	return inheritedPlanFilePath()
 }
 
 func failure(code, message string, category procerr.Category) *procerr.ProcessFailure {

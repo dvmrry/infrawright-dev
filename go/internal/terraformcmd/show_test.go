@@ -333,6 +333,21 @@ func TestTerraformShowPlanInputAndLimitFailures(t *testing.T) {
 	_, err := TerraformShowPlan(invalidPath)
 	requireProcessFailure(t, err, "UNRESOLVED_TERRAFORM_SHOW_PATH")
 
+	emptySnapshot := fixture.options(executable)
+	emptySnapshot.SnapshotPath = ""
+	_, err = TerraformShowPlan(emptySnapshot)
+	requireProcessFailure(t, err, "UNRESOLVED_TERRAFORM_SHOW_PATH")
+
+	snapshotFile, err := os.Open(fixture.snapshotPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer snapshotFile.Close()
+	conflictingSnapshot := fixture.options(executable)
+	conflictingSnapshot.SnapshotFile = snapshotFile
+	_, err = TerraformShowPlan(conflictingSnapshot)
+	requireProcessFailure(t, err, "INVALID_PLAN_SNAPSHOT")
+
 	nulPath := fixture.options(executable)
 	nulPath.SnapshotPath += "\x00secret"
 	_, err = TerraformShowPlan(nulPath)

@@ -31,13 +31,14 @@ const maximumApplyGitWaitDelay = 500 * time.Millisecond
 // from node-src/domain/exact-plan-apply.ts.
 type ExactPlanApplyShowRequest struct {
 	Directory    string
-	SnapshotPath string
+	SnapshotFile *os.File
 }
 
 // ExactPlanApplyRequest ports the apply request in ExactPlanApplyTerraform
 // from node-src/domain/exact-plan-apply.ts.
 type ExactPlanApplyRequest struct {
-	Directory string
+	Directory    string
+	SnapshotFile *os.File
 }
 
 // ExactPlanApplyShownPlan preserves the lossless plan value used by the
@@ -191,7 +192,7 @@ func (adapter *exactPlanApplyTerraformAdapter) Show(request ExactPlanApplyShowRe
 	raw, err := terraformcmd.TerraformShowPlan(terraformcmd.TerraformShowOptions{
 		TerraformExecutable: adapter.terraformExecutable,
 		EnvDir:              request.Directory,
-		SnapshotPath:        request.SnapshotPath,
+		SnapshotFile:        request.SnapshotFile,
 		Environment:         cloneExactApplyEnvironment(adapter.showEnvironment),
 		Limits:              cloneExactApplyShowLimits(adapter.showLimits),
 	})
@@ -206,13 +207,21 @@ func (adapter *exactPlanApplyTerraformAdapter) Show(request ExactPlanApplyShowRe
 }
 
 func (adapter *exactPlanApplyTerraformAdapter) Apply(request ExactPlanApplyRequest) error {
-	_, err := terraformcmd.RunTerraformCommand(terraformcmd.TerraformCommandOptions{
+	if request.SnapshotFile == nil {
+		return exactPlanApplyFailure("INVALID_PLAN_SNAPSHOT", "saved-plan snapshot is unavailable", procerr.CategoryIO)
+	}
+	childSnapshotPath, err := terraformcmd.InheritedPlanFilePath()
+	if err != nil {
+		return exactPlanApplyFailure("INVALID_PLAN_SNAPSHOT", "saved-plan snapshot is unavailable", procerr.CategoryIO)
+	}
+	_, err = terraformcmd.RunTerraformCommand(terraformcmd.TerraformCommandOptions{
 		TerraformExecutable: adapter.terraformExecutable,
-		Argv:                []string{"apply", "-input=false", "tfplan"},
+		Argv:                []string{"apply", "-input=false", childSnapshotPath},
 		CWD:                 request.Directory,
 		Environment:         cloneExactApplyEnvironment(adapter.environment),
 		Limits:              cloneExactApplyCommandLimits(adapter.limits),
 		Output:              terraformcmd.TerraformCommandOutputInherit,
+		SnapshotFile:        request.SnapshotFile,
 	})
 	return err
 }
@@ -458,8 +467,14 @@ func applyExactPlanRoot(
 		return false, err
 	}
 	var evidence *plan.SavedPlanEvidence
+	var snapshotFile *os.File
 	cleanupSnapshots := make([]assessmentCleanupSnapshot, 0, 1)
 	defer func() {
+		if snapshotFile != nil {
+			if closeErr := snapshotFile.Close(); closeErr != nil && returnedErr == nil {
+				returnedErr = exactPlanApplyFailure("PLAN_SNAPSHOT_CHANGED", "saved-plan snapshot could not be closed", procerr.CategoryIO)
+			}
+		}
 		var cleanupErr error
 		if evidence != nil {
 			cleanupErr = plan.CleanupSavedPlanEvidence(evidence)
@@ -530,9 +545,17 @@ func applyExactPlanRoot(
 	if err := recheckExactApplyEvidence(context, controlFiles, evidence, expectedRoots, policy); err != nil {
 		return false, err
 	}
+	snapshotBudget, err := exactApplyBudget(defaultSavedPlanLimits())
+	if err != nil {
+		return false, err
+	}
+	snapshotFile, err = plan.OpenSavedPlanSnapshot(evidence, snapshotBudget)
+	if err != nil {
+		return false, err
+	}
 	shownPlan, err := options.Terraform.Show(ExactPlanApplyShowRequest{
 		Directory:    root.EnvDir,
-		SnapshotPath: evidence.Snapshot.Path,
+		SnapshotFile: snapshotFile,
 	})
 	if err != nil {
 		return false, err
@@ -575,10 +598,22 @@ func applyExactPlanRoot(
 	if err := recheckExactApplyEvidence(context, controlFiles, evidence, expectedRoots, policy); err != nil {
 		return false, err
 	}
-	if err := options.Terraform.Apply(ExactPlanApplyRequest{Directory: root.EnvDir}); err != nil {
+	snapshotBudget, err = exactApplyBudget(defaultSavedPlanLimits())
+	if err != nil {
+		return false, err
+	}
+	if err := plan.RecheckSavedPlanSnapshot(evidence, snapshotFile, snapshotBudget); err != nil {
+		return false, err
+	}
+	if err := options.Terraform.Apply(ExactPlanApplyRequest{Directory: root.EnvDir, SnapshotFile: snapshotFile}); err != nil {
 		return false, err
 	}
 	applied = true
+	if err := snapshotFile.Close(); err != nil {
+		snapshotFile = nil
+		return true, exactPlanApplyFailure("PLAN_SNAPSHOT_CHANGED", "saved-plan snapshot could not be closed", procerr.CategoryIO)
+	}
+	snapshotFile = nil
 	_, err = plan.RemoveSavedPlanArtifacts(root.EnvDir)
 	return applied, err
 }

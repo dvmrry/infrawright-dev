@@ -112,6 +112,17 @@ func RunTerraformCommandContext(parent context.Context, options TerraformCommand
 	if err != nil {
 		return TerraformCommandResult{}, err
 	}
+	if options.SnapshotFile != nil {
+		if _, err := inheritedPlanFilePath(); err != nil {
+			return TerraformCommandResult{}, ioFailure("INVALID_TERRAFORM_COMMAND_SNAPSHOT", "Terraform command inherited plan file is unavailable")
+		}
+		if err := validateInheritedPlanFile(options.SnapshotFile); err != nil {
+			return TerraformCommandResult{}, ioFailure("INVALID_TERRAFORM_COMMAND_SNAPSHOT", "Terraform command inherited plan file is invalid")
+		}
+		if _, err := options.SnapshotFile.Seek(0, io.SeekStart); err != nil {
+			return TerraformCommandResult{}, ioFailure("INVALID_TERRAFORM_COMMAND_SNAPSHOT", "Terraform command inherited plan file is invalid")
+		}
+	}
 	startedAt := time.Now()
 	if err := requireTrustedExecutable(options.TerraformExecutable); err != nil {
 		return TerraformCommandResult{}, err
@@ -140,6 +151,9 @@ func RunTerraformCommandContext(parent context.Context, options TerraformCommand
 	command.Stdin = nil
 	command.Stdout = stdoutWriter
 	command.Stderr = stderrWriter
+	if options.SnapshotFile != nil {
+		command.ExtraFiles = []*os.File{options.SnapshotFile}
+	}
 	configureTerraformProcess(command)
 	if err := parent.Err(); err != nil {
 		_ = stdoutReader.Close()
