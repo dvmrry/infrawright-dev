@@ -31,8 +31,8 @@ func TestLegacyMapperFrozenV1DeriveCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(frozen fixture) error = %v, want nil", err)
 	}
-	if got := fmt.Sprintf("%x", sha256.Sum256(data)); got != "1ca673c06162f24e9c3a10a91724a98ce9c317af8906d6105cbb0c226ec8fd14" {
-		t.Fatalf("frozen fixture SHA256 = %s, want 1ca673c06162f24e9c3a10a91724a98ce9c317af8906d6105cbb0c226ec8fd14", got)
+	if got := fmt.Sprintf("%x", sha256.Sum256(data)); got != "8838730fce62480c8622131a47ce41e09153ac7ab12fdc752fd62596dc5376f6" {
+		t.Fatalf("frozen fixture SHA256 = %s, want 8838730fce62480c8622131a47ce41e09153ac7ab12fdc752fd62596dc5376f6", got)
 	}
 	var fixture legacyFixture
 	if err := json.Unmarshal(data, &fixture); err != nil {

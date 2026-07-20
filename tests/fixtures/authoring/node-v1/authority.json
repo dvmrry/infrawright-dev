@@ -33,18 +33,18 @@
     },
     {
       "path": "node-tests/fixtures/python-sdk-path-evidence-v1.json",
-      "size": 43387,
-      "sha256": "5414a3eb08b07e41c4ba9680da79268aa742e8a8ded005d34c0321d5b1d6f477"
+      "size": 43489,
+      "sha256": "67dc464989cf0f0a748db65d2f1b1593d9aaad46b81fa630f79ced368592cc7b"
     },
     {
       "path": "node-tests/fixtures/python-source-evidence-eval-v1.json",
-      "size": 101267,
-      "sha256": "f8d8a910b797f2564e1217b8cd69bcd70c6ec851083a2ef817b954050127eea8"
+      "size": 101369,
+      "sha256": "dbb55a83ba411d2394ef159d7a940ab772d626306b36032f0cb6dde232a0827c"
     },
     {
       "path": "node-tests/fixtures/python-source-operation-map-v1.json",
-      "size": 134623,
-      "sha256": "1ca673c06162f24e9c3a10a91724a98ce9c317af8906d6105cbb0c226ec8fd14"
+      "size": 134717,
+      "sha256": "8838730fce62480c8622131a47ce41e09153ac7ab12fdc752fd62596dc5376f6"
     },
     {
       "path": "node-tests/fixtures/python-transform-adopt-parity-v1.json",

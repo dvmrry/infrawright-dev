@@ -25,7 +25,7 @@ const AUTHORITY_PATH = path.join(
   "fixtures",
   "python-sdk-path-evidence-v1.json",
 );
-const AUTHORITY_SHA256 = "5414a3eb08b07e41c4ba9680da79268aa742e8a8ded005d34c0321d5b1d6f477";
+const AUTHORITY_SHA256 = "67dc464989cf0f0a748db65d2f1b1593d9aaad46b81fa630f79ced368592cc7b";
 const RESURRECTION =
   "See docs/python-oracle-contracts.md for the exact clean-checkout resurrection command.";
 
@@ -77,6 +77,7 @@ async function frozenAuthority(): Promise<FrozenAuthority> {
         "node-src/authoring/reconcile-schema-api.ts": "d0a5f0fbadab3a9d3e40088c7ae9ec6200d927ee415f0d238aaf894dd405977c",
         "node-src/authoring/sdk-path-evidence.ts": "e90aaaa3547541fe99dfbca6c178be0e78a97423e7be8f45eef9369164ac1306",
         "node-src/authoring/source-operation-map.ts": "571c3d3cf2413c185be2ac46eca05fe9f33b528aa439182ad972165303e0f6a9",
+        "node-src/json/control.ts": "420582b852b3baa22d6bcc6220fc7ffaf620099f432af1681a67689f33d604c1",
         "node-src/json/python-compatible.ts": "54505a9d508f103fd40af7897508edf86d0c8bd0028e98d178c1fb9e79749e07",
         "node-src/metadata/terraform-schema.ts": "bee44a3c9ff079acdb39c3e2c3dc636d86cbfe3b92ff51ecd5a75c62a71a1fec",
         "node-src/metadata/validation.ts": "7022a90888e263735eba798bc9ee73b666d7d484f85b61dbaa843c705d174842",

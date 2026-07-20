@@ -70,7 +70,7 @@
   `b955f56a128a590f7811472959ce580cb344ed4fe400906377e6a2e30263f63e`).
   Fixture drift is only source SHA-256/Git-blob provenance plus the resulting
   fixture and authority-manifest locks. The final manifest SHA is
-  `463562762dea9234aaf959e3e957f00d0a871a14456f178507a68429cc5c3dea`.
+  `c9485be8b0c7a805247d54250c700c562ba8f32fa60f9e35ceb1b6c6e6671612`.
   A structural comparison reversing those explicit substitutions found no
   payload change.
 

@@ -276,7 +276,7 @@ UTF-16 contract reconciliation evidence recorded on 2026-07-20:
   The checksum-file SHA-256 is
   `b955f56a128a590f7811472959ce580cb344ed4fe400906377e6a2e30263f63e`.
   The active authoring-authority manifest SHA-256 is
-  `463562762dea9234aaf959e3e957f00d0a871a14456f178507a68429cc5c3dea`.
+  `c9485be8b0c7a805247d54250c700c562ba8f32fa60f9e35ceb1b6c6e6671612`.
 - The complete Node lane passed 793 tests with zero failures and two known
   optional external skips. The complete Go suite, vet, A6/D5 frozen-oracle
   lanes, and RootCatalog, Transform, Topology, and Generation byte gates

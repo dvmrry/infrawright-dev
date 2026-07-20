@@ -42,7 +42,7 @@ const sourceOperationAuthorityBytes = readFileSync(path.join(
 ));
 assert.equal(
   createHash("sha256").update(sourceOperationAuthorityBytes).digest("hex"),
-  "1ca673c06162f24e9c3a10a91724a98ce9c317af8906d6105cbb0c226ec8fd14",
+  "8838730fce62480c8622131a47ce41e09153ac7ab12fdc752fd62596dc5376f6",
 );
 const sourceOperationAuthority = JSON.parse(sourceOperationAuthorityBytes.toString("utf8")) as {
   readonly cli_cases: readonly {
