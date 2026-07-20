@@ -10,71 +10,6 @@ import (
 	"testing"
 )
 
-func TestHasStandaloneTerraformHelp(t *testing.T) {
-	tests := []struct {
-		name      string
-		arguments []string
-		want      bool
-	}{
-		{name: "empty", arguments: nil, want: false},
-		{name: "short help", arguments: []string{"plan", "-h"}, want: true},
-		{name: "long help", arguments: []string{"plan", "--help"}, want: true},
-		{name: "value then help", arguments: []string{"plan", "--tenant", "tenant", "--help"}, want: true},
-		{name: "flag then help", arguments: []string{"plan", "--save", "--help"}, want: true},
-		{name: "modules generate then help", arguments: []string{"modules", "generate", "--help"}, want: true},
-		{name: "missing value", arguments: []string{"plan", "--tenant"}, want: false},
-		{name: "help consumed as value", arguments: []string{"plan", "--tenant", "--help"}, want: false},
-		{name: "unknown before help", arguments: []string{"plan", "--unknown", "--help"}, want: false},
-		{name: "inline value before help", arguments: []string{"plan", "--tenant=tenant", "--help"}, want: false},
-		{name: "positional before help", arguments: []string{"plan", "tenant", "--help"}, want: false},
-		{name: "modules unknown verb before help", arguments: []string{"modules", "validate", "--help"}, want: false},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := hasStandaloneTerraformHelp(test.arguments); got != test.want {
-				t.Errorf("hasStandaloneTerraformHelp(%q) = %t, want %t", test.arguments, got, test.want)
-			}
-		})
-	}
-}
-
-func TestRequiresTerraformExecution(t *testing.T) {
-	tests := []struct {
-		name      string
-		arguments []string
-		want      bool
-	}{
-		{name: "empty", arguments: nil, want: false},
-		{name: "adopt", arguments: []string{"adopt"}, want: true},
-		{name: "gen env", arguments: []string{"gen-env"}, want: false},
-		{name: "plan", arguments: []string{"plan"}, want: true},
-		{name: "assert clean", arguments: []string{"assert-clean"}, want: true},
-		{name: "assert adoptable", arguments: []string{"assert-adoptable"}, want: true},
-		{name: "apply", arguments: []string{"apply"}, want: true},
-		{name: "modules generate", arguments: []string{"modules", "generate"}, want: false},
-		{name: "modules validate", arguments: []string{"modules", "validate"}, want: false},
-		{name: "state aware stage imports", arguments: []string{"stage-imports", "--state-aware"}, want: true},
-		{name: "ordinary stage imports", arguments: []string{"stage-imports"}, want: false},
-		{name: "clean plans", arguments: []string{"clean-plans"}, want: false},
-		{name: "check pack", arguments: []string{"check-pack"}, want: false},
-		{name: "check pack set", arguments: []string{"check-pack-set"}, want: false},
-		{name: "deployment", arguments: []string{"deployment"}, want: false},
-		{name: "unrelated", arguments: []string{"root-catalog"}, want: false},
-		{name: "plan standalone help", arguments: []string{"plan", "--tenant", "tenant", "--help"}, want: false},
-		{name: "modules generate standalone help", arguments: []string{"modules", "generate", "--help"}, want: false},
-		{name: "help consumed as value still executes", arguments: []string{"plan", "--tenant", "--help"}, want: true},
-		{name: "unknown token prevents standalone help", arguments: []string{"plan", "--unknown", "--help"}, want: true},
-		{name: "state aware with standalone help", arguments: []string{"stage-imports", "--state-aware", "--help"}, want: false},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := requiresTerraformExecution(test.arguments); got != test.want {
-				t.Errorf("requiresTerraformExecution(%q) = %t, want %t", test.arguments, got, test.want)
-			}
-		})
-	}
-}
-
 type blockC4Runtime struct {
 	repository   string
 	node         string
@@ -424,9 +359,6 @@ func TestBlockC4DispatchParseDifferentialAgainstNodeOracle(t *testing.T) {
 		name      string
 		arguments []string
 	}{
-		{name: "standalone plan help", arguments: []string{"plan", "--tenant", "tenant", "--help"}},
-		{name: "assert adoptable policy help", arguments: []string{"assert-adoptable", "--policy", "policy.json", "--help"}},
-		{name: "unknown token before help", arguments: []string{"plan", "--bogus", "--help"}},
 		{name: "plan requires tenant", arguments: []string{"plan"}},
 		{name: "clean plans duplicate tenant", arguments: []string{"clean-plans", "--tenant", "one", "--tenant", "two"}},
 	}

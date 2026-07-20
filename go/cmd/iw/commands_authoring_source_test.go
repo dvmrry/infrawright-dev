@@ -13,7 +13,6 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/artifactpublish"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/contracts"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/sourceoperation"
-	"github.com/dvmrry/infrawright-dev/go/internal/cliargs"
 )
 
 func TestSourceCommandsRejectModeConflictsBeforeReadsOrPublication(t *testing.T) {
@@ -102,7 +101,7 @@ func TestSourceCommandsRejectModeConflictsBeforeReadsOrPublication(t *testing.T)
 }
 
 func TestCompleteSourceBundlePublishesBeforeWarningAndDecision(t *testing.T) {
-	parsed := cliargs.ParsedArguments{Options: map[string][]string{"--openapi": {"openapi.json"}}}
+	parsed := commandInput{Options: map[string][]string{"--openapi": {"openapi.json"}}}
 	for _, state := range []contracts.OpenAPIDocumentState{contracts.OpenAPIUnavailable, contracts.OpenAPIDegraded} {
 		t.Run(string(state), func(t *testing.T) {
 			var stderr bytes.Buffer

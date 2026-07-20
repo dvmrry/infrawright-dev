@@ -1,8 +1,8 @@
 package main
 
 // commands_assessment.go ports the assert-clean and assert-adoptable command
-// functions from node-src/cli/main.ts. Dispatch and legacy exit-code mapping
-// remain in main.go so these functions stay a thin CLI-to-domain adapter.
+// functions from node-src/cli/main.ts. Cobra owns parsing and dispatch while
+// these functions remain a thin CLI-to-domain adapter.
 
 import (
 	"fmt"
@@ -10,11 +10,11 @@ import (
 	"path/filepath"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/assessment"
-	"github.com/dvmrry/infrawright-dev/go/internal/cliargs"
 	"github.com/dvmrry/infrawright-dev/go/internal/controlevidence"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/terraformcmd"
+	"github.com/spf13/cobra"
 )
 
 type assessmentCLIOptions struct {
@@ -37,27 +37,19 @@ func assessmentCLIOptionsFor(
 	mode assessment.AssessmentMode,
 	rootDirectory string,
 ) (assessmentCLIOptions, error) {
-	values := map[string]cliargs.ValueOption{
-		"--backend-config": {},
-		"--catalog":        {},
-		"--deployment":     {},
-		"--profile":        {},
-		"--report":         {RejectDuplicates: true},
-		"--resource":       {},
-		"--root":           {},
-		"--tenant":         {AllowEmpty: true, RejectDuplicates: true},
-		"--terraform":      {},
-	}
-	if mode == assessment.AssertAdoptable {
-		values["--policy"] = cliargs.ValueOption{}
-	}
-	parsed, err := commandArguments(arguments, cliargs.ParseConfig{
-		Values: values,
-	}, commandBehavior{command: string(mode)})
+	spec := assessmentCobraSpec(mode, nil)
+	parsed, err := parseTypedCobraArguments(arguments, spec)
 	if err != nil {
 		return assessmentCLIOptions{}, err
 	}
+	return assessmentCLIOptionsInput(parsed, mode, rootDirectory)
+}
 
+func assessmentCLIOptionsInput(
+	parsed commandInput,
+	mode assessment.AssessmentMode,
+	rootDirectory string,
+) (assessmentCLIOptions, error) {
 	deploymentPathValue, err := selectedDeploymentPath(parsed)
 	if err != nil {
 		return assessmentCLIOptions{}, err
@@ -67,19 +59,19 @@ func assessmentCLIOptionsFor(
 		deployment: deploymentPathValue,
 		resources:  append([]string{}, parsed.Options["--resource"]...),
 	}
-	if value, ok := cliargs.LastOption(parsed, "--tenant"); ok {
+	if value, ok := lastCommandOption(parsed, "--tenant"); ok {
 		options.tenant = &value
 	}
-	if value, ok := cliargs.LastOption(parsed, "--backend-config"); ok {
+	if value, ok := lastCommandOption(parsed, "--backend-config"); ok {
 		options.backendConfig = &value
 	}
-	if value, ok := cliargs.LastOption(parsed, "--policy"); ok {
+	if value, ok := lastCommandOption(parsed, "--policy"); ok {
 		options.policy = &value
 	}
-	if value, ok := cliargs.LastOption(parsed, "--report"); ok {
+	if value, ok := lastCommandOption(parsed, "--report"); ok {
 		options.report = &value
 	}
-	if value, ok := cliargs.LastOption(parsed, "--terraform"); ok {
+	if value, ok := lastCommandOption(parsed, "--terraform"); ok {
 		options.terraform = &value
 	}
 	return options, nil
@@ -162,11 +154,49 @@ func assessmentCommand(
 	arguments []string,
 	mode assessment.AssessmentMode,
 ) (int, error) {
+	return executeStandaloneCobra(newAssessmentCobraCommand(mode), arguments)
+}
+
+func assessmentCobraSpec(
+	mode assessment.AssessmentMode,
+	run func(commandInput) (int, error),
+) typedCobraCommandSpec {
+	values := []string{
+		"--tenant", "--resource", "--backend-config", "--report", "--terraform",
+		"--deployment", "--root", "--profile", "--catalog",
+	}
+	if mode == assessment.AssertAdoptable {
+		values = append(values, "--policy")
+	}
+	return typedCobraCommandSpec{
+		use: string(mode), short: map[assessment.AssessmentMode]string{
+			assessment.AssertClean:     "Require saved plans to be clean",
+			assessment.AssertAdoptable: "Require saved plans to satisfy adoption policy",
+		}[mode],
+		valueFlags: values, allowEmpty: []string{"--tenant"},
+		rejectDuplicates: []string{"--tenant", "--report"}, run: run,
+	}
+}
+
+func newAssessmentCobraCommand(mode assessment.AssessmentMode) *cobra.Command {
+	spec := assessmentCobraSpec(mode, nil)
+	spec.run = func(parsed commandInput) (int, error) {
+		return legacyPlanLifecycleCommand(func() (int, error) {
+			if len(parsed.Positionals) != 0 {
+				return 0, usageError(string(mode) + " does not accept positional arguments")
+			}
+			return assessmentCommandInput(parsed, mode)
+		})
+	}
+	return newTypedCobraCommand(spec)
+}
+
+func assessmentCommandInput(parsed commandInput, mode assessment.AssessmentMode) (int, error) {
 	rootDirectory, err := packageRoot()
 	if err != nil {
 		return 0, err
 	}
-	options, err := assessmentCLIOptionsFor(arguments, mode, rootDirectory)
+	options, err := assessmentCLIOptionsInput(parsed, mode, rootDirectory)
 	if err != nil {
 		return 0, err
 	}

@@ -91,8 +91,15 @@ that is an open design decision, not work authorized by this plan correction.
 | `roots` | 1,805 | topology / scope-paths / plan-roots |
 | `collectors` | 3,154 | **fetch engine** — pagination, retry policy, masking, failure hints, adapters. Sits on the `HttpTransport` seam; keep the engine, swap what's under the seam. |
 | `artifacts` | 1,985 | bounded-files/snapshots — safety (TOCTOU, `os.Root` jail). Keep. |
-| `cliargs` `procerr` `deployment` `pypath` | 1,829 | structural |
+| `procerr` `deployment` `pypath` | 1,076 | retained command/runtime support; the byte-parity-era `cliargs` parser was retired in A7 in favor of Cobra |
 | `pyunicode` | 670 | **audit**: keep lower-15.1 + html-unescape where they feed artifact keys/values; drop any part only reaching wire/error text |
+
+Cobra owns command parsing, command discovery, help, shell completion, and the
+generated CLI reference. Those are operator-orchestration surfaces, not
+committed infrastructure/evidence bytes, so their presentation follows Cobra
+rather than the frozen Node `parseArgs` and static-usage wording. Domain output,
+artifact/report bytes, environment precedence, exit classifications, and every
+adopt/Apply safety gate remain separately qualified contracts.
 
 **REWRITE — around Go-native infrastructure:**
 

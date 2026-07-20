@@ -730,10 +730,11 @@ func TestFetchArgumentContractCredentialFree(t *testing.T) {
 	goBinary := buildFetchTestBinary(t, root)
 	environment := fetchNoNetworkEnvironment()
 	cases := []struct {
-		name   string
-		args   []string
-		exit   int
-		stderr string
+		name      string
+		args      []string
+		exit      int
+		stderr    string
+		cobraOnly bool
 	}{
 		{
 			name:   "tenant-required",
@@ -778,32 +779,34 @@ func TestFetchArgumentContractCredentialFree(t *testing.T) {
 			name:   "diag-rejects-tenant",
 			args:   []string{"fetch-diag", "--tenant", "tenant-a"},
 			exit:   2,
-			stderr: "error: fetch-diag does not accept --tenant\n",
+			stderr: "error: unknown flag: --tenant\n", cobraOnly: true,
 		},
 		{
 			name:   "diag-rejects-resource",
 			args:   []string{"fetch-diag", "--resource", "zia_advanced_settings"},
 			exit:   2,
-			stderr: "error: fetch-diag does not accept --resource\n",
+			stderr: "error: unknown flag: --resource\n", cobraOnly: true,
 		},
 		{
 			name:   "diag-rejects-concurrency",
 			args:   []string{"fetch-diag", "--concurrency", "2"},
 			exit:   2,
-			stderr: "error: fetch-diag does not accept --concurrency\n",
+			stderr: "error: unknown flag: --concurrency\n", cobraOnly: true,
 		},
 		{
 			name:   "diag-rejects-output",
 			args:   []string{"fetch-diag", "--out", "somewhere"},
 			exit:   2,
-			stderr: "error: fetch-diag does not accept --out\n",
+			stderr: "error: unknown flag: --out\n", cobraOnly: true,
 		},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			actual := runBinaryWithEnv(t, root, goBinary, testCase.args, environment)
 			requireRunResult(t, actual, testCase.exit, "", testCase.stderr)
-			compareFetchOracle(t, root, goBinary, testCase.args, environment)
+			if !testCase.cobraOnly {
+				compareFetchOracle(t, root, goBinary, testCase.args, environment)
+			}
 		})
 	}
 }

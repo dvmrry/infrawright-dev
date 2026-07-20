@@ -13,13 +13,13 @@ import (
 
 	"github.com/dvmrry/infrawright-dev/go/internal/adopt"
 	"github.com/dvmrry/infrawright-dev/go/internal/assessment"
-	"github.com/dvmrry/infrawright-dev/go/internal/cliargs"
 	"github.com/dvmrry/infrawright-dev/go/internal/controlevidence"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/plan"
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
 	"github.com/dvmrry/infrawright-dev/go/internal/terraformcmd"
+	"github.com/spf13/cobra"
 )
 
 type blockDCommandDependencies struct {
@@ -81,28 +81,21 @@ type adoptCLIOptions struct {
 	environment map[string]string
 }
 
-func adoptCLIOptionsWithDependencies(arguments []string, dependencies blockDCommandDependencies) (adoptCLIOptions, error) {
+func adoptCLIOptionsWithDependencies(parsed commandInput, dependencies blockDCommandDependencies) (adoptCLIOptions, error) {
 	rootDirectory, err := dependencies.packageRoot()
 	if err != nil {
 		return adoptCLIOptions{}, err
 	}
-	parsed, err := commandArguments(arguments, cliargs.ParseConfig{Values: map[string]cliargs.ValueOption{
-		"--catalog": {}, "--deployment": {}, "--in": {}, "--policy": {},
-		"--profile": {}, "--resource": {}, "--root": {}, "--tenant": {}, "--terraform": {},
-	}}, commandBehavior{command: "adopt"})
-	if err != nil {
-		return adoptCLIOptions{}, err
-	}
 	environment := dependencies.environment()
-	selectedDeployment, ok := cliargs.LastOption(parsed, "--deployment")
+	selectedDeployment, ok := lastCommandOption(parsed, "--deployment")
 	if !ok {
 		selectedDeployment, err = dependencies.deploymentPath(environment)
 		if err != nil {
 			return adoptCLIOptions{}, err
 		}
 	}
-	input, hasInput := cliargs.LastOption(parsed, "--in")
-	tenant, hasTenant := cliargs.LastOption(parsed, "--tenant")
+	input, hasInput := lastCommandOption(parsed, "--in")
+	tenant, hasTenant := lastCommandOption(parsed, "--tenant")
 	if !hasInput || !hasTenant {
 		return adoptCLIOptions{}, usageError("adopt requires --in and --tenant")
 	}
@@ -111,10 +104,10 @@ func adoptCLIOptionsWithDependencies(arguments []string, dependencies blockDComm
 		input: input, resources: append([]string(nil), parsed.Options["--resource"]...), tenant: tenant,
 		environment: cloneCommandEnvironment(environment),
 	}
-	if value, present := cliargs.LastOption(parsed, "--policy"); present {
+	if value, present := lastCommandOption(parsed, "--policy"); present {
 		options.policy = &value
 	}
-	if value, present := cliargs.LastOption(parsed, "--terraform"); present {
+	if value, present := lastCommandOption(parsed, "--terraform"); present {
 		options.terraform = &value
 	}
 	return options, nil
@@ -192,7 +185,26 @@ func adoptCommand(arguments []string) (int, error) {
 }
 
 func adoptCommandWithDependencies(arguments []string, dependencies blockDCommandDependencies) (int, error) {
-	options, err := adoptCLIOptionsWithDependencies(arguments, dependencies)
+	return executeStandaloneCobra(newAdoptCobraCommand(dependencies), arguments)
+}
+
+func newAdoptCobraCommand(dependencies blockDCommandDependencies) *cobra.Command {
+	return newTypedCobraCommand(typedCobraCommandSpec{
+		use: "adopt", short: "Transform pulled JSON through the import oracle",
+		valueFlags: []string{"--in", "--tenant", "--resource", "--policy", "--terraform", "--deployment", "--root", "--profile", "--catalog"},
+		run: func(parsed commandInput) (int, error) {
+			return legacyPlanLifecycleCommand(func() (int, error) {
+				if len(parsed.Positionals) != 0 {
+					return 0, usageError("adopt does not accept positional arguments")
+				}
+				return adoptCommandInput(parsed, dependencies)
+			})
+		},
+	})
+}
+
+func adoptCommandInput(parsed commandInput, dependencies blockDCommandDependencies) (int, error) {
+	options, err := adoptCLIOptionsWithDependencies(parsed, dependencies)
 	if err != nil {
 		return 0, err
 	}
@@ -241,33 +253,20 @@ type importStagingCLIOptions struct {
 	environment   map[string]string
 }
 
-func importStagingCLIOptionsWithDependencies(arguments []string, command string, dependencies blockDCommandDependencies) (importStagingCLIOptions, error) {
+func importStagingCLIOptionsWithDependencies(parsed commandInput, command string, dependencies blockDCommandDependencies) (importStagingCLIOptions, error) {
 	rootDirectory, err := dependencies.packageRoot()
 	if err != nil {
 		return importStagingCLIOptions{}, err
 	}
-	stage := command == "stage-imports"
-	config := cliargs.ParseConfig{Values: map[string]cliargs.ValueOption{
-		"--catalog": {}, "--deployment": {}, "--profile": {}, "--resource": {}, "--root": {}, "--tenant": {},
-	}}
-	if stage {
-		config.Flags = []string{"--state-aware"}
-		config.Values["--backend-config"] = cliargs.ValueOption{}
-		config.Values["--terraform"] = cliargs.ValueOption{}
-	}
-	parsed, err := commandArguments(arguments, config, commandBehavior{command: command})
-	if err != nil {
-		return importStagingCLIOptions{}, err
-	}
 	environment := dependencies.environment()
-	selectedDeployment, ok := cliargs.LastOption(parsed, "--deployment")
+	selectedDeployment, ok := lastCommandOption(parsed, "--deployment")
 	if !ok {
 		selectedDeployment, err = dependencies.deploymentPath(environment)
 		if err != nil {
 			return importStagingCLIOptions{}, err
 		}
 	}
-	tenant, ok := cliargs.LastOption(parsed, "--tenant")
+	tenant, ok := lastCommandOption(parsed, "--tenant")
 	if !ok {
 		return importStagingCLIOptions{}, usageError(command + " requires --tenant")
 	}
@@ -277,10 +276,10 @@ func importStagingCLIOptionsWithDependencies(arguments []string, command string,
 		stateAware: parsed.Flags.Has("--state-aware"), tenant: tenant,
 		environment: cloneCommandEnvironment(environment),
 	}
-	if value, present := cliargs.LastOption(parsed, "--backend-config"); present {
+	if value, present := lastCommandOption(parsed, "--backend-config"); present {
 		options.backendConfig = &value
 	}
-	if value, present := cliargs.LastOption(parsed, "--terraform"); present {
+	if value, present := lastCommandOption(parsed, "--terraform"); present {
 		options.terraform = &value
 	}
 	return options, nil
@@ -334,7 +333,36 @@ func stageImportsCommand(arguments []string) (int, error) {
 }
 
 func stageImportsCommandWithDependencies(arguments []string, dependencies blockDCommandDependencies) (int, error) {
-	options, err := importStagingCLIOptionsWithDependencies(arguments, "stage-imports", dependencies)
+	return executeStandaloneCobra(newImportStagingCobraCommand("stage-imports", dependencies), arguments)
+}
+
+func newImportStagingCobraCommand(command string, dependencies blockDCommandDependencies) *cobra.Command {
+	valueFlags := []string{"--tenant", "--resource", "--deployment", "--root", "--profile", "--catalog"}
+	var boolFlags []string
+	short := "Remove staged import and moved blocks"
+	if command == "stage-imports" {
+		valueFlags = append(valueFlags, "--backend-config", "--terraform")
+		boolFlags = []string{"--state-aware"}
+		short = "Stage import and moved blocks"
+	}
+	return newTypedCobraCommand(typedCobraCommandSpec{
+		use: command, short: short, valueFlags: valueFlags, boolFlags: boolFlags,
+		run: func(parsed commandInput) (int, error) {
+			return legacyPlanLifecycleCommand(func() (int, error) {
+				if len(parsed.Positionals) != 0 {
+					return 0, usageError(command + " does not accept positional arguments")
+				}
+				if command == "stage-imports" {
+					return stageImportsCommandInput(parsed, dependencies)
+				}
+				return unstageImportsCommandInput(parsed, dependencies)
+			})
+		},
+	})
+}
+
+func stageImportsCommandInput(parsed commandInput, dependencies blockDCommandDependencies) (int, error) {
+	options, err := importStagingCLIOptionsWithDependencies(parsed, "stage-imports", dependencies)
 	if err != nil {
 		return 0, err
 	}
@@ -366,7 +394,11 @@ func unstageImportsCommand(arguments []string) (int, error) {
 }
 
 func unstageImportsCommandWithDependencies(arguments []string, dependencies blockDCommandDependencies) (int, error) {
-	options, err := importStagingCLIOptionsWithDependencies(arguments, "unstage-imports", dependencies)
+	return executeStandaloneCobra(newImportStagingCobraCommand("unstage-imports", dependencies), arguments)
+}
+
+func unstageImportsCommandInput(parsed commandInput, dependencies blockDCommandDependencies) (int, error) {
+	options, err := importStagingCLIOptionsWithDependencies(parsed, "unstage-imports", dependencies)
 	if err != nil {
 		return 0, err
 	}
@@ -411,24 +443,13 @@ type applyCLIOptions struct {
 	environment      map[string]string
 }
 
-func applyCLIOptionsWithDependencies(arguments []string, dependencies blockDCommandDependencies) (applyCLIOptions, error) {
+func applyCLIOptionsWithDependencies(parsed commandInput, dependencies blockDCommandDependencies) (applyCLIOptions, error) {
 	rootDirectory, err := dependencies.packageRoot()
 	if err != nil {
 		return applyCLIOptions{}, err
 	}
-	parsed, err := commandArguments(arguments, cliargs.ParseConfig{
-		Flags: []string{"--allow-destroy", "--allow-non-main", "--allow-plan-changes"},
-		Values: map[string]cliargs.ValueOption{
-			"--backend-config": {}, "--catalog": {}, "--deployment": {}, "--main-branch": {},
-			"--policy": {}, "--profile": {}, "--resource": {}, "--root": {},
-			"--tenant": {AllowEmpty: true}, "--terraform": {},
-		},
-	}, commandBehavior{command: "apply"})
-	if err != nil {
-		return applyCLIOptions{}, err
-	}
 	environment := dependencies.environment()
-	selectedDeployment, ok := cliargs.LastOption(parsed, "--deployment")
+	selectedDeployment, ok := lastCommandOption(parsed, "--deployment")
 	if !ok {
 		selectedDeployment, err = dependencies.deploymentPath(environment)
 		if err != nil {
@@ -441,7 +462,7 @@ func applyCLIOptionsWithDependencies(arguments []string, dependencies blockDComm
 		pack:             planPackOptions(rootDirectory, environment, parsed), deployment: selectedDeployment,
 		resources: append([]string(nil), parsed.Options["--resource"]...), environment: cloneCommandEnvironment(environment),
 	}
-	if value, present := cliargs.LastOption(parsed, "--tenant"); present {
+	if value, present := lastCommandOption(parsed, "--tenant"); present {
 		if err := roots.ValidateTenant(value); err != nil {
 			return applyCLIOptions{}, err
 		}
@@ -451,7 +472,7 @@ func applyCLIOptionsWithDependencies(arguments []string, dependencies blockDComm
 		"--backend-config": &options.backendConfig, "--main-branch": &options.mainBranch,
 		"--policy": &options.policy, "--terraform": &options.terraform,
 	} {
-		if value, present := cliargs.LastOption(parsed, name); present {
+		if value, present := lastCommandOption(parsed, name); present {
 			copyValue := value
 			*target = &copyValue
 		}
@@ -530,7 +551,28 @@ func applyCommand(arguments []string) (int, error) {
 }
 
 func applyCommandWithDependencies(arguments []string, dependencies blockDCommandDependencies) (int, error) {
-	options, err := applyCLIOptionsWithDependencies(arguments, dependencies)
+	return executeStandaloneCobra(newApplyCobraCommand(dependencies), arguments)
+}
+
+func newApplyCobraCommand(dependencies blockDCommandDependencies) *cobra.Command {
+	return newTypedCobraCommand(typedCobraCommandSpec{
+		use: "apply", short: "Apply exact saved Terraform plans",
+		valueFlags: []string{"--tenant", "--resource", "--policy", "--backend-config", "--main-branch", "--terraform", "--deployment", "--root", "--profile", "--catalog"},
+		allowEmpty: []string{"--tenant"},
+		boolFlags:  []string{"--allow-destroy", "--allow-non-main", "--allow-plan-changes"},
+		run: func(parsed commandInput) (int, error) {
+			return legacyPlanLifecycleCommand(func() (int, error) {
+				if len(parsed.Positionals) != 0 {
+					return 0, usageError("apply does not accept positional arguments")
+				}
+				return applyCommandInput(parsed, dependencies)
+			})
+		},
+	})
+}
+
+func applyCommandInput(parsed commandInput, dependencies blockDCommandDependencies) (int, error) {
+	options, err := applyCLIOptionsWithDependencies(parsed, dependencies)
 	if err != nil {
 		return 0, err
 	}

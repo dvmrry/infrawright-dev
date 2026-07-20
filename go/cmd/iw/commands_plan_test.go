@@ -298,7 +298,9 @@ func TestPlanCliOptionsPreservesDefaultsAndEnvironmentFallbacks(t *testing.T) {
 		}
 		return environment["INFRAWRIGHT_DEPLOYMENT"], nil
 	}
-	options, err := planCliOptionsWithDependencies([]string{"--tenant", "tenant"}, dependencies)
+	options, err := planCliOptionsWithDependencies(commandInput{
+		Flags: commandFlags{}, Options: map[string][]string{"--tenant": {"tenant"}},
+	}, dependencies)
 	if err != nil {
 		t.Fatalf("planCliOptionsWithDependencies(defaults) error: %v", err)
 	}
@@ -317,7 +319,7 @@ func TestPlanCliOptionsPreservesDefaultsAndEnvironmentFallbacks(t *testing.T) {
 		t.Errorf("plan CLI optional values = %+v, want omitted/false", options)
 	}
 
-	_, err = planCliOptionsWithDependencies(nil, dependencies)
+	_, err = planCliOptionsWithDependencies(commandInput{Flags: commandFlags{}, Options: map[string][]string{}}, dependencies)
 	var exit *cliExit
 	if !errors.As(err, &exit) {
 		t.Fatalf("planCliOptionsWithDependencies(missing tenant) error = %T(%v), want *cliExit", err, err)

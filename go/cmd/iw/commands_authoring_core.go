@@ -2,20 +2,18 @@ package main
 
 // commands_authoring_core.go composes the accepted reconciliation, generic
 // OpenAPI-map, and Transform/Adopt-parity kernels into their frozen Node-v1
-// authoring CLI contracts. It deliberately owns no central command routing:
-// A6 integration adds that in main.go after all authoring parcels are ready.
+// authoring CLI contracts. The shared Cobra tree owns central routing; this
+// file owns only the authoring command adapters.
 
 import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/openapiadapter"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/openapimap"
@@ -24,8 +22,8 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/sourcebind"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/transformadoptparity"
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
-	"github.com/dvmrry/infrawright-dev/go/internal/cliargs"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
+	"github.com/spf13/cobra"
 )
 
 // authoringCoreDependencies contains the process and filesystem boundary for
@@ -55,44 +53,40 @@ func defaultAuthoringCoreDependencies() authoringCoreDependencies {
 	}
 }
 
-// authoringParseArguments ports authoring/cli.ts parseArguments. Authoring
-// commands intentionally disable the top-level help option: frozen Node-v1
-// treats -h/--help as ordinary invalid authoring input at this boundary.
-func authoringParseArguments(arguments []string, values []string, repeatable []string, flags []string) (cliargs.ParsedArguments, error) {
+func authoringCobraSpec(
+	use string,
+	short string,
+	values []string,
+	repeatable []string,
+	flags []string,
+	run func(commandInput) (int, error),
+) typedCobraCommandSpec {
 	repeats := make(map[string]bool, len(repeatable))
 	for _, name := range repeatable {
 		repeats[name] = true
 	}
-	options := make(map[string]cliargs.ValueOption, len(values))
+	rejectDuplicates := make([]string, 0, len(values))
 	for _, name := range values {
-		options[name] = cliargs.ValueOption{RejectDuplicates: !repeats[name]}
+		if !repeats[name] {
+			rejectDuplicates = append(rejectDuplicates, name)
+		}
 	}
-	parsed, err := cliargs.ParseCommandArguments(arguments, cliargs.ParseConfig{
-		AllowPositionals: true,
-		Flags:            flags,
-		HelpDisabled:     true,
-		Values:           options,
-	})
-	if err == nil {
-		return parsed, nil
+	return typedCobraCommandSpec{
+		use: use, short: short, valueFlags: values, boolFlags: flags,
+		rejectDuplicates: rejectDuplicates, run: run,
 	}
-	var parseErr *cliargs.CliArgumentParseError
-	if errors.As(err, &parseErr) {
-		return cliargs.ParsedArguments{}, usageError(strings.ReplaceAll(parseErr.Message, "may be specified only once", "may be passed only once"))
-	}
-	return cliargs.ParsedArguments{}, err
 }
 
-func authoringLastOption(parsed cliargs.ParsedArguments, name string) *string {
-	value, found := cliargs.LastOption(parsed, name)
+func authoringLastOption(parsed commandInput, name string) *string {
+	value, found := lastCommandOption(parsed, name)
 	if !found {
 		return nil
 	}
 	return &value
 }
 
-func authoringRequiredOption(parsed cliargs.ParsedArguments, name string) (string, error) {
-	value, found := cliargs.LastOption(parsed, name)
+func authoringRequiredOption(parsed commandInput, name string) (string, error) {
+	value, found := lastCommandOption(parsed, name)
 	if !found {
 		return "", usageError(name + " is required")
 	}
@@ -279,14 +273,23 @@ func reconcileCommand(arguments []string) (int, error) {
 }
 
 func reconcileCommandWithDependencies(arguments []string, dependencies authoringCoreDependencies) (int, error) {
-	parsed, err := authoringParseArguments(arguments,
+	return executeStandaloneCobra(newReconcileCobraCommand(dependencies), arguments)
+}
+
+func newReconcileCobraCommand(dependencies authoringCoreDependencies) *cobra.Command {
+	spec := authoringCobraSpec("reconcile <resource-type>", "Compare API JSON with a Terraform schema",
 		[]string{"--api", "--api-options", "--openapi", "--openapi-read", "--openapi-write", "--out", "--override", "--provider-source", "--schema"},
 		[]string{"--api", "--api-options", "--openapi-read", "--openapi-write"},
 		[]string{"--fail-on-unknown"},
+		nil,
 	)
-	if err != nil {
-		return 0, err
+	spec.run = func(parsed commandInput) (int, error) {
+		return reconcileCommandInput(parsed, dependencies)
 	}
+	return newTypedCobraCommand(spec)
+}
+
+func reconcileCommandInput(parsed commandInput, dependencies authoringCoreDependencies) (int, error) {
 	if len(parsed.Positionals) != 1 {
 		return 0, usageError("reconcile requires one resource type")
 	}
@@ -399,11 +402,17 @@ func openAPIMapCommand(arguments []string) (int, error) {
 }
 
 func openAPIMapCommandWithDependencies(arguments []string, dependencies authoringCoreDependencies) (int, error) {
-	parsed, err := authoringParseArguments(arguments,
-		[]string{"--api-prefix", "--openapi", "--out", "--provider-source", "--registry", "--resource-prefix", "--schema"}, nil, nil)
-	if err != nil {
-		return 0, err
-	}
+	return executeStandaloneCobra(newOpenAPIMapCobraCommand(dependencies), arguments)
+}
+
+func newOpenAPIMapCobraCommand(dependencies authoringCoreDependencies) *cobra.Command {
+	spec := authoringCobraSpec("openapi-map", "Map provider resources to OpenAPI operations",
+		[]string{"--api-prefix", "--openapi", "--out", "--provider-source", "--registry", "--resource-prefix", "--schema"}, nil, nil, nil)
+	spec.run = func(parsed commandInput) (int, error) { return openAPIMapCommandInput(parsed, dependencies) }
+	return newTypedCobraCommand(spec)
+}
+
+func openAPIMapCommandInput(parsed commandInput, dependencies authoringCoreDependencies) (int, error) {
 	if len(parsed.Positionals) != 0 {
 		return 0, usageError("openapi-map does not accept positional arguments")
 	}
@@ -465,10 +474,21 @@ func transformAdoptParityCommand(arguments []string) (int, error) {
 }
 
 func transformAdoptParityCommandWithDependencies(arguments []string, dependencies authoringCoreDependencies) (status int, err error) {
-	parsed, err := authoringParseArguments(arguments, nil, nil, nil)
-	if err != nil {
-		return 0, err
+	return executeStandaloneCobra(newTransformAdoptParityCobraCommand(dependencies), arguments)
+}
+
+func newTransformAdoptParityCobraCommand(dependencies authoringCoreDependencies) *cobra.Command {
+	spec := authoringCobraSpec(
+		"transform-adopt-parity <fixture.json> [fixture.json...]",
+		"Compare Transform and Adopt fixture behavior", nil, nil, nil, nil,
+	)
+	spec.run = func(parsed commandInput) (int, error) {
+		return transformAdoptParityCommandInput(parsed, dependencies)
 	}
+	return newTypedCobraCommand(spec)
+}
+
+func transformAdoptParityCommandInput(parsed commandInput, dependencies authoringCoreDependencies) (status int, err error) {
 	if len(parsed.Positionals) == 0 {
 		return 0, usageError("transform-adopt-parity requires at least one fixture path")
 	}

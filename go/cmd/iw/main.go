@@ -1,44 +1,23 @@
 // Command iw is the Go port of the Infrawright CLI entry point
-// (node-src/cli/main.ts). The current Go slice carries the credential-free
-// command families through adopt and exact saved-plan Apply; the usage text,
-// dispatch shape, exit codes, and error rendering reproduce the Node CLI
-// byte-for-byte for every surface the differential corpus covers.
-//
-// Pre-cutover divergence (deliberate, excluded from the differential corpus):
-// commands that exist in the Node CLI but are not yet ported fail loudly with
-// "not yet ported" instead of pretending to be unknown. Filesystem error text
-// is Go-native throughout (docs/go-runtime-v2.md §2: Node's filesystem-error
-// wording is explicitly not part of the compatibility contract).
+// (node-src/cli/main.ts). Cobra owns command discovery, parsing, help,
+// completion, and usage errors. Domain outputs, artifacts, reports, exit
+// classifications, environment precedence, and lifecycle safety gates retain
+// the qualified Go-port contracts. Filesystem and CLI presentation text are
+// Go-native throughout (docs/go-runtime-v2.md §2).
 package main
 
 import (
-	_ "embed"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
-	"github.com/dvmrry/infrawright-dev/go/internal/cliargs"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
-	"github.com/dvmrry/infrawright-dev/go/internal/terraformcmd"
 	"github.com/dvmrry/infrawright-dev/go/internal/transformrun"
 )
-
-// usageFixture is the byte-captured stdout of `iw root-catalog -h` from the
-// Node CLI (dist/infrawright-cli.mjs at the oracle build), including its
-// trailing newline. The differential harness compares help output against
-// the live oracle, so drift here fails loudly.
-//
-//go:embed usage.txt
-var usageFixture string
-
-// usageText mirrors the USAGE constant in node-src/cli/main.ts: the fixture
-// without the trailing newline the Node CLI appends when printing.
-var usageText = strings.TrimSuffix(usageFixture, "\n")
 
 // cliExit ports the CliExit class in node-src/cli/main.ts: a terminal
 // outcome carrying its exit status and output stream selection.
@@ -55,48 +34,27 @@ func usageError(message string) error {
 	return &cliExit{message: message, status: 2}
 }
 
-var unknownArgumentMessage = regexp.MustCompile(`^unknown argument (.+)$`)
+type commandFlags map[string]struct{}
 
-// commandBehavior ports the behavior options of commandArguments in
-// node-src/cli/main.ts. The zero value keeps the TS help defaults (status 0,
-// stdout); helpStderr represents the source's explicit `stdout: false`
-// without making the Go zero value invert the default.
-type commandBehavior struct {
-	command    string
-	helpStatus int
-	helpStderr bool
+func (f commandFlags) Has(name string) bool {
+	_, ok := f[name]
+	return ok
 }
 
-// commandArguments ports commandArguments in node-src/cli/main.ts: parse
-// failures become usage errors (optionally reworded per command), and
-// --help short-circuits with the behavior-selected status and output stream.
-func commandArguments(
-	arguments []string,
-	config cliargs.ParseConfig,
-	behavior commandBehavior,
-) (cliargs.ParsedArguments, error) {
-	parsed, err := cliargs.ParseCommandArguments(arguments, config)
-	if err != nil {
-		var parseError *cliargs.CliArgumentParseError
-		if errors.As(err, &parseError) {
-			match := unknownArgumentMessage.FindStringSubmatch(parseError.Message)
-			if behavior.command != "" && match != nil {
-				return cliargs.ParsedArguments{}, usageError(
-					fmt.Sprintf("%s does not accept %s", behavior.command, match[1]),
-				)
-			}
-			return cliargs.ParsedArguments{}, usageError(parseError.Message)
-		}
-		return cliargs.ParsedArguments{}, err
+// commandInput is the small, parser-neutral value Cobra passes to command
+// domain adapters after it has resolved flags, options, and positionals.
+type commandInput struct {
+	Flags       commandFlags
+	Options     map[string][]string
+	Positionals []string
+}
+
+func lastCommandOption(parsed commandInput, name string) (string, bool) {
+	values := parsed.Options[name]
+	if len(values) == 0 {
+		return "", false
 	}
-	if _, help := parsed.Flags["--help"]; help {
-		return cliargs.ParsedArguments{}, &cliExit{
-			message: usageText,
-			status:  behavior.helpStatus,
-			stdout:  !behavior.helpStderr,
-		}
-	}
-	return parsed, nil
+	return values[len(values)-1], true
 }
 
 // packageRoot ports packageRoot in node-src/cli/main.ts: walk up from the
@@ -129,29 +87,20 @@ func lookupEnv(name string) (string, bool) {
 
 // rootCatalog ports the rootCatalog command in node-src/cli/main.ts.
 func rootCatalog(arguments []string) (int, error) {
+	return executeStandaloneCobra(newRootCatalogCobraCommand(), arguments)
+}
+
+func rootCatalogInput(parsed commandInput) (int, error) {
 	rootDirectory, err := packageRoot()
 	if err != nil {
 		return 0, err
 	}
-	parsed, err := commandArguments(arguments, cliargs.ParseConfig{
-		Values: map[string]cliargs.ValueOption{
-			"--catalog":   {},
-			"--check":     {},
-			"--out":       {},
-			"--profile":   {},
-			"--providers": {},
-			"--root":      {},
-		},
-	}, commandBehavior{})
-	if err != nil {
-		return 0, err
-	}
-	output, hasOutput := cliargs.LastOption(parsed, "--out")
-	check, hasCheck := cliargs.LastOption(parsed, "--check")
+	output, hasOutput := lastCommandOption(parsed, "--out")
+	check, hasCheck := lastCommandOption(parsed, "--check")
 	if hasOutput && hasCheck {
 		return 0, usageError("root-catalog accepts only one of --out or --check")
 	}
-	providersValue, hasProviders := cliargs.LastOption(parsed, "--providers")
+	providersValue, hasProviders := lastCommandOption(parsed, "--providers")
 	var providers []string
 	if hasProviders {
 		for _, provider := range strings.Split(providersValue, ",") {
@@ -163,7 +112,7 @@ func rootCatalog(arguments []string) (int, error) {
 			return 0, usageError("--providers requires at least one provider")
 		}
 	}
-	root, hasRoot := cliargs.LastOption(parsed, "--root")
+	root, hasRoot := lastCommandOption(parsed, "--root")
 	if !hasRoot {
 		if env, ok := lookupEnv("INFRAWRIGHT_PACKS"); ok {
 			root = env
@@ -171,7 +120,7 @@ func rootCatalog(arguments []string) (int, error) {
 			root = filepath.Join(rootDirectory, "packs")
 		}
 	}
-	profile, hasProfile := cliargs.LastOption(parsed, "--profile")
+	profile, hasProfile := lastCommandOption(parsed, "--profile")
 	if !hasProfile {
 		if env, ok := lookupEnv("INFRAWRIGHT_PACK_PROFILE"); ok {
 			profile = env
@@ -179,7 +128,7 @@ func rootCatalog(arguments []string) (int, error) {
 			profile = filepath.Join(rootDirectory, "packsets", "full.json")
 		}
 	}
-	catalog, hasCatalog := cliargs.LastOption(parsed, "--catalog")
+	catalog, hasCatalog := lastCommandOption(parsed, "--catalog")
 	if !hasCatalog {
 		catalog = filepath.Join(rootDirectory, "packsets", "full.json")
 	}
@@ -223,25 +172,15 @@ func rootCatalog(arguments []string) (int, error) {
 // falls through to the default — a genuine per-command asymmetry in the
 // Node source, preserved deliberately.
 func transformCommand(arguments []string) (int, error) {
+	return executeStandaloneCobra(newTransformCobraCommand(), arguments)
+}
+
+func transformCommandInput(parsed commandInput) (int, error) {
 	rootDirectory, err := packageRoot()
 	if err != nil {
 		return 0, err
 	}
-	parsed, err := commandArguments(arguments, cliargs.ParseConfig{
-		Values: map[string]cliargs.ValueOption{
-			"--catalog":    {},
-			"--deployment": {},
-			"--in":         {},
-			"--profile":    {},
-			"--resource":   {},
-			"--root":       {},
-			"--tenant":     {},
-		},
-	}, commandBehavior{command: "transform"})
-	if err != nil {
-		return 0, err
-	}
-	root, hasRoot := cliargs.LastOption(parsed, "--root")
+	root, hasRoot := lastCommandOption(parsed, "--root")
 	if !hasRoot {
 		if env := os.Getenv("INFRAWRIGHT_PACKS"); env != "" {
 			root = env
@@ -249,7 +188,7 @@ func transformCommand(arguments []string) (int, error) {
 			root = filepath.Join(rootDirectory, "packs")
 		}
 	}
-	profile, hasProfile := cliargs.LastOption(parsed, "--profile")
+	profile, hasProfile := lastCommandOption(parsed, "--profile")
 	if !hasProfile {
 		if env := os.Getenv("INFRAWRIGHT_PACK_PROFILE"); env != "" {
 			profile = env
@@ -257,16 +196,16 @@ func transformCommand(arguments []string) (int, error) {
 			profile = filepath.Join(rootDirectory, "packsets", "full.json")
 		}
 	}
-	catalog, hasCatalog := cliargs.LastOption(parsed, "--catalog")
+	catalog, hasCatalog := lastCommandOption(parsed, "--catalog")
 	if !hasCatalog {
 		catalog = filepath.Join(rootDirectory, "packsets", "full.json")
 	}
-	input, hasInput := cliargs.LastOption(parsed, "--in")
-	tenant, hasTenant := cliargs.LastOption(parsed, "--tenant")
+	input, hasInput := lastCommandOption(parsed, "--in")
+	tenant, hasTenant := lastCommandOption(parsed, "--tenant")
 	if !hasInput || !hasTenant {
 		return 0, usageError("transform requires --in and --tenant")
 	}
-	selectedDeployment, hasDeployment := cliargs.LastOption(parsed, "--deployment")
+	selectedDeployment, hasDeployment := lastCommandOption(parsed, "--deployment")
 	if !hasDeployment {
 		selectedDeployment, err = deployment.DeploymentPath(deployment.DeploymentPathOptions{})
 		if err != nil {
@@ -321,192 +260,11 @@ func transformCommand(arguments []string) (int, error) {
 	return 4, nil
 }
 
-// knownCommands derives the Node CLI's command inventory from the embedded
-// usage text ("  iw <command> ..." lines), so the not-yet-ported guard can
-// never drift from the usage fixture.
-func knownCommands() map[string]bool {
-	known := make(map[string]bool)
-	for _, line := range strings.Split(usageText, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 2 && fields[0] == "iw" {
-			known[fields[1]] = true
-		}
-	}
-	return known
-}
-
-var terraformCommandValueOptions = map[string]bool{
-	"--backend":        true,
-	"--backend-config": true,
-	"--catalog":        true,
-	"--deployment":     true,
-	"--in":             true,
-	"--main-branch":    true,
-	"--out":            true,
-	"--policy":         true,
-	"--profile":        true,
-	"--report":         true,
-	"--resource":       true,
-	"--root":           true,
-	"--tenant":         true,
-	"--terraform":      true,
-}
-
-var terraformCommandFlags = map[string]bool{
-	"--allow-destroy":      true,
-	"--allow-non-main":     true,
-	"--allow-plan-changes": true,
-	"--imports-only":       true,
-	"--save":               true,
-	"--state-aware":        true,
-}
-
-// hasStandaloneTerraformHelp ports the deliberately shallow source scan. It
-// recognizes help only while walking a syntactically complete prefix of known
-// Terraform-command options; an unknown token or missing value stops the scan.
-func hasStandaloneTerraformHelp(arguments []string) bool {
-	for index := 1; index < len(arguments); {
-		argument := arguments[index]
-		if argument == "-h" || argument == "--help" {
-			return true
-		}
-		if terraformCommandValueOptions[argument] {
-			if index+1 >= len(arguments) {
-				return false
-			}
-			index += 2
-			continue
-		}
-		if terraformCommandFlags[argument] ||
-			(index == 1 && arguments[0] == "modules" && argument == "generate") {
-			index++
-			continue
-		}
-		return false
-	}
-	return false
-}
-
-// requiresTerraformExecution ports the source's pre-dispatch platform-gate
-// selection. Standalone command help is available on every platform.
-func requiresTerraformExecution(arguments []string) bool {
-	if hasStandaloneTerraformHelp(arguments) {
-		return false
-	}
-	if len(arguments) == 0 {
-		return false
-	}
-	command := arguments[0]
-	return command == "adopt" ||
-		command == "plan" ||
-		command == "assert-clean" ||
-		command == "assert-adoptable" ||
-		command == "apply" ||
-		(command == "stage-imports" && slicesContain(arguments, "--state-aware"))
-}
-
-func slicesContain(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
-}
-
-func retainedAuthoringCommand(command string) bool {
-	switch command {
-	case "reconcile", "openapi-map", "source-operation-map", "source-evidence-eval", "provider-probe", "transform-adopt-parity":
-		return true
-	default:
-		return false
-	}
-}
-
 // run ports the main dispatch in node-src/cli/main.ts. The retained authoring
 // surface is served by this same binary; there is no Node fallback or second
 // authoring executable.
 func run(arguments []string) (int, error) {
-	if requiresTerraformExecution(arguments) {
-		if err := terraformcmd.AssertSupportedTerraformExecutionPlatform(""); err != nil {
-			return 0, err
-		}
-	}
-	if len(arguments) == 0 {
-		return 0, usageError(usageText)
-	}
-	command := arguments[0]
-	if retainedAuthoringCommand(command) && len(arguments) > 1 &&
-		(arguments[1] == "-h" || arguments[1] == "--help") {
-		_, err := os.Stdout.WriteString(usageText + "\n")
-		return 0, err
-	}
-	switch command {
-	case "check-pack":
-		return checkPackCommand(arguments[1:])
-	case "check-pack-set":
-		return checkPackSetCommand(arguments[1:])
-	case "root-catalog":
-		return rootCatalog(arguments[1:])
-	case "deployment":
-		return deploymentCommand(arguments[1:])
-	case "transform":
-		return transformCommand(arguments[1:])
-	case "adopt":
-		return adoptCommand(arguments[1:])
-	case "gen-env":
-		return genEnvCommand(arguments[1:])
-	case "stage-imports":
-		return stageImportsCommand(arguments[1:])
-	case "unstage-imports":
-		return unstageImportsCommand(arguments[1:])
-	case "modules":
-		return modulesCommand(arguments[1:])
-	case "resources":
-		return legacyPlanLifecycleCommand(func() (int, error) { return resourcesCommand(arguments[1:]) })
-	case "roots":
-		return legacyPlanLifecycleCommand(func() (int, error) { return rootsCommand(arguments[1:]) })
-	case "scope-paths":
-		return legacyPlanLifecycleCommand(func() (int, error) { return scopePathsCommand(arguments[1:]) })
-	case "plan-roots":
-		return legacyPlanLifecycleCommand(func() (int, error) { return planRootsCommand(arguments[1:]) })
-	case "plan":
-		return legacyPlanLifecycleCommand(func() (int, error) { return planCommand(arguments[1:]) })
-	case "clean-plans":
-		return legacyPlanLifecycleCommand(func() (int, error) { return cleanPlansCommand(arguments[1:]) })
-	case "assert-clean":
-		return legacyPlanLifecycleCommand(func() (int, error) { return assertCleanCommand(arguments[1:]) })
-	case "assert-adoptable":
-		return legacyPlanLifecycleCommand(func() (int, error) { return assertAdoptableCommand(arguments[1:]) })
-	case "apply":
-		return legacyPlanLifecycleCommand(func() (int, error) { return applyCommand(arguments[1:]) })
-	case "fetch":
-		return fetchCommand(arguments[1:], nil)
-	case "fetch-diag":
-		return fetchDiagCommand(arguments[1:])
-	case "reconcile":
-		return reconcileCommand(arguments[1:])
-	case "openapi-map":
-		return openAPIMapCommand(arguments[1:])
-	case "source-operation-map":
-		return sourceOperationMapCommand(arguments[1:])
-	case "source-evidence-eval":
-		return sourceEvidenceEvalCommand(arguments[1:])
-	case "provider-probe":
-		return providerProbeCommand(arguments[1:])
-	case "transform-adopt-parity":
-		return transformAdoptParityCommand(arguments[1:])
-	case "-h", "--help":
-		_, err := os.Stdout.WriteString(usageText + "\n")
-		return 0, err
-	}
-	if knownCommands()[command] {
-		return 0, fmt.Errorf(
-			"command %s is not yet ported to the Go runtime (see docs/go-runtime-plan.md)",
-			command,
-		)
-	}
-	return 0, usageError("unknown command " + command + "\n" + usageText)
+	return runCobra(arguments)
 }
 
 func main() {

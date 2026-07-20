@@ -19,7 +19,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/sourceanalysis"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/sourcebind"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/sourceoperation"
-	"github.com/dvmrry/infrawright-dev/go/internal/cliargs"
+	"github.com/spf13/cobra"
 )
 
 var sourceBundleVocabulary = artifactpublish.Vocabulary{Required: []string{
@@ -94,7 +94,11 @@ func sourceOperationMapCommand(arguments []string) (int, error) {
 }
 
 func sourceOperationMapCommandWithDependencies(arguments []string, dependencies authoringSourceDependencies) (int, error) {
-	parsed, err := authoringParseArguments(arguments,
+	return executeStandaloneCobra(newSourceOperationMapCobraCommand(dependencies), arguments)
+}
+
+func newSourceOperationMapCobraCommand(dependencies authoringSourceDependencies) *cobra.Command {
+	spec := authoringCobraSpec("source-operation-map", "Derive source-backed provider operation evidence",
 		[]string{
 			"--artifact-dir", "--diagnostics", "--openapi", "--out", "--provider-file",
 			"--provider-module", "--provider-source", "--resource-prefix", "--resources",
@@ -103,10 +107,15 @@ func sourceOperationMapCommandWithDependencies(arguments []string, dependencies 
 		},
 		[]string{"--provider-file", "--sdk-file", "--sdk-root"},
 		[]string{"--allow-unverified-source"},
+		nil,
 	)
-	if err != nil {
-		return 0, err
+	spec.run = func(parsed commandInput) (int, error) {
+		return sourceOperationMapCommandInput(parsed, dependencies)
 	}
+	return newTypedCobraCommand(spec)
+}
+
+func sourceOperationMapCommandInput(parsed commandInput, dependencies authoringSourceDependencies) (int, error) {
 	if len(parsed.Positionals) != 0 {
 		return 0, usageError("source-operation-map does not accept positional arguments")
 	}
@@ -131,7 +140,7 @@ func sourceOperationMapCommandWithDependencies(arguments []string, dependencies 
 	return completeSourceBundle(context.Background(), destination, bundle, parsed, mode, false, dependencies)
 }
 
-func sourceOperationMapLegacy(parsed cliargs.ParsedArguments, dependencies authoringSourceDependencies) (int, error) {
+func sourceOperationMapLegacy(parsed commandInput, dependencies authoringSourceDependencies) (int, error) {
 	if err := rejectOptions(parsed, "legacy source-operation-map", "--artifact-dir", "--provider-file", "--provider-module", "--sdk-file", "--source-manifest"); err != nil {
 		return 0, err
 	}
@@ -174,7 +183,7 @@ func sourceOperationMapLegacy(parsed cliargs.ParsedArguments, dependencies autho
 	return 0, authoringWriteJSON(dependencies.core, report["registry"], authoringLastOption(parsed, "--out"))
 }
 
-func legacySourceOptions(parsed cliargs.ParsedArguments, dependencies authoringSourceDependencies) (sourceoperation.LegacyOptions, error) {
+func legacySourceOptions(parsed commandInput, dependencies authoringSourceDependencies) (sourceoperation.LegacyOptions, error) {
 	openAPIPath, err := authoringRequiredOption(parsed, "--openapi")
 	if err != nil {
 		return sourceoperation.LegacyOptions{}, err
@@ -222,7 +231,11 @@ func sourceEvidenceEvalCommand(arguments []string) (int, error) {
 }
 
 func sourceEvidenceEvalCommandWithDependencies(arguments []string, dependencies authoringSourceDependencies) (int, error) {
-	parsed, err := authoringParseArguments(arguments,
+	return executeStandaloneCobra(newSourceEvidenceEvalCobraCommand(dependencies), arguments)
+}
+
+func newSourceEvidenceEvalCobraCommand(dependencies authoringSourceDependencies) *cobra.Command {
+	spec := authoringCobraSpec("source-evidence-eval", "Evaluate source-backed provider evidence",
 		[]string{
 			"--ast-tool-dir", "--openapi", "--out-dir", "--provider-file", "--provider-module",
 			"--provider-source", "--resource-prefix", "--resources", "--schema", "--sdk-file",
@@ -230,10 +243,15 @@ func sourceEvidenceEvalCommandWithDependencies(arguments []string, dependencies 
 		},
 		[]string{"--provider-file", "--sdk-file", "--sdk-root"},
 		[]string{"--allow-unverified-source", "--fail-on-regression"},
+		nil,
 	)
-	if err != nil {
-		return 0, err
+	spec.run = func(parsed commandInput) (int, error) {
+		return sourceEvidenceEvalCommandInput(parsed, dependencies)
 	}
+	return newTypedCobraCommand(spec)
+}
+
+func sourceEvidenceEvalCommandInput(parsed commandInput, dependencies authoringSourceDependencies) (int, error) {
 	if len(parsed.Positionals) != 0 {
 		return 0, usageError("source-evidence-eval does not accept positional arguments")
 	}
@@ -261,7 +279,7 @@ func sourceEvidenceEvalCommandWithDependencies(arguments []string, dependencies 
 	)
 }
 
-func sourceEvidenceEvalLegacy(parsed cliargs.ParsedArguments, dependencies authoringSourceDependencies) (int, error) {
+func sourceEvidenceEvalLegacy(parsed commandInput, dependencies authoringSourceDependencies) (int, error) {
 	if err := rejectOptions(parsed, "legacy source-evidence-eval", "--provider-file", "--provider-module", "--sdk-file", "--source-manifest"); err != nil {
 		return 0, err
 	}
@@ -336,7 +354,7 @@ func sourceEvidenceEvalLegacy(parsed cliargs.ParsedArguments, dependencies autho
 	return 0, nil
 }
 
-func validateLegacySourceOperationMapInputs(parsed cliargs.ParsedArguments) error {
+func validateLegacySourceOperationMapInputs(parsed commandInput) error {
 	for _, name := range []string{"--openapi", "--schema", "--source-root"} {
 		if authoringLastOption(parsed, name) == nil {
 			return usageError(name + " is required")
@@ -348,7 +366,7 @@ func validateLegacySourceOperationMapInputs(parsed cliargs.ParsedArguments) erro
 	return nil
 }
 
-func validateLegacySourceEvidenceEvalInputs(parsed cliargs.ParsedArguments) error {
+func validateLegacySourceEvidenceEvalInputs(parsed commandInput) error {
 	for _, name := range []string{"--out-dir", "--source-root"} {
 		if authoringLastOption(parsed, name) == nil {
 			return usageError(name + " is required")
@@ -368,7 +386,7 @@ func validateLegacySourceEvidenceEvalInputs(parsed cliargs.ParsedArguments) erro
 	return nil
 }
 
-func sourceMode(parsed cliargs.ParsedArguments) (sourceCommandMode, error) {
+func sourceMode(parsed commandInput) (sourceCommandMode, error) {
 	qualified := authoringLastOption(parsed, "--source-manifest") != nil
 	unverified := parsed.Flags.Has("--allow-unverified-source")
 	if qualified && unverified {
@@ -383,7 +401,7 @@ func sourceMode(parsed cliargs.ParsedArguments) (sourceCommandMode, error) {
 	return sourceModeLegacy, nil
 }
 
-func validateV2SourceOptions(parsed cliargs.ParsedArguments, mode sourceCommandMode, command, destination string) error {
+func validateV2SourceOptions(parsed commandInput, mode sourceCommandMode, command, destination string) error {
 	if authoringLastOption(parsed, destination) == nil {
 		return usageError(destination + " is required")
 	}
@@ -399,7 +417,7 @@ func validateV2SourceOptions(parsed cliargs.ParsedArguments, mode sourceCommandM
 	return nil
 }
 
-func compileSourceBundle(ctx context.Context, parsed cliargs.ParsedArguments, mode sourceCommandMode, dependencies authoringSourceDependencies) (sourceoperation.Bundle, error) {
+func compileSourceBundle(ctx context.Context, parsed commandInput, mode sourceCommandMode, dependencies authoringSourceDependencies) (sourceoperation.Bundle, error) {
 	if mode == sourceModeQualified {
 		roots, err := qualifiedSourceRoots(parsed, dependencies)
 		if err != nil {
@@ -434,7 +452,7 @@ func compileSourceBundle(ctx context.Context, parsed cliargs.ParsedArguments, mo
 	return dependencies.compileUnverified(ctx, evidence, inputs)
 }
 
-func qualifiedSourceRoots(parsed cliargs.ParsedArguments, dependencies authoringSourceDependencies) (sourcebind.LocalRoots, error) {
+func qualifiedSourceRoots(parsed commandInput, dependencies authoringSourceDependencies) (sourcebind.LocalRoots, error) {
 	manifestPath, err := requiredAbsoluteOption(parsed, "--source-manifest", dependencies)
 	if err != nil {
 		return sourcebind.LocalRoots{}, err
@@ -485,7 +503,7 @@ func qualifiedSourceRoots(parsed cliargs.ParsedArguments, dependencies authoring
 	return result, nil
 }
 
-func unverifiedSourceRoots(parsed cliargs.ParsedArguments, dependencies authoringSourceDependencies) (sourcebind.UnverifiedRoots, error) {
+func unverifiedSourceRoots(parsed commandInput, dependencies authoringSourceDependencies) (sourcebind.UnverifiedRoots, error) {
 	providerRoot, err := requiredAbsoluteOption(parsed, "--source-root", dependencies)
 	if err != nil {
 		return sourcebind.UnverifiedRoots{}, err
@@ -610,7 +628,7 @@ func validateExplicitRelativeFiles(values []string, option string) error {
 	return nil
 }
 
-func requiredAbsoluteOption(parsed cliargs.ParsedArguments, name string, dependencies authoringSourceDependencies) (string, error) {
+func requiredAbsoluteOption(parsed commandInput, name string, dependencies authoringSourceDependencies) (string, error) {
 	value, err := authoringRequiredOption(parsed, name)
 	if err != nil {
 		return "", err
@@ -663,14 +681,14 @@ func sourceResourceFilter(value *string) []string {
 	return result
 }
 
-func optionOrEmpty(parsed cliargs.ParsedArguments, name string) string {
+func optionOrEmpty(parsed commandInput, name string) string {
 	if value := authoringLastOption(parsed, name); value != nil {
 		return *value
 	}
 	return ""
 }
 
-func rejectOptions(parsed cliargs.ParsedArguments, mode string, names ...string) error {
+func rejectOptions(parsed commandInput, mode string, names ...string) error {
 	for _, name := range names {
 		if authoringLastOption(parsed, name) != nil {
 			return usageError(name + " is not accepted in " + mode)
@@ -692,7 +710,7 @@ func completeSourceBundle(
 	ctx context.Context,
 	destination string,
 	bundle sourceoperation.Bundle,
-	parsed cliargs.ParsedArguments,
+	parsed commandInput,
 	mode sourceCommandMode,
 	failOnRegression bool,
 	dependencies authoringSourceDependencies,
@@ -713,7 +731,7 @@ func completeSourceBundle(
 	return 0, nil
 }
 
-func emitSourceBundleWarning(parsed cliargs.ParsedArguments, mode sourceCommandMode, status sourceoperation.BundleStatus, dependencies authoringSourceDependencies) error {
+func emitSourceBundleWarning(parsed commandInput, mode sourceCommandMode, status sourceoperation.BundleStatus, dependencies authoringSourceDependencies) error {
 	if mode != sourceModeQualified || authoringLastOption(parsed, "--openapi") == nil {
 		return nil
 	}

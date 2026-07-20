@@ -331,27 +331,6 @@ func TestA6LegacySourceUsagePriorityAgainstFrozenNodeOracle(t *testing.T) {
 	}
 }
 
-const a6ExpectedAuthoringUsageBlock = `  iw reconcile <resource-type> --api <file> [--api <file>] [--schema <file>] [--provider-source <source>] [--api-options <file>] [--openapi <file>] [--openapi-read <METHOD:/path>] [--openapi-write <METHOD:/path>] [--override <file>] [--out <file>] [--fail-on-unknown]
-  iw openapi-map --schema <file> --openapi <file> [--provider-source <source>] [--resource-prefix <prefix>] [--api-prefix <prefix>] [--registry <file>] [--out <file>]
-  iw source-operation-map --schema <file> --source-root <dir> [--openapi <file>] [--provider-source <source>] [--resource-prefix <prefix>] [--resources <a,b>] [--source-facts <file>] [--source-facts-compare <file>] [--sdk-root <dir|module=dir|module@version=dir>] [--source-manifest <file>|--allow-unverified-source] [--provider-module <module>] [--provider-file <relative>] [--sdk-file <module=relative>] [--artifact-dir <dir>] [--out <file>] [--diagnostics <file>]
-  iw source-evidence-eval --schema <file> --source-root <dir> --out-dir <dir> [--openapi <file>] [--provider-source <source>] [--resource-prefix <prefix>] [--resources <a,b>] [--source-facts <file>] [--source-manifest <file>|--allow-unverified-source] [--provider-module <module>] [--provider-file <relative>] [--sdk-root <module=dir|module@version=dir>] [--sdk-file <module=relative>] [--fail-on-regression]
-  iw provider-probe <recipe.json> [--work-dir <dir>] [--out <summary.json>] [--markdown <summary.md>] [--debug-traceback]
-  iw transform-adopt-parity <fixture.json> [<fixture.json> ...]
-`
-
-func a6AuthoringUsageBlock(help string) string {
-	start := strings.Index(help, "  iw reconcile ")
-	endStart := strings.Index(help, "  iw transform-adopt-parity ")
-	if start < 0 || endStart < start {
-		return ""
-	}
-	endOffset := strings.IndexByte(help[endStart:], '\n')
-	if endOffset < 0 {
-		return ""
-	}
-	return help[start : endStart+endOffset+1]
-}
-
 func TestA6GoHelpListsOnlyRetainedAuthoringCommands(t *testing.T) {
 	runtime := newA6Runtime(t)
 	result := a6Run(t, runtime.repository, runtime.candidate, []string{"--help"}, nil)
@@ -360,16 +339,13 @@ func TestA6GoHelpListsOnlyRetainedAuthoringCommands(t *testing.T) {
 	}
 	help := string(result.stdout)
 	for _, command := range []string{"reconcile", "openapi-map", "source-operation-map", "source-evidence-eval", "provider-probe", "transform-adopt-parity"} {
-		line := "  iw " + command
+		line := "\n  " + command + " "
 		if got := strings.Count(help, line); got != 1 {
 			t.Errorf("iw --help count(%q) = %d, want 1; help=%q", line, got, help)
 		}
 	}
 	if strings.Contains(help, "zpa-provider-evidence") {
 		t.Errorf("iw --help contains retired zpa-provider-evidence: %q", help)
-	}
-	if got := a6AuthoringUsageBlock(help); got != a6ExpectedAuthoringUsageBlock {
-		t.Errorf("iw --help authoring block = %q, want pinned A6 block %q", got, a6ExpectedAuthoringUsageBlock)
 	}
 }
 

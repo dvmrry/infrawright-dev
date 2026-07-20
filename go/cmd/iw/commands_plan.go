@@ -6,8 +6,8 @@ package main
 // adapter construction, diagnostics, and workspace composition.
 //
 // Node's supported-platform check runs before command dispatch (except for
-// standalone help), so it deliberately does not live in planCommand. The C4
-// dispatch patch must retain that ordering; clean-plans never takes the gate.
+// standalone help), so it deliberately does not live in planCommand. Cobra
+// dispatch retains that ordering; clean-plans never takes the gate.
 
 import (
 	"errors"
@@ -16,11 +16,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/dvmrry/infrawright-dev/go/internal/cliargs"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/plan"
 	"github.com/dvmrry/infrawright-dev/go/internal/terraformcmd"
+	"github.com/spf13/cobra"
 )
 
 type planCLIOptions struct {
@@ -73,7 +73,7 @@ func defaultPlanCommandDependencies() planCommandDependencies {
 func planPackOptions(
 	rootDirectory string,
 	environment map[string]string,
-	parsed cliargs.ParsedArguments,
+	parsed commandInput,
 ) packOptionDefaults {
 	options := packOptionDefaults{
 		root:    filepath.Join(rootDirectory, "packs"),
@@ -86,13 +86,13 @@ func planPackOptions(
 	if value := environment["INFRAWRIGHT_PACK_PROFILE"]; value != "" {
 		options.profile = value
 	}
-	if value, ok := cliargs.LastOption(parsed, "--root"); ok {
+	if value, ok := lastCommandOption(parsed, "--root"); ok {
 		options.root = value
 	}
-	if value, ok := cliargs.LastOption(parsed, "--profile"); ok {
+	if value, ok := lastCommandOption(parsed, "--profile"); ok {
 		options.profile = value
 	}
-	if value, ok := cliargs.LastOption(parsed, "--catalog"); ok {
+	if value, ok := lastCommandOption(parsed, "--catalog"); ok {
 		options.catalog = value
 	}
 	return options
@@ -100,38 +100,22 @@ func planPackOptions(
 
 // planCliOptions ports planCliOptions from node-src/cli/main.ts.
 func planCliOptionsWithDependencies(
-	arguments []string,
+	parsed commandInput,
 	dependencies planCommandDependencies,
 ) (planCLIOptions, error) {
 	rootDirectory, err := dependencies.packageRoot()
 	if err != nil {
 		return planCLIOptions{}, err
 	}
-	parsed, err := commandArguments(arguments, cliargs.ParseConfig{
-		Flags: []string{"--imports-only", "--save"},
-		Values: map[string]cliargs.ValueOption{
-			"--backend-config": {},
-			"--catalog":        {},
-			"--deployment":     {},
-			"--profile":        {},
-			"--resource":       {},
-			"--root":           {},
-			"--tenant":         {AllowEmpty: true},
-			"--terraform":      {},
-		},
-	}, commandBehavior{command: "plan"})
-	if err != nil {
-		return planCLIOptions{}, err
-	}
 	environment := dependencies.environment()
-	deploymentPathValue, hasDeployment := cliargs.LastOption(parsed, "--deployment")
+	deploymentPathValue, hasDeployment := lastCommandOption(parsed, "--deployment")
 	if !hasDeployment {
 		deploymentPathValue, err = dependencies.deploymentPath(environment)
 		if err != nil {
 			return planCLIOptions{}, err
 		}
 	}
-	tenant, hasTenant := cliargs.LastOption(parsed, "--tenant")
+	tenant, hasTenant := lastCommandOption(parsed, "--tenant")
 	if !hasTenant {
 		return planCLIOptions{}, usageError("plan requires --tenant")
 	}
@@ -143,10 +127,10 @@ func planCliOptionsWithDependencies(
 		save:        parsed.Flags.Has("--save"),
 		tenant:      tenant,
 	}
-	if backendConfig, ok := cliargs.LastOption(parsed, "--backend-config"); ok {
+	if backendConfig, ok := lastCommandOption(parsed, "--backend-config"); ok {
 		options.backendConfig = &backendConfig
 	}
-	if terraform, ok := cliargs.LastOption(parsed, "--terraform"); ok {
+	if terraform, ok := lastCommandOption(parsed, "--terraform"); ok {
 		options.terraform = &terraform
 	}
 	return options, nil
@@ -206,7 +190,28 @@ func planCommandWithDependencies(
 	arguments []string,
 	dependencies planCommandDependencies,
 ) (int, error) {
-	options, err := planCliOptionsWithDependencies(arguments, dependencies)
+	return executeStandaloneCobra(newPlanCobraCommand(dependencies), arguments)
+}
+
+func newPlanCobraCommand(dependencies planCommandDependencies) *cobra.Command {
+	return newTypedCobraCommand(typedCobraCommandSpec{
+		use: "plan", short: "Create Terraform plans",
+		valueFlags: []string{"--tenant", "--resource", "--backend-config", "--terraform", "--deployment", "--root", "--profile", "--catalog"},
+		allowEmpty: []string{"--tenant"},
+		boolFlags:  []string{"--imports-only", "--save"},
+		run: func(parsed commandInput) (int, error) {
+			return legacyPlanLifecycleCommand(func() (int, error) {
+				if len(parsed.Positionals) != 0 {
+					return 0, usageError("plan does not accept positional arguments")
+				}
+				return planCommandInput(parsed, dependencies)
+			})
+		},
+	})
+}
+
+func planCommandInput(parsed commandInput, dependencies planCommandDependencies) (int, error) {
+	options, err := planCliOptionsWithDependencies(parsed, dependencies)
 	if err != nil {
 		return 0, err
 	}
@@ -256,25 +261,33 @@ func cleanPlansCommandWithDependencies(
 	arguments []string,
 	dependencies planCommandDependencies,
 ) (int, error) {
+	return executeStandaloneCobra(newCleanPlansCobraCommand(dependencies), arguments)
+}
+
+func newCleanPlansCobraCommand(dependencies planCommandDependencies) *cobra.Command {
+	return newTypedCobraCommand(typedCobraCommandSpec{
+		use: "clean-plans", short: "Delete saved plan artifacts",
+		valueFlags:       []string{"--tenant", "--resource", "--deployment", "--root", "--profile", "--catalog"},
+		allowEmpty:       []string{"--tenant"},
+		rejectDuplicates: []string{"--tenant"},
+		run: func(parsed commandInput) (int, error) {
+			return legacyPlanLifecycleCommand(func() (int, error) {
+				if len(parsed.Positionals) != 0 {
+					return 0, usageError("clean-plans does not accept positional arguments")
+				}
+				return cleanPlansCommandInput(parsed, dependencies)
+			})
+		},
+	})
+}
+
+func cleanPlansCommandInput(parsed commandInput, dependencies planCommandDependencies) (int, error) {
 	rootDirectory, err := dependencies.packageRoot()
 	if err != nil {
 		return 0, err
 	}
-	parsed, err := commandArguments(arguments, cliargs.ParseConfig{
-		Values: map[string]cliargs.ValueOption{
-			"--catalog":    {},
-			"--deployment": {},
-			"--profile":    {},
-			"--resource":   {},
-			"--root":       {},
-			"--tenant":     {AllowEmpty: true, RejectDuplicates: true},
-		},
-	}, commandBehavior{command: "clean-plans"})
-	if err != nil {
-		return 0, err
-	}
 	environment := dependencies.environment()
-	deploymentPathValue, hasDeployment := cliargs.LastOption(parsed, "--deployment")
+	deploymentPathValue, hasDeployment := lastCommandOption(parsed, "--deployment")
 	if !hasDeployment {
 		deploymentPathValue, err = dependencies.deploymentPath(environment)
 		if err != nil {
@@ -293,7 +306,7 @@ func cleanPlansCommandWithDependencies(
 		return 0, err
 	}
 	var tenant *string
-	if value, ok := cliargs.LastOption(parsed, "--tenant"); ok {
+	if value, ok := lastCommandOption(parsed, "--tenant"); ok {
 		tenant = &value
 	}
 	_, err = dependencies.cleanPlans(plan.CleanPlansOptions{

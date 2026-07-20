@@ -15,6 +15,7 @@ import (
 
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/artifactpublish"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/providerprobe"
+	"github.com/spf13/cobra"
 )
 
 var providerProbeLegacyVocabulary = artifactpublish.Vocabulary{Required: []string{
@@ -92,15 +93,24 @@ func providerProbeCommand(arguments []string) (int, error) {
 }
 
 func providerProbeCommandWithDependencies(arguments []string, dependencies authoringProbeDependencies) (int, error) {
-	parsed, err := authoringParseArguments(
-		arguments,
+	return executeStandaloneCobra(newProviderProbeCobraCommand(dependencies), arguments)
+}
+
+func newProviderProbeCobraCommand(dependencies authoringProbeDependencies) *cobra.Command {
+	spec := authoringCobraSpec(
+		"provider-probe <recipe.json>", "Run the provider-readiness probe",
 		[]string{"--markdown", "--out", "--work-dir"},
 		nil,
 		[]string{"--debug-traceback"},
+		nil,
 	)
-	if err != nil {
-		return 0, err
+	spec.run = func(parsed commandInput) (int, error) {
+		return providerProbeCommandInput(parsed, dependencies)
 	}
+	return newTypedCobraCommand(spec)
+}
+
+func providerProbeCommandInput(parsed commandInput, dependencies authoringProbeDependencies) (int, error) {
 	if len(parsed.Positionals) != 1 {
 		return 0, usageError("provider-probe requires one recipe JSON path")
 	}

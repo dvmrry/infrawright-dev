@@ -60,12 +60,9 @@ func TestBlockD5DispatchAndExitDifferentialAgainstFrozenNodeOracle(t *testing.T)
 		name      string
 		arguments []string
 	}{
-		{name: "adopt help", arguments: []string{"adopt", "--help"}},
 		{name: "adopt requires input and tenant", arguments: []string{"adopt", "--in", "input"}},
 		{name: "stage requires tenant", arguments: []string{"stage-imports"}},
-		{name: "unstage rejects state aware", arguments: []string{"unstage-imports", "--tenant", "tenant", "--state-aware"}},
 		{name: "apply invalid tenant uses legacy usage exit", arguments: []string{"apply", "--tenant", "INVALID"}},
-		{name: "apply rejects unknown option", arguments: []string{"apply", "--unknown"}},
 		{name: "apply branch refusal before inputs or Terraform", arguments: []string{"apply", "--main-branch", "__block_d5_never__"}},
 	}
 	for _, test := range tests {

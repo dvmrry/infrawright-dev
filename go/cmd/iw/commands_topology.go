@@ -12,9 +12,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
-	"github.com/dvmrry/infrawright-dev/go/internal/cliargs"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/envgen"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
@@ -22,6 +22,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
 	"github.com/dvmrry/infrawright-dev/go/internal/transform"
+	"github.com/spf13/cobra"
 )
 
 // legacyUsageFailureCodes ports LEGACY_USAGE_FAILURE_CODES from
@@ -60,7 +61,7 @@ type packOptionDefaults struct {
 	catalog string
 }
 
-func resolvePackOptions(rootDirectory string, parsed cliargs.ParsedArguments) packOptionDefaults {
+func resolvePackOptions(rootDirectory string, parsed commandInput) packOptionDefaults {
 	defaults := packOptionDefaults{
 		root:    filepath.Join(rootDirectory, "packs"),
 		profile: filepath.Join(rootDirectory, "packsets", "full.json"),
@@ -72,13 +73,13 @@ func resolvePackOptions(rootDirectory string, parsed cliargs.ParsedArguments) pa
 	if env := os.Getenv("INFRAWRIGHT_PACK_PROFILE"); env != "" {
 		defaults.profile = env
 	}
-	if value, ok := cliargs.LastOption(parsed, "--root"); ok {
+	if value, ok := lastCommandOption(parsed, "--root"); ok {
 		defaults.root = value
 	}
-	if value, ok := cliargs.LastOption(parsed, "--profile"); ok {
+	if value, ok := lastCommandOption(parsed, "--profile"); ok {
 		defaults.profile = value
 	}
-	if value, ok := cliargs.LastOption(parsed, "--catalog"); ok {
+	if value, ok := lastCommandOption(parsed, "--catalog"); ok {
 		defaults.catalog = value
 	}
 	return defaults
@@ -103,8 +104,8 @@ func loadPackAndDeployment(
 	return loadedRoot, loadedDeployment, nil
 }
 
-func selectedDeploymentPath(parsed cliargs.ParsedArguments) (string, error) {
-	if value, ok := cliargs.LastOption(parsed, "--deployment"); ok {
+func selectedDeploymentPath(parsed commandInput) (string, error) {
+	if value, ok := lastCommandOption(parsed, "--deployment"); ok {
 		return value, nil
 	}
 	return deployment.DeploymentPath(deployment.DeploymentPathOptions{})
@@ -112,21 +113,32 @@ func selectedDeploymentPath(parsed cliargs.ParsedArguments) (string, error) {
 
 // resourcesCommand ports resourcesCommand.
 func resourcesCommand(arguments []string) (int, error) {
+	return executeStandaloneCobra(newResourcesCobraCommand(), arguments)
+}
+
+func newResourcesCobraCommand() *cobra.Command {
+	return newTypedCobraCommand(typedCobraCommandSpec{
+		use: "resources", short: "List generated resources",
+		valueFlags: []string{"--order", "--resource", "--root", "--profile", "--catalog"},
+		run: func(parsed commandInput) (int, error) {
+			return legacyPlanLifecycleCommand(func() (int, error) {
+				if len(parsed.Positionals) != 0 {
+					return 0, usageError("resources does not accept positional arguments")
+				}
+				return resourcesInput(parsed)
+			})
+		},
+	})
+}
+
+func resourcesInput(parsed commandInput) (int, error) {
 	rootDirectory, err := packageRoot()
 	if err != nil {
 		return 0, err
 	}
-	parsed, err := commandArguments(arguments, cliargs.ParseConfig{
-		Values: map[string]cliargs.ValueOption{
-			"--catalog":  {},
-			"--order":    {AllowedValues: []string{"references"}, InlineOnly: true},
-			"--profile":  {},
-			"--resource": {},
-			"--root":     {},
-		},
-	}, commandBehavior{command: "resources"})
-	if err != nil {
-		return 0, err
+	orderValue, hasOrder := lastCommandOption(parsed, "--order")
+	if hasOrder && orderValue != "references" {
+		return 0, usageError("--order must be references")
 	}
 	options := resolvePackOptions(rootDirectory, parsed)
 	loadedRoot, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
@@ -141,7 +153,6 @@ func resourcesCommand(arguments []string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	orderValue, _ := cliargs.LastOption(parsed, "--order")
 	ordered := transform.TransformSelection{ResourceTypes: selected}
 	if orderValue == "references" {
 		ordered, err = transform.ReferenceOrder(loadedRoot, selected)
@@ -166,21 +177,8 @@ type rootQueryOptions struct {
 }
 
 // rootQueryCliOptions ports rootQueryCliOptions.
-func rootQueryCliOptions(arguments []string, command string) (rootQueryOptions, error) {
+func rootQueryCliOptionsInput(parsed commandInput) (rootQueryOptions, error) {
 	rootDirectory, err := packageRoot()
-	if err != nil {
-		return rootQueryOptions{}, err
-	}
-	parsed, err := commandArguments(arguments, cliargs.ParseConfig{
-		Values: map[string]cliargs.ValueOption{
-			"--catalog":    {},
-			"--deployment": {},
-			"--profile":    {},
-			"--resource":   {},
-			"--root":       {},
-			"--tenant":     {AllowEmpty: true, RejectDuplicates: true},
-		},
-	}, commandBehavior{command: command})
 	if err != nil {
 		return rootQueryOptions{}, err
 	}
@@ -193,7 +191,7 @@ func rootQueryCliOptions(arguments []string, command string) (rootQueryOptions, 
 		deployment: deploymentPathValue,
 		resources:  parsed.Options["--resource"],
 	}
-	if tenant, ok := cliargs.LastOption(parsed, "--tenant"); ok {
+	if tenant, ok := lastCommandOption(parsed, "--tenant"); ok {
 		options.tenant = &tenant
 	}
 	return options, nil
@@ -201,7 +199,28 @@ func rootQueryCliOptions(arguments []string, command string) (rootQueryOptions, 
 
 // rootsCommand ports rootsCommand.
 func rootsCommand(arguments []string) (int, error) {
-	options, err := rootQueryCliOptions(arguments, "roots")
+	return executeStandaloneCobra(newRootQueryCobraCommand("roots", "Emit root topology", rootsInput), arguments)
+}
+
+func newRootQueryCobraCommand(use, short string, run func(commandInput) (int, error)) *cobra.Command {
+	return newTypedCobraCommand(typedCobraCommandSpec{
+		use: use, short: short,
+		valueFlags:       []string{"--tenant", "--resource", "--deployment", "--root", "--profile", "--catalog"},
+		allowEmpty:       []string{"--tenant"},
+		rejectDuplicates: []string{"--tenant"},
+		run: func(parsed commandInput) (int, error) {
+			return legacyPlanLifecycleCommand(func() (int, error) {
+				if len(parsed.Positionals) != 0 {
+					return 0, usageError(use + " does not accept positional arguments")
+				}
+				return run(parsed)
+			})
+		},
+	})
+}
+
+func rootsInput(parsed commandInput) (int, error) {
+	options, err := rootQueryCliOptionsInput(parsed)
 	if err != nil {
 		return 0, err
 	}
@@ -229,20 +248,28 @@ func rootsCommand(arguments []string) (int, error) {
 
 // scopePathsCommand ports scopePathsCommand.
 func scopePathsCommand(arguments []string) (int, error) {
-	rootDirectory, err := packageRoot()
-	if err != nil {
-		return 0, err
-	}
-	parsed, err := commandArguments(arguments, cliargs.ParseConfig{
-		Values: map[string]cliargs.ValueOption{
-			"--catalog":    {},
-			"--deployment": {},
-			"--path":       {AllowEmpty: true},
-			"--paths-json": {RejectDuplicates: true},
-			"--profile":    {},
-			"--root":       {},
+	return executeStandaloneCobra(newScopePathsCobraCommand(), arguments)
+}
+
+func newScopePathsCobraCommand() *cobra.Command {
+	return newTypedCobraCommand(typedCobraCommandSpec{
+		use: "scope-paths", short: "Map changed paths to affected roots",
+		valueFlags:       []string{"--paths-json", "--path", "--deployment", "--root", "--profile", "--catalog"},
+		allowEmpty:       []string{"--path"},
+		rejectDuplicates: []string{"--paths-json"},
+		run: func(parsed commandInput) (int, error) {
+			return legacyPlanLifecycleCommand(func() (int, error) {
+				if len(parsed.Positionals) != 0 {
+					return 0, usageError("scope-paths does not accept positional arguments")
+				}
+				return scopePathsInput(parsed)
+			})
 		},
-	}, commandBehavior{command: "scope-paths"})
+	})
+}
+
+func scopePathsInput(parsed commandInput) (int, error) {
+	rootDirectory, err := packageRoot()
 	if err != nil {
 		return 0, err
 	}
@@ -252,7 +279,7 @@ func scopePathsCommand(arguments []string) (int, error) {
 		return 0, err
 	}
 	paths := append([]string{}, parsed.Options["--path"]...)
-	if pathsJSON, ok := cliargs.LastOption(parsed, "--paths-json"); ok {
+	if pathsJSON, ok := lastCommandOption(parsed, "--paths-json"); ok {
 		var text []byte
 		if pathsJSON == "-" {
 			text, err = io.ReadAll(os.Stdin)
@@ -303,7 +330,11 @@ func scopePathsCommand(arguments []string) (int, error) {
 
 // planRootsCommand ports planRootsCommand.
 func planRootsCommand(arguments []string) (int, error) {
-	options, err := rootQueryCliOptions(arguments, "plan-roots")
+	return executeStandaloneCobra(newRootQueryCobraCommand("plan-roots", "Enumerate plan roots and artifacts", planRootsInput), arguments)
+}
+
+func planRootsInput(parsed commandInput) (int, error) {
+	options, err := rootQueryCliOptionsInput(parsed)
 	if err != nil {
 		return 0, err
 	}
@@ -336,26 +367,30 @@ func planRootsCommand(arguments []string) (int, error) {
 
 // genEnvCommand ports genEnv.
 func genEnvCommand(arguments []string) (int, error) {
+	return executeStandaloneCobra(newGenEnvCobraCommand(), arguments)
+}
+
+func newGenEnvCobraCommand() *cobra.Command {
+	return newTypedCobraCommand(typedCobraCommandSpec{
+		use: "gen-env", short: "Generate tenant environment roots",
+		valueFlags: []string{"--tenant", "--backend", "--resource", "--terraform", "--deployment", "--root", "--profile", "--catalog"},
+		run: func(parsed commandInput) (int, error) {
+			return legacyPlanLifecycleCommand(func() (int, error) {
+				if len(parsed.Positionals) != 0 {
+					return 0, usageError("gen-env does not accept positional arguments")
+				}
+				return genEnvInput(parsed)
+			})
+		},
+	})
+}
+
+func genEnvInput(parsed commandInput) (int, error) {
 	rootDirectory, err := packageRoot()
 	if err != nil {
 		return 0, err
 	}
-	parsed, err := commandArguments(arguments, cliargs.ParseConfig{
-		Values: map[string]cliargs.ValueOption{
-			"--backend":    {},
-			"--catalog":    {},
-			"--deployment": {},
-			"--profile":    {},
-			"--resource":   {},
-			"--root":       {},
-			"--tenant":     {},
-			"--terraform":  {},
-		},
-	}, commandBehavior{command: "gen-env"})
-	if err != nil {
-		return 0, err
-	}
-	tenant, hasTenant := cliargs.LastOption(parsed, "--tenant")
+	tenant, hasTenant := lastCommandOption(parsed, "--tenant")
 	if !hasTenant {
 		return 0, usageError("gen-env requires --tenant")
 	}
@@ -381,7 +416,7 @@ func genEnvCommand(arguments []string) (int, error) {
 		Selectors: parsed.Options["--resource"],
 		Tenant:    tenant,
 	}
-	if backend, ok := cliargs.LastOption(parsed, "--backend"); ok {
+	if backend, ok := lastCommandOption(parsed, "--backend"); ok {
 		generateOptions.Backend = &backend
 	}
 	if _, err := envgen.GenerateEnvironmentRoots(generateOptions); err != nil {
@@ -437,25 +472,38 @@ func environMap() map[string]string {
 
 // modulesCommand ports moduleOptions + modules.
 func modulesCommand(arguments []string) (int, error) {
-	rootDirectory, err := packageRoot()
-	if err != nil {
-		return 0, err
-	}
-	if len(arguments) == 0 || (arguments[0] != "generate" && arguments[0] != "validate") {
-		return 0, usageError("modules requires the generate or validate verb")
-	}
-	verb := arguments[0]
-	parsed, err := commandArguments(arguments[1:], cliargs.ParseConfig{
-		Values: map[string]cliargs.ValueOption{
-			"--catalog":    {},
-			"--deployment": {},
-			"--out":        {},
-			"--profile":    {},
-			"--resource":   {},
-			"--root":       {},
-			"--terraform":  {},
+	return executeStandaloneCobra(newModulesCobraCommand(), arguments)
+}
+
+func newModulesCobraCommand() *cobra.Command {
+	modules := &cobra.Command{
+		Use:   "modules",
+		Short: "Generate or validate Terraform modules",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return usageError(fmt.Sprintf("modules requires the generate or validate verb\n\n%s", strings.TrimSpace(cmd.UsageString())))
 		},
-	}, commandBehavior{})
+	}
+	for _, verb := range []string{"generate", "validate"} {
+		verb := verb
+		modules.AddCommand(newTypedCobraCommand(typedCobraCommandSpec{
+			use: verb, short: strings.ToUpper(verb[:1]) + verb[1:] + " Terraform modules",
+			valueFlags: []string{"--resource", "--out", "--deployment", "--root", "--profile", "--catalog", "--terraform"},
+			run: func(parsed commandInput) (int, error) {
+				return legacyPlanLifecycleCommand(func() (int, error) {
+					if len(parsed.Positionals) != 0 {
+						return 0, usageError("modules " + verb + " does not accept positional arguments")
+					}
+					return modulesInput(verb, parsed)
+				})
+			},
+		}))
+	}
+	return modules
+}
+
+func modulesInput(verb string, parsed commandInput) (int, error) {
+	rootDirectory, err := packageRoot()
 	if err != nil {
 		return 0, err
 	}
@@ -477,7 +525,7 @@ func modulesCommand(arguments []string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	outputRoot, hasOutput := cliargs.LastOption(parsed, "--out")
+	outputRoot, hasOutput := lastCommandOption(parsed, "--out")
 	if !hasOutput {
 		outputRoot, err = deployment.DeploymentModuleDir(loadedDeployment)
 		if err != nil {

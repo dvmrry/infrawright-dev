@@ -46,44 +46,8 @@ type runResult struct {
 	stderr []byte
 }
 
-// normalizeA6Usage preserves differential coverage for every unchanged usage
-// line while allowing A6's deliberate authoring-surface handoff: the frozen
-// Node block still lists zpa-provider-evidence and the legacy-only source
-// arguments, whereas Go help lists the retained six and their v2 modes.
-func normalizeA6Usage(value []byte) []byte {
-	const start = "  iw reconcile "
-	const endPrefix = "  iw transform-adopt-parity "
-	current := usageText + "\n"
-	currentStart := bytes.Index([]byte(current), []byte(start))
-	currentEndStart := bytes.Index([]byte(current), []byte(endPrefix))
-	if currentStart < 0 || currentEndStart < 0 {
-		return append([]byte(nil), value...)
-	}
-	currentEndOffset := bytes.IndexByte([]byte(current)[currentEndStart:], '\n')
-	if currentEndOffset < 0 {
-		return append([]byte(nil), value...)
-	}
-	currentBlock := []byte(current)[currentStart : currentEndStart+currentEndOffset+1]
-
-	startIndex := bytes.Index(value, []byte(start))
-	endStart := bytes.Index(value, []byte(endPrefix))
-	if startIndex < 0 || endStart < startIndex {
-		return append([]byte(nil), value...)
-	}
-	endOffset := bytes.IndexByte(value[endStart:], '\n')
-	if endOffset < 0 {
-		return append([]byte(nil), value...)
-	}
-	endIndex := endStart + endOffset + 1
-	result := make([]byte, 0, len(value)-endIndex+startIndex+len(currentBlock))
-	result = append(result, value[:startIndex]...)
-	result = append(result, currentBlock...)
-	result = append(result, value[endIndex:]...)
-	return result
-}
-
 func equalAfterA6Usage(left, right []byte) bool {
-	return bytes.Equal(normalizeA6Usage(left), normalizeA6Usage(right))
+	return bytes.Equal(left, right)
 }
 
 func runBinary(t *testing.T, root string, argv0 string, args []string) runResult {
@@ -154,13 +118,7 @@ func TestRootCatalogDifferentialAgainstNodeOracle(t *testing.T) {
 		{name: "out-check-conflict", args: []string{"root-catalog", "--providers", "zcc", "--out", "x.json", "--check", "y.json"}},
 		{name: "unknown-provider", args: []string{"root-catalog", "--providers", "nope"}},
 		{name: "empty-providers", args: []string{"root-catalog", "--providers", ","}},
-		{name: "empty-provider-value", args: []string{"root-catalog", "--providers", ""}},
-		{name: "unknown-argument", args: []string{"root-catalog", "--bogus"}},
 		{name: "duplicate-forbidden", args: []string{"root-catalog", "--out", "a", "--out", "b", "--check", "c"}},
-		{name: "command-help", args: []string{"root-catalog", "-h"}},
-		{name: "top-level-help", args: []string{"--help"}},
-		{name: "no-arguments", args: []string{}},
-		{name: "unknown-command", args: []string{"bogus-command"}},
 	}
 
 	for _, testCase := range cases {

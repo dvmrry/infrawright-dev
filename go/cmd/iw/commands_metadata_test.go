@@ -34,7 +34,7 @@ func requireCLIExit(t *testing.T, err error, status int, stdout bool) {
 	}
 }
 
-func TestCheckPackCommandPreservesSelectionOrderAndFalseyEnvironmentFallback(t *testing.T) {
+func TestCheckPackCommandUsesExclusiveSelectorAndFalseyEnvironmentFallback(t *testing.T) {
 	var output bytes.Buffer
 	dependencies := metadataCommandTestDependencies(&output)
 	rootCalls := 0
@@ -58,7 +58,7 @@ func TestCheckPackCommandPreservesSelectionOrderAndFalseyEnvironmentFallback(t *
 		return metadata.LoadedRegistry{}, metadata.LoadedOverrides{}, nil
 	}
 	status, err := checkPackCommandWithDependencies(
-		[]string{"PACK=first", "--pack", "second", "PACK=sample"},
+		[]string{"PACK=sample"},
 		dependencies,
 	)
 	if err != nil || status != 0 {
@@ -77,16 +77,8 @@ func TestCheckPackCommandPreservesSelectionOrderAndFalseyEnvironmentFallback(t *
 		t.Fatalf("resource validation calls = %d, want 1", resourceValidationCalls)
 	}
 
-	output.Reset()
-	status, err = checkPackCommandWithDependencies(
-		[]string{"PACK=other", "--pack", "sample"},
-		dependencies,
-	)
-	if err != nil || status != 0 {
-		t.Fatalf("inverse-order check-pack = (%d, %v), want (0, nil)", status, err)
-	}
-	if got.Pack == nil || *got.Pack != "sample" {
-		t.Fatalf("inverse-order selected pack = %#v, want sample", got.Pack)
+	if _, err := checkPackCommandWithDependencies([]string{"PACK=other", "--pack", "sample"}, dependencies); err == nil || err.Error() != "check-pack accepts only one of --pack or PACK=<name>" {
+		t.Fatalf("mixed check-pack selectors error = %v, want exclusive-selector usage error", err)
 	}
 
 	dependencies.packageRoot = func() (string, error) { return "", errors.New("must not resolve package root") }
@@ -123,28 +115,31 @@ func TestMetadataCommandHelpStreamAndStatusContracts(t *testing.T) {
 		environmentCalls++
 		return ""
 	}
-	_, err := checkPackCommandWithDependencies([]string{"--help"}, dependencies)
-	requireCLIExit(t, err, 2, false)
-	_, err = checkPackCommandWithDependencies([]string{"--pack=sample"}, dependencies)
-	requireCLIExit(t, err, 2, false)
-	if packageRootCalls != 0 || environmentCalls != 0 {
-		t.Fatalf("check-pack help/parse dependency calls = packageRoot:%d environment:%d, want zero", packageRootCalls, environmentCalls)
+	status, err := checkPackCommandWithDependencies([]string{"--help"}, dependencies)
+	if err != nil || status != 0 {
+		t.Fatalf("check-pack --help = (%d, %v), want (0, nil)", status, err)
 	}
-	_, err = deploymentCommandWithDependencies([]string{"--help"}, dependencies)
-	requireCLIExit(t, err, 2, false)
+	if packageRootCalls != 0 || environmentCalls != 0 {
+		t.Fatalf("check-pack help dependency calls = packageRoot:%d environment:%d, want zero", packageRootCalls, environmentCalls)
+	}
+	status, err = deploymentCommandWithDependencies([]string{"--help"}, dependencies)
+	if err != nil || status != 0 {
+		t.Fatalf("deployment --help = (%d, %v), want (0, nil)", status, err)
+	}
 	if packageRootCalls != 0 || environmentCalls != 0 {
 		t.Fatalf("metadata help dependency calls = packageRoot:%d environment:%d, want zero", packageRootCalls, environmentCalls)
 	}
 
-	called := false
 	dependencies.packageRoot = func() (string, error) {
-		called = true
+		packageRootCalls++
 		return "/package", nil
 	}
-	_, err = checkPackSetCommandWithDependencies([]string{"--help"}, dependencies)
-	requireCLIExit(t, err, 0, true)
-	if !called {
-		t.Fatal("check-pack-set help did not preserve eager packageRoot call")
+	status, err = checkPackSetCommandWithDependencies([]string{"--help"}, dependencies)
+	if err != nil || status != 0 {
+		t.Fatalf("check-pack-set --help = (%d, %v), want (0, nil)", status, err)
+	}
+	if packageRootCalls != 0 {
+		t.Fatalf("check-pack-set --help packageRoot calls = %d, want zero", packageRootCalls)
 	}
 }
 
@@ -202,7 +197,7 @@ func TestCheckPackSetCommandPreservesExitThreeAndEnvironmentDefaults(t *testing.
 	}
 }
 
-func TestDeploymentCommandLoadsBeforeVerbValidationAndIgnoresExtraPositionals(t *testing.T) {
+func TestDeploymentCommandRejectsExtraPositionalsBeforeLoading(t *testing.T) {
 	var output bytes.Buffer
 	dependencies := metadataCommandTestDependencies(&output)
 	loaded := false
@@ -230,8 +225,16 @@ func TestDeploymentCommandLoadsBeforeVerbValidationAndIgnoresExtraPositionals(t 
 		[]string{"--deployment", "/deployment.json", "config-dir", "tenant-a", "ignored"},
 		dependencies,
 	)
+	if err == nil || status != 0 || output.String() != "" || loaded {
+		t.Fatalf("deployment extra positional = (%d, %v, %q, loaded=%t), want usage rejection before load", status, err, output.String(), loaded)
+	}
+
+	status, err = deploymentCommandWithDependencies(
+		[]string{"--deployment", "/deployment.json", "config-dir", "tenant-a"},
+		dependencies,
+	)
 	if err != nil || status != 0 || output.String() != "config/tenant-a\n" {
-		t.Fatalf("deployment config-dir = (%d, %v, %q)", status, err, output.String())
+		t.Fatalf("deployment config-dir = (%d, %v, %q), want success", status, err, output.String())
 	}
 
 	output.Reset()

@@ -14,11 +14,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dvmrry/infrawright-dev/go/internal/cliargs"
 	"github.com/dvmrry/infrawright-dev/go/internal/collectors"
 	"github.com/dvmrry/infrawright-dev/go/internal/httptransport"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
+	"github.com/spf13/cobra"
 )
 
 const fetchDiagnosticTimeoutMs = 15_000
@@ -61,32 +61,13 @@ type fetchCommandOptions struct {
 // the command's historical `||` environment semantics for pack root/profile;
 // FETCH_CONCURRENCY is a Make variable forwarded as --concurrency, not a CLI
 // environment input.
-func fetchCLIOptions(arguments []string, requireTenant bool) (fetchCommandOptions, error) {
+func fetchCLIOptions(parsed commandInput, requireTenant bool) (fetchCommandOptions, error) {
 	rootDirectory, err := packageRoot()
 	if err != nil {
 		return fetchCommandOptions{}, err
 	}
-	values := map[string]cliargs.ValueOption{
-		"--catalog": {},
-		"--profile": {},
-		"--root":    {},
-	}
-	behavior := commandBehavior{}
-	if requireTenant {
-		values["--concurrency"] = cliargs.ValueOption{RejectDuplicates: true}
-		values["--out"] = cliargs.ValueOption{}
-		values["--resource"] = cliargs.ValueOption{}
-		values["--tenant"] = cliargs.ValueOption{}
-	} else {
-		behavior.command = "fetch-diag"
-	}
-	parsed, err := commandArguments(arguments, cliargs.ParseConfig{Values: values}, behavior)
-	if err != nil {
-		return fetchCommandOptions{}, err
-	}
-
 	concurrency := 1
-	if value, ok := cliargs.LastOption(parsed, "--concurrency"); ok {
+	if value, ok := lastCommandOption(parsed, "--concurrency"); ok {
 		if !positiveFetchConcurrency.MatchString(value) {
 			return fetchCommandOptions{}, usageError("--concurrency must be a positive integer")
 		}
@@ -99,7 +80,7 @@ func fetchCLIOptions(arguments []string, requireTenant bool) (fetchCommandOption
 		concurrency = int(parsedValue)
 	}
 
-	tenant, hasTenant := cliargs.LastOption(parsed, "--tenant")
+	tenant, hasTenant := lastCommandOption(parsed, "--tenant")
 	if requireTenant && !hasTenant {
 		return fetchCommandOptions{}, usageError("fetch requires --tenant")
 	}
@@ -108,7 +89,7 @@ func fetchCLIOptions(arguments []string, requireTenant bool) (fetchCommandOption
 			return fetchCommandOptions{}, usageError(err.Error())
 		}
 	}
-	output, hasOutput := cliargs.LastOption(parsed, "--out")
+	output, hasOutput := lastCommandOption(parsed, "--out")
 	return fetchCommandOptions{
 		pack:        resolvePackOptions(rootDirectory, parsed),
 		concurrency: concurrency,
@@ -219,7 +200,25 @@ func fetchCommand(
 	arguments []string,
 	performance collectors.PerformanceRecorder,
 ) (int, error) {
-	options, err := fetchCLIOptions(arguments, true)
+	return executeStandaloneCobra(newFetchCobraCommand(performance), arguments)
+}
+
+func newFetchCobraCommand(performance collectors.PerformanceRecorder) *cobra.Command {
+	return newTypedCobraCommand(typedCobraCommandSpec{
+		use: "fetch", short: "Fetch provider resources",
+		valueFlags:       []string{"--tenant", "--resource", "--out", "--concurrency", "--root", "--profile", "--catalog"},
+		rejectDuplicates: []string{"--concurrency"},
+		run: func(parsed commandInput) (int, error) {
+			if len(parsed.Positionals) != 0 {
+				return 0, usageError("fetch does not accept positional arguments")
+			}
+			return fetchCommandInput(parsed, performance)
+		},
+	})
+}
+
+func fetchCommandInput(parsed commandInput, performance collectors.PerformanceRecorder) (int, error) {
+	options, err := fetchCLIOptions(parsed, true)
 	if err != nil {
 		return 0, err
 	}
@@ -333,7 +332,24 @@ func probeRestHostWithOwnedTransport(
 }
 
 func fetchDiagCommand(arguments []string) (int, error) {
-	options, err := fetchCLIOptions(arguments, false)
+	return executeStandaloneCobra(newFetchDiagCobraCommand(), arguments)
+}
+
+func newFetchDiagCobraCommand() *cobra.Command {
+	return newTypedCobraCommand(typedCobraCommandSpec{
+		use: "fetch-diag", short: "Diagnose fetch TLS connectivity",
+		valueFlags: []string{"--root", "--profile", "--catalog"},
+		run: func(parsed commandInput) (int, error) {
+			if len(parsed.Positionals) != 0 {
+				return 0, usageError("fetch-diag does not accept positional arguments")
+			}
+			return fetchDiagCommandInput(parsed)
+		},
+	})
+}
+
+func fetchDiagCommandInput(parsed commandInput) (int, error) {
+	options, err := fetchCLIOptions(parsed, false)
 	if err != nil {
 		return 0, err
 	}

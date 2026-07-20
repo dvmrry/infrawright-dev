@@ -12,9 +12,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dvmrry/infrawright-dev/go/internal/cliargs"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
+	"github.com/spf13/cobra"
 )
 
 type metadataCommandDependencies struct {
@@ -64,36 +64,43 @@ func checkPackCommand(arguments []string) (int, error) {
 }
 
 func checkPackCommandWithDependencies(arguments []string, dependencies metadataCommandDependencies) (int, error) {
-	parsed, err := commandArguments(arguments, cliargs.ParseConfig{
-		AllowPositionals: true,
-		Values: map[string]cliargs.ValueOption{
-			"--pack": {},
-			"--root": {},
+	return executeStandaloneCobra(newCheckPackCobraCommand(dependencies), arguments)
+}
+
+func newCheckPackCobraCommand(dependencies metadataCommandDependencies) *cobra.Command {
+	return newTypedCobraCommand(typedCobraCommandSpec{
+		use: "check-pack [PACK=<name>]", short: "Validate pack and registry metadata",
+		valueFlags: []string{"--pack", "--root"},
+		run: func(parsed commandInput) (int, error) {
+			return checkPackInput(parsed, dependencies)
 		},
-	}, commandBehavior{helpStatus: 2, helpStderr: true})
-	if err != nil {
-		return 0, err
+	})
+}
+
+func checkPackInput(parsed commandInput, dependencies metadataCommandDependencies) (int, error) {
+	if len(parsed.Positionals) > 1 {
+		return 0, usageError("check-pack accepts at most one PACK=<name> argument")
 	}
 	var selectedPack *string
-	for _, occurrence := range parsed.Occurrences {
-		if occurrence.Kind == cliargs.OccurrenceOption {
-			if occurrence.Name == "--pack" {
-				value := occurrence.Value
-				selectedPack = &value
-			}
-			continue
+	if value, ok := lastCommandOption(parsed, "--pack"); ok {
+		selectedPack = &value
+	}
+	if len(parsed.Positionals) == 1 {
+		if selectedPack != nil {
+			return 0, usageError("check-pack accepts only one of --pack or PACK=<name>")
 		}
-		if !strings.HasPrefix(occurrence.Value, "PACK=") {
-			return 0, usageError("unknown argument " + occurrence.Value)
+		argument := parsed.Positionals[0]
+		if !strings.HasPrefix(argument, "PACK=") {
+			return 0, usageError("unknown argument " + argument)
 		}
-		value := strings.TrimPrefix(occurrence.Value, "PACK=")
+		value := strings.TrimPrefix(argument, "PACK=")
 		if value == "" {
 			return 0, usageError("PACK= requires a value")
 		}
 		selectedPack = &value
 	}
 
-	root, hasRoot := cliargs.LastOption(parsed, "--root")
+	root, hasRoot := lastCommandOption(parsed, "--root")
 	if !hasRoot {
 		root = dependencies.environment("INFRAWRIGHT_PACKS")
 		if root == "" {
@@ -104,10 +111,11 @@ func checkPackCommandWithDependencies(arguments []string, dependencies metadataC
 			root = filepath.Join(rootDirectory, "packs")
 		}
 	}
-	root, err = dependencies.absolutePath(root)
+	absoluteRoot, err := dependencies.absolutePath(root)
 	if err != nil {
 		return 0, err
 	}
+	root = absoluteRoot
 	result, err := dependencies.validatePackAuthoring(metadata.ValidatePackAuthoringOptions{
 		Root: root,
 		Pack: selectedPack,
@@ -131,6 +139,23 @@ func checkPackSetCommand(arguments []string) (int, error) {
 }
 
 func checkPackSetCommandWithDependencies(arguments []string, dependencies metadataCommandDependencies) (int, error) {
+	return executeStandaloneCobra(newCheckPackSetCobraCommand(dependencies), arguments)
+}
+
+func newCheckPackSetCobraCommand(dependencies metadataCommandDependencies) *cobra.Command {
+	return newTypedCobraCommand(typedCobraCommandSpec{
+		use: "check-pack-set", short: "Validate an installed pack set",
+		valueFlags: []string{"--profile", "--catalog", "--requirements", "--root"},
+		run: func(parsed commandInput) (int, error) {
+			if len(parsed.Positionals) != 0 {
+				return 0, usageError("check-pack-set does not accept positional arguments")
+			}
+			return checkPackSetInput(parsed, dependencies)
+		},
+	})
+}
+
+func checkPackSetInput(parsed commandInput, dependencies metadataCommandDependencies) (int, error) {
 	rootDirectory, err := dependencies.packageRoot()
 	if err != nil {
 		return 0, err
@@ -144,22 +169,16 @@ func checkPackSetCommandWithDependencies(arguments []string, dependencies metada
 		profile = filepath.Join(rootDirectory, "packsets", "full.json")
 	}
 	catalog := filepath.Join(rootDirectory, "packsets", "full.json")
-	parsed, err := commandArguments(arguments, cliargs.ParseConfig{Values: map[string]cliargs.ValueOption{
-		"--catalog": {}, "--profile": {}, "--requirements": {}, "--root": {},
-	}}, commandBehavior{})
-	if err != nil {
-		return 0, err
-	}
-	if value, ok := cliargs.LastOption(parsed, "--root"); ok {
+	if value, ok := lastCommandOption(parsed, "--root"); ok {
 		root = value
 	}
-	if value, ok := cliargs.LastOption(parsed, "--profile"); ok {
+	if value, ok := lastCommandOption(parsed, "--profile"); ok {
 		profile = value
 	}
-	if value, ok := cliargs.LastOption(parsed, "--catalog"); ok {
+	if value, ok := lastCommandOption(parsed, "--catalog"); ok {
 		catalog = value
 	}
-	if requirements, ok := cliargs.LastOption(parsed, "--requirements"); ok {
+	if requirements, ok := lastCommandOption(parsed, "--requirements"); ok {
 		result, checkErr := dependencies.checkPackRequirements(metadata.CheckPackRequirementsOptions{
 			RequirementsPath: requirements,
 			Root:             root,
@@ -211,18 +230,28 @@ func deploymentCommand(arguments []string) (int, error) {
 }
 
 func deploymentCommandWithDependencies(arguments []string, dependencies metadataCommandDependencies) (int, error) {
-	parsed, err := commandArguments(arguments, cliargs.ParseConfig{
-		AllowPositionals: true,
-		Values:           map[string]cliargs.ValueOption{"--deployment": {}},
-	}, commandBehavior{helpStatus: 2, helpStderr: true})
-	if err != nil {
-		return 0, err
-	}
+	return executeStandaloneCobra(newDeploymentCobraCommand(dependencies), arguments)
+}
+
+func newDeploymentCobraCommand(dependencies metadataCommandDependencies) *cobra.Command {
+	return newTypedCobraCommand(typedCobraCommandSpec{
+		use: "deployment <query> [tenant]", short: "Query deployment metadata",
+		valueFlags: []string{"--deployment"},
+		run: func(parsed commandInput) (int, error) {
+			return deploymentInput(parsed, dependencies)
+		},
+	})
+}
+
+func deploymentInput(parsed commandInput, dependencies metadataCommandDependencies) (int, error) {
 	if len(parsed.Positionals) == 0 {
 		return 0, usageError("deployment requires a verb")
 	}
+	if len(parsed.Positionals) > 2 {
+		return 0, usageError("deployment accepts only a query and optional tenant")
+	}
 	var explicit *string
-	if value, ok := cliargs.LastOption(parsed, "--deployment"); ok {
+	if value, ok := lastCommandOption(parsed, "--deployment"); ok {
 		explicit = &value
 	}
 	pathOptions := deployment.DeploymentPathOptions{Explicit: explicit}

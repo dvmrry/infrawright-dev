@@ -109,23 +109,11 @@ func TestBlockEMetadataCommandsDifferentialAgainstFrozenNodeOracle(t *testing.T)
 			}, environment: cleanEnvironment,
 		},
 		{
-			name: "check-pack encounter-order last wins", arguments: []string{
-				"check-pack", "PACK=sample", "--pack", "other", "PACK=sample", "--root", fixture.packs,
-			}, environment: cleanEnvironment,
-		},
-		{
-			name: "check-pack encounter-order final option wins", arguments: []string{
-				"check-pack", "PACK=other", "--pack", "sample", "--root", fixture.packs,
-			}, environment: cleanEnvironment,
-		},
-		{
 			name: "check-pack resource validation failure", arguments: []string{
 				"check-pack", "--pack", "sample", "--root", fixture.invalidPacks,
 			}, environment: cleanEnvironment,
 		},
 		{name: "check-pack empty positional", arguments: []string{"check-pack", "PACK="}, environment: cleanEnvironment},
-		{name: "check-pack inline option rejected", arguments: []string{"check-pack", "--pack=sample"}, environment: cleanEnvironment},
-		{name: "check-pack help is stderr exit two", arguments: []string{"check-pack", "--help"}, environment: cleanEnvironment},
 		{
 			name: "check-pack nonempty environment root", arguments: []string{"check-pack", "--pack", "sample"},
 			environment: []string{"INFRAWRIGHT_PACKS=" + fixture.packs, "INFRAWRIGHT_PACK_PROFILE=", "INFRAWRIGHT_DEPLOYMENT="},
@@ -148,7 +136,6 @@ func TestBlockEMetadataCommandsDifferentialAgainstFrozenNodeOracle(t *testing.T)
 			},
 		},
 		{name: "check-pack-set empty environment falls back", arguments: []string{"check-pack-set"}, environment: cleanEnvironment},
-		{name: "check-pack-set positional rejected", arguments: []string{"check-pack-set", "unexpected"}, environment: cleanEnvironment},
 		{
 			name: "check-pack-set requirements satisfied", arguments: []string{
 				"check-pack-set", "--root", fixture.packs, "--catalog", fixture.catalog,
@@ -161,7 +148,6 @@ func TestBlockEMetadataCommandsDifferentialAgainstFrozenNodeOracle(t *testing.T)
 				"--requirements", fixture.missing,
 			}, environment: cleanEnvironment,
 		},
-		{name: "check-pack-set help is stdout exit zero", arguments: []string{"check-pack-set", "--help"}, environment: cleanEnvironment},
 		{name: "deployment overlay", arguments: []string{"deployment", "--deployment", fixture.deployment, "overlay"}, environment: cleanEnvironment},
 		{name: "deployment tfvars format", arguments: []string{"deployment", "--deployment", fixture.deployment, "tfvars-format"}, environment: cleanEnvironment},
 		{name: "deployment module dir", arguments: []string{"deployment", "--deployment", fixture.deployment, "module-dir"}, environment: cleanEnvironment},
@@ -177,8 +163,6 @@ func TestBlockEMetadataCommandsDifferentialAgainstFrozenNodeOracle(t *testing.T)
 		{name: "deployment missing verb", arguments: []string{"deployment"}, environment: cleanEnvironment},
 		{name: "deployment missing tenant", arguments: []string{"deployment", "--deployment", fixture.deployment, "config-dir"}, environment: cleanEnvironment},
 		{name: "deployment unknown quoted verb", arguments: []string{"deployment", "--deployment", fixture.deployment, "bad<&"}, environment: cleanEnvironment},
-		{name: "deployment help is stderr exit two", arguments: []string{"deployment", "--help"}, environment: cleanEnvironment},
-		{name: "deployment unknown option", arguments: []string{"deployment", "--unknown"}, environment: cleanEnvironment},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

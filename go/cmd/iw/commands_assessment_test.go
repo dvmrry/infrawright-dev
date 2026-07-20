@@ -251,7 +251,7 @@ func TestAssessmentCLIOptionGrammarAndLastWins(t *testing.T) {
 	}{
 		{name: "duplicate tenant", mode: assessment.AssertClean, arguments: []string{"--tenant", "one", "--tenant", "two"}, want: "--tenant may be specified only once"},
 		{name: "duplicate report", mode: assessment.AssertClean, arguments: []string{"--report", "one", "--report", "two"}, want: "--report may be specified only once"},
-		{name: "clean rejects policy", mode: assessment.AssertClean, arguments: []string{"--policy", "policy.json"}, want: "assert-clean does not accept --policy"},
+		{name: "clean rejects policy", mode: assessment.AssertClean, arguments: []string{"--policy", "policy.json"}, want: "unknown flag: --policy"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := assessmentCLIOptionsFor(test.arguments, test.mode, root)

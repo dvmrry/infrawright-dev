@@ -18,14 +18,25 @@ func coreTestDependencies(stdout, stderr *bytes.Buffer) authoringCoreDependencie
 	return deps
 }
 
-func TestAuthoringParseArgumentsRewordsDuplicateAndDisablesHelp(t *testing.T) {
-	_, err := authoringParseArguments([]string{"--out", "one", "--out", "two"}, []string{"--out"}, nil, nil)
-	if err == nil || err.Error() != "--out may be passed only once" {
-		t.Fatalf("authoringParseArguments duplicate error = %v, want reworded usage error", err)
+func TestAuthoringCommandsUseCobraDuplicateAndHelpContracts(t *testing.T) {
+	_, err := executeStandaloneCobra(
+		newOpenAPIMapCobraCommand(defaultAuthoringCoreDependencies()),
+		[]string{"--out", "one", "--out", "two"},
+	)
+	if err == nil || err.Error() != "--out may be specified only once" {
+		t.Fatalf("openapi-map duplicate error = %v, want Cobra duplicate usage error", err)
 	}
-	_, err = authoringParseArguments([]string{"--help"}, nil, nil, nil)
-	if err == nil || err.Error() != "unknown argument --help" {
-		t.Fatalf("authoringParseArguments(--help) error = %v, want authoring parser rejection", err)
+
+	var output bytes.Buffer
+	command := newReconcileCobraCommand(defaultAuthoringCoreDependencies())
+	command.SetOut(&output)
+	command.SetArgs([]string{"--help"})
+	status, err := cobraExecutionResult(command.Execute())
+	if err != nil || status != 0 {
+		t.Fatalf("reconcile --help = (%d, %v), want (0, nil)", status, err)
+	}
+	if !strings.Contains(output.String(), "Usage:\n  reconcile <resource-type> [flags]") {
+		t.Fatalf("reconcile --help output = %q", output.String())
 	}
 }
 
