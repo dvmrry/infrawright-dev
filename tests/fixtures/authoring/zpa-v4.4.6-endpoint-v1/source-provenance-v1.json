@@ -1,0 +1,672 @@
+{
+  "kind": "infrawright.source_provenance",
+  "openapi": null,
+  "provider": {
+    "files": [
+      {
+        "path": "main.go",
+        "sha256": "f5f38e7cb420d407b2ef5676b0d8f1683f8f0611833c82bed1afa9fc1bd87262"
+      },
+      {
+        "path": "zpa/common.go",
+        "sha256": "6031f248c1aa3174509dccaf44f716653d4650fc0489c1aa026ce62bb5a99e91"
+      },
+      {
+        "path": "zpa/config.go",
+        "sha256": "b067b0626011487cfb44c0c12954dfa90991740d95555e0ac5aab29ffa4e0896"
+      },
+      {
+        "path": "zpa/data_source_zpa_access_policy_client_types.go",
+        "sha256": "3770754be7148715e585c764f20d6ea17d8a2cac0025433406b142e7935a38fe"
+      },
+      {
+        "path": "zpa/data_source_zpa_access_policy_platform.go",
+        "sha256": "1d01c2fa5ca3e9455d28c454fb4df345769f531e35bbacb29e38e28430ef2276"
+      },
+      {
+        "path": "zpa/data_source_zpa_app_connector_assistant_schedule.go",
+        "sha256": "66521f01e4cfafdf4f9ecc3eb9cec0ce2467d503199d7c95b8e3f7686450b2b7"
+      },
+      {
+        "path": "zpa/data_source_zpa_app_connector_controller.go",
+        "sha256": "9c59c117e3fddef88ceaca4917a00c440abd3efd077e47c779a72381b6fe028a"
+      },
+      {
+        "path": "zpa/data_source_zpa_app_connector_group.go",
+        "sha256": "8e306eaeb4740ee56b22f59cdcfaf9f6f60c740c8e8a273a3e15e6c851584440"
+      },
+      {
+        "path": "zpa/data_source_zpa_app_server_controller.go",
+        "sha256": "8ca5400dbbcfb776c38d9c33e43aaa2cadb4e543da76b05c0741a2980ed60e5b"
+      },
+      {
+        "path": "zpa/data_source_zpa_application_segment.go",
+        "sha256": "53f53eed729d28c15a372475040a61ae2cfc567688f1eb597d7d8ad4590878cb"
+      },
+      {
+        "path": "zpa/data_source_zpa_application_segment_browser_access.go",
+        "sha256": "842c32c1b5a70cbb9386a50be52795b17f90912e97bc032ed676ba0c3151347f"
+      },
+      {
+        "path": "zpa/data_source_zpa_application_segment_by_type.go",
+        "sha256": "272d1bb8bec87afaf400809f91e418ab7cd0afdf4988ac1525c7067e9b769b70"
+      },
+      {
+        "path": "zpa/data_source_zpa_application_segment_inspection.go",
+        "sha256": "2d0600e0fdb9a5d166107a4e7998b0938daed983b0a23e82a69fc1e1c4024194"
+      },
+      {
+        "path": "zpa/data_source_zpa_application_segment_multimatch_bulk.go",
+        "sha256": "40ca29e2ae9d38500ec87aefc46dfae539f84935785979bf6499107c891b666d"
+      },
+      {
+        "path": "zpa/data_source_zpa_application_segment_pra.go",
+        "sha256": "ac17c13e1cef6d904355fc3e4db716292d759f076f96acbe732ebc1ce8666f2b"
+      },
+      {
+        "path": "zpa/data_source_zpa_application_segment_weightedlb_config.go",
+        "sha256": "151e2836480e940b77938dca45ea5e125473e6da342bf120648dbc67d6e151db"
+      },
+      {
+        "path": "zpa/data_source_zpa_ba_certificate.go",
+        "sha256": "1f6d22aaecd78670b4dafd3c71e55b94a897ef152adada97e7fce9a99910b891"
+      },
+      {
+        "path": "zpa/data_source_zpa_branch_connector_group.go",
+        "sha256": "ace307fd5a239ebdd197d0314ce71edb8851b8831fbc5f8357a1949f88f1ed27"
+      },
+      {
+        "path": "zpa/data_source_zpa_browser_protection.go",
+        "sha256": "4024046efa7a199d9fcf0754f5b868b29078be796af552342bac80274a906915"
+      },
+      {
+        "path": "zpa/data_source_zpa_c2c_ip_ranges.go",
+        "sha256": "4c37c0a568ba158f80777f36acb6926249f5615a70d0c73e5905b00b8cccb5b8"
+      },
+      {
+        "path": "zpa/data_source_zpa_cloud_browser_isolation_banner.go",
+        "sha256": "8b924d04bbb8ea572d82cb16bf644faed841c1314fd98994db3d8c9bc5e2f5d9"
+      },
+      {
+        "path": "zpa/data_source_zpa_cloud_browser_isolation_certificate.go",
+        "sha256": "db8ed27d0c3208d17178d05aecbb36438acb635590851de9a9b841e4dd822dde"
+      },
+      {
+        "path": "zpa/data_source_zpa_cloud_browser_isolation_external_profile.go",
+        "sha256": "a012e542a87a9457cea9674fa1dbaa7864c6f0bbad448ce534ba90bb74549f2a"
+      },
+      {
+        "path": "zpa/data_source_zpa_cloud_browser_isolation_region.go",
+        "sha256": "016b2fd568aaf5ec6b1b676c2ec9dc44747c5f1357aab749eeb875879854a9f3"
+      },
+      {
+        "path": "zpa/data_source_zpa_cloud_browser_isolation_zpaprofiles.go",
+        "sha256": "f8b6b5d0f22590438e004acd2ff2ffa9ac32e55d70e6227977981852e738b7ec"
+      },
+      {
+        "path": "zpa/data_source_zpa_cloud_config.go",
+        "sha256": "37ccf93f0e535b6878f777e7c091b9343267511cf47672b3b9d0daad2bc79bdc"
+      },
+      {
+        "path": "zpa/data_source_zpa_cloud_connector_group.go",
+        "sha256": "c6f3ec84f028848f5ed7913dc8a3a1ba7407220d8b8ce0c2669acda272a8d13c"
+      },
+      {
+        "path": "zpa/data_source_zpa_customer_version_profile.go",
+        "sha256": "568bce153f1319de24ad5b3107aec6ac565cc55916b3fb45be08211b4610677c"
+      },
+      {
+        "path": "zpa/data_source_zpa_enrollement_cert.go",
+        "sha256": "246896b80e0547966b30e307c0bbc893270e96d6aba0ea67506991bac032d4b5"
+      },
+      {
+        "path": "zpa/data_source_zpa_extranet_resource_partner.go",
+        "sha256": "29f265a18e22947d5022e1e74d5a51ae76367e28a542999527fa28cc194afa39"
+      },
+      {
+        "path": "zpa/data_source_zpa_idp_controller.go",
+        "sha256": "9915e6ca03868fd0259a944f7722a40368f6b7e7897eeb257bffe94d3587834c"
+      },
+      {
+        "path": "zpa/data_source_zpa_inspection_all_predefined_controls.go",
+        "sha256": "f9a4e780d17d63c736cc210e99a9aa78a131afc99c3c565637237aa15b0ed4a1"
+      },
+      {
+        "path": "zpa/data_source_zpa_inspection_custom_controls.go",
+        "sha256": "7e2f9cc3c11340476c6b37234a089b283c2d262067d88d4540f8b3019e477640"
+      },
+      {
+        "path": "zpa/data_source_zpa_inspection_predefined_controls.go",
+        "sha256": "6edca43958893a4ec980d2588d4e0101c1441a3ed714caeecd166f140f7f6d1e"
+      },
+      {
+        "path": "zpa/data_source_zpa_inspection_profile.go",
+        "sha256": "a490980e5befd081d2e2f0ac4484cb4a08af0a9700f113ca0be9366a3a803aed"
+      },
+      {
+        "path": "zpa/data_source_zpa_isolation_profiles.go",
+        "sha256": "354ba0e1f6e595d74d9c07d4baad03abbb4c1edb7c0ff6163e37c2a09cc1dda1"
+      },
+      {
+        "path": "zpa/data_source_zpa_location_controller.go",
+        "sha256": "ba4b8ac58da32518c548b643f1185f69ae53740f42f0410595952ba1df73c599"
+      },
+      {
+        "path": "zpa/data_source_zpa_location_controller_summary.go",
+        "sha256": "6a52e7ee3b27b590cb5322c94bbf6316d60f0f6cb3993743659c3db48f6c6ed1"
+      },
+      {
+        "path": "zpa/data_source_zpa_location_group_controller.go",
+        "sha256": "2fad9099deee0ac08122edcb04aaff71cd9c393b767dbc54a3231fc522af22d2"
+      },
+      {
+        "path": "zpa/data_source_zpa_lss_config_client_types.go",
+        "sha256": "cf592462220a4be42d66acc4ca223a7ef0ac73dac8b7d33322beb3276c4b85c9"
+      },
+      {
+        "path": "zpa/data_source_zpa_lss_config_controller.go",
+        "sha256": "5bf8848a8b6cea56700578941c2935d8a4c294e3b43dfa3260e5428894287da2"
+      },
+      {
+        "path": "zpa/data_source_zpa_lss_config_log_types_formats.go",
+        "sha256": "e12a56816c80a7b15f7909c6bd844bf63195f88f00f4480cb36b3a97919a31d5"
+      },
+      {
+        "path": "zpa/data_source_zpa_lss_config_status_codes.go",
+        "sha256": "8adf10b5968b2f2ef7e769784b17c457e122709f7e5026501302ed0fee446f7d"
+      },
+      {
+        "path": "zpa/data_source_zpa_machine_group.go",
+        "sha256": "52568be8f08b66b2b10b9c06892a7572e39073c99907d6a0bdd1f00ffedfec83"
+      },
+      {
+        "path": "zpa/data_source_zpa_managed_browser_profile.go",
+        "sha256": "0b3d31a4eb70f5bf562e2ae3f53b4a2fe61299de90ac0b04bf95e407281c5163"
+      },
+      {
+        "path": "zpa/data_source_zpa_microtenant_controller.go",
+        "sha256": "92161d145bf8f4a5a8d5f92b626b3654e81e7fde201036d6c8382543e787db96"
+      },
+      {
+        "path": "zpa/data_source_zpa_policy_type.go",
+        "sha256": "dc981c91ce96f6405bb6b80606b594cd6b2ed803a0ca2fe2517594f11f9bf49f"
+      },
+      {
+        "path": "zpa/data_source_zpa_posture_profile.go",
+        "sha256": "b17b5de7373a6b6997f687cb5678a6c02e50be36d507080daf52a24861911ecc"
+      },
+      {
+        "path": "zpa/data_source_zpa_pra_approval.go",
+        "sha256": "951e08f6e7d2f37b4d1ab75b373af07d4079b5e0a534db6d4f995efb05e6ee2e"
+      },
+      {
+        "path": "zpa/data_source_zpa_pra_console.go",
+        "sha256": "c522f7c6d3168566a96f2241973f202db2e182c064dc4575693e5802bf2cb4ad"
+      },
+      {
+        "path": "zpa/data_source_zpa_pra_credential_controller.go",
+        "sha256": "cea53923725b09150e81ec4f1c061ed128e829adb2591817e92cba785b135fe7"
+      },
+      {
+        "path": "zpa/data_source_zpa_pra_credential_pool.go",
+        "sha256": "46dd0c7d2840bf4c162cafd4b6f173aa201ab53b6263fdb07022ac7a94b758c4"
+      },
+      {
+        "path": "zpa/data_source_zpa_pra_portal_controller.go",
+        "sha256": "a726a81ee12de44e5ee73d003f7f4bba6a564e15b4ee98e964fce79c4bc5cbff"
+      },
+      {
+        "path": "zpa/data_source_zpa_private_cloud.go",
+        "sha256": "7527da7f30c796afed86db9594e17d54a87dd7dab21d4291bb927467d1e14d6a"
+      },
+      {
+        "path": "zpa/data_source_zpa_private_cloud_controller.go",
+        "sha256": "a468785e7ba7adf9ca623bf1b846d1c9783e9ca854d8c075f38b2187ddefd38b"
+      },
+      {
+        "path": "zpa/data_source_zpa_private_cloud_group.go",
+        "sha256": "3122449d434877d4eb34b45289375d2eb9cccbb028f5e2cd1922f22039901f27"
+      },
+      {
+        "path": "zpa/data_source_zpa_provisioning_key.go",
+        "sha256": "9ad2f6734c2f33fd309db1f65addde38e456fdddf15397573363b4dd69a4a38f"
+      },
+      {
+        "path": "zpa/data_source_zpa_risk_score_values.go",
+        "sha256": "50432c69a1661c57a88d93d0b203dbe3cc0b57a4decf41d6c63b7ebd65244f7a"
+      },
+      {
+        "path": "zpa/data_source_zpa_saml_attribute.go",
+        "sha256": "75717fd248d62390765b2013a319041c8e20a942588bc833136ec25582070b82"
+      },
+      {
+        "path": "zpa/data_source_zpa_scim_attribute_header.go",
+        "sha256": "71c2ed63ca36444febe758c7c837f3efaefa63328f5dd2e1c0c9747d926940ee"
+      },
+      {
+        "path": "zpa/data_source_zpa_scim_group.go",
+        "sha256": "6a5c914998b106c2455ddab02747fe69c53e207d795ed052a142a566e4d3b774"
+      },
+      {
+        "path": "zpa/data_source_zpa_segment_group.go",
+        "sha256": "6c3e68d06f8c9e1d21cab21eb67dca63e34bb4a2be256ae4228852e3e341ab45"
+      },
+      {
+        "path": "zpa/data_source_zpa_server_group.go",
+        "sha256": "6fc895a36f3133a6ce7a538a1209aa4ccdb25168456dcc10e866214525273904"
+      },
+      {
+        "path": "zpa/data_source_zpa_service_edge.go",
+        "sha256": "29d3bd2854e00a9a062c9acd1ccd56c45e11a08e523d4b4c8cfa8270fc5da22b"
+      },
+      {
+        "path": "zpa/data_source_zpa_service_edge_assistant_schedule.go",
+        "sha256": "30abf439b4643b38729ad823916d2fcd98f53ef4c9b468711b5652bb2e762603"
+      },
+      {
+        "path": "zpa/data_source_zpa_service_edge_group.go",
+        "sha256": "1a99186729c4d5887bc476100f8f3c264ad9eb343af5d4ffcec18875c73b5519"
+      },
+      {
+        "path": "zpa/data_source_zpa_tag_group.go",
+        "sha256": "677bece65b34d73f393d70ea5887f26e487385458ade3b88b9c718daa61d74f2"
+      },
+      {
+        "path": "zpa/data_source_zpa_tag_key.go",
+        "sha256": "6acccc0f8c7f52c8c2938a2b70729dd74199e9695b8f51e6d90a671a5a1f2d0a"
+      },
+      {
+        "path": "zpa/data_source_zpa_tag_namespace.go",
+        "sha256": "34d28fbd66e350f49d62872bd37713d393e163a48a67e2cc7d9c561139866b20"
+      },
+      {
+        "path": "zpa/data_source_zpa_trusted_network.go",
+        "sha256": "b8ea365cbfbe16cc182b73c976958accd1f93913a4b48bcf90110afcdca4ba90"
+      },
+      {
+        "path": "zpa/data_source_zpa_user_portal_aup.go",
+        "sha256": "6f21afe3680043875ba14b8fb9a7125b851a33c92fab44ba8dd0439c8fb77465"
+      },
+      {
+        "path": "zpa/data_source_zpa_user_portal_controller.go",
+        "sha256": "97176bb14bfc182870cbe83dbf6f23ca12bf1ff6816ea760b0638a76e19e3f07"
+      },
+      {
+        "path": "zpa/data_source_zpa_user_portal_link.go",
+        "sha256": "6402d618e58f3aa01608a1df14d6765a1ded9d1710ec91a7b4edd946c7a98baf"
+      },
+      {
+        "path": "zpa/data_source_zpa_workload_tag_group.go",
+        "sha256": "9a6ca41f7c036d541d158ebe8471234951ee6597f032a065f5c432e7dd39059e"
+      },
+      {
+        "path": "zpa/provider.go",
+        "sha256": "c36f4fb5ef333a72ce8752fc965ab13bd519539c243ecd263ac60ee4afc8648d"
+      },
+      {
+        "path": "zpa/resource_zpa_app_connector_assistant_schedule.go",
+        "sha256": "ce5bd5943d059d063747012eae42566a1581e4992a3c8302d33ace136b8a79d7"
+      },
+      {
+        "path": "zpa/resource_zpa_app_connector_group.go",
+        "sha256": "eef7ad6ee67c88c097cbe334f66903ce2c0bf536704b06eb5ccb98e4d989d98c"
+      },
+      {
+        "path": "zpa/resource_zpa_app_server_controller.go",
+        "sha256": "7a62ca6ffc7811a837e83a9b6a8ac0bba927b0cf8402c947cbaf5033b35aa222"
+      },
+      {
+        "path": "zpa/resource_zpa_application_segment.go",
+        "sha256": "d56712483e311f013073f03eb8f093b1f84c4819abf4b33214927c5e49859179"
+      },
+      {
+        "path": "zpa/resource_zpa_application_segment_browser_access.go",
+        "sha256": "0f8898231942d47c5860c32c888a9ffeb81421bd97657a92f3fbbaec2775bf53"
+      },
+      {
+        "path": "zpa/resource_zpa_application_segment_inspection.go",
+        "sha256": "723837a3710b929514ac4c755b36ef0b828318e807640ae6692b2e0b27e5c145"
+      },
+      {
+        "path": "zpa/resource_zpa_application_segment_multimatch_bulk.go",
+        "sha256": "660398b8e5b6e27af38d454671f85a56e707b7e09ef1448cb3f385b3a23d8d9d"
+      },
+      {
+        "path": "zpa/resource_zpa_application_segment_pra.go",
+        "sha256": "d1c7c381dac4f829bda8f58732ce4370d32a999f95774ece30aa9739544e133c"
+      },
+      {
+        "path": "zpa/resource_zpa_application_segment_weightedlb_config.go",
+        "sha256": "7bf0c5d00ee43f0e3d766c7517794d9d424e333d65aa4fd5cd41556e3cc99e01"
+      },
+      {
+        "path": "zpa/resource_zpa_ba_certificate.go",
+        "sha256": "18f60b420010e486a0b14da1f9d04521be1629fac3df99cae716cc9d89d0eb61"
+      },
+      {
+        "path": "zpa/resource_zpa_browser_protection.go",
+        "sha256": "7378bf72415e73a001e2baaabd2d87c66f4557328eff1c4336d201d9501deafc"
+      },
+      {
+        "path": "zpa/resource_zpa_c2c_ip_ranges.go",
+        "sha256": "978b6961262c6a55621bbb20874c0b48756a03f3ef956cd1244239d718e90fec"
+      },
+      {
+        "path": "zpa/resource_zpa_cloud_browser_isolation_banner.go",
+        "sha256": "1d239b1710fcf3d42c7b98aed72631322cd8317ca545cf420260c25da4cf8041"
+      },
+      {
+        "path": "zpa/resource_zpa_cloud_browser_isolation_certificate.go",
+        "sha256": "0f4e37d956dbca3b25eed9a1b7cca13c58e58172bb4ed420408be953e75304aa"
+      },
+      {
+        "path": "zpa/resource_zpa_cloud_browser_isolation_external_profile.go",
+        "sha256": "080d860882b19aa28650427950f227ab02a81f7739946ebd6d8ae6fe4d7e6c18"
+      },
+      {
+        "path": "zpa/resource_zpa_cloud_config.go",
+        "sha256": "f888ba8e8fd8c0d1689ffa7af05a5841847020c019d4cbd2d6555d2b2ada44af"
+      },
+      {
+        "path": "zpa/resource_zpa_emergency_access.go",
+        "sha256": "86c963da5232f8b74bea5c71b4812c1e0036ab93e059441b14e6e9f67cd810a3"
+      },
+      {
+        "path": "zpa/resource_zpa_inspection_custom_controls.go",
+        "sha256": "ab7799b068a886989cfbb76d53374c5dfdaccbb448eb5d956458e84bef36d85b"
+      },
+      {
+        "path": "zpa/resource_zpa_inspection_profile.go",
+        "sha256": "b4fccfecec512f804c5aeee2721f331f171e456917cdbe7b2966e304e802c2b0"
+      },
+      {
+        "path": "zpa/resource_zpa_lss_config_controller.go",
+        "sha256": "f6b2dd89c03aae4c26f5122813c9e1cdf78f023dd331f4862b984b0833a4e340"
+      },
+      {
+        "path": "zpa/resource_zpa_microtenant_controller.go",
+        "sha256": "89382cc2f19ccb5d885b65566ea8b0f06e0197d56128cb2fc83d6373a9f12ab0"
+      },
+      {
+        "path": "zpa/resource_zpa_policy_access_browser_protection_rule_v2.go",
+        "sha256": "be3d0dccfba9fce87a056f158d136dfac3f0a09d3995bd76d53a2f619167bad5"
+      },
+      {
+        "path": "zpa/resource_zpa_policy_access_forwarding_rule.go",
+        "sha256": "26fd4ba25475001dd7a201a5afe5f10d9b166d50d87841645300832d12ab06d1"
+      },
+      {
+        "path": "zpa/resource_zpa_policy_access_forwarding_rule_v2.go",
+        "sha256": "a48f772b65d6c2f35ce2c02decc47e090191041aee49f4896285524ae4d3e55d"
+      },
+      {
+        "path": "zpa/resource_zpa_policy_access_inspection_rule.go",
+        "sha256": "3629105e4433106ae0754df1c1c2a6891047a67c719b9aa52a637376bc032ed4"
+      },
+      {
+        "path": "zpa/resource_zpa_policy_access_inspection_rule_v2.go",
+        "sha256": "a9424390c7674d46c025d7ac54e746bd577980d66a4a20597bb4bb8b75ed9d14"
+      },
+      {
+        "path": "zpa/resource_zpa_policy_access_isolation_rule.go",
+        "sha256": "ec018130edac1f64495d8a53edc104f6b2ef195aec443a78600766ab0774dadc"
+      },
+      {
+        "path": "zpa/resource_zpa_policy_access_isolation_rule_v2.go",
+        "sha256": "0711f06def084e861086cd092e189de9f9a0b3b4fee3970f2e42ddebdf2f35b1"
+      },
+      {
+        "path": "zpa/resource_zpa_policy_access_redirection_rule.go",
+        "sha256": "a1dccfa09c3aafd8b104a0b1aa5f1ffd582edf6a3f17620eb22d77f7b6570a41"
+      },
+      {
+        "path": "zpa/resource_zpa_policy_access_rule.go",
+        "sha256": "5b859c2e858bcc3dd55e68eb13321efd851248391c45b11a9c2367517075490e"
+      },
+      {
+        "path": "zpa/resource_zpa_policy_access_rule_reorder.go",
+        "sha256": "c9c72abc4a9598823ce558d97eae553e34534c3b187e5dca77f6c9173303e54d"
+      },
+      {
+        "path": "zpa/resource_zpa_policy_access_rule_v2.go",
+        "sha256": "d3e624bb7b9bb24c5a2db8adfc7f62e7b8da13cdbb4eda05fe6e7f6cbd2954ce"
+      },
+      {
+        "path": "zpa/resource_zpa_policy_access_timeout_rule.go",
+        "sha256": "e324b41c1f55decda48b00fd9a138add38f395025b38cfeb81945ae7d136173f"
+      },
+      {
+        "path": "zpa/resource_zpa_policy_access_timeout_rule_v2.go",
+        "sha256": "215f8cb9aee5249a4bd092db2f67b14482983fe09ec29f9baa69fcb562394d26"
+      },
+      {
+        "path": "zpa/resource_zpa_policy_capabilities_access_rule.go",
+        "sha256": "0c139b8bb446be81f682b1f198551b0aa3e7dea915828d335d3f5da554305ee6"
+      },
+      {
+        "path": "zpa/resource_zpa_policy_credential_access_rule.go",
+        "sha256": "3c9221aef9dde4c55ed8dcc68846b5aafe0e3fc4eb73a958de700fc55c54afae"
+      },
+      {
+        "path": "zpa/resource_zpa_policy_portal_access_rule.go",
+        "sha256": "eb31fe04dca0e110fd7efd7a0d93ad6c8097072d3f74884b94494ace6fbdd0aa"
+      },
+      {
+        "path": "zpa/resource_zpa_pra_approval.go",
+        "sha256": "fbabdbfd8f302c7c9248be9fa7ae26ef50209bd4e2fa6ad003f500c4110ba6e0"
+      },
+      {
+        "path": "zpa/resource_zpa_pra_console_controller.go",
+        "sha256": "01fe6cbad971fd908f82e96d8b50e923eda953a0ec03531fa9eeaaf88de5d9ce"
+      },
+      {
+        "path": "zpa/resource_zpa_pra_credential_controller.go",
+        "sha256": "d9d376041ed1f81b29b1d7e110f9ef4bbe2fae6e41f60ac8bba7200456caa2a3"
+      },
+      {
+        "path": "zpa/resource_zpa_pra_credential_pool.go",
+        "sha256": "cfa9930414e18537f24a2c4669b09ec30aa933f7b9e6e03bdd323d9831a9a176"
+      },
+      {
+        "path": "zpa/resource_zpa_pra_portal_controller.go",
+        "sha256": "6e7ad4db627a1c1e3082290b484d20a802e6e011fd14e95981b53af8358b2011"
+      },
+      {
+        "path": "zpa/resource_zpa_private_cloud.go",
+        "sha256": "896a9ee455e4ddfaa7b335eacb52f4c1903584ddab95bfcd59de59b262ebb2ac"
+      },
+      {
+        "path": "zpa/resource_zpa_private_cloud_group.go",
+        "sha256": "8b9dcccbdb218bd349ea4e589c6ad13178a684b78ad8525d50649032e99c1107"
+      },
+      {
+        "path": "zpa/resource_zpa_provisioning_key.go",
+        "sha256": "538526fdde491a1c18744b7ea56a2c34c6a1ff676aebca1b8f2298dc9715c95d"
+      },
+      {
+        "path": "zpa/resource_zpa_segment_group.go",
+        "sha256": "841c70773bd27ec001b3d2ef7105916f48c55260c023038b54c53243c61837ef"
+      },
+      {
+        "path": "zpa/resource_zpa_server_group.go",
+        "sha256": "c6e146dc7bb8d36fa90ef155610c508122c9a3d1a28c04eaa79425e029bfb180"
+      },
+      {
+        "path": "zpa/resource_zpa_service_edge_assistant_schedule.go",
+        "sha256": "46b413d0c892abd6ad7f211b445b2a88667a3e960dc21bd2350b60190a97225a"
+      },
+      {
+        "path": "zpa/resource_zpa_service_edge_group.go",
+        "sha256": "424b463792858b4acbce5983fc2cca3d7b678791bc6d7a585996d3c8f858c424"
+      },
+      {
+        "path": "zpa/resource_zpa_tag_group.go",
+        "sha256": "2777fce582aba6e2acea80830c10b99f42721161c4e28005cce09e548f5b42d3"
+      },
+      {
+        "path": "zpa/resource_zpa_tag_key.go",
+        "sha256": "bdf9e0d18f6e9610104e0008b51836771f7e022ca28182a3e71de43a919609f2"
+      },
+      {
+        "path": "zpa/resource_zpa_tag_namespace.go",
+        "sha256": "0e453335134a8f41e7ec0c7ea2cfa8fb6690fda7d70b07b53062d55d042a2f15"
+      },
+      {
+        "path": "zpa/resource_zpa_user_portal_aup.go",
+        "sha256": "2e196e74bd0fafd77effb1004d4ee70f7cf887f9755cbaeef5156223002414cb"
+      },
+      {
+        "path": "zpa/resource_zpa_user_portal_controller.go",
+        "sha256": "c755a8af5d7a5c50e6f48bcec40c5d9b76842f1679c6d825a7d60542583ec8b9"
+      },
+      {
+        "path": "zpa/resource_zpa_user_portal_link.go",
+        "sha256": "aa2ade27df62ee607f963c6e16806a124f7580125ce360f9470bc1bd98e1e714"
+      },
+      {
+        "path": "zpa/utils.go",
+        "sha256": "52aad9adf5a4e49117da745592efaf96b76efd49802a9a468e183ff42d89e637"
+      },
+      {
+        "path": "zpa/validator.go",
+        "sha256": "1eb70e56ad0643da480789669d4fb8c5e48a7638a0eedc359013986c8d879f2b"
+      },
+      {
+        "path": "zpa/version.go",
+        "sha256": "e976ff53fce6386920d09dedb600c9388bb6be34d5932b14db4df95a4e18020d"
+      }
+    ],
+    "module_path": "github.com/zscaler/terraform-provider-zpa/v4",
+    "repository": "https://github.com/zscaler/terraform-provider-zpa",
+    "revision": "dcf12469a9a8f648be0691c74e9816fc94ec7ddc",
+    "tree_sha256": "78fda0a980f34f051b7f30c3dd413921099d10144834542d7810dba87de6ed7c"
+  },
+  "provider_module": {
+    "go_mod": {
+      "path": "go.mod",
+      "sha256": "53da6119afb7d0e0bb587e632c7f4550b678fb4d9c4ba0ae90f53a102173b5fd"
+    },
+    "go_sum": {
+      "path": "go.sum",
+      "sha256": "1a66c68fb670ca5846d3b0bd18edc1b0f47973e82de264fa4f75295b5d9a4c21"
+    },
+    "local_replaces": []
+  },
+  "schema_version": 1,
+  "sdks": [
+    {
+      "files": [
+        {
+          "path": "go.mod",
+          "sha256": "4c53931cbcb32602ceb91a6495c710449bdfa8feac3688f2a07bf69581c62fbb"
+        },
+        {
+          "path": "zscaler/service.go",
+          "sha256": "dc7a944d621956a212dc8a4f28b8687c9e656658f68a23244199b235e5c6dd9c"
+        },
+        {
+          "path": "zscaler/zpa/services/appconnectorgroup/zpa_app_connector_group.go",
+          "sha256": "48fb6a93ccad7fb178c35101947fc855c3e1754e8aaf329ee6618f1d17349cf7"
+        },
+        {
+          "path": "zscaler/zpa/services/applicationsegment/zpa_application_segment.go",
+          "sha256": "76d4de29f9ee784d7193216f75c258e78f1855bc33884fddddfa54ebaf03f88a"
+        },
+        {
+          "path": "zscaler/zpa/services/appservercontroller/zpa_app_server_controller.go",
+          "sha256": "8e7adc047a4f0fd1718e14425adab4ea34e297072622184b39caad23ce997c84"
+        },
+        {
+          "path": "zscaler/zpa/services/bacertificate/zpa_ba_certificate.go",
+          "sha256": "b33b754204bc0fe8450c707760de369463814dfe50ee103d5ec19bca763d3806"
+        },
+        {
+          "path": "zscaler/zpa/services/common/common.go",
+          "sha256": "0ca73b534a71e7530a4c6b9c8e7f6d57d6404876d8a815b906a5fbf8d6cc81c0"
+        },
+        {
+          "path": "zscaler/zpa/services/emergencyaccess/emergencyaccess.go",
+          "sha256": "311efd4489417f92db24ac4b3213a8597a57edc64457ab060ff869ae828a3405"
+        },
+        {
+          "path": "zscaler/zpa/services/inspectioncontrol/inspection_custom_controls/zpa_inspection_custom_controls.go",
+          "sha256": "c0fd2ed3623a0b8675638042612c3045b6bf9d6edf375e3ce52d2ede476d1ad7"
+        },
+        {
+          "path": "zscaler/zpa/services/inspectioncontrol/inspection_profile/zpa_inspection_profile.go",
+          "sha256": "605380ebaa773a45d432a96064c5ae12174d6b0217117ade91247ba817d39234"
+        },
+        {
+          "path": "zscaler/zpa/services/microtenants/microtenants.go",
+          "sha256": "94228900ba3bebea5001bdff1c60b84b8d7ce1a3e364b17f04bb38501c07fa27"
+        },
+        {
+          "path": "zscaler/zpa/services/policysetcontroller/policysetcontroller.go",
+          "sha256": "41a8eaf6246a461bd140d330327e93558829ff88abd408e929f1764ba4c78ce6"
+        },
+        {
+          "path": "zscaler/zpa/services/privilegedremoteaccess/praapproval/praapproval.go",
+          "sha256": "74932267426868699212b87cd070763ce20c61a77468da7195cdd9261906c572"
+        },
+        {
+          "path": "zscaler/zpa/services/privilegedremoteaccess/praconsole/praconsole.go",
+          "sha256": "b25ffffc69db457614c41b026d1b81d05f94c98607e0a84d8791eb2227281d5f"
+        },
+        {
+          "path": "zscaler/zpa/services/privilegedremoteaccess/pracredential/credential_controller.go",
+          "sha256": "c0b1dcb6061bb501f9bab937d69fba501827ed44ce1bcdc4ff0321e5623f42f6"
+        },
+        {
+          "path": "zscaler/zpa/services/privilegedremoteaccess/praportal/praportal.go",
+          "sha256": "faa825cec0a9681b5cb6b374ff9feeb3850ecefd5a9b990e23e9b181336b599a"
+        },
+        {
+          "path": "zscaler/zpa/services/segmentgroup/zpa_segment_group.go",
+          "sha256": "8a5861ff8ba3e863baa4b4d9330922f970cc5ffd1c02c03622bbfe15814d4fb5"
+        },
+        {
+          "path": "zscaler/zpa/services/servergroup/zpa_server_group.go",
+          "sha256": "04703e8a2371be31a6aca8b9720d3ee1b3cb3b662e0bb64abc4d56c07b0f3e7a"
+        },
+        {
+          "path": "zscaler/zpa/services/serviceedgegroup/zpa_service_edge_group.go",
+          "sha256": "0c948931a364c88b6ec99ad5b64fdb1387ac6ce75e84829bf544cc6646be98fd"
+        },
+        {
+          "path": "zscaler/zparequests.go",
+          "sha256": "acdd4f3574622d3cadf9baca2f9ad76757dda0585a062a4432030e4aa34413af"
+        }
+      ],
+      "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
+      "module_version": "v3.8.40",
+      "repository": "https://github.com/zscaler/zscaler-sdk-go",
+      "revision": null,
+      "tree_sha256": "bb09df1ca7ab79c3949f228040cc8c01757cb6cd8c0f315e2f3b494ea22e0392"
+    }
+  ],
+  "selection": {
+    "filters": [],
+    "resource_types": [
+      "zpa_app_connector_group",
+      "zpa_application_segment",
+      "zpa_application_server",
+      "zpa_ba_certificate",
+      "zpa_emergency_access_user",
+      "zpa_inspection_custom_controls",
+      "zpa_inspection_profile",
+      "zpa_microtenant_controller",
+      "zpa_policy_access_rule",
+      "zpa_pra_approval_controller",
+      "zpa_pra_console_controller",
+      "zpa_pra_credential_controller",
+      "zpa_pra_portal_controller",
+      "zpa_segment_group",
+      "zpa_server_group",
+      "zpa_service_edge_group"
+    ]
+  },
+  "terraform_schema": {
+    "path": "packs/zpa/schemas/provider/zpa.json",
+    "sha256": "d25ad0fa6eb3671727c64481ba092426c1a74c86c8316bd18b0fcc2bdd9202e6"
+  }
+}

@@ -1,0 +1,705 @@
+{
+  "scope": [
+    {
+      "name": "dot-overlay-all-kinds",
+      "result": {
+        "kind": "infrawright.changed_path_scope",
+        "schema_version": 1,
+        "paths": [
+          "/var/folders/9t/8jwdl4dx3n588h55qb56d1km0000gn/T/scope-plan-probe-4aV5n9/deployment.json",
+          "config/acme/zpa_alpha_one.expressions.json",
+          "config/acme/zpa_alpha_one.generated.expressions.json",
+          "envs/acme/zpa_alpha",
+          "imports/acme/zpa_alpha_two_imports.tf",
+          "modules/zpa_alpha_two/main.tf"
+        ],
+        "path_matches": [
+          {
+            "path": "/var/folders/9t/8jwdl4dx3n588h55qb56d1km0000gn/T/scope-plan-probe-4aV5n9/deployment.json",
+            "kinds": [
+              "deployment"
+            ],
+            "tenants": [],
+            "resources": [
+              "zpa_alpha_one",
+              "zpa_alpha_two",
+              "zpa_derived_reorder"
+            ],
+            "roots": [
+              "zpa_alpha",
+              "zpa_derived_reorder"
+            ]
+          },
+          {
+            "path": "config/acme/zpa_alpha_one.expressions.json",
+            "kinds": [
+              "config"
+            ],
+            "tenants": [
+              "acme"
+            ],
+            "resources": [
+              "zpa_alpha_one"
+            ],
+            "roots": [
+              "zpa_alpha"
+            ]
+          },
+          {
+            "path": "config/acme/zpa_alpha_one.generated.expressions.json",
+            "kinds": [
+              "config"
+            ],
+            "tenants": [
+              "acme"
+            ],
+            "resources": [
+              "zpa_alpha_one"
+            ],
+            "roots": [
+              "zpa_alpha"
+            ]
+          },
+          {
+            "path": "envs/acme/zpa_alpha",
+            "kinds": [
+              "env_root"
+            ],
+            "tenants": [
+              "acme"
+            ],
+            "resources": [
+              "zpa_alpha_one",
+              "zpa_alpha_two"
+            ],
+            "roots": [
+              "zpa_alpha"
+            ]
+          },
+          {
+            "path": "imports/acme/zpa_alpha_two_imports.tf",
+            "kinds": [
+              "imports"
+            ],
+            "tenants": [
+              "acme"
+            ],
+            "resources": [
+              "zpa_alpha_two"
+            ],
+            "roots": [
+              "zpa_alpha"
+            ]
+          },
+          {
+            "path": "modules/zpa_alpha_two/main.tf",
+            "kinds": [
+              "module"
+            ],
+            "tenants": [],
+            "resources": [
+              "zpa_alpha_two"
+            ],
+            "roots": [
+              "zpa_alpha"
+            ]
+          }
+        ],
+        "unmatched_paths": [],
+        "affected_resources": [
+          "zpa_alpha_one",
+          "zpa_alpha_two",
+          "zpa_derived_reorder"
+        ],
+        "affected_roots": [
+          {
+            "label": "zpa_alpha",
+            "provider": "zpa",
+            "members": [
+              "zpa_alpha_one",
+              "zpa_alpha_two"
+            ],
+            "matched_resources": [
+              "zpa_alpha_one",
+              "zpa_alpha_two"
+            ],
+            "paths": [
+              "/var/folders/9t/8jwdl4dx3n588h55qb56d1km0000gn/T/scope-plan-probe-4aV5n9/deployment.json",
+              "config/acme/zpa_alpha_one.expressions.json",
+              "config/acme/zpa_alpha_one.generated.expressions.json",
+              "envs/acme/zpa_alpha",
+              "imports/acme/zpa_alpha_two_imports.tf",
+              "modules/zpa_alpha_two/main.tf"
+            ]
+          },
+          {
+            "label": "zpa_derived_reorder",
+            "provider": "zpa",
+            "members": [
+              "zpa_derived_reorder"
+            ],
+            "matched_resources": [
+              "zpa_derived_reorder"
+            ],
+            "paths": [
+              "/var/folders/9t/8jwdl4dx3n588h55qb56d1km0000gn/T/scope-plan-probe-4aV5n9/deployment.json"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "shared-root-two-resources",
+      "result": {
+        "kind": "infrawright.changed_path_scope",
+        "schema_version": 1,
+        "paths": [
+          "config/acme/zpa_alpha_one.auto.tfvars.json",
+          "config/acme/zpa_alpha_two.auto.tfvars"
+        ],
+        "path_matches": [
+          {
+            "path": "config/acme/zpa_alpha_one.auto.tfvars.json",
+            "kinds": [
+              "config"
+            ],
+            "tenants": [
+              "acme"
+            ],
+            "resources": [
+              "zpa_alpha_one"
+            ],
+            "roots": [
+              "zpa_alpha"
+            ]
+          },
+          {
+            "path": "config/acme/zpa_alpha_two.auto.tfvars",
+            "kinds": [
+              "config"
+            ],
+            "tenants": [
+              "acme"
+            ],
+            "resources": [
+              "zpa_alpha_two"
+            ],
+            "roots": [
+              "zpa_alpha"
+            ]
+          }
+        ],
+        "unmatched_paths": [],
+        "affected_resources": [
+          "zpa_alpha_one",
+          "zpa_alpha_two"
+        ],
+        "affected_roots": [
+          {
+            "label": "zpa_alpha",
+            "provider": "zpa",
+            "members": [
+              "zpa_alpha_one",
+              "zpa_alpha_two"
+            ],
+            "matched_resources": [
+              "zpa_alpha_one",
+              "zpa_alpha_two"
+            ],
+            "paths": [
+              "config/acme/zpa_alpha_one.auto.tfvars.json",
+              "config/acme/zpa_alpha_two.auto.tfvars"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "config-suffix-longest-match",
+      "result": {
+        "kind": "infrawright.changed_path_scope",
+        "schema_version": 1,
+        "paths": [
+          "config/acme/zpa_alpha_one.auto.tfvars.json"
+        ],
+        "path_matches": [
+          {
+            "path": "config/acme/zpa_alpha_one.auto.tfvars.json",
+            "kinds": [
+              "config"
+            ],
+            "tenants": [
+              "acme"
+            ],
+            "resources": [
+              "zpa_alpha_one"
+            ],
+            "roots": [
+              "zpa_alpha"
+            ]
+          }
+        ],
+        "unmatched_paths": [],
+        "affected_resources": [
+          "zpa_alpha_one"
+        ],
+        "affected_roots": [
+          {
+            "label": "zpa_alpha",
+            "provider": "zpa",
+            "members": [
+              "zpa_alpha_one",
+              "zpa_alpha_two"
+            ],
+            "matched_resources": [
+              "zpa_alpha_one"
+            ],
+            "paths": [
+              "config/acme/zpa_alpha_one.auto.tfvars.json"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "unnormalized-overlay",
+      "result": {
+        "kind": "infrawright.changed_path_scope",
+        "schema_version": 1,
+        "paths": [
+          "artifacts/current/config/acme/zpa_alpha_one.lookup.json"
+        ],
+        "path_matches": [
+          {
+            "path": "artifacts/current/config/acme/zpa_alpha_one.lookup.json",
+            "kinds": [
+              "config"
+            ],
+            "tenants": [
+              "acme"
+            ],
+            "resources": [
+              "zpa_alpha_one"
+            ],
+            "roots": [
+              "zpa_alpha"
+            ]
+          }
+        ],
+        "unmatched_paths": [],
+        "affected_resources": [
+          "zpa_alpha_one"
+        ],
+        "affected_roots": [
+          {
+            "label": "zpa_alpha",
+            "provider": "zpa",
+            "members": [
+              "zpa_alpha_one",
+              "zpa_alpha_two"
+            ],
+            "matched_resources": [
+              "zpa_alpha_one"
+            ],
+            "paths": [
+              "artifacts/current/config/acme/zpa_alpha_one.lookup.json"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "explicit-module-dir",
+      "result": {
+        "kind": "infrawright.changed_path_scope",
+        "schema_version": 1,
+        "paths": [
+          "custom/modules/zpa_alpha_one/main.tf"
+        ],
+        "path_matches": [
+          {
+            "path": "custom/modules/zpa_alpha_one/main.tf",
+            "kinds": [
+              "module"
+            ],
+            "tenants": [],
+            "resources": [
+              "zpa_alpha_one"
+            ],
+            "roots": [
+              "zpa_alpha"
+            ]
+          }
+        ],
+        "unmatched_paths": [],
+        "affected_resources": [
+          "zpa_alpha_one"
+        ],
+        "affected_roots": [
+          {
+            "label": "zpa_alpha",
+            "provider": "zpa",
+            "members": [
+              "zpa_alpha_one",
+              "zpa_alpha_two"
+            ],
+            "matched_resources": [
+              "zpa_alpha_one"
+            ],
+            "paths": [
+              "custom/modules/zpa_alpha_one/main.tf"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "no-tenant-validation",
+      "result": {
+        "kind": "infrawright.changed_path_scope",
+        "schema_version": 1,
+        "paths": [
+          "config/bad tenant!/zpa_alpha_one.auto.tfvars.json"
+        ],
+        "path_matches": [
+          {
+            "path": "config/bad tenant!/zpa_alpha_one.auto.tfvars.json",
+            "kinds": [
+              "config"
+            ],
+            "tenants": [
+              "bad tenant!"
+            ],
+            "resources": [
+              "zpa_alpha_one"
+            ],
+            "roots": [
+              "zpa_alpha"
+            ]
+          }
+        ],
+        "unmatched_paths": [],
+        "affected_resources": [
+          "zpa_alpha_one"
+        ],
+        "affected_roots": [
+          {
+            "label": "zpa_alpha",
+            "provider": "zpa",
+            "members": [
+              "zpa_alpha_one",
+              "zpa_alpha_two"
+            ],
+            "matched_resources": [
+              "zpa_alpha_one"
+            ],
+            "paths": [
+              "config/bad tenant!/zpa_alpha_one.auto.tfvars.json"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "non-array-paths",
+      "error": {
+        "code": "INVALID_CHANGED_PATHS",
+        "category": "domain",
+        "message": "changed paths must be a JSON array or repeated --path"
+      }
+    },
+    {
+      "name": "empty-string-path",
+      "error": {
+        "code": "INVALID_CHANGED_PATHS",
+        "category": "domain",
+        "message": "changed path at index 0 must be a non-empty string"
+      }
+    },
+    {
+      "name": "embedded-nul-path",
+      "error": {
+        "code": "INVALID_CHANGED_PATHS",
+        "category": "domain",
+        "message": "changed path at index 0 contains an embedded null character"
+      }
+    },
+    {
+      "name": "non-string-overlay",
+      "error": {
+        "code": "INVALID_DEPLOYMENT",
+        "category": "domain",
+        "message": "deployment overlay must be a string when paths are scoped"
+      }
+    },
+    {
+      "name": "unmatched-path",
+      "result": {
+        "kind": "infrawright.changed_path_scope",
+        "schema_version": 1,
+        "paths": [
+          "completely/unrelated/path.txt"
+        ],
+        "path_matches": [],
+        "unmatched_paths": [
+          "completely/unrelated/path.txt"
+        ],
+        "affected_resources": [],
+        "affected_roots": []
+      }
+    }
+  ],
+  "plan": [
+    {
+      "name": "complete-incomplete-absent-and-unknown-root-across-tenants",
+      "result": {
+        "result": {
+          "kind": "infrawright.plan_roots",
+          "schema_version": 1,
+          "request": {
+            "tenant": null,
+            "selectors": []
+          },
+          "roots": [
+            {
+              "tenant": "acme",
+              "label": "zpa_alpha",
+              "provider": "zpa",
+              "members": [
+                "zpa_alpha_one",
+                "zpa_alpha_two"
+              ],
+              "env_dir": "envs/acme/zpa_alpha",
+              "artifact_state": "complete",
+              "artifacts": {
+                "tfplan": {
+                  "path": "envs/acme/zpa_alpha/tfplan",
+                  "exists": true
+                },
+                "tfplan_sources": {
+                  "path": "envs/acme/zpa_alpha/tfplan.sources",
+                  "exists": true
+                }
+              }
+            },
+            {
+              "tenant": "acme",
+              "label": "zpa_derived_reorder",
+              "provider": "zpa",
+              "members": [
+                "zpa_derived_reorder"
+              ],
+              "env_dir": "envs/acme/zpa_derived_reorder",
+              "artifact_state": "incomplete",
+              "artifacts": {
+                "tfplan": {
+                  "path": "envs/acme/zpa_derived_reorder/tfplan",
+                  "exists": true
+                },
+                "tfplan_sources": {
+                  "path": "envs/acme/zpa_derived_reorder/tfplan.sources",
+                  "exists": false
+                }
+              }
+            },
+            {
+              "tenant": "other",
+              "label": "zpa_alpha",
+              "provider": "zpa",
+              "members": [
+                "zpa_alpha_one",
+                "zpa_alpha_two"
+              ],
+              "env_dir": "envs/other/zpa_alpha",
+              "artifact_state": "absent",
+              "artifacts": {
+                "tfplan": {
+                  "path": "envs/other/zpa_alpha/tfplan",
+                  "exists": false
+                },
+                "tfplan_sources": {
+                  "path": "envs/other/zpa_alpha/tfplan.sources",
+                  "exists": false
+                }
+              }
+            }
+          ]
+        },
+        "diagnostics": []
+      }
+    },
+    {
+      "name": "tenant-scoped-excludes-other-tenants",
+      "result": {
+        "result": {
+          "kind": "infrawright.plan_roots",
+          "schema_version": 1,
+          "request": {
+            "tenant": "acme",
+            "selectors": []
+          },
+          "roots": [
+            {
+              "tenant": "acme",
+              "label": "zpa_alpha",
+              "provider": "zpa",
+              "members": [
+                "zpa_alpha_one",
+                "zpa_alpha_two"
+              ],
+              "env_dir": "envs/acme/zpa_alpha",
+              "artifact_state": "complete",
+              "artifacts": {
+                "tfplan": {
+                  "path": "envs/acme/zpa_alpha/tfplan",
+                  "exists": true
+                },
+                "tfplan_sources": {
+                  "path": "envs/acme/zpa_alpha/tfplan.sources",
+                  "exists": true
+                }
+              }
+            },
+            {
+              "tenant": "acme",
+              "label": "zpa_derived_reorder",
+              "provider": "zpa",
+              "members": [
+                "zpa_derived_reorder"
+              ],
+              "env_dir": "envs/acme/zpa_derived_reorder",
+              "artifact_state": "incomplete",
+              "artifacts": {
+                "tfplan": {
+                  "path": "envs/acme/zpa_derived_reorder/tfplan",
+                  "exists": true
+                },
+                "tfplan_sources": {
+                  "path": "envs/acme/zpa_derived_reorder/tfplan.sources",
+                  "exists": false
+                }
+              }
+            }
+          ]
+        },
+        "diagnostics": []
+      }
+    },
+    {
+      "name": "partial-selector-materializes-whole-root-with-diagnostic",
+      "result": {
+        "result": {
+          "kind": "infrawright.plan_roots",
+          "schema_version": 1,
+          "request": {
+            "tenant": null,
+            "selectors": [
+              "zpa_alpha_one"
+            ]
+          },
+          "roots": [
+            {
+              "tenant": "acme",
+              "label": "zpa_alpha",
+              "provider": "zpa",
+              "members": [
+                "zpa_alpha_one",
+                "zpa_alpha_two"
+              ],
+              "env_dir": "envs/acme/zpa_alpha",
+              "artifact_state": "complete",
+              "artifacts": {
+                "tfplan": {
+                  "path": "envs/acme/zpa_alpha/tfplan",
+                  "exists": true
+                },
+                "tfplan_sources": {
+                  "path": "envs/acme/zpa_alpha/tfplan.sources",
+                  "exists": true
+                }
+              }
+            },
+            {
+              "tenant": "other",
+              "label": "zpa_alpha",
+              "provider": "zpa",
+              "members": [
+                "zpa_alpha_one",
+                "zpa_alpha_two"
+              ],
+              "env_dir": "envs/other/zpa_alpha",
+              "artifact_state": "absent",
+              "artifacts": {
+                "tfplan": {
+                  "path": "envs/other/zpa_alpha/tfplan",
+                  "exists": false
+                },
+                "tfplan_sources": {
+                  "path": "envs/other/zpa_alpha/tfplan.sources",
+                  "exists": false
+                }
+              }
+            }
+          ]
+        },
+        "diagnostics": [
+          {
+            "level": "note",
+            "code": "WHOLE_ROOT_SELECTION",
+            "message": "selecting zpa_alpha_one selects whole root zpa_alpha; also operating on zpa_alpha_two",
+            "selected_members": [
+              "zpa_alpha_one"
+            ],
+            "root": "zpa_alpha",
+            "additional_members": [
+              "zpa_alpha_two"
+            ]
+          },
+          {
+            "level": "note",
+            "code": "WHOLE_ROOT_SELECTION",
+            "message": "selecting zpa_alpha_one selects whole root zpa_alpha; also operating on zpa_alpha_two",
+            "selected_members": [
+              "zpa_alpha_one"
+            ],
+            "root": "zpa_alpha",
+            "additional_members": [
+              "zpa_alpha_two"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown-selector-fails-closed",
+      "error": {
+        "code": "UNKNOWN_RESOURCE_SELECTOR",
+        "category": "domain",
+        "message": "unknown or non-generated resource selector(s): not_a_real_resource"
+      }
+    },
+    {
+      "name": "invalid-tenant-fails-closed",
+      "error": {
+        "code": "INVALID_TENANT",
+        "category": "domain",
+        "message": "TENANT must match [A-Za-z0-9_.-]+ and not be . or .. (got '../escape')"
+      }
+    },
+    {
+      "name": "nonexistent-envs-directory",
+      "result": {
+        "result": {
+          "kind": "infrawright.plan_roots",
+          "schema_version": 1,
+          "request": {
+            "tenant": null,
+            "selectors": []
+          },
+          "roots": []
+        },
+        "diagnostics": []
+      }
+    }
+  ]
+}

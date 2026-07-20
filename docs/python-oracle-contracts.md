@@ -354,9 +354,9 @@ implementation. It regenerates both frozen fixtures and is temporary migration
 evidence; remove it with the final Python archive after this commit is reachable
 in git history.
 
-`node-tests/fixtures/python-source-operation-map-v1.json` is 134,623 bytes
+`node-tests/fixtures/python-source-operation-map-v1.json` is 134,717 bytes
 with SHA-256
-`0fc8279c122179047ac8895424d14ccc3922b30e840d48cfae6ec47d2fbdb767`.
+`8838730fce62480c8622131a47ce41e09153ac7ab12fdc752fd62596dc5376f6`.
 It records all 42 retired Python tests as 39 complete derive reports, two
 exact CLI file-artifact cases, one exact authoring-CLI stdout/stderr case, and
 seven helper authorities. It also freezes all ten distinct reports from the
@@ -368,9 +368,9 @@ ambiguity, relationship lists, synthetic operations, raw REST evidence, and
 all source-file diagnostics. Only each original unittest temporary root is
 replaced with `<FIXTURE_ROOT>`.
 
-`node-tests/fixtures/python-sdk-path-evidence-v1.json` is 43,387 bytes with
+`node-tests/fixtures/python-sdk-path-evidence-v1.json` is 43,489 bytes with
 SHA-256
-`ddc9b9151fcb504fefebcba1b29a3e9f20cf41c7e4406c7b55e2487256843785`.
+`67dc464989cf0f0a748db65d2f1b1593d9aaad46b81fa630f79ced368592cc7b`.
 Its thirteen authorities preserve complete SDK scanner and source-operation
 reports, resolved actions, unresolved diagnostics, AST SDK actions, fuzzy
 fallback, and exact `--sdk-root` CLI registry/diagnostic bytes. The same
@@ -428,14 +428,14 @@ material registry byte fails source validation before capture.
 
 `node-tests/fixtures/python-reconcile-schema-api-v1.json` is 44,402 bytes with
 SHA-256
-`464121fe2e7edcc09861ea046c10aa54d4d101145803d5af13adb41b56c5cbd7`.
+`fff36234703a253bf903b97c2396a8d2d65a7b50b82407eff752eeb86c521004`.
 It preserves nine retired unittest runs as seven complete reconciliation
 reports, five helper results, and one exact CLI case, plus both distinct former
 live Node/Python differential reports and the authoring CLI comparison.
 
 `node-tests/fixtures/python-openapi-resource-map-v1.json` is 771,121 bytes
 with SHA-256
-`e4e25a12a871c895364bce16fe05a8bcd94debd1eddc53de9fc75ca82bc8ce3c`.
+`9ce98cb64a64c519374d582b2f0572896cdaabe25f26ed048f10b63b13a73efc`.
 It preserves thirteen complete retired reports and one exact CLI case, plus all
 six distinct former live Node/Python differential inputs and the authoring CLI
 comparison. The corpus includes ambiguity, wrong-product suppression,
@@ -473,14 +473,14 @@ PYTHON=python3 python -m unittest \
 
 `node-tests/fixtures/python-provider-probe-v1.json` is 29,772 bytes with
 SHA-256
-`235cdbad249822ee70f3b947feffbc802af3a357a8fdf5d108f2454b78838824`.
+`5337acada00b380e79468af316c9caa287a4e1f044b850567a97e58c79e49bf2`.
 It preserves exact bytes for all five artifacts emitted by both retained
 provider-probe cases, including falsey recipe fallbacks. The only normalization
 replaces the exact ephemeral fixture-root prefix with `<fixture-root>`.
 
-`node-tests/fixtures/python-source-evidence-eval-v1.json` is 101,267 bytes
+`node-tests/fixtures/python-source-evidence-eval-v1.json` is 101,369 bytes
 with SHA-256
-`5f94567238aabfc6522b07863b764719ceef7708bc8f55b8e12db13f88bf299e`.
+`dbb55a83ba411d2394ef159d7a940ab772d626306b36032f0cb6dde232a0827c`.
 It preserves complete evaluation objects and exact Markdown for all change
 classifications and shortcoming buckets, the 106-change row-cap case, explicit
 null metrics, and all five exact authoring-CLI artifact files. Its only
@@ -532,22 +532,23 @@ for fixture in python-assessment-cli-v1.json python-differential-v1.json python-
 done
 ```
 
-`node-tests/fixtures/python-assessment-cli-v1.json` records all eight former
-assessment CLI delegations and has SHA-256
-`015f0314d9200a54734e40be11fd2dfb19b5386e2c34ae60813d37823a43a057`.
+`node-tests/fixtures/python-assessment-cli-v1.json` is 219,663 bytes,
+records all eight former assessment CLI delegations, and has SHA-256
+`a6ddc77e4741410bc7f341f42b853ac062857919b5ea922e71602b67c9f8b8bc`.
 The current test compares exact status, stdout, stderr, and report bytes while
 retaining the Node CLI's additive structured diagnostics.
 
-`node-tests/fixtures/python-differential-v1.json` records all thirty former
-topology, scope, plan-root, and root-catalog delegations and has SHA-256
-`339d1cd700aaa15d508292a4bdce651b912fd3485914a9174d4426ca1dbfc739`.
+`node-tests/fixtures/python-differential-v1.json` is 3,633,808 bytes, records
+all thirty former topology, scope, plan-root, and root-catalog delegations, and
+has SHA-256
+`40435c81ea828e94865927ed5e07e6d3f78f604fc3d0c8610beedde547600430`.
 The current tests compare every recorded result in order. Root-catalog cases
 still regenerate the current Node catalog and compare it with the committed
 catalog; they are not frozen-to-frozen self-comparisons.
 
-`node-tests/fixtures/python-plan-cli-v1.json` records all nine former plan CLI
-delegations and has SHA-256
-`e9244e12e7d5ef83f2a545bb21aeb23f784b516423345680a1595218d5251605`.
+`node-tests/fixtures/python-plan-cli-v1.json` is 1,904,503 bytes, records all
+nine former plan CLI delegations, and has SHA-256
+`1aa9b78c6c00c569d6d285dd88aba748c22c5d55cd3979ea40bb28150c726681`.
 The current tests preserve the exact historical status, stdout, and stderr
 comparison boundaries.
 

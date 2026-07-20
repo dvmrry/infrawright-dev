@@ -1,0 +1,24 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://infrawright.local/schemas/openapi-diagnostics-v1.schema.json",
+  "type":"object","additionalProperties":false,
+  "required":["kind","schema_version","source_trust","source_manifest_sha256","source_report_sha256","document_state","reason_code","comparisons","summary"],
+  "properties":{
+    "kind":{"const":"infrawright.openapi_diagnostics"},"schema_version":{"const":1},
+    "source_trust":{"enum":["verified","unverified"]},
+    "source_manifest_sha256":{"oneOf":[{"type":"null"},{"$ref":"#/$defs/sha256"}]},
+    "source_report_sha256":{"$ref":"#/$defs/sha256"},
+    "document_state":{"enum":["absent","usable","degraded","unavailable"]},
+    "reason_code":{"oneOf":[{"type":"null"},{"enum":["unreadable","malformed","invalid_root","local_ref_unresolved","degraded_unrelated_operation"]}]},
+    "comparisons":{"type":"object","propertyNames":{"minLength":1},"additionalProperties":{"$ref":"#/$defs/row"}},
+    "summary":{"$ref":"#/$defs/summary"}
+  },
+  "allOf":[{"if":{"properties":{"source_trust":{"const":"verified"}},"required":["source_trust"]},"then":{"properties":{"source_manifest_sha256":{"$ref":"#/$defs/sha256"}}},"else":{"properties":{"source_manifest_sha256":{"type":"null"}}}}],
+  "$defs":{
+    "sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "operation":{"type":"object","additionalProperties":false,"required":["operation_id","method","path_template"],"properties":{"operation_id":{"type":["string","null"],"minLength":1},"method":{"type":"string","pattern":"^[A-Z]+$"},"path_template":{"type":"string","minLength":1}}},
+    "row":{"type":"object","additionalProperties":false,"required":["state","basis","basis_reference","operations"],"properties":{"state":{"enum":["not_attempted","not_comparable","corroborated","missing_path","ambiguous","conflict"]},"basis":{"type":["string","null"]},"basis_reference":{"type":["string","null"],"minLength":1},"operations":{"type":"array","items":{"$ref":"#/$defs/operation"}}}},
+    "counts":{"type":"object","additionalProperties":false,"required":["not_attempted","not_comparable","corroborated","missing_path","ambiguous","conflict"],"properties":{"not_attempted":{"type":"integer","minimum":0},"not_comparable":{"type":"integer","minimum":0},"corroborated":{"type":"integer","minimum":0},"missing_path":{"type":"integer","minimum":0},"ambiguous":{"type":"integer","minimum":0},"conflict":{"type":"integer","minimum":0}}},
+    "summary":{"type":"object","additionalProperties":false,"required":["comparison_eligible_total","degraded_comparison_total","comparison_counts"],"properties":{"comparison_eligible_total":{"type":"integer","minimum":0},"degraded_comparison_total":{"type":"integer","minimum":0},"comparison_counts":{"$ref":"#/$defs/counts"}}}
+  }
+}

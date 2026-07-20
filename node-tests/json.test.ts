@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import { LosslessNumber, stringify as stringifyLosslessly } from "lossless-json";
@@ -6,7 +9,9 @@ import { LosslessNumber, stringify as stringifyLosslessly } from "lossless-json"
 import {
   parseControlJson,
   parseDataJsonLosslessly,
+  PythonJsonDecodeError,
 } from "../node-src/json/control.js";
+import { readJson } from "../node-src/metadata/validation.js";
 import {
   comparePythonStrings,
   pythonCompatibleJsonByteLength,
@@ -94,6 +99,113 @@ test("control parser rejects duplicate keys and unsafe integers", () => {
   assert.deepEqual(parseControlJson('{"id":9007199254740991}'), {
     id: 9007199254740991,
   });
+});
+
+test("JSON parsers reject unpaired UTF-16 surrogates with raw-token offsets", () => {
+  const rejected = [
+    { name: "high value", source: '{"value":"\\ud800"}', position: 10 },
+    { name: "low value", source: '{"value":"\\udfff"}', position: 10 },
+    { name: "high key", source: '{"\\ud800":true}', position: 2 },
+    { name: "low key", source: '{"\\udfff":true}', position: 2 },
+    { name: "adjacent highs", source: '{"value":"\\ud800\\ud800"}', position: 10 },
+    { name: "high before scalar", source: '{"value":"\\ud800x"}', position: 10 },
+    { name: "high key before replacement key", source: '{"\\ud800":1,"�":2}', position: 2 },
+    { name: "high key before low key", source: '{"\\ud800":1,"\\udfff":2}', position: 2 },
+    { name: "repeated high keys", source: '{"\\ud800":1,"\\ud800":2}', position: 2 },
+  ];
+  const standardEscapes = [
+    String.raw`\"`, String.raw`\\`, String.raw`\/`, String.raw`\b`,
+    String.raw`\f`, String.raw`\n`, String.raw`\r`, String.raw`\t`,
+  ];
+  for (const escape of standardEscapes) {
+    rejected.push(
+      { name: `high value before ${escape}`, source: String.raw`{"value":"\ud800${escape}\udc00"}`, position: 10 },
+      { name: `high key before ${escape}`, source: String.raw`{"\ud800${escape}\udc00":true}`, position: 2 },
+    );
+  }
+  for (const parser of [parseControlJson, parseDataJsonLosslessly]) {
+    for (const vector of rejected) {
+      assert.throws(
+        () => parser(vector.source),
+        (error: unknown) => {
+          assert.ok(error instanceof PythonJsonDecodeError, vector.name);
+          assert.equal(error.message, `Unpaired UTF-16 surrogate: line 1 column ${vector.position + 1} (char ${vector.position})`);
+          assert.equal(error.position, vector.position);
+          return true;
+        },
+      );
+    }
+  }
+});
+
+test("JSON parsers retain valid UTF-16 pairs, astral text, and replacement text", () => {
+  for (const parser of [parseControlJson, parseDataJsonLosslessly]) {
+    assert.doesNotThrow(() => parser('{"value":"\\ud83d\\ude00"}'));
+    assert.doesNotThrow(() => parser('{"value":"😀"}'));
+    assert.doesNotThrow(() => parser('{"value":"�"}'));
+    assert.doesNotThrow(() => parser(`{"${"\ud800"}\\ude00":true}`));
+    assert.doesNotThrow(() => parser(`{"\\ud800${"\udc00"}":true}`));
+  }
+});
+
+test("control parsers retain structural errors ahead of recorded surrogates", () => {
+  const cases = [
+    { source: String.raw`{"value":"\ud800",}`, reason: "Expecting property name enclosed in double quotes", position: 18 },
+    { source: String.raw`{"value":"\ud800" "next":1}`, reason: "Expecting ',' delimiter", position: 18 },
+    { source: String.raw`{"value":"\ud800"} garbage`, reason: "Extra data", position: 19 },
+    { source: String.raw`{"value":"\ud800","next":?}`, reason: "Expecting value", position: 25 },
+  ] as const;
+  for (const parser of [parseControlJson, parseDataJsonLosslessly]) {
+    for (const vector of cases) {
+      assert.throws(() => parser(vector.source), (error: unknown) => {
+        assert.ok(error instanceof PythonJsonDecodeError);
+        assert.equal(error.position, vector.position);
+        assert.match(error.message, new RegExp(`^${vector.reason}:`));
+        return true;
+      });
+    }
+  }
+});
+
+test("metadata parsing rejects escape-separated surrogates only after JSON.parse", async (context) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "infrawright-surrogate-"));
+  context.after(async () => rm(root, { force: true, recursive: true }));
+  const standardEscapes = [
+    String.raw`\"`, String.raw`\\`, String.raw`\/`, String.raw`\b`,
+    String.raw`\f`, String.raw`\n`, String.raw`\r`, String.raw`\t`,
+  ];
+  for (const [index, escape] of standardEscapes.entries()) {
+    for (const source of [
+      String.raw`{"value":"\ud800${escape}\udc00"}`,
+      String.raw`{"\ud800${escape}\udc00":true}`,
+    ]) {
+      const file = path.join(root, `${index}-${source.includes("value") ? "value" : "key"}.json`);
+      await writeFile(file, source, "utf8");
+      await assert.rejects(readJson(file), /Unpaired UTF-16 surrogate: line 1/);
+    }
+  }
+  const syntaxFile = path.join(root, "syntax.json");
+  await writeFile(syntaxFile, String.raw`{"value":"\ud800","next":?}`, "utf8");
+  await assert.rejects(readJson(syntaxFile), (error: unknown) => {
+    return error instanceof Error && !error.message.includes("Unpaired UTF-16 surrogate");
+  });
+});
+
+test("surrogate positions retain UTF-16 offsets across astral and multiline input", () => {
+  const astral = `{"😀":"\\ud800"}`;
+  const multiline = "{\n\"value\":\"\\ud800\"}";
+  for (const parser of [parseControlJson, parseDataJsonLosslessly]) {
+    assert.throws(() => parser(astral), (error: unknown) => {
+      assert.ok(error instanceof PythonJsonDecodeError);
+      assert.equal(error.position, 7);
+      return true;
+    });
+    assert.throws(() => parser(multiline), (error: unknown) => {
+      assert.ok(error instanceof PythonJsonDecodeError);
+      assert.equal(error.message, "Unpaired UTF-16 surrogate: line 2 column 10 (char 11)");
+      return true;
+    });
+  }
 });
 
 test("JSON parsers reject adversarial nesting before recursive parsing", () => {

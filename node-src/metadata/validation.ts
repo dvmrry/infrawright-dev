@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { LosslessNumber } from "lossless-json";
 
 import { sortedStrings } from "../json/python-compatible.js";
+import { validateJsonStringSurrogates } from "../json/control.js";
 
 export type JsonObject = Record<string, unknown>;
 
@@ -159,6 +160,9 @@ function parseMetadataJson(
       return Number.isFinite(value) ? value : new LosslessNumber(token);
     },
   );
+  // Preserve native JSON.parse syntax-error priority, then apply the shared
+  // decoded-string contract without imposing control-JSON structure rules.
+  validateJsonStringSurrogates(text);
   return selectivelyPreserve && !preserveNumericTokens
     ? normalizeNumericTokens(parsed, false, preserveNumericTokensUnderKeys)
     : parsed;

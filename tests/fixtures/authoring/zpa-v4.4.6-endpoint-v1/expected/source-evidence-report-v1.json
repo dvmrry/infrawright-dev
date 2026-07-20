@@ -1,0 +1,2123 @@
+{
+  "input_provenance_sha256": "cf6c9945d33f99756bbdfdce78e3f8f122b9cf6c81445a58517b7cac216d465e",
+  "kind": "infrawright.source_evidence_report",
+  "resources": {
+    "zpa_app_connector_group": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "endpoint_not_recovered",
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "GetAll",
+              "line": 165,
+              "origin": "sdk",
+              "path": "zscaler/zpa/services/appconnectorgroup/zpa_app_connector_group.go",
+              "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+            },
+            "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
+            "module_version": "v3.8.40",
+            "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorgroup",
+            "symbol": "GetAll"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "GetAll",
+                  "line": 165,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/appconnectorgroup/zpa_app_connector_group.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorgroup",
+                "symbol": "GetAll"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourceAppConnectorGroupRead",
+                  "line": 269,
+                  "origin": "provider",
+                  "path": "zpa/resource_zpa_app_connector_group.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "resourceAppConnectorGroupRead"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appconnectorgroup",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 36,
+                "function": "resourceAppConnectorGroupRead",
+                "line": 280,
+                "origin": "provider",
+                "path": "zpa/resource_zpa_app_connector_group.go",
+                "sdk_module_path": null
+              },
+              "symbol": "appconnectorgroup.GetAll"
+            }
+          ]
+        }
+      ],
+      "classification": "observed_sdk_call",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 52,
+          "function": null,
+          "line": 148,
+          "origin": "provider",
+          "path": "zpa/provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceAppConnectorGroup"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourceAppConnectorGroupRead",
+          "line": 269,
+          "origin": "provider",
+          "path": "zpa/resource_zpa_app_connector_group.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceAppConnectorGroupRead"
+      },
+      "reason_code": null
+    },
+    "zpa_application_segment": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "endpoint_not_recovered",
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "Get",
+              "line": 151,
+              "origin": "sdk",
+              "path": "zscaler/zpa/services/applicationsegment/zpa_application_segment.go",
+              "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+            },
+            "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
+            "module_version": "v3.8.40",
+            "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/applicationsegment",
+            "symbol": "Get"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 151,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/applicationsegment/zpa_application_segment.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/applicationsegment",
+                "symbol": "Get"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourceApplicationSegmentRead",
+                  "line": 326,
+                  "origin": "provider",
+                  "path": "zpa/resource_zpa_application_segment.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "resourceApplicationSegmentRead"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/applicationsegment",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 37,
+                "function": "resourceApplicationSegmentRead",
+                "line": 335,
+                "origin": "provider",
+                "path": "zpa/resource_zpa_application_segment.go",
+                "sdk_module_path": null
+              },
+              "symbol": "applicationsegment.Get"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).NewRequestDo",
+                  "line": 16,
+                  "origin": "sdk",
+                  "path": "zscaler/zparequests.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+                "symbol": "(*Client).NewRequestDo"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 151,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/applicationsegment/zpa_application_segment.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/applicationsegment",
+                "symbol": "Get"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 30,
+                "function": "Get",
+                "line": 154,
+                "origin": "sdk",
+                "path": "zscaler/zpa/services/applicationsegment/zpa_application_segment.go",
+                "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+              },
+              "symbol": "(*zscaler.Client).NewRequestDo"
+            }
+          ]
+        }
+      ],
+      "classification": "observed_sdk_call",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 52,
+          "function": null,
+          "line": 150,
+          "origin": "provider",
+          "path": "zpa/provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceApplicationSegment"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourceApplicationSegmentRead",
+          "line": 326,
+          "origin": "provider",
+          "path": "zpa/resource_zpa_application_segment.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceApplicationSegmentRead"
+      },
+      "reason_code": null
+    },
+    "zpa_application_server": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "endpoint_not_recovered",
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "Get",
+              "line": 33,
+              "origin": "sdk",
+              "path": "zscaler/zpa/services/appservercontroller/zpa_app_server_controller.go",
+              "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+            },
+            "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
+            "module_version": "v3.8.40",
+            "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appservercontroller",
+            "symbol": "Get"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 33,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/appservercontroller/zpa_app_server_controller.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appservercontroller",
+                "symbol": "Get"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourceApplicationServerRead",
+                  "line": 126,
+                  "origin": "provider",
+                  "path": "zpa/resource_zpa_app_server_controller.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "resourceApplicationServerRead"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appservercontroller",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 38,
+                "function": "resourceApplicationServerRead",
+                "line": 135,
+                "origin": "provider",
+                "path": "zpa/resource_zpa_app_server_controller.go",
+                "sdk_module_path": null
+              },
+              "symbol": "appservercontroller.Get"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).NewRequestDo",
+                  "line": 16,
+                  "origin": "sdk",
+                  "path": "zscaler/zparequests.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+                "symbol": "(*Client).NewRequestDo"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 33,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/appservercontroller/zpa_app_server_controller.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/appservercontroller",
+                "symbol": "Get"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 30,
+                "function": "Get",
+                "line": 36,
+                "origin": "sdk",
+                "path": "zscaler/zpa/services/appservercontroller/zpa_app_server_controller.go",
+                "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+              },
+              "symbol": "(*zscaler.Client).NewRequestDo"
+            }
+          ]
+        }
+      ],
+      "classification": "observed_sdk_call",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 52,
+          "function": null,
+          "line": 149,
+          "origin": "provider",
+          "path": "zpa/provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceApplicationServer"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourceApplicationServerRead",
+          "line": 126,
+          "origin": "provider",
+          "path": "zpa/resource_zpa_app_server_controller.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceApplicationServerRead"
+      },
+      "reason_code": null
+    },
+    "zpa_ba_certificate": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "endpoint_not_recovered",
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "Get",
+              "line": 42,
+              "origin": "sdk",
+              "path": "zscaler/zpa/services/bacertificate/zpa_ba_certificate.go",
+              "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+            },
+            "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
+            "module_version": "v3.8.40",
+            "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/bacertificate",
+            "symbol": "Get"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 42,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/bacertificate/zpa_ba_certificate.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/bacertificate",
+                "symbol": "Get"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourceBaCertificateRead",
+                  "line": 82,
+                  "origin": "provider",
+                  "path": "zpa/resource_zpa_ba_certificate.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "resourceBaCertificateRead"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/bacertificate",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 32,
+                "function": "resourceBaCertificateRead",
+                "line": 91,
+                "origin": "provider",
+                "path": "zpa/resource_zpa_ba_certificate.go",
+                "sdk_module_path": null
+              },
+              "symbol": "bacertificate.Get"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).NewRequestDo",
+                  "line": 16,
+                  "origin": "sdk",
+                  "path": "zscaler/zparequests.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+                "symbol": "(*Client).NewRequestDo"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 42,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/bacertificate/zpa_ba_certificate.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/bacertificate",
+                "symbol": "Get"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 30,
+                "function": "Get",
+                "line": 45,
+                "origin": "sdk",
+                "path": "zscaler/zpa/services/bacertificate/zpa_ba_certificate.go",
+                "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+              },
+              "symbol": "(*zscaler.Client).NewRequestDo"
+            }
+          ]
+        }
+      ],
+      "classification": "observed_sdk_call",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 52,
+          "function": null,
+          "line": 156,
+          "origin": "provider",
+          "path": "zpa/provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceBaCertificate"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourceBaCertificateRead",
+          "line": 82,
+          "origin": "provider",
+          "path": "zpa/resource_zpa_ba_certificate.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceBaCertificateRead"
+      },
+      "reason_code": null
+    },
+    "zpa_emergency_access_user": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "endpoint_not_recovered",
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "Get",
+              "line": 34,
+              "origin": "sdk",
+              "path": "zscaler/zpa/services/emergencyaccess/emergencyaccess.go",
+              "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+            },
+            "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
+            "module_version": "v3.8.40",
+            "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/emergencyaccess",
+            "symbol": "Get"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 34,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/emergencyaccess/emergencyaccess.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/emergencyaccess",
+                "symbol": "Get"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourceEmergencyAccessRead",
+                  "line": 73,
+                  "origin": "provider",
+                  "path": "zpa/resource_zpa_emergency_access.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "resourceEmergencyAccessRead"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/emergencyaccess",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 34,
+                "function": "resourceEmergencyAccessRead",
+                "line": 82,
+                "origin": "provider",
+                "path": "zpa/resource_zpa_emergency_access.go",
+                "sdk_module_path": null
+              },
+              "symbol": "emergencyaccess.Get"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).NewRequestDo",
+                  "line": 16,
+                  "origin": "sdk",
+                  "path": "zscaler/zparequests.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+                "symbol": "(*Client).NewRequestDo"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 34,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/emergencyaccess/emergencyaccess.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/emergencyaccess",
+                "symbol": "Get"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 30,
+                "function": "Get",
+                "line": 37,
+                "origin": "sdk",
+                "path": "zscaler/zpa/services/emergencyaccess/emergencyaccess.go",
+                "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+              },
+              "symbol": "(*zscaler.Client).NewRequestDo"
+            }
+          ]
+        }
+      ],
+      "classification": "observed_sdk_call",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 52,
+          "function": null,
+          "line": 160,
+          "origin": "provider",
+          "path": "zpa/provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceEmergencyAccess"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourceEmergencyAccessRead",
+          "line": 73,
+          "origin": "provider",
+          "path": "zpa/resource_zpa_emergency_access.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceEmergencyAccessRead"
+      },
+      "reason_code": null
+    },
+    "zpa_inspection_custom_controls": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "endpoint_not_recovered",
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "Get",
+              "line": 60,
+              "origin": "sdk",
+              "path": "zscaler/zpa/services/inspectioncontrol/inspection_custom_controls/zpa_inspection_custom_controls.go",
+              "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+            },
+            "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
+            "module_version": "v3.8.40",
+            "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/inspectioncontrol/inspection_custom_controls",
+            "symbol": "Get"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 60,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/inspectioncontrol/inspection_custom_controls/zpa_inspection_custom_controls.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/inspectioncontrol/inspection_custom_controls",
+                "symbol": "Get"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourceInspectionCustomControlsRead",
+                  "line": 308,
+                  "origin": "provider",
+                  "path": "zpa/resource_zpa_inspection_custom_controls.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "resourceInspectionCustomControlsRead"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/inspectioncontrol/inspection_custom_controls",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 45,
+                "function": "resourceInspectionCustomControlsRead",
+                "line": 312,
+                "origin": "provider",
+                "path": "zpa/resource_zpa_inspection_custom_controls.go",
+                "sdk_module_path": null
+              },
+              "symbol": "inspection_custom_controls.Get"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).NewRequestDo",
+                  "line": 16,
+                  "origin": "sdk",
+                  "path": "zscaler/zparequests.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+                "symbol": "(*Client).NewRequestDo"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 60,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/inspectioncontrol/inspection_custom_controls/zpa_inspection_custom_controls.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/inspectioncontrol/inspection_custom_controls",
+                "symbol": "Get"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 30,
+                "function": "Get",
+                "line": 63,
+                "origin": "sdk",
+                "path": "zscaler/zpa/services/inspectioncontrol/inspection_custom_controls/zpa_inspection_custom_controls.go",
+                "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+              },
+              "symbol": "(*zscaler.Client).NewRequestDo"
+            }
+          ]
+        }
+      ],
+      "classification": "observed_sdk_call",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 52,
+          "function": null,
+          "line": 183,
+          "origin": "provider",
+          "path": "zpa/provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceInspectionCustomControls"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourceInspectionCustomControlsRead",
+          "line": 308,
+          "origin": "provider",
+          "path": "zpa/resource_zpa_inspection_custom_controls.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceInspectionCustomControlsRead"
+      },
+      "reason_code": null
+    },
+    "zpa_inspection_profile": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "endpoint_not_recovered",
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "Get",
+              "line": 133,
+              "origin": "sdk",
+              "path": "zscaler/zpa/services/inspectioncontrol/inspection_profile/zpa_inspection_profile.go",
+              "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+            },
+            "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
+            "module_version": "v3.8.40",
+            "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/inspectioncontrol/inspection_profile",
+            "symbol": "Get"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 133,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/inspectioncontrol/inspection_profile/zpa_inspection_profile.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/inspectioncontrol/inspection_profile",
+                "symbol": "Get"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourceInspectionProfileRead",
+                  "line": 293,
+                  "origin": "provider",
+                  "path": "zpa/resource_zpa_inspection_profile.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "resourceInspectionProfileRead"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/inspectioncontrol/inspection_profile",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 37,
+                "function": "resourceInspectionProfileRead",
+                "line": 297,
+                "origin": "provider",
+                "path": "zpa/resource_zpa_inspection_profile.go",
+                "sdk_module_path": null
+              },
+              "symbol": "inspection_profile.Get"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).NewRequestDo",
+                  "line": 16,
+                  "origin": "sdk",
+                  "path": "zscaler/zparequests.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+                "symbol": "(*Client).NewRequestDo"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 133,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/inspectioncontrol/inspection_profile/zpa_inspection_profile.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/inspectioncontrol/inspection_profile",
+                "symbol": "Get"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 30,
+                "function": "Get",
+                "line": 136,
+                "origin": "sdk",
+                "path": "zscaler/zpa/services/inspectioncontrol/inspection_profile/zpa_inspection_profile.go",
+                "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+              },
+              "symbol": "(*zscaler.Client).NewRequestDo"
+            }
+          ]
+        }
+      ],
+      "classification": "observed_sdk_call",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 52,
+          "function": null,
+          "line": 184,
+          "origin": "provider",
+          "path": "zpa/provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceInspectionProfile"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourceInspectionProfileRead",
+          "line": 293,
+          "origin": "provider",
+          "path": "zpa/resource_zpa_inspection_profile.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceInspectionProfileRead"
+      },
+      "reason_code": null
+    },
+    "zpa_microtenant_controller": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "endpoint_not_recovered",
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "Get",
+              "line": 97,
+              "origin": "sdk",
+              "path": "zscaler/zpa/services/microtenants/microtenants.go",
+              "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+            },
+            "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
+            "module_version": "v3.8.40",
+            "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/microtenants",
+            "symbol": "Get"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 97,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/microtenants/microtenants.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/microtenants",
+                "symbol": "Get"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourceMicrotenantRead",
+                  "line": 133,
+                  "origin": "provider",
+                  "path": "zpa/resource_zpa_microtenant_controller.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "resourceMicrotenantRead"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/microtenants",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 31,
+                "function": "resourceMicrotenantRead",
+                "line": 137,
+                "origin": "provider",
+                "path": "zpa/resource_zpa_microtenant_controller.go",
+                "sdk_module_path": null
+              },
+              "symbol": "microtenants.Get"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).NewRequestDo",
+                  "line": 16,
+                  "origin": "sdk",
+                  "path": "zscaler/zparequests.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+                "symbol": "(*Client).NewRequestDo"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 97,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/microtenants/microtenants.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/microtenants",
+                "symbol": "Get"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 30,
+                "function": "Get",
+                "line": 100,
+                "origin": "sdk",
+                "path": "zscaler/zpa/services/microtenants/microtenants.go",
+                "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+              },
+              "symbol": "(*zscaler.Client).NewRequestDo"
+            }
+          ]
+        }
+      ],
+      "classification": "observed_sdk_call",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 52,
+          "function": null,
+          "line": 185,
+          "origin": "provider",
+          "path": "zpa/provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceMicrotenantController"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourceMicrotenantRead",
+          "line": 133,
+          "origin": "provider",
+          "path": "zpa/resource_zpa_microtenant_controller.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceMicrotenantRead"
+      },
+      "reason_code": null
+    },
+    "zpa_policy_access_rule": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "endpoint_not_recovered",
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "GetByPolicyType",
+              "line": 150,
+              "origin": "sdk",
+              "path": "zscaler/zpa/services/policysetcontroller/policysetcontroller.go",
+              "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+            },
+            "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
+            "module_version": "v3.8.40",
+            "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/policysetcontroller",
+            "symbol": "GetByPolicyType"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "fetchPolicySetIDByType",
+                  "line": 1239,
+                  "origin": "provider",
+                  "path": "zpa/common.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "fetchPolicySetIDByType"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourcePolicyAccessRead",
+                  "line": 131,
+                  "origin": "provider",
+                  "path": "zpa/resource_zpa_policy_access_rule.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "resourcePolicyAccessRead"
+              },
+              "import_path": null,
+              "kind": "provider_helper",
+              "location": {
+                "column": 22,
+                "function": "resourcePolicyAccessRead",
+                "line": 139,
+                "origin": "provider",
+                "path": "zpa/resource_zpa_policy_access_rule.go",
+                "sdk_module_path": null
+              },
+              "symbol": "fetchPolicySetIDByType"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "GetByPolicyType",
+                  "line": 150,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/policysetcontroller/policysetcontroller.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/policysetcontroller",
+                "symbol": "GetByPolicyType"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "fetchPolicySetIDByType",
+                  "line": 1239,
+                  "origin": "provider",
+                  "path": "zpa/common.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "fetchPolicySetIDByType"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/policysetcontroller",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 49,
+                "function": "fetchPolicySetIDByType",
+                "line": 1269,
+                "origin": "provider",
+                "path": "zpa/common.go",
+                "sdk_module_path": null
+              },
+              "symbol": "policysetcontroller.GetByPolicyType"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).NewRequestDo",
+                  "line": 16,
+                  "origin": "sdk",
+                  "path": "zscaler/zparequests.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+                "symbol": "(*Client).NewRequestDo"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "GetByPolicyType",
+                  "line": 150,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/policysetcontroller/policysetcontroller.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/policysetcontroller",
+                "symbol": "GetByPolicyType"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 30,
+                "function": "GetByPolicyType",
+                "line": 153,
+                "origin": "sdk",
+                "path": "zscaler/zpa/services/policysetcontroller/policysetcontroller.go",
+                "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+              },
+              "symbol": "(*zscaler.Client).NewRequestDo"
+            }
+          ]
+        },
+        {
+          "endpoint": null,
+          "reason_code": "endpoint_not_recovered",
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "GetPolicyRule",
+              "line": 161,
+              "origin": "sdk",
+              "path": "zscaler/zpa/services/policysetcontroller/policysetcontroller.go",
+              "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+            },
+            "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
+            "module_version": "v3.8.40",
+            "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/policysetcontroller",
+            "symbol": "GetPolicyRule"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "GetPolicyRule",
+                  "line": 161,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/policysetcontroller/policysetcontroller.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/policysetcontroller",
+                "symbol": "GetPolicyRule"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourcePolicyAccessRead",
+                  "line": 131,
+                  "origin": "provider",
+                  "path": "zpa/resource_zpa_policy_access_rule.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "resourcePolicyAccessRead"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/policysetcontroller",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 38,
+                "function": "resourcePolicyAccessRead",
+                "line": 145,
+                "origin": "provider",
+                "path": "zpa/resource_zpa_policy_access_rule.go",
+                "sdk_module_path": null
+              },
+              "symbol": "policysetcontroller.GetPolicyRule"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).NewRequestDo",
+                  "line": 16,
+                  "origin": "sdk",
+                  "path": "zscaler/zparequests.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+                "symbol": "(*Client).NewRequestDo"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "GetPolicyRule",
+                  "line": 161,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/policysetcontroller/policysetcontroller.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/policysetcontroller",
+                "symbol": "GetPolicyRule"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 30,
+                "function": "GetPolicyRule",
+                "line": 166,
+                "origin": "sdk",
+                "path": "zscaler/zpa/services/policysetcontroller/policysetcontroller.go",
+                "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+              },
+              "symbol": "(*zscaler.Client).NewRequestDo"
+            }
+          ]
+        }
+      ],
+      "classification": "ambiguous",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 52,
+          "function": null,
+          "line": 164,
+          "origin": "provider",
+          "path": "zpa/provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourcePolicyAccessRule"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourcePolicyAccessRead",
+          "line": 131,
+          "origin": "provider",
+          "path": "zpa/resource_zpa_policy_access_rule.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourcePolicyAccessRead"
+      },
+      "reason_code": "multiple_viable_candidates"
+    },
+    "zpa_pra_approval_controller": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "endpoint_not_recovered",
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "Get",
+              "line": 95,
+              "origin": "sdk",
+              "path": "zscaler/zpa/services/privilegedremoteaccess/praapproval/praapproval.go",
+              "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+            },
+            "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
+            "module_version": "v3.8.40",
+            "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/praapproval",
+            "symbol": "Get"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 95,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/privilegedremoteaccess/praapproval/praapproval.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/praapproval",
+                "symbol": "Get"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourcePRAPrivilegedApprovalControllerRead",
+                  "line": 206,
+                  "origin": "provider",
+                  "path": "zpa/resource_zpa_pra_approval.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "resourcePRAPrivilegedApprovalControllerRead"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/praapproval",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 30,
+                "function": "resourcePRAPrivilegedApprovalControllerRead",
+                "line": 215,
+                "origin": "provider",
+                "path": "zpa/resource_zpa_pra_approval.go",
+                "sdk_module_path": null
+              },
+              "symbol": "praapproval.Get"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).NewRequestDo",
+                  "line": 16,
+                  "origin": "sdk",
+                  "path": "zscaler/zparequests.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+                "symbol": "(*Client).NewRequestDo"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 95,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/privilegedremoteaccess/praapproval/praapproval.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/praapproval",
+                "symbol": "Get"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 30,
+                "function": "Get",
+                "line": 98,
+                "origin": "sdk",
+                "path": "zscaler/zpa/services/privilegedremoteaccess/praapproval/praapproval.go",
+                "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+              },
+              "symbol": "(*zscaler.Client).NewRequestDo"
+            }
+          ]
+        }
+      ],
+      "classification": "observed_sdk_call",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 52,
+          "function": null,
+          "line": 186,
+          "origin": "provider",
+          "path": "zpa/provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourcePRAPrivilegedApprovalController"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourcePRAPrivilegedApprovalControllerRead",
+          "line": 206,
+          "origin": "provider",
+          "path": "zpa/resource_zpa_pra_approval.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourcePRAPrivilegedApprovalControllerRead"
+      },
+      "reason_code": null
+    },
+    "zpa_pra_console_controller": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "endpoint_not_recovered",
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "Get",
+              "line": 63,
+              "origin": "sdk",
+              "path": "zscaler/zpa/services/privilegedremoteaccess/praconsole/praconsole.go",
+              "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+            },
+            "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
+            "module_version": "v3.8.40",
+            "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/praconsole",
+            "symbol": "Get"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 63,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/privilegedremoteaccess/praconsole/praconsole.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/praconsole",
+                "symbol": "Get"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourcePRAConsoleControllerRead",
+                  "line": 143,
+                  "origin": "provider",
+                  "path": "zpa/resource_zpa_pra_console_controller.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "resourcePRAConsoleControllerRead"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/praconsole",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 29,
+                "function": "resourcePRAConsoleControllerRead",
+                "line": 152,
+                "origin": "provider",
+                "path": "zpa/resource_zpa_pra_console_controller.go",
+                "sdk_module_path": null
+              },
+              "symbol": "praconsole.Get"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).NewRequestDo",
+                  "line": 16,
+                  "origin": "sdk",
+                  "path": "zscaler/zparequests.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+                "symbol": "(*Client).NewRequestDo"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 63,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/privilegedremoteaccess/praconsole/praconsole.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/praconsole",
+                "symbol": "Get"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 30,
+                "function": "Get",
+                "line": 66,
+                "origin": "sdk",
+                "path": "zscaler/zpa/services/privilegedremoteaccess/praconsole/praconsole.go",
+                "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+              },
+              "symbol": "(*zscaler.Client).NewRequestDo"
+            }
+          ]
+        }
+      ],
+      "classification": "observed_sdk_call",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 52,
+          "function": null,
+          "line": 190,
+          "origin": "provider",
+          "path": "zpa/provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourcePRAConsoleController"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourcePRAConsoleControllerRead",
+          "line": 143,
+          "origin": "provider",
+          "path": "zpa/resource_zpa_pra_console_controller.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourcePRAConsoleControllerRead"
+      },
+      "reason_code": null
+    },
+    "zpa_pra_credential_controller": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "endpoint_not_recovered",
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "Get",
+              "line": 73,
+              "origin": "sdk",
+              "path": "zscaler/zpa/services/privilegedremoteaccess/pracredential/credential_controller.go",
+              "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+            },
+            "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
+            "module_version": "v3.8.40",
+            "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/pracredential",
+            "symbol": "Get"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 73,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/privilegedremoteaccess/pracredential/credential_controller.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/pracredential",
+                "symbol": "Get"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourcePRACredentialControllerRead",
+                  "line": 140,
+                  "origin": "provider",
+                  "path": "zpa/resource_zpa_pra_credential_controller.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "resourcePRACredentialControllerRead"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/pracredential",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 32,
+                "function": "resourcePRACredentialControllerRead",
+                "line": 149,
+                "origin": "provider",
+                "path": "zpa/resource_zpa_pra_credential_controller.go",
+                "sdk_module_path": null
+              },
+              "symbol": "pracredential.Get"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).NewRequestDo",
+                  "line": 16,
+                  "origin": "sdk",
+                  "path": "zscaler/zparequests.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+                "symbol": "(*Client).NewRequestDo"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 73,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/privilegedremoteaccess/pracredential/credential_controller.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/pracredential",
+                "symbol": "Get"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 30,
+                "function": "Get",
+                "line": 76,
+                "origin": "sdk",
+                "path": "zscaler/zpa/services/privilegedremoteaccess/pracredential/credential_controller.go",
+                "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+              },
+              "symbol": "(*zscaler.Client).NewRequestDo"
+            }
+          ]
+        }
+      ],
+      "classification": "observed_sdk_call",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 52,
+          "function": null,
+          "line": 188,
+          "origin": "provider",
+          "path": "zpa/provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourcePRACredentialController"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourcePRACredentialControllerRead",
+          "line": 140,
+          "origin": "provider",
+          "path": "zpa/resource_zpa_pra_credential_controller.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourcePRACredentialControllerRead"
+      },
+      "reason_code": null
+    },
+    "zpa_pra_portal_controller": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "endpoint_not_recovered",
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "Get",
+              "line": 97,
+              "origin": "sdk",
+              "path": "zscaler/zpa/services/privilegedremoteaccess/praportal/praportal.go",
+              "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+            },
+            "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
+            "module_version": "v3.8.40",
+            "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/praportal",
+            "symbol": "Get"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 97,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/privilegedremoteaccess/praportal/praportal.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/praportal",
+                "symbol": "Get"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourcePRAPortalControllerRead",
+                  "line": 181,
+                  "origin": "provider",
+                  "path": "zpa/resource_zpa_pra_portal_controller.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "resourcePRAPortalControllerRead"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/praportal",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 28,
+                "function": "resourcePRAPortalControllerRead",
+                "line": 190,
+                "origin": "provider",
+                "path": "zpa/resource_zpa_pra_portal_controller.go",
+                "sdk_module_path": null
+              },
+              "symbol": "praportal.Get"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).NewRequestDo",
+                  "line": 16,
+                  "origin": "sdk",
+                  "path": "zscaler/zparequests.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+                "symbol": "(*Client).NewRequestDo"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 97,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/privilegedremoteaccess/praportal/praportal.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/privilegedremoteaccess/praportal",
+                "symbol": "Get"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 30,
+                "function": "Get",
+                "line": 100,
+                "origin": "sdk",
+                "path": "zscaler/zpa/services/privilegedremoteaccess/praportal/praportal.go",
+                "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+              },
+              "symbol": "(*zscaler.Client).NewRequestDo"
+            }
+          ]
+        }
+      ],
+      "classification": "observed_sdk_call",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 52,
+          "function": null,
+          "line": 187,
+          "origin": "provider",
+          "path": "zpa/provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourcePRAPortalController"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourcePRAPortalControllerRead",
+          "line": 181,
+          "origin": "provider",
+          "path": "zpa/resource_zpa_pra_portal_controller.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourcePRAPortalControllerRead"
+      },
+      "reason_code": null
+    },
+    "zpa_segment_group": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "endpoint_not_recovered",
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "Get",
+              "line": 81,
+              "origin": "sdk",
+              "path": "zscaler/zpa/services/segmentgroup/zpa_segment_group.go",
+              "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+            },
+            "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
+            "module_version": "v3.8.40",
+            "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/segmentgroup",
+            "symbol": "Get"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 81,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/segmentgroup/zpa_segment_group.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/segmentgroup",
+                "symbol": "Get"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourceSegmentGroupRead",
+                  "line": 117,
+                  "origin": "provider",
+                  "path": "zpa/resource_zpa_segment_group.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "resourceSegmentGroupRead"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/segmentgroup",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 31,
+                "function": "resourceSegmentGroupRead",
+                "line": 134,
+                "origin": "provider",
+                "path": "zpa/resource_zpa_segment_group.go",
+                "sdk_module_path": null
+              },
+              "symbol": "segmentgroup.Get"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).NewRequestDo",
+                  "line": 16,
+                  "origin": "sdk",
+                  "path": "zscaler/zparequests.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+                "symbol": "(*Client).NewRequestDo"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 81,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/segmentgroup/zpa_segment_group.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/segmentgroup",
+                "symbol": "Get"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 30,
+                "function": "Get",
+                "line": 84,
+                "origin": "sdk",
+                "path": "zscaler/zpa/services/segmentgroup/zpa_segment_group.go",
+                "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+              },
+              "symbol": "(*zscaler.Client).NewRequestDo"
+            }
+          ]
+        }
+      ],
+      "classification": "observed_sdk_call",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 52,
+          "function": null,
+          "line": 161,
+          "origin": "provider",
+          "path": "zpa/provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceSegmentGroup"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourceSegmentGroupRead",
+          "line": 117,
+          "origin": "provider",
+          "path": "zpa/resource_zpa_segment_group.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceSegmentGroupRead"
+      },
+      "reason_code": null
+    },
+    "zpa_server_group": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "endpoint_not_recovered",
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "Get",
+              "line": 130,
+              "origin": "sdk",
+              "path": "zscaler/zpa/services/servergroup/zpa_server_group.go",
+              "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+            },
+            "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
+            "module_version": "v3.8.40",
+            "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/servergroup",
+            "symbol": "Get"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 130,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/servergroup/zpa_server_group.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/servergroup",
+                "symbol": "Get"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourceServerGroupRead",
+                  "line": 226,
+                  "origin": "provider",
+                  "path": "zpa/resource_zpa_server_group.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "resourceServerGroupRead"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/servergroup",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 30,
+                "function": "resourceServerGroupRead",
+                "line": 235,
+                "origin": "provider",
+                "path": "zpa/resource_zpa_server_group.go",
+                "sdk_module_path": null
+              },
+              "symbol": "servergroup.Get"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).NewRequestDo",
+                  "line": 16,
+                  "origin": "sdk",
+                  "path": "zscaler/zparequests.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+                "symbol": "(*Client).NewRequestDo"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 130,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/servergroup/zpa_server_group.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/servergroup",
+                "symbol": "Get"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 30,
+                "function": "Get",
+                "line": 133,
+                "origin": "sdk",
+                "path": "zscaler/zpa/services/servergroup/zpa_server_group.go",
+                "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+              },
+              "symbol": "(*zscaler.Client).NewRequestDo"
+            }
+          ]
+        }
+      ],
+      "classification": "observed_sdk_call",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 52,
+          "function": null,
+          "line": 162,
+          "origin": "provider",
+          "path": "zpa/provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceServerGroup"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourceServerGroupRead",
+          "line": 226,
+          "origin": "provider",
+          "path": "zpa/resource_zpa_server_group.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceServerGroupRead"
+      },
+      "reason_code": null
+    },
+    "zpa_service_edge_group": {
+      "chains": [
+        {
+          "endpoint": null,
+          "reason_code": "endpoint_not_recovered",
+          "sdk_call": {
+            "location": {
+              "column": 6,
+              "function": "Get",
+              "line": 64,
+              "origin": "sdk",
+              "path": "zscaler/zpa/services/serviceedgegroup/zpa_service_edge_group.go",
+              "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+            },
+            "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
+            "module_version": "v3.8.40",
+            "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/serviceedgegroup",
+            "symbol": "Get"
+          },
+          "steps": [
+            {
+              "callee": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 64,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/serviceedgegroup/zpa_service_edge_group.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/serviceedgegroup",
+                "symbol": "Get"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "resourceServiceEdgeGroupRead",
+                  "line": 313,
+                  "origin": "provider",
+                  "path": "zpa/resource_zpa_service_edge_group.go",
+                  "sdk_module_path": null
+                },
+                "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+                "symbol": "resourceServiceEdgeGroupRead"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/serviceedgegroup",
+              "kind": "sdk_package_function",
+              "location": {
+                "column": 35,
+                "function": "resourceServiceEdgeGroupRead",
+                "line": 322,
+                "origin": "provider",
+                "path": "zpa/resource_zpa_service_edge_group.go",
+                "sdk_module_path": null
+              },
+              "symbol": "serviceedgegroup.Get"
+            },
+            {
+              "callee": {
+                "location": {
+                  "column": 23,
+                  "function": "(*Client).NewRequestDo",
+                  "line": 16,
+                  "origin": "sdk",
+                  "path": "zscaler/zparequests.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+                "symbol": "(*Client).NewRequestDo"
+              },
+              "caller": {
+                "location": {
+                  "column": 6,
+                  "function": "Get",
+                  "line": 64,
+                  "origin": "sdk",
+                  "path": "zscaler/zpa/services/serviceedgegroup/zpa_service_edge_group.go",
+                  "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+                },
+                "package_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler/zpa/services/serviceedgegroup",
+                "symbol": "Get"
+              },
+              "import_path": "github.com/zscaler/zscaler-sdk-go/v3/zscaler",
+              "kind": "sdk_receiver_method",
+              "location": {
+                "column": 30,
+                "function": "Get",
+                "line": 67,
+                "origin": "sdk",
+                "path": "zscaler/zpa/services/serviceedgegroup/zpa_service_edge_group.go",
+                "sdk_module_path": "github.com/zscaler/zscaler-sdk-go/v3"
+              },
+              "symbol": "(*zscaler.Client).NewRequestDo"
+            }
+          ]
+        }
+      ],
+      "classification": "observed_sdk_call",
+      "legacy_mapped": false,
+      "provider_registration": {
+        "location": {
+          "column": 52,
+          "function": null,
+          "line": 180,
+          "origin": "provider",
+          "path": "zpa/provider.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceServiceEdgeGroup"
+      },
+      "read_callback": {
+        "location": {
+          "column": 6,
+          "function": "resourceServiceEdgeGroupRead",
+          "line": 313,
+          "origin": "provider",
+          "path": "zpa/resource_zpa_service_edge_group.go",
+          "sdk_module_path": null
+        },
+        "package_path": "github.com/zscaler/terraform-provider-zpa/v4/zpa",
+        "symbol": "resourceServiceEdgeGroupRead"
+      },
+      "reason_code": null
+    }
+  },
+  "schema_version": 1,
+  "source_manifest_sha256": "577eaf74544f0d24a52205a13922ca4cc3803701cfda7557da6367e68ead55bc",
+  "source_trust": "verified",
+  "summary": {
+    "applicable_total": 16,
+    "classification_counts": {
+      "ambiguous": 1,
+      "dynamic": 0,
+      "no_source": 0,
+      "not_applicable": 0,
+      "observed_http": 0,
+      "observed_sdk_call": 15,
+      "unresolved": 0
+    },
+    "endpoint_coverage": {
+      "denominator": 16,
+      "numerator": 0,
+      "state": "ratio"
+    },
+    "endpoint_observed_total": 0,
+    "selected_total": 16,
+    "source_call_observed_total": 15
+  }
+}
