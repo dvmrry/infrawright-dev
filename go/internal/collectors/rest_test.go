@@ -349,12 +349,16 @@ func TestZiaAdoptionClassifiersReceiveExactFetchShapedSystemFields(t *testing.T)
 	}
 }
 
-func TestBatchSharesOneAPIAuthSkipsOptionalWritesPythonBytesPreservesStaleSkips(t *testing.T) {
+func TestBatchSharesOneAPIAuthSkipsOptionalWritesPythonBytesInvalidatesStaleSkips(t *testing.T) {
 	packRoot := loadFullRoot(t)
 	directory := t.TempDir()
 	stale := filepath.Join(directory, "zia_extranet.json")
 	if err := os.WriteFile(stale, []byte("stale\n"), 0o644); err != nil {
 		t.Fatalf("write stale file: %v", err)
+	}
+	unselected := filepath.Join(directory, "unselected.json")
+	if err := os.WriteFile(unselected, []byte("retain\n"), 0o644); err != nil {
+		t.Fatalf("write unselected file: %v", err)
 	}
 	var acquisitions []string
 	adapters := map[string]CollectorAdapter{
@@ -392,9 +396,11 @@ func TestBatchSharesOneAPIAuthSkipsOptionalWritesPythonBytesPreservesStaleSkips(
 	if _, skipped := result.Skipped["zia_extranet"]; !skipped || len(result.Skipped) != 1 {
 		t.Errorf("skipped = %v, want exactly {zia_extranet: ...}", result.Skipped)
 	}
-	staleContent, err := os.ReadFile(stale)
-	if err != nil || string(staleContent) != "stale\n" {
-		t.Errorf("stale zia_extranet.json content = %q, err %v, want unchanged 'stale\\n'", staleContent, err)
+	if _, err := os.Lstat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("os.Lstat(stale zia_extranet.json) error = %v, want os.ErrNotExist", err)
+	}
+	if content, err := os.ReadFile(unselected); err != nil || string(content) != "retain\n" {
+		t.Errorf("os.ReadFile(unselected.json) = (%q, %v), want unchanged bytes", content, err)
 	}
 	written, err := os.ReadFile(filepath.Join(directory, "zpa_segment_group.json"))
 	if err != nil {
@@ -411,6 +417,15 @@ func TestBatchSharesOneAPIAuthSkipsOptionalWritesPythonBytesPreservesStaleSkips(
 func TestSharedOneAPIAuthFailureIsolatedIntoEverySelectedProductResult(t *testing.T) {
 	packRoot := loadFullRoot(t)
 	directory := t.TempDir()
+	staleDestinations := []string{
+		filepath.Join(directory, "zia_advanced_settings.json"),
+		filepath.Join(directory, "zpa_segment_group.json"),
+	}
+	for _, destination := range staleDestinations {
+		if err := os.WriteFile(destination, []byte("stale\n"), 0o644); err != nil {
+			t.Fatalf("os.WriteFile(%q) error = %v, want nil", destination, err)
+		}
+	}
 	zpaAcquires := 0
 	rejecting := testAdapter("zia", nil)
 	rejecting.Acquire = func(CollectorAcquireInput) (CollectorAuthContext, error) {
@@ -449,6 +464,11 @@ func TestSharedOneAPIAuthFailureIsolatedIntoEverySelectedProductResult(t *testin
 	}
 	if !containsSubstring(diagnostics, "HTTP 401/403") {
 		t.Errorf("diagnostics = %v, want a hint mentioning HTTP 401/403", diagnostics)
+	}
+	for _, destination := range staleDestinations {
+		if _, err := os.Lstat(destination); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("os.Lstat(%q) error = %v, want os.ErrNotExist after auth failure", destination, err)
+		}
 	}
 }
 
@@ -633,11 +653,11 @@ func TestBoundedResourceWorkersOverlapWithoutChangingBytesOutcomesAuthDiagnostic
 		}
 	}
 
-	if baselineFiles["sample_e.json"] != "stale optional\n" {
-		t.Errorf("sample_e.json = %q, want unchanged 'stale optional\\n'", baselineFiles["sample_e.json"])
+	if value, exists := baselineFiles["sample_e.json"]; exists {
+		t.Errorf("sample_e.json = %q, want absent after optional skip", value)
 	}
-	if baselineFiles["sample_f.json"] != "stale failed\n" {
-		t.Errorf("sample_f.json = %q, want unchanged 'stale failed\\n'", baselineFiles["sample_f.json"])
+	if value, exists := baselineFiles["sample_f.json"]; exists {
+		t.Errorf("sample_f.json = %q, want absent after failed fetch", value)
 	}
 }
 
@@ -649,6 +669,7 @@ func TestBoundedResourceWorkersOverlapWithoutChangingBytesOutcomesAuthDiagnostic
 // outcome has been recorded while both requests were genuinely in flight.
 type writeFailureBarrierTransport struct {
 	responses map[string]HTTPResponse
+	output    string
 	bStarted  chan struct{}
 	cRecorded chan struct{}
 
@@ -658,9 +679,10 @@ type writeFailureBarrierTransport struct {
 	maxActive int
 }
 
-func newWriteFailureBarrierTransport(responses map[string]HTTPResponse) *writeFailureBarrierTransport {
+func newWriteFailureBarrierTransport(responses map[string]HTTPResponse, output string) *writeFailureBarrierTransport {
 	return &writeFailureBarrierTransport{
 		responses: responses,
+		output:    output,
 		bStarted:  make(chan struct{}),
 		cRecorded: make(chan struct{}),
 	}
@@ -713,6 +735,12 @@ func (transport *writeFailureBarrierTransport) Request(request HTTPRequest) (HTT
 		transport.recordEvent("after-c-record:" + pathname)
 		close(transport.cRecorded)
 	}
+	if pathname == "/api/items-b" || pathname == "/api/items-c" {
+		resourceType := "sample_" + strings.TrimPrefix(pathname, "/api/items-")
+		if err := os.MkdirAll(filepath.Join(transport.output, resourceType+".json"), 0o755); err != nil {
+			return HTTPResponse{}, err
+		}
+	}
 
 	response, ok := transport.responses[pathname]
 	if !ok {
@@ -737,6 +765,165 @@ func indexOfString(values []string, wanted string) int {
 		}
 	}
 	return -1
+}
+
+func TestFetchRejectsUnsafeResourceDestinationBeforeAuthOrMutation(t *testing.T) {
+	tests := []struct {
+		name         string
+		resourceType string
+		victimPath   func(string, string) string
+	}{
+		{
+			name:         "unselected sibling",
+			resourceType: "sample_/../unselected",
+			victimPath: func(_ string, output string) string {
+				return filepath.Join(output, "unselected.json")
+			},
+		},
+		{
+			name:         "outside output root",
+			resourceType: "sample_/../../outside",
+			victimPath: func(directory, _ string) string {
+				return filepath.Join(directory, "outside.json")
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			packsRoot := filepath.Join(directory, "packs")
+			writePackJSON(t, packsRoot, "sample")
+			writeRegistryJSON(t, packsRoot, "sample", map[string]any{
+				test.resourceType: map[string]any{
+					"product": "sample",
+					"fetch":   map[string]any{"pagination": "single", "path": "items"},
+				},
+			})
+			root := loadRootFromPacksDir(t, packsRoot)
+			output := filepath.Join(directory, "pulls")
+			if err := os.MkdirAll(output, 0o755); err != nil {
+				t.Fatalf("os.MkdirAll(%q) error = %v, want nil", output, err)
+			}
+			victim := test.victimPath(directory, output)
+			if err := os.WriteFile(victim, []byte("retain\n"), 0o644); err != nil {
+				t.Fatalf("os.WriteFile(%q) error = %v, want nil", victim, err)
+			}
+			acquisitions := 0
+			adapter := testAdapter("sample", nil)
+			adapter.Acquire = func(CollectorAcquireInput) (CollectorAuthContext, error) {
+				acquisitions++
+				return sharedAuth, nil
+			}
+			transport := newDelayedPathTransport(t, map[string]HTTPResponse{
+				"/api/items": jsonResponse(t, []any{map[string]any{"id": "a"}}, 200),
+			}, nil)
+
+			_, err := FetchResources(FetchResourcesOptions{
+				Adapters:        map[string]CollectorAdapter{"sample": adapter},
+				Context:         sharedContext,
+				Environment:     Environment{},
+				Mode:            AuthModeOneAPI,
+				OutputDirectory: output,
+				Root:            root,
+				Selectors:       []string{"sample"},
+				Transport:       transport,
+			})
+			if err == nil || !strings.Contains(err.Error(), "is not a safe output filename") {
+				t.Errorf("FetchResources(resourceType=%q) error = %v, want unsafe-output error", test.resourceType, err)
+			}
+			if acquisitions != 0 {
+				t.Errorf("FetchResources(resourceType=%q) acquisitions = %d, want zero", test.resourceType, acquisitions)
+			}
+			if len(transport.requests) != 0 {
+				t.Errorf("FetchResources(resourceType=%q) requests = %v, want none", test.resourceType, transport.requests)
+			}
+			if content, readErr := os.ReadFile(victim); readErr != nil || string(content) != "retain\n" {
+				t.Errorf("os.ReadFile(%q) = (%q, %v), want unchanged victim", victim, content, readErr)
+			}
+		})
+	}
+}
+
+func TestFetchInvalidationRefusesDirectoryBeforeResourceRequests(t *testing.T) {
+	directory := t.TempDir()
+	packsRoot := filepath.Join(directory, "packs")
+	writePackJSON(t, packsRoot, "sample")
+	writeRegistryJSON(t, packsRoot, "sample", map[string]any{
+		"sample_a": map[string]any{
+			"product": "sample",
+			"fetch":   map[string]any{"pagination": "single", "path": "items-a"},
+		},
+	})
+	root := loadRootFromPacksDir(t, packsRoot)
+	output := filepath.Join(directory, "pulls")
+	destination := filepath.Join(output, "sample_a.json")
+	if err := os.MkdirAll(destination, 0o755); err != nil {
+		t.Fatalf("os.MkdirAll(%q) error = %v, want nil", destination, err)
+	}
+	transport := newDelayedPathTransport(t, map[string]HTTPResponse{
+		"/api/items-a": jsonResponse(t, []any{map[string]any{"id": "a"}}, 200),
+	}, nil)
+
+	_, err := FetchResources(FetchResourcesOptions{
+		Adapters:        map[string]CollectorAdapter{"sample": testAdapter("sample", nil)},
+		Context:         sharedContext,
+		Environment:     Environment{},
+		Mode:            AuthModeOneAPI,
+		OutputDirectory: output,
+		Root:            root,
+		Selectors:       []string{"sample_a"},
+		Transport:       transport,
+	})
+	wantError := "unlink " + destination + ": is a directory"
+	if err == nil || err.Error() != wantError {
+		t.Errorf("FetchResources() error = %v, want %q", err, wantError)
+	}
+	if len(transport.requests) != 0 {
+		t.Errorf("FetchResources() requests = %v, want none before invalidation succeeds", transport.requests)
+	}
+	if info, statErr := os.Lstat(destination); statErr != nil || !info.IsDir() {
+		t.Errorf("os.Lstat(%q) = (%v, %v), want preserved directory", destination, info, statErr)
+	}
+}
+
+func TestFetchInvalidationUnlinksSymlinkWithoutTouchingTarget(t *testing.T) {
+	root := loadFullRoot(t)
+	directory := t.TempDir()
+	output := filepath.Join(directory, "pulls")
+	if err := os.Mkdir(output, 0o755); err != nil {
+		t.Fatalf("os.Mkdir(%q) error = %v, want nil", output, err)
+	}
+	target := filepath.Join(directory, "outside.json")
+	if err := os.WriteFile(target, []byte("retain\n"), 0o644); err != nil {
+		t.Fatalf("os.WriteFile(%q) error = %v, want nil", target, err)
+	}
+	destination := filepath.Join(output, "zia_extranet.json")
+	if err := os.Symlink(target, destination); err != nil {
+		t.Skipf("os.Symlink(%q, %q) unavailable: %v", target, destination, err)
+	}
+
+	result, err := FetchResources(FetchResourcesOptions{
+		Adapters:        map[string]CollectorAdapter{"zia": testAdapter("zia", nil)},
+		Context:         sharedContext,
+		Environment:     Environment{},
+		Mode:            AuthModeOneAPI,
+		OutputDirectory: output,
+		Root:            root,
+		Selectors:       []string{"zia_extranet"},
+		Transport:       newQueueTransport(t, jsonResponse(t, map[string]any{}, 403)),
+	})
+	if err != nil {
+		t.Fatalf("FetchResources() error = %v, want nil", err)
+	}
+	if _, skipped := result.Skipped["zia_extranet"]; !skipped {
+		t.Errorf("FetchResources().Skipped = %v, want zia_extranet", result.Skipped)
+	}
+	if _, err := os.Lstat(destination); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("os.Lstat(%q) error = %v, want os.ErrNotExist", destination, err)
+	}
+	if content, err := os.ReadFile(target); err != nil || string(content) != "retain\n" {
+		t.Errorf("os.ReadFile(%q) = (%q, %v), want unchanged target", target, content, err)
+	}
 }
 
 // TestConcurrentWriteFailuresRetainSelectionOrderedPrimaryError ports
@@ -775,20 +962,20 @@ func TestConcurrentWriteFailuresRetainSelectionOrderedPrimaryError(t *testing.T)
 
 	for _, concurrency := range []int{1, 2} {
 		output := filepath.Join(directory, "pulls-"+strconv.Itoa(concurrency))
-		if err := os.MkdirAll(filepath.Join(output, "sample_b.json"), 0o755); err != nil {
-			t.Fatalf("mkdir sample_b.json dir: %v", err)
-		}
-		if err := os.MkdirAll(filepath.Join(output, "sample_c.json"), 0o755); err != nil {
-			t.Fatalf("mkdir sample_c.json dir: %v", err)
-		}
 		var transport HttpTransport
 		var serialTransport *delayedPathTransport
 		var barrierTransport *writeFailureBarrierTransport
 		if concurrency == 1 {
 			serialTransport = newDelayedPathTransport(t, responses, nil)
+			serialTransport.beforeReturn = func(pathname string) error {
+				if pathname != "/api/items-b" {
+					return nil
+				}
+				return os.MkdirAll(filepath.Join(output, "sample_b.json"), 0o755)
+			}
 			transport = serialTransport
 		} else {
-			barrierTransport = newWriteFailureBarrierTransport(responses)
+			barrierTransport = newWriteFailureBarrierTransport(responses, output)
 			transport = barrierTransport
 		}
 		var diagnostics []string

@@ -240,9 +240,10 @@ func (q *queueTransport) requestPaths() []string {
 // path, each released after an optional artificial delay, tracking the
 // maximum number of concurrently in-flight requests.
 type delayedPathTransport struct {
-	t         *testing.T
-	responses map[string]HTTPResponse
-	delays    map[string]time.Duration
+	t            *testing.T
+	responses    map[string]HTTPResponse
+	delays       map[string]time.Duration
+	beforeReturn func(string) error
 
 	mu        sync.Mutex
 	active    int
@@ -270,6 +271,11 @@ func (d *delayedPathTransport) Request(request HTTPRequest) (HTTPResponse, error
 	}()
 	if delay := d.delays[pathname]; delay > 0 {
 		time.Sleep(delay)
+	}
+	if d.beforeReturn != nil {
+		if err := d.beforeReturn(pathname); err != nil {
+			return HTTPResponse{}, err
+		}
 	}
 	value, ok := d.responses[pathname]
 	if !ok {

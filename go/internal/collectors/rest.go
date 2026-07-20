@@ -1045,6 +1045,18 @@ func mkdirFetchOutputDirectory(path string) error {
 	return os.MkdirAll(path, 0o777)
 }
 
+func fetchDestination(outputDirectory, resourceType string) (string, error) {
+	if resourceType == "." || resourceType == ".." ||
+		filepath.Base(resourceType) != resourceType || strings.ContainsAny(resourceType, "/\\\x00") {
+		return "", fmt.Errorf("fetch resource type %s is not a safe output filename", jsonQuote(resourceType))
+	}
+	destination := filepath.Join(outputDirectory, resourceType+".json")
+	if filepath.Dir(destination) != filepath.Clean(outputDirectory) {
+		return "", fmt.Errorf("fetch resource type %s escapes the output directory", jsonQuote(resourceType))
+	}
+	return destination, nil
+}
+
 // fetchResourcesBatch ports the unexported fetchResourcesBatch from
 // node-src/collectors/rest.ts: execute the complete registry-driven fetch
 // batch without invoking Python.
@@ -1059,8 +1071,19 @@ func fetchResourcesBatch(options FetchResourcesOptions, concurrency int) (FetchR
 	}
 
 	wantedEntries := make([]FetchEntry, len(wanted))
+	destinationByIndex := make([]string, len(wanted))
+	destinations := make(map[string]struct{}, len(wanted))
 	neededProducts := make(map[string]struct{})
 	for i, resourceType := range wanted {
+		destination, err := fetchDestination(options.OutputDirectory, resourceType)
+		if err != nil {
+			return FetchRunResult{}, err
+		}
+		if _, duplicate := destinations[destination]; duplicate {
+			return FetchRunResult{}, fmt.Errorf("fetch selection resolved duplicate destination %s", destination)
+		}
+		destinations[destination] = struct{}{}
+		destinationByIndex[i] = destination
 		entry, err := fetchEntry(options.Root, resourceType)
 		if err != nil {
 			return FetchRunResult{}, err
@@ -1145,7 +1168,16 @@ func fetchResourcesBatch(options FetchResourcesOptions, concurrency int) (FetchR
 	var processed []string
 	outcomes := make(map[int]fetchOutcome, len(wanted))
 	var work []fetchWorkItem
-	destinations := make(map[string]struct{})
+	// Invalidate every selected destination before the first resource request.
+	// A processed resource replaces it with current bytes; skipped and failed
+	// resources remain absent. This fail-closed barrier prevents a later
+	// transform or adopt command from mistaking a previous run's file for the
+	// current fetch result, even when the caller ignores a nonzero fetch exit.
+	for _, destination := range destinationByIndex {
+		if _, err := removeFetchFileIfPresent(destination); err != nil {
+			return FetchRunResult{}, err
+		}
+	}
 	for index, resourceType := range wanted {
 		entry := wantedEntries[index]
 		if productFailure, failedProduct := failedProducts[entry.Product]; failedProduct {
@@ -1172,11 +1204,7 @@ func fetchResourcesBatch(options FetchResourcesOptions, concurrency int) (FetchR
 			}
 			continue
 		}
-		destination := filepath.Join(options.OutputDirectory, resourceType+".json")
-		if _, dup := destinations[destination]; dup {
-			return FetchRunResult{}, fmt.Errorf("fetch selection resolved duplicate destination %s", destination)
-		}
-		destinations[destination] = struct{}{}
+		destination := destinationByIndex[index]
 		work = append(work, fetchWorkItem{
 			adapter: adapter, auth: auth, destination: destination, entry: entry, index: index, resourceType: resourceType,
 		})
@@ -1373,6 +1401,26 @@ func fetchResourcesBatch(options FetchResourcesOptions, concurrency int) (FetchR
 		}
 	}
 	return FetchRunResult{Failed: failed, Processed: processed, Skipped: skipped}, nil
+}
+
+func removeFetchFileIfPresent(file string) (bool, error) {
+	info, err := os.Lstat(file)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if info.IsDir() {
+		return false, &os.PathError{Op: "unlink", Path: file, Err: errors.New("is a directory")}
+	}
+	if err := os.Remove(file); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // perfNowOrStarted mirrors the TS expression

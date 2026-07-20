@@ -57,21 +57,48 @@ func lastCommandOption(parsed commandInput, name string) (string, bool) {
 	return values[len(values)-1], true
 }
 
-// packageRoot ports packageRoot in node-src/cli/main.ts: walk up from the
-// executable (the Node CLI walks up from its bundle path) until a directory
-// containing package.json is found.
+// packageRoot locates the runtime data root. An explicit
+// INFRAWRIGHT_PACKAGE_ROOT wins so a released binary can live outside the
+// packs tree; otherwise the search walks upward from the executable until it
+// finds the packs and packsets directories shipped with the runtime. A nearer
+// package.json remains a last-resort transition marker for fixture runtimes.
 func packageRoot() (string, error) {
+	if configured, ok := os.LookupEnv("INFRAWRIGHT_PACKAGE_ROOT"); ok {
+		if configured == "" {
+			return "", errors.New("INFRAWRIGHT_PACKAGE_ROOT must not be empty")
+		}
+		absolute, err := filepath.Abs(configured)
+		if err != nil {
+			return "", fmt.Errorf("resolve INFRAWRIGHT_PACKAGE_ROOT: %w", err)
+		}
+		return absolute, nil
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		return "", err
 	}
-	current := filepath.Dir(executable)
+	return findPackageRoot(filepath.Dir(executable))
+}
+
+func findPackageRoot(start string) (string, error) {
+	current := filepath.Clean(start)
+	legacyRoot := ""
 	for {
-		if _, err := os.Stat(filepath.Join(current, "package.json")); err == nil {
+		packs, packsErr := os.Stat(filepath.Join(current, "packs"))
+		packsets, packsetsErr := os.Stat(filepath.Join(current, "packsets"))
+		if packsErr == nil && packsetsErr == nil && packs.IsDir() && packsets.IsDir() {
 			return current, nil
+		}
+		if legacyRoot == "" {
+			if marker, err := os.Stat(filepath.Join(current, "package.json")); err == nil && !marker.IsDir() {
+				legacyRoot = current
+			}
 		}
 		parent := filepath.Dir(current)
 		if parent == current {
+			if legacyRoot != "" {
+				return legacyRoot, nil
+			}
 			return "", errors.New("unable to locate the Infrawright package root")
 		}
 		current = parent

@@ -49,6 +49,17 @@ that the wire/IO layer is validated at the **behavioral/product** level
 (controlled servers, recorded provider responses, product-output equivalence),
 not by reproducing bytes.
 
+One evidence-safety divergence is explicit: before issuing any selected
+resource request, Go `fetch` invalidates every selected destination from the
+previous run. A current success publishes current bytes; an optional skip or
+authentication/request failure leaves that resource absent. The frozen Node
+runtime preserved stale files in those cases, but allowing transform/adopt to
+mistake them for current readback would change evidence and an operator
+decision. Successful artifact bytes and unselected destinations remain
+unchanged. The pull directory remains a single-writer boundary: concurrent
+fetch/transform/adopt processes or same-UID mutation of that directory are not
+supported by this barrier.
+
 ### 2.1 Dependency boundary — consume/orchestrate with libraries; render exactly
 
 Libraries for **CONSUMING and ORCHESTRATING** — `terraform-exec` (running
