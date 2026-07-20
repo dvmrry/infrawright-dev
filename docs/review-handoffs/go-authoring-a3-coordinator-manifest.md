@@ -12,7 +12,8 @@
   adversarial review. On 2026-07-19 the user confirmed that the selected
   `kin-openapi v0.140.0` dependency is available in the internal Artifactory.
   A3-O is implemented and accepted after its two required fresh-context
-  adversarial reviews. A3-M and A3-I are unblocked and may proceed in parallel.
+  adversarial reviews. A3-M and A3-I are also implemented and accepted after
+  fresh-context adversarial review; A3 is complete and A4 is unblocked.
 
 ## Settled architecture
 
@@ -129,12 +130,12 @@ this checkout does not claim it independently interrogated the internal proxy.
 |---|---|---|---|---|
 | A3-R | Reconciliation kernel and frozen report/helper tests | new `go/internal/authoring/reconcile/**` | none | all non-OpenAPI helper vectors and all report vectors in `python-reconcile-schema-api-v1.json` |
 | A3-O | Strict adapter, field metadata, source-first comparison diagnostics | new `go/internal/authoring/openapiadapter/**`, `go/go.mod`, `go/go.sum` | accepted | JSON/YAML, local refs, unavailable/degraded, no external reads, comparison partition |
-| A3-M | Frozen generic OpenAPI map kernel | new `go/internal/authoring/openapimap/**` | A3-R, A3-O | all report vectors in `python-openapi-resource-map-v1.json`; no readiness imports |
-| A3-I | Sealed adapter-to-bundle integration | `go/internal/authoring/sourceoperation/{v2.go,bundle_test.go,doc.go}` and adapter goldens | A3-O | exact six names; source/provenance bytes unchanged; non-absent diagnostics validated |
+| A3-M | Frozen generic OpenAPI map kernel plus a detached typed adapter view | new `go/internal/authoring/openapimap/**`; new `go/internal/authoring/openapiadapter/legacy_map.go` and focused test | accepted | all report vectors in `python-openapi-resource-map-v1.json`; no readiness imports or raw-map exposure |
+| A3-I | Sealed adapter-to-bundle integration | `go/internal/authoring/sourceoperation/{v2.go,bundle_test.go,doc.go}` and adapter goldens | accepted | exact six names; source/provenance bytes unchanged; non-absent diagnostics validated |
 
-Integration order is A3-R, then A3-O after the Artifactory gate, then A3-M and
-A3-I in parallel. A3-R and A3-O are accepted; A3-M and A3-I are the current
-parallel frontier, followed by coordinator integration and fresh review.
+Integration order was A3-R, then A3-O after the Artifactory gate, then A3-M
+and A3-I in parallel. All four parcels are accepted; the integrated gates and
+fresh reviews are recorded in their handoffs.
 
 ## Authority and gates
 

@@ -16,7 +16,7 @@ import (
 
 func TestCompileVerifiedFixtureProducesExactCoreInputs(t *testing.T) {
 	input := fixtureInput(t)
-	bundle, err := compile(context.Background(), input, contracts.SourceTrustVerified)
+	bundle, err := compile(context.Background(), input, contracts.SourceTrustVerified, nil)
 	if err != nil {
 		t.Fatalf("compile(verified fixture) error = %v, want nil", err)
 	}
@@ -59,11 +59,11 @@ func TestCompileVerifiedFixtureProducesExactCoreInputs(t *testing.T) {
 
 func TestCompileIsDeterministicAndPortable(t *testing.T) {
 	input := fixtureInput(t)
-	first, err := compile(context.Background(), input, contracts.SourceTrustVerified)
+	first, err := compile(context.Background(), input, contracts.SourceTrustVerified, nil)
 	if err != nil {
 		t.Fatalf("first compile() error = %v, want nil", err)
 	}
-	second, err := compile(context.Background(), input, contracts.SourceTrustVerified)
+	second, err := compile(context.Background(), input, contracts.SourceTrustVerified, nil)
 	if err != nil {
 		t.Fatalf("second compile() error = %v, want nil", err)
 	}
@@ -100,12 +100,12 @@ func TestCompileRejectsUnverifiedAndBrokenBindings(t *testing.T) {
 		row.LegacyMapped = false
 		report.Resources[resource] = row
 	}
-	if _, err := compile(context.Background(), input{SourceRegistry: mustRenderSource(t, report), InputProvenance: fixture.InputProvenance}, contracts.SourceTrustVerified); err == nil {
+	if _, err := compile(context.Background(), input{SourceRegistry: mustRenderSource(t, report), InputProvenance: fixture.InputProvenance}, contracts.SourceTrustVerified, nil); err == nil {
 		t.Error("compile(unverified source report) error = nil, want rejection")
 	}
 	badProvenance := append([]byte(nil), fixture.InputProvenance...)
 	badProvenance[len(badProvenance)-1] ^= 1
-	if _, err := compile(context.Background(), input{SourceRegistry: fixture.SourceRegistry, InputProvenance: badProvenance}, contracts.SourceTrustVerified); err == nil {
+	if _, err := compile(context.Background(), input{SourceRegistry: fixture.SourceRegistry, InputProvenance: badProvenance}, contracts.SourceTrustVerified, nil); err == nil {
 		t.Error("compile(noncanonical provenance) error = nil, want rejection")
 	}
 }
@@ -174,7 +174,7 @@ func TestDerivedArtifactsCannotAlterSourceClassificationOrCounts(t *testing.T) {
 
 func fixtureBundle(t *testing.T) Bundle {
 	t.Helper()
-	bundle, err := compile(context.Background(), fixtureInput(t), contracts.SourceTrustVerified)
+	bundle, err := compile(context.Background(), fixtureInput(t), contracts.SourceTrustVerified, nil)
 	if err != nil {
 		t.Fatalf("compile(fixture input) error = %v, want nil", err)
 	}

@@ -11,6 +11,7 @@ import (
 	"io"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/contracts"
+	"github.com/dvmrry/infrawright-dev/go/internal/authoring/openapiadapter"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/sourceanalysis"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/sourcebind"
 )
@@ -64,7 +65,8 @@ type input struct {
 
 // CompileQualified is the production A1-to-A2 integration seam. It takes the
 // sealed A1 evidence and sourcebind-qualified input so callers cannot replace
-// the registry or provenance with freshly rendered lookalikes.
+// the registry or provenance with freshly rendered lookalikes. It analyzes the
+// captured optional OpenAPI status only through the sealed adapter capability.
 func CompileQualified(ctx context.Context, evidence sourceanalysis.QualifiedEvidence, inputs sourcebind.QualifiedInputs) (Bundle, error) {
 	if err := ctx.Err(); err != nil {
 		return Bundle{}, fmt.Errorf("compile source-operation bundle: %w", err)
@@ -73,11 +75,19 @@ func CompileQualified(ctx context.Context, evidence sourceanalysis.QualifiedEvid
 	if err != nil {
 		return Bundle{}, fmt.Errorf("read qualified source evidence: %w", err)
 	}
+	report, err := contracts.DecodeSourceEvidenceReport(registry)
+	if err != nil {
+		return Bundle{}, fmt.Errorf("decode qualified source evidence: %w", err)
+	}
 	snapshot, err := inputs.Snapshot()
 	if err != nil {
 		return Bundle{}, fmt.Errorf("snapshot qualified source inputs: %w", err)
 	}
-	return compile(ctx, input{SourceRegistry: registry, InputProvenance: snapshot.InputProvenanceBytes}, contracts.SourceTrustVerified)
+	openAPI, err := openapiadapter.Analyze(ctx, snapshot.OpenAPI, report)
+	if err != nil {
+		return Bundle{}, fmt.Errorf("analyze qualified OpenAPI status: %w", err)
+	}
+	return compile(ctx, input{SourceRegistry: registry, InputProvenance: snapshot.InputProvenanceBytes}, contracts.SourceTrustVerified, &openAPI)
 }
 
 // CompileUnverified compiles a diagnostic-only v2 bundle from the separate A1
@@ -94,13 +104,13 @@ func CompileUnverified(ctx context.Context, evidence sourceanalysis.UnverifiedEv
 	return compile(ctx, input{
 		SourceRegistry:  registry,
 		InputProvenance: append([]byte(nil), inputs.InputProvenanceBytes...),
-	}, contracts.SourceTrustUnverified)
+	}, contracts.SourceTrustUnverified, nil)
 }
 
 // compile is deliberately package-private: arbitrary canonical bytes cannot
 // mint a verified-looking bundle. Production callers use CompileQualified or
 // CompileUnverified, which require distinct sealed evidence capabilities.
-func compile(ctx context.Context, input input, trust contracts.SourceTrust) (Bundle, error) {
+func compile(ctx context.Context, input input, trust contracts.SourceTrust, openAPI *openapiadapter.Result) (Bundle, error) {
 	if err := ctx.Err(); err != nil {
 		return Bundle{}, fmt.Errorf("compile source-operation bundle: %w", err)
 	}
@@ -136,7 +146,7 @@ func compile(ctx context.Context, input input, trust contracts.SourceTrust) (Bun
 		return Bundle{}, err
 	}
 	markdown := renderSummaryMarkdown(report, registry)
-	openAPIDiagnostics, err := renderAbsentOpenAPIDiagnostics(report)
+	openAPIDiagnostics, err := renderOpenAPIDiagnostics(report, openAPI)
 	if err != nil {
 		return Bundle{}, err
 	}
@@ -152,6 +162,23 @@ func compile(ctx context.Context, input input, trust contracts.SourceTrust) (Bun
 		return Bundle{}, fmt.Errorf("validate compiled source-operation bundle: %w", err)
 	}
 	return bundle, nil
+}
+
+// renderOpenAPIDiagnostics accepts only an optional sealed adapter capability.
+// It never accepts caller-supplied diagnostic bytes, and it validates detached
+// adapter output against the exact decoded source report before bundling it.
+func renderOpenAPIDiagnostics(report contracts.SourceEvidenceReport, result *openapiadapter.Result) ([]byte, error) {
+	if result == nil {
+		return renderAbsentOpenAPIDiagnostics(report)
+	}
+	bytes, err := result.CanonicalBytes()
+	if err != nil {
+		return nil, fmt.Errorf("read sealed OpenAPI diagnostics: %w", err)
+	}
+	if _, err := contracts.DecodeOpenAPIDiagnosticsReport(bytes, report); err != nil {
+		return nil, fmt.Errorf("bind sealed OpenAPI diagnostics to source report: %w", err)
+	}
+	return bytes, nil
 }
 
 func renderAbsentOpenAPIDiagnostics(report contracts.SourceEvidenceReport) ([]byte, error) {

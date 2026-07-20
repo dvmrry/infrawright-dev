@@ -1,8 +1,8 @@
 # Go authoring port roadmap
 
-Status: DECIDED DESIGN. A1, A2, and the dependency-free A3-R reconciliation
-parcel are accepted after independent adversarial review. The remaining A3
-OpenAPI parcels are planned but not yet implemented. Implementation is the
+Status: DECIDED DESIGN. A1, A2, and all four A3 parcels (A3-R, A3-O,
+A3-M, and A3-I) are implemented and accepted after independent adversarial
+review. A4 is the next sequential authoring frontier. Implementation is the
 first leg of the authority-handoff gate in
 [singleton-state-topology-v2.md](singleton-state-topology-v2.md). This document
 does not authorize degrouping or Node archive by itself.
@@ -487,10 +487,9 @@ does not modify existing fixtures or Node authority bytes.
 
 ### A3 — Reconcile and optional OpenAPI adapter (parallel with A2 after A0)
 
-**Status: A3-R and A3-O accepted after fresh-context adversarial review; A3-M
-and A3-I are unblocked and may proceed in parallel.** A3 is package work only.
-A6 retains all command parsing, help, exit/stdout/stderr contracts, Make
-routing, and filesystem publication.
+**Status: implemented and accepted after fresh-context adversarial review.**
+A3 is package work only. A6 retains all command parsing, help,
+exit/stdout/stderr contracts, Make routing, and filesystem publication.
 
 - A3-R ports the API/schema/override reconciliation core into an isolated
   package and preserves the frozen report/helper authorities. It owns the
