@@ -241,10 +241,23 @@ func (output *applyGitOutput) Write(value []byte) (int, error) {
 	return output.buffer.Write(value)
 }
 
+type applyGitProcessCleanup func(*exec.Cmd) error
+
 func runGitApplyBranch(cwd, executable string) string {
+	return runGitApplyBranchWithCleanup(cwd, executable, cleanupApplyGitProcessGroup)
+}
+
+func runGitApplyBranchWithCleanup(cwd, executable string, cleanup applyGitProcessCleanup) (branch string) {
+	branch = "unknown"
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	command := exec.CommandContext(ctx, executable, "rev-parse", "--abbrev-ref", "HEAD")
+	configureApplyGitProcess(command)
+	defer func() {
+		if err := cleanup(command); err != nil {
+			branch = "unknown"
+		}
+	}()
 	command.Dir = cwd
 	command.WaitDelay = maximumApplyGitWaitDelay
 	stdout := applyGitOutput{onOverflow: cancel}
