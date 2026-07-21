@@ -12,9 +12,11 @@ is:
 2. Authority handoff gate: final Node runtime frozen as the immutable
    v1 oracle, Go declared product authority
    (complete; singleton-state-topology-v2.md §3 D6).
-3. Degrouping implemented Go-only as versioned v2.
-4. State inventory, full 151-type generation gates, Kubernetes
-   qualification, Zscaler canaries.
+3. Degrouping implemented Go-only as versioned v2 (**complete**; G1–G3 and
+   credential-free full-151 gates landed, with no production/live execution).
+4. State inventory, Kubernetes qualification, and Zscaler canaries. The
+   credential-free full-151 generation/backend-key gates are complete; live
+   qualification remains separately access- and human-gated.
 5. Cutover and archive of all executable Node dependencies (this
    document's phases).
 
@@ -22,16 +24,18 @@ The Go operator runtime is built and fixture/lab-qualified, and the authoring
 implementation passed the external Opus, GPT-5.6 Pro, and Fable review sequence
 on 2026-07-20 at `c3e18a67e4b61b90860e02b782342b3e98ebbd80`. This does not
 imply a production/provider-controlled exact Apply; that remains separately
-human-gated. The formal authority handoff is complete. What remains is
-singleton-state v2, routing, release engineering, and a controlled default
-switch.
+human-gated. The formal authority handoff and singleton-state v2 implementation
+are complete. What remains is the real-backend inventory, live qualification,
+routing, release engineering, and a controlled default switch.
 
 ## 0. Preconditions
 
 1. Authoring parity complete and the authority handoff gate passed. **Complete.**
 2. Singleton-state v2 landed Go-only and re-qualified (all five gates
    in that document), so the cutover ships the simplified topology
-   once instead of cutting over twice.
+   once instead of cutting over twice. **Partially complete:** implementation
+   and credential-free gates 1–3 are complete at `2ebd37d`; live gates 4–5
+   remain required before cutover.
 3. `747f613` and subsequent parcels pushed; integration PR flow
    current.
 4. Kubernetes qualification evidence recorded in-repo (sanitized) and

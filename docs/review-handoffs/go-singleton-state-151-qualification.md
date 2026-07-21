@@ -1,8 +1,8 @@
 # Singleton-state topology 151-type qualification handoff
 
 Status: APPROVED BY FRESH ADVERSARIAL REVIEW. This qualification adds tests and
-records evidence only; it changes no production behavior. Nothing in this
-parcel has been committed or pushed.
+records evidence only; it changes no production behavior. The reviewed parcel
+is committed at `2ebd37d`.
 
 ## Intent
 
@@ -24,10 +24,9 @@ parcel has been committed or pushed.
 ## Base / Head
 
 - Base: `1d0b4c3` (`Complete singleton lifecycle cleanup`).
-- Head: the reviewed, uncommitted qualification tree on
-  `feature/go-authority-singleton-state-v2` at production base `1d0b4c3`.
-- Diff command: `git diff --no-index /dev/null` for each new file, plus
-  `git status --short`.
+- Head: `2ebd37d` (`Qualify singleton topology across full surface`) on
+  `feature/go-authority-singleton-state-v2`.
+- Diff command: `git diff 1d0b4c3..2ebd37d`.
 - G0 comparison authority:
   `93f04b36728755c55567b0915b804cacb4cd3a65`.
 
