@@ -10,6 +10,7 @@ package deployment
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -108,10 +109,7 @@ func TestLoadDeploymentFailsClosedOnMalformedRootConfiguration(t *testing.T) {
 		`[]`,
 		`{"roots": []}`,
 		`{"roots": {"zpa": []}}`,
-		`{"roots": {"zpa": {"strategy": "surprise"}}}`,
-		`{"roots": {"zpa": {"groups": {"empty": []}}}}`,
 		`{"roots": {"zpa": {"cross_state_references": "yes"}}}`,
-		`{"roots": {"zpa": {"bind_references": true, "cross_state_references": true}}}`,
 		`{"roots": {"zpa": {"unknown": true}}}`,
 	}
 	for _, c := range cases {
@@ -122,12 +120,12 @@ func TestLoadDeploymentFailsClosedOnMalformedRootConfiguration(t *testing.T) {
 	}
 }
 
-func TestCrossStateReferenceModeIsExplicitAndPreservesLegacyDefaults(t *testing.T) {
+func TestCrossStateReferenceModeIsExplicitDuringG1(t *testing.T) {
 	dir := t.TempDir()
 	deploymentPath := writeDeployment(t, dir, `{
 		"roots": {
 			"zia": {"cross_state_references": true},
-			"zpa": {"bind_references": true}
+			"zpa": {"cross_state_references": false}
 		}
 	}`)
 	loaded, err := LoadDeployment(deploymentPath)
@@ -137,37 +135,31 @@ func TestCrossStateReferenceModeIsExplicitAndPreservesLegacyDefaults(t *testing.
 	if got := DeploymentReferenceBindingMode(loaded, "zia"); got != ReferenceBindingCrossState {
 		t.Errorf("DeploymentReferenceBindingMode(zia) = %v, want cross_state", got)
 	}
-	if got := DeploymentReferenceBindingMode(loaded, "zpa"); got != ReferenceBindingSameRoot {
-		t.Errorf("DeploymentReferenceBindingMode(zpa) = %v, want same_root", got)
+	if got := DeploymentReferenceBindingMode(loaded, "zpa"); got != ReferenceBindingDisabled {
+		t.Errorf("DeploymentReferenceBindingMode(zpa) = %v, want disabled", got)
 	}
 	if got := DeploymentReferenceBindingMode(loaded, "zcc"); got != ReferenceBindingDisabled {
 		t.Errorf("DeploymentReferenceBindingMode(zcc) = %v, want disabled", got)
 	}
 }
 
-func TestDeploymentDictionariesDoNotTreatPrototypeNamesSpecially(t *testing.T) {
+func TestRetiredRootFieldsFailWithFieldSpecificRoadmapPointer(t *testing.T) {
 	dir := t.TempDir()
-	deploymentPath := writeDeployment(t, dir,
-		`{"roots":{"zpa":{"groups":{"__proto__":["zpa_alpha_one"]}}}}`)
-	loaded, err := LoadDeployment(deploymentPath)
-	if err != nil {
-		t.Fatalf("LoadDeployment: %v", err)
-	}
-	if _, ok := loaded.Roots["zpa"]; !ok {
-		t.Fatalf("Roots = %v, want a \"zpa\" entry", loaded.Roots)
-	}
-	members, ok := loaded.Roots["zpa"].Groups["__proto__"]
-	if !ok {
-		t.Fatalf("Roots[zpa].Groups = %v, want a \"__proto__\" entry", loaded.Roots["zpa"].Groups)
-	}
-	if len(members) != 1 || members[0] != "zpa_alpha_one" {
-		t.Errorf("Roots[zpa].Groups[__proto__] = %v, want [zpa_alpha_one]", members)
-	}
-
-	writeDeployment(t, dir,
-		`{"roots":{"zpa":{"groups":{"__proto__":["one"],"__proto__":["two"]}}}}`)
-	if _, err := LoadDeployment(deploymentPath); err == nil {
-		t.Errorf("LoadDeployment(duplicate __proto__ key) = nil error, want failure (duplicate JSON key)")
+	for _, test := range []struct {
+		name, input, field string
+	}{
+		{"strategy", `{"roots":{"zpa":{"strategy":"slug"}}}`, "strategy"},
+		{"groups", `{"roots":{"zpa":{"groups":{}}}}`, "groups"},
+		{"bind", `{"roots":{"zpa":{"bind_references":false}}}`, "bind_references"},
+		{"sorted first", `{"roots":{"zpa":{"strategy":"slug","groups":{}}}}`, "groups"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			deploymentPath := writeDeployment(t, dir, test.input)
+			if _, err := LoadDeployment(deploymentPath); err == nil ||
+				!strings.Contains(err.Error(), "roots.zpa."+test.field+" has been removed; see docs/singleton-state-topology-v2.md") {
+				t.Fatalf("LoadDeployment = %v, want field-specific retirement error for %s", err, test.field)
+			}
+		})
 	}
 }
 

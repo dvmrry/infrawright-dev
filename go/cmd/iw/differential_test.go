@@ -14,9 +14,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -74,89 +76,166 @@ func runBinary(t *testing.T, root string, argv0 string, args []string) runResult
 	return runResult{exit: exit, stdout: stdout.Bytes(), stderr: stderr.Bytes()}
 }
 
-func TestRootCatalogDifferentialAgainstNodeOracle(t *testing.T) {
-	root := repoRoot(t)
-	oracleBundle := filepath.Join(root, "dist", "infrawright-cli.mjs")
-	if _, err := os.Stat(oracleBundle); err != nil {
-		t.Skipf("Node oracle bundle absent (%s); build it with `npm run build:metadata-cli`", oracleBundle)
+// buildGoV2AuthorityCLI builds a disposable CLI next to the runtime data so
+// packageRoot resolves the checked-in packs without consulting the frozen Node
+// runtime. V2 topology is owned by reviewed Go catalog/golden bytes.
+func buildGoV2AuthorityCLI(t *testing.T, root, prefix string) string {
+	t.Helper()
+	dist := filepath.Join(root, "dist")
+	distInfo, statErr := os.Stat(dist)
+	createdDist := os.IsNotExist(statErr)
+	if statErr != nil && !createdDist {
+		t.Fatalf("stat %s: %v", dist, statErr)
 	}
-	nodeBinary, err := exec.LookPath("node")
+	if statErr == nil && !distInfo.IsDir() {
+		t.Fatalf("runtime directory %s is not a directory", dist)
+	}
+	if createdDist {
+		if err := os.MkdirAll(dist, 0o755); err != nil {
+			t.Fatalf("creating %s for disposable Go CLI: %v", dist, err)
+		}
+		// The test owns this directory only when it was absent on entry. Remove
+		// it only if it is still empty after removing our own binary; this never
+		// removes a checked-in oracle or an artifact created by another test.
+		t.Cleanup(func() { _ = os.Remove(dist) })
+	}
+	candidateFile, err := os.CreateTemp(dist, prefix+"-*")
 	if err != nil {
-		t.Skip("node not on PATH; the differential lane needs the pinned Node 24")
+		t.Fatalf("os.CreateTemp(%s): %v", prefix, err)
 	}
-
-	goBinary := filepath.Join(root, "dist", "iw-go-diff")
-	build := exec.Command("go", "build", "-o", goBinary, ".")
+	candidate := candidateFile.Name()
+	if err := candidateFile.Close(); err != nil {
+		t.Fatalf("closing %s: %v", candidate, err)
+	}
+	if err := os.Remove(candidate); err != nil {
+		t.Fatalf("removing build placeholder %s: %v", candidate, err)
+	}
+	t.Cleanup(func() { _ = os.Remove(candidate) })
+	build := exec.Command("go", "build", "-o", candidate, ".")
 	build.Dir = filepath.Join(root, "go", "cmd", "iw")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("building Go CLI: %v\n%s", err, output)
 	}
-	t.Cleanup(func() { os.Remove(goBinary) })
+	return candidate
+}
 
-	staleFile := filepath.Join(t.TempDir(), "stale.json")
-	if err := os.WriteFile(staleFile, []byte("{}\n"), 0o666); err != nil {
-		t.Fatal(err)
+func TestRootCatalogV2GoldenAuthority(t *testing.T) {
+	root := repoRoot(t)
+	goBinary := buildGoV2AuthorityCLI(t, root, "iw-go-v2-root-catalog")
+	goldenPath := filepath.Join(root, "catalogs", "zscaler-root-catalog.v2.json")
+	golden, err := os.ReadFile(goldenPath)
+	if err != nil {
+		t.Fatalf("reading v2 root-catalog golden: %v", err)
 	}
-	nodeOut := filepath.Join(t.TempDir(), "node-out.json")
-	goOut := filepath.Join(t.TempDir(), "go-out.json")
 
 	allProviders := "zcc,zia,zpa,ztc"
-	freshCatalog := filepath.Join("catalogs", "zscaler-root-catalog.v1.json")
+	t.Run("render", func(t *testing.T) {
+		result := runBinary(t, root, goBinary, []string{"root-catalog", "--providers", allProviders})
+		if result.exit != 0 {
+			t.Fatalf("root-catalog exit = %d; stderr=%s", result.exit, result.stderr)
+		}
+		if !bytes.Equal(result.stdout, golden) {
+			t.Errorf("root-catalog v2 bytes differ from reviewed golden %s", goldenPath)
+		}
+		if len(result.stderr) != 0 {
+			t.Errorf("root-catalog stderr = %q, want empty", result.stderr)
+		}
+	})
 
+	t.Run("subset", func(t *testing.T) {
+		result := runBinary(t, root, goBinary, []string{"root-catalog", "--providers", "zcc,ztc"})
+		if result.exit != 0 {
+			t.Fatalf("subset exit = %d; stderr=%s", result.exit, result.stderr)
+		}
+		var catalog struct {
+			SchemaVersion     int      `json:"schema_version"`
+			DeclaredProviders []string `json:"declared_providers"`
+			Resources         []struct {
+				Provider string `json:"provider"`
+			} `json:"resources"`
+		}
+		if err := json.Unmarshal(result.stdout, &catalog); err != nil {
+			t.Fatalf("decoding subset catalog: %v", err)
+		}
+		if catalog.SchemaVersion != 2 || strings.Join(catalog.DeclaredProviders, ",") != "zcc,ztc" {
+			t.Errorf("subset catalog header = version %d providers %v, want version 2 providers [zcc ztc]", catalog.SchemaVersion, catalog.DeclaredProviders)
+		}
+		if len(catalog.Resources) == 0 {
+			t.Fatal("subset catalog contains no resources")
+		}
+		for _, resource := range catalog.Resources {
+			if resource.Provider != "zcc" && resource.Provider != "ztc" {
+				t.Errorf("subset catalog included provider %q", resource.Provider)
+			}
+		}
+	})
+
+	t.Run("out-and-check", func(t *testing.T) {
+		out := filepath.Join(t.TempDir(), "catalog.json")
+		written := runBinary(t, root, goBinary, []string{"root-catalog", "--providers", allProviders, "--out", out})
+		if written.exit != 0 || len(written.stdout) != 0 || len(written.stderr) != 0 {
+			t.Fatalf("--out result = exit %d stdout %q stderr %q", written.exit, written.stdout, written.stderr)
+		}
+		actual, err := os.ReadFile(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(actual, golden) {
+			t.Error("--out bytes differ from reviewed v2 golden")
+		}
+		fresh := runBinary(t, root, goBinary, []string{"root-catalog", "--providers", allProviders, "--check", goldenPath})
+		if fresh.exit != 0 || len(fresh.stdout) != 0 || len(fresh.stderr) != 0 {
+			t.Errorf("fresh --check result = exit %d stdout %q stderr %q", fresh.exit, fresh.stdout, fresh.stderr)
+		}
+	})
+
+	t.Run("stale-and-argument-failures", func(t *testing.T) {
+		stale := filepath.Join(t.TempDir(), "stale.json")
+		if err := os.WriteFile(stale, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cases := []struct {
+			name     string
+			args     []string
+			contains string
+		}{
+			{"stale", []string{"root-catalog", "--providers", allProviders, "--check", stale}, "STALE_ROOT_CATALOG"},
+			{"out-check-conflict", []string{"root-catalog", "--out", "x.json", "--check", "y.json"}, "only one of --out or --check"},
+			{"unknown-provider", []string{"root-catalog", "--providers", "nope"}, "unknown provider"},
+			{"empty-providers", []string{"root-catalog", "--providers", ","}, "requires at least one provider"},
+		}
+		for _, testCase := range cases {
+			t.Run(testCase.name, func(t *testing.T) {
+				result := runBinary(t, root, goBinary, testCase.args)
+				if result.exit == 0 {
+					t.Fatalf("%v unexpectedly succeeded", testCase.args)
+				}
+				if !strings.Contains(string(result.stderr), testCase.contains) {
+					t.Errorf("stderr = %q, want %q", result.stderr, testCase.contains)
+				}
+			})
+		}
+	})
+}
+
+// resources is independent of state-unit topology, so it remains a frozen-v1
+// Node differential after the v2 catalog/topology differentials retire.
+func TestResourcesDifferentialAgainstFrozenNodeOracle(t *testing.T) {
+	runtime := newBlockD5Runtime(t)
 	cases := []struct {
 		name string
 		args []string
-		// outFiles maps per-side --out targets; when set, case args get
-		// the side's file appended after "--out" and file bytes compared.
-		outFiles bool
 	}{
-		{name: "render", args: []string{"root-catalog", "--providers", allProviders}},
-		{name: "render-subset", args: []string{"root-catalog", "--providers", "zcc,ztc"}},
-		{name: "out-file", args: []string{"root-catalog", "--providers", allProviders, "--out"}, outFiles: true},
-		{name: "check-fresh", args: []string{"root-catalog", "--providers", allProviders, "--check", freshCatalog}},
-		{name: "check-stale", args: []string{"root-catalog", "--providers", allProviders, "--check", staleFile}},
-		{name: "out-check-conflict", args: []string{"root-catalog", "--providers", "zcc", "--out", "x.json", "--check", "y.json"}},
-		{name: "unknown-provider", args: []string{"root-catalog", "--providers", "nope"}},
-		{name: "empty-providers", args: []string{"root-catalog", "--providers", ","}},
-		{name: "duplicate-forbidden", args: []string{"root-catalog", "--out", "a", "--out", "b", "--check", "c"}},
+		{"all", []string{"resources"}},
+		{"reference-order", []string{"resources", "--order=references"}},
+		{"provider-selector", []string{"resources", "--resource", "zcc"}},
 	}
-
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			nodeArguments := append([]string{oracleBundle}, testCase.args...)
-			goArguments := append([]string{}, testCase.args...)
-			if testCase.outFiles {
-				nodeArguments = append(nodeArguments, nodeOut)
-				goArguments = append(goArguments, goOut)
-			}
-			oracle := runBinary(t, root, nodeBinary, nodeArguments)
-			candidate := runBinary(t, root, goBinary, goArguments)
-
-			if oracle.exit != candidate.exit {
-				t.Errorf("exit: node=%d go=%d\nnode stderr: %s\ngo stderr: %s",
-					oracle.exit, candidate.exit, oracle.stderr, candidate.stderr)
-			}
-			if !equalAfterA6Usage(oracle.stdout, candidate.stdout) {
-				t.Errorf("stdout diverges\nnode (%d bytes): %.400q\ngo (%d bytes): %.400q",
-					len(oracle.stdout), oracle.stdout, len(candidate.stdout), candidate.stdout)
-			}
-			if !equalAfterA6Usage(oracle.stderr, candidate.stderr) {
-				t.Errorf("stderr diverges\nnode (%d bytes): %.400q\ngo (%d bytes): %.400q",
-					len(oracle.stderr), oracle.stderr, len(candidate.stderr), candidate.stderr)
-			}
-			if testCase.outFiles {
-				nodeBytes, err := os.ReadFile(nodeOut)
-				if err != nil {
-					t.Fatal(err)
-				}
-				goBytes, err := os.ReadFile(goOut)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if !bytes.Equal(nodeBytes, goBytes) {
-					t.Errorf("--out artifact diverges: node %d bytes, go %d bytes", len(nodeBytes), len(goBytes))
-				}
-			}
+			oracle := runBinary(t, runtime.repository, runtime.node,
+				append([]string{runtime.oracleBundle}, testCase.args...))
+			candidate := runBinary(t, runtime.repository, runtime.candidate, testCase.args)
+			compareBlockC4RunResult(t, testCase.name, oracle, candidate)
 		})
 	}
 }

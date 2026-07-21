@@ -1,0 +1,2 @@
+wrote <V2_TOPOLOGY_FIXTURE>/envs/tenant/sample_resource/main.tf
+wrote <V2_TOPOLOGY_FIXTURE>/envs/tenant/sample_resource/tests/smoke.tftest.hcl

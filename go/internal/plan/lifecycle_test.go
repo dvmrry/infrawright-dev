@@ -434,7 +434,7 @@ func TestPlanEnvironmentRootsRejectsMixedEscapeSurrogateBeforeTerraform(t *testi
 	}
 }
 
-func TestPlanEnvironmentRootsSelectsHCLAndRejectsPartialGroup(t *testing.T) {
+func TestPlanEnvironmentRootsSelectsHCLAndKeepsSelectionsSingleton(t *testing.T) {
 	t.Run("hcl", func(t *testing.T) {
 		workspace := t.TempDir()
 		writeLifecycleRoot(t, workspace, "tenant", lifecycleTestResource, []string{lifecycleTestResource}, nil, false)
@@ -455,33 +455,35 @@ func TestPlanEnvironmentRootsSelectsHCLAndRejectsPartialGroup(t *testing.T) {
 		}
 	})
 
-	t.Run("partial_group", func(t *testing.T) {
+	t.Run("selected_singleton_does_not_require_unselected_config", func(t *testing.T) {
 		workspace := t.TempDir()
-		label := "zia_pair"
-		writeLifecycleRoot(t, workspace, "tenant", label, []string{lifecycleTestResource, lifecycleTestSecond}, nil, false)
+		writeLifecycleRoot(t, workspace, "tenant", lifecycleTestResource, []string{lifecycleTestResource}, nil, false)
 		writeLifecycleText(t, lifecycleTestConfigPath(workspace, "tenant", lifecycleTestResource, ".auto.tfvars.json"), `{"zia_url_categories_items":{}}`+"\n")
 		dep := lifecycleTestDeployment()
-		dep.Roots["zia"] = deployment.RootProviderConfig{
-			HasGroups: true,
-			Groups: map[string][]string{
-				label: {lifecycleTestResource, lifecycleTestSecond},
-			},
-		}
 		root := lifecycleTestRoot(map[string]metadata.JsonObject{
 			lifecycleTestResource: {"generate": true, "product": "zia"},
 			lifecycleTestSecond:   {"generate": true, "product": "zia"},
 		})
 		fake := &lifecycleFakeTerraform{}
-		_, err := PlanEnvironmentRoots(PlanEnvironmentRootsOptions{
+		var diagnostics []string
+		result, err := PlanEnvironmentRoots(PlanEnvironmentRootsOptions{
 			Deployment: dep, Root: root, Selectors: []string{lifecycleTestResource},
 			Tenant: "tenant", Terraform: fake, Workspace: workspace,
+			OnDiagnostic: func(message string) { diagnostics = append(diagnostics, message) },
 		})
-		failure := requireLifecycleFailure(t, err, "MISSING_GROUP_CONFIG")
-		if !strings.Contains(failure.Message, lifecycleTestSecond+".auto.tfvars.json") {
-			t.Errorf("ProcessFailure.Message = %q, want missing %s config", failure.Message, lifecycleTestSecond)
+		if err != nil {
+			t.Fatalf("PlanEnvironmentRoots(singleton selection) error: %v", err)
 		}
-		if len(fake.initialized) != 0 || len(fake.planned) != 0 {
-			t.Errorf("Terraform calls = (%d init, %d plan), want (0, 0)", len(fake.initialized), len(fake.planned))
+		if result.Planned != 1 {
+			t.Errorf("PlanEnvironmentRoots(singleton selection).Planned = %d, want 1", result.Planned)
+		}
+		if len(fake.initialized) != 1 || len(fake.planned) != 1 {
+			t.Errorf("Terraform calls = (%d init, %d plan), want (1, 1)", len(fake.initialized), len(fake.planned))
+		}
+		for _, diagnostic := range diagnostics {
+			if strings.Contains(diagnostic, "WHOLE_ROOT_SELECTION") || strings.Contains(diagnostic, "selects whole root") {
+				t.Errorf("PlanEnvironmentRoots(singleton selection) diagnostic = %q, want no whole-root selection diagnostic", diagnostic)
+			}
 		}
 	})
 }

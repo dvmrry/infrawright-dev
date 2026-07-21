@@ -1,0 +1,30 @@
+{
+  "kind": "infrawright.plan_roots",
+  "request": {
+    "selectors": [],
+    "tenant": "tenant"
+  },
+  "roots": [
+    {
+      "artifact_state": "absent",
+      "artifacts": {
+        "tfplan": {
+          "exists": false,
+          "path": "<V2_TOPOLOGY_FIXTURE>/envs/tenant/sample_resource/tfplan"
+        },
+        "tfplan_sources": {
+          "exists": false,
+          "path": "<V2_TOPOLOGY_FIXTURE>/envs/tenant/sample_resource/tfplan.sources"
+        }
+      },
+      "env_dir": "<V2_TOPOLOGY_FIXTURE>/envs/tenant/sample_resource",
+      "label": "sample_resource",
+      "members": [
+        "sample_resource"
+      ],
+      "provider": "sample",
+      "tenant": "tenant"
+    }
+  ],
+  "schema_version": 1
+}

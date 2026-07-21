@@ -15,7 +15,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
-var registryResourceKeys = stringSet("adopt", "derive", "fetch", "generate", "product", "slug_group")
+var registryResourceKeys = stringSet("adopt", "derive", "fetch", "generate", "product")
 
 var canonicalResourceType = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
@@ -489,17 +489,15 @@ func validateRegistry(value any, source string) JsonObject {
 			failf("%s must be an object", label)
 			continue
 		}
+		if _, retired := entry["slug_group"]; retired {
+			failf("%s.slug_group has been removed; see docs/singleton-state-topology-v2.md", label)
+		}
 		rejectUnknownKeys(entry, registryResourceKeys, label)
 		requireKeys(entry, stringSet("product"), label)
 		requireNonEmptyString(entry["product"], label+".product")
 		if generate, ok := entry["generate"]; ok {
 			if _, isBool := generate.(bool); !isBool {
 				failf("%s.generate must be a boolean", label)
-			}
-		}
-		if slugGroup, ok := entry["slug_group"]; ok {
-			if _, isBool := slugGroup.(bool); !isBool {
-				failf("%s.slug_group must be a boolean", label)
 			}
 		}
 		if fetch, ok := entry["fetch"]; ok {

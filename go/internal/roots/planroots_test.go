@@ -25,22 +25,22 @@ import (
 // writePlanRootsFixture builds the same envs/ tree
 // scope_plan_probe.ts's plan-roots scenarios share:
 //
-//   - envs/acme/zpa_alpha:         tfplan + tfplan.sources -> "complete"
+//   - envs/acme/zpa_alpha_one:     tfplan + tfplan.sources -> "complete"
 //   - envs/acme/zpa_derived_reorder: tfplan only            -> "incomplete"
-//   - envs/other/zpa_alpha:        neither artifact         -> "absent"
+//   - envs/other/zpa_alpha_one:    neither artifact         -> "absent"
 //   - envs/acme/unknown_root:      tfplan, but "unknown_root" names no
 //     topology root label at all -- must never appear in any result.
 func writePlanRootsFixture(t *testing.T) string {
 	t.Helper()
 	workspace := t.TempDir()
-	mustMkdirAll(t, filepath.Join(workspace, "envs/acme/zpa_alpha"))
-	mustWriteFile(t, filepath.Join(workspace, "envs/acme/zpa_alpha/tfplan"), "plan")
-	mustWriteFile(t, filepath.Join(workspace, "envs/acme/zpa_alpha/tfplan.sources"), "sources")
+	mustMkdirAll(t, filepath.Join(workspace, "envs/acme/zpa_alpha_one"))
+	mustWriteFile(t, filepath.Join(workspace, "envs/acme/zpa_alpha_one/tfplan"), "plan")
+	mustWriteFile(t, filepath.Join(workspace, "envs/acme/zpa_alpha_one/tfplan.sources"), "sources")
 
 	mustMkdirAll(t, filepath.Join(workspace, "envs/acme/zpa_derived_reorder"))
 	mustWriteFile(t, filepath.Join(workspace, "envs/acme/zpa_derived_reorder/tfplan"), "plan-only")
 
-	mustMkdirAll(t, filepath.Join(workspace, "envs/other/zpa_alpha"))
+	mustMkdirAll(t, filepath.Join(workspace, "envs/other/zpa_alpha_one"))
 
 	mustMkdirAll(t, filepath.Join(workspace, "envs/acme/unknown_root"))
 	mustWriteFile(t, filepath.Join(workspace, "envs/acme/unknown_root/tfplan"), "plan")
@@ -81,7 +81,7 @@ func TestPlanRootsClassifiesArtifactStateAndSkipsUnknownRootDirectories(t *testi
 	workspace := writePlanRootsFixture(t)
 	result, err := PlanRootsFromCatalog(PlanRootsOptions{
 		Workspace:  workspace,
-		Deployment: slugDeployment(),
+		Deployment: singletonDeployment(),
 		Catalog:    scopePlanFixtureCatalog(),
 		Tenant:     nil,
 		Selectors:  []string{},
@@ -93,18 +93,18 @@ func TestPlanRootsClassifiesArtifactStateAndSkipsUnknownRootDirectories(t *testi
 		t.Fatalf("Roots length = %d, want 3 (oracle: complete zpa_alpha/acme, incomplete zpa_derived_reorder/acme, absent zpa_alpha/other)", len(result.Result.Roots))
 	}
 
-	complete := rootByLabel(t, result.Result.Roots, "acme", "zpa_alpha")
+	complete := rootByLabel(t, result.Result.Roots, "acme", "zpa_alpha_one")
 	if complete.ArtifactState != ArtifactStateComplete {
 		t.Errorf("acme/zpa_alpha ArtifactState = %v, want complete", complete.ArtifactState)
 	}
 	if !complete.Artifacts.Tfplan.Exists || !complete.Artifacts.TfplanSources.Exists {
 		t.Errorf("acme/zpa_alpha Artifacts = %+v, want both existing", complete.Artifacts)
 	}
-	if !reflect.DeepEqual(complete.Members, []string{"zpa_alpha_one", "zpa_alpha_two"}) {
-		t.Errorf("acme/zpa_alpha Members = %v, want both slug members", complete.Members)
+	if !reflect.DeepEqual(complete.Members, []string{"zpa_alpha_one"}) {
+		t.Errorf("acme/zpa_alpha_one Members = %v, want singleton member", complete.Members)
 	}
-	if complete.EnvDir != "envs/acme/zpa_alpha" {
-		t.Errorf("acme/zpa_alpha EnvDir = %q, want envs/acme/zpa_alpha", complete.EnvDir)
+	if complete.EnvDir != "envs/acme/zpa_alpha_one" {
+		t.Errorf("acme/zpa_alpha_one EnvDir = %q, want envs/acme/zpa_alpha_one", complete.EnvDir)
 	}
 
 	incomplete := rootByLabel(t, result.Result.Roots, "acme", "zpa_derived_reorder")
@@ -115,7 +115,7 @@ func TestPlanRootsClassifiesArtifactStateAndSkipsUnknownRootDirectories(t *testi
 		t.Errorf("acme/zpa_derived_reorder Artifacts = %+v, want tfplan present / sources absent", incomplete.Artifacts)
 	}
 
-	absent := rootByLabel(t, result.Result.Roots, "other", "zpa_alpha")
+	absent := rootByLabel(t, result.Result.Roots, "other", "zpa_alpha_one")
 	if absent.ArtifactState != ArtifactStateAbsent {
 		t.Errorf("other/zpa_alpha ArtifactState = %v, want absent", absent.ArtifactState)
 	}
@@ -141,7 +141,7 @@ func TestPlanRootsTenantScopingExcludesOtherTenants(t *testing.T) {
 	tenant := "acme"
 	result, err := PlanRootsFromCatalog(PlanRootsOptions{
 		Workspace:  workspace,
-		Deployment: slugDeployment(),
+		Deployment: singletonDeployment(),
 		Catalog:    scopePlanFixtureCatalog(),
 		Tenant:     &tenant,
 		Selectors:  []string{},
@@ -176,11 +176,11 @@ func TestPlanRootsTenantScopingExcludesOtherTenants(t *testing.T) {
 // diagnostics by root label would fail this exact assertion; this is the
 // #1 item to scrutinize on review (see planRootsFromTopologies's doc
 // comment).
-func TestPlanRootsPartialSelectorMaterializesWholeRootWithDuplicatedDiagnostic(t *testing.T) {
+func TestPlanRootsPartialSelectorMaterializesSingletonRoot(t *testing.T) {
 	workspace := writePlanRootsFixture(t)
 	result, err := PlanRootsFromCatalog(PlanRootsOptions{
 		Workspace:  workspace,
-		Deployment: slugDeployment(),
+		Deployment: singletonDeployment(),
 		Catalog:    scopePlanFixtureCatalog(),
 		Tenant:     nil,
 		Selectors:  []string{"zpa_alpha_one"},
@@ -189,23 +189,15 @@ func TestPlanRootsPartialSelectorMaterializesWholeRootWithDuplicatedDiagnostic(t
 		t.Fatalf("PlanRootsFromCatalog: %v", err)
 	}
 	if len(result.Result.Roots) != 2 {
-		t.Fatalf("Roots length = %d, want 2 (zpa_alpha under both acme and other)", len(result.Result.Roots))
+		t.Fatalf("Roots length = %d, want 2 (zpa_alpha_one under both acme and other)", len(result.Result.Roots))
 	}
 	for _, root := range result.Result.Roots {
-		if root.Label != "zpa_alpha" || !reflect.DeepEqual(root.Members, []string{"zpa_alpha_one", "zpa_alpha_two"}) {
-			t.Errorf("root %+v: want label zpa_alpha with both members materialized (not just the selected zpa_alpha_one)", root)
+		if root.Label != "zpa_alpha_one" || !reflect.DeepEqual(root.Members, []string{"zpa_alpha_one"}) {
+			t.Errorf("root %+v: want singleton zpa_alpha_one root", root)
 		}
 	}
-	if len(result.Diagnostics) != 2 {
-		t.Fatalf("Diagnostics length = %d, want 2 (one per discovered tenant sharing the zpa_alpha label -- see oracle)", len(result.Diagnostics))
-	}
-	for _, diagnostic := range result.Diagnostics {
-		if diagnostic.Code != "WHOLE_ROOT_SELECTION" || diagnostic.Root != "zpa_alpha" {
-			t.Errorf("diagnostic = %+v, want WHOLE_ROOT_SELECTION on zpa_alpha", diagnostic)
-		}
-		if !reflect.DeepEqual(diagnostic.SelectedMembers, []string{"zpa_alpha_one"}) || !reflect.DeepEqual(diagnostic.AdditionalMembers, []string{"zpa_alpha_two"}) {
-			t.Errorf("diagnostic = %+v, want selected=[zpa_alpha_one] additional=[zpa_alpha_two]", diagnostic)
-		}
+	if len(result.Diagnostics) != 0 {
+		t.Errorf("Diagnostics = %+v, want none for singleton selection", result.Diagnostics)
 	}
 }
 
@@ -216,7 +208,7 @@ func TestPlanRootsUnknownSelectorFailsClosed(t *testing.T) {
 	workspace := writePlanRootsFixture(t)
 	_, err := PlanRootsFromCatalog(PlanRootsOptions{
 		Workspace:  workspace,
-		Deployment: slugDeployment(),
+		Deployment: singletonDeployment(),
 		Catalog:    scopePlanFixtureCatalog(),
 		Tenant:     nil,
 		Selectors:  []string{"not_a_real_resource"},
@@ -238,7 +230,7 @@ func TestPlanRootsInvalidRequestedTenantFailsClosed(t *testing.T) {
 	tenant := "../escape"
 	_, err := PlanRootsFromCatalog(PlanRootsOptions{
 		Workspace:  workspace,
-		Deployment: slugDeployment(),
+		Deployment: singletonDeployment(),
 		Catalog:    scopePlanFixtureCatalog(),
 		Tenant:     &tenant,
 		Selectors:  []string{},
@@ -261,7 +253,7 @@ func TestPlanRootsNonexistentEnvsDirectoryYieldsNoRootsNotAnError(t *testing.T) 
 	workspace := t.TempDir() // deliberately empty: no envs/ at all
 	result, err := PlanRootsFromCatalog(PlanRootsOptions{
 		Workspace:  workspace,
-		Deployment: slugDeployment(),
+		Deployment: singletonDeployment(),
 		Catalog:    scopePlanFixtureCatalog(),
 		Tenant:     nil,
 		Selectors:  []string{},
@@ -291,9 +283,9 @@ func TestPlanRootsNonexistentEnvsDirectoryYieldsNoRootsNotAnError(t *testing.T) 
 // the identical shape against the retired Python oracle.
 func TestPlanRootsInvalidTenantDirectoryNameIsToleratedUnlessSelected(t *testing.T) {
 	workspace := t.TempDir()
-	mustMkdirAll(t, filepath.Join(workspace, "envs/bad tenant/zpa_alpha"))
-	mustWriteFile(t, filepath.Join(workspace, "envs/bad tenant/zpa_alpha/tfplan"), "plan")
-	mustWriteFile(t, filepath.Join(workspace, "envs/bad tenant/zpa_alpha/tfplan.sources"), "sources")
+	mustMkdirAll(t, filepath.Join(workspace, "envs/bad tenant/zpa_alpha_one"))
+	mustWriteFile(t, filepath.Join(workspace, "envs/bad tenant/zpa_alpha_one/tfplan"), "plan")
+	mustWriteFile(t, filepath.Join(workspace, "envs/bad tenant/zpa_alpha_one/tfplan.sources"), "sources")
 
 	// A selector that does not touch zpa_alpha at all: the "bad tenant"
 	// directory's zpa_alpha subdirectory is discovered (its label is a
@@ -302,7 +294,7 @@ func TestPlanRootsInvalidTenantDirectoryNameIsToleratedUnlessSelected(t *testing
 	// materialized roots.
 	ignored, err := PlanRootsFromCatalog(PlanRootsOptions{
 		Workspace:  workspace,
-		Deployment: slugDeployment(),
+		Deployment: singletonDeployment(),
 		Catalog:    scopePlanFixtureCatalog(),
 		Tenant:     nil,
 		Selectors:  []string{"zpa_derived_reorder"},
@@ -319,7 +311,7 @@ func TestPlanRootsInvalidTenantDirectoryNameIsToleratedUnlessSelected(t *testing
 	// the whole call.
 	_, err = PlanRootsFromCatalog(PlanRootsOptions{
 		Workspace:  workspace,
-		Deployment: slugDeployment(),
+		Deployment: singletonDeployment(),
 		Catalog:    scopePlanFixtureCatalog(),
 		Tenant:     nil,
 		Selectors:  []string{"zpa_alpha_one"},

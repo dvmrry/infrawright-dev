@@ -1,21 +1,9 @@
-// Package roots ports node-src/domain/roots.ts: tenant validation, root
-// resolution (explicit groups plus slug-derived grouping over a pack's
-// generated resource types), resource-selector expansion, and root-topology
-// derivation -- both from a persisted metadata.RootCatalog (RootTopology,
-// ExpandCatalogResources) and directly from a loaded pack root
-// (LoadedRootTopology, ExpandLoadedResources), the latter pair being the
-// runner's actual dependency set (docs/go-runtime-plan.md's roots/
-// scope-paths/plan-roots/environment-generation slice depends on
-// loadedRootTopology, never on the persisted-catalog entry points, which
-// this package ports anyway because they and the loaded-pack-root entry
-// points share nearly all of their implementation, and
-// node-tests/roots.test.ts -- this package's primary test-vector source --
-// exercises the persisted-catalog entry points directly).
-//
-// Every exported symbol's doc comment names the node-src/domain/roots.ts
-// (or node-src/domain/types.ts, for the RootTopology/WholeRootDiagnostic
-// shapes) export it ports; that TypeScript remains the differential oracle
-// until this port is independently qualified, per docs/go-runtime-plan.md.
+// Package roots derives singleton-state v2 topology from persisted catalogs
+// or loaded packs. It retains the established tenant, selector, path, and
+// output shapes from node-src/domain/roots.ts, but Go now owns topology:
+// every generated resource type is one state unit whose label is the type and
+// whose members list contains only that type. The frozen Node implementation
+// remains v1 provenance and is not an oracle for these v2 bytes.
 package roots
 
 import (
@@ -29,12 +17,8 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/pypath"
 )
 
-// rootLabel and validTenant port the ROOT_LABEL and VALID_TENANT regular
-// expressions from node-src/domain/roots.ts.
-var (
-	rootLabel   = regexp.MustCompile(`^[a-z0-9_]+$`)
-	validTenant = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
-)
+// validTenant defines the accepted tenant path segment.
+var validTenant = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 // domainError panics with a *procerr.ProcessFailure carrying category
 // "domain" and the given code (defaulting to "INVALID_ROOT_CONFIGURATION",
@@ -98,11 +82,9 @@ func ValidateTenant(tenant string) (err error) {
 // call by indexCatalog (from a persisted metadata.RootCatalog) or
 // indexLoadedPackRoot (directly from a metadata.LoadedPackRoot).
 type catalogIndex struct {
-	resources   map[string]metadata.RootCatalogResource
-	generated   map[string]struct{}
-	derived     map[string]struct{}
-	slugGrouped map[string]struct{}
-	providers   map[string]struct{}
+	resources map[string]metadata.RootCatalogResource
+	generated map[string]struct{}
+	providers map[string]struct{}
 }
 
 func stringSet(values []string) map[string]struct{} {
@@ -119,25 +101,17 @@ func indexCatalog(catalog metadata.RootCatalog) catalogIndex {
 	for _, resource := range catalog.Resources {
 		resources[resource.Type] = resource
 	}
-	var generated, derived, slugGrouped []string
+	var generated []string
 	for _, resource := range catalog.Resources {
 		if !resource.Generated {
 			continue
 		}
 		generated = append(generated, resource.Type)
-		if resource.Derived {
-			derived = append(derived, resource.Type)
-		}
-		if resource.SlugGroup == nil || *resource.SlugGroup {
-			slugGrouped = append(slugGrouped, resource.Type)
-		}
 	}
 	return catalogIndex{
-		resources:   resources,
-		generated:   stringSet(generated),
-		derived:     stringSet(derived),
-		slugGrouped: stringSet(slugGrouped),
-		providers:   stringSet(catalog.DeclaredProviders),
+		resources: resources,
+		generated: stringSet(generated),
+		providers: stringSet(catalog.DeclaredProviders),
 	}
 }
 
@@ -203,31 +177,17 @@ func loadedResourceShape(root metadata.LoadedPackRoot, resourceType string) meta
 		domainError("resource type " + resourceType + " has no declared prefix for provider " + resource.Provider)
 	}
 	bareName := resourceType[len(prefix):]
-	first := bareName
-	if index := strings.IndexByte(bareName, '_'); index >= 0 {
-		first = bareName[:index]
-	}
-	var slugLabel *string
-	if first != "" {
-		label := prefix + first
-		slugLabel = &label
-	}
-
 	generated, _ := resource.Registry["generate"].(bool)
 	derive, hasDerive := resource.Registry["derive"]
 	derived := generated && hasDerive && isJSObjectLike(derive)
-	slugGroupValue, hasSlugGroup := resource.Registry["slug_group"]
-	slugGroup := !hasSlugGroup || slugGroupValue != false
 
 	return metadata.RootCatalogResource{
 		Type:      resourceType,
 		Product:   resource.Product,
 		Provider:  resource.Provider,
 		BareName:  bareName,
-		SlugLabel: slugLabel,
 		Generated: generated,
 		Derived:   derived,
-		SlugGroup: &slugGroup,
 	}
 }
 
@@ -246,19 +206,13 @@ func indexLoadedPackRoot(root metadata.LoadedPackRoot) catalogIndex {
 		resources[resourceType] = loadedResourceShape(root, resourceType)
 	}
 
-	var generated, derived, slugGrouped []string
+	var generated []string
 	for _, resourceType := range resourceTypes {
 		resource := resources[resourceType]
 		if !resource.Generated {
 			continue
 		}
 		generated = append(generated, resourceType)
-		if resource.Derived {
-			derived = append(derived, resourceType)
-		}
-		if resource.SlugGroup == nil || *resource.SlugGroup {
-			slugGrouped = append(slugGrouped, resourceType)
-		}
 	}
 
 	providers := make([]string, 0, len(root.Packs.ProviderPrefixes))
@@ -267,137 +221,33 @@ func indexLoadedPackRoot(root metadata.LoadedPackRoot) catalogIndex {
 	}
 
 	return catalogIndex{
-		resources:   resources,
-		generated:   stringSet(generated),
-		derived:     stringSet(derived),
-		slugGrouped: stringSet(slugGrouped),
-		providers:   stringSet(providers),
+		resources: resources,
+		generated: stringSet(generated),
+		providers: stringSet(providers),
 	}
 }
 
-// validateGroupLabel ports validateGroupLabel from
-// node-src/domain/roots.ts.
-func validateGroupLabel(label string, generated map[string]struct{}, usedLabels map[string]struct{}, provider string) {
-	if !rootLabel.MatchString(label) {
-		domainError("roots." + provider + " group label '" + label + "' must match [a-z0-9_]+")
-	}
-	if _, ok := generated[label]; ok {
-		domainError("roots." + provider + " group label '" + label + "' collides with a generated resource type")
-	}
-	if _, ok := usedLabels[label]; ok {
-		domainError("roots." + provider + " group label '" + label + "' collides with another provider group")
-	}
-	usedLabels[label] = struct{}{}
-}
-
-// validateMember ports validateMember from node-src/domain/roots.ts.
-func validateMember(provider, resourceType string, index catalogIndex) {
-	if _, ok := index.derived[resourceType]; ok {
-		domainError("roots." + provider + " member " + resourceType +
-			" is a derived type; derived types keep per-resource roots so IMPORTS_ONLY sequencing works")
-	}
-	if _, ok := index.generated[resourceType]; !ok {
-		domainError("roots." + provider + " references unknown generated resource type '" + resourceType + "'")
-	}
-	actual, ok := index.resources[resourceType]
-	if !ok || actual.Provider != provider {
-		belongsTo := "unknown"
-		if ok {
-			belongsTo = actual.Provider
-		}
-		domainError("roots." + provider + " member '" + resourceType + "' belongs to provider " + belongsTo)
-	}
-}
-
-// resolution is the Go analogue of the Resolution interface in
-// node-src/domain/roots.ts: the label<->member mapping resolveRoots
-// derives, consumed by rootTopologyFromIndex.
+// resolution is the fixed singleton state-unit mapping consumed by
+// rootTopologyFromIndex.
 type resolution struct {
 	labelsToMembers map[string][]string
 	typeToLabel     map[string]string
 }
 
-// explicitGroups ports explicitGroups from node-src/domain/roots.ts.
-func explicitGroups(
-	provider string,
-	config deployment.RootProviderConfig,
-	index catalogIndex,
-	res resolution,
-	usedLabels map[string]struct{},
-	explicitMembers map[string]string,
-) {
-	groups := config.Groups
-	labels := make([]string, 0, len(groups))
-	for label := range groups {
-		labels = append(labels, label)
-	}
-	for _, label := range canonjson.SortedStrings(labels) {
-		validateGroupLabel(label, index.generated, usedLabels, provider)
-		members := canonjson.SortedStrings(groups[label])
-		for _, member := range members {
-			validateMember(provider, member, index)
-			if previous, ok := explicitMembers[member]; ok {
-				domainError(member + " appears in more than one roots group (" + previous + " and " + label + ")")
-			}
-			explicitMembers[member] = label
-		}
-		for _, member := range members {
-			delete(res.labelsToMembers, member)
-			res.typeToLabel[member] = label
-		}
-		res.labelsToMembers[label] = members
-	}
-}
-
-// slugGroups ports slugGroups from node-src/domain/roots.ts.
-func slugGroups(provider string, index catalogIndex, res resolution, usedLabels map[string]struct{}) {
-	generatedTypes := make([]string, 0, len(index.generated))
-	for resourceType := range index.generated {
-		generatedTypes = append(generatedTypes, resourceType)
-	}
-	generatedTypes = canonjson.SortedStrings(generatedTypes)
-
-	groups := make(map[string][]string)
-	for _, resourceType := range generatedTypes {
-		if _, ok := index.derived[resourceType]; ok {
-			continue
-		}
-		if _, ok := index.slugGrouped[resourceType]; !ok {
-			continue
-		}
-		if res.typeToLabel[resourceType] != resourceType {
-			continue
-		}
-		resource, ok := index.resources[resourceType]
-		if !ok || resource.Provider != provider {
-			continue
-		}
-		if resource.SlugLabel == nil {
-			domainError("resource type " + resourceType + " has no declared prefix for provider " + provider)
-		}
-		groups[*resource.SlugLabel] = append(groups[*resource.SlugLabel], resourceType)
-	}
-
-	groupLabels := make([]string, 0, len(groups))
-	for label := range groups {
-		groupLabels = append(groupLabels, label)
-	}
-	for _, label := range canonjson.SortedStrings(groupLabels) {
-		members := canonjson.SortedStrings(groups[label])
-		if len(members) < 2 {
-			continue
-		}
-		validateGroupLabel(label, index.generated, usedLabels, provider)
-		for _, member := range members {
-			delete(res.labelsToMembers, member)
-			res.typeToLabel[member] = label
-		}
-		res.labelsToMembers[label] = members
-	}
-}
-
-// resolveRoots ports resolveRoots from node-src/domain/roots.ts.
+// resolveRoots creates one root for every generated type. Deployment root
+// options no longer influence topology after grouping retirement, but named
+// providers must still belong to the loaded catalog.
 func resolveRoots(dep deployment.Deployment, index catalogIndex) resolution {
+	providerNames := make([]string, 0, len(dep.Roots))
+	for provider := range dep.Roots {
+		providerNames = append(providerNames, provider)
+	}
+	for _, provider := range canonjson.SortedStrings(providerNames) {
+		if _, ok := index.providers[provider]; !ok {
+			domainError("roots." + provider + " is not a declared provider prefix value")
+		}
+	}
+
 	res := resolution{
 		labelsToMembers: make(map[string][]string),
 		typeToLabel:     make(map[string]string),
@@ -409,34 +259,6 @@ func resolveRoots(dep deployment.Deployment, index catalogIndex) resolution {
 	for _, resourceType := range canonjson.SortedStrings(generatedTypes) {
 		res.labelsToMembers[resourceType] = []string{resourceType}
 		res.typeToLabel[resourceType] = resourceType
-	}
-
-	providerNames := make([]string, 0, len(dep.Roots))
-	for provider := range dep.Roots {
-		providerNames = append(providerNames, provider)
-	}
-	providerNames = canonjson.SortedStrings(providerNames)
-	if len(providerNames) == 0 {
-		return res
-	}
-
-	usedLabels := make(map[string]struct{})
-	explicitMembers := make(map[string]string)
-	for _, provider := range providerNames {
-		if _, ok := index.providers[provider]; !ok {
-			domainError("roots." + provider + " is not a declared provider prefix value")
-		}
-		explicitGroups(provider, dep.Roots[provider], index, res, usedLabels, explicitMembers)
-	}
-	for _, provider := range providerNames {
-		config := dep.Roots[provider]
-		strategy := "explicit"
-		if config.HasStrategy {
-			strategy = config.Strategy
-		}
-		if strategy == "slug" {
-			slugGroups(provider, index, res, usedLabels)
-		}
 	}
 	return res
 }

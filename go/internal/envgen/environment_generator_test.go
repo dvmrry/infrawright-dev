@@ -46,6 +46,7 @@ package envgen
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -649,7 +650,7 @@ func TestPackDeclaredNestedZpaReferencesValidateIndexedPathsAndDependencyRoots(t
 
 // TestPythonParityScenariosMatchStructurally ports the Go-reachable
 // assertions from "complete generated root trees match Python for
-// ungrouped, grouped/bound, singleton HCL, and slug roots" in
+// ungrouped, cross-state, singleton HCL, and slug roots" in
 // node-tests/environment-generator.test.ts -- everything except the
 // Python-oracle byte comparison itself; see this file's package doc
 // comment.
@@ -674,24 +675,23 @@ func TestPythonParityScenariosMatchStructurally(t *testing.T) {
 		}
 	})
 
-	t.Run("grouped", func(t *testing.T) {
-		workspace := temporaryDirectory(t, "infrawright-gen-env-parity-grouped-")
+	t.Run("cross_state_singleton", func(t *testing.T) {
+		workspace := temporaryDirectory(t, "infrawright-gen-env-parity-cross-state-")
 		deploymentPath := filepath.Join(workspace, "deployment.json")
 		writeJSONFile(t, deploymentPath, map[string]any{
 			"overlay": workspace, "module_dir": filepath.Join(workspace, "modules"),
 			"roots": map[string]any{
 				"zpa": map[string]any{
-					"bind_references": true,
-					"groups":          map[string]any{"zpa_custom": []any{"zpa_application_segment", "zpa_segment_group"}},
+					"cross_state_references": true,
 				},
 			},
 		})
 		config := filepath.Join(workspace, "config", "tenant")
 		writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
-			"zpa_application_segment_items": map[string]any{"app": map[string]any{"segment_group_id": "sg-1"}},
+			"items": map[string]any{"app": map[string]any{"segment_group_id": "sg-1"}},
 		})
 		writeJSONFile(t, filepath.Join(config, "zpa_segment_group.auto.tfvars.json"), map[string]any{
-			"zpa_segment_group_items": map[string]any{"group": map[string]any{"description": "Group", "enabled": true, "name": "Group"}},
+			"items": map[string]any{"group": map[string]any{"description": "Group", "enabled": true, "name": "Group"}},
 		})
 		writeJSONFile(t, filepath.Join(config, "zpa_application_segment.generated.expressions.json"), map[string]any{
 			"resources": map[string]any{
@@ -719,8 +719,9 @@ func TestPythonParityScenariosMatchStructurally(t *testing.T) {
 		if tree["tenant/.backend"] != "azurerm\n" {
 			t.Fatalf("tenant/.backend = %q", tree["tenant/.backend"])
 		}
-		mustMatch(t, tree["tenant/zpa_custom/expression_bindings.tf"], `operator`)
-		mustNotMatch(t, tree["tenant/zpa_custom/expression_bindings.tf"], `generated`)
+		if _, ok := tree["tenant/zpa_application_segment/main.tf"]; !ok {
+			t.Fatalf("generated singleton tree = %#v, want zpa_application_segment root", tree)
+		}
 	})
 
 	t.Run("hcl_singleton", func(t *testing.T) {
@@ -728,7 +729,7 @@ func TestPythonParityScenariosMatchStructurally(t *testing.T) {
 		deploymentPath := filepath.Join(workspace, "deployment.json")
 		writeJSONFile(t, deploymentPath, map[string]any{
 			"overlay": workspace, "module_dir": filepath.Join(workspace, "modules"), "tfvars_format": "hcl",
-			"roots": map[string]any{"zpa": map[string]any{"groups": map[string]any{"zpa_solo": []any{"zpa_segment_group"}}}},
+			"roots": map[string]any{},
 		})
 		config := filepath.Join(workspace, "config", "tenant")
 		if err := os.MkdirAll(config, 0o777); err != nil {
@@ -759,7 +760,7 @@ func TestPythonParityScenariosMatchStructurally(t *testing.T) {
 			t.Fatal("expected an hcl-tfvars-validation diagnostic")
 		}
 		tree := snapshotTree(t, outputRoot)
-		mustNotMatch(t, tree["tenant/zpa_solo/tests/smoke.tftest.hcl"], `config_plan`)
+		mustNotMatch(t, tree["tenant/zpa_segment_group/tests/smoke.tftest.hcl"], `config_plan`)
 	})
 
 	t.Run("slug", func(t *testing.T) {
@@ -767,7 +768,7 @@ func TestPythonParityScenariosMatchStructurally(t *testing.T) {
 		deploymentPath := filepath.Join(workspace, "deployment.json")
 		writeJSONFile(t, deploymentPath, map[string]any{
 			"overlay": workspace, "module_dir": filepath.Join(workspace, "modules"),
-			"roots": map[string]any{"zia": map[string]any{"strategy": "slug"}},
+			"roots": map[string]any{},
 		})
 		dep := loadDeploymentFile(t, deploymentPath)
 		outputRoot := filepath.Join(workspace, "generated")
@@ -778,8 +779,8 @@ func TestPythonParityScenariosMatchStructurally(t *testing.T) {
 			t.Fatalf("GenerateEnvironmentRoots: %v", err)
 		}
 		tree := snapshotTree(t, outputRoot)
-		mustMatch(t, tree["tenant/zia_url/main.tf"], `module "zia_url_filtering_rules"`)
-		mustNotMatch(t, tree["tenant/zia_url/main.tf"], `module "zia_url_categories_predefined"`)
+		mustMatch(t, tree["tenant/zia_url_categories/main.tf"], `module "zia_url_categories"`)
+		mustNotMatch(t, tree["tenant/zia_url_categories/main.tf"], `module "zia_url_filtering_rules"`)
 	})
 }
 
@@ -843,111 +844,109 @@ func TestFullProfileTreeGeneratesAllRoots(t *testing.T) {
 	}
 }
 
-func TestOperatorPrecedenceStaleFilteringRemovalAndCyclesFailClosed(t *testing.T) {
-	workspace := temporaryDirectory(t, "infrawright-gen-env-bindings-")
+func TestSingletonSelectionDoesNotGenerateUnselectedRoot(t *testing.T) {
+	workspace := temporaryDirectory(t, "infrawright-gen-env-singleton-selection-")
 	deploymentPath := filepath.Join(workspace, "deployment.json")
-	writeJSONFile(t, deploymentPath, map[string]any{
-		"overlay": workspace,
-		"roots": map[string]any{
-			"zpa": map[string]any{
-				"bind_references": true,
-				"groups":          map[string]any{"zpa_custom": []any{"zpa_application_segment", "zpa_server_group"}},
-			},
-		},
-	})
+	writeJSONFile(t, deploymentPath, map[string]any{"overlay": workspace, "roots": map[string]any{}})
 	config := filepath.Join(workspace, "config", "tenant")
 	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
-		"zpa_application_segment_items": map[string]any{"app": map[string]any{"description": "literal", "segment_group_id": "sg-1"}},
+		"items": map[string]any{"app": map[string]any{"description": "literal", "segment_group_id": "sg-1"}},
+	})
+	writeJSONFile(t, filepath.Join(config, "zpa_server_group.auto.tfvars.json"), map[string]any{
+		"items": map[string]any{"server": map[string]any{"description": "unselected", "enabled": true, "name": "Server"}},
+	})
+	output := filepath.Join(workspace, "generated")
+	var diagnostics []string
+	generated, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+		Deployment: loadDeploymentFile(t, deploymentPath), FormatHcl: identityFormatter,
+		OnDiagnostic: func(message string) { diagnostics = append(diagnostics, message) },
+		OutputRoot:   &output, Root: committedRootForTopology(t),
+		Selectors: []string{"zpa_application_segment"}, Tenant: "tenant",
+	})
+	if err != nil {
+		t.Fatalf("GenerateEnvironmentRoots(singleton selection) error: %v", err)
+	}
+	if got, want := rootLabels(generated), []string{"zpa_application_segment"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("GenerateEnvironmentRoots(singleton selection) labels = %v, want %v", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(output, "tenant", "zpa_server_group")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("GenerateEnvironmentRoots(singleton selection) generated unselected root: os.Stat error = %v, want os.ErrNotExist", err)
+	}
+	for _, diagnostic := range diagnostics {
+		if strings.Contains(diagnostic, "WHOLE_ROOT_SELECTION") || strings.Contains(diagnostic, "selects whole root") {
+			t.Errorf("GenerateEnvironmentRoots(singleton selection) diagnostic = %q, want no whole-root selection diagnostic", diagnostic)
+		}
+	}
+}
+
+func TestSingletonCrossStateDisableRemovesStaleGeneratedBindings(t *testing.T) {
+	workspace := temporaryDirectory(t, "infrawright-gen-env-stale-singleton-")
+	deploymentPath := filepath.Join(workspace, "deployment.json")
+	writeDeployment := func(crossState bool) {
+		writeJSONFile(t, deploymentPath, map[string]any{
+			"overlay": workspace,
+			"roots": map[string]any{
+				"zpa": map[string]any{"cross_state_references": crossState},
+			},
+		})
+	}
+	writeDeployment(true)
+
+	config := filepath.Join(workspace, "config", "tenant")
+	writeJSONFile(t, filepath.Join(config, "zpa_segment_group.auto.tfvars.json"), map[string]any{
+		"items": map[string]any{"segment_one": map[string]any{"description": "Segment", "enabled": true, "name": "Segment One"}},
+	})
+	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
+		"items": map[string]any{"app_one": map[string]any{"segment_group_id": "sg-1"}},
 	})
 	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.generated.expressions.json"), map[string]any{
 		"resources": map[string]any{
-			"zpa_application_segment.app": map[string]any{
-				"description":      map[string]any{"expression": `module.zpa_server_group.items["server"].id`},
-				"segment_group_id": map[string]any{"expression": `module.zpa_segment_group.items["stale"].id`},
+			"zpa_application_segment.app_one": map[string]any{
+				"segment_group_id": map[string]any{
+					"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`,
+				},
 			},
 		},
 	})
+
 	output := filepath.Join(workspace, "generated")
+	expressionPath := filepath.Join(output, "tenant", "zpa_application_segment", "expression_bindings.tf")
 	root := committedRootForTopology(t)
-	var diagnostics []string
-	onDiagnostic := func(m string) { diagnostics = append(diagnostics, m) }
-	dep := loadDeploymentFile(t, deploymentPath)
 	if _, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
-		Deployment: dep, FormatHcl: identityFormatter, OnDiagnostic: onDiagnostic, OutputRoot: &output, Root: root,
-		Selectors: []string{"zpa_application_segment"}, Tenant: "tenant",
+		Deployment: loadDeploymentFile(t, deploymentPath), FormatHcl: identityFormatter,
+		OutputRoot: &output, Root: root, Selectors: []string{"zpa_application_segment"}, Tenant: "tenant",
 	}); err != nil {
-		t.Fatalf("GenerateEnvironmentRoots: %v", err)
+		t.Fatalf("GenerateEnvironmentRoots(cross-state enabled) error: %v", err)
 	}
-	overlay := readFileString(t, filepath.Join(output, "tenant", "zpa_custom", "expression_bindings.tf"))
-	mustMatch(t, overlay, `module\.zpa_server_group`)
-	mustNotMatch(t, overlay, `module\.zpa_segment_group`)
-	foundStaleNonmember := false
-	for _, message := range diagnostics {
-		if strings.Contains(message, "target zpa_segment_group not in root members") {
-			foundStaleNonmember = true
-		}
-	}
-	if !foundStaleNonmember {
-		t.Fatal("expected a stale-nonmember diagnostic")
+	if _, err := os.Stat(expressionPath); err != nil {
+		t.Fatalf("os.Stat(%q) after cross-state generation error = %v, want expression bindings", expressionPath, err)
 	}
 
-	deploymentRaw, err := os.ReadFile(deploymentPath)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	var deploymentDoc map[string]any
-	if err := json.Unmarshal(deploymentRaw, &deploymentDoc); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
-	}
-	zpaConfig := deploymentDoc["roots"].(map[string]any)["zpa"].(map[string]any)
-	zpaConfig["bind_references"] = false
-	writeJSONFile(t, deploymentPath, deploymentDoc)
-	dep = loadDeploymentFile(t, deploymentPath)
+	writeDeployment(false)
+	diagnostics := make([]string, 0)
 	if _, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
-		Deployment: dep, FormatHcl: identityFormatter, OnDiagnostic: onDiagnostic, OutputRoot: &output, Root: root,
-		Selectors: []string{"zpa_application_segment"}, Tenant: "tenant",
+		Deployment: loadDeploymentFile(t, deploymentPath), FormatHcl: identityFormatter,
+		OnDiagnostic: func(message string) { diagnostics = append(diagnostics, message) },
+		OutputRoot:   &output, Root: root, Selectors: []string{"zpa_application_segment"}, Tenant: "tenant",
 	}); err != nil {
-		t.Fatalf("GenerateEnvironmentRoots: %v", err)
+		t.Fatalf("GenerateEnvironmentRoots(cross-state disabled) error: %v", err)
 	}
-	if fileExists(filepath.Join(output, "tenant", "zpa_custom", "expression_bindings.tf")) {
-		t.Fatal("expression_bindings.tf should have been removed")
+	if _, err := os.Stat(expressionPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("os.Stat(%q) after cross-state disable error = %v, want os.ErrNotExist", expressionPath, err)
 	}
-	foundDisabledNote := false
-	for _, message := range diagnostics {
-		if strings.Contains(message, "bind_references disabled") {
-			foundDisabledNote = true
+	foundStaleDisabled := false
+	foundRemoval := false
+	for _, diagnostic := range diagnostics {
+		if strings.Contains(diagnostic, "stale generated bindings ignored") {
+			foundStaleDisabled = true
+		}
+		if diagnostic == "removed stale "+expressionPath {
+			foundRemoval = true
 		}
 	}
-	if !foundDisabledNote {
-		t.Fatal("expected a bind_references-disabled diagnostic")
+	if !foundStaleDisabled || !foundRemoval {
+		t.Errorf("GenerateEnvironmentRoots(cross-state disabled) diagnostics = %#v, want stale-disabled and stale-removal diagnostics", diagnostics)
 	}
-
-	zpaConfig["bind_references"] = true
-	zpaConfig["groups"] = map[string]any{"zpa_cycle": []any{"zpa_application_segment", "zpa_segment_group"}}
-	writeJSONFile(t, deploymentPath, deploymentDoc)
-	writeJSONFile(t, filepath.Join(config, "zpa_segment_group.auto.tfvars.json"), map[string]any{
-		"zpa_segment_group_items": map[string]any{"group": map[string]any{"description": "literal"}},
-	})
-	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.expressions.json"), map[string]any{
-		"resources": map[string]any{
-			"zpa_application_segment.app": map[string]any{"description": map[string]any{"expression": `module.zpa_segment_group.items["group"].id`}},
-		},
-	})
-	writeJSONFile(t, filepath.Join(config, "zpa_segment_group.expressions.json"), map[string]any{
-		"resources": map[string]any{
-			"zpa_segment_group.group": map[string]any{"description": map[string]any{"expression": `module.zpa_application_segment.items["app"].id`}},
-		},
-	})
-	cycleDeployment := loadDeploymentFile(t, deploymentPath)
-	cycleRoot := committedRootForTopology(t)
-	_, err = GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
-		Deployment: cycleDeployment, FormatHcl: identityFormatter, OutputRoot: &output, Root: cycleRoot,
-		Selectors: []string{"zpa_application_segment"}, Tenant: "tenant",
-	})
-	if err == nil {
-		t.Fatal("expected a cycle error")
-	}
-	mustMatch(t, err.Error(), `expression binding cycle detected.*resolve one direction`)
 }
 
 // TestDanglingArtifactPathsPreserveSymlinks ports the Go-reachable core of
@@ -969,7 +968,7 @@ func TestDanglingArtifactPathsPreserveSymlinks(t *testing.T) {
 	writeJSONFile(t, deploymentPath, map[string]any{
 		"module_dir": filepath.Join(workspace, "modules"),
 		"overlay":    workspace,
-		"roots":      map[string]any{"zia": map[string]any{"bind_references": true}},
+		"roots":      map[string]any{},
 	})
 	configDirectory := filepath.Join(workspace, "config", "tenant")
 	if err := os.MkdirAll(configDirectory, 0o777); err != nil {

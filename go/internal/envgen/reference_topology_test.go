@@ -62,7 +62,7 @@ func committedRootForTopology(t *testing.T) metadata.LoadedPackRoot {
 	return loaded
 }
 
-func TestCrossStateTopologyKeepsSingletonDependenciesAndCollapsesGroups(t *testing.T) {
+func TestCrossStateTopologyKeepsSingletonDependencies(t *testing.T) {
 	root := committedRootForTopology(t)
 	tenant := "tenant"
 
@@ -112,42 +112,6 @@ func TestCrossStateTopologyKeepsSingletonDependenciesAndCollapsesGroups(t *testi
 		t.Fatalf("closure = %v, want %v", closure, wantClosure)
 	}
 
-	groupedDeployment := deployment.Deployment{
-		Overlay: ".",
-		Roots: map[string]deployment.RootProviderConfig{
-			"zpa": {
-				HasCrossStateReferences: true, CrossStateReferences: true,
-				HasGroups: true,
-				Groups: map[string][]string{
-					"zpa_app": {
-						"zpa_app_connector_group",
-						"zpa_application_segment",
-						"zpa_application_server",
-						"zpa_segment_group",
-						"zpa_server_group",
-					},
-				},
-			},
-		},
-	}
-	groupedTopologyResult, err := roots.LoadedRootTopology(roots.LoadedRootTopologyOptions{
-		Root: root, Deployment: groupedDeployment, Tenant: &tenant, Selectors: []string{},
-	})
-	if err != nil {
-		t.Fatalf("LoadedRootTopology: %v", err)
-	}
-	grouped, err := ResolveCrossStateReferenceTopology(CrossStateReferenceTopologyOptions{
-		Deployment: groupedDeployment, Root: root, Topology: groupedTopologyResult.Topology,
-	})
-	if err != nil {
-		t.Fatalf("ResolveCrossStateReferenceTopology: %v", err)
-	}
-	if len(grouped.Edges) != 0 {
-		t.Fatalf("grouped.Edges = %+v, want empty", grouped.Edges)
-	}
-	if len(grouped.DependenciesByRoot) != 0 {
-		t.Fatalf("grouped.DependenciesByRoot = %v, want empty", grouped.DependenciesByRoot)
-	}
 }
 
 func setKeysSorted(set map[string]bool) []string {

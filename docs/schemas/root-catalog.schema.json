@@ -17,7 +17,7 @@
       "const": "infrawright.root_catalog"
     },
     "schema_version": {
-      "const": 1
+      "const": 2
     },
     "declared_providers": {
       "type": "array",
@@ -55,7 +55,6 @@
         "product",
         "provider",
         "bare_name",
-        "slug_label",
         "generated",
         "derived"
       ],
@@ -76,21 +75,11 @@
           "type": "string",
           "minLength": 1
         },
-        "slug_label": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "generated": {
           "type": "boolean"
         },
         "derived": {
           "type": "boolean"
-        },
-        "slug_group": {
-          "type": "boolean",
-          "description": "Whether automatic slug grouping may include this generated module. Defaults to true when absent."
         }
       }
     }

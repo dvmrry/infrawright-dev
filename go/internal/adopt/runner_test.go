@@ -53,13 +53,11 @@ func runnerTestRoot(t *testing.T, resourceTypes ...string) metadata.LoadedPackRo
 	}
 }
 
-func runnerTestDeployment(workspace string, grouped []string) deployment.Deployment {
-	rootConfig := deployment.RootProviderConfig{}
-	if len(grouped) > 0 {
-		rootConfig.HasGroups = true
-		rootConfig.Groups = map[string][]string{"bundle": append([]string(nil), grouped...)}
+func runnerTestDeployment(workspace string, _ []string) deployment.Deployment {
+	return deployment.Deployment{
+		Overlay: workspace,
+		Roots:   map[string]deployment.RootProviderConfig{testProvider: {}},
 	}
-	return deployment.Deployment{Overlay: workspace, Roots: map[string]deployment.RootProviderConfig{testProvider: rootConfig}}
 }
 
 func writeRunnerInput(t *testing.T, directory, resourceType, text string) {
@@ -157,7 +155,7 @@ func TestRunAdoptBatchPerResourcePendingMoveAppearsAfterLoader(t *testing.T) {
 	}
 }
 
-func TestRunAdoptBatchLogicalRootPublishesAtomicallyAndDeterministically(t *testing.T) {
+func TestRunAdoptBatchSingletonsDoNotUseLogicalRootBatching(t *testing.T) {
 	workspace := t.TempDir()
 	input := t.TempDir()
 	resourceTypes := []string{"test_alpha", "test_beta"}
@@ -183,16 +181,15 @@ func TestRunAdoptBatchLogicalRootPublishesAtomicallyAndDeterministically(t *test
 		Environment:    map[string]string{"INFRAWRIGHT_ORACLE_BATCH_MODE": "logical-root"},
 		InputDirectory: input, Policy: emptyRunnerPolicy(t), Root: root,
 		Selectors: resourceTypes, StateLoader: func(request AdoptionStateRequest) (map[string]OracleStateObject, error) {
-			t.Fatalf("per-resource loader unexpectedly called for %s", request.ResourceType)
-			return nil, errors.New("unreachable")
+			return stateForRunnerRequest(request), nil
 		}, Tenant: "tenant",
 	}
 	result, err := RunAdoptBatch(options)
 	if err != nil {
 		t.Fatalf("RunAdoptBatch first: %v", err)
 	}
-	if batchCalls != 1 || len(result.Failed) != 0 || !reflect.DeepEqual(result.Processed, resourceTypes) {
-		t.Fatalf("batch calls/result = %d/%#v", batchCalls, result)
+	if batchCalls != 0 || len(result.Failed) != 0 || !reflect.DeepEqual(result.Processed, resourceTypes) {
+		t.Fatalf("batch calls/result = %d/%#v, want no batch and both singleton resources processed", batchCalls, result)
 	}
 	first := snapshotRunnerTree(t, workspace)
 	if len(first) != 4 {
@@ -202,15 +199,15 @@ func TestRunAdoptBatchLogicalRootPublishesAtomicallyAndDeterministically(t *test
 	if err != nil {
 		t.Fatalf("RunAdoptBatch second: %v", err)
 	}
-	if len(result.Failed) != 0 || batchCalls != 2 {
-		t.Fatalf("second result/calls = %#v/%d", result, batchCalls)
+	if len(result.Failed) != 0 || batchCalls != 0 {
+		t.Fatalf("second result/calls = %#v/%d, want no batch", result, batchCalls)
 	}
 	if second := snapshotRunnerTree(t, workspace); !reflect.DeepEqual(second, first) {
 		t.Fatalf("second output tree drifted\nfirst=%#v\nsecond=%#v", first, second)
 	}
 }
 
-func TestRunAdoptBatchLogicalRootProjectionFailurePublishesNothing(t *testing.T) {
+func TestRunAdoptBatchSingletonFailureDoesNotPublishUnselectedType(t *testing.T) {
 	workspace := t.TempDir()
 	input := t.TempDir()
 	resourceTypes := []string{"test_alpha", "test_beta"}
@@ -219,32 +216,28 @@ func TestRunAdoptBatchLogicalRootProjectionFailurePublishesNothing(t *testing.T)
 	for _, resourceType := range resourceTypes {
 		writeRunnerInput(t, input, resourceType, `[{"id":"1","name":"same"}]`)
 	}
+	loaded := make([]string, 0, 1)
 	result, err := RunAdoptBatch(RunAdoptBatchOptions{
-		BatchStateLoader: func(requests []OracleBatchResourceRequest) (OracleBatchState, error) {
-			return OracleBatchState{
-				resourceTypes[0]: {"same": {Values: map[string]any{"name": "same"}, SensitiveValues: map[string]any{}}},
-				resourceTypes[1]: {},
-			}, nil
-		},
 		Deployment: dep, Environment: map[string]string{"INFRAWRIGHT_ORACLE_BATCH_MODE": "logical-root"},
-		InputDirectory: input, Policy: emptyRunnerPolicy(t), Root: root, Selectors: resourceTypes,
-		StateLoader: func(AdoptionStateRequest) (map[string]OracleStateObject, error) {
-			return nil, errors.New("must not isolate projection failures")
+		InputDirectory: input, Policy: emptyRunnerPolicy(t), Root: root, Selectors: []string{resourceTypes[1]},
+		StateLoader: func(request AdoptionStateRequest) (map[string]OracleStateObject, error) {
+			loaded = append(loaded, request.ResourceType)
+			return nil, errors.New("selected singleton provider read failed")
 		},
 		Tenant: "tenant",
 	})
 	if err != nil {
 		t.Fatalf("RunAdoptBatch: %v", err)
 	}
-	if !reflect.DeepEqual(result.Failed, resourceTypes) {
-		t.Fatalf("failed = %v, want %v", result.Failed, resourceTypes)
+	if !reflect.DeepEqual(result.Failed, []string{resourceTypes[1]}) || !reflect.DeepEqual(loaded, []string{resourceTypes[1]}) {
+		t.Fatalf("failed/loaded = %v/%v, want only selected singleton %s", result.Failed, loaded, resourceTypes[1])
 	}
 	if tree := snapshotRunnerTree(t, workspace); len(tree) != 0 {
 		t.Fatalf("atomic failure published files: %#v", tree)
 	}
 }
 
-func TestRunAdoptBatchLogicalRootRejectsUnexpectedOracleResource(t *testing.T) {
+func TestRunAdoptBatchSingletonsDoNotInvokeBatchOracle(t *testing.T) {
 	workspace := t.TempDir()
 	input := t.TempDir()
 	resourceTypes := []string{"test_alpha", "test_beta"}
@@ -252,33 +245,26 @@ func TestRunAdoptBatchLogicalRootRejectsUnexpectedOracleResource(t *testing.T) {
 	for _, resourceType := range resourceTypes {
 		writeRunnerInput(t, input, resourceType, `[{"id":"1","name":"same"}]`)
 	}
+	batchCalled := false
 	result, err := RunAdoptBatch(RunAdoptBatchOptions{
-		BatchStateLoader: func(requests []OracleBatchResourceRequest) (OracleBatchState, error) {
-			output := OracleBatchState{"test_unexpected": {}}
-			for _, request := range requests {
-				state := make(map[string]OracleStateObject)
-				for key := range request.KeyToImportID {
-					state[key] = OracleStateObject{Values: map[string]any{"name": key}, SensitiveValues: map[string]any{}}
-				}
-				output[request.ResourceType] = state
-			}
-			return output, nil
+		BatchStateLoader: func([]OracleBatchResourceRequest) (OracleBatchState, error) {
+			batchCalled = true
+			return nil, errors.New("singleton topology must not invoke batch oracle")
 		}, Deployment: runnerTestDeployment(workspace, resourceTypes),
 		Environment:    map[string]string{"INFRAWRIGHT_ORACLE_BATCH_MODE": "logical-root"},
 		InputDirectory: input, Policy: emptyRunnerPolicy(t), Root: root, Selectors: resourceTypes,
-		StateLoader: func(AdoptionStateRequest) (map[string]OracleStateObject, error) {
-			t.Fatal("member loader called for unexpected-resource batch result")
-			return nil, nil
+		StateLoader: func(request AdoptionStateRequest) (map[string]OracleStateObject, error) {
+			return stateForRunnerRequest(request), nil
 		}, Tenant: "tenant",
 	})
 	if err != nil {
 		t.Fatalf("RunAdoptBatch: %v", err)
 	}
-	if !reflect.DeepEqual(result.Failed, resourceTypes) || len(result.Processed) != 0 {
-		t.Fatalf("unexpected-resource result = %#v", result)
+	if batchCalled || len(result.Failed) != 0 || !reflect.DeepEqual(result.Processed, resourceTypes) {
+		t.Fatalf("singleton batch-oracle result = called=%t %#v, want no batch and both processed", batchCalled, result)
 	}
-	if tree := snapshotRunnerTree(t, workspace); len(tree) != 0 {
-		t.Fatalf("unexpected-resource result published files: %#v", tree)
+	if tree := snapshotRunnerTree(t, workspace); len(tree) != 4 {
+		t.Fatalf("singleton result published files = %#v, want two config + two imports", tree)
 	}
 }
 
@@ -313,7 +299,7 @@ func TestRunAdoptBatchUnsupportedPreflightNeverLoadsState(t *testing.T) {
 	}
 }
 
-func TestOracleBatchModeAndBatchFailureIsolationOrder(t *testing.T) {
+func TestOracleBatchModeSingletonsUsePerResourceFailureIsolation(t *testing.T) {
 	if _, err := OracleBatchModeFromEnvironment(map[string]string{"INFRAWRIGHT_ORACLE_BATCH_MODE": "unsafe"}); err == nil {
 		t.Fatal("OracleBatchModeFromEnvironment accepted invalid mode")
 	}
@@ -326,11 +312,15 @@ func TestOracleBatchModeAndBatchFailureIsolationOrder(t *testing.T) {
 	}
 	isolationOrder := make([]string, 0, len(resourceTypes))
 	diagnostics := make([]string, 0)
+	batchCalled := false
 	result, err := RunAdoptBatch(RunAdoptBatchOptions{
-		BatchStateLoader: func([]OracleBatchResourceRequest) (OracleBatchState, error) { return nil, errors.New("batch failed") },
-		Deployment:       runnerTestDeployment(workspace, resourceTypes),
-		Environment:      map[string]string{"INFRAWRIGHT_ORACLE_BATCH_MODE": "logical-root"},
-		InputDirectory:   input, Policy: emptyRunnerPolicy(t), Root: root, Selectors: resourceTypes,
+		BatchStateLoader: func([]OracleBatchResourceRequest) (OracleBatchState, error) {
+			batchCalled = true
+			return nil, errors.New("batch failed")
+		},
+		Deployment:     runnerTestDeployment(workspace, resourceTypes),
+		Environment:    map[string]string{"INFRAWRIGHT_ORACLE_BATCH_MODE": "logical-root"},
+		InputDirectory: input, Policy: emptyRunnerPolicy(t), Root: root, Selectors: resourceTypes,
 		OnDiagnostic: func(message string) { diagnostics = append(diagnostics, message) },
 		StateLoader: func(request AdoptionStateRequest) (map[string]OracleStateObject, error) {
 			isolationOrder = append(isolationOrder, request.ResourceType)
@@ -343,28 +333,24 @@ func TestOracleBatchModeAndBatchFailureIsolationOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunAdoptBatch: %v", err)
 	}
-	if !reflect.DeepEqual(isolationOrder, resourceTypes) {
-		t.Fatalf("isolation order = %v, want %v", isolationOrder, resourceTypes)
+	if batchCalled || !reflect.DeepEqual(isolationOrder, resourceTypes) {
+		t.Fatalf("batch called/isolation order = %v/%v, want false/%v", batchCalled, isolationOrder, resourceTypes)
 	}
-	if !reflect.DeepEqual(result.Failed, resourceTypes) || len(result.Processed) != 0 {
-		t.Fatalf("batch failure result = %#v", result)
+	if !reflect.DeepEqual(result.Failed, []string{resourceTypes[1]}) || !reflect.DeepEqual(result.Processed, []string{resourceTypes[0]}) {
+		t.Fatalf("singleton failure-isolation result = %#v, want alpha processed and beta failed", result)
 	}
 	isolationDiagnostic := "error: test_beta: isolated provider read failed"
-	batchDiagnostic := "error: logical root bundle: batched Oracle failed; 1 member failure(s) identified above: batch failed"
-	isolationIndex, batchIndex := -1, -1
+	isolationIndex := -1
 	for index, diagnostic := range diagnostics {
 		if diagnostic == isolationDiagnostic {
 			isolationIndex = index
 		}
-		if diagnostic == batchDiagnostic {
-			batchIndex = index
-		}
 	}
-	if isolationIndex < 0 || batchIndex <= isolationIndex {
-		t.Fatalf("diagnostics = %#v, want isolated member before batch summary", diagnostics)
+	if isolationIndex < 0 {
+		t.Fatalf("diagnostics = %#v, want isolated member failure", diagnostics)
 	}
-	if tree := snapshotRunnerTree(t, workspace); len(tree) != 0 {
-		t.Fatalf("batch failure published files: %#v", tree)
+	if tree := snapshotRunnerTree(t, workspace); len(tree) != 2 {
+		t.Fatalf("singleton failure-isolation published files = %#v, want only alpha artifacts", tree)
 	}
 }
 
@@ -508,7 +494,7 @@ func TestRunAdoptBatchDerivationFailureStillEmitsClassifiedCounts(t *testing.T) 
 	}
 }
 
-func TestRunAdoptBatchLogicalRootUnsupportedBlocksEveryLoader(t *testing.T) {
+func TestRunAdoptBatchSingletonUnsupportedDoesNotBlockOtherType(t *testing.T) {
 	workspace := t.TempDir()
 	input := t.TempDir()
 	resourceTypes := []string{"test_alpha", "test_beta"}
@@ -529,23 +515,23 @@ func TestRunAdoptBatchLogicalRootUnsupportedBlocksEveryLoader(t *testing.T) {
 		}, Deployment: runnerTestDeployment(workspace, resourceTypes),
 		Environment:    map[string]string{"INFRAWRIGHT_ORACLE_BATCH_MODE": "logical-root"},
 		InputDirectory: input, Policy: emptyRunnerPolicy(t), Root: root, Selectors: resourceTypes,
-		StateLoader: func(AdoptionStateRequest) (map[string]OracleStateObject, error) {
+		StateLoader: func(request AdoptionStateRequest) (map[string]OracleStateObject, error) {
 			memberCalled = true
-			return nil, nil
+			return stateForRunnerRequest(request), nil
 		}, Tenant: "tenant",
 	})
 	if err != nil {
 		t.Fatalf("RunAdoptBatch: %v", err)
 	}
-	if batchCalled || memberCalled || !reflect.DeepEqual(result.Failed, resourceTypes) {
-		t.Fatalf("logical unsupported calls/result = %v/%v/%#v", batchCalled, memberCalled, result)
+	if batchCalled || !memberCalled || !reflect.DeepEqual(result.Failed, []string{resourceTypes[1]}) || !reflect.DeepEqual(result.Processed, []string{resourceTypes[0]}) {
+		t.Fatalf("singleton unsupported calls/result = %v/%v/%#v, want alpha independently processed and beta failed", batchCalled, memberCalled, result)
 	}
-	if tree := snapshotRunnerTree(t, workspace); len(tree) != 0 {
-		t.Fatalf("logical unsupported published files: %#v", tree)
+	if tree := snapshotRunnerTree(t, workspace); len(tree) != 2 {
+		t.Fatalf("singleton unsupported published files: %#v, want only alpha artifacts", tree)
 	}
 }
 
-func TestRunAdoptBatchLogicalRootDerivationFailureEmitsEveryClassifiedCount(t *testing.T) {
+func TestRunAdoptBatchSingletonDerivationFailureEmitsPerTypeCounts(t *testing.T) {
 	workspace := t.TempDir()
 	input := t.TempDir()
 	resourceTypes := []string{"test_alpha", "test_beta"}
@@ -559,29 +545,29 @@ func TestRunAdoptBatchLogicalRootDerivationFailureEmitsEveryClassifiedCount(t *t
 		writeRunnerInput(t, input, resourceType, `[{"id":"1","name":"same"}]`)
 	}
 	diagnostics := make([]string, 0)
-	loaderCalled := false
+	loaded := make([]string, 0, 1)
 	result, err := RunAdoptBatch(RunAdoptBatchOptions{
 		BatchStateLoader: func([]OracleBatchResourceRequest) (OracleBatchState, error) {
-			loaderCalled = true
+			t.Fatal("singleton topology must not invoke batch loader")
 			return nil, nil
 		}, Deployment: runnerTestDeployment(workspace, resourceTypes),
 		Environment:    map[string]string{"INFRAWRIGHT_ORACLE_BATCH_MODE": "logical-root"},
 		InputDirectory: input, OnDiagnostic: func(message string) { diagnostics = append(diagnostics, message) },
 		Policy: emptyRunnerPolicy(t), Root: root, Selectors: resourceTypes,
-		StateLoader: func(AdoptionStateRequest) (map[string]OracleStateObject, error) {
-			loaderCalled = true
-			return nil, nil
+		StateLoader: func(request AdoptionStateRequest) (map[string]OracleStateObject, error) {
+			loaded = append(loaded, request.ResourceType)
+			return stateForRunnerRequest(request), nil
 		}, Tenant: "tenant",
 	})
 	if err != nil {
 		t.Fatalf("RunAdoptBatch: %v", err)
 	}
-	wantFailed := []string{resourceTypes[1], resourceTypes[0]}
-	if loaderCalled || !reflect.DeepEqual(result.Failed, wantFailed) {
-		t.Fatalf("logical derivation failure called/result = %v/%#v", loaderCalled, result)
+	wantFailed := []string{resourceTypes[1]}
+	if !reflect.DeepEqual(loaded, []string{resourceTypes[0]}) || !reflect.DeepEqual(result.Failed, wantFailed) || !reflect.DeepEqual(result.Processed, []string{resourceTypes[0]}) {
+		t.Fatalf("singleton derivation failure loaded/result = %v/%#v", loaded, result)
 	}
 	wantCounts := []string{
-		"adopt counts test_alpha: fetched=1 system_skipped=0 unsupported=0 eligible=1 published=0 failed=1",
+		"adopt counts test_alpha: fetched=1 system_skipped=0 unsupported=0 eligible=1 published=1 failed=0",
 		"adopt counts test_beta: fetched=1 system_skipped=0 unsupported=0 eligible=1 published=0 failed=1",
 	}
 	for _, want := range wantCounts {
@@ -598,7 +584,7 @@ func TestRunAdoptBatchLogicalRootDerivationFailureEmitsEveryClassifiedCount(t *t
 	}
 }
 
-func TestRunAdoptBatchLogicalRootPendingMoveAfterBatchLoaderPublishesNothing(t *testing.T) {
+func TestRunAdoptBatchSingletonPendingMovePreventsSelectedPublication(t *testing.T) {
 	workspace := t.TempDir()
 	input := t.TempDir()
 	resourceTypes := []string{"test_alpha", "test_beta"}
@@ -607,47 +593,41 @@ func TestRunAdoptBatchLogicalRootPendingMoveAfterBatchLoaderPublishesNothing(t *
 	for _, resourceType := range resourceTypes {
 		writeRunnerInput(t, input, resourceType, `[{"id":"1","name":"same"}]`)
 	}
+	pending, err := pendingMovesPath(dep, resourceTypes[1], "tenant")
+	if err != nil {
+		t.Fatalf("pendingMovesPath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(pending), 0o700); err != nil {
+		t.Fatalf("os.MkdirAll(%q) error: %v", filepath.Dir(pending), err)
+	}
+	if err := os.WriteFile(pending, []byte("pending"), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(%q) error: %v", pending, err)
+	}
+	batchCalled := false
 	result, err := RunAdoptBatch(RunAdoptBatchOptions{
-		BatchStateLoader: func(requests []OracleBatchResourceRequest) (OracleBatchState, error) {
-			pending, err := pendingMovesPath(dep, resourceTypes[1], "tenant")
-			if err != nil {
-				return nil, err
-			}
-			if err := os.MkdirAll(filepath.Dir(pending), 0o700); err != nil {
-				return nil, err
-			}
-			if err := os.WriteFile(pending, []byte("pending"), 0o600); err != nil {
-				return nil, err
-			}
-			output := make(OracleBatchState, len(requests))
-			for _, request := range requests {
-				state := make(map[string]OracleStateObject)
-				for key := range request.KeyToImportID {
-					state[key] = OracleStateObject{Values: map[string]any{"name": key}, SensitiveValues: map[string]any{}}
-				}
-				output[request.ResourceType] = state
-			}
-			return output, nil
+		BatchStateLoader: func([]OracleBatchResourceRequest) (OracleBatchState, error) {
+			batchCalled = true
+			return nil, errors.New("singleton topology must not invoke batch loader")
 		}, Deployment: dep, Environment: map[string]string{"INFRAWRIGHT_ORACLE_BATCH_MODE": "logical-root"},
-		InputDirectory: input, Policy: emptyRunnerPolicy(t), Root: root, Selectors: resourceTypes,
+		InputDirectory: input, Policy: emptyRunnerPolicy(t), Root: root, Selectors: []string{resourceTypes[1]},
 		StateLoader: func(AdoptionStateRequest) (map[string]OracleStateObject, error) {
-			t.Fatal("member loader called after successful batch loader")
+			t.Fatal("state loader called despite selected singleton pending move")
 			return nil, nil
 		}, Tenant: "tenant",
 	})
 	if err != nil {
 		t.Fatalf("RunAdoptBatch: %v", err)
 	}
-	if !reflect.DeepEqual(result.Failed, resourceTypes) {
-		t.Fatalf("pending batch result = %#v", result)
+	if batchCalled || !reflect.DeepEqual(result.Failed, []string{resourceTypes[1]}) {
+		t.Fatalf("pending singleton result = called=%t %#v, want selected singleton failure without batch", batchCalled, result)
 	}
 	tree := snapshotRunnerTree(t, workspace)
 	if len(tree) != 1 {
-		t.Fatalf("pending batch output tree = %#v, want only pending marker", tree)
+		t.Fatalf("pending singleton output tree = %#v, want only pending marker", tree)
 	}
 }
 
-func TestRunAdoptBatchExternalReferentDisablesLogicalBatch(t *testing.T) {
+func TestRunAdoptBatchSingletonSelectionDoesNotPullUnselectedRoot(t *testing.T) {
 	workspace := t.TempDir()
 	input := t.TempDir()
 	resourceTypes := []string{"test_alpha", "test_beta", "test_gamma"}
@@ -678,8 +658,8 @@ func TestRunAdoptBatchExternalReferentDisablesLogicalBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunAdoptBatch: %v", err)
 	}
-	wantOrder := []string{"test_alpha", "test_gamma", "test_beta"}
+	wantOrder := []string{"test_alpha", "test_gamma"}
 	if batchCalls != 0 || !reflect.DeepEqual(memberOrder, wantOrder) || len(result.Failed) != 0 {
-		t.Fatalf("external referent calls/order/result = %d/%v/%#v, want 0/%v/success", batchCalls, memberOrder, result, wantOrder)
+		t.Fatalf("singleton selection calls/order/result = %d/%v/%#v, want 0/%v/success", batchCalls, memberOrder, result, wantOrder)
 	}
 }

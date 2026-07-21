@@ -7,11 +7,17 @@ _INFRAWRIGHT_IMPORTED_DEPLOYMENT := $(INFRAWRIGHT_DEPLOYMENT)
 DEPLOYMENT ?= $(if $(strip $(_INFRAWRIGHT_IMPORTED_DEPLOYMENT)),$(_INFRAWRIGHT_IMPORTED_DEPLOYMENT),deployment.json)
 PACK_PROFILE ?= packsets/full.json
 PACK_CATALOG ?= packsets/full.json
-ROOT_CATALOG ?= catalogs/zscaler-root-catalog.v1.json
+ROOT_CATALOG ?= catalogs/zscaler-root-catalog.v2.json
 DEMO_PACK_REQUIREMENTS ?= demo/pack-requirements.json
 DEMO_DEPLOYMENT ?= demo/deployment.json
 INFRAWRIGHT_CLI ?= $(NODE) dist/infrawright-cli.mjs
 IW_MAINTAINER ?= dist/iw
+IW_OPERATOR ?= dist/iw
+# Include every file below go/: the command transitively compiles platform
+# assembly and may embed non-Go assets. A broader prerequisite set causes only
+# harmless extra rebuilds and cannot miss a newly introduced local build input.
+GO_BUILD_INPUTS := $(shell find go -type f)
+FROZEN_NODE_ORACLE_SHA256 := ce48c2c6a1cc01254866c5a7eb98b3eef1c90e6c45b69aff7df7aed80c822fa2
 MODULE_DIR ?= $(shell INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(INFRAWRIGHT_CLI) deployment module-dir)
 OPTIONAL_TENANT_ARG = $(if $(filter undefined,$(origin TENANT)),,--tenant "$(TENANT)")
 
@@ -28,12 +34,13 @@ endif
 override INFRAWRIGHT_DEPLOYMENT = $(DEPLOYMENT)
 export INFRAWRIGHT_DEPLOYMENT
 
-.PHONY: metadata-cli verify-runtime source-build-preflight check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set differential root-catalog check-root-catalog deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-node check-all check-core test test-node fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: metadata-cli verify-runtime verify-frozen-node-oracle source-build-preflight check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set v2-authority differential root-catalog check-root-catalog deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-node check-all check-core test test-node fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 dist/infrawright-cli.mjs:
 	$(NPM) run build:metadata-cli
 
-dist/iw:
+dist/iw: $(GO_BUILD_INPUTS)
+	@mkdir -p dist
 	cd go && $(GO) build -o ../dist/iw ./cmd/iw
 
 metadata-cli: ## Explicitly rebuild the generic CLI for development
@@ -41,6 +48,13 @@ metadata-cli: ## Explicitly rebuild the generic CLI for development
 
 verify-runtime: ## Verify the prebuilt generic CLI without npm or Python
 	$(NODE) scripts/verify-runtime-release.mjs "$(CURDIR)" --deployment "$(DEPLOYMENT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)"
+
+verify-frozen-node-oracle: ## Verify, but never rebuild, the immutable v1 Node differential oracle
+	@$(NODE) -e 'const fs = require("node:fs"); const crypto = require("node:crypto"); const file = "dist/infrawright-cli.mjs"; const want = process.argv[1]; let bytes; try { bytes = fs.readFileSync(file); } catch (error) { console.error(`frozen Node oracle unavailable: $${error.message}`); process.exit(1); } const got = crypto.createHash("sha256").update(bytes).digest("hex"); if (got !== want) { console.error(`frozen Node oracle digest mismatch: got $${got}, want $${want}`); process.exit(1); }' "$(FROZEN_NODE_ORACLE_SHA256)"
+	@line="$$(cat dist/infrawright-cli.mjs.sha256 2>/dev/null)"; \
+		test "$$line" = "$(FROZEN_NODE_ORACLE_SHA256)  infrawright-cli.mjs" || { \
+			echo "frozen Node oracle checksum file is absent or inconsistent" >&2; exit 1; \
+		}
 
 source-build-preflight: ## Diagnose whether the configured npm registry can rebuild the CLI
 	$(NODE) scripts/build-environment-preflight.mjs --npm "$(NPM)"
@@ -82,15 +96,17 @@ check-pack: dist/infrawright-cli.mjs ## Validate pack.json and registry.json met
 check-pack-set: dist/infrawright-cli.mjs ## Require the installed pack root to match PACK_PROFILE exactly
 	$(INFRAWRIGHT_CLI) check-pack-set --catalog "$(PACK_CATALOG)" --profile "$(PACK_PROFILE)"
 
-differential: ## Rebuild the Node oracle and run the cmd/iw Go-vs-Node suites
-	$(NPM) run build:metadata-cli
+v2-authority: verify-frozen-node-oracle ## Run exact Go-v2 goldens and topology-independent frozen-Node comparisons
+	cd go && $(GO) test -count=1 ./cmd/iw -run '^Test.*V2.*Authority'
+
+differential: v2-authority ## Run retained cmd/iw Go-vs-frozen-Node suites without rebuilding the oracle
 	cd go && $(GO) test -count=1 ./cmd/iw -run 'Differential|^TestFetchDiagValidatesHostBeforeTransportSetup$$|^TestFetchArgumentContractCredentialFree$$|^TestFetchEmptyPackRootMakesNoRequests$$'
 
-root-catalog: dist/infrawright-cli.mjs ## Regenerate the all-Zscaler compatibility root catalog
-	$(INFRAWRIGHT_CLI) root-catalog --providers zcc,zia,zpa,ztc --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --out "$(ROOT_CATALOG)"
+root-catalog: dist/iw ## Regenerate the all-Zscaler singleton-state v2 root catalog
+	$(IW_OPERATOR) root-catalog --providers zcc,zia,zpa,ztc --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --out "$(ROOT_CATALOG)"
 
-check-root-catalog: dist/infrawright-cli.mjs ## Fail when the all-Zscaler compatibility root catalog is stale
-	$(INFRAWRIGHT_CLI) root-catalog --providers zcc,zia,zpa,ztc --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --check "$(ROOT_CATALOG)"
+check-root-catalog: dist/iw ## Fail when the all-Zscaler singleton-state v2 root catalog is stale
+	$(IW_OPERATOR) root-catalog --providers zcc,zia,zpa,ztc --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --check "$(ROOT_CATALOG)"
 
 deployment: dist/infrawright-cli.mjs ## Query deployment metadata (DEPLOYMENT_QUERY=<verb> [TENANT=<label>])
 	$(INFRAWRIGHT_CLI) deployment --deployment "$(DEPLOYMENT)" "$(or $(DEPLOYMENT_QUERY),overlay)" $(if $(TENANT),"$(TENANT)")

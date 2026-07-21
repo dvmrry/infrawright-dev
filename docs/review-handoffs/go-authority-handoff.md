@@ -32,6 +32,14 @@ do not change after this point. They remain executable only for the bounded
 oracle/rollback window described by the cutover roadmap, then become
 provenance-only artifacts.
 
+The recorded bundle is rebuilt from the immutable tagged tree, not from a
+post-handoff working tree. In particular, singleton-state v2 changes the
+committed root-catalog JSON schema that the Node entry point imports at build
+time, so rebuilding Node after G1 intentionally produces different bundle
+bytes even though Node source itself is frozen. Differential runs must
+materialize the tagged `ce48c2c6...` artifact and verify its digest; they must
+never rebuild the oracle from current v2 inputs.
+
 ## Authority declaration
 
 Go is the product-source authority after this record lands. The Go `iw` binary
