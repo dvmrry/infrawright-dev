@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: node-oracle-v1-final
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "24"
@@ -20,31 +22,75 @@ jobs:
           terraform_wrapper: false
       - name: Install pinned build dependencies
         run: npm ci --ignore-scripts
-      - name: Complete Node gate
+      - name: Complete frozen Node v1 gate
         run: npm run check:all
-      - name: Build supported CLI bundle
+      - name: Rebuild frozen Node v1 bundle
         run: npm run build
-      - name: Prove generic runtime release staging
+      - name: Prove frozen rollback release staging
         run: node scripts/test-runtime-release.mjs
+      - name: Verify frozen oracle digest
+        run: |
+          test "$(sha256sum dist/infrawright-cli.mjs | cut -d' ' -f1)" = "ce48c2c6a1cc01254866c5a7eb98b3eef1c90e6c45b69aff7df7aed80c822fa2"
+          test "$(cat dist/infrawright-cli.mjs.sha256)" = "ce48c2c6a1cc01254866c5a7eb98b3eef1c90e6c45b69aff7df7aed80c822fa2  infrawright-cli.mjs"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: frozen-node-oracle
+          path: |
+            dist/infrawright-cli.mjs
+            dist/infrawright-cli.mjs.sha256
+          if-no-files-found: error
       - name: Whitespace hygiene
         run: git diff --check
 
   check:
+    needs: runtime-release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "24"
           cache: npm
       - name: Install pinned Node dependencies
         run: npm ci --ignore-scripts
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: go/go.sum
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: "1.15.4"
           terraform_wrapper: false
-      - name: Full gate
-        run: make check
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: frozen-node-oracle
+          path: dist
+      - name: Verify frozen Node inputs and oracle
+        run: |
+          git diff --exit-code node-oracle-v1-final -- \
+            node-src node-tests package.json package-lock.json \
+            tsconfig.json tsconfig.test.json \
+            scripts/build-metadata-cli.mjs scripts/clean-node-test-build.mjs \
+            scripts/run-node-test-suite.mjs \
+            docs/schemas/root-catalog.schema.json \
+            catalogs/zscaler-root-catalog.v1.json
+          make verify-frozen-node-oracle
+      - name: Complete Go authority gate
+        run: |
+          test -z "$(gofmt -l go/cmd go/internal)"
+          cd go
+          go vet ./...
+          go test -count=1 ./...
+      - name: Retained v1 differential and v2 authority gates
+        run: make differential
+      - name: Go candidate distribution gate
+        run: |
+          make \
+            INFRAWRIGHT_CLI=dist/iw \
+            INFRAWRIGHT_CLI_PREREQUISITE=dist/iw \
+            check-candidate-distribution check-root-catalog
       - name: Whitespace hygiene
         run: git diff --check
 
@@ -60,8 +106,10 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - name: Install pinned Node dependencies
-        run: npm ci --ignore-scripts
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: go/go.sum
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: "1.15.4"
@@ -78,7 +126,11 @@ jobs:
           echo "INFRAWRIGHT_PACKS=$root" >> "$GITHUB_ENV"
           echo "PACK_PROFILE=$GITHUB_WORKSPACE/packsets/$PROFILE.json" >> "$GITHUB_ENV"
       - name: Selected distribution gate
-        run: make check
+        run: |
+          make \
+            INFRAWRIGHT_CLI=dist/iw \
+            INFRAWRIGHT_CLI_PREREQUISITE=dist/iw \
+            check-candidate-distribution
   pruned-checkouts:
     runs-on: ubuntu-latest
     strategy:
@@ -91,6 +143,10 @@ jobs:
         with:
           node-version: "24"
           cache: npm
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: go/go.sum
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: "1.15.4"
@@ -110,5 +166,8 @@ jobs:
         env:
           PROFILE: ${{ matrix.profile }}
         run: |
-          npm --prefix "$PRUNED_ROOT" ci --ignore-scripts
-          make -C "$PRUNED_ROOT" PACK_PROFILE="packsets/$PROFILE.json" check
+          make -C "$PRUNED_ROOT" \
+            PACK_PROFILE="packsets/$PROFILE.json" \
+            INFRAWRIGHT_CLI=dist/iw \
+            INFRAWRIGHT_CLI_PREREQUISITE=dist/iw \
+            check-candidate-distribution

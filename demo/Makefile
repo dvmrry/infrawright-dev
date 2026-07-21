@@ -1,6 +1,6 @@
 .PHONY: demo demo-modules
 
-demo-modules: dist/infrawright-cli.mjs ## Materialize generated local demo modules
+demo-modules: $(INFRAWRIGHT_CLI_PREREQUISITE) ## Materialize generated local demo modules
 	@INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(INFRAWRIGHT_CLI) modules generate --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" > /dev/null 2>&1
 
 demo: demo-modules ## Materialize the demo overlay tenant and generated local demo modules

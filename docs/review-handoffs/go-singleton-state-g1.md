@@ -37,8 +37,8 @@ recheck. The coordinator has not yet committed this parcel.
   `go/internal/metadata/{resources,rootcatalog}`.
 - Consumers/tests: `go/internal/{adopt,assessment,envgen,plan}` and
   `go/cmd/iw` differential/command suites.
-- Metadata/artifacts: `packs/zia/registry.json`,
-  `docs/schemas/root-catalog.schema.json`, and new
+- Metadata/artifacts: `packs/zia/registry.json`, the new
+  `docs/schemas/root-catalog.v2.schema.json`, and new
   `catalogs/zscaler-root-catalog.v2.json`.
 - Gate/docs: `Makefile`, `go/README.md`, and the authority-handoff provenance
   clarification in `docs/review-handoffs/go-authority-handoff.md`.
@@ -62,17 +62,19 @@ recheck. The coordinator has not yet committed this parcel.
 - Existing docs/design: `docs/singleton-state-topology-v2.md`,
   `docs/go-runtime-v2.md`, and
   `docs/review-handoffs/go-authority-handoff.md`.
-- Other evidence: frozen v1 catalog, committed root-catalog JSON schema, and
-  retained `ce48c2c6...` Node executable. A clean G0/tagged tree reproduces
-  that bundle. A current G1 working-tree rebuild does not, because the bundled
-  Node validator imports the now-v2 root-catalog schema; `make differential`
-  therefore verifies and never rebuilds the immutable oracle.
+- Other evidence: frozen v1 catalog, the frozen v1 schema at
+  `docs/schemas/root-catalog.schema.json`, the versioned Go-v2 schema, and the
+  retained `ce48c2c6...` Node executable. The schema split preserves the
+  frozen Node validator's v1 import while giving the Go authority an explicit
+  v2 contract. `make differential` verifies and never rebuilds the immutable
+  oracle.
 
 ## Generated Artifacts
 
 - Reports: none.
-- Schemas: `docs/schemas/root-catalog.schema.json` now requires schema version
-  2 and rejects `slug_label`.
+- Schemas: `docs/schemas/root-catalog.v2.schema.json` requires schema version
+  2 and rejects `slug_label`; `docs/schemas/root-catalog.schema.json` remains
+  the frozen Node v1 contract.
 - Fixtures: topology-dependent command fixtures were rewritten as singleton
   v2 authority cases with complete committed stdout/stderr/tree goldens.
   Topology-independent C4/D5, two-resource module generation/validation, and

@@ -11,6 +11,7 @@ ROOT_CATALOG ?= catalogs/zscaler-root-catalog.v2.json
 DEMO_PACK_REQUIREMENTS ?= demo/pack-requirements.json
 DEMO_DEPLOYMENT ?= demo/deployment.json
 INFRAWRIGHT_CLI ?= $(NODE) dist/infrawright-cli.mjs
+INFRAWRIGHT_CLI_PREREQUISITE ?= dist/infrawright-cli.mjs
 IW_MAINTAINER ?= dist/iw
 IW_OPERATOR ?= dist/iw
 # Include every file below go/: the command transitively compiles platform
@@ -34,7 +35,7 @@ endif
 override INFRAWRIGHT_DEPLOYMENT = $(DEPLOYMENT)
 export INFRAWRIGHT_DEPLOYMENT
 
-.PHONY: metadata-cli verify-runtime verify-frozen-node-oracle source-build-preflight check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set v2-authority differential root-catalog check-root-catalog deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-node check-all check-core test test-node fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: metadata-cli verify-runtime verify-frozen-node-oracle source-build-preflight check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-distribution check-candidate-distribution v2-authority differential root-catalog check-root-catalog deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-node check-all check-core test test-go test-node fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 dist/infrawright-cli.mjs:
 	$(NPM) run build:metadata-cli
@@ -65,7 +66,7 @@ check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
 		echo "check-demo: unable to inspect demo drift" >&2; exit 1; }; \
 	test -z "$$status" || { echo "demo drift:"; echo "$$status"; exit 1; }
 
-check-examples: dist/infrawright-cli.mjs ## Validate examples whose declared pack requirements are installed
+check-examples: $(INFRAWRIGHT_CLI_PREREQUISITE) ## Validate examples whose declared pack requirements are installed
 	@set +e; output="$$( $(INFRAWRIGHT_CLI) check-pack-set --catalog "$(PACK_CATALOG)" --requirements "$(DEMO_PACK_REQUIREMENTS)" 2>&1 )"; status=$$?; set -e; \
 	if [ $$status -eq 0 ]; then \
 		echo "$$output"; $(MAKE) check-demo; \
@@ -75,13 +76,13 @@ check-examples: dist/infrawright-cli.mjs ## Validate examples whose declared pac
 		echo "$$output" >&2; exit $$status; \
 	fi
 
-check-modules: dist/infrawright-cli.mjs ## Generate every module into a temp deployment to catch generator regressions
+check-modules: $(INFRAWRIGHT_CLI_PREREQUISITE) ## Generate every module into a temp deployment to catch generator regressions
 	@tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \
 	printf '{"module_dir": "%s/modules"}\n' "$$tmp" > "$$tmp/deployment.json"; \
 	INFRAWRIGHT_DEPLOYMENT="$$tmp/deployment.json" $(INFRAWRIGHT_CLI) modules generate --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" > /dev/null 2>&1; \
 	$(INFRAWRIGHT_CLI) modules validate --out "$$tmp/modules" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" > /dev/null
 
-check-tfvars-fmt: dist/infrawright-cli.mjs ## Validate HCL tfvars formatting when deployment selects hcl
+check-tfvars-fmt: $(INFRAWRIGHT_CLI_PREREQUISITE) ## Validate HCL tfvars formatting when deployment selects hcl
 	@fmt="$$(INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(INFRAWRIGHT_CLI) deployment tfvars-format)" || exit $$?; \
 	if [ "$$fmt" = "json" ]; then echo "check-tfvars-fmt: skip (json tfvars)"; exit 0; fi; \
 	if ! command -v "$(TF)" >/dev/null 2>&1; then echo "check-tfvars-fmt: skip (no terraform)"; exit 0; fi; \
@@ -90,10 +91,10 @@ check-tfvars-fmt: dist/infrawright-cli.mjs ## Validate HCL tfvars formatting whe
 	if [ ! -d "$$config_dir" ]; then echo "check-tfvars-fmt: no config dirs"; exit 0; fi; \
 	"$(TF)" fmt -check -recursive "$$config_dir"
 
-check-pack: dist/infrawright-cli.mjs ## Validate pack.json and registry.json metadata ([PACK=<name>])
+check-pack: $(INFRAWRIGHT_CLI_PREREQUISITE) ## Validate pack.json and registry.json metadata ([PACK=<name>])
 	$(INFRAWRIGHT_CLI) check-pack $(if $(PACK),--pack "$(PACK)")
 
-check-pack-set: dist/infrawright-cli.mjs ## Require the installed pack root to match PACK_PROFILE exactly
+check-pack-set: $(INFRAWRIGHT_CLI_PREREQUISITE) ## Require the installed pack root to match PACK_PROFILE exactly
 	$(INFRAWRIGHT_CLI) check-pack-set --catalog "$(PACK_CATALOG)" --profile "$(PACK_PROFILE)"
 
 v2-authority: verify-frozen-node-oracle ## Run exact Go-v2 goldens and topology-independent frozen-Node comparisons
@@ -139,9 +140,15 @@ demo-contract: dist/infrawright-cli.mjs ## Credential-free demo artifact/module 
 	echo "demo-contract: committed demo config/imports and generated modules are in sync"
 	@echo "demo-contract: live provider import/plan proof requires credentials and the adoption workflow"
 
-check: check-pack-set test check-examples check-modules check-tfvars-fmt check-pack ## Active-distribution gate: exact pack set + selected tests/examples + generators + metadata
+check-distribution: check-pack-set check-examples check-modules check-tfvars-fmt check-pack ## Active distribution without selecting its runtime test suite
 
-check-node: check ## Explicit Python-independent repository qualification gate
+check-candidate-distribution: check-pack-set check-modules check-tfvars-fmt check-pack ## Candidate distribution before the checked-in demo switches from v1
+
+check: dist/iw ## Current Go-authority distribution and runtime gate
+	$(MAKE) INFRAWRIGHT_CLI=dist/iw INFRAWRIGHT_CLI_PREREQUISITE=dist/iw check-candidate-distribution
+	$(MAKE) test-go
+
+check-node: check-distribution test-node ## Complete frozen Node gate; run from node-oracle-v1-final
 
 check-all: ## Run the active-distribution gate against the complete upstream pack catalog
 	@INFRAWRIGHT_PACKS="$(CURDIR)/packs" $(MAKE) PACK_CATALOG="$(CURDIR)/packsets/full.json" PACK_PROFILE="$(CURDIR)/packsets/full.json" check
@@ -150,11 +157,14 @@ check-all: ## Run the active-distribution gate against the complete upstream pac
 check-core: ## Prove the pack-independent engine surface with an empty pack root
 	@root="$$(mktemp -d)"; trap 'rm -rf "$$root"' EXIT; \
 	INFRAWRIGHT_PACKS="$$root" $(MAKE) PACK_CATALOG="$(CURDIR)/packsets/full.json" PACK_PROFILE="$(CURDIR)/packsets/empty.json" \
-		test check-pack check-modules
+		INFRAWRIGHT_CLI=dist/iw INFRAWRIGHT_CLI_PREREQUISITE=dist/iw test-go check-pack check-modules
 
-test: test-node ## Default repository tests use the Python-independent Node suite
+test: test-go ## Default repository tests use the current Go authority
 
-test-node: check-pack-set ## Run the complete Node test suite for the active pack profile
+test-go: ## Run the complete Go authority suite
+	cd go && $(GO) test ./...
+
+test-node: check-pack-set ## Run the complete frozen Node suite from node-oracle-v1-final
 	PACK_PROFILE="$(PACK_PROFILE)" PACK_CATALOG="$(PACK_CATALOG)" $(NPM) run test:node
 
 fetch: dist/infrawright-cli.mjs ## Pull API JSON into pulls/<tenant> (TENANT=<name> [RESOURCE="<type|provider> ..."])

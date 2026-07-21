@@ -86,37 +86,80 @@ func TestFrozenV1RootCatalogSHA256(t *testing.T) {
 	}
 }
 
-func TestRootCatalogV2SatisfiesCommittedSchema(t *testing.T) {
+func TestRootCatalogSchemasAreVersionExclusive(t *testing.T) {
 	root := repoRoot(t)
-	schemaBytes, err := os.ReadFile(filepath.Join(root, "docs", "schemas", "root-catalog.schema.json"))
-	if err != nil {
-		t.Fatalf("reading root catalog schema: %v", err)
+	v1Schema := compileRootCatalogSchema(
+		t,
+		root,
+		"root-catalog.schema.json",
+		"https://infrawright.local/schemas/root-catalog.schema.json",
+	)
+	v2Schema := compileRootCatalogSchema(
+		t,
+		root,
+		"root-catalog.v2.schema.json",
+		"https://infrawright.local/schemas/root-catalog.v2.schema.json",
+	)
+	v1Catalog := parseControlJSONFile(t, filepath.Join(root, "catalogs", "zscaler-root-catalog.v1.json"))
+	v2Catalog := parseControlJSONFile(t, filepath.Join(root, "catalogs", "zscaler-root-catalog.v2.json"))
+
+	tests := []struct {
+		name         string
+		schema       *jsonschema.Schema
+		ownCatalog   canonjson.Value
+		otherCatalog canonjson.Value
+	}{
+		{
+			name:         "v1",
+			schema:       v1Schema,
+			ownCatalog:   v1Catalog,
+			otherCatalog: v2Catalog,
+		},
+		{
+			name:         "v2",
+			schema:       v2Schema,
+			ownCatalog:   v2Catalog,
+			otherCatalog: v1Catalog,
+		},
 	}
-	catalogBytes, err := os.ReadFile(filepath.Join(root, "catalogs", "zscaler-root-catalog.v2.json"))
-	if err != nil {
-		t.Fatalf("reading v2 root catalog: %v", err)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.schema.Validate(test.ownCatalog); err != nil {
+				t.Errorf("%s schema rejected its own catalog: %v", test.name, err)
+			}
+			if err := test.schema.Validate(test.otherCatalog); err == nil {
+				t.Errorf("%s schema accepted the other catalog version", test.name)
+			}
+		})
 	}
-	schemaValue, err := canonjson.ParseControlJSON(string(schemaBytes))
-	if err != nil {
-		t.Fatalf("parsing root catalog schema: %v", err)
-	}
-	catalogValue, err := canonjson.ParseControlJSON(string(catalogBytes))
-	if err != nil {
-		t.Fatalf("parsing v2 root catalog: %v", err)
-	}
+}
+
+func compileRootCatalogSchema(t *testing.T, root, filename, schemaID string) *jsonschema.Schema {
+	t.Helper()
+	schemaValue := parseControlJSONFile(t, filepath.Join(root, "docs", "schemas", filename))
 	compiler := jsonschema.NewCompiler()
 	compiler.DefaultDraft(jsonschema.Draft2020)
-	const schemaID = "https://infrawright.local/schemas/root-catalog.schema.json"
 	if err := compiler.AddResource(schemaID, schemaValue); err != nil {
-		t.Fatalf("registering root catalog schema: %v", err)
+		t.Fatalf("registering root catalog schema %s: %v", filename, err)
 	}
 	compiled, err := compiler.Compile(schemaID)
 	if err != nil {
-		t.Fatalf("compiling root catalog schema: %v", err)
+		t.Fatalf("compiling root catalog schema %s: %v", filename, err)
 	}
-	if err := compiled.Validate(catalogValue); err != nil {
-		t.Fatalf("v2 root catalog does not satisfy committed schema: %v", err)
+	return compiled
+}
+
+func parseControlJSONFile(t *testing.T, path string) canonjson.Value {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading control JSON %s: %v", path, err)
 	}
+	value, err := canonjson.ParseControlJSON(string(content))
+	if err != nil {
+		t.Fatalf("parsing control JSON %s: %v", path, err)
+	}
+	return value
 }
 
 func reportCatalogMismatch(t *testing.T, want, got string) {
