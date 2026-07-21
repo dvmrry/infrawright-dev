@@ -462,7 +462,7 @@ func TestLoadedResolverPreservesPostDiscoveryCaptureAsymmetry(t *testing.T) {
 	}
 }
 
-func TestLoadedAssessmentBindsSortedCrossStateReferenceOutputs(t *testing.T) {
+func TestLoadedAssessmentDefaultsToSortedCrossStateReferenceOutputs(t *testing.T) {
 	workspace := t.TempDir()
 	envDir := writeAssessmentPlan(t, workspace, "tenant", "zpa_segment_group")
 	root := loadedAssessmentPack(t)
@@ -470,12 +470,7 @@ func TestLoadedAssessmentBindsSortedCrossStateReferenceOutputs(t *testing.T) {
 		Workspace: workspace,
 		Deployment: deployment.Deployment{
 			Overlay: ".",
-			Roots: map[string]deployment.RootProviderConfig{
-				"zpa": {
-					HasCrossStateReferences: true,
-					CrossStateReferences:    true,
-				},
-			},
+			Roots:   map[string]deployment.RootProviderConfig{},
 		},
 		Root:                root,
 		Tenant:              assessmentString("tenant"),
@@ -483,7 +478,7 @@ func TestLoadedAssessmentBindsSortedCrossStateReferenceOutputs(t *testing.T) {
 		TerraformExecutable: "/opt/terraform",
 	})
 	if err != nil {
-		t.Fatalf("ResolveLoadedSavedPlanAssessment(cross-state outputs) error: %v", err)
+		t.Fatalf("ResolveLoadedSavedPlanAssessment(default cross-state outputs) error: %v", err)
 	}
 	wantRoots := []SavedPlanAssessmentRootInput{{
 		Tenant:          "tenant",
@@ -498,13 +493,13 @@ func TestLoadedAssessmentBindsSortedCrossStateReferenceOutputs(t *testing.T) {
 		ReferenceOutputTypes: []string{"zpa_segment_group"},
 	}}
 	if !reflect.DeepEqual(resolved.Assessment.Roots, wantRoots) {
-		t.Errorf("ResolveLoadedSavedPlanAssessment(cross-state outputs).Roots = %#v, want %#v", resolved.Assessment.Roots, wantRoots)
+		t.Errorf("ResolveLoadedSavedPlanAssessment(default cross-state outputs).Roots = %#v, want %#v", resolved.Assessment.Roots, wantRoots)
 	}
 	if len(resolved.Diagnostics) != 0 {
-		t.Errorf("ResolveLoadedSavedPlanAssessment(cross-state outputs).Diagnostics = %#v, want no whole-root diagnostic for a singleton selection", resolved.Diagnostics)
+		t.Errorf("ResolveLoadedSavedPlanAssessment(default cross-state outputs).Diagnostics = %#v, want no whole-root diagnostic for a singleton selection", resolved.Diagnostics)
 	}
 	if err := os.Remove(filepath.Join(envDir, "tfplan")); err != nil {
-		t.Fatalf("os.Remove(cross-state tfplan) error: %v", err)
+		t.Fatalf("os.Remove(default cross-state tfplan) error: %v", err)
 	}
 	err = RecheckLoadedSavedPlanAssessmentContext(*resolved.Assessment.LoadedContext, resolved.Assessment.Roots)
 	requireAssessmentInputFailure(

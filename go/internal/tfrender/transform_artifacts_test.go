@@ -52,9 +52,9 @@ package tfrender
 // "...seven detailed transform goldens exactly", "all 74 active overrides
 // compile and accept an empty transform", "generic Python HTML unescape..."
 // (belongs to node-src/domain/python-html-unescape.ts, a different
-// module), "unresolved move evidence survives reruns...", "same-root
-// references materialize generated binding JSON on the first batch",
-// "opt-in cross-state references bind singleton roots without grouping",
+// module), "unresolved move evidence survives reruns...", "references
+// materialize generated binding JSON on the first batch",
+// "cross-state references bind singleton roots",
 // "committed ZPA nested references emit exact indexed cross-state
 // bindings", "reference lookup inference is opt-in, unique, and
 // subordinate to explicit sources", "cross-state list bindings preserve
@@ -620,7 +620,7 @@ func TestBatchCompilationUsesNewLookupResultsForBindingsAndComments(t *testing.T
 		Originals: map[string]map[string]any{"item": {"id": "item-id", "name": "Item"}},
 	}
 	referrer.BindingContext = BindingContext{
-		Mode:          deployment.ReferenceBindingSameRoot,
+		Mode:          deployment.ReferenceBindingCrossState,
 		Derived:       map[string]bool{},
 		Generated:     generated,
 		References:    references,
@@ -635,7 +635,7 @@ func TestBatchCompilationUsesNewLookupResultsForBindingsAndComments(t *testing.T
 		Originals: map[string]map[string]any{"new_key": {"id": "new-id", "name": "Fresh Group"}},
 	}
 	referent.BindingContext = BindingContext{
-		Mode:          deployment.ReferenceBindingSameRoot,
+		Mode:          deployment.ReferenceBindingCrossState,
 		Derived:       map[string]bool{},
 		Generated:     generated,
 		References:    map[string]TransformReferenceSpec{},
@@ -659,8 +659,54 @@ func TestBatchCompilationUsesNewLookupResultsForBindingsAndComments(t *testing.T
 		t.Fatalf("config text %q does not match /group_id\\s+= \"new-id\"\\s+# Fresh Group/", configText)
 	}
 	bindingsText := readFileText(t, referrerPaths.GeneratedBindings)
-	if !strings.Contains(bindingsText, `module.sample_group.items[\"new_key\"].id`) {
+	if !strings.Contains(bindingsText, "data.terraform_remote_state.sample_root.outputs.infrawright_reference_ids.sample_group[\\\"new_key\\\"]") {
 		t.Fatalf("generated bindings %q does not contain the fresh-lookup-keyed expression", bindingsText)
+	}
+}
+
+func TestDisabledBindingsRetainLiteralIDsAndRemoveStaleArtifact(t *testing.T) {
+	workspace := t.TempDir()
+	options := newArtifactOptions(workspace, "sample_item")
+	options.References = map[string]TransformReferenceSpec{
+		"group_id": {NameField: "name", Referent: "sample_group"},
+	}
+	options.Result = PullTransformResult{
+		Drops:     []string{},
+		Items:     map[string]map[string]any{"item": {"group_id": "group-id", "name": "Item"}},
+		Originals: map[string]map[string]any{"item": {"id": "item-id", "name": "Item"}},
+	}
+	options.BindingContext = BindingContext{
+		Mode:       deployment.ReferenceBindingDisabled,
+		Derived:    map[string]bool{},
+		Generated:  map[string]bool{"sample_group": true, "sample_item": true},
+		References: options.References,
+		ResourceRoots: map[string]string{
+			"sample_group": "sample_group",
+			"sample_item":  "sample_item",
+		},
+	}
+	options.LookupOverrides = map[string]*TransformLookupData{
+		"sample_group": {KeyByID: map[string]string{"group-id": "group_one"}},
+	}
+	paths := mustComputePaths(t, options)
+	writeFileMkdir(t, paths.GeneratedBindings, "stale generated bindings\n")
+
+	compiled, err := CompileTransformArtifacts(options)
+	if err != nil {
+		t.Fatalf("CompileTransformArtifacts: %v", err)
+	}
+	if len(compiled.Binding.Resources) != 0 {
+		t.Fatalf("disabled binding resources = %#v, want empty", compiled.Binding.Resources)
+	}
+	if _, err := PublishCompiledTransformArtifacts(compiled); err != nil {
+		t.Fatalf("PublishCompiledTransformArtifacts: %v", err)
+	}
+	if _, err := os.Stat(paths.GeneratedBindings); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("os.Stat(%q) after disabled publish = %v, want os.ErrNotExist", paths.GeneratedBindings, err)
+	}
+	config := readFileText(t, paths.Config)
+	if !strings.Contains(config, `"group-id"`) {
+		t.Errorf("disabled config = %q, want literal group ID", config)
 	}
 }
 
@@ -728,7 +774,7 @@ func TestDeriveGeneratedBindingsRetainsUnresolvedDiagnostics(t *testing.T) {
 	context := BindingContext{
 		Derived:   map[string]bool{},
 		Generated: map[string]bool{"zpa_app_connector_group": true, "zpa_server_group": true},
-		Mode:      deployment.ReferenceBindingSameRoot,
+		Mode:      deployment.ReferenceBindingCrossState,
 		References: map[string]TransformReferenceSpec{
 			"server_groups.id": {NameField: "name", Referent: "zpa_server_group"},
 		},
@@ -759,8 +805,8 @@ func TestDeriveGeneratedBindingsRetainsUnresolvedDiagnostics(t *testing.T) {
 		"  \"resources\": {\n" +
 		"    \"zpa_app_connector_group.connector_one\": {\n" +
 		"      \"server_groups[0].id\": {\n" +
-		"        \"expression\": \"[module.zpa_server_group.items[\\\"known\\\"].id, \\\"sg-missing\\\"]\",\n" +
-		"        \"reason\": \"group-local reference binding via zpa_server_group.items\"\n" +
+		"        \"expression\": \"[data.terraform_remote_state.zpa_app.outputs.infrawright_reference_ids.zpa_server_group[\\\"known\\\"], \\\"sg-missing\\\"]\",\n" +
+		"        \"reason\": \"cross-state reference binding via zpa_server_group root output\"\n" +
 		"      }\n" +
 		"    }\n" +
 		"  }\n" +
@@ -783,7 +829,7 @@ func TestDeriveGeneratedBindingsTopLevel(t *testing.T) {
 	context := BindingContext{
 		Derived:   map[string]bool{},
 		Generated: map[string]bool{"zpa_application_segment": true, "zpa_segment_group": true},
-		Mode:      deployment.ReferenceBindingSameRoot,
+		Mode:      deployment.ReferenceBindingCrossState,
 		References: map[string]TransformReferenceSpec{
 			"segment_group_id": {NameField: "name", Referent: "zpa_segment_group"},
 		},
@@ -806,8 +852,8 @@ func TestDeriveGeneratedBindingsTopLevel(t *testing.T) {
 		"  \"resources\": {\n" +
 		"    \"zpa_application_segment.app_one\": {\n" +
 		"      \"segment_group_id\": {\n" +
-		"        \"expression\": \"module.zpa_segment_group.items[\\\"segment_one\\\"].id\",\n" +
-		"        \"reason\": \"group-local reference binding via zpa_segment_group.items\"\n" +
+		"        \"expression\": \"data.terraform_remote_state.zpa_custom.outputs.infrawright_reference_ids.zpa_segment_group[\\\"segment_one\\\"]\",\n" +
+		"        \"reason\": \"cross-state reference binding via zpa_segment_group root output\"\n" +
 		"      }\n" +
 		"    }\n" +
 		"  }\n" +

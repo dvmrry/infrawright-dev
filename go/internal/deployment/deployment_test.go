@@ -120,26 +120,61 @@ func TestLoadDeploymentFailsClosedOnMalformedRootConfiguration(t *testing.T) {
 	}
 }
 
-func TestCrossStateReferenceModeIsExplicitDuringG1(t *testing.T) {
+func TestCrossStateReferenceModeDefaultsToCrossState(t *testing.T) {
 	dir := t.TempDir()
-	deploymentPath := writeDeployment(t, dir, `{
-		"roots": {
-			"zia": {"cross_state_references": true},
-			"zpa": {"cross_state_references": false}
-		}
-	}`)
-	loaded, err := LoadDeployment(deploymentPath)
-	if err != nil {
-		t.Fatalf("LoadDeployment: %v", err)
+	cases := []struct {
+		name           string
+		content        string
+		provider       string
+		wantMode       ReferenceBindingMode
+		wantHasConfig  bool
+		wantHasSetting bool
+	}{
+		{"absent roots", `{}`, "zpa", ReferenceBindingCrossState, false, false},
+		{"absent provider", `{"roots":{}}`, "zpa", ReferenceBindingCrossState, false, false},
+		{"absent setting", `{"roots":{"zpa":{}}}`, "zpa", ReferenceBindingCrossState, true, false},
+		{"explicit true", `{"roots":{"zpa":{"cross_state_references":true}}}`, "zpa", ReferenceBindingCrossState, true, true},
+		{"explicit false", `{"roots":{"zpa":{"cross_state_references":false}}}`, "zpa", ReferenceBindingDisabled, true, true},
 	}
-	if got := DeploymentReferenceBindingMode(loaded, "zia"); got != ReferenceBindingCrossState {
-		t.Errorf("DeploymentReferenceBindingMode(zia) = %v, want cross_state", got)
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			deploymentPath := writeDeployment(t, dir, test.content)
+			loaded, err := LoadDeployment(deploymentPath)
+			if err != nil {
+				t.Fatalf("LoadDeployment(%s): %v", test.content, err)
+			}
+			if got := DeploymentReferenceBindingMode(loaded, test.provider); got != test.wantMode {
+				t.Errorf("DeploymentReferenceBindingMode(%q) = %v, want %v", test.provider, got, test.wantMode)
+			}
+			config, hasConfig := loaded.Roots[test.provider]
+			if hasConfig != test.wantHasConfig {
+				t.Fatalf("Roots[%q] present = %t, want %t", test.provider, hasConfig, test.wantHasConfig)
+			}
+			if hasConfig && config.HasCrossStateReferences != test.wantHasSetting {
+				t.Errorf("Roots[%q].HasCrossStateReferences = %t, want %t", test.provider, config.HasCrossStateReferences, test.wantHasSetting)
+			}
+		})
 	}
-	if got := DeploymentReferenceBindingMode(loaded, "zpa"); got != ReferenceBindingDisabled {
-		t.Errorf("DeploymentReferenceBindingMode(zpa) = %v, want disabled", got)
+}
+
+func TestHandBuiltDeploymentReferenceModeDefaultsToCrossState(t *testing.T) {
+	cases := []struct {
+		name       string
+		deployment Deployment
+		want       ReferenceBindingMode
+	}{
+		{"nil roots", Deployment{}, ReferenceBindingCrossState},
+		{"empty roots", Deployment{Roots: map[string]RootProviderConfig{}}, ReferenceBindingCrossState},
+		{"provider without setting", Deployment{Roots: map[string]RootProviderConfig{"zpa": {}}}, ReferenceBindingCrossState},
+		{"explicit true", Deployment{Roots: map[string]RootProviderConfig{"zpa": {HasCrossStateReferences: true, CrossStateReferences: true}}}, ReferenceBindingCrossState},
+		{"explicit false", Deployment{Roots: map[string]RootProviderConfig{"zpa": {HasCrossStateReferences: true, CrossStateReferences: false}}}, ReferenceBindingDisabled},
 	}
-	if got := DeploymentReferenceBindingMode(loaded, "zcc"); got != ReferenceBindingDisabled {
-		t.Errorf("DeploymentReferenceBindingMode(zcc) = %v, want disabled", got)
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if got := DeploymentReferenceBindingMode(test.deployment, "zpa"); got != test.want {
+				t.Errorf("DeploymentReferenceBindingMode(%#v, %q) = %v, want %v", test.deployment, "zpa", got, test.want)
+			}
+		})
 	}
 }
 

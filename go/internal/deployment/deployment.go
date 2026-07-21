@@ -1,7 +1,7 @@
 // Package deployment retains node-src/domain/deployment.ts's deployment.json
 // loading, Python-truthy defaults, path resolution, and path accessors while
 // applying the Go-authoritative singleton-state v2 roots contract. The v2
-// parser rejects the retired grouping and same-root binding fields.
+// parser rejects retired root configuration fields.
 //
 // Deployment-path resolution is explicit path > INFRAWRIGHT_DEPLOYMENT env var
 // > ./deployment.json, and the overlay/config-dir/imports-dir/envs-dir/
@@ -27,21 +27,17 @@ var providerKeys = map[string]struct{}{
 	"cross_state_references": {},
 }
 
-// ReferenceBindingMode describes how declared references resolve during G1.
+// ReferenceBindingMode describes how declared references resolve.
 type ReferenceBindingMode string
 
 // The supported ReferenceBindingMode literals.
 const (
-	ReferenceBindingDisabled ReferenceBindingMode = "disabled"
-	// ReferenceBindingSameRoot remains as an internal transition value until
-	// G2 removes the unreachable renderer branch. Deployment parsing can no
-	// longer select it.
-	ReferenceBindingSameRoot   ReferenceBindingMode = "same_root"
+	ReferenceBindingDisabled   ReferenceBindingMode = "disabled"
 	ReferenceBindingCrossState ReferenceBindingMode = "cross_state"
 )
 
 // RootProviderConfig preserves only the explicit cross-state setting.
-// During G1 absence and false are disabled; G2 changes absence to cross-state.
+// HasCrossStateReferences distinguishes an omitted setting from explicit false.
 type RootProviderConfig struct {
 	HasCrossStateReferences bool
 	CrossStateReferences    bool
@@ -200,19 +196,18 @@ func validateRootConfig(value any, provider string) RootProviderConfig {
 // node-src/domain/deployment.ts.
 func deploymentReferenceBindingMode(deployment Deployment, provider string) ReferenceBindingMode {
 	config, ok := deployment.Roots[provider]
-	if ok && config.HasCrossStateReferences && config.CrossStateReferences {
-		return ReferenceBindingCrossState
+	if ok && config.HasCrossStateReferences && !config.CrossStateReferences {
+		return ReferenceBindingDisabled
 	}
-	return ReferenceBindingDisabled
+	return ReferenceBindingCrossState
 }
 
 // DeploymentReferenceBindingMode ports deploymentReferenceBindingMode from
 // node-src/domain/deployment.ts. Unlike this package's other exported
 // accessors, it never fails: an absent or malformed roots.<provider> entry
 // (impossible to construct through LoadDeployment, but not impossible for
-// a hand-built Deployment) simply reads as "disabled", exactly as the
-// Node source's optional-chaining (`config?.cross_state_references`)
-// does.
+// a hand-built Deployment) defaults to cross-state. Only an explicit false
+// cross_state_references setting disables generated bindings.
 func DeploymentReferenceBindingMode(deployment Deployment, provider string) ReferenceBindingMode {
 	return deploymentReferenceBindingMode(deployment, provider)
 }

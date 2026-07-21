@@ -176,7 +176,7 @@ rest rather than pinning v1 behavior by accident.
   Regenerate catalog v2 + demo goldens from Go; goldens reviewed as
   the new byte authority. Remove `slug_group` inputs from
   `packs/zia/registry.json`.
-- **G2 — Reference promotion + cycle gate (in progress).** D2 defaulting is applied centrally
+- **G2 — Reference promotion + cycle gate (complete 2026-07-20).** D2 defaulting is applied centrally
   through the deployment binding mode and wired through Transform and `envgen`
   as one artifact-semantic parcel; D3 cycle
   check with tests (synthetic cyclic pack fixture), stale-binding

@@ -43,7 +43,15 @@ func newExactApplyFixture(t *testing.T, resourceTypes ...string) exactApplyFixtu
 	root := loadedAssessmentPack(t)
 	dep := deployment.Deployment{
 		Overlay: workspace,
-		Roots:   map[string]deployment.RootProviderConfig{},
+		Roots: map[string]deployment.RootProviderConfig{
+			// Keep the generic exact-Apply safety fixture independent of the
+			// singleton topology default. The dedicated reference-output test
+			// below exercises omitted/default cross-state behavior for ZPA.
+			"zia": {
+				HasCrossStateReferences: true,
+				CrossStateReferences:    false,
+			},
+		},
 	}
 	for _, resourceType := range resourceTypes {
 		envDir := filepath.Join(workspace, "envs", exactApplyTenant, resourceType)
@@ -194,6 +202,56 @@ func exactApplyCleanPlan() map[string]any {
 		"errored":           false,
 		"resource_changes":  []any{},
 		"output_changes":    map[string]any{},
+	}
+}
+
+func exactApplyReferenceOutputPlan() map[string]any {
+	value := map[string]any{
+		"zpa_segment_group": map[string]any{"segment_one": "72059380790653545"},
+	}
+	return map[string]any{
+		"format_version":    "1.2",
+		"terraform_version": "1.15.4",
+		"complete":          true,
+		"errored":           false,
+		"planned_values": map[string]any{
+			"outputs": map[string]any{
+				"infrawright_reference_ids": map[string]any{
+					"sensitive": true,
+					"value":     value,
+				},
+			},
+			"root_module": map[string]any{
+				"child_modules": []any{
+					map[string]any{
+						"address": "module.zpa_segment_group",
+						"resources": []any{
+							map[string]any{
+								"address": `module.zpa_segment_group.zpa_segment_group.this["segment_one"]`,
+								"index":   "segment_one",
+								"mode":    "managed",
+								"type":    "zpa_segment_group",
+								"values": map[string]any{
+									"id":   "72059380790653545",
+									"name": "Segment One",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"resource_changes": []any{},
+		"output_changes": map[string]any{
+			"infrawright_reference_ids": map[string]any{
+				"actions":          []any{"create"},
+				"before":           nil,
+				"after":            value,
+				"before_sensitive": false,
+				"after_sensitive":  true,
+				"after_unknown":    false,
+			},
+		},
 	}
 }
 
@@ -457,6 +515,41 @@ func TestApplyExactSavedPlansCleanFlowAndCompleteGate(t *testing.T) {
 			t.Fatalf("typed incomplete plan Apply calls = %d, want zero", len(candidate.applied))
 		}
 	})
+}
+
+func TestApplyExactSavedPlansAcceptsDefaultCrossStateReferenceOutput(t *testing.T) {
+	fixture := newExactApplyFixture(t, "zpa_segment_group")
+	wantOutputs := []string{"zpa_segment_group"}
+	if got := fixture.roots[0].ReferenceOutputTypes; !reflect.DeepEqual(got, wantOutputs) {
+		t.Fatalf(
+			"MaterializeLoadedSavedPlanAssessmentRoots(default ZPA).ReferenceOutputTypes = %#v, want %#v",
+			got,
+			wantOutputs,
+		)
+	}
+
+	planValue := exactApplyReferenceOutputPlan()
+	classification, err := ClassifyPlan(planValue, nil, exactApplyContract(fixture.roots[0]))
+	if err != nil {
+		t.Fatalf("ClassifyPlan(default ZPA reference output) error: %v", err)
+	}
+	if classification.Status != Clean || len(classification.Findings) != 0 {
+		t.Fatalf("ClassifyPlan(default ZPA reference output) = %#v, want clean with no findings", classification)
+	}
+
+	fake := &fakeExactPlanApplyTerraform{currentPlan: planValue}
+	result, err := applyExactSavedPlans(exactApplyOptions(fixture, fake), exactApplyTestHooks(fixture))
+	if err != nil {
+		t.Fatalf("applyExactSavedPlans(default ZPA reference output) error: %v", err)
+	}
+	if got := result.Applied; got != 1 {
+		t.Errorf("applyExactSavedPlans(default ZPA reference output).Applied = %d, want 1", got)
+	}
+	if got := len(fake.applied); got != 1 {
+		t.Errorf("applyExactSavedPlans(default ZPA reference output) Apply calls = %d, want 1", got)
+	} else if got, want := fake.applied[0].Directory, fixture.roots[0].EnvDir; got != want {
+		t.Errorf("applyExactSavedPlans(default ZPA reference output) Apply directory = %q, want %q", got, want)
+	}
 }
 
 func TestApplyExactSavedPlansUsesOneDescriptorAfterFinalRecheck(t *testing.T) {

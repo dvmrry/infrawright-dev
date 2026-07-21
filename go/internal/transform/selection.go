@@ -1,12 +1,10 @@
 package transform
 
 // selection.go ports node-src/domain/transform-selection.ts: resource
-// selection and referent-first reference ordering (a Tarjan SCC over the
-// merged `references` tables from active pack manifests).
+// selection and fail-closed referent-first reference ordering over the merged
+// `references` tables from active pack manifests.
 
 import (
-	"strings"
-
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
@@ -16,7 +14,9 @@ import (
 // node-src/domain/transform-selection.ts.
 type TransformSelection struct {
 	ResourceTypes []string
-	Notes         []string
+	// Notes is retained for API stability. It is always empty because a
+	// reference cycle now fails closed instead of producing a recovery note.
+	Notes []string
 }
 
 // MergedTransformReferences ports the exported mergedTransformReferences
@@ -143,80 +143,11 @@ func referenceGraph(root metadata.LoadedPackRoot, resourceTypes []string) (map[s
 	return graph, indegree
 }
 
-// referenceCycleMembers ports referenceCycleMembers from
-// node-src/domain/transform-selection.ts: Tarjan's SCC algorithm restricted
-// to nodes, returning every node that is a member of a cycle (an SCC with
-// more than one member, or a single node with a self-loop).
-func referenceCycleMembers(nodes []string, graph map[string]map[string]struct{}) []string {
-	selected := make(map[string]struct{}, len(nodes))
-	for _, node := range nodes {
-		selected[node] = struct{}{}
-	}
-	nextIndex := 0
-	indexes := make(map[string]int)
-	lowlinks := make(map[string]int)
-	var stack []string
-	onStack := make(map[string]struct{})
-	cycleMembers := make(map[string]struct{})
-
-	var visit func(node string)
-	visit = func(node string) {
-		index := nextIndex
-		indexes[node] = index
-		lowlinks[node] = index
-		nextIndex++
-		stack = append(stack, node)
-		onStack[node] = struct{}{}
-
-		for _, child := range canonjson.SortedStrings(mapKeys(graph[node])) {
-			if _, ok := selected[child]; !ok {
-				continue
-			}
-			if _, visited := indexes[child]; !visited {
-				visit(child)
-				if lowlinks[child] < lowlinks[node] {
-					lowlinks[node] = lowlinks[child]
-				}
-			} else if _, onStk := onStack[child]; onStk {
-				if indexes[child] < lowlinks[node] {
-					lowlinks[node] = indexes[child]
-				}
-			}
-		}
-
-		if lowlinks[node] != indexes[node] {
-			return
-		}
-		var component []string
-		for len(stack) > 0 {
-			child := stack[len(stack)-1]
-			stack = stack[:len(stack)-1]
-			delete(onStack, child)
-			component = append(component, child)
-			if child == node {
-				break
-			}
-		}
-		if len(component) > 1 {
-			for _, member := range component {
-				cycleMembers[member] = struct{}{}
-			}
-		} else if _, selfLoop := graph[node][node]; selfLoop {
-			cycleMembers[node] = struct{}{}
-		}
-	}
-
-	for _, node := range canonjson.SortedStrings(mapKeys(selected)) {
-		if _, visited := indexes[node]; !visited {
-			visit(node)
-		}
-	}
-	return canonjson.SortedStrings(mapKeys(cycleMembers))
-}
-
 // referenceOrder is the unexported core of ReferenceOrder and
-// SelectTransformResources, ported from referenceOrder in
-// node-src/domain/transform-selection.ts.
+// SelectTransformResources. It retains the Node source's deterministic Kahn
+// ordering for acyclic inputs, but deliberately fails closed if an unvalidated
+// cyclic graph reaches this defensive boundary. Declared cycles are normally
+// rejected earlier by metadata validation.
 func referenceOrder(root metadata.LoadedPackRoot, resourceTypesInput []string) TransformSelection {
 	uniqueSet := make(map[string]struct{}, len(resourceTypesInput))
 	for _, resourceType := range resourceTypesInput {
@@ -225,13 +156,6 @@ func referenceOrder(root metadata.LoadedPackRoot, resourceTypesInput []string) T
 	resourceTypes := canonjson.SortedStrings(mapKeys(uniqueSet))
 
 	graph, indegree := referenceGraph(root, resourceTypes)
-	cycleMembers := referenceCycleMembers(resourceTypes, graph)
-	notes := []string{}
-	if len(cycleMembers) > 0 {
-		notes = []string{
-			"NOTE: reference order cycle detected among " + strings.Join(cycleMembers, ", ") + "; breaking alphabetically\n",
-		}
-	}
 
 	remaining := make(map[string]struct{}, len(resourceTypes))
 	for _, resourceType := range resourceTypes {
@@ -245,30 +169,13 @@ func referenceOrder(root metadata.LoadedPackRoot, resourceTypesInput []string) T
 	}
 	ordered := []string{}
 	for len(remaining) > 0 {
-		var resourceType string
-		if len(ready) > 0 {
-			candidate := ready[0]
-			ready = ready[1:]
-			if _, ok := remaining[candidate]; !ok {
-				continue
-			}
-			resourceType = candidate
-		} else {
-			found := ""
-			for _, member := range cycleMembers {
-				if _, ok := remaining[member]; ok {
-					found = member
-					break
-				}
-			}
-			if found == "" {
-				sortedRemaining := canonjson.SortedStrings(mapKeys(remaining))
-				if len(sortedRemaining) == 0 {
-					fail("reference ordering lost all remaining nodes")
-				}
-				found = sortedRemaining[0]
-			}
-			resourceType = found
+		if len(ready) == 0 {
+			fail("reference order cycle detected; resolve one direction via a literal ID or operator expression")
+		}
+		resourceType := ready[0]
+		ready = ready[1:]
+		if _, ok := remaining[resourceType]; !ok {
+			continue
 		}
 		delete(remaining, resourceType)
 		ordered = append(ordered, resourceType)
@@ -283,12 +190,12 @@ func referenceOrder(root metadata.LoadedPackRoot, resourceTypesInput []string) T
 		}
 		ready = canonjson.SortedStrings(ready)
 	}
-	return TransformSelection{ResourceTypes: ordered, Notes: notes}
+	return TransformSelection{ResourceTypes: ordered, Notes: []string{}}
 }
 
-// ReferenceOrder ports the exported referenceOrder from
-// node-src/domain/transform-selection.ts: "Match engine.ops.reference_order
-// without writing its cycle note to stderr."
+// ReferenceOrder returns a deterministic referent-first ordering. It preserves
+// the exported Node API shape while deliberately replacing Node's alphabetic
+// cycle recovery with a fail-closed error; Notes is therefore always empty.
 func ReferenceOrder(root metadata.LoadedPackRoot, resourceTypes []string) (result TransformSelection, err error) {
 	defer recoverErr(&err)
 	return referenceOrder(root, resourceTypes), nil

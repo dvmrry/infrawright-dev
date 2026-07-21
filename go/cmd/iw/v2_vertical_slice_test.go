@@ -466,7 +466,7 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 	workspace := t.TempDir()
 	overlay := filepath.Join(workspace, "overlay")
 	moduleDirectory := filepath.Join(overlay, "modules")
-	deploymentPath := writeTransformDeployment(t, workspace, overlay)
+	deploymentPath := writeTransformDeployment(t, workspace, overlay, nil)
 	isolatedPath := v2IsolatedPath(t, terraform)
 	environment := v2Environment(t, isolatedPath, deploymentPath, server)
 

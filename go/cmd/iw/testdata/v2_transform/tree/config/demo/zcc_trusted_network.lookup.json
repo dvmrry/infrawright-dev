@@ -1,0 +1,10 @@
+{
+  "by_id": {
+    "501": "HQ Wired",
+    "502": "Branch WiFi"
+  },
+  "key_by_id": {
+    "501": "hq_wired",
+    "502": "branch_wifi"
+  }
+}

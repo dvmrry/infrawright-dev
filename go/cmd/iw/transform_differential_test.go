@@ -18,12 +18,20 @@ import (
 	"testing"
 )
 
-func writeTransformDeployment(t *testing.T, dir, overlay string) string {
+func writeTransformDeployment(t *testing.T, dir, overlay string, crossStateReferences *bool) string {
 	t.Helper()
-	payload, err := json.Marshal(map[string]string{
+	payloadObject := map[string]any{
 		"overlay":    overlay,
 		"module_dir": filepath.Join(overlay, "modules"),
-	})
+	}
+	if crossStateReferences != nil {
+		roots := map[string]any{}
+		for _, provider := range []string{"zcc", "zia", "zpa"} {
+			roots[provider] = map[string]any{"cross_state_references": *crossStateReferences}
+		}
+		payloadObject["roots"] = roots
+	}
+	payload, err := json.Marshal(payloadObject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,6 +162,7 @@ func TestTransformDifferentialAgainstNodeOracle(t *testing.T) {
 	t.Cleanup(func() { os.Remove(goBinary) })
 
 	demoInput := filepath.Join(root, "packs", "_shared", "zscaler", "demo")
+	disableCrossState := false
 
 	cases := []struct {
 		name      string
@@ -228,8 +237,8 @@ func TestTransformDifferentialAgainstNodeOracle(t *testing.T) {
 			nodeDir, goDir := t.TempDir(), t.TempDir()
 			nodeOverlay := filepath.Join(nodeDir, "out")
 			goOverlay := filepath.Join(goDir, "out")
-			nodeDeployment := writeTransformDeployment(t, nodeDir, nodeOverlay)
-			goDeployment := writeTransformDeployment(t, goDir, goOverlay)
+			nodeDeployment := writeTransformDeployment(t, nodeDir, nodeOverlay, &disableCrossState)
+			goDeployment := writeTransformDeployment(t, goDir, goOverlay, &disableCrossState)
 
 			arguments := []string{
 				"transform", "--in", input, "--tenant", "demo",

@@ -392,6 +392,121 @@ func TestCrossStateModeEmitsSingletonOutputsAndRemoteStateConsumers(t *testing.T
 	mustMatch(t, remoteSmoke, `use_azuread_auth\s+= true`)
 }
 
+func TestAbsentAndExplicitCrossStateProduceIdenticalDeclaredBindingArtifacts(t *testing.T) {
+	workspace := temporaryDirectory(t, "infrawright-gen-env-default-cross-state-")
+	deploymentPath := filepath.Join(workspace, "deployment.json")
+	outputRoot := filepath.Join(workspace, "generated")
+	config := filepath.Join(workspace, "config", "tenant")
+	writeFixture := func() {
+		writeJSONFile(t, filepath.Join(config, "zpa_segment_group.auto.tfvars.json"), map[string]any{
+			"items": map[string]any{"segment_one": map[string]any{"description": "Segment", "enabled": true, "name": "Segment One"}},
+		})
+		writeJSONFile(t, filepath.Join(config, "zpa_server_group.auto.tfvars.json"), map[string]any{
+			"items": map[string]any{"server_one": map[string]any{
+				"description":          "Server",
+				"enabled":              true,
+				"name":                 "Server One",
+				"app_connector_groups": []any{map[string]any{"id": []any{"connector-1"}}},
+				"servers":              []any{map[string]any{"id": []any{"application-server-1"}}},
+			}},
+		})
+		writeJSONFile(t, filepath.Join(config, "zpa_app_connector_group.auto.tfvars.json"), map[string]any{
+			"items": map[string]any{"connector_one": map[string]any{"description": "Connector", "enabled": true, "name": "Connector One"}},
+		})
+		writeJSONFile(t, filepath.Join(config, "zpa_application_server.auto.tfvars.json"), map[string]any{
+			"items": map[string]any{"application_server": map[string]any{}},
+		})
+		writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
+			"items": map[string]any{"app_one": map[string]any{
+				"segment_group_id": "segment-1",
+				"server_groups":    []any{map[string]any{"id": []any{"server-1"}}},
+			}},
+		})
+		writeJSONFile(t, filepath.Join(config, "zia_url_categories.auto.tfvars.json"), map[string]any{
+			"items": map[string]any{"category_one": map[string]any{"configured_name": "Category One", "custom_category": true, "urls": []any{}}},
+		})
+		writeJSONFile(t, filepath.Join(config, "zia_url_filtering_rules.auto.tfvars.json"), map[string]any{
+			"items": map[string]any{"rule_one": map[string]any{"url_categories": []any{"category-1"}}},
+		})
+		writeJSONFile(t, filepath.Join(config, "zcc_trusted_network.auto.tfvars.json"), map[string]any{
+			"items": map[string]any{"network_one": map[string]any{}},
+		})
+		writeJSONFile(t, filepath.Join(config, "zcc_forwarding_profile.auto.tfvars.json"), map[string]any{
+			"items": map[string]any{"profile_one": map[string]any{
+				"trusted_network_ids":          []any{"network-1"},
+				"trusted_network_ids_selected": []any{"network-1"},
+			}},
+		})
+		writeJSONFile(t, filepath.Join(config, "zpa_application_segment.generated.expressions.json"), map[string]any{
+			"resources": map[string]any{"zpa_application_segment.app_one": map[string]any{
+				"segment_group_id":    map[string]any{"expression": `data.terraform_remote_state.zpa_segment_group.outputs.infrawright_reference_ids.zpa_segment_group["segment_one"]`},
+				"server_groups[0].id": map[string]any{"expression": `[data.terraform_remote_state.zpa_server_group.outputs.infrawright_reference_ids.zpa_server_group["server_one"]]`},
+			}},
+		})
+		writeJSONFile(t, filepath.Join(config, "zpa_server_group.generated.expressions.json"), map[string]any{
+			"resources": map[string]any{"zpa_server_group.server_one": map[string]any{
+				"app_connector_groups[0].id": map[string]any{"expression": `[data.terraform_remote_state.zpa_app_connector_group.outputs.infrawright_reference_ids.zpa_app_connector_group["connector_one"]]`},
+				"servers[0].id":              map[string]any{"expression": `[data.terraform_remote_state.zpa_application_server.outputs.infrawright_reference_ids.zpa_application_server["application_server"]]`},
+			}},
+		})
+		writeJSONFile(t, filepath.Join(config, "zia_url_filtering_rules.generated.expressions.json"), map[string]any{
+			"resources": map[string]any{"zia_url_filtering_rules.rule_one": map[string]any{
+				"url_categories": map[string]any{"expression": `[data.terraform_remote_state.zia_url_categories.outputs.infrawright_reference_ids.zia_url_categories["category_one"]]`},
+			}},
+		})
+		writeJSONFile(t, filepath.Join(config, "zcc_forwarding_profile.generated.expressions.json"), map[string]any{
+			"resources": map[string]any{"zcc_forwarding_profile.profile_one": map[string]any{
+				"trusted_network_ids":          map[string]any{"expression": `[data.terraform_remote_state.zcc_trusted_network.outputs.infrawright_reference_ids.zcc_trusted_network["network_one"]]`},
+				"trusted_network_ids_selected": map[string]any{"expression": `[data.terraform_remote_state.zcc_trusted_network.outputs.infrawright_reference_ids.zcc_trusted_network["network_one"]]`},
+			}},
+		})
+	}
+	writeFixture()
+	run := func(rootsConfig map[string]any) map[string]string {
+		writeJSONFile(t, deploymentPath, map[string]any{
+			"module_dir": filepath.Join(workspace, "modules"),
+			"overlay":    workspace,
+			"roots":      rootsConfig,
+		})
+		if _, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
+			Deployment: loadDeploymentFile(t, deploymentPath), FormatHcl: identityFormatter,
+			OutputRoot: &outputRoot, Root: committedRootForTopology(t),
+			Selectors: []string{"zcc_forwarding_profile", "zia_url_filtering_rules", "zpa_application_segment", "zpa_server_group"},
+			Tenant:    "tenant",
+		}); err != nil {
+			t.Fatalf("GenerateEnvironmentRoots(%#v): %v", rootsConfig, err)
+		}
+		return snapshotTree(t, outputRoot)
+	}
+	absent := run(map[string]any{})
+	explicit := run(map[string]any{
+		"zcc": map[string]any{"cross_state_references": true},
+		"zia": map[string]any{"cross_state_references": true},
+		"zpa": map[string]any{"cross_state_references": true},
+	})
+	if !reflect.DeepEqual(explicit, absent) {
+		t.Fatalf("explicit true artifact tree differs from absent default (-want +got):\nwant=%#v\ngot=%#v", absent, explicit)
+	}
+	for _, expression := range []string{
+		`data.terraform_remote_state.zpa_server_group.outputs.infrawright_reference_ids.zpa_server_group`,
+		`data.terraform_remote_state.zia_url_categories.outputs.infrawright_reference_ids.zia_url_categories`,
+		`trusted_network_ids_selected`,
+		`data.terraform_remote_state.zcc_trusted_network.outputs.infrawright_reference_ids.zcc_trusted_network`,
+	} {
+		if !strings.Contains(strings.Join([]string{
+			explicit["tenant/zpa_application_segment/expression_bindings.tf"],
+			explicit["tenant/zia_url_filtering_rules/expression_bindings.tf"],
+			explicit["tenant/zcc_forwarding_profile/expression_bindings.tf"],
+		}, "\n"), expression) {
+			t.Errorf("generated binding artifacts do not contain %q", expression)
+		}
+	}
+	zccBindings := explicit["tenant/zcc_forwarding_profile/expression_bindings.tf"]
+	if got := strings.Count(zccBindings, "data.terraform_remote_state.zcc_trusted_network.outputs.infrawright_reference_ids.zcc_trusted_network"); got != 2 {
+		t.Errorf("zcc shared referent output count = %d, want 2", got)
+	}
+}
+
 func rootLabels(result EnvironmentGenerationResult) []string {
 	labels := make([]string, len(result.Roots))
 	for i, r := range result.Roots {
@@ -445,14 +560,14 @@ func BenchmarkValidateRemoteStateReferencesSharedIndex(b *testing.B) {
 	}
 }
 
-func TestOperatorDataSelectorsDoNotActivateCrossStateWithoutOptIn(t *testing.T) {
+func TestExplicitCrossStateDisableDoesNotActivateOperatorDataSelectors(t *testing.T) {
 	workspace := temporaryDirectory(t, "infrawright-gen-env-operator-data-")
 	deploymentPath := filepath.Join(workspace, "deployment.json")
 	outputRoot := filepath.Join(workspace, "generated")
 	writeJSONFile(t, deploymentPath, map[string]any{
 		"module_dir": filepath.Join(workspace, "modules"),
 		"overlay":    workspace,
-		"roots":      map[string]any{},
+		"roots":      map[string]any{"zpa": map[string]any{"cross_state_references": false}},
 	})
 	config := filepath.Join(workspace, "config", "tenant")
 	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
@@ -847,7 +962,10 @@ func TestFullProfileTreeGeneratesAllRoots(t *testing.T) {
 func TestSingletonSelectionDoesNotGenerateUnselectedRoot(t *testing.T) {
 	workspace := temporaryDirectory(t, "infrawright-gen-env-singleton-selection-")
 	deploymentPath := filepath.Join(workspace, "deployment.json")
-	writeJSONFile(t, deploymentPath, map[string]any{"overlay": workspace, "roots": map[string]any{}})
+	writeJSONFile(t, deploymentPath, map[string]any{
+		"overlay": workspace,
+		"roots":   map[string]any{"zpa": map[string]any{"cross_state_references": false}},
+	})
 	config := filepath.Join(workspace, "config", "tenant")
 	writeJSONFile(t, filepath.Join(config, "zpa_application_segment.auto.tfvars.json"), map[string]any{
 		"items": map[string]any{"app": map[string]any{"description": "literal", "segment_group_id": "sg-1"}},
