@@ -1,12 +1,7 @@
 package metadata
 
-// rootcatalog_test.go ports node-tests/root-catalog.test.ts's library-level
-// tests. THE byte-for-byte gate ("validated Node metadata exactly
-// regenerates the bundled root catalog") lives in gate_test.go instead,
-// per this port's task split. Skipped: "root-catalog CLI renders, checks,
-// and rejects conflicting destinations", which spawns the Node CLI
-// subprocess (node-src/cli/main.ts) -- out of scope for this library-level
-// port; noted for the CLI slice.
+// rootcatalog_test.go exercises the Go-authoritative singleton-state v2
+// catalog renderer. Its byte gate lives in gate_test.go.
 
 import (
 	"crypto/sha256"
@@ -138,11 +133,10 @@ func TestCatalogRenderingPreservesAsciiEscapingForNonAsciiMetadata(t *testing.T)
 		"      \"generated\": true,",
 		"      \"product\": \"caf" + escapedEAcute + "\",",
 		"      \"provider\": \"" + escapedPi + "\",",
-		"      \"slug_label\": \"x_resource\",",
 		"      \"type\": \"x_resource\"",
 		"    }",
 		"  ],",
-		"  \"schema_version\": 1,",
+		"  \"schema_version\": 2,",
 		"  \"source_files\": [",
 		"    \"sample/pack.json\",",
 		"    \"sample/registry.json\"",

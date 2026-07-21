@@ -1,0 +1,58 @@
+{
+  "affected_resources": [
+    "sample_resource"
+  ],
+  "affected_roots": [
+    {
+      "label": "sample_resource",
+      "matched_resources": [
+        "sample_resource"
+      ],
+      "members": [
+        "sample_resource"
+      ],
+      "paths": [
+        "config/tenant/sample_resource.auto.tfvars.json",
+        "deployment.json"
+      ],
+      "provider": "sample"
+    }
+  ],
+  "kind": "infrawright.changed_path_scope",
+  "path_matches": [
+    {
+      "kinds": [
+        "config"
+      ],
+      "path": "config/tenant/sample_resource.auto.tfvars.json",
+      "resources": [
+        "sample_resource"
+      ],
+      "roots": [
+        "sample_resource"
+      ],
+      "tenants": [
+        "tenant"
+      ]
+    },
+    {
+      "kinds": [
+        "deployment"
+      ],
+      "path": "deployment.json",
+      "resources": [
+        "sample_resource"
+      ],
+      "roots": [
+        "sample_resource"
+      ],
+      "tenants": []
+    }
+  ],
+  "paths": [
+    "config/tenant/sample_resource.auto.tfvars.json",
+    "deployment.json"
+  ],
+  "schema_version": 1,
+  "unmatched_paths": []
+}

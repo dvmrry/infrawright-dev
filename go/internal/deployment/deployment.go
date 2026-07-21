@@ -1,14 +1,12 @@
-// Package deployment ports node-src/domain/deployment.ts: deployment.json
-// loading and validation (with Python-truthy defaulting semantics),
-// deployment-path resolution (explicit path > INFRAWRIGHT_DEPLOYMENT env var
-// > ./deployment.json), and the overlay/config-dir/imports-dir/envs-dir/
+// Package deployment retains node-src/domain/deployment.ts's deployment.json
+// loading, Python-truthy defaults, path resolution, and path accessors while
+// applying the Go-authoritative singleton-state v2 roots contract. The v2
+// parser rejects retired root configuration fields.
+//
+// Deployment-path resolution is explicit path > INFRAWRIGHT_DEPLOYMENT env var
+// > ./deployment.json, and the overlay/config-dir/imports-dir/envs-dir/
 // module-dir/tenant-root/tfvars-format accessors other domain packages
 // (chief among them go/internal/roots) build on.
-//
-// Every exported symbol's doc comment names the node-src/domain/deployment.ts
-// (or node-src/domain/types.ts, for the Deployment/RootProviderConfig
-// shapes) export it ports; that TypeScript remains the differential oracle
-// until this port is independently qualified, per docs/go-runtime-plan.md.
 package deployment
 
 import (
@@ -17,7 +15,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -25,53 +22,23 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 )
 
-// rootLabel ports the ROOT_LABEL regular expression from
-// node-src/domain/deployment.ts.
-var rootLabel = regexp.MustCompile(`^[a-z0-9_]+$`)
-
-// providerKeys ports the PROVIDER_KEYS set from
-// node-src/domain/deployment.ts: the only keys validateRootConfig accepts
-// on a roots.<provider> entry.
+// providerKeys are the only supported keys on a roots.<provider> entry.
 var providerKeys = map[string]struct{}{
-	"strategy":               {},
-	"groups":                 {},
-	"bind_references":        {},
 	"cross_state_references": {},
 }
 
-// ReferenceBindingMode ports the ReferenceBindingMode string-literal union
-// from node-src/domain/deployment.ts: "disabled" | "same_root" |
-// "cross_state".
+// ReferenceBindingMode describes how declared references resolve.
 type ReferenceBindingMode string
 
-// The three ReferenceBindingMode literals from node-src/domain/deployment.ts.
+// The supported ReferenceBindingMode literals.
 const (
 	ReferenceBindingDisabled   ReferenceBindingMode = "disabled"
-	ReferenceBindingSameRoot   ReferenceBindingMode = "same_root"
 	ReferenceBindingCrossState ReferenceBindingMode = "cross_state"
 )
 
-// RootProviderConfig ports the RootProviderConfig interface from
-// node-src/domain/types.ts. Every field is optional in the TypeScript
-// source (`strategy?`, `groups?`, `bind_references?`,
-// `cross_state_references?`); the HasXxx fields distinguish "key absent"
-// from that field's Go zero value, exactly as node-src/domain/deployment.ts's
-// validateRootConfig only ever sets a key on its output object when the
-// corresponding `!== undefined` (or, for the two boolean fields, `typeof
-// ... === "boolean"`) check passes.
+// RootProviderConfig preserves only the explicit cross-state setting.
+// HasCrossStateReferences distinguishes an omitted setting from explicit false.
 type RootProviderConfig struct {
-	HasStrategy bool
-	// Strategy is "explicit" or "slug", valid only when HasStrategy is
-	// true.
-	Strategy  string
-	HasGroups bool
-	// Groups maps a validated root label to its validated, non-empty
-	// member list, valid only when HasGroups is true. A present-but-empty
-	// roots.<provider>.groups object (no labels) is represented as a
-	// non-nil, zero-length map, distinct from HasGroups being false.
-	Groups                  map[string][]string
-	HasBindReferences       bool
-	BindReferences          bool
 	HasCrossStateReferences bool
 	CrossStateReferences    bool
 }
@@ -188,94 +155,36 @@ func isZeroNumber(value any) bool {
 	}
 }
 
-// validateGroups ports validateGroups from node-src/domain/deployment.ts.
-func validateGroups(value any, provider string) map[string][]string {
-	object, ok := value.(map[string]any)
-	if !ok {
-		malformedf("roots.%s.groups must be an object", provider)
-	}
-	groups := make(map[string][]string, len(object))
-	keys := make([]string, 0, len(object))
-	for key := range object {
-		keys = append(keys, key)
-	}
-	for _, label := range canonjson.SortedStrings(keys) {
-		if !rootLabel.MatchString(label) {
-			malformedf("roots.%s group labels must match [a-z0-9_]+", provider)
-		}
-		membersValue, ok := object[label].([]any)
-		if !ok {
-			malformedf("roots.%s.groups.%s must be a list", provider, label)
-		}
-		if len(membersValue) == 0 {
-			malformedf("roots.%s.groups.%s must not be empty", provider, label)
-		}
-		members := make([]string, len(membersValue))
-		for index, memberValue := range membersValue {
-			member, ok := memberValue.(string)
-			if !ok || member == "" {
-				malformedf("roots.%s.groups.%s[%d] must be a non-empty string", provider, label, index)
-			}
-			members[index] = member
-		}
-		groups[label] = members
-	}
-	return groups
-}
-
-// validateRootConfig ports validateRootConfig from
-// node-src/domain/deployment.ts.
+// validateRootConfig validates the singleton-state v2 provider contract.
 func validateRootConfig(value any, provider string) RootProviderConfig {
 	object, ok := value.(map[string]any)
 	if !ok {
 		malformedf("roots.%s must be an object", provider)
 	}
-	var unknownKeys []string
+	var retiredKeys, unknownKeys []string
 	for key := range object {
+		if key == "strategy" || key == "groups" || key == "bind_references" {
+			retiredKeys = append(retiredKeys, key)
+			continue
+		}
 		if _, known := providerKeys[key]; !known {
 			unknownKeys = append(unknownKeys, key)
 		}
+	}
+	if retired := canonjson.SortedStrings(retiredKeys); len(retired) > 0 {
+		malformedf("roots.%s.%s has been removed; see docs/singleton-state-topology-v2.md", provider, retired[0])
 	}
 	if len(unknownKeys) > 0 {
 		malformedf("roots.%s has unknown key(s): %s", provider, strings.Join(canonjson.SortedStrings(unknownKeys), ", "))
 	}
 
-	strategyValue, hasStrategy := object["strategy"]
-	if hasStrategy {
-		strategy, ok := strategyValue.(string)
-		if !ok || (strategy != "explicit" && strategy != "slug") {
-			malformedf("roots.%s.strategy must be 'explicit' or 'slug'", provider)
-		}
-	}
-	bindValue, hasBindKey := object["bind_references"]
-	if hasBindKey {
-		if _, ok := bindValue.(bool); !ok {
-			malformedf("roots.%s.bind_references must be a bool", provider)
-		}
-	}
 	crossValue, hasCrossKey := object["cross_state_references"]
 	if hasCrossKey {
 		if _, ok := crossValue.(bool); !ok {
 			malformedf("roots.%s.cross_state_references must be a bool", provider)
 		}
 	}
-	if bindValue == true && crossValue == true {
-		malformedf("roots.%s.bind_references and cross_state_references are mutually exclusive", provider)
-	}
-
 	var config RootProviderConfig
-	if hasStrategy {
-		config.HasStrategy = true
-		config.Strategy = strategyValue.(string)
-	}
-	if groupsValue, hasGroups := object["groups"]; hasGroups {
-		config.HasGroups = true
-		config.Groups = validateGroups(groupsValue, provider)
-	}
-	if b, ok := bindValue.(bool); ok {
-		config.HasBindReferences = true
-		config.BindReferences = b
-	}
 	if b, ok := crossValue.(bool); ok {
 		config.HasCrossStateReferences = true
 		config.CrossStateReferences = b
@@ -287,22 +196,18 @@ func validateRootConfig(value any, provider string) RootProviderConfig {
 // node-src/domain/deployment.ts.
 func deploymentReferenceBindingMode(deployment Deployment, provider string) ReferenceBindingMode {
 	config, ok := deployment.Roots[provider]
-	if ok && config.HasCrossStateReferences && config.CrossStateReferences {
-		return ReferenceBindingCrossState
+	if ok && config.HasCrossStateReferences && !config.CrossStateReferences {
+		return ReferenceBindingDisabled
 	}
-	if ok && config.HasBindReferences && config.BindReferences {
-		return ReferenceBindingSameRoot
-	}
-	return ReferenceBindingDisabled
+	return ReferenceBindingCrossState
 }
 
 // DeploymentReferenceBindingMode ports deploymentReferenceBindingMode from
 // node-src/domain/deployment.ts. Unlike this package's other exported
 // accessors, it never fails: an absent or malformed roots.<provider> entry
 // (impossible to construct through LoadDeployment, but not impossible for
-// a hand-built Deployment) simply reads as "disabled", exactly as the
-// Node source's optional-chaining (`config?.cross_state_references`)
-// does.
+// a hand-built Deployment) defaults to cross-state. Only an explicit false
+// cross_state_references setting disables generated bindings.
 func DeploymentReferenceBindingMode(deployment Deployment, provider string) ReferenceBindingMode {
 	return deploymentReferenceBindingMode(deployment, provider)
 }

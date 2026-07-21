@@ -177,26 +177,25 @@ func TestResolveSavedPlanAssessmentInputsMaterializesJSONAndHCL(t *testing.T) {
 	}
 }
 
-func TestResolveSavedPlanAssessmentInputsPreservesRootMemberAndVarFileOrdering(t *testing.T) {
+func TestResolveSavedPlanAssessmentInputsUsesSingletonRootPathsAndOrdering(t *testing.T) {
 	workspace := t.TempDir()
-	writeAssessmentPlan(t, workspace, "tenant", "zpa_beta")
-	writeAssessmentPlan(t, workspace, "tenant", "zpa_alpha")
-	alpha := assessmentString("zpa_alpha")
-	beta := assessmentString("zpa_beta")
+	for _, resourceType := range []string{
+		"zpa_alpha_one",
+		"zpa_alpha_two",
+		"zpa_beta_one",
+		"zpa_beta_two",
+	} {
+		writeAssessmentPlan(t, workspace, "tenant", resourceType)
+	}
 	catalog := assessmentCatalog(
-		metadata.RootCatalogResource{Type: "zpa_alpha_two", Product: "zpa", Provider: "zpa", BareName: "alpha_two", SlugLabel: alpha, Generated: true},
-		metadata.RootCatalogResource{Type: "zpa_beta_one", Product: "zpa", Provider: "zpa", BareName: "beta_one", SlugLabel: beta, Generated: true},
-		metadata.RootCatalogResource{Type: "zpa_alpha_one", Product: "zpa", Provider: "zpa", BareName: "alpha_one", SlugLabel: alpha, Generated: true},
-		metadata.RootCatalogResource{Type: "zpa_beta_two", Product: "zpa", Provider: "zpa", BareName: "beta_two", SlugLabel: beta, Generated: true},
+		metadata.RootCatalogResource{Type: "zpa_alpha_two", Product: "zpa", Provider: "zpa", BareName: "alpha_two", Generated: true},
+		metadata.RootCatalogResource{Type: "zpa_beta_one", Product: "zpa", Provider: "zpa", BareName: "beta_one", Generated: true},
+		metadata.RootCatalogResource{Type: "zpa_alpha_one", Product: "zpa", Provider: "zpa", BareName: "alpha_one", Generated: true},
+		metadata.RootCatalogResource{Type: "zpa_beta_two", Product: "zpa", Provider: "zpa", BareName: "beta_two", Generated: true},
 	)
 	resolved, err := ResolveSavedPlanAssessmentInputs(ResolveSavedPlanAssessmentOptions{
-		Workspace: workspace,
-		Deployment: deployment.Deployment{
-			Overlay: ".",
-			Roots: map[string]deployment.RootProviderConfig{
-				"zpa": {HasStrategy: true, Strategy: "slug"},
-			},
-		},
+		Workspace:           workspace,
+		Deployment:          deployment.Deployment{Overlay: ".", Roots: map[string]deployment.RootProviderConfig{}},
 		Catalog:             catalog,
 		Tenant:              assessmentString("tenant"),
 		Selectors:           []string{},
@@ -205,29 +204,22 @@ func TestResolveSavedPlanAssessmentInputsPreservesRootMemberAndVarFileOrdering(t
 	if err != nil {
 		t.Fatalf("ResolveSavedPlanAssessmentInputs(ordering) error: %v", err)
 	}
-	want := []SavedPlanAssessmentRootInput{
-		{
-			Tenant: "tenant", Label: "zpa_alpha",
-			Members:         []string{"zpa_alpha_one", "zpa_alpha_two"},
-			EnvDir:          filepath.Join(workspace, "envs", "tenant", "zpa_alpha"),
-			SavedPlanPath:   filepath.Join(workspace, "envs", "tenant", "zpa_alpha", "tfplan"),
-			FingerprintPath: filepath.Join(workspace, "envs", "tenant", "zpa_alpha", "tfplan.sources"),
-			VarFiles: []string{
-				filepath.Join(workspace, "config", "tenant", "zpa_alpha_one.auto.tfvars.json"),
-				filepath.Join(workspace, "config", "tenant", "zpa_alpha_two.auto.tfvars.json"),
-			},
-		},
-		{
-			Tenant: "tenant", Label: "zpa_beta",
-			Members:         []string{"zpa_beta_one", "zpa_beta_two"},
-			EnvDir:          filepath.Join(workspace, "envs", "tenant", "zpa_beta"),
-			SavedPlanPath:   filepath.Join(workspace, "envs", "tenant", "zpa_beta", "tfplan"),
-			FingerprintPath: filepath.Join(workspace, "envs", "tenant", "zpa_beta", "tfplan.sources"),
-			VarFiles: []string{
-				filepath.Join(workspace, "config", "tenant", "zpa_beta_one.auto.tfvars.json"),
-				filepath.Join(workspace, "config", "tenant", "zpa_beta_two.auto.tfvars.json"),
-			},
-		},
+	want := make([]SavedPlanAssessmentRootInput, 0, 4)
+	for _, resourceType := range []string{
+		"zpa_alpha_one",
+		"zpa_alpha_two",
+		"zpa_beta_one",
+		"zpa_beta_two",
+	} {
+		envDir := filepath.Join(workspace, "envs", "tenant", resourceType)
+		want = append(want, SavedPlanAssessmentRootInput{
+			Tenant: "tenant", Label: resourceType,
+			Members:         []string{resourceType},
+			EnvDir:          envDir,
+			SavedPlanPath:   filepath.Join(envDir, "tfplan"),
+			FingerprintPath: filepath.Join(envDir, "tfplan.sources"),
+			VarFiles:        []string{filepath.Join(workspace, "config", "tenant", resourceType+".auto.tfvars.json")},
+		})
 	}
 	if !reflect.DeepEqual(resolved.Roots, want) {
 		t.Errorf("ResolveSavedPlanAssessmentInputs(ordering).Roots = %#v, want %#v", resolved.Roots, want)
@@ -470,24 +462,15 @@ func TestLoadedResolverPreservesPostDiscoveryCaptureAsymmetry(t *testing.T) {
 	}
 }
 
-func TestLoadedAssessmentBindsSortedCrossStateReferenceOutputs(t *testing.T) {
+func TestLoadedAssessmentDefaultsToSortedCrossStateReferenceOutputs(t *testing.T) {
 	workspace := t.TempDir()
-	envDir := writeAssessmentPlan(t, workspace, "tenant", "zpa_referents")
+	envDir := writeAssessmentPlan(t, workspace, "tenant", "zpa_segment_group")
 	root := loadedAssessmentPack(t)
 	resolved, err := ResolveLoadedSavedPlanAssessment(ResolveLoadedSavedPlanAssessmentOptions{
 		Workspace: workspace,
 		Deployment: deployment.Deployment{
 			Overlay: ".",
-			Roots: map[string]deployment.RootProviderConfig{
-				"zpa": {
-					HasGroups: true,
-					Groups: map[string][]string{
-						"zpa_referents": {"zpa_server_group", "zpa_segment_group"},
-					},
-					HasCrossStateReferences: true,
-					CrossStateReferences:    true,
-				},
-			},
+			Roots:   map[string]deployment.RootProviderConfig{},
 		},
 		Root:                root,
 		Tenant:              assessmentString("tenant"),
@@ -495,30 +478,28 @@ func TestLoadedAssessmentBindsSortedCrossStateReferenceOutputs(t *testing.T) {
 		TerraformExecutable: "/opt/terraform",
 	})
 	if err != nil {
-		t.Fatalf("ResolveLoadedSavedPlanAssessment(cross-state outputs) error: %v", err)
+		t.Fatalf("ResolveLoadedSavedPlanAssessment(default cross-state outputs) error: %v", err)
 	}
 	wantRoots := []SavedPlanAssessmentRootInput{{
 		Tenant:          "tenant",
-		Label:           "zpa_referents",
-		Members:         []string{"zpa_segment_group", "zpa_server_group"},
+		Label:           "zpa_segment_group",
+		Members:         []string{"zpa_segment_group"},
 		EnvDir:          envDir,
 		SavedPlanPath:   filepath.Join(envDir, "tfplan"),
 		FingerprintPath: filepath.Join(envDir, "tfplan.sources"),
 		VarFiles: []string{
 			filepath.Join(workspace, "config", "tenant", "zpa_segment_group.auto.tfvars.json"),
-			filepath.Join(workspace, "config", "tenant", "zpa_server_group.auto.tfvars.json"),
 		},
-		ReferenceOutputTypes: []string{"zpa_segment_group", "zpa_server_group"},
+		ReferenceOutputTypes: []string{"zpa_segment_group"},
 	}}
 	if !reflect.DeepEqual(resolved.Assessment.Roots, wantRoots) {
-		t.Errorf("ResolveLoadedSavedPlanAssessment(cross-state outputs).Roots = %#v, want %#v", resolved.Assessment.Roots, wantRoots)
+		t.Errorf("ResolveLoadedSavedPlanAssessment(default cross-state outputs).Roots = %#v, want %#v", resolved.Assessment.Roots, wantRoots)
 	}
-	wantDiagnostics := []string{"zpa_server_group"}
-	if len(resolved.Diagnostics) != 1 || !reflect.DeepEqual(resolved.Diagnostics[0].AdditionalMembers, wantDiagnostics) {
-		t.Errorf("ResolveLoadedSavedPlanAssessment(cross-state outputs).Diagnostics = %#v, want one whole-root diagnostic with additional members %#v", resolved.Diagnostics, wantDiagnostics)
+	if len(resolved.Diagnostics) != 0 {
+		t.Errorf("ResolveLoadedSavedPlanAssessment(default cross-state outputs).Diagnostics = %#v, want no whole-root diagnostic for a singleton selection", resolved.Diagnostics)
 	}
 	if err := os.Remove(filepath.Join(envDir, "tfplan")); err != nil {
-		t.Fatalf("os.Remove(cross-state tfplan) error: %v", err)
+		t.Fatalf("os.Remove(default cross-state tfplan) error: %v", err)
 	}
 	err = RecheckLoadedSavedPlanAssessmentContext(*resolved.Assessment.LoadedContext, resolved.Assessment.Roots)
 	requireAssessmentInputFailure(

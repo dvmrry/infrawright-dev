@@ -1,12 +1,11 @@
 package roots
 
-// render.go ports node-src/cli/python-compatible-output.ts: the legacy
-// stdout renderers for root topology, changed-path scope, and plan roots.
+// render.go retains the established stdout shapes for root topology,
+// changed-path scope, and plan roots.
 // The Go topology types are tag-less structs, so each renderer hand-builds
 // the canonical JSON value tree with the exact key names from
-// node-src/domain/types.ts; the CLI differential corpus compares the
-// resulting bytes against the Node oracle on the full committed pack set,
-// so a key-name or shape drift here fails loudly there.
+// node-src/domain/types.ts. Committed Go v2 authority goldens pin the complete
+// resulting bytes because the frozen Node topology remains v1.
 
 import (
 	"encoding/json"

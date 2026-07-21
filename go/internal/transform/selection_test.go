@@ -108,61 +108,50 @@ func TestDuplicateInputsCollapseAndReferencesOutsideSelectionAreIgnored(t *testi
 	}
 }
 
-func TestTarjanCycleMembersProduceOneExactNoteAndAlphabeticBreak(t *testing.T) {
-	root := syntheticSelectionRoot(t, []selectionTestPack{{
-		name: "sample",
-		manifest: metadata.JsonObject{
-			"provider_prefixes": metadata.JsonObject{"sample_": "sample"},
-			"references": metadata.JsonObject{
-				"sample_cycle_a":    metadata.JsonObject{"other_id": metadata.JsonObject{"name_field": "name", "referent": "sample_cycle_b"}},
-				"sample_cycle_b":    metadata.JsonObject{"other_id": metadata.JsonObject{"name_field": "name", "referent": "sample_cycle_a"}},
-				"sample_downstream": metadata.JsonObject{"cycle_id": metadata.JsonObject{"name_field": "name", "referent": "sample_cycle_b"}},
-			},
-		},
-		registry: metadata.JsonObject{
-			"sample_cycle_a":    metadata.JsonObject{"generate": true, "product": "sample"},
-			"sample_cycle_b":    metadata.JsonObject{"generate": true, "product": "sample"},
-			"sample_downstream": metadata.JsonObject{"generate": true, "product": "sample"},
-		},
-	}})
-
-	result, err := ReferenceOrder(root, []string{"sample_downstream", "sample_cycle_b", "sample_cycle_a"})
-	if err != nil {
-		t.Fatalf("ReferenceOrder: %v", err)
-	}
-	want := TransformSelection{
-		ResourceTypes: []string{"sample_cycle_a", "sample_cycle_b", "sample_downstream"},
-		Notes: []string{
-			"NOTE: reference order cycle detected among sample_cycle_a, sample_cycle_b; breaking alphabetically\n",
-		},
-	}
-	if !reflect.DeepEqual(result, want) {
-		t.Fatalf("ReferenceOrder = %+v, want %+v", result, want)
+func unvalidatedSelectionRoot(references metadata.JsonObject) metadata.LoadedPackRoot {
+	return metadata.LoadedPackRoot{
+		Active: metadata.PackSelection{Packs: []string{"sample"}},
+		Packs: metadata.PackMetadata{Manifests: []metadata.PackManifest{{
+			Name: "sample",
+			Data: metadata.JsonObject{"references": references},
+		}}},
 	}
 }
 
-func TestASelfReferenceIsACycleMember(t *testing.T) {
-	root := syntheticSelectionRoot(t, []selectionTestPack{{
-		name: "sample",
-		manifest: metadata.JsonObject{
-			"provider_prefixes": metadata.JsonObject{"sample_": "sample"},
-			"references": metadata.JsonObject{
-				"sample_self": metadata.JsonObject{"parent_id": metadata.JsonObject{"name_field": "name", "referent": "sample_self"}},
-			},
+func TestReferenceOrderFailsClosedForUnvalidatedSelfReference(t *testing.T) {
+	root := unvalidatedSelectionRoot(metadata.JsonObject{
+		"sample_self": metadata.JsonObject{
+			"parent_id": metadata.JsonObject{"name_field": "name", "referent": "sample_self"},
 		},
-		registry: metadata.JsonObject{"sample_self": metadata.JsonObject{"generate": true, "product": "sample"}},
-	}})
+	})
 
 	result, err := ReferenceOrder(root, []string{"sample_self"})
-	if err != nil {
-		t.Fatalf("ReferenceOrder: %v", err)
+	wantError := "reference order cycle detected; resolve one direction via a literal ID or operator expression"
+	if err == nil || err.Error() != wantError {
+		t.Errorf("ReferenceOrder(unvalidated self-reference) error = %v, want %q", err, wantError)
 	}
-	want := TransformSelection{
-		ResourceTypes: []string{"sample_self"},
-		Notes:         []string{"NOTE: reference order cycle detected among sample_self; breaking alphabetically\n"},
+	if !reflect.DeepEqual(result, TransformSelection{}) {
+		t.Errorf("ReferenceOrder(unvalidated self-reference) result = %+v, want no partial result", result)
 	}
-	if !reflect.DeepEqual(result, want) {
-		t.Fatalf("ReferenceOrder = %+v, want %+v", result, want)
+}
+
+func TestReferenceOrderFailsClosedForUnvalidatedMutualReferenceAfterReadyNode(t *testing.T) {
+	root := unvalidatedSelectionRoot(metadata.JsonObject{
+		"sample_cycle_a": metadata.JsonObject{
+			"other_id": metadata.JsonObject{"name_field": "name", "referent": "sample_cycle_b"},
+		},
+		"sample_cycle_b": metadata.JsonObject{
+			"other_id": metadata.JsonObject{"name_field": "name", "referent": "sample_cycle_a"},
+		},
+	})
+
+	result, err := ReferenceOrder(root, []string{"sample_ready", "sample_cycle_b", "sample_cycle_a"})
+	wantError := "reference order cycle detected; resolve one direction via a literal ID or operator expression"
+	if err == nil || err.Error() != wantError {
+		t.Errorf("ReferenceOrder(unvalidated mutual reference) error = %v, want %q", err, wantError)
+	}
+	if !reflect.DeepEqual(result, TransformSelection{}) {
+		t.Errorf("ReferenceOrder(unvalidated mutual reference) result = %+v, want no partial result", result)
 	}
 }
 
@@ -205,6 +194,61 @@ func TestActivePackReferenceTablesMergeWithPythonsLaterFieldOverwrite(t *testing
 	}
 	if !reflect.DeepEqual(result, want) {
 		t.Fatalf("ReferenceOrder = %+v, want %+v", result, want)
+	}
+}
+
+func TestEffectiveReferenceMergeShadowsEarlierFieldBeforeCycleValidation(t *testing.T) {
+	root := syntheticSelectionRoot(t, []selectionTestPack{
+		{
+			name: "alpha",
+			manifest: metadata.JsonObject{
+				"provider_prefixes": metadata.JsonObject{"sample_": "sample"},
+				"references": metadata.JsonObject{
+					"sample_a": metadata.JsonObject{
+						"target": metadata.JsonObject{"name_field": "name", "referent": "sample_b"},
+					},
+				},
+			},
+			registry: metadata.JsonObject{
+				"sample_a": metadata.JsonObject{"generate": true, "product": "sample"},
+				"sample_b": metadata.JsonObject{"generate": true, "product": "sample"},
+				"sample_c": metadata.JsonObject{"generate": true, "product": "sample"},
+			},
+		},
+		{
+			name: "beta",
+			manifest: metadata.JsonObject{
+				"references": metadata.JsonObject{
+					"sample_a": metadata.JsonObject{
+						"target": metadata.JsonObject{"name_field": "name", "referent": "sample_c"},
+					},
+				},
+			},
+			registry: metadata.JsonObject{},
+		},
+		{
+			name: "gamma",
+			manifest: metadata.JsonObject{
+				"references": metadata.JsonObject{
+					"sample_b": metadata.JsonObject{
+						"back": metadata.JsonObject{"name_field": "name", "referent": "sample_a"},
+					},
+				},
+			},
+			registry: metadata.JsonObject{},
+		},
+	})
+
+	result, err := ReferenceOrder(root, []string{"sample_a", "sample_b", "sample_c"})
+	if err != nil {
+		t.Fatalf("ReferenceOrder([sample_a sample_b sample_c]): %v", err)
+	}
+	want := TransformSelection{
+		ResourceTypes: []string{"sample_c", "sample_a", "sample_b"},
+		Notes:         []string{},
+	}
+	if !reflect.DeepEqual(result, want) {
+		t.Errorf("ReferenceOrder([sample_a sample_b sample_c]) = %+v, want %+v", result, want)
 	}
 }
 

@@ -1,0 +1,20 @@
+{
+  "directories": null,
+  "kind": "infrawright.root_topology",
+  "resource_roots": {
+    "sample_resource": "sample_resource"
+  },
+  "roots": [
+    {
+      "env_dir": null,
+      "label": "sample_resource",
+      "members": [
+        "sample_resource"
+      ],
+      "provider": "sample"
+    }
+  ],
+  "schema_version": 1,
+  "selectors": [],
+  "tenant": null
+}

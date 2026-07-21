@@ -15,38 +15,37 @@ import (
 )
 
 func strPtr(s string) *string { return &s }
-func boolPtr(b bool) *bool    { return &b }
 
 func fixtureCatalog() metadata.RootCatalog {
 	return metadata.RootCatalog{
 		Kind:              "infrawright.root_catalog",
-		SchemaVersion:     1,
+		SchemaVersion:     2,
 		DeclaredProviders: []string{"zpa"},
 		Resources: []metadata.RootCatalogResource{
 			{
 				Type: "zpa_alpha_one", Product: "zpa", Provider: "zpa",
-				BareName: "alpha_one", SlugLabel: strPtr("zpa_alpha"),
+				BareName:  "alpha_one",
 				Generated: true, Derived: false,
 			},
 			{
 				Type: "zpa_alpha_two", Product: "zpa", Provider: "zpa",
-				BareName: "alpha_two", SlugLabel: strPtr("zpa_alpha"),
+				BareName:  "alpha_two",
 				Generated: true, Derived: false,
 			},
 			{
 				Type: "zpa_derived_reorder", Product: "zpa", Provider: "zpa",
-				BareName: "derived_reorder", SlugLabel: strPtr("zpa_derived"),
+				BareName:  "derived_reorder",
 				Generated: true, Derived: true,
 			},
 			{
 				Type: "zpa_known_only", Product: "zpa", Provider: "zpa",
-				BareName: "known_only", SlugLabel: strPtr("zpa_known"),
+				BareName:  "known_only",
 				Generated: false, Derived: false,
 			},
 			{
 				Type: "zpa_alpha_reference", Product: "zpa", Provider: "zpa",
-				BareName: "alpha_reference", SlugLabel: strPtr("zpa_alpha"),
-				Generated: true, Derived: false, SlugGroup: boolPtr(false),
+				BareName:  "alpha_reference",
+				Generated: true, Derived: false,
 			},
 		},
 		SourceFiles:   []string{"zpa/pack.json", "zpa/registry.json"},
@@ -54,12 +53,10 @@ func fixtureCatalog() metadata.RootCatalog {
 	}
 }
 
-func TestSlugSelectionReturnsEntireRootAndStructuredDiagnostic(t *testing.T) {
+func TestSelectionReturnsOnlySingletonRoot(t *testing.T) {
 	dep := deployment.Deployment{
 		Overlay: "tenant-data//../stable",
-		Roots: map[string]deployment.RootProviderConfig{
-			"zpa": {HasStrategy: true, Strategy: "slug"},
-		},
+		Roots:   map[string]deployment.RootProviderConfig{},
 	}
 	result, err := RootTopologyFromCatalog(RootTopologyOptions{
 		Catalog:    fixtureCatalog(),
@@ -73,9 +70,9 @@ func TestSlugSelectionReturnsEntireRootAndStructuredDiagnostic(t *testing.T) {
 
 	wantRoots := []RootTopologyRoot{
 		{
-			Label: "zpa_alpha", Provider: strPtr("zpa"),
-			Members: []string{"zpa_alpha_one", "zpa_alpha_two"},
-			EnvDir:  strPtr("tenant-data//../stable/envs/prod/zpa_alpha"),
+			Label: "zpa_alpha_one", Provider: strPtr("zpa"),
+			Members: []string{"zpa_alpha_one"},
+			EnvDir:  strPtr("tenant-data//../stable/envs/prod/zpa_alpha_one"),
 		},
 	}
 	if !reflect.DeepEqual(result.Topology.Roots, wantRoots) {
@@ -83,34 +80,22 @@ func TestSlugSelectionReturnsEntireRootAndStructuredDiagnostic(t *testing.T) {
 	}
 
 	wantResourceRoots := map[string]string{
-		"zpa_alpha_one": "zpa_alpha",
-		"zpa_alpha_two": "zpa_alpha",
+		"zpa_alpha_one": "zpa_alpha_one",
 	}
 	if !reflect.DeepEqual(result.Topology.ResourceRoots, wantResourceRoots) {
 		t.Errorf("ResourceRoots = %v, want %v", result.Topology.ResourceRoots, wantResourceRoots)
 	}
 
-	wantDiagnostics := []WholeRootDiagnostic{
-		{
-			Level:             "note",
-			Code:              "WHOLE_ROOT_SELECTION",
-			Message:           "selecting zpa_alpha_one selects whole root zpa_alpha; also operating on zpa_alpha_two",
-			SelectedMembers:   []string{"zpa_alpha_one"},
-			Root:              "zpa_alpha",
-			AdditionalMembers: []string{"zpa_alpha_two"},
-		},
-	}
+	wantDiagnostics := []WholeRootDiagnostic(nil)
 	if !reflect.DeepEqual(result.Diagnostics, wantDiagnostics) {
 		t.Errorf("Diagnostics = %+v, want %+v", result.Diagnostics, wantDiagnostics)
 	}
 }
 
-func TestDerivedAndPackExcludedResourcesRemainSeparateUnderSlugGrouping(t *testing.T) {
+func TestEveryGeneratedResourceHasItsOwnRoot(t *testing.T) {
 	dep := deployment.Deployment{
 		Overlay: ".",
-		Roots: map[string]deployment.RootProviderConfig{
-			"zpa": {HasStrategy: true, Strategy: "slug"},
-		},
+		Roots:   map[string]deployment.RootProviderConfig{},
 	}
 	result, err := RootTopologyFromCatalog(RootTopologyOptions{
 		Catalog:    fixtureCatalog(),
@@ -126,7 +111,7 @@ func TestDerivedAndPackExcludedResourcesRemainSeparateUnderSlugGrouping(t *testi
 	for _, root := range result.Topology.Roots {
 		labels = append(labels, root.Label)
 	}
-	wantLabels := []string{"zpa_alpha", "zpa_alpha_reference", "zpa_derived_reorder"}
+	wantLabels := []string{"zpa_alpha_one", "zpa_alpha_reference", "zpa_alpha_two", "zpa_derived_reorder"}
 	if !reflect.DeepEqual(labels, wantLabels) {
 		t.Errorf("labels = %v, want %v", labels, wantLabels)
 	}
@@ -139,8 +124,8 @@ func TestDerivedAndPackExcludedResourcesRemainSeparateUnderSlugGrouping(t *testi
 		}
 	}
 	wantResourceRoots := map[string]string{
-		"zpa_alpha_one":       "zpa_alpha",
-		"zpa_alpha_two":       "zpa_alpha",
+		"zpa_alpha_one":       "zpa_alpha_one",
+		"zpa_alpha_two":       "zpa_alpha_two",
 		"zpa_alpha_reference": "zpa_alpha_reference",
 		"zpa_derived_reorder": "zpa_derived_reorder",
 	}
@@ -177,50 +162,13 @@ func TestLibraryBoundaryRejectsInvalidTenantsWithoutRelyingOnTheHost(t *testing.
 	}
 }
 
-func TestExplicitGroupsRejectDerivedAndCrossProviderMembers(t *testing.T) {
-	_, err := RootTopologyFromCatalog(RootTopologyOptions{
-		Catalog: fixtureCatalog(),
-		Deployment: deployment.Deployment{
-			Overlay: ".",
-			Roots: map[string]deployment.RootProviderConfig{
-				"zpa": {HasGroups: true, Groups: map[string][]string{"combined": {"zpa_derived_reorder"}}},
-			},
-		},
-		Tenant:    nil,
-		Selectors: []string{},
-	})
-	if err == nil || !strings.Contains(err.Error(), "derived type") {
-		t.Errorf("derived member: err = %v, want message containing %q", err, "derived type")
-	}
-
-	_, err = RootTopologyFromCatalog(RootTopologyOptions{
-		Catalog: fixtureCatalog(),
-		Deployment: deployment.Deployment{
-			Overlay: ".",
-			Roots: map[string]deployment.RootProviderConfig{
-				"other": {HasStrategy: true, Strategy: "explicit"},
-			},
-		},
-		Tenant:    nil,
-		Selectors: []string{},
-	})
-	if err == nil || !strings.Contains(err.Error(), "not a declared provider") {
-		t.Errorf("undeclared provider: err = %v, want message containing %q", err, "not a declared provider")
-	}
-}
-
-func TestExplicitGroupsMayIncludeGenerateOnlyType(t *testing.T) {
+func TestProviderOptionsDoNotChangeSingletonTopology(t *testing.T) {
 	result, err := RootTopologyFromCatalog(RootTopologyOptions{
 		Catalog: fixtureCatalog(),
 		Deployment: deployment.Deployment{
 			Overlay: ".",
 			Roots: map[string]deployment.RootProviderConfig{
-				"zpa": {
-					HasGroups: true,
-					Groups: map[string][]string{
-						"zpa_explicit": {"zpa_alpha_one", "zpa_alpha_reference"},
-					},
-				},
+				"zpa": {HasCrossStateReferences: true, CrossStateReferences: true},
 			},
 		},
 		Tenant:    nil,
@@ -232,9 +180,24 @@ func TestExplicitGroupsMayIncludeGenerateOnlyType(t *testing.T) {
 	if len(result.Topology.Roots) == 0 {
 		t.Fatalf("Roots is empty")
 	}
-	want := []string{"zpa_alpha_one", "zpa_alpha_reference"}
+	want := []string{"zpa_alpha_one"}
 	if !reflect.DeepEqual(result.Topology.Roots[0].Members, want) {
 		t.Errorf("Roots[0].Members = %v, want %v", result.Topology.Roots[0].Members, want)
+	}
+}
+
+func TestUnknownDeploymentRootProviderStillFailsClosed(t *testing.T) {
+	_, err := RootTopologyFromCatalog(RootTopologyOptions{
+		Catalog: fixtureCatalog(),
+		Deployment: deployment.Deployment{
+			Overlay: ".",
+			Roots: map[string]deployment.RootProviderConfig{
+				"unknown": {},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "roots.unknown is not a declared provider prefix value") {
+		t.Fatalf("RootTopologyFromCatalog error = %v, want undeclared-provider failure", err)
 	}
 }
 

@@ -121,14 +121,6 @@ func cloneString(value *string) *string {
 	return &cloned
 }
 
-func cloneBool(value *bool) *bool {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
-}
-
 func cloneStrings(values []string) []string {
 	cloned := make([]string, len(values))
 	copy(cloned, values)
@@ -138,17 +130,7 @@ func cloneStrings(values []string) []string {
 func copyDeploymentForAssessment(value deployment.Deployment) deployment.Deployment {
 	rootConfigs := make(map[string]deployment.RootProviderConfig, len(value.Roots))
 	for provider, config := range value.Roots {
-		groups := make(map[string][]string, len(config.Groups))
-		for label, members := range config.Groups {
-			groups[label] = cloneStrings(members)
-		}
 		rootConfigs[provider] = deployment.RootProviderConfig{
-			HasStrategy:             config.HasStrategy,
-			Strategy:                config.Strategy,
-			HasGroups:               config.HasGroups,
-			Groups:                  groups,
-			HasBindReferences:       config.HasBindReferences,
-			BindReferences:          config.BindReferences,
 			HasCrossStateReferences: config.HasCrossStateReferences,
 			CrossStateReferences:    config.CrossStateReferences,
 		}
@@ -167,8 +149,6 @@ func copyCatalogForAssessment(value metadata.RootCatalog) metadata.RootCatalog {
 	resources := make([]metadata.RootCatalogResource, len(value.Resources))
 	for index, resource := range value.Resources {
 		resources[index] = resource
-		resources[index].SlugLabel = cloneString(resource.SlugLabel)
-		resources[index].SlugGroup = cloneBool(resource.SlugGroup)
 	}
 	return metadata.RootCatalog{
 		Kind:              value.Kind,

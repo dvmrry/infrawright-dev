@@ -312,6 +312,12 @@ func validateAssessmentRoots(roots []SavedPlanAssessmentRootInput) error {
 	}
 	seen := make(map[string]struct{}, len(roots))
 	for _, root := range roots {
+		if len(root.Members) != 1 || root.Members[0] != root.Label {
+			return assessmentDomainFailure(
+				"INVALID_ASSESSMENT_ROOT",
+				"saved-plan root must contain exactly one member matching its label",
+			)
+		}
 		valid := validAssessmentTenant(root.Tenant) &&
 			assessmentRootLabelPattern.MatchString(root.Label) &&
 			len(root.Members) > 0 && uniqueStrings(root.Members) &&

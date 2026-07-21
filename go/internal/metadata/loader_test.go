@@ -208,8 +208,8 @@ func TestStrictVocabulariesRejectSilentTypos(t *testing.T) {
 
 	if _, err := ValidateRegistry(JsonObject{
 		"sample_resource": JsonObject{"product": "sample", "slug_group": "false"},
-	}, "registry.json"); err == nil || !strings.Contains(err.Error(), "slug_group must be a boolean") {
-		t.Fatalf("expected slug_group boolean error, got %v", err)
+	}, "registry.json"); err == nil || !strings.Contains(err.Error(), "slug_group has been removed; see docs/singleton-state-topology-v2.md") {
+		t.Fatalf("expected slug_group retirement error, got %v", err)
 	}
 
 	if _, err := ValidateOverride(JsonObject{"rename": JsonObject{"one": "two"}}, "override.json"); err == nil ||

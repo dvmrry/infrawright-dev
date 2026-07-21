@@ -142,6 +142,18 @@ func TestAssessmentValidatorErrorDetailParity(t *testing.T) {
 	})
 }
 
+func TestAssessmentValidatorV1RetainsGroupedEvidenceCompatibility(t *testing.T) {
+	value := cleanAssessmentValue(t)
+	root := value["roots"].([]any)[0].(map[string]any)
+	root["label"] = "historical_group"
+	root["members"] = []any{"zpa_sample", "zpa_other"}
+
+	valid, details := ValidateSavedPlanAssessment(value)
+	if !valid || len(details) != 0 {
+		t.Errorf("ValidateSavedPlanAssessment(historical grouped evidence) = (%v, %#v), want (true, nil)", valid, details)
+	}
+}
+
 func TestAssessmentValidatorJSONSchemaBranchTruthParity(t *testing.T) {
 	tests := []struct {
 		name   string

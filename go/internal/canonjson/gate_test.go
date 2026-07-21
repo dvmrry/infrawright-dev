@@ -31,13 +31,16 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
-// gateTargets returns every fixture path the Slice 0 round-trip gate
-// covers: catalogs/zscaler-root-catalog.v1.json, plus every
-// demo/config/demo/*.json file (both *.auto.tfvars.json and
+// gateTargets returns every fixture path the Slice 0 round-trip gate covers:
+// the frozen v1 provenance catalog, the active Go-authoritative v2 catalog,
+// and every demo/config/demo/*.json file (both *.auto.tfvars.json and
 // *.lookup.json).
 func gateTargets(t *testing.T, root string) []string {
 	t.Helper()
-	targets := []string{filepath.Join(root, "catalogs", "zscaler-root-catalog.v1.json")}
+	targets := []string{
+		filepath.Join(root, "catalogs", "zscaler-root-catalog.v1.json"),
+		filepath.Join(root, "catalogs", "zscaler-root-catalog.v2.json"),
+	}
 	demoMatches, err := filepath.Glob(filepath.Join(root, "demo", "config", "demo", "*.json"))
 	if err != nil {
 		t.Fatalf("globbing demo fixtures: %v", err)
@@ -52,11 +55,10 @@ func gateTargets(t *testing.T, root string) []string {
 // committed canonical JSON fixture must reproduce the original bytes
 // exactly.
 //
-// catalogs/zscaler-root-catalog.v1.json is renderPythonCompatibleJson
-// output by construction -- node-src/metadata/root-catalog.ts's
-// renderRootCatalog calls it directly, and the Makefile's `root-catalog`
-// target (via the Node CLI's rootCatalog() command,
-// node-src/cli/main.ts) is the only writer of that path.
+// catalogs/zscaler-root-catalog.v1.json is frozen Node-v1
+// renderPythonCompatibleJson output retained as provenance. The active Go
+// `root-catalog` target writes only catalogs/zscaler-root-catalog.v2.json;
+// this gate protects both the immutable v1 bytes and the v2 renderer output.
 //
 // demo/config/demo/*.json is, by contrast, NOT renderPythonCompatibleJson
 // output: every file there is written by the sibling renderer

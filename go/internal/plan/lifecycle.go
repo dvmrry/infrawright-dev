@@ -618,17 +618,6 @@ func PlanEnvironmentRoots(options PlanEnvironmentRootsOptions) (PlanRunResult, e
 			}
 			continue
 		}
-		if len(missing) > 0 {
-			return PlanRunResult{}, lifecycleFailure(
-				"MISSING_GROUP_CONFIG",
-				fmt.Sprintf(
-					"root %s is missing member config(s): %s - run make transform or make adopt for every group member first",
-					selectedRoot.Label,
-					strings.Join(missing, ", "),
-				),
-				procerr.CategoryDomain,
-			)
-		}
 		if err := RequireBackendConfiguration(backendConfig, directory, selectedRoot.Label); err != nil {
 			return PlanRunResult{}, err
 		}

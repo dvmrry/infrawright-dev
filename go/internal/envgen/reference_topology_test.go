@@ -62,16 +62,11 @@ func committedRootForTopology(t *testing.T) metadata.LoadedPackRoot {
 	return loaded
 }
 
-func TestCrossStateTopologyKeepsSingletonDependenciesAndCollapsesGroups(t *testing.T) {
+func TestCrossStateTopologyDefaultsToAllDeclaredSingletonEdges(t *testing.T) {
 	root := committedRootForTopology(t)
 	tenant := "tenant"
 
-	singletonDeployment := deployment.Deployment{
-		Overlay: ".",
-		Roots: map[string]deployment.RootProviderConfig{
-			"zpa": {HasCrossStateReferences: true, CrossStateReferences: true},
-		},
-	}
+	singletonDeployment := deployment.Deployment{Overlay: ".", Roots: map[string]deployment.RootProviderConfig{}}
 	singletonResult, err := roots.LoadedRootTopology(roots.LoadedRootTopologyOptions{
 		Root: root, Deployment: singletonDeployment, Tenant: &tenant, Selectors: []string{},
 	})
@@ -85,6 +80,9 @@ func TestCrossStateTopologyKeepsSingletonDependenciesAndCollapsesGroups(t *testi
 		t.Fatalf("ResolveCrossStateReferenceTopology: %v", err)
 	}
 	wantEdges := []CrossStateReferenceEdge{
+		{Field: "trusted_network_ids", Referent: "zcc_trusted_network", ReferentRoot: "zcc_trusted_network", Referrer: "zcc_forwarding_profile", ReferrerRoot: "zcc_forwarding_profile"},
+		{Field: "trusted_network_ids_selected", Referent: "zcc_trusted_network", ReferentRoot: "zcc_trusted_network", Referrer: "zcc_forwarding_profile", ReferrerRoot: "zcc_forwarding_profile"},
+		{Field: "url_categories", Referent: "zia_url_categories", ReferentRoot: "zia_url_categories", Referrer: "zia_url_filtering_rules", ReferrerRoot: "zia_url_filtering_rules"},
 		{Field: "segment_group_id", Referent: "zpa_segment_group", ReferentRoot: "zpa_segment_group", Referrer: "zpa_application_segment", ReferrerRoot: "zpa_application_segment"},
 		{Field: "server_groups.id", Referent: "zpa_server_group", ReferentRoot: "zpa_server_group", Referrer: "zpa_application_segment", ReferrerRoot: "zpa_application_segment"},
 		{Field: "app_connector_groups.id", Referent: "zpa_app_connector_group", ReferentRoot: "zpa_app_connector_group", Referrer: "zpa_server_group", ReferrerRoot: "zpa_server_group"},
@@ -92,6 +90,24 @@ func TestCrossStateTopologyKeepsSingletonDependenciesAndCollapsesGroups(t *testi
 	}
 	if !reflect.DeepEqual(singleton.Edges, wantEdges) {
 		t.Fatalf("Edges = %+v, want %+v", singleton.Edges, wantEdges)
+	}
+
+	explicitDeployment := deployment.Deployment{
+		Overlay: ".",
+		Roots: map[string]deployment.RootProviderConfig{
+			"zcc": {HasCrossStateReferences: true, CrossStateReferences: true},
+			"zia": {HasCrossStateReferences: true, CrossStateReferences: true},
+			"zpa": {HasCrossStateReferences: true, CrossStateReferences: true},
+		},
+	}
+	explicit, err := ResolveCrossStateReferenceTopology(CrossStateReferenceTopologyOptions{
+		Deployment: explicitDeployment, Root: root, Topology: singletonResult.Topology,
+	})
+	if err != nil {
+		t.Fatalf("ResolveCrossStateReferenceTopology(explicit true): %v", err)
+	}
+	if !reflect.DeepEqual(explicit, singleton) {
+		t.Fatalf("explicit true topology = %+v, want absent-setting topology %+v", explicit, singleton)
 	}
 
 	gotDeps := setKeysSorted(singleton.DependenciesByRoot["zpa_application_segment"])
@@ -111,42 +127,36 @@ func TestCrossStateTopologyKeepsSingletonDependenciesAndCollapsesGroups(t *testi
 	if !reflect.DeepEqual(closure, wantClosure) {
 		t.Fatalf("closure = %v, want %v", closure, wantClosure)
 	}
+}
 
-	groupedDeployment := deployment.Deployment{
+func TestCrossStateTopologyExplicitFalseFiltersOnlyThatProvider(t *testing.T) {
+	root := committedRootForTopology(t)
+	tenant := "tenant"
+	dep := deployment.Deployment{
 		Overlay: ".",
 		Roots: map[string]deployment.RootProviderConfig{
-			"zpa": {
-				HasCrossStateReferences: true, CrossStateReferences: true,
-				HasGroups: true,
-				Groups: map[string][]string{
-					"zpa_app": {
-						"zpa_app_connector_group",
-						"zpa_application_segment",
-						"zpa_application_server",
-						"zpa_segment_group",
-						"zpa_server_group",
-					},
-				},
-			},
+			"zia": {HasCrossStateReferences: true, CrossStateReferences: false},
 		},
 	}
-	groupedTopologyResult, err := roots.LoadedRootTopology(roots.LoadedRootTopologyOptions{
-		Root: root, Deployment: groupedDeployment, Tenant: &tenant, Selectors: []string{},
+	topologyResult, err := roots.LoadedRootTopology(roots.LoadedRootTopologyOptions{
+		Root: root, Deployment: dep, Tenant: &tenant, Selectors: []string{},
 	})
 	if err != nil {
 		t.Fatalf("LoadedRootTopology: %v", err)
 	}
-	grouped, err := ResolveCrossStateReferenceTopology(CrossStateReferenceTopologyOptions{
-		Deployment: groupedDeployment, Root: root, Topology: groupedTopologyResult.Topology,
+	got, err := ResolveCrossStateReferenceTopology(CrossStateReferenceTopologyOptions{
+		Deployment: dep, Root: root, Topology: topologyResult.Topology,
 	})
 	if err != nil {
 		t.Fatalf("ResolveCrossStateReferenceTopology: %v", err)
 	}
-	if len(grouped.Edges) != 0 {
-		t.Fatalf("grouped.Edges = %+v, want empty", grouped.Edges)
+	for _, edge := range got.Edges {
+		if edge.Referrer == "zia_url_filtering_rules" {
+			t.Fatalf("explicit zia false retained edge %+v", edge)
+		}
 	}
-	if len(grouped.DependenciesByRoot) != 0 {
-		t.Fatalf("grouped.DependenciesByRoot = %v, want empty", grouped.DependenciesByRoot)
+	if len(got.Edges) != 6 {
+		t.Fatalf("cross-state edges after explicit zia false = %d, want 6", len(got.Edges))
 	}
 }
 
@@ -224,5 +234,5 @@ func TestCrossStateTopologyRejectsDeclaredRootCycles(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a cross-state reference cycle error")
 	}
-	mustMatch(t, err.Error(), `cross-state reference cycle detected.*explicitly group every member`)
+	mustMatch(t, err.Error(), `cross-state reference cycle detected.*resolve one direction via a literal ID or operator expression`)
 }

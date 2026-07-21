@@ -22,7 +22,7 @@ package tfrender
 // and grepping node-src/ for "expression-bindings" shows its only importer
 // is node-src/domain/environment-generator.ts, an unrelated consumer
 // outside this port's scope. BindingContext/TransformReferenceSpec and the
-// same-root/cross-state reference-binding derivation logic
+// cross-state reference-binding derivation logic
 // (deriveGeneratedBindings and its helpers, below) are wholly local to
 // transform-artifacts.ts itself. No subset of expression-bindings.ts is
 // ported by this file; that source remains entirely unaddressed by this
@@ -595,25 +595,6 @@ func bindableListElement(value any) bool {
 	return integerToken(value) != nil
 }
 
-// sameRoot ports sameRoot from node-src/domain/transform-artifacts.ts.
-func sameRoot(resourceType, referent string, context BindingContext) bool {
-	if resourceType == referent {
-		return false
-	}
-	if !context.Generated[resourceType] || !context.Generated[referent] {
-		return false
-	}
-	if context.Derived[resourceType] || context.Derived[referent] {
-		return false
-	}
-	referrerRoot, ok := context.ResourceRoots[resourceType]
-	if !ok {
-		return false
-	}
-	referentRoot, ok := context.ResourceRoots[referent]
-	return ok && referrerRoot == referentRoot
-}
-
 // bindableReference ports bindableReference from
 // node-src/domain/transform-artifacts.ts.
 func bindableReference(resourceType, referent string, context BindingContext) bool {
@@ -626,12 +607,13 @@ func bindableReference(resourceType, referent string, context BindingContext) bo
 	if context.Derived[resourceType] || context.Derived[referent] {
 		return false
 	}
-	referrerRoot, okReferrer := context.ResourceRoots[resourceType]
-	referentRoot, okReferent := context.ResourceRoots[referent]
-	if !okReferrer || !okReferent {
+	if _, ok := context.ResourceRoots[resourceType]; !ok {
 		return false
 	}
-	return context.Mode == deployment.ReferenceBindingCrossState || referrerRoot == referentRoot
+	if _, ok := context.ResourceRoots[referent]; !ok {
+		return false
+	}
+	return context.Mode == deployment.ReferenceBindingCrossState
 }
 
 // fieldCandidate is the Go analogue of fieldCandidates's anonymous element
@@ -760,14 +742,6 @@ func (b *generatedBindingsBuilder) resolve(spec TransformReferenceSpec, keyMap m
 		b.note("%s.%s.%s value %s skipped; referent key contains a template interpolation", b.resourceType, key, fieldPath, jsonQuote(ident))
 		return nil, nil
 	}
-	if sameRoot(b.resourceType, spec.Referent, b.context) {
-		quoted, err := RenderHclQuotedString(referentKey)
-		if err != nil {
-			return nil, err
-		}
-		expr := "module." + spec.Referent + ".items[" + quoted + "].id"
-		return &expr, nil
-	}
 	referentRoot, ok := b.context.ResourceRoots[spec.Referent]
 	if !ok {
 		return nil, fmt.Errorf("cross-state reference %s has no deployment root", spec.Referent)
@@ -851,9 +825,6 @@ func (b *generatedBindingsBuilder) bindValue(spec TransformReferenceSpec, keyMap
 }
 
 func (b *generatedBindingsBuilder) reasonFor(spec TransformReferenceSpec) string {
-	if sameRoot(b.resourceType, spec.Referent, b.context) {
-		return "group-local reference binding via " + spec.Referent + ".items"
-	}
 	return "cross-state reference binding via " + spec.Referent + " root output"
 }
 
@@ -868,8 +839,7 @@ func (b *generatedBindingsBuilder) assign(key, fieldPath, expression, reason str
 }
 
 // DeriveGeneratedBindings ports deriveGeneratedBindings from
-// node-src/domain/transform-artifacts.ts: "pure same-root binding
-// derivation; lookup reads stay in the caller."
+// node-src/domain/transform-artifacts.ts. Lookup reads stay in the caller.
 func DeriveGeneratedBindings(context BindingContext, items map[string]map[string]any, lookupKeys map[string]map[string]string, resourceType string) (GeneratedBindingsResult, error) {
 	b := &generatedBindingsBuilder{
 		resourceType: resourceType,

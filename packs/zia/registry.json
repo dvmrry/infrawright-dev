@@ -1,8 +1,7 @@
 {
   "zia_activation_status": {
     "generate": true,
-    "product": "zia",
-    "slug_group": false
+    "product": "zia"
   },
   "zia_admin_roles": {
     "fetch": {
@@ -14,8 +13,7 @@
   },
   "zia_admin_users": {
     "generate": true,
-    "product": "zia",
-    "slug_group": false
+    "product": "zia"
   },
   "zia_advanced_settings": {
     "adopt": {
@@ -135,13 +133,11 @@
   },
   "zia_bandwidth_classes_file_size": {
     "generate": true,
-    "product": "zia",
-    "slug_group": false
+    "product": "zia"
   },
   "zia_bandwidth_classes_web_conferencing": {
     "generate": true,
-    "product": "zia",
-    "slug_group": false
+    "product": "zia"
   },
   "zia_bandwidth_control_rule": {
     "fetch": {
@@ -208,13 +204,11 @@
   },
   "zia_cloud_application_instance": {
     "generate": true,
-    "product": "zia",
-    "slug_group": false
+    "product": "zia"
   },
   "zia_cloud_nss_feed": {
     "generate": true,
-    "product": "zia",
-    "slug_group": false
+    "product": "zia"
   },
   "zia_custom_file_types": {
     "fetch": {
@@ -267,8 +261,7 @@
   },
   "zia_email_profile": {
     "generate": true,
-    "product": "zia",
-    "slug_group": false
+    "product": "zia"
   },
   "zia_end_user_notification": {
     "adopt": {
@@ -420,8 +413,7 @@
   },
   "zia_ips_signature_rules": {
     "generate": true,
-    "product": "zia",
-    "slug_group": false
+    "product": "zia"
   },
   "zia_location_management": {
     "fetch": {
@@ -489,13 +481,11 @@
   },
   "zia_sandbox_behavioral_analysis_v2": {
     "generate": true,
-    "product": "zia",
-    "slug_group": false
+    "product": "zia"
   },
   "zia_sandbox_file_submission": {
     "generate": true,
-    "product": "zia",
-    "slug_group": false
+    "product": "zia"
   },
   "zia_sandbox_rules": {
     "adopt": {
@@ -528,8 +518,7 @@
       "import_id": "all_urls"
     },
     "generate": true,
-    "product": "zia",
-    "slug_group": false
+    "product": "zia"
   },
   "zia_ssl_inspection_rules": {
     "fetch": {
@@ -541,8 +530,7 @@
   },
   "zia_sub_cloud": {
     "generate": true,
-    "product": "zia",
-    "slug_group": false
+    "product": "zia"
   },
   "zia_subscription_alert": {
     "fetch": {
@@ -554,13 +542,11 @@
   },
   "zia_tenant_restriction_profile": {
     "generate": true,
-    "product": "zia",
-    "slug_group": false
+    "product": "zia"
   },
   "zia_traffic_capture_rules": {
     "generate": true,
-    "product": "zia",
-    "slug_group": false
+    "product": "zia"
   },
   "zia_traffic_forwarding_gre_tunnel": {
     "fetch": {
@@ -599,8 +585,7 @@
   },
   "zia_url_categories_predefined": {
     "generate": true,
-    "product": "zia",
-    "slug_group": false
+    "product": "zia"
   },
   "zia_url_filtering_and_cloud_app_settings": {
     "adopt": {
@@ -642,18 +627,15 @@
   },
   "zia_user_management": {
     "generate": true,
-    "product": "zia",
-    "slug_group": false
+    "product": "zia"
   },
   "zia_virtual_service_edge_cluster": {
     "generate": true,
-    "product": "zia",
-    "slug_group": false
+    "product": "zia"
   },
   "zia_virtual_service_edge_node": {
     "generate": true,
-    "product": "zia",
-    "slug_group": false
+    "product": "zia"
   },
   "zia_workload_groups": {
     "fetch": {

@@ -313,7 +313,6 @@ absent, it prints a sanitized NOT RUN result and continues to Phase 3.
 
     run_private network-adopt "$NS_A" \
       env TMPDIR="$NS_A/tmp" INFRAWRIGHT_KEEP_ORACLE=1 \
-        INFRAWRIGHT_ORACLE_BATCH_MODE=per-resource-type \
         INFRAWRIGHT_ORACLE_STATE_SOURCE=applied-state \
         node "$IW_CLI" adopt \
         --root "$IW_PACKS" --profile "$IW_PROFILE" \
@@ -330,7 +329,6 @@ absent, it prints a sanitized NOT RUN result and continues to Phase 3.
 
     run_private browser-adopt "$BC_A" \
       env TMPDIR="$BC_A/tmp" INFRAWRIGHT_KEEP_ORACLE=1 \
-        INFRAWRIGHT_ORACLE_BATCH_MODE=per-resource-type \
         INFRAWRIGHT_ORACLE_STATE_SOURCE=applied-state \
         node "$IW_CLI" adopt \
         --root "$IW_PACKS" --profile "$IW_PROFILE" \
@@ -705,7 +703,7 @@ returning prefixes:
     - browser lane deployment SHA-256:
     - root-regeneration lane deployment SHA-256:
     - tfvars format:
-    - Oracle batch mode: per-resource-type
+    - Oracle execution: per-resource-type
     - Oracle state source: applied-state
     - network-service override: PRESENT/MISSING, SHA-256
     - browser-control override: PRESENT/MISSING, SHA-256

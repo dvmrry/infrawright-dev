@@ -53,29 +53,3 @@ func DefaultAdoptionStateLoader(options DefaultAdoptionLoaderOptions) (AdoptionS
 		return state[request.ResourceType], nil
 	}, nil
 }
-
-// DefaultAdoptionBatchStateLoader ports defaultAdoptionBatchStateLoader from
-// node-src/domain/adopt-runner.ts using D1's exact batch request contract. It
-// validates Oracle timeout input before returning a callable loader.
-func DefaultAdoptionBatchStateLoader(options DefaultAdoptionLoaderOptions) (AdoptionBatchStateLoader, error) {
-	if options.Environment == nil {
-		return nil, errors.New("default adoption batch state loader requires an explicit environment")
-	}
-	environment := cloneStringMap(options.Environment)
-	if _, err := OracleTimeoutMS(environment); err != nil {
-		return nil, err
-	}
-	runner := CreateOracleCommandRunner(options.TerraformExecutable)
-	root := options.Root
-	return func(resources []OracleBatchResourceRequest) (OracleBatchState, error) {
-		return ImportProviderStates(ImportProviderStatesOptions{
-			Environment:   cloneStringMap(environment),
-			KeepWorkdir:   options.KeepOracleWorkdir,
-			OnDiagnostic:  options.OnDiagnostic,
-			Resources:     snapshotOracleResources(resources),
-			Root:          &root,
-			Runner:        runner,
-			TemporaryRoot: options.TemporaryRoot,
-		})
-	}, nil
-}

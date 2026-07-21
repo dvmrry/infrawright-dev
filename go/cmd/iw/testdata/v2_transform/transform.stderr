@@ -1,0 +1,188 @@
+skip zcc_device_cleanup (no <REPOSITORY>/packs/_shared/zscaler/demo/zcc_device_cleanup.json)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zcc_failopen_policy.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zcc_failopen_policy_imports.tf
+skip zcc_notification_template (no <REPOSITORY>/packs/_shared/zscaler/demo/zcc_notification_template.json)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zcc_trusted_network.lookup.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zcc_trusted_network.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zcc_trusted_network_imports.tf
+NOTE bindings: zcc_forwarding_profile.custom_profile.trusted_network_ids[0] value "101" skipped; id is absent from zcc_trusted_network lookup
+NOTE bindings: zcc_forwarding_profile.custom_profile.trusted_network_ids[1] value "102" skipped; id is absent from zcc_trusted_network lookup
+NOTE bindings: zcc_forwarding_profile.custom_profile.trusted_network_ids_selected[0] value "101" skipped; id is absent from zcc_trusted_network lookup
+NOTE bindings: zcc_forwarding_profile: 0 bound, 3 skipped (id_absent=3)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zcc_forwarding_profile.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zcc_forwarding_profile_imports.tf
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zcc_web_privacy.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zcc_web_privacy_imports.tf
+skip zcc_zia_posture (no <REPOSITORY>/packs/_shared/zscaler/demo/zcc_zia_posture.json)
+skip zia_activation_status (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_activation_status.json)
+skip zia_admin_roles (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_admin_roles.json)
+skip zia_admin_users (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_admin_users.json)
+skip zia_advanced_settings (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_advanced_settings.json)
+skip zia_advanced_threat_settings (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_advanced_threat_settings.json)
+skip zia_atp_malicious_urls (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_atp_malicious_urls.json)
+skip zia_atp_malware_inspection (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_atp_malware_inspection.json)
+skip zia_atp_malware_policy (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_atp_malware_policy.json)
+skip zia_atp_malware_protocols (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_atp_malware_protocols.json)
+skip zia_atp_malware_settings (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_atp_malware_settings.json)
+skip zia_atp_security_exceptions (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_atp_security_exceptions.json)
+skip zia_auth_settings_urls (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_auth_settings_urls.json)
+skip zia_bandwidth_classes (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_bandwidth_classes.json)
+skip zia_bandwidth_classes_file_size (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_bandwidth_classes_file_size.json)
+skip zia_bandwidth_classes_web_conferencing (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_bandwidth_classes_web_conferencing.json)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_bandwidth_control_rule.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_bandwidth_control_rule_imports.tf
+skip zia_browser_control_policy (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_browser_control_policy.json)
+skip zia_casb_dlp_rules (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_casb_dlp_rules.json)
+skip zia_casb_malware_rules (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_casb_malware_rules.json)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_cloud_app_control_rule.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_cloud_app_control_rule_imports.tf
+skip zia_cloud_application_instance (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_cloud_application_instance.json)
+skip zia_cloud_nss_feed (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_cloud_nss_feed.json)
+skip zia_custom_file_types (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_custom_file_types.json)
+skip zia_dc_exclusions (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_dc_exclusions.json)
+skip zia_dlp_dictionaries (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_dlp_dictionaries.json)
+skip zia_dlp_engines (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_dlp_engines.json)
+skip zia_dlp_notification_templates (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_dlp_notification_templates.json)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_dlp_web_rules.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_dlp_web_rules_imports.tf
+skip zia_email_profile (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_email_profile.json)
+skip zia_end_user_notification (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_end_user_notification.json)
+skip zia_extranet (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_extranet.json)
+skip zia_file_type_control_rules (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_file_type_control_rules.json)
+skip zia_firewall_dns_rule (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_firewall_dns_rule.json)
+skip zia_firewall_filtering_destination_groups (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_firewall_filtering_destination_groups.json)
+skip zia_firewall_filtering_ip_source_groups (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_firewall_filtering_ip_source_groups.json)
+skip zia_firewall_filtering_network_application_groups (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_firewall_filtering_network_application_groups.json)
+skip zia_firewall_filtering_network_service (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_firewall_filtering_network_service.json)
+skip zia_firewall_filtering_network_service_groups (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_firewall_filtering_network_service_groups.json)
+skip zia_firewall_filtering_rule (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_firewall_filtering_rule.json)
+skip zia_firewall_ips_rule (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_firewall_ips_rule.json)
+skip zia_forwarding_control_proxies (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_forwarding_control_proxies.json)
+skip zia_forwarding_control_rule (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_forwarding_control_rule.json)
+skip zia_forwarding_control_zpa_gateway (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_forwarding_control_zpa_gateway.json)
+skip zia_ftp_control_policy (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_ftp_control_policy.json)
+skip zia_http_header_action_profile (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_http_header_action_profile.json)
+skip zia_http_header_profile (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_http_header_profile.json)
+skip zia_ips_signature_rules (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_ips_signature_rules.json)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_location_management.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_location_management_imports.tf
+skip zia_mobile_malware_protection_policy (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_mobile_malware_protection_policy.json)
+skip zia_nat_control_rules (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_nat_control_rules.json)
+skip zia_nss_server (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_nss_server.json)
+skip zia_risk_profiles (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_risk_profiles.json)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_rule_labels.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_rule_labels_imports.tf
+skip zia_sandbox_behavioral_analysis (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_sandbox_behavioral_analysis.json)
+skip zia_sandbox_behavioral_analysis_v2 (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_sandbox_behavioral_analysis_v2.json)
+skip zia_sandbox_file_submission (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_sandbox_file_submission.json)
+skip zia_sandbox_rules (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_sandbox_rules.json)
+skip zia_security_settings (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_security_settings.json)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_ssl_inspection_rules.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_ssl_inspection_rules_imports.tf
+skip zia_sub_cloud (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_sub_cloud.json)
+skip zia_subscription_alert (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_subscription_alert.json)
+skip zia_tenant_restriction_profile (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_tenant_restriction_profile.json)
+skip zia_traffic_capture_rules (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_traffic_capture_rules.json)
+skip zia_traffic_forwarding_gre_tunnel (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_traffic_forwarding_gre_tunnel.json)
+skip zia_traffic_forwarding_static_ip (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_traffic_forwarding_static_ip.json)
+skip zia_traffic_forwarding_vpn_credentials (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_traffic_forwarding_vpn_credentials.json)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_url_categories.lookup.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_url_categories.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_url_categories_imports.tf
+skip zia_url_categories_predefined (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_url_categories_predefined.json)
+skip zia_url_filtering_and_cloud_app_settings (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_url_filtering_and_cloud_app_settings.json)
+NOTE bindings: zia_url_filtering_rules.tests_vcr0001.url_categories[0] value "ANY" skipped; id is absent from zia_url_categories lookup
+NOTE bindings: zia_url_filtering_rules: 0 bound, 1 skipped (id_absent=1)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zia_url_filtering_rules.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zia_url_filtering_rules_imports.tf
+skip zia_user_management (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_user_management.json)
+skip zia_virtual_service_edge_cluster (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_virtual_service_edge_cluster.json)
+skip zia_virtual_service_edge_node (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_virtual_service_edge_node.json)
+skip zia_workload_groups (no <REPOSITORY>/packs/_shared/zscaler/demo/zia_workload_groups.json)
+skip zpa_app_connector_assistant_schedule (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_app_connector_assistant_schedule.json)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_app_connector_group.lookup.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_app_connector_group.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zpa_app_connector_group_imports.tf
+skip zpa_application_segment_browser_access (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_application_segment_browser_access.json)
+skip zpa_application_segment_inspection (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_application_segment_inspection.json)
+skip zpa_application_segment_multimatch_bulk (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_application_segment_multimatch_bulk.json)
+skip zpa_application_segment_pra (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_application_segment_pra.json)
+skip zpa_application_segment_weightedlb_config (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_application_segment_weightedlb_config.json)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_application_server.lookup.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_application_server.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zpa_application_server_imports.tf
+skip zpa_ba_certificate (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_ba_certificate.json)
+skip zpa_browser_access (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_browser_access.json)
+skip zpa_c2c_ip_ranges (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_c2c_ip_ranges.json)
+skip zpa_cloud_browser_isolation_banner (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_cloud_browser_isolation_banner.json)
+skip zpa_cloud_browser_isolation_certificate (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_cloud_browser_isolation_certificate.json)
+skip zpa_cloud_browser_isolation_external_profile (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_cloud_browser_isolation_external_profile.json)
+skip zpa_emergency_access_user (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_emergency_access_user.json)
+skip zpa_inspection_custom_controls (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_inspection_custom_controls.json)
+skip zpa_inspection_profile (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_inspection_profile.json)
+skip zpa_lss_config_controller (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_lss_config_controller.json)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_microtenant_controller.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zpa_microtenant_controller_imports.tf
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_policy_access_rule.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zpa_policy_access_rule_imports.tf
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_policy_access_rule_reorder.auto.tfvars.json (derived from zpa_policy_access_rule; not importable — no imports)
+skip zpa_policy_access_rule_v2 (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_policy_access_rule_v2.json)
+skip zpa_policy_browser_protection_rule (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_policy_browser_protection_rule.json)
+skip zpa_policy_capabilities_rule (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_policy_capabilities_rule.json)
+skip zpa_policy_credential_rule (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_policy_credential_rule.json)
+skip zpa_policy_forwarding_rule (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_policy_forwarding_rule.json)
+skip zpa_policy_forwarding_rule_v2 (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_policy_forwarding_rule_v2.json)
+skip zpa_policy_inspection_rule (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_policy_inspection_rule.json)
+skip zpa_policy_inspection_rule_v2 (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_policy_inspection_rule_v2.json)
+skip zpa_policy_isolation_rule (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_policy_isolation_rule.json)
+skip zpa_policy_isolation_rule_v2 (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_policy_isolation_rule_v2.json)
+skip zpa_policy_portal_access_rule (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_policy_portal_access_rule.json)
+skip zpa_policy_redirection_rule (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_policy_redirection_rule.json)
+skip zpa_policy_timeout_rule (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_policy_timeout_rule.json)
+skip zpa_policy_timeout_rule_v2 (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_policy_timeout_rule_v2.json)
+skip zpa_pra_approval_controller (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_pra_approval_controller.json)
+skip zpa_pra_console_controller (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_pra_console_controller.json)
+skip zpa_pra_credential_controller (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_pra_credential_controller.json)
+skip zpa_pra_credential_pool (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_pra_credential_pool.json)
+skip zpa_pra_portal_controller (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_pra_portal_controller.json)
+skip zpa_private_cloud_group (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_private_cloud_group.json)
+skip zpa_provisioning_key (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_provisioning_key.json)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_segment_group.lookup.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_segment_group.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zpa_segment_group_imports.tf
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_server_group.lookup.json
+NOTE bindings: zpa_server_group.tests_srvg_vcr0001_updated.app_connector_groups[0].id[0] value "216196257331404707" skipped; id is absent from zpa_app_connector_group lookup
+NOTE bindings: zpa_server_group: 1 bound, 1 skipped (id_absent=1)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_server_group.generated.expressions.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_server_group.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zpa_server_group_imports.tf
+NOTE bindings: zpa_application_segment.tests_appsegment_vcr0006_bd_redhat_com.segment_group_id value "216196257331404637" skipped; id is absent from zpa_segment_group lookup
+NOTE bindings: zpa_application_segment.tests_appsegment_vcr0006_bd_redhat_com.server_groups[0].id[0] value "216196257331404638" skipped; id is absent from zpa_server_group lookup
+NOTE bindings: zpa_application_segment: 0 bound, 2 skipped (id_absent=2)
+wrote <V2_TRANSFORM_WORKSPACE>/out/config/demo/zpa_application_segment.auto.tfvars.json
+wrote <V2_TRANSFORM_WORKSPACE>/out/imports/demo/zpa_application_segment_imports.tf
+skip zpa_service_edge_assistant_schedule (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_service_edge_assistant_schedule.json)
+skip zpa_service_edge_group (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_service_edge_group.json)
+skip zpa_tag_group (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_tag_group.json)
+skip zpa_tag_key (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_tag_key.json)
+skip zpa_tag_namespace (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_tag_namespace.json)
+skip zpa_user_portal_aup (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_user_portal_aup.json)
+skip zpa_user_portal_controller (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_user_portal_controller.json)
+skip zpa_user_portal_link (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_user_portal_link.json)
+skip zpa_zia_cloud_config (no <REPOSITORY>/packs/_shared/zscaler/demo/zpa_zia_cloud_config.json)
+skip ztc_account_groups (no <REPOSITORY>/packs/_shared/zscaler/demo/ztc_account_groups.json)
+skip ztc_activation_status (no <REPOSITORY>/packs/_shared/zscaler/demo/ztc_activation_status.json)
+skip ztc_dns_forwarding_gateway (no <REPOSITORY>/packs/_shared/zscaler/demo/ztc_dns_forwarding_gateway.json)
+skip ztc_dns_gateway (no <REPOSITORY>/packs/_shared/zscaler/demo/ztc_dns_gateway.json)
+skip ztc_forwarding_gateway (no <REPOSITORY>/packs/_shared/zscaler/demo/ztc_forwarding_gateway.json)
+skip ztc_ip_destination_groups (no <REPOSITORY>/packs/_shared/zscaler/demo/ztc_ip_destination_groups.json)
+skip ztc_ip_pool_groups (no <REPOSITORY>/packs/_shared/zscaler/demo/ztc_ip_pool_groups.json)
+skip ztc_ip_source_groups (no <REPOSITORY>/packs/_shared/zscaler/demo/ztc_ip_source_groups.json)
+skip ztc_location_template (no <REPOSITORY>/packs/_shared/zscaler/demo/ztc_location_template.json)
+skip ztc_network_service_groups (no <REPOSITORY>/packs/_shared/zscaler/demo/ztc_network_service_groups.json)
+skip ztc_network_services (no <REPOSITORY>/packs/_shared/zscaler/demo/ztc_network_services.json)
+skip ztc_provisioning_url (no <REPOSITORY>/packs/_shared/zscaler/demo/ztc_provisioning_url.json)
+skip ztc_public_cloud_info (no <REPOSITORY>/packs/_shared/zscaler/demo/ztc_public_cloud_info.json)
+skip ztc_traffic_forwarding_dns_rule (no <REPOSITORY>/packs/_shared/zscaler/demo/ztc_traffic_forwarding_dns_rule.json)
+skip ztc_traffic_forwarding_log_rule (no <REPOSITORY>/packs/_shared/zscaler/demo/ztc_traffic_forwarding_log_rule.json)
+skip ztc_traffic_forwarding_rule (no <REPOSITORY>/packs/_shared/zscaler/demo/ztc_traffic_forwarding_rule.json)

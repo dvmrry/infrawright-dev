@@ -21,7 +21,7 @@ import (
 const (
 	planCommandFirstResource  = "zia_admin_users"
 	planCommandSecondResource = "zia_url_categories"
-	planCommandRootLabel      = "zia_pair"
+	planCommandRootLabel      = planCommandSecondResource
 )
 
 type planCommandFakeTerraform struct {
@@ -83,14 +83,7 @@ func planCommandTestRoot() metadata.LoadedPackRoot {
 func planCommandTestDeployment() deployment.Deployment {
 	return deployment.Deployment{
 		Overlay: ".",
-		Roots: map[string]deployment.RootProviderConfig{
-			"zia": {
-				HasGroups: true,
-				Groups: map[string][]string{
-					planCommandRootLabel: {planCommandFirstResource, planCommandSecondResource},
-				},
-			},
-		},
+		Roots:   map[string]deployment.RootProviderConfig{"zia": {}},
 	}
 }
 
@@ -107,28 +100,23 @@ func writePlanCommandText(t *testing.T, filePath, text string) {
 func preparePlanCommandWorkspace(t *testing.T, workspace, tenant string) string {
 	t.Helper()
 	directory := filepath.Join(workspace, "envs", tenant, planCommandRootLabel)
-	var mainText strings.Builder
-	for _, resourceType := range []string{planCommandFirstResource, planCommandSecondResource} {
-		moduleDirectory := filepath.Join(workspace, "modules", resourceType)
-		writePlanCommandText(t, filepath.Join(moduleDirectory, "main.tf"), "# fixture module\n")
-		relative, err := filepath.Rel(directory, moduleDirectory)
-		if err != nil {
-			t.Fatalf("filepath.Rel(%q, %q) error: %v", directory, moduleDirectory, err)
-		}
-		fmt.Fprintf(
-			&mainText,
-			"module %q {\n  source = %q\n  items = var.%s_items\n}\n\n",
-			resourceType,
-			filepath.ToSlash(relative),
-			resourceType,
-		)
-		writePlanCommandText(
-			t,
-			filepath.Join(workspace, "config", tenant, resourceType+".auto.tfvars.json"),
-			fmt.Sprintf("{%q:{}}\n", resourceType+"_items"),
-		)
+	resourceType := planCommandSecondResource
+	moduleDirectory := filepath.Join(workspace, "modules", resourceType)
+	writePlanCommandText(t, filepath.Join(moduleDirectory, "main.tf"), "# fixture module\n")
+	relative, err := filepath.Rel(directory, moduleDirectory)
+	if err != nil {
+		t.Fatalf("filepath.Rel(%q, %q) error: %v", directory, moduleDirectory, err)
 	}
-	writePlanCommandText(t, filepath.Join(directory, "main.tf"), mainText.String())
+	writePlanCommandText(
+		t,
+		filepath.Join(directory, "main.tf"),
+		fmt.Sprintf("module %q {\n  source = %q\n  items = var.%s_items\n}\n", resourceType, filepath.ToSlash(relative), resourceType),
+	)
+	writePlanCommandText(
+		t,
+		filepath.Join(workspace, "config", tenant, resourceType+".auto.tfvars.json"),
+		fmt.Sprintf("{%q:{}}\n", resourceType+"_items"),
+	)
 	return directory
 }
 
@@ -404,17 +392,17 @@ func TestPlanAndCleanPlansCommandsPreserveSavedPairContract(t *testing.T) {
 	planArguments := append(append([]string(nil), common...), "--backend-config", backendConfig, "--save")
 	status, err := planCommandWithDependencies(planArguments, dependencies)
 	if err != nil {
-		t.Fatalf("planCommandWithDependencies(saved grouped root) error: %v", err)
+		t.Fatalf("planCommandWithDependencies(saved singleton root) error: %v", err)
 	}
 	if status != 0 {
-		t.Errorf("planCommandWithDependencies(saved grouped root) status = %d, want 0", status)
+		t.Errorf("planCommandWithDependencies(saved singleton root) status = %d, want 0", status)
 	}
-	wantPlanDiagnostics := "NOTE: selecting " + planCommandSecondResource +
-		" selects whole root " + planCommandRootLabel +
-		"; also operating on " + planCommandFirstResource + "\n" +
-		"== plan " + planCommandRootLabel + "\n"
+	wantPlanDiagnostics := "== plan " + planCommandRootLabel + "\n"
 	if got, want := stderr.String(), wantPlanDiagnostics; got != want {
 		t.Errorf("plan command stderr = %q, want %q", got, want)
+	}
+	if strings.Contains(stderr.String(), "selects whole root") || strings.Contains(stderr.String(), "WHOLE_ROOT_SELECTION") {
+		t.Errorf("plan command stderr = %q, want no whole-root selection diagnostic", stderr.String())
 	}
 	if resolveCalls != 1 || createCalls != 1 {
 		t.Errorf("Terraform resolve/create calls = %d/%d, want 1/1", resolveCalls, createCalls)
@@ -429,10 +417,7 @@ func TestPlanAndCleanPlansCommandsPreserveSavedPairContract(t *testing.T) {
 	if got, want := request.Directory, directory; got != want {
 		t.Errorf("Terraform Plan Directory = %q, want %q", got, want)
 	}
-	wantVarFiles := []string{
-		filepath.Join(workspace, "config", "tenant", planCommandFirstResource+".auto.tfvars.json"),
-		filepath.Join(workspace, "config", "tenant", planCommandSecondResource+".auto.tfvars.json"),
-	}
+	wantVarFiles := []string{filepath.Join(workspace, "config", "tenant", planCommandSecondResource+".auto.tfvars.json")}
 	if got := request.VarFiles; !reflect.DeepEqual(got, wantVarFiles) {
 		t.Errorf("Terraform Plan VarFiles = %#v, want %#v", got, wantVarFiles)
 	}
@@ -472,14 +457,12 @@ func TestPlanAndCleanPlansCommandsPreserveSavedPairContract(t *testing.T) {
 	stderr.Reset()
 	status, err = cleanPlansCommandWithDependencies(common, dependencies)
 	if err != nil {
-		t.Fatalf("cleanPlansCommandWithDependencies(saved grouped root) error: %v", err)
+		t.Fatalf("cleanPlansCommandWithDependencies(saved singleton root) error: %v", err)
 	}
 	if status != 0 {
-		t.Errorf("cleanPlansCommandWithDependencies(saved grouped root) status = %d, want 0", status)
+		t.Errorf("cleanPlansCommandWithDependencies(saved singleton root) status = %d, want 0", status)
 	}
 	wantCleanDiagnostics := strings.Join([]string{
-		"NOTE: selecting " + planCommandSecondResource + " selects whole root " + planCommandRootLabel +
-			"; also operating on " + planCommandFirstResource,
 		"removed envs/tenant/" + planCommandRootLabel + "/tfplan",
 		"removed envs/tenant/" + planCommandRootLabel + "/tfplan.sources",
 		"1 stale plan(s) removed",
@@ -553,12 +536,6 @@ func TestPlanCommandUsesExactTerraformArgv(t *testing.T) {
 	if status != 0 {
 		t.Errorf("planCommandWithDependencies(fake Terraform) status = %d, want 0", status)
 	}
-	firstConfig := filepath.Join(
-		workspace,
-		"config",
-		"tenant",
-		planCommandFirstResource+".auto.tfvars.json",
-	)
 	secondConfig := filepath.Join(
 		workspace,
 		"config",
@@ -571,8 +548,7 @@ func TestPlanCommandUsesExactTerraformArgv(t *testing.T) {
 	}
 	wantLog := strings.Join([]string{
 		physicalDirectory + "|init -input=false",
-		physicalDirectory + "|plan -input=false -var-file=" + firstConfig +
-			" -var-file=" + secondConfig + " -out=tfplan",
+		physicalDirectory + "|plan -input=false -var-file=" + secondConfig + " -out=tfplan",
 		"",
 	}, "\n")
 	logBytes, err := os.ReadFile(logPath)

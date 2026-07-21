@@ -70,9 +70,9 @@ import (
 const expressionBindingsTF = "expression_bindings.tf"
 
 const (
-	staleDisabled  = "stale generated bindings ignored (bind_references disabled); rerun make transform to remove %s"
+	staleDisabled  = "stale generated bindings ignored (cross_state_references disabled); rerun make transform to remove %s"
 	staleNonmember = "stale generated binding ignored (target %s not in root members); rerun make transform to remove %s"
-	cycleRemedy    = "resolve one direction via a literal ID or operator expression, or disable bind_references"
+	cycleRemedy    = "resolve one direction via a literal ID or operator expression"
 )
 
 // ReferenceBackendVariable ports REFERENCE_BACKEND_VARIABLE from

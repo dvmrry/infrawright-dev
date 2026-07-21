@@ -19,9 +19,10 @@ type stagingTerraformCall struct {
 }
 
 type fakeImportStagingTerraform struct {
-	calls  []stagingTerraformCall
-	result ImportStagingStateResult
-	err    error
+	calls   []stagingTerraformCall
+	result  ImportStagingStateResult
+	results map[string]ImportStagingStateResult
+	err     error
 }
 
 var _ ImportStagingTerraform = (*fakeImportStagingTerraform)(nil)
@@ -33,6 +34,9 @@ func (f *fakeImportStagingTerraform) Initialize(request ImportStagingTerraformRe
 
 func (f *fakeImportStagingTerraform) ListState(request ImportStagingTerraformRequest) (ImportStagingStateResult, error) {
 	f.calls = append(f.calls, stagingTerraformCall{Kind: "list", Request: request})
+	if f.results != nil {
+		return f.results[request.Label], f.err
+	}
 	return f.result, f.err
 }
 
@@ -393,18 +397,42 @@ func TestStageImportsStateAwareRequiresTerraform(t *testing.T) {
 	requireStagingFailure(t, err, "TERRAFORM_REQUIRED")
 }
 
-func TestStageImportsExpandsWholeRootAndOrdersDiagnostics(t *testing.T) {
+func TestStageImportsStateAwareMoveOnlyDoesNotRequireTerraform(t *testing.T) {
+	workspace := t.TempDir()
+	move := filepath.Join(workspace, "imports", "tenant", stagingTestResource+"_moves.tf")
+	moveText := "moved {\n  from = x.old\n  to = x.new\n}\n"
+	writeStagingText(t, move, moveText)
+	if err := os.MkdirAll(filepath.Join(workspace, "envs", "tenant", stagingTestResource), 0o700); err != nil {
+		t.Fatalf("os.MkdirAll(environment root) error: %v", err)
+	}
+
+	result, err := StageImports(StageImportsOptions{
+		Deployment: stagingDeployment(workspace),
+		Root:       stagingTestRoot(stagingTestResource),
+		Selectors:  []string{stagingTestResource},
+		StateAware: true,
+		Tenant:     "tenant",
+		Workspace:  workspace,
+	})
+	if err != nil {
+		t.Fatalf("StageImports(state-aware move-only) error: %v", err)
+	}
+	if result != (StageImportsResult{Sources: 1, Staged: 1}) {
+		t.Errorf("StageImports(state-aware move-only) = %#v, want sources=1 staged=1", result)
+	}
+	if got := readStagingText(t, filepath.Join(workspace, "envs", "tenant", stagingTestResource, filepath.Base(move))); got != moveText {
+		t.Errorf("state-aware move-only artifact = %q, want %q", got, moveText)
+	}
+}
+
+func TestStageImportsStagesOnlySelectedSingletonAndOmitsWholeRootDiagnostic(t *testing.T) {
 	workspace := t.TempDir()
 	first := "zpa_segment_group"
 	second := "zpa_server_group"
 	dep := stagingDeployment(workspace)
-	dep.Roots["zpa"] = deployment.RootProviderConfig{
-		HasGroups: true,
-		Groups:    map[string][]string{"zpa_custom": {first, second}},
-	}
 	writeStagingText(t, filepath.Join(workspace, "imports", "tenant", first+"_imports.tf"), stagingImports(t, first, "segment"))
 	writeStagingText(t, filepath.Join(workspace, "imports", "tenant", second+"_moves.tf"), "# server group move\n")
-	environmentRoot := filepath.Join(workspace, "envs", "tenant", "zpa_custom")
+	environmentRoot := filepath.Join(workspace, "envs", "tenant", first)
 	if err := os.MkdirAll(environmentRoot, 0o700); err != nil {
 		t.Fatalf("os.MkdirAll(%q) error: %v", environmentRoot, err)
 	}
@@ -414,48 +442,40 @@ func TestStageImportsExpandsWholeRootAndOrdersDiagnostics(t *testing.T) {
 		Root: stagingTestRoot(first, second), Selectors: []string{first}, Tenant: "tenant", Workspace: workspace,
 	})
 	if err != nil {
-		t.Fatalf("StageImports(group) error: %v", err)
+		t.Fatalf("StageImports(singleton) error: %v", err)
 	}
-	if result != (StageImportsResult{Sources: 2, Staged: 2}) {
-		t.Errorf("StageImports(group) = %#v, want sources=2 staged=2", result)
+	if result != (StageImportsResult{Sources: 1, Staged: 1}) {
+		t.Errorf("StageImports(singleton) = %#v, want sources=1 staged=1", result)
 	}
-	if len(diagnostics) != 3 || !strings.Contains(diagnostics[0], "selects whole root zpa_custom") ||
-		!strings.HasSuffix(diagnostics[1], first+"_imports.tf") || !strings.HasSuffix(diagnostics[2], second+"_moves.tf") {
-		t.Errorf("StageImports(group) diagnostics = %#v, want note then member/artifact order", diagnostics)
+	for _, diagnostic := range diagnostics {
+		if strings.Contains(diagnostic, "WHOLE_ROOT_SELECTION") || strings.Contains(diagnostic, "selects whole root") {
+			t.Errorf("StageImports(singleton) diagnostic = %q, want no whole-root selection diagnostic", diagnostic)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(environmentRoot, second+"_moves.tf")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("StageImports(singleton) staged unselected %s artifact: os.Stat error = %v, want os.ErrNotExist", second, err)
 	}
 }
 
-func TestStageImportsStateAwareSnapshotsStateOncePerLogicalRoot(t *testing.T) {
+func TestStageImportsStateAwareSnapshotsSelectedSingletonOnce(t *testing.T) {
 	workspace := t.TempDir()
 	first := "zpa_segment_group"
-	second := "zpa_server_group"
 	dep := stagingDeployment(workspace)
-	dep.Roots["zpa"] = deployment.RootProviderConfig{
-		HasGroups: true,
-		Groups:    map[string][]string{"zpa_custom": {first, second}},
-	}
 	firstSource := filepath.Join(workspace, "imports", "tenant", first+"_imports.tf")
-	secondSource := filepath.Join(workspace, "imports", "tenant", second+"_imports.tf")
 	firstText := stagingImports(t, first, "managed", "new")
-	secondText := stagingImports(t, second, "managed", "new")
 	writeStagingText(t, firstSource, firstText)
-	writeStagingText(t, secondSource, secondText)
-	environmentRoot := filepath.Join(workspace, "envs", "tenant", "zpa_custom")
+	environmentRoot := filepath.Join(workspace, "envs", "tenant", first)
 	if err := os.MkdirAll(environmentRoot, 0o700); err != nil {
 		t.Fatalf("os.MkdirAll(%q) error = %v, want nil", environmentRoot, err)
 	}
 	fake := &fakeImportStagingTerraform{result: ImportStagingStateResult{
 		Success: true,
-		Stdout: strings.Join([]string{
-			stagingImportAddress(t, first, "managed"),
-			stagingImportAddress(t, second, "managed"),
-			"",
-		}, "\n"),
+		Stdout:  stagingImportAddress(t, first, "managed") + "\n",
 	}}
 
 	result, err := StageImports(StageImportsOptions{
 		Deployment: dep,
-		Root:       stagingTestRoot(first, second),
+		Root:       stagingTestRoot(first),
 		Selectors:  []string{first},
 		StateAware: true,
 		Tenant:     "tenant",
@@ -463,42 +483,103 @@ func TestStageImportsStateAwareSnapshotsStateOncePerLogicalRoot(t *testing.T) {
 		Workspace:  workspace,
 	})
 	if err != nil {
-		t.Fatalf("StageImports(grouped state-aware) error = %v, want nil", err)
+		t.Fatalf("StageImports(singleton state-aware) error = %v, want nil", err)
 	}
-	if result != (StageImportsResult{Sources: 2, Staged: 2}) {
-		t.Errorf("StageImports(grouped state-aware) = %#v, want sources=2 staged=2", result)
+	if result != (StageImportsResult{Sources: 1, Staged: 1}) {
+		t.Errorf("StageImports(singleton state-aware) = %#v, want sources=1 staged=1", result)
 	}
 	if len(fake.calls) != 2 || fake.calls[0].Kind != "init" || fake.calls[1].Kind != "list" {
-		t.Fatalf("StageImports(grouped state-aware) Terraform calls = %#v, want one init then one list", fake.calls)
+		t.Fatalf("StageImports(singleton state-aware) Terraform calls = %#v, want one init then one list", fake.calls)
 	}
 	request := fake.calls[0].Request
-	if request.Directory != environmentRoot || request.Label != "zpa_custom" || request.Tenant != "tenant" {
-		t.Errorf("StageImports(grouped state-aware) Terraform request = %#v, want grouped root directory/label/tenant", request)
+	if request.Directory != environmentRoot || request.Label != first || request.Tenant != "tenant" {
+		t.Errorf("StageImports(singleton state-aware) Terraform request = %#v, want selected singleton directory/label/tenant", request)
 	}
 	if fake.calls[1].Request != request {
-		t.Errorf("StageImports(grouped state-aware) state-list request = %#v, want init request %#v", fake.calls[1].Request, request)
+		t.Errorf("StageImports(singleton state-aware) state-list request = %#v, want init request %#v", fake.calls[1].Request, request)
 	}
-	for _, resource := range []struct {
-		resourceType string
-		source       string
-		text         string
-	}{
-		{resourceType: first, source: firstSource, text: firstText},
-		{resourceType: second, source: secondSource, text: secondText},
-	} {
-		want, err := FilterGeneratedImports(
-			resource.text,
-			[]string{
-				stagingImportAddress(t, first, "managed"),
-				stagingImportAddress(t, second, "managed"),
-			},
+	want, err := FilterGeneratedImports(firstText, []string{stagingImportAddress(t, first, "managed")})
+	if err != nil {
+		t.Fatalf("FilterGeneratedImports(%s) error = %v, want nil", first, err)
+	}
+	destination := filepath.Join(environmentRoot, filepath.Base(firstSource))
+	if got := readStagingText(t, destination); got != want.Text {
+		t.Errorf("StageImports(singleton state-aware) %s bytes = %q, want %q", first, got, want.Text)
+	}
+}
+
+func TestStageImportsStateAwareSnapshotsEachSelectedTypeIndependently(t *testing.T) {
+	workspace := t.TempDir()
+	first := "zpa_segment_group"
+	second := "zpa_server_group"
+	for _, resourceType := range []string{first, second} {
+		writeStagingText(
+			t,
+			filepath.Join(workspace, "imports", "tenant", resourceType+"_imports.tf"),
+			stagingImports(t, resourceType, "managed", "new"),
 		)
-		if err != nil {
-			t.Fatalf("FilterGeneratedImports(%s) error = %v, want nil", resource.resourceType, err)
+		if err := os.MkdirAll(filepath.Join(workspace, "envs", "tenant", resourceType), 0o700); err != nil {
+			t.Fatalf("os.MkdirAll(%q) error: %v", resourceType, err)
 		}
-		destination := filepath.Join(environmentRoot, filepath.Base(resource.source))
-		if got := readStagingText(t, destination); got != want.Text {
-			t.Errorf("StageImports(grouped state-aware) %s bytes = %q, want %q", resource.resourceType, got, want.Text)
+	}
+	backend := "backend.hcl"
+	fake := &fakeImportStagingTerraform{results: map[string]ImportStagingStateResult{
+		first:  {Success: true, Stdout: stagingImportAddress(t, first, "managed") + "\n"},
+		second: {Success: true, Stdout: stagingImportAddress(t, second, "managed") + "\n"},
+	}}
+
+	result, err := StageImports(StageImportsOptions{
+		BackendConfig: &backend,
+		Deployment:    stagingDeployment(workspace),
+		Root:          stagingTestRoot(first, second),
+		Selectors:     []string{second, first},
+		StateAware:    true,
+		Tenant:        "tenant",
+		Terraform:     fake,
+		Workspace:     workspace,
+	})
+	if err != nil {
+		t.Fatalf("StageImports(two type state-aware) error: %v", err)
+	}
+	if result != (StageImportsResult{Sources: 2, Staged: 2}) {
+		t.Errorf("StageImports(two type state-aware) = %#v, want sources=2 staged=2", result)
+	}
+	if len(fake.calls) != 4 {
+		t.Fatalf("Terraform calls = %#v, want init/list per selected type", fake.calls)
+	}
+	requests := make(map[string]ImportStagingTerraformRequest, 2)
+	for index := 0; index < len(fake.calls); index += 2 {
+		init, list := fake.calls[index], fake.calls[index+1]
+		if init.Kind != "init" || list.Kind != "list" || list.Request != init.Request {
+			t.Fatalf("Terraform call pair %d = (%#v, %#v), want matching init then list", index/2, init, list)
+		}
+		requests[init.Request.Label] = init.Request
+	}
+	if len(requests) != 2 {
+		t.Fatalf("Terraform snapshot labels = %#v, want one snapshot for each selected type", requests)
+	}
+	for _, resourceType := range []string{first, second} {
+		request, ok := requests[resourceType]
+		if !ok {
+			t.Errorf("no Terraform snapshot request for %s", resourceType)
+			continue
+		}
+		if want := filepath.Join(workspace, "envs", "tenant", resourceType); request.Directory != want {
+			t.Errorf("%s snapshot directory = %q, want %q", resourceType, request.Directory, want)
+		}
+		if request.BackendConfig == nil || *request.BackendConfig != filepath.Join(workspace, backend) {
+			t.Errorf("%s snapshot backend config = %v, want %q", resourceType, request.BackendConfig, filepath.Join(workspace, backend))
+		}
+		got := readStagingText(t, filepath.Join(workspace, "envs", "tenant", resourceType, resourceType+"_imports.tf"))
+		want, filterErr := FilterGeneratedImports(
+			stagingImports(t, resourceType, "managed", "new"),
+			[]string{stagingImportAddress(t, resourceType, "managed")},
+		)
+		if filterErr != nil {
+			t.Fatalf("FilterGeneratedImports(%s) error: %v", resourceType, filterErr)
+		}
+		if got != want.Text {
+			t.Errorf("%s staged imports = %q, want its own filtered imports %q", resourceType, got, want.Text)
 		}
 	}
 }
@@ -805,17 +886,14 @@ func TestUnstageImportsRemovesSelectedCopiesOnly(t *testing.T) {
 	first := "zpa_segment_group"
 	second := "zpa_server_group"
 	dep := stagingDeployment(workspace)
-	dep.Roots["zpa"] = deployment.RootProviderConfig{
-		HasGroups: true,
-		Groups:    map[string][]string{"zpa_custom": {first, second}},
-	}
-	environmentRoot := filepath.Join(workspace, "envs", "tenant", "zpa_custom")
+	environmentRoot := filepath.Join(workspace, "envs", "tenant", first)
+	secondEnvironmentRoot := filepath.Join(workspace, "envs", "tenant", second)
 	source := filepath.Join(workspace, "imports", "tenant", first+"_imports.tf")
 	writeStagingText(t, source, "source\n")
-	for _, resourceType := range []string{first, second} {
-		writeStagingText(t, filepath.Join(environmentRoot, resourceType+"_imports.tf"), "staged\n")
-		writeStagingText(t, filepath.Join(environmentRoot, resourceType+"_moves.tf"), "staged\n")
-	}
+	writeStagingText(t, filepath.Join(environmentRoot, first+"_imports.tf"), "staged\n")
+	writeStagingText(t, filepath.Join(environmentRoot, first+"_moves.tf"), "staged\n")
+	writeStagingText(t, filepath.Join(secondEnvironmentRoot, second+"_imports.tf"), "staged\n")
+	writeStagingText(t, filepath.Join(secondEnvironmentRoot, second+"_moves.tf"), "staged\n")
 	writeStagingText(t, filepath.Join(environmentRoot, "main.tf"), "keep\n")
 	var diagnostics []string
 	result, err := UnstageImports(UnstageImportsOptions{
@@ -823,19 +901,26 @@ func TestUnstageImportsRemovesSelectedCopiesOnly(t *testing.T) {
 		Root: stagingTestRoot(first, second), Selectors: []string{first}, Tenant: "tenant", Workspace: workspace,
 	})
 	if err != nil {
-		t.Fatalf("UnstageImports(group) error: %v", err)
+		t.Fatalf("UnstageImports(singleton) error: %v", err)
 	}
-	if result != (UnstageImportsResult{Removed: 4}) {
-		t.Errorf("UnstageImports(group) = %#v, want removed=4", result)
+	if result != (UnstageImportsResult{Removed: 2}) {
+		t.Errorf("UnstageImports(singleton) = %#v, want removed=2", result)
 	}
-	if len(diagnostics) != 6 || !strings.Contains(diagnostics[0], "selects whole root zpa_custom") || diagnostics[5] != "4 file(s) removed" {
-		t.Errorf("UnstageImports(group) diagnostics = %#v, want note, four removals, summary", diagnostics)
+	for _, diagnostic := range diagnostics {
+		if strings.Contains(diagnostic, "WHOLE_ROOT_SELECTION") || strings.Contains(diagnostic, "selects whole root") {
+			t.Errorf("UnstageImports(singleton) diagnostic = %q, want no whole-root selection diagnostic", diagnostic)
+		}
 	}
 	if got := readStagingText(t, source); got != "source\n" {
 		t.Errorf("UnstageImports source bytes = %q, want preserved source", got)
 	}
 	if got := readStagingText(t, filepath.Join(environmentRoot, "main.tf")); got != "keep\n" {
 		t.Errorf("UnstageImports main.tf bytes = %q, want preserved root file", got)
+	}
+	for _, name := range []string{second + "_imports.tf", second + "_moves.tf"} {
+		if got := readStagingText(t, filepath.Join(secondEnvironmentRoot, name)); got != "staged\n" {
+			t.Errorf("UnstageImports selected singleton changed unselected %s bytes = %q, want preserved staged bytes", name, got)
+		}
 	}
 	result, err = UnstageImports(UnstageImportsOptions{
 		Deployment: dep, Root: stagingTestRoot(first, second), Selectors: []string{first},

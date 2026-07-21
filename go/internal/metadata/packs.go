@@ -356,6 +356,106 @@ func validateReferences(value JsonObject, source string) {
 	}
 }
 
+// validateDeclaredReferenceCycles rejects cycles in the directed graph formed
+// by references.<referrer>.<field>.referent declarations. Structural
+// validation runs before this helper, so its defensive type assertions are
+// only a guard against future callers passing partially validated metadata.
+//
+// The traversal deliberately uses canonjson's Python-code-point ordering for
+// both roots and neighbours. A DFS back-edge therefore reports one stable
+// first cycle, and the stack slice gives the complete closed path rather than
+// merely the edge that completed it.
+func validateDeclaredReferenceCycles(manifests []JsonObject) {
+	// Pack reference tables merge per resource type and field. Manifest order
+	// is load-bearing: a later declaration of the same referrer+field replaces
+	// the earlier declaration, matching MergedTransformReferences. Build that
+	// effective table before deriving edges so shadowed declarations cannot
+	// create false cycles.
+	effective := make(map[string]map[string]string)
+	for _, manifest := range manifests {
+		references, ok := manifest["references"].(JsonObject)
+		if !ok {
+			continue
+		}
+		for _, referrer := range sortedKeys(references) {
+			fields, ok := references[referrer].(JsonObject)
+			if !ok {
+				continue
+			}
+			if effective[referrer] == nil {
+				effective[referrer] = make(map[string]string)
+			}
+			for _, field := range sortedKeys(fields) {
+				reference, ok := fields[field].(JsonObject)
+				if !ok {
+					continue
+				}
+				referent, ok := reference["referent"].(string)
+				if !ok || referent == "" {
+					continue
+				}
+				effective[referrer][field] = referent
+			}
+		}
+	}
+
+	graph := make(map[string]map[string]struct{})
+	for _, referrer := range sortedMapKeys(effective) {
+		if _, exists := graph[referrer]; !exists {
+			graph[referrer] = nil
+		}
+		for _, field := range sortedMapKeys(effective[referrer]) {
+			referent := effective[referrer][field]
+			if graph[referrer] == nil {
+				graph[referrer] = make(map[string]struct{})
+			}
+			graph[referrer][referent] = struct{}{}
+			if _, exists := graph[referent]; !exists {
+				graph[referent] = nil
+			}
+		}
+	}
+
+	const (
+		unvisited = iota
+		visiting
+		visited
+	)
+	state := make(map[string]int, len(graph))
+	stack := make([]string, 0, len(graph))
+	stackIndex := make(map[string]int, len(graph))
+	var visit func(string)
+	visit = func(referrer string) {
+		state[referrer] = visiting
+		stackIndex[referrer] = len(stack)
+		stack = append(stack, referrer)
+
+		for _, referent := range canonjson.SortedStrings(setKeys(graph[referrer])) {
+			switch state[referent] {
+			case unvisited:
+				visit(referent)
+			case visiting:
+				cycle := append([]string(nil), stack[stackIndex[referent]:]...)
+				cycle = append(cycle, referent)
+				failf(
+					"declared reference cycle: %s; resolve one direction via a literal ID or operator expression",
+					strings.Join(cycle, " -> "),
+				)
+			}
+		}
+
+		stack = stack[:len(stack)-1]
+		delete(stackIndex, referrer)
+		state[referrer] = visited
+	}
+
+	for _, resourceType := range sortedMapKeys(graph) {
+		if state[resourceType] == unvisited {
+			visit(resourceType)
+		}
+	}
+}
+
 func validateProviderConfig(value JsonObject, source string) {
 	keys := stringSet("requirements")
 	rejectUnknownKeys(value, keys, source)
@@ -365,9 +465,11 @@ func validateProviderConfig(value JsonObject, source string) {
 	}
 }
 
-// validatePackManifest ports validatePackManifest from
-// node-src/metadata/packs.ts.
-func validatePackManifest(value any, source string) JsonObject {
+// validatePackManifestStructure validates one pack manifest without applying
+// aggregate semantic checks. loadPackMetadata uses this form because a cycle
+// in one provisional reference table can be removed by a later manifest's
+// same-referrer+field overwrite.
+func validatePackManifestStructure(value any, source string) JsonObject {
 	data := requireObject(value, source)
 	rejectUnknownKeys(data, manifestKeys, source)
 	for _, key := range manifestObjectKeys {
@@ -431,6 +533,16 @@ func validatePackManifest(value any, source string) JsonObject {
 	return data
 }
 
+// validatePackManifest ports validatePackManifest from
+// node-src/metadata/packs.ts. A standalone manifest is its own effective
+// reference table, so semantic cycle validation follows structural validation
+// immediately at this boundary.
+func validatePackManifest(value any, source string) JsonObject {
+	data := validatePackManifestStructure(value, source)
+	validateDeclaredReferenceCycles([]JsonObject{data})
+	return data
+}
+
 // ValidatePackManifest ports validatePackManifest from
 // node-src/metadata/packs.ts.
 func ValidatePackManifest(value any, source string) (data JsonObject, err error) {
@@ -480,11 +592,16 @@ func loadPackMetadata(root string) PackMetadata {
 		if !isFile(manifestPath) {
 			continue
 		}
-		data := validatePackManifest(readJSON(manifestPath, readJSONOptions{
+		data := validatePackManifestStructure(readJSON(manifestPath, readJSONOptions{
 			preserveNumericTokensUnderKeys: stringSet("observed_value", "value"),
 		}), manifestPath)
 		manifests = append(manifests, manifestRecord(name, directory, manifestPath, data))
 	}
+	manifestData := make([]JsonObject, 0, len(manifests))
+	for _, manifest := range manifests {
+		manifestData = append(manifestData, manifest.Data)
+	}
+	validateDeclaredReferenceCycles(manifestData)
 
 	prefixes := make(map[string]string)
 	sources := make(map[string]string)

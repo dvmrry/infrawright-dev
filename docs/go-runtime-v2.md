@@ -1,6 +1,8 @@
 # Go runtime v2 — scope reset
 
-Status: authoritative plan as of 2026-07-20. Where it conflicts with
+Status: Go is the product-source authority as of the G0 handoff recorded in
+[go-authority-handoff.md](review-handoffs/go-authority-handoff.md). Where this
+document conflicts with
 [go-runtime-plan.md](go-runtime-plan.md), this v2 plan controls the wire/IO
 contract, runtime-versus-maintainer command scope, CI and cutover strategy, and
 Node archive timing. The old plan remains useful implementation inventory, but
@@ -150,7 +152,7 @@ Its operator/pipeline commands are:
 assert-adoptable · apply · resources · deployment · check-pack · check-pack-set
 · root-catalog`
 
-Six authoring commands are also part of that same `iw` binary before the
+Six authoring commands are also part of that same `iw` binary after the
 authority handoff:
 `reconcile · openapi-map · source-operation-map · source-evidence-eval ·
 provider-probe · transform-adopt-parity`. Their controlling design is
@@ -164,23 +166,26 @@ source analyzer. `audit-vendor-boundary` is a repository verification
 obligation rather than a released CLI surface; any still-required import/token
 boundary is implemented as a Go/CI check before Node archive.
 
-Existing Node-backed command behavior remains the differential authority until
-handoff. New source-only behavior has no Node equivalent and therefore uses an
-independently reviewed, source-bound golden corpus. At full archive Node is
-neither a runtime nor CI execution dependency; its final bundle digest and
-historical fixtures remain provenance only.
+The immutable `node-oracle-v1-final` tag remains a bounded compatibility oracle
+only for topology-independent behavior. New source-only behavior has no Node
+equivalent and therefore uses an independently reviewed, source-bound golden
+corpus. Singleton-state topology v2 uses reviewed Go goldens because frozen
+Node v1 cannot produce its outputs. At full archive Node is neither a runtime
+nor CI execution dependency; its final bundle digest and historical fixtures
+remain provenance only.
 
 The A6 handoff gate asserts that all six authoring names appear in `iw` help,
 route through that binary, and have no executable Node fallback. There is no
 second authoring binary and no post-handoff Node command lane.
 
-The A6 implementation candidate satisfies the six-name routing, frozen
+The A6 implementation satisfies the six-name routing, frozen
 differential, artifact-publication, and Node-free command gates. The external
 Opus, GPT-5.6 Pro, and Fable review sequence completed on 2026-07-20 against the
 candidate culminating at `c3e18a67e4b61b90860e02b782342b3e98ebbd80`, with no
-blocking findings. This is not yet the formal authority transfer: the final
-Node freeze/tag, last full-corpus ceremony, and product-authority declaration
-remain pending.
+blocking findings. G0 then froze Node at tag `node-oracle-v1-final` on commit
+`047e39e5f2d0d0a1a5415587255200dea775ac0b`, recorded the final green corpus and
+bundle digests, and transferred product-source authority to Go. Release routing
+and Node archive remain later cutover decisions.
 
 ## 5. Vertical-slice checkpoint (go/no-go before any more breadth)
 

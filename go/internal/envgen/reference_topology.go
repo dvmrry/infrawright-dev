@@ -228,17 +228,6 @@ func crossStateReferenceTopology(options CrossStateReferenceTopologyOptions) Cro
 	dependenciesByRoot := map[string]map[string]bool{}
 	outputsByRoot := map[string]map[string]bool{}
 
-	anyCrossState := false
-	for provider := range options.Deployment.Roots {
-		if deployment.DeploymentReferenceBindingMode(options.Deployment, provider) == deployment.ReferenceBindingCrossState {
-			anyCrossState = true
-			break
-		}
-	}
-	if !anyCrossState {
-		return CrossStateReferenceTopology{Edges: edges, DependenciesByRoot: dependenciesByRoot, OutputsByRoot: outputsByRoot}
-	}
-
 	references := transform.MergedTransformReferences(options.Root)
 	for _, referrer := range canonjson.SortedStrings(mapKeysOfReferences(references)) {
 		referrerResource, ok := options.Root.Resources[referrer]
@@ -290,7 +279,7 @@ func crossStateReferenceTopology(options CrossStateReferenceTopologyOptions) Cro
 
 	if cycle := cyclePathAcrossRoots(dependenciesByRoot); cycle != nil {
 		bindingsFail(
-			"cross-state reference cycle detected: %s; explicitly group every member of the cycle into one state root",
+			"cross-state reference cycle detected: %s; resolve one direction via a literal ID or operator expression",
 			strings.Join(cycle, " -> "),
 		)
 	}

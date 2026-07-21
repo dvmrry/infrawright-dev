@@ -301,6 +301,7 @@ func TestAssessSavedPlansInvalidatesOriginalControlAndPolicyMutations(t *testing
 
 func TestAssessSavedPlansOrdersRootsAndRetainsOnlyCompletedRoots(t *testing.T) {
 	fixture := newAssessmentTransactionFixture(t)
+	secondFixture := newAssessmentTransactionFixture(t)
 	marker := filepath.Join(fixture.root, "show-count")
 	body := strings.Join([]string{
 		"if [ -f " + assessmentShellLiteral(marker) + " ]; then",
@@ -312,8 +313,8 @@ func TestAssessSavedPlansOrdersRootsAndRetainsOnlyCompletedRoots(t *testing.T) {
 	}, "\n")
 	executable := assessmentExecutable(t, fixture.root, body)
 	first := fixture.rootInput
-	second := fixture.rootInput
-	second.Label = "zpa_second"
+	second := secondFixture.rootInput
+	second.Tenant = "tenant_second"
 	options := assessmentOptions(fixture, executable, nil)
 	options.Roots = []SavedPlanAssessmentRootInput{second, first}
 	_, err := AssessSavedPlans(options)
@@ -425,6 +426,94 @@ func TestSavedPlanAssessmentOptionValidationPrecedence(t *testing.T) {
 			_, err := AssessSavedPlansWithOptions(test.options)
 			requireSavedPlanAssessmentFailure(t, err, test.wantCode)
 		})
+	}
+}
+
+func TestAssessSavedPlansRejectsNonSingletonRootInputs(t *testing.T) {
+	fixture := newAssessmentTransactionFixture(t)
+	tests := []struct {
+		name    string
+		members []string
+	}{
+		{name: "multiple members", members: []string{"zpa_sample", "zpa_other"}},
+		{name: "label member mismatch", members: []string{"zpa_other"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			options := assessmentOptions(fixture, "/missing/terraform", nil)
+			options.Roots[0].Members = append([]string(nil), test.members...)
+
+			_, err := AssessSavedPlansWithOptions(SavedPlanAssessmentTransactionOptions{
+				Assessment: options,
+			})
+			failure := requireSavedPlanAssessmentFailure(t, err, "INVALID_ASSESSMENT_ROOT")
+			if failure.Message != "saved-plan root must contain exactly one member matching its label" {
+				t.Errorf("AssessSavedPlansWithOptions(%s) message = %q, want deterministic singleton diagnostic", test.name, failure.Message)
+			}
+		})
+	}
+}
+
+func TestAssessSavedPlansRetainsGenericInvalidRootDiagnostic(t *testing.T) {
+	fixture := newAssessmentTransactionFixture(t)
+	tests := []struct {
+		name   string
+		mutate func(*SavedPlanAssessmentRootInput)
+	}{
+		{
+			name: "invalid tenant",
+			mutate: func(root *SavedPlanAssessmentRootInput) {
+				root.Tenant = "."
+			},
+		},
+		{
+			name: "relative environment path",
+			mutate: func(root *SavedPlanAssessmentRootInput) {
+				root.EnvDir = "relative/env"
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			options := assessmentOptions(fixture, "/missing/terraform", nil)
+			test.mutate(&options.Roots[0])
+
+			_, err := AssessSavedPlansWithOptions(SavedPlanAssessmentTransactionOptions{
+				Assessment: options,
+			})
+			failure := requireSavedPlanAssessmentFailure(t, err, "INVALID_ASSESSMENT_ROOT")
+			if failure.Message != "saved-plan root input is invalid" {
+				t.Errorf("AssessSavedPlansWithOptions(%s) message = %q, want preserved generic diagnostic", test.name, failure.Message)
+			}
+		})
+	}
+}
+
+func TestAssessSavedPlansReportEmitsSingletonTopologyV2Roots(t *testing.T) {
+	fixture := newAssessmentTransactionFixture(t)
+	executable := assessmentExecutable(t, fixture.root, "printf '%s' "+assessmentShellLiteral(cleanAssessmentPlanJSON(t)))
+	outcome, err := AssessSavedPlansReport(AssessSavedPlansReportOptions{
+		Assessment: SavedPlanAssessmentTransactionOptions{
+			Assessment: assessmentOptions(fixture, executable, nil),
+		},
+		Mode: AssertClean,
+		Request: AssessmentReportRequest{
+			Tenant: &fixture.rootInput.Tenant,
+		},
+	})
+	if err != nil {
+		t.Fatalf("AssessSavedPlansReport(singleton root) error = %v, want nil", err)
+	}
+	if outcome.Failure != nil {
+		t.Fatalf("AssessSavedPlansReport(singleton root) failure = %+v, want nil", outcome.Failure)
+	}
+	if len(outcome.Report.Roots) != 1 {
+		t.Fatalf("AssessSavedPlansReport(singleton root) root count = %d, want 1", len(outcome.Report.Roots))
+	}
+	for _, root := range outcome.Report.Roots {
+		if len(root.Members) != 1 || root.Members[0] != root.Label {
+			t.Errorf("AssessSavedPlansReport(singleton root) = %+v, want label == members[0] with one member", root)
+		}
 	}
 }
 

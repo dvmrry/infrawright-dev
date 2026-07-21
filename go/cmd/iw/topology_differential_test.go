@@ -1,204 +1,225 @@
 package main
 
-// Slice-4 differential corpus: the topology command family (resources,
-// roots, scope-paths, plan-roots) compared on stdout/stderr/exit against
-// the Node oracle over the committed pack set and demo deployment, plus
-// full output-tree comparisons for gen-env and modules generate.
+// V2 topology is intentionally Go-owned. The frozen Node runtime remains the
+// v1 provenance oracle for topology-independent behavior; the singleton
+// topology itself is pinned to reviewed Go-authority fixtures below.
 
 import (
 	"bytes"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
+	"reflect"
 	"testing"
 )
 
-func TestTopologyDifferentialAgainstNodeOracle(t *testing.T) {
-	root := repoRoot(t)
-	oracleBundle := filepath.Join(root, "dist", "infrawright-cli.mjs")
-	if _, err := os.Stat(oracleBundle); err != nil {
-		t.Skipf("Node oracle bundle absent (%s)", oracleBundle)
+const v2TopologyGoldenRoot = "testdata/v2_topology"
+
+func runV2TopologyCommand(t *testing.T, binary string, fixture blockC4Fixture, arguments []string) runResult {
+	t.Helper()
+	return runBinaryWithEnv(t, fixture.workspace, binary, arguments, []string{
+		"TMPDIR=" + filepath.Join(fixture.workspace, "tmp"),
+		"INFRAWRIGHT_PACKS=",
+		"INFRAWRIGHT_PACK_PROFILE=",
+		"INFRAWRIGHT_DEPLOYMENT=",
+	})
+}
+
+func topologyFixtureArguments(fixture blockC4Fixture) []string {
+	return []string{
+		"--root", fixture.packs,
+		"--profile", fixture.profile,
+		"--catalog", fixture.profile,
+		"--deployment", fixture.deployment,
 	}
-	nodeBinary, err := exec.LookPath("node")
+}
+
+// normalizeV2TopologyFixturePaths substitutes only complete fixture-root path
+// prefixes. The V2 command fixtures intentionally contain absolute paths, so
+// this narrowly removes the test-run temporary directory without normalizing
+// JSON, ordering, diagnostics, or any generated artifact content.
+func normalizeV2TopologyFixturePaths(content []byte, fixtureRoot string) []byte {
+	root := filepath.ToSlash(filepath.Clean(fixtureRoot))
+	const placeholder = "<V2_TOPOLOGY_FIXTURE>"
+	var normalized bytes.Buffer
+	for remaining := content; len(remaining) > 0; {
+		index := bytes.Index(remaining, []byte(root))
+		if index < 0 {
+			normalized.Write(remaining)
+			break
+		}
+		next := index + len(root)
+		if next < len(remaining) && !isV2TopologyPathBoundary(remaining[next]) {
+			normalized.Write(remaining[:next])
+			remaining = remaining[next:]
+			continue
+		}
+		normalized.Write(remaining[:index])
+		normalized.WriteString(placeholder)
+		remaining = remaining[next:]
+	}
+	return normalized.Bytes()
+}
+
+func isV2TopologyPathBoundary(value byte) bool {
+	switch value {
+	case '/', '\\', '"', '\'', ')', ']', '}', ',', ':', ';', ' ', '\t', '\r', '\n':
+		return true
+	default:
+		return false
+	}
+}
+
+func readV2TopologyGolden(t *testing.T, root, name string) []byte {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(root, "go", "cmd", "iw", v2TopologyGoldenRoot, name))
 	if err != nil {
-		t.Skip("node not on PATH")
+		t.Fatalf("reading V2 topology golden %s: %v", name, err)
 	}
-	goBinary := filepath.Join(root, "dist", "iw-go-diff-topology")
-	build := exec.Command("go", "build", "-o", goBinary, ".")
-	build.Dir = filepath.Join(root, "go", "cmd", "iw")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("building Go CLI: %v\n%s", err, output)
-	}
-	t.Cleanup(func() { os.Remove(goBinary) })
+	return content
+}
 
-	demoDeployment := []string{"INFRAWRIGHT_DEPLOYMENT=demo/deployment.json"}
+func requireV2TopologyRunGolden(t *testing.T, root, fixtureRoot, name string, result runResult) {
+	t.Helper()
+	if result.exit != 0 {
+		t.Errorf("%s exit = %d, want 0; stdout=%q stderr=%q", name, result.exit, result.stdout, result.stderr)
+	}
+	if got, want := normalizeV2TopologyFixturePaths(result.stdout, fixtureRoot), readV2TopologyGolden(t, root, name+".stdout"); !bytes.Equal(got, want) {
+		t.Errorf("%s stdout bytes differ from V2 authority golden\n got: %q\nwant: %q", name, got, want)
+	}
+	if got, want := normalizeV2TopologyFixturePaths(result.stderr, fixtureRoot), readV2TopologyGolden(t, root, name+".stderr"); !bytes.Equal(got, want) {
+		t.Errorf("%s stderr bytes differ from V2 authority golden\n got: %q\nwant: %q", name, got, want)
+	}
+}
 
-	scopeList := filepath.Join(t.TempDir(), "paths.json")
-	if err := os.WriteFile(scopeList, []byte(`["demo/config/demo/zcc_web_privacy.auto.tfvars.json", "unrelated/file.txt"]`+"\n"), 0o666); err != nil {
-		t.Fatal(err)
+func requireExactTree(t *testing.T, name string, got, want map[string][]byte) {
+	t.Helper()
+	if reflect.DeepEqual(got, want) {
+		return
 	}
-	badList := filepath.Join(t.TempDir(), "bad.json")
-	if err := os.WriteFile(badList, []byte("{ nope\n"), 0o666); err != nil {
-		t.Fatal(err)
+	for path, wantBytes := range want {
+		gotBytes, found := got[path]
+		if !found {
+			t.Errorf("%s missing artifact %q", name, path)
+			continue
+		}
+		if !bytes.Equal(gotBytes, wantBytes) {
+			t.Errorf("%s artifact %q bytes differ\n got: %q\nwant: %q", name, path, gotBytes, wantBytes)
+		}
 	}
+	for path := range got {
+		if _, found := want[path]; !found {
+			t.Errorf("%s has unexpected artifact %q with bytes %q", name, path, got[path])
+		}
+	}
+}
+
+func readV2TopologyTreeGolden(t *testing.T, root string) map[string][]byte {
+	t.Helper()
+	return treeBytes(t, filepath.Join(root, "go", "cmd", "iw", v2TopologyGoldenRoot, "gen-env.tree"))
+}
+
+func TestV2TopologyAuthorityNormalizationIsNarrow(t *testing.T) {
+	const root = "/tmp/v2-topology-workspace"
+	got := normalizeV2TopologyFixturePaths([]byte(root+"/one "+root+"-other "+root), root)
+	const want = "<V2_TOPOLOGY_FIXTURE>/one /tmp/v2-topology-workspace-other <V2_TOPOLOGY_FIXTURE>"
+	if string(got) != want {
+		t.Errorf("normalization = %q, want %q", got, want)
+	}
+}
+
+func TestV2TopologyAuthority(t *testing.T) {
+	root := repoRoot(t)
+	binary := buildGoV2AuthorityCLI(t, root, "iw-go-v2-topology")
+	fixture := prepareBlockC4Fixture(t, filepath.Join(t.TempDir(), "workspace"))
 
 	cases := []struct {
 		name string
 		args []string
-		env  []string
 	}{
-		{name: "resources", args: []string{"resources"}},
-		{name: "resources-reference-order", args: []string{"resources", "--order=references"}},
-		{name: "resources-selector", args: []string{"resources", "--resource", "zcc"}},
-		{name: "roots-default", args: []string{"roots"}, env: demoDeployment},
-		{name: "roots-tenant", args: []string{"roots", "--tenant", "demo"}, env: demoDeployment},
-		{name: "roots-member-selector", args: []string{"roots", "--resource", "zia_dlp_dictionaries"}, env: demoDeployment},
-		{name: "roots-invalid-tenant", args: []string{"roots", "--tenant", "bad tenant"}, env: demoDeployment},
-		{name: "scope-paths-flags", args: []string{"scope-paths", "--path", "demo/config/demo/zcc_web_privacy.auto.tfvars.json", "--path", "demo/deployment.json"}, env: demoDeployment},
-		{name: "scope-paths-json-file", args: []string{"scope-paths", "--paths-json", scopeList}, env: demoDeployment},
-		{name: "scope-paths-bad-json", args: []string{"scope-paths", "--paths-json", badList}, env: demoDeployment},
-		{name: "plan-roots-default", args: []string{"plan-roots"}, env: demoDeployment},
-		{name: "plan-roots-tenant", args: []string{"plan-roots", "--tenant", "demo"}, env: demoDeployment},
-		{name: "plan-roots-selector", args: []string{"plan-roots", "--resource", "zcc_web_privacy"}, env: demoDeployment},
+		{"roots.default", append([]string{"roots"}, topologyFixtureArguments(fixture)...)},
+		{"roots.selector", append([]string{"roots", "--resource", "sample_resource"}, topologyFixtureArguments(fixture)...)},
+		{"scope-paths", append([]string{
+			"scope-paths",
+			"--path", filepath.ToSlash(filepath.Join("config", "tenant", "sample_resource.auto.tfvars.json")),
+			"--path", "deployment.json",
+		}, topologyFixtureArguments(fixture)...)},
+		{"plan-roots", append([]string{"plan-roots", "--tenant", "tenant"}, topologyFixtureArguments(fixture)...)},
 	}
-
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			oracle := runBinaryWithEnv(t, root, nodeBinary,
-				append([]string{oracleBundle}, testCase.args...), testCase.env)
-			candidate := runBinaryWithEnv(t, root, goBinary, testCase.args, testCase.env)
-			if oracle.exit != candidate.exit {
-				t.Errorf("exit: node=%d go=%d\nnode stderr:\n%s\ngo stderr:\n%s",
-					oracle.exit, candidate.exit, oracle.stderr, candidate.stderr)
-			}
-			if !equalAfterA6Usage(oracle.stdout, candidate.stdout) {
-				t.Errorf("stdout diverges\nnode:\n%s\ngo:\n%s", oracle.stdout, candidate.stdout)
-			}
-			scrubbedNode := strings.ReplaceAll(string(oracle.stderr), scopeList, "<paths>")
-			scrubbedNode = strings.ReplaceAll(scrubbedNode, badList, "<paths>")
-			scrubbedGo := strings.ReplaceAll(string(candidate.stderr), scopeList, "<paths>")
-			scrubbedGo = strings.ReplaceAll(scrubbedGo, badList, "<paths>")
-			if scrubbedNode != scrubbedGo {
-				t.Errorf("stderr diverges\nnode:\n%s\ngo:\n%s", scrubbedNode, scrubbedGo)
-			}
+			requireV2TopologyRunGolden(t, root, fixture.workspace, testCase.name, runV2TopologyCommand(t, binary, fixture, testCase.args))
 		})
+	}
+
+	// Keep the semantic singleton checks secondary to the byte goldens: they
+	// make the reason for the fixture concrete without weakening its authority.
+	rootResult := runV2TopologyCommand(t, binary, fixture, cases[0].args)
+	if !bytes.Contains(rootResult.stdout, []byte(`"label": "sample_resource"`)) ||
+		!bytes.Contains(rootResult.stdout, []byte(`"members": [`)) {
+		t.Errorf("roots default no longer represents sample_resource as one singleton state unit: %s", rootResult.stdout)
 	}
 }
 
-func TestGenerationDifferentialAgainstNodeOracle(t *testing.T) {
+func TestV2GenerationAuthority(t *testing.T) {
 	root := repoRoot(t)
-	oracleBundle := filepath.Join(root, "dist", "infrawright-cli.mjs")
-	if _, err := os.Stat(oracleBundle); err != nil {
-		t.Skipf("Node oracle bundle absent (%s)", oracleBundle)
-	}
-	nodeBinary, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node not on PATH")
-	}
-	if _, err := exec.LookPath("terraform"); err != nil {
-		t.Skip("terraform not on PATH; gen-env and module generation format through terraform fmt")
-	}
-	goBinary := filepath.Join(root, "dist", "iw-go-diff-generation")
-	build := exec.Command("go", "build", "-o", goBinary, ".")
-	build.Dir = filepath.Join(root, "go", "cmd", "iw")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("building Go CLI: %v\n%s", err, output)
-	}
-	t.Cleanup(func() { os.Remove(goBinary) })
+	binary := buildGoV2AuthorityCLI(t, root, "iw-go-v2-generation")
+	fixture := prepareBlockC4Fixture(t, filepath.Join(t.TempDir(), "workspace"))
+	arguments := append([]string{"gen-env", "--tenant", "tenant", "--terraform", filepath.Join(fixture.workspace, "missing-terraform")}, topologyFixtureArguments(fixture)...)
+	result := runV2TopologyCommand(t, binary, fixture, arguments)
+	requireV2TopologyRunGolden(t, root, fixture.workspace, "gen-env", result)
+	requireExactTree(t, "V2 singleton gen-env tree", treeBytes(t, fixture.envDir), readV2TopologyTreeGolden(t, root))
 
-	t.Run("modules-generate-and-validate", func(t *testing.T) {
-		nodeOut := filepath.Join(t.TempDir(), "modules")
-		goOut := filepath.Join(t.TempDir(), "modules")
-		missingTerraform := filepath.Join(t.TempDir(), "missing-terraform")
-		for _, side := range []struct {
-			argv0 string
-			args  []string
-			out   string
-		}{
-			{nodeBinary, []string{oracleBundle}, nodeOut},
-			{goBinary, nil, goOut},
-		} {
-			generateArguments := append(append([]string{}, side.args...),
-				"modules", "generate", "--out", side.out, "--resource", "zcc_web_privacy", "--resource", "zia_rule_labels")
-			if side.argv0 == goBinary {
-				// The flag remains accepted for Node CLI compatibility, but the Go
-				// formatter must not execute the supplied Terraform path.
-				generateArguments = append(generateArguments, "--terraform", missingTerraform)
-			}
-			result := runBinaryWithEnv(t, root, side.argv0, generateArguments, nil)
-			if result.exit != 0 {
-				t.Fatalf("%s modules generate failed: %s", side.argv0, result.stderr)
-			}
-			validateArguments := append(append([]string{}, side.args...),
-				"modules", "validate", "--out", side.out, "--resource", "zcc_web_privacy", "--resource", "zia_rule_labels")
-			validated := runBinaryWithEnv(t, root, side.argv0, validateArguments, nil)
-			if validated.exit != 0 {
-				t.Fatalf("%s modules validate failed: %s", side.argv0, validated.stderr)
-			}
-		}
-		nodeTree := treeBytes(t, nodeOut)
-		goTree := treeBytes(t, goOut)
-		if len(nodeTree) == 0 {
-			t.Fatal("node generated no module files")
-		}
-		for relative, nodeContent := range nodeTree {
-			goContent, ok := goTree[relative]
-			if !ok {
-				t.Errorf("go output missing %s", relative)
-				continue
-			}
-			if !bytes.Equal(nodeContent, goContent) {
-				t.Errorf("module file %s diverges", relative)
-			}
-		}
-		for relative := range goTree {
-			if _, ok := nodeTree[relative]; !ok {
-				t.Errorf("go output has extra module file %s", relative)
-			}
-		}
-	})
+	main, found := treeBytes(t, fixture.envDir)["main.tf"]
+	if !found || !bytes.Contains(main, []byte(`module "sample_resource"`)) {
+		t.Errorf("V2 singleton gen-env main.tf = %q, want singleton sample_resource module", main)
+	}
+	if _, found := treeBytes(t, fixture.envDir)["sample_resource.expressions.tf"]; found {
+		t.Error("V2 singleton gen-env wrote bindings for a fixture with no declared expressions")
+	}
+}
 
-	t.Run("gen-env-tree", func(t *testing.T) {
-		nodeDir, goDir := t.TempDir(), t.TempDir()
-		nodeDeployment := writeTransformDeployment(t, nodeDir, filepath.Join(nodeDir, "out"))
-		goDeployment := writeTransformDeployment(t, goDir, filepath.Join(goDir, "out"))
-		arguments := []string{"gen-env", "--tenant", "demo", "--resource", "zcc_web_privacy", "--resource", "zia_rule_labels"}
-		oracle := runBinaryWithEnv(t, root, nodeBinary,
-			append([]string{oracleBundle}, arguments...),
-			[]string{"INFRAWRIGHT_DEPLOYMENT=" + nodeDeployment})
-		candidateArguments := append(append([]string{}, arguments...),
-			"--terraform", filepath.Join(t.TempDir(), "missing-terraform"))
-		candidate := runBinaryWithEnv(t, root, goBinary, candidateArguments,
-			[]string{"INFRAWRIGHT_DEPLOYMENT=" + goDeployment})
-		if oracle.exit != candidate.exit {
-			t.Errorf("exit: node=%d go=%d\nnode stderr:\n%s\ngo stderr:\n%s",
-				oracle.exit, candidate.exit, oracle.stderr, candidate.stderr)
-		}
-		scrubbedNode := strings.ReplaceAll(string(oracle.stderr), filepath.Join(nodeDir, "out"), "<overlay>")
-		scrubbedGo := strings.ReplaceAll(string(candidate.stderr), filepath.Join(goDir, "out"), "<overlay>")
-		if scrubbedNode != scrubbedGo {
-			t.Errorf("stderr diverges\nnode:\n%s\ngo:\n%s", scrubbedNode, scrubbedGo)
-		}
-		nodeTree := treeBytes(t, filepath.Join(nodeDir, "out"))
-		goTree := treeBytes(t, filepath.Join(goDir, "out"))
-		if len(nodeTree) == 0 {
-			t.Fatal("node generated no env files")
-		}
-		for relative, nodeContent := range nodeTree {
-			goContent, ok := goTree[relative]
-			if !ok {
-				t.Errorf("go output missing %s", relative)
-				continue
-			}
-			if !bytes.Equal(nodeContent, goContent) {
-				t.Errorf("env file %s diverges\nnode:\n%s\ngo:\n%s", relative, nodeContent, goContent)
-			}
-		}
-		for relative := range goTree {
-			if _, ok := nodeTree[relative]; !ok {
-				t.Errorf("go output has extra env file %s", relative)
-			}
-		}
-	})
+// These two resources are topology-independent. Keep their frozen Node
+// differential separate from V2 Go topology authority and compare the full
+// generated manifest, every artifact byte, and both command transcripts.
+func TestV2ModulesTopologyIndependentAuthorityAgainstFrozenNodeOracle(t *testing.T) {
+	runtime := newBlockD5Runtime(t)
+	workspace := t.TempDir()
+	output := filepath.Join(workspace, "modules")
+	generate := []string{"modules", "generate", "--out", output, "--resource", "zcc_web_privacy", "--resource", "zia_rule_labels"}
+	validate := []string{"modules", "validate", "--out", output, "--resource", "zcc_web_privacy", "--resource", "zia_rule_labels"}
+
+	oracleGenerate := runBinary(t, runtime.repository, runtime.node, append([]string{runtime.oracleBundle}, generate...))
+	oracleTree := treeBytes(t, output)
+	oracleValidate := runBinary(t, runtime.repository, runtime.node, append([]string{runtime.oracleBundle}, validate...))
+	if err := os.RemoveAll(output); err != nil {
+		t.Fatalf("resetting test-owned Node modules output: %v", err)
+	}
+	candidateGenerate := runBinary(t, runtime.repository, runtime.candidate, generate)
+	candidateTree := treeBytes(t, output)
+	candidateValidate := runBinary(t, runtime.repository, runtime.candidate, validate)
+
+	compareBlockC4RunResult(t, "modules generate zcc_web_privacy+zia_rule_labels", oracleGenerate, candidateGenerate)
+	requireExactTree(t, "frozen Node modules generate tree", candidateTree, oracleTree)
+	compareBlockC4RunResult(t, "modules validate zcc_web_privacy+zia_rule_labels", oracleValidate, candidateValidate)
+}
+
+// The existing singleton fixture has no retired fields. Running each side in
+// the same deterministic workspace makes both overlay/module paths identical,
+// so this is an exact Node-vs-Go gen-env comparison without broad scrubbing.
+func TestV2GenEnvSingletonCompatibleAuthorityAgainstFrozenNodeOracle(t *testing.T) {
+	runtime := newBlockD5Runtime(t)
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	fixture := prepareBlockC4Fixture(t, workspace)
+	arguments := append([]string{"gen-env", "--tenant", "tenant"}, topologyFixtureArguments(fixture)...)
+	oracle := runBlockC4Side(t, runtime, fixture, true, arguments, "")
+	oracleTree := treeBytes(t, fixture.envDir)
+	fixture = prepareBlockC4Fixture(t, workspace)
+	candidate := runBlockC4Side(t, runtime, fixture, false, arguments, "")
+	candidateTree := treeBytes(t, fixture.envDir)
+
+	compareBlockC4RunResult(t, "singleton-compatible gen-env", oracle, candidate)
+	requireExactTree(t, "singleton-compatible frozen Node gen-env tree", candidateTree, oracleTree)
+	if candidate.exit != 0 {
+		t.Errorf("singleton-compatible Go gen-env exit = %d, want 0; stderr=%q", candidate.exit, candidate.stderr)
+	}
 }

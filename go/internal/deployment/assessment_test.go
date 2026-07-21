@@ -15,7 +15,7 @@ import (
 
 func TestLoadBoundAssessmentDeploymentBindsPresentSource(t *testing.T) {
 	dir := t.TempDir()
-	content := []byte(`{"overlay":"estate/prod","roots":{"zpa":{"strategy":"explicit"}}}`)
+	content := []byte(`{"overlay":"estate/prod","roots":{"zpa":{"cross_state_references":true}}}`)
 	deploymentPath := filepath.Join(dir, "deployment.json")
 	if err := os.WriteFile(deploymentPath, content, 0o600); err != nil {
 		t.Fatalf("os.WriteFile(%q) error = %v, want nil", deploymentPath, err)
@@ -31,8 +31,8 @@ func TestLoadBoundAssessmentDeploymentBindsPresentSource(t *testing.T) {
 	if got, want := bound.Deployment.Overlay, any("estate/prod"); got != want {
 		t.Errorf("LoadBoundAssessmentDeployment(%q).Deployment.Overlay = %v, want %v", deploymentPath, got, want)
 	}
-	if got, want := bound.Deployment.Roots["zpa"].Strategy, "explicit"; got != want {
-		t.Errorf("LoadBoundAssessmentDeployment(%q).Deployment.Roots[zpa].Strategy = %q, want %q", deploymentPath, got, want)
+	if got := bound.Deployment.Roots["zpa"]; !got.HasCrossStateReferences || !got.CrossStateReferences {
+		t.Errorf("LoadBoundAssessmentDeployment(%q).Deployment.Roots[zpa] = %#v, want explicit cross-state setting", deploymentPath, got)
 	}
 	if got, want := bound.File.Path, deploymentPath; got != want {
 		t.Errorf("LoadBoundAssessmentDeployment(%q).File.Path = %q, want %q", deploymentPath, got, want)
@@ -138,7 +138,7 @@ func TestLoadBoundAssessmentDeploymentRejectsInvalidContentWithoutLeakage(t *tes
 			name:        "invalid deployment metadata",
 			content:     []byte(`{"roots":{"zpa":{"strategy":"secret-invalid-strategy"}}}`),
 			wantCode:    "INVALID_DEPLOYMENT",
-			wantMessage: "roots.zpa.strategy must be 'explicit' or 'slug'",
+			wantMessage: "roots.zpa.strategy has been removed; see docs/singleton-state-topology-v2.md",
 		},
 		{
 			name:        "invalid UTF-8",

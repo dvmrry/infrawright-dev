@@ -110,10 +110,6 @@ func TestAdoptCommandComposesOptionsAndResolvesTerraformOnlyWhenLoaded(t *testin
 			return map[string]adopt.OracleStateObject{}, nil
 		}, nil
 	}
-	dependencies.createBatchStateLoader = func(adopt.DefaultAdoptionLoaderOptions) (adopt.AdoptionBatchStateLoader, error) {
-		t.Fatal("batch loader was constructed by the per-resource fixture")
-		return nil, errors.New("unreachable")
-	}
 	dependencies.runAdoptBatch = func(options adopt.RunAdoptBatchOptions) (adopt.AdoptBatchResult, error) {
 		if resolveCalls != 0 {
 			t.Fatal("Terraform resolved before the runner requested state")

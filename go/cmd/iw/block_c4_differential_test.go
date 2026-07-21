@@ -92,8 +92,11 @@ func prepareBlockC4Fixture(t *testing.T, workspace string) blockC4Fixture {
 		deployment: filepath.Join(workspace, "deployment.json"),
 		terraform:  filepath.Join(workspace, "terraform-fake"),
 		log:        filepath.Join(workspace, "terraform.log"),
-		envDir:     filepath.Join(workspace, "envs", "tenant", "sample_root"),
-		varFile:    filepath.Join(workspace, "config", "tenant", "sample_resource.auto.tfvars.json"),
+		// Singleton-state v2: the resource type is the state-unit label. The
+		// C4 corpus deliberately exercises the same plan/report lifecycle on
+		// both frozen Node v1 and Go with no retired deployment grouping input.
+		envDir:  filepath.Join(workspace, "envs", "tenant", "sample_resource"),
+		varFile: filepath.Join(workspace, "config", "tenant", "sample_resource.auto.tfvars.json"),
 	}
 	writeBlockC4JSON(t, filepath.Join(fixture.packs, "sample", "pack.json"), map[string]any{
 		"pin":               "1.0.0",
@@ -110,9 +113,7 @@ func prepareBlockC4Fixture(t *testing.T, workspace string) blockC4Fixture {
 	})
 	writeBlockC4JSON(t, fixture.deployment, map[string]any{
 		"overlay": workspace, "module_dir": filepath.Join(workspace, "modules"),
-		"roots": map[string]any{"sample": map[string]any{
-			"groups": map[string]any{"sample_root": []any{"sample_resource"}},
-		}},
+		"roots": map[string]any{"sample": map[string]any{}},
 	})
 	moduleDir := filepath.Join(workspace, "modules", "sample_resource")
 	writeBlockC4File(t, filepath.Join(moduleDir, "main.tf"), []byte("# fixture module\n"), 0o600)
@@ -217,6 +218,13 @@ func TestBlockC4PlanAndCleanDifferentialAgainstNodeOracle(t *testing.T) {
 	planArguments = append(planArguments, "--save", "--terraform", fixture.terraform)
 	oracle := runBlockC4Side(t, runtime, fixture, true, planArguments, "")
 	oracleLog := readBlockC4File(t, fixture.log)
+	physicalEnvDir, err := filepath.EvalSymlinks(fixture.envDir)
+	if err != nil {
+		t.Fatalf("filepath.EvalSymlinks(%q): %v", fixture.envDir, err)
+	}
+	if !bytes.Contains(oracleLog, []byte("cwd="+physicalEnvDir+"\n")) {
+		t.Fatalf("plan --save did not use the singleton resource state unit %q:\n%s", physicalEnvDir, oracleLog)
+	}
 	oraclePlan := readBlockC4File(t, filepath.Join(fixture.envDir, "tfplan"))
 	oracleSources := readBlockC4File(t, filepath.Join(fixture.envDir, "tfplan.sources"))
 

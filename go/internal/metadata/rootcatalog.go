@@ -2,8 +2,9 @@ package metadata
 
 // rootcatalog.go ports node-src/metadata/root-catalog.ts:
 // buildRootCatalog/renderRootCatalog -- provider selection, longest-prefix
-// slug derivation, the tri-state slug_group field, the NUL-framed source
-// digest, and canonical rendering via go/internal/canonjson.
+// bare-name derivation, the NUL-framed source digest, and canonical rendering
+// via go/internal/canonjson. Singleton-state v2 deliberately omits the frozen
+// Node v1 slug grouping fields.
 //
 // RootCatalog/RootCatalogResource are local Go structs ported minimally
 // from the RootCatalog/RootCatalogResource interfaces in
@@ -32,17 +33,8 @@ type RootCatalogResource struct {
 	Product   string
 	Provider  string
 	BareName  string
-	SlugLabel *string // nil renders as JSON null
 	Generated bool
 	Derived   bool
-	// SlugGroup is nil when the source registry entry had no slug_group
-	// key at all -- a genuine three-state field (absent / false / true)
-	// matching the Node source's `slug_group?: boolean` optional property,
-	// which resourceShape only ever sets when
-	// Object.hasOwn(loaded.registry, "slug_group") is true. A nil
-	// SlugGroup renders by omitting the "slug_group" key entirely (see
-	// rootCatalogToValue), not by emitting a JSON null.
-	SlugGroup *bool
 }
 
 // RootCatalog ports the RootCatalog interface from
@@ -124,17 +116,10 @@ func resourceShape(root LoadedPackRoot, resourceType string) RootCatalogResource
 	prefix := matchingPrefix(root, resourceType, loaded.Provider)
 
 	var bareName string
-	var slugLabel *string
 	if prefix == nil {
 		bareName = resourceType
 	} else {
 		bareName = resourceType[len(*prefix):]
-		slugPart := bareName
-		if index := strings.IndexByte(bareName, '_'); index >= 0 {
-			slugPart = bareName[:index]
-		}
-		label := *prefix + slugPart
-		slugLabel = &label
 	}
 
 	derived := false
@@ -146,20 +131,14 @@ func resourceShape(root LoadedPackRoot, resourceType string) RootCatalogResource
 		generated = g
 	}
 
-	shape := RootCatalogResource{
+	return RootCatalogResource{
 		Type:      resourceType,
 		Product:   loaded.Product,
 		Provider:  loaded.Provider,
 		BareName:  bareName,
-		SlugLabel: slugLabel,
 		Generated: generated,
 		Derived:   derived,
 	}
-	if slugGroupValue, hasSlugGroup := loaded.Registry["slug_group"]; hasSlugGroup {
-		isTrue := slugGroupValue == true
-		shape.SlugGroup = &isTrue
-	}
-	return shape
 }
 
 // portableRelative ports portableRelative from
@@ -251,7 +230,7 @@ func buildRootCatalog(root LoadedPackRoot, requestedProviders []string) RootCata
 	files, digest := sourceEvidence(root, providerSet)
 	return RootCatalog{
 		Kind:              "infrawright.root_catalog",
-		SchemaVersion:     1,
+		SchemaVersion:     2,
 		DeclaredProviders: providers,
 		Resources:         resources,
 		SourceFiles:       files,
@@ -286,14 +265,6 @@ func rootCatalogToValue(catalog RootCatalog) canonjson.Value {
 			"product":   resource.Product,
 			"provider":  resource.Provider,
 			"type":      resource.Type,
-		}
-		if resource.SlugLabel != nil {
-			object["slug_label"] = *resource.SlugLabel
-		} else {
-			object["slug_label"] = nil
-		}
-		if resource.SlugGroup != nil {
-			object["slug_group"] = *resource.SlugGroup
 		}
 		resources = append(resources, object)
 	}

@@ -1,20 +1,8 @@
 package roots
 
-// scopepaths_test.go ports scope-paths behavior pinned by probing the
-// compiled TypeScript directly (there is no node-tests/scope-paths.test.ts
-// to port from -- see scopepaths.go's package doc comment). The oracle
-// this file's test cases cite by scenario name is committed at
-// go/internal/roots/testdata/scope_plan_probe.oracle.json, produced by
-// go/internal/roots/testdata/probe/scope_plan_probe.ts against
-// node-src/domain/scope-paths.ts -- see that probe script's own header
-// comment for the exact esbuild/node regeneration command. Each test below
-// reproduces its scenario's inputs (same catalog, same deployment shape,
-// same paths) against ChangedPathScopeFromCatalog and asserts the same
-// shape the oracle recorded, except for the oracle's own randomly-named
-// temp-directory deployment path, which this file replaces with a fixed
-// "/workspace" tree (harmless: scope-paths never touches the filesystem,
-// only path algebra -- see pypath.PythonPosixRealpath's non-strict
-// tolerance of nonexistent paths).
+// scopepaths_test.go retains the established changed-path classifications and
+// path algebra while asserting the Go-authoritative singleton-state v2 root
+// expansion. The frozen v1 probe is provenance, not expected topology.
 
 import (
 	"reflect"
@@ -26,37 +14,32 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 )
 
-// scopePlanFixtureCatalog mirrors the CATALOG constant in
-// scope_plan_probe.ts exactly (four resources: two slug-grouped, one
-// derived, one non-generated) -- deliberately a separate literal from
-// roots_test.go's own fixtureCatalog (which has a fifth,
-// slug_group:false resource this probe's scenarios never needed), so this
-// file stays independently traceable against the committed oracle without
-// depending on roots_test.go's fixture shape happening to stay in sync.
+// scopePlanFixtureCatalog is deliberately separate from roots_test.go's
+// fixture so changed-path coverage cannot accidentally inherit its shape.
 func scopePlanFixtureCatalog() metadata.RootCatalog {
 	return metadata.RootCatalog{
 		Kind:              "infrawright.root_catalog",
-		SchemaVersion:     1,
+		SchemaVersion:     2,
 		DeclaredProviders: []string{"zpa"},
 		Resources: []metadata.RootCatalogResource{
 			{
 				Type: "zpa_alpha_one", Product: "zpa", Provider: "zpa",
-				BareName: "alpha_one", SlugLabel: strPtr("zpa_alpha"),
+				BareName:  "alpha_one",
 				Generated: true, Derived: false,
 			},
 			{
 				Type: "zpa_alpha_two", Product: "zpa", Provider: "zpa",
-				BareName: "alpha_two", SlugLabel: strPtr("zpa_alpha"),
+				BareName:  "alpha_two",
 				Generated: true, Derived: false,
 			},
 			{
 				Type: "zpa_derived_reorder", Product: "zpa", Provider: "zpa",
-				BareName: "derived_reorder", SlugLabel: strPtr("zpa_derived"),
+				BareName:  "derived_reorder",
 				Generated: true, Derived: true,
 			},
 			{
 				Type: "zpa_known_only", Product: "zpa", Provider: "zpa",
-				BareName: "known_only", SlugLabel: strPtr("zpa_known"),
+				BareName:  "known_only",
 				Generated: false, Derived: false,
 			},
 		},
@@ -65,14 +48,10 @@ func scopePlanFixtureCatalog() metadata.RootCatalog {
 	}
 }
 
-// slugDeployment ports scope_plan_probe.ts's dotDeployment: overlay ".",
-// roots.zpa.strategy "slug" (merging zpa_alpha_one/zpa_alpha_two under
-// the shared "zpa_alpha" label; zpa_derived_reorder stays individual
-// regardless, since derived types always keep per-resource roots).
-func slugDeployment() deployment.Deployment {
+func singletonDeployment() deployment.Deployment {
 	return deployment.Deployment{
 		Overlay: ".",
-		Roots:   map[string]deployment.RootProviderConfig{"zpa": {HasStrategy: true, Strategy: "slug"}},
+		Roots:   map[string]deployment.RootProviderConfig{},
 	}
 }
 
@@ -83,13 +62,13 @@ var scopeDeploymentPath = scopeWorkspace + "/deployment.json"
 // TestChangedPathScopeDotOverlayMatchesEveryKind ports the
 // "dot-overlay-all-kinds" oracle scenario: one path per ChangedPathKind
 // (deployment, config x2, imports, env_root, module) plus one unmatched
-// path, under overlay "." and slug-grouped roots.
+// path, under overlay "." and singleton roots.
 func TestChangedPathScopeDotOverlayMatchesEveryKind(t *testing.T) {
 	scope, err := ChangedPathScopeFromCatalog(ChangedPathScopeOptions{
-		Paths:          []string{scopeDeploymentPath, "config/acme/zpa_alpha_one.generated.expressions.json", "config/acme/zpa_alpha_one.expressions.json", "imports/acme/zpa_alpha_two_imports.tf", "envs/acme/zpa_alpha", "modules/zpa_alpha_two/main.tf"},
+		Paths:          []string{scopeDeploymentPath, "config/acme/zpa_alpha_one.generated.expressions.json", "config/acme/zpa_alpha_one.expressions.json", "imports/acme/zpa_alpha_two_imports.tf", "envs/acme/zpa_alpha_one", "modules/zpa_alpha_two/main.tf"},
 		Workspace:      scopeWorkspace,
 		DeploymentPath: scopeDeploymentPath,
-		Deployment:     slugDeployment(),
+		Deployment:     singletonDeployment(),
 		Catalog:        scopePlanFixtureCatalog(),
 	})
 	if err != nil {
@@ -101,15 +80,18 @@ func TestChangedPathScopeDotOverlayMatchesEveryKind(t *testing.T) {
 	if want := []string{"zpa_alpha_one", "zpa_alpha_two", "zpa_derived_reorder"}; !reflect.DeepEqual(scope.AffectedResources, want) {
 		t.Errorf("AffectedResources = %v, want %v", scope.AffectedResources, want)
 	}
-	if len(scope.AffectedRoots) != 2 {
-		t.Fatalf("AffectedRoots length = %d, want 2 (oracle: zpa_alpha, zpa_derived_reorder)", len(scope.AffectedRoots))
+	if len(scope.AffectedRoots) != 3 {
+		t.Fatalf("AffectedRoots length = %d, want 3 singleton roots", len(scope.AffectedRoots))
 	}
-	alpha, derived := scope.AffectedRoots[0], scope.AffectedRoots[1]
-	if alpha.Label != "zpa_alpha" || !reflect.DeepEqual(alpha.Members, []string{"zpa_alpha_one", "zpa_alpha_two"}) {
-		t.Errorf("AffectedRoots[0] = %+v, want label zpa_alpha with both members", alpha)
+	alphaOne, alphaTwo, derived := scope.AffectedRoots[0], scope.AffectedRoots[1], scope.AffectedRoots[2]
+	if alphaOne.Label != "zpa_alpha_one" || !reflect.DeepEqual(alphaOne.Members, []string{"zpa_alpha_one"}) {
+		t.Errorf("AffectedRoots[0] = %+v, want singleton zpa_alpha_one", alphaOne)
 	}
-	if len(alpha.Paths) != 6 {
-		t.Errorf("zpa_alpha AffectedRoot.Paths length = %d, want 6 (every path touches it)", len(alpha.Paths))
+	if len(alphaOne.Paths) != 4 {
+		t.Errorf("zpa_alpha_one AffectedRoot.Paths length = %d, want 4", len(alphaOne.Paths))
+	}
+	if alphaTwo.Label != "zpa_alpha_two" || !reflect.DeepEqual(alphaTwo.Members, []string{"zpa_alpha_two"}) {
+		t.Errorf("AffectedRoots[1] = %+v, want singleton zpa_alpha_two", alphaTwo)
 	}
 	if derived.Label != "zpa_derived_reorder" || !reflect.DeepEqual(derived.Paths, []string{scopeDeploymentPath}) {
 		t.Errorf("AffectedRoots[1] = %+v, want label zpa_derived_reorder matched only by the deployment path", derived)
@@ -119,15 +101,15 @@ func TestChangedPathScopeDotOverlayMatchesEveryKind(t *testing.T) {
 	for _, match := range scope.PathMatches {
 		byPath[match.Path] = match
 	}
-	envMatch, ok := byPath["envs/acme/zpa_alpha"]
+	envMatch, ok := byPath["envs/acme/zpa_alpha_one"]
 	if !ok {
-		t.Fatal("no match for envs/acme/zpa_alpha")
+		t.Fatal("no match for envs/acme/zpa_alpha_one")
 	}
 	if !reflect.DeepEqual(envMatch.Kinds, []ChangedPathKind{ChangedPathKindEnvRoot}) {
-		t.Errorf("envs/acme/zpa_alpha Kinds = %v, want [env_root]", envMatch.Kinds)
+		t.Errorf("envs/acme/zpa_alpha_one Kinds = %v, want [env_root]", envMatch.Kinds)
 	}
-	if !reflect.DeepEqual(envMatch.Resources, []string{"zpa_alpha_one", "zpa_alpha_two"}) {
-		t.Errorf("envs/acme/zpa_alpha Resources = %v, want both slug members (oracle)", envMatch.Resources)
+	if !reflect.DeepEqual(envMatch.Resources, []string{"zpa_alpha_one"}) {
+		t.Errorf("envs/acme/zpa_alpha_one Resources = %v, want singleton member", envMatch.Resources)
 	}
 	if !reflect.DeepEqual(envMatch.Tenants, []string{"acme"}) {
 		t.Errorf("envs/acme/zpa_alpha Tenants = %v, want [acme]", envMatch.Tenants)
@@ -154,7 +136,7 @@ func TestChangedPathScopeConfigSuffixLongestMatchWins(t *testing.T) {
 		Paths:          []string{"config/acme/zpa_alpha_one.auto.tfvars.json", "config/acme/zpa_alpha_two.auto.tfvars"},
 		Workspace:      scopeWorkspace,
 		DeploymentPath: scopeDeploymentPath,
-		Deployment:     slugDeployment(),
+		Deployment:     singletonDeployment(),
 		Catalog:        scopePlanFixtureCatalog(),
 	})
 	if err != nil {
@@ -169,8 +151,8 @@ func TestChangedPathScopeConfigSuffixLongestMatchWins(t *testing.T) {
 	if want := []string{"zpa_alpha_one", "zpa_alpha_two"}; !reflect.DeepEqual(scope.AffectedResources, want) {
 		t.Errorf("AffectedResources = %v, want %v", scope.AffectedResources, want)
 	}
-	if len(scope.AffectedRoots) != 1 || scope.AffectedRoots[0].Label != "zpa_alpha" {
-		t.Fatalf("AffectedRoots = %+v, want a single zpa_alpha root (both resources share it)", scope.AffectedRoots)
+	if len(scope.AffectedRoots) != 2 || scope.AffectedRoots[0].Label != "zpa_alpha_one" || scope.AffectedRoots[1].Label != "zpa_alpha_two" {
+		t.Fatalf("AffectedRoots = %+v, want two singleton roots", scope.AffectedRoots)
 	}
 }
 
@@ -183,7 +165,7 @@ func TestChangedPathScopeConfigSuffixLongestMatchWins(t *testing.T) {
 func TestChangedPathScopeUnnormalizedOverlayJoinsRawThenNormalizes(t *testing.T) {
 	dep := deployment.Deployment{
 		Overlay: "artifacts//staging/../current",
-		Roots:   map[string]deployment.RootProviderConfig{"zpa": {HasStrategy: true, Strategy: "slug"}},
+		Roots:   map[string]deployment.RootProviderConfig{},
 	}
 	scope, err := ChangedPathScopeFromCatalog(ChangedPathScopeOptions{
 		Paths:          []string{"artifacts//staging/../current/config/acme/zpa_alpha_one.lookup.json"},
@@ -212,7 +194,7 @@ func TestChangedPathScopeExplicitModuleDirIgnoresOverlay(t *testing.T) {
 	moduleDir := "custom/modules"
 	dep := deployment.Deployment{
 		Overlay: ".", HasModuleDir: true, ModuleDir: moduleDir,
-		Roots: map[string]deployment.RootProviderConfig{"zpa": {HasStrategy: true, Strategy: "slug"}},
+		Roots: map[string]deployment.RootProviderConfig{},
 	}
 	scope, err := ChangedPathScopeFromCatalog(ChangedPathScopeOptions{
 		Paths:          []string{"custom/modules/zpa_alpha_one/main.tf"},
@@ -247,7 +229,7 @@ func TestChangedPathScopeNeverValidatesTenantSegments(t *testing.T) {
 		Paths:          []string{"config/bad tenant!/zpa_alpha_one.auto.tfvars.json"},
 		Workspace:      scopeWorkspace,
 		DeploymentPath: scopeDeploymentPath,
-		Deployment:     slugDeployment(),
+		Deployment:     singletonDeployment(),
 		Catalog:        scopePlanFixtureCatalog(),
 	})
 	if err != nil {
@@ -266,7 +248,7 @@ func TestChangedPathScopeUnmatchedPathIsNotAnError(t *testing.T) {
 		Paths:          []string{"completely/unrelated/path.txt"},
 		Workspace:      scopeWorkspace,
 		DeploymentPath: scopeDeploymentPath,
-		Deployment:     slugDeployment(),
+		Deployment:     singletonDeployment(),
 		Catalog:        scopePlanFixtureCatalog(),
 	})
 	if err != nil {
@@ -299,7 +281,7 @@ func TestChangedPathScopeInvalidInputErrorTexts(t *testing.T) {
 		{
 			name:     "empty-string-path",
 			paths:    []string{""},
-			dep:      slugDeployment(),
+			dep:      singletonDeployment(),
 			code:     "INVALID_CHANGED_PATHS",
 			category: procerr.CategoryDomain,
 			message:  "changed path at index 0 must be a non-empty string",
@@ -307,7 +289,7 @@ func TestChangedPathScopeInvalidInputErrorTexts(t *testing.T) {
 		{
 			name:     "embedded-nul-path",
 			paths:    []string{"config/acme/zpa_alpha_one\x00.auto.tfvars.json"},
-			dep:      slugDeployment(),
+			dep:      singletonDeployment(),
 			code:     "INVALID_CHANGED_PATHS",
 			category: procerr.CategoryDomain,
 			message:  "changed path at index 0 contains an embedded null character",

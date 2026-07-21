@@ -382,6 +382,77 @@ func TestPlanEnvironmentRootsRemoteBackendUsesAbsoluteConfigAndStateKey(t *testi
 	}
 }
 
+func TestPlanEnvironmentRootsPlansEachSingletonWithItsOwnInputs(t *testing.T) {
+	workspace := t.TempDir()
+	backendType := "azurerm"
+	first := lifecycleTestSecond
+	second := lifecycleTestResource
+	for _, resourceType := range []string{first, second} {
+		writeLifecycleRoot(t, workspace, "tenant", resourceType, []string{resourceType}, &backendType, false)
+		writeLifecycleText(
+			t,
+			lifecycleTestConfigPath(workspace, "tenant", resourceType, ".auto.tfvars.json"),
+			`{"`+resourceType+`_items":{}}`+"\n",
+		)
+	}
+	writeLifecycleText(t, filepath.Join(workspace, "backend.hcl"), "storage_account_name = \"example\"\n")
+	root := lifecycleTestRoot(map[string]metadata.JsonObject{
+		first:  {"generate": true, "product": "zia"},
+		second: {"generate": true, "product": "zia"},
+	})
+	backend := "backend.hcl"
+	fake := &lifecycleFakeTerraform{}
+
+	result, err := PlanEnvironmentRoots(PlanEnvironmentRootsOptions{
+		BackendConfig: &backend,
+		Deployment:    lifecycleTestDeployment(),
+		Root:          root,
+		Save:          true,
+		Selectors:     []string{second, first},
+		Tenant:        "tenant",
+		Terraform:     fake,
+		Workspace:     workspace,
+	})
+	if err != nil {
+		t.Fatalf("PlanEnvironmentRoots(two singleton roots) error: %v", err)
+	}
+	if result.Planned != 2 || len(fake.initialized) != 2 || len(fake.planned) != 2 {
+		t.Fatalf("Plan result/calls = (%#v, %d init, %d plan), want 2 roots and one init/plan each", result, len(fake.initialized), len(fake.planned))
+	}
+	requests := make(map[string]PlanTerraformRequest, 2)
+	for index, init := range fake.initialized {
+		plan := fake.planned[index]
+		if plan.Directory != init.Directory || !reflect.DeepEqual(plan.VarFiles, init.VarFiles) || plan.BackendKey == nil || init.BackendKey == nil || *plan.BackendKey != *init.BackendKey {
+			t.Fatalf("Terraform request pair %d = (%#v, %#v), want matching singleton init/plan inputs", index, init, plan)
+		}
+		requests[filepath.Base(init.Directory)] = init
+	}
+	for _, resourceType := range []string{first, second} {
+		request, ok := requests[resourceType]
+		if !ok {
+			t.Errorf("no Terraform request for %s", resourceType)
+			continue
+		}
+		if want := lifecycleTestEnvDirectory(workspace, "tenant", resourceType); request.Directory != want {
+			t.Errorf("%s directory = %q, want %q", resourceType, request.Directory, want)
+		}
+		if request.BackendConfig == nil || *request.BackendConfig != filepath.Join(workspace, backend) {
+			t.Errorf("%s backend config = %v, want %q", resourceType, request.BackendConfig, filepath.Join(workspace, backend))
+		}
+		if request.BackendKey == nil || *request.BackendKey != "tenant/"+resourceType+".tfstate" {
+			t.Errorf("%s backend key = %v, want tenant/%s.tfstate", resourceType, request.BackendKey, resourceType)
+		}
+		wantVarFile := lifecycleTestConfigPath(workspace, "tenant", resourceType, ".auto.tfvars.json")
+		if !reflect.DeepEqual(request.VarFiles, []string{wantVarFile}) {
+			t.Errorf("%s var files = %#v, want [%q]", resourceType, request.VarFiles, wantVarFile)
+		}
+		fingerprint, readErr := os.ReadFile(filepath.Join(request.Directory, "tfplan.sources"))
+		if readErr != nil || !regexp.MustCompile(`^\{"sha256": "[0-9a-f]{64}", "version": 2\}\n$`).Match(fingerprint) {
+			t.Errorf("%s tfplan.sources = (%q, %v), want fingerprint-v2", resourceType, fingerprint, readErr)
+		}
+	}
+}
+
 func TestPlanEnvironmentRootsCrossStateReferenceEnvironmentFailsClosedOnInitRace(t *testing.T) {
 	workspace := t.TempDir()
 	backendType := "azurerm"
@@ -434,7 +505,7 @@ func TestPlanEnvironmentRootsRejectsMixedEscapeSurrogateBeforeTerraform(t *testi
 	}
 }
 
-func TestPlanEnvironmentRootsSelectsHCLAndRejectsPartialGroup(t *testing.T) {
+func TestPlanEnvironmentRootsSelectsHCLAndKeepsSelectionsSingleton(t *testing.T) {
 	t.Run("hcl", func(t *testing.T) {
 		workspace := t.TempDir()
 		writeLifecycleRoot(t, workspace, "tenant", lifecycleTestResource, []string{lifecycleTestResource}, nil, false)
@@ -455,33 +526,35 @@ func TestPlanEnvironmentRootsSelectsHCLAndRejectsPartialGroup(t *testing.T) {
 		}
 	})
 
-	t.Run("partial_group", func(t *testing.T) {
+	t.Run("selected_singleton_does_not_require_unselected_config", func(t *testing.T) {
 		workspace := t.TempDir()
-		label := "zia_pair"
-		writeLifecycleRoot(t, workspace, "tenant", label, []string{lifecycleTestResource, lifecycleTestSecond}, nil, false)
+		writeLifecycleRoot(t, workspace, "tenant", lifecycleTestResource, []string{lifecycleTestResource}, nil, false)
 		writeLifecycleText(t, lifecycleTestConfigPath(workspace, "tenant", lifecycleTestResource, ".auto.tfvars.json"), `{"zia_url_categories_items":{}}`+"\n")
 		dep := lifecycleTestDeployment()
-		dep.Roots["zia"] = deployment.RootProviderConfig{
-			HasGroups: true,
-			Groups: map[string][]string{
-				label: {lifecycleTestResource, lifecycleTestSecond},
-			},
-		}
 		root := lifecycleTestRoot(map[string]metadata.JsonObject{
 			lifecycleTestResource: {"generate": true, "product": "zia"},
 			lifecycleTestSecond:   {"generate": true, "product": "zia"},
 		})
 		fake := &lifecycleFakeTerraform{}
-		_, err := PlanEnvironmentRoots(PlanEnvironmentRootsOptions{
+		var diagnostics []string
+		result, err := PlanEnvironmentRoots(PlanEnvironmentRootsOptions{
 			Deployment: dep, Root: root, Selectors: []string{lifecycleTestResource},
 			Tenant: "tenant", Terraform: fake, Workspace: workspace,
+			OnDiagnostic: func(message string) { diagnostics = append(diagnostics, message) },
 		})
-		failure := requireLifecycleFailure(t, err, "MISSING_GROUP_CONFIG")
-		if !strings.Contains(failure.Message, lifecycleTestSecond+".auto.tfvars.json") {
-			t.Errorf("ProcessFailure.Message = %q, want missing %s config", failure.Message, lifecycleTestSecond)
+		if err != nil {
+			t.Fatalf("PlanEnvironmentRoots(singleton selection) error: %v", err)
 		}
-		if len(fake.initialized) != 0 || len(fake.planned) != 0 {
-			t.Errorf("Terraform calls = (%d init, %d plan), want (0, 0)", len(fake.initialized), len(fake.planned))
+		if result.Planned != 1 {
+			t.Errorf("PlanEnvironmentRoots(singleton selection).Planned = %d, want 1", result.Planned)
+		}
+		if len(fake.initialized) != 1 || len(fake.planned) != 1 {
+			t.Errorf("Terraform calls = (%d init, %d plan), want (1, 1)", len(fake.initialized), len(fake.planned))
+		}
+		for _, diagnostic := range diagnostics {
+			if strings.Contains(diagnostic, "WHOLE_ROOT_SELECTION") || strings.Contains(diagnostic, "selects whole root") {
+				t.Errorf("PlanEnvironmentRoots(singleton selection) diagnostic = %q, want no whole-root selection diagnostic", diagnostic)
+			}
 		}
 	})
 }
