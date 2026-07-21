@@ -183,10 +183,13 @@ rest rather than pinning v1 behavior by accident.
   message text updated; scope-paths and plan-roots simplified;
   retiring topology-dependent differential gates lands here with the
   replacement golden gates.
-- **G3 — Go lifecycle sweep.** `adopt`/staging (per-root memoization
-  from `747f613` becomes per-type), `assessment/inputs`, plan/report
-  consumers — expected mostly no-op thanks to the retained state-unit
-  struct; the review verifies that expectation rather than assuming it.
+- **G3 — Go lifecycle sweep (complete 2026-07-20).** Retired unreachable
+  logical-root adoption batching while retaining the single-loader/plural-
+  Oracle safety substrate; state-aware staging snapshots each singleton
+  independently; removed the unreachable partial-group plan diagnostic; and
+  enforced singleton assessment transaction inputs while preserving grouped
+  v1 report validation. Fresh adversarial review approved the parcel with no
+  findings.
 
 Per standing workflow: Sonnet implementers, fresh adversarial review
 per parcel, reviewer commits.

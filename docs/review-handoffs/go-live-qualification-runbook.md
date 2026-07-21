@@ -782,7 +782,6 @@ QUAL_ENV=(
   TF_CLI_CONFIG_FILE="$LAB_ROOT/terraform.rc"
   TF_PLUGIN_CACHE_DIR="$LAB_ROOT/plugin-cache"
   INFRAWRIGHT_ORACLE_STATE_SOURCE=applied-state
-  INFRAWRIGHT_ORACLE_BATCH_MODE=per-resource-type
   INFRAWRIGHT_PACKS="$LAB_ROOT/packs"
   INFRAWRIGHT_PACK_PROFILE="$LAB_ROOT/packsets/profile.json"
   INFRAWRIGHT_DEPLOYMENT="$LAB_ROOT/deployment.json"
@@ -802,7 +801,6 @@ printf '%s\n' \
   "INFRAWRIGHT_KEEP_ORACLE=<unset>" \
   "KEEP_ORACLE=<unset>" \
   "INFRAWRIGHT_ORACLE_STATE_SOURCE=applied-state" \
-  "INFRAWRIGHT_ORACLE_BATCH_MODE=per-resource-type" \
   "INFRAWRIGHT_PACKS=$LAB_ROOT/packs" \
   "INFRAWRIGHT_PACK_PROFILE=$LAB_ROOT/packsets/profile.json" \
   "INFRAWRIGHT_DEPLOYMENT=$LAB_ROOT/deployment.json" \

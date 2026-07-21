@@ -25,7 +25,6 @@ import (
 type blockDCommandDependencies struct {
 	applyExactSavedPlans       func(assessment.ExactPlanApplyOptions) (assessment.ExactPlanApplyResult, error)
 	createApplyTerraform       func(assessment.CreateExactPlanApplyTerraformOptions) (assessment.ExactPlanApplyTerraform, error)
-	createBatchStateLoader     func(adopt.DefaultAdoptionLoaderOptions) (adopt.AdoptionBatchStateLoader, error)
 	createImportTerraform      func(adopt.ImportStagingTerraformOptions) adopt.ImportStagingTerraform
 	createStateLoader          func(adopt.DefaultAdoptionLoaderOptions) (adopt.AdoptionStateLoader, error)
 	currentApplyBranch         func(assessment.CurrentApplyBranchOptions) string
@@ -46,13 +45,12 @@ type blockDCommandDependencies struct {
 
 func defaultBlockDCommandDependencies() blockDCommandDependencies {
 	return blockDCommandDependencies{
-		applyExactSavedPlans:   assessment.ApplyExactSavedPlans,
-		createApplyTerraform:   assessment.CreateExactPlanApplyTerraform,
-		createBatchStateLoader: adopt.DefaultAdoptionBatchStateLoader,
-		createImportTerraform:  adopt.CreateImportStagingTerraform,
-		createStateLoader:      adopt.DefaultAdoptionStateLoader,
-		currentApplyBranch:     assessment.CurrentApplyBranch,
-		currentDirectory:       os.Getwd,
+		applyExactSavedPlans:  assessment.ApplyExactSavedPlans,
+		createApplyTerraform:  assessment.CreateExactPlanApplyTerraform,
+		createImportTerraform: adopt.CreateImportStagingTerraform,
+		createStateLoader:     adopt.DefaultAdoptionStateLoader,
+		currentApplyBranch:    assessment.CurrentApplyBranch,
+		currentDirectory:      os.Getwd,
 		deploymentPath: func(environment map[string]string) (string, error) {
 			return deployment.DeploymentPath(deployment.DeploymentPathOptions{Environment: environment})
 		},
@@ -125,8 +123,6 @@ type lazyAdoptionLoaders struct {
 	executableErr    error
 	state            adopt.AdoptionStateLoader
 	stateErr         error
-	batch            adopt.AdoptionBatchStateLoader
-	batchErr         error
 }
 
 func (loaders *lazyAdoptionLoaders) terraformExecutable() (string, error) {
@@ -160,24 +156,6 @@ func (loaders *lazyAdoptionLoaders) stateLoader(request adopt.AdoptionStateReque
 		return nil, loaders.stateErr
 	}
 	return loaders.state(request)
-}
-
-func (loaders *lazyAdoptionLoaders) batchLoader(request []adopt.OracleBatchResourceRequest) (adopt.OracleBatchState, error) {
-	if loaders.batch == nil && loaders.batchErr == nil {
-		executable, err := loaders.terraformExecutable()
-		if err != nil {
-			loaders.batchErr = err
-		} else {
-			loaders.batch, loaders.batchErr = loaders.dependencies.createBatchStateLoader(adopt.DefaultAdoptionLoaderOptions{
-				Environment: cloneCommandEnvironment(loaders.environment), OnDiagnostic: loaders.onDiagnostic,
-				Root: loaders.root, TerraformExecutable: executable,
-			})
-		}
-	}
-	if loaders.batchErr != nil {
-		return nil, loaders.batchErr
-	}
-	return loaders.batch(request)
 }
 
 func adoptCommand(arguments []string) (int, error) {
@@ -228,8 +206,7 @@ func adoptCommandInput(parsed commandInput, dependencies blockDCommandDependenci
 		selected: options.terraform, onDiagnostic: diagnostic,
 	}
 	result, err := dependencies.runAdoptBatch(adopt.RunAdoptBatchOptions{
-		BatchStateLoader: loaders.batchLoader, Deployment: loadedDeployment,
-		Environment: cloneCommandEnvironment(options.environment), InputDirectory: options.input,
+		Deployment: loadedDeployment, InputDirectory: options.input,
 		OnDiagnostic: diagnostic, Policy: policy, Root: loadedRoot,
 		Selectors: options.resources, StateLoader: loaders.stateLoader, Tenant: options.tenant,
 	})
