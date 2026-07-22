@@ -365,7 +365,7 @@ func genEnvCommand(arguments []string) (int, error) {
 func newGenEnvCobraCommand() *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "gen-env", short: "Generate tenant environment roots",
-		valueFlags: []string{"--tenant", "--backend", "--resource", "--deployment", "--root", "--profile"},
+		valueFlags: []string{"--tenant", "--backend", "--resource", "--terraform", "--deployment", "--root", "--profile"},
 		run: func(parsed commandInput) (int, error) {
 			return legacyPlanLifecycleCommand(func() (int, error) {
 				if len(parsed.Positionals) != 0 {
@@ -395,6 +395,8 @@ func genEnvInput(parsed commandInput) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	// --terraform remains accepted as an operator-facing compatibility option;
+	// formatting is performed in process, so its value is intentionally unused.
 	formatter := modulesgen.NewHCLFormatter()
 	generateOptions := envgen.GenerateEnvironmentRootsOptions{
 		Deployment: loadedDeployment,
@@ -478,7 +480,7 @@ func newModulesCobraCommand() *cobra.Command {
 		verb := verb
 		modules.AddCommand(newTypedCobraCommand(typedCobraCommandSpec{
 			use: verb, short: strings.ToUpper(verb[:1]) + verb[1:] + " Terraform modules",
-			valueFlags: []string{"--resource", "--out", "--deployment", "--root", "--profile"},
+			valueFlags: []string{"--resource", "--out", "--deployment", "--root", "--profile", "--terraform"},
 			run: func(parsed commandInput) (int, error) {
 				return legacyPlanLifecycleCommand(func() (int, error) {
 					if len(parsed.Positionals) != 0 {
@@ -553,6 +555,8 @@ func modulesInput(verb string, parsed commandInput) (int, error) {
 		fmt.Fprintf(os.Stdout, "validated generated module tree %s: %d module(s)\n", outputRoot, len(selected))
 		return 0, nil
 	}
+	// --terraform remains accepted as an operator-facing compatibility option;
+	// generation and validation do not shell out, so its value is unused.
 	generateOptions := modulesgen.GenerateModuleOptions{
 		OutputRoot: outputRoot,
 		FormatHCL:  modulesgen.NewHCLFormatter(),

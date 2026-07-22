@@ -10,6 +10,7 @@ package deployment
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -195,6 +196,43 @@ func TestRetiredRootFieldsFailWithFieldSpecificRoadmapPointer(t *testing.T) {
 				t.Fatalf("LoadDeployment = %v, want field-specific retirement error for %s", err, test.field)
 			}
 		})
+	}
+}
+
+func TestStateTopologyRetiredFieldDocumentationMatchesValidation(t *testing.T) {
+	documentPath := filepath.Join("..", "..", "..", "docs", "state-topology.md")
+	documentBytes, err := os.ReadFile(documentPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error: %v", documentPath, err)
+	}
+	document := string(documentBytes)
+	retiredSentence := regexp.MustCompile(`Deployment root\nentries reject these retired fields: ([^.]+)\.`).FindStringSubmatch(document)
+	if len(retiredSentence) != 2 {
+		t.Fatalf("%s has no parseable retired deployment-root field list", documentPath)
+	}
+	matches := regexp.MustCompile("`([^`]+)`").FindAllStringSubmatch(retiredSentence[1], -1)
+	gotRetired := make([]string, 0, len(matches))
+	for _, match := range matches {
+		gotRetired = append(gotRetired, match[1])
+	}
+	wantRetired := []string{"strategy", "groups", "bind_references"}
+	if strings.Join(gotRetired, ",") != strings.Join(wantRetired, ",") {
+		t.Fatalf("documented retired deployment-root fields = %v, want %v", gotRetired, wantRetired)
+	}
+	dir := t.TempDir()
+	for _, field := range gotRetired {
+		content := `{"roots":{"zpa":{"` + field + `":false}}}`
+		deploymentPath := writeDeployment(t, dir, content)
+		if _, err := LoadDeployment(deploymentPath); err == nil || !strings.Contains(err.Error(), "roots.zpa."+field+" has been removed") {
+			t.Errorf("LoadDeployment(%s) error = %v, want documented retirement error for %q", content, err, field)
+		}
+	}
+	if !strings.Contains(document, "`cross_state_references`, a boolean that defaults to enabled") {
+		t.Errorf("%s does not document the live cross_state_references default", documentPath)
+	}
+	deploymentPath := writeDeployment(t, dir, `{"roots":{"zpa":{"cross_state_references":true}}}`)
+	if _, err := LoadDeployment(deploymentPath); err != nil {
+		t.Errorf("LoadDeployment(cross_state_references=true) error = %v, want documented live field accepted", err)
 	}
 }
 

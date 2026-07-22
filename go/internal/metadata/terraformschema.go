@@ -4,9 +4,9 @@ package metadata
 // schema type encodings and attribute/block classification.
 //
 // Unlike the rest of this package, these functions are not called by
-// loader.go, packs.go, resources.go, or rootcatalog.go (Wave 2's actual
-// gate), so there is no exported-wrapper/unexported-implementation split
-// here (see packs.go's file doc comment for that convention): every
+// loader.go, packs.go, or resources.go, so there is no exported-wrapper/
+// unexported-implementation split here (see packs.go's file doc comment for
+// that convention): every
 // function below returns (T, error) directly, threading errors through its
 // modest, shallow recursion the ordinary Go way rather than via this
 // package's fail()/recoverMetadataError panic convention, since nothing

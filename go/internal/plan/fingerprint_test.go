@@ -70,7 +70,7 @@ func requireFingerprintFailureCode(t *testing.T, operation string, err error, wa
 	}
 }
 
-func TestFingerprintV2PayloadAndDigestAreSelfConsistent(t *testing.T) {
+func TestFingerprintV2PayloadAndDigestMatchFixedContract(t *testing.T) {
 	temp := t.TempDir()
 	envDir := filepath.Join(temp, "envs", "tenant", "zpa_custom")
 	firstType := "zpa_segment_group"
@@ -171,21 +171,73 @@ func TestFingerprintV2PayloadAndDigestAreSelfConsistent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CaptureInitSourcesPayload(%+v, nil) error: %v", input, err)
 	}
-	if got, want := payload.MemberTypes, []string{firstType, secondType}; !reflect.DeepEqual(got, want) {
-		t.Errorf("CapturePlanSourcesPayload(%+v, nil).MemberTypes = %#v, want %#v", input, got, want)
+	backendSHA := "8dd324f94a0cba2bdddcabf4b5af10ca1938274116d8524dc1f061db45ba9cea"
+	wantBackend := &BackendFingerprint{Key: &backendKey, Present: true, SHA256: &backendSHA}
+	wantModules := []ModuleFingerprint{
+		{
+			Files: []FileFingerprint{
+				{"linked-main.tf", "b949b9ff0951ebc9090bdfee5e3f6c2c810b7ad666cd8ad240ae6045b9024b41"},
+				{"main.tf", "b949b9ff0951ebc9090bdfee5e3f6c2c810b7ad666cd8ad240ae6045b9024b41"},
+				{"nested/binary.bin", "26a66b061e8f48f39927c312f25293959729eee95978e2892d49d3512a5cc092"},
+			},
+			Local: true, Present: true, ResourceType: firstType, Source: "../../../modules/segment-\x7f-é-😀",
+		},
+		{Files: []FileFingerprint{}, Local: true, Present: false, ResourceType: secondType, Source: "../../../modules/missing-server-group"},
 	}
-	if payload.Backend == nil || !payload.Backend.Present || payload.Backend.Key == nil || *payload.Backend.Key != backendKey {
-		t.Errorf("CapturePlanSourcesPayload(%+v, nil).Backend = %#v, want present backend key %q", input, payload.Backend, backendKey)
+	wantPayload := PlanSourcesPayload{
+		Backend:     wantBackend,
+		MemberTypes: []string{firstType, secondType},
+		Modules:     wantModules,
+		RootTF: []FileFingerprint{
+			{".terraform.lock.hcl", "718475cd179c5fce5f3cbaf68fb45b15017015ebeec359c040cf704e3f1c86b6"},
+			{"a.auto.tfvars", "cb78bd8a17f7b751fe0d4663366dcbc257204033ef7ddd64b1f2969573b5b2e2"},
+			{"b.auto.tfvars.json", "651b5768de252a9f4d2083046d83f81c31369beb73d14411492b20ea8fd1fcf5"},
+			{"linked.tf", "dfc51e9bb51789b3470e435fa6268343f4983afbc4581bcc71d5115ce1723a33"},
+			{"main.tf", "519a99a232e663b96326012ecfd66d4d7c9b51f7958549ea31878d37accf6b1b"},
+			{"providers.tf", "6f908af107c30c64af46b456482e8c53e2afe3d528700d139a01fe8c4607d003"},
+			{"terraform.tfvars", "5a1a948fb3fd8d68bee00abb4d6d05b6437033cf330d0b1b90f62c79622b41e6"},
+			{"terraform.tfvars.json", "276b788e4bdad7cb58761dd279d04bae9f3768994de1cf4bef198a8e977d0782"},
+			{"é-\x7f.tf.json", "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"},
+		},
+		VarFiles: []FileFingerprint{
+			{"shared.auto.tfvars.json", "651b5768de252a9f4d2083046d83f81c31369beb73d14411492b20ea8fd1fcf5"},
+			{"shared.auto.tfvars.json", "e346432021b04179518d9614f3560ccd71354a4ee101ddcb893d6959a9d6301c"},
+			{"vars-\x7f-é.auto.tfvars.json", "867e933df8d9ec57739dff826e4e3caecaf550fe521a266a1065f1218c77de65"},
+		},
 	}
-	if !reflect.DeepEqual(initPayload.Backend, payload.Backend) || !reflect.DeepEqual(initPayload.Modules, payload.Modules) {
-		t.Errorf("CaptureInitSourcesPayload() backend/modules = %#v/%#v, want plan payload backend/modules %#v/%#v", initPayload.Backend, initPayload.Modules, payload.Backend, payload.Modules)
+	wantInitPayload := InitSourcesPayload{
+		Backend: wantBackend,
+		Modules: wantModules,
+		RootConfig: []FileFingerprint{
+			{"linked.tf", "dfc51e9bb51789b3470e435fa6268343f4983afbc4581bcc71d5115ce1723a33"},
+			{"main.tf", "519a99a232e663b96326012ecfd66d4d7c9b51f7958549ea31878d37accf6b1b"},
+			{"providers.tf", "6f908af107c30c64af46b456482e8c53e2afe3d528700d139a01fe8c4607d003"},
+			{"é-\x7f.tf.json", "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"},
+		},
 	}
-	digest := PlanSourcesSHA256(payload)
+	if !reflect.DeepEqual(payload, wantPayload) {
+		t.Errorf("CapturePlanSourcesPayload(%+v, nil) = %#v, want fixed %#v", input, payload, wantPayload)
+	}
+	if !reflect.DeepEqual(initPayload, wantInitPayload) {
+		t.Errorf("CaptureInitSourcesPayload(%+v, nil) = %#v, want fixed %#v", input, initPayload, wantInitPayload)
+	}
+	wantCanonical := `{"backend":{"key":"tenant/zpa-\u007f-\u00e9-\ud83d\ude00.tfstate","present":true,"sha256":"8dd324f94a0cba2bdddcabf4b5af10ca1938274116d8524dc1f061db45ba9cea"},"member_types":["zpa_segment_group","zpa_server_group"],"modules":[{"files":[["linked-main.tf","b949b9ff0951ebc9090bdfee5e3f6c2c810b7ad666cd8ad240ae6045b9024b41"],["main.tf","b949b9ff0951ebc9090bdfee5e3f6c2c810b7ad666cd8ad240ae6045b9024b41"],["nested/binary.bin","26a66b061e8f48f39927c312f25293959729eee95978e2892d49d3512a5cc092"]],"local":true,"present":true,"resource_type":"zpa_segment_group","source":"../../../modules/segment-\u007f-\u00e9-\ud83d\ude00"},{"files":[],"local":true,"present":false,"resource_type":"zpa_server_group","source":"../../../modules/missing-server-group"}],"root_tf":[[".terraform.lock.hcl","718475cd179c5fce5f3cbaf68fb45b15017015ebeec359c040cf704e3f1c86b6"],["a.auto.tfvars","cb78bd8a17f7b751fe0d4663366dcbc257204033ef7ddd64b1f2969573b5b2e2"],["b.auto.tfvars.json","651b5768de252a9f4d2083046d83f81c31369beb73d14411492b20ea8fd1fcf5"],["linked.tf","dfc51e9bb51789b3470e435fa6268343f4983afbc4581bcc71d5115ce1723a33"],["main.tf","519a99a232e663b96326012ecfd66d4d7c9b51f7958549ea31878d37accf6b1b"],["providers.tf","6f908af107c30c64af46b456482e8c53e2afe3d528700d139a01fe8c4607d003"],["terraform.tfvars","5a1a948fb3fd8d68bee00abb4d6d05b6437033cf330d0b1b90f62c79622b41e6"],["terraform.tfvars.json","276b788e4bdad7cb58761dd279d04bae9f3768994de1cf4bef198a8e977d0782"],["\u00e9-\u007f.tf.json","ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"]],"var_files":[["shared.auto.tfvars.json","651b5768de252a9f4d2083046d83f81c31369beb73d14411492b20ea8fd1fcf5"],["shared.auto.tfvars.json","e346432021b04179518d9614f3560ccd71354a4ee101ddcb893d6959a9d6301c"],["vars-\u007f-\u00e9.auto.tfvars.json","867e933df8d9ec57739dff826e4e3caecaf550fe521a266a1065f1218c77de65"]]}`
+	if got := CanonicalPlanSourcesJSON(payload); got != wantCanonical {
+		t.Errorf("CanonicalPlanSourcesJSON(payload) = %q, want fixed %q", got, wantCanonical)
+	}
+	const wantDigest = "c601a941a2e1b868320b5a19da38cd1c97b883d5d31facfd5b1527771e74d676"
+	if got := PlanSourcesSHA256(payload); got != wantDigest {
+		t.Errorf("PlanSourcesSHA256(payload) = %q, want fixed %q", got, wantDigest)
+	}
+	const wantInitDigest = "7ee0107752451c2e207caa4d91a37234cfc88850886a4ad9c97c0444afc8449d"
+	if got := InitSourcesSHA256(initPayload); got != wantInitDigest {
+		t.Errorf("InitSourcesSHA256(initPayload) = %q, want fixed %q", got, wantInitDigest)
+	}
 	fingerprint, err := FingerprintPlanV2(input, nil)
 	if err != nil {
 		t.Fatalf("FingerprintPlanV2(%+v, nil) error: %v", input, err)
 	}
-	wantFingerprint := PlanFingerprintV2{Version: PlanFingerprintVersion, SHA256: digest}
+	wantFingerprint := PlanFingerprintV2{Version: PlanFingerprintVersion, SHA256: wantDigest}
 	if fingerprint != wantFingerprint {
 		t.Errorf("FingerprintPlanV2(%+v, nil) = %#v, want %#v", input, fingerprint, wantFingerprint)
 	}

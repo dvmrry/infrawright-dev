@@ -13,8 +13,11 @@ selection may accept a provider/product selector, but selection expands to
 individual singleton roots; it does not create a grouped state unit.
 
 Pack `registry.json` entries must not define `slug_group`. Deployment root
-entries must not define `strategy`, `root_slug`, or `cross_state_references`.
-These retired fields fail validation instead of being ignored.
+entries reject these retired fields: `strategy`, `groups`, and
+`bind_references`. The only supported provider-root option is
+`cross_state_references`, a boolean that defaults to enabled; setting it to
+`false` disables generated cross-state bindings. Other fields, including
+`root_slug`, fail validation as unknown keys.
 
 The `roots`, `scope-paths`, `plan-roots`, `gen-env`, plan, assessment, and Apply
 commands all consume this topology. Packs and the active profile are the sole

@@ -161,7 +161,9 @@ func TestV2GenerationAuthority(t *testing.T) {
 	root := repoRoot(t)
 	binary := buildGoV2AuthorityCLI(t, root, "iw-go-v2-generation")
 	fixture := prepareBlockC4Fixture(t, filepath.Join(t.TempDir(), "workspace"))
-	arguments := append([]string{"gen-env", "--tenant", "tenant"}, topologyFixtureArguments(fixture)...)
+	arguments := append([]string{
+		"gen-env", "--tenant", "tenant", "--terraform", filepath.Join(fixture.workspace, "missing-terraform"),
+	}, topologyFixtureArguments(fixture)...)
 	result := runV2TopologyCommand(t, binary, fixture, arguments)
 	requireV2TopologyRunGolden(t, root, fixture.workspace, "gen-env", result)
 	requireExactTree(t, "V2 singleton gen-env tree", treeBytes(t, fixture.envDir), readV2TopologyTreeGolden(t, root))

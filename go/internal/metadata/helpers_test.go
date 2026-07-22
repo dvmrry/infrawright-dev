@@ -1,8 +1,7 @@
 package metadata
 
-// helpers_test.go holds small filesystem fixtures shared by loader_test.go
-// and rootcatalog_test.go, the Go ports of the original test corpus
-// and the original test corpus.
+// helpers_test.go holds small filesystem fixtures shared by the metadata
+// loader and pack tests.
 
 import (
 	"encoding/json"

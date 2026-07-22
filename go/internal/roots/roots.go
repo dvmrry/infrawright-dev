@@ -137,11 +137,8 @@ func isJSObjectLike(value any) bool {
 // loadedResourceShape in the original implementation (`Object.entries(...)
 // .filter(...).sort(([left],[right]) => right.length - left.length)`).
 // Ties among same-length candidate prefixes are broken alphabetically
-// (canonjson.SortedStrings) rather than by the Node source's
-// Object.entries insertion order, mirroring
-// go/internal/metadata/rootcatalog.go's matchingPrefix and its doc
-// comment's rationale: every committed pack declares exactly one prefix
-// per provider, so this tie-break is unreachable in this port's gate.
+// (canonjson.SortedStrings). Every committed pack declares exactly one prefix
+// per provider, so this tie-break is unreachable for validated pack metadata.
 func matchingPrefix(providerPrefixes map[string]string, resourceType, provider string) (string, bool) {
 	var candidates []string
 	for prefix, owner := range providerPrefixes {

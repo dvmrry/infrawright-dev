@@ -82,6 +82,105 @@ func TestDeriveLegacySourceOperationRegistryFindsReadAndListOperations(t *testin
 	}
 }
 
+func TestDeriveLegacySourceOperationRegistryPinsAmbiguityPrecedenceAndReadiness(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"resource_thing.go": `package provider
+
+var resourceName = "example_thing"
+
+func read() {
+	client.ThingsAPI.GetThing(ctx, id)
+	client.ThingsAPI.RetrieveThing(ctx, uid)
+}
+`,
+		"resource_project.go": "package provider\n",
+	}
+	for name, content := range files {
+		path := filepath.Join(root, name)
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("os.WriteFile(%q) error: %v", path, err)
+		}
+	}
+	providerSource := "registry.terraform.io/example/example"
+	schema := map[string]any{"provider_schemas": map[string]any{providerSource: map[string]any{
+		"resource_schemas": map[string]any{
+			"example_thing":   map[string]any{"block": map[string]any{"attributes": map[string]any{"name": map[string]any{"required": true, "type": "string"}}}},
+			"example_project": map[string]any{"block": map[string]any{"attributes": map[string]any{"name": map[string]any{"required": true, "type": "string"}}}},
+			"example_missing": map[string]any{"block": map[string]any{"attributes": map[string]any{"name": map[string]any{"required": true, "type": "string"}}}},
+		},
+	}}}
+	openAPI := map[string]any{"paths": map[string]any{
+		"/things/{id}":   map[string]any{"get": map[string]any{"operationId": "GetThing"}},
+		"/things/{uid}":  map[string]any{"get": map[string]any{"operationId": "RetrieveThing"}},
+		"/projects/{id}": map[string]any{"get": map[string]any{"operationId": "ProjectsRetrieve"}},
+	}}
+	report, err := DeriveLegacySourceOperationRegistry(LegacyOptions{
+		SchemaData: schema, OpenAPI: openAPI, SourceRoot: root,
+		ProviderSource: providerSource, ResourcePrefix: "example",
+	})
+	if err != nil {
+		t.Fatalf("DeriveLegacySourceOperationRegistry() error: %v", err)
+	}
+	summary := legacyObject(report["summary"])
+	wantSummary := map[string]int{
+		"resources": 3, "mapped": 0, "ambiguous": 1, "unmapped": 2, "graphql_source": 0,
+		"resources_with_source_files": 2, "resources_without_source_files": 1,
+	}
+	for name, want := range wantSummary {
+		if got := legacyNumber(summary[name]); got != want {
+			t.Errorf("DeriveLegacySourceOperationRegistry() summary[%q] = %d, want %d (summary: %#v)", name, got, want, summary)
+		}
+	}
+
+	registry := legacyObject(report["registry"])
+	thing := legacyObject(registry["example_thing"])
+	if got := legacyString(thing["status"]); got != "ambiguous_source_operation" {
+		t.Fatalf("example_thing status = %q, want ambiguous_source_operation", got)
+	}
+	if got := legacyString(thing["reason"]); got != "ambiguous_source_operation" {
+		t.Errorf("example_thing reason = %q, want ambiguous_source_operation", got)
+	}
+	candidates := legacyArray(thing["candidates"])
+	if len(candidates) != 2 {
+		t.Fatalf("example_thing candidates = %d, want 2: %#v", len(candidates), candidates)
+	}
+	for index, want := range []struct {
+		operationID string
+		path        string
+		readScore   int
+		listScore   int
+	}{
+		{operationID: "RetrieveThing", path: "/things/{uid}", readScore: 332, listScore: 277},
+		{operationID: "GetThing", path: "/things/{id}", readScore: 320, listScore: 265},
+	} {
+		candidate := legacyObject(candidates[index])
+		if gotOperation, gotPath := legacyString(candidate["operation_id"]), legacyString(candidate["path"]); gotOperation != want.operationID || gotPath != want.path {
+			t.Errorf("example_thing candidate[%d] operation/path = %q/%q, want %q/%q", index, gotOperation, gotPath, want.operationID, want.path)
+		}
+		if gotRead, gotList := legacyNumber(candidate["read_score"]), legacyNumber(candidate["list_score"]); gotRead != want.readScore || gotList != want.listScore {
+			t.Errorf("example_thing candidate[%d] read/list scores = %d/%d, want %d/%d", index, gotRead, gotList, want.readScore, want.listScore)
+		}
+	}
+
+	project := legacyObject(registry["example_project"])
+	if gotStatus, gotReason := legacyString(project["status"]), legacyString(project["reason"]); gotStatus != "unmapped" || gotReason != "no_source_operation_match" {
+		t.Errorf("example_project status/reason = %q/%q, want unmapped/no_source_operation_match", gotStatus, gotReason)
+	}
+	projectSource := legacyObject(project["source"])
+	if got := projectSource["files"]; !reflect.DeepEqual(got, []string{"resource_project.go"}) {
+		t.Errorf("example_project source files = %#v, want [resource_project.go]", got)
+	}
+
+	missing := legacyObject(registry["example_missing"])
+	if gotStatus, gotReason := legacyString(missing["status"]), legacyString(missing["reason"]); gotStatus != "unmapped" || gotReason != "resource_file_not_found" {
+		t.Errorf("example_missing status/reason = %q/%q, want unmapped/resource_file_not_found", gotStatus, gotReason)
+	}
+	if got := legacyObject(missing["source"])["files"]; !reflect.DeepEqual(got, []string{}) {
+		t.Errorf("example_missing source files = %#v, want empty", got)
+	}
+}
+
 func TestCompareLegacySourceOperationReports(t *testing.T) {
 	control := map[string]any{"registry": map[string]any{"a": map[string]any{"reason": nil, "status": "mapped", "source": map[string]any{"candidate_count": 1, "files": []any{"a.go"}}, "read": map[string]any{"evidence_kind": "read", "operation_id": "GetA", "path": "/a/{id}"}}}, "summary": map[string]any{"mapped": 1}}
 	candidate := map[string]any{"registry": map[string]any{"a": map[string]any{"reason": nil, "status": "mapped", "source": map[string]any{"candidate_count": 1, "files": []any{"a.go"}}, "read": map[string]any{"evidence_kind": "read", "operation_id": "GetA", "path": "/a/{id}"}}, "b": map[string]any{"reason": "resource_file_not_found", "status": "unmapped", "source": map[string]any{}}}, "summary": map[string]any{"mapped": 1, "unmapped": 1}}
