@@ -25,8 +25,12 @@
   `74922c3e1392f5a4998becd06c08289dd28a8aa1`.
 - Final review remediation:
   `8a31f3d753b79d76ba9ea7d00318723b3ca0741c`.
-- Review head: `8a31f3d753b79d76ba9ea7d00318723b3ca0741c`.
-- Diff command: `git diff --find-renames 5b9abae..8a31f3d`.
+- Final verification record:
+  `6a14b8700692272cf85485d9d373dffe207ea8f5`.
+- GPT-5.6 Pro remediation implementation:
+  `60b639c886be7ce96a7c7b8f8a8e1c4341be5654`.
+- Review head: `60b639c886be7ce96a7c7b8f8a8e1c4341be5654`.
+- Diff command: `git diff --find-renames 5b9abae..60b639c`.
 
 ## Files Changed
 
@@ -40,7 +44,11 @@
   remediation makes Go tests uncached, tightens command-context matching, and
   separates current-tree authority verification from the opt-in archived
   bundle byte check. Final remediation asserts exact verification cardinality
-  and records the tested immutable-tag bundle-recovery procedure.
+  and records the tested immutable-tag bundle-recovery procedure. GPT-5.6 Pro
+  remediation replaces the inline matcher with a self-scanning portable gate,
+  adds a mutation harness for wrapper/path/document/shebang/source/residue
+  bypasses, and forces the complete CI gate to rebuild under failing runtime
+  interceptors.
 - Files intentionally left untouched: `node-tests/fixtures/*.json`, existing
   Go golden/testdata corpora, provider schemas, pack manifests, registries,
   overrides, root catalogs, Terraform modules, and untracked `reports/`.
@@ -111,6 +119,10 @@ verification result:
 | Uncached authoring authority tests required the deleted local bundle | `TestNodeV1Authority` and its mutation setup assumed every manifest entry still existed in the working tree | Continue verifying the immutable ten-entry manifest and all nine retained entries by default; resolve only the archived bundle entry through explicit `INFRAWRIGHT_FROZEN_NODE_ORACLE` | Default focused/full suites pass without the bundle; a missing configured oracle fails; the recovered frozen bundle passes exact size/digest verification |
 | Default authority mode did not assert how many entries were actually hashed | The archived bundle skip was path-specific but verification coverage was represented only by control flow and verbose logging | Return the completed verification count and assert exactly nine entries without an oracle and all ten with one; mutation setup independently asserts nine | Default and recovered-bundle focused tests pass; any additional uncounted `continue` now fails the cardinality assertion |
 | Bundle recovery was named but not reproducible from the archive record | The generated bundle was Git-ignored and absent from the immutable tag tree | Add exact detached-worktree, Node/npm version, install, build, size, digest, and cleanup instructions | Fresh tag rebuild under Node 24.15.0/npm 11.12.1 produced exactly 3,040,955 bytes and SHA-256 `ce48c2c6a1cc01254866c5a7eb98b3eef1c90e6c45b69aff7df7aed80c822fa2` |
+| Static enforcement admitted wrapped, quoted, path-qualified, and indirect commands, while CI built before installing interceptors | The inline regex covered a narrow set of positions and CI materialized `dist/iw` before the intercepted complete gate | Replace the inline recipe with `tools/archive-tripwire.sh`; scan all Make/shell/workflow surfaces, runtime shebangs and source extensions, nested package residue, and current workflow docs; run the regression harness as CI's first build path and force `make -B check check-root-catalog` under all three interceptors | `tools/test-archive-tripwire.sh` independently rejects every reported wrapper/YAML/path form plus nested manifests, runtime source, executable shebangs, and a README command in a path containing spaces; the forced intercepted rebuild and all 33 Go packages pass |
+| Prose protection covered only one mid-sentence domain example | The old command regex treated punctuation as sufficient command context | Use a runnable-argument pattern only for workflow documents and retain fail-closed token matching for executable surfaces | Regression export accepts parenthesized prose, parenthetical mid-sentence prose, inline-code prose, lowercase sentence-start prose, and the Virtual Service Edge domain sentence |
+| Differential and TypeScript probe provenance instructions were stale | Comments described the pre-archive automatic bundle path and current-tree regeneration | Document explicit oracle environment behavior and require regeneration from a detached `node-oracle-v1-final` worktree; point topology provenance to `roots_test.go` | Source review confirms unset oracle skips, configured missing oracle fails, both probe imports exist in the tag tree, and the named Go test exists |
+| The root runtime-version selector survived archive | It was useful before archive but became redundant once the exact recovery toolchain was recorded in the archive document and immutable tag | Delete `.node-version` and make version selectors, package manifests/caches, and restored source directories tripwire failures | Baseline gate passes without it; residue mutation cases fail; the immutable tag and archive record retain the exact recovery version |
 
 The approximately 1,400 Go comments pointing to historical `node-src/*.ts`
 locations were deliberately retained. They are source provenance into the
@@ -144,12 +156,20 @@ dependencies; the archive record now states that resolution rule explicitly.
   - `env -u INFRAWRIGHT_FROZEN_NODE_ORACLE make check`
   - `make check-core`
   - `make archive-tripwire`
+  - `shellcheck tools/archive-tripwire.sh tools/test-archive-tripwire.sh`
+  - `tools/test-archive-tripwire.sh`
   - `PATH=<failing-node-and-npm-interceptors>:$PATH make check-distribution check-root-catalog`
   - `env -u INFRAWRIGHT_FROZEN_NODE_ORACLE CI=true PATH=<failing-node-and-npm-interceptors>:$PATH make check check-root-catalog`
   - Git-export portability run of `make archive-tripwire`, followed by an
     accepted domain-prose line and an injected `node deleted-runtime.mjs`
     documentation command that the target rejected as intended; the same run
     covered a README path containing spaces.
+  - Current-tree export mutation matrix for environment and shell wrappers,
+    quoted YAML, path-qualified/PATH-assigned commands, custom workflow shell,
+    package-manager/package-exec commands, nested manifest, runtime source,
+    executable shebang, and path-with-spaces documentation; every case was
+    rejected individually.
+  - `CI=true PATH=<failing-node-npm-npx-interceptors>:$PATH make -B check check-root-catalog`
   - `env -u INFRAWRIGHT_FROZEN_NODE_ORACLE go test -count=1 ./internal/authoring/authority -v`
   - `INFRAWRIGHT_FROZEN_NODE_ORACLE=<recovered-frozen-bundle> go test -count=1 ./internal/authoring/authority -run '^TestNodeV1Authority$' -v`
   - Detached `node-oracle-v1-final` worktree under Node 24.15.0/npm 11.12.1:
@@ -162,7 +182,9 @@ dependencies; the archive record now states that resolution rule explicitly.
   the two archived differential tests; Go help, sole-Make-lane, and
   no-external-executable tests passed. The full Go suite passed all packages.
   `make check` regenerated the committed demo with no drift. Both reduced roots
-  passed the full distribution gate.
+  passed the full distribution gate. The final forced intercepted run rebuilt
+  `dist/iw` after installing the shims, re-executed all 33 Go packages with
+  `-count=1`, and passed the root-catalog check.
 - Tests not run and why: GitHub Actions has not yet run on the pushed branch;
   live provider/backend/Apply qualification is separately human-gated and not
   claimed; the full opt-in frozen-bundle differential corpus was not rerun.
@@ -183,13 +205,17 @@ dependencies; the archive record now states that resolution rule explicitly.
 ## Review Focus
 
 - Highest-risk files or paths: `Makefile`, `.github/workflows/check.yml`,
+  `tools/archive-tripwire.sh`, `tools/test-archive-tripwire.sh`,
   `go/cmd/iw/main.go`, differential harness setup, profile derivability tests,
   and the four demo sidecars.
 - Specific assumptions to attack: every active Make target truly uses `$(IW)`;
   CI's shell copy faithfully materializes all eleven profiles; removal of the
   package marker does not break relocated binaries; archived oracle gating does
   not skip Go-only authority tests; no deleted JavaScript script remains a
-  current documented workflow dependency.
+  current documented workflow dependency; the static gate cannot be bypassed
+  by wrapper commands, quoted YAML, path qualification, nested manifests,
+  executable shebangs, or new runtime source files; the prose pattern does not
+  reject domain vocabulary.
 - Source evidence the reviewer should verify: tag/commit/digest in the archive
   record; pack `vendor` and `requires_shared` closure; existing v2 transform
   manifest naming the four sidecars.
