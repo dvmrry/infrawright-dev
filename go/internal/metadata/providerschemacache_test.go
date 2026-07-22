@@ -17,15 +17,15 @@ import (
 	"testing"
 )
 
-// cachedRoot loads the repo's committed packs/ under packsets/full.json,
+// cachedRoot loads the repo's committed packs/ under packs/full.packset.json,
 // the same fixture modulesgen's committedRoot test helper uses, giving a
 // LoadedPackRoot built through the real loadPackRoot path (so schemaCache
 // is populated, unlike a hand-built struct literal).
 func cachedRoot(t *testing.T) LoadedPackRoot {
 	t.Helper()
 	root := repoRoot(t)
-	profilePath := filepath.Join(root, "packsets", "full.json")
-	catalogPath := filepath.Join(root, "packsets", "full.json")
+	profilePath := filepath.Join(root, "packs", "full.packset.json")
+	catalogPath := filepath.Join(root, "packs", "full.packset.json")
 	loaded, err := LoadPackRoot(LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,
@@ -252,8 +252,8 @@ func findRepoRootForBench(b *testing.B) string {
 func benchmarkMetadataAndRoot(b *testing.B) (PackMetadata, LoadedPackRoot) {
 	b.Helper()
 	root := findRepoRootForBench(b)
-	profilePath := filepath.Join(root, "packsets", "full.json")
-	catalogPath := filepath.Join(root, "packsets", "full.json")
+	profilePath := filepath.Join(root, "packs", "full.packset.json")
+	catalogPath := filepath.Join(root, "packs", "full.packset.json")
 	metadata, err := LoadPackMetadata(filepath.Join(root, "packs"))
 	if err != nil {
 		b.Fatalf("LoadPackMetadata: %v", err)

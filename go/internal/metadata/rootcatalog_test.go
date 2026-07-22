@@ -20,8 +20,8 @@ import (
 // the committed repo fixtures).
 func activeRoot(t *testing.T, root string) LoadedPackRoot {
 	t.Helper()
-	profilePath := filepath.Join(root, "packsets", "full.json")
-	catalogPath := filepath.Join(root, "packsets", "full.json")
+	profilePath := filepath.Join(root, "packs", "full.packset.json")
+	catalogPath := filepath.Join(root, "packs", "full.packset.json")
 	loaded, err := LoadPackRoot(LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,

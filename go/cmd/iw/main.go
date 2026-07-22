@@ -60,8 +60,9 @@ func lastCommandOption(parsed commandInput, name string) (string, bool) {
 // packageRoot locates the runtime data root. An explicit
 // INFRAWRIGHT_PACKAGE_ROOT wins so a released binary can live outside the
 // packs tree; otherwise the search walks upward from the executable until it
-// finds the packs and packsets directories shipped with the runtime. A nearer
-// package.json remains a last-resort transition marker for fixture runtimes.
+// finds the packs directory and its full pack-set document shipped with the
+// runtime. A nearer package.json remains a last-resort transition marker for
+// fixture runtimes.
 func packageRoot() (string, error) {
 	if configured, ok := os.LookupEnv("INFRAWRIGHT_PACKAGE_ROOT"); ok {
 		if configured == "" {
@@ -85,8 +86,8 @@ func findPackageRoot(start string) (string, error) {
 	legacyRoot := ""
 	for {
 		packs, packsErr := os.Stat(filepath.Join(current, "packs"))
-		packsets, packsetsErr := os.Stat(filepath.Join(current, "packsets"))
-		if packsErr == nil && packsetsErr == nil && packs.IsDir() && packsets.IsDir() {
+		profile, profileErr := os.Stat(filepath.Join(current, "packs", "full.packset.json"))
+		if packsErr == nil && profileErr == nil && packs.IsDir() && profile.Mode().IsRegular() {
 			return current, nil
 		}
 		if legacyRoot == "" {
@@ -152,12 +153,12 @@ func rootCatalogInput(parsed commandInput) (int, error) {
 		if env, ok := lookupEnv("INFRAWRIGHT_PACK_PROFILE"); ok {
 			profile = env
 		} else {
-			profile = filepath.Join(rootDirectory, "packsets", "full.json")
+			profile = filepath.Join(rootDirectory, "packs", "full.packset.json")
 		}
 	}
 	catalog, hasCatalog := lastCommandOption(parsed, "--catalog")
 	if !hasCatalog {
-		catalog = filepath.Join(rootDirectory, "packsets", "full.json")
+		catalog = filepath.Join(rootDirectory, "packs", "full.packset.json")
 	}
 	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   root,
@@ -220,12 +221,12 @@ func transformCommandInput(parsed commandInput) (int, error) {
 		if env := os.Getenv("INFRAWRIGHT_PACK_PROFILE"); env != "" {
 			profile = env
 		} else {
-			profile = filepath.Join(rootDirectory, "packsets", "full.json")
+			profile = filepath.Join(rootDirectory, "packs", "full.packset.json")
 		}
 	}
 	catalog, hasCatalog := lastCommandOption(parsed, "--catalog")
 	if !hasCatalog {
-		catalog = filepath.Join(rootDirectory, "packsets", "full.json")
+		catalog = filepath.Join(rootDirectory, "packs", "full.packset.json")
 	}
 	input, hasInput := lastCommandOption(parsed, "--in")
 	tenant, hasTenant := lastCommandOption(parsed, "--tenant")

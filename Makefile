@@ -5,8 +5,8 @@ GO ?= go
 OVERLAY ?= demo
 _INFRAWRIGHT_IMPORTED_DEPLOYMENT := $(INFRAWRIGHT_DEPLOYMENT)
 DEPLOYMENT ?= $(if $(strip $(_INFRAWRIGHT_IMPORTED_DEPLOYMENT)),$(_INFRAWRIGHT_IMPORTED_DEPLOYMENT),deployment.json)
-PACK_PROFILE ?= packsets/full.json
-PACK_CATALOG ?= packsets/full.json
+PACK_PROFILE ?= packs/full.packset.json
+PACK_CATALOG ?= packs/full.packset.json
 ROOT_CATALOG ?= catalogs/zscaler-root-catalog.v2.json
 DEMO_PACK_REQUIREMENTS ?= demo/pack-requirements.json
 DEMO_DEPLOYMENT ?= demo/deployment.json
@@ -151,12 +151,12 @@ check: dist/iw ## Current Go-authority distribution and runtime gate
 check-node: check-distribution test-node ## Complete frozen Node gate; run from node-oracle-v1-final
 
 check-all: ## Run the active-distribution gate against the complete upstream pack catalog
-	@INFRAWRIGHT_PACKS="$(CURDIR)/packs" $(MAKE) PACK_CATALOG="$(CURDIR)/packsets/full.json" PACK_PROFILE="$(CURDIR)/packsets/full.json" check
-	@INFRAWRIGHT_PACKS="$(CURDIR)/packs" $(MAKE) PACK_CATALOG="$(CURDIR)/packsets/full.json" PACK_PROFILE="$(CURDIR)/packsets/full.json" check-root-catalog
+	@INFRAWRIGHT_PACKS="$(CURDIR)/packs" $(MAKE) PACK_CATALOG="$(CURDIR)/packs/full.packset.json" PACK_PROFILE="$(CURDIR)/packs/full.packset.json" check
+	@INFRAWRIGHT_PACKS="$(CURDIR)/packs" $(MAKE) PACK_CATALOG="$(CURDIR)/packs/full.packset.json" PACK_PROFILE="$(CURDIR)/packs/full.packset.json" check-root-catalog
 
 check-core: ## Prove the pack-independent engine surface with an empty pack root
 	@root="$$(mktemp -d)"; trap 'rm -rf "$$root"' EXIT; \
-	INFRAWRIGHT_PACKS="$$root" $(MAKE) PACK_CATALOG="$(CURDIR)/packsets/full.json" PACK_PROFILE="$(CURDIR)/packsets/empty.json" \
+	INFRAWRIGHT_PACKS="$$root" $(MAKE) PACK_CATALOG="$(CURDIR)/packs/full.packset.json" PACK_PROFILE="$(CURDIR)/packs/empty.packset.json" \
 		INFRAWRIGHT_CLI=dist/iw INFRAWRIGHT_CLI_PREREQUISITE=dist/iw test-go check-pack check-modules
 
 test: test-go ## Default repository tests use the current Go authority

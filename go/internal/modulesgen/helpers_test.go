@@ -2,7 +2,7 @@ package modulesgen
 
 // helpers_test.go holds fixtures shared by generator_test.go, the Go port
 // of node-tests/module-generator.test.ts: locating the repo root (for the
-// committed packs/, packsets/, and tests/fixtures/gen/ trees), writing
+// committed packs/ and tests/fixtures/gen/ trees), writing
 // synthetic pack roots (the Go analogue of the TS test's syntheticRoot
 // helper), and resolving a real `terraform` executable for the tests that
 // exercise the Terraform-backed formatter, skipping them if none is on
@@ -21,7 +21,7 @@ import (
 )
 
 // repoRoot walks up from this test file's directory until it finds a
-// directory containing "packs", "packsets", and "tests" -- this package's
+// directory containing "packs", its full pack-set document, and "tests" -- this package's
 // fixture set, mirroring go/internal/metadata/gate_test.go's repoRoot
 // (each package that needs repo-root fixtures keeps its own copy; see that
 // function's doc comment for the convention).
@@ -34,14 +34,14 @@ func repoRoot(t *testing.T) string {
 	dir := filepath.Dir(thisFile)
 	for {
 		_, packsErr := os.Stat(filepath.Join(dir, "packs"))
-		_, packsetsErr := os.Stat(filepath.Join(dir, "packsets"))
+		_, profileErr := os.Stat(filepath.Join(dir, "packs", "full.packset.json"))
 		_, testsErr := os.Stat(filepath.Join(dir, "tests"))
-		if packsErr == nil && packsetsErr == nil && testsErr == nil {
+		if packsErr == nil && profileErr == nil && testsErr == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			t.Fatalf("walked up to filesystem root from %s without finding a directory containing packs/, packsets/, and tests/", filepath.Dir(thisFile))
+			t.Fatalf("walked up to filesystem root from %s without finding packs/full.packset.json and tests/", filepath.Dir(thisFile))
 		}
 		dir = parent
 	}
@@ -76,13 +76,13 @@ func writeRawFile(t *testing.T, path, content string) {
 	}
 }
 
-// committedRoot loads the repo's committed packs/ under packsets/full.json,
+// committedRoot loads the repo's committed packs/ under packs/full.packset.json,
 // ported from module-generator.test.ts's committedRoot helper.
 func committedRoot(t *testing.T) metadata.LoadedPackRoot {
 	t.Helper()
 	root := repoRoot(t)
-	profilePath := filepath.Join(root, "packsets", "full.json")
-	catalogPath := filepath.Join(root, "packsets", "full.json")
+	profilePath := filepath.Join(root, "packs", "full.packset.json")
+	catalogPath := filepath.Join(root, "packs", "full.packset.json")
 	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,

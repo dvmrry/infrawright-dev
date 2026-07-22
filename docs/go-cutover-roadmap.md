@@ -89,8 +89,8 @@ IW_OPERATOR   ?= dist/iw # Go binary
   dependency, verifiable fully offline in air-gapped consumers pulling
   from Artifactory; single keypair held by release owner). This closes
   the open signing decision in go-runtime-plan.md.
-- **Discovery:** the binary must locate its package root (packs,
-  packsets, catalogs, demo) when invoked from outside the repo:
+- **Discovery:** the binary must locate its package root (`packs/` including
+  flat pack-set profiles, catalogs, and demo) when invoked from outside the repo:
   explicit `INFRAWRIGHT_PACKAGE_ROOT` wins; otherwise walk up from the
   binary's own directory. Relocated-binary verification (§4) proves it.
 
@@ -125,7 +125,8 @@ Tripwires, both enforced in the Go lane:
 - Relocated-binary check: copy `iw` + release contents to a temp
   prefix outside any checkout, run the §3 smoke there.
 - Release contents (frozen list): binaries, SHA256SUMS + signature,
-  `catalogs/`, `packs/`, `packsets/`, `demo/`, LICENSE, and a
+  `catalogs/`, `packs/` (including `*.packset.json`), the temporary
+  byte-identical `packsets/` Node-v1 compatibility layout, `demo/`, LICENSE, and a
   RELEASE.md stating the version, oracle SHA lineage, and which
   commands (if any) still route to the transitional Node lane.
   `package.json` continues to publish the Node CLI unchanged until the

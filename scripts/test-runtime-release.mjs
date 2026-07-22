@@ -270,14 +270,14 @@ try {
     `PYTHON=${path.join(intercept, "python-must-not-run")}`,
     "SHELL=/bin/sh",
     "DEPLOYMENT=deployment.json",
-    "PACK_PROFILE=packsets/full.json",
-    "PACK_CATALOG=packsets/full.json",
+    "PACK_PROFILE=packs/full.packset.json",
+    "PACK_CATALOG=packs/full.packset.json",
   ], { cwd: generic, env: environment });
   const verifier = path.join(generic, "scripts", "verify-runtime-release.mjs");
   const externalProfiles = path.join(temporary, "external-profile");
   await mkdir(externalProfiles);
   await cp(
-    path.join(generic, "packsets", "full.json"),
+    path.join(generic, "packs", "full.packset.json"),
     path.join(externalProfiles, "selected.json"),
   );
   await cp(
@@ -332,15 +332,35 @@ try {
   }
   await rm(rejectedPythonLink);
 
+  await writeFile(path.join(generic, "packs", "broken.packset.json"), "{}\n", "utf8");
   await writeFile(path.join(generic, "packsets", "broken.json"), "{}\n", "utf8");
   const brokenProfile = runExpectedFailure(process.execPath, [verifier, generic], {
     cwd: temporary,
     env: environment,
   });
-  if (!brokenProfile.stderr.includes("packsets/broken.json is not a subset")) {
+  if (!brokenProfile.stderr.includes("packs/broken.packset.json is not a subset")) {
     throw new Error(`unexpected malformed-profile diagnostic: ${brokenProfile.stderr}`);
   }
+  await rm(path.join(generic, "packs", "broken.packset.json"));
   await rm(path.join(generic, "packsets", "broken.json"));
+
+  await writeFile(path.join(generic, "packsets", "full.json"), "{}\n", "utf8");
+  const mismatchedCompatibilityProfile = runExpectedFailure(
+    process.execPath,
+    [verifier, generic],
+    { cwd: temporary, env: environment },
+  );
+  if (!mismatchedCompatibilityProfile.stderr.includes(
+    "packsets/full.json differs from packs/full.packset.json",
+  )) {
+    throw new Error(
+      `unexpected compatibility-profile diagnostic: ${mismatchedCompatibilityProfile.stderr}`,
+    );
+  }
+  await cp(
+    path.join(generic, "packs", "full.packset.json"),
+    path.join(generic, "packsets", "full.json"),
+  );
 
   await cp(path.join(generic, "package.json"), path.join(generic, "dist", "package.json"));
   const shadowRoot = runExpectedFailure(process.execPath, [verifier, generic], {
@@ -383,9 +403,9 @@ try {
     "--root",
     path.join(generic, "packs"),
     "--profile",
-    path.join(generic, "packsets", "full.json"),
+    path.join(generic, "packs", "full.packset.json"),
     "--catalog",
-    path.join(generic, "packsets", "full.json"),
+    path.join(generic, "packs", "full.packset.json"),
   ], { cwd: temporary, env: environment });
   if (resourceResult.stdout !== "zia_url_categories\n") {
     throw new Error(`unexpected relocated resource output: ${resourceResult.stdout}`);
@@ -398,8 +418,8 @@ try {
     `NODE=${process.execPath}`,
     `NPM=${path.join(intercept, "npm-must-not-run")}`,
     "SHELL=/bin/sh",
-    `PACK_PROFILE=${path.join(generic, "packsets", "full.json")}`,
-    `PACK_CATALOG=${path.join(generic, "packsets", "full.json")}`,
+    `PACK_PROFILE=${path.join(generic, "packs", "full.packset.json")}`,
+    `PACK_CATALOG=${path.join(generic, "packs", "full.packset.json")}`,
     "RESOURCE=zia_url_categories",
   ], { cwd: generic, env: environment });
   if (makeResult.stdout !== "zia_url_categories\n") {
@@ -417,8 +437,8 @@ try {
     "OVERLAY=demo",
     "DEPLOYMENT=demo/deployment.json",
     "DEMO_DEPLOYMENT=demo/deployment.json",
-    "PACK_PROFILE=packsets/full.json",
-    "PACK_CATALOG=packsets/full.json",
+    "PACK_PROFILE=packs/full.packset.json",
+    "PACK_CATALOG=packs/full.packset.json",
   ], { cwd: generic, env: environment, timeout: 240_000 });
   if (!demoResult.stdout.includes("demo-contract: committed demo config/imports and generated modules are in sync")) {
     throw new Error(`unexpected stripped demo-contract output: ${demoResult.stdout}`);

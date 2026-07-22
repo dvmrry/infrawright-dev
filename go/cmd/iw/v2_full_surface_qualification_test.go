@@ -126,7 +126,7 @@ func (edge v2FullSurfaceEdge) declaration() string {
 
 func requireV2FullSurfaceDeclaredEdges(t *testing.T, repositoryRoot string, wantEdges []v2FullSurfaceEdge) {
 	t.Helper()
-	profile := filepath.Join(repositoryRoot, "packsets", "full.json")
+	profile := filepath.Join(repositoryRoot, "packs", "full.packset.json")
 	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profile, CatalogPath: &profile,
 	})
@@ -162,7 +162,7 @@ func requireV2FullSurfaceDeclaredEdges(t *testing.T, repositoryRoot string, want
 
 func v2FullSurfaceResourceTypes(t *testing.T, repositoryRoot string) []string {
 	t.Helper()
-	profile := filepath.Join(repositoryRoot, "packsets", "full.json")
+	profile := filepath.Join(repositoryRoot, "packs", "full.packset.json")
 	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profile, CatalogPath: &profile,
 	})
@@ -214,8 +214,8 @@ func runV2FullSurfaceGenEnv(
 	result := runBinaryWithEnv(t, workspace, binary, []string{
 		"gen-env", "--tenant", "qualification",
 		"--root", filepath.Join(repositoryRoot, "packs"),
-		"--profile", filepath.Join(repositoryRoot, "packsets", "full.json"),
-		"--catalog", filepath.Join(repositoryRoot, "packsets", "full.json"),
+		"--profile", filepath.Join(repositoryRoot, "packs", "full.packset.json"),
+		"--catalog", filepath.Join(repositoryRoot, "packs", "full.packset.json"),
 		"--deployment", deploymentPath,
 	}, []string{
 		"HOME=" + filepath.Join(workspace, "home"),

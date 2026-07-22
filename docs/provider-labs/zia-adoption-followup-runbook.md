@@ -130,8 +130,8 @@ Set these to the exact authorities used by the clean-room harness:
 
     export IW_CLI=/absolute/path/to/dist/infrawright-cli.mjs
     export IW_PACKS=/absolute/path/to/packs
-    export IW_PROFILE=/absolute/path/to/packsets/full.json
-    export IW_CATALOG=/absolute/path/to/packsets/full.json
+    export IW_PROFILE=/absolute/path/to/packs/full.packset.json
+    export IW_CATALOG=/absolute/path/to/packs/full.packset.json
     export IW_DEPLOYMENT=/absolute/path/to/deployment.json
     export IW_PULL=/absolute/path/to/the/frozen/pull/root
     export IW_TENANT=the-existing-test-tenant

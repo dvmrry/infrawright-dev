@@ -106,7 +106,7 @@ func assessmentRepoRoot(t *testing.T) string {
 func loadedAssessmentPack(t *testing.T) metadata.LoadedPackRoot {
 	t.Helper()
 	repository := assessmentRepoRoot(t)
-	profile := filepath.Join(repository, "packsets", "full.json")
+	profile := filepath.Join(repository, "packs", "full.packset.json")
 	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   filepath.Join(repository, "packs"),
 		ProfilePath: &profile,

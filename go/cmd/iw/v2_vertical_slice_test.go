@@ -470,7 +470,7 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 	isolatedPath := v2IsolatedPath(t, terraform)
 	environment := v2Environment(t, isolatedPath, deploymentPath, server)
 
-	profile := filepath.Join(root, "packsets", "zia.json")
+	profile := filepath.Join(root, "packs", "zia.packset.json")
 	metadataArguments := []string{
 		"--root", v2FullZIAPackRoot(t, root),
 		"--profile", profile,

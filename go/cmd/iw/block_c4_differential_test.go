@@ -88,7 +88,7 @@ func prepareBlockC4Fixture(t *testing.T, workspace string) blockC4Fixture {
 	fixture := blockC4Fixture{
 		workspace:  workspace,
 		packs:      filepath.Join(workspace, "packs"),
-		profile:    filepath.Join(workspace, "packsets", "full.json"),
+		profile:    filepath.Join(workspace, "packs", "full.packset.json"),
 		deployment: filepath.Join(workspace, "deployment.json"),
 		terraform:  filepath.Join(workspace, "terraform-fake"),
 		log:        filepath.Join(workspace, "terraform.log"),

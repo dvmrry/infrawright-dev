@@ -36,10 +36,11 @@ func TestPackageRootRejectsEmptyExplicitOverride(t *testing.T) {
 
 func TestFindPackageRootUsesRuntimeDataMarkersNotPackageJSON(t *testing.T) {
 	root := t.TempDir()
-	for _, directory := range []string{"packs", "packsets"} {
-		if err := os.Mkdir(filepath.Join(root, directory), 0o755); err != nil {
-			t.Fatalf("os.Mkdir(%q) error = %v, want nil", directory, err)
-		}
+	if err := os.Mkdir(filepath.Join(root, "packs"), 0o755); err != nil {
+		t.Fatalf("os.Mkdir(%q) error = %v, want nil", "packs", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "packs", "full.packset.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatalf("os.WriteFile(full.packset.json) error = %v, want nil", err)
 	}
 	nested := filepath.Join(root, "bin", "nested")
 	if err := os.MkdirAll(nested, 0o755); err != nil {

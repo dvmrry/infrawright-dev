@@ -302,7 +302,7 @@ func reviewerZIAOnlyPack(t *testing.T, repositoryRoot string) recordedFetchPack 
 			return writeRecordedFetchPack(t)
 		}
 	}
-	profile := filepath.Join(repositoryRoot, "packsets", "zia.json")
+	profile := filepath.Join(repositoryRoot, "packs", "zia.packset.json")
 	return recordedFetchPack{profile: profile, root: packsRoot}
 }
 
@@ -818,7 +818,7 @@ func TestFetchEmptyPackRootMakesNoRequests(t *testing.T) {
 	if err := os.Mkdir(emptyPacks, 0o777); err != nil {
 		t.Fatal(err)
 	}
-	emptySet := filepath.Join(root, "packsets", "empty.json")
+	emptySet := filepath.Join(root, "packs", "empty.packset.json")
 	environment := append(fetchNoNetworkEnvironment(), "FETCH_CONCURRENCY=65")
 	args := []string{
 		"fetch",

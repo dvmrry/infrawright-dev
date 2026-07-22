@@ -10,7 +10,7 @@
 // It calls loadPackRoot (node-src/metadata/loader.ts) and
 // loadedRootTopology/validateTenant (node-src/domain/roots.ts) --
 // the same node-src functions go/internal/roots ports -- against this
-// repo's own committed packs/, packsets/full.json, and demo/deployment.json,
+// repo's own committed packs/, packs/full.packset.json, and demo/deployment.json,
 // then prints one JSON document to stdout: the resulting RootTopology,
 // its diagnostics, and the exact error text/code/category
 // validateTenant raises for each of node-tests/roots.test.ts's invalid-
@@ -43,8 +43,8 @@ import { ProcessFailure } from "../../../../../node-src/domain/errors.js";
 
 async function main(): Promise<void> {
   const packsRoot = "packs";
-  const profilePath = "packsets/full.json";
-  const catalogPath = "packsets/full.json";
+  const profilePath = "packs/full.packset.json";
+  const catalogPath = "packs/full.packset.json";
   const deploymentPath = "demo/deployment.json";
   const tenant = "demo";
 

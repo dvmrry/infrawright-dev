@@ -242,7 +242,7 @@ func TestTransformDifferentialAgainstNodeOracle(t *testing.T) {
 
 			arguments := []string{
 				"transform", "--in", input, "--tenant", "demo",
-				"--profile", "packsets/full.json", "--catalog", "packsets/full.json",
+				"--profile", "packs/full.packset.json", "--catalog", "packs/full.packset.json",
 			}
 			for _, selector := range testCase.selectors {
 				arguments = append(arguments, "--resource", selector)

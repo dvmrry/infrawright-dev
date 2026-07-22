@@ -296,7 +296,7 @@ func TestAllActiveResourcesGenerateAndValidateACompleteTemporaryTree(t *testing.
 }
 
 // packSetFile is the minimal shape this test reads from a committed
-// packsets/<name>.json document: just enough to physically reduce a pack
+// packs/<name>.packset.json document: just enough to physically reduce a pack
 // root to the packs (and shared components) a profile actually needs.
 type packSetFile struct {
 	Packs  []string `json:"packs"`
@@ -365,7 +365,7 @@ func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t
 		t.Run(profileName, func(t *testing.T) {
 			directory := t.TempDir()
 			output := t.TempDir()
-			profilePath := filepath.Join(root, "packsets", profileName+".json")
+			profilePath := filepath.Join(root, "packs", profileName+".packset.json")
 			doc := readPackSetFile(t, profilePath)
 			for _, name := range doc.Packs {
 				copyDir(t, filepath.Join(root, "packs", name), filepath.Join(directory, name))
@@ -373,7 +373,7 @@ func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t
 			for _, name := range doc.Shared {
 				copyDir(t, filepath.Join(root, "packs", "_shared", name), filepath.Join(directory, "_shared", name))
 			}
-			catalogPath := filepath.Join(root, "packsets", "full.json")
+			catalogPath := filepath.Join(root, "packs", "full.packset.json")
 			loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 				PacksRoot:   directory,
 				ProfilePath: &profilePath,

@@ -86,7 +86,7 @@ func runV2TransformAuthority(t *testing.T, repositoryRoot, binary, name string) 
 	demoInput := filepath.Join(repositoryRoot, "packs", "_shared", "zscaler", "demo")
 	result := runBinaryWithEnv(t, repositoryRoot, binary, []string{
 		"transform", "--in", demoInput, "--tenant", "demo",
-		"--profile", "packsets/full.json", "--catalog", "packsets/full.json",
+		"--profile", "packs/full.packset.json", "--catalog", "packs/full.packset.json",
 	}, []string{
 		"INFRAWRIGHT_DEPLOYMENT=" + deploymentPath,
 		"TMPDIR=" + temporary,

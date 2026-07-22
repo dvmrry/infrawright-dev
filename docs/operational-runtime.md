@@ -130,8 +130,8 @@ Verify the already-built runtime without authorizing a rebuild:
 ```sh
 make verify-runtime \
   DEPLOYMENT=deployment.json \
-  PACK_PROFILE=packsets/full.json \
-  PACK_CATALOG=packsets/full.json
+  PACK_PROFILE=packs/full.packset.json \
+  PACK_CATALOG=packs/full.packset.json
 ```
 
 The target has no dependency on the `dist` build target. It verifies Node 24,

@@ -1,0 +1,10 @@
+{
+  "kind": "infrawright.pack-set",
+  "version": 1,
+  "packs": [
+    "ztc"
+  ],
+  "shared": [
+    "zscaler"
+  ]
+}

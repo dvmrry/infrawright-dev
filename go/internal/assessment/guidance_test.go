@@ -639,7 +639,7 @@ func TestRealPackRootSuppliesAllGuidanceLanes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("filepath.Abs(../../..) error = %v, want nil", err)
 	}
-	profile := filepath.Join(repository, "packsets", "full.json")
+	profile := filepath.Join(repository, "packs", "full.packset.json")
 	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot: filepath.Join(repository, "packs"), ProfilePath: &profile, CatalogPath: &profile,
 	})

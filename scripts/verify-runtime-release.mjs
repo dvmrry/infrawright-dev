@@ -143,15 +143,15 @@ const checksumFile = await requireFile(
 );
 const packsRoot = path.join(root, "packs");
 const profileFile = await requireFile(
-  selectedPath(root, parsed.selected.profile, "packsets/full.json"),
+  selectedPath(root, parsed.selected.profile, "packs/full.packset.json"),
   "pack profile",
 );
 const catalogFile = await requireFile(
-  selectedPath(root, parsed.selected.catalog, "packsets/full.json"),
+  selectedPath(root, parsed.selected.catalog, "packs/full.packset.json"),
   "pack catalog",
 );
 const releaseCatalogFile = await requireFile(
-  path.join(root, "packsets", "full.json"),
+  path.join(root, "packs", "full.packset.json"),
   "release pack catalog",
 );
 
@@ -204,7 +204,7 @@ if (
   || !Array.isArray(fullProfile.packs)
   || !Array.isArray(fullProfile.shared)
 ) {
-  fail("packsets/full.json is not a version-1 pack set");
+  fail("packs/full.packset.json is not a version-1 pack set");
 }
 for (const pack of fullProfile.packs) {
   await requireFile(path.join(packsRoot, pack, "pack.json"), `pack ${pack}`);
@@ -217,19 +217,38 @@ for (const component of fullProfile.shared) {
   }
 }
 
-const profilesRoot = path.join(root, "packsets");
+const profilesRoot = packsRoot;
+const compatibilityProfilesRoot = path.join(root, "packsets");
 const profileNames = (await readdir(profilesRoot))
-  .filter((name) => name.endsWith(".json"))
+  .filter((name) => name.endsWith(".packset.json"))
   .sort();
 if (profileNames.length === 0) fail("release contains no pack profiles");
+const compatibilityProfileNames = (await readdir(compatibilityProfilesRoot))
+  .filter((name) => name.endsWith(".json"))
+  .sort();
+const expectedCompatibilityNames = profileNames.map((name) =>
+  `${name.slice(0, -".packset.json".length)}.json`
+);
+if (JSON.stringify(compatibilityProfileNames) !== JSON.stringify(expectedCompatibilityNames)) {
+  fail("frozen Node compatibility profile set does not match flat profiles");
+}
 const knownPacks = new Set(fullProfile.packs);
 const knownShared = new Set(fullProfile.shared);
 for (const name of profileNames) {
-  const relative = `packsets/${name}`;
-  const document = JSON.parse(await readFile(
+  const relative = `packs/${name}`;
+  const profileBytes = await readFile(
     await requireFile(path.join(profilesRoot, name), relative),
-    "utf8",
+  );
+  const compatibilityName = `${name.slice(0, -".packset.json".length)}.json`;
+  const compatibilityRelative = `packsets/${compatibilityName}`;
+  const compatibilityBytes = await readFile(await requireFile(
+    path.join(compatibilityProfilesRoot, compatibilityName),
+    compatibilityRelative,
   ));
+  if (!profileBytes.equals(compatibilityBytes)) {
+    fail(`${compatibilityRelative} differs from ${relative}`);
+  }
+  const document = JSON.parse(profileBytes.toString("utf8"));
   if (
     document.kind !== "infrawright.pack-set"
     || document.version !== 1
