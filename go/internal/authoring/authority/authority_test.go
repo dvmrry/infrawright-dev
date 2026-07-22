@@ -44,8 +44,22 @@ func TestNodeV1Authority(t *testing.T) {
 	root := repositoryRoot(t)
 	manifestPath := filepath.Join(root, filepath.FromSlash(authorityManifestRelativePath))
 	oraclePath := configuredFrozenNodeOraclePath(t)
-	if err := verifyAuthority(root, manifestPath, oraclePath); err != nil {
+	verifiedEntries, err := verifyAuthority(root, manifestPath, oraclePath)
+	if err != nil {
 		t.Fatalf("verifyAuthority(%q, %q) error = %v, want nil", root, manifestPath, err)
+	}
+	expectedVerifiedEntries := authorityManifestEntryCount - 1
+	if oraclePath != "" {
+		expectedVerifiedEntries = authorityManifestEntryCount
+	}
+	if verifiedEntries != expectedVerifiedEntries {
+		t.Errorf(
+			"verifyAuthority(%q, %q) verified entries = %d, want %d",
+			root,
+			manifestPath,
+			verifiedEntries,
+			expectedVerifiedEntries,
+		)
 	}
 }
 
@@ -54,13 +68,18 @@ func TestVerifyEntriesRejectsUnavailableConfiguredOracle(t *testing.T) {
 	manifestPath := filepath.Join(root, filepath.FromSlash(authorityManifestRelativePath))
 	manifest := loadManifest(t, manifestPath)
 	missingOracle := filepath.Join(t.TempDir(), "missing-oracle.mjs")
-	if err := verifyEntries(
+	verifiedEntries, err := verifyEntries(
 		root,
 		manifest,
 		artifacts.NewDefaultReadBudget(),
 		missingOracle,
-	); err == nil {
-		t.Errorf("verifyEntries(frozenNodeOraclePath=%q) error = nil, want unavailable-oracle failure", missingOracle)
+	)
+	if err == nil {
+		t.Errorf(
+			"verifyEntries(frozenNodeOraclePath=%q) verified entries = %d, error = nil; want unavailable-oracle failure",
+			missingOracle,
+			verifiedEntries,
+		)
 	}
 }
 
@@ -89,8 +108,16 @@ func TestVerifyEntriesRejectsMutation(t *testing.T) {
 		t.Fatalf("os.ReadFile(%q) error = %v, want nil", targetPath, err)
 	}
 
-	if err := verifyEntries(tempRoot, manifest, artifacts.NewDefaultReadBudget(), ""); err != nil {
+	verifiedEntries, err := verifyEntries(tempRoot, manifest, artifacts.NewDefaultReadBudget(), "")
+	if err != nil {
 		t.Fatalf("verifyEntries(initial copy) error = %v, want nil", err)
+	}
+	if verifiedEntries != authorityManifestEntryCount-1 {
+		t.Errorf(
+			"verifyEntries(initial copy) verified entries = %d, want %d",
+			verifiedEntries,
+			authorityManifestEntryCount-1,
+		)
 	}
 
 	mutated := append([]byte(nil), source...)
@@ -98,7 +125,7 @@ func TestVerifyEntriesRejectsMutation(t *testing.T) {
 	if err := os.WriteFile(targetPath, mutated, 0o600); err != nil {
 		t.Fatalf("os.WriteFile(mutated %q) error = %v, want nil", targetPath, err)
 	}
-	if err := verifyEntries(
+	if _, err := verifyEntries(
 		tempRoot,
 		manifest,
 		artifacts.NewDefaultReadBudget(),
@@ -125,7 +152,7 @@ func TestAuthorityManifestDigestAndCardinalityRejectMutationAndRemoval(t *testin
 	if err := os.WriteFile(tempManifestPath, append([]byte("\n"), manifestBytes...), 0o600); err != nil {
 		t.Fatalf("os.WriteFile(mutated %q) error = %v, want nil", tempManifestPath, err)
 	}
-	if err := verifyAuthority(tempRoot, tempManifestPath, ""); err == nil {
+	if _, err := verifyAuthority(tempRoot, tempManifestPath, ""); err == nil {
 		t.Errorf("verifyAuthority(mutated manifest) error = nil, want manifest digest failure")
 	}
 
@@ -175,23 +202,23 @@ func TestDecodeManifestRejectsUnknownAndUnsafeFields(t *testing.T) {
 	}
 }
 
-func verifyAuthority(repositoryRoot, manifestPath, frozenNodeOraclePath string) error {
+func verifyAuthority(repositoryRoot, manifestPath, frozenNodeOraclePath string) (int, error) {
 	budget := artifacts.NewDefaultReadBudget()
 	manifestBytes, err := artifacts.ReadBoundedFileBytes(manifestPath, budget, artifacts.StableReadOptions{})
 	if err != nil {
-		return fmt.Errorf("read authority manifest: %w", err)
+		return 0, fmt.Errorf("read authority manifest: %w", err)
 	}
 	computed := sha256.Sum256(manifestBytes.Bytes)
 	computedSHA256 := hex.EncodeToString(computed[:])
 	if manifestBytes.Digest.SHA256 != computedSHA256 {
-		return fmt.Errorf("authority manifest stable digest = %q, independently rehashed %q", manifestBytes.Digest.SHA256, computedSHA256)
+		return 0, fmt.Errorf("authority manifest stable digest = %q, independently rehashed %q", manifestBytes.Digest.SHA256, computedSHA256)
 	}
 	if computedSHA256 != authorityManifestSHA256 {
-		return fmt.Errorf("authority manifest sha256 = %q, want %q", computedSHA256, authorityManifestSHA256)
+		return 0, fmt.Errorf("authority manifest sha256 = %q, want %q", computedSHA256, authorityManifestSHA256)
 	}
 	manifest, err := decodeManifest(manifestBytes.Bytes)
 	if err != nil {
-		return fmt.Errorf("decode authority manifest: %w", err)
+		return 0, fmt.Errorf("decode authority manifest: %w", err)
 	}
 	return verifyEntries(repositoryRoot, manifest, budget, frozenNodeOraclePath)
 }
@@ -201,11 +228,12 @@ func verifyEntries(
 	manifest authorityManifest,
 	budget *artifacts.ReadBudget,
 	frozenNodeOraclePath string,
-) error {
+) (int, error) {
 	if err := validateManifest(manifest); err != nil {
-		return fmt.Errorf("validate authority manifest: %w", err)
+		return 0, fmt.Errorf("validate authority manifest: %w", err)
 	}
 
+	verifiedEntries := 0
 	for _, entry := range manifest.Entries {
 		filePath := filepath.Join(repositoryRoot, filepath.FromSlash(entry.Path))
 		if entry.Path == archivedNodeBundleEntryPath {
@@ -216,24 +244,25 @@ func verifyEntries(
 		}
 		bound, err := artifacts.ReadBoundedFileBytes(filePath, budget, artifacts.StableReadOptions{})
 		if err != nil {
-			return fmt.Errorf("stable-read authority entry %q: %w", entry.Path, err)
+			return verifiedEntries, fmt.Errorf("stable-read authority entry %q: %w", entry.Path, err)
 		}
 		computed := sha256.Sum256(bound.Bytes)
 		computedSHA256 := hex.EncodeToString(computed[:])
 		if bound.Digest.Size != int64(len(bound.Bytes)) {
-			return fmt.Errorf("authority entry %q stable size = %d, byte length = %d", entry.Path, bound.Digest.Size, len(bound.Bytes))
+			return verifiedEntries, fmt.Errorf("authority entry %q stable size = %d, byte length = %d", entry.Path, bound.Digest.Size, len(bound.Bytes))
 		}
 		if bound.Digest.Size != entry.Size {
-			return fmt.Errorf("authority entry %q size = %d, want %d", entry.Path, bound.Digest.Size, entry.Size)
+			return verifiedEntries, fmt.Errorf("authority entry %q size = %d, want %d", entry.Path, bound.Digest.Size, entry.Size)
 		}
 		if bound.Digest.SHA256 != computedSHA256 {
-			return fmt.Errorf("authority entry %q stable digest = %q, independently rehashed %q", entry.Path, bound.Digest.SHA256, computedSHA256)
+			return verifiedEntries, fmt.Errorf("authority entry %q stable digest = %q, independently rehashed %q", entry.Path, bound.Digest.SHA256, computedSHA256)
 		}
 		if computedSHA256 != entry.SHA256 {
-			return fmt.Errorf("authority entry %q sha256 = %q, want %q", entry.Path, computedSHA256, entry.SHA256)
+			return verifiedEntries, fmt.Errorf("authority entry %q sha256 = %q, want %q", entry.Path, computedSHA256, entry.SHA256)
 		}
+		verifiedEntries++
 	}
-	return nil
+	return verifiedEntries, nil
 }
 
 func configuredFrozenNodeOraclePath(t *testing.T) string {

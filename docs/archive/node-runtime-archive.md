@@ -31,6 +31,31 @@ Retained evidence:
 - opt-in differential harnesses, disabled unless
   `INFRAWRIGHT_FROZEN_NODE_ORACLE` names a separately recovered bundle.
 
+The bundle was generated output and is not stored in the tag tree. Recover it
+from the immutable source tag with the recorded Node 24.15.0/npm 11.12.1
+toolchain:
+
+```sh
+oracle_parent="$(mktemp -d)"
+oracle_root="$oracle_parent/node-oracle-v1-final"
+git worktree add --detach "$oracle_root" node-oracle-v1-final
+cd "$oracle_root"
+test "$(node --version)" = "v24.15.0"
+test "$(npm --version)" = "11.12.1"
+npm ci --ignore-scripts
+npm run build
+wc -c dist/infrawright-cli.mjs
+shasum -a 256 dist/infrawright-cli.mjs
+```
+
+The final two commands must report 3,040,955 bytes and
+`ce48c2c6a1cc01254866c5a7eb98b3eef1c90e6c45b69aff7df7aed80c822fa2`.
+Point `INFRAWRIGHT_FROZEN_NODE_ORACLE` at that absolute bundle path for an
+opt-in authority or differential run. Do not update the frozen lockfile or run
+an automated dependency fix during recovery; a changed dependency graph is
+not the recorded oracle. Remove the detached worktree with
+`git worktree remove "$oracle_root"` when it is no longer needed.
+
 Go comments that cite `node-src/*.ts` are retained provenance pointers, not
 current-tree source dependencies. Resolve those paths against the immutable
 `node-oracle-v1-final` tag above; they are intentionally absent from the
