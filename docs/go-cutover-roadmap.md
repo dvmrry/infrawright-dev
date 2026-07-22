@@ -1,8 +1,8 @@
 # Go operational cutover roadmap
 
-Status: DECIDED, sequencing AMENDED 2026-07-19 — second of two
-roadmaps. The original revision assumed the seven authoring commands
-would remain Node indefinitely; the goal is now **full Node archival**,
+Status: ARCHIVE EXECUTED 2026-07-22. The original revision assumed the seven
+authoring commands would remain Node indefinitely; the final goal became
+**full Node archival**,
 so the authoring surface is in cutover scope and the master sequence
 is:
 
@@ -25,8 +25,11 @@ implementation passed the external Opus, GPT-5.6 Pro, and Fable review sequence
 on 2026-07-20 at `c3e18a67e4b61b90860e02b782342b3e98ebbd80`. This does not
 imply a production/provider-controlled exact Apply; that remains separately
 human-gated. The formal authority handoff and singleton-state v2 implementation
-are complete. What remains is the real-backend inventory, live qualification,
-routing, release engineering, and a controlled default switch.
+are complete. Executable Node routing, build, CI, and release paths were
+archived directly in this dev repository after downstream testing; the
+credential-free archive does not claim that the separately human-gated live
+qualification was performed here. See
+[the archive record](archive/node-runtime-archive.md).
 
 ## 0. Preconditions
 
@@ -45,33 +48,12 @@ routing, release engineering, and a controlled default switch.
 5. Go toolchain pinned to 1.26.5 (security prerequisite completed 2026-07-20)
    before any release artifact is produced.
 
-## 1. CLI routing: transitional split, then one Go lane
+## 1. CLI routing: complete
 
-The Makefile already routes the six authoring targets through the Go binary via
-`IW_MAINTAINER`; operator targets still route through the Node bundle via
-`INFRAWRIGHT_CLI`. At the authority handoff the operator lane becomes:
-
-```
-IW_OPERATOR   ?= dist/iw # Go binary
-```
-
-- All operator targets (fetch, transform, adopt, roots, scope-paths,
-  plan-roots, stage-imports, plan, assert-*, apply, gen-env, modules,
-  check-pack, check-pack-set, deployment, resources, …) use
-  `IW_OPERATOR` and drop their `dist/infrawright-cli.mjs` build
-  prerequisite entirely.
-- The six retained authoring commands (reconcile, openapi-map,
-  source-operation-map, source-evidence-eval, provider-probe,
-  transform-adopt-parity) already use `IW_MAINTAINER ?= dist/iw`. The variable
-  is transitional only and is collapsed into `IW_OPERATOR` (single binary,
-  single variable) during the archive phase.
-- The version-specific `zpa-provider-evidence` CLI does not cross the
-  handoff. Its v4.4.6 matrix, source anchors, and fail-closed binding checks
-  become a frozen corpus of the generic source analyzer as specified by
-  [go-authoring-port-roadmap.md](go-authoring-port-roadmap.md).
-- During the candidate period only, `INFRAWRIGHT_CLI` remains honored
-  as an explicit override of `IW_OPERATOR` (this is the opt-in/rollback
-  lever); it is deleted at the end of the rollback window.
+All operator and authoring Make targets use `IW ?= dist/iw`. The transitional
+operator/maintainer split, bundle prerequisite, and rollback override are
+deleted. The version-specific `zpa-provider-evidence` CLI did not cross the
+handoff; its reviewed evidence remains in the generic source-analysis corpus.
 
 ## 2. Binary and distribution
 
@@ -89,33 +71,17 @@ IW_OPERATOR   ?= dist/iw # Go binary
   dependency, verifiable fully offline in air-gapped consumers pulling
   from Artifactory; single keypair held by release owner). This closes
   the open signing decision in go-runtime-plan.md.
-- **Discovery:** the binary must locate its package root (packs,
-  packsets, catalogs, demo) when invoked from outside the repo:
+- **Discovery:** the binary must locate its package root (`packs/` including
+  flat pack-set profiles, catalogs, and demo) when invoked from outside the repo:
   explicit `INFRAWRIGHT_PACKAGE_ROOT` wins; otherwise walk up from the
   binary's own directory. Relocated-binary verification (§4) proves it.
 
-## 3. CI: split lanes with tripwires
+## 3. CI: one Go lane with tripwires
 
-`check.yml` becomes two lanes:
-
-- **Go lane:** build all platforms, `gofmt`/`go vet`, full
-  `go test ./...` including whatever differential gates survive the
-  authority handoff against the *pinned v1 oracle artifact* (the
-  frozen bundle by SHA — the lane needs Node only to execute the
-  oracle, never to build it). Once degrouping retires the
-  topology-dependent gates and golden gates replace them, the
-  remaining oracle executions shrink accordingly; when none remain,
-  Node leaves this lane entirely.
-- **Node lane (transitional):** existing Node build + tests, scoped to
-  the not-yet-ported authoring tools and oracle-bundle
-  reproducibility. Retires at the archive phase.
-
-Tripwires, both enforced in the Go lane:
-1. Static: operator Make targets must not reference `$(NODE)`, `npm`,
-   or `dist/infrawright-cli.mjs` (grep-based check target).
-2. Dynamic: a smoke job runs the operator lifecycle
-   (resources → roots → gen-env → modules generate/validate →
-   check-pack) with `node` and `npm` removed from `PATH`.
+CI runs formatting, vet, the complete Go suite, distribution checks, root
+catalog drift checks, and the flattened-profile reduced-root gate. Static
+checks reject legacy Make/build/CI routing. Dynamic checks put failing `node`
+and `npm` interceptors first on `PATH` while exercising the distribution.
 
 ## 4. Distribution testing
 
@@ -124,14 +90,17 @@ Tripwires, both enforced in the Go lane:
   module-selection counts recorded.
 - Relocated-binary check: copy `iw` + release contents to a temp
   prefix outside any checkout, run the §3 smoke there.
-- Release contents (frozen list): binaries, SHA256SUMS + signature,
-  `catalogs/`, `packs/`, `packsets/`, `demo/`, LICENSE, and a
-  RELEASE.md stating the version, oracle SHA lineage, and which
-  commands (if any) still route to the transitional Node lane.
-  `package.json` continues to publish the Node CLI unchanged until the
-  archive phase.
+- Release contents (target list): binaries, SHA256SUMS + signature,
+  `catalogs/`, `packs/` (including `*.packset.json`), `demo/`, LICENSE, and a
+  RELEASE.md stating the version and frozen-oracle lineage. No package-manager
+  manifest or compatibility profile directory is part of the current tree.
 
 ## 5. Rollout phases
+
+Historical sequence below. The dev repository moved directly from qualified
+Go authority to archive on 2026-07-22 after the user confirmed downstream
+testing and accepted Git history as the recovery path; no rollback executable
+remains in this tree.
 
 1. **Candidate (opt-in):** release `iw` binaries; downstream opts in
    via `INFRAWRIGHT_CLI=dist/iw` (or `IW_OPERATOR` directly). Node
@@ -171,10 +140,7 @@ in the product.
 
 ## 7. Exit criteria
 
-- Default switch shipped and tagged; rollback window elapsed with no
-  parity regressions.
-- CI green with tripwires active and the Node lane retired.
-- Relocated-binary and pruned-profile checks in CI, not just run once.
-- go-runtime-v2.md updated: cutover recorded as complete, no
-  executable Node dependencies remaining; the v1 oracle bundle listed
-  as provenance-only.
+- CI green with archive tripwires active and the Node lane retired.
+- Flattened profiles and physically reduced roots checked in CI.
+- `go-runtime-v2.md` and the archive record identify Go as sole authority and
+  the v1 oracle as provenance-only.

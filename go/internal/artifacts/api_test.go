@@ -9,6 +9,9 @@ import (
 )
 
 func TestNodeMaximumStringLengthMatchesNode2415(t *testing.T) {
+	if os.Getenv("INFRAWRIGHT_FROZEN_NODE_ORACLE") == "" {
+		t.Skip("archived runtime oracle is opt-in")
+	}
 	if !boundedFilePlatformSupported {
 		t.Skip("Node MAX_STRING_LENGTH oracle applies only to supported 64-bit bounded-file targets")
 	}
@@ -31,6 +34,9 @@ func TestNodeMaximumStringLengthMatchesNode2415(t *testing.T) {
 }
 
 func TestNode24MaximumStringLengthRemainsCompatible(t *testing.T) {
+	if os.Getenv("INFRAWRIGHT_FROZEN_NODE_ORACLE") == "" {
+		t.Skip("archived runtime oracle is opt-in")
+	}
 	if !boundedFilePlatformSupported {
 		t.Skip("Node MAX_STRING_LENGTH oracle applies only to supported 64-bit bounded-file targets")
 	}

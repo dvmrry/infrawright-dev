@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -19,8 +20,8 @@ import (
 // metadata exposes the complete generic resource surface".
 func TestLoadPackRootExposesGenericResourceSurface(t *testing.T) {
 	root := repoRoot(t)
-	profilePath := filepath.Join(root, "packsets", "full.json")
-	catalogPath := filepath.Join(root, "packsets", "full.json")
+	profilePath := filepath.Join(root, "packs", "full.packset.json")
+	catalogPath := filepath.Join(root, "packs", "full.packset.json")
 	loaded, err := LoadPackRoot(LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,
@@ -520,11 +521,11 @@ func TestAllCommittedPackProfilesLoadFromReducedRoots(t *testing.T) {
 	packsetNames := []string{
 		"empty", "aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc", "zscaler", "full",
 	}
-	fullCatalogPath := filepath.Join(root, "packsets", "full.json")
+	fullCatalogPath := filepath.Join(root, "packs", "full.packset.json")
 	for _, name := range packsetNames {
 		name := name
 		t.Run(name, func(t *testing.T) {
-			profilePath := filepath.Join(root, "packsets", name+".json")
+			profilePath := filepath.Join(root, "packs", name+".packset.json")
 			raw, err := os.ReadFile(profilePath)
 			if err != nil {
 				t.Fatalf("reading %s: %v", profilePath, err)
@@ -570,6 +571,84 @@ func TestAllCommittedPackProfilesLoadFromReducedRoots(t *testing.T) {
 			}
 			if !reflect.DeepEqual(active, loaded.Active) {
 				t.Fatalf("ActivePackSelection(directory) = %+v, want %+v (loaded.Active)", active, loaded.Active)
+			}
+		})
+	}
+}
+
+// TestCommittedPackProfilesAreDerivable proves the current checked-in profile
+// inventory contains no selection knowledge beyond pack identity, vendor, and
+// requires_shared metadata. The full profile remains independently valuable as
+// an exact distribution lock: deriving it from an already damaged installed
+// root could not detect an accidentally deleted pack.
+func TestCommittedPackProfilesAreDerivable(t *testing.T) {
+	root := repoRoot(t)
+	packsRoot := filepath.Join(root, "packs")
+	metadata, err := LoadPackMetadata(packsRoot)
+	if err != nil {
+		t.Fatalf("LoadPackMetadata(%q) error = %v, want nil", packsRoot, err)
+	}
+
+	manifestByName := make(map[string]PackManifest, len(metadata.Manifests))
+	for _, manifest := range metadata.Manifests {
+		manifestByName[manifest.Name] = manifest
+	}
+	entries, err := os.ReadDir(packsRoot)
+	if err != nil {
+		t.Fatalf("os.ReadDir(%q) error = %v, want nil", packsRoot, err)
+	}
+	var profileNames []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".packset.json") {
+			profileNames = append(profileNames, strings.TrimSuffix(entry.Name(), ".packset.json"))
+		}
+	}
+	if len(profileNames) == 0 {
+		t.Fatalf("os.ReadDir(%q) found no *.packset.json profiles", packsRoot)
+	}
+	sort.Strings(profileNames)
+	for _, profileName := range profileNames {
+		t.Run(profileName, func(t *testing.T) {
+			selectedPacks := []string{}
+			switch profileName {
+			case "empty":
+			case "full":
+				for _, manifest := range metadata.Manifests {
+					selectedPacks = append(selectedPacks, manifest.Name)
+				}
+			case "zscaler":
+				for _, manifest := range metadata.Manifests {
+					if manifest.Data["vendor"] == "zscaler" {
+						selectedPacks = append(selectedPacks, manifest.Name)
+					}
+				}
+			default:
+				if _, ok := manifestByName[profileName]; !ok {
+					t.Fatalf("profile %q has no matching pack manifest", profileName)
+				}
+				selectedPacks = []string{profileName}
+			}
+			sort.Strings(selectedPacks)
+			sharedSet := make(map[string]struct{})
+			for _, packName := range selectedPacks {
+				for _, dependency := range manifestByName[packName].RequiresShared {
+					sharedSet[dependency] = struct{}{}
+				}
+			}
+			selectedShared := make([]string, 0, len(sharedSet))
+			for name := range sharedSet {
+				selectedShared = append(selectedShared, name)
+			}
+			sort.Strings(selectedShared)
+
+			profilePath := filepath.Join(packsRoot, profileName+".packset.json")
+			profile, loadErr := LoadPackSetDocument(profilePath, PackSetKind)
+			if loadErr != nil {
+				t.Fatalf("LoadPackSetDocument(%q) error = %v, want nil", profilePath, loadErr)
+			}
+			want := PackSelection{Packs: selectedPacks, Shared: selectedShared}
+			if !reflect.DeepEqual(profile.PackSelection, want) {
+				t.Errorf("LoadPackSetDocument(%q).PackSelection = %+v, want derived selection %+v", profilePath, profile.PackSelection, want)
 			}
 		})
 	}

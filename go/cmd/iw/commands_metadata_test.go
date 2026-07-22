@@ -171,8 +171,8 @@ func TestCheckPackSetCommandPreservesExitThreeAndEnvironmentDefaults(t *testing.
 	output.Reset()
 	dependencies.environment = func(string) string { return "" }
 	dependencies.validateActivePackSet = func(options metadata.ValidateActivePackSetOptions) (metadata.ActivePackSetResult, error) {
-		if options.Root != filepath.Join("/package", "packs") || options.ProfilePath != filepath.Join("/package", "packsets", "full.json") ||
-			options.CatalogPath == nil || *options.CatalogPath != filepath.Join("/package", "packsets", "full.json") {
+		if options.Root != filepath.Join("/package", "packs") || options.ProfilePath != filepath.Join("/package", "packs", "full.packset.json") ||
+			options.CatalogPath == nil || *options.CatalogPath != filepath.Join("/package", "packs", "full.packset.json") {
 			t.Fatalf("falsey fallback options = %#v", options)
 		}
 		return metadata.ActivePackSetResult{}, nil

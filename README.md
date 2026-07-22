@@ -84,69 +84,52 @@ acceptance.
 ## Quickstart
 
 ```bash
-make check      # Python-independent Node/runtime gate
+make check      # Complete Go runtime/distribution gate
 make demo       # materialize the demo tenant (no credentials needed)
 make demo-contract  # credential-free demo artifact/module contract check
 ```
 
-`npm run check:all` runs the complete Node suite, including exact replay of the
-frozen migration-oracle authorities. Python is not required anywhere in the
-repository gate or operational CLI.
+`make check` builds `dist/iw`, validates the active pack distribution, runs the
+complete Go suite, and proves that active Make/CI surfaces cannot route through
+the archived runtime.
 
 ### Runtime requirements
 
-Node 24 and Terraform/OpenTofu are required for the operational adoption
-runtime. Linux is the production Terraform target, macOS is supported for
-development and testing, and Windows Terraform execution is unsupported and
-rejected before preflight or spawn. Naturally portable metadata/rendering code
-may still run on Windows without implying Terraform support.
+The Go 1.26.5 toolchain is required to build Infrawright.
+Terraform/OpenTofu is required for Terraform-facing operations. Linux is the
+production Terraform target, macOS is supported for development and testing,
+and Windows Terraform execution is unsupported and rejected before preflight
+or spawn.
 
 `make demo-contract` is the local no-credentials proof for the shipped demo: it
 materializes the demo overlay, verifies committed demo config/import artifacts
 do not drift, checks there are no stale demo moved-block files, and validates
-the generated demo module tree. It consumes the shipped bundle without an npm
-rebuild or Python runtime. It does not run live provider import or
+the generated demo module tree. It consumes `dist/iw` without a secondary
+language runtime. It does not run live provider import or
 Terraform/OpenTofu plan; the live plan contract begins with the primary
 adoption workflow above and requires real provider credentials.
 
-The primary runtime is the executable, dependency-bundled
-`dist/infrawright-cli.mjs`, exposed as `iw` (with `infrawright` retained as a
-compatibility alias), with checksum
-`dist/infrawright-cli.mjs.sha256`. Verify an approved prebuilt runtime with
-`make verify-runtime`; this checks its checksum, Node 24, command surface, and
-selected pack/profile/deployment inputs without invoking npm or Python. The
-runtime tree also retains its package-root `package.json` as bundle-location
-metadata; verification rejects a nearer package file that would change the
-bundle's discovered root. Downstream execution needs Node 24 and Terraform for
-Terraform operations, but neither `npm install`, `npm ci`, `node_modules`,
-TypeScript, esbuild, tsgo, nor Python.
+The sole current runtime is `dist/iw`, built with `make dist/iw`. It discovers
+runtime data by walking upward to `packs/full.packset.json`, or from an explicit
+`INFRAWRIGHT_PACKAGE_ROOT`. Pack profiles live only as
+`packs/*.packset.json`; the former compatibility directory and executable Node
+tree were archived on 2026-07-22. Frozen fixtures and the immutable oracle tag
+remain as provenance, and the removed source is recoverable through Git
+history. No live-provider, live-backend, or deployment-Apply qualification is
+claimed by the credential-free repository tests.
 
-Rebuilding from source is a separate maintainer contract: it requires the
-pinned packages and platform binaries in `package-lock.json`. Run
-`make source-build-preflight` to check the configured registry without
-installing anything, or generate the exact mirror inventory with
-`node scripts/build-environment-preflight.mjs --manifest`. Until a restricted
-corporate registry mirrors that inventory, use the approved prebuilt bundle;
-the repository does not bypass the configured registry or fall back to the
-public npm registry. Frozen compatibility fixtures retain their provenance and
-resurrection instructions, while the retired Python source remains available
-through Git history. No
-live-provider, live-backend, or deployment-Apply qualification is claimed by
-the credential-free repository tests.
-
-See [Operational Node Runtime](docs/operational-runtime.md) for the authoritative
-Make/CLI inventory, release contract, support policy, external qualification
-checklist, and retained-architecture inventory. The unused legacy process host,
-ZCC collector child, and exact-five migration protocols were retired after a
-repository and downstream-consumer inventory found no callers.
+See [Operational Go Runtime](docs/operational-runtime.md) for the authoritative
+Make/CLI inventory and [the Node archive record](docs/archive/node-runtime-archive.md)
+for retained evidence and recovery boundaries.
 
 ## Layout
 
 | Path | Role |
 |------|------|
-| `node-src/` | generic typed Node 24 operational library and `iw` CLI |
+| `go/` | sole maintained operational and authoring `iw` CLI |
 | `catalogs/` | frozen versioned transition catalogs retained for migration consumers; not required by the generic CLI |
 | `packs/<name>/` | provider metadata: `pack.json`, collection registry, overrides, and schemas |
+| `packs/*.packset.json` | exact pack-distribution profiles |
 | `[<overlay>/]config/<tenant>/<resource_type>.auto.tfvars[.json]` | generated tenant config; `deployment.json` `tfvars_format` selects `json` by default or opt-in `hcl` |
 | `[<overlay>/]imports/<tenant>/<resource_type>_imports.tf` | generated import blocks |
 | `[<overlay>/]envs/<tenant>/<root_label>/` | generated Terraform roots; `<root_label>` is the resource type by default, or an opt-in grouped root label |

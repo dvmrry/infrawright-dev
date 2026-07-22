@@ -295,7 +295,7 @@ func TestPlanCliOptionsPreservesDefaultsAndEnvironmentFallbacks(t *testing.T) {
 	wantPack := packOptionDefaults{
 		root:    filepath.Join("/package", "packs"),
 		profile: "/environment/profile.json",
-		catalog: filepath.Join("/package", "packsets", "full.json"),
+		catalog: filepath.Join("/package", "packs", "full.packset.json"),
 	}
 	if got := options.pack; got != wantPack {
 		t.Errorf("plan CLI default pack options = %+v, want %+v", got, wantPack)

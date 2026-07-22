@@ -55,7 +55,7 @@ func newAssessmentCommandFixture(t *testing.T) assessmentCommandFixture {
 	fixture := assessmentCommandFixture{
 		workspace:  workspace,
 		packs:      filepath.Join(workspace, "packs"),
-		profile:    filepath.Join(workspace, "packsets", "full.json"),
+		profile:    filepath.Join(workspace, "packs", "full.packset.json"),
 		deployment: filepath.Join(workspace, "deployment.json"),
 		envDir:     filepath.Join(workspace, "envs", "tenant", assessmentCommandResource),
 		terraform:  filepath.Join(workspace, "terraform-fake"),

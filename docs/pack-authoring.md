@@ -31,15 +31,12 @@ for the profile contract, reduced-root checks, and CI expectations.
 Validate packs with:
 
 ```bash
-npm ci --ignore-scripts
-npm run build:metadata-cli
-
+make dist/iw
 make check-pack
 make check-pack PACK=zia
 
-node dist/infrawright-cli.mjs check-pack
-node dist/infrawright-cli.mjs check-pack --pack zia
-node dist/infrawright-cli.mjs check-pack PACK=zia
+dist/iw check-pack
+dist/iw check-pack --pack zia
 ```
 
 ## `pack.json`
@@ -362,7 +359,7 @@ silently change:
 - generic collector behavior
 
 Provider-specific collector behavior remains code, not declarative metadata.
-In the maintained runtime it is an ordinary typed Node `CollectorAdapter` that
+In the maintained runtime it is an ordinary typed Go collector adapter that
 owns authentication and URL composition. The pack that declares a provider
 token in `provider_prefixes` and its Terraform source in `provider_sources`
 owns that product's registry metadata; its directory name need not equal the
@@ -372,5 +369,5 @@ that adapter. Resources sharing a product cannot span different provider
 sources.
 Custom sources require a library caller to supply the matching adapter.
 
-Product collection is implemented only by typed Node adapters; pack roots
+Product collection is implemented only by typed Go adapters; pack roots
 contain no executable collector shims.

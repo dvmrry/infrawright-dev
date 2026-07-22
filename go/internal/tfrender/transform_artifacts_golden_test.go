@@ -86,8 +86,8 @@ var fixtureGoldenResourceTypes = []string{
 	"zpa_server_group",
 }
 
-// repoRoot locates the repository root (the Node project root, three
-// levels above go/internal/tfrender) so this test can reach
+// repoRoot locates the repository root, three levels above
+// go/internal/tfrender, so this test can reach
 // tests/fixtures/... regardless of `go test`'s working directory
 // convention (always the package directory).
 func repoRoot(t *testing.T) string {
@@ -96,8 +96,8 @@ func repoRoot(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("resolving repo root: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "node-src")); err != nil {
-		t.Fatalf("expected %s to contain node-src (repo root detection failed): %v", root, err)
+	if _, err := os.Stat(filepath.Join(root, "packs", "full.packset.json")); err != nil {
+		t.Fatalf("expected %s to contain packs/full.packset.json (repo root detection failed): %v", root, err)
 	}
 	return root
 }

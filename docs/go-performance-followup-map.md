@@ -8,7 +8,7 @@ separate measurement and authorization.
 This document is the short index for the earlier performance deep dive. The
 detailed evidence and qualification procedures remain in:
 
-- [performance-benchmark.md](performance-benchmark.md)
+- [performance-benchmark.md](archive/node-performance-benchmark.md)
 - [go-p1-performance-remediation.md](review-handoffs/go-p1-performance-remediation.md)
 - [performance-accepted-plan-oracle.md](review-handoffs/performance-accepted-plan-oracle.md)
 - [performance-telemetry-fetch-concurrency.md](review-handoffs/performance-telemetry-fetch-concurrency.md)

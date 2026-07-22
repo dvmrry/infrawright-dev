@@ -20,10 +20,7 @@ type blockC4Runtime struct {
 func newBlockC4Runtime(t *testing.T) blockC4Runtime {
 	t.Helper()
 	repository := repoRoot(t)
-	oracleBundle := filepath.Join(repository, "dist", "infrawright-cli.mjs")
-	if _, err := os.Stat(oracleBundle); err != nil {
-		t.Skipf("Node oracle bundle absent (%s); build it with `npm run build:metadata-cli`", oracleBundle)
-	}
+	oracleBundle := frozenNodeOraclePath(t)
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node not on PATH; the differential lane needs the pinned Node 24")
@@ -88,7 +85,7 @@ func prepareBlockC4Fixture(t *testing.T, workspace string) blockC4Fixture {
 	fixture := blockC4Fixture{
 		workspace:  workspace,
 		packs:      filepath.Join(workspace, "packs"),
-		profile:    filepath.Join(workspace, "packsets", "full.json"),
+		profile:    filepath.Join(workspace, "packs", "full.packset.json"),
 		deployment: filepath.Join(workspace, "deployment.json"),
 		terraform:  filepath.Join(workspace, "terraform-fake"),
 		log:        filepath.Join(workspace, "terraform.log"),

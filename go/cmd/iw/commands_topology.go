@@ -64,8 +64,8 @@ type packOptionDefaults struct {
 func resolvePackOptions(rootDirectory string, parsed commandInput) packOptionDefaults {
 	defaults := packOptionDefaults{
 		root:    filepath.Join(rootDirectory, "packs"),
-		profile: filepath.Join(rootDirectory, "packsets", "full.json"),
-		catalog: filepath.Join(rootDirectory, "packsets", "full.json"),
+		profile: filepath.Join(rootDirectory, "packs", "full.packset.json"),
+		catalog: filepath.Join(rootDirectory, "packs", "full.packset.json"),
 	}
 	if env := os.Getenv("INFRAWRIGHT_PACKS"); env != "" {
 		defaults.root = env

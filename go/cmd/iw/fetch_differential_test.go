@@ -302,7 +302,7 @@ func reviewerZIAOnlyPack(t *testing.T, repositoryRoot string) recordedFetchPack 
 			return writeRecordedFetchPack(t)
 		}
 	}
-	profile := filepath.Join(repositoryRoot, "packsets", "zia.json")
+	profile := filepath.Join(repositoryRoot, "packs", "zia.packset.json")
 	return recordedFetchPack{profile: profile, root: packsRoot}
 }
 
@@ -317,11 +317,22 @@ func (transport *fetchClosingTransport) Close() error {
 
 func buildFetchTestBinary(t *testing.T, root string) string {
 	t.Helper()
-	runtimeRoot := t.TempDir()
-	if err := os.WriteFile(filepath.Join(runtimeRoot, "package.json"), []byte("{}\n"), 0o600); err != nil {
-		t.Fatalf("write temporary package marker: %v", err)
+	dist := filepath.Join(root, "dist")
+	if err := os.MkdirAll(dist, 0o755); err != nil {
+		t.Fatalf("os.MkdirAll(%q) error = %v, want nil", dist, err)
 	}
-	goBinary := filepath.Join(runtimeRoot, "iw-go-diff-fetch")
+	candidate, err := os.CreateTemp(dist, "iw-go-fetch-*")
+	if err != nil {
+		t.Fatalf("os.CreateTemp(%q) error = %v, want nil", dist, err)
+	}
+	goBinary := candidate.Name()
+	if err := candidate.Close(); err != nil {
+		t.Fatalf("Close(%q) error = %v, want nil", goBinary, err)
+	}
+	if err := os.Remove(goBinary); err != nil {
+		t.Fatalf("os.Remove(%q) error = %v, want nil", goBinary, err)
+	}
+	t.Cleanup(func() { _ = os.Remove(goBinary) })
 	build := exec.Command("go", "build", "-o", goBinary, ".")
 	build.Dir = filepath.Join(root, "go", "cmd", "iw")
 	if output, err := build.CombinedOutput(); err != nil {
@@ -379,13 +390,7 @@ func requireRunResult(t *testing.T, actual runResult, exit int, stdout, stderr s
 
 func compareFetchOracle(t *testing.T, root, goBinary string, args, environment []string) {
 	t.Helper()
-	oracleBundle := filepath.Join(root, "dist", "infrawright-cli.mjs")
-	if _, err := os.Stat(oracleBundle); err != nil {
-		if os.IsNotExist(err) {
-			t.Skipf("Node oracle bundle absent (%s); build it with `npm run build:metadata-cli`", oracleBundle)
-		}
-		t.Fatalf("os.Stat(%q) failed: %v", oracleBundle, err)
-	}
+	oracleBundle := frozenNodeOraclePath(t)
 	nodeBinary, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node not on PATH; the differential lane needs the pinned Node 24")
@@ -493,13 +498,7 @@ func requireRecordedFetchTree(
 
 func TestFetchRecordedTransportDifferentialAgainstNodeOracle(t *testing.T) {
 	root := repoRoot(t)
-	oracleBundle := filepath.Join(root, "dist", "infrawright-cli.mjs")
-	if _, err := os.Stat(oracleBundle); err != nil {
-		if os.IsNotExist(err) {
-			t.Skipf("Node oracle bundle absent (%s); build it with `npm run build:metadata-cli`", oracleBundle)
-		}
-		t.Fatalf("os.Stat(%q) failed: %v", oracleBundle, err)
-	}
+	oracleBundle := frozenNodeOraclePath(t)
 	nodeBinary, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node not on PATH; the differential lane needs the pinned Node 24")
@@ -655,13 +654,7 @@ func TestFetchDiagValidatesHostBeforeTransportSetup(t *testing.T) {
 		}
 	})
 
-	oracleBundle := filepath.Join(root, "dist", "infrawright-cli.mjs")
-	if _, err := os.Stat(oracleBundle); err != nil {
-		if os.IsNotExist(err) {
-			t.Skipf("Node oracle bundle absent (%s); build it with `npm run build:metadata-cli`", oracleBundle)
-		}
-		t.Fatalf("os.Stat(%q) failed: %v", oracleBundle, err)
-	}
+	oracleBundle := frozenNodeOraclePath(t)
 	nodeBinary, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node not on PATH; the differential lane needs the pinned Node 24")
@@ -818,7 +811,7 @@ func TestFetchEmptyPackRootMakesNoRequests(t *testing.T) {
 	if err := os.Mkdir(emptyPacks, 0o777); err != nil {
 		t.Fatal(err)
 	}
-	emptySet := filepath.Join(root, "packsets", "empty.json")
+	emptySet := filepath.Join(root, "packs", "empty.packset.json")
 	environment := append(fetchNoNetworkEnvironment(), "FETCH_CONCURRENCY=65")
 	args := []string{
 		"fetch",

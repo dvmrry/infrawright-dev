@@ -77,8 +77,8 @@ func planPackOptions(
 ) packOptionDefaults {
 	options := packOptionDefaults{
 		root:    filepath.Join(rootDirectory, "packs"),
-		profile: filepath.Join(rootDirectory, "packsets", "full.json"),
-		catalog: filepath.Join(rootDirectory, "packsets", "full.json"),
+		profile: filepath.Join(rootDirectory, "packs", "full.packset.json"),
+		catalog: filepath.Join(rootDirectory, "packs", "full.packset.json"),
 	}
 	if value := environment["INFRAWRIGHT_PACKS"]; value != "" {
 		options.root = value

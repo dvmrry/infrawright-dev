@@ -7,8 +7,11 @@ deletion cannot pass as an intentional reduction.
 
 ## Pack Profiles
 
-Versioned profiles live under `packsets/` and contain exact, sorted pack and
-shared-component names:
+Versioned `*.packset.json` profiles live directly under `packs/`, alongside the
+pack directories they select, and contain exact, sorted pack and
+shared-component names. Discovery considers only directories, so profile files
+are never mistaken for packs. This is the only profile layout; there is no
+compatibility directory or second editable authority.
 
 ```json
 {
@@ -19,11 +22,11 @@ shared-component names:
 }
 ```
 
-`make check PACK_PROFILE=packsets/zscaler.json` requires the effective pack
+`make check PACK_PROFILE=packs/zscaler.packset.json` requires the effective pack
 root to contain exactly that selection. Missing declared components and
 undeclared extra components both fail before tests run.
 
-`PACK_CATALOG` defaults to `packsets/full.json` and defines the allowed pack
+`PACK_CATALOG` defaults to `packs/full.packset.json` and defines the allowed pack
 and shared-component vocabulary. Profiles, example requirements, and test
 requirements that reference a name outside that catalog fail as contract
 errors rather than becoming permanent skips. A downstream distribution that
@@ -35,12 +38,12 @@ example:
 
 ```sh
 export INFRAWRIGHT_PACKS="$PWD/.packs/zscaler"
-make PACK_PROFILE=packsets/zscaler.json check
+make PACK_PROFILE=packs/zscaler.packset.json check
 ```
 
 Copy `packs/{zcc,zia,zpa,ztc}` and `packs/_shared/zscaler` into that root. A
 selected or independently distributed root is authoritative for metadata,
-registry, schemas, and overrides; collector authority comes from the typed Node
+registry, schemas, and overrides; collector authority comes from the Go
 adapter bound to the owning provider source.
 
 Packs declare runtime shared-code dependencies with `requires_shared` in
@@ -49,6 +52,15 @@ closure. Therefore every profile containing a Zscaler provider pack also names
 the `zscaler` shared component. A downstream profile that drops unrelated packs
 remains valid, but dropping a component required by a retained pack fails
 before tests or collection begin.
+
+The committed profiles are intentionally checked for derivability: single-pack
+profiles equal the named pack plus its `requires_shared` closure, the Zscaler
+profile equals every `vendor: zscaler` pack plus that closure, and the full and
+empty profiles equal all and no packs respectively. This proves the selections
+can eventually be generated. The documents remain committed for now because an
+exact distribution lock must be independent of the installed directories it
+checks; deriving `full` from an already damaged root would make an accidental
+deletion appear intentional.
 
 Every top-level directory other than `_shared` counts as an installed pack,
 even when it has no `pack.json`; every directory immediately below `_shared`
@@ -69,7 +81,7 @@ profile/catalog or validation fails.
 - `make check` validates the active distribution: exact profile, selected unit
   tests, available examples, generated modules, pack metadata, and formatting.
 - `make check-all` ignores a caller's selected root and proves the complete
-  upstream catalog against `packsets/full.json`.
+  upstream catalog against `packs/full.packset.json`.
 - `make check-core` runs the pack-independent test surface and generators with
   an empty pack root.
 - `make check-pack-set PACK_PROFILE=<file>` validates only the exact installed
@@ -77,11 +89,10 @@ profile/catalog or validation fails.
 - `make check-pack PACK=<name>` remains the narrow pack-authoring metadata
   check.
 
-Tests are discovered normally. `node-tests/pack-test-requirements.json`
-declares the exact compiled Node test files that require committed pack data.
-Tests without a declaration remain core and run under every profile. The
-requirement surface is fail-closed: stale files or prefixes are errors, and the
-core/reduced CI profiles catch new undeclared coupling.
+Tests are discovered normally by Go. The committed profile gate constructs a
+physically reduced pack root for every profile, loads it, and verifies the
+profile is mechanically derivable from pack metadata and shared-component
+closure. The core empty-root gate catches undeclared pack coupling.
 
 ## Examples
 

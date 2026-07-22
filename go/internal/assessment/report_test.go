@@ -546,6 +546,9 @@ func TestErrorReportExactBytes(t *testing.T) {
 }
 
 func TestErrorReportBytesMatchLiveNodeOracle(t *testing.T) {
+	if os.Getenv("INFRAWRIGHT_FROZEN_NODE_ORACLE") == "" {
+		t.Skip("archived runtime oracle is opt-in")
+	}
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skipf("Node v24.15.0 report oracle unavailable: exec.LookPath(node) error = %v", err)

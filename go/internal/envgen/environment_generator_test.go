@@ -4,7 +4,7 @@ package envgen
 //
 // Every test that does NOT depend on a live Python oracle is ported
 // verbatim (same fixtures, same assertions), driven against the real
-// committed pack root (packs/ + packsets/full.json, exactly as the Node
+// committed pack root (packs/ + packs/full.packset.json, exactly as the Node
 // test's committedRoot() helper does) and, where the Node test used a real
 // `terraform fmt` subprocess (terraformHclFormatter), an equivalent local
 // Go helper (terraformFmtFormatter below) that shells out to the same
@@ -217,7 +217,7 @@ func copyDirRecursive(t *testing.T, src, dst string) {
 // helper from node-tests/environment-generator.test.ts.
 func reducedPackRootForProfile(t *testing.T, repo, parent, profile string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(repo, "packsets", profile))
+	data, err := os.ReadFile(filepath.Join(repo, "packs", profile))
 	if err != nil {
 		t.Fatalf("ReadFile packset %s: %v", profile, err)
 	}
@@ -228,7 +228,7 @@ func reducedPackRootForProfile(t *testing.T, repo, parent, profile string) strin
 	if err := json.Unmarshal(data, &document); err != nil {
 		t.Fatalf("Unmarshal packset %s: %v", profile, err)
 	}
-	destination := filepath.Join(parent, "packs-"+strings.TrimSuffix(profile, ".json"))
+	destination := filepath.Join(parent, "packs-"+strings.TrimSuffix(profile, ".packset.json"))
 	if err := os.MkdirAll(destination, 0o777); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -1238,21 +1238,21 @@ func TestBackendMarkerSurvivesRegenerationAndProfileVariantsGenerateWithoutPytho
 		profile  string
 		selector string
 	}{
-		{"full.json", "zia_url_categories"},
-		{"empty.json", ""},
-		{"aws.json", ""},
-		{"cloudflare.json", ""},
-		{"google.json", ""},
-		{"netbox.json", ""},
-		{"zia.json", "zia_url_categories"},
-		{"zpa.json", "zpa_segment_group"},
-		{"zcc.json", "zcc_failopen_policy"},
-		{"ztc.json", "ztc_account_groups"},
-		{"zscaler.json", "zia_url_categories"},
+		{"full.packset.json", "zia_url_categories"},
+		{"empty.packset.json", ""},
+		{"aws.packset.json", ""},
+		{"cloudflare.packset.json", ""},
+		{"google.packset.json", ""},
+		{"netbox.packset.json", ""},
+		{"zia.packset.json", "zia_url_categories"},
+		{"zpa.packset.json", "zpa_segment_group"},
+		{"zcc.packset.json", "zcc_failopen_policy"},
+		{"ztc.packset.json", "ztc_account_groups"},
+		{"zscaler.packset.json", "zia_url_categories"},
 	}
 	for _, testCase := range cases {
 		packsRoot := reducedPackRootForProfile(t, repo, workspace, testCase.profile)
-		selectedRoot := committedRootFor(t, packsRoot, filepath.Join(repo, "packsets", testCase.profile), filepath.Join(repo, "packsets", "full.json"))
+		selectedRoot := committedRootFor(t, packsRoot, filepath.Join(repo, "packs", testCase.profile), filepath.Join(repo, "packs", "full.packset.json"))
 		target := filepath.Join(workspace, testCase.profile)
 		selectors := []string{}
 		if testCase.selector != "" {
@@ -1281,7 +1281,7 @@ func TestBackendMarkerSurvivesRegenerationAndProfileVariantsGenerateWithoutPytho
 	}
 	copyDirRecursive(t, filepath.Join(repo, "packs", "zcc"), filepath.Join(reduced, "zcc"))
 	copyDirRecursive(t, filepath.Join(repo, "packs", "_shared", "zscaler"), filepath.Join(reduced, "_shared", "zscaler"))
-	reducedRoot := committedRootFor(t, reduced, filepath.Join(repo, "packsets", "zcc.json"), filepath.Join(repo, "packsets", "full.json"))
+	reducedRoot := committedRootFor(t, reduced, filepath.Join(repo, "packs", "zcc.packset.json"), filepath.Join(repo, "packs", "full.packset.json"))
 	reducedOutput := filepath.Join(workspace, "reduced-output")
 	reducedResult, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
 		Deployment: deployment.Deployment{Overlay: workspace, Roots: map[string]deployment.RootProviderConfig{}},

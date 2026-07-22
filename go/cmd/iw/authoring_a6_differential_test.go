@@ -30,7 +30,14 @@ type a6Runtime struct {
 func newA6Runtime(t *testing.T) a6Runtime {
 	t.Helper()
 	repository := repoRoot(t)
-	oracle := filepath.Join(repository, "dist", "infrawright-cli.mjs")
+	candidate := buildGoV2AuthorityCLI(t, repository, "iw-go-a6")
+	return a6Runtime{repository: repository, candidate: candidate}
+}
+
+func newA6DifferentialRuntime(t *testing.T) a6Runtime {
+	t.Helper()
+	runtime := newA6Runtime(t)
+	oracle := frozenNodeOraclePath(t)
 	oracleBytes, err := os.ReadFile(oracle)
 	if err != nil {
 		t.Fatalf("read frozen Node oracle %q: %v", oracle, err)
@@ -42,25 +49,9 @@ func newA6Runtime(t *testing.T) a6Runtime {
 	if err != nil {
 		t.Skipf("Node oracle executable unavailable after digest verification: %v", err)
 	}
-
-	placeholder, err := os.CreateTemp(filepath.Join(repository, "dist"), "iw-go-a6-differential-*")
-	if err != nil {
-		t.Fatalf("os.CreateTemp(A6 candidate): %v", err)
-	}
-	candidate := placeholder.Name()
-	if err := placeholder.Close(); err != nil {
-		t.Fatalf("close A6 candidate placeholder: %v", err)
-	}
-	if err := os.Remove(candidate); err != nil {
-		t.Fatalf("remove A6 candidate placeholder: %v", err)
-	}
-	build := exec.Command("go", "build", "-o", candidate, ".")
-	build.Dir = filepath.Join(repository, "go", "cmd", "iw")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("go build A6 candidate: %v\n%s", err, output)
-	}
-	t.Cleanup(func() { _ = os.Remove(candidate) })
-	return a6Runtime{repository: repository, node: node, oracle: oracle, candidate: candidate}
+	runtime.node = node
+	runtime.oracle = oracle
+	return runtime
 }
 
 func a6Run(t *testing.T, directory, executable string, arguments, environment []string) runResult {
@@ -263,7 +254,7 @@ func a6AuthoringArguments(command string, fixture a6Fixture, root string) ([]str
 }
 
 func TestA6AuthoringDifferentialAgainstFrozenNodeOracle(t *testing.T) {
-	runtime := newA6Runtime(t)
+	runtime := newA6DifferentialRuntime(t)
 	for _, command := range []string{"reconcile", "openapi-map", "source-operation-map", "source-evidence-eval", "provider-probe"} {
 		t.Run(command, func(t *testing.T) {
 			oracleRoot, candidateRoot := filepath.Join(t.TempDir(), "node"), filepath.Join(t.TempDir(), "go")
@@ -300,7 +291,7 @@ func TestA6AuthoringDifferentialAgainstFrozenNodeOracle(t *testing.T) {
 }
 
 func TestA6LegacySourceUsagePriorityAgainstFrozenNodeOracle(t *testing.T) {
-	runtime := newA6Runtime(t)
+	runtime := newA6DifferentialRuntime(t)
 	for _, test := range []struct {
 		name      string
 		arguments func(string) []string
@@ -349,22 +340,22 @@ func TestA6GoHelpListsOnlyRetainedAuthoringCommands(t *testing.T) {
 	}
 }
 
-func TestA6AuthoringMakeTargetsUseGoMaintainerLane(t *testing.T) {
+func TestA6AuthoringMakeTargetsUseSoleGoLane(t *testing.T) {
 	repository := repoRoot(t)
 	data, err := os.ReadFile(filepath.Join(repository, "Makefile"))
 	if err != nil {
 		t.Fatalf("read Makefile: %v", err)
 	}
 	makefile := string(data)
-	if !strings.Contains(makefile, "IW_MAINTAINER ?= dist/iw\n") {
-		t.Fatal("Makefile does not default IW_MAINTAINER to the Go binary")
+	if !strings.Contains(makefile, "IW ?= dist/iw\n") {
+		t.Fatal("Makefile does not default IW to the Go binary")
 	}
 	for _, command := range []string{"reconcile", "openapi-map", "source-operation-map", "source-evidence-eval", "provider-probe", "transform-adopt-parity"} {
 		if !strings.Contains(makefile, "\n"+command+": dist/iw ") {
 			t.Errorf("Makefile target %q does not depend on dist/iw", command)
 		}
-		if !strings.Contains(makefile, "\n\t$(IW_MAINTAINER) "+command) {
-			t.Errorf("Makefile target %q does not invoke the Go maintainer lane", command)
+		if !strings.Contains(makefile, "\n\t$(IW) "+command) {
+			t.Errorf("Makefile target %q does not invoke the sole Go lane", command)
 		}
 	}
 	if strings.Contains(makefile, "\nzpa-provider-evidence:") {

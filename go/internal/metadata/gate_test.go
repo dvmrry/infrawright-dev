@@ -1,7 +1,7 @@
 package metadata
 
 // gate_test.go is THE Wave 2 gate: loadPackRoot over the committed packs/
-// and packsets/full.json, then renderRootCatalog scoped to
+// and packs/full.packset.json, then renderRootCatalog scoped to
 // providers zcc,zia,zpa,ztc, must reproduce the committed Go-authoritative
 // singleton-state v2 catalog byte-for-byte. The frozen v1 catalog is not read
 // or regenerated here.
@@ -47,8 +47,8 @@ func repoRoot(t *testing.T) string {
 func TestRootCatalogV2ByteGate(t *testing.T) {
 	root := repoRoot(t)
 	packsRoot := filepath.Join(root, "packs")
-	profilePath := filepath.Join(root, "packsets", "full.json")
-	catalogPath := filepath.Join(root, "packsets", "full.json")
+	profilePath := filepath.Join(root, "packs", "full.packset.json")
+	catalogPath := filepath.Join(root, "packs", "full.packset.json")
 
 	loaded, err := LoadPackRoot(LoadPackRootOptions{
 		PacksRoot:   packsRoot,

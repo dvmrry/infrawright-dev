@@ -145,10 +145,7 @@ func runBinaryWithEnv(
 
 func TestTransformDifferentialAgainstNodeOracle(t *testing.T) {
 	root := repoRoot(t)
-	oracleBundle := filepath.Join(root, "dist", "infrawright-cli.mjs")
-	if _, err := os.Stat(oracleBundle); err != nil {
-		t.Skipf("Node oracle bundle absent (%s); build it with `npm run build:metadata-cli`", oracleBundle)
-	}
+	oracleBundle := frozenNodeOraclePath(t)
 	nodeBinary, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node not on PATH; the differential lane needs the pinned Node 24")
@@ -242,7 +239,7 @@ func TestTransformDifferentialAgainstNodeOracle(t *testing.T) {
 
 			arguments := []string{
 				"transform", "--in", input, "--tenant", "demo",
-				"--profile", "packsets/full.json", "--catalog", "packsets/full.json",
+				"--profile", "packs/full.packset.json", "--catalog", "packs/full.packset.json",
 			}
 			for _, selector := range testCase.selectors {
 				arguments = append(arguments, "--resource", selector)

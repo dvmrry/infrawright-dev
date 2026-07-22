@@ -6,55 +6,12 @@ on:
   pull_request:
 
 jobs:
-  runtime-release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          ref: node-oracle-v1-final
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: "24"
-          cache: npm
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
-        with:
-          terraform_version: "1.15.4"
-          terraform_wrapper: false
-      - name: Install pinned build dependencies
-        run: npm ci --ignore-scripts
-      - name: Complete frozen Node v1 gate
-        run: npm run check:all
-      - name: Rebuild frozen Node v1 bundle
-        run: npm run build
-      - name: Prove frozen rollback release staging
-        run: node scripts/test-runtime-release.mjs
-      - name: Verify frozen oracle digest
-        run: |
-          test "$(sha256sum dist/infrawright-cli.mjs | cut -d' ' -f1)" = "ce48c2c6a1cc01254866c5a7eb98b3eef1c90e6c45b69aff7df7aed80c822fa2"
-          test "$(cat dist/infrawright-cli.mjs.sha256)" = "ce48c2c6a1cc01254866c5a7eb98b3eef1c90e6c45b69aff7df7aed80c822fa2  infrawright-cli.mjs"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: frozen-node-oracle
-          path: |
-            dist/infrawright-cli.mjs
-            dist/infrawright-cli.mjs.sha256
-          if-no-files-found: error
-      - name: Whitespace hygiene
-        run: git diff --check
-
   check:
-    needs: runtime-release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: "24"
-          cache: npm
-      - name: Install pinned Node dependencies
-        run: npm ci --ignore-scripts
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.26.5"
@@ -63,34 +20,23 @@ jobs:
         with:
           terraform_version: "1.15.4"
           terraform_wrapper: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: frozen-node-oracle
-          path: dist
-      - name: Verify frozen Node inputs and oracle
-        run: |
-          git diff --exit-code node-oracle-v1-final -- \
-            node-src node-tests package.json package-lock.json \
-            tsconfig.json tsconfig.test.json \
-            scripts/build-metadata-cli.mjs scripts/clean-node-test-build.mjs \
-            scripts/run-node-test-suite.mjs \
-            docs/schemas/root-catalog.schema.json \
-            catalogs/zscaler-root-catalog.v1.json
-          make verify-frozen-node-oracle
       - name: Complete Go authority gate
         run: |
           test -z "$(gofmt -l go/cmd go/internal)"
           cd go
           go vet ./...
           go test -count=1 ./...
-      - name: Retained v1 differential and v2 authority gates
-        run: make differential
-      - name: Go candidate distribution gate
+      - name: Verify distribution and root catalog
+        run: make check-distribution check-root-catalog
+      - name: Prove archived runtime is not executable
         run: |
-          make \
-            INFRAWRIGHT_CLI=dist/iw \
-            INFRAWRIGHT_CLI_PREREQUISITE=dist/iw \
-            check-candidate-distribution check-root-catalog
+          make archive-tripwire dist/iw
+          intercept="$RUNNER_TEMP/archived-runtime-tripwire"
+          mkdir -p "$intercept"
+          printf '#!/bin/sh\nexit 99\n' > "$intercept/node"
+          printf '#!/bin/sh\nexit 99\n' > "$intercept/npm"
+          chmod +x "$intercept/node" "$intercept/npm"
+          PATH="$intercept:$PATH" make check-distribution check-root-catalog
       - name: Whitespace hygiene
         run: git diff --check
 
@@ -99,13 +45,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [empty, aws, cloudflare, google, netbox, zcc, zia, zpa, ztc, zscaler]
+        profile: [empty, aws, cloudflare, google, netbox, zcc, zia, zpa, ztc, zscaler, full]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: "24"
-          cache: npm
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.26.5"
@@ -118,56 +60,23 @@ jobs:
         env:
           PROFILE: ${{ matrix.profile }}
         run: |
+          profile="$GITHUB_WORKSPACE/packs/$PROFILE.packset.json"
           root="$RUNNER_TEMP/packs-$PROFILE"
-          node scripts/materialize-pack-profile.mjs copy \
-            --profile "packsets/$PROFILE.json" \
-            --packs-root packs \
-            --destination "$root"
+          mkdir -p "$root"
+          while IFS= read -r pack; do
+            cp -R "$GITHUB_WORKSPACE/packs/$pack" "$root/$pack"
+          done < <(jq -r '.packs[]' "$profile")
+          while IFS= read -r shared; do
+            mkdir -p "$root/_shared"
+            cp -R "$GITHUB_WORKSPACE/packs/_shared/$shared" "$root/_shared/$shared"
+          done < <(jq -r '.shared[]' "$profile")
           echo "INFRAWRIGHT_PACKS=$root" >> "$GITHUB_ENV"
-          echo "PACK_PROFILE=$GITHUB_WORKSPACE/packsets/$PROFILE.json" >> "$GITHUB_ENV"
-      - name: Selected distribution gate
-        run: |
-          make \
-            INFRAWRIGHT_CLI=dist/iw \
-            INFRAWRIGHT_CLI_PREREQUISITE=dist/iw \
-            check-candidate-distribution
-  pruned-checkouts:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        profile: [empty, zscaler]
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: "24"
-          cache: npm
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: "1.26.5"
-          cache-dependency-path: go/go.sum
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
-        with:
-          terraform_version: "1.15.4"
-          terraform_wrapper: false
-      - name: Build checkout without omitted packs
+          echo "PACK_PROFILE=$profile" >> "$GITHUB_ENV"
+      - name: Validate reduced distribution and profile derivability
         env:
           PROFILE: ${{ matrix.profile }}
         run: |
-          root="$RUNNER_TEMP/pruned-$PROFILE"
-          git worktree add --detach "$root" HEAD
-          node "$root/scripts/materialize-pack-profile.mjs" prune \
-            --profile "$root/packsets/$PROFILE.json" \
-            --packs-root "$root/packs"
-          node "$root/scripts/verify-runtime-release.mjs" "$root" --artifacts-only
-          echo "PRUNED_ROOT=$root" >> "$GITHUB_ENV"
-      - name: Pruned distribution gate
-        env:
-          PROFILE: ${{ matrix.profile }}
-        run: |
-          make -C "$PRUNED_ROOT" \
-            PACK_PROFILE="packsets/$PROFILE.json" \
-            INFRAWRIGHT_CLI=dist/iw \
-            INFRAWRIGHT_CLI_PREREQUISITE=dist/iw \
-            check-candidate-distribution
+          make check-distribution
+          cd go
+          go test -count=1 ./internal/metadata \
+            -run "^TestAllCommittedPackProfilesLoadFromReducedRoots/${PROFILE}$|^TestCommittedPackProfilesAreDerivable/${PROFILE}$"

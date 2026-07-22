@@ -166,9 +166,9 @@ func checkPackSetInput(parsed commandInput, dependencies metadataCommandDependen
 	}
 	profile := dependencies.environment("INFRAWRIGHT_PACK_PROFILE")
 	if profile == "" {
-		profile = filepath.Join(rootDirectory, "packsets", "full.json")
+		profile = filepath.Join(rootDirectory, "packs", "full.packset.json")
 	}
-	catalog := filepath.Join(rootDirectory, "packsets", "full.json")
+	catalog := filepath.Join(rootDirectory, "packs", "full.packset.json")
 	if value, ok := lastCommandOption(parsed, "--root"); ok {
 		root = value
 	}

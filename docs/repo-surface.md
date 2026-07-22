@@ -9,13 +9,12 @@ maintained development evidence.
 
 | Path | Purpose | Owner | Keep criteria | Notes |
 |---|---|---|---|---|
-| `node-src/` | Typed Node 24 library and the maintained machine-oriented `iw` CLI. | Core maintainers | Keep generic runtime and authoring behavior protected by direct tests, retained differentials, or provider-pack contracts. | This is the production implementation for root Make workflows. |
-| `catalogs/` | Versioned, validated compatibility inputs for the Node runtime. | Core and pack maintainers | Keep generated catalogs with provenance hashes and CI drift checks. | `iw root-catalog` derives the bundled Zscaler catalog from validated Node pack metadata; `make check-root-catalog` rejects drift. |
-| `packs/` | Declarative provider metadata, schemas, registries, overrides, and adoption metadata. | Pack maintainers | Keep metadata that is validated, referenced by tests, or backed by provider-lab/readiness evidence. | Operational collector code lives in typed Node adapters. Shared pack data belongs under `packs/_shared/`. |
-| `packsets/` | Exact installed-pack profiles used by distribution checks. | Distribution maintainers | Keep profiles minimal, sorted, and explicit about shared components. | A profile validates a selected pack root; it does not silently filter a larger root. |
+| `go/` | Sole maintained `iw` runtime, command tree, and tests. | Core maintainers | Keep runtime and authoring behavior protected by direct tests, reviewed goldens, and provider-pack contracts. | Root Make workflows build and execute `go/cmd/iw`. |
+| `catalogs/` | Versioned, validated compatibility and topology inputs. | Core and pack maintainers | Keep generated catalogs with provenance hashes and CI drift checks. | `iw root-catalog` derives the Zscaler catalog from validated Go-loaded pack metadata; `make check-root-catalog` rejects drift. |
+| `packs/` | Declarative provider metadata, schemas, registries, overrides, adoption metadata, and exact distribution profiles. | Pack and distribution maintainers | Keep metadata and profiles that are validated, referenced by tests, or backed by provider-lab/readiness evidence. | Operational collector code lives in Go adapters. Shared pack data belongs under `packs/_shared/`; flat `*.packset.json` files are the sole profile layout. |
+| `node-tests/fixtures/` | Frozen migration, provider, and historical runtime evidence. | Compatibility evidence maintainers | Keep immutable bytes referenced by Go tests, authority manifests, or provenance docs. | No executable tests or build lane remain under `node-tests/`. |
 | `tools/` | Maintained developer/operator tooling outside the Python engine. | Tool maintainers | Keep tools with documented input/output, tests or fixtures, and a current workflow reference. | `tools/source-evidence-ast/` is used by provider-readiness source evidence evaluation. |
 | `docs/recipes/` | Small pinned provider-readiness workflows. | Provider-readiness maintainers | Keep recipes that are current, pinned, credential-free, and runnable from a fresh clone. | Stale, aspirational, or private-provider recipes should be archived or deleted. |
-| `scripts/` | Maintained release/operator wrappers that are not product commands. | Core maintainers | Keep scripts with narrow purpose, clear inputs/outputs, and current docs/tests references. | One-off migration scripts should not remain here after their PR lands. |
 | `demo/` | Shipped demo overlay: demo workflow Makefile, demo deployment config, and demo config/import artifacts. | Demo maintainers | Keep files required by `make demo`, `make check-demo`, or the shipped no-credential demo. | The demo deployment uses `overlay: demo` and generates `demo/modules/default` on demand. |
 | `docs/` | Current contracts, usage docs, design records, provider labs, schemas, and archived context. | Documentation owners | Keep docs that describe current behavior or clearly archived historical context. | Stale layout docs should move under `docs/archive/` with an archival notice. |
 | `tests/` | Current product contracts and regression fixtures. | Core and pack maintainers | Keep tests that protect current behavior, metadata contracts, or documented workflows. | Tests may cover transitional fallbacks when the fallback remains intentional. |
@@ -28,8 +27,8 @@ maintained development evidence.
 ## Current Layout Boundaries
 
 - Root `Makefile` targets are the stable product command surface.
-- The supported Node command surface is the `iw` CLI documented in
-  [Operational Node Runtime](operational-runtime.md).
+- The supported Go command surface is the `iw` CLI documented in
+  [Operational Go Runtime](operational-runtime.md).
 - The adoption command contract and collector boundary are documented in
   [Adoption Command Surface](adoption-command-surface.md).
 - The validated pack metadata contract is documented in

@@ -36,44 +36,22 @@ func TestPackageRootRejectsEmptyExplicitOverride(t *testing.T) {
 
 func TestFindPackageRootUsesRuntimeDataMarkersNotPackageJSON(t *testing.T) {
 	root := t.TempDir()
-	for _, directory := range []string{"packs", "packsets"} {
-		if err := os.Mkdir(filepath.Join(root, directory), 0o755); err != nil {
-			t.Fatalf("os.Mkdir(%q) error = %v, want nil", directory, err)
-		}
+	if err := os.Mkdir(filepath.Join(root, "packs"), 0o755); err != nil {
+		t.Fatalf("os.Mkdir(%q) error = %v, want nil", "packs", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "packs", "full.packset.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatalf("os.WriteFile(full.packset.json) error = %v, want nil", err)
 	}
 	nested := filepath.Join(root, "bin", "nested")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatalf("os.MkdirAll(%q) error = %v, want nil", nested, err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "bin", "package.json"), []byte("{}\n"), 0o644); err != nil {
-		t.Fatalf("os.WriteFile(package.json) error = %v, want nil", err)
-	}
-
 	got, err := findPackageRoot(nested)
 	if err != nil {
 		t.Fatalf("findPackageRoot(%q) error = %v, want nil", nested, err)
 	}
 	if got != root {
 		t.Errorf("findPackageRoot(%q) = %q, want runtime-data root %q", nested, got, root)
-	}
-}
-
-func TestFindPackageRootRetainsLegacyPackageJSONFallback(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte("{}\n"), 0o644); err != nil {
-		t.Fatalf("os.WriteFile(package.json) error = %v, want nil", err)
-	}
-	nested := filepath.Join(root, "bin")
-	if err := os.Mkdir(nested, 0o755); err != nil {
-		t.Fatalf("os.Mkdir(%q) error = %v, want nil", nested, err)
-	}
-
-	got, err := findPackageRoot(nested)
-	if err != nil {
-		t.Fatalf("findPackageRoot(%q) error = %v, want nil", nested, err)
-	}
-	if got != root {
-		t.Errorf("findPackageRoot(%q) = %q, want legacy marker root %q", nested, got, root)
 	}
 }
 

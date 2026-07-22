@@ -128,10 +128,10 @@ no raw values. Return them only through the approved channel.
 
 Set these to the exact authorities used by the clean-room harness:
 
-    export IW_CLI=/absolute/path/to/dist/infrawright-cli.mjs
+    export IW_CLI=/absolute/path/to/dist/iw
     export IW_PACKS=/absolute/path/to/packs
-    export IW_PROFILE=/absolute/path/to/packsets/full.json
-    export IW_CATALOG=/absolute/path/to/packsets/full.json
+    export IW_PROFILE=/absolute/path/to/packs/full.packset.json
+    export IW_CATALOG=/absolute/path/to/packs/full.packset.json
     export IW_DEPLOYMENT=/absolute/path/to/deployment.json
     export IW_PULL=/absolute/path/to/the/frozen/pull/root
     export IW_TENANT=the-existing-test-tenant
@@ -198,27 +198,19 @@ running Transform, Adopt, or root regeneration:
 
     for lane in "$NS_T" "$NS_A" "$BC_T" "$BC_A" "$ROOT_LANE"; do
       for verb in config-dir imports-dir envs-dir; do
-        value=$(cd "$lane" && node "$IW_CLI" deployment \
+        value=$(cd "$lane" && "$IW_CLI" deployment \
           --deployment "$lane/deployment.json" "$verb" "$IW_TENANT")
-        node -e '
-    const fs = require("node:fs");
-    const path = require("node:path");
-    const root = fs.realpathSync(process.argv[1]);
-    const target = path.resolve(root, process.argv[2]);
-    const relative = path.relative(root, target);
-    if (relative === "" || relative === ".." ||
-        relative.startsWith(".." + path.sep) || path.isAbsolute(relative)) {
-      throw new Error("deployment output escapes its private lane");
-    }
-    fs.mkdirSync(target, {recursive: true, mode: 0o700});
-    const physical = fs.realpathSync(target);
-    const physicalRelative = path.relative(root, physical);
-    if (physicalRelative === ".." ||
-        physicalRelative.startsWith(".." + path.sep) ||
-        path.isAbsolute(physicalRelative)) {
-      throw new Error("deployment output resolves through a symlink escape");
-    }
-    ' "$lane" "$value"
+        lane_root=$(cd "$lane" && pwd -P)
+        case "$value" in
+          /*) target=$value ;;
+          *) target=$lane_root/$value ;;
+        esac
+        mkdir -p -- "$target"
+        physical=$(cd "$target" && pwd -P)
+        case "$physical" in
+          "$lane_root"/*) ;;
+          *) echo "deployment output escapes its private lane" >&2; exit 1 ;;
+        esac
       done
     done
 
@@ -228,7 +220,7 @@ one of five distinct lane roots, their output trees cannot overlap.
 
 Query and record the deployment tfvars format:
 
-    IW_TFVARS_FORMAT=$(node "$IW_CLI" deployment \
+    IW_TFVARS_FORMAT=$("$IW_CLI" deployment \
       --deployment "$IW_DEPLOYMENT" tfvars-format)
 
 The field-count procedure below supports JSON tfvars only. If the result is
@@ -237,10 +229,10 @@ HCL with jq.
 
 ## Phase 1: Bind Runtime, Pack, And Registry Authorities
 
-Record the Node and Terraform versions. The CLI SHA-256, not the current shell
+Record the Go and Terraform versions. The CLI SHA-256, not the current shell
 repository, is the runtime authority:
 
-    node --version
+    go version
     terraform version
 
 Record the pack repository commit and whether the pack tree is dirty, without
@@ -305,7 +297,7 @@ absent, it prints a sanitized NOT RUN result and continues to Phase 3.
     if test "${IW_ALLOW_ORACLE_SCRATCH_APPLY:-}" = 1; then
     IW_PHASE2_RAN=1
     run_private network-transform "$NS_T" \
-      env TMPDIR="$NS_T/tmp" node "$IW_CLI" transform \
+      env TMPDIR="$NS_T/tmp" "$IW_CLI" transform \
         --root "$IW_PACKS" --profile "$IW_PROFILE" \
         --catalog "$IW_CATALOG" --deployment "$NS_T/deployment.json" \
         --in "$IW_PULL" --tenant "$IW_TENANT" \
@@ -314,14 +306,14 @@ absent, it prints a sanitized NOT RUN result and continues to Phase 3.
     run_private network-adopt "$NS_A" \
       env TMPDIR="$NS_A/tmp" INFRAWRIGHT_KEEP_ORACLE=1 \
         INFRAWRIGHT_ORACLE_STATE_SOURCE=applied-state \
-        node "$IW_CLI" adopt \
+        "$IW_CLI" adopt \
         --root "$IW_PACKS" --profile "$IW_PROFILE" \
         --catalog "$IW_CATALOG" --deployment "$NS_A/deployment.json" \
         --in "$IW_PULL" --tenant "$IW_TENANT" \
         --resource zia_firewall_filtering_network_service
 
     run_private browser-transform "$BC_T" \
-      env TMPDIR="$BC_T/tmp" node "$IW_CLI" transform \
+      env TMPDIR="$BC_T/tmp" "$IW_CLI" transform \
         --root "$IW_PACKS" --profile "$IW_PROFILE" \
         --catalog "$IW_CATALOG" --deployment "$BC_T/deployment.json" \
         --in "$IW_PULL" --tenant "$IW_TENANT" \
@@ -330,7 +322,7 @@ absent, it prints a sanitized NOT RUN result and continues to Phase 3.
     run_private browser-adopt "$BC_A" \
       env TMPDIR="$BC_A/tmp" INFRAWRIGHT_KEEP_ORACLE=1 \
         INFRAWRIGHT_ORACLE_STATE_SOURCE=applied-state \
-        node "$IW_CLI" adopt \
+        "$IW_CLI" adopt \
         --root "$IW_PACKS" --profile "$IW_PROFILE" \
         --catalog "$IW_CATALOG" --deployment "$BC_A/deployment.json" \
         --in "$IW_PULL" --tenant "$IW_TENANT" \
@@ -467,7 +459,7 @@ For each product, bind the active resource set, derive source-less generated
 entries from the exact registry, and emit only resource type and slug intent:
 
     for product in zia zpa; do
-      node "$IW_CLI" resources --root "$IW_PACKS" \
+      "$IW_CLI" resources --root "$IW_PACKS" \
         --profile "$IW_PROFILE" --catalog "$IW_CATALOG" \
         --resource "$product" > "$IW_JOB/$product.active"
       jq --rawfile active "$IW_JOB/$product.active" '
@@ -484,7 +476,7 @@ entries from the exact registry, and emit only resource type and slug intent:
       ' "$IW_PACKS/$product/registry.json" \
         > "$IW_JOB/$product.source-less.json"
 
-      node "$IW_CLI" roots --root "$IW_PACKS" \
+      "$IW_CLI" roots --root "$IW_PACKS" \
         --profile "$IW_PROFILE" --catalog "$IW_CATALOG" \
         --deployment "$IW_DEPLOYMENT" --resource "$product" \
         > "$IW_JOB/$product.topology.json" \
@@ -546,7 +538,7 @@ only non-sensitive names such as zia and zia_url:
       '.roots[] | select(.label == $label) | .members[0]' "$IW_TOPOLOGY")
     (
       cd "$IW_GENERATED_WORKSPACE"
-      node "$IW_CLI" roots --tenant "$IW_TENANT" --root "$IW_PACKS" \
+      "$IW_CLI" roots --tenant "$IW_TENANT" --root "$IW_PACKS" \
         --profile "$IW_PROFILE" --catalog "$IW_CATALOG" \
         --deployment "$IW_DEPLOYMENT" --resource "$IW_ROOT_SELECTOR"
     ) > "$IW_JOB/materialized.private.json" \
@@ -554,9 +546,10 @@ only non-sensitive names such as zia and zia_url:
     IW_ENV_REL=$(jq -er --arg label "$IW_ROOT_LABEL" \
       '.roots[] | select(.label == $label) | .env_dir' \
       "$IW_JOB/materialized.private.json")
-    IW_MATERIALIZED_ROOT=$(node -e \
-      'process.stdout.write(require("node:path").resolve(process.argv[1], process.argv[2]))' \
-      "$IW_GENERATED_WORKSPACE" "$IW_ENV_REL")
+    case "$IW_ENV_REL" in
+      /*) IW_MATERIALIZED_ROOT=$(cd "$IW_ENV_REL" && pwd -P) ;;
+      *) IW_MATERIALIZED_ROOT=$(cd "$IW_GENERATED_WORKSPACE/$IW_ENV_REL" && pwd -P) ;;
+    esac
     test -f "$IW_MATERIALIZED_ROOT/main.tf"
 
     jq -r --arg label "$IW_ROOT_LABEL" \
@@ -620,7 +613,7 @@ Then run:
 
     if test "${IW_ALLOW_DISPOSABLE_ROOT_REGENERATION:-}" = 1; then
       run_private zia-root-regenerate "$ROOT_LANE" \
-        node "$IW_CLI" gen-env --tenant "$IW_TENANT" \
+        "$IW_CLI" gen-env --tenant "$IW_TENANT" \
           --root "$IW_PACKS" --profile "$IW_PROFILE" \
           --catalog "$IW_CATALOG" \
           --deployment "$ROOT_LANE/deployment.json" \
@@ -629,7 +622,7 @@ Then run:
 
       (
         cd "$ROOT_LANE"
-        node "$IW_CLI" roots --tenant "$IW_TENANT" --root "$IW_PACKS" \
+        "$IW_CLI" roots --tenant "$IW_TENANT" --root "$IW_PACKS" \
           --profile "$IW_PROFILE" --catalog "$IW_CATALOG" \
           --deployment "$ROOT_LANE/deployment.json" \
           --resource "$IW_ROOT_SELECTOR"
@@ -638,18 +631,15 @@ Then run:
       IW_REGENERATED_ENV_REL=$(jq -er --arg label "$IW_ROOT_LABEL" \
         '.roots[] | select(.label == $label) | .env_dir' \
         "$IW_JOB/regenerated.private.json")
-      IW_REGENERATED_ROOT=$(node -e '
-    const fs = require("node:fs");
-    const path = require("node:path");
-    const root = fs.realpathSync(process.argv[1]);
-    const target = fs.realpathSync(path.resolve(root, process.argv[2]));
-    const relative = path.relative(root, target);
-    if (relative === "" || relative === ".." ||
-        relative.startsWith(".." + path.sep) || path.isAbsolute(relative)) {
-      throw new Error("regenerated root escapes disposable lane");
-    }
-    process.stdout.write(target);
-    ' "$ROOT_LANE" "$IW_REGENERATED_ENV_REL")
+      case "$IW_REGENERATED_ENV_REL" in
+        /*) IW_REGENERATED_ROOT=$(cd "$IW_REGENERATED_ENV_REL" && pwd -P) ;;
+        *) IW_REGENERATED_ROOT=$(cd "$ROOT_LANE/$IW_REGENERATED_ENV_REL" && pwd -P) ;;
+      esac
+      root_lane_physical=$(cd "$ROOT_LANE" && pwd -P)
+      case "$IW_REGENERATED_ROOT" in
+        "$root_lane_physical"/*) ;;
+        *) echo "regenerated root escapes disposable lane" >&2; exit 1 ;;
+      esac
       test -f "$IW_REGENERATED_ROOT/main.tf"
 
       rg --no-filename -o '^module "[a-z0-9_]+"' \
@@ -691,7 +681,7 @@ returning prefixes:
     Authority
     - candidate repository commit:
     - pack repository commit and clean/dirty:
-    - Node version:
+    - Go version:
     - Terraform version:
     - CLI SHA-256:
     - ZIA registry SHA-256:

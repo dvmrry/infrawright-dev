@@ -10,17 +10,19 @@ for a selected tenant/resource scope.
 This runbook is intentionally conservative. A validation failure is evidence to
 classify, not an automatic engine feature request.
 
-The commands below run through the generic Node 24 `iw` CLI. Python should be
-made unavailable during qualification as a permanent regression tripwire; all
-maintained tests, differentials, probes, and authoring tools are Node-owned.
+The commands below run through the Go `iw` CLI. The archived runtime and Python
+should be made unavailable during qualification as permanent regression
+tripwires; all maintained tests, probes, and authoring tools are Go-owned.
 Repository fake-Terraform tests establish readiness to qualify, not live
-qualification. See [Operational Node Runtime](operational-runtime.md) for the
-exact bundle/checksum contract and the separately authorized read-only and
-import-only Apply checklists.
+qualification. See [Operational Go Runtime](operational-runtime.md) for the
+runtime contract and separately authorized read-only and import-only Apply
+checklists.
 
 For opt-in timing, HTTP-attempt accounting, exact artifact manifests, and the
 concurrency 1/2/4/8 work-machine matrix, use the
-[Post-Parity Performance Benchmark](performance-benchmark.md). Fixture timing
+[archived post-parity performance benchmark](archive/node-performance-benchmark.md).
+That historical harness predates the current runtime; port it before collecting
+new evidence. Fixture timing
 is not live performance evidence, and the Fetch default remains serial until
 that matrix is returned and accepted.
 
@@ -33,12 +35,9 @@ that matrix is returned and accepted.
   tenant/account identifiers.
 - Ensure Terraform/OpenTofu is available and matches the version being
   validated.
-- Use Node 24 and run `make verify-runtime` against the accepted
-  `dist/infrawright-cli.mjs` and checksum before qualification. Do not run
-  `npm ci`, install runtime npm dependencies, or rebuild from source in the
-  qualification job. A restricted corporate registry needs the lockfile's
-  pinned build packages only on a separate source-build path; inspect that
-  path with `make source-build-preflight`.
+- Build the accepted Go revision with `make dist/iw`, then run `make check`
+  before qualification. Record the revision and candidate SHA-256 with the
+  sanitized evidence.
 - Make Python unavailable so a retained migration path cannot satisfy an
   operational step accidentally.
 - Choose the backend/state policy before running. Local scratch state and
@@ -155,10 +154,10 @@ Classify each failure before deciding where work belongs.
 
 | Category | Meaning | Evidence to collect | Fix location, if any | Blocks validation? |
 |---|---|---|---|---|
-| Core bug | Provider-agnostic engine behavior is wrong, unsafe, or inconsistent with the documented command contract. | Command, sanitized error/output, minimal fixture, generated artifact paths, saved plan summary. | `node-src/` with focused tests. | Yes, until fixed or scoped out. |
+| Core bug | Provider-agnostic engine behavior is wrong, unsafe, or inconsistent with the documented command contract. | Command, sanitized error/output, minimal fixture, generated artifact paths, saved plan summary. | `go/` with focused tests. | Yes, until fixed or scoped out. |
 | Pack metadata bug | Provider behavior can be represented by existing pack metadata, but the pack value is missing or wrong. | Resource type, pack name, relevant registry/override/adoption metadata, sanitized plan or projection evidence. | `packs/<provider>/` metadata and pack tests. | Yes for affected resources. |
 | Registry/fetch metadata bug | Collection/adoption inventory metadata points at the wrong list/detail path, key, import ID, or identity alias. | Fetch command, raw item shape, key/import ID derivation, registry entry, sanitized fetch output. | Pack registry/adoption metadata. | Yes for affected resources. |
-| Collector bug | The collector cannot reliably fetch current provider evidence independent of projection/adoption. | Collector command, sanitized HTTP/status/pagination/auth diagnostics, input config, no secret values. | Generic Node collector code or pack registry metadata. | Yes if fetch evidence is required. |
+| Collector bug | The collector cannot reliably fetch current provider evidence independent of projection/adoption. | Collector command, sanitized HTTP/status/pagination/auth diagnostics, input config, no secret values. | Generic Go collector code or pack registry metadata. | Yes if fetch evidence is required. |
 | Provider behavior unsupported by current generic contract | Provider semantics are real but need a new explicit metadata/guidance/design lane before automation is safe. | Saved plan classification, provider schema path, raw/provider state contrast, existing diagnostic output. | Design doc first, then validator/metadata/behavior if approved. | Usually yes for affected resources. |
 | Provider bug / upstream evidence candidate | Terraform provider or API behavior appears inconsistent, lossy, or contrary to published contracts. | Repro command, provider version, sanitized provider diagnostics, minimal Terraform config/state evidence. | Upstream issue or provider-specific workaround metadata if safe. | Yes unless isolated and approved. |
 | Operator input required | The resource needs a human-supplied value, provider setting, expression binding, approval, or tenant-specific decision. | Blocked path, required input, policy/guidance annotation, source of the requirement. | Consumer config, drift policy, expression binding, or operator runbook. | Blocks until supplied or explicitly scoped out. |

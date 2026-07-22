@@ -265,7 +265,7 @@ func TestAdoptionUnsupportedDiagnosticUsesIDWhenNameIsNull(t *testing.T) {
 
 func TestCommittedRegistryAdoptionMetadataAndClassificationFixture(t *testing.T) {
 	repositoryRoot := filepath.Clean(filepath.Join("..", "..", ".."))
-	profile := filepath.Join(repositoryRoot, "packsets", "full.json")
+	profile := filepath.Join(repositoryRoot, "packs", "full.packset.json")
 	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profile, CatalogPath: &profile,
 	})

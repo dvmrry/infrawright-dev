@@ -309,7 +309,7 @@ func repositoryRoot(t *testing.T) string {
 	for directory := filepath.Dir(thisFile); ; directory = filepath.Dir(directory) {
 		manifestPath := filepath.Join(directory, filepath.FromSlash(authorityManifestRelativePath))
 		if _, err := os.Stat(manifestPath); err == nil {
-			if _, err := os.Stat(filepath.Join(directory, "node-src")); err == nil {
+			if _, err := os.Stat(filepath.Join(directory, "packs", "full.packset.json")); err == nil {
 				return directory
 			}
 		}

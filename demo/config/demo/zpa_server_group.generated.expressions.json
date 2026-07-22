@@ -1,0 +1,10 @@
+{
+  "resources": {
+    "zpa_server_group.example100": {
+      "app_connector_groups[0].id": {
+        "expression": "[data.terraform_remote_state.zpa_app_connector_group.outputs.infrawright_reference_ids.zpa_app_connector_group[\"rhel9_ottawa_zpa_pse_1\"]]",
+        "reason": "cross-state reference binding via zpa_app_connector_group root output"
+      }
+    }
+  }
+}

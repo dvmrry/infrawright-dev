@@ -59,9 +59,9 @@ are:
   lowercase mappings. The generator refuses either class until target mappings
   are explicitly represented.
 
-The generated artifact is
-`node-src/generated/python-lower-15.1.ts`. The nine multi-megabyte source files
-are not vendored and no runtime Unicode package is installed.
+The current generated artifact is `go/internal/pyunicode/tables.go`. The nine
+multi-megabyte source files are not vendored and no runtime Unicode package is
+installed.
 
 ## Regeneration And Check
 
@@ -74,17 +74,19 @@ layout:
 <ucd-root>/17.0.0/{UnicodeData.txt,SpecialCasing.txt,DerivedCoreProperties.txt}
 ```
 
-Then regenerate or compare the committed bytes:
+The original generator was archived with the Node source. Recover it from the
+immutable `node-oracle-v1-final` tag when changing the pinned tables, then port
+and review any resulting table update in Go. The historical commands were:
 
 ```sh
 node tools/generate-python-lower-151.mjs --ucd-root <ucd-root> --write
 node tools/generate-python-lower-151.mjs --ucd-root <ucd-root> --check
 ```
 
-The tool contains no downloader and performs no network access. Normal build
-and test runs consume only the compact committed artifact. A Unicode source,
-runtime, or expected-cardinality change fails closed and requires a reviewed
-regeneration.
+The archived tool contains no downloader and performs no network access.
+Normal build and test runs consume only the compact committed Go artifact. A
+Unicode source, runtime, or expected-cardinality change requires a reviewed
+regeneration and updated exhaustive digests.
 
 ## Node 24 Patch-Level Coverage
 

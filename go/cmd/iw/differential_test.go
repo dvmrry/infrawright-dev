@@ -22,6 +22,24 @@ import (
 	"testing"
 )
 
+const frozenNodeOracleEnvironment = "INFRAWRIGHT_FROZEN_NODE_ORACLE"
+
+func frozenNodeOraclePath(t *testing.T) string {
+	t.Helper()
+	configured := os.Getenv(frozenNodeOracleEnvironment)
+	if configured == "" {
+		t.Skipf("archived differential requires %s to name the frozen bundle", frozenNodeOracleEnvironment)
+	}
+	absolute, err := filepath.Abs(configured)
+	if err != nil {
+		t.Fatalf("filepath.Abs(%q) error = %v, want nil", configured, err)
+	}
+	if _, err := os.Stat(absolute); err != nil {
+		t.Fatalf("frozen differential bundle %q is unavailable: %v", absolute, err)
+	}
+	return absolute
+}
+
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	current, err := os.Getwd()

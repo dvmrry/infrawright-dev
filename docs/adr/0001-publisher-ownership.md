@@ -18,8 +18,7 @@ retain the detailed design at their reviewed commits.
 
 ## Current decision
 
-The supported runtime is the generic Node 24 `iw` CLI distributed as
-`dist/infrawright-cli.mjs` with its SHA-256 checksum. Persistent operational
+The supported runtime is the Go `iw` CLI built as `dist/iw`. Persistent operational
 commands write directly to the deployment-selected workspace; there is no
 cross-process publisher lock in the generic runtime.
 
@@ -30,5 +29,5 @@ roots, saved plans, and Terraform working directories are disjoint. Read-only
 provider qualification does not relax that ownership rule.
 
 Use the current [Integration Validation Runbook](../integration-validation.md)
-and [Operational Node Runtime](../operational-runtime.md) for supported commands
+and [Operational Go Runtime](../operational-runtime.md) for supported commands
 and qualification boundaries.

@@ -2,7 +2,7 @@ package envgen
 
 // reference_topology_test.go ports both tests in
 // node-tests/reference-topology.test.ts verbatim, against the real
-// committed pack root (packs/ + packsets/full.json) -- exactly as the Node
+// committed pack root (packs/ + packs/full.packset.json) -- exactly as the Node
 // test does -- through this repository's own metadata/roots Go packages.
 // No Node or Python oracle is needed: the expected edges/dependency sets
 // are literal fixtures hardcoded in the Node test itself, not derived from
@@ -49,8 +49,8 @@ func committedRootForTopology(t *testing.T) metadata.LoadedPackRoot {
 	t.Helper()
 	root := repoRoot(t)
 	packsRoot := filepath.Join(root, "packs")
-	profilePath := filepath.Join(root, "packsets", "full.json")
-	catalogPath := filepath.Join(root, "packsets", "full.json")
+	profilePath := filepath.Join(root, "packs", "full.packset.json")
+	catalogPath := filepath.Join(root, "packs", "full.packset.json")
 	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   packsRoot,
 		ProfilePath: &profilePath,

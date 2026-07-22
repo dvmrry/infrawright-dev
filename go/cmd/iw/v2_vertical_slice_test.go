@@ -109,9 +109,6 @@ func v2BuildGoBinary(t *testing.T, repositoryRoot string) string {
 	}
 	home := t.TempDir()
 	runtimeRoot := t.TempDir()
-	if err := os.WriteFile(filepath.Join(runtimeRoot, "package.json"), []byte("{}\n"), 0o600); err != nil {
-		t.Fatalf("write checkpoint package marker: %v", err)
-	}
 	binDirectory := filepath.Join(runtimeRoot, "bin")
 	if err := os.Mkdir(binDirectory, 0o700); err != nil {
 		t.Fatalf("create checkpoint binary directory: %v", err)
@@ -175,7 +172,7 @@ func v2FullZIAPackRoot(t *testing.T, repositoryRoot string) string {
 	return root
 }
 
-func v2Environment(t *testing.T, isolatedPath, deploymentPath string, server *recordedFetchFixture) []string {
+func v2Environment(t *testing.T, repositoryRoot, isolatedPath, deploymentPath string, server *recordedFetchFixture) []string {
 	t.Helper()
 	home := t.TempDir()
 	temporaryBase := os.TempDir()
@@ -201,6 +198,7 @@ func v2Environment(t *testing.T, isolatedPath, deploymentPath string, server *re
 		"CHECKPOINT_DISABLE=1",
 		"HOME="+home,
 		"INFRAWRIGHT_DEPLOYMENT="+deploymentPath,
+		"INFRAWRIGHT_PACKAGE_ROOT="+repositoryRoot,
 		"PATH="+isolatedPath,
 		"TF_IN_AUTOMATION=1",
 		"TF_INPUT=0",
@@ -468,9 +466,9 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 	moduleDirectory := filepath.Join(overlay, "modules")
 	deploymentPath := writeTransformDeployment(t, workspace, overlay, nil)
 	isolatedPath := v2IsolatedPath(t, terraform)
-	environment := v2Environment(t, isolatedPath, deploymentPath, server)
+	environment := v2Environment(t, root, isolatedPath, deploymentPath, server)
 
-	profile := filepath.Join(root, "packsets", "zia.json")
+	profile := filepath.Join(root, "packs", "zia.packset.json")
 	metadataArguments := []string{
 		"--root", v2FullZIAPackRoot(t, root),
 		"--profile", profile,

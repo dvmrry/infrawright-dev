@@ -230,12 +230,12 @@ backend-free import-only scratch Apply may run when already approved.
 
 Return full SHA-256 values only for immutable public build/source bindings:
 
-- `dist/infrawright-cli.mjs`;
+- `dist/iw`;
 - ZCC registry, pack manifest, provider schema, and every tested public pack
   override;
 - Terraform binary and loaded provider binary.
 
-Also return Node, Terraform, provider, SDK, and engine Git versions, plus
+Also return Go, Terraform, provider, SDK, and engine Git versions, plus
 Oracle batch/state-source modes. Do not truncate hashes.
 
 Do not return an unkeyed digest of the active profile, catalog selection,

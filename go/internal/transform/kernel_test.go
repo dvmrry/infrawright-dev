@@ -208,7 +208,7 @@ func TestLoadedMetadataDrivesOverrideOrderAndProjection(t *testing.T) {
 
 func TestCommittedZIAOverridesDropRawEmptyStringSentinels(t *testing.T) {
 	root := repoRoot(t)
-	profilePath := filepath.Join(root, "packsets", "full.json")
+	profilePath := filepath.Join(root, "packs", "full.packset.json")
 	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,
@@ -282,7 +282,7 @@ func firstItem(t *testing.T, result PullTransformResult) TransformRecord {
 
 func TestCommittedZIAOverridesOmitLiveProvenEmptyEnumsAndRetainRealValues(t *testing.T) {
 	root := repoRoot(t)
-	profilePath := filepath.Join(root, "packsets", "full.json")
+	profilePath := filepath.Join(root, "packs", "full.packset.json")
 	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,

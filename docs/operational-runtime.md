@@ -1,13 +1,17 @@
-# Operational Node Runtime
+# Operational Go runtime
 
-Infrawright's production adoption path is an ordinary typed Node 24 library
-behind a thin `infrawright` CLI. Packs, registries, provider schemas, profiles,
-and deployment metadata remain caller-selected inputs:
+Status: Go is the sole current-tree runtime and command authority. The former
+Node implementation was archived on 2026-07-22; see
+[the archive record](archive/node-runtime-archive.md).
+
+Infrawright ships one Go CLI, built locally as `dist/iw`. Packs, profiles,
+provider schemas, deployment metadata, and Terraform/OpenTofu remain external
+inputs selected by the caller.
 
 ```text
-packs + registries + schemas + deployment
+packs + profiles + schemas + deployment
                     |
-          generic Node 24 library/CLI
+                  dist/iw
                     |
 fetch / transform / adopt / modules / roots / staging
                     |
@@ -16,261 +20,55 @@ fetch / transform / adopt / modules / roots / staging
                  Terraform
 ```
 
-The operational runtime and maintained provider-authoring commands are
-Python-independent. This is not a claim that the repository contains no
-Python: Python remains temporarily available as a differential oracle and for
-legacy migration checks while the Node implementation is qualified for the
-final archive/removal step.
+## Command authority
 
-## Authoritative Command Inventory
+All root Make targets route through `IW ?= dist/iw`. There is no runtime
+fallback, compatibility override, package-manager build, or second authoring
+binary. The command inventory includes:
 
-The table below is the production command inventory consumed by the focused
-Make/CLI routing test. Each Make target must expand to the listed command in
-the built generic CLI and must not invoke Python. The CLI command—not Make—is
-the behavior owner.
+- Pack and metadata: `check-pack`, `check-pack-set`, `deployment`, `resources`,
+  `root-catalog`.
+- Generation and collection: `modules`, `fetch`, `fetch-diag`, `transform`,
+  `adopt`, `gen-env`.
+- State lifecycle: `roots`, `scope-paths`, `plan-roots`, `stage-imports`,
+  `unstage-imports`, `plan`, `clean-plans`, `assert-clean`,
+  `assert-adoptable`, `apply`.
+- Authoring: `reconcile`, `openapi-map`, `source-operation-map`,
+  `source-evidence-eval`, `provider-probe`, `transform-adopt-parity`.
 
-<!-- operational-command-inventory:start -->
-| Surface | Make target | CLI route |
-|---|---|---|
-| Pack validation | `check-pack` | `check-pack` |
-| Profile/catalog validation | `check-pack-set` | `check-pack-set` |
-| Deployment metadata/path query | `deployment` | `deployment` |
-| Generated-resource listing | `resources` | `resources` |
-| Reference-ordered resource listing | `resources-reference-order` | `resources --order=references` |
-| Module generation | `gen-modules` | `modules generate` |
-| Module validation | `validate-modules` | `modules validate` |
-| Fetch | `fetch` | `fetch` |
-| Fetch diagnostics | `fetch-diag` | `fetch-diag` |
-| Transform | `transform` | `transform` |
-| Adopt | `adopt` | `adopt` |
-| Environment/root generation | `gen-env` | `gen-env` |
-| Root query | `roots` | `roots` |
-| Changed-path scoping | `scope-paths` | `scope-paths` |
-| Saved-plan root query | `plan-roots` | `plan-roots` |
-| Import staging | `stage-imports` | `stage-imports` |
-| Import unstaging | `unstage-imports` | `unstage-imports` |
-| Plan | `plan` | `plan` |
-| Saved-plan cleanup | `clean-plans` | `clean-plans` |
-| Clean-plan assessment | `assert-clean` | `assert-clean` |
-| Adoptable-plan assessment | `assert-adoptable` | `assert-adoptable` |
-| Exact-plan Apply | `apply` | `apply` |
-<!-- operational-command-inventory:end -->
+`INFRAWRIGHT_PACKAGE_ROOT` may explicitly select runtime data. Otherwise `iw`
+walks upward from its executable until it finds `packs/full.packset.json`.
+Pack profiles live only at `packs/*.packset.json`.
 
-The inventory test asks Make itself to expand each recipe. It therefore sees
-multiline recipes, continuations, variables, target-specific values, and the
-delegated `resources-reference-order` alias. It separately inspects built-CLI
-help so a documented Make route cannot point at a missing command.
-
-Operational Make targets consume the shipped bundle and build it only when it
-is absent; source-file timestamps from a fresh checkout do not authorize a
-runtime rebuild. Maintainers explicitly rebuild changed Node sources with
-`make metadata-cli` or the normal `npm run build` development gate.
-
-Make resolves one deployment authority for the entire invocation and exports
-it to every recipe and nested Make: command-line/Make `DEPLOYMENT` wins, then a
-nonempty imported `INFRAWRIGHT_DEPLOYMENT`, then `deployment.json`. Any
-explicit CLI `--deployment` emitted by Make uses that same resolved value.
-
-The metadata and module surfaces are ordinary Make adapters too:
+## Build and verification
 
 ```sh
-make deployment DEPLOYMENT_QUERY=module-dir
-make resources RESOURCE=zia_url_categories
-make resources-reference-order RESOURCE=zia_url_categories
-make gen-modules RESOURCE=zia_url_categories
-make validate-modules RESOURCE=zia_url_categories
+make dist/iw
+make check
+make check-all
+make check-core
 ```
 
-With an explicit deployment, module selectors are closed under its root
-topology. Selecting either member of a grouped root generates or validates all
-members that `gen-env` will reference; ungrouped resources remain narrow.
+`make check` validates the active distribution, runs the complete Go suite,
+and runs the archive tripwire. CI also repeats distribution checks with failing
+`node` and `npm` interceptors first on `PATH`; invoking either fails the job.
+The pack-profile tests physically reduce the pack root for every committed
+profile and verify both loading and mechanical derivability.
 
-The maintained authoring targets `reconcile`, `openapi-map`,
-`source-operation-map`, `source-evidence-eval`, and `provider-probe` use the
-same bundled Node CLI. Migration parity is retained as reviewed frozen
-authority; current tests do not execute Python.
+Historical differential tests are not part of the normal gate. They run only
+when `INFRAWRIGHT_FROZEN_NODE_ORACLE` explicitly names the frozen v1 bundle.
+The expected bundle SHA-256 is recorded with the archive evidence. This opt-in
+resurrection path does not restore a build, release, or rollback lane.
 
-The default repository/Make qualification path is Python-independent:
-
-```sh
-npm run test:node
-make check-node
-```
-
-The Node selector runs every compiled test file whose explicit pack
-requirements are present, rejects direct hardcoded Python subprocesses, and
-includes the import Oracle tests plus the bundled operational workflow smoke
-in the full distribution. Unmarked tests remain core and run in reduced
-distributions, so undeclared coupling fails closed. Frozen Python provenance
-and resurrection commands remain historical evidence in
-`docs/python-oracle-contracts.md`, not executable current-tree dependencies.
-
-## Runtime and Release Contract
-
-The primary release artifact and package binary are:
-
-```text
-iw ---------> dist/infrawright-cli.mjs
-              dist/infrawright-cli.mjs.sha256
-```
-
-`infrawright` remains a compatibility alias for the same bundle.
-
-The bundle targets Node 24, contains its runtime npm dependencies, and is
-executable where the platform preserves executable mode. Running the accepted
-artifact requires Node 24, the adjacent `package.json` used to locate the
-bundle root, selected pack/profile/deployment data, and Terraform for Terraform
-operations. It does not require npm, package installation, `node_modules`, the
-TypeScript source tree, esbuild, tsgo, or Python. The checksum detects
-accidental byte corruption but is not a signature; release/tag trust remains
-authoritative.
-
-Verify the already-built runtime without authorizing a rebuild:
-
-```sh
-make verify-runtime \
-  DEPLOYMENT=deployment.json \
-  PACK_PROFILE=packsets/full.json \
-  PACK_CATALOG=packsets/full.json
-```
-
-The target has no dependency on the `dist` build target. It verifies Node 24,
-the SHA-256, a coherent package root and package binary, CLI startup and
-operational help, pack/profile consistency, and the selected deployment input.
-It rejects nearer package metadata that would change the root discovered by the
-bundle. It neither invokes npm nor Python.
-
-The exact-archive stripped-runtime smoke runs `make verify-runtime`, a pure
-resource query, and `make demo-contract` from a tree without `node_modules`,
-`node-src`, `node-tests`, the lockfile, TypeScript configuration, transition
-catalogs, or legacy bundles. npm, npx, and
-Python tripwires prove the demo consumes only the shipped generic bundle plus
-fake Terraform.
-
-The bundle discovers the package-root `package.json` above `dist/`, while
-operational inputs may be selected explicitly with `--root`, `--profile`,
-`--catalog`, and `--deployment` (or their documented environment equivalents).
-A complete release therefore includes package metadata, profiles, and all
-manifests, registries, schemas, and overrides selected by those profiles.
-
-`fetch --root` and `INFRAWRIGHT_PACKS` may select a copied or reduced external
-pack root. For every selected Fetch resource, collector authority comes from
-the resource's actual provider owner, that owning pack's existing
-`provider_sources` value, and the caller's closed source-to-adapter map—not
-from the registry product alone or the pack's filesystem location. The bundled CLI fails an unknown source, cross-provider product
-reuse, or adapter-product mismatch before credential parsing, CA-bundle
-loading, transport creation, or pull-directory creation. The
-operational smoke exercises a nonempty `make fetch` from a root outside the
-runtime bundle and asserts that no Python artifact exists.
-
-### Source-build registry contract
-
-Rebuilding the bundle is a maintainer/build-host action, not a work-machine
-runtime prerequisite. A faithful source build requires the pinned ordinary npm
-packages and the current platform's optional build-tool binaries from
-`package-lock.json`. A restricted corporate registry must mirror those exact
-packages before it can run `npm ci --ignore-scripts` and `npm run build`.
-
-Inspect the configured registry without installing or rewriting configuration:
-
-```sh
-make source-build-preflight
-node scripts/build-environment-preflight.mjs --manifest
-```
-
-The preflight reports only sanitized registry hosts and exact package
-name/version failures. It verifies registry metadata against the lockfile,
-detects omitted optional or development build packages, rejects registry-host
-rewrite policies that would leave public lock URLs authoritative, detects
-public scoped-registry bypasses, and
-does not expose npm credentials, proxy credentials, or `.npmrc` contents. It
-does not fall back to the public registry or download vendor binaries. The
-derived manifest separates ordinary packages, each supported platform's
-optional packages, and install-script packages that could attempt an
-out-of-band download when optional binaries are absent.
-
-This diagnostic answers registry-metadata readiness for the pinned lockfile; it
-does not replace `npm ci`'s package/lock synchronization check. The checked-in
-package and lock metadata remain synchronized, and a later source build still
-uses the supported `npm ci --ignore-scripts` command before building.
-
-If the preflight says the source build is unavailable, obtain the approved
-`dist/infrawright-cli.mjs` and checksum from the trusted build path, run
-`make verify-runtime`, and use that artifact with Node 24. Mirror readiness is
-required only when the restricted environment must compile the bundle itself.
-
-The former `infrawright-process` host, ZCC collector child, and their
-candidate/receipt/materialization/publication protocols are not runtime
-compatibility surfaces. A repository and downstream-consumer inventory found
-no callers, so they were removed together. The supported bundle is
-`dist/infrawright-cli.mjs`.
-
-## Terraform and Platform Support
+## Platform and Terraform support
 
 - Linux is the production-supported Terraform execution platform.
 - macOS is supported for development and testing.
-- Windows Terraform execution through Infrawright is unsupported and fails
-  before filesystem preflight or process spawn.
-- Pure metadata and rendering functions may remain portable where they are
-  naturally portable; that does not imply Windows Terraform support.
+- Windows Terraform execution is unsupported and rejected before spawn.
+- Terraform/OpenTofu remains required for provider, formatting, import, plan,
+  and Apply operations.
 
-Terraform/OpenTofu remains required for module/root formatting and all provider
-or plan operations. The Adopt Oracle's mechanically verified import-only
-`terraform apply` writes only ephemeral local scratch state and is not a
-deployment Apply. Deployment Apply is a separate command and accepts only the
-exact already-saved `tfplan` after its fingerprint and assessment gates are
-rechecked.
-
-`plan --save` creates the pair `tfplan` and `tfplan.sources`. Assessment reads
-and binds that exact pair. `apply` rechecks the pair and executes exactly the
-saved plan rather than replanning; success removes only that saved pair. See
-[Adoption Command Surface](adoption-command-surface.md) for the full lifecycle.
-
-This repository readiness slice uses fake Terraform and local fixtures. It
-does not establish live-provider, live-backend, or deployment-Apply
-qualification.
-
-## External Qualification Checklist
-
-These checks are for a later approved work environment. This repository slice
-does not provide credentials, execute either qualification, switch ADO, or
-authorize deployment mutation.
-
-### A. Read-only qualification
-
-1. Select the exact accepted CLI and verify its SHA-256 checksum.
-2. Make Python unavailable.
-3. Supply approved read-only credentials out of band.
-4. Fetch a bounded resource cohort.
-5. Run Adopt import/provider Read.
-6. Verify scratch Oracle cleanup.
-7. Generate the selected modules and roots.
-8. Stage imports state-aware against the intended backend.
-9. Save a plan.
-10. Run Node `assert-adoptable`.
-11. Require zero create without import, update, replace, and destroy actions;
-    only imports/no-op may remain.
-12. Retain sanitized hashes, versions, and assessment reports.
-
-### B. Separately authorized import-only Apply qualification
-
-1. Recheck the exact approved plan and fingerprint.
-2. Confirm branch, backend, policy, and destroy gates.
-3. Apply only that exact import-only saved plan.
-4. Unstage imports and moves.
-5. Start from a fresh workspace against the same remote state.
-6. Repeat Fetch, Adopt, generation, staging, and planning.
-7. Require a clean/no-op second plan.
-8. Switch an external operational lane only after separate approval.
-
-## Retained Architecture Inventory
-
-The legacy process-host/ZCC migration silo has been retired. The following
-surfaces remain intentionally pending separate decisions.
-
-| Frozen surface | Current in-repository consumers | External-consumer risk | Likely later action | Prerequisite |
-|---|---|---|---|---|
-| Draft PR #191 | Historical ZIA resource-specific migration path | Branch may be referenced during audit/recovery | Archive or close candidate | Independent review and explicit approval |
-| Draft PR #192 | Historical ZIA plan workflow stacked on #191 | Same, plus stack relationship | Archive or close candidate | Independent review and explicit approval |
-The Python implementation and live migration tests are archived in Git history;
-their reviewed frozen authorities remain active Node regression evidence.
+`plan --save` creates the bound `tfplan` and `tfplan.sources` pair. Assessment
+and Apply recheck that exact pair; Apply executes the saved plan rather than
+replanning. Credential-free repository tests do not claim live-provider,
+live-backend, or deployment-Apply qualification.

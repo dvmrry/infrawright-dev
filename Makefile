@@ -1,25 +1,19 @@
-NODE ?= node
-NPM ?= npm
 TF ?= terraform
 GO ?= go
+IW ?= dist/iw
 OVERLAY ?= demo
 _INFRAWRIGHT_IMPORTED_DEPLOYMENT := $(INFRAWRIGHT_DEPLOYMENT)
 DEPLOYMENT ?= $(if $(strip $(_INFRAWRIGHT_IMPORTED_DEPLOYMENT)),$(_INFRAWRIGHT_IMPORTED_DEPLOYMENT),deployment.json)
-PACK_PROFILE ?= packsets/full.json
-PACK_CATALOG ?= packsets/full.json
+PACK_PROFILE ?= packs/full.packset.json
+PACK_CATALOG ?= packs/full.packset.json
 ROOT_CATALOG ?= catalogs/zscaler-root-catalog.v2.json
 DEMO_PACK_REQUIREMENTS ?= demo/pack-requirements.json
 DEMO_DEPLOYMENT ?= demo/deployment.json
-INFRAWRIGHT_CLI ?= $(NODE) dist/infrawright-cli.mjs
-INFRAWRIGHT_CLI_PREREQUISITE ?= dist/infrawright-cli.mjs
-IW_MAINTAINER ?= dist/iw
-IW_OPERATOR ?= dist/iw
 # Include every file below go/: the command transitively compiles platform
 # assembly and may embed non-Go assets. A broader prerequisite set causes only
 # harmless extra rebuilds and cannot miss a newly introduced local build input.
 GO_BUILD_INPUTS := $(shell find go -type f)
-FROZEN_NODE_ORACLE_SHA256 := ce48c2c6a1cc01254866c5a7eb98b3eef1c90e6c45b69aff7df7aed80c822fa2
-MODULE_DIR ?= $(shell INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(INFRAWRIGHT_CLI) deployment module-dir)
+MODULE_DIR ?= $(shell INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(IW) deployment module-dir)
 OPTIONAL_TENANT_ARG = $(if $(filter undefined,$(origin TENANT)),,--tenant "$(TENANT)")
 
 -include local.mk
@@ -35,30 +29,20 @@ endif
 override INFRAWRIGHT_DEPLOYMENT = $(DEPLOYMENT)
 export INFRAWRIGHT_DEPLOYMENT
 
-.PHONY: metadata-cli verify-runtime verify-frozen-node-oracle source-build-preflight check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-distribution check-candidate-distribution v2-authority differential root-catalog check-root-catalog deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-node check-all check-core test test-go test-node fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
-
-dist/infrawright-cli.mjs:
-	$(NPM) run build:metadata-cli
+.PHONY: archive-tripwire check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-distribution v2-authority root-catalog check-root-catalog deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-all check-core test test-go fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 dist/iw: $(GO_BUILD_INPUTS)
 	@mkdir -p dist
 	cd go && $(GO) build -o ../dist/iw ./cmd/iw
 
-metadata-cli: ## Explicitly rebuild the generic CLI for development
-	$(NPM) run build:metadata-cli
-
-verify-runtime: ## Verify the prebuilt generic CLI without npm or Python
-	$(NODE) scripts/verify-runtime-release.mjs "$(CURDIR)" --deployment "$(DEPLOYMENT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)"
-
-verify-frozen-node-oracle: ## Verify, but never rebuild, the immutable v1 Node differential oracle
-	@$(NODE) -e 'const fs = require("node:fs"); const crypto = require("node:crypto"); const file = "dist/infrawright-cli.mjs"; const want = process.argv[1]; let bytes; try { bytes = fs.readFileSync(file); } catch (error) { console.error(`frozen Node oracle unavailable: $${error.message}`); process.exit(1); } const got = crypto.createHash("sha256").update(bytes).digest("hex"); if (got !== want) { console.error(`frozen Node oracle digest mismatch: got $${got}, want $${want}`); process.exit(1); }' "$(FROZEN_NODE_ORACLE_SHA256)"
-	@line="$$(cat dist/infrawright-cli.mjs.sha256 2>/dev/null)"; \
-		test "$$line" = "$(FROZEN_NODE_ORACLE_SHA256)  infrawright-cli.mjs" || { \
-			echo "frozen Node oracle checksum file is absent or inconsistent" >&2; exit 1; \
-		}
-
-source-build-preflight: ## Diagnose whether the configured npm registry can rebuild the CLI
-	$(NODE) scripts/build-environment-preflight.mjs --npm "$(NPM)"
+archive-tripwire: ## Prove active build, CI, and release surfaces contain no executable Node lane
+	@! sed '/^archive-tripwire:/,/^[^[:space:]]/d' Makefile demo/Makefile | grep -nE 'INFRAWRIGHT_CLI|IW_MAINTAINER|IW_OPERATOR|dist/infrawright-cli\.mjs|\$\((NODE|NPM)\)' || { \
+		echo "archive-tripwire: legacy Make routing remains" >&2; exit 1; \
+	}
+	@! git grep -nE 'actions/setup-node|(^|[[:space:]])npm[[:space:]]+(ci|run)|(^|[[:space:]])node[[:space:]]+|dist/infrawright-cli\.mjs|node-src' -- .github/workflows || { \
+		echo "archive-tripwire: executable Node reference remains" >&2; exit 1; \
+	}
+	@test ! -e package.json -a ! -e package-lock.json -a ! -e node-src
 
 check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
 	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1
@@ -66,8 +50,8 @@ check-demo: ## Fail if the shipped demo overlay drifts from pipeline output
 		echo "check-demo: unable to inspect demo drift" >&2; exit 1; }; \
 	test -z "$$status" || { echo "demo drift:"; echo "$$status"; exit 1; }
 
-check-examples: $(INFRAWRIGHT_CLI_PREREQUISITE) ## Validate examples whose declared pack requirements are installed
-	@set +e; output="$$( $(INFRAWRIGHT_CLI) check-pack-set --catalog "$(PACK_CATALOG)" --requirements "$(DEMO_PACK_REQUIREMENTS)" 2>&1 )"; status=$$?; set -e; \
+check-examples: dist/iw ## Validate examples whose declared pack requirements are installed
+	@set +e; output="$$( $(IW) check-pack-set --catalog "$(PACK_CATALOG)" --requirements "$(DEMO_PACK_REQUIREMENTS)" 2>&1 )"; status=$$?; set -e; \
 	if [ $$status -eq 0 ]; then \
 		echo "$$output"; $(MAKE) check-demo; \
 	elif [ $$status -eq 3 ]; then \
@@ -76,55 +60,52 @@ check-examples: $(INFRAWRIGHT_CLI_PREREQUISITE) ## Validate examples whose decla
 		echo "$$output" >&2; exit $$status; \
 	fi
 
-check-modules: $(INFRAWRIGHT_CLI_PREREQUISITE) ## Generate every module into a temp deployment to catch generator regressions
+check-modules: dist/iw ## Generate every module into a temp deployment to catch generator regressions
 	@tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \
 	printf '{"module_dir": "%s/modules"}\n' "$$tmp" > "$$tmp/deployment.json"; \
-	INFRAWRIGHT_DEPLOYMENT="$$tmp/deployment.json" $(INFRAWRIGHT_CLI) modules generate --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" > /dev/null 2>&1; \
-	$(INFRAWRIGHT_CLI) modules validate --out "$$tmp/modules" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" > /dev/null
+	INFRAWRIGHT_DEPLOYMENT="$$tmp/deployment.json" $(IW) modules generate --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" > /dev/null 2>&1; \
+	$(IW) modules validate --out "$$tmp/modules" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" > /dev/null
 
-check-tfvars-fmt: $(INFRAWRIGHT_CLI_PREREQUISITE) ## Validate HCL tfvars formatting when deployment selects hcl
-	@fmt="$$(INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(INFRAWRIGHT_CLI) deployment tfvars-format)" || exit $$?; \
+check-tfvars-fmt: dist/iw ## Validate HCL tfvars formatting when deployment selects hcl
+	@fmt="$$(INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(IW) deployment tfvars-format)" || exit $$?; \
 	if [ "$$fmt" = "json" ]; then echo "check-tfvars-fmt: skip (json tfvars)"; exit 0; fi; \
 	if ! command -v "$(TF)" >/dev/null 2>&1; then echo "check-tfvars-fmt: skip (no terraform)"; exit 0; fi; \
-	overlay="$$(INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(INFRAWRIGHT_CLI) deployment overlay)" || exit $$?; \
+	overlay="$$(INFRAWRIGHT_DEPLOYMENT="$(DEPLOYMENT)" $(IW) deployment overlay)" || exit $$?; \
 	if [ "$$overlay" = "." ]; then config_dir="config"; else config_dir="$$overlay/config"; fi; \
 	if [ ! -d "$$config_dir" ]; then echo "check-tfvars-fmt: no config dirs"; exit 0; fi; \
 	"$(TF)" fmt -check -recursive "$$config_dir"
 
-check-pack: $(INFRAWRIGHT_CLI_PREREQUISITE) ## Validate pack.json and registry.json metadata ([PACK=<name>])
-	$(INFRAWRIGHT_CLI) check-pack $(if $(PACK),--pack "$(PACK)")
+check-pack: dist/iw ## Validate pack.json and registry.json metadata ([PACK=<name>])
+	$(IW) check-pack $(if $(PACK),--pack "$(PACK)")
 
-check-pack-set: $(INFRAWRIGHT_CLI_PREREQUISITE) ## Require the installed pack root to match PACK_PROFILE exactly
-	$(INFRAWRIGHT_CLI) check-pack-set --catalog "$(PACK_CATALOG)" --profile "$(PACK_PROFILE)"
+check-pack-set: dist/iw ## Require the installed pack root to match PACK_PROFILE exactly
+	$(IW) check-pack-set --catalog "$(PACK_CATALOG)" --profile "$(PACK_PROFILE)"
 
-v2-authority: verify-frozen-node-oracle ## Run exact Go-v2 goldens and topology-independent frozen-Node comparisons
+v2-authority: ## Run the exact Go-v2 authority goldens
 	cd go && $(GO) test -count=1 ./cmd/iw -run '^Test.*V2.*Authority'
 
-differential: v2-authority ## Run retained cmd/iw Go-vs-frozen-Node suites without rebuilding the oracle
-	cd go && $(GO) test -count=1 ./cmd/iw -run 'Differential|^TestFetchDiagValidatesHostBeforeTransportSetup$$|^TestFetchArgumentContractCredentialFree$$|^TestFetchEmptyPackRootMakesNoRequests$$'
-
 root-catalog: dist/iw ## Regenerate the all-Zscaler singleton-state v2 root catalog
-	$(IW_OPERATOR) root-catalog --providers zcc,zia,zpa,ztc --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --out "$(ROOT_CATALOG)"
+	$(IW) root-catalog --providers zcc,zia,zpa,ztc --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --out "$(ROOT_CATALOG)"
 
 check-root-catalog: dist/iw ## Fail when the all-Zscaler singleton-state v2 root catalog is stale
-	$(IW_OPERATOR) root-catalog --providers zcc,zia,zpa,ztc --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --check "$(ROOT_CATALOG)"
+	$(IW) root-catalog --providers zcc,zia,zpa,ztc --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --check "$(ROOT_CATALOG)"
 
-deployment: dist/infrawright-cli.mjs ## Query deployment metadata (DEPLOYMENT_QUERY=<verb> [TENANT=<label>])
-	$(INFRAWRIGHT_CLI) deployment --deployment "$(DEPLOYMENT)" "$(or $(DEPLOYMENT_QUERY),overlay)" $(if $(TENANT),"$(TENANT)")
+deployment: dist/iw ## Query deployment metadata (DEPLOYMENT_QUERY=<verb> [TENANT=<label>])
+	$(IW) deployment --deployment "$(DEPLOYMENT)" "$(or $(DEPLOYMENT_QUERY),overlay)" $(if $(TENANT),"$(TENANT)")
 
-resources: dist/infrawright-cli.mjs ## List generated resources ([RESOURCE="<type|provider> ..."] [REFERENCE_ORDER=1])
-	$(INFRAWRIGHT_CLI) resources $(if $(REFERENCE_ORDER),--order=references) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
+resources: dist/iw ## List generated resources ([RESOURCE="<type|provider> ..."] [REFERENCE_ORDER=1])
+	$(IW) resources $(if $(REFERENCE_ORDER),--order=references) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
 resources-reference-order: REFERENCE_ORDER=1
 resources-reference-order: resources
 
-gen-modules: dist/infrawright-cli.mjs ## Generate deployment modules ([RESOURCE="<type> ..."])
-	$(INFRAWRIGHT_CLI) modules generate --deployment "$(DEPLOYMENT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
+gen-modules: dist/iw ## Generate deployment modules ([RESOURCE="<type> ..."])
+	$(IW) modules generate --deployment "$(DEPLOYMENT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-validate-modules: dist/infrawright-cli.mjs ## Validate deployment modules ([RESOURCE="<type> ..."])
-	$(INFRAWRIGHT_CLI) modules validate --deployment "$(DEPLOYMENT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
+validate-modules: dist/iw ## Validate deployment modules ([RESOURCE="<type> ..."])
+	$(IW) modules validate --deployment "$(DEPLOYMENT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-demo-contract: dist/infrawright-cli.mjs ## Credential-free demo artifact/module contract check
+demo-contract: dist/iw ## Credential-free demo artifact/module contract check
 	@echo "demo-contract: materializing demo overlay without credentials"
 	@INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(MAKE) OVERLAY=demo DEPLOYMENT="$(DEMO_DEPLOYMENT)" demo > /dev/null 2>&1
 	@status="$$(git status --porcelain -- demo/config/demo demo/imports/demo)" || { \
@@ -135,110 +116,101 @@ demo-contract: dist/infrawright-cli.mjs ## Credential-free demo artifact/module 
 	@test -z "$$(find demo/imports/demo -name '*_moves.tf' -print)" || { \
 		echo "demo-contract: stale demo moved-block files found:"; \
 		find demo/imports/demo -name '*_moves.tf' -print; exit 1; }
-	@module_dir="$$(INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(INFRAWRIGHT_CLI) deployment module-dir)"; \
-	INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(INFRAWRIGHT_CLI) modules validate --out "$$module_dir" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" > /dev/null; \
+	@module_dir="$$(INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(IW) deployment module-dir)"; \
+	INFRAWRIGHT_DEPLOYMENT="$(DEMO_DEPLOYMENT)" $(IW) modules validate --out "$$module_dir" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" > /dev/null; \
 	echo "demo-contract: committed demo config/imports and generated modules are in sync"
 	@echo "demo-contract: live provider import/plan proof requires credentials and the adoption workflow"
 
 check-distribution: check-pack-set check-examples check-modules check-tfvars-fmt check-pack ## Active distribution without selecting its runtime test suite
 
-check-candidate-distribution: check-pack-set check-modules check-tfvars-fmt check-pack ## Candidate distribution before the checked-in demo switches from v1
-
-check: dist/iw ## Current Go-authority distribution and runtime gate
-	$(MAKE) INFRAWRIGHT_CLI=dist/iw INFRAWRIGHT_CLI_PREREQUISITE=dist/iw check-candidate-distribution
-	$(MAKE) test-go
-
-check-node: check-distribution test-node ## Complete frozen Node gate; run from node-oracle-v1-final
+check: dist/iw check-distribution test-go archive-tripwire ## Complete Go-authority distribution and runtime gate
 
 check-all: ## Run the active-distribution gate against the complete upstream pack catalog
-	@INFRAWRIGHT_PACKS="$(CURDIR)/packs" $(MAKE) PACK_CATALOG="$(CURDIR)/packsets/full.json" PACK_PROFILE="$(CURDIR)/packsets/full.json" check
-	@INFRAWRIGHT_PACKS="$(CURDIR)/packs" $(MAKE) PACK_CATALOG="$(CURDIR)/packsets/full.json" PACK_PROFILE="$(CURDIR)/packsets/full.json" check-root-catalog
+	@INFRAWRIGHT_PACKS="$(CURDIR)/packs" $(MAKE) PACK_CATALOG="$(CURDIR)/packs/full.packset.json" PACK_PROFILE="$(CURDIR)/packs/full.packset.json" check
+	@INFRAWRIGHT_PACKS="$(CURDIR)/packs" $(MAKE) PACK_CATALOG="$(CURDIR)/packs/full.packset.json" PACK_PROFILE="$(CURDIR)/packs/full.packset.json" check-root-catalog
 
 check-core: ## Prove the pack-independent engine surface with an empty pack root
 	@root="$$(mktemp -d)"; trap 'rm -rf "$$root"' EXIT; \
-	INFRAWRIGHT_PACKS="$$root" $(MAKE) PACK_CATALOG="$(CURDIR)/packsets/full.json" PACK_PROFILE="$(CURDIR)/packsets/empty.json" \
-		INFRAWRIGHT_CLI=dist/iw INFRAWRIGHT_CLI_PREREQUISITE=dist/iw test-go check-pack check-modules
+	INFRAWRIGHT_PACKS="$$root" $(MAKE) PACK_CATALOG="$(CURDIR)/packs/full.packset.json" PACK_PROFILE="$(CURDIR)/packs/empty.packset.json" \
+		test-go check-pack check-modules
 
 test: test-go ## Default repository tests use the current Go authority
 
 test-go: ## Run the complete Go authority suite
 	cd go && $(GO) test ./...
 
-test-node: check-pack-set ## Run the complete frozen Node suite from node-oracle-v1-final
-	PACK_PROFILE="$(PACK_PROFILE)" PACK_CATALOG="$(PACK_CATALOG)" $(NPM) run test:node
-
-fetch: dist/infrawright-cli.mjs ## Pull API JSON into pulls/<tenant> (TENANT=<name> [RESOURCE="<type|provider> ..."])
+fetch: dist/iw ## Pull API JSON into pulls/<tenant> (TENANT=<name> [RESOURCE="<type|provider> ..."])
 	@test -n "$(TENANT)" || { echo "usage: make fetch TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
-	$(INFRAWRIGHT_CLI) fetch --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(if $(FETCH_CONCURRENCY),--concurrency "$(FETCH_CONCURRENCY)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
+	$(IW) fetch --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(if $(FETCH_CONCURRENCY),--concurrency "$(FETCH_CONCURRENCY)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-fetch-diag: dist/infrawright-cli.mjs ## Probe TLS to the fetcher's hosts under system trust and +bundle
-	$(INFRAWRIGHT_CLI) fetch-diag --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)"
+fetch-diag: dist/iw ## Probe TLS to the fetcher's hosts under system trust and +bundle
+	$(IW) fetch-diag --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)"
 
-gen-env: dist/infrawright-cli.mjs ## Generate env roots for a tenant (TENANT=<label> [BACKEND=azurerm] [RESOURCE="<type|provider> ..."])
+gen-env: dist/iw ## Generate env roots for a tenant (TENANT=<label> [BACKEND=azurerm] [RESOURCE="<type|provider> ..."])
 	@test -n "$(TENANT)" || { echo "usage: make gen-env TENANT=<label> [BACKEND=azurerm] [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
-	$(INFRAWRIGHT_CLI) gen-env --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(BACKEND),--backend "$(BACKEND)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
+	$(IW) gen-env --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(BACKEND),--backend "$(BACKEND)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-transform: dist/infrawright-cli.mjs ## Transform pulled JSON for a tenant (IN=<dir> TENANT=<name> [RESOURCE="<type|provider> ..."])
+transform: dist/iw ## Transform pulled JSON for a tenant (IN=<dir> TENANT=<name> [RESOURCE="<type|provider> ..."])
 	@test -n "$(IN)" -a -n "$(TENANT)" || { echo "usage: make transform IN=pulls/<tenant> TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
-	$(INFRAWRIGHT_CLI) transform --in "$(IN)" --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
+	$(IW) transform --in "$(IN)" --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
 reconcile: dist/iw ## Compare API JSON to Terraform schema (RESOURCE=<type> IN=<api.json> [SCHEMA=<schema.json>] [API_OPTIONS=<options.json>] [OPENAPI=<spec.json>] [OPENAPI_READ=<METHOD:/path>] [OPENAPI_WRITE="<METHOD:/path> ..."] [OVERRIDE=<override.json>] [OUT=<report.json>] [STRICT=1])
 	@test -n "$(RESOURCE)" -a -n "$(IN)" || { echo "usage: make reconcile RESOURCE=<type> IN=<api.json> [SCHEMA=<schema.json>] [API_OPTIONS=<options.json>] [OPENAPI=<spec.json>] [OPENAPI_READ=<METHOD:/path>] [OPENAPI_WRITE=\"<METHOD:/path> ...\"] [OVERRIDE=<override.json>] [OUT=<report.json>] [STRICT=1]"; exit 2; }
-	$(IW_MAINTAINER) reconcile "$(RESOURCE)" --api "$(IN)" $(if $(SCHEMA),--schema "$(SCHEMA)") $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(API_OPTIONS),--api-options "$(API_OPTIONS)") $(if $(OPENAPI),--openapi "$(OPENAPI)") $(if $(OPENAPI_READ),--openapi-read "$(OPENAPI_READ)") $(foreach op,$(OPENAPI_WRITE),--openapi-write "$(op)") $(if $(OVERRIDE),--override "$(OVERRIDE)") $(if $(OUT),--out "$(OUT)") $(if $(STRICT),--fail-on-unknown)
+	$(IW) reconcile "$(RESOURCE)" --api "$(IN)" $(if $(SCHEMA),--schema "$(SCHEMA)") $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(API_OPTIONS),--api-options "$(API_OPTIONS)") $(if $(OPENAPI),--openapi "$(OPENAPI)") $(if $(OPENAPI_READ),--openapi-read "$(OPENAPI_READ)") $(foreach op,$(OPENAPI_WRITE),--openapi-write "$(op)") $(if $(OVERRIDE),--override "$(OVERRIDE)") $(if $(OUT),--out "$(OUT)") $(if $(STRICT),--fail-on-unknown)
 
 openapi-map: dist/iw ## Map provider resources to OpenAPI CRUD endpoints (SCHEMA=<schema.json> OPENAPI=<spec.json> [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [API_PREFIX=/api/] [REGISTRY=<registry.json>] [OUT=<report.json>])
 	@test -n "$(SCHEMA)" -a -n "$(OPENAPI)" || { echo "usage: make openapi-map SCHEMA=<schema.json> OPENAPI=<spec.json> [PROVIDER_SOURCE=<addr>] [RESOURCE_PREFIX=<prefix>] [API_PREFIX=/api/] [REGISTRY=<registry.json>] [OUT=<report.json>]"; exit 2; }
-	$(IW_MAINTAINER) openapi-map --schema "$(SCHEMA)" --openapi "$(OPENAPI)" $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(API_PREFIX),--api-prefix "$(API_PREFIX)") $(if $(REGISTRY),--registry "$(REGISTRY)") $(if $(OUT),--out "$(OUT)")
+	$(IW) openapi-map --schema "$(SCHEMA)" --openapi "$(OPENAPI)" $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(API_PREFIX),--api-prefix "$(API_PREFIX)") $(if $(REGISTRY),--registry "$(REGISTRY)") $(if $(OUT),--out "$(OUT)")
 
 source-operation-map: dist/iw ## Derive source-operation evidence (SCHEMA=<schema.json> SOURCE_ROOT=<dir>; legacy: OPENAPI=<spec.json>; v2: SOURCE_MANIFEST=<file> ARTIFACT_DIR=<dir>)
 	@test -n "$(SCHEMA)" -a -n "$(SOURCE_ROOT)" || { echo "usage: make source-operation-map SCHEMA=<schema.json> SOURCE_ROOT=<dir> [OPENAPI=<spec.json>] [SOURCE_MANIFEST=<manifest.json>|ALLOW_UNVERIFIED_SOURCE=1] [ARTIFACT_DIR=<dir>]"; exit 2; }
-	$(IW_MAINTAINER) source-operation-map --schema "$(SCHEMA)" --source-root "$(SOURCE_ROOT)" $(if $(OPENAPI),--openapi "$(OPENAPI)") $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(RESOURCES),--resources "$(RESOURCES)") $(foreach root,$(SDK_ROOT),--sdk-root "$(root)") $(if $(SOURCE_MANIFEST),--source-manifest "$(SOURCE_MANIFEST)") $(if $(ALLOW_UNVERIFIED_SOURCE),--allow-unverified-source) $(if $(PROVIDER_MODULE),--provider-module "$(PROVIDER_MODULE)") $(foreach file,$(PROVIDER_FILE),--provider-file "$(file)") $(foreach file,$(SDK_FILE),--sdk-file "$(file)") $(if $(ARTIFACT_DIR),--artifact-dir "$(ARTIFACT_DIR)") $(if $(OUT),--out "$(OUT)") $(if $(DIAGNOSTICS),--diagnostics "$(DIAGNOSTICS)")
+	$(IW) source-operation-map --schema "$(SCHEMA)" --source-root "$(SOURCE_ROOT)" $(if $(OPENAPI),--openapi "$(OPENAPI)") $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(RESOURCES),--resources "$(RESOURCES)") $(foreach root,$(SDK_ROOT),--sdk-root "$(root)") $(if $(SOURCE_MANIFEST),--source-manifest "$(SOURCE_MANIFEST)") $(if $(ALLOW_UNVERIFIED_SOURCE),--allow-unverified-source) $(if $(PROVIDER_MODULE),--provider-module "$(PROVIDER_MODULE)") $(foreach file,$(PROVIDER_FILE),--provider-file "$(file)") $(foreach file,$(SDK_FILE),--sdk-file "$(file)") $(if $(ARTIFACT_DIR),--artifact-dir "$(ARTIFACT_DIR)") $(if $(OUT),--out "$(OUT)") $(if $(DIAGNOSTICS),--diagnostics "$(DIAGNOSTICS)")
 
 source-evidence-eval: dist/iw ## Evaluate source evidence (SCHEMA=<schema.json> SOURCE_ROOT=<dir> OUT_DIR=<dir>; legacy: OPENAPI=<spec.json>)
 	@test -n "$(SCHEMA)" -a -n "$(SOURCE_ROOT)" -a -n "$(OUT_DIR)" || { echo "usage: make source-evidence-eval SCHEMA=<schema.json> SOURCE_ROOT=<dir> OUT_DIR=<dir> [OPENAPI=<spec.json>] [SOURCE_MANIFEST=<manifest.json>|ALLOW_UNVERIFIED_SOURCE=1]"; exit 2; }
-	$(IW_MAINTAINER) source-evidence-eval --schema "$(SCHEMA)" --source-root "$(SOURCE_ROOT)" --out-dir "$(OUT_DIR)" $(if $(OPENAPI),--openapi "$(OPENAPI)") $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(RESOURCES),--resources "$(RESOURCES)") $(if $(SOURCE_FACTS),--source-facts "$(SOURCE_FACTS)") $(if $(SOURCE_MANIFEST),--source-manifest "$(SOURCE_MANIFEST)") $(if $(ALLOW_UNVERIFIED_SOURCE),--allow-unverified-source) $(if $(PROVIDER_MODULE),--provider-module "$(PROVIDER_MODULE)") $(foreach root,$(SDK_ROOT),--sdk-root "$(root)") $(foreach file,$(PROVIDER_FILE),--provider-file "$(file)") $(foreach file,$(SDK_FILE),--sdk-file "$(file)") $(if $(FAIL_ON_REGRESSION),--fail-on-regression)
+	$(IW) source-evidence-eval --schema "$(SCHEMA)" --source-root "$(SOURCE_ROOT)" --out-dir "$(OUT_DIR)" $(if $(OPENAPI),--openapi "$(OPENAPI)") $(if $(PROVIDER_SOURCE),--provider-source "$(PROVIDER_SOURCE)") $(if $(RESOURCE_PREFIX),--resource-prefix "$(RESOURCE_PREFIX)") $(if $(RESOURCES),--resources "$(RESOURCES)") $(if $(SOURCE_FACTS),--source-facts "$(SOURCE_FACTS)") $(if $(SOURCE_MANIFEST),--source-manifest "$(SOURCE_MANIFEST)") $(if $(ALLOW_UNVERIFIED_SOURCE),--allow-unverified-source) $(if $(PROVIDER_MODULE),--provider-module "$(PROVIDER_MODULE)") $(foreach root,$(SDK_ROOT),--sdk-root "$(root)") $(foreach file,$(PROVIDER_FILE),--provider-file "$(file)") $(foreach file,$(SDK_FILE),--sdk-file "$(file)") $(if $(FAIL_ON_REGRESSION),--fail-on-regression)
 
-adopt: dist/infrawright-cli.mjs ## Transform pulled JSON using Terraform/OpenTofu import oracle (IN=<dir> TENANT=<name> [RESOURCE="<type|provider> ..."] [POLICY=<file>])
+adopt: dist/iw ## Transform pulled JSON using Terraform/OpenTofu import oracle (IN=<dir> TENANT=<name> [RESOURCE="<type|provider> ..."] [POLICY=<file>])
 	@test -n "$(IN)" -a -n "$(TENANT)" || { echo "usage: make adopt IN=pulls/<tenant> TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"] [POLICY=<file>]"; exit 2; }
-	$(INFRAWRIGHT_CLI) adopt --in "$(IN)" --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)") $(if $(POLICY),--policy "$(POLICY)")
+	$(IW) adopt --in "$(IN)" --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)") $(if $(POLICY),--policy "$(POLICY)")
 
 provider-probe: dist/iw ## Run provider readiness probe (RECIPE=<recipe.json> [WORK_DIR=<dir>] [OUT=<summary.json>] [MARKDOWN=<summary.md>])
 	@test -n "$(RECIPE)" || { echo "usage: make provider-probe RECIPE=<recipe.json> [WORK_DIR=<dir>] [OUT=<summary.json>] [MARKDOWN=<summary.md>]"; exit 2; }
-	$(IW_MAINTAINER) provider-probe "$(RECIPE)" $(if $(WORK_DIR),--work-dir "$(WORK_DIR)") $(if $(OUT),--out "$(OUT)") $(if $(MARKDOWN),--markdown "$(MARKDOWN)")
+	$(IW) provider-probe "$(RECIPE)" $(if $(WORK_DIR),--work-dir "$(WORK_DIR)") $(if $(OUT),--out "$(OUT)") $(if $(MARKDOWN),--markdown "$(MARKDOWN)")
 
 transform-adopt-parity: dist/iw ## Compare Transform/Adopt fixtures (FIXTURES="<fixture.json> ...")
 	@test -n "$(FIXTURES)" || { echo "usage: make transform-adopt-parity FIXTURES=\"<fixture.json> ...\""; exit 2; }
-	$(IW_MAINTAINER) transform-adopt-parity $(FIXTURES)
+	$(IW) transform-adopt-parity $(FIXTURES)
 
-roots: dist/infrawright-cli.mjs ## Emit root topology JSON ([TENANT=<label>] [RESOURCE=<type|provider>])
-	@$(INFRAWRIGHT_CLI) roots $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
+roots: dist/iw ## Emit root topology JSON ([TENANT=<label>] [RESOURCE=<type|provider>])
+	@$(IW) roots $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-scope-paths: dist/infrawright-cli.mjs ## Map changed paths to affected whole roots (PATHS_JSON=<file|->)
+scope-paths: dist/iw ## Map changed paths to affected whole roots (PATHS_JSON=<file|->)
 	@test -n "$(PATHS_JSON)" || { echo "usage: make scope-paths PATHS_JSON=<file|->"; exit 2; }
-	@$(INFRAWRIGHT_CLI) scope-paths --paths-json "$(PATHS_JSON)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)"
+	@$(IW) scope-paths --paths-json "$(PATHS_JSON)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)"
 
-plan-roots: dist/infrawright-cli.mjs ## Enumerate materialized env roots and plan artifacts ([TENANT=<label>] [RESOURCE=<type|provider>])
-	@$(INFRAWRIGHT_CLI) plan-roots $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
+plan-roots: dist/iw ## Enumerate materialized env roots and plan artifacts ([TENANT=<label>] [RESOURCE=<type|provider>])
+	@$(IW) plan-roots $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-stage-imports: dist/infrawright-cli.mjs ## Copy import/moved blocks into env roots (TENANT=<label> [RESOURCE=<type|provider>] [STATE_AWARE=1] [BACKEND_CONFIG=<file>])
+stage-imports: dist/iw ## Copy import/moved blocks into env roots (TENANT=<label> [RESOURCE=<type|provider>] [STATE_AWARE=1] [BACKEND_CONFIG=<file>])
 	@test -n "$(TENANT)" || { echo "usage: make stage-imports TENANT=<label> [RESOURCE=\"<type|provider> ...\"] [STATE_AWARE=1] [BACKEND_CONFIG=<file>]"; exit 2; }
-	$(INFRAWRIGHT_CLI) stage-imports --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)") $(if $(STATE_AWARE),--state-aware --terraform "$(TF)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)")
+	$(IW) stage-imports --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)") $(if $(STATE_AWARE),--state-aware --terraform "$(TF)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)")
 
-unstage-imports: dist/infrawright-cli.mjs ## Remove staged import/moved blocks from env roots (TENANT=<label> [RESOURCE=<type|provider>])
+unstage-imports: dist/iw ## Remove staged import/moved blocks from env roots (TENANT=<label> [RESOURCE=<type|provider>])
 	@test -n "$(TENANT)" || { echo "usage: make unstage-imports TENANT=<label> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }
-	$(INFRAWRIGHT_CLI) unstage-imports --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
+	$(IW) unstage-imports --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-plan: dist/infrawright-cli.mjs ## Terraform plan for tenant roots (TENANT=<label> [RESOURCE=<type|provider>] [IMPORTS_ONLY=1] [SAVE=1] [BACKEND_CONFIG=<file>])
-	$(INFRAWRIGHT_CLI) plan --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(IMPORTS_ONLY),--imports-only) $(if $(SAVE),--save) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
+plan: dist/iw ## Terraform plan for tenant roots (TENANT=<label> [RESOURCE=<type|provider>] [IMPORTS_ONLY=1] [SAVE=1] [BACKEND_CONFIG=<file>])
+	$(IW) plan --tenant "$(TENANT)" --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(IMPORTS_ONLY),--imports-only) $(if $(SAVE),--save) $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-clean-plans: dist/infrawright-cli.mjs ## Delete saved tfplan artifacts ([TENANT=<label>] [RESOURCE=<type|provider>])
-	$(INFRAWRIGHT_CLI) clean-plans $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
+clean-plans: dist/iw ## Delete saved tfplan artifacts ([TENANT=<label>] [RESOURCE=<type|provider>])
+	$(IW) clean-plans $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-assert-clean: dist/infrawright-cli.mjs ## Exit 0 only when every saved plan is no-op/import-only ([TENANT=<label>] [RESOURCE=<type|provider>] [BACKEND_CONFIG=<file>] [REPORT=<file>])
-	@$(INFRAWRIGHT_CLI) assert-clean $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(REPORT),--report "$(REPORT)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
+assert-clean: dist/iw ## Exit 0 only when every saved plan is no-op/import-only ([TENANT=<label>] [RESOURCE=<type|provider>] [BACKEND_CONFIG=<file>] [REPORT=<file>])
+	@$(IW) assert-clean $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(REPORT),--report "$(REPORT)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-assert-adoptable: dist/infrawright-cli.mjs ## Classify saved plans with optional consumer drift policy ([TENANT=<label>] [RESOURCE=<type|provider>] [POLICY=<file>] [BACKEND_CONFIG=<file>] [REPORT=<file>])
-	@$(INFRAWRIGHT_CLI) assert-adoptable $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(POLICY),--policy "$(POLICY)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(REPORT),--report "$(REPORT)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
+assert-adoptable: dist/iw ## Classify saved plans with optional consumer drift policy ([TENANT=<label>] [RESOURCE=<type|provider>] [POLICY=<file>] [BACKEND_CONFIG=<file>] [REPORT=<file>])
+	@$(IW) assert-adoptable $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(POLICY),--policy "$(POLICY)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(REPORT),--report "$(REPORT)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
 
-apply: dist/infrawright-cli.mjs ## Apply saved plans ([TENANT=<label>] [RESOURCE=<type|provider>] [POLICY=<file>] [BACKEND_CONFIG=<file>] [ALLOW_DESTROY=1] [ALLOW_NON_MAIN=1] [ALLOW_PLAN_CHANGES=1])
-	$(INFRAWRIGHT_CLI) apply $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(POLICY),--policy "$(POLICY)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(ALLOW_DESTROY),--allow-destroy) $(if $(ALLOW_NON_MAIN),--allow-non-main) $(if $(ALLOW_PLAN_CHANGES),--allow-plan-changes) $(if $(MAIN_BRANCH),--main-branch "$(MAIN_BRANCH)") $(foreach rt,$(RESOURCE),--resource "$(rt)")
+apply: dist/iw ## Apply saved plans ([TENANT=<label>] [RESOURCE=<type|provider>] [POLICY=<file>] [BACKEND_CONFIG=<file>] [ALLOW_DESTROY=1] [ALLOW_NON_MAIN=1] [ALLOW_PLAN_CHANGES=1])
+	$(IW) apply $(OPTIONAL_TENANT_ARG) --profile "$(PACK_PROFILE)" --catalog "$(PACK_CATALOG)" --terraform "$(TF)" $(if $(POLICY),--policy "$(POLICY)") $(if $(BACKEND_CONFIG),--backend-config "$(BACKEND_CONFIG)") $(if $(ALLOW_DESTROY),--allow-destroy) $(if $(ALLOW_NON_MAIN),--allow-non-main) $(if $(ALLOW_PLAN_CHANGES),--allow-plan-changes) $(if $(MAIN_BRANCH),--main-branch "$(MAIN_BRANCH)") $(foreach rt,$(RESOURCE),--resource "$(rt)")

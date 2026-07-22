@@ -36,7 +36,7 @@ type qualificationFrozenV1Resource struct {
 // key named from its resource type.
 func TestFullProfileSingletonTopologyAndBackendKeysMatchFrozenV1(t *testing.T) {
 	root := qualificationRepoRoot(t)
-	profilePath := filepath.Join(root, "packsets", "full.json")
+	profilePath := filepath.Join(root, "packs", "full.packset.json")
 	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,

@@ -2,9 +2,9 @@
 
 The root `Makefile` is the stable product command surface. Overlay Makefiles may
 add local workflows, but they should not redefine the meaning of the core
-adoption commands. These targets are thin adapters over the generic Node 24
-`iw` CLI; the authoritative production inventory is listed in
-[Operational Node Runtime](operational-runtime.md).
+adoption commands. These targets are thin adapters over the Go `iw` CLI; the
+authoritative production inventory is listed in
+[Operational Go Runtime](operational-runtime.md).
 
 ## Primary Adoption Flow
 
@@ -94,7 +94,7 @@ Emit configured root topology with:
 
 ```sh
 make roots TENANT=prod RESOURCE="zpa_application_segment zpa_segment_group"
-# or: node dist/infrawright-cli.mjs roots --tenant prod --resource zpa
+# or: dist/iw roots --tenant prod --resource zpa
 ```
 
 The topology is derived from deployment configuration and pack metadata; env
@@ -114,7 +114,7 @@ Map changed paths directly to affected resources and whole logical roots with:
 
 ```sh
 make scope-paths PATHS_JSON=changed-paths.json
-# or: node dist/infrawright-cli.mjs scope-paths \
+# or: dist/iw scope-paths \
 #       --paths-json changed-paths.json
 ```
 
@@ -144,7 +144,7 @@ Enumerate materialized env roots and their plan-artifact pair with:
 
 ```sh
 make plan-roots TENANT=prod RESOURCE=zpa_application_segment
-# or: node dist/infrawright-cli.mjs plan-roots \
+# or: dist/iw plan-roots \
 #       --tenant prod --resource zpa_application_segment
 ```
 
@@ -469,11 +469,11 @@ These commands keep the shipped demo and generators healthy:
 | Command | Responsibility |
 |---|---|
 | `make demo` | Overlay-owned demo workflow from `demo/Makefile`; materializes demo config/import artifacts and local generated modules. |
-| `make demo-contract` | Credential-free demo contract check: consumes the shipped bundle without npm/Python, materializes the demo, verifies committed demo config/import artifacts do not drift, rejects stale demo moved-block files, and checks the generated demo module tree. |
+| `make demo-contract` | Credential-free demo contract check: consumes `dist/iw`, materializes the demo, verifies committed demo config/import artifacts do not drift, rejects stale demo moved-block files, and checks the generated demo module tree. |
 | `make check-demo` | Verifies committed demo config/import artifacts do not drift. |
 | `make check-modules` | Generates modules in a temporary deployment and checks generator output. |
-| `make test` / `make test-node` | Runs the complete Node suite selected for the active pack profile and reports pack-excluded files. |
-| `make check` / `make check-node` | Runs the Node suite, demo drift checks, module generator checks, pack validation, and formatting checks without invoking Python. |
+| `make test` | Runs the complete Go suite. |
+| `make check` | Runs the Go suite, demo/module checks, pack validation, formatting checks, and archive tripwire. |
 
 The generated demo module tree remains local/ignored. It is not part of the
 public committed surface. `make demo-contract` is intentionally not a live
@@ -484,13 +484,13 @@ flow.
 
 Collectors gather provider data. They do not own adoption semantics.
 
-`make fetch` invokes the bundled Node CLI's shared REST collector coordinator:
+`make fetch` invokes the Go CLI's shared REST collector coordinator:
 
 ```text
-node dist/infrawright-cli.mjs fetch
+dist/iw fetch
 ```
 
-The generic Node library owns registry selection, pagination, retries, failure
+The Go runtime owns registry selection, pagination, retries, failure
 aggregation, and deterministic pull-file output. Resource list/detail metadata
 remains in pack registries; built-in product adapters own authentication and URL
 composition. A collector may authenticate, page, call list/detail endpoints,

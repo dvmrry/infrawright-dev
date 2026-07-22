@@ -39,7 +39,7 @@ func TestTransformFixtureCorpus(t *testing.T) {
 		t.Fatalf("ReadDir(%s): %v", corpusRoot, err)
 	}
 
-	profilePath := filepath.Join(root, "packsets", "full.json")
+	profilePath := filepath.Join(root, "packs", "full.packset.json")
 	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,

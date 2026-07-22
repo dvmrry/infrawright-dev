@@ -3,7 +3,7 @@ package collectors
 // selection_test.go ports the "selectors use original active registry
 // metadata and derived resources fetch their source" test from
 // node-tests/rest-collector.test.ts, against the same committed
-// packsets/full.json root the Node test loads.
+// packs/full.packset.json root the Node test loads.
 
 import (
 	"path/filepath"
@@ -16,7 +16,7 @@ import (
 func loadFullRoot(t *testing.T) metadata.LoadedPackRoot {
 	t.Helper()
 	root := repoRoot(t)
-	profilePath := filepath.Join(root, "packsets", "full.json")
+	profilePath := filepath.Join(root, "packs", "full.packset.json")
 	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,

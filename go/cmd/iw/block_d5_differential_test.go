@@ -22,7 +22,7 @@ const blockD5OracleSHA256 = "ce48c2c6a1cc01254866c5a7eb98b3eef1c90e6c45b69aff7df
 func newBlockD5Runtime(t *testing.T) blockC4Runtime {
 	t.Helper()
 	repository := repoRoot(t)
-	oracleBundle := filepath.Join(repository, "dist", "infrawright-cli.mjs")
+	oracleBundle := frozenNodeOraclePath(t)
 	oracleBytes, err := os.ReadFile(oracleBundle)
 	if err != nil {
 		t.Fatalf("frozen Node oracle unavailable at %s: %v", oracleBundle, err)
