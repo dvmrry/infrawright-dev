@@ -26,29 +26,7 @@ jobs:
           cd go
           go vet ./...
       - name: Prove archived runtime is not executable
-        run: |
-          make archive-tripwire dist/iw
-          intercept="$RUNNER_TEMP/archived-runtime-tripwire"
-          mkdir -p "$intercept"
-          printf '#!/bin/sh\nexit 99\n' > "$intercept/node"
-          printf '#!/bin/sh\nexit 99\n' > "$intercept/npm"
-          chmod +x "$intercept/node" "$intercept/npm"
-          PATH="$intercept:$PATH" make check check-root-catalog
-      - name: Prove archive tripwire is portable and covers workflow docs
-        run: |
-          export_root="$RUNNER_TEMP/infrawright-export"
-          mkdir -p "$export_root"
-          git archive HEAD | tar -x -C "$export_root"
-          make -C "$export_root" archive-tripwire
-          printf '\nEach Virtual Service Edge node must be registered.\n' >> \
-            "$export_root/packs/_shared/zscaler/demo/README.md"
-          make -C "$export_root" archive-tripwire
-          printf '\nnode deleted-runtime.mjs\n' >> \
-            "$export_root/tools/source-evidence-ast/README.md"
-          if make -C "$export_root" archive-tripwire; then
-            echo "archive-tripwire did not reject a documented Node command" >&2
-            exit 1
-          fi
+        run: tools/test-archive-tripwire.sh
       - name: Whitespace hygiene
         run: git diff --check
 

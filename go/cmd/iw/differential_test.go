@@ -7,10 +7,10 @@ package main
 // during slice 2. A6 deliberately retires one Node-only authoring command and
 // owns the resulting Go-authority help/usage surface separately.
 //
-// Oracle resolution: <repo>/dist/infrawright-cli.mjs run by `node` from
-// PATH. When either is missing the test skips loudly — CI decides where the
-// differential lane actually runs, mirroring the Node suite's Python-oracle
-// selector pattern.
+// Oracle resolution: INFRAWRIGHT_FROZEN_NODE_ORACLE must name a separately
+// recovered bundle, which is run by the node executable on PATH. An unset
+// variable skips the differential; a configured but unavailable bundle fails
+// closed. CI decides where the opt-in differential lane runs.
 
 import (
 	"bytes"

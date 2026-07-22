@@ -13,8 +13,12 @@
 // scopepaths_test.go and planroots_test.go's provenance comments cite by
 // scenario name.
 //
-// Regenerate with (run from the repo root):
+// The current tree intentionally lacks the imported node-src files. To
+// regenerate, first recover the immutable source tree and run there:
 //
+//   git worktree add --detach /tmp/infrawright-node-oracle node-oracle-v1-final
+//   cd /tmp/infrawright-node-oracle
+//   npm ci --ignore-scripts
 //   npx esbuild go/internal/roots/testdata/probe/scope_plan_probe.ts \
 //     --bundle --platform=node --format=esm --target=node24 \
 //     --external:lossless-json \

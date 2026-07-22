@@ -1,8 +1,8 @@
 // topology_probe.ts is NOT part of the Node runtime or its build/test
 // surface -- it is a throwaway differential-oracle probe, written for the
-// Wave 4 go/internal/roots port's topology gate
-// (go/internal/roots/gate_test.go) and committed here (alongside the
-// fixture it produced) purely for provenance: so a reviewer can see
+// Wave 4 go/internal/roots port's topology tests
+// (go/internal/roots/roots_test.go) and committed here (alongside the
+// fixtures it produced) purely for provenance: so a reviewer can see
 // exactly which node-src exports were called, with what arguments, to
 // produce testdata/loaded_topology.oracle.json and
 // testdata/validate_tenant.oracle.json.
@@ -16,8 +16,12 @@
 // validateTenant raises for each of node-tests/roots.test.ts's invalid-
 // tenant vectors.
 //
-// Regenerate both fixtures with (run from the repo root):
+// The current tree intentionally lacks the imported node-src files. To
+// regenerate, first recover the immutable source tree and run there:
 //
+//   git worktree add --detach /tmp/infrawright-node-oracle node-oracle-v1-final
+//   cd /tmp/infrawright-node-oracle
+//   npm ci --ignore-scripts
 //   npx esbuild go/internal/roots/testdata/probe/topology_probe.ts \
 //     --bundle --platform=node --format=esm --target=node24 \
 //     --outfile=/tmp/topology_probe.mjs
@@ -25,8 +29,8 @@
 //
 // then split /tmp/topology_probe.out.json's top-level "topology"/
 // "diagnostics" and "tenantErrors" fields into the two committed fixture
-// files by hand (see gate_test.go's doc comment for the exact fixture
-// shapes it expects). This two-step process -- bundle, then run -- is the
+// files by hand and compare them with the committed authorities consumed by
+// roots_test.go. This two-step process -- bundle, then run -- is the
 // "npx esbuild with --bundle" probe the port's task brief calls for;
 // esbuild itself never touches Go, it only resolves and bundles the
 // TypeScript source (including its ".js"-suffixed relative imports,
