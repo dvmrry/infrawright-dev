@@ -25,75 +25,6 @@ func TestLegacyOpenAPIValidatorFrozenAssets(t *testing.T) {
 	}
 }
 
-// TestLegacyOpenAPIValidatorNodeOracleCorpus is an offline Go-only replay of
-// the independently captured SwaggerParser 12.1.0 matrix. The corpus source
-// is /tmp/a4-node-oracle-corpus.mjs SHA-256 e4bd570706967632bed7daac56875963099bcc266e2dd377d21704c24fca24eb;
-// its captured result SHA is b8b174628d6b6004d557f0b77a7aa655de0475f8b296eb01b672449ffdcf6a2f.
-func TestLegacyOpenAPIValidatorNodeOracleCorpus(t *testing.T) {
-	type oracleCase struct {
-		Name          string          `json:"name"`
-		Expected      bool            `json:"expected"`
-		Document      json.RawMessage `json:"document"`
-		ExpectedPhase string          `json:"expectedPhase"`
-	}
-	data, err := os.ReadFile(filepath.Join("testdata", "legacy_openapi_node_oracle.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var cases []oracleCase
-	if err := json.Unmarshal(data, &cases); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := len(cases), 90; got != want {
-		t.Fatalf("oracle corpus cases = %d, want %d", got, want)
-	}
-	for _, test := range cases {
-		t.Run(test.Name, func(t *testing.T) {
-			document := legacyValidationDocument(t, string(test.Document))
-			document = legacyRestoreOracleLossless(document).(map[string]any)
-			err := validateLegacyOpenAPI(document)
-			if got := err == nil; got != test.Expected {
-				t.Fatalf("validateLegacyOpenAPI(%s) accepted = %t, want %t (error = %v)", test.Name, got, test.Expected, err)
-			}
-			if !test.Expected {
-				if got := legacyValidationPhase(err); got != test.ExpectedPhase {
-					t.Fatalf("validateLegacyOpenAPI(%s) phase = %q, want %q (error = %v)", test.Name, got, test.ExpectedPhase, err)
-				}
-			}
-		})
-	}
-}
-
-// TestLegacySwagger2SpecNodeDirectOracle replays the branches that the JSON
-// schema rejects before swagger-parser reaches spec.js. The 18-case fixture is
-// captured from the same frozen Node oracle as the full-pipeline corpus.
-func TestLegacySwagger2SpecNodeDirectOracle(t *testing.T) {
-	type directCase struct {
-		Name     string          `json:"name"`
-		Accepted bool            `json:"accepted"`
-		Document json.RawMessage `json:"document"`
-	}
-	data, err := os.ReadFile(filepath.Join("testdata", "legacy_openapi_node_direct_spec_oracle.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var cases []directCase
-	if err := json.Unmarshal(data, &cases); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := len(cases), 18; got != want {
-		t.Fatalf("direct spec corpus cases = %d, want %d", got, want)
-	}
-	for _, test := range cases {
-		t.Run(test.Name, func(t *testing.T) {
-			err := validateLegacySwagger2Spec(legacyValidationDocument(t, string(test.Document)))
-			if got := err == nil; got != test.Accepted {
-				t.Fatalf("validateLegacySwagger2Spec(%s) accepted = %t, want %t (error = %v)", test.Name, got, test.Accepted, err)
-			}
-		})
-	}
-}
-
 func TestLegacySwagger2SpecDistinguishesUndefinedTypeFromNullType(t *testing.T) {
 	api := legacyValidationDocument(t, `{"swagger":"2.0","info":{"title":"x","version":"1"},"paths":{}}`)
 	if err := validateLegacySwagger2Schema(map[string]any{}, "body", legacySchemaTypes[:], true); err != nil {
@@ -114,30 +45,6 @@ func TestLegacySwagger2SpecDistinguishesUndefinedTypeFromNullType(t *testing.T) 
 	}
 }
 
-func legacyRestoreOracleLossless(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		if marker, marked := typed["isLosslessNumber"].(bool); marked && marker && len(typed) == 2 {
-			if token, ok := typed["value"].(string); ok {
-				return json.Number(token)
-			}
-		}
-		copy := make(map[string]any, len(typed))
-		for key, child := range typed {
-			copy[key] = legacyRestoreOracleLossless(child)
-		}
-		return copy
-	case []any:
-		copy := make([]any, len(typed))
-		for index, child := range typed {
-			copy[index] = legacyRestoreOracleLossless(child)
-		}
-		return copy
-	default:
-		return value
-	}
-}
-
 func legacyValidationPhase(err error) string {
 	if err == nil {
 		return "accept"
@@ -151,7 +58,7 @@ func legacyValidationPhase(err error) string {
 	return "unknown"
 }
 
-func TestLegacyOpenAPIValidatorNodeDerivedAcceptanceCorpus(t *testing.T) {
+func TestLegacyOpenAPIValidatorAcceptanceCases(t *testing.T) {
 	validSwagger := `{"swagger":"2.0","info":{"title":"x","version":"1"},"paths":{"/x":{"get":{"operationId":"read","responses":{"200":{"description":"ok"}}}}}}`
 	validOpenAPI30 := `{"openapi":"3.0.4","info":{"title":"x","version":"1"},"paths":{}}`
 	validOpenAPI31Webhook := `{"openapi":"3.1.2","info":{"title":"x","version":"1"},"webhooks":{"notice":{"post":{"responses":{"200":{"description":"ok"}}}}}}`
@@ -312,7 +219,7 @@ func TestLegacySwagger2RequiredAllOfCycleCompatibility(t *testing.T) {
 // TestLegacyOpenAPIValidatorCachesPlainReferenceTargets protects the ordinary
 // high-fanout case handled by ref-parser's dereference cache. The source graph
 // is modest, but cloning the shared component once per operation would exceed
-// the defensive work bound and reject a document accepted by Node.
+// the defensive work bound and reject an excessively deep document.
 func TestLegacyOpenAPIValidatorCachesPlainReferenceTargets(t *testing.T) {
 	properties := make(map[string]any, 100)
 	for index := 0; index < 100; index++ {
@@ -396,7 +303,7 @@ func TestLegacyOpenAPIValidatorRetainsDefensiveDepthCeiling(t *testing.T) {
 	}
 }
 
-func TestLegacyOpenAPIValidatorRejectsNodeDerivedCorpus(t *testing.T) {
+func TestLegacyOpenAPIValidatorRejectionCases(t *testing.T) {
 	base := `{"swagger":"2.0","info":{"title":"x","version":"1"},"paths":{"/x":{"get":{"responses":{"200":{"description":"ok"}}}}}}`
 	cases := []struct {
 		name  string

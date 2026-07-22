@@ -1,7 +1,7 @@
 package main
 
 // commands_topology.go ports the slice-4 command family from
-// node-src/cli/main.ts: resources, roots, scope-paths, plan-roots, gen-env,
+// the original implementation: resources, roots, scope-paths, plan-roots, gen-env,
 // and modules, plus the legacyPlanLifecycleCommand exit-code shim they
 // route through.
 
@@ -26,7 +26,7 @@ import (
 )
 
 // legacyUsageFailureCodes ports LEGACY_USAGE_FAILURE_CODES from
-// node-src/cli/main.ts.
+// the original implementation.
 var legacyUsageFailureCodes = map[string]bool{
 	"INVALID_CHANGED_PATHS":       true,
 	"INVALID_ASSESSMENT_INPUT":    true,
@@ -53,19 +53,16 @@ func legacyPlanLifecycleCommand(operation func() (int, error)) (int, error) {
 	return status, nil
 }
 
-// packOptionDefaults ports the shared `||`-semantics option resolution block
-// (root/profile/catalog) every slice-4 command repeats in the Node source.
+// packOptionDefaults resolves the installed pack root and exact profile.
 type packOptionDefaults struct {
 	root    string
 	profile string
-	catalog string
 }
 
 func resolvePackOptions(rootDirectory string, parsed commandInput) packOptionDefaults {
 	defaults := packOptionDefaults{
 		root:    filepath.Join(rootDirectory, "packs"),
 		profile: filepath.Join(rootDirectory, "packs", "full.packset.json"),
-		catalog: filepath.Join(rootDirectory, "packs", "full.packset.json"),
 	}
 	if env := os.Getenv("INFRAWRIGHT_PACKS"); env != "" {
 		defaults.root = env
@@ -79,9 +76,6 @@ func resolvePackOptions(rootDirectory string, parsed commandInput) packOptionDef
 	if value, ok := lastCommandOption(parsed, "--profile"); ok {
 		defaults.profile = value
 	}
-	if value, ok := lastCommandOption(parsed, "--catalog"); ok {
-		defaults.catalog = value
-	}
 	return defaults
 }
 
@@ -92,7 +86,6 @@ func loadPackAndDeployment(
 	loadedRoot, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   options.root,
 		ProfilePath: &options.profile,
-		CatalogPath: &options.catalog,
 	})
 	if err != nil {
 		return metadata.LoadedPackRoot{}, deployment.Deployment{}, err
@@ -119,7 +112,7 @@ func resourcesCommand(arguments []string) (int, error) {
 func newResourcesCobraCommand() *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "resources", short: "List generated resources",
-		valueFlags: []string{"--order", "--resource", "--root", "--profile", "--catalog"},
+		valueFlags: []string{"--order", "--resource", "--root", "--profile"},
 		run: func(parsed commandInput) (int, error) {
 			return legacyPlanLifecycleCommand(func() (int, error) {
 				if len(parsed.Positionals) != 0 {
@@ -144,7 +137,6 @@ func resourcesInput(parsed commandInput) (int, error) {
 	loadedRoot, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   options.root,
 		ProfilePath: &options.profile,
-		CatalogPath: &options.catalog,
 	})
 	if err != nil {
 		return 0, err
@@ -205,7 +197,7 @@ func rootsCommand(arguments []string) (int, error) {
 func newRootQueryCobraCommand(use, short string, run func(commandInput) (int, error)) *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: use, short: short,
-		valueFlags:       []string{"--tenant", "--resource", "--deployment", "--root", "--profile", "--catalog"},
+		valueFlags:       []string{"--tenant", "--resource", "--deployment", "--root", "--profile"},
 		allowEmpty:       []string{"--tenant"},
 		rejectDuplicates: []string{"--tenant"},
 		run: func(parsed commandInput) (int, error) {
@@ -254,7 +246,7 @@ func scopePathsCommand(arguments []string) (int, error) {
 func newScopePathsCobraCommand() *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "scope-paths", short: "Map changed paths to affected roots",
-		valueFlags:       []string{"--paths-json", "--path", "--deployment", "--root", "--profile", "--catalog"},
+		valueFlags:       []string{"--paths-json", "--path", "--deployment", "--root", "--profile"},
 		allowEmpty:       []string{"--path"},
 		rejectDuplicates: []string{"--paths-json"},
 		run: func(parsed commandInput) (int, error) {
@@ -373,7 +365,7 @@ func genEnvCommand(arguments []string) (int, error) {
 func newGenEnvCobraCommand() *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "gen-env", short: "Generate tenant environment roots",
-		valueFlags: []string{"--tenant", "--backend", "--resource", "--terraform", "--deployment", "--root", "--profile", "--catalog"},
+		valueFlags: []string{"--tenant", "--backend", "--resource", "--deployment", "--root", "--profile"},
 		run: func(parsed commandInput) (int, error) {
 			return legacyPlanLifecycleCommand(func() (int, error) {
 				if len(parsed.Positionals) != 0 {
@@ -403,8 +395,6 @@ func genEnvInput(parsed commandInput) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	// --terraform remains accepted for Node CLI compatibility, but gen-env
-	// formatting is now an in-process post-render operation.
 	formatter := modulesgen.NewHCLFormatter()
 	generateOptions := envgen.GenerateEnvironmentRootsOptions{
 		Deployment: loadedDeployment,
@@ -488,7 +478,7 @@ func newModulesCobraCommand() *cobra.Command {
 		verb := verb
 		modules.AddCommand(newTypedCobraCommand(typedCobraCommandSpec{
 			use: verb, short: strings.ToUpper(verb[:1]) + verb[1:] + " Terraform modules",
-			valueFlags: []string{"--resource", "--out", "--deployment", "--root", "--profile", "--catalog", "--terraform"},
+			valueFlags: []string{"--resource", "--out", "--deployment", "--root", "--profile"},
 			run: func(parsed commandInput) (int, error) {
 				return legacyPlanLifecycleCommand(func() (int, error) {
 					if len(parsed.Positionals) != 0 {
@@ -563,8 +553,6 @@ func modulesInput(verb string, parsed commandInput) (int, error) {
 		fmt.Fprintf(os.Stdout, "validated generated module tree %s: %d module(s)\n", outputRoot, len(selected))
 		return 0, nil
 	}
-	// --terraform remains accepted for Node CLI compatibility, but modules
-	// generation no longer shells out merely to format rendered HCL.
 	generateOptions := modulesgen.GenerateModuleOptions{
 		OutputRoot: outputRoot,
 		FormatHCL:  modulesgen.NewHCLFormatter(),

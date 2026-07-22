@@ -7,7 +7,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
-// authority.go ports node-src/collectors/authority.ts: resolving selected
+// authority.go ports the original implementation: resolving selected
 // resource adapters through pack-owned provider sources. The pack root
 // declares its provider source, while the caller chooses the concrete
 // source-to-adapter bindings it is willing to execute. The adapter still
@@ -15,13 +15,13 @@ import (
 // only paths under that adapter's fixed provider host.
 
 // CollectorAdapterAuthorities ports the CollectorAdapterAuthorities
-// interface from node-src/collectors/authority.ts.
+// interface from the original implementation.
 type CollectorAdapterAuthorities struct {
 	ByProviderSource map[string]CollectorAdapter
 }
 
 // ResolveCollectorAdaptersOptions ports the options bag
-// resolveCollectorAdapters accepts in node-src/collectors/authority.ts.
+// resolveCollectorAdapters accepts in the original implementation.
 type ResolveCollectorAdaptersOptions struct {
 	Authorities   CollectorAdapterAuthorities
 	ResourceTypes []string
@@ -30,7 +30,7 @@ type ResolveCollectorAdaptersOptions struct {
 
 // manifestNamed returns the manifest named name from manifests, ported
 // from the `manifest.find((item) => item.name === owner)` lookup in
-// node-src/collectors/authority.ts.
+// the original implementation.
 func manifestNamed(manifests []metadata.PackManifest, name string) (metadata.PackManifest, bool) {
 	for _, manifest := range manifests {
 		if manifest.Name == name {
@@ -41,7 +41,7 @@ func manifestNamed(manifests []metadata.PackManifest, name string) (metadata.Pac
 }
 
 // ResolveCollectorAdapters ports resolveCollectorAdapters from
-// node-src/collectors/authority.ts.
+// the original implementation.
 func ResolveCollectorAdapters(options ResolveCollectorAdaptersOptions) (map[string]CollectorAdapter, error) {
 	selected := make(map[string]CollectorAdapter)
 	sourcesByProduct := make(map[string]string)

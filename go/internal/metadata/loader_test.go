@@ -1,7 +1,7 @@
 package metadata
 
 // loader_test.go ports the library-level tests from
-// node-tests/metadata-loader.test.ts (there is no CLI-subprocess test in
+// the original test corpus (there is no CLI-subprocess test in
 // that file to skip -- every test there exercises this package's library
 // surface directly).
 
@@ -21,11 +21,9 @@ import (
 func TestLoadPackRootExposesGenericResourceSurface(t *testing.T) {
 	root := repoRoot(t)
 	profilePath := filepath.Join(root, "packs", "full.packset.json")
-	catalogPath := filepath.Join(root, "packs", "full.packset.json")
 	loaded, err := LoadPackRoot(LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,
-		CatalogPath: &catalogPath,
 	})
 	if err != nil {
 		t.Fatalf("LoadPackRoot: %v", err)
@@ -209,7 +207,7 @@ func TestStrictVocabulariesRejectSilentTypos(t *testing.T) {
 
 	if _, err := ValidateRegistry(JsonObject{
 		"sample_resource": JsonObject{"product": "sample", "slug_group": "false"},
-	}, "registry.json"); err == nil || !strings.Contains(err.Error(), "slug_group has been removed; see docs/singleton-state-topology-v2.md") {
+	}, "registry.json"); err == nil || !strings.Contains(err.Error(), "slug_group has been removed; see docs/state-topology.md") {
 		t.Fatalf("expected slug_group retirement error, got %v", err)
 	}
 
@@ -521,7 +519,6 @@ func TestAllCommittedPackProfilesLoadFromReducedRoots(t *testing.T) {
 	packsetNames := []string{
 		"empty", "aws", "cloudflare", "google", "netbox", "zcc", "zia", "zpa", "ztc", "zscaler", "full",
 	}
-	fullCatalogPath := filepath.Join(root, "packs", "full.packset.json")
 	for _, name := range packsetNames {
 		name := name
 		t.Run(name, func(t *testing.T) {
@@ -556,7 +553,6 @@ func TestAllCommittedPackProfilesLoadFromReducedRoots(t *testing.T) {
 			loaded, err := LoadPackRoot(LoadPackRootOptions{
 				PacksRoot:   directory,
 				ProfilePath: &profilePath,
-				CatalogPath: &fullCatalogPath,
 			})
 			if err != nil {
 				t.Fatalf("LoadPackRoot: %v", err)

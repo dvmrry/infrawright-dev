@@ -1,9 +1,7 @@
 package main
 
-// commands_authoring_core.go composes the accepted reconciliation, generic
-// OpenAPI-map, and Transform/Adopt-parity kernels into their frozen Node-v1
-// authoring CLI contracts. The shared Cobra tree owns central routing; this
-// file owns only the authoring command adapters.
+// commands_authoring_core.go adapts reconciliation, OpenAPI mapping, and
+// Transform/Adopt parity kernels to the shared Cobra command tree.
 
 import (
 	"context"
@@ -267,7 +265,7 @@ func authoringPacksRoot(dependencies authoringCoreDependencies) (string, error) 
 	return filepath.Join(repositoryRoot, "packs"), nil
 }
 
-// reconcileCommand composes the retained Node-v1 reconcile contract.
+// reconcileCommand runs the v1 reconcile command.
 func reconcileCommand(arguments []string) (int, error) {
 	return reconcileCommandWithDependencies(arguments, defaultAuthoringCoreDependencies())
 }

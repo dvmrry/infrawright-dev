@@ -1,7 +1,7 @@
 package main
 
 // commands_plan.go ports the plan and clean-plans CLI composition layer from
-// node-src/cli/main.ts. The saved-plan lifecycle remains in internal/plan;
+// the original implementation. The saved-plan lifecycle remains in internal/plan;
 // this file owns only argument and environment precedence, lazy Terraform
 // adapter construction, diagnostics, and workspace composition.
 //
@@ -78,7 +78,6 @@ func planPackOptions(
 	options := packOptionDefaults{
 		root:    filepath.Join(rootDirectory, "packs"),
 		profile: filepath.Join(rootDirectory, "packs", "full.packset.json"),
-		catalog: filepath.Join(rootDirectory, "packs", "full.packset.json"),
 	}
 	if value := environment["INFRAWRIGHT_PACKS"]; value != "" {
 		options.root = value
@@ -92,13 +91,10 @@ func planPackOptions(
 	if value, ok := lastCommandOption(parsed, "--profile"); ok {
 		options.profile = value
 	}
-	if value, ok := lastCommandOption(parsed, "--catalog"); ok {
-		options.catalog = value
-	}
 	return options
 }
 
-// planCliOptions ports planCliOptions from node-src/cli/main.ts.
+// planCliOptions ports planCliOptions from the original implementation.
 func planCliOptionsWithDependencies(
 	parsed commandInput,
 	dependencies planCommandDependencies,
@@ -181,7 +177,7 @@ func (adapter *lazyPlanTerraform) Plan(request plan.PlanTerraformRequest) error 
 	return adapter.adapter.Plan(request)
 }
 
-// planCommand ports planCommand from node-src/cli/main.ts.
+// planCommand ports planCommand from the original implementation.
 func planCommand(arguments []string) (int, error) {
 	return planCommandWithDependencies(arguments, defaultPlanCommandDependencies())
 }
@@ -196,7 +192,7 @@ func planCommandWithDependencies(
 func newPlanCobraCommand(dependencies planCommandDependencies) *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "plan", short: "Create Terraform plans",
-		valueFlags: []string{"--tenant", "--resource", "--backend-config", "--terraform", "--deployment", "--root", "--profile", "--catalog"},
+		valueFlags: []string{"--tenant", "--resource", "--backend-config", "--terraform", "--deployment", "--root", "--profile"},
 		allowEmpty: []string{"--tenant"},
 		boolFlags:  []string{"--imports-only", "--save"},
 		run: func(parsed commandInput) (int, error) {
@@ -252,7 +248,7 @@ func planCommandInput(parsed commandInput, dependencies planCommandDependencies)
 	return 0, nil
 }
 
-// cleanPlansCommand ports cleanPlansCommand from node-src/cli/main.ts.
+// cleanPlansCommand ports cleanPlansCommand from the original implementation.
 func cleanPlansCommand(arguments []string) (int, error) {
 	return cleanPlansCommandWithDependencies(arguments, defaultPlanCommandDependencies())
 }
@@ -267,7 +263,7 @@ func cleanPlansCommandWithDependencies(
 func newCleanPlansCobraCommand(dependencies planCommandDependencies) *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "clean-plans", short: "Delete saved plan artifacts",
-		valueFlags:       []string{"--tenant", "--resource", "--deployment", "--root", "--profile", "--catalog"},
+		valueFlags:       []string{"--tenant", "--resource", "--deployment", "--root", "--profile"},
 		allowEmpty:       []string{"--tenant"},
 		rejectDuplicates: []string{"--tenant"},
 		run: func(parsed commandInput) (int, error) {

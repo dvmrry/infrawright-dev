@@ -12,7 +12,7 @@ import (
 )
 
 // ProjectProviderStateOptions ports projectProviderState's options bag from
-// node-src/domain/state-project.ts.
+// the original implementation.
 type ProjectProviderStateOptions struct {
 	Policy          *metadata.DriftPolicy
 	RawItem         map[string]any

@@ -24,7 +24,7 @@ func TestCobraTreeCarriesCompleteCommandSurface(t *testing.T) {
 		"adopt", "apply", "assert-adoptable", "assert-clean", "check-pack",
 		"check-pack-set", "clean-plans", "deployment", "fetch", "fetch-diag",
 		"gen-env", "modules", "openapi-map", "plan", "plan-roots",
-		"provider-probe", "reconcile", "resources", "root-catalog", "roots",
+		"provider-probe", "reconcile", "resources", "roots",
 		"scope-paths", "source-evidence-eval", "source-operation-map",
 		"stage-imports", "transform", "transform-adopt-parity", "unstage-imports",
 	}

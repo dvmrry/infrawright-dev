@@ -25,19 +25,15 @@ func assessmentBool(value bool) *bool {
 	return &value
 }
 
-func assessmentCatalog(resources ...metadata.RootCatalogResource) metadata.RootCatalog {
-	return metadata.RootCatalog{
-		Kind:              "infrawright.root_catalog",
-		SchemaVersion:     1,
+func assessmentResourceSet(resources ...metadata.ResourceDescriptor) metadata.ResourceSet {
+	return metadata.ResourceSet{
 		DeclaredProviders: []string{"zpa"},
 		Resources:         resources,
-		SourceFiles:       []string{},
-		SourcesSHA256:     strings.Repeat("0", 64),
 	}
 }
 
-func singletonAssessmentCatalog() metadata.RootCatalog {
-	return assessmentCatalog(metadata.RootCatalogResource{
+func singletonAssessmentResourceSet() metadata.ResourceSet {
+	return assessmentResourceSet(metadata.ResourceDescriptor{
 		Type:      "zpa_sample",
 		Product:   "zpa",
 		Provider:  "zpa",
@@ -90,10 +86,8 @@ func assessmentRepoRoot(t *testing.T) string {
 	}
 	directory := filepath.Dir(thisFile)
 	for {
-		if _, packsErr := os.Stat(filepath.Join(directory, "packs")); packsErr == nil {
-			if _, catalogsErr := os.Stat(filepath.Join(directory, "catalogs")); catalogsErr == nil {
-				return directory
-			}
+		if _, packsErr := os.Stat(filepath.Join(directory, "packs", "full.packset.json")); packsErr == nil {
+			return directory
 		}
 		parent := filepath.Dir(directory)
 		if parent == directory {
@@ -110,7 +104,6 @@ func loadedAssessmentPack(t *testing.T) metadata.LoadedPackRoot {
 	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   filepath.Join(repository, "packs"),
 		ProfilePath: &profile,
-		CatalogPath: &profile,
 	})
 	if err != nil {
 		t.Fatalf("metadata.LoadPackRoot(%q) error: %v", repository, err)
@@ -133,7 +126,7 @@ func TestResolveSavedPlanAssessmentInputsMaterializesJSONAndHCL(t *testing.T) {
 					TfvarsFormat:    format,
 					Roots:           map[string]deployment.RootProviderConfig{},
 				},
-				Catalog:             singletonAssessmentCatalog(),
+				ResourceSet:         singletonAssessmentResourceSet(),
 				Tenant:              assessmentString("tenant"),
 				Selectors:           []string{},
 				TerraformExecutable: "/opt/terraform",
@@ -187,16 +180,16 @@ func TestResolveSavedPlanAssessmentInputsUsesSingletonRootPathsAndOrdering(t *te
 	} {
 		writeAssessmentPlan(t, workspace, "tenant", resourceType)
 	}
-	catalog := assessmentCatalog(
-		metadata.RootCatalogResource{Type: "zpa_alpha_two", Product: "zpa", Provider: "zpa", BareName: "alpha_two", Generated: true},
-		metadata.RootCatalogResource{Type: "zpa_beta_one", Product: "zpa", Provider: "zpa", BareName: "beta_one", Generated: true},
-		metadata.RootCatalogResource{Type: "zpa_alpha_one", Product: "zpa", Provider: "zpa", BareName: "alpha_one", Generated: true},
-		metadata.RootCatalogResource{Type: "zpa_beta_two", Product: "zpa", Provider: "zpa", BareName: "beta_two", Generated: true},
+	catalog := assessmentResourceSet(
+		metadata.ResourceDescriptor{Type: "zpa_alpha_two", Product: "zpa", Provider: "zpa", BareName: "alpha_two", Generated: true},
+		metadata.ResourceDescriptor{Type: "zpa_beta_one", Product: "zpa", Provider: "zpa", BareName: "beta_one", Generated: true},
+		metadata.ResourceDescriptor{Type: "zpa_alpha_one", Product: "zpa", Provider: "zpa", BareName: "alpha_one", Generated: true},
+		metadata.ResourceDescriptor{Type: "zpa_beta_two", Product: "zpa", Provider: "zpa", BareName: "beta_two", Generated: true},
 	)
 	resolved, err := ResolveSavedPlanAssessmentInputs(ResolveSavedPlanAssessmentOptions{
 		Workspace:           workspace,
 		Deployment:          deployment.Deployment{Overlay: ".", Roots: map[string]deployment.RootProviderConfig{}},
-		Catalog:             catalog,
+		ResourceSet:         catalog,
 		Tenant:              assessmentString("tenant"),
 		Selectors:           []string{},
 		TerraformExecutable: "/opt/terraform",
@@ -237,7 +230,7 @@ func TestResolveSavedPlanAssessmentInputsDefersTfvarsValidationUntilPlanSelected
 	options := ResolveSavedPlanAssessmentOptions{
 		Workspace:           workspace,
 		Deployment:          invalidDeployment,
-		Catalog:             singletonAssessmentCatalog(),
+		ResourceSet:         singletonAssessmentResourceSet(),
 		Tenant:              assessmentString("tenant"),
 		Selectors:           []string{},
 		TerraformExecutable: "/opt/terraform",
@@ -286,7 +279,7 @@ func TestGenericResolverSnapshotsBeforeDiscoveryAndCopiesControlEvidence(t *test
 			TfvarsFormat:    "json",
 			Roots:           map[string]deployment.RootProviderConfig{},
 		},
-		Catalog:             singletonAssessmentCatalog(),
+		ResourceSet:         singletonAssessmentResourceSet(),
 		Tenant:              assessmentString("tenant"),
 		Selectors:           []string{"zpa_sample"},
 		TerraformExecutable: "/original/terraform",
@@ -302,7 +295,7 @@ func TestGenericResolverSnapshotsBeforeDiscoveryAndCopiesControlEvidence(t *test
 			current.Workspace = "/mutated-workspace"
 			current.Deployment.Overlay = "mutated"
 			current.Deployment.TfvarsFormat = "hcl"
-			current.Catalog.Resources[0].Type = "zpa_mutated"
+			current.ResourceSet.Resources[0].Type = "zpa_mutated"
 			current.Selectors[0] = "zpa_mutated"
 			current.TerraformExecutable = "/mutated/terraform"
 			current.BackendConfig = nil
@@ -334,8 +327,8 @@ func TestGenericResolverSnapshotsBeforeDiscoveryAndCopiesControlEvidence(t *test
 	if got, want := assessment.Context.Workspace, workspace; got != want {
 		t.Errorf("resolveSavedPlanAssessment(snapshot timing).Context.Workspace = %q, want %q", got, want)
 	}
-	if got, want := assessment.Context.Catalog.Resources[0].Type, "zpa_sample"; got != want {
-		t.Errorf("resolveSavedPlanAssessment(snapshot timing).Context.Catalog.Resources[0].Type = %q, want %q", got, want)
+	if got, want := assessment.Context.ResourceSet.Resources[0].Type, "zpa_sample"; got != want {
+		t.Errorf("resolveSavedPlanAssessment(snapshot timing).Context.ResourceSet.Resources[0].Type = %q, want %q", got, want)
 	}
 	if got, want := assessment.Context.Selectors, []string{"zpa_sample"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("resolveSavedPlanAssessment(snapshot timing).Context.Selectors = %#v, want %#v", got, want)
@@ -519,7 +512,7 @@ func TestAssessmentContextRechecksAreExactAndRedacted(t *testing.T) {
 			Overlay: ".",
 			Roots:   map[string]deployment.RootProviderConfig{},
 		},
-		Catalog:             singletonAssessmentCatalog(),
+		ResourceSet:         singletonAssessmentResourceSet(),
 		Tenant:              assessmentString("tenant"),
 		Selectors:           []string{},
 		TerraformExecutable: "/opt/terraform",
@@ -600,7 +593,7 @@ func TestAssessmentResolversRejectRelativeWorkspace(t *testing.T) {
 	_, err := ResolveSavedPlanAssessmentInputs(ResolveSavedPlanAssessmentOptions{
 		Workspace:           "relative/workspace",
 		Deployment:          deployment.Deployment{Overlay: ".", Roots: map[string]deployment.RootProviderConfig{}},
-		Catalog:             singletonAssessmentCatalog(),
+		ResourceSet:         singletonAssessmentResourceSet(),
 		TerraformExecutable: "/opt/terraform",
 	})
 	requireAssessmentInputFailure(t, err, "INVALID_WORKSPACE", "assessment workspace must be absolute")

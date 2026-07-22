@@ -10,7 +10,7 @@ import (
 
 // TestParseControlJSONRejectsDuplicateKeysAndUnsafeIntegers ports the
 // "control parser rejects duplicate keys and unsafe integers" test from
-// node-tests/json.test.ts.
+// the original test corpus.
 func TestParseControlJSONRejectsDuplicateKeysAndUnsafeIntegers(t *testing.T) {
 	for _, source := range []string{
 		`{"a":1,"a":2}`,
@@ -50,7 +50,7 @@ func TestParseControlJSONRejectsDuplicateKeysAndUnsafeIntegers(t *testing.T) {
 
 // TestJSONParsersRejectAdversarialNestingBeforeRecursiveParsing ports the
 // "JSON parsers reject adversarial nesting before recursive parsing" test
-// from node-tests/json.test.ts.
+// from the original test corpus.
 func TestJSONParsersRejectAdversarialNestingBeforeRecursiveParsing(t *testing.T) {
 	nested := strings.Repeat("[", 129) + "0" + strings.Repeat("]", 129)
 
@@ -74,7 +74,7 @@ func TestJSONParsersRejectAdversarialNestingBeforeRecursiveParsing(t *testing.T)
 
 // TestParseDataJSONLosslesslyPreservesNumericLexemesBeyondJSPrecision ports
 // the "data parser preserves numeric lexemes beyond JavaScript precision"
-// test from node-tests/json.test.ts. The Node test additionally verifies
+// test from the original test corpus. The Node test additionally verifies
 // stringifyLosslessly(parsed) round-trips the original compact source
 // text byte-for-byte; that assertion exercises lossless-json's own
 // serializer, which this package does not port (ParseDataJSONLosslessly's
@@ -110,13 +110,13 @@ func TestParseDataJSONLosslesslyPreservesNumericLexemesBeyondJSPrecision(t *test
 	}
 }
 
-// The remaining tests in this file are Go-only: node-tests/json.test.ts
+// The remaining tests in this file are Go-only: the original test corpus
 // checks control.ts's validation rules with assert.throws/assert.doesNotThrow
 // (occasionally against a /nesting exceeds/ regexp) but never pins down the
 // exact PythonJsonDecodeError message text or the plain SyntaxError text for
 // duplicate keys/whitespace/non-finite-number rejections. These vectors were
 // derived by hand-tracing control.ts's/this file's own scanner algorithm
-// (documented inline) rather than against a Python or Node oracle, the same
+// (documented inline) rather than against an external executable, the same
 // way TestFiniteFloatToken's boundary cases in number_test.go were derived
 // from documented algorithmic reasoning rather than a live process.
 

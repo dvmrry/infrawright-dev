@@ -138,7 +138,7 @@ func TestLoadBoundAssessmentDeploymentRejectsInvalidContentWithoutLeakage(t *tes
 			name:        "invalid deployment metadata",
 			content:     []byte(`{"roots":{"zpa":{"strategy":"secret-invalid-strategy"}}}`),
 			wantCode:    "INVALID_DEPLOYMENT",
-			wantMessage: "roots.zpa.strategy has been removed; see docs/singleton-state-topology-v2.md",
+			wantMessage: "roots.zpa.strategy has been removed; see docs/state-topology.md",
 		},
 		{
 			name:        "invalid UTF-8",

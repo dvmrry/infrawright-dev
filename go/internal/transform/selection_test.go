@@ -1,6 +1,6 @@
 package transform
 
-// selection_test.go ports node-tests/transform-selection.test.ts.
+// selection_test.go ports the original test corpus.
 
 import (
 	"encoding/json"
@@ -33,7 +33,7 @@ func writeSelectionJSONFile(t *testing.T, path string, value any) {
 }
 
 // syntheticSelectionRoot ports the syntheticRoot helper from
-// node-tests/transform-selection.test.ts: writes pack.json/registry.json
+// the original test corpus: writes pack.json/registry.json
 // fixtures under a fresh temp directory (auto-cleaned via t.TempDir, the Go
 // analogue of the Node test's mkdtemp + context.after(rm)) and loads them
 // with no profile/catalog (matching loadPackRoot({ packsRoot: directory })).

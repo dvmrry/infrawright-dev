@@ -1,4 +1,4 @@
-// Package modulesgen ports node-src/modules/generator.ts: the Terraform
+// Package modulesgen ports the original implementation: the Terraform
 // module generator/validator behind the gen-modules / validate-modules /
 // check-modules commands -- per-resource module trees (main.tf,
 // variables.tf, outputs.tf, versions.tf, README.md,
@@ -12,15 +12,15 @@
 // type encodings and the loaded pack root), go/internal/canonjson (for
 // sorted-key ordering and the lossless-artifact JSON renderer), and the
 // standard library -- never on go/internal/roots or go/internal/envgen,
-// matching node-src/modules/generator.ts's own dependency set
+// matching the original implementation's own dependency set
 // (metadata/packs.js, metadata/loader.js, metadata/validation.js,
 // metadata/terraform-schema.js, json/python-lossless-artifact.js,
 // json/python-compatible.js).
 //
 // Every exported symbol's doc comment names the
-// node-src/modules/generator.ts export it ports; that TypeScript remains
+// the original implementation export it ports; that TypeScript remains
 // the differential oracle until this port is independently qualified, per
-// docs/go-runtime-plan.md.
+// the Go runtime contract.
 package modulesgen
 
 import (
@@ -35,11 +35,11 @@ import (
 )
 
 // ModuleFileName is the Go analogue of the ModuleFileName string-literal
-// union derived from EXPECTED_MODULE_FILES in node-src/modules/generator.ts.
+// union derived from EXPECTED_MODULE_FILES in the original implementation.
 type ModuleFileName string
 
 // The seven ModuleFileName literals from EXPECTED_MODULE_FILES in
-// node-src/modules/generator.ts.
+// the original implementation.
 const (
 	FileMain         ModuleFileName = "main.tf"
 	FileVariables    ModuleFileName = "variables.tf"
@@ -51,7 +51,7 @@ const (
 )
 
 // ExpectedModuleFiles ports EXPECTED_MODULE_FILES from
-// node-src/modules/generator.ts, in the same declared order.
+// the original implementation, in the same declared order.
 var ExpectedModuleFiles = []ModuleFileName{
 	FileMain,
 	FileVariables,
@@ -69,7 +69,7 @@ type ModuleFile struct {
 }
 
 // RenderedModule ports the RenderedModule interface from
-// node-src/modules/generator.ts. Files preserves the exact insertion order
+// the original implementation. Files preserves the exact insertion order
 // the TS source's renderModuleFiles builds its Map in (main.tf,
 // variables.tf, outputs.tf, versions.tf, README.md,
 // tests/defaults.tftest.hcl, tests/sample.auto.tfvars.json) -- a plain Go
@@ -101,7 +101,7 @@ func (m RenderedModule) Names() []ModuleFileName {
 }
 
 // GeneratedModule ports the GeneratedModule interface from
-// node-src/modules/generator.ts. Files lists the written destination paths
+// the original implementation. Files lists the written destination paths
 // in sortedStrings(rendered.files.keys()) order -- alphabetical, NOT
 // RenderedModule.Files's insertion order -- exactly as GenerateModule's
 // write loop iterates in the TS source.
@@ -111,11 +111,11 @@ type GeneratedModule struct {
 }
 
 // moduleContext is the Go analogue of the RenderContext interface in
-// node-src/modules/generator.ts. Named moduleContext rather than
+// the original implementation. Named moduleContext rather than
 // RenderContext, and built by buildModuleContext rather than a function
 // literally named renderContext, purely because Go (unlike TypeScript)
 // does not allow a function and a type to share one name in the same
-// package -- see go/internal/roots's RootTopology/RootTopologyFromCatalog
+// package -- see go/internal/roots's RootTopology/RootTopologyFromResourceSet
 // for the same naming workaround applied to the same underlying clash
 // shape elsewhere in this port.
 type moduleContext struct {
@@ -132,7 +132,7 @@ type moduleContext struct {
 	SampleOverride metadata.JsonObject
 }
 
-// jsonQuote ports the JSON.stringify(string) calls node-src/modules/
+// jsonQuote ports the JSON.stringify(string) calls the original source treemodules/
 // generator.ts's error messages interpolate (e.g. `unknown active
 // resource type ${JSON.stringify(resourceType)}`).
 func jsonQuote(s string) string {
@@ -176,7 +176,7 @@ func sortedInputBlockTypes(block metadata.JsonObject, label string) ([]string, m
 	return canonjson.SortedStrings(mapKeys(inputBlocks)), inputBlocks, nil
 }
 
-// hclType ports hclType from node-src/modules/generator.ts. Unlike the TS
+// hclType ports hclType from the original implementation. Unlike the TS
 // source (which operates on `encoding: unknown` and therefore re-validates
 // its shape defensively at every call), this operates on the already
 // type-checked metadata.TerraformTypeEncoding union that
@@ -221,7 +221,7 @@ func hclType(encoding metadata.TerraformTypeEncoding, indent int) (string, error
 }
 
 // blockObjectType ports blockObjectType from
-// node-src/modules/generator.ts.
+// the original implementation.
 func blockObjectType(block metadata.JsonObject, indent int, label string) (string, error) {
 	classified, err := metadata.TerraformClassifyAttributes(block, label)
 	if err != nil {
@@ -263,7 +263,7 @@ func blockObjectType(block metadata.JsonObject, indent int, label string) (strin
 	return fmt.Sprintf("object({\n%s\n%s})", strings.Join(lines, "\n"), strings.Repeat(" ", indent)), nil
 }
 
-// blockInputType ports blockInputType from node-src/modules/generator.ts.
+// blockInputType ports blockInputType from the original implementation.
 func blockInputType(blockType metadata.JsonObject, indent int, label string) (string, error) {
 	block, err := metadata.TerraformRequireObject(blockType["block"], label+".block")
 	if err != nil {
@@ -306,7 +306,7 @@ func jsShow(value any) string {
 }
 
 // renderBlockBody ports renderBlockBody from
-// node-src/modules/generator.ts.
+// the original implementation.
 func renderBlockBody(block metadata.JsonObject, reference string, indent int, label string, topLevel bool) ([]string, error) {
 	pad := strings.Repeat(" ", indent)
 	var classified metadata.TerraformClassifiedAttributes
@@ -356,7 +356,7 @@ func renderBlockBody(block metadata.JsonObject, reference string, indent int, la
 }
 
 // encodingHasSensitive ports encodingHasSensitive from
-// node-src/modules/generator.ts. attribute is nil for the TS source's
+// the original implementation. attribute is nil for the TS source's
 // `attribute?: JsonObject` being omitted (every recursive call omits it;
 // only blockHasSensitive's top-level call supplies one).
 func encodingHasSensitive(encoding metadata.TerraformTypeEncoding, attribute metadata.JsonObject) bool {
@@ -379,7 +379,7 @@ func encodingHasSensitive(encoding metadata.TerraformTypeEncoding, attribute met
 }
 
 // blockHasSensitive ports blockHasSensitive from
-// node-src/modules/generator.ts. Iterates attributes/nested block types in
+// the original implementation. Iterates attributes/nested block types in
 // sorted-name order; the TS source iterates Object.keys() insertion order
 // instead (this loop only ever short-circuits on a boolean result, which
 // does not depend on visit order, so the two orders are behaviorally
@@ -429,7 +429,7 @@ func blockHasSensitive(block metadata.JsonObject, label string) (bool, error) {
 	return false, nil
 }
 
-// header ports header from node-src/modules/generator.ts.
+// header ports header from the original implementation.
 func header(provider string) string {
 	return fmt.Sprintf(
 		"# GENERATED by iw modules generate from packs/%s/schemas/provider/%s.json — do not edit.\n# Regenerate: make gen-modules\n\n",
@@ -437,7 +437,7 @@ func header(provider string) string {
 	)
 }
 
-// renderMain ports renderMain from node-src/modules/generator.ts.
+// renderMain ports renderMain from the original implementation.
 func renderMain(context moduleContext) (string, error) {
 	if context.MainOverride != nil {
 		return *context.MainOverride, nil
@@ -457,7 +457,7 @@ func renderMain(context moduleContext) (string, error) {
 }
 
 // renderVariables ports renderVariables from
-// node-src/modules/generator.ts.
+// the original implementation.
 func renderVariables(context moduleContext) (string, error) {
 	block, err := metadata.TerraformBlockForSchema(context.Schema, context.ResourceType)
 	if err != nil {
@@ -522,7 +522,7 @@ func renderVariables(context moduleContext) (string, error) {
 	), nil
 }
 
-// emitsNameToId ports emitsNameToId from node-src/modules/generator.ts.
+// emitsNameToId ports emitsNameToId from the original implementation.
 func emitsNameToId(schema metadata.JsonObject, resourceType string) (bool, error) {
 	block, err := metadata.TerraformBlockForSchema(schema, resourceType)
 	if err != nil {
@@ -547,7 +547,7 @@ func emitsNameToId(schema metadata.JsonObject, resourceType string) (bool, error
 	return hasID, nil
 }
 
-// renderOutputs ports renderOutputs from node-src/modules/generator.ts.
+// renderOutputs ports renderOutputs from the original implementation.
 func renderOutputs(context moduleContext) (string, error) {
 	block, err := metadata.TerraformBlockForSchema(context.Schema, context.ResourceType)
 	if err != nil {
@@ -617,7 +617,7 @@ func renderOutputs(context moduleContext) (string, error) {
 	return output, nil
 }
 
-// renderVersions ports renderVersions from node-src/modules/generator.ts.
+// renderVersions ports renderVersions from the original implementation.
 func renderVersions(context moduleContext) string {
 	return fmt.Sprintf(
 		"%sterraform {\n  required_providers {\n    %s = {\n      source = \"%s\"\n      version = \"%s\"\n    }\n  }\n}\n",
@@ -625,7 +625,7 @@ func renderVersions(context moduleContext) string {
 	)
 }
 
-// renderReadme ports renderReadme from node-src/modules/generator.ts.
+// renderReadme ports renderReadme from the original implementation.
 func renderReadme(context moduleContext) string {
 	return fmt.Sprintf(
 		"# %s (generated module)\n\nManages `%s` via a typed `items` map. GENERATED — do not edit by\nhand (AGENTS.md rule 6). Regenerate with `iw modules generate` or `make gen-modules`.\n",
@@ -633,7 +633,7 @@ func renderReadme(context moduleContext) string {
 	)
 }
 
-// sampleValue ports sampleValue from node-src/modules/generator.ts. The
+// sampleValue ports sampleValue from the original implementation. The
 // `default: return []` fallback in the TS source (reachable there only for
 // a malformed raw encoding value) has no reachable Go analogue for the
 // same reason described on hclType's doc comment; it is kept here purely
@@ -685,7 +685,7 @@ func minItemsAtLeastOne(value any) bool {
 	}
 }
 
-// sampleItem ports sampleItem from node-src/modules/generator.ts.
+// sampleItem ports sampleItem from the original implementation.
 func sampleItem(block metadata.JsonObject, label string) (metadata.JsonObject, error) {
 	item := metadata.JsonObject{}
 	classified, err := metadata.TerraformClassifyAttributes(block, label)
@@ -733,7 +733,7 @@ func sampleItem(block metadata.JsonObject, label string) (metadata.JsonObject, e
 	return item, nil
 }
 
-// renderSample ports renderSample from node-src/modules/generator.ts.
+// renderSample ports renderSample from the original implementation.
 func renderSample(context moduleContext) (string, error) {
 	block, err := metadata.TerraformBlockForSchema(context.Schema, context.ResourceType)
 	if err != nil {
@@ -757,7 +757,7 @@ func renderSample(context moduleContext) (string, error) {
 	return rendered, nil
 }
 
-// renderTest ports renderTest from node-src/modules/generator.ts.
+// renderTest ports renderTest from the original implementation.
 func renderTest(context moduleContext) string {
 	return fmt.Sprintf(
 		"# GENERATED smoke test — plan against a mocked provider; no credentials.\nmock_provider \"%s\" {}\n\nrun \"defaults_plan\" {\n  command = plan\n\n  assert {\n    condition     = length(var.items) == 1\n    error_message = \"sample fixture must contain exactly one item\"\n  }\n}\n",
@@ -766,7 +766,7 @@ func renderTest(context moduleContext) string {
 }
 
 // buildModuleContext ports renderContext from
-// node-src/modules/generator.ts. See moduleContext's doc comment for the
+// the original implementation. See moduleContext's doc comment for the
 // naming rationale.
 func buildModuleContext(root metadata.LoadedPackRoot, resourceType string) (moduleContext, error) {
 	resource, ok := root.Resources[resourceType]
@@ -826,7 +826,7 @@ func buildModuleContext(root metadata.LoadedPackRoot, resourceType string) (modu
 }
 
 // RenderModuleFiles ports renderModuleFiles from
-// node-src/modules/generator.ts.
+// the original implementation.
 func RenderModuleFiles(root metadata.LoadedPackRoot, resourceType string) (RenderedModule, error) {
 	context, err := buildModuleContext(root, resourceType)
 	if err != nil {
@@ -863,7 +863,7 @@ func RenderModuleFiles(root metadata.LoadedPackRoot, resourceType string) (Rende
 }
 
 // ActiveGeneratedResourceTypes ports activeGeneratedResourceTypes from
-// node-src/modules/generator.ts.
+// the original implementation.
 func ActiveGeneratedResourceTypes(root metadata.LoadedPackRoot) []string {
 	var types []string
 	for _, resource := range root.Resources {
@@ -875,13 +875,13 @@ func ActiveGeneratedResourceTypes(root metadata.LoadedPackRoot) []string {
 }
 
 // needsTerraformFormat ports needsTerraformFormat from
-// node-src/modules/generator.ts.
+// the original implementation.
 func needsTerraformFormat(file ModuleFileName) bool {
 	return strings.HasSuffix(string(file), ".tf") || strings.HasSuffix(string(file), ".tftest.hcl")
 }
 
 // GenerateModuleOptions mirrors the options bag generateModule accepts in
-// node-src/modules/generator.ts.
+// the original implementation.
 type GenerateModuleOptions struct {
 	OutputRoot string
 	FormatHCL  HclFormatter
@@ -891,7 +891,7 @@ type GenerateModuleOptions struct {
 	OnWrite func(path string)
 }
 
-// GenerateModule ports generateModule from node-src/modules/generator.ts.
+// GenerateModule ports generateModule from the original implementation.
 func GenerateModule(root metadata.LoadedPackRoot, resourceType string, options GenerateModuleOptions) (GeneratedModule, error) {
 	rendered, err := RenderModuleFiles(root, resourceType)
 	if err != nil {
@@ -934,7 +934,7 @@ func GenerateModule(root metadata.LoadedPackRoot, resourceType string, options G
 }
 
 // GenerateActiveModules ports generateActiveModules from
-// node-src/modules/generator.ts.
+// the original implementation.
 func GenerateActiveModules(root metadata.LoadedPackRoot, options GenerateModuleOptions) ([]GeneratedModule, error) {
 	var generated []GeneratedModule
 	for _, resourceType := range ActiveGeneratedResourceTypes(root) {
@@ -948,7 +948,7 @@ func GenerateActiveModules(root metadata.LoadedPackRoot, options GenerateModuleO
 }
 
 // ValidateGeneratedModuleTree ports validateGeneratedModuleTree from
-// node-src/modules/generator.ts.
+// the original implementation.
 func ValidateGeneratedModuleTree(moduleRoot string, resourceTypes []string) ([]string, error) {
 	var missing []string
 	for _, resourceType := range resourceTypes {

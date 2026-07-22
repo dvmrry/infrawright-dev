@@ -1,12 +1,8 @@
 package envgen
 
 // reference_topology_test.go ports both tests in
-// node-tests/reference-topology.test.ts verbatim, against the real
-// committed pack root (packs/ + packs/full.packset.json) -- exactly as the Node
-// test does -- through this repository's own metadata/roots Go packages.
-// No Node or Python oracle is needed: the expected edges/dependency sets
-// are literal fixtures hardcoded in the Node test itself, not derived from
-// a live run of either runtime.
+// the original test corpus verbatim, against the real
+// committed pack root through this repository's metadata and roots packages.
 
 import (
 	"os"
@@ -20,10 +16,8 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
 )
 
-// repoRoot walks up from this test file's directory until it finds a
-// directory containing both "catalogs" and "packs", the same convention
-// go/internal/metadata/gate_test.go and go/internal/transform/kernel_test.go
-// already establish for locating the committed pack corpus from a Go test.
+// repoRoot walks up from this test file's directory until it finds the
+// committed full pack profile.
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	_, thisFile, _, ok := runtime.Caller(0)
@@ -32,14 +26,13 @@ func repoRoot(t *testing.T) string {
 	}
 	dir := filepath.Dir(thisFile)
 	for {
-		_, catalogsErr := os.Stat(filepath.Join(dir, "catalogs"))
-		_, packsErr := os.Stat(filepath.Join(dir, "packs"))
-		if catalogsErr == nil && packsErr == nil {
+		_, packsErr := os.Stat(filepath.Join(dir, "packs", "full.packset.json"))
+		if packsErr == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			t.Fatalf("walked up to filesystem root from %s without finding a directory containing both catalogs/ and packs/", filepath.Dir(thisFile))
+			t.Fatalf("walked up to filesystem root from %s without finding packs/full.packset.json", filepath.Dir(thisFile))
 		}
 		dir = parent
 	}
@@ -50,11 +43,9 @@ func committedRootForTopology(t *testing.T) metadata.LoadedPackRoot {
 	root := repoRoot(t)
 	packsRoot := filepath.Join(root, "packs")
 	profilePath := filepath.Join(root, "packs", "full.packset.json")
-	catalogPath := filepath.Join(root, "packs", "full.packset.json")
 	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   packsRoot,
 		ProfilePath: &profilePath,
-		CatalogPath: &catalogPath,
 	})
 	if err != nil {
 		t.Fatalf("LoadPackRoot: %v", err)

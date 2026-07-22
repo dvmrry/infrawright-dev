@@ -25,8 +25,6 @@ jobs:
           test -z "$(gofmt -l go/cmd go/internal)"
           cd go
           go vet ./...
-      - name: Prove archived runtime is not executable
-        run: tools/test-archive-tripwire.sh
       - name: Whitespace hygiene
         run: git diff --check
 

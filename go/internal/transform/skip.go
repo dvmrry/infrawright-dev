@@ -1,7 +1,7 @@
 package transform
 
 // skip.go ports the skip_if / skip_if_lte matching vocabulary from
-// node-src/domain/pull-transform.ts: skipMatchers, jsonScalarKind,
+// the original implementation: skipMatchers, jsonScalarKind,
 // strictJsonScalarMatcherMatches, LteNumber, lteNumber, numberIsLte,
 // skipMatchReason, and transformSkipMatchReason.
 
@@ -14,7 +14,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
-// skipMatchers ports skipMatchers from node-src/domain/pull-transform.ts.
+// skipMatchers ports skipMatchers from the original implementation.
 func skipMatchers(value any, label string) []map[string]any {
 	if value == nil {
 		return nil
@@ -36,7 +36,7 @@ func skipMatchers(value any, label string) []map[string]any {
 
 // jsonScalarKindValue is the Go analogue of jsonScalarKind's return union
 // ("boolean" | "null" | "number" | "string" | null) from
-// node-src/domain/pull-transform.ts.
+// the original implementation.
 type jsonScalarKindValue int
 
 const (
@@ -48,7 +48,7 @@ const (
 )
 
 // jsonScalarKind ports jsonScalarKind from
-// node-src/domain/pull-transform.ts. The float64 case is dead in ordinary
+// the original implementation. The float64 case is dead in ordinary
 // practice (see coerce.go's file doc comment: every numeric leaf this
 // package's own pipeline produces is a json.Number), ported anyway for
 // direct correspondence with the Node source's own
@@ -73,7 +73,7 @@ func jsonScalarKind(value any) jsonScalarKindValue {
 }
 
 // StrictJsonScalarMatcherMatches ports the exported
-// strictJsonScalarMatcherMatches from node-src/domain/pull-transform.ts:
+// strictJsonScalarMatcherMatches from the original implementation:
 // "Match a snake-cased item against exact, presence-aware JSON scalar
 // fields." Iterates matcher in unspecified (Go map) order: the Node
 // source's Object.entries(matcher).every(...) is a short-circuiting
@@ -104,7 +104,7 @@ func StrictJsonScalarMatcherMatches(item map[string]any, matcher map[string]any)
 }
 
 // lteNumberKind is the Go analogue of LteNumber's "integer" | "float"
-// discriminant from node-src/domain/pull-transform.ts.
+// discriminant from the original implementation.
 type lteNumberKind int
 
 const (
@@ -113,14 +113,14 @@ const (
 )
 
 // lteNumberValue is the Go analogue of the LteNumber union type from
-// node-src/domain/pull-transform.ts.
+// the original implementation.
 type lteNumberValue struct {
 	Kind    lteNumberKind
 	Integer *big.Int
 	Float   float64
 }
 
-// lteNumber ports lteNumber from node-src/domain/pull-transform.ts.
+// lteNumber ports lteNumber from the original implementation.
 func lteNumber(value any) (lteNumberValue, bool) {
 	if value == nil {
 		return lteNumberValue{}, false
@@ -167,7 +167,7 @@ func lteNumber(value any) (lteNumberValue, bool) {
 // floatToBigInt converts an already-integral float64 (the result of
 // math.Floor/math.Ceil) to the exact *big.Int it represents, the Go
 // analogue of BigInt(Math.floor(...)) / BigInt(Math.ceil(...)) in
-// node-src/domain/pull-transform.ts's numberIsLte: a plain int64
+// the original implementation's numberIsLte: a plain int64
 // conversion would silently truncate for a magnitude beyond int64's range
 // (a float64 mantissa is only 53 bits, but its exponent can push the value
 // far beyond 2^63), so this goes through big.Float, which holds any
@@ -177,7 +177,7 @@ func floatToBigInt(f float64) *big.Int {
 	return integer
 }
 
-// numberIsLte ports numberIsLte from node-src/domain/pull-transform.ts.
+// numberIsLte ports numberIsLte from the original implementation.
 func numberIsLte(value, threshold lteNumberValue) bool {
 	if value.Kind == lteNumberInteger && threshold.Kind == lteNumberInteger {
 		return value.Integer.Cmp(threshold.Integer) <= 0
@@ -194,13 +194,13 @@ func numberIsLte(value, threshold lteNumberValue) bool {
 }
 
 // skipMatchReason ports skipMatchReason from
-// node-src/domain/pull-transform.ts.
+// the original implementation.
 func skipMatchReason(item map[string]any, resource *runtimeTransformResource) (string, bool) {
 	return TransformSkipMatchReason(item, resource.Override, resource.Type)
 }
 
 // TransformSkipMatchReason ports the exported transformSkipMatchReason from
-// node-src/domain/pull-transform.ts: "Evaluate the transform/adoption skip
+// the original implementation: "Evaluate the transform/adoption skip
 // vocabulary against a snake-cased item." A "" result with matched=false is
 // the Go analogue of the Node source's null ("no skip vocabulary entry
 // matched"); matched=true pairs with reason "skip_if" or "skip_if_lte".

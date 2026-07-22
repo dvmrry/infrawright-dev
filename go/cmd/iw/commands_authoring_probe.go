@@ -84,7 +84,7 @@ func defaultAuthoringProbeDependencies() authoringProbeDependencies {
 }
 
 // providerProbeCommand ports providerProbeCommand from
-// node-src/authoring/cli.ts. The frozen v1 contract retains the legacy
+// the original implementation. The frozen v1 contract retains the legacy
 // work-directory destination. Qualified v2 requires an explicit work root so
 // the caller grants the complete-set publisher ownership of its artifacts
 // child and its sibling transaction names.

@@ -56,7 +56,7 @@ requires provider and dependency sources to use exact GitHub blob refs,
 requires every local source to exist inside the repository, and requires every
 classification evidence reference to be declared by fixture provenance.
 
-The Node diagnostic calls the production transform path for the raw side and
+The diagnostic calls the production transform path for the raw side and
 the production Adopt path with an injected fixture state loader for the oracle
 side.
 The injected loader replaces only the network/provider import step; identity,

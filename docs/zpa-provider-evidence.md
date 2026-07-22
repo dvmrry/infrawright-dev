@@ -1,16 +1,7 @@
 # ZPA Provider v4.4.6 Evidence
 
-Planned disposition: the current `iw zpa-provider-evidence` Node command remains
-available only until the final Node authority freeze. It is not ported as a
-standalone Go command. Under
-[go-authoring-port-roadmap.md](go-authoring-port-roadmap.md), this matrix and
-its local/source binding checks become the frozen generic static source-binding
-corpus. Provider-to-SDK-to-HTTP qualification uses the roadmap's separate
-provider+SDK-pinned endpoint fixture. The commands below describe the current
-pre-handoff workflow and remain valid until that transition lands.
-
-This evidence lane freezes the provider-source facts needed before the Node
-adoption oracle can support the 16 fetch-backed ZPA resources. The canonical
+This evidence records the provider-source facts for the 16 fetch-backed ZPA
+resources. The canonical
 machine-readable matrix is
 [`evidence/zpa-provider-v4.4.6.json`](evidence/zpa-provider-v4.4.6.json).
 
@@ -33,25 +24,10 @@ The matrix is bound to:
 - the committed ZPA pack manifest, registry, relevant overrides, and provider
   schema dump.
 
-Run the local-pack audit without an upstream checkout:
+Current tests validate the matrix digest and schema. A reviewer still reads the
+cited source ranges to decide whether each curated claim is correct.
 
-```sh
-iw zpa-provider-evidence
-```
-
-For the source-backed audit, point it at a clean checkout of the pinned tag:
-
-```sh
-iw zpa-provider-evidence \
-  --provider-root /path/to/terraform-provider-zpa-v4.4.6
-```
-
-The audit does not parse Go or infer semantics. It verifies the exact git pin,
-complete source bytes, cited source-range bytes, local fetch set, local input
-digests, and schema-derived shape summaries. A reviewer still reads the cited
-source ranges to decide whether each curated claim is correct.
-
-## Findings That Constrain The Node Port
+## Findings that constrain adoption
 
 ### Import grammar is not uniformly “an ID”
 
@@ -68,7 +44,7 @@ The alternate key is normally a name, except:
 - `zpa_pra_approval_controller` uses an email ID.
 
 Only `zpa_ba_certificate` and `zpa_emergency_access_user` use SDK passthrough
-import. Consequently, the Node oracle may treat the current `{id}` catalog
+import. Consequently, adoption may treat the current `{id}` registry
 value as exact identity for the 14 custom importers only after validating that
 it is accepted by `strconv.ParseInt(id, 10, 64)`. Otherwise the provider is
 performing a lookup, not importing the supplied bytes as identity.
@@ -88,7 +64,7 @@ The inspection-profile importer writes `profile_id`, which its resource schema
 does not declare. This does not prove the three state values are absent at
 runtime—the plugin SDK remains part of the execution path—but it does prove a
 global source claim such as “every ZPA Read returns `values.id`” is invalid.
-The Node state gate needs per-resource evidence and runtime fixtures rather than
+The state gate needs per-resource evidence and runtime fixtures rather than
 copying the ZCC `values.id` invariant wholesale.
 
 Two other Read paths preserve the current Terraform instance ID instead of
@@ -123,7 +99,7 @@ does not authorize secret synthesis, persistence, or transport.
 
 ### Resource-specific source exceptions
 
-The matrix pins these exceptions because they affect future catalog or oracle
+The matrix pins these exceptions because they affect registry and adoption
 design:
 
 - app connector group uses `GetAll`, selects an item by the current ID, and does
@@ -142,7 +118,7 @@ design:
 - service edge group converts the API `is_public` string to a boolean.
 
 These are source facts, not automatic workarounds. Each behavior still needs a
-focused Node differential fixture and, where Terraform is involved, a runtime
+focused compatibility fixture and, where Terraform is involved, a runtime
 import/generated-config observation.
 
 ## Generated-Config Evidence Gate
@@ -156,7 +132,7 @@ per resource:
 3. provider state joins exactly to the requested object without relying on an
    unsupported global `values.id` rule;
 4. sensitive values do not enter generated artifacts or diagnostics; and
-5. the projected tfvars/import bytes match the Python adoption lane.
+5. the projected tfvars/import bytes match the committed adoption contract.
 
 Entitlement-optional HTTP statuses in the registry are recorded in the matrix,
 but they are collection evidence only. They do not turn an oracle failure into

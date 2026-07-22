@@ -22,7 +22,7 @@ configuration truth:
 ```bash
 make fetch TENANT=<tenant> RESOURCE=<resource-or-provider>
 make adopt IN=pulls/<tenant> TENANT=<tenant> RESOURCE=<resource-or-provider>
-make gen-modules RESOURCE=<resource-or-provider>  # selected grouped roots include every member
+make gen-modules RESOURCE=<resource-or-provider>
 make gen-env TENANT=<tenant> RESOURCE=<resource-or-provider>
 make stage-imports TENANT=<tenant> RESOURCE=<resource-or-provider>
 make plan TENANT=<tenant> RESOURCE=<resource-or-provider> SAVE=1
@@ -36,7 +36,7 @@ What each step owns:
 |---|---|
 | `make fetch` | Gathers raw provider/API evidence into `pulls/<tenant>`. |
 | `make adopt` | Uses Terraform/OpenTofu import and provider state as the projection oracle, then writes config/import artifacts. |
-| `make gen-modules` | Generates reusable Terraform modules; a selected grouped-root member expands to the complete root. |
+| `make gen-modules` | Generates reusable Terraform modules for the selected resources. |
 | `make gen-env` | Generates isolated env roots that source the selected module set. |
 | `make stage-imports` | Stages generated `import {}` and `moved {}` blocks into env roots. |
 | `make plan SAVE=1` | Produces saved plan artifacts for the safety gates. |
@@ -89,9 +89,8 @@ make demo       # materialize the demo tenant (no credentials needed)
 make demo-contract  # credential-free demo artifact/module contract check
 ```
 
-`make check` builds `dist/iw`, validates the active pack distribution, runs the
-complete Go suite, and proves that active Make/CI surfaces cannot route through
-the archived runtime.
+`make check` builds `dist/iw`, validates the active pack distribution, and runs
+the complete Go suite and generated-artifact checks.
 
 ### Runtime requirements
 
@@ -109,30 +108,28 @@ language runtime. It does not run live provider import or
 Terraform/OpenTofu plan; the live plan contract begins with the primary
 adoption workflow above and requires real provider credentials.
 
-The sole current runtime is `dist/iw`, built with `make dist/iw`. It discovers
+The runtime is `dist/iw`, built with `make dist/iw`. It discovers
 runtime data by walking upward to `packs/full.packset.json`, or from an explicit
 `INFRAWRIGHT_PACKAGE_ROOT`. Pack profiles live only as
-`packs/*.packset.json`; the former compatibility directory and executable Node
-tree were archived on 2026-07-22. Frozen fixtures and the immutable oracle tag
-remain as provenance, and the removed source is recoverable through Git
-history. No live-provider, live-backend, or deployment-Apply qualification is
-claimed by the credential-free repository tests.
+`packs/*.packset.json`. Integration corpora retained under `tests/fixtures/`
+are consumed directly by Go tests; they are not a second runtime or metadata
+authority. No live-provider, live-backend, or deployment-Apply qualification
+is claimed by the credential-free repository tests.
 
-See [Operational Go Runtime](docs/operational-runtime.md) for the authoritative
-Make/CLI inventory and [the Node archive record](docs/archive/node-runtime-archive.md)
-for retained evidence and recovery boundaries.
+See [Operational Runtime](docs/operational-runtime.md) for the authoritative
+Make/CLI inventory.
 
 ## Layout
 
 | Path | Role |
 |------|------|
-| `go/` | sole maintained operational and authoring `iw` CLI |
-| `catalogs/` | frozen versioned transition catalogs retained for migration consumers; not required by the generic CLI |
+| `go/` | operational and authoring `iw` CLI |
 | `packs/<name>/` | provider metadata: `pack.json`, collection registry, overrides, and schemas |
 | `packs/*.packset.json` | exact pack-distribution profiles |
+| `tests/fixtures/` | current cross-package and external-contract corpora |
 | `[<overlay>/]config/<tenant>/<resource_type>.auto.tfvars[.json]` | generated tenant config; `deployment.json` `tfvars_format` selects `json` by default or opt-in `hcl` |
 | `[<overlay>/]imports/<tenant>/<resource_type>_imports.tf` | generated import blocks |
-| `[<overlay>/]envs/<tenant>/<root_label>/` | generated Terraform roots; `<root_label>` is the resource type by default, or an opt-in grouped root label |
+| `[<overlay>/]envs/<tenant>/<resource_type>/` | generated singleton Terraform roots |
 | `<module_dir>/<resource_type>/` | generated Terraform modules for the selected deployment module set |
 
 There is one generated output layout. `overlay` is an optional free-form prefix
@@ -142,7 +139,7 @@ overlay, so demo artifacts live under `demo/config/demo` and
 Generated env roots resolve module sources from deployment-configured
 `module_dir`; the shipped demo generates `demo/modules/default` on demand.
 See [Repository Surface](docs/repo-surface.md) for the keep/prune policy across
-core, demo, packs, tools, release scripts, and archived docs.
+core, demo, packs, tools, and release scripts.
 See [Pack Authoring Contract](docs/pack-authoring.md) for the current validated
 `pack.json` and `registry.json` vocabulary.
 

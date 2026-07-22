@@ -11,8 +11,8 @@ import (
 
 	"github.com/dvmrry/infrawright-dev/go/internal/artifacts"
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
+	"github.com/dvmrry/infrawright-dev/go/internal/posixpath"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
-	"github.com/dvmrry/infrawright-dev/go/internal/pypath"
 )
 
 func fingerprintIOFailure(code, message string) *procerr.ProcessFailure {
@@ -131,7 +131,7 @@ func isPlanInput(name string) bool {
 }
 
 // RootTFFingerprints ports rootTfFingerprints from
-// node-src/domain/plan-fingerprint.ts. A nil budget selects the source default.
+// the original implementation. A nil budget selects the source default.
 func RootTFFingerprints(envDir string, budget *artifacts.ReadBudget) ([]FileFingerprint, error) {
 	budget = fingerprintBudget(budget)
 	out := make([]FileFingerprint, 0)
@@ -146,7 +146,7 @@ func RootTFFingerprints(envDir string, budget *artifacts.ReadBudget) ([]FileFing
 		if !isPlanInput(name) {
 			continue
 		}
-		filePath := pypath.PythonPosixJoin(envDir, name)
+		filePath := posixpath.Join(envDir, name)
 		if !isFile(filePath) {
 			continue
 		}
@@ -160,7 +160,7 @@ func RootTFFingerprints(envDir string, budget *artifacts.ReadBudget) ([]FileFing
 }
 
 // RootConfigFingerprints ports rootConfigFingerprints from
-// node-src/domain/plan-fingerprint.ts. A nil budget selects the source default.
+// the original implementation. A nil budget selects the source default.
 func RootConfigFingerprints(envDir string, budget *artifacts.ReadBudget) ([]FileFingerprint, error) {
 	budget = fingerprintBudget(budget)
 	fingerprints, err := RootTFFingerprints(envDir, budget)
@@ -192,7 +192,7 @@ func walkTree(
 	directories := make([]string, 0)
 	files := make([]string, 0)
 	for _, name := range names {
-		filePath := pypath.PythonPosixJoin(current, name)
+		filePath := posixpath.Join(current, name)
 		if isDirectory(filePath) {
 			if !isModuleFingerprintIgnoredDir(name) {
 				directories = append(directories, name)
@@ -203,7 +203,7 @@ func walkTree(
 	}
 
 	for _, name := range canonjson.SortedStrings(files) {
-		filePath := pypath.PythonPosixJoin(current, name)
+		filePath := posixpath.Join(current, name)
 		if !isFile(filePath) {
 			continue
 		}
@@ -216,7 +216,7 @@ func walkTree(
 	}
 
 	for _, name := range canonjson.SortedStrings(directories) {
-		directoryPath := pypath.PythonPosixJoin(current, name)
+		directoryPath := posixpath.Join(current, name)
 		// Python os.walk(..., followlinks=False) lists directory symlinks but
 		// does not recurse into them. A symlink supplied as root is traversed.
 		if !isSymbolicLink(directoryPath) {
@@ -229,7 +229,7 @@ func walkTree(
 }
 
 // TreeFingerprints ports treeFingerprints from
-// node-src/domain/plan-fingerprint.ts. A nil budget selects the source default.
+// the original implementation. A nil budget selects the source default.
 func TreeFingerprints(root string, budget *artifacts.ReadBudget) ([]FileFingerprint, error) {
 	budget = fingerprintBudget(budget)
 	out := make([]FileFingerprint, 0)
@@ -243,23 +243,23 @@ func TreeFingerprints(root string, budget *artifacts.ReadBudget) ([]FileFingerpr
 }
 
 // LocalModulePath ports localModulePath from
-// node-src/domain/plan-fingerprint.ts. The bool reports whether source names a
+// the original implementation. The bool reports whether source names a
 // local module.
 func LocalModulePath(envDir, source string) (string, bool) {
 	if source == "" {
 		return "", false
 	}
 	if source[0] == '/' {
-		return pypath.PythonPosixNormPath(source), true
+		return posixpath.Normalize(source), true
 	}
 	if strings.HasPrefix(source, "./") || strings.HasPrefix(source, "../") {
-		return pypath.PythonPosixNormPath(pypath.PythonPosixJoin(envDir, source)), true
+		return posixpath.Normalize(posixpath.Join(envDir, source)), true
 	}
 	return "", false
 }
 
 // BackendConfigFingerprint ports backendFingerprint from
-// node-src/domain/plan-fingerprint.ts. A nil budget selects the source default.
+// the original implementation. A nil budget selects the source default.
 func BackendConfigFingerprint(
 	backendConfig *string,
 	backendKey *string,
@@ -273,7 +273,7 @@ func BackendConfigFingerprint(
 	if err != nil {
 		return nil, err
 	}
-	filePath := pypath.PythonPosixAbspath(*backendConfig, cwd)
+	filePath := posixpath.Absolute(*backendConfig, cwd)
 	present := isFile(filePath)
 	result := &BackendFingerprint{
 		Key:     cloneStringPointer(backendKey),
@@ -291,7 +291,7 @@ func BackendConfigFingerprint(
 }
 
 // VarFileFingerprints ports varFileFingerprints from
-// node-src/domain/plan-fingerprint.ts. A nil budget selects the source default.
+// the original implementation. A nil budget selects the source default.
 func VarFileFingerprints(varFiles []string, budget *artifacts.ReadBudget) ([]FileFingerprint, error) {
 	budget = fingerprintBudget(budget)
 	sorted := append([]string(nil), varFiles...)

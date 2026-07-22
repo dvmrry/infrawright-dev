@@ -28,14 +28,14 @@ const maximumApplyGitBranchBytes = 64 * 1024
 const maximumApplyGitWaitDelay = 500 * time.Millisecond
 
 // ExactPlanApplyShowRequest ports the show request in ExactPlanApplyTerraform
-// from node-src/domain/exact-plan-apply.ts.
+// from the original implementation.
 type ExactPlanApplyShowRequest struct {
 	Directory    string
 	SnapshotFile *os.File
 }
 
 // ExactPlanApplyRequest ports the apply request in ExactPlanApplyTerraform
-// from node-src/domain/exact-plan-apply.ts.
+// from the original implementation.
 type ExactPlanApplyRequest struct {
 	Directory    string
 	SnapshotFile *os.File
@@ -58,7 +58,7 @@ type ExactPlanApplyTerraform interface {
 }
 
 // ExactPlanApplyInputs ports ExactPlanApplyInputs from
-// node-src/domain/exact-plan-apply.ts.
+// the original implementation.
 type ExactPlanApplyInputs struct {
 	Deployment   deployment.Deployment
 	Root         metadata.LoadedPackRoot
@@ -66,13 +66,13 @@ type ExactPlanApplyInputs struct {
 }
 
 // ExactPlanApplyResult ports ExactPlanApplyResult from
-// node-src/domain/exact-plan-apply.ts.
+// the original implementation.
 type ExactPlanApplyResult struct {
 	Applied int
 }
 
 // ExactPlanApplyOptions ports ExactPlanApplyOptions from
-// node-src/domain/exact-plan-apply.ts. Tenant nil represents source null.
+// the original implementation. Tenant nil represents source null.
 type ExactPlanApplyOptions struct {
 	Workspace        string
 	Tenant           *string
@@ -90,7 +90,7 @@ type ExactPlanApplyOptions struct {
 }
 
 // CreateExactPlanApplyTerraformOptions ports the adapter options from
-// node-src/domain/exact-plan-apply.ts.
+// the original implementation.
 type CreateExactPlanApplyTerraformOptions struct {
 	Environment         map[string]string
 	Limits              *terraformcmd.TerraformCommandLimits
@@ -99,7 +99,7 @@ type CreateExactPlanApplyTerraformOptions struct {
 }
 
 // CurrentApplyBranchOptions ports currentApplyBranch options from
-// node-src/domain/exact-plan-apply.ts. GitBranch is a deterministic test seam;
+// the original implementation. GitBranch is a deterministic test seam;
 // nil selects the bounded shell-free Git probe.
 type CurrentApplyBranchOptions struct {
 	CWD         string
@@ -284,7 +284,7 @@ func gitApplyBranch(cwd string) string {
 }
 
 // CurrentApplyBranch resolves the current branch with the legacy CI
-// environment priority from node-src/domain/exact-plan-apply.ts.
+// environment priority from the original implementation.
 func CurrentApplyBranch(options CurrentApplyBranchOptions) string {
 	if options.Environment == nil {
 		return "unknown"
@@ -620,7 +620,7 @@ func applyExactPlanRoot(
 
 // ApplyExactSavedPlans applies only selected, current, fully classified saved
 // plans in Python root order. It ports applyExactSavedPlans from
-// node-src/domain/exact-plan-apply.ts.
+// the original implementation.
 func ApplyExactSavedPlans(options ExactPlanApplyOptions) (ExactPlanApplyResult, error) {
 	return applyExactSavedPlans(options, defaultExactPlanApplyHooks())
 }

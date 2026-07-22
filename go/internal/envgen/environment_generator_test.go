@@ -1,6 +1,6 @@
 package envgen
 
-// environment_generator_test.go ports node-tests/environment-generator.test.ts.
+// environment_generator_test.go ports the original test corpus.
 //
 // Every test that does NOT depend on a live Python oracle is ported
 // verbatim (same fixtures, same assertions), driven against the real
@@ -12,7 +12,7 @@ package envgen
 // binary (see this package's port report).
 //
 // Three Node tests are adapted rather than ported verbatim, because Python
-// is out of scope for this Go-only wave (docs/go-runtime-plan.md: the
+// is out of scope for this Go-only wave (the Go runtime contract: the
 // Python archive is a precondition of this port, not a dependency of it):
 //   - "complete generated root trees match Python for ungrouped,
 //     grouped/bound, singleton HCL, and slug roots" and "the complete
@@ -39,7 +39,7 @@ package envgen
 // writes a real formatted root" drives the `make gen-env` CLI target
 // end-to-end (spawning `make`, which invokes the Node CLI's `gen-env`
 // adapter). No Go CLI wiring for `gen-env` exists yet -- that is a later
-// slice (docs/go-runtime-plan.md's roots/scope-paths/plan-roots/
+// slice (the Go runtime contract's roots/scope-paths/plan-roots/
 // environment-generation slice covers this envgen package; the CLI-shell
 // slice that would give `iw gen-env` a Make target is still ahead) -- so
 // there is nothing in this package's own contract for that test to drive.
@@ -111,7 +111,7 @@ func loadDeploymentFile(t *testing.T, path string) deployment.Deployment {
 func identityFormatter(source string) (string, error) { return source, nil }
 
 // terraformFmtFormatter is the Go analogue of terraformHclFormatter from
-// node-src/modules/generator.ts (see this package's port report for why it
+// the original implementation (see this package's port report for why it
 // is reproduced locally rather than imported: that TS file is owned by the
 // sibling modulesgen port, out of reach here). It shells out to `terraform
 // fmt -`, exactly as the TS source's child_process.spawn call does.
@@ -146,7 +146,7 @@ func terraformTestExecutable(t *testing.T) string {
 }
 
 // snapshotTree ports the `snapshotTree` test helper from
-// node-tests/environment-generator.test.ts, including its symlink handling:
+// the original test corpus, including its symlink handling:
 // os.DirEntry (like Node's Dirent from readdir(withFileTypes)) reports its
 // own entry type without following the link, so a symlink is neither
 // IsDir() nor Type().IsRegular() and is silently skipped here exactly as
@@ -214,7 +214,7 @@ func copyDirRecursive(t *testing.T, src, dst string) {
 }
 
 // reducedPackRootForProfile ports the `reducedPackRootForProfile` test
-// helper from node-tests/environment-generator.test.ts.
+// helper from the original test corpus.
 func reducedPackRootForProfile(t *testing.T, repo, parent, profile string) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(repo, "packs", profile))
@@ -244,10 +244,10 @@ func reducedPackRootForProfile(t *testing.T, repo, parent, profile string) strin
 	return destination
 }
 
-func committedRootFor(t *testing.T, packsRoot, profilePath, catalogPath string) metadata.LoadedPackRoot {
+func committedRootFor(t *testing.T, packsRoot, profilePath string) metadata.LoadedPackRoot {
 	t.Helper()
 	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
-		PacksRoot: packsRoot, ProfilePath: &profilePath, CatalogPath: &catalogPath,
+		PacksRoot: packsRoot, ProfilePath: &profilePath,
 	})
 	if err != nil {
 		t.Fatalf("LoadPackRoot: %v", err)
@@ -766,7 +766,7 @@ func TestPackDeclaredNestedZpaReferencesValidateIndexedPathsAndDependencyRoots(t
 // TestPythonParityScenariosMatchStructurally ports the Go-reachable
 // assertions from "complete generated root trees match Python for
 // ungrouped, cross-state, singleton HCL, and slug roots" in
-// node-tests/environment-generator.test.ts -- everything except the
+// the original test corpus -- everything except the
 // Python-oracle byte comparison itself; see this file's package doc
 // comment.
 func TestPythonParityScenariosMatchStructurally(t *testing.T) {
@@ -1069,7 +1069,7 @@ func TestSingletonCrossStateDisableRemovesStaleGeneratedBindings(t *testing.T) {
 
 // TestDanglingArtifactPathsPreserveSymlinks ports the Go-reachable core of
 // "dangling artifact paths retain Python existence and stale-file
-// semantics" from node-tests/environment-generator.test.ts: dangling
+// semantics" from the original test corpus: dangling
 // symlinks at exactly the paths generateEnvironmentRoots would otherwise
 // consider stale (the root's expression_bindings.tf when there are no
 // bindings, and the tenant's .backend marker when no backend is
@@ -1252,7 +1252,7 @@ func TestBackendMarkerSurvivesRegenerationAndProfileVariantsGenerateWithoutPytho
 	}
 	for _, testCase := range cases {
 		packsRoot := reducedPackRootForProfile(t, repo, workspace, testCase.profile)
-		selectedRoot := committedRootFor(t, packsRoot, filepath.Join(repo, "packs", testCase.profile), filepath.Join(repo, "packs", "full.packset.json"))
+		selectedRoot := committedRootFor(t, packsRoot, filepath.Join(repo, "packs", testCase.profile))
 		target := filepath.Join(workspace, testCase.profile)
 		selectors := []string{}
 		if testCase.selector != "" {
@@ -1281,7 +1281,7 @@ func TestBackendMarkerSurvivesRegenerationAndProfileVariantsGenerateWithoutPytho
 	}
 	copyDirRecursive(t, filepath.Join(repo, "packs", "zcc"), filepath.Join(reduced, "zcc"))
 	copyDirRecursive(t, filepath.Join(repo, "packs", "_shared", "zscaler"), filepath.Join(reduced, "_shared", "zscaler"))
-	reducedRoot := committedRootFor(t, reduced, filepath.Join(repo, "packs", "zcc.packset.json"), filepath.Join(repo, "packs", "full.packset.json"))
+	reducedRoot := committedRootFor(t, reduced, filepath.Join(repo, "packs", "zcc.packset.json"))
 	reducedOutput := filepath.Join(workspace, "reduced-output")
 	reducedResult, err := GenerateEnvironmentRoots(GenerateEnvironmentRootsOptions{
 		Deployment: deployment.Deployment{Overlay: workspace, Roots: map[string]deployment.RootProviderConfig{}},

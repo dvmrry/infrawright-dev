@@ -1,6 +1,6 @@
 package deployment
 
-// deployment_test.go ports node-tests/deployment.test.ts's library-level
+// deployment_test.go ports the original test corpus's library-level
 // vectors: missing/empty/omitted-key defaulting, tfvars_format raw-field
 // preservation, fail-closed malformed-root-configuration vectors,
 // cross-state reference mode defaults, the "__proto__" non-special-case
@@ -191,7 +191,7 @@ func TestRetiredRootFieldsFailWithFieldSpecificRoadmapPointer(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			deploymentPath := writeDeployment(t, dir, test.input)
 			if _, err := LoadDeployment(deploymentPath); err == nil ||
-				!strings.Contains(err.Error(), "roots.zpa."+test.field+" has been removed; see docs/singleton-state-topology-v2.md") {
+				!strings.Contains(err.Error(), "roots.zpa."+test.field+" has been removed; see docs/state-topology.md") {
 				t.Fatalf("LoadDeployment = %v, want field-specific retirement error for %s", err, test.field)
 			}
 		})
@@ -238,11 +238,11 @@ func TestDeploymentPathHelpersPreserveTheOperationalOverlayContract(t *testing.T
 
 // TestDeploymentPathEnvSemantics ports the `||` (falsy-fallback, for
 // Explicit and the environment variable) vs `??` (nullish-fallback, for
-// Cwd) asymmetry documented on DeploymentPath: no equivalent node-tests
+// Cwd) asymmetry documented on DeploymentPath: no equivalent compatibility tests
 // vector exists (deploymentPath itself is untested at the library level
-// in node-tests/deployment.test.ts, which only exercises loadDeployment
+// in the original test corpus, which only exercises loadDeployment
 // and the overlay/dir accessors), so this test was written directly
-// against node-src/domain/deployment.ts's source to pin the exact
+// against the original implementation's source to pin the exact
 // semantics down for the Go port.
 func TestDeploymentPathEnvSemantics(t *testing.T) {
 	empty := ""

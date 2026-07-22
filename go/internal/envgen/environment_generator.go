@@ -1,6 +1,6 @@
 package envgen
 
-// environment_generator.go ports node-src/domain/environment-generator.ts:
+// environment_generator.go ports the original implementation:
 // gen-env's env-root generation -- backend blocks, provider headers, module
 // source resolution, variable wiring, expression-binding emission, and the
 // generated-root file lifecycle (main.tf, expression_bindings.tf, README.md,
@@ -11,7 +11,7 @@ package envgen
 //   - node:path                     -> LOCALLY DEFINED (nodePathRelative
 //     below): environment-generator.ts imports Node's own "path" module
 //     directly, not this repository's Python-flavored
-//     go/internal/pypath (which ports the DIFFERENT domain/paths.ts, used
+//     go/internal/posixpath (which ports the DIFFERENT domain/paths.ts, used
 //     elsewhere for tenant/config/imports/envs directory derivation, not
 //     for this file's plain path.join/path.relative/path.isAbsolute calls).
 //     No existing Go package ports node:path itself, so a small local POSIX
@@ -19,11 +19,11 @@ package envgen
 //     package already used by go/internal/tfrender for the same reason;
 //     path.relative has no stdlib POSIX-only equivalent, hence
 //     nodePathRelative) is the least-surprising home for it.
-//   - HclFormatter (node-src/modules/generator.ts) -> LOCALLY DEFINED: the
+//   - HclFormatter (the original implementation) -> LOCALLY DEFINED: the
 //     sibling modulesgen port of that TS file is off-limits to this task
 //     (per this port's brief); environment-generator.ts's only dependency
 //     on it is this one function-type alias, reproduced verbatim here.
-//   - REFERENCE_BACKEND_VARIABLE (node-src/domain/reference-backend.ts) ->
+//   - REFERENCE_BACKEND_VARIABLE (the original implementation) ->
 //     LOCALLY DEFINED: reference-backend.ts itself (a bounded-read/
 //     azurerm-backend-config validator) is out of this port's three-file
 //     scope; only its one exported constant is needed here.
@@ -33,9 +33,9 @@ package envgen
 //     DeploymentReferenceBindingMode/DeploymentTfvarsFormat
 //   - loadedRootTopology/validateTenant -> roots.LoadedRootTopology/
 //     roots.ValidateTenant
-//   - transformArtifactPaths (node-src/domain/transform-artifacts.ts) ->
+//   - transformArtifactPaths (the original implementation) ->
 //     tfrender.ComputeTransformArtifactPaths
-//   - renderHclQuotedString (node-src/domain/import-moves.ts) ->
+//   - renderHclQuotedString (the original implementation) ->
 //     tfrender.RenderHclQuotedString
 //   - LoadedPackRoot/LoadedResourceMetadata -> metadata.LoadedPackRoot/
 //     metadata.LoadedResourceMetadata
@@ -66,7 +66,7 @@ import (
 )
 
 // expressionBindingsTF ports EXPRESSION_BINDINGS_TF from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 const expressionBindingsTF = "expression_bindings.tf"
 
 const (
@@ -76,18 +76,18 @@ const (
 )
 
 // ReferenceBackendVariable ports REFERENCE_BACKEND_VARIABLE from
-// node-src/domain/reference-backend.ts (see this file's package doc
+// the original implementation (see this file's package doc
 // comment for why it is reproduced locally rather than imported).
 const ReferenceBackendVariable = "infrawright_remote_state_backend_config"
 
 // HclFormatter matches the HclFormatter type from
-// node-src/modules/generator.ts (see this file's package doc comment for
+// the original implementation (see this file's package doc comment for
 // why it is reproduced locally rather than imported).
 type HclFormatter func(source string) (string, error)
 
 // GeneratedEnvironmentRoot is the Go analogue of one element of the
 // `roots` array in the EnvironmentGenerationResult interface from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 type GeneratedEnvironmentRoot struct {
 	Label   string
 	Members []string
@@ -96,7 +96,7 @@ type GeneratedEnvironmentRoot struct {
 
 // EnvironmentGenerationResult is the Go analogue of the
 // EnvironmentGenerationResult interface in
-// node-src/domain/environment-generator.ts. Backend is nil for the TS
+// the original implementation. Backend is nil for the TS
 // source's `backend: string | null` being null.
 type EnvironmentGenerationResult struct {
 	Roots   []GeneratedEnvironmentRoot
@@ -104,7 +104,7 @@ type EnvironmentGenerationResult struct {
 }
 
 // EnvironmentRemoteState is the Go analogue of the EnvironmentRemoteState
-// interface in node-src/domain/environment-generator.ts.
+// interface in the original implementation.
 type EnvironmentRemoteState struct {
 	Label     string
 	LocalPath string
@@ -112,7 +112,7 @@ type EnvironmentRemoteState struct {
 
 // boundRemoteStateReference is the Go analogue of the
 // BoundRemoteStateReference interface in
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 type boundRemoteStateReference struct {
 	RemoteStateReference
 	Field    string
@@ -155,7 +155,7 @@ func nodePathSegments(p string) []string {
 // behaviorally identical for every call site in this file (see that
 // constant's doc comment) and keeps this port's output independent of the
 // actual process working directory, matching how this repository's other
-// path-deriving domain packages (e.g. go/internal/pypath) are already
+// path-deriving domain packages (e.g. go/internal/posixpath) are already
 // cwd-independent by construction.
 func nodePathRelative(from, to string) string {
 	if from == to {
@@ -216,7 +216,7 @@ func containsString(values []string, target string) bool {
 }
 
 // fileExists ports the local `exists` helper from
-// node-src/domain/environment-generator.ts: "Match Python os.path.exists:
+// the original implementation: "Match Python os.path.exists:
 // follow links and treat a failed stat as absent." os.Stat, like Node's
 // stat (as opposed to lstat), follows symlinks, so a dangling symlink
 // reports as absent here -- exactly the semantics
@@ -228,7 +228,7 @@ func fileExists(candidate string) bool {
 }
 
 // removeIfPresent ports removeIfPresent from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 func removeIfPresent(file string) (bool, error) {
 	if !fileExists(file) {
 		return false, nil
@@ -243,7 +243,7 @@ func removeIfPresent(file string) (bool, error) {
 }
 
 // resourceMetadata ports the local `resource` helper from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 func resourceMetadata(root metadata.LoadedPackRoot, resourceType string) (metadata.LoadedResourceMetadata, error) {
 	selected, ok := root.Resources[resourceType]
 	if !ok {
@@ -253,7 +253,7 @@ func resourceMetadata(root metadata.LoadedPackRoot, resourceType string) (metada
 }
 
 // providerOf ports providerOf from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 func providerOf(root metadata.LoadedPackRoot, resourceType string) (string, error) {
 	res, err := resourceMetadata(root, resourceType)
 	if err != nil {
@@ -263,7 +263,7 @@ func providerOf(root metadata.LoadedPackRoot, resourceType string) (string, erro
 }
 
 // variableName ports variableName from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 func variableName(topology roots.RootTopology, resourceType string) string {
 	if topology.ResourceRoots[resourceType] == resourceType {
 		return "items"
@@ -272,7 +272,7 @@ func variableName(topology roots.RootTopology, resourceType string) string {
 }
 
 // tenantEnvironmentDirectory ports tenantEnvironmentDirectory from
-// node-src/domain/environment-generator.ts. outputRoot nil matches the TS
+// the original implementation. outputRoot nil matches the TS
 // source's `outputRoot === undefined`.
 func tenantEnvironmentDirectory(dep deployment.Deployment, tenant string, outputRoot *string) (string, error) {
 	if outputRoot == nil {
@@ -282,7 +282,7 @@ func tenantEnvironmentDirectory(dep deployment.Deployment, tenant string, output
 }
 
 // environmentRootDirectory ports environmentRootDirectory from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 func environmentRootDirectory(dep deployment.Deployment, tenant, label string, outputRoot *string) (string, error) {
 	tenantDirectory, err := tenantEnvironmentDirectory(dep, tenant, outputRoot)
 	if err != nil {
@@ -292,7 +292,7 @@ func environmentRootDirectory(dep deployment.Deployment, tenant, label string, o
 }
 
 // moduleSource ports moduleSource from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 func moduleSource(dep deployment.Deployment, resourceType, environmentDirectory string) (string, error) {
 	moduleDir, err := deployment.DeploymentModuleDir(dep)
 	if err != nil {
@@ -306,7 +306,7 @@ func moduleSource(dep deployment.Deployment, resourceType, environmentDirectory 
 }
 
 // expressionLocal ports expressionLocal from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 func expressionLocal(label, resourceType string) string {
 	if label == resourceType {
 		return "infrawright_expression_bound_items"
@@ -315,7 +315,7 @@ func expressionLocal(label, resourceType string) string {
 }
 
 // renderRemoteStateBlocks ports renderRemoteStateBlocks from
-// node-src/domain/environment-generator.ts. backend nil matches the TS
+// the original implementation. backend nil matches the TS
 // source's `options.backend === undefined`.
 func renderRemoteStateBlocks(backend *string, remoteStates []EnvironmentRemoteState, tenant string) (string, error) {
 	if len(remoteStates) == 0 {
@@ -366,7 +366,7 @@ func renderRemoteStateBlocks(backend *string, remoteStates []EnvironmentRemoteSt
 }
 
 // renderReferenceOutput ports renderReferenceOutput from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 func renderReferenceOutput(resourceTypes []string) string {
 	if len(resourceTypes) == 0 {
 		return ""
@@ -386,7 +386,7 @@ func renderReferenceOutput(resourceTypes []string) string {
 
 // RenderEnvironmentMainOptions bundles RenderEnvironmentMain's parameters,
 // the Go analogue of the inline options-object parameter type
-// node-src/domain/environment-generator.ts's renderEnvironmentMain accepts.
+// the original implementation's renderEnvironmentMain accepts.
 // Backend nil matches `backend?: string` being omitted.
 type RenderEnvironmentMainOptions struct {
 	Backend                *string
@@ -403,7 +403,7 @@ type RenderEnvironmentMainOptions struct {
 }
 
 // RenderEnvironmentMain ports the exported renderEnvironmentMain from
-// node-src/domain/environment-generator.ts: "Render one complete
+// the original implementation: "Render one complete
 // deployment-selected root without touching state."
 func RenderEnvironmentMain(options RenderEnvironmentMainOptions) (string, error) {
 	members := canonjson.SortedStrings(options.Members)
@@ -520,7 +520,7 @@ func mapKeysBoolSetGeneric(m map[string]bool) []string {
 
 // RenderEnvironmentExpressionBindings ports the exported
 // renderEnvironmentExpressionBindings from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 func RenderEnvironmentExpressionBindings(bindings []ExpressionBinding, label, resourceType string, topology roots.RootTopology) (string, error) {
 	return RenderExpressionBindingsHcl(bindings, RenderExpressionBindingsHclOptions{
 		ItemsVariable: variableName(topology, resourceType),
@@ -529,7 +529,7 @@ func RenderEnvironmentExpressionBindings(bindings []ExpressionBinding, label, re
 }
 
 // renderRootExpressionBindings ports the local renderRootExpressionBindings
-// from node-src/domain/environment-generator.ts.
+// from the original implementation.
 func renderRootExpressionBindings(label string, bindingsByType map[string][]ExpressionBinding, topology roots.RootTopology) (string, error) {
 	var sections []string
 	for _, resourceType := range canonjson.SortedStrings(bindingsByTypeKeys(bindingsByType)) {
@@ -548,7 +548,7 @@ func renderRootExpressionBindings(label string, bindingsByType map[string][]Expr
 }
 
 // configFile ports the local configFile helper from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 func configFile(dep deployment.Deployment, tenant, resourceType string) (string, error) {
 	paths, err := tfrender.ComputeTransformArtifactPaths(dep, resourceType, tenant)
 	if err != nil {
@@ -558,7 +558,7 @@ func configFile(dep deployment.Deployment, tenant, resourceType string) (string,
 }
 
 // configReference ports the local configReference helper from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 func configReference(dep deployment.Deployment, tenant, resourceType, environmentDirectory string) (string, error) {
 	file, err := configFile(dep, tenant, resourceType)
 	if err != nil {
@@ -568,7 +568,7 @@ func configReference(dep deployment.Deployment, tenant, resourceType, environmen
 }
 
 // operatorBindingsFile ports the local operatorBindingsFile helper from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 func operatorBindingsFile(dep deployment.Deployment, tenant, resourceType string) (string, error) {
 	configDirectory, err := deployment.DeploymentConfigDir(dep, tenant)
 	if err != nil {
@@ -578,7 +578,7 @@ func operatorBindingsFile(dep deployment.Deployment, tenant, resourceType string
 }
 
 // generatedBindingsFile ports the local generatedBindingsFile helper from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 func generatedBindingsFile(dep deployment.Deployment, tenant, resourceType string) (string, error) {
 	paths, err := tfrender.ComputeTransformArtifactPaths(dep, resourceType, tenant)
 	if err != nil {
@@ -589,7 +589,7 @@ func generatedBindingsFile(dep deployment.Deployment, tenant, resourceType strin
 
 // validateBindingsAgainstConfig ports the local
 // validateBindingsAgainstConfig helper from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 func validateBindingsAgainstConfig(bindings []ExpressionBinding, config string, onDiagnostic func(string), variableNameValue string) error {
 	if !fileExists(config) {
 		return fmt.Errorf("expression bindings require projected config at %s", config)
@@ -619,7 +619,7 @@ func validateBindingsAgainstConfig(bindings []ExpressionBinding, config string, 
 }
 
 // filterGeneratedBindings ports the local filterGeneratedBindings helper
-// from node-src/domain/environment-generator.ts.
+// from the original implementation.
 func filterGeneratedBindings(bindings []ExpressionBinding, members map[string]bool, onDiagnostic func(string), sourcePath string) []ExpressionBinding {
 	var kept []ExpressionBinding
 	for _, binding := range bindings {
@@ -640,7 +640,7 @@ func filterGeneratedBindings(bindings []ExpressionBinding, members map[string]bo
 
 // remoteStateReferencesForBindings ports the local
 // remoteStateReferencesForBindings helper from
-// node-src/domain/environment-generator.ts. Unlike most of this file's
+// the original implementation. Unlike most of this file's
 // helpers, this one can fail: an operator-authored binding can pass
 // validateExpression's general allowlist (any `data.<ident>.<ident>...`
 // selector) while still containing a `data.terraform_remote_state.`
@@ -750,7 +750,7 @@ func newRemoteStateReferenceValidationIndex(
 
 // validateRemoteStateReferences ports the local
 // validateRemoteStateReferences helper from
-// node-src/domain/environment-generator.ts. The Go port receives a shared
+// the original implementation. The Go port receives a shared
 // immutable index so a multi-root generation does not rebuild the complete
 // topology and declared-edge maps for every generated root.
 func validateRemoteStateReferences(
@@ -790,7 +790,7 @@ func validateRemoteStateReferences(
 }
 
 // loadBindingLayers ports the local loadBindingLayers helper from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 func loadBindingLayers(
 	dep deployment.Deployment,
 	members []string,
@@ -837,7 +837,7 @@ func loadBindingLayers(
 }
 
 // cyclePathWithinRoot ports the local cyclePath helper from
-// node-src/domain/environment-generator.ts (a DFS over expression-binding
+// the original implementation (a DFS over expression-binding
 // module targets confined to one root's members). Named
 // cyclePathWithinRoot, distinct from reference_topology.go's
 // cyclePathAcrossRoots, since the two TS source files each define their
@@ -887,7 +887,7 @@ func cyclePathWithinRoot(edges map[string]map[string]bool, members map[string]bo
 
 // AssertNoExpressionBindingCycles ports the exported
 // assertNoExpressionBindingCycles from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 func AssertNoExpressionBindingCycles(bindingsByType map[string][]ExpressionBinding, label string, members []string) error {
 	memberSet := map[string]bool{}
 	for _, m := range members {
@@ -912,7 +912,7 @@ func AssertNoExpressionBindingCycles(bindingsByType map[string][]ExpressionBindi
 
 // RenderEnvironmentReadmeOptions bundles RenderEnvironmentReadme's
 // parameters, the Go analogue of the inline options-object parameter type
-// node-src/domain/environment-generator.ts's renderEnvironmentReadme
+// the original implementation's renderEnvironmentReadme
 // accepts.
 type RenderEnvironmentReadmeOptions struct {
 	Deployment           deployment.Deployment
@@ -924,7 +924,7 @@ type RenderEnvironmentReadmeOptions struct {
 }
 
 // RenderEnvironmentReadme ports the exported renderEnvironmentReadme from
-// node-src/domain/environment-generator.ts.
+// the original implementation.
 func RenderEnvironmentReadme(options RenderEnvironmentReadmeOptions) (string, error) {
 	members := canonjson.SortedStrings(options.Members)
 	if len(members) == 1 && options.Topology.ResourceRoots[members[0]] == members[0] {
@@ -962,7 +962,7 @@ func RenderEnvironmentReadme(options RenderEnvironmentReadmeOptions) (string, er
 
 // RenderEnvironmentSmokeTestOptions bundles RenderEnvironmentSmokeTest's
 // parameters, the Go analogue of the inline options-object parameter type
-// node-src/domain/environment-generator.ts's renderEnvironmentSmokeTest
+// the original implementation's renderEnvironmentSmokeTest
 // accepts. ConfigFormat is "json" or "hcl", matching the TS source's
 // literal union.
 type RenderEnvironmentSmokeTestOptions struct {
@@ -980,7 +980,7 @@ type RenderEnvironmentSmokeTestOptions struct {
 }
 
 // RenderEnvironmentSmokeTest ports the exported renderEnvironmentSmokeTest
-// from node-src/domain/environment-generator.ts.
+// from the original implementation.
 func RenderEnvironmentSmokeTest(options RenderEnvironmentSmokeTestOptions) (string, error) {
 	members := canonjson.SortedStrings(options.Members)
 	if len(members) == 0 {
@@ -1097,7 +1097,7 @@ func RenderEnvironmentSmokeTest(options RenderEnvironmentSmokeTestOptions) (stri
 
 // GenerateEnvironmentRootsOptions bundles GenerateEnvironmentRoots's
 // parameters, the Go analogue of the inline options-object parameter type
-// node-src/domain/environment-generator.ts's generateEnvironmentRoots
+// the original implementation's generateEnvironmentRoots
 // accepts. Backend/OutputRoot nil match `backend?: string`/`outputRoot?:
 // string` being omitted; OnDiagnostic nil matches the TS source's
 // `options.onDiagnostic ?? (() => undefined)` default.
@@ -1113,7 +1113,7 @@ type GenerateEnvironmentRootsOptions struct {
 }
 
 // GenerateEnvironmentRoots ports the exported generateEnvironmentRoots from
-// node-src/domain/environment-generator.ts: "Generate deterministic
+// the original implementation: "Generate deterministic
 // Terraform roots and their expression overlays."
 //
 // Reviewer note on map/set iteration order: every Go map this function (and

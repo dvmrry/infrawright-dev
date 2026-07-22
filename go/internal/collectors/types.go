@@ -1,27 +1,27 @@
-// Package collectors ports node-src/collectors/*.ts: the registry-driven
+// Package collectors ports the original implementation: the registry-driven
 // REST fetch engine (rest.ts), its retry-delay/masking/selection/authority
 // helpers (retry.ts, diagnostics.ts, selection.ts, authority.ts), the
 // built-in Zscaler product adapters (zscaler-adapters.ts), and the
 // fetch-diagnostics TLS probe surface (rest-diagnostics.ts) -- everything
-// under node-src/collectors/ except the real HTTP transport
-// (node-src/io/rest-http-transport.ts), which is a separate, not-yet-ported
+// under the original source treecollectors/ except the real HTTP transport
+// (the original implementation), which is a separate, not-yet-ported
 // parcel. This package is written entirely against the HttpTransport seam
 // below; the transport parcel's job is to produce a value satisfying that
 // seam, not to change anything in this package.
 //
 // Every exported symbol's doc comment names the Node source file it ports;
 // that TypeScript remains the differential oracle until this port is
-// independently qualified (docs/go-runtime-plan.md).
+// independently qualified (the Go runtime contract).
 package collectors
 
 import "net/url"
 
-// types.go ports node-src/collectors/types.ts: the HttpTransport seam this
+// types.go ports the original implementation: the HttpTransport seam this
 // entire package is built against, plus the CollectorAdapter/context shapes
 // every product adapter and the fetch engine share.
 
 // CollectorAuthMode ports the CollectorAuthMode union type from
-// node-src/collectors/types.ts.
+// the original implementation.
 type CollectorAuthMode string
 
 const (
@@ -42,7 +42,7 @@ const (
 type Environment = map[string]string
 
 // CollectorContext ports the CollectorContext interface from
-// node-src/collectors/types.ts. The four optional TS fields
+// the original implementation. The four optional TS fields
 // (ziaLegacyBase, zpaCloud, zpaLegacyBase are `readonly field?: string`)
 // become plain strings here: every call site in the Node source treats
 // `value ?? ""` and an explicit `""` identically (see e.g.
@@ -58,7 +58,7 @@ type CollectorContext struct {
 }
 
 // HTTPRequestClassification ports the HttpRequestClassification union type
-// from node-src/performance/recorder.ts (re-exported here as the type this
+// from the original implementation (re-exported here as the type this
 // package's HttpRequest.Performance field carries; the performance
 // recorder implementation itself is a separate, not-yet-ported package --
 // see PerformanceRecorder's doc comment below).
@@ -72,7 +72,7 @@ const (
 )
 
 // HTTPRequestPerformanceContext ports the HttpRequestPerformanceContext
-// interface from node-src/performance/recorder.ts. Product and
+// interface from the original implementation. Product and
 // ResourceFamily being "" mean the TS `field?: string` was omitted.
 type HTTPRequestPerformanceContext struct {
 	Classification HTTPRequestClassification
@@ -83,7 +83,7 @@ type HTTPRequestPerformanceContext struct {
 }
 
 // HTTPRequest ports the HttpRequest interface from
-// node-src/collectors/types.ts. Method is always "GET" or "POST", matching
+// the original implementation. Method is always "GET" or "POST", matching
 // the TS union; Body is nil when the TS `body?:` field was omitted.
 // TimeoutMs is 0 when the TS `timeoutMs?:` field was omitted (a caller that
 // needs a genuine zero-millisecond timeout is not a real scenario this
@@ -105,7 +105,7 @@ type HTTPRequest struct {
 }
 
 // HTTPResponse ports the HttpResponse interface from
-// node-src/collectors/types.ts. Headers uses net/http's
+// the original implementation. Headers uses net/http's
 // map[string][]string convention (the TS type additionally allows a bare
 // string per header; this package never reads response headers itself --
 // only status and body -- so the multi-value shape is the more useful
@@ -118,7 +118,7 @@ type HTTPResponse struct {
 }
 
 // HttpTransport ports the HttpTransport interface from
-// node-src/collectors/types.ts. Close is a plain method (not optional, as
+// the original implementation. Close is a plain method (not optional, as
 // in TS's `close?()`); a transport with nothing to close should implement
 // it as a no-op returning nil, matching how this package invokes it
 // unconditionally in rest_diagnostics.go's owned-transport cleanup.
@@ -140,13 +140,13 @@ type HttpTransport interface {
 }
 
 // CollectorAuthContext ports the CollectorAuthContext interface from
-// node-src/collectors/types.ts.
+// the original implementation.
 type CollectorAuthContext struct {
 	Headers map[string]string
 }
 
 // CollectorAcquireInput ports the CollectorAcquireInput interface from
-// node-src/collectors/types.ts. NowMs is nil when the TS `nowMs?:` field
+// the original implementation. NowMs is nil when the TS `nowMs?:` field
 // was omitted (acquireZiaLegacy then falls back to the real clock, see
 // zscaler_adapters.go). PerformanceContext is nil when the TS
 // `performanceContext?:` field was omitted.
@@ -162,7 +162,7 @@ type CollectorAcquireInput struct {
 // AuthPerformanceContext ports the object-literal type
 // `Omit<HttpRequestPerformanceContext, "classification" | "endpointFamily">`
 // that CollectorAcquireInput.performanceContext carries in
-// node-src/collectors/types.ts: every HttpRequestPerformanceContext field
+// the original implementation: every HttpRequestPerformanceContext field
 // except the two the adapter itself supplies per auth call.
 type AuthPerformanceContext struct {
 	Phase          string
@@ -171,7 +171,7 @@ type AuthPerformanceContext struct {
 }
 
 // CollectorComposeUrlInput ports the CollectorComposeUrlInput interface
-// from node-src/collectors/types.ts.
+// from the original implementation.
 type CollectorComposeUrlInput struct {
 	Mode    CollectorAuthMode
 	Context CollectorContext
@@ -179,11 +179,11 @@ type CollectorComposeUrlInput struct {
 }
 
 // CollectorAdapter ports the CollectorAdapter interface from
-// node-src/collectors/types.ts: product-specific authentication and URL
+// the original implementation: product-specific authentication and URL
 // composition only. It is a plain struct of one data field and two
 // function fields, rather than a Go interface type, so that test doubles
 // and the built-in Zscaler adapters (zscaler_adapters.go) can both be
-// built as ordinary struct literals -- the same shape node-tests's own
+// built as ordinary struct literals -- the same shape compatibility tests's own
 // `adapter()`/inline object-literal test doubles use for the TS interface.
 type CollectorAdapter struct {
 	Product    string
@@ -192,7 +192,7 @@ type CollectorAdapter struct {
 }
 
 // PerformanceSpan ports the load-bearing subset of the PerformanceSpanInput
-// interface from node-src/performance/recorder.ts that this package
+// interface from the original implementation that this package
 // populates when it calls RecordSpan: every field fetch.go's
 // fetchResourcesBatch/FetchResources ever sets. Fields holding a TS
 // `field?:` optional are zero-valued (""/0/false) when omitted; Instances,
@@ -214,16 +214,16 @@ type PerformanceSpan struct {
 }
 
 // PerformanceRecorder is this package's seam onto
-// node-src/performance/recorder.ts's PerformanceRecorder class, scoped to
+// the original implementation's PerformanceRecorder class, scoped to
 // exactly the four operations rest.go calls (now/durationSince via Now/
-// DurationSince, setFetchConcurrency, and recordSpan). node-src/performance
+// DurationSince, setFetchConcurrency, and recordSpan). the original source treeperformance
 // is its own not-yet-ported Node source tree -- outside this port slice's
-// scope (docs/go-runtime-plan.md's Slice 5 covers collectors + zscaler
+// scope (the Go runtime contract's Slice 5 covers collectors + zscaler
 // adapters only, and the performance report is a separate output surface
 // under the plan's Reports row) -- so this package declares the minimal
 // interface it needs rather than depending on an internal/performance
 // package that does not exist yet. Whatever ports
-// node-src/performance/recorder.ts later must produce a type satisfying
+// the original implementation later must produce a type satisfying
 // this interface; byte-for-byte parity of the performance *report* itself
 // is out of scope here (see this package's doc comment and the port
 // report's reviewer-attention notes).
@@ -235,7 +235,7 @@ type PerformanceRecorder interface {
 }
 
 // FetchRunResult ports the FetchRunResult interface from
-// node-src/collectors/types.ts.
+// the original implementation.
 type FetchRunResult struct {
 	Failed    map[string]string
 	Processed []string

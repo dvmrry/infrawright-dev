@@ -1,6 +1,6 @@
 package envgen
 
-// reference_topology.go ports node-src/domain/reference-topology.ts: the
+// reference_topology.go ports the original implementation: the
 // cross-state reference DAG derived from pack-declared reference metadata,
 // with cycle detection.
 //
@@ -34,11 +34,11 @@ import (
 )
 
 // InfrawrightReferenceOutput ports INFRAWRIGHT_REFERENCE_OUTPUT from
-// node-src/domain/reference-topology.ts.
+// the original implementation.
 const InfrawrightReferenceOutput = "infrawright_reference_ids"
 
 // CrossStateReferenceEdge is the Go analogue of the CrossStateReferenceEdge
-// interface in node-src/domain/reference-topology.ts.
+// interface in the original implementation.
 type CrossStateReferenceEdge struct {
 	Field        string
 	Referrer     string
@@ -49,7 +49,7 @@ type CrossStateReferenceEdge struct {
 
 // CrossStateReferenceTopology is the Go analogue of the
 // CrossStateReferenceTopology interface in
-// node-src/domain/reference-topology.ts. DependenciesByRoot/OutputsByRoot
+// the original implementation. DependenciesByRoot/OutputsByRoot
 // use this port's usual presence-only string-set representation
 // (map[string]map[string]bool), the same convention
 // go/internal/tfrender/transform_artifacts.go's BindingContext already
@@ -77,7 +77,7 @@ func mapKeysOfReferences(m map[string]map[string]any) []string {
 }
 
 // CrossStateDependencyClosure ports the exported
-// crossStateDependencyClosure from node-src/domain/reference-topology.ts:
+// crossStateDependencyClosure from the original implementation:
 // "Expand selected state roots through their complete referent dependency
 // set." Never fails (no TS throw sites), so unlike most of this package's
 // other exports it returns a plain []string, no error.
@@ -105,7 +105,7 @@ func CrossStateDependencyClosure(selectedRoots []string, dependenciesByRoot map[
 }
 
 // generatedNonDerived ports the local generatedNonDerived helper from
-// node-src/domain/reference-topology.ts. Note this uses
+// the original implementation. Note this uses
 // canonjson.IsJSONRecord (the port of metadata/validation.ts's isObject,
 // which excludes arrays), deliberately distinct from
 // go/internal/roots/roots.go's isJSObjectLike (which treats arrays as
@@ -125,7 +125,7 @@ func generatedNonDerived(root metadata.LoadedPackRoot, resourceType string) bool
 }
 
 // addToSet ports the local `add` helper from
-// node-src/domain/reference-topology.ts.
+// the original implementation.
 func addToSet(values map[string]map[string]bool, key, value string) {
 	set, ok := values[key]
 	if !ok {
@@ -136,7 +136,7 @@ func addToSet(values map[string]map[string]bool, key, value string) {
 }
 
 // cyclePathAcrossRoots ports the local cyclePath helper from
-// node-src/domain/reference-topology.ts (a plain DFS three-color cycle
+// the original implementation (a plain DFS three-color cycle
 // detector), named to avoid colliding with environment-generator.go's own,
 // differently-scoped cyclePath port of the same-named TS helper in
 // environment-generator.ts (that one walks expression-binding module
@@ -200,7 +200,7 @@ func indexOfString(values []string, target string) int {
 
 // CrossStateReferenceTopologyOptions bundles CrossStateReferenceTopology's
 // parameters, the Go analogue of the inline options-object parameter type
-// node-src/domain/reference-topology.ts's crossStateReferenceTopology
+// the original implementation's crossStateReferenceTopology
 // accepts.
 type CrossStateReferenceTopologyOptions struct {
 	Deployment deployment.Deployment
@@ -221,7 +221,7 @@ func sortCrossStateEdges(edges []CrossStateReferenceEdge) {
 }
 
 // crossStateReferenceTopology ports the exported crossStateReferenceTopology
-// from node-src/domain/reference-topology.ts: "Resolve the pack-declared
+// from the original implementation: "Resolve the pack-declared
 // edges that cross deployment state boundaries."
 func crossStateReferenceTopology(options CrossStateReferenceTopologyOptions) CrossStateReferenceTopology {
 	edges := []CrossStateReferenceEdge{}
@@ -288,12 +288,12 @@ func crossStateReferenceTopology(options CrossStateReferenceTopologyOptions) Cro
 }
 
 // ResolveCrossStateReferenceTopology ports crossStateReferenceTopology from
-// node-src/domain/reference-topology.ts. Named ResolveCrossStateReferenceTopology
+// the original implementation. Named ResolveCrossStateReferenceTopology
 // rather than CrossStateReferenceTopology (which the CrossStateReferenceTopology
 // struct type above already claims) since Go, unlike TypeScript, does not
 // allow a function and a type to share one exported name in the same
 // package -- the same naming split go/internal/roots/roots.go's
-// RootTopologyFromCatalog/LoadedRootTopology already applies to its own
+// RootTopologyFromResourceSet/LoadedRootTopology already applies to its own
 // RootTopology type/function pair.
 func ResolveCrossStateReferenceTopology(options CrossStateReferenceTopologyOptions) (result CrossStateReferenceTopology, err error) {
 	defer recoverBindingsError(&err)

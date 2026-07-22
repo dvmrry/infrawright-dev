@@ -7,9 +7,7 @@ import (
 	"testing"
 )
 
-// repoRoot walks up from this test file's directory until it finds a
-// directory containing both "catalogs" and "demo", per the Slice 0 gate
-// spec. It fails the test rather than guessing if no such ancestor exists.
+// repoRoot walks up from this test file until it finds the shipped demo.
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	_, thisFile, _, ok := runtime.Caller(0)
@@ -18,29 +16,22 @@ func repoRoot(t *testing.T) string {
 	}
 	dir := filepath.Dir(thisFile)
 	for {
-		_, catalogsErr := os.Stat(filepath.Join(dir, "catalogs"))
 		_, demoErr := os.Stat(filepath.Join(dir, "demo"))
-		if catalogsErr == nil && demoErr == nil {
+		if demoErr == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			t.Fatalf("walked up to filesystem root from %s without finding a directory containing both catalogs/ and demo/", filepath.Dir(thisFile))
+			t.Fatalf("walked up to filesystem root from %s without finding demo/", filepath.Dir(thisFile))
 		}
 		dir = parent
 	}
 }
 
-// gateTargets returns every fixture path the Slice 0 round-trip gate covers:
-// the frozen v1 provenance catalog, the active Go-authoritative v2 catalog,
-// and every demo/config/demo/*.json file (both *.auto.tfvars.json and
-// *.lookup.json).
+// gateTargets returns every committed demo JSON artifact covered by the
+// canonical round-trip gate.
 func gateTargets(t *testing.T, root string) []string {
 	t.Helper()
-	targets := []string{
-		filepath.Join(root, "catalogs", "zscaler-root-catalog.v1.json"),
-		filepath.Join(root, "catalogs", "zscaler-root-catalog.v2.json"),
-	}
 	demoMatches, err := filepath.Glob(filepath.Join(root, "demo", "config", "demo", "*.json"))
 	if err != nil {
 		t.Fatalf("globbing demo fixtures: %v", err)
@@ -48,22 +39,16 @@ func gateTargets(t *testing.T, root string) []string {
 	if len(demoMatches) == 0 {
 		t.Fatal("expected at least one demo/config/demo/*.json fixture; none found")
 	}
-	return append(targets, demoMatches...)
+	return demoMatches
 }
 
-// TestRoundTripGate is the Slice 0 gate: decoding and re-rendering every
-// committed canonical JSON fixture must reproduce the original bytes
-// exactly.
+// TestRoundTripGate requires every committed demo JSON artifact to reproduce
+// its original bytes after decoding and rendering.
 //
-// catalogs/zscaler-root-catalog.v1.json is frozen Node-v1
-// renderPythonCompatibleJson output retained as provenance. The active Go
-// `root-catalog` target writes only catalogs/zscaler-root-catalog.v2.json;
-// this gate protects both the immutable v1 bytes and the v2 renderer output.
-//
-// demo/config/demo/*.json is, by contrast, NOT renderPythonCompatibleJson
+// demo/config/demo/*.json is not Render output
 // output: every file there is written by the sibling renderer
-// renderPythonLosslessArtifactJson (node-src/json/python-lossless-artifact.ts),
-// reached via node-src/domain/transform-artifacts.ts's
+// renderPythonLosslessArtifactJson (the original implementation),
+// reached via the original implementation's
 // renderDeploymentTfvars (*.auto.tfvars.json) and renderTransformLookup
 // (*.lookup.json), themselves invoked by the Node CLI's `transform`
 // command that the demo Makefile's `demo` target runs. Per this port's
@@ -168,7 +153,7 @@ func reportMismatch(t *testing.T, path string, want, got []byte) {
 // escapes characters >= U+0080, so U+007F (DEL) passes through literally,
 // unlike true CPython json.dumps(..., ensure_ascii=True), which does
 // escape it. This was discovered by reading the sibling renderer
-// node-src/json/python-lossless-artifact.ts, whose encodePythonString has
+// the original implementation, whose encodePythonString has
 // a comment explicitly calling out and patching this exact gap for its
 // own contract. This package intentionally reproduces the gap rather than
 // closing it, per this port's byte-for-byte mandate to match

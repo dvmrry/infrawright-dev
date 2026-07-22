@@ -1,7 +1,7 @@
 package transform
 
 // snake.go ports the snake_case/slug naming and Python-numeric-string
-// parsing helpers from node-src/domain/pull-transform.ts: snakeName,
+// parsing helpers from the original implementation: snakeName,
 // snakeKeys/SnakeJSONKeys/SnakeJSONKeysForAuthoring, slugifyTransformKey,
 // and the Python str.isdigit()/int()/float() compatible numeric-string
 // parsing pull-transform.ts's numeric coercion depends on
@@ -17,11 +17,11 @@ import (
 	"strings"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
-	"github.com/dvmrry/infrawright-dev/go/internal/pyunicode"
+	"github.com/dvmrry/infrawright-dev/go/internal/textcompat"
 )
 
 // snakeWordBoundary and snakeAcronymBoundary port the two regexps chained
-// in snakeName from node-src/domain/pull-transform.ts. Go's regexp package
+// in snakeName from the original implementation. Go's regexp package
 // operates on runes (full Unicode code points) by default, matching the
 // Node source's `u`-flagged `.`/`[^\n]` semantics with no extra flag
 // needed; unlike JS's `u` flag, there is no separate non-Unicode mode to
@@ -31,7 +31,7 @@ var (
 	snakeAcronymBoundary = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 )
 
-// SnakeName ports snakeName from node-src/domain/pull-transform.ts.
+// SnakeName ports snakeName from the original implementation.
 //
 // Note the replacement templates below use explicit ${1}/${2} braces, not
 // Go's bare $1_$2: Go's regexp.Expand template syntax treats the longest
@@ -43,60 +43,24 @@ var (
 // port, not by inspection of the Node source alone.
 func SnakeName(name string) string {
 	half := snakeWordBoundary.ReplaceAllString(name, "${1}_${2}")
-	return pyunicode.PythonLower151(snakeAcronymBoundary.ReplaceAllString(half, "${1}_${2}"))
+	return textcompat.Lower151(snakeAcronymBoundary.ReplaceAllString(half, "${1}_${2}"))
 }
 
-// snakeKeys ports snakeKeys from node-src/domain/pull-transform.ts.
-//
-// strictCollisions is never true at any call site reachable from this
-// package's exported API (TransformLoadedItems and
-// ApplyTransformOverridesForAuthoring both construct their
-// runtimeTransformResource with strictFrozenCompatibility: false, the only
-// source for a true argument here, exactly like the Node source's
-// transformLoadedItems/applyTransformOverridesForAuthoring); it is ported
-// faithfully below anyway, for parity with the exported function's full
-// contract.
-//
-// KNOWN, NARROW DIVERGENCE (see this package's doc comment for the general
-// policy): when strictCollisions is true and two distinct raw keys
-// normalize to the same snake_case name, the Node source's collision
-// bookkeeping (which raw key is reported as "previous" in the resulting
-// error, and -- when strictCollisions is false -- which of the two
-// colliding values survives into the result) depends on Object.keys()
-// *encounter order*, which is source-JSON-text key order preserved by
-// lossless-json's parse. That order is already unrecoverable by the time a
-// value reaches this package (see the package doc comment): go/internal/canonjson's
-// decoder stores objects in an unordered Go map. This function instead
-// walks path's keys in sorted order, so on a collision it is the
-// alphabetically *last* colliding raw key that "wins" (or is reported as
-// the second, colliding key in the panic message), not the JS-iteration-last
-// one. Since strictCollisions is unreachably true from this package's own
-// entry points, and every fixture this port's tests exercise has no raw-key
-// collisions in the first place, this divergence is unobservable in this
-// port's gate; it is called out here as it would be for any future fixture
-// that collides two raw keys under a shared owning pack.
-func snakeKeys(value any, path string, strictCollisions bool) any {
+// snakeKeys recursively normalizes object keys. Sorted traversal makes
+// collision resolution deterministic: the alphabetically last raw key wins.
+func snakeKeys(value any, path string) any {
 	if arr, ok := value.([]any); ok {
 		out := make([]any, len(arr))
 		for i, item := range arr {
-			out[i] = snakeKeys(item, indexPath(path, i), strictCollisions)
+			out[i] = snakeKeys(item, indexPath(path, i))
 		}
 		return out
 	}
 	if obj, ok := value.(map[string]any); ok {
 		output := make(map[string]any, len(obj))
-		originalKeys := make(map[string]string, len(obj))
 		for _, key := range sortedObjectKeys(obj) {
 			normalized := SnakeName(key)
-			previous, seen := originalKeys[normalized]
-			if strictCollisions && seen {
-				failf(
-					"snake_case key collision at %s: %s and %s both map to %s",
-					path, jsonQuote(previous), jsonQuote(key), jsonQuote(normalized),
-				)
-			}
-			originalKeys[normalized] = key
-			output[normalized] = snakeKeys(obj[key], path+"."+key, strictCollisions)
+			output[normalized] = snakeKeys(obj[key], path+"."+key)
 		}
 		return output
 	}
@@ -107,15 +71,15 @@ func indexPath(path string, index int) string {
 	return path + "[" + strconv.Itoa(index) + "]"
 }
 
-// SnakeJSONKeys ports snakeJsonKeys from node-src/domain/pull-transform.ts:
+// SnakeJSONKeys ports snakeJsonKeys from the original implementation:
 // "Recursively snake-case a losslessly parsed JSON value using Python
 // rules."
 func SnakeJSONKeys(value any) any {
-	return snakeKeys(value, "$raw", false)
+	return snakeKeys(value, "$raw")
 }
 
 // SnakeJSONKeysForAuthoring ports snakeJsonKeysForAuthoring from
-// node-src/domain/pull-transform.ts: "Recursively snake-case authoring
+// the original implementation: "Recursively snake-case authoring
 // inputs, which may be constructed with ordinary finite JavaScript numbers
 // instead of coming from the lossless runtime JSON parser." The Go
 // analogue accepts a bare float64 leaf (this package's stand-in for a raw
@@ -142,7 +106,7 @@ func SnakeJSONKeysForAuthoring(value any) any {
 }
 
 // nonAlnumRun matches slugifyTransformKey's `[^a-z0-9]+` replacement
-// pattern from node-src/domain/pull-transform.ts.
+// pattern from the original implementation.
 var nonAlnumRun = regexp.MustCompile(`[^a-z0-9]+`)
 
 // leadingOrTrailingUnderscores matches slugifyTransformKey's
@@ -150,15 +114,15 @@ var nonAlnumRun = regexp.MustCompile(`[^a-z0-9]+`)
 var leadingOrTrailingUnderscores = regexp.MustCompile(`^_+|_+$`)
 
 // SlugifyTransformKey ports slugifyTransformKey from
-// node-src/domain/pull-transform.ts.
+// the original implementation.
 func SlugifyTransformKey(value string) string {
-	lowered := pyunicode.PythonLower151(value)
+	lowered := textcompat.Lower151(value)
 	collapsed := nonAlnumRun.ReplaceAllString(lowered, "_")
 	return leadingOrTrailingUnderscores.ReplaceAllString(collapsed, "")
 }
 
 // pythonDecimalZeros mirrors PYTHON_DECIMAL_ZEROS from
-// node-src/domain/pull-transform.ts verbatim: the Unicode 15.1
+// the original implementation verbatim: the Unicode 15.1
 // Decimal_Number zero code points, matching the Python 3.13 authoring
 // oracle. Every Nd block is one contiguous run of ten values.
 var pythonDecimalZeros = []int{
@@ -174,7 +138,7 @@ var pythonDecimalZeros = []int{
 }
 
 // pythonDecimalDigit ports pythonDecimalDigit from
-// node-src/domain/pull-transform.ts: a binary search over
+// the original implementation: a binary search over
 // pythonDecimalZeros for the Decimal_Number block containing codePoint,
 // returning the digit value 0-9 or nil (Go analogue of null) if codePoint
 // is not a Unicode decimal digit.
@@ -199,7 +163,7 @@ func pythonDecimalDigit(codePoint rune) (int, bool) {
 }
 
 // normalizePythonDecimalDigits ports normalizePythonDecimalDigits from
-// node-src/domain/pull-transform.ts: every Unicode decimal digit in value
+// the original implementation: every Unicode decimal digit in value
 // is replaced by its ASCII digit; every other character passes through
 // unchanged.
 func normalizePythonDecimalDigits(value string) string {
@@ -216,7 +180,7 @@ func normalizePythonDecimalDigits(value string) string {
 }
 
 // isPythonNumericWhitespace ports isPythonNumericWhitespace from
-// node-src/domain/pull-transform.ts: the codepoints Python's
+// the original implementation: the codepoints Python's
 // str.strip()/int()/float() treat as whitespace for numeric-string parsing.
 func isPythonNumericWhitespace(codePoint rune) bool {
 	switch {
@@ -248,7 +212,7 @@ func isPythonNumericWhitespace(codePoint rune) bool {
 }
 
 // trimPythonNumericWhitespace ports trimPythonNumericWhitespace from
-// node-src/domain/pull-transform.ts. Go's strings.TrimFunc over runes
+// the original implementation. Go's strings.TrimFunc over runes
 // already operates code-point-at-a-time (unlike the Node source's manual
 // UTF-16 surrogate-pair-aware walk, which exists only to work around JS
 // strings being UTF-16 code unit sequences), so it is the exact Go
@@ -258,12 +222,12 @@ func trimPythonNumericWhitespace(value string) string {
 }
 
 // pythonIntegerToken matches parsePythonInteger's grammar from
-// node-src/domain/pull-transform.ts: an optional sign, then digits
+// the original implementation: an optional sign, then digits
 // optionally separated by single underscores.
 var pythonIntegerToken = regexp.MustCompile(`^[+-]?[0-9](?:_?[0-9])*$`)
 
 // pythonFloatToken matches normalizedPythonFloatString's grammar from
-// node-src/domain/pull-transform.ts.
+// the original implementation.
 var pythonFloatToken = regexp.MustCompile(
 	`(?i)^[+-]?(?:(?:[0-9](?:_?[0-9])*(?:\.(?:[0-9](?:_?[0-9])*)?)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?|inf(?:inity)?|nan)$`,
 )
@@ -290,7 +254,7 @@ var (
 )
 
 // parsePythonInteger ports parsePythonInteger from
-// node-src/domain/pull-transform.ts.
+// the original implementation.
 func parsePythonInteger(value string) pythonParsedInteger {
 	stripped := normalizePythonDecimalDigits(trimPythonNumericWhitespace(value))
 	if !pythonIntegerToken.MatchString(stripped) {
@@ -326,7 +290,7 @@ func (p pythonParsedInteger) AsNumber() json.Number {
 }
 
 // normalizedPythonFloatString ports normalizedPythonFloatString from
-// node-src/domain/pull-transform.ts.
+// the original implementation.
 func normalizedPythonFloatString(value string) (string, bool) {
 	stripped := normalizePythonDecimalDigits(trimPythonNumericWhitespace(value))
 	if !pythonFloatToken.MatchString(stripped) {
