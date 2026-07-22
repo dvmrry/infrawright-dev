@@ -21,8 +21,10 @@
 - Archive implementation: `27f730076ad76dab2c54b138e0eb16f702ee3639`.
 - External-review remediation:
   `408846392218437f97d9ad873f9ecc7dfce126ef`.
-- Review head: `408846392218437f97d9ad873f9ecc7dfce126ef`.
-- Diff command: `git diff --find-renames 5b9abae..4088463`.
+- External re-review remediation:
+  `74922c3e1392f5a4998becd06c08289dd28a8aa1`.
+- Review head: `74922c3e1392f5a4998becd06c08289dd28a8aa1`.
+- Diff command: `git diff --find-renames 5b9abae..74922c3`.
 
 ## Files Changed
 
@@ -32,7 +34,10 @@
   `node-tests/` files, package/build configuration, and JavaScript/release
   scripts. External-review remediation also updates the live source-AST and
   demo-fixture READMEs, removes obsolete Node build-cache ignore rules, and
-  makes the archive tripwire portable across Git exports.
+  makes the archive tripwire portable across Git exports. Re-review
+  remediation makes Go tests uncached, tightens command-context matching, and
+  separates current-tree authority verification from the opt-in archived
+  bundle byte check.
 - Files intentionally left untouched: `node-tests/fixtures/*.json`, existing
   Go golden/testdata corpora, provider schemas, pack manifests, registries,
   overrides, root catalogs, Terraform modules, and untracked `reports/`.
@@ -92,12 +97,15 @@ verification result:
 
 | Finding | Cause | Fix | Regression proof / result |
 |---|---|---|---|
-| Live source-AST README invoked the deleted Node bundle | The initial tripwire covered workflows but not active workflow documentation | Replaced the command with `dist/iw source-operation-map`; scan tool and pack READMEs plus `docs/recipes/*.md` | CI exports the tree outside `.git`, proves the tripwire passes, injects a documented Node command, and requires rejection; local reproduction passed |
+| Live source-AST README invoked the deleted Node bundle | The initial tripwire covered workflows but not active workflow documentation | Replaced the command with `dist/iw source-operation-map`; scan workflow files plus the current tool and pack READMEs | CI exports the tree outside `.git`, proves the tripwire passes, injects a documented Node command, and requires rejection; local reproduction passed |
 | Zscaler demo README classified fixtures only as Node-test inputs | Fixture prose was not updated when Go authority became the sole default | Reclassified the bytes as Go transform-authority, vertical-slice, and demo/check-demo inputs | `make check` consumed the current Go corpus and passed with failing Node/npm interceptors |
 | Tripwire missed direct Node commands in Makefiles and depended on `git grep` | It searched a narrow token set and one Git-only path | Added direct `node`/`npm`/`npx` command detection and portable `find` + `grep` coverage for workflows and active workflow docs | Both plain-tree and Git-export runs passed; the injected-command negative case failed as intended |
 | CI did not prove the full Go suite was Node-independent | Interceptors wrapped only distribution/root-catalog targets | Run complete `make check check-root-catalog` with Node and npm interceptors that exit 99 | Full Go suite, distribution, root catalog, and archive tripwire passed locally under the interceptors |
 | Archive-triggered planning docs and `node-src/*.ts` provenance were ambiguous | Future-tense status and working-tree path interpretation survived archive | Marked the port plan historical, activated the post-archive inventory, and documented frozen-tag resolution for provenance comments | Static review plus full archive tripwire passed |
 | `.node-test/` remained ignored after its build lane was deleted | Generated-cache ignore rules were left behind | Removed `.node-test/` and `node_modules/` ignore entries; local generated caches and old bundle were moved to Trash, while `dist/iw` was retained | Clean tracked/untracked classification now exposes any recreated Node cache; only the user-owned `reports/` remains untracked |
+| Intercepted CI could reuse cached Go test results | The remediation moved the full suite under `make check`, whose `test-go` recipe omitted `-count=1` | Added `-count=1` to the single `test-go` authority recipe | The intercepted full suite re-executed every package without `(cached)` results and passed |
+| Command tripwire rejected ordinary domain prose and split paths on whitespace | The matcher treated any mid-sentence `node` as a command and expanded a newline-delimited file list unquoted | Anchor executable names to shell/YAML command context and use `find -exec grep ... {} +`; remove the inert Markdown-only recipe arm | Export test accepts “Each Virtual Service Edge node must be registered,” handles a README path containing spaces, then rejects the injected command |
+| Uncached authoring authority tests required the deleted local bundle | `TestNodeV1Authority` and its mutation setup assumed every manifest entry still existed in the working tree | Continue verifying the immutable ten-entry manifest and all nine retained entries by default; resolve only the archived bundle entry through explicit `INFRAWRIGHT_FROZEN_NODE_ORACLE` | Default focused/full suites pass without the bundle; a missing configured oracle fails; the recovered frozen bundle passes exact size/digest verification |
 
 The approximately 1,400 Go comments pointing to historical `node-src/*.ts`
 locations were deliberately retained. They are source provenance into the
@@ -134,8 +142,11 @@ dependencies; the archive record now states that resolution rule explicitly.
   - `PATH=<failing-node-and-npm-interceptors>:$PATH make check-distribution check-root-catalog`
   - `env -u INFRAWRIGHT_FROZEN_NODE_ORACLE PATH=<failing-node-and-npm-interceptors>:$PATH make check check-root-catalog`
   - Git-export portability run of `make archive-tripwire`, followed by an
-    injected `node deleted-runtime.mjs` documentation command that the target
-    rejected as intended.
+    accepted domain-prose line and an injected `node deleted-runtime.mjs`
+    documentation command that the target rejected as intended; the same run
+    covered a README path containing spaces.
+  - `env -u INFRAWRIGHT_FROZEN_NODE_ORACLE go test -count=1 ./internal/authoring/authority -v`
+  - `INFRAWRIGHT_FROZEN_NODE_ORACLE=<recovered-frozen-bundle> go test -count=1 ./internal/authoring/authority -run '^TestNodeV1Authority$' -v`
   - local reduced-root simulations of the CI profile job for `empty` and
     `zscaler`, including focused profile-load and derivability subtests.
   - `env -u INFRAWRIGHT_FROZEN_NODE_ORACLE go test -count=1 ./cmd/iw -run '^TestA6' -v`.
@@ -146,9 +157,9 @@ dependencies; the archive record now states that resolution rule explicitly.
   passed the full distribution gate.
 - Tests not run and why: GitHub Actions has not yet run on the pushed branch;
   live provider/backend/Apply qualification is separately human-gated and not
-  claimed; the opt-in frozen-bundle differential was not rerun because the
-  archive deliberately removes it from the current gate and retains its
-  accepted tag/digest evidence.
+  claimed; the full opt-in frozen-bundle differential corpus was not rerun.
+  The recovered bundle itself was rehashed successfully against the immutable
+  authoring authority manifest.
 
 ## Known Deferrals
 
