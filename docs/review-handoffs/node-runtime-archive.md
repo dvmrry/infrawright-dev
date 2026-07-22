@@ -18,9 +18,11 @@
 ## Base / Head
 
 - Base: `origin/main` at `5b9abaeae23dfcc457aa3aeb8416249375eb97d7`.
-- Head: implementation commit
-  `27f730076ad76dab2c54b138e0eb16f702ee3639`.
-- Diff command: `git diff --find-renames 5b9abae..27f7300`.
+- Archive implementation: `27f730076ad76dab2c54b138e0eb16f702ee3639`.
+- External-review remediation:
+  `408846392218437f97d9ad873f9ecc7dfce126ef`.
+- Review head: `408846392218437f97d9ad873f9ecc7dfce126ef`.
+- Diff command: `git diff --find-renames 5b9abae..4088463`.
 
 ## Files Changed
 
@@ -28,7 +30,9 @@
   profile-path, archive-tripwire, and opt-in differential tests; four Go-v2
   demo sidecars; literal pack-set moves; deletion of `node-src/`, executable
   `node-tests/` files, package/build configuration, and JavaScript/release
-  scripts.
+  scripts. External-review remediation also updates the live source-AST and
+  demo-fixture READMEs, removes obsolete Node build-cache ignore rules, and
+  makes the archive tripwire portable across Git exports.
 - Files intentionally left untouched: `node-tests/fixtures/*.json`, existing
   Go golden/testdata corpora, provider schemas, pack manifests, registries,
   overrides, root catalogs, Terraform modules, and untracked `reports/`.
@@ -80,6 +84,26 @@
   selection semantics, topology v2, Terraform rendering, saved-plan
   assessment, and Apply authorization.
 
+## External Review Remediation
+
+The user-supplied Opus review was treated as an adversarial finding set. The
+remediation maps each accepted item to a cause, fix, regression proof, and
+verification result:
+
+| Finding | Cause | Fix | Regression proof / result |
+|---|---|---|---|
+| Live source-AST README invoked the deleted Node bundle | The initial tripwire covered workflows but not active workflow documentation | Replaced the command with `dist/iw source-operation-map`; scan tool and pack READMEs plus `docs/recipes/*.md` | CI exports the tree outside `.git`, proves the tripwire passes, injects a documented Node command, and requires rejection; local reproduction passed |
+| Zscaler demo README classified fixtures only as Node-test inputs | Fixture prose was not updated when Go authority became the sole default | Reclassified the bytes as Go transform-authority, vertical-slice, and demo/check-demo inputs | `make check` consumed the current Go corpus and passed with failing Node/npm interceptors |
+| Tripwire missed direct Node commands in Makefiles and depended on `git grep` | It searched a narrow token set and one Git-only path | Added direct `node`/`npm`/`npx` command detection and portable `find` + `grep` coverage for workflows and active workflow docs | Both plain-tree and Git-export runs passed; the injected-command negative case failed as intended |
+| CI did not prove the full Go suite was Node-independent | Interceptors wrapped only distribution/root-catalog targets | Run complete `make check check-root-catalog` with Node and npm interceptors that exit 99 | Full Go suite, distribution, root catalog, and archive tripwire passed locally under the interceptors |
+| Archive-triggered planning docs and `node-src/*.ts` provenance were ambiguous | Future-tense status and working-tree path interpretation survived archive | Marked the port plan historical, activated the post-archive inventory, and documented frozen-tag resolution for provenance comments | Static review plus full archive tripwire passed |
+| `.node-test/` remained ignored after its build lane was deleted | Generated-cache ignore rules were left behind | Removed `.node-test/` and `node_modules/` ignore entries; local generated caches and old bundle were moved to Trash, while `dist/iw` was retained | Clean tracked/untracked classification now exposes any recreated Node cache; only the user-owned `reports/` remains untracked |
+
+The approximately 1,400 Go comments pointing to historical `node-src/*.ts`
+locations were deliberately retained. They are source provenance into the
+immutable `node-oracle-v1-final` tag, not executable or current-tree
+dependencies; the archive record now states that resolution rule explicitly.
+
 ## Invariants Claimed
 
 - Evidence must not be silently dropped: all frozen JSON evidence remains; the
@@ -108,6 +132,10 @@
   - `make check-core`
   - `make archive-tripwire`
   - `PATH=<failing-node-and-npm-interceptors>:$PATH make check-distribution check-root-catalog`
+  - `env -u INFRAWRIGHT_FROZEN_NODE_ORACLE PATH=<failing-node-and-npm-interceptors>:$PATH make check check-root-catalog`
+  - Git-export portability run of `make archive-tripwire`, followed by an
+    injected `node deleted-runtime.mjs` documentation command that the target
+    rejected as intended.
   - local reduced-root simulations of the CI profile job for `empty` and
     `zscaler`, including focused profile-load and derivability subtests.
   - `env -u INFRAWRIGHT_FROZEN_NODE_ORACLE go test -count=1 ./cmd/iw -run '^TestA6' -v`.
