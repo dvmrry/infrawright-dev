@@ -40,6 +40,9 @@ jobs:
           mkdir -p "$export_root"
           git archive HEAD | tar -x -C "$export_root"
           make -C "$export_root" archive-tripwire
+          printf '\nEach Virtual Service Edge node must be registered.\n' >> \
+            "$export_root/packs/_shared/zscaler/demo/README.md"
+          make -C "$export_root" archive-tripwire
           printf '\nnode deleted-runtime.mjs\n' >> \
             "$export_root/tools/source-evidence-ast/README.md"
           if make -C "$export_root" archive-tripwire; then

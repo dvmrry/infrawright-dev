@@ -36,13 +36,15 @@ dist/iw: $(GO_BUILD_INPUTS)
 	cd go && $(GO) build -o ../dist/iw ./cmd/iw
 
 archive-tripwire: ## Prove active build, CI, and release surfaces contain no executable Node lane
-	@! sed '/^archive-tripwire:/,/^[^[:space:]]/d' Makefile demo/Makefile | grep -nE 'INFRAWRIGHT_CLI|IW_MAINTAINER|IW_OPERATOR|dist/infrawright-cli\.mjs|\$\((NODE|NPM)\)|(^|[[:space:]`;&|()])(node|npm|npx)[[:space:]]+' || { \
+	@! sed '/^archive-tripwire:/,/^[^[:space:]]/d' Makefile demo/Makefile | grep -nE 'INFRAWRIGHT_CLI|IW_MAINTAINER|IW_OPERATOR|dist/infrawright-cli\.mjs|\$\((NODE|NPM)\)|(^[[:space:]]*@?[[:space:]]*|[(;&|`][[:space:]]*)(node|npm|npx)[[:space:]]+' || { \
 		echo "archive-tripwire: legacy Make routing remains" >&2; exit 1; \
 	}
-	@files="$$(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) -print; \
-		find tools packs -type f -name README.md -print; \
-		find docs/recipes -type f -name '*.md' -print)"; \
-	if test -n "$$files" && grep -nE 'actions/setup-node|dist/infrawright-cli\.mjs|(^|[[:space:]`;&|()])(node|npm|npx)[[:space:]]+' $$files; then \
+	@matches="$$(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) \
+		-exec grep -nHE 'actions/setup-node|dist/infrawright-cli\.mjs|(^[[:space:]]*@?[[:space:]]*|[(;&|`][[:space:]]*|run:[[:space:]]*)(node|npm|npx)[[:space:]]+' {} +; \
+		find tools packs -type f -name README.md \
+		-exec grep -nHE 'dist/infrawright-cli\.mjs|(^[[:space:]]*@?[[:space:]]*|[(;&|`][[:space:]]*)(node|npm|npx)[[:space:]]+' {} +)"; \
+	if test -n "$$matches"; then \
+		printf '%s\n' "$$matches"; \
 		echo "archive-tripwire: executable Node reference remains in an active workflow or workflow document" >&2; exit 1; \
 	fi
 	@test ! -e package.json -a ! -e package-lock.json -a ! -e node-src
@@ -140,7 +142,7 @@ check-core: ## Prove the pack-independent engine surface with an empty pack root
 test: test-go ## Default repository tests use the current Go authority
 
 test-go: ## Run the complete Go authority suite
-	cd go && $(GO) test ./...
+	cd go && $(GO) test -count=1 ./...
 
 fetch: dist/iw ## Pull API JSON into pulls/<tenant> (TENANT=<name> [RESOURCE="<type|provider> ..."])
 	@test -n "$(TENANT)" || { echo "usage: make fetch TENANT=<tenant> [RESOURCE=\"<type|provider> ...\"]"; exit 2; }

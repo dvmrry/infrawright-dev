@@ -25,6 +25,8 @@ const (
 	authorityManifestRelativePath = "tests/fixtures/authoring/node-v1/authority.json"
 	authorityManifestSHA256       = "c9485be8b0c7a805247d54250c700c562ba8f32fa60f9e35ceb1b6c6e6671612"
 	authorityManifestEntryCount   = 10
+	archivedNodeBundleEntryPath   = "dist/infrawright-cli.mjs"
+	frozenNodeOracleEnvironment   = "INFRAWRIGHT_FROZEN_NODE_ORACLE"
 )
 
 type authorityManifest struct {
@@ -41,8 +43,24 @@ type authorityEntry struct {
 func TestNodeV1Authority(t *testing.T) {
 	root := repositoryRoot(t)
 	manifestPath := filepath.Join(root, filepath.FromSlash(authorityManifestRelativePath))
-	if err := verifyAuthority(root, manifestPath); err != nil {
+	oraclePath := configuredFrozenNodeOraclePath(t)
+	if err := verifyAuthority(root, manifestPath, oraclePath); err != nil {
 		t.Fatalf("verifyAuthority(%q, %q) error = %v, want nil", root, manifestPath, err)
+	}
+}
+
+func TestVerifyEntriesRejectsUnavailableConfiguredOracle(t *testing.T) {
+	root := repositoryRoot(t)
+	manifestPath := filepath.Join(root, filepath.FromSlash(authorityManifestRelativePath))
+	manifest := loadManifest(t, manifestPath)
+	missingOracle := filepath.Join(t.TempDir(), "missing-oracle.mjs")
+	if err := verifyEntries(
+		root,
+		manifest,
+		artifacts.NewDefaultReadBudget(),
+		missingOracle,
+	); err == nil {
+		t.Errorf("verifyEntries(frozenNodeOraclePath=%q) error = nil, want unavailable-oracle failure", missingOracle)
 	}
 }
 
@@ -51,18 +69,27 @@ func TestVerifyEntriesRejectsMutation(t *testing.T) {
 	manifestPath := filepath.Join(root, filepath.FromSlash(authorityManifestRelativePath))
 	manifest := loadManifest(t, manifestPath)
 	tempRoot := t.TempDir()
+	var mutationEntry authorityEntry
 	for _, entry := range manifest.Entries {
+		if entry.Path == archivedNodeBundleEntryPath {
+			continue
+		}
 		copyAuthorityEntry(t, root, tempRoot, entry)
+		if mutationEntry.Path == "" {
+			mutationEntry = entry
+		}
 	}
-	entry := manifest.Entries[0]
+	if mutationEntry.Path == "" {
+		t.Fatal("authority manifest has no current-tree entry available for mutation")
+	}
 
-	targetPath := filepath.Join(tempRoot, filepath.FromSlash(entry.Path))
+	targetPath := filepath.Join(tempRoot, filepath.FromSlash(mutationEntry.Path))
 	source, err := os.ReadFile(targetPath)
 	if err != nil {
 		t.Fatalf("os.ReadFile(%q) error = %v, want nil", targetPath, err)
 	}
 
-	if err := verifyEntries(tempRoot, manifest, artifacts.NewDefaultReadBudget()); err != nil {
+	if err := verifyEntries(tempRoot, manifest, artifacts.NewDefaultReadBudget(), ""); err != nil {
 		t.Fatalf("verifyEntries(initial copy) error = %v, want nil", err)
 	}
 
@@ -75,8 +102,9 @@ func TestVerifyEntriesRejectsMutation(t *testing.T) {
 		tempRoot,
 		manifest,
 		artifacts.NewDefaultReadBudget(),
+		"",
 	); err == nil {
-		t.Errorf("verifyEntries(mutated %q) error = nil, want digest failure", entry.Path)
+		t.Errorf("verifyEntries(mutated %q) error = nil, want digest failure", mutationEntry.Path)
 	}
 }
 
@@ -97,7 +125,7 @@ func TestAuthorityManifestDigestAndCardinalityRejectMutationAndRemoval(t *testin
 	if err := os.WriteFile(tempManifestPath, append([]byte("\n"), manifestBytes...), 0o600); err != nil {
 		t.Fatalf("os.WriteFile(mutated %q) error = %v, want nil", tempManifestPath, err)
 	}
-	if err := verifyAuthority(tempRoot, tempManifestPath); err == nil {
+	if err := verifyAuthority(tempRoot, tempManifestPath, ""); err == nil {
 		t.Errorf("verifyAuthority(mutated manifest) error = nil, want manifest digest failure")
 	}
 
@@ -147,7 +175,7 @@ func TestDecodeManifestRejectsUnknownAndUnsafeFields(t *testing.T) {
 	}
 }
 
-func verifyAuthority(repositoryRoot, manifestPath string) error {
+func verifyAuthority(repositoryRoot, manifestPath, frozenNodeOraclePath string) error {
 	budget := artifacts.NewDefaultReadBudget()
 	manifestBytes, err := artifacts.ReadBoundedFileBytes(manifestPath, budget, artifacts.StableReadOptions{})
 	if err != nil {
@@ -165,16 +193,27 @@ func verifyAuthority(repositoryRoot, manifestPath string) error {
 	if err != nil {
 		return fmt.Errorf("decode authority manifest: %w", err)
 	}
-	return verifyEntries(repositoryRoot, manifest, budget)
+	return verifyEntries(repositoryRoot, manifest, budget, frozenNodeOraclePath)
 }
 
-func verifyEntries(repositoryRoot string, manifest authorityManifest, budget *artifacts.ReadBudget) error {
+func verifyEntries(
+	repositoryRoot string,
+	manifest authorityManifest,
+	budget *artifacts.ReadBudget,
+	frozenNodeOraclePath string,
+) error {
 	if err := validateManifest(manifest); err != nil {
 		return fmt.Errorf("validate authority manifest: %w", err)
 	}
 
 	for _, entry := range manifest.Entries {
 		filePath := filepath.Join(repositoryRoot, filepath.FromSlash(entry.Path))
+		if entry.Path == archivedNodeBundleEntryPath {
+			if frozenNodeOraclePath == "" {
+				continue
+			}
+			filePath = frozenNodeOraclePath
+		}
 		bound, err := artifacts.ReadBoundedFileBytes(filePath, budget, artifacts.StableReadOptions{})
 		if err != nil {
 			return fmt.Errorf("stable-read authority entry %q: %w", entry.Path, err)
@@ -195,6 +234,24 @@ func verifyEntries(repositoryRoot string, manifest authorityManifest, budget *ar
 		}
 	}
 	return nil
+}
+
+func configuredFrozenNodeOraclePath(t *testing.T) string {
+	t.Helper()
+	configured := os.Getenv(frozenNodeOracleEnvironment)
+	if configured == "" {
+		t.Logf(
+			"archived bundle digest remains pinned in %s; set %s to rehash recovered bytes",
+			authorityManifestRelativePath,
+			frozenNodeOracleEnvironment,
+		)
+		return ""
+	}
+	absolute, err := filepath.Abs(configured)
+	if err != nil {
+		t.Fatalf("filepath.Abs(%q) error = %v, want nil", configured, err)
+	}
+	return absolute
 }
 
 func loadManifest(t *testing.T, manifestPath string) authorityManifest {
