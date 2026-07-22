@@ -1,8 +1,10 @@
 # Demo Dataset — Provenance
 
-These JSON files are input fixtures for the Node end-to-end transform tests,
-which exercise the full transform pipeline against realistic API response
-shapes.
+These reviewed pull fixtures feed the Go transform authority corpus in
+`go/cmd/iw/v2_transform_authority_test.go`, the credential-free vertical-slice
+test, and the committed `make demo` / `make check-demo` pipeline. Together
+those consumers exercise realistic API response shapes through the current Go
+runtime.
 
 ## Source
 

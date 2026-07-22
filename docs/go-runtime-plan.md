@@ -1,6 +1,6 @@
 # Go runtime port plan
 
-> **Superseded (2026-07-17) by
+> **Historical port record.** Superseded (2026-07-17) by
 > [go-runtime-v2.md](go-runtime-v2.md)** for the wire/IO contract,
 > runtime-versus-maintainer command scope, CI/cutover strategy, and Node archive
 > timing. The byte-compatibility contract below
@@ -9,12 +9,15 @@
 > classifications) and the differential-oracle method. It was over-applied to
 > the HTTP / filesystem / wire layer, producing a 7k-line transport emulation
 > package; v2 re-scopes those layers to product-compatibility over Go-native
-> infrastructure. Read v2 first.
+> infrastructure. Read v2 first. The Node runtime was subsequently archived
+> on 2026-07-22; current routing and recovery are recorded in
+> [archive/node-runtime-archive.md](archive/node-runtime-archive.md).
 
-Status: draft specification. Blocked on completion of the
-[Python archive plan](python-archive-plan.md) (in flight as of PR #239) and on
-live-provider qualification of the Node operational path. Suggested location:
-`docs/go-runtime-plan.md`.
+Status: historical specification. The preconditions and sequencing below
+describe the original port, not the current repository state; current authority
+and outstanding live-qualification boundaries are tracked in
+[go-runtime-v2.md](go-runtime-v2.md) and
+[go-cutover-roadmap.md](go-cutover-roadmap.md).
 
 ## Goal
 
@@ -34,11 +37,10 @@ End state:
   tripwires (the same proof pattern as the Python archive).
 - Terraform/OpenTofu remains the only external runtime dependency.
 
-The drop-in seam already exists: `Makefile` routes every operational target
-through `INFRAWRIGHT_CLI ?= $(NODE) dist/infrawright-cli.mjs`. Cutover is that
-one variable changing to the Go binary. The Make command surface does not
-change in this plan; absorbing the Make chain into `iw` is a separate,
-post-cutover decision.
+At the time of this plan, the drop-in seam routed every operational target
+through a Node bundle. That historical seam has now been removed: the current
+Make surface uses `IW ?= dist/iw`, and the archived implementation is available
+only through the frozen tag named in the archive record.
 
 ## Preconditions (hard gates before the first Go slice)
 

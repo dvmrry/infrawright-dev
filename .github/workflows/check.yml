@@ -20,14 +20,11 @@ jobs:
         with:
           terraform_version: "1.15.4"
           terraform_wrapper: false
-      - name: Complete Go authority gate
+      - name: Verify Go formatting and vet
         run: |
           test -z "$(gofmt -l go/cmd go/internal)"
           cd go
           go vet ./...
-          go test -count=1 ./...
-      - name: Verify distribution and root catalog
-        run: make check-distribution check-root-catalog
       - name: Prove archived runtime is not executable
         run: |
           make archive-tripwire dist/iw
@@ -36,7 +33,19 @@ jobs:
           printf '#!/bin/sh\nexit 99\n' > "$intercept/node"
           printf '#!/bin/sh\nexit 99\n' > "$intercept/npm"
           chmod +x "$intercept/node" "$intercept/npm"
-          PATH="$intercept:$PATH" make check-distribution check-root-catalog
+          PATH="$intercept:$PATH" make check check-root-catalog
+      - name: Prove archive tripwire is portable and covers workflow docs
+        run: |
+          export_root="$RUNNER_TEMP/infrawright-export"
+          mkdir -p "$export_root"
+          git archive HEAD | tar -x -C "$export_root"
+          make -C "$export_root" archive-tripwire
+          printf '\nnode deleted-runtime.mjs\n' >> \
+            "$export_root/tools/source-evidence-ast/README.md"
+          if make -C "$export_root" archive-tripwire; then
+            echo "archive-tripwire did not reject a documented Node command" >&2
+            exit 1
+          fi
       - name: Whitespace hygiene
         run: git diff --check
 

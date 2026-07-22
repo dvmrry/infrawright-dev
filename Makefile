@@ -36,12 +36,15 @@ dist/iw: $(GO_BUILD_INPUTS)
 	cd go && $(GO) build -o ../dist/iw ./cmd/iw
 
 archive-tripwire: ## Prove active build, CI, and release surfaces contain no executable Node lane
-	@! sed '/^archive-tripwire:/,/^[^[:space:]]/d' Makefile demo/Makefile | grep -nE 'INFRAWRIGHT_CLI|IW_MAINTAINER|IW_OPERATOR|dist/infrawright-cli\.mjs|\$\((NODE|NPM)\)' || { \
+	@! sed '/^archive-tripwire:/,/^[^[:space:]]/d' Makefile demo/Makefile | grep -nE 'INFRAWRIGHT_CLI|IW_MAINTAINER|IW_OPERATOR|dist/infrawright-cli\.mjs|\$\((NODE|NPM)\)|(^|[[:space:]`;&|()])(node|npm|npx)[[:space:]]+' || { \
 		echo "archive-tripwire: legacy Make routing remains" >&2; exit 1; \
 	}
-	@! git grep -nE 'actions/setup-node|(^|[[:space:]])npm[[:space:]]+(ci|run)|(^|[[:space:]])node[[:space:]]+|dist/infrawright-cli\.mjs|node-src' -- .github/workflows || { \
-		echo "archive-tripwire: executable Node reference remains" >&2; exit 1; \
-	}
+	@files="$$(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) -print; \
+		find tools packs -type f -name README.md -print; \
+		find docs/recipes -type f -name '*.md' -print)"; \
+	if test -n "$$files" && grep -nE 'actions/setup-node|dist/infrawright-cli\.mjs|(^|[[:space:]`;&|()])(node|npm|npx)[[:space:]]+' $$files; then \
+		echo "archive-tripwire: executable Node reference remains in an active workflow or workflow document" >&2; exit 1; \
+	fi
 	@test ! -e package.json -a ! -e package-lock.json -a ! -e node-src
 
 check-demo: ## Fail if the shipped demo overlay drifts from pipeline output

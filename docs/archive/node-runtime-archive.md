@@ -31,6 +31,11 @@ Retained evidence:
 - opt-in differential harnesses, disabled unless
   `INFRAWRIGHT_FROZEN_NODE_ORACLE` names a separately recovered bundle.
 
+Go comments that cite `node-src/*.ts` are retained provenance pointers, not
+current-tree source dependencies. Resolve those paths against the immutable
+`node-oracle-v1-final` tag above; they are intentionally absent from the
+working tree after archive.
+
 The pack layout was simplified in the same parcel: each former
 `packsets/<name>.json` file moved literally to `packs/<name>.packset.json`.
 There is no compatibility copy, indirection, generated manifest, or second

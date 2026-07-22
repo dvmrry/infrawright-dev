@@ -1,9 +1,9 @@
 # Go post-archive compatibility cleanup map
 
-Status: PARKED EXPLORATION — this is an inventory, not authorization to change
-runtime behavior. Revisit after the Node operator runtime reaches the archive
-phase in [go-cutover-roadmap.md](go-cutover-roadmap.md), except where an item is
-explicitly folded into
+Status: ACTIVE POST-ARCHIVE INVENTORY — this is still not authorization to
+change runtime behavior. The Node operator runtime reached archive on
+2026-07-22; each remaining item requires its own proof and review gate, except
+where it is explicitly folded into
 [singleton-state-topology-v2.md](singleton-state-topology-v2.md).
 
 The byte-exact Go port intentionally carried Python, JavaScript, TypeScript,
@@ -32,15 +32,14 @@ safe.
 
 The completed Cobra command tree now owns native Go help, command inventory,
 and completion, and no production "not yet ported" dispatch guard remains.
-`go/cmd/iw/main.go` still discovers the repository by walking to
-`package.json` and uses a top-level `recover` to reproduce JavaScript's
-catch-all entry point. `go/cmd/iw/commands_topology.go` retains legacy
-usage-exit translation and accepts unused `--terraform` flags for Node CLI
-compatibility.
+Archive replaced `package.json` discovery with the release package-root marker
+`packs/full.packset.json`. `go/cmd/iw/main.go` still uses a top-level `recover`
+to reproduce JavaScript's catch-all entry point, while
+`go/cmd/iw/commands_topology.go` retains legacy usage-exit translation and
+accepts unused `--terraform` flags for Node CLI compatibility.
 
-After the rollback window:
+Remaining follow-ups require independent proof gates:
 
-- replace `package.json` discovery with the release package-root contract;
 - remove accepted-but-unused compatibility flags;
 - decide whether the top-level catch-all remains part of the supported Go CLI
   failure boundary or can become ordinary error propagation;
@@ -68,10 +67,10 @@ unreachable branches.
 
 ### Executable oracle scaffolding
 
-At archive, remove the default test/build dependency on an executable Node
-operator bundle. Preserve frozen fixtures, digests, provenance, and the minimum
-oracle artifact required by any retained differential lane. Do not erase the
-historical evidence merely to remove Node from `PATH`.
+Archive removed the default test/build dependency on an executable Node
+operator bundle. Frozen fixtures, digests, provenance, and explicitly opt-in
+differential harnesses remain; running one requires a separately recovered
+oracle bundle selected with `INFRAWRIGHT_FROZEN_NODE_ORACLE`.
 
 ## 3. Contract-simplification candidates
 
@@ -190,12 +189,13 @@ same or stronger invariants.
 
 ## 6. Suggested order when this work is reopened
 
-1. Finish singleton-state topology v2.
-2. Complete the Go cutover and Node operator rollback window.
-3. Remove CLI/oracle scaffolding and the dead frozen-compatibility switch.
-4. Replace assessment structural validation.
-5. Normalize errors, Terraform runtime limits, fingerprint parsing, and path
+1. Singleton-state topology v2 and Go cutover are complete; preserve their
+   current qualification boundaries.
+2. Remove remaining CLI compatibility scaffolding and the dead
+   frozen-compatibility switch only after their focused proof gates.
+3. Replace assessment structural validation.
+4. Normalize errors, Terraform runtime limits, fingerprint parsing, and path
    contracts incrementally.
-6. Select artifact/state migration candidates only from measured maintenance or
+5. Select artifact/state migration candidates only from measured maintenance or
    operational benefit; do not create an artifact v2 solely to make the Go
    implementation look more idiomatic.

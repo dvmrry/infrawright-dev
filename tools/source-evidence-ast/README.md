@@ -4,17 +4,17 @@ Go AST fact collector for Terraform provider source trees.
 
 This tool emits JSON facts consumed by the provider-readiness source evidence
 workflow. `make source-evidence-eval` runs it automatically when
-`SOURCE_FACTS=<facts.json>` is not supplied; the Node authoring CLI can also
-consume a facts file directly.
+`SOURCE_FACTS=<facts.json>` is not supplied; the Go CLI can also consume a
+facts file directly.
 
 ```bash
 go run . --source-root /path/to/terraform-provider-example --out facts.json
 ```
 
-The generic Node CLI can consume the facts directly without Python:
+The Go CLI can consume the facts directly:
 
 ```bash
-node dist/infrawright-cli.mjs source-operation-map \
+dist/iw source-operation-map \
   --schema provider-schema.json \
   --openapi openapi.json \
   --source-root /path/to/terraform-provider-example \
