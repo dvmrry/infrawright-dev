@@ -92,6 +92,12 @@ make demo-contract  # credential-free demo artifact/module contract check
 `make check` builds `dist/iw`, validates the active pack distribution, and runs
 the complete Go suite and generated-artifact checks.
 
+> **Upgrade notice:** The retired catalog compatibility layer, including
+> `--catalog`, `PACK_CATALOG`, `ROOT_CATALOG`, `iw root-catalog`, and committed
+> `catalogs/` artifacts, has been removed as a breaking change. See the
+> [changelog migration steps](CHANGELOG.md#retired-catalog-compatibility-surface-removed)
+> before upgrading downstream automation.
+
 ### Runtime requirements
 
 The Go 1.26.5 toolchain is required to build Infrawright.
