@@ -83,6 +83,14 @@ func TestDefaultBoundedReadLimits(t *testing.T) {
 	}
 }
 
+func TestNodeMaximumStringLengthCompatibilityConstant(t *testing.T) {
+	// Node v24.15.0 buffer.constants.MAX_STRING_LENGTH is historical protocol
+	// provenance, not a reason to restore a Node runtime to the test suite.
+	if got, want := nodeMaximumStringLength, int64(536_870_888); got != want {
+		t.Errorf("nodeMaximumStringLength = %d, want frozen Node v24.15.0 value %d", got, want)
+	}
+}
+
 func TestNewReadBudgetRejectsInvalidLimits(t *testing.T) {
 	tests := []struct {
 		name   string

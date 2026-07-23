@@ -372,19 +372,6 @@ func recordedFetchEnvironment(fixture *recordedFetchFixture) []string {
 	)
 }
 
-func requireRunResult(t *testing.T, actual runResult, exit int, stdout, stderr string) {
-	t.Helper()
-	if actual.exit != exit {
-		t.Errorf("exit=%d, want %d\nstderr: %s", actual.exit, exit, actual.stderr)
-	}
-	if !bytes.Equal(actual.stdout, []byte(stdout)) {
-		t.Errorf("stdout=%q, want %q", actual.stdout, stdout)
-	}
-	if !bytes.Equal(actual.stderr, []byte(stderr)) {
-		t.Errorf("stderr=%q, want %q", actual.stderr, stderr)
-	}
-}
-
 func requireRecordedFetchTranscript(
 	t *testing.T,
 	label string,

@@ -157,6 +157,50 @@ func TestV2TopologyAuthority(t *testing.T) {
 	}
 }
 
+func TestV2MetadataCommandAuthority(t *testing.T) {
+	root := repoRoot(t)
+	binary := buildGoV2AuthorityCLI(t, root, "iw-go-v2-metadata")
+	fixture := prepareBlockC4Fixture(t, filepath.Join(t.TempDir(), "workspace"))
+
+	resourceCases := []struct {
+		name string
+		args []string
+	}{
+		{name: "default", args: []string{"resources"}},
+		{name: "reference order", args: []string{"resources", "--order", "references"}},
+		{name: "provider selector", args: []string{"resources", "--resource", "sample"}},
+	}
+	for _, testCase := range resourceCases {
+		t.Run("resources/"+testCase.name, func(t *testing.T) {
+			arguments := append(append([]string(nil), testCase.args...),
+				"--root", fixture.packs,
+				"--profile", fixture.profile,
+			)
+			requireRunResult(t, runV2TopologyCommand(t, binary, fixture, arguments), 0, "sample_resource\n", "")
+		})
+	}
+
+	deploymentCases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "overlay", args: []string{"overlay"}, want: fixture.workspace},
+		{name: "tfvars format", args: []string{"tfvars-format"}, want: "json"},
+		{name: "module dir", args: []string{"module-dir"}, want: filepath.Join(fixture.workspace, "modules")},
+		{name: "tenant root", args: []string{"tenant-root", "tenant"}, want: fixture.workspace},
+		{name: "config dir", args: []string{"config-dir", "tenant"}, want: filepath.Join(fixture.workspace, "config", "tenant")},
+		{name: "imports dir", args: []string{"imports-dir", "tenant"}, want: filepath.Join(fixture.workspace, "imports", "tenant")},
+		{name: "envs dir", args: []string{"envs-dir", "tenant"}, want: filepath.Join(fixture.workspace, "envs", "tenant")},
+	}
+	for _, testCase := range deploymentCases {
+		t.Run("deployment/"+testCase.name, func(t *testing.T) {
+			arguments := append([]string{"deployment", "--deployment", fixture.deployment}, testCase.args...)
+			requireRunResult(t, runV2TopologyCommand(t, binary, fixture, arguments), 0, filepath.ToSlash(testCase.want)+"\n", "")
+		})
+	}
+}
+
 func TestV2GenerationAuthority(t *testing.T) {
 	root := repoRoot(t)
 	binary := buildGoV2AuthorityCLI(t, root, "iw-go-v2-generation")
