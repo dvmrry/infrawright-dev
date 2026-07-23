@@ -73,12 +73,10 @@ func ValidateTenant(tenant string) (err error) {
 	return nil
 }
 
-// catalogIndex is the Go analogue of the CatalogIndex interface in
-// the original implementation: the private, pre-computed lookup shape
-// resolveRoots/expandResources/rootTopologyFromIndex share, built once per
-// call by indexResourceSet (from a persisted metadata.ResourceSet) or
-// indexLoadedPackRoot (directly from a metadata.LoadedPackRoot).
-type catalogIndex struct {
+// resourceIndex is the private, pre-computed lookup shape shared by the root
+// resolver. It is built from the caller's in-memory ResourceSet or directly
+// from the authoritative LoadedPackRoot; it is not a persisted catalog.
+type resourceIndex struct {
 	resources map[string]metadata.ResourceDescriptor
 	generated map[string]struct{}
 	providers map[string]struct{}
@@ -92,8 +90,9 @@ func stringSet(values []string) map[string]struct{} {
 	return set
 }
 
-// indexResourceSet ports indexResourceSet from the original implementation.
-func indexResourceSet(resourceSet metadata.ResourceSet) catalogIndex {
+// indexResourceSet builds the root resolver's lookup shape from an in-memory
+// resource set supplied by the caller.
+func indexResourceSet(resourceSet metadata.ResourceSet) resourceIndex {
 	resources := make(map[string]metadata.ResourceDescriptor, len(resourceSet.Resources))
 	for _, resource := range resourceSet.Resources {
 		resources[resource.Type] = resource
@@ -105,7 +104,7 @@ func indexResourceSet(resourceSet metadata.ResourceSet) catalogIndex {
 		}
 		generated = append(generated, resource.Type)
 	}
-	return catalogIndex{
+	return resourceIndex{
 		resources: resources,
 		generated: stringSet(generated),
 		providers: stringSet(resourceSet.DeclaredProviders),
@@ -185,10 +184,9 @@ func loadedResourceShape(root metadata.LoadedPackRoot, resourceType string) meta
 	}
 }
 
-// indexLoadedPackRoot ports indexLoadedPackRoot from
-// the original implementation: "Build the existing root resolver's private
-// index directly from pack metadata."
-func indexLoadedPackRoot(root metadata.LoadedPackRoot) catalogIndex {
+// indexLoadedPackRoot builds the root resolver's lookup shape directly from
+// authoritative pack metadata.
+func indexLoadedPackRoot(root metadata.LoadedPackRoot) resourceIndex {
 	resourceTypes := make([]string, 0, len(root.Resources))
 	for resourceType := range root.Resources {
 		resourceTypes = append(resourceTypes, resourceType)
@@ -214,7 +212,7 @@ func indexLoadedPackRoot(root metadata.LoadedPackRoot) catalogIndex {
 		providers = append(providers, provider)
 	}
 
-	return catalogIndex{
+	return resourceIndex{
 		resources: resources,
 		generated: stringSet(generated),
 		providers: stringSet(providers),
@@ -230,8 +228,8 @@ type resolution struct {
 
 // resolveRoots creates one root for every generated type. Deployment root
 // options no longer influence topology after grouping retirement, but named
-// providers must still belong to the loaded catalog.
-func resolveRoots(dep deployment.Deployment, index catalogIndex) resolution {
+// providers must still belong to the loaded resource set.
+func resolveRoots(dep deployment.Deployment, index resourceIndex) resolution {
 	providerNames := make([]string, 0, len(dep.Roots))
 	for provider := range dep.Roots {
 		providerNames = append(providerNames, provider)
@@ -257,8 +255,8 @@ func resolveRoots(dep deployment.Deployment, index catalogIndex) resolution {
 	return res
 }
 
-// expandResources ports expandResources from the original implementation.
-func expandResources(selectors []string, index catalogIndex) []string {
+// expandResources resolves type and product selectors to generated resources.
+func expandResources(selectors []string, index resourceIndex) []string {
 	if len(selectors) == 0 {
 		generatedTypes := make([]string, 0, len(index.generated))
 		for resourceType := range index.generated {
@@ -403,18 +401,15 @@ func tenantPath(dep deployment.Deployment, tenant string, kind string) string {
 	return posixpath.Join(overlay, relative)
 }
 
-// rootTopologyFromIndexOptions bundles rootTopologyFromIndex's parameters,
-// the Go analogue of the inline options-object parameter type
-// the original implementation's rootTopologyFromIndex accepts.
+// rootTopologyFromIndexOptions bundles the private topology resolver inputs.
 type rootTopologyFromIndexOptions struct {
-	index     catalogIndex
+	index     resourceIndex
 	dep       deployment.Deployment
 	tenant    *string
 	selectors []string
 }
 
-// rootTopologyFromIndex ports rootTopologyFromIndex from
-// the original implementation.
+// rootTopologyFromIndex resolves the selected resources into singleton roots.
 func rootTopologyFromIndex(options rootTopologyFromIndexOptions) RootTopologyResult {
 	if options.tenant != nil {
 		validateTenant(*options.tenant)

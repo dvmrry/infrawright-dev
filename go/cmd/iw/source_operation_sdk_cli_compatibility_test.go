@@ -50,8 +50,12 @@ func TestSourceOperationSDKRootCLICompatibility(t *testing.T) {
 	schemaPath := filepath.Join(root, "schema.json")
 	providerRoot := filepath.Join(root, "provider")
 	sdkRoot := filepath.Join(root, "sdk")
-	registryPath := filepath.Join(root, "registry.json")
-	diagnosticsPath := filepath.Join(root, "diagnostics.json")
+	outputRoot := filepath.Join(root, "output")
+	registryPath := filepath.Join(outputRoot, "registry.json")
+	diagnosticsPath := filepath.Join(outputRoot, "diagnostics.json")
+	if err := os.MkdirAll(outputRoot, 0o700); err != nil {
+		t.Fatalf("os.MkdirAll(%q) error: %v", outputRoot, err)
+	}
 	writeSourceOperationSDKCLIFile(t, openAPIPath, `{"info":{"title":"SDK authority","version":"1"},"openapi":"3.0.3","paths":{"/v2/domains/{domain_name}":{"get":{"responses":{"200":{"description":"ok"}}}}}}`+"\n")
 	writeSourceOperationSDKCLIFile(t, schemaPath, `{"provider_schemas":{"registry.terraform.io/digitalocean/digitalocean":{"resource_schemas":{"digitalocean_domain":{"block":{"attributes":{"name":{"required":true,"type":"string"}}}}}}}}`+"\n")
 	writeSourceOperationSDKCLIFile(t, filepath.Join(providerRoot, "domain", "resource_digitalocean_domain.go"), "package domain\nfunc read() { client.Domains.Get(ctx, name) }\n")
@@ -62,13 +66,22 @@ func (s *DomainsServiceOp) Get(ctx context.Context, domain string) error { path 
 func (s *DomainsServiceOp) List(ctx context.Context) error { path := domainsBasePath; _, err := s.client.NewRequest(ctx, http.MethodGet, path, nil); return err }
 `)
 
-	status, err := sourceOperationMapCommand([]string{
+	repository := repoRoot(t)
+	binary := buildGoV2AuthorityCLI(t, repository, "iw-go-source-operation-sdk")
+	result := runBinaryWithEnv(t, repository, binary, []string{
+		"source-operation-map",
 		"--schema", schemaPath, "--openapi", openAPIPath, "--source-root", providerRoot,
 		"--provider-source", sourceOperationSDKCLIProvider, "--resource-prefix", "digitalocean",
 		"--sdk-root", sdkRoot, "--out", registryPath, "--diagnostics", diagnosticsPath,
-	})
-	if err != nil || status != fixture.Case.ExitCode {
-		t.Fatalf("sourceOperationMapCommand() = (%d, %v), want (%d, nil)", status, err, fixture.Case.ExitCode)
+	}, nil)
+	if result.exit != fixture.Case.ExitCode {
+		t.Errorf("iw source-operation-map exit = %d, want %d", result.exit, fixture.Case.ExitCode)
+	}
+	if got := string(result.stdout); got != fixture.Case.Stdout {
+		t.Errorf("iw source-operation-map stdout = %q, want %q", got, fixture.Case.Stdout)
+	}
+	if got := string(result.stderr); got != fixture.Case.Stderr {
+		t.Errorf("iw source-operation-map stderr = %q, want %q", got, fixture.Case.Stderr)
 	}
 	registryBytes, err := os.ReadFile(registryPath)
 	if err != nil {
@@ -83,6 +96,29 @@ func (s *DomainsServiceOp) List(ctx context.Context) error { path := domainsBase
 	}
 	if got := string(diagnosticsBytes); got != fixture.Case.DiagnosticsBytes {
 		t.Errorf("diagnostics bytes = %q, want fixed %q", got, fixture.Case.DiagnosticsBytes)
+	}
+	outputTree := treeBytes(t, outputRoot)
+	wantTree := map[string]string{
+		"diagnostics.json": fixture.Case.DiagnosticsBytes,
+		"registry.json":    fixture.Case.RegistryBytes,
+	}
+	if len(outputTree) != len(wantTree) {
+		t.Errorf("iw source-operation-map output tree files = %d, want %d", len(outputTree), len(wantTree))
+	}
+	for path, want := range wantTree {
+		got, ok := outputTree[path]
+		if !ok {
+			t.Errorf("iw source-operation-map output tree omitted %q", path)
+			continue
+		}
+		if string(got) != want {
+			t.Errorf("iw source-operation-map output %q = %q, want %q", path, got, want)
+		}
+	}
+	for path := range outputTree {
+		if _, ok := wantTree[path]; !ok {
+			t.Errorf("iw source-operation-map output tree has unexpected path %q", path)
+		}
 	}
 
 	var gotRegistry, gotDiagnostics any

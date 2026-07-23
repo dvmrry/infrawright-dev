@@ -231,6 +231,10 @@ that adoption policy.
 
 ## Reported Live Scalar Qualification
 
+> Historical evidence only: this result is scoped to commit `732a3be` and does
+> not qualify the current head. Any later head requires delta review and a
+> targeted rerun in a fresh workspace.
+
 A downstream disposable-workspace rerun at PR #225 commit `732a3be` completed
 the scalar pair `zpa_segment_group -> zpa_application_segment` through the
 sanctioned engine path across two local state files:
