@@ -181,6 +181,7 @@ type unverifiedSnapshot struct {
 	observation       contracts.UnverifiedSourceObservation
 	provider          sourcebind.CapturedTree
 	sdks              map[string]sourcebind.CapturedTree
+	terraformSchema   sourcebind.CapturedFile
 	inputProvenance   contracts.InputProvenance
 	inputProvenanceID string
 }
@@ -234,6 +235,7 @@ func snapshotCapturedUnverified(captured sourcebind.UnverifiedInputs) (unverifie
 		observation:       captured.Observation,
 		provider:          captured.Provider,
 		sdks:              captured.SDKs,
+		terraformSchema:   captured.TerraformSchema,
 		inputProvenance:   decoded,
 		inputProvenanceID: captured.InputProvenanceSHA256,
 	}, nil
@@ -468,7 +470,7 @@ func newUnverifiedIndex(ctx context.Context, captured unverifiedSnapshot) (*anal
 	for index, sdk := range captured.observation.SDKs {
 		manifest.SDKs[index] = contracts.SDKSourceBinding{ModulePath: sdk.ModulePath, ModuleVersion: sdk.ModuleVersion}
 	}
-	snapshot := sourcebind.VerifiedSnapshot{Manifest: manifest, Provider: captured.provider, SDKs: captured.sdks}
+	snapshot := sourcebind.VerifiedSnapshot{Manifest: manifest, Provider: captured.provider, SDKs: captured.sdks, TerraformSchema: captured.terraformSchema}
 	return newIndexFromSnapshot(ctx, snapshot, captured.observation.Selection, contracts.SourceTrustUnverified, nil, captured.inputProvenanceID, defaultCaps())
 }
 
