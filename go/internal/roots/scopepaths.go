@@ -1,28 +1,5 @@
-// scopepaths.go ports the original implementation: mapping a set of
-// changed filesystem paths to the generated resources, and in turn the
-// logical roots, they affect -- the domain layer behind the `scope-paths`
-// command. There is no the original test corpus; the only committed
-// vectors that exercise changedPathScope/changedPathScopeLoaded live in
-// the original test corpus (gated on the retired Python oracle) and
-// the original test corpus (a CLI-subprocess test). scopepaths_test.go
-// instead probes the compiled TypeScript directly against synthetic
-// inputs -- see go/internal/roots/testdata/probe/scope_plan_probe.ts and
-// its committed oracle, go/internal/roots/testdata/scope_plan_scope.golden.json
-// -- and cites the relevant oracle scenario by name in each test's
-// provenance comment.
-//
-// This file, like planroots.go alongside it, is additive to this package:
-// it is a NEW file and does not modify roots.go, which remains this
-// package's port of the original implementation. Both files freely call
-// roots.go's unexported helpers (domainErrorCode, recoverProcessFailure,
-// validateTenant, indexResourceSet, indexLoadedPackRoot, rootTopologyFromIndex,
-// stringSet, etc.) rather than going through its exported wrappers, the
-// same way the original implementation and the original source treedomain/
-// plan-roots.ts import roots.ts's unexported-to-the-package helpers
-// directly (rootTopology, loadedRootTopology, expandCatalogResources) --
-// scope-paths.ts, plan-roots.ts, and roots.ts are siblings in one
-// TypeScript module directory the way this file, planroots.go, and
-// roots.go are siblings in one Go package.
+// Package roots maps changed filesystem paths to generated resources and
+// singleton state roots for the scope-paths command.
 package roots
 
 import (

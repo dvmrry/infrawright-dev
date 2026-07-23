@@ -1,9 +1,6 @@
 package roots
 
-// roots_test.go ports the original test corpus's six test cases verbatim,
-// against the same fixture ResourceSet literal that Node test builds
-// in-line, exercised through RootTopologyFromResourceSet (the Go analogue of
-// the Node test's rootTopology import).
+// roots_test.go exercises singleton topology over a compact ResourceSet.
 
 import (
 	"reflect"

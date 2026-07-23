@@ -2,16 +2,12 @@
 // (UCD) version 15.1, byte-for-byte, regardless of which Unicode version the
 // executing Go toolchain's stdlib actually carries.
 //
-// It ports two Node sources (both in this repository):
+// The implementation and reviewed delta tables are self-contained Go. Their
+// retired source and generator are recoverable from an immutable tag; see
+// docs/unicode-lower-compatibility.md for exact paths, hashes, source inputs,
+// and the reviewed regeneration process.
 //
-//   - the original implementation, a generated delta table,
-//     mechanically transcribed into tables.go (see that file's header for
-//     provenance and how it was produced).
-//   - the original implementation, the algorithm, ported into this
-//     file: the Final_Sigma contextual rule, Cased/Case_Ignorable range
-//     classification, and binary search over delta ranges.
-//
-// See the Unicode compatibility contract for the full background on why
+// See that compatibility contract for the full background on why
 // this exists: Python's str.lower() implements the Unicode default case
 // conversion algorithm (simple/full lowercase mappings plus the
 // locale-independent Final_Sigma context), and callers elsewhere in this
@@ -71,10 +67,10 @@
 // the *base* unicode category tables underneath this package — panics
 // rather than silently drifting, because module toolchain preferences do
 // not stop a newer local toolchain from building this code. Adding a new
-// version requires the same reviewed-delta process retired source describes:
-// re-run the exhaustive digest test in lower_test.go against a supported
-// live Python oracle, then allowlist the version with its (possibly empty)
-// delta.
+// version requires the reviewed-delta process in
+// docs/unicode-lower-compatibility.md: re-run the exhaustive digest test in
+// lower_test.go against a supported reference runtime, then allowlist the
+// version with its (possibly empty) delta.
 package textcompat
 
 import (
@@ -129,7 +125,7 @@ func deltaForVersion(ucdVersion string) RuntimeDelta {
 		return RuntimeDeltas["17.0"]
 	default:
 		panic("textcompat: unreviewed Go unicode.Version " + ucdVersion +
-			"; re-run the exhaustive Python-oracle digest test and allowlist a reviewed delta before lowercasing with this toolchain")
+			"; re-run the exhaustive compatibility digest and allowlist a reviewed delta before lowercasing with this toolchain")
 	}
 }
 

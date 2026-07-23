@@ -237,7 +237,7 @@ func TestFingerprintV2PayloadAndDigestMatchFixedContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FingerprintPlanV2(%+v, nil) error: %v", input, err)
 	}
-	wantFingerprint := PlanFingerprintV2{Version: PlanFingerprintVersion, SHA256: wantDigest}
+	wantFingerprint := PlanFingerprintV2{Version: 2, SHA256: wantDigest}
 	if fingerprint != wantFingerprint {
 		t.Errorf("FingerprintPlanV2(%+v, nil) = %#v, want %#v", input, fingerprint, wantFingerprint)
 	}
@@ -340,6 +340,14 @@ func TestLeadingFEFFFilenameBytesArePreserved(t *testing.T) {
 	if got, want := payload.Modules[0].Files[0][0], "\ufeffmodule.tf"; got != want {
 		t.Errorf("CapturePlanSourcesPayload(%+v, nil).Modules[0].Files[0].path = %q, want %q", input, got, want)
 	}
+	const wantCanonical = `{"backend":null,"member_types":["zpa_sample"],"modules":[{"files":[["\ufeffmodule.tf","f1645da2b6cb3c2dc78b23872124328e845f3108713df9ce7be9b454b3659a0b"]],"local":true,"present":true,"resource_type":"zpa_sample","source":"../module"}],"root_tf":[["main.tf","ac18427ff55bc5753ac31479b937bd7684ff47b04d3fd594e63451de578d6571"],["\ufeffroot.tf","a2109800fa11d2bd6071adc2c94e18e804b835dc81a41d01d37a7e14c556de0a"]],"var_files":[]}`
+	if got := CanonicalPlanSourcesJSON(payload); got != wantCanonical {
+		t.Errorf("CanonicalPlanSourcesJSON(FEFF payload) = %q, want fixed %q", got, wantCanonical)
+	}
+	const wantPlanDigest = "06732a5bd161f2b08a9860a1befdcd2e25f2f62c9b47242cedf357ef483d5b27"
+	if got := PlanSourcesSHA256(payload); got != wantPlanDigest {
+		t.Errorf("PlanSourcesSHA256(FEFF payload) = %q, want fixed %q", got, wantPlanDigest)
+	}
 	initInput := InitFingerprintInput{
 		EnvDir:      input.EnvDir,
 		MemberTypes: input.MemberTypes,
@@ -350,6 +358,17 @@ func TestLeadingFEFFFilenameBytesArePreserved(t *testing.T) {
 	}
 	if !reflect.DeepEqual(initPayload.Modules, payload.Modules) || !reflect.DeepEqual(initPayload.RootConfig, payload.RootTF) {
 		t.Errorf("CaptureInitSourcesPayload(%+v, nil) modules/root = %#v/%#v, want plan modules/root %#v/%#v", initInput, initPayload.Modules, initPayload.RootConfig, payload.Modules, payload.RootTF)
+	}
+	const wantInitDigest = "5308d02d4f729ec5a9c2a9b0f52972ae2866ab49a077abb5273a8d3dc9a90343"
+	if got := InitSourcesSHA256(initPayload); got != wantInitDigest {
+		t.Errorf("InitSourcesSHA256(FEFF payload) = %q, want fixed %q", got, wantInitDigest)
+	}
+	fingerprint, err := FingerprintPlanV2(input, nil)
+	if err != nil {
+		t.Fatalf("FingerprintPlanV2(FEFF input) error: %v", err)
+	}
+	if want := (PlanFingerprintV2{Version: 2, SHA256: wantPlanDigest}); fingerprint != want {
+		t.Errorf("FingerprintPlanV2(FEFF input) = %#v, want %#v", fingerprint, want)
 	}
 }
 

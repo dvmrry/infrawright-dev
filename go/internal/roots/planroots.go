@@ -1,11 +1,5 @@
-// planroots.go ports the original implementation: enumerating
-// materialized environment roots (real on-disk envs/<tenant>/<label>
-// directories) and classifying each one's tfplan/tfplan.sources artifact
-// state -- the domain layer behind the `plan-roots` command. As with
-// scope-paths.ts (see scopepaths.go's package doc comment), there is no
-// the original test corpus; planroots_test.go probes the compiled
-// TypeScript directly (go/internal/roots/testdata/probe/scope_plan_probe.ts
-// and its committed oracle) rather than porting a dedicated vector file.
+// Package roots enumerates materialized envs/<tenant>/<resource> directories
+// and classifies their tfplan/tfplan.sources artifacts for plan-roots.
 package roots
 
 import (

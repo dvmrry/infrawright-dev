@@ -36,6 +36,9 @@ func testContext(t *testing.T) Context {
 
 func fixtureSource(t *testing.T, name string) string {
 	t.Helper()
+	if name == "zpa_application_segment_microtenant" {
+		return filepath.Join("testdata", name+".json")
+	}
 	return filepath.Join(repository(t), "tests", "fixtures", "parity", name+".json")
 }
 

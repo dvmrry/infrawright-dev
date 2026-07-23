@@ -49,7 +49,7 @@ Run the primary adoption sequence for one provider or resource scope:
 ```sh
 make fetch TENANT=<tenant> RESOURCE=<resource-or-provider>
 make adopt IN=pulls/<tenant> TENANT=<tenant> RESOURCE=<resource-or-provider>
-make gen-modules RESOURCE=<resource-or-provider>  # grouped selection expands to the complete root
+make gen-modules RESOURCE=<resource-or-provider>
 make gen-env TENANT=<tenant> RESOURCE=<resource-or-provider>
 make stage-imports TENANT=<tenant> RESOURCE=<resource-or-provider>
 make plan TENANT=<tenant> RESOURCE=<resource-or-provider> SAVE=1
@@ -66,10 +66,9 @@ The supported generic runtime does not provide a cross-process publisher lock:
 the pipeline owns workspace isolation and serialization for persistent writers.
 
 Selective `gen-modules`, `validate-modules`, `gen-env`, staging, planning, and
-Apply resolve through the same deployment topology. Selecting either member
-of a grouped root therefore generates and validates every module referenced by
-that root. Omitting `RESOURCE` remains the simplest qualification path because
-it generates every active module.
+Apply resolve through the same singleton-state topology. A provider selector
+expands to its individual resource roots. Omitting `RESOURCE` remains the
+simplest qualification path because it generates every active module.
 
 Generated `<resource_type>_moves.tf` files are durable unresolved migration
 evidence. Repeating Transform or Adopt preserves them byte-for-byte. If a new

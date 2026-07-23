@@ -1,6 +1,6 @@
 # Cross-state Reference Qualification
 
-This runbook qualifies the opt-in singleton-state reference mode before a
+This runbook qualifies the singleton-state reference mode before a
 production adoption. It does not authorize a deployment Apply. Keep tenant
 data, state, plans, credentials, backend files, and command logs out of the
 repository.
@@ -35,7 +35,7 @@ run after Adopt and cannot repair that provider limitation.
 
 ## Initial Pre-production Cohort
 
-Cross-state references remain opt-in and fail closed. The initial cohort is a
+Cross-state references are enabled by default and fail closed. The initial cohort is a
 conditional qualification cohort, not general Zscaler production support.
 
 | Pair | Pre-production status |
@@ -65,9 +65,9 @@ undeclared nested relationships.
 
 ## Deployment And Backend
 
-Start from a fresh, disposable checkout and set the relevant provider to
-cross-state mode. Omit `strategy` and automatic groups for the resources being
-qualified:
+Start from a fresh, disposable checkout. Cross-state references are enabled by
+default; these explicit settings document the intended mode but are normally
+unnecessary:
 
 ```json
 {
@@ -77,9 +77,6 @@ qualified:
   }
 }
 ```
-
-Existing grouped state must not be split by this runbook. A topology change
-requires an explicit state-migration decision.
 
 For `azurerm`, create a private JSON `BACKEND_CONFIG` containing non-secret
 address fields only. The engine accepts only the documented strict allowlist
@@ -102,11 +99,11 @@ Record, without secrets or tenant data:
 - selected pair and root labels;
 - backend kind (not backend values).
 
-Before enabling the mode, run the same selected Transform or Adopt cohort with
-both binding options absent. Confirm that it produces neither generated
-expression files nor reference-derived lookup sidecars. This disabled control
-is the legacy-artifact baseline; pre-existing explicit `lookup_sources`, such
-as `zpa_segment_group`, remain present.
+For the disabled control, set `cross_state_references` to `false` explicitly
+for the selected provider before running the same Transform or Adopt cohort.
+Confirm that it produces neither generated expression files nor
+reference-derived lookup sidecars. Pre-existing explicit `lookup_sources`,
+such as `zpa_segment_group`, remain present.
 
 ## Materialize Both Sides
 

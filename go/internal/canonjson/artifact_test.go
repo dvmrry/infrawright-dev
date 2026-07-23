@@ -1,6 +1,8 @@
 package canonjson
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"math"
 	"os"
@@ -188,21 +190,13 @@ func TestRenderLosslessArtifactJSONFloatNotationBoundaries(t *testing.T) {
 // reinterpretation, since both calls use the same byte order, matching
 // Go's math.Float64frombits).
 //
-// The Node test compares its renderer's compact output against a live
-// Python oracle for all 2048 generated doubles. This port instead checks
-// the property that comparison was ultimately protecting -- that
-// FiniteFloatToken's spelling for each generated double round-trips
-// through strconv.ParseFloat back to the exact original bit pattern --
-// since CPython-specific *notation* (fixed-vs-scientific thresholds, sign,
-// exponent padding) already has its own dedicated, hardcoded cross-check
-// sweep in number_test.go's TestFiniteFloatToken (per that test's own doc
-// comment, cross-checked against ~2000 random/boundary doubles during
-// development). This test instead exercises the artifact renderer's full
-// array-encoding pipeline across the identical generator, without a live
-// Python dependency.
+// The compact CPython output length and digest are retained as a neutral,
+// inert compatibility fixture. The test also keeps the bit-for-bit
+// round-trip check and exercises the artifact renderer's array pipeline.
 func TestRenderLosslessArtifactJSONFloatsRoundTripAcrossDeterministicSweep(t *testing.T) {
 	state := uint64(0x9e3779b97f4a7c15)
 	var tokens []any
+	var compactTokens []string
 	for i := 0; i < 2048; i++ {
 		state = state*6364136223846793005 + 1442695040888963407
 		value := math.Float64frombits(state)
@@ -222,9 +216,43 @@ func TestRenderLosslessArtifactJSONFloatsRoundTripAcrossDeterministicSweep(t *te
 				value, token, reparsed, math.Float64bits(reparsed), math.Float64bits(value))
 		}
 		tokens = append(tokens, json.Number(token))
+		compactTokens = append(compactTokens, token)
 	}
-	if len(tokens) == 0 {
-		t.Fatal("deterministic sweep produced no finite doubles; generator or filter is broken")
+	if got, want := len(tokens), 2047; got != want {
+		t.Fatalf("deterministic sweep produced %d finite doubles, want %d", got, want)
+	}
+
+	fixturePath := filepath.Join("testdata", "lossless_binary64_compatibility.json")
+	fixtureBytes, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error: %v", fixturePath, err)
+	}
+	fixtureDigest := sha256.Sum256(fixtureBytes)
+	if got, want := hex.EncodeToString(fixtureDigest[:]), "68061b2be7c3a06620238cf9116660e0254cf038b76e194d644be6826c7a1664"; got != want {
+		t.Fatalf("SHA256(%q) = %q, want %q", fixturePath, got, want)
+	}
+	var compatibility struct {
+		SchemaVersion int `json:"schema_version"`
+		Corpus        struct {
+			GeneratedValues int `json:"generated_values"`
+			FiniteValues    int `json:"finite_values"`
+		} `json:"corpus"`
+		Output struct {
+			Bytes  int    `json:"bytes"`
+			SHA256 string `json:"sha256"`
+		} `json:"output"`
+	}
+	if err := json.Unmarshal(fixtureBytes, &compatibility); err != nil {
+		t.Fatalf("json.Unmarshal(%q) error: %v", fixturePath, err)
+	}
+	if compatibility.SchemaVersion != 1 || compatibility.Corpus.GeneratedValues != 2048 || compatibility.Corpus.FiniteValues != len(tokens) {
+		t.Fatalf("%s schema/generated/finite = %d/%d/%d, want 1/2048/%d", fixturePath, compatibility.SchemaVersion, compatibility.Corpus.GeneratedValues, compatibility.Corpus.FiniteValues, len(tokens))
+	}
+	compactRendered := "[" + strings.Join(compactTokens, ",") + "]"
+	compactDigest := sha256.Sum256([]byte(compactRendered))
+	compactSHA256 := hex.EncodeToString(compactDigest[:])
+	if len(compactRendered) != compatibility.Output.Bytes || compactSHA256 != compatibility.Output.SHA256 {
+		t.Errorf("compact deterministic corpus length/SHA256 = %d/%s, want %d/%s", len(compactRendered), compactSHA256, compatibility.Output.Bytes, compatibility.Output.SHA256)
 	}
 
 	rendered, err := RenderLosslessArtifactJSON(tokens)

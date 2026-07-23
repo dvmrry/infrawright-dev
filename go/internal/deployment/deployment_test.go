@@ -236,6 +236,33 @@ func TestStateTopologyRetiredFieldDocumentationMatchesValidation(t *testing.T) {
 	}
 }
 
+func TestActiveTopologyRunbooksDoNotAdvertiseRetiredConfiguration(t *testing.T) {
+	repositoryRoot := filepath.Join("..", "..", "..")
+	documents := []string{
+		filepath.Join(repositoryRoot, "docs", "adoption-command-surface.md"),
+		filepath.Join(repositoryRoot, "docs", "integration-validation.md"),
+		filepath.Join(repositoryRoot, "docs", "provider-labs", "cross-state-reference-qualification.md"),
+	}
+	forbidden := []string{
+		`"strategy"`, `"groups"`, `"bind_references"`,
+		"## Grouped Env Roots", "opt-in singleton-state reference mode",
+		"Cross-state references remain opt-in", "cross_state_references` | Optional boolean, default `false`",
+		"selects whole root",
+	}
+	for _, documentPath := range documents {
+		documentBytes, err := os.ReadFile(documentPath)
+		if err != nil {
+			t.Fatalf("os.ReadFile(%q) error: %v", documentPath, err)
+		}
+		document := string(documentBytes)
+		for _, stale := range forbidden {
+			if strings.Contains(document, stale) {
+				t.Errorf("%s still advertises retired topology text %q", documentPath, stale)
+			}
+		}
+	}
+}
+
 func TestDeploymentPathHelpersPreserveTheOperationalOverlayContract(t *testing.T) {
 	dir := t.TempDir()
 	deploymentPath := writeDeployment(t, dir, `{

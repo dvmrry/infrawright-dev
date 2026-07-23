@@ -27,5 +27,13 @@ remain part of the documented compatibility boundary.
 
 The source package versions are swagger-parser 12.1.0,
 json-schema-ref-parser 14.0.1, and swagger-methods 3.0.2. Current behavior is
-covered directly in `legacy_openapi_validate_test.go`; there is no replay
-fixture or retired runtime dependency.
+replayed by `legacy_openapi_validate_test.go` from two neutral, digest-pinned
+fixtures:
+
+- `../testdata/legacy_openapi_compatibility_cases.json`: 90 cases, SHA-256
+  `fc9e0f6fbaa804af62738b514260f18e4fcd04d98fdfbe0f24a5af67d6080f0c`.
+- `../testdata/legacy_swagger2_spec_compatibility_cases.json`: 18 cases,
+  SHA-256
+  `bf6daae6d0de5315740d6e97b655ee70e5ef3395296d38ace7999e005355d459`.
+
+The replay suite has no retired runtime dependency.

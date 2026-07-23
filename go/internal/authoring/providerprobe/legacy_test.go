@@ -27,12 +27,14 @@ func TestLegacyLocalProbeArtifacts(t *testing.T) {
 		t.Fatalf("artifact count = %d", len(artifacts))
 	}
 	wantNames := []string{"source-registry.json", "source-diagnostics.json", "openapi-map.json", "summary.json", "summary.md"}
+	wantArtifacts := probeCompatibilityArtifacts(t, "local-provider-probe")
 	for i, artifact := range artifacts {
 		if artifact.Name != wantNames[i] {
 			t.Fatalf("artifact %d = %s, want %s", i, artifact.Name, wantNames[i])
 		}
-		if len(artifact.Bytes) == 0 {
-			t.Errorf("artifact %q bytes are empty, want materialized output", artifact.Name)
+		want := strings.ReplaceAll(wantArtifacts[artifact.Name], "<fixture-root>", root)
+		if got := string(artifact.Bytes); got != want {
+			t.Errorf("legacy artifact %q bytes mismatch: got %q, want %q", artifact.Name, got, want)
 		}
 	}
 	markdownCopy, copyErr := result.MarkdownCopy()
@@ -105,8 +107,16 @@ func TestLegacyFalseyPrimariesUseCurrentDefaults(t *testing.T) {
 	if got, want := string(host.request.MainHCL), "terraform {\n  required_providers {\n    multi_part_provider = {\n      source = \"example/multi-part-provider\"\n      version = \"1.2.3\"\n    }\n  }\n}\n"; got != want {
 		t.Fatalf("HCL differs\nwant %q\ngot  %q", want, got)
 	}
-	if got := len(result.Artifacts()); got != 5 {
+	artifacts := result.Artifacts()
+	if got := len(artifacts); got != 5 {
 		t.Errorf("Result.Artifacts() count = %d, want 5", got)
+	}
+	wantArtifacts := probeCompatibilityArtifacts(t, "empty-recipe-primaries")
+	for _, artifact := range artifacts {
+		want := strings.ReplaceAll(wantArtifacts[artifact.Name], "<fixture-root>", root)
+		if got := string(artifact.Bytes); got != want {
+			t.Errorf("falsey-primary artifact %q bytes mismatch: got %q, want %q", artifact.Name, got, want)
+		}
 	}
 	if host.downloadCalls != 1 || host.cloneCalls != 1 || host.captureCalls != 1 {
 		t.Fatalf("falsey fallback host calls = download:%d clone:%d capture:%d", host.downloadCalls, host.cloneCalls, host.captureCalls)

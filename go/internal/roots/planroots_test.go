@@ -1,15 +1,7 @@
 package roots
 
-// planroots_test.go ports plan-roots behavior pinned by probing the
-// compiled TypeScript directly (there is no the original test corpus
-// to port from -- see planroots.go's package doc comment). The oracle is
-// the same committed
-// go/internal/roots/testdata/scope_plan_scope.golden.json used by
-// scopepaths_test.go; each test below builds the identical on-disk
-// envs/<tenant>/<label> tree the probe script built (via t.TempDir()
-// instead of the oracle's own randomly-named mkdtemp) and asserts the
-// same artifact_state classification, discovery, selector, and tenant
-// behavior the oracle recorded.
+// planroots_test.go exercises artifact-state classification, discovery,
+// selector handling, and tenant validation against temporary env trees.
 
 import (
 	"os"
@@ -22,8 +14,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
-// writePlanRootsFixture builds the same envs/ tree
-// scope_plan_probe.ts's plan-roots scenarios share:
+// writePlanRootsFixture builds a representative envs tree:
 //
 //   - envs/acme/zpa_alpha_one:     tfplan + tfplan.sources -> "complete"
 //   - envs/acme/zpa_derived_reorder: tfplan only            -> "incomplete"
@@ -162,20 +153,8 @@ func TestPlanRootsTenantScopingExcludesOtherTenants(t *testing.T) {
 	}
 }
 
-// TestPlanRootsPartialSelectorMaterializesWholeRootWithDuplicatedDiagnostic
-// ports the "partial-selector-materializes-whole-root-with-diagnostic"
-// oracle scenario. This is the port's sharpest edge case: selecting only
-// "zpa_alpha_one" (one member of the two-member "zpa_alpha" slug group)
-// with tenant left unscoped (nil) still discovers BOTH tenants' zpa_alpha
-// roots (acme's complete one and other's absent one) -- each materialized
-// root's env_dir/artifacts describe the WHOLE root, never a
-// single-member slice of it -- and the oracle shows the SAME
-// WHOLE_ROOT_SELECTION diagnostic appears TWICE, once per discovered
-// tenant sharing that root label, not deduplicated by label. A Go
-// implementation that (reasonably, but incorrectly) deduplicated
-// diagnostics by root label would fail this exact assertion; this is the
-// #1 item to scrutinize on review (see planRootsFromTopologies's doc
-// comment).
+// TestPlanRootsPartialSelectorMaterializesSingletonRoot verifies that an
+// unscoped selector discovers the matching singleton root for every tenant.
 func TestPlanRootsPartialSelectorMaterializesSingletonRoot(t *testing.T) {
 	workspace := writePlanRootsFixture(t)
 	result, err := PlanRootsFromResourceSet(PlanRootsOptions{

@@ -7,12 +7,9 @@ correctly refused to write it into generated tfvars, and Terraform validation
 still required one notifier block to be present.
 
 Decide cases from provider-state sensitivity masks, provider schema,
-validation failures, and explicit pack policy without emitting secrets.
-
-`--required-path` is caller-supplied validation evidence, usually from a failed
-Terraform/OpenTofu validation or plan attempt. You can pass it more than once,
-or use `--required-json` with either a path list or a map of item key to path
-list:
+validation failures, and explicit pack policy without emitting secrets. There
+is no standalone sensitive-required command. Record sanitized lab evidence as
+an item-key-to-path map when a review needs a portable input:
 
 ```json
 {
@@ -20,9 +17,8 @@ list:
 }
 ```
 
-The report is static and diagnostic only. It does not write secrets, generate
-placeholders, run projection, alter drift policy, change generated HCL, or run
-Terraform/OpenTofu.
+The classification is diagnostic only. It does not write secrets, generate
+placeholders, alter drift policy, or authorize generated HCL.
 
 Important statuses:
 

@@ -188,7 +188,6 @@ var cobraFlagDescriptions = map[string]string{
 	"--artifact-dir":            "complete source-evidence artifact directory",
 	"--backend":                 "Terraform backend name",
 	"--backend-config":          "Terraform backend configuration path",
-	"--check":                   "compare generated output with this path",
 	"--concurrency":             "maximum concurrent fetch operations",
 	"--debug-traceback":         "include debug traceback details",
 	"--deployment":              "deployment overlay path",

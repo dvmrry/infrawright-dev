@@ -48,9 +48,9 @@ placeholder omission. It is better classified as
 proves that omitting or preserving a field yields a neutral plan and does not
 lose ownership of a server-owned setting.
 
-The existing [Absent/Default Diagnostics](absent-default-diagnostics.md)
-command classifies these shapes. That diagnostic evidence is not a
-normalization rule.
+The [Absent/Default Diagnostics](absent-default-diagnostics.md) classifications
+describe these shapes. They are not a normalization rule or a standalone
+command.
 
 ## Goals
 

@@ -31,9 +31,9 @@ terraform init -backend=false
 terraform providers schema -json
 ```
 
-YAML OpenAPI specs are converted to JSON with Ruby's standard YAML support.
-The probe coordinator, source mapper, OpenAPI mapper, artifact renderer, and
-CLI are Go code.
+YAML OpenAPI specs are decoded in-process by the Go probe runtime with unsafe
+tags and duplicate keys rejected. The probe coordinator, source mapper,
+OpenAPI mapper, artifact renderer, and CLI are Go code.
 
 ## Running
 

@@ -8,7 +8,7 @@ members. Cloudflare showed this with paths such as `data.flags` and
 Evaluate new cases through provider schema, provider-state projection, and
 saved-plan evidence before changing pack metadata.
 
-You can also classify paths from a JSON fixture:
+A sanitized lab fixture can record paths in this shape:
 
 ```json
 {
