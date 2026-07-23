@@ -229,14 +229,13 @@ diagnostic and does not make either path authoritative.
 
 Full `make transform` and `make adopt` runs process selected resource types in
 pack reference order. Explicit `lookup_sources` remain always-on pack outputs.
-When `bind_references` or `cross_state_references` is enabled, the engine also
-derives the lookup needed by each declared referent from the reference's
-`name_field`, so that sidecar is refreshed before referrers derive generated
-bindings. Those reference-derived sidecars are mode-scoped and are removed on
-a later disabled run; a deployment with neither option retains the legacy
-artifact tree. A selective transform of only a referrer consumes the committed
-referent sidecar by design, so operators should run the referent first whenever
-its identity evidence changed.
+Cross-state references are enabled by default, so the engine also derives the
+lookup needed by each declared referent from the reference's `name_field`.
+Setting `cross_state_references` to `false` for a provider disables those
+generated bindings and removes mode-scoped sidecars on the next run. A
+selective transform of only a referrer consumes the committed referent sidecar
+by design, so operators should run the referent first whenever its identity
+evidence changed.
 
 Generated tenant config is JSON by default. Set `tfvars_format` to `hcl` in the
 active `deployment.json` to write `<resource_type>.auto.tfvars` instead of
@@ -245,68 +244,21 @@ opposite-format artifact so Terraform never auto-loads both. HCL inline comments
 are generated from pack reference metadata and lookup sidecars, not from
 operator-authored files.
 
-## Grouped Env Roots
+## Singleton Env Roots
 
-By default each generated resource type gets its own env root:
-`envs/<tenant>/<resource_type>/`. Deployments may opt in to grouped roots with
-a `roots` block in `deployment.json`:
+Each generated resource type owns exactly one env root:
+`envs/<tenant>/<resource_type>/`. Provider and product selectors expand to a
+set of singleton roots; they never create shared state. `gen-modules`,
+`validate-modules`, `gen-env`, staging, planning, assessment, and Apply all use
+the same topology described in [State topology](state-topology.md).
 
-```json
-{
-  "roots": {
-    "zpa": {
-      "strategy": "slug",
-      "groups": {
-        "zpa_app": [
-          "zpa_segment_group",
-          "zpa_server_group",
-          "zpa_application_segment"
-        ]
-      },
-      "bind_references": false
-    }
-  }
-}
-```
+Deployment `roots.<provider>` entries support only
+`cross_state_references`. The option is a boolean and defaults to `true`; use
+an explicit `false` only when generated cross-state bindings must be disabled.
+The retired `strategy`, `groups`, and `bind_references` fields fail validation.
 
-`roots` keys are provider names declared by pack `provider_prefixes` values. A
-provider entry supports:
-
-| Key | Meaning |
-|---|---|
-| `strategy` | `"explicit"` or `"slug"`; absent means `"explicit"`. |
-| `groups` | Optional map of `<root_label>` to resource type list. Listed members share `envs/<tenant>/<root_label>/`. |
-| `bind_references` | Optional boolean, default `false`; when true, generate group-local expression bindings for pack-declared references whose referent is in the same grouped root. |
-| `cross_state_references` | Optional boolean, default `false`; when true, same-root references use module outputs and cross-root references use minimal remote-state ID outputs. Mutually exclusive with `bind_references`. |
-
-Explicit `groups` always win for their listed members. With `strategy: "slug"`,
-remaining resource types are grouped by provider prefix plus the first token
-after the prefix: `zpa_application_segment` maps to `zpa_application`. Slug
-groups with only one member collapse back to the ungrouped resource-type root,
-so enabling slug grouping does not create singleton topology churn.
-
-Grouped root members still keep per-resource config and import filenames.
-Inside the shared root, each grouped member uses a namespaced tfvars variable
-such as `zpa_segment_group_items`; ungrouped roots continue to use `items`.
-
-Operations are whole-root. Selecting any member of a grouped root selects the
-entire root, because Terraform state cannot safely apply part of one root. The
-CLI prints:
-
-```text
-NOTE: selecting <member> selects whole root <root_label>; also operating on <other_members>
-```
-
-The operational `gen-modules` and `validate-modules` commands use this same
-expansion whenever a deployment and selector are supplied. Thus selecting
-either grouped member materializes and validates the complete module set that
-`gen-env` references. The low-level module renderer remains exact-resource.
-
-`stage-imports` copies every selected root member's
-`<resource_type>_imports.tf` and `<resource_type>_moves.tf` into the shared root.
-`plan` passes one `-var-file` for each member config file that exists and emits
-a skip note for missing member config. `assert-clean`, `assert-adoptable`,
-`clean-plans`, and `apply` operate once per root plan.
+`stage-imports` copies the selected resource's imports and moves files into
+its singleton root. Plan and Apply operate once per selected resource root.
 
 An existing generated moves file is durable unresolved migration evidence.
 Transform and Adopt preserve it byte-for-byte when a rerun derives no new move
@@ -316,22 +268,18 @@ engine never removes an existing moves file merely because the imports
 baseline has advanced; explicit removal is an operator decision after the
 corresponding state migration is confirmed.
 
-When `bind_references` is true, transform/adopt may write
+With cross-state references enabled, transform/adopt may write
 `config/<tenant>/<resource_type>.generated.expressions.json` beside the
 resource tfvars. Env generation loads generated bindings first and then
 operator-authored `config/<tenant>/<resource_type>.expressions.json`, so a
-hand-written binding wins for the same resource path. Generated bindings only
-target same-root references and resolve them through sibling module outputs:
-`module.<referent_type>.items["<config_key>"].id`.
+hand-written binding wins for the same resource path.
 
 Bindings are explicit generated artifacts; tfvars keep the raw IDs and readback still round-trips.
 
-### Opt-in Cross-state References
+### Cross-state References
 
-For a new deployment, cross-state references normally replace automatic slug
-grouping rather than supplement it. Keep the default `"explicit"` strategy (or
-omit `strategy`) so every resource type retains its singleton state, and opt in
-per provider:
+Cross-state references are enabled by default. The following explicit settings
+are valid but normally unnecessary:
 
 ```json
 {
@@ -342,18 +290,14 @@ per provider:
 }
 ```
 
-Pack-declared references within one explicit group still use `module.*`.
 References between roots use `terraform_remote_state` and a generated,
 sensitive `infrawright_reference_ids` root output containing only stable config
 keys mapped to provider IDs. Complete resource objects are never exported.
 Predefined or system identifiers absent from a managed referent lookup remain
 literal values with a visible binding diagnostic.
 
-Explicit groups remain supported for existing state topology and for a genuine
-reference cycle. Enabling cross-state mode never splits or migrates an existing
-group. A declared cycle between states fails before root files or Terraform
-commands; group every member of that cycle deliberately if one state is the
-correct ownership boundary.
+A declared cycle between singleton states fails before root files or Terraform
+commands. Resolve the pack reference cycle before adoption.
 
 The first import is dependency ordered, not plan-all/apply-all. Materialize and
 apply each referent state before planning its referrers. The existing
@@ -433,7 +377,7 @@ Generated binding skip/fallback semantics:
 | ID is absent from the referent lookup | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
 | Referent lookup sidecar has no `key_by_id` map | Leave the literal ID in tfvars and print a `NOTE bindings:` skip; rerun transform/adopt for the referent to refresh the sidecar. |
 | Referent key contains Terraform template interpolation syntax | Leave the literal ID in tfvars and print a `NOTE bindings:` skip. |
-| Reference crosses a group/root boundary with cross-state mode disabled | No generated binding is considered; existing literal/comment behavior applies. |
+| Reference crosses a root boundary with cross-state mode disabled | No generated binding is considered; existing literal/comment behavior applies. |
 | Reference crosses a root boundary with cross-state mode enabled | Bind through the referent root's minimal `infrawright_reference_ids` output. |
 
 The saved-plan assessor and exact-plan Apply do not trust that output by name.
@@ -443,8 +387,6 @@ the exact stable-key-to-provider-ID map from Terraform's planned child-module
 resources. Only a fully known, sensitive create/update matching that map is
 treated as engine-owned plan metadata. Every other non-no-op output remains
 outside the saved-plan contract.
-
-Group membership is fixed at first import. Changing it later means a fresh re-bootstrap of the affected types into new state — there is no regroup tooling, by design.
 
 ## Provider Readiness And Probe Commands
 
@@ -473,7 +415,7 @@ These commands keep the shipped demo and generators healthy:
 | `make check-demo` | Verifies committed demo config/import artifacts do not drift. |
 | `make check-modules` | Generates modules in a temporary deployment and checks generator output. |
 | `make test` | Runs the complete Go suite. |
-| `make check` | Runs the Go suite, demo/module checks, pack validation, formatting checks, and archive tripwire. |
+| `make check` | Runs the Go suite, demo/module checks, pack validation, and formatting checks. |
 
 The generated demo module tree remains local/ignored. It is not part of the
 public committed surface. `make demo-contract` is intentionally not a live

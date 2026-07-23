@@ -36,6 +36,9 @@ func testContext(t *testing.T) Context {
 
 func fixtureSource(t *testing.T, name string) string {
 	t.Helper()
+	if name == "zpa_application_segment_microtenant" {
+		return filepath.Join("testdata", name+".json")
+	}
 	return filepath.Join(repository(t), "tests", "fixtures", "parity", name+".json")
 }
 
@@ -72,56 +75,6 @@ func loadFixture(t *testing.T, name string) Fixture {
 		t.Fatal(err)
 	}
 	return fixture
-}
-
-func TestFrozenAuthorityAndFixtureArtifacts(t *testing.T) {
-	root := repository(t)
-	authorityPath := filepath.Join(root, "node-tests", "fixtures", "python-transform-adopt-parity-v1.json")
-	bytes, err := os.ReadFile(authorityPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(bytes) != 13_486 {
-		t.Fatalf("authority size = %d", len(bytes))
-	}
-	sum := sha256.Sum256(bytes)
-	if got := hex.EncodeToString(sum[:]); got != "87f4ef2c299c413fd87193a6f2e312fcbbcbef0f501af3ebeab32f54942127a8" {
-		t.Fatalf("authority SHA = %s", got)
-	}
-	var authority map[string]any
-	if err := json.Unmarshal(bytes, &authority); err != nil {
-		t.Fatal(err)
-	}
-	context := testContext(t)
-	fixtures := []Fixture{loadFixture(t, "zcc_failopen_policy_inversion"), loadFixture(t, "zia_dlp_engines_predefined_name"), loadFixture(t, "zia_url_filtering_rules_zero_quota"), loadFixture(t, "zpa_application_segment_microtenant")}
-	report, err := Build(fixtures, context)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rendered, err := Render(report)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rendered != authority["report"] {
-		t.Fatalf("report differs from frozen authority\n%s", rendered)
-	}
-	fixturesOut := report["fixtures"].([]any)
-	if len(fixturesOut) != 4 {
-		t.Fatalf("fixtures = %d", len(fixturesOut))
-	}
-	want := map[string]string{
-		"zcc_failopen_policy_inversion":       "936cebdf781e8c2340cad7c4c327fcb439b50019671d47141b3ebc2e3a2bd31a",
-		"zia_dlp_engines_predefined_name":     "ee39e32eb2cb4bea70f06180a86bc47609235b65b757a4e5f3f3b056d4ef9096",
-		"zia_url_filtering_rules_zero_quota":  "171463aeacc2038936f8d279fba9c20e9f28f017b82d558a39d334f229e83baa",
-		"zpa_application_segment_microtenant": "68181b1cde1ef27c4c933372a906a13e65fd266f82c659a6ccd0bb8eacdc607b",
-	}
-	for _, value := range fixturesOut {
-		entry := value.(map[string]any)
-		got := entry["outputs"].(map[string]any)["transform_sha256"].(string)
-		if got != want[entry["name"].(string)] {
-			t.Fatalf("%s artifact SHA = %s", entry["name"], got)
-		}
-	}
 }
 
 func TestFixtureValidationFailsClosed(t *testing.T) {

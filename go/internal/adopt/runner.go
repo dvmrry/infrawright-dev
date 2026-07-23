@@ -17,7 +17,7 @@ import (
 )
 
 // AdoptBatchResult ports AdoptBatchResult from
-// node-src/domain/adopt-runner.ts.
+// the original implementation.
 type AdoptBatchResult struct {
 	Failed    []string
 	Processed []string
@@ -38,7 +38,7 @@ type AdoptionStateRequest struct {
 type AdoptionStateLoader func(AdoptionStateRequest) (map[string]OracleStateObject, error)
 
 // RunAdoptBatchOptions ports RunAdoptBatchOptions from
-// node-src/domain/adopt-runner.ts. State access is explicit and injected.
+// the original implementation. State access is explicit and injected.
 type RunAdoptBatchOptions struct {
 	Deployment     deployment.Deployment
 	InputDirectory string
@@ -354,7 +354,7 @@ func appendUnique(values []string, value string) []string {
 }
 
 // RunAdoptBatch executes the generic adoption batch target without resolving
-// Terraform. It ports runAdoptBatch from node-src/domain/adopt-runner.ts.
+// Terraform. It ports runAdoptBatch from the original implementation.
 func RunAdoptBatch(options RunAdoptBatchOptions) (AdoptBatchResult, error) {
 	result := AdoptBatchResult{Failed: []string{}, Processed: []string{}, Skipped: []string{}}
 	if options.Policy == nil {

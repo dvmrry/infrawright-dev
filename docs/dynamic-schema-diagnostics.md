@@ -5,13 +5,10 @@ affect adoption, but not statically represented as ordinary Terraform schema
 members. Cloudflare showed this with paths such as `data.flags` and
 `assets.config.run_worker_first`.
 
-The former Python-only dynamic-schema diagnostic was retired with the
-compatibility implementation. Its statuses remain documented because they
-explain committed pack metadata and historical lab evidence. New cases should
-be evaluated through provider schema, provider-state projection, and saved-plan
-evidence before pack metadata changes.
+Evaluate new cases through provider schema, provider-state projection, and
+saved-plan evidence before changing pack metadata.
 
-You can also classify paths from a JSON fixture:
+A sanitized lab fixture can record paths in this shape:
 
 ```json
 {

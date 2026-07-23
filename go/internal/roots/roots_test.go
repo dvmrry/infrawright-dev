@@ -1,9 +1,6 @@
 package roots
 
-// roots_test.go ports node-tests/roots.test.ts's six test cases verbatim,
-// against the same fixture RootCatalog literal that Node test builds
-// in-line, exercised through RootTopologyFromCatalog (the Go analogue of
-// the Node test's rootTopology import).
+// roots_test.go exercises singleton topology over a compact ResourceSet.
 
 import (
 	"reflect"
@@ -16,12 +13,10 @@ import (
 
 func strPtr(s string) *string { return &s }
 
-func fixtureCatalog() metadata.RootCatalog {
-	return metadata.RootCatalog{
-		Kind:              "infrawright.root_catalog",
-		SchemaVersion:     2,
+func fixtureResourceSet() metadata.ResourceSet {
+	return metadata.ResourceSet{
 		DeclaredProviders: []string{"zpa"},
-		Resources: []metadata.RootCatalogResource{
+		Resources: []metadata.ResourceDescriptor{
 			{
 				Type: "zpa_alpha_one", Product: "zpa", Provider: "zpa",
 				BareName:  "alpha_one",
@@ -48,8 +43,6 @@ func fixtureCatalog() metadata.RootCatalog {
 				Generated: true, Derived: false,
 			},
 		},
-		SourceFiles:   []string{"zpa/pack.json", "zpa/registry.json"},
-		SourcesSHA256: strings.Repeat("0", 64),
 	}
 }
 
@@ -58,14 +51,14 @@ func TestSelectionReturnsOnlySingletonRoot(t *testing.T) {
 		Overlay: "tenant-data//../stable",
 		Roots:   map[string]deployment.RootProviderConfig{},
 	}
-	result, err := RootTopologyFromCatalog(RootTopologyOptions{
-		Catalog:    fixtureCatalog(),
-		Deployment: dep,
-		Tenant:     strPtr("prod"),
-		Selectors:  []string{"zpa_alpha_one"},
+	result, err := RootTopologyFromResourceSet(RootTopologyOptions{
+		ResourceSet: fixtureResourceSet(),
+		Deployment:  dep,
+		Tenant:      strPtr("prod"),
+		Selectors:   []string{"zpa_alpha_one"},
 	})
 	if err != nil {
-		t.Fatalf("RootTopologyFromCatalog: %v", err)
+		t.Fatalf("RootTopologyFromResourceSet: %v", err)
 	}
 
 	wantRoots := []RootTopologyRoot{
@@ -97,14 +90,14 @@ func TestEveryGeneratedResourceHasItsOwnRoot(t *testing.T) {
 		Overlay: ".",
 		Roots:   map[string]deployment.RootProviderConfig{},
 	}
-	result, err := RootTopologyFromCatalog(RootTopologyOptions{
-		Catalog:    fixtureCatalog(),
-		Deployment: dep,
-		Tenant:     nil,
-		Selectors:  []string{"zpa"},
+	result, err := RootTopologyFromResourceSet(RootTopologyOptions{
+		ResourceSet: fixtureResourceSet(),
+		Deployment:  dep,
+		Tenant:      nil,
+		Selectors:   []string{"zpa"},
 	})
 	if err != nil {
-		t.Fatalf("RootTopologyFromCatalog: %v", err)
+		t.Fatalf("RootTopologyFromResourceSet: %v", err)
 	}
 
 	var labels []string
@@ -136,11 +129,11 @@ func TestEveryGeneratedResourceHasItsOwnRoot(t *testing.T) {
 
 func TestKnownNonGeneratedAndUnknownSelectorsFailClosed(t *testing.T) {
 	for _, selector := range []string{"zpa_known_only", "zpa_missing"} {
-		_, err := RootTopologyFromCatalog(RootTopologyOptions{
-			Catalog:    fixtureCatalog(),
-			Deployment: deployment.Deployment{Overlay: ".", Roots: map[string]deployment.RootProviderConfig{}},
-			Tenant:     nil,
-			Selectors:  []string{selector},
+		_, err := RootTopologyFromResourceSet(RootTopologyOptions{
+			ResourceSet: fixtureResourceSet(),
+			Deployment:  deployment.Deployment{Overlay: ".", Roots: map[string]deployment.RootProviderConfig{}},
+			Tenant:      nil,
+			Selectors:   []string{selector},
 		})
 		if err == nil || !strings.Contains(err.Error(), "unknown or non-generated resource selector") {
 			t.Errorf("selector %q: err = %v, want message containing %q", selector, err, "unknown or non-generated resource selector")
@@ -150,11 +143,11 @@ func TestKnownNonGeneratedAndUnknownSelectorsFailClosed(t *testing.T) {
 
 func TestLibraryBoundaryRejectsInvalidTenantsWithoutRelyingOnTheHost(t *testing.T) {
 	for _, tenant := range []string{"", ".", "..", "bad/tenant", "é"} {
-		_, err := RootTopologyFromCatalog(RootTopologyOptions{
-			Catalog:    fixtureCatalog(),
-			Deployment: deployment.Deployment{Overlay: ".", Roots: map[string]deployment.RootProviderConfig{}},
-			Tenant:     strPtr(tenant),
-			Selectors:  []string{},
+		_, err := RootTopologyFromResourceSet(RootTopologyOptions{
+			ResourceSet: fixtureResourceSet(),
+			Deployment:  deployment.Deployment{Overlay: ".", Roots: map[string]deployment.RootProviderConfig{}},
+			Tenant:      strPtr(tenant),
+			Selectors:   []string{},
 		})
 		if err == nil || !strings.Contains(err.Error(), "TENANT must match") {
 			t.Errorf("tenant %q: err = %v, want message containing %q", tenant, err, "TENANT must match")
@@ -163,8 +156,8 @@ func TestLibraryBoundaryRejectsInvalidTenantsWithoutRelyingOnTheHost(t *testing.
 }
 
 func TestProviderOptionsDoNotChangeSingletonTopology(t *testing.T) {
-	result, err := RootTopologyFromCatalog(RootTopologyOptions{
-		Catalog: fixtureCatalog(),
+	result, err := RootTopologyFromResourceSet(RootTopologyOptions{
+		ResourceSet: fixtureResourceSet(),
 		Deployment: deployment.Deployment{
 			Overlay: ".",
 			Roots: map[string]deployment.RootProviderConfig{
@@ -175,7 +168,7 @@ func TestProviderOptionsDoNotChangeSingletonTopology(t *testing.T) {
 		Selectors: []string{"zpa_alpha_one"},
 	})
 	if err != nil {
-		t.Fatalf("RootTopologyFromCatalog: %v", err)
+		t.Fatalf("RootTopologyFromResourceSet: %v", err)
 	}
 	if len(result.Topology.Roots) == 0 {
 		t.Fatalf("Roots is empty")
@@ -187,8 +180,8 @@ func TestProviderOptionsDoNotChangeSingletonTopology(t *testing.T) {
 }
 
 func TestUnknownDeploymentRootProviderStillFailsClosed(t *testing.T) {
-	_, err := RootTopologyFromCatalog(RootTopologyOptions{
-		Catalog: fixtureCatalog(),
+	_, err := RootTopologyFromResourceSet(RootTopologyOptions{
+		ResourceSet: fixtureResourceSet(),
 		Deployment: deployment.Deployment{
 			Overlay: ".",
 			Roots: map[string]deployment.RootProviderConfig{
@@ -197,7 +190,7 @@ func TestUnknownDeploymentRootProviderStillFailsClosed(t *testing.T) {
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "roots.unknown is not a declared provider prefix value") {
-		t.Fatalf("RootTopologyFromCatalog error = %v, want undeclared-provider failure", err)
+		t.Fatalf("RootTopologyFromResourceSet error = %v, want undeclared-provider failure", err)
 	}
 }
 

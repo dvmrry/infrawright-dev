@@ -13,7 +13,7 @@ import (
 )
 
 // AdoptionMetadata ports AdoptionMetadata from
-// node-src/domain/adoption-meta.ts.
+// the original implementation.
 type AdoptionMetadata struct {
 	ConstantKey     *string
 	IdentityFields  map[string]string
@@ -25,7 +25,7 @@ type AdoptionMetadata struct {
 }
 
 // AdoptionIdentity ports AdoptionIdentity from
-// node-src/domain/adoption-meta.ts.
+// the original implementation.
 type AdoptionIdentity struct {
 	ImportID string
 	Item     map[string]any
@@ -40,14 +40,14 @@ type AdoptionSkippedItem struct {
 }
 
 // AdoptionIdentityResult ports AdoptionIdentityResult from
-// node-src/domain/adoption-meta.ts.
+// the original implementation.
 type AdoptionIdentityResult struct {
 	Identities []AdoptionIdentity
 	Skipped    []AdoptionSkippedItem
 }
 
 // AdoptionUnsupportedRule ports AdoptionUnsupportedRule from
-// node-src/domain/adoption-meta.ts.
+// the original implementation.
 type AdoptionUnsupportedRule struct {
 	Evidence        []string
 	Match           map[string]any
@@ -64,7 +64,7 @@ type AdoptionUnsupportedItem struct {
 }
 
 // AdoptionRawClassification ports AdoptionRawClassification from
-// node-src/domain/adoption-meta.ts.
+// the original implementation.
 type AdoptionRawClassification struct {
 	Eligible    []map[string]any
 	Skipped     []AdoptionSkippedItem

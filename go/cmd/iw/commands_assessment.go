@@ -1,7 +1,7 @@
 package main
 
 // commands_assessment.go ports the assert-clean and assert-adoptable command
-// functions from node-src/cli/main.ts. Cobra owns parsing and dispatch while
+// functions from the original implementation. Cobra owns parsing and dispatch while
 // these functions remain a thin CLI-to-domain adapter.
 
 import (
@@ -94,7 +94,6 @@ func runAssessmentCommand(
 			loadedRoot, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 				PacksRoot:   options.pack.root,
 				ProfilePath: &options.pack.profile,
-				CatalogPath: &options.pack.catalog,
 			})
 			if err != nil {
 				return assessment.SavedPlanAssertionInputs{}, err
@@ -163,7 +162,7 @@ func assessmentCobraSpec(
 ) typedCobraCommandSpec {
 	values := []string{
 		"--tenant", "--resource", "--backend-config", "--report", "--terraform",
-		"--deployment", "--root", "--profile", "--catalog",
+		"--deployment", "--root", "--profile",
 	}
 	if mode == assessment.AssertAdoptable {
 		values = append(values, "--policy")

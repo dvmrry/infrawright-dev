@@ -3,88 +3,33 @@ package sourceoperation
 import (
 	"crypto/sha256"
 	"encoding/json"
-	"os"
-	"path/filepath"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
-const legacyV1AuthoritySHA256 = "dbb55a83ba411d2394ef159d7a940ab772d626306b36032f0cb6dde232a0827c"
-
-func legacyV1Authority(t *testing.T) LegacyV1Artifact {
+func decodedLegacyV1Artifact(t *testing.T, value any) LegacyV1Artifact {
 	t.Helper()
-	path := filepath.Join("..", "..", "..", "..", "node-tests", "fixtures", "python-source-evidence-eval-v1.json")
-	bytes, err := os.ReadFile(path)
+	data, err := json.Marshal(value)
 	if err != nil {
-		t.Fatalf("read frozen authority: %v", err)
+		t.Fatalf("json.Marshal(%T) error: %v", value, err)
 	}
-	if actual := sha256.Sum256(bytes); fmtSHA256(actual) != legacyV1AuthoritySHA256 {
-		t.Fatalf("frozen authority SHA-256 = %s, want %s", fmtSHA256(actual), legacyV1AuthoritySHA256)
-	}
-	value, err := canonjson.Decode(bytes)
+	decoded, err := canonjson.Decode(data)
 	if err != nil {
-		t.Fatalf("decode frozen authority: %v", err)
-	}
-	return legacyV1Object(value)
-}
-
-func fmtSHA256(sum [32]byte) string {
-	const hexdigits = "0123456789abcdef"
-	output := make([]byte, 64)
-	for index, byteValue := range sum {
-		output[index*2] = hexdigits[byteValue>>4]
-		output[index*2+1] = hexdigits[byteValue&0x0f]
-	}
-	return string(output)
-}
-
-func legacyV1FrozenCase(t *testing.T, name string) LegacyV1Artifact {
-	t.Helper()
-	authority := legacyV1Authority(t)
-	cases := legacyV1Object(authority["cases"])
-	result, ok := cases[name]
-	if !ok {
-		t.Fatalf("frozen authority has no %q case", name)
-	}
-	return legacyV1Object(result)
-}
-
-func legacyV1DecodedArtifactBytes(t *testing.T, bytes []byte) LegacyV1Artifact {
-	t.Helper()
-	decoded, err := canonjson.Decode(bytes)
-	if err != nil {
-		t.Fatalf("decode artifact: %v", err)
+		t.Fatalf("canonjson.Decode(%T) error: %v", value, err)
 	}
 	return legacyV1Object(decoded)
 }
 
-func legacyV1ExactJSON(t *testing.T, actual, expected any) {
+func legacyV1EvaluationSHA256(t *testing.T, evaluation LegacyV1Artifact) string {
 	t.Helper()
-	actualBytes, err := canonjson.Render(actual)
+	rendered, err := canonjson.Render(evaluation)
 	if err != nil {
-		t.Fatalf("render actual: %v", err)
+		t.Fatalf("canonjson.Render(evaluation) error: %v", err)
 	}
-	expectedBytes, err := canonjson.Render(expected)
-	if err != nil {
-		t.Fatalf("render expected: %v", err)
-	}
-	if actualBytes != expectedBytes {
-		t.Fatalf("JSON mismatch:\nactual:\n%s\nexpected:\n%s", actualBytes, expectedBytes)
-	}
-}
-
-func legacyV1DecodedArtifact(t *testing.T, value any) LegacyV1Artifact {
-	t.Helper()
-	bytes, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("marshal test artifact: %v", err)
-	}
-	decoded, err := canonjson.Decode(bytes)
-	if err != nil {
-		t.Fatalf("decode test artifact: %v", err)
-	}
-	return legacyV1Object(decoded)
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(rendered)))
 }
 
 func legacyV1ClassificationInputs() (LegacyV1Artifact, LegacyV1Artifact) {
@@ -118,82 +63,141 @@ func legacyV1ClassificationInputs() (LegacyV1Artifact, LegacyV1Artifact) {
 	return candidate, comparison
 }
 
-func TestLegacyV1ClassificationsShortcomingsAndMarkdownMatchFrozenAuthority(t *testing.T) {
-	candidate, comparison := legacyV1ClassificationInputs()
-	candidate = legacyV1DecodedArtifact(t, candidate)
-	comparison = legacyV1DecodedArtifact(t, comparison)
-	evaluation := EvaluateLegacyV1SourceEvidence(legacyV1DecodedArtifact(t, candidate), legacyV1DecodedArtifact(t, comparison))
-	expected := legacyV1FrozenCase(t, "classifications_shortcomings_markdown")
-	legacyV1ExactJSON(t, evaluation, expected["evaluation"])
-	if actual, want := RenderLegacyV1SourceEvidenceMarkdown(evaluation), expected["markdown"].(string); actual != want {
-		t.Fatalf("Markdown mismatch:\nactual:\n%s\nexpected:\n%s", actual, want)
+func TestClassifyLegacyV1SourceEvidenceChange(t *testing.T) {
+	tests := []struct {
+		name   string
+		change LegacyV1Artifact
+		class  string
+		reason string
+	}{
+		{
+			name: "mapped_to_unmapped",
+			change: LegacyV1Artifact{
+				"before": LegacyV1Artifact{"status": "mapped", "read_path": "/old", "files": []any{"resource.go"}},
+				"after":  LegacyV1Artifact{"status": "unmapped", "files": []any{"resource.go"}},
+			},
+			class: "regression", reason: "mapped_to_unmapped",
+		},
+		{
+			name: "source_files_narrowed",
+			change: LegacyV1Artifact{
+				"before": LegacyV1Artifact{"status": "mapped", "read_path": "/same", "files": []any{"a.go", "b.go"}},
+				"after":  LegacyV1Artifact{"status": "mapped", "read_path": "/same", "files": []any{"a.go"}},
+			},
+			class: "acceptable", reason: "source_files_narrowed",
+		},
+		{
+			name: "new_mapping",
+			change: LegacyV1Artifact{
+				"before": LegacyV1Artifact{"status": "unmapped", "files": []any{"resource.go"}},
+				"after":  LegacyV1Artifact{"status": "mapped", "read_path": "/new", "files": []any{"resource.go"}},
+			},
+			class: "review", reason: "new_mapping",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := ClassifyLegacyV1SourceEvidenceChange(test.change)
+			if got["classification"] != test.class || got["reason"] != test.reason {
+				t.Errorf("ClassifyLegacyV1SourceEvidenceChange(%#v) = %#v, want classification=%q reason=%q", test.change, got, test.class, test.reason)
+			}
+		})
 	}
 }
 
-func TestLegacyV1AuthorityCaseSetAndEmbeddedCLIEvaluatorOutputs(t *testing.T) {
-	authority := legacyV1Authority(t)
-	cases := legacyV1Object(authority["cases"])
-	wantCases := []string{
-		"authoring_cli_artifact_set",
-		"classifications_shortcomings_markdown",
-		"explicit_null_metrics",
-		"markdown_change_cap",
+func TestEvaluateLegacyV1SourceEvidenceMatchesFixedOutput(t *testing.T) {
+	candidate, comparison := legacyV1ClassificationInputs()
+	evaluation := EvaluateLegacyV1SourceEvidence(
+		decodedLegacyV1Artifact(t, candidate),
+		decodedLegacyV1Artifact(t, comparison),
+	)
+	if got, want := legacyV1EvaluationSHA256(t, evaluation), "e8853c371b08896e4239848d458f47c6c7c72fc95fa62a1448e45cf5929d90cc"; got != want {
+		t.Errorf("SHA256(EvaluateLegacyV1SourceEvidence()) = %q, want fixed %q", got, want)
 	}
-	if len(cases) != len(wantCases) {
-		t.Fatalf("frozen authority case count = %d, want %d; add an explicit replay before accepting a new case", len(cases), len(wantCases))
+	markdown := RenderLegacyV1SourceEvidenceMarkdown(evaluation)
+	if got, want := fmt.Sprintf("%x", sha256.Sum256([]byte(markdown))), "ea249cfe71f908cb912f19679df4f2d2872720084d789b6b2e1b71da3402c593"; got != want {
+		t.Errorf("SHA256(RenderLegacyV1SourceEvidenceMarkdown(evaluation)) = %q, want fixed %q", got, want)
 	}
-	for _, name := range wantCases {
-		if _, ok := cases[name]; !ok {
-			t.Fatalf("frozen authority is missing required case %q", name)
+	for _, want := range []string{
+		"| \x60mapped_unmapped\x60 | \x60regression\x60 | \x60mapped_to_unmapped\x60 |",
+		"| \x60ambiguous_source_operation\x60 | \x60review\x60 | \x601\x60 | \x60ambiguous\x60 |",
+		"| \x60calls_without_openapi_match\x60 | \x60gap\x60 | \x601\x60 | \x60no_match\x60 |",
+	} {
+		if !strings.Contains(markdown, want) {
+			t.Errorf("RenderLegacyV1SourceEvidenceMarkdown(evaluation) lacks fixed row %q", want)
 		}
 	}
-
-	fixture := legacyV1Object(cases["authoring_cli_artifact_set"])
-	artifacts := legacyV1Object(fixture["artifacts"])
-	candidate := legacyV1DecodedArtifactBytes(t, []byte(artifacts["ast-report.json"].(string)))
-	comparison := legacyV1DecodedArtifactBytes(t, []byte(artifacts["source-facts-compare.json"].(string)))
-	expected := legacyV1DecodedArtifactBytes(t, []byte(artifacts["source-evidence-eval.json"].(string)))
-	delete(expected, "artifacts") // CLI routing owns paths; this package owns evaluator content.
-
-	evaluation := EvaluateLegacyV1SourceEvidence(candidate, comparison)
-	legacyV1ExactJSON(t, evaluation, expected)
-	if actual, want := RenderLegacyV1SourceEvidenceMarkdown(evaluation), artifacts["source-evidence-eval.md"].(string); actual != want {
-		t.Fatalf("embedded CLI Markdown mismatch:\nactual:\n%s\nexpected:\n%s", actual, want)
-	}
 }
 
-func TestLegacyV1ExplicitNullMetricsMatchFrozenAuthority(t *testing.T) {
-	comparison := LegacyV1Artifact{"changes": []any{}, "summary": LegacyV1Artifact{"resources": nil, "unchanged": nil, "control": LegacyV1Artifact{"resources": nil, "mapped": nil}, "candidate": LegacyV1Artifact{"resources": nil, "mapped": nil}}}
-	candidate := LegacyV1Artifact{"diagnostics": []any{}, "registry": LegacyV1Artifact{"missing": LegacyV1Artifact{"status": "unmapped", "reason": "resource_file_not_found", "source": LegacyV1Artifact{"candidate_count": nil, "client_call_count": nil, "package_call_count": nil, "raw_rest_call_count": nil}}}, "summary": LegacyV1Artifact{"resources": nil, "mapped": nil}}
-	evaluation := EvaluateLegacyV1SourceEvidence(legacyV1DecodedArtifact(t, candidate), legacyV1DecodedArtifact(t, comparison))
-	expected := legacyV1FrozenCase(t, "explicit_null_metrics")
-	legacyV1ExactJSON(t, evaluation, expected["evaluation"])
-	if actual, want := RenderLegacyV1SourceEvidenceMarkdown(evaluation), expected["markdown"].(string); actual != want {
-		t.Fatalf("Markdown mismatch:\nactual:\n%s\nexpected:\n%s", actual, want)
-	}
-}
-
-func TestLegacyV1MarkdownChangeCapMatchesFrozenAuthority(t *testing.T) {
+func TestLegacyV1MarkdownChangeCapMatchesFixedOutput(t *testing.T) {
 	changes := make([]any, 0, LegacyV1MaxMarkdownChangeRows+6)
 	for index := 0; index < LegacyV1MaxMarkdownChangeRows+5; index++ {
-		name := "example_" + string(rune('0'+index/100)) + string(rune('0'+(index/10)%10)) + string(rune('0'+index%10))
-		changes = append(changes, LegacyV1Artifact{"resource": name, "before": LegacyV1Artifact{"status": "mapped", "read_path": "/old", "files": []any{"old.go", "extra.go"}}, "after": LegacyV1Artifact{"status": "mapped", "read_path": "/old", "files": []any{"old.go"}}})
+		name := fmt.Sprintf("example_%03d", index)
+		changes = append(changes, LegacyV1Artifact{
+			"resource": name,
+			"before":   LegacyV1Artifact{"status": "mapped", "read_path": "/old", "files": []any{"old.go", "extra.go"}},
+			"after":    LegacyV1Artifact{"status": "mapped", "read_path": "/old", "files": []any{"old.go"}},
+		})
 	}
-	changes = append(changes, LegacyV1Artifact{"resource": "example_regression", "before": LegacyV1Artifact{"status": "mapped", "read_path": "/old", "files": []any{"old.go"}}, "after": LegacyV1Artifact{"status": "unmapped", "files": []any{"old.go"}}})
+	changes = append(changes, LegacyV1Artifact{
+		"resource": "example_regression",
+		"before":   LegacyV1Artifact{"status": "mapped", "read_path": "/old", "files": []any{"old.go"}},
+		"after":    LegacyV1Artifact{"status": "unmapped", "files": []any{"old.go"}},
+	})
 	empty := LegacyV1Artifact{"registry": LegacyV1Artifact{}, "diagnostics": []any{}, "summary": LegacyV1Artifact{}}
-	evaluation := EvaluateLegacyV1SourceEvidence(legacyV1DecodedArtifact(t, empty), legacyV1DecodedArtifact(t, LegacyV1Artifact{"changes": changes, "summary": LegacyV1Artifact{"resources": len(changes), "unchanged": 0, "control": LegacyV1Artifact{}, "candidate": LegacyV1Artifact{}}}))
-	expected := legacyV1FrozenCase(t, "markdown_change_cap")
-	legacyV1ExactJSON(t, evaluation, expected["evaluation"])
-	if actual, want := RenderLegacyV1SourceEvidenceMarkdown(evaluation), expected["markdown"].(string); actual != want {
-		t.Fatalf("Markdown mismatch:\nactual:\n%s\nexpected:\n%s", actual, want)
+	comparison := LegacyV1Artifact{
+		"changes": changes,
+		"summary": LegacyV1Artifact{"resources": len(changes), "unchanged": 0, "control": LegacyV1Artifact{}, "candidate": LegacyV1Artifact{}},
+	}
+	evaluation := EvaluateLegacyV1SourceEvidence(decodedLegacyV1Artifact(t, empty), decodedLegacyV1Artifact(t, comparison))
+	if got, want := legacyV1EvaluationSHA256(t, evaluation), "e6c182656a2816ab0f7c44ca12f0e3179d8c971c3ef10173b5df6e3c78e1162b"; got != want {
+		t.Errorf("SHA256(change-cap evaluation) = %q, want fixed %q", got, want)
+	}
+	markdown := RenderLegacyV1SourceEvidenceMarkdown(evaluation)
+	if got, want := fmt.Sprintf("%x", sha256.Sum256([]byte(markdown))), "fa716de451aef6a5065f3f7ff19b69a094cdc7db7cd3910ebf5bdc4f4038c860"; got != want {
+		t.Errorf("SHA256(change-cap Markdown) = %q, want fixed %q", got, want)
+	}
+	if !strings.Contains(markdown, "Showing `100` of `106` changes; full detail is in JSON.") ||
+		!strings.Contains(markdown, "| `example_098` |") || strings.Contains(markdown, "| `example_099` |") {
+		t.Errorf("change-cap Markdown did not retain the fixed first-100 boundary:\n%s", markdown)
+	}
+}
+
+func TestEvaluateLegacyV1SourceEvidenceReportsRegressions(t *testing.T) {
+	candidate := LegacyV1Artifact{
+		"diagnostics": []any{},
+		"registry": LegacyV1Artifact{
+			"sample": LegacyV1Artifact{"status": "unmapped", "reason": "resource_file_not_found", "source": LegacyV1Artifact{}},
+		},
+		"summary": LegacyV1Artifact{"resources": 1, "unmapped": 1},
+	}
+	comparison := LegacyV1Artifact{
+		"changes": []any{LegacyV1Artifact{
+			"resource": "sample",
+			"before":   LegacyV1Artifact{"status": "mapped", "read_path": "/sample/{id}", "files": []any{"resource.go"}},
+			"after":    LegacyV1Artifact{"status": "unmapped", "files": []any{"resource.go"}},
+		}},
+		"summary": LegacyV1Artifact{"resources": 1, "unchanged": 0, "control": LegacyV1Artifact{"mapped": 1}, "candidate": candidate["summary"]},
+	}
+	evaluation := EvaluateLegacyV1SourceEvidence(candidate, comparison)
+	summary := legacyV1Object(evaluation["summary"])
+	if got := legacyV1Number(summary["regressions"]); got != 1 {
+		t.Errorf("EvaluateLegacyV1SourceEvidence() regressions = %v, want 1", got)
+	}
+	if !LegacyV1FailOnRegressionAfterArtifacts(evaluation) {
+		t.Error("LegacyV1FailOnRegressionAfterArtifacts(evaluation) = false, want true")
+	}
+	markdown := RenderLegacyV1SourceEvidenceMarkdown(evaluation)
+	if markdown == "" {
+		t.Error("RenderLegacyV1SourceEvidenceMarkdown(evaluation) is empty, want report")
 	}
 }
 
 func TestLegacyV1FailOnRegressionAfterArtifacts(t *testing.T) {
 	if !LegacyV1FailOnRegressionAfterArtifacts(LegacyV1Artifact{"summary": LegacyV1Artifact{"regressions": 1}}) {
-		t.Fatal("positive regression count must request legacy exit status 1 after publication")
+		t.Error("LegacyV1FailOnRegressionAfterArtifacts(positive regression count) = false, want true")
 	}
 	if LegacyV1FailOnRegressionAfterArtifacts(LegacyV1Artifact{"summary": LegacyV1Artifact{"regressions": nil}}) {
-		t.Fatal("explicit null regression count must not request a failure")
+		t.Error("LegacyV1FailOnRegressionAfterArtifacts(null regression count) = true, want false")
 	}
 }

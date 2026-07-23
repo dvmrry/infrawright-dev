@@ -43,13 +43,21 @@ func TestTransformFixtureCorpus(t *testing.T) {
 	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,
-		CatalogPath: &profilePath,
 	})
 	if err != nil {
 		t.Fatalf("LoadPackRoot: %v", err)
 	}
 
-	found := 0
+	wantResourceTypes := []string{
+		"zia_cloud_app_control_rule",
+		"zia_location_management",
+		"zia_ssl_inspection_rules",
+		"zia_url_categories",
+		"zpa_application_segment",
+		"zpa_segment_group",
+		"zpa_server_group",
+	}
+	var found []string
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -64,7 +72,7 @@ func TestTransformFixtureCorpus(t *testing.T) {
 		if _, err := os.Stat(expectedPath); err != nil {
 			continue
 		}
-		found++
+		found = append(found, resourceType)
 
 		t.Run(resourceType, func(t *testing.T) {
 			resource, ok := loaded.Resources[resourceType]
@@ -111,7 +119,12 @@ func TestTransformFixtureCorpus(t *testing.T) {
 		})
 	}
 
-	if found == 0 {
-		t.Fatalf("no fixture directories with both api.json and expected.auto.tfvars.json found under %s", corpusRoot)
+	if len(found) != len(wantResourceTypes) {
+		t.Fatalf("fixture resource types = %v, want %v", found, wantResourceTypes)
+	}
+	for index, want := range wantResourceTypes {
+		if got := found[index]; got != want {
+			t.Fatalf("fixture resource types = %v, want %v", found, wantResourceTypes)
+		}
 	}
 }

@@ -1,20 +1,20 @@
 package contracts
 
 // SourceTrust is the qualification state defined by
-// docs/go-authoring-port-roadmap.md §3.2.1.
+// the authoring artifact contract §3.2.1.
 type SourceTrust string
 
 const (
 	// SourceTrustVerified means all manifest identities and bytes were verified as
-	// required by docs/go-authoring-port-roadmap.md §3.2.1.
+	// required by the authoring artifact contract §3.2.1.
 	SourceTrustVerified SourceTrust = "verified"
 	// SourceTrustUnverified identifies an explicitly requested diagnostic run that
-	// is ineligible for readiness under docs/go-authoring-port-roadmap.md §3.2.1.
+	// is ineligible for readiness under the authoring artifact contract §3.2.1.
 	SourceTrustUnverified SourceTrust = "unverified"
 )
 
 // FileBinding pins one portable relative file to bytes as required by
-// docs/go-authoring-port-roadmap.md §3.2.1.
+// the authoring artifact contract §3.2.1.
 type FileBinding struct {
 	// Path is a slash-separated path relative to its explicitly supplied source root.
 	Path string `json:"path"`
@@ -23,7 +23,7 @@ type FileBinding struct {
 }
 
 // ProviderSourceBinding pins the provider tree described by
-// docs/go-authoring-port-roadmap.md §3.2.1.
+// the authoring artifact contract §3.2.1.
 type ProviderSourceBinding struct {
 	// Repository is the provider repository identity.
 	Repository string `json:"repository"`
@@ -38,7 +38,7 @@ type ProviderSourceBinding struct {
 }
 
 // ProviderModuleBinding binds the provider module-resolution inputs required by
-// docs/go-authoring-port-roadmap.md §3.2.1.
+// the authoring artifact contract §3.2.1.
 type ProviderModuleBinding struct {
 	// GoMod pins the provider go.mod bytes.
 	GoMod FileBinding `json:"go_mod"`
@@ -49,7 +49,7 @@ type ProviderModuleBinding struct {
 }
 
 // LocalModuleReplaceBinding preserves a local provider go.mod replacement
-// without checkout-root leakage under docs/go-authoring-port-roadmap.md §3.2.1.
+// without checkout-root leakage under the authoring artifact contract §3.2.1.
 type LocalModuleReplaceBinding struct {
 	// ModulePath is the module path on the left side of the replace directive.
 	ModulePath string `json:"module_path"`
@@ -60,7 +60,7 @@ type LocalModuleReplaceBinding struct {
 }
 
 // SDKSourceBinding pins one SDK source tree described by
-// docs/go-authoring-port-roadmap.md §3.2.1.
+// the authoring artifact contract §3.2.1.
 type SDKSourceBinding struct {
 	// ModulePath is the SDK's declared Go module path.
 	ModulePath string `json:"module_path"`
@@ -87,7 +87,7 @@ type UnavailableSDKBinding struct {
 }
 
 // SelectionFilterBinding records one normalized selection input from
-// docs/go-authoring-port-roadmap.md §3.2.1.
+// the authoring artifact contract §3.2.1.
 type SelectionFilterBinding struct {
 	// Name is the stable filter name.
 	Name string `json:"name"`
@@ -102,7 +102,7 @@ const (
 )
 
 // SelectionBinding defines the resource table covered by evidence under
-// docs/go-authoring-port-roadmap.md §3.2.1.
+// the authoring artifact contract §3.2.1.
 type SelectionBinding struct {
 	// ResourceTypes is the sorted, unique set of selected Terraform resource types.
 	ResourceTypes []string `json:"resource_types"`
@@ -111,7 +111,7 @@ type SelectionBinding struct {
 }
 
 // SourceProvenance is the closed verified source-provenance-v1 manifest from
-// docs/go-authoring-port-roadmap.md §3.2.1.
+// the authoring artifact contract §3.2.1.
 type SourceProvenance struct {
 	// Kind is always infrawright.source_provenance.
 	Kind string `json:"kind"`
@@ -135,7 +135,7 @@ type SourceProvenance struct {
 }
 
 // OpenAPIInputBinding pins optional adapter files while keeping their
-// availability isolated from source trust under docs/go-authoring-port-roadmap.md §3.6.
+// availability isolated from source trust under the authoring artifact contract §3.6.
 type OpenAPIInputBinding struct {
 	// Document pins the explicitly selected OpenAPI document.
 	Document FileBinding `json:"document"`
@@ -144,7 +144,7 @@ type OpenAPIInputBinding struct {
 }
 
 // UnverifiedSDKObservation records SDK module/files without repository or
-// revision claims under docs/go-authoring-port-roadmap.md §3.2.1.
+// revision claims under the authoring artifact contract §3.2.1.
 type UnverifiedSDKObservation struct {
 	// ModulePath is the locally observed Go module identity.
 	ModulePath string `json:"module_path"`
@@ -155,7 +155,7 @@ type UnverifiedSDKObservation struct {
 }
 
 // UnverifiedSourceObservation is the intentionally non-qualifying input shape
-// from docs/go-authoring-port-roadmap.md §3.2.1.
+// from the authoring artifact contract §3.2.1.
 type UnverifiedSourceObservation struct {
 	// ProviderModulePath is the locally observed provider module path.
 	ProviderModulePath string `json:"provider_module_path"`
@@ -170,7 +170,7 @@ type UnverifiedSourceObservation struct {
 }
 
 // InputProvenance is the verified/unverified emitted union required for
-// input-provenance.json by docs/go-authoring-port-roadmap.md §§3.2.1 and 3.5.
+// input-provenance.json by the authoring artifact contract §§3.2.1 and 3.5.
 type InputProvenance struct {
 	// Kind is always infrawright.input_provenance.
 	Kind string `json:"kind"`
@@ -198,7 +198,7 @@ const (
 )
 
 // SourceLocation is an unambiguous portable source position required by
-// docs/go-authoring-port-roadmap.md §§3.1–3.2.
+// the authoring artifact contract §§3.1–3.2.
 type SourceLocation struct {
 	// Origin selects the provider tree or one exact SDK module tree.
 	Origin SourceLocationOrigin `json:"origin"`
@@ -216,7 +216,7 @@ type SourceLocation struct {
 }
 
 // SourceSymbol binds a provider registration or Read callback under
-// docs/go-authoring-port-roadmap.md §3.1.
+// the authoring artifact contract §3.1.
 type SourceSymbol struct {
 	// PackagePath is the fully qualified Go package containing the declaration.
 	PackagePath string `json:"package_path"`
@@ -227,7 +227,7 @@ type SourceSymbol struct {
 }
 
 // SourceCallKind is the closed Read-rooted call-step vocabulary from
-// docs/go-authoring-port-roadmap.md §§3.1–3.2.
+// the authoring artifact contract §§3.1–3.2.
 type SourceCallKind string
 
 const (
@@ -247,7 +247,7 @@ const (
 )
 
 // SourceCallStep is one ordered Read-rooted call step required by
-// docs/go-authoring-port-roadmap.md §§3.1–3.2.
+// the authoring artifact contract §§3.1–3.2.
 type SourceCallStep struct {
 	// Kind identifies how the callee was resolved.
 	Kind SourceCallKind `json:"kind"`
@@ -265,7 +265,7 @@ type SourceCallStep struct {
 }
 
 // SDKCallEvidence pins the SDK symbol reached by a provider Read chain under
-// docs/go-authoring-port-roadmap.md §3.2.
+// the authoring artifact contract §3.2.
 type SDKCallEvidence struct {
 	// ModulePath is the pinned SDK module identity.
 	ModulePath string `json:"module_path"`
@@ -280,7 +280,7 @@ type SDKCallEvidence struct {
 }
 
 // HTTPEndpointOrigin identifies where a source-backed request is constructed
-// under docs/go-authoring-port-roadmap.md §3.3.
+// under the authoring artifact contract §3.3.
 type HTTPEndpointOrigin string
 
 const (
@@ -291,7 +291,7 @@ const (
 )
 
 // HTTPEndpointEvidence is one recoverable source-backed endpoint from
-// docs/go-authoring-port-roadmap.md §§3.2–3.3.
+// the authoring artifact contract §§3.2–3.3.
 type HTTPEndpointEvidence struct {
 	// Origin identifies whether provider or SDK source constructs the request.
 	Origin HTTPEndpointOrigin `json:"origin"`
@@ -304,7 +304,7 @@ type HTTPEndpointEvidence struct {
 }
 
 // SourceReasonCode is the closed fail-closed reason vocabulary required by
-// docs/go-authoring-port-roadmap.md §3.3.
+// the authoring artifact contract §3.3.
 type SourceReasonCode string
 
 const (
@@ -331,7 +331,7 @@ const (
 )
 
 // SourceClassification is the closed seven-state source partition defined by
-// docs/go-authoring-port-roadmap.md §3.3.
+// the authoring artifact contract §3.3.
 type SourceClassification string
 
 const (
@@ -352,7 +352,7 @@ const (
 )
 
 // SourceEvidenceRow is one authoritative resource row from
-// docs/go-authoring-port-roadmap.md §3.3.
+// the authoring artifact contract §3.3.
 type SourceEvidenceRow struct {
 	// Classification is exactly one member of the seven-state source partition.
 	Classification SourceClassification `json:"classification"`
@@ -369,7 +369,7 @@ type SourceEvidenceRow struct {
 }
 
 // SourceEvidenceChain preserves one ordered viable provider→SDK→HTTP chain
-// under docs/go-authoring-port-roadmap.md §§3.1–3.3.
+// under the authoring artifact contract §§3.1–3.3.
 type SourceEvidenceChain struct {
 	// Steps are the ordered statically reachable calls beginning at Read.
 	Steps []SourceCallStep `json:"steps"`
@@ -382,7 +382,7 @@ type SourceEvidenceChain struct {
 }
 
 // SourceClassificationCounts records every member of the closed partition in
-// docs/go-authoring-port-roadmap.md §3.3.
+// the authoring artifact contract §3.3.
 type SourceClassificationCounts struct {
 	// ObservedHTTP counts observed_http rows.
 	ObservedHTTP int `json:"observed_http"`
@@ -401,7 +401,7 @@ type SourceClassificationCounts struct {
 }
 
 // CoverageState selects the exact coverage representation required by
-// docs/go-authoring-port-roadmap.md §3.3.
+// the authoring artifact contract §3.3.
 type CoverageState string
 
 const (
@@ -412,7 +412,7 @@ const (
 )
 
 // ExactCoverage avoids a rounded floating-point coverage claim under
-// docs/go-authoring-port-roadmap.md §3.3.
+// the authoring artifact contract §3.3.
 type ExactCoverage struct {
 	// State distinguishes a real ratio from a zero-denominator result.
 	State CoverageState `json:"state"`
@@ -423,7 +423,7 @@ type ExactCoverage struct {
 }
 
 // SourceSummary contains only recomputed source totals from
-// docs/go-authoring-port-roadmap.md §3.3.
+// the authoring artifact contract §3.3.
 type SourceSummary struct {
 	// SelectedTotal is the number of authoritative resource rows.
 	SelectedTotal int `json:"selected_total"`
@@ -440,7 +440,7 @@ type SourceSummary struct {
 }
 
 // OpenAPIDocumentState is the report-level optional-adapter state from
-// docs/go-authoring-port-roadmap.md §3.6.
+// the authoring artifact contract §3.6.
 type OpenAPIDocumentState string
 
 const (
@@ -455,7 +455,7 @@ const (
 )
 
 // OpenAPIReasonCode is the closed adapter diagnostic reason vocabulary from
-// docs/go-authoring-port-roadmap.md §3.6.
+// the authoring artifact contract §3.6.
 type OpenAPIReasonCode string
 
 const (
@@ -472,7 +472,7 @@ const (
 )
 
 // OpenAPIComparisonState is the closed six-state comparison partition from
-// docs/go-authoring-port-roadmap.md §3.6.
+// the authoring artifact contract §3.6.
 type OpenAPIComparisonState string
 
 const (
@@ -491,7 +491,7 @@ const (
 )
 
 // OpenAPIComparisonBasis records the source-backed identity that permits a
-// comparison claim under docs/go-authoring-port-roadmap.md §3.6.
+// comparison claim under the authoring artifact contract §3.6.
 type OpenAPIComparisonBasis string
 
 const (
@@ -504,7 +504,7 @@ const (
 )
 
 // OpenAPIOperationCandidate preserves one operation used in comparison under
-// docs/go-authoring-port-roadmap.md §3.6.
+// the authoring artifact contract §3.6.
 type OpenAPIOperationCandidate struct {
 	// OperationID is the optional OpenAPI operationId.
 	OperationID *string `json:"operation_id"`
@@ -515,7 +515,7 @@ type OpenAPIOperationCandidate struct {
 }
 
 // OpenAPIComparisonRow is one resource comparison row from
-// docs/go-authoring-port-roadmap.md §3.6.
+// the authoring artifact contract §3.6.
 type OpenAPIComparisonRow struct {
 	// State is exactly one member of the six-state comparison partition.
 	State OpenAPIComparisonState `json:"state"`
@@ -528,7 +528,7 @@ type OpenAPIComparisonRow struct {
 }
 
 // OpenAPIComparisonCounts records the complete comparison partition from
-// docs/go-authoring-port-roadmap.md §3.6.
+// the authoring artifact contract §3.6.
 type OpenAPIComparisonCounts struct {
 	// NotAttempted counts not_attempted rows.
 	NotAttempted int `json:"not_attempted"`
@@ -545,7 +545,7 @@ type OpenAPIComparisonCounts struct {
 }
 
 // OpenAPIComparisonSummary contains recomputed comparison totals from
-// docs/go-authoring-port-roadmap.md §3.6.
+// the authoring artifact contract §3.6.
 type OpenAPIComparisonSummary struct {
 	// ComparisonEligibleTotal equals the number of observed_http source rows.
 	ComparisonEligibleTotal int `json:"comparison_eligible_total"`
@@ -556,7 +556,7 @@ type OpenAPIComparisonSummary struct {
 }
 
 // OpenAPIDiagnosticsReport is the isolated optional-adapter accounting required by
-// docs/go-authoring-port-roadmap.md §3.6.
+// the authoring artifact contract §3.6.
 type OpenAPIDiagnosticsReport struct {
 	// Kind is always infrawright.openapi_diagnostics.
 	Kind string `json:"kind"`
@@ -579,7 +579,7 @@ type OpenAPIDiagnosticsReport struct {
 }
 
 // SourceEvidenceReport is the closed source-only aggregate contract defined by
-// docs/go-authoring-port-roadmap.md §3.3.
+// the authoring artifact contract §3.3.
 type SourceEvidenceReport struct {
 	// Kind is always infrawright.source_evidence_report.
 	Kind string `json:"kind"`

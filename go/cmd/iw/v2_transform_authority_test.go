@@ -1,9 +1,7 @@
 package main
 
-// The frozen Node transform oracle remains authoritative only when the v2
-// cross-state default is explicitly disabled. This corpus pins the Go-owned
-// default: omitted roots enable cross-state binding across the complete
-// committed demo pull set, with exact command transcripts and output bytes.
+// This corpus pins the transform default across the committed demo pull set,
+// including exact command transcripts and output bytes.
 
 import (
 	"bytes"
@@ -86,7 +84,7 @@ func runV2TransformAuthority(t *testing.T, repositoryRoot, binary, name string) 
 	demoInput := filepath.Join(repositoryRoot, "packs", "_shared", "zscaler", "demo")
 	result := runBinaryWithEnv(t, repositoryRoot, binary, []string{
 		"transform", "--in", demoInput, "--tenant", "demo",
-		"--profile", "packs/full.packset.json", "--catalog", "packs/full.packset.json",
+		"--profile", "packs/full.packset.json",
 	}, []string{
 		"INFRAWRIGHT_DEPLOYMENT=" + deploymentPath,
 		"TMPDIR=" + temporary,

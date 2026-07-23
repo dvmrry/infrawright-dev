@@ -1,7 +1,7 @@
 package transform
 
 // overrides.go ports the override vocabulary and the two authoring seams
-// built on it from node-src/domain/pull-transform.ts: keyFields,
+// built on it from the original implementation: keyFields,
 // identityComponent, deriveKey, goHtmlEscape, escapeHtmlFields,
 // unescapeDisplayFields, matchesTransformDefault, applyReachableOverrides,
 // applyTransformOverridesForAuthoring, coerceTransformPrimitiveForAuthoring,
@@ -16,7 +16,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
-// keyFields ports keyFields from node-src/domain/pull-transform.ts.
+// keyFields ports keyFields from the original implementation.
 func keyFields(resource *runtimeTransformResource) []string {
 	field, present := resource.Override["key_field"]
 	if !present || field == nil {
@@ -28,35 +28,8 @@ func keyFields(resource *runtimeTransformResource) []string {
 	return stringArraySlice(field, resource.Type+".override.key_field")
 }
 
-// identityComponent ports identityComponent from
-// node-src/domain/pull-transform.ts.
-//
-// KNOWN, NARROW DIVERGENCE: the strict branch's blank check uses Go's
-// strings.TrimSpace (Unicode White_Space, matching this package's other
-// Python-oriented trimming) where the Node source uses JS's String.trim()
-// (ECMAScript WhiteSpace + LineTerminator). The two productions differ only
-// at the margins -- JS's trim() additionally strips U+FEFF (ZWNBSP/BOM) and
-// does not treat U+0085 (NEL) as whitespace, the reverse of Go's
-// strings.TrimSpace -- an all-whitespace-apart-from-those-two-code-points
-// key_field string is not exercised by any fixture in this port's gate, so
-// this divergence is unobservable in practice, following the same
-// "known, narrow divergence" documentation convention as snake.go's own
-// collision-order note.
-func identityComponent(value any, field string, strict bool) string {
-	if strict {
-		if s, ok := value.(string); ok {
-			if strings.TrimSpace(s) == "" {
-				failf("key field %s must not be blank", jsonQuote(field))
-			}
-			return s
-		}
-		if n, ok := value.(json.Number); ok {
-			if integer, ok := integerValue(n); ok {
-				return integer.String()
-			}
-		}
-		failf("key field %s must be a nonblank string or integral LosslessNumber", jsonQuote(field))
-	}
+// identityComponent renders a resource identity component.
+func identityComponent(value any) string {
 	if s, ok := value.(string); ok {
 		return s
 	}
@@ -88,7 +61,7 @@ func identityComponent(value any, field string, strict bool) string {
 	return fmtString(value)
 }
 
-// deriveKey ports deriveKey from node-src/domain/pull-transform.ts.
+// deriveKey ports deriveKey from the original implementation.
 func deriveKey(item map[string]any, resource *runtimeTransformResource) string {
 	fields := keyFields(resource)
 	parts := make([]string, len(fields))
@@ -97,7 +70,7 @@ func deriveKey(item map[string]any, resource *runtimeTransformResource) string {
 		if !ok {
 			failf("key field %s missing from item; set key_field in the override map", jsonQuote(field))
 		}
-		parts[i] = identityComponent(value, field, resource.StrictFrozenCompatibility)
+		parts[i] = identityComponent(value)
 	}
 	key := SlugifyTransformKey(strings.Join(parts, " "))
 	if key != "" {
@@ -106,14 +79,11 @@ func deriveKey(item map[string]any, resource *runtimeTransformResource) string {
 	if _, ok := item["id"]; !ok {
 		fail("derived key is empty and item has no 'id' to fall back on")
 	}
-	fallback := SlugifyTransformKey(identityComponent(item["id"], "id", resource.StrictFrozenCompatibility))
-	if resource.StrictFrozenCompatibility && fallback == "" {
-		fail(`fallback key field "id" must contain at least one ASCII letter or digit`)
-	}
+	fallback := SlugifyTransformKey(identityComponent(item["id"]))
 	return "id_" + fallback
 }
 
-// goHtmlEscape ports goHtmlEscape from node-src/domain/pull-transform.ts:
+// goHtmlEscape ports goHtmlEscape from the original implementation:
 // the fixed five-entity HTML escape Terraform's own `html_escape_fields`
 // override applies after two htmlUnescape passes.
 //
@@ -137,7 +107,7 @@ func goHtmlEscape(value string) string {
 }
 
 // escapeHtmlFields ports escapeHtmlFields from
-// node-src/domain/pull-transform.ts. item is mutated in place, exactly like
+// the original implementation. item is mutated in place, exactly like
 // the Node source's own item[field] = ... assignment.
 func escapeHtmlFields(item map[string]any, resource *runtimeTransformResource, htmlUnescape func(string) string) {
 	fields := stringArraySlice(resource.Override["html_escape_fields"], resource.Type+".override.html_escape_fields")
@@ -154,7 +124,7 @@ func escapeHtmlFields(item map[string]any, resource *runtimeTransformResource, h
 }
 
 // unescapeDisplayFields ports unescapeDisplayFields from
-// node-src/domain/pull-transform.ts. item is mutated in place.
+// the original implementation. item is mutated in place.
 func unescapeDisplayFields(item map[string]any, resource *runtimeTransformResource, htmlUnescape func(string) string) {
 	if resource.HTMLUnescapePasses == 0 {
 		return
@@ -170,7 +140,7 @@ func unescapeDisplayFields(item map[string]any, resource *runtimeTransformResour
 }
 
 // MatchesTransformDefault ports the exported matchesTransformDefault from
-// node-src/domain/pull-transform.ts.
+// the original implementation.
 func MatchesTransformDefault(value, defaultValue any) bool {
 	_, defaultIsInteger := integerValue(defaultValue)
 	comparable := value
@@ -186,7 +156,7 @@ func MatchesTransformDefault(value, defaultValue any) bool {
 }
 
 // applyReachableOverrides ports applyReachableOverrides from
-// node-src/domain/pull-transform.ts: the ordinary override vocabulary
+// the original implementation: the ordinary override vocabulary
 // (renames, split_csv, sort_lists, drops, references, divide, invert_bool,
 // value_map, strip_prefix, defaults, drop_if_default), applied in that
 // exact order against a shallow copy of item.
@@ -201,11 +171,6 @@ func applyReachableOverrides(item map[string]any, resource *runtimeTransformReso
 	for _, oldName := range canonjson.SortedStrings(mapKeys(renames)) {
 		if value, ok := output[oldName]; ok {
 			newName := renames[oldName]
-			if resource.StrictFrozenCompatibility && oldName != newName {
-				if _, collides := output[newName]; collides {
-					failf("rename destination collision: %s cannot overwrite existing %s", jsonQuote(oldName), jsonQuote(newName))
-				}
-			}
 			delete(output, oldName)
 			output[newName] = value
 		}
@@ -346,7 +311,7 @@ func everyElementIsString(values []any) bool {
 
 // ApplyTransformOverridesForAuthoring ports the exported
 // applyTransformOverridesForAuthoring from
-// node-src/domain/pull-transform.ts: "Apply the ordinary read-side override
+// the original implementation: "Apply the ordinary read-side override
 // vocabulary without schema shaping."
 func ApplyTransformOverridesForAuthoring(item map[string]any, override map[string]any, resourceType string) map[string]any {
 	copied := make(map[string]any, len(item))
@@ -354,16 +319,14 @@ func ApplyTransformOverridesForAuthoring(item map[string]any, override map[strin
 		copied[key] = value
 	}
 	resource := &runtimeTransformResource{
-		Type:                      resourceType,
-		Override:                  override,
-		HTMLUnescapePasses:        0,
-		StrictFrozenCompatibility: false,
+		Type:               resourceType,
+		Override:           override,
+		HTMLUnescapePasses: 0,
 		Projection: runtimeProjection{
 			Attributes:                map[string]metadata.TerraformTypeEncoding{},
 			Blocks:                    map[string]runtimeProjectionBlock{},
 			KnownMembers:              []string{},
 			SilentlyIgnoredAttributes: []string{},
-			StrictFrozenCompatibility: false,
 		},
 	}
 	return applyReachableOverrides(copied, resource)
@@ -371,15 +334,15 @@ func ApplyTransformOverridesForAuthoring(item map[string]any, override map[strin
 
 // CoerceTransformPrimitiveForAuthoring ports the exported
 // coerceTransformPrimitiveForAuthoring from
-// node-src/domain/pull-transform.ts: "Authoring classification seam for the
+// the original implementation: "Authoring classification seam for the
 // runtime's primitive coercion rules."
 func CoerceTransformPrimitiveForAuthoring(value any, primitive metadata.TerraformPrimitiveType) any {
-	return coerceValue(value, primitive, false)
+	return coerceValue(value, primitive)
 }
 
 // TransformValueMatchesDefaultForAuthoring ports the exported
 // transformValueMatchesDefaultForAuthoring from
-// node-src/domain/pull-transform.ts: "Authoring classification seam for
+// the original implementation: "Authoring classification seam for
 // runtime drop-if-default comparison."
 func TransformValueMatchesDefaultForAuthoring(value, defaultValue any) bool {
 	return MatchesTransformDefault(value, defaultValue)

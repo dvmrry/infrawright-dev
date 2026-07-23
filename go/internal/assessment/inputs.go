@@ -1,6 +1,6 @@
 package assessment
 
-// This file ports node-src/domain/plan-assessment-inputs.ts: it turns the
+// This file ports the original implementation: it turns the
 // public root/deployment inputs into the narrow, immutable inputs consumed by
 // saved-plan assessment and rechecks that root selection has not changed.
 
@@ -12,8 +12,8 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/envgen"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
+	"github.com/dvmrry/infrawright-dev/go/internal/posixpath"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
-	"github.com/dvmrry/infrawright-dev/go/internal/pypath"
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
 	"github.com/dvmrry/infrawright-dev/go/internal/terraformcmd"
 	"github.com/dvmrry/infrawright-dev/go/internal/tfrender"
@@ -24,7 +24,7 @@ import (
 type ResolveSavedPlanAssessmentOptions struct {
 	Workspace           string
 	Deployment          deployment.Deployment
-	Catalog             metadata.RootCatalog
+	ResourceSet         metadata.ResourceSet
 	Tenant              *string
 	Selectors           []string
 	TerraformExecutable string
@@ -52,11 +52,11 @@ type ResolveLoadedSavedPlanAssessmentOptions struct {
 // SavedPlanAssessmentContext is the persisted-catalog context rechecked at
 // both ends of a saved-plan assessment.
 type SavedPlanAssessmentContext struct {
-	Workspace  string
-	Deployment deployment.Deployment
-	Catalog    metadata.RootCatalog
-	Tenant     *string
-	Selectors  []string
+	Workspace   string
+	Deployment  deployment.Deployment
+	ResourceSet metadata.ResourceSet
+	Tenant      *string
+	Selectors   []string
 }
 
 // LoadedSavedPlanAssessmentContext is the active-pack context rechecked at
@@ -145,18 +145,14 @@ func copyDeploymentForAssessment(value deployment.Deployment) deployment.Deploym
 	}
 }
 
-func copyCatalogForAssessment(value metadata.RootCatalog) metadata.RootCatalog {
-	resources := make([]metadata.RootCatalogResource, len(value.Resources))
+func copyResourceSetForAssessment(value metadata.ResourceSet) metadata.ResourceSet {
+	resources := make([]metadata.ResourceDescriptor, len(value.Resources))
 	for index, resource := range value.Resources {
 		resources[index] = resource
 	}
-	return metadata.RootCatalog{
-		Kind:              value.Kind,
-		SchemaVersion:     value.SchemaVersion,
+	return metadata.ResourceSet{
 		DeclaredProviders: cloneStrings(value.DeclaredProviders),
 		Resources:         resources,
-		SourceFiles:       cloneStrings(value.SourceFiles),
-		SourcesSHA256:     value.SourcesSHA256,
 	}
 }
 
@@ -164,11 +160,11 @@ func copyCatalogForAssessment(value metadata.RootCatalog) metadata.RootCatalog {
 // context snapshot used by assessment.
 func CopySavedPlanAssessmentContext(context SavedPlanAssessmentContext) SavedPlanAssessmentContext {
 	return SavedPlanAssessmentContext{
-		Workspace:  context.Workspace,
-		Deployment: copyDeploymentForAssessment(context.Deployment),
-		Catalog:    copyCatalogForAssessment(context.Catalog),
-		Tenant:     cloneString(context.Tenant),
-		Selectors:  cloneStrings(context.Selectors),
+		Workspace:   context.Workspace,
+		Deployment:  copyDeploymentForAssessment(context.Deployment),
+		ResourceSet: copyResourceSetForAssessment(context.ResourceSet),
+		Tenant:      cloneString(context.Tenant),
+		Selectors:   cloneStrings(context.Selectors),
 	}
 }
 
@@ -212,9 +208,9 @@ func assessmentConfigDirectory(value deployment.Deployment, tenant string) (stri
 		)
 	}
 	if overlay == "." {
-		return pypath.PythonPosixJoin("config", tenant), nil
+		return posixpath.Join("config", tenant), nil
 	}
-	return pypath.PythonPosixJoin(overlay, "config", tenant), nil
+	return posixpath.Join(overlay, "config", tenant), nil
 }
 
 func resolveAssessmentPath(workspace, candidate string) string {
@@ -244,12 +240,12 @@ func materializeSavedPlanAssessmentRoots(
 			"assessment workspace must be absolute",
 		)
 	}
-	materialized, err := roots.PlanRootsFromCatalog(roots.PlanRootsOptions{
-		Workspace:  context.Workspace,
-		Deployment: context.Deployment,
-		Catalog:    context.Catalog,
-		Tenant:     context.Tenant,
-		Selectors:  context.Selectors,
+	materialized, err := roots.PlanRootsFromResourceSet(roots.PlanRootsOptions{
+		Workspace:   context.Workspace,
+		Deployment:  context.Deployment,
+		ResourceSet: context.ResourceSet,
+		Tenant:      context.Tenant,
+		Selectors:   context.Selectors,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -277,7 +273,7 @@ func materializeSavedPlanAssessmentRoots(
 		for index, member := range root.Members {
 			varFiles[index] = resolveAssessmentPath(
 				context.Workspace,
-				pypath.PythonPosixJoin(configDirectory, member+suffix),
+				posixpath.Join(configDirectory, member+suffix),
 			)
 		}
 		result = append(result, SavedPlanAssessmentRootInput{
@@ -505,11 +501,11 @@ func resolveSavedPlanAssessment(
 	hooks resolveSavedPlanAssessmentHooks,
 ) (ResolvedSavedPlanAssessment, error) {
 	context := CopySavedPlanAssessmentContext(SavedPlanAssessmentContext{
-		Workspace:  options.Workspace,
-		Deployment: options.Deployment,
-		Catalog:    options.Catalog,
-		Tenant:     options.Tenant,
-		Selectors:  options.Selectors,
+		Workspace:   options.Workspace,
+		Deployment:  options.Deployment,
+		ResourceSet: options.ResourceSet,
+		Tenant:      options.Tenant,
+		Selectors:   options.Selectors,
 	})
 	// The generic resolver captures every non-topology option before its first
 	// asynchronous discovery in Node. Keep that ordering even though the Go

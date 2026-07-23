@@ -6,7 +6,7 @@ import (
 )
 
 // TestFiniteFloatToken exercises pythonFiniteFloatToken's spelling rules
-// from node-src/json/python-number.ts: negative zero, the fixed/scientific
+// from the original implementation: negative zero, the fixed/scientific
 // notation boundary at decimal exponents -4 and 16, and zero-padded signed
 // scientific exponents.
 //
@@ -64,7 +64,7 @@ func TestFiniteFloatTokenRejectsNonFinite(t *testing.T) {
 }
 
 // TestCanonicalNumberToken ports canonicalPythonNumberToken's contract from
-// node-src/json/python-number.ts: arbitrary-size integer tokens normalize
+// the original implementation: arbitrary-size integer tokens normalize
 // through big-integer parsing (including the "-0" -> "0" oddity, since
 // BigInt/*big.Int have no signed zero), while any other syntactically
 // valid JSON number token is re-rendered through the finite float64 path.

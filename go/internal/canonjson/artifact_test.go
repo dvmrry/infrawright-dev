@@ -1,6 +1,8 @@
 package canonjson
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"math"
 	"os"
@@ -12,14 +14,14 @@ import (
 
 // TestRenderLosslessArtifactJSONMatchesPythonForIntegerJSON ports
 // "lossless artifact renderer matches Python bytes for integer JSON" from
-// node-tests/python-lossless-artifact.test.ts. The Node test shells out to
+// the original test corpus. The Node test shells out to
 // a Python oracle at run time; this port instead hardcodes that same
 // oracle's output (`python3 -c "json.dumps(value, indent=2,
 // sort_keys=True)"` against the identical decoded value -- see this
 // package's Go test conventions in number_test.go/render_test.go), so this
 // suite stays stdlib-only.
 func TestRenderLosslessArtifactJSONMatchesPythonForIntegerJSON(t *testing.T) {
-	// Exactly the source text node-tests/python-lossless-artifact.test.ts
+	// Exactly the source text the original test corpus
 	// builds via its `[...].join("")` array (verified byte-for-byte
 	// against the .ts source file's own bytes during development).
 	source := "{\"2\":\"two\",\"10\":\"ten\",\"ascii\":\"é/\\\\\\\"\\n\",\"astral\":\"😀\",\"bmp\":\"\",\"huge\":900719925474099312345678901234567890,\"negative_zero\":-0,\"nested\":[true,null,9007199254740991]}"
@@ -59,7 +61,7 @@ func TestRenderLosslessArtifactJSONMatchesPythonForIntegerJSON(t *testing.T) {
 
 // TestRenderLosslessArtifactJSONEscapeBoundariesMatchPython ports
 // "ASCII and Unicode escape boundaries match Python in keys and values"
-// from node-tests/python-lossless-artifact.test.ts. The Node test builds
+// from the original test corpus. The Node test builds
 // its value directly as a JS object (via Object.create(null) plus
 // per-character own properties, one entry per boundary code point, keyed
 // and valued by the same single character) rather than by parsing JSON
@@ -106,7 +108,7 @@ func TestRenderLosslessArtifactJSONEscapeBoundariesMatchPython(t *testing.T) {
 
 // TestRenderLosslessArtifactJSONSafeIntegersAndUnboundedTokens ports
 // "safe native integers and integral lossless tokens render canonically"
-// from node-tests/python-lossless-artifact.test.ts, minus its
+// from the original test corpus, minus its
 // __proto__/constructor property-descriptor trickery (forcing literal own
 // properties named "__proto__"/"constructor" without touching the real
 // prototype chain -- meaningful only for a JS object; a Go map's
@@ -151,7 +153,7 @@ func TestRenderLosslessArtifactJSONSafeIntegersAndUnboundedTokens(t *testing.T) 
 
 // TestRenderLosslessArtifactJSONFloatNotationBoundaries ports
 // "finite lossless floats match Python bytes across notation boundaries"
-// from node-tests/python-lossless-artifact.test.ts: an array of
+// from the original test corpus: an array of
 // json.Number tokens spanning fixed/scientific notation boundaries,
 // subnormals, and both extremes of float64 magnitude. Expected output was
 // captured once via `python3 -c "json.dumps([json.loads(t) for t in
@@ -180,7 +182,7 @@ func TestRenderLosslessArtifactJSONFloatNotationBoundaries(t *testing.T) {
 
 // TestRenderLosslessArtifactJSONFloatsRoundTripAcrossDeterministicSweep
 // ports "finite float spelling matches Python across deterministic binary64
-// values" from node-tests/python-lossless-artifact.test.ts, including its
+// values" from the original test corpus, including its
 // exact splitmix64-style generator (state = state*6364136223846793005 +
 // 1442695040888963407, reading the resulting bits directly as a float64 --
 // the Node source's `view.setBigUint64(0, state, false)` immediately
@@ -188,21 +190,13 @@ func TestRenderLosslessArtifactJSONFloatNotationBoundaries(t *testing.T) {
 // reinterpretation, since both calls use the same byte order, matching
 // Go's math.Float64frombits).
 //
-// The Node test compares its renderer's compact output against a live
-// Python oracle for all 2048 generated doubles. This port instead checks
-// the property that comparison was ultimately protecting -- that
-// FiniteFloatToken's spelling for each generated double round-trips
-// through strconv.ParseFloat back to the exact original bit pattern --
-// since CPython-specific *notation* (fixed-vs-scientific thresholds, sign,
-// exponent padding) already has its own dedicated, hardcoded cross-check
-// sweep in number_test.go's TestFiniteFloatToken (per that test's own doc
-// comment, cross-checked against ~2000 random/boundary doubles during
-// development). This test instead exercises the artifact renderer's full
-// array-encoding pipeline across the identical generator, without a live
-// Python dependency.
+// The compact CPython output length and digest are retained as a neutral,
+// inert compatibility fixture. The test also keeps the bit-for-bit
+// round-trip check and exercises the artifact renderer's array pipeline.
 func TestRenderLosslessArtifactJSONFloatsRoundTripAcrossDeterministicSweep(t *testing.T) {
 	state := uint64(0x9e3779b97f4a7c15)
 	var tokens []any
+	var compactTokens []string
 	for i := 0; i < 2048; i++ {
 		state = state*6364136223846793005 + 1442695040888963407
 		value := math.Float64frombits(state)
@@ -222,9 +216,43 @@ func TestRenderLosslessArtifactJSONFloatsRoundTripAcrossDeterministicSweep(t *te
 				value, token, reparsed, math.Float64bits(reparsed), math.Float64bits(value))
 		}
 		tokens = append(tokens, json.Number(token))
+		compactTokens = append(compactTokens, token)
 	}
-	if len(tokens) == 0 {
-		t.Fatal("deterministic sweep produced no finite doubles; generator or filter is broken")
+	if got, want := len(tokens), 2047; got != want {
+		t.Fatalf("deterministic sweep produced %d finite doubles, want %d", got, want)
+	}
+
+	fixturePath := filepath.Join("testdata", "lossless_binary64_compatibility.json")
+	fixtureBytes, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error: %v", fixturePath, err)
+	}
+	fixtureDigest := sha256.Sum256(fixtureBytes)
+	if got, want := hex.EncodeToString(fixtureDigest[:]), "68061b2be7c3a06620238cf9116660e0254cf038b76e194d644be6826c7a1664"; got != want {
+		t.Fatalf("SHA256(%q) = %q, want %q", fixturePath, got, want)
+	}
+	var compatibility struct {
+		SchemaVersion int `json:"schema_version"`
+		Corpus        struct {
+			GeneratedValues int `json:"generated_values"`
+			FiniteValues    int `json:"finite_values"`
+		} `json:"corpus"`
+		Output struct {
+			Bytes  int    `json:"bytes"`
+			SHA256 string `json:"sha256"`
+		} `json:"output"`
+	}
+	if err := json.Unmarshal(fixtureBytes, &compatibility); err != nil {
+		t.Fatalf("json.Unmarshal(%q) error: %v", fixturePath, err)
+	}
+	if compatibility.SchemaVersion != 1 || compatibility.Corpus.GeneratedValues != 2048 || compatibility.Corpus.FiniteValues != len(tokens) {
+		t.Fatalf("%s schema/generated/finite = %d/%d/%d, want 1/2048/%d", fixturePath, compatibility.SchemaVersion, compatibility.Corpus.GeneratedValues, compatibility.Corpus.FiniteValues, len(tokens))
+	}
+	compactRendered := "[" + strings.Join(compactTokens, ",") + "]"
+	compactDigest := sha256.Sum256([]byte(compactRendered))
+	compactSHA256 := hex.EncodeToString(compactDigest[:])
+	if len(compactRendered) != compatibility.Output.Bytes || compactSHA256 != compatibility.Output.SHA256 {
+		t.Errorf("compact deterministic corpus length/SHA256 = %d/%s, want %d/%s", len(compactRendered), compactSHA256, compatibility.Output.Bytes, compatibility.Output.SHA256)
 	}
 
 	rendered, err := RenderLosslessArtifactJSON(tokens)
@@ -247,7 +275,7 @@ func isFiniteFloat(v float64) bool {
 
 // TestRenderLosslessArtifactJSONRejectsNativeFloatsAndUnsafeNumbers ports
 // "native floats, non-finite lexemes, and unsafe native numbers fail" from
-// node-tests/python-lossless-artifact.test.ts.
+// the original test corpus.
 func TestRenderLosslessArtifactJSONRejectsNativeFloatsAndUnsafeNumbers(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -270,7 +298,7 @@ func TestRenderLosslessArtifactJSONRejectsNativeFloatsAndUnsafeNumbers(t *testin
 
 // TestRenderLosslessArtifactJSONFailsClosedOnUnsupportedValuesAndCycles
 // ports the spirit of "non-JSON containers, hidden state, and cycles fail
-// closed" from node-tests/python-lossless-artifact.test.ts. Most of that
+// closed" from the original test corpus. Most of that
 // Node test exercises JS-runtime-specific ways to smuggle data past plain
 // JSON semantics -- a sparse array hole, a non-enumerable/accessor
 // property, a throwing Proxy trap -- none of which are constructible at
@@ -375,7 +403,7 @@ func TestRenderLosslessArtifactJSONFailsClosedOnUnsupportedValuesAndCycles(t *te
 // every demo/config/demo/*.json fixture is, per gate_test.go's
 // TestRoundTripGate doc comment, actually renderPythonLosslessArtifactJson
 // output (not renderPythonCompatibleJson output) -- written by
-// node-src/domain/transform-artifacts.ts's renderDeploymentTfvars/
+// the original implementation's renderDeploymentTfvars/
 // renderTransformLookup, both of which call renderPythonLosslessArtifactJson
 // after parsing with parseDataJsonLosslessly. This decodes each committed
 // fixture and re-renders it through this file's RenderLosslessArtifactJSON,
@@ -387,9 +415,7 @@ func TestRenderLosslessArtifactJSONFailsClosedOnUnsupportedValuesAndCycles(t *te
 //
 // repoRoot and reportMismatch are reused, unmodified, from gate_test.go
 // (both are ordinary unexported test helpers visible package-wide); only
-// the fixture set (demo/config/demo/*.json alone, excluding
-// catalogs/zscaler-root-catalog.v1.json, which is Render's output, not
-// this file's) is gathered independently here.
+// the demo/config/demo fixture set is gathered independently here.
 func TestLosslessArtifactFixturesRoundTrip(t *testing.T) {
 	root := repoRoot(t)
 	matches, err := filepath.Glob(filepath.Join(root, "demo", "config", "demo", "*.json"))

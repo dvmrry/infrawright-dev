@@ -1,14 +1,5 @@
-// Package metadata ports node-src/metadata/*.ts: pack.json/registry.json
-// validation, pack-root/profile/catalog resolution, resource-schema
-// loading, and the root-catalog compatibility view, all built on the
-// go/internal/canonjson canonical JSON value tree (map[string]any /
-// []any / json.Number / float64 / string / bool / nil) instead of
-// generated structs, matching this port's Slice 0 design
-// (docs/go-runtime-plan.md).
-//
-// Every exported symbol's doc comment names the Node source file it ports;
-// those TypeScript files remain the differential oracle until this port is
-// independently qualified.
+// Package metadata validates and loads packs, profiles, registries, and
+// resource schemas using the canonjson value tree.
 package metadata
 
 import (
@@ -25,14 +16,13 @@ import (
 
 // JsonObject is the dynamic JSON-object shape this package validates
 // against: a canonjson.Value known (once validated) to be a JSON object.
-// Ports the JsonObject alias from node-src/metadata/validation.ts.
 type JsonObject = map[string]any
 
 // MetadataError reports a metadata validation failure. Its Error() text is
 // asserted verbatim by this package's ported tests wherever the
 // corresponding Node test asserts an exact message, per this port's
 // validation-message-parity requirement. Ports the MetadataError class from
-// node-src/metadata/validation.ts.
+// the original implementation.
 type MetadataError struct {
 	message string
 }
@@ -41,7 +31,7 @@ type MetadataError struct {
 func (e *MetadataError) Error() string { return e.message }
 
 // fail panics with a *MetadataError carrying message, mirroring
-// node-src/metadata/validation.ts's fail(), typed there as returning
+// the original implementation's fail(), typed there as returning
 // `never` because it always throws.
 //
 // Every exported entry point in this package recovers a *MetadataError
@@ -106,7 +96,7 @@ func recoverMetadataError(err *error) {
 
 // isObject reports whether value is a JSON object as decoded by this
 // package (a map[string]any). Ports isObject from
-// node-src/metadata/validation.ts; the TypeScript version additionally
+// the original implementation; the TypeScript version additionally
 // excludes arrays and LosslessNumber instances from a bare `typeof value
 // === "object"` test, both of which have no Go analogue here: []any never
 // satisfies a map[string]any type assertion, and json.Number is a string
@@ -116,7 +106,7 @@ func isObject(value any) bool {
 	return ok
 }
 
-// requireObject ports requireObject from node-src/metadata/validation.ts.
+// requireObject ports requireObject from the original implementation.
 func requireObject(value any, path string) JsonObject {
 	obj, ok := value.(JsonObject)
 	if !ok {
@@ -136,7 +126,7 @@ func stringSet(keys ...string) map[string]struct{} {
 }
 
 // rejectUnknownKeys ports rejectUnknownKeys from
-// node-src/metadata/validation.ts. Unknown keys are sorted before the
+// the original implementation. Unknown keys are sorted before the
 // first is reported (matching the Node source's explicit
 // sortedStrings(...)), so which key is named is deterministic regardless
 // of this package's unordered map[string]any object representation.
@@ -153,7 +143,7 @@ func rejectUnknownKeys(value JsonObject, allowed map[string]struct{}, path strin
 	}
 }
 
-// requireKeys ports requireKeys from node-src/metadata/validation.ts.
+// requireKeys ports requireKeys from the original implementation.
 // Missing keys are sorted before the first is reported, matching the Node
 // source's explicit sortedStrings(...).
 func requireKeys(value JsonObject, required map[string]struct{}, path string) {
@@ -170,7 +160,7 @@ func requireKeys(value JsonObject, required map[string]struct{}, path string) {
 }
 
 // requireNonEmptyString ports requireNonEmptyString from
-// node-src/metadata/validation.ts.
+// the original implementation.
 func requireNonEmptyString(value any, path string) string {
 	s, ok := value.(string)
 	if !ok || len(s) == 0 {
@@ -180,7 +170,7 @@ func requireNonEmptyString(value any, path string) string {
 }
 
 // validateStringMap ports validateStringMap from
-// node-src/metadata/validation.ts.
+// the original implementation.
 //
 // The Node source iterates Object.keys(value) in source key order and
 // reports the first invalid key or value it finds; this package's
@@ -228,12 +218,12 @@ func sortedMapKeys[V any](m map[string]V) []string {
 // jsonIntegerToken matches a bare JSON integer lexeme: an optional minus
 // sign, then "0" or a non-zero digit followed by more digits -- no
 // fraction, no exponent. Ports the JSON_INTEGER regexp from
-// node-src/metadata/validation.ts.
+// the original implementation.
 var jsonIntegerToken = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)$`)
 
 // minSafeInteger and maxSafeInteger are JavaScript's
 // Number.MIN_SAFE_INTEGER/MAX_SAFE_INTEGER (+/-(2^53 - 1)), the range
-// node-src/metadata/validation.ts's normalizedMetadataNumber uses to
+// the original implementation's normalizedMetadataNumber uses to
 // decide whether an integer token can round-trip through a plain JS
 // number.
 const (
@@ -250,7 +240,7 @@ var (
 // (a json.Number, this package's analogue of a lossless-json
 // LosslessNumber) to a plain float64 wherever that conversion is exact,
 // leaving it as the original token otherwise. Ports
-// normalizedMetadataNumber from node-src/metadata/validation.ts.
+// normalizedMetadataNumber from the original implementation.
 func normalizedMetadataNumber(value json.Number) any {
 	token := string(value)
 	if jsonIntegerToken.MatchString(token) {
@@ -289,7 +279,7 @@ func asNumError(err error, target **strconv.NumError) bool {
 }
 
 // normalizeNumericTokens ports normalizeNumericTokens from
-// node-src/metadata/validation.ts: recursively walks a decoded JSON value,
+// the original implementation: recursively walks a decoded JSON value,
 // demoting json.Number leaves to plain float64 (see
 // normalizedMetadataNumber) except within a subtree rooted at a
 // preserveUnderKeys key (or when preserve is already true), where the
@@ -320,7 +310,7 @@ func normalizeNumericTokens(value any, preserve bool, preserveUnderKeys map[stri
 }
 
 // readJSONOptions mirrors the options bag readJson accepts in
-// node-src/metadata/validation.ts.
+// the original implementation.
 type readJSONOptions struct {
 	preserveNumericTokens          bool
 	preserveNumericTokensUnderKeys map[string]struct{}
@@ -328,7 +318,7 @@ type readJSONOptions struct {
 
 // readJSON reads and parses path as this package's canonical numeric-token
 // dialect, panicking (see fail) with the same message shape as
-// node-src/metadata/validation.ts's readJson on any I/O or parse failure.
+// the original implementation's readJson on any I/O or parse failure.
 //
 // Decoding itself is delegated to canonjson.Decode, which -- like the Node
 // source's lossless-json parse -- always surfaces every JSON number as its
@@ -361,7 +351,7 @@ func readJSON(path string, opts readJSONOptions) any {
 }
 
 // isFiniteJsonNumber ports isFiniteJsonNumber from
-// node-src/metadata/validation.ts.
+// the original implementation.
 func isFiniteJsonNumber(value any) bool {
 	switch v := value.(type) {
 	case float64:
@@ -381,7 +371,7 @@ func isFiniteJsonNumber(value any) bool {
 }
 
 // isIntegerJsonNumber ports isIntegerJsonNumber from
-// node-src/metadata/validation.ts.
+// the original implementation.
 func isIntegerJsonNumber(value any) bool {
 	switch v := value.(type) {
 	case float64:
@@ -393,7 +383,7 @@ func isIntegerJsonNumber(value any) bool {
 	}
 }
 
-// isJsonScalar ports isJsonScalar from node-src/metadata/validation.ts.
+// isJsonScalar ports isJsonScalar from the original implementation.
 func isJsonScalar(value any) bool {
 	if value == nil {
 		return true

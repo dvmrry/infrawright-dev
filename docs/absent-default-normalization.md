@@ -48,9 +48,9 @@ placeholder omission. It is better classified as
 proves that omitting or preserving a field yields a neutral plan and does not
 lose ownership of a server-owned setting.
 
-The existing [Absent/Default Diagnostics](absent-default-diagnostics.md)
-command classifies these shapes. That diagnostic evidence is not a
-normalization rule.
+The [Absent/Default Diagnostics](absent-default-diagnostics.md) classifications
+describe these shapes. They are not a normalization rule or a standalone
+command.
 
 ## Goals
 
@@ -449,7 +449,7 @@ Normalized metadata should strip these fields where appropriate.
   `terraform_schema_optional_default`; or
 - `action` is `preserve_explicit_falsey`.
 
-`observed_value` is type-strict: the validator preserves the exact Python value
+`observed_value` is type-strict: the validator preserves the exact JSON value
 and rejects coercion between distinct falsey shapes (e.g., `0`, `"0"`, `false`,
 `""`, `null`, `[]`, `{}`).
 

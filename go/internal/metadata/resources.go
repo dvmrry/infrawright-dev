@@ -1,6 +1,6 @@
 package metadata
 
-// resources.go ports node-src/metadata/resources.ts: registry.json/override
+// resources.go ports the original implementation: registry.json/override
 // validation, fetch/derive/adopt shape checks, and provider-schema/resource
 // loading. See the file-level doc comment in packs.go for this package's
 // exported-wrapper/unexported-implementation convention.
@@ -25,10 +25,10 @@ var paginationStyles = stringSet("single", "zcc_v2", "zia", "zpa")
 
 var fetchQueryKeys = stringSet("query")
 
-// dotPathSegment ports DOT_PATH_SEGMENT from node-src/metadata/resources.ts.
+// dotPathSegment ports DOT_PATH_SEGMENT from the original implementation.
 var dotPathSegment = regexp.MustCompile(`(?i)^(?:\.|%2e){1,2}$`)
 
-// safeFetchPath ports SAFE_FETCH_PATH from node-src/metadata/resources.ts.
+// safeFetchPath ports SAFE_FETCH_PATH from the original implementation.
 var safeFetchPath = regexp.MustCompile(`^(?:[A-Za-z0-9\-._~!$&'()*+,;=:@/{}]|%[0-9A-Fa-f]{2})+$`)
 
 var deriveKeys = stringSet("from", "policy_type")
@@ -58,21 +58,21 @@ func IsCanonicalResourceType(value string) bool {
 }
 
 // LoadedRegistry ports the LoadedRegistry interface from
-// node-src/metadata/resources.ts.
+// the original implementation.
 type LoadedRegistry struct {
 	Entries map[string]JsonObject
 	Sources map[string]string
 }
 
 // LoadedOverrides ports the LoadedOverrides interface from
-// node-src/metadata/resources.ts.
+// the original implementation.
 type LoadedOverrides struct {
 	Entries map[string]JsonObject
 	Sources map[string]string
 }
 
 // ProviderSchema ports the ProviderSchema interface from
-// node-src/metadata/resources.ts.
+// the original implementation.
 type ProviderSchema struct {
 	Provider        string
 	Path            string
@@ -95,7 +95,7 @@ func validateQuery(value any, source string) {
 
 // fetchPathSafetyViolation reports why a collector path-like value is
 // unsafe for WHATWG URL composition, or nil if it is safe. Ports
-// fetchPathSafetyViolation from node-src/metadata/resources.ts.
+// fetchPathSafetyViolation from the original implementation.
 func fetchPathSafetyViolation(value string) *string {
 	violation := func(s string) *string { return &s }
 	if strings.Contains(value, "\\") {
@@ -118,7 +118,7 @@ func fetchPathSafetyViolation(value string) *string {
 // fetchExpansionSafetyViolation reports why an expansion value is unsafe
 // (expansion values are quoted as one path segment, so only dot segments
 // survive quoting). Ports fetchExpansionSafetyViolation from
-// node-src/metadata/resources.ts.
+// the original implementation.
 func fetchExpansionSafetyViolation(value string) *string {
 	if value == "." || value == ".." {
 		s := "must not be '.' or '..'"
@@ -129,8 +129,8 @@ func fetchExpansionSafetyViolation(value string) *string {
 
 // FetchPathSafetyViolation is the exported form of
 // fetchPathSafetyViolation, for go/internal/collectors (rest.go's
-// expandedPaths, porting node-src/collectors/rest.ts), which shares this
-// exact check with node-src/metadata/resources.ts's own registry
+// expandedPaths, porting the original implementation), which shares this
+// exact check with the original implementation's own registry
 // validation -- both sides of a single source of truth in the Node source,
 // where resources.ts exports the function and rest.ts imports it.
 func FetchPathSafetyViolation(value string) *string {
@@ -260,7 +260,7 @@ func validateDerive(value any, source string) {
 var snakeCaseBoundary1 = regexp.MustCompile(`(.)([A-Z][a-z]+)`)
 var snakeCaseBoundary2 = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 
-// snakeCase ports snakeCase from node-src/metadata/resources.ts.
+// snakeCase ports snakeCase from the original implementation.
 func snakeCase(name string) string {
 	result := snakeCaseBoundary1.ReplaceAllString(name, "${1}_${2}")
 	result = snakeCaseBoundary2.ReplaceAllString(result, "${1}_${2}")
@@ -269,7 +269,7 @@ func snakeCase(name string) string {
 
 // skipField pairs an original field name with its snake-cased form. Ports
 // the anonymous `{ field, snake }` tuple validateSkipMatchers returns in
-// node-src/metadata/resources.ts.
+// the original implementation.
 type skipField struct {
 	Field string
 	Snake string
@@ -353,7 +353,7 @@ func validateSkipRenameConflicts(data JsonObject, source string, fields []skipFi
 // comparison this package makes against a conditionKey result are produced
 // by this same function (encoding/json.Marshal on a Go map, which sorts
 // keys), so it need not reproduce JSON.stringify's literal bytes -- ports
-// the `condition` local in node-src/metadata/resources.ts's
+// the `condition` local in the original implementation's
 // validateAdopt, which builds essentially the same key via
 // `JSON.stringify(Object.fromEntries(...))`.
 func conditionKey(match JsonObject) string {
@@ -469,7 +469,7 @@ func validateAdopt(value any, source string) {
 }
 
 // validateRegistry ports validateRegistry from
-// node-src/metadata/resources.ts.
+// the original implementation.
 func validateRegistry(value any, source string) JsonObject {
 	data := requireObject(value, source)
 	for _, resourceType := range sortedKeys(data) {
@@ -490,7 +490,7 @@ func validateRegistry(value any, source string) JsonObject {
 			continue
 		}
 		if _, retired := entry["slug_group"]; retired {
-			failf("%s.slug_group has been removed; see docs/singleton-state-topology-v2.md", label)
+			failf("%s.slug_group has been removed; see docs/state-topology.md", label)
 		}
 		rejectUnknownKeys(entry, registryResourceKeys, label)
 		requireKeys(entry, stringSet("product"), label)
@@ -521,13 +521,13 @@ func validateRegistry(value any, source string) JsonObject {
 }
 
 // ValidateRegistry ports validateRegistry from
-// node-src/metadata/resources.ts.
+// the original implementation.
 func ValidateRegistry(value any, source string) (data JsonObject, err error) {
 	defer recoverMetadataError(&err)
 	return validateRegistry(value, source), nil
 }
 
-// loadRegistry ports loadRegistry from node-src/metadata/resources.ts.
+// loadRegistry ports loadRegistry from the original implementation.
 // packNames nil means "no restriction" (every manifest); see the
 // validateSharedDependencies doc comment in packs.go for the same
 // nil-versus-empty convention.
@@ -574,7 +574,7 @@ func loadRegistry(metadata PackMetadata, packNames []string) LoadedRegistry {
 	return LoadedRegistry{Entries: entries, Sources: sources}
 }
 
-// LoadRegistry ports loadRegistry from node-src/metadata/resources.ts.
+// LoadRegistry ports loadRegistry from the original implementation.
 func LoadRegistry(metadata PackMetadata, packNames []string) (registry LoadedRegistry, err error) {
 	defer recoverMetadataError(&err)
 	return loadRegistry(metadata, packNames), nil
@@ -588,7 +588,7 @@ func firstNonEmpty(candidate, fallback string) string {
 }
 
 // validateUnsupportedProviderScopes ports
-// validateUnsupportedProviderScopes from node-src/metadata/resources.ts.
+// validateUnsupportedProviderScopes from the original implementation.
 func validateUnsupportedProviderScopes(metadata PackMetadata, registry LoadedRegistry) {
 	for _, resourceType := range sortedMapKeys(registry.Entries) {
 		entry := registry.Entries[resourceType]
@@ -637,7 +637,7 @@ func validateUnsupportedProviderScopes(metadata PackMetadata, registry LoadedReg
 }
 
 // ValidateUnsupportedProviderScopes ports
-// validateUnsupportedProviderScopes from node-src/metadata/resources.ts.
+// validateUnsupportedProviderScopes from the original implementation.
 func ValidateUnsupportedProviderScopes(metadata PackMetadata, registry LoadedRegistry) (err error) {
 	defer recoverMetadataError(&err)
 	validateUnsupportedProviderScopes(metadata, registry)
@@ -645,7 +645,7 @@ func ValidateUnsupportedProviderScopes(metadata PackMetadata, registry LoadedReg
 }
 
 // validateOverride ports validateOverride from
-// node-src/metadata/resources.ts.
+// the original implementation.
 func validateOverride(value any, source string) JsonObject {
 	data := requireObject(value, "override metadata in "+source)
 	unknown := make([]string, 0)
@@ -663,13 +663,13 @@ func validateOverride(value any, source string) JsonObject {
 }
 
 // ValidateOverride ports validateOverride from
-// node-src/metadata/resources.ts.
+// the original implementation.
 func ValidateOverride(value any, source string) (data JsonObject, err error) {
 	defer recoverMetadataError(&err)
 	return validateOverride(value, source), nil
 }
 
-// loadOverrides ports loadOverrides from node-src/metadata/resources.ts.
+// loadOverrides ports loadOverrides from the original implementation.
 func loadOverrides(metadata PackMetadata, packNames []string) LoadedOverrides {
 	var selected map[string]struct{}
 	if packNames != nil {
@@ -725,7 +725,7 @@ func loadOverrides(metadata PackMetadata, packNames []string) LoadedOverrides {
 	return LoadedOverrides{Entries: entries, Sources: sources}
 }
 
-// LoadOverrides ports loadOverrides from node-src/metadata/resources.ts.
+// LoadOverrides ports loadOverrides from the original implementation.
 func LoadOverrides(metadata PackMetadata, packNames []string) (overrides LoadedOverrides, err error) {
 	defer recoverMetadataError(&err)
 	return loadOverrides(metadata, packNames), nil
@@ -736,7 +736,7 @@ func providerSchemaPath(metadata PackMetadata, provider string) string {
 }
 
 // ProviderSchemaPath ports providerSchemaPath from
-// node-src/metadata/resources.ts.
+// the original implementation.
 func ProviderSchemaPath(metadata PackMetadata, provider string) (path string, err error) {
 	defer recoverMetadataError(&err)
 	return providerSchemaPath(metadata, provider), nil
@@ -763,7 +763,7 @@ func loadProviderSchema(metadata PackMetadata, provider string) ProviderSchema {
 }
 
 // LoadProviderSchema ports loadProviderSchema from
-// node-src/metadata/resources.ts.
+// the original implementation.
 func LoadProviderSchema(metadata PackMetadata, provider string) (schema ProviderSchema, err error) {
 	defer recoverMetadataError(&err)
 	return loadProviderSchema(metadata, provider), nil
@@ -781,7 +781,7 @@ func loadResourceSchema(metadata PackMetadata, resourceType string) JsonObject {
 }
 
 // LoadResourceSchema ports loadResourceSchema from
-// node-src/metadata/resources.ts.
+// the original implementation.
 func LoadResourceSchema(metadata PackMetadata, resourceType string) (schema JsonObject, err error) {
 	defer recoverMetadataError(&err)
 	return loadResourceSchema(metadata, resourceType), nil
@@ -794,7 +794,7 @@ func loadResourceMainOverride(metadata PackMetadata, resourceType string) (*stri
 }
 
 // LoadResourceMainOverride ports loadResourceMainOverride from
-// node-src/metadata/resources.ts.
+// the original implementation.
 func LoadResourceMainOverride(metadata PackMetadata, resourceType string) (content *string, err error) {
 	defer recoverMetadataError(&err)
 	return loadResourceMainOverride(metadata, resourceType)
@@ -808,7 +808,7 @@ func validatePackResources(metadata PackMetadata, packNames []string) (LoadedReg
 }
 
 // ValidatePackResources ports validatePackResources from
-// node-src/metadata/resources.ts.
+// the original implementation.
 func ValidatePackResources(metadata PackMetadata, packNames []string) (registry LoadedRegistry, overrides LoadedOverrides, err error) {
 	defer recoverMetadataError(&err)
 	registry, overrides = validatePackResources(metadata, packNames)

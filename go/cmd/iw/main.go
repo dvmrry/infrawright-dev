@@ -1,9 +1,6 @@
-// Command iw is the Go port of the Infrawright CLI entry point
-// (node-src/cli/main.ts). Cobra owns command discovery, parsing, help,
-// completion, and usage errors. Domain outputs, artifacts, reports, exit
-// classifications, environment precedence, and lifecycle safety gates retain
-// the qualified Go-port contracts. Filesystem and CLI presentation text are
-// Go-native throughout (docs/go-runtime-v2.md §2).
+// Command iw is the Infrawright CLI entry point. Cobra owns command discovery,
+// parsing, help, completion, and usage errors. Domain packages own outputs,
+// artifacts, reports, exit classifications, and lifecycle safety gates.
 package main
 
 import (
@@ -11,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
@@ -19,7 +15,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/transformrun"
 )
 
-// cliExit ports the CliExit class in node-src/cli/main.ts: a terminal
+// cliExit ports the CliExit class in the original implementation: a terminal
 // outcome carrying its exit status and output stream selection.
 type cliExit struct {
 	message string
@@ -29,7 +25,7 @@ type cliExit struct {
 
 func (e *cliExit) Error() string { return e.message }
 
-// usageError ports usageError in node-src/cli/main.ts.
+// usageError ports usageError in the original implementation.
 func usageError(message string) error {
 	return &cliExit{message: message, status: 2}
 }
@@ -96,99 +92,7 @@ func findPackageRoot(start string) (string, error) {
 	}
 }
 
-// lookupEnv mirrors the TS `?? process.env.X` nullish reads in rootCatalog:
-// an empty-but-set variable is used as-is (unlike the `||` reads other
-// commands use). Presence, not non-emptiness, decides.
-func lookupEnv(name string) (string, bool) {
-	return os.LookupEnv(name)
-}
-
-// rootCatalog ports the rootCatalog command in node-src/cli/main.ts.
-func rootCatalog(arguments []string) (int, error) {
-	return executeStandaloneCobra(newRootCatalogCobraCommand(), arguments)
-}
-
-func rootCatalogInput(parsed commandInput) (int, error) {
-	rootDirectory, err := packageRoot()
-	if err != nil {
-		return 0, err
-	}
-	output, hasOutput := lastCommandOption(parsed, "--out")
-	check, hasCheck := lastCommandOption(parsed, "--check")
-	if hasOutput && hasCheck {
-		return 0, usageError("root-catalog accepts only one of --out or --check")
-	}
-	providersValue, hasProviders := lastCommandOption(parsed, "--providers")
-	var providers []string
-	if hasProviders {
-		for _, provider := range strings.Split(providersValue, ",") {
-			if provider != "" {
-				providers = append(providers, provider)
-			}
-		}
-		if len(providers) == 0 {
-			return 0, usageError("--providers requires at least one provider")
-		}
-	}
-	root, hasRoot := lastCommandOption(parsed, "--root")
-	if !hasRoot {
-		if env, ok := lookupEnv("INFRAWRIGHT_PACKS"); ok {
-			root = env
-		} else {
-			root = filepath.Join(rootDirectory, "packs")
-		}
-	}
-	profile, hasProfile := lastCommandOption(parsed, "--profile")
-	if !hasProfile {
-		if env, ok := lookupEnv("INFRAWRIGHT_PACK_PROFILE"); ok {
-			profile = env
-		} else {
-			profile = filepath.Join(rootDirectory, "packs", "full.packset.json")
-		}
-	}
-	catalog, hasCatalog := lastCommandOption(parsed, "--catalog")
-	if !hasCatalog {
-		catalog = filepath.Join(rootDirectory, "packs", "full.packset.json")
-	}
-	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
-		PacksRoot:   root,
-		ProfilePath: &profile,
-		CatalogPath: &catalog,
-	})
-	if err != nil {
-		return 0, err
-	}
-	rendered, err := metadata.RenderRootCatalog(loaded, providers)
-	if err != nil {
-		return 0, err
-	}
-	if hasCheck {
-		actual, err := os.ReadFile(check)
-		if err != nil {
-			return 0, err
-		}
-		if string(actual) != rendered {
-			return 0, procerr.NewProcessFailure(procerr.NewProcessFailureOptions{
-				Code:     "STALE_ROOT_CATALOG",
-				Category: procerr.CategoryDomain,
-				Message:  fmt.Sprintf("root catalog is stale: %s", check),
-			})
-		}
-		return 0, nil
-	}
-	if hasOutput {
-		err := os.WriteFile(output, []byte(rendered), 0o666)
-		return 0, err
-	}
-	_, err = os.Stdout.WriteString(rendered)
-	return 0, err
-}
-
-// transformCommand ports the transform command in node-src/cli/main.ts.
-// Unlike rootCatalog's nullish env reads, transform uses `||` semantics for
-// INFRAWRIGHT_PACKS / INFRAWRIGHT_PACK_PROFILE: an empty-but-set variable
-// falls through to the default — a genuine per-command asymmetry in the
-// Node source, preserved deliberately.
+// transformCommand runs the transform command.
 func transformCommand(arguments []string) (int, error) {
 	return executeStandaloneCobra(newTransformCobraCommand(), arguments)
 }
@@ -214,10 +118,6 @@ func transformCommandInput(parsed commandInput) (int, error) {
 			profile = filepath.Join(rootDirectory, "packs", "full.packset.json")
 		}
 	}
-	catalog, hasCatalog := lastCommandOption(parsed, "--catalog")
-	if !hasCatalog {
-		catalog = filepath.Join(rootDirectory, "packs", "full.packset.json")
-	}
 	input, hasInput := lastCommandOption(parsed, "--in")
 	tenant, hasTenant := lastCommandOption(parsed, "--tenant")
 	if !hasInput || !hasTenant {
@@ -233,7 +133,6 @@ func transformCommandInput(parsed commandInput) (int, error) {
 	loadedRoot, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   root,
 		ProfilePath: &profile,
-		CatalogPath: &catalog,
 	})
 	if err != nil {
 		return 0, err
@@ -278,7 +177,7 @@ func transformCommandInput(parsed commandInput) (int, error) {
 	return 4, nil
 }
 
-// run ports the main dispatch in node-src/cli/main.ts. The retained authoring
+// run ports the main dispatch in the original implementation. The retained authoring
 // surface is served by this same binary; there is no Node fallback or second
 // authoring executable.
 func run(arguments []string) (int, error) {

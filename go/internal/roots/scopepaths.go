@@ -1,28 +1,5 @@
-// scopepaths.go ports node-src/domain/scope-paths.ts: mapping a set of
-// changed filesystem paths to the generated resources, and in turn the
-// logical roots, they affect -- the domain layer behind the `scope-paths`
-// command. There is no node-tests/scope-paths.test.ts; the only committed
-// vectors that exercise changedPathScope/changedPathScopeLoaded live in
-// node-tests/differential.test.ts (gated on the retired Python oracle) and
-// node-tests/plan-cli.test.ts (a CLI-subprocess test). scopepaths_test.go
-// instead probes the compiled TypeScript directly against synthetic
-// inputs -- see go/internal/roots/testdata/probe/scope_plan_probe.ts and
-// its committed oracle, go/internal/roots/testdata/scope_plan_probe.oracle.json
-// -- and cites the relevant oracle scenario by name in each test's
-// provenance comment.
-//
-// This file, like planroots.go alongside it, is additive to this package:
-// it is a NEW file and does not modify roots.go, which remains this
-// package's port of node-src/domain/roots.ts. Both files freely call
-// roots.go's unexported helpers (domainErrorCode, recoverProcessFailure,
-// validateTenant, indexCatalog, indexLoadedPackRoot, rootTopologyFromIndex,
-// stringSet, etc.) rather than going through its exported wrappers, the
-// same way node-src/domain/scope-paths.ts and node-src/domain/
-// plan-roots.ts import roots.ts's unexported-to-the-package helpers
-// directly (rootTopology, loadedRootTopology, expandCatalogResources) --
-// scope-paths.ts, plan-roots.ts, and roots.ts are siblings in one
-// TypeScript module directory the way this file, planroots.go, and
-// roots.go are siblings in one Go package.
+// Package roots maps changed filesystem paths to generated resources and
+// singleton state roots for the scope-paths command.
 package roots
 
 import (
@@ -33,12 +10,12 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
+	"github.com/dvmrry/infrawright-dev/go/internal/posixpath"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
-	"github.com/dvmrry/infrawright-dev/go/internal/pypath"
 )
 
 // configSuffixes ports the CONFIG_SUFFIXES tuple from
-// node-src/domain/scope-paths.ts.
+// the original implementation.
 var configSuffixes = []string{
 	".generated.expressions.json",
 	".expressions.json",
@@ -48,12 +25,12 @@ var configSuffixes = []string{
 }
 
 // importSuffixes ports the IMPORT_SUFFIXES tuple from
-// node-src/domain/scope-paths.ts.
+// the original implementation.
 var importSuffixes = []string{"_imports.tf", "_moves.tf"}
 
 // deploymentError panics with a *procerr.ProcessFailure carrying code
-// "INVALID_DEPLOYMENT" and category domain. node-src/domain/scope-paths.ts
-// and node-src/domain/plan-roots.ts each define their own local
+// "INVALID_DEPLOYMENT" and category domain. the original implementation
+// and the original implementation each define their own local
 // `deploymentError` helper with this identical {code, category} shape --
 // only the message text passed at each call site differs -- so this Go
 // port consolidates the two into one package-level function, the same way
@@ -71,7 +48,7 @@ func deploymentError(message string) {
 
 // internalError panics with a *procerr.ProcessFailure carrying code
 // "INVALID_OPERATION_RESULT" and category internal, ported from
-// node-src/domain/scope-paths.ts's internalError. Both call sites
+// the original implementation's internalError. Both call sites
 // (scopeOnePath's resourceRoots lookup and changedPathScopeFromTopology's
 // rootsByLabel lookup) are defensive: they fire only if a resource or
 // root label that a RootTopology itself vouches for turns out to be
@@ -98,10 +75,10 @@ func keysOfSet(set map[string]struct{}) []string {
 }
 
 // ChangedPathKind ports the ChangedPathKind string-literal union from
-// node-src/domain/types.ts.
+// the original implementation.
 type ChangedPathKind string
 
-// The five ChangedPathKind literals from node-src/domain/types.ts.
+// The five ChangedPathKind literals from the original implementation.
 const (
 	ChangedPathKindConfig     ChangedPathKind = "config"
 	ChangedPathKindDeployment ChangedPathKind = "deployment"
@@ -111,7 +88,7 @@ const (
 )
 
 // ChangedPathMatch ports the ChangedPathMatch interface from
-// node-src/domain/types.ts.
+// the original implementation.
 type ChangedPathMatch struct {
 	Path      string
 	Kinds     []ChangedPathKind
@@ -121,7 +98,7 @@ type ChangedPathMatch struct {
 }
 
 // AffectedRoot ports the AffectedRoot interface from
-// node-src/domain/types.ts.
+// the original implementation.
 type AffectedRoot struct {
 	Label            string
 	Provider         *string
@@ -131,9 +108,9 @@ type AffectedRoot struct {
 }
 
 // ChangedPathScope ports the ChangedPathScope interface from
-// node-src/domain/types.ts. Like RootTopology/WholeRootDiagnostic in
+// the original implementation. Like RootTopology/WholeRootDiagnostic in
 // roots.go, this type carries no JSON struct tags: canonical rendering
-// (node-src/cli/python-compatible-output.ts's renderLegacyChangedPathScope
+// (the original implementation's renderLegacyChangedPathScope
 // in the TS source) is a CLI-layer concern this port's roots/scope-paths/
 // plan-roots slice does not include -- see this file's doc comment.
 type ChangedPathScope struct {
@@ -146,7 +123,7 @@ type ChangedPathScope struct {
 	AffectedRoots     []AffectedRoot
 }
 
-// artifactRoot ports artifactRoot from node-src/domain/scope-paths.ts.
+// artifactRoot ports artifactRoot from the original implementation.
 func artifactRoot(dep deployment.Deployment, kind string) string {
 	overlay, ok := dep.Overlay.(string)
 	if !ok {
@@ -155,11 +132,11 @@ func artifactRoot(dep deployment.Deployment, kind string) string {
 	if overlay == "." {
 		return kind
 	}
-	return pypath.PythonPosixJoin(overlay, kind)
+	return posixpath.Join(overlay, kind)
 }
 
 // scopePathsModuleRoot ports moduleRoot from
-// node-src/domain/scope-paths.ts. Named scopePathsModuleRoot (rather than
+// the original implementation. Named scopePathsModuleRoot (rather than
 // moduleRoot) to keep it unambiguous alongside planroots.go's own,
 // differently-scoped helpers, even though nothing in this package
 // currently collides.
@@ -178,11 +155,11 @@ func scopePathsModuleRoot(dep deployment.Deployment) string {
 	if overlay == "." {
 		return "modules"
 	}
-	return pypath.PythonPosixJoin(overlay, "modules", "default")
+	return posixpath.Join(overlay, "modules", "default")
 }
 
 // resourceFromArtifact ports resourceFromArtifact from
-// node-src/domain/scope-paths.ts.
+// the original implementation.
 func resourceFromArtifact(name string, suffixes []string, resources map[string]struct{}) (string, bool) {
 	longestFirst := append([]string(nil), suffixes...)
 	sort.SliceStable(longestFirst, func(i, j int) bool { return len(longestFirst[i]) > len(longestFirst[j]) })
@@ -200,7 +177,7 @@ func resourceFromArtifact(name string, suffixes []string, resources map[string]s
 
 // scopeOnePathOptions bundles scopeOnePath's parameters, the Go analogue
 // of the inline options-object parameter type
-// node-src/domain/scope-paths.ts's scopeOnePath accepts.
+// the original implementation's scopeOnePath accepts.
 type scopeOnePathOptions struct {
 	path           string
 	workspace      string
@@ -211,7 +188,7 @@ type scopeOnePathOptions struct {
 	resourceRoots  map[string]string
 }
 
-// scopeOnePath ports scopeOnePath from node-src/domain/scope-paths.ts. A
+// scopeOnePath ports scopeOnePath from the original implementation. A
 // nil return is the Go analogue of the TS function's `| null` return: the
 // path matched nothing.
 func scopeOnePath(options scopeOnePathOptions) *ChangedPathMatch {
@@ -219,14 +196,14 @@ func scopeOnePath(options scopeOnePathOptions) *ChangedPathMatch {
 	kinds := map[string]struct{}{}
 	tenants := map[string]struct{}{}
 
-	if pypath.SameContractPath(options.path, options.deploymentPath, options.workspace) {
+	if posixpath.SameContractPath(options.path, options.deploymentPath, options.workspace) {
 		for resource := range options.resources {
 			matchedResources[resource] = struct{}{}
 		}
 		kinds[string(ChangedPathKindDeployment)] = struct{}{}
 	}
 
-	if relative, ok := pypath.PythonRelativeUnder(options.path, artifactRoot(options.deployment, "config"), options.workspace); ok && len(relative) == 2 {
+	if relative, ok := posixpath.RelativeUnder(options.path, artifactRoot(options.deployment, "config"), options.workspace); ok && len(relative) == 2 {
 		if resource, found := resourceFromArtifact(relative[1], configSuffixes, options.resources); found {
 			matchedResources[resource] = struct{}{}
 			tenants[relative[0]] = struct{}{}
@@ -234,7 +211,7 @@ func scopeOnePath(options scopeOnePathOptions) *ChangedPathMatch {
 		}
 	}
 
-	if relative, ok := pypath.PythonRelativeUnder(options.path, artifactRoot(options.deployment, "imports"), options.workspace); ok && len(relative) == 2 {
+	if relative, ok := posixpath.RelativeUnder(options.path, artifactRoot(options.deployment, "imports"), options.workspace); ok && len(relative) == 2 {
 		if resource, found := resourceFromArtifact(relative[1], importSuffixes, options.resources); found {
 			matchedResources[resource] = struct{}{}
 			tenants[relative[0]] = struct{}{}
@@ -242,7 +219,7 @@ func scopeOnePath(options scopeOnePathOptions) *ChangedPathMatch {
 		}
 	}
 
-	if relative, ok := pypath.PythonRelativeUnder(options.path, artifactRoot(options.deployment, "envs"), options.workspace); ok && len(relative) >= 2 {
+	if relative, ok := posixpath.RelativeUnder(options.path, artifactRoot(options.deployment, "envs"), options.workspace); ok && len(relative) >= 2 {
 		if root, found := options.rootsByLabel[relative[1]]; found {
 			for _, member := range root.Members {
 				matchedResources[member] = struct{}{}
@@ -252,7 +229,7 @@ func scopeOnePath(options scopeOnePathOptions) *ChangedPathMatch {
 		}
 	}
 
-	if relative, ok := pypath.PythonRelativeUnder(options.path, scopePathsModuleRoot(options.deployment), options.workspace); ok && len(relative) > 0 {
+	if relative, ok := posixpath.RelativeUnder(options.path, scopePathsModuleRoot(options.deployment), options.workspace); ok && len(relative) > 0 {
 		resource := relative[0]
 		if _, found := options.resources[resource]; found {
 			matchedResources[resource] = struct{}{}
@@ -288,7 +265,7 @@ func scopeOnePath(options scopeOnePathOptions) *ChangedPathMatch {
 
 // changedPathScopeOptions bundles changedPathScopeFromTopology's
 // parameters, the Go analogue of the inline options-object parameter type
-// node-src/domain/scope-paths.ts's changedPathScopeFromTopology accepts.
+// the original implementation's changedPathScopeFromTopology accepts.
 type changedPathScopeOptions struct {
 	paths          []string
 	workspace      string
@@ -298,23 +275,23 @@ type changedPathScopeOptions struct {
 }
 
 // changedPathScopeFromTopology ports changedPathScopeFromTopology from
-// node-src/domain/scope-paths.ts.
+// the original implementation.
 //
 // The TS source's own first check, `if (!Array.isArray(options.paths))`
 // (raising INVALID_CHANGED_PATHS "changed paths must be a JSON array or
 // repeated --path"), has no reachable branch here: this function's
 // `paths []string` parameter is already statically guaranteed to be a
-// string slice by Go's type system, the same way node-src/domain/
+// string slice by Go's type system, the same way the original source treedomain/
 // scope-paths.ts's own `paths: readonly string[]` static type already
 // guarantees it there too -- the TS runtime check exists only to defend
 // against a caller that bypasses that static type (e.g. a CLI layer
 // casting freshly-decoded, unvalidated JSON). A future Go CLI-argument-
-// decoding layer (docs/go-runtime-plan.md's slice 9, `internal/cli`) that
+// decoding layer (the Go runtime contract's slice 9, `internal/cli`) that
 // decodes raw `--paths-json` input into an `any` before it becomes a
 // `[]string` is exactly where that check's Go analogue belongs, and it
 // MUST raise this identical code/category/message when the decoded value
 // is not an array of strings; nothing in this file (or the current
-// exported ChangedPathScopeFromCatalog/ChangedPathScopeLoaded entry
+// exported ChangedPathScopeFromResourceSet/ChangedPathScopeLoaded entry
 // points) can trigger it, so no test here exercises it either.
 func changedPathScopeFromTopology(options changedPathScopeOptions) ChangedPathScope {
 	normalized := make([]string, 0, len(options.paths))
@@ -325,7 +302,7 @@ func changedPathScopeFromTopology(options changedPathScopeOptions) ChangedPathSc
 		if strings.ContainsRune(candidate, 0) {
 			domainErrorCode(fmt.Sprintf("changed path at index %d contains an embedded null character", index), "INVALID_CHANGED_PATHS")
 		}
-		normalized = append(normalized, pypath.PythonPosixNormPath(candidate))
+		normalized = append(normalized, posixpath.Normalize(candidate))
 	}
 	paths := canonjson.SortedStrings(keysOfSet(stringSet(normalized)))
 
@@ -416,27 +393,27 @@ func changedPathScopeFromTopology(options changedPathScopeOptions) ChangedPathSc
 	}
 }
 
-// ChangedPathScopeOptions bundles ChangedPathScopeFromCatalog's
+// ChangedPathScopeOptions bundles ChangedPathScopeFromResourceSet's
 // parameters, the Go analogue of the inline options-object parameter type
-// node-src/domain/scope-paths.ts's changedPathScope accepts.
+// the original implementation's changedPathScope accepts.
 type ChangedPathScopeOptions struct {
 	Paths          []string
 	Workspace      string
 	DeploymentPath string
 	Deployment     deployment.Deployment
-	Catalog        metadata.RootCatalog
+	ResourceSet    metadata.ResourceSet
 }
 
-// ChangedPathScopeFromCatalog ports changedPathScope from
-// node-src/domain/scope-paths.ts. Named ChangedPathScopeFromCatalog
+// ChangedPathScopeFromResourceSet ports changedPathScope from
+// the original implementation. Named ChangedPathScopeFromResourceSet
 // (rather than ChangedPathScope, which the ChangedPathScope struct type
 // above already claims) for the same function/type name-clash reason
-// roots.go's RootTopologyFromCatalog is not named RootTopology -- see that
+// roots.go's RootTopologyFromResourceSet is not named RootTopology -- see that
 // function's doc comment.
-func ChangedPathScopeFromCatalog(options ChangedPathScopeOptions) (scope ChangedPathScope, err error) {
+func ChangedPathScopeFromResourceSet(options ChangedPathScopeOptions) (scope ChangedPathScope, err error) {
 	defer recoverProcessFailure(&err)
 	topology := rootTopologyFromIndex(rootTopologyFromIndexOptions{
-		index:     indexCatalog(options.Catalog),
+		index:     indexResourceSet(options.ResourceSet),
 		dep:       options.Deployment,
 		tenant:    nil,
 		selectors: []string{},
@@ -452,7 +429,7 @@ func ChangedPathScopeFromCatalog(options ChangedPathScopeOptions) (scope Changed
 
 // ChangedPathScopeLoadedOptions bundles ChangedPathScopeLoaded's
 // parameters, the Go analogue of the inline options-object parameter type
-// node-src/domain/scope-paths.ts's changedPathScopeLoaded accepts.
+// the original implementation's changedPathScopeLoaded accepts.
 type ChangedPathScopeLoadedOptions struct {
 	Paths          []string
 	Workspace      string
@@ -462,7 +439,7 @@ type ChangedPathScopeLoadedOptions struct {
 }
 
 // ChangedPathScopeLoaded ports changedPathScopeLoaded from
-// node-src/domain/scope-paths.ts: "Scope changed paths against the same
+// the original implementation: "Scope changed paths against the same
 // live pack metadata used by the CLI."
 func ChangedPathScopeLoaded(options ChangedPathScopeLoadedOptions) (scope ChangedPathScope, err error) {
 	defer recoverProcessFailure(&err)

@@ -7,7 +7,7 @@ import (
 
 // TestJSONEqualLosslessIntegerFloatBehavior ports the
 // "lossless number equality follows Python integer/float behavior" test
-// from node-tests/plan-eval.test.ts: values decoded from
+// from the original test corpus: values decoded from
 // "[9007199254740993,9007199254740993.0,1,1.0,true,false,0,-0.0]" (all
 // json.Number except the two booleans, matching parseDataJsonLosslessly's
 // LosslessNumber-for-every-number behavior).
@@ -41,7 +41,7 @@ func TestJSONEqualLosslessIntegerFloatBehavior(t *testing.T) {
 
 // TestTerraformJSONExactlyEqualAvoidsBinaryRounding ports the
 // "exact Terraform evidence equality avoids binary rounding" test from
-// node-tests/json.test.ts.
+// the original test corpus.
 func TestTerraformJSONExactlyEqualAvoidsBinaryRounding(t *testing.T) {
 	values := decodeAllJSON(t, "[1,1.0,10e-1,0.10e1,9007199254740992.0,9007199254740993.0,1e100000,10e99999]")
 
@@ -76,7 +76,7 @@ func TestTerraformJSONExactlyEqualAvoidsBinaryRounding(t *testing.T) {
 // TestJSONEqualBooleanVsTerraformBoolean documents the one contract
 // difference between JSONEqual (Python `==`, where bool is numeric 0/1)
 // and the Terraform variants (bool is its own cty type, never equal to a
-// number), both ported from node-src/json/python-equality.ts.
+// number), both ported from the original implementation.
 func TestJSONEqualBooleanVsTerraformBoolean(t *testing.T) {
 	one := json.Number("1")
 	if !JSONEqual(true, one) {
@@ -119,7 +119,7 @@ func TestJSONEqualStructuralCases(t *testing.T) {
 	}
 }
 
-// TestIsJSONRecord ports isJsonRecord from node-src/json/python-equality.ts.
+// TestIsJSONRecord ports isJsonRecord from the original implementation.
 func TestIsJSONRecord(t *testing.T) {
 	if !IsJSONRecord(map[string]any{}) {
 		t.Error("IsJSONRecord(map[string]any{}) = false, want true")
@@ -134,7 +134,7 @@ func TestIsJSONRecord(t *testing.T) {
 // decodeAllJSON decodes source as a JSON array and returns its elements,
 // using this package's own Decode so every number in source surfaces as a
 // json.Number -- the lossless token type these equality tests depend on,
-// mirroring how node-tests/*.test.ts feed these functions values from
+// mirroring how the original test corpus feed these functions values from
 // parseDataJsonLosslessly rather than plain JSON.parse.
 func decodeAllJSON(t *testing.T, source string) []any {
 	t.Helper()

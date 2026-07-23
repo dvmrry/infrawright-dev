@@ -149,7 +149,7 @@ OpenAPI              GET /v2/domains/{domain_name}
 ```
 
 `source-operation-map` accepts an optional `--sdk-root` pointing at a vendored
-Go SDK source tree. When provided, the Node authoring library recovers
+Go SDK source tree. When provided, the authoring library recovers
 `(client_symbol, method, path_template)` triples from the simple, common
 shapes:
 

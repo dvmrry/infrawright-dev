@@ -4,8 +4,7 @@ package roots
 // changed-path scope, and plan roots.
 // The Go topology types are tag-less structs, so each renderer hand-builds
 // the canonical JSON value tree with the exact key names from
-// node-src/domain/types.ts. Committed Go v2 authority goldens pin the complete
-// resulting bytes because the frozen Node topology remains v1.
+// the public contract. Committed authority goldens pin the complete bytes.
 
 import (
 	"encoding/json"

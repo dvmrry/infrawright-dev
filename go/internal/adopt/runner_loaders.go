@@ -19,7 +19,7 @@ type DefaultAdoptionLoaderOptions struct {
 }
 
 // DefaultAdoptionStateLoader ports defaultAdoptionStateLoader from
-// node-src/domain/adopt-runner.ts by layering the single-resource view over
+// the original implementation by layering the single-resource view over
 // D1's shared batch oracle transaction. It validates Oracle timeout input
 // before returning a callable loader, matching the source constructor.
 func DefaultAdoptionStateLoader(options DefaultAdoptionLoaderOptions) (AdoptionStateLoader, error) {
