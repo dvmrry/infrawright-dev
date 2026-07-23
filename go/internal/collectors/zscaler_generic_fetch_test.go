@@ -1,7 +1,7 @@
 package collectors
 
 // zscaler_generic_fetch_test.go ports
-// node-tests/zscaler-generic-fetch.test.ts's "generic Fetch collects real
+// the original test corpus's "generic Fetch collects real
 // ZCC and ZTC registries from a Python-free external root" test: an
 // end-to-end run of the real committed zcc/ztc pack registries (copied
 // into a scratch root, with any Python artifact stripped) through

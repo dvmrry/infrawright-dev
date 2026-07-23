@@ -26,12 +26,6 @@ compatibility directory or second editable authority.
 root to contain exactly that selection. Missing declared components and
 undeclared extra components both fail before tests run.
 
-`PACK_CATALOG` defaults to `packs/full.packset.json` and defines the allowed pack
-and shared-component vocabulary. Profiles, example requirements, and test
-requirements that reference a name outside that catalog fail as contract
-errors rather than becoming permanent skips. A downstream distribution that
-adds its own packs supplies its own catalog explicitly.
-
 The profile does not filter a larger root. Build or install a root containing
 only the selected directories, then point `INFRAWRIGHT_PACKS` at it. For
 example:
@@ -74,14 +68,14 @@ ignored because no profile component owns them. The reserved `_shared` root is
 also not itself a pack: loose `pack.json` and `registry.json` files directly
 inside it are ignored. A top-level or shared
 `schema-extract` directory is itself a component and must appear in the exact
-profile/catalog or validation fails.
+profile or validation fails.
 
 ## Check Layers
 
 - `make check` validates the active distribution: exact profile, selected unit
   tests, available examples, generated modules, pack metadata, and formatting.
 - `make check-all` ignores a caller's selected root and proves the complete
-  upstream catalog against `packs/full.packset.json`.
+  upstream distribution against `packs/full.packset.json`.
 - `make check-core` runs the pack-independent test surface and generators with
   an empty pack root.
 - `make check-pack-set PACK_PROFILE=<file>` validates only the exact installed

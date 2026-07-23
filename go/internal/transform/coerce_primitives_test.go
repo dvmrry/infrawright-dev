@@ -5,7 +5,7 @@ package transform
 // coercePrimitive's three encodings, coerceBoolean, and dividedValue's
 // Python floor-division semantics (a classic sign-of-remainder bug spot).
 // Vectors marked "TS:" were captured the same way as coerce_test.go's: via
-// esbuild-bundled node-src/domain/pull-transform.ts, called directly from
+// esbuild-bundled the original implementation, called directly from
 // node (dividedValue vectors specifically via the exported
 // applyTransformOverridesForAuthoring, since dividedValue itself is not
 // exported -- --external:lossless-json on the esbuild bundle, so the
@@ -23,25 +23,25 @@ import (
 
 func TestCoercePrimitiveStringEncoding(t *testing.T) {
 	// TS: coerceValue(true, "string") => "true" / coerceValue(false, ...) => "false"
-	if got := coerceValue(true, metadata.TerraformPrimitiveType("string"), false); got != "true" {
+	if got := coerceValue(true, metadata.TerraformPrimitiveType("string")); got != "true" {
 		t.Errorf("string(true) = %#v, want \"true\"", got)
 	}
-	if got := coerceValue(false, metadata.TerraformPrimitiveType("string"), false); got != "false" {
+	if got := coerceValue(false, metadata.TerraformPrimitiveType("string")); got != "false" {
 		t.Errorf("string(false) = %#v, want \"false\"", got)
 	}
 	// TS: coerceValue(new LosslessNumber("9007199254740991"), "string") =>
 	// "9007199254740991" (a safe integer LosslessNumber stringifies plainly)
-	if got := coerceValue(json.Number("9007199254740991"), metadata.TerraformPrimitiveType("string"), false); got != "9007199254740991" {
+	if got := coerceValue(json.Number("9007199254740991"), metadata.TerraformPrimitiveType("string")); got != "9007199254740991" {
 		t.Errorf("string(json.Number(9007199254740991)) = %#v", got)
 	}
 	// A non-bool/non-number value (already a string) passes through
 	// unchanged.
-	if got := coerceValue("already", metadata.TerraformPrimitiveType("string"), false); got != "already" {
+	if got := coerceValue("already", metadata.TerraformPrimitiveType("string")); got != "already" {
 		t.Errorf("string(\"already\") = %#v", got)
 	}
 	// nil passes through unchanged (neither bool nor json.Number nor
 	// float64 branch matches).
-	if got := coerceValue(nil, metadata.TerraformPrimitiveType("string"), false); got != nil {
+	if got := coerceValue(nil, metadata.TerraformPrimitiveType("string")); got != nil {
 		t.Errorf("string(nil) = %#v, want nil", got)
 	}
 }
@@ -49,22 +49,22 @@ func TestCoercePrimitiveStringEncoding(t *testing.T) {
 func TestCoercePrimitiveNumberEncoding(t *testing.T) {
 	// TS: coerceValue("007", "number") => 7 (parsePythonInteger normalizes
 	// leading zeros away)
-	if got := coerceValue("007", metadata.TerraformPrimitiveType("number"), false); got != json.Number("7") {
+	if got := coerceValue("007", metadata.TerraformPrimitiveType("number")); got != json.Number("7") {
 		t.Errorf("number(\"007\") = %#v, want json.Number(7)", got)
 	}
 	// TS: coerceValue("-0", "number") => 0 (Number("-0") normalized through
 	// pythonFiniteFloatToken/canonjson.FiniteFloatToken to a plain "0" token)
-	if got := coerceValue("-0", metadata.TerraformPrimitiveType("number"), false); got != json.Number("0") {
+	if got := coerceValue("-0", metadata.TerraformPrimitiveType("number")); got != json.Number("0") {
 		t.Errorf("number(\"-0\") = %#v, want json.Number(0)", got)
 	}
 	// A non-string value passes through unchanged (coercePrimitive's
 	// "number" branch only transforms strings).
-	if got := coerceValue(true, metadata.TerraformPrimitiveType("number"), false); got != true {
+	if got := coerceValue(true, metadata.TerraformPrimitiveType("number")); got != true {
 		t.Errorf("number(true) = %#v, want true unchanged", got)
 	}
 	// A string that is neither a Python integer nor float literal passes
 	// through unchanged.
-	if got := coerceValue("not-a-number", metadata.TerraformPrimitiveType("number"), false); got != "not-a-number" {
+	if got := coerceValue("not-a-number", metadata.TerraformPrimitiveType("number")); got != "not-a-number" {
 		t.Errorf("number(\"not-a-number\") = %#v", got)
 	}
 }
@@ -72,40 +72,40 @@ func TestCoercePrimitiveNumberEncoding(t *testing.T) {
 func TestCoercePrimitiveBoolEncoding(t *testing.T) {
 	// TS: coerceValue("TRUE", "bool") => true (case-insensitive via
 	// toLowerCase, not pythonLower151 -- see coerceBoolean's doc comment)
-	if got := coerceValue("TRUE", metadata.TerraformPrimitiveType("bool"), false); got != true {
+	if got := coerceValue("TRUE", metadata.TerraformPrimitiveType("bool")); got != true {
 		t.Errorf("bool(\"TRUE\") = %#v, want true", got)
 	}
 	// TS: coerceValue("yes", "bool") => "yes" (not a recognized literal,
 	// passes through unchanged)
-	if got := coerceValue("yes", metadata.TerraformPrimitiveType("bool"), false); got != "yes" {
+	if got := coerceValue("yes", metadata.TerraformPrimitiveType("bool")); got != "yes" {
 		t.Errorf("bool(\"yes\") = %#v, want \"yes\" unchanged", got)
 	}
-	if got := coerceValue("0", metadata.TerraformPrimitiveType("bool"), false); got != false {
+	if got := coerceValue("0", metadata.TerraformPrimitiveType("bool")); got != false {
 		t.Errorf("bool(\"0\") = %#v, want false", got)
 	}
-	if got := coerceValue("1", metadata.TerraformPrimitiveType("bool"), false); got != true {
+	if got := coerceValue("1", metadata.TerraformPrimitiveType("bool")); got != true {
 		t.Errorf("bool(\"1\") = %#v, want true", got)
 	}
 	// An integral json.Number coerces via its truthiness (BigInt(token) !== 0n).
-	if got := coerceValue(json.Number("0"), metadata.TerraformPrimitiveType("bool"), false); got != false {
+	if got := coerceValue(json.Number("0"), metadata.TerraformPrimitiveType("bool")); got != false {
 		t.Errorf("bool(json.Number(0)) = %#v, want false", got)
 	}
-	if got := coerceValue(json.Number("5"), metadata.TerraformPrimitiveType("bool"), false); got != true {
+	if got := coerceValue(json.Number("5"), metadata.TerraformPrimitiveType("bool")); got != true {
 		t.Errorf("bool(json.Number(5)) = %#v, want true", got)
 	}
 }
 
 func TestUnwrapReferenceAppliesBeforePrimitiveCoercion(t *testing.T) {
 	// unwrapReference only fires for the primitive-encoding branch of
-	// coerceValue (node-src/domain/pull-transform.ts:545): a reference
+	// coerceValue (the original implementation:545): a reference
 	// object with an "id" key coerces to that id's own coerced value.
-	got := coerceValue(map[string]any{"id": json.Number("42"), "name": "ignored"}, metadata.TerraformPrimitiveType("string"), false)
+	got := coerceValue(map[string]any{"id": json.Number("42"), "name": "ignored"}, metadata.TerraformPrimitiveType("string"))
 	if got != "42" {
 		t.Errorf("unwrapReference+string coercion = %#v, want \"42\"", got)
 	}
 	// An object with no "id" key is left as the object itself, which then
 	// fails coercePrimitive's type checks and passes through unchanged.
-	got = coerceValue(map[string]any{"name": "no-id"}, metadata.TerraformPrimitiveType("string"), false)
+	got = coerceValue(map[string]any{"name": "no-id"}, metadata.TerraformPrimitiveType("string"))
 	if m, ok := got.(map[string]any); !ok || m["name"] != "no-id" {
 		t.Errorf("no-id object coercion = %#v, want the object unchanged", got)
 	}

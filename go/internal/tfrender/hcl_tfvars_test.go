@@ -1,10 +1,10 @@
 package tfrender
 
-// hcl_tfvars_test.go ports every test in node-tests/hcl-tfvars.test.ts.
+// hcl_tfvars_test.go ports every test in the original test corpus.
 // Every test in that file is a pure library test of renderTfvarsHcl -- there
 // is no CLI/runner-level test to skip. Expected byte strings below are
 // transcribed verbatim from that file (see the per-test comment for the
-// exact node-tests/hcl-tfvars.test.ts test name each Go test ports).
+// exact the original test corpus test name each Go test ports).
 import (
 	"encoding/json"
 	"math"

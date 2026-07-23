@@ -8,7 +8,7 @@ import (
 )
 
 // TestDecodeProducesLosslessNumbers checks the core Slice 0 design
-// decision (docs/go-runtime-plan.md): Decode must surface every JSON
+// decision (the Go runtime contract): Decode must surface every JSON
 // number as a json.Number holding the exact source lexeme, not a lossily
 // parsed float64, so that e.g. an integer beyond float64's safe range
 // survives unchanged.

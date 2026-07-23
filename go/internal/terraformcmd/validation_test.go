@@ -8,7 +8,7 @@ import (
 )
 
 // TestCommandSnapshots pins the synchronous validation boundary in
-// node-src/io/terraform-command.ts at
+// the original implementation at
 // f3a86f2d24dddd4ebf95362d55718a81137800f2:186-220,312-417.
 func TestCommandSnapshots(t *testing.T) {
 	timeout := int64(25)

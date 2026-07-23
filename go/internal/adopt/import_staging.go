@@ -19,7 +19,7 @@ import (
 )
 
 // ImportStagingTerraformRequest ports the ImportStagingTerraformRequest
-// interface from node-src/domain/import-staging.ts.
+// interface from the original implementation.
 type ImportStagingTerraformRequest struct {
 	BackendConfig *string
 	Directory     string
@@ -28,41 +28,41 @@ type ImportStagingTerraformRequest struct {
 }
 
 // ImportStagingStateResult ports the success/stdout result returned by
-// ImportStagingTerraform.listState in node-src/domain/import-staging.ts.
+// ImportStagingTerraform.listState in the original implementation.
 type ImportStagingStateResult struct {
 	Success bool
 	Stdout  string
 }
 
 // ImportStagingTerraform ports the ImportStagingTerraform interface from
-// node-src/domain/import-staging.ts.
+// the original implementation.
 type ImportStagingTerraform interface {
 	Initialize(ImportStagingTerraformRequest) error
 	ListState(ImportStagingTerraformRequest) (ImportStagingStateResult, error)
 }
 
 // ImportStagingTerraformOptions ports the options accepted by
-// createImportStagingTerraform in node-src/domain/import-staging.ts.
+// createImportStagingTerraform in the original implementation.
 type ImportStagingTerraformOptions struct {
 	Environment         map[string]string
 	TerraformExecutable string
 }
 
 // StageImportsResult ports the StageImportsResult interface from
-// node-src/domain/import-staging.ts.
+// the original implementation.
 type StageImportsResult struct {
 	Sources int
 	Staged  int
 }
 
 // UnstageImportsResult ports the UnstageImportsResult interface from
-// node-src/domain/import-staging.ts.
+// the original implementation.
 type UnstageImportsResult struct {
 	Removed int
 }
 
 // StageImportsOptions ports the options accepted by stageImports in
-// node-src/domain/import-staging.ts.
+// the original implementation.
 type StageImportsOptions struct {
 	BackendConfig *string
 	Deployment    deployment.Deployment
@@ -77,7 +77,7 @@ type StageImportsOptions struct {
 }
 
 // UnstageImportsOptions ports the options accepted by unstageImports in
-// node-src/domain/import-staging.ts.
+// the original implementation.
 type UnstageImportsOptions struct {
 	Deployment   deployment.Deployment
 	OnDiagnostic func(string)
@@ -125,7 +125,7 @@ func cloneStagingEnvironment(environment map[string]string) map[string]string {
 
 // CreateImportStagingTerraform adapts the bounded generic Terraform runner for
 // staging-only init/state-list calls. It ports createImportStagingTerraform
-// from node-src/domain/import-staging.ts.
+// from the original implementation.
 func CreateImportStagingTerraform(options ImportStagingTerraformOptions) ImportStagingTerraform {
 	return &importStagingTerraform{
 		environment:         cloneStagingEnvironment(options.Environment),
@@ -484,7 +484,7 @@ func publishFilteredStagingArtifact(
 
 // StageImports copies generated import/move artifacts into complete
 // deployment-selected roots. It ports stageImports from
-// node-src/domain/import-staging.ts.
+// the original implementation.
 func StageImports(options StageImportsOptions) (StageImportsResult, error) {
 	if err := roots.ValidateTenant(options.Tenant); err != nil {
 		return StageImportsResult{}, err
@@ -636,7 +636,7 @@ func StageImports(options StageImportsOptions) (StageImportsResult, error) {
 
 // UnstageImports removes only staged import/move copies from selected
 // materialized roots. It ports unstageImports from
-// node-src/domain/import-staging.ts.
+// the original implementation.
 func UnstageImports(options UnstageImportsOptions) (UnstageImportsResult, error) {
 	if err := roots.ValidateTenant(options.Tenant); err != nil {
 		return UnstageImportsResult{}, err

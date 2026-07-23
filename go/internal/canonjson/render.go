@@ -12,7 +12,7 @@ import (
 )
 
 // Value is the dynamic canonical-JSON value tree used throughout this
-// package, deliberately not a generated struct (see docs/go-runtime-plan.md
+// package, deliberately not a generated struct (see the Go runtime contract
 // Slice 0). It is produced by encoding/json's default decoding (with
 // UseNumber enabled) and is documentation-only: any Go value handled by
 // Render and ByteLength below is a valid Value.
@@ -27,7 +27,7 @@ import (
 //   - JSON object   -> map[string]any
 //
 // This mirrors the Node source's JsonValue union in
-// node-src/json/python-compatible.ts, where a JSON number is either a plain
+// the original implementation, where a JSON number is either a plain
 // JS `number` or a lossless-json `LosslessNumber` wrapping the original
 // token; json.Number here plays the LosslessNumber role since it, too, is
 // just the original numeric lexeme as a string. Object-key absence is
@@ -43,13 +43,13 @@ type Value = any
 // Go value that is not one of the Value shapes documented above, or a
 // non-finite plain float64. It is this package's single sentinel for the
 // several `throw new TypeError(...)` call sites scattered across
-// node-src/json/python-compatible.ts's encode/encodeNumber/encodedLength
+// the original implementation's encode/encodeNumber/encodedLength
 // (e.g. "the Python-compatible renderer accepts finite JSON numbers only",
 // "undefined is not a JSON value").
 var ErrNotJSONValue = errors.New("canonjson: not a supported JSON value")
 
 // ComparePythonStrings reports the Unicode-code-point ordering of left and
-// right, exactly as node-src/json/python-compatible.ts's
+// right, exactly as the original implementation's
 // comparePythonStrings does when it walks both strings with
 // String.prototype.codePointAt.
 //
@@ -73,7 +73,7 @@ func ComparePythonStrings(left, right string) int {
 
 // SameStringSequence reports whether left and right hold the same strings
 // in the same order. Ports sameStringSequence from
-// node-src/json/python-compatible.ts.
+// the original implementation.
 func SameStringSequence(left, right []string) bool {
 	if len(left) != len(right) {
 		return false
@@ -88,7 +88,7 @@ func SameStringSequence(left, right []string) bool {
 
 // SortedStrings returns a new slice holding values sorted by
 // ComparePythonStrings (Unicode code-point order), leaving values
-// untouched. Ports sortedStrings from node-src/json/python-compatible.ts.
+// untouched. Ports sortedStrings from the original implementation.
 // Like the Node Array.prototype.sort it wraps, ties are broken stably.
 func SortedStrings(values []string) []string {
 	out := make([]string, len(values))
@@ -108,7 +108,7 @@ func utf16Units(s string) []uint16 {
 // escapedUnitLen returns the number of ASCII characters
 // renderPythonCompatibleJson's string encoder emits for one UTF-16 code
 // unit, matching the branches of encodedStringLength in
-// node-src/json/python-compatible.ts.
+// the original implementation.
 func escapedUnitLen(unit uint16) int {
 	switch unit {
 	case 0x08, 0x09, 0x0a, 0x0c, 0x0d, 0x22, 0x5c:
@@ -122,7 +122,7 @@ func escapedUnitLen(unit uint16) int {
 
 // encodeStringUnit appends the ASCII bytes renderPythonCompatibleJson's
 // string encoder emits for one UTF-16 code unit to sb, matching
-// encodeString in node-src/json/python-compatible.ts (JSON.stringify's
+// encodeString in the original implementation (JSON.stringify's
 // standard escapes, plus \uXXXX for every unit >= 0x80 -- including each
 // half of a surrogate pair, which is how astral characters end up
 // round-tripping through paired \uXXXX\uXXXX escapes).
@@ -159,7 +159,7 @@ func encodeStringUnit(sb *strings.Builder, unit uint16) {
 
 // encodeString renders one JSON string literal, ASCII-escaping every
 // character above 0x7F (with surrogate-pair escapes for astral characters).
-// Ports encodeString in node-src/json/python-compatible.ts.
+// Ports encodeString in the original implementation.
 func encodeString(value string) string {
 	var sb strings.Builder
 	sb.WriteByte('"')
@@ -173,7 +173,7 @@ func encodeString(value string) string {
 // encodedStringLength returns the exact byte length encodeString(value)
 // would produce, stopping early (returning maximum+1) once it is certain to
 // exceed maximum. Ports encodedStringLength in
-// node-src/json/python-compatible.ts.
+// the original implementation.
 func encodedStringLength(value string, maximum int) int {
 	length := 2 // the two quote characters
 	for _, unit := range utf16Units(value) {
@@ -186,7 +186,7 @@ func encodedStringLength(value string, maximum int) int {
 }
 
 // maxSafeInteger is JavaScript's Number.MAX_SAFE_INTEGER (2^53 - 1), the
-// threshold node-src/json/python-compatible.ts's encodeNumber uses to
+// threshold the original implementation's encodeNumber uses to
 // decide whether a plain `number` prints as a bare integer or is routed
 // through the float-repr path.
 const maxSafeInteger = 1<<53 - 1
@@ -199,7 +199,7 @@ func isSafeInteger(value float64) bool {
 // formatNumber renders one JSON number value, whether it is a json.Number
 // (the lossless source lexeme, the Go analogue of the TS LosslessNumber
 // branch) or a plain float64 (the Go analogue of the TS plain `number`
-// branch). Ports encodeNumber in node-src/json/python-compatible.ts.
+// branch). Ports encodeNumber in the original implementation.
 func formatNumber(value any) (string, error) {
 	switch v := value.(type) {
 	case json.Number:
@@ -231,7 +231,7 @@ func negativeZero(v float64) bool {
 
 // encode writes value at the given indent level to sb, following
 // json.dumps(..., indent=2, sort_keys=True) formatting. Ports encode in
-// node-src/json/python-compatible.ts.
+// the original implementation.
 func encode(sb *strings.Builder, value any, level int) error {
 	switch v := value.(type) {
 	case nil:
@@ -320,7 +320,7 @@ func encodeObject(sb *strings.Builder, object map[string]any, level int) error {
 // Render matches json.dumps(..., indent=2, sort_keys=True) for the JSON
 // numbers this package supports, always ending in exactly one trailing
 // newline. Ports renderPythonCompatibleJson from
-// node-src/json/python-compatible.ts.
+// the original implementation.
 func Render(value Value) (string, error) {
 	var sb strings.Builder
 	if err := encode(&sb, value, 0); err != nil {
@@ -332,14 +332,14 @@ func Render(value Value) (string, error) {
 
 // MaxByteLengthLimit is the largest maximumBytes value ByteLength accepts,
 // matching the Node source's validation
-// (Number.MAX_SAFE_INTEGER - 1 in node-src/json/python-compatible.ts) and
+// (Number.MAX_SAFE_INTEGER - 1 in the original implementation) and
 // also serving as its default when no limit is given.
 const MaxByteLengthLimit = maxSafeInteger - 1
 
 // encodedLength returns the exact byte length encode(value, level) would
 // produce, short-circuiting to maximum+1 once the output is certain to
 // exceed maximum. Ports encodedLength in
-// node-src/json/python-compatible.ts.
+// the original implementation.
 func encodedLength(value any, level, maximum int) (int, error) {
 	switch v := value.(type) {
 	case nil:
@@ -409,7 +409,7 @@ func encodedObjectLength(object map[string]any, level, maximum int) (int, error)
 // ByteLength measures the exact UTF-8 byte length Render(value) would
 // produce, short-circuiting the computation (returning maximumBytes+1)
 // as soon as the rendered value is certain not to fit. Ports
-// pythonCompatibleJsonByteLength from node-src/json/python-compatible.ts.
+// pythonCompatibleJsonByteLength from the original implementation.
 //
 // maximumBytes is variadic to mirror the Node function's optional
 // parameter (default Number.MAX_SAFE_INTEGER - 1): pass zero or one value.

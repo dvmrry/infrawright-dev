@@ -20,9 +20,8 @@ registries, schemas, overrides, and shared pack data. For every selected Fetch r
 the resource's actual provider owner and existing `provider_sources`
 declaration before binding a caller-approved `CollectorAdapter`.
 The bundled CLI recognizes its shipped Zscaler provider sources; a library
-caller may inject an adapter for a different provider source. Copying or
-pruning a pack root therefore does not require copying Python code, while an
-unknown provider source fails before credentials or transport are initialized.
+caller may inject an adapter for a different provider source. An unknown
+provider source fails before credentials or transport are initialized.
 
 For a deliberately reduced pack root, pair that setting with an exact
 `PACK_PROFILE`. See [Pack Distributions And Modular Checks](pack-distributions.md)

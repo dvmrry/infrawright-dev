@@ -1,4 +1,4 @@
-// Ports node-src/json/python-lossless-artifact.ts: the artifact JSON
+// Ports the original implementation: the artifact JSON
 // contract used for the demo/config/demo/*.json fixtures (and, in the Node
 // source, every deployment tfvars/lookup artifact the transform pipeline
 // writes) -- "plain JSON values with finite lossless numbers" only,
@@ -68,7 +68,7 @@ type artifactAncestors map[uintptr]bool
 // json.dumps(value, ensure_ascii=True, indent=2, sort_keys=True) + "\n" for
 // the finite-lossless-number artifact contract. Ports
 // renderPythonLosslessArtifactJson from
-// node-src/json/python-lossless-artifact.ts.
+// the original implementation.
 //
 // Every failure -- an unsupported Go value, a non-finite or non-safe-
 // integer plain float64, an out-of-grammar json.Number lexeme, or a

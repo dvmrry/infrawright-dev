@@ -1,42 +1,8 @@
 package tfrender
 
-// import_moves.go is a LOCAL port of the subset of
-// node-src/domain/import-moves.ts that node-src/domain/transform-artifacts.ts
-// calls: RenderHclQuotedString, ParseHclQuotedString (used transitively by
-// ParseGeneratedImports), RenderGeneratedImports, ParseGeneratedImports,
-// DeriveImportMoves, and RenderMovedBlocks, plus their supporting types. See
-// doc.go's "Local dependency ports" section for why this file exists here
-// instead of in the future internal/adopt package that will own the whole
-// of import-moves.ts.
-//
-// filterGeneratedImports, its FilteredGeneratedImports return type, and
-// their private helpers (generatedImportBlockEnd, pythonWhitespaceOnly,
-// trimPythonWhitespace) are NOT ported: transform-artifacts.ts never calls
-// filterGeneratedImports, so porting it here would be unreviewable
-// unreachable code against this slice's actual byte contract.
-//
-// Indexing: the Node source indexes this grammar by UTF-16 code unit (JS
-// strings are UTF-16 sequences). This port instead indexes by Go string
-// byte offset, which is safe and produces identical results here because
-// every structural character this grammar's scanner tests for ("\"", "\\",
-// the escape letters n/r/t, "$", "{", "%", and NUL) is pure ASCII: a
-// multi-byte UTF-8 sequence (or, symmetrically, a UTF-16 surrogate pair)
-// can never contain a byte/unit that collides with one of these ASCII
-// values, so scanning by UTF-8 byte and scanning by UTF-16 unit visit
-// exactly the same structural boundaries and copy exactly the same
-// non-ASCII content through unchanged either way.
-//
-// Vectors: node-tests/import-moves-differential.test.ts exercises this
-// source against a live Python oracle (PYTHON_ORACLE), which is out of
-// scope for this Go-only wave (Python is mid-archival; see
-// docs/go-runtime-plan.md). import_moves_test.go instead pins the exact
-// same CASES table from that file by probing the compiled TypeScript
-// directly: `npx esbuild node-src/domain/import-moves.ts --bundle
-// --platform=node --format=esm --outfile=.../import-moves.mjs`, then a
-// small Node driver script re-running CASES through
-// renderGeneratedImports/parseGeneratedImports/deriveImportMoves/
-// renderMovedBlocks and dumping JSON -- see that file's doc comment for the
-// full probe transcript reference.
+// Import and moved-block rendering uses a deliberately small ASCII grammar.
+// Scanning by UTF-8 byte is safe because every structural token is ASCII and
+// non-ASCII key and ID content is copied through unchanged.
 
 import (
 	"fmt"
@@ -55,27 +21,21 @@ const (
 
 var importResourceTypePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
-// GeneratedImportPair is the Go analogue of the GeneratedImportPair
-// interface in node-src/domain/import-moves.ts.
+// GeneratedImportPair binds one stable key to its provider import ID.
 type GeneratedImportPair struct {
 	Key      string
 	ImportID string
 }
 
-// ImportMove is the Go analogue of the ImportMove interface in
-// node-src/domain/import-moves.ts.
+// ImportMove describes a safe Terraform address rename.
 type ImportMove struct {
 	OldKey string
 	NewKey string
 }
 
-// ImportMoveSuppressionReason is the Go analogue of the
-// ImportMoveSuppressionReason string-literal union in
-// node-src/domain/import-moves.ts.
+// ImportMoveSuppressionReason explains why a candidate rename is unsafe.
 type ImportMoveSuppressionReason string
 
-// The four ImportMoveSuppressionReason literals from
-// node-src/domain/import-moves.ts.
 const (
 	SuppressionAmbiguous           ImportMoveSuppressionReason = "ambiguous"
 	SuppressionDuplicateFrom       ImportMoveSuppressionReason = "duplicate_from"
@@ -84,7 +44,7 @@ const (
 )
 
 // ImportMoveSuppression is the Go analogue of the ImportMoveSuppression
-// interface in node-src/domain/import-moves.ts.
+// interface in the original implementation.
 type ImportMoveSuppression struct {
 	OldKey   string
 	NewKey   string
@@ -93,14 +53,14 @@ type ImportMoveSuppression struct {
 }
 
 // ImportMoveDerivation is the Go analogue of the ImportMoveDerivation
-// interface in node-src/domain/import-moves.ts.
+// interface in the original implementation.
 type ImportMoveDerivation struct {
 	Moves      []ImportMove
 	Suppressed []ImportMoveSuppression
 }
 
 // ParsedHclQuotedString is the Go analogue of the ParsedHclQuotedString
-// interface in node-src/domain/import-moves.ts. End is a byte offset (see
+// interface in the original implementation. End is a byte offset (see
 // this file's indexing note above).
 type ParsedHclQuotedString struct {
 	Value string
@@ -127,7 +87,7 @@ func requireImportResourceType(resourceType string) error {
 
 // RenderHclQuotedString matches engine.transform.hcl_string_literal for
 // generated import addresses. Ports renderHclQuotedString from
-// node-src/domain/import-moves.ts.
+// the original implementation.
 //
 // The TS source's `!value.isWellFormed()` guard (rejecting lone UTF-16
 // surrogates) has no Go analogue to check for: a Go string is always valid
@@ -172,7 +132,7 @@ func RenderHclQuotedString(value string) (string, error) {
 // ParseHclQuotedString decodes the deliberately small HCL quoted-string
 // grammar RenderHclQuotedString emits, starting at byte offset start (see
 // this file's indexing note above). Ports parseHclQuotedString from
-// node-src/domain/import-moves.ts.
+// the original implementation.
 func ParseHclQuotedString(text string, start int) (ParsedHclQuotedString, error) {
 	if start < 0 || start >= len(text) || text[start] != '"' {
 		return ParsedHclQuotedString{}, importMovesFail(
@@ -235,7 +195,7 @@ func ParseHclQuotedString(text string, start int) (ParsedHclQuotedString, error)
 
 // RenderGeneratedImports renders the byte-canonical import blocks emitted
 // by engine.transform. Ports renderGeneratedImports from
-// node-src/domain/import-moves.ts.
+// the original implementation.
 func RenderGeneratedImports(resourceType string, pairs []GeneratedImportPair) (string, error) {
 	if err := requireImportResourceType(resourceType); err != nil {
 		return "", err
@@ -290,7 +250,7 @@ func expectLiteral(text string, start int, literal string) (int, error) {
 
 // ParseGeneratedImports parses only complete, byte-canonical
 // Infrawright-generated import files. Ports parseGeneratedImports from
-// node-src/domain/import-moves.ts.
+// the original implementation.
 //
 // This intentionally rejects HCL that is semantically equivalent but was
 // not generated by Infrawright: comments, partial blocks, repeated
@@ -406,7 +366,7 @@ type importMoveCandidate struct {
 }
 
 // DeriveImportMoves derives only unambiguous, unoccupied state-address
-// moves. Ports deriveImportMoves from node-src/domain/import-moves.ts.
+// moves. Ports deriveImportMoves from the original implementation.
 func DeriveImportMoves(resourceType, oldImportsText, newImportsText string) (ImportMoveDerivation, error) {
 	oldEntries, err := ParseGeneratedImports(resourceType, oldImportsText)
 	if err != nil {
@@ -506,7 +466,7 @@ func compareSuppressions(left, right ImportMoveSuppression) int {
 
 // RenderMovedBlocks matches engine.transform.render_moves byte-for-byte for
 // derived moves. Ports renderMovedBlocks from
-// node-src/domain/import-moves.ts.
+// the original implementation.
 func RenderMovedBlocks(resourceType string, moves []ImportMove) (string, error) {
 	if err := requireImportResourceType(resourceType); err != nil {
 		return "", err

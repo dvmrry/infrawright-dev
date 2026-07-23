@@ -1,9 +1,6 @@
-// Package roots derives singleton-state v2 topology from persisted catalogs
-// or loaded packs. It retains the established tenant, selector, path, and
-// output shapes from node-src/domain/roots.ts, but Go now owns topology:
-// every generated resource type is one state unit whose label is the type and
-// whose members list contains only that type. The frozen Node implementation
-// remains v1 provenance and is not an oracle for these v2 bytes.
+// Package roots derives singleton-state topology from loaded packs. Every
+// generated resource type is one state unit whose label and only member are
+// the resource type.
 package roots
 
 import (
@@ -13,8 +10,8 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
+	"github.com/dvmrry/infrawright-dev/go/internal/posixpath"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
-	"github.com/dvmrry/infrawright-dev/go/internal/pypath"
 )
 
 // validTenant defines the accepted tenant path segment.
@@ -22,7 +19,7 @@ var validTenant = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 // domainError panics with a *procerr.ProcessFailure carrying category
 // "domain" and the given code (defaulting to "INVALID_ROOT_CONFIGURATION",
-// the Go analogue of node-src/domain/roots.ts's `code =
+// the Go analogue of the original implementation's `code =
 // "INVALID_ROOT_CONFIGURATION"` default parameter), typed there as
 // returning `never` because it always throws. See recoverProcessFailure
 // for how every exported entry point in this package converts the panic
@@ -57,7 +54,7 @@ func recoverProcessFailure(err *error) {
 	}
 }
 
-// validateTenant ports validateTenant from node-src/domain/roots.ts,
+// validateTenant ports validateTenant from the original implementation,
 // including its exact error text (asserted verbatim by this package's
 // ported tests, per this port's validation-message-parity requirement).
 func validateTenant(tenant string) {
@@ -69,7 +66,7 @@ func validateTenant(tenant string) {
 	}
 }
 
-// ValidateTenant ports validateTenant from node-src/domain/roots.ts.
+// ValidateTenant ports validateTenant from the original implementation.
 func ValidateTenant(tenant string) (err error) {
 	defer recoverProcessFailure(&err)
 	validateTenant(tenant)
@@ -77,12 +74,12 @@ func ValidateTenant(tenant string) (err error) {
 }
 
 // catalogIndex is the Go analogue of the CatalogIndex interface in
-// node-src/domain/roots.ts: the private, pre-computed lookup shape
+// the original implementation: the private, pre-computed lookup shape
 // resolveRoots/expandResources/rootTopologyFromIndex share, built once per
-// call by indexCatalog (from a persisted metadata.RootCatalog) or
+// call by indexResourceSet (from a persisted metadata.ResourceSet) or
 // indexLoadedPackRoot (directly from a metadata.LoadedPackRoot).
 type catalogIndex struct {
-	resources map[string]metadata.RootCatalogResource
+	resources map[string]metadata.ResourceDescriptor
 	generated map[string]struct{}
 	providers map[string]struct{}
 }
@@ -95,14 +92,14 @@ func stringSet(values []string) map[string]struct{} {
 	return set
 }
 
-// indexCatalog ports indexCatalog from node-src/domain/roots.ts.
-func indexCatalog(catalog metadata.RootCatalog) catalogIndex {
-	resources := make(map[string]metadata.RootCatalogResource, len(catalog.Resources))
-	for _, resource := range catalog.Resources {
+// indexResourceSet ports indexResourceSet from the original implementation.
+func indexResourceSet(resourceSet metadata.ResourceSet) catalogIndex {
+	resources := make(map[string]metadata.ResourceDescriptor, len(resourceSet.Resources))
+	for _, resource := range resourceSet.Resources {
 		resources[resource.Type] = resource
 	}
 	var generated []string
-	for _, resource := range catalog.Resources {
+	for _, resource := range resourceSet.Resources {
 		if !resource.Generated {
 			continue
 		}
@@ -111,7 +108,7 @@ func indexCatalog(catalog metadata.RootCatalog) catalogIndex {
 	return catalogIndex{
 		resources: resources,
 		generated: stringSet(generated),
-		providers: stringSet(catalog.DeclaredProviders),
+		providers: stringSet(resourceSet.DeclaredProviders),
 	}
 }
 
@@ -137,14 +134,11 @@ func isJSObjectLike(value any) bool {
 }
 
 // matchingPrefix ports the provider-prefix longest-match lookup inline in
-// loadedResourceShape in node-src/domain/roots.ts (`Object.entries(...)
+// loadedResourceShape in the original implementation (`Object.entries(...)
 // .filter(...).sort(([left],[right]) => right.length - left.length)`).
 // Ties among same-length candidate prefixes are broken alphabetically
-// (canonjson.SortedStrings) rather than by the Node source's
-// Object.entries insertion order, mirroring
-// go/internal/metadata/rootcatalog.go's matchingPrefix and its doc
-// comment's rationale: every committed pack declares exactly one prefix
-// per provider, so this tie-break is unreachable in this port's gate.
+// (canonjson.SortedStrings). Every committed pack declares exactly one prefix
+// per provider, so this tie-break is unreachable for validated pack metadata.
 func matchingPrefix(providerPrefixes map[string]string, resourceType, provider string) (string, bool) {
 	var candidates []string
 	for prefix, owner := range providerPrefixes {
@@ -166,8 +160,8 @@ func matchingPrefix(providerPrefixes map[string]string, resourceType, provider s
 }
 
 // loadedResourceShape ports loadedResourceShape from
-// node-src/domain/roots.ts.
-func loadedResourceShape(root metadata.LoadedPackRoot, resourceType string) metadata.RootCatalogResource {
+// the original implementation.
+func loadedResourceShape(root metadata.LoadedPackRoot, resourceType string) metadata.ResourceDescriptor {
 	resource, ok := root.Resources[resourceType]
 	if !ok {
 		domainError("unknown active resource type '" + resourceType + "'")
@@ -181,7 +175,7 @@ func loadedResourceShape(root metadata.LoadedPackRoot, resourceType string) meta
 	derive, hasDerive := resource.Registry["derive"]
 	derived := generated && hasDerive && isJSObjectLike(derive)
 
-	return metadata.RootCatalogResource{
+	return metadata.ResourceDescriptor{
 		Type:      resourceType,
 		Product:   resource.Product,
 		Provider:  resource.Provider,
@@ -192,7 +186,7 @@ func loadedResourceShape(root metadata.LoadedPackRoot, resourceType string) meta
 }
 
 // indexLoadedPackRoot ports indexLoadedPackRoot from
-// node-src/domain/roots.ts: "Build the existing root resolver's private
+// the original implementation: "Build the existing root resolver's private
 // index directly from pack metadata."
 func indexLoadedPackRoot(root metadata.LoadedPackRoot) catalogIndex {
 	resourceTypes := make([]string, 0, len(root.Resources))
@@ -201,7 +195,7 @@ func indexLoadedPackRoot(root metadata.LoadedPackRoot) catalogIndex {
 	}
 	resourceTypes = canonjson.SortedStrings(resourceTypes)
 
-	resources := make(map[string]metadata.RootCatalogResource, len(resourceTypes))
+	resources := make(map[string]metadata.ResourceDescriptor, len(resourceTypes))
 	for _, resourceType := range resourceTypes {
 		resources[resourceType] = loadedResourceShape(root, resourceType)
 	}
@@ -263,7 +257,7 @@ func resolveRoots(dep deployment.Deployment, index catalogIndex) resolution {
 	return res
 }
 
-// expandResources ports expandResources from node-src/domain/roots.ts.
+// expandResources ports expandResources from the original implementation.
 func expandResources(selectors []string, index catalogIndex) []string {
 	if len(selectors) == 0 {
 		generatedTypes := make([]string, 0, len(index.generated))
@@ -326,15 +320,15 @@ func expandResources(selectors []string, index catalogIndex) []string {
 	return canonjson.SortedStrings(selectedList)
 }
 
-// ExpandCatalogResources ports expandCatalogResources from
-// node-src/domain/roots.ts.
-func ExpandCatalogResources(catalog metadata.RootCatalog, selectors []string) (types []string, err error) {
+// ExpandResourceSet ports expandCatalogResources from
+// the original implementation.
+func ExpandResourceSet(resourceSet metadata.ResourceSet, selectors []string) (types []string, err error) {
 	defer recoverProcessFailure(&err)
-	return expandResources(selectors, indexCatalog(catalog)), nil
+	return expandResources(selectors, indexResourceSet(resourceSet)), nil
 }
 
 // ExpandLoadedResources ports expandLoadedResources from
-// node-src/domain/roots.ts: "Expand transform selectors without
+// the original implementation: "Expand transform selectors without
 // constructing or persisting a root catalog."
 func ExpandLoadedResources(root metadata.LoadedPackRoot, selectors []string) (types []string, err error) {
 	defer recoverProcessFailure(&err)
@@ -342,7 +336,7 @@ func ExpandLoadedResources(root metadata.LoadedPackRoot, selectors []string) (ty
 }
 
 // RootTopologyRoot ports the RootTopologyRoot interface from
-// node-src/domain/types.ts.
+// the original implementation.
 type RootTopologyRoot struct {
 	Label    string
 	Provider *string
@@ -351,7 +345,7 @@ type RootTopologyRoot struct {
 }
 
 // RootTopologyDirectories ports the anonymous `directories` shape nested in
-// the RootTopology interface in node-src/domain/types.ts.
+// the RootTopology interface in the original implementation.
 type RootTopologyDirectories struct {
 	Config  string
 	Imports string
@@ -359,7 +353,7 @@ type RootTopologyDirectories struct {
 }
 
 // RootTopology ports the RootTopology interface from
-// node-src/domain/types.ts.
+// the original implementation.
 type RootTopology struct {
 	Kind          string
 	SchemaVersion int
@@ -371,7 +365,7 @@ type RootTopology struct {
 }
 
 // WholeRootDiagnostic ports the WholeRootDiagnostic interface from
-// node-src/domain/types.ts.
+// the original implementation.
 type WholeRootDiagnostic struct {
 	Level             string
 	Code              string
@@ -382,14 +376,14 @@ type WholeRootDiagnostic struct {
 }
 
 // RootTopologyResult bundles rootTopologyFromIndex's two return values
-// (node-src/domain/roots.ts's ported functions all return `{ topology,
+// (the original implementation's ported functions all return `{ topology,
 // diagnostics }`) into a single Go return value.
 type RootTopologyResult struct {
 	Topology    RootTopology
 	Diagnostics []WholeRootDiagnostic
 }
 
-// tenantPath ports tenantPath from node-src/domain/roots.ts. It is
+// tenantPath ports tenantPath from the original implementation. It is
 // distinct from, and deliberately does not call,
 // go/internal/deployment's own (unexported) tenant-path helper: the two
 // raise different malformed-overlay error text for what is, not
@@ -402,16 +396,16 @@ func tenantPath(dep deployment.Deployment, tenant string, kind string) string {
 	if !ok {
 		domainError("deployment overlay must be a string when tenant paths are requested")
 	}
-	relative := pypath.PythonPosixJoin(kind, tenant)
+	relative := posixpath.Join(kind, tenant)
 	if overlay == "." {
 		return relative
 	}
-	return pypath.PythonPosixJoin(overlay, relative)
+	return posixpath.Join(overlay, relative)
 }
 
 // rootTopologyFromIndexOptions bundles rootTopologyFromIndex's parameters,
 // the Go analogue of the inline options-object parameter type
-// node-src/domain/roots.ts's rootTopologyFromIndex accepts.
+// the original implementation's rootTopologyFromIndex accepts.
 type rootTopologyFromIndexOptions struct {
 	index     catalogIndex
 	dep       deployment.Deployment
@@ -420,7 +414,7 @@ type rootTopologyFromIndexOptions struct {
 }
 
 // rootTopologyFromIndex ports rootTopologyFromIndex from
-// node-src/domain/roots.ts.
+// the original implementation.
 func rootTopologyFromIndex(options rootTopologyFromIndexOptions) RootTopologyResult {
 	if options.tenant != nil {
 		validateTenant(*options.tenant)
@@ -485,7 +479,7 @@ func rootTopologyFromIndex(options rootTopologyFromIndexOptions) RootTopologyRes
 		}
 		var envDir *string
 		if options.tenant != nil {
-			dir := pypath.PythonPosixJoin(tenantPath(options.dep, *options.tenant, "envs"), label)
+			dir := posixpath.Join(tenantPath(options.dep, *options.tenant, "envs"), label)
 			envDir = &dir
 		}
 		topologyRoots = append(topologyRoots, RootTopologyRoot{
@@ -532,26 +526,26 @@ func rootTopologyFromIndex(options rootTopologyFromIndexOptions) RootTopologyRes
 }
 
 // RootTopologyOptions bundles RootTopology's parameters, the Go analogue of
-// the inline options-object parameter type node-src/domain/roots.ts's
+// the inline options-object parameter type the original implementation's
 // rootTopology accepts.
 type RootTopologyOptions struct {
-	Catalog    metadata.RootCatalog
-	Deployment deployment.Deployment
+	ResourceSet metadata.ResourceSet
+	Deployment  deployment.Deployment
 	// Tenant is nil for the Node source's `tenant: null`.
 	Tenant    *string
 	Selectors []string
 }
 
-// RootTopologyFromCatalog ports rootTopology from
-// node-src/domain/roots.ts. Named RootTopologyFromCatalog rather than
+// RootTopologyFromResourceSet ports rootTopology from
+// the original implementation. Named RootTopologyFromResourceSet rather than
 // RootTopology (which the RootTopology struct type above already claims)
 // since Go, unlike TypeScript, does not allow a function and a type to
 // share one exported name in the same package.
-func RootTopologyFromCatalog(options RootTopologyOptions) (result RootTopologyResult, err error) {
+func RootTopologyFromResourceSet(options RootTopologyOptions) (result RootTopologyResult, err error) {
 	defer recoverProcessFailure(&err)
 	return rootTopologyFromIndex(rootTopologyFromIndexOptions{
 		dep:       options.Deployment,
-		index:     indexCatalog(options.Catalog),
+		index:     indexResourceSet(options.ResourceSet),
 		tenant:    options.Tenant,
 		selectors: options.Selectors,
 	}), nil
@@ -559,7 +553,7 @@ func RootTopologyFromCatalog(options RootTopologyOptions) (result RootTopologyRe
 
 // LoadedRootTopologyOptions bundles LoadedRootTopology's parameters, the Go
 // analogue of the inline options-object parameter type
-// node-src/domain/roots.ts's loadedRootTopology accepts.
+// the original implementation's loadedRootTopology accepts.
 type LoadedRootTopologyOptions struct {
 	Root       metadata.LoadedPackRoot
 	Deployment deployment.Deployment
@@ -569,12 +563,12 @@ type LoadedRootTopologyOptions struct {
 }
 
 // LoadedRootTopology ports loadedRootTopology from
-// node-src/domain/roots.ts: "Resolve roots from the same pack metadata
+// the original implementation: "Resolve roots from the same pack metadata
 // object used by generators." This is the runner's actual entry point
-// (docs/go-runtime-plan.md's roots/scope-paths/plan-roots/environment-
-// generation slice calls this, not RootTopologyFromCatalog) -- everything
+// (the Go runtime contract's roots/scope-paths/plan-roots/environment-
+// generation slice calls this, not RootTopologyFromResourceSet) -- everything
 // else in this package exists to support it (or to mirror
-// node-src/domain/roots.ts's other exports faithfully alongside it).
+// the original implementation's other exports faithfully alongside it).
 //
 // Tenant validation happens twice on a non-nil Tenant, exactly as the Node
 // source's loadedRootTopology validates before calling

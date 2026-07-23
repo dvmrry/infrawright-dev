@@ -7,7 +7,7 @@ import (
 )
 
 // SourceProvenanceValue converts a valid manifest into the deterministic value
-// tree required by docs/go-authoring-port-roadmap.md §3.2.1.
+// tree required by the authoring artifact contract §3.2.1.
 func SourceProvenanceValue(provenance SourceProvenance) (canonjson.Value, error) {
 	if err := ValidateSourceProvenance(provenance); err != nil {
 		return nil, err
@@ -16,7 +16,7 @@ func SourceProvenanceValue(provenance SourceProvenance) (canonjson.Value, error)
 }
 
 // RenderSourceProvenance renders a valid verified manifest deterministically
-// under docs/go-authoring-port-roadmap.md §3.2.1.
+// under the authoring artifact contract §3.2.1.
 func RenderSourceProvenance(provenance SourceProvenance) (string, error) {
 	value, err := SourceProvenanceValue(provenance)
 	if err != nil {
@@ -26,7 +26,7 @@ func RenderSourceProvenance(provenance SourceProvenance) (string, error) {
 }
 
 // InputProvenanceValue converts the verified/unverified input union into the
-// deterministic value tree from docs/go-authoring-port-roadmap.md §3.5.
+// deterministic value tree from the authoring artifact contract §3.5.
 func InputProvenanceValue(provenance InputProvenance) (canonjson.Value, error) {
 	if err := ValidateInputProvenance(provenance); err != nil {
 		return nil, err
@@ -35,7 +35,7 @@ func InputProvenanceValue(provenance InputProvenance) (canonjson.Value, error) {
 }
 
 // RenderInputProvenance renders input-provenance.json deterministically under
-// docs/go-authoring-port-roadmap.md §3.5.
+// the authoring artifact contract §3.5.
 func RenderInputProvenance(provenance InputProvenance) (string, error) {
 	value, err := InputProvenanceValue(provenance)
 	if err != nil {
@@ -45,7 +45,7 @@ func RenderInputProvenance(provenance InputProvenance) (string, error) {
 }
 
 // SourceEvidenceReportValue converts a valid source report into the isolated
-// deterministic value tree from docs/go-authoring-port-roadmap.md §3.3.
+// deterministic value tree from the authoring artifact contract §3.3.
 func SourceEvidenceReportValue(report SourceEvidenceReport) (canonjson.Value, error) {
 	if err := ValidateSourceEvidenceReport(report); err != nil {
 		return nil, err
@@ -54,7 +54,7 @@ func SourceEvidenceReportValue(report SourceEvidenceReport) (canonjson.Value, er
 }
 
 // RenderSourceEvidenceReport renders source evidence without OpenAPI fields so
-// optional-adapter changes cannot alter its bytes under docs/go-authoring-port-roadmap.md §3.6.
+// optional-adapter changes cannot alter its bytes under the authoring artifact contract §3.6.
 func RenderSourceEvidenceReport(report SourceEvidenceReport) (string, error) {
 	value, err := SourceEvidenceReportValue(report)
 	if err != nil {
@@ -64,7 +64,7 @@ func RenderSourceEvidenceReport(report SourceEvidenceReport) (string, error) {
 }
 
 // OpenAPIDiagnosticsReportValue converts a valid isolated comparison report to
-// the deterministic value tree from docs/go-authoring-port-roadmap.md §3.6.
+// the deterministic value tree from the authoring artifact contract §3.6.
 func OpenAPIDiagnosticsReportValue(diagnostics OpenAPIDiagnosticsReport, source SourceEvidenceReport) (canonjson.Value, error) {
 	if err := ValidateOpenAPIDiagnosticsReport(diagnostics, source); err != nil {
 		return nil, err
@@ -73,7 +73,7 @@ func OpenAPIDiagnosticsReportValue(diagnostics OpenAPIDiagnosticsReport, source 
 }
 
 // RenderOpenAPIDiagnosticsReport renders the isolated comparison artifact
-// deterministically under docs/go-authoring-port-roadmap.md §3.6.
+// deterministically under the authoring artifact contract §3.6.
 func RenderOpenAPIDiagnosticsReport(diagnostics OpenAPIDiagnosticsReport, source SourceEvidenceReport) (string, error) {
 	value, err := OpenAPIDiagnosticsReportValue(diagnostics, source)
 	if err != nil {

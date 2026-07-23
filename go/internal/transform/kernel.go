@@ -1,7 +1,7 @@
 package transform
 
 // kernel.go ports the top-level orchestration from
-// node-src/domain/pull-transform.ts: PullTransformResult,
+// the original implementation: PullTransformResult,
 // validateLoadedOverride, executeTransform, TransformLoadedItemsOptions,
 // TransformLoadedItems, compareDerivedRules, and DeriveReorderItems.
 
@@ -15,7 +15,7 @@ import (
 )
 
 // PullTransformResult ports the exported PullTransformResult interface
-// from node-src/domain/pull-transform.ts. Items/Originals are plain
+// from the original implementation. Items/Originals are plain
 // (order-less) Go maps: every real consumer of this shape in the Node
 // source (transform-artifacts.ts) already walks Object.keys(...) through
 // sortedStrings before doing anything with it, never relying on the
@@ -29,7 +29,7 @@ type PullTransformResult struct {
 }
 
 // validateLoadedOverride ports validateLoadedOverride from
-// node-src/domain/pull-transform.ts.
+// the original implementation.
 func validateLoadedOverride(resourceType string, override map[string]any, block metadata.JsonObject) {
 	divide := objectMap(override["divide"], resourceType+".override.divide")
 	// Sorted (the Node source's own `for (const [field, divisor] of
@@ -112,7 +112,7 @@ func validateLoadedOverride(resourceType string, override map[string]any, block 
 }
 
 // executeTransform ports executeTransform from
-// node-src/domain/pull-transform.ts.
+// the original implementation.
 func executeTransform(
 	rawItems []any,
 	resource *runtimeTransformResource,
@@ -146,7 +146,7 @@ func executeTransform(
 	}
 
 	for _, raw := range rawItems {
-		snakeRawValue := snakeKeys(raw, "$raw", resource.StrictFrozenCompatibility)
+		snakeRawValue := snakeKeys(raw, "$raw")
 		snakeRaw, isObject := snakeRawValue.(map[string]any)
 		if !isObject {
 			fail("each raw transform item must be a JSON object")
@@ -192,7 +192,7 @@ func executeTransform(
 }
 
 // TransformLoadedItemsOptions ports the exported TransformLoadedItemsOptions
-// interface from node-src/domain/pull-transform.ts.
+// interface from the original implementation.
 type TransformLoadedItemsOptions struct {
 	Resource metadata.LoadedResourceMetadata
 	Schema   metadata.JsonObject
@@ -211,7 +211,7 @@ type TransformLoadedItemsOptions struct {
 }
 
 // TransformLoadedItems ports the exported transformLoadedItems from
-// node-src/domain/pull-transform.ts: "Transform already-collected items
+// the original implementation: "Transform already-collected items
 // directly from active pack metadata."
 func TransformLoadedItems(options TransformLoadedItemsOptions) (result PullTransformResult, err error) {
 	defer recoverErr(&err)
@@ -237,18 +237,17 @@ func TransformLoadedItems(options TransformLoadedItemsOptions) (result PullTrans
 	}
 
 	resource := &runtimeTransformResource{
-		Type:                      options.Resource.Type,
-		Override:                  override,
-		Projection:                compileProjection(block, options.Resource.Type+".block", mergeBlocks, true),
-		HTMLUnescapePasses:        htmlUnescapePasses,
-		StrictFrozenCompatibility: false,
+		Type:               options.Resource.Type,
+		Override:           override,
+		Projection:         compileProjection(block, options.Resource.Type+".block", mergeBlocks, true),
+		HTMLUnescapePasses: htmlUnescapePasses,
 	}
 	return executeTransform(options.RawItems, resource, options.HTMLUnescape, options.OnSkip), nil
 }
 
 // derivedRule is the Go analogue of deriveReorderItems's inline
 // `{ id: string; order: string }` rule shape from
-// node-src/domain/pull-transform.ts.
+// the original implementation.
 type derivedRule struct {
 	ID    string
 	Order string
@@ -271,7 +270,7 @@ func derivedRuleInteger(order string) (*big.Int, bool) {
 }
 
 // compareDerivedRules ports compareDerivedRules from
-// node-src/domain/pull-transform.ts.
+// the original implementation.
 func compareDerivedRules(left, right derivedRule) int {
 	leftInteger, leftHasInteger := derivedRuleInteger(left.Order)
 	rightInteger, rightHasInteger := derivedRuleInteger(right.Order)
@@ -292,7 +291,7 @@ func compareDerivedRules(left, right derivedRule) int {
 }
 
 // DeriveReorderItems ports the exported deriveReorderItems from
-// node-src/domain/pull-transform.ts: "Port of the registry-driven,
+// the original implementation: "Port of the registry-driven,
 // config-only reorder derivation."
 func DeriveReorderItems(rawItems []any, derive map[string]any) (result map[string]TransformRecord, err error) {
 	defer recoverErr(&err)
@@ -306,7 +305,7 @@ func DeriveReorderItems(rawItems []any, derive map[string]any) (result map[strin
 	}
 	var rules []derivedRule
 	for _, raw := range rawItems {
-		item, isObject := snakeKeys(raw, "$raw", false).(map[string]any)
+		item, isObject := snakeKeys(raw, "$raw").(map[string]any)
 		if !isObject {
 			fail("each derived source item must be a JSON object")
 		}
@@ -320,8 +319,8 @@ func DeriveReorderItems(rawItems []any, derive map[string]any) (result map[strin
 			failf("cannot derive the reorder resource from %s: a source rule is missing %s — refusing to emit a partial reorder", source, missing)
 		}
 		rules = append(rules, derivedRule{
-			ID:    identityComponent(id, "id", false),
-			Order: identityComponent(order, "rule_order", false),
+			ID:    identityComponent(id),
+			Order: identityComponent(order),
 		})
 	}
 	// SliceStable, not Slice: the Node source's Array.prototype.sort is

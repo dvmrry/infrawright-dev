@@ -188,7 +188,6 @@ var cobraFlagDescriptions = map[string]string{
 	"--artifact-dir":            "complete source-evidence artifact directory",
 	"--backend":                 "Terraform backend name",
 	"--backend-config":          "Terraform backend configuration path",
-	"--catalog":                 "pack or root catalog path",
 	"--check":                   "compare generated output with this path",
 	"--concurrency":             "maximum concurrent fetch operations",
 	"--debug-traceback":         "include debug traceback details",
@@ -215,7 +214,6 @@ var cobraFlagDescriptions = map[string]string{
 	"--provider-file":           "manifest-relative provider source file",
 	"--provider-module":         "provider Go module identity",
 	"--provider-source":         "Terraform provider source address",
-	"--providers":               "comma-separated provider filter",
 	"--registry":                "registry metadata path",
 	"--report":                  "assessment report destination or standard output",
 	"--requirements":            "pack requirements path",
@@ -245,23 +243,10 @@ func cobraFlagDescription(name string) string {
 	return strings.TrimPrefix(name, "--")
 }
 
-func newRootCatalogCobraCommand() *cobra.Command {
-	return newTypedCobraCommand(typedCobraCommandSpec{
-		use: "root-catalog", short: "Generate or verify the compatibility root catalog",
-		valueFlags: []string{"--providers", "--out", "--check", "--root", "--profile", "--catalog"},
-		run: func(parsed commandInput) (int, error) {
-			if len(parsed.Positionals) != 0 {
-				return 0, usageError("root-catalog does not accept positional arguments")
-			}
-			return rootCatalogInput(parsed)
-		},
-	})
-}
-
 func newTransformCobraCommand() *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "transform", short: "Transform pulled provider JSON",
-		valueFlags: []string{"--in", "--tenant", "--resource", "--deployment", "--root", "--profile", "--catalog"},
+		valueFlags: []string{"--in", "--tenant", "--resource", "--deployment", "--root", "--profile"},
 		run: func(parsed commandInput) (int, error) {
 			if len(parsed.Positionals) != 0 {
 				return 0, usageError("transform does not accept positional arguments")
@@ -307,7 +292,6 @@ func newCobraRootWithTerraformPreflight(preflight func() error) *cobra.Command {
 	root.AddCommand(
 		newCheckPackCobraCommand(defaultMetadataCommandDependencies()),
 		newCheckPackSetCobraCommand(defaultMetadataCommandDependencies()),
-		newRootCatalogCobraCommand(),
 		newDeploymentCobraCommand(defaultMetadataCommandDependencies()),
 		newTransformCobraCommand(),
 		newAdoptCobraCommand(defaultBlockDCommandDependencies()),

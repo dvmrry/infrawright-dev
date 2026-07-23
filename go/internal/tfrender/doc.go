@@ -1,14 +1,14 @@
 // Package tfrender ports three Node artifact-rendering/writing sources for
-// Wave 4 of the Go runtime port (docs/go-runtime-plan.md, Slice 3):
+// Wave 4 of the Go runtime port (the Go runtime contract, Slice 3):
 //
-//   - node-src/domain/hcl-tfvars.ts: the byte-exact HCL tfvars renderer
+//   - the original implementation: the byte-exact HCL tfvars renderer
 //     (hcl_tfvars.go).
-//   - node-src/json/canonical-import-blocks.ts: the closed, canonical
+//   - the original implementation: the closed, canonical
 //     import{} block grammar parser (import_blocks.go). Note: this source
-//     file has no node-tests/*.test.ts coverage as of this port (no test
+//     file has no the original test corpus coverage as of this port (no test
 //     file imports it) -- see import_blocks_test.go's doc comment for the
 //     probe-derived vectors used in its place.
-//   - node-src/domain/transform-artifacts.ts: artifact assembly and the
+//   - the original implementation: artifact assembly and the
 //     transactional filesystem write path (tfvars in json/hcl format,
 //     imports files, lookup sidecars, generated-bindings sidecars, and
 //     batch publish/rollback semantics) (transform_artifacts.go).
@@ -16,15 +16,15 @@
 // # Local dependency ports (pending integration)
 //
 // transform-artifacts.ts imports several functions from
-// node-src/domain/import-moves.ts (renderHclQuotedString, parseHclQuotedString
+// the original implementation (renderHclQuotedString, parseHclQuotedString
 // [transitively, via parseGeneratedImports], renderGeneratedImports,
 // parseGeneratedImports, deriveImportMoves, renderMovedBlocks) that are not
-// among this slice's three named source files. node-src/domain/import-moves.ts
-// as a whole belongs to the future internal/adopt package (docs/go-runtime-plan.md's
+// among this slice's three named source files. the original implementation
+// as a whole belongs to the future internal/adopt package (the Go runtime contract's
 // "import staging/moves", Slice 6) and is not committed anywhere in this Go
 // module yet. Rather than leave transform_artifacts.go uncompilable, or
 // invent behavior, import_moves.go ports the exact subset of
-// node-src/domain/import-moves.ts that transform-artifacts.ts actually calls
+// the original implementation that transform-artifacts.ts actually calls
 // (RenderHclQuotedString, ParseHclQuotedString, GeneratedImportPair,
 // RenderGeneratedImports, ParseGeneratedImports, ImportMove,
 // ImportMoveSuppression, ImportMoveDerivation, DeriveImportMoves,
@@ -38,9 +38,9 @@
 // in favor of importing it.
 //
 // deployment.ts itself, unlike import-moves.ts, is NOT locally forked here:
-// go/internal/deployment (a full, tested port of node-src/domain/deployment.ts,
+// go/internal/deployment (a full, tested port of the original implementation,
 // including deploymentConfigDir, deploymentImportsDir, deploymentTfvarsFormat,
-// and the Deployment/RootProviderConfig shapes from node-src/domain/types.ts)
+// and the Deployment/RootProviderConfig shapes from the original implementation)
 // landed after this package's transform_artifacts.go was first drafted.
 // transform_artifacts.go imports that package directly
 // (deployment.Deployment, deployment.DeploymentConfigDir,
@@ -54,16 +54,16 @@
 //
 // PullTransformResult (in transform_artifacts.go) is similarly a LOCAL
 // minimal port of the interface of the same name in
-// node-src/domain/pull-transform.ts, whose full port belongs to the sibling
+// the original implementation, whose full port belongs to the sibling
 // finisher's go/internal/transform package for this wave. Only the three
 // fields transform-artifacts.ts's write path reads or structurally carries
 // (Items, Originals, Drops) are ported.
 //
 // # expression-bindings.ts is out of scope
 //
-// node-src/domain/transform-artifacts.ts does not import
-// node-src/domain/expression-bindings.ts (confirmed by grep: that source's
-// only importer anywhere in node-src/ is node-src/domain/environment-generator.ts).
+// the original implementation does not import
+// the original implementation (confirmed by grep: that source's
+// only importer anywhere in the original source tree is the original implementation).
 // The "binding context" logic in transform_artifacts.go
 // (BindingContext/TransformReferenceSpec/DeriveGeneratedBindings and their
 // helpers) is a wholly self-contained port of logic that lives directly in
@@ -79,5 +79,5 @@
 // plain, natively-constructed number), []any, and map[string]any. This
 // mirrors the Node source's own unknown-typed JSON tree walking and this
 // port's Slice 0 "dynamic tree, not structs" design decision
-// (docs/go-runtime-plan.md).
+// (the Go runtime contract).
 package tfrender

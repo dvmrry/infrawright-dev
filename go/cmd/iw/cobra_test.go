@@ -24,7 +24,7 @@ func TestCobraTreeCarriesCompleteCommandSurface(t *testing.T) {
 		"adopt", "apply", "assert-adoptable", "assert-clean", "check-pack",
 		"check-pack-set", "clean-plans", "deployment", "fetch", "fetch-diag",
 		"gen-env", "modules", "openapi-map", "plan", "plan-roots",
-		"provider-probe", "reconcile", "resources", "root-catalog", "roots",
+		"provider-probe", "reconcile", "resources", "roots",
 		"scope-paths", "source-evidence-eval", "source-operation-map",
 		"stage-imports", "transform", "transform-adopt-parity", "unstage-imports",
 	}
@@ -50,11 +50,14 @@ func TestCobraTreeExposesSafetyAndAuthoringFlags(t *testing.T) {
 	root := newCobraRoot()
 	checks := map[string][]string{
 		"apply":                {"allow-destroy", "allow-non-main", "allow-plan-changes", "policy", "terraform"},
+		"gen-env":              {"terraform"},
+		"modules generate":     {"terraform"},
+		"modules validate":     {"terraform"},
 		"source-operation-map": {"allow-unverified-source", "artifact-dir", "source-manifest", "provider-file", "sdk-root"},
 		"provider-probe":       {"debug-traceback", "work-dir"},
 	}
 	for path, flags := range checks {
-		command, _, err := root.Find([]string{path})
+		command, _, err := root.Find(strings.Fields(path))
 		if err != nil {
 			t.Fatalf("find %s: %v", path, err)
 		}
@@ -63,6 +66,25 @@ func TestCobraTreeExposesSafetyAndAuthoringFlags(t *testing.T) {
 				t.Errorf("%s lacks --%s", path, name)
 			}
 		}
+	}
+}
+
+func TestTopologyTerraformCompatibilityFlagsParseWithoutExecutableAccess(t *testing.T) {
+	root := newCobraRoot()
+	for _, path := range []string{"gen-env", "modules generate", "modules validate"} {
+		t.Run(strings.ReplaceAll(path, " ", "_"), func(t *testing.T) {
+			command, _, err := root.Find(strings.Fields(path))
+			if err != nil {
+				t.Fatalf("root.Find(%q) error: %v", path, err)
+			}
+			missingExecutable := "/definitely/missing/terraform"
+			if err := command.ParseFlags([]string{"--terraform", missingExecutable}); err != nil {
+				t.Fatalf("%s ParseFlags(--terraform) error: %v", path, err)
+			}
+			if got, err := command.Flags().GetString("terraform"); err != nil || got != missingExecutable {
+				t.Errorf("%s --terraform = %q, %v; want accepted value %q", path, got, err, missingExecutable)
+			}
+		})
 	}
 }
 

@@ -40,7 +40,7 @@ interpretation. Prioritize:
 1. For `zia_firewall_filtering_network_service.tag`, return the raw,
    Transform, generated-before-policy, generated-after-policy, and adopted
    tfvars counts plus the Adopt exit status.
-2. Return the bound CLI, override, registry, profile, catalog, and deployment
+2. Return the bound CLI, override, registry, profile, and deployment
    hashes.
 3. For `zia_url`, return its classified origin and materialized
    module/variable MATCH or MISMATCH.
@@ -131,7 +131,6 @@ Set these to the exact authorities used by the clean-room harness:
     export IW_CLI=/absolute/path/to/dist/iw
     export IW_PACKS=/absolute/path/to/packs
     export IW_PROFILE=/absolute/path/to/packs/full.packset.json
-    export IW_CATALOG=/absolute/path/to/packs/full.packset.json
     export IW_DEPLOYMENT=/absolute/path/to/deployment.json
     export IW_PULL=/absolute/path/to/the/frozen/pull/root
     export IW_TENANT=the-existing-test-tenant
@@ -259,7 +258,6 @@ Record every authority hash with a fixed label so shasum never prints a path:
     hash_authority zia-registry "$IW_PACKS/zia/registry.json"
     hash_authority zpa-registry "$IW_PACKS/zpa/registry.json"
     hash_authority profile "$IW_PROFILE"
-    hash_authority catalog "$IW_CATALOG"
     hash_authority deployment-original "$IW_DEPLOYMENT"
     hash_authority deployment-network-lane "$NS_A/deployment.json"
     hash_authority deployment-browser-lane "$BC_A/deployment.json"
@@ -299,7 +297,7 @@ absent, it prints a sanitized NOT RUN result and continues to Phase 3.
     run_private network-transform "$NS_T" \
       env TMPDIR="$NS_T/tmp" "$IW_CLI" transform \
         --root "$IW_PACKS" --profile "$IW_PROFILE" \
-        --catalog "$IW_CATALOG" --deployment "$NS_T/deployment.json" \
+        --deployment "$NS_T/deployment.json" \
         --in "$IW_PULL" --tenant "$IW_TENANT" \
         --resource zia_firewall_filtering_network_service
 
@@ -308,14 +306,14 @@ absent, it prints a sanitized NOT RUN result and continues to Phase 3.
         INFRAWRIGHT_ORACLE_STATE_SOURCE=applied-state \
         "$IW_CLI" adopt \
         --root "$IW_PACKS" --profile "$IW_PROFILE" \
-        --catalog "$IW_CATALOG" --deployment "$NS_A/deployment.json" \
+        --deployment "$NS_A/deployment.json" \
         --in "$IW_PULL" --tenant "$IW_TENANT" \
         --resource zia_firewall_filtering_network_service
 
     run_private browser-transform "$BC_T" \
       env TMPDIR="$BC_T/tmp" "$IW_CLI" transform \
         --root "$IW_PACKS" --profile "$IW_PROFILE" \
-        --catalog "$IW_CATALOG" --deployment "$BC_T/deployment.json" \
+        --deployment "$BC_T/deployment.json" \
         --in "$IW_PULL" --tenant "$IW_TENANT" \
         --resource zia_browser_control_policy
 
@@ -324,7 +322,7 @@ absent, it prints a sanitized NOT RUN result and continues to Phase 3.
         INFRAWRIGHT_ORACLE_STATE_SOURCE=applied-state \
         "$IW_CLI" adopt \
         --root "$IW_PACKS" --profile "$IW_PROFILE" \
-        --catalog "$IW_CATALOG" --deployment "$BC_A/deployment.json" \
+        --deployment "$BC_A/deployment.json" \
         --in "$IW_PULL" --tenant "$IW_TENANT" \
         --resource zia_browser_control_policy
     else
@@ -460,7 +458,7 @@ entries from the exact registry, and emit only resource type and slug intent:
 
     for product in zia zpa; do
       "$IW_CLI" resources --root "$IW_PACKS" \
-        --profile "$IW_PROFILE" --catalog "$IW_CATALOG" \
+        --profile "$IW_PROFILE" \
         --resource "$product" > "$IW_JOB/$product.active"
       jq --rawfile active "$IW_JOB/$product.active" '
         ($active | split("\n") | map(select(length > 0))) as $active_types
@@ -477,7 +475,7 @@ entries from the exact registry, and emit only resource type and slug intent:
         > "$IW_JOB/$product.source-less.json"
 
       "$IW_CLI" roots --root "$IW_PACKS" \
-        --profile "$IW_PROFILE" --catalog "$IW_CATALOG" \
+        --profile "$IW_PROFILE" \
         --deployment "$IW_DEPLOYMENT" --resource "$product" \
         > "$IW_JOB/$product.topology.json" \
         2> "$IW_JOB/logs/$product-roots.stderr"
@@ -539,7 +537,7 @@ only non-sensitive names such as zia and zia_url:
     (
       cd "$IW_GENERATED_WORKSPACE"
       "$IW_CLI" roots --tenant "$IW_TENANT" --root "$IW_PACKS" \
-        --profile "$IW_PROFILE" --catalog "$IW_CATALOG" \
+        --profile "$IW_PROFILE" \
         --deployment "$IW_DEPLOYMENT" --resource "$IW_ROOT_SELECTOR"
     ) > "$IW_JOB/materialized.private.json" \
       2> "$IW_JOB/logs/materialized-roots.stderr"
@@ -615,7 +613,7 @@ Then run:
       run_private zia-root-regenerate "$ROOT_LANE" \
         "$IW_CLI" gen-env --tenant "$IW_TENANT" \
           --root "$IW_PACKS" --profile "$IW_PROFILE" \
-          --catalog "$IW_CATALOG" \
+          \
           --deployment "$ROOT_LANE/deployment.json" \
           --resource "$IW_ROOT_SELECTOR"
       test "$(cat "$IW_JOB/logs/zia-root-regenerate.status")" = 0
@@ -623,7 +621,7 @@ Then run:
       (
         cd "$ROOT_LANE"
         "$IW_CLI" roots --tenant "$IW_TENANT" --root "$IW_PACKS" \
-          --profile "$IW_PROFILE" --catalog "$IW_CATALOG" \
+          --profile "$IW_PROFILE" \
           --deployment "$ROOT_LANE/deployment.json" \
           --resource "$IW_ROOT_SELECTOR"
       ) > "$IW_JOB/regenerated.private.json" \
@@ -687,7 +685,6 @@ returning prefixes:
     - ZIA registry SHA-256:
     - ZPA registry SHA-256:
     - profile SHA-256:
-    - catalog SHA-256:
     - original deployment SHA-256:
     - network lane deployment SHA-256:
     - browser lane deployment SHA-256:

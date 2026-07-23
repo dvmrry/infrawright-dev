@@ -9,12 +9,12 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
-// rest_diagnostics.go ports node-src/collectors/rest-diagnostics.ts: the
+// rest_diagnostics.go ports the original implementation: the
 // `fetch-diag` TLS/connectivity probe surface, to the depth it is testable
 // against the HttpTransport seam.
 //
 // The Node source's probeRestHost falls back to constructing a *real*
-// transport (createRestHttpTransport from node-src/io/rest-http-transport.ts)
+// transport (createRestHttpTransport from the original implementation)
 // whenever its caller omits one; that fallback -- and the whole
 // REST_HTTP_TIMEOUT_MS-derived default-timeout plumbing that comes with it
 // -- is exactly the not-yet-ported transport parcel this package is built
@@ -26,13 +26,13 @@ import (
 // in full.
 
 // defaultProbeTimeoutMs mirrors `Math.min(15_000, REST_HTTP_TIMEOUT_MS)`
-// from node-src/collectors/rest-diagnostics.ts's probeRestHost, where
-// REST_HTTP_TIMEOUT_MS (node-src/io/rest-http-transport.ts) is 30_000; the
+// from the original implementation's probeRestHost, where
+// REST_HTTP_TIMEOUT_MS (the original implementation) is 30_000; the
 // min of the two constants is always 15_000.
 const defaultProbeTimeoutMs = 15_000
 
 // RestHostProbeResult ports the RestHostProbeResult interface from
-// node-src/collectors/rest-diagnostics.ts.
+// the original implementation.
 type RestHostProbeResult struct {
 	Detail string
 	Host   string
@@ -40,7 +40,7 @@ type RestHostProbeResult struct {
 }
 
 // RestHostProbeOptions ports the RestHostProbeOptions interface from
-// node-src/collectors/rest-diagnostics.ts, minus the environment/
+// the original implementation, minus the environment/
 // includeCustomCa/transportOptions fields that only ever feed
 // createRestHttpTransport's not-yet-ported default-transport
 // construction (see this file's doc comment). Transport is required here,
@@ -52,7 +52,7 @@ type RestHostProbeOptions struct {
 	Transport HttpTransport
 }
 
-// hostURL ports hostUrl from node-src/collectors/rest-diagnostics.ts.
+// hostURL ports hostUrl from the original implementation.
 func hostURL(host string) (*url.URL, error) {
 	invalid := errors.New("diagnostic host must be a hostname with an optional port")
 	if host == "" || strings.ContainsAny(host, "/@?#") {
@@ -69,7 +69,7 @@ func hostURL(host string) (*url.URL, error) {
 }
 
 // ProbeRestHost ports probeRestHost from
-// node-src/collectors/rest-diagnostics.ts: probe one collector host; any
+// the original implementation: probe one collector host; any
 // HTTP response proves DNS/TCP/TLS success. options.Transport is required
 // (see RestHostProbeOptions's doc comment); ProbeRestHost never closes a
 // caller-supplied transport, matching the TS source's `owned` guard around
@@ -106,7 +106,7 @@ func ProbeRestHost(host string, options RestHostProbeOptions) (RestHostProbeResu
 }
 
 // ProbeRestHosts ports probeRestHosts from
-// node-src/collectors/rest-diagnostics.ts: probe a deterministic host list
+// the original implementation: probe a deterministic host list
 // without sharing cookies or connections.
 func ProbeRestHosts(hosts []string, options RestHostProbeOptions) ([]RestHostProbeResult, error) {
 	unique := make(map[string]struct{}, len(hosts))

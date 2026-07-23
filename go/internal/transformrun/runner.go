@@ -1,11 +1,6 @@
-// Package transformrun ports node-src/domain/transform-runner.ts: the batch
-// transform orchestration behind `iw transform` — selection notes, per-
-// resource input reads, kernel invocation, artifact writes, drop
-// diagnostics, and DROPS_CHECK accounting. Every operator-facing message
-// string is verbatim from the Node source; the end-to-end gate is the
-// transform differential corpus in cmd/iw, which byte-compares this
-// pipeline's full output tree, stdout, stderr, and exit codes against the
-// Node oracle on the committed demo inputs.
+// Package transformrun implements the batch orchestration behind `iw
+// transform`: selection, input reads, kernel invocation, artifact writes,
+// drop diagnostics, and DROPS_CHECK accounting.
 package transformrun
 
 import (
@@ -17,8 +12,8 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
-	"github.com/dvmrry/infrawright-dev/go/internal/pyunicode"
 	"github.com/dvmrry/infrawright-dev/go/internal/roots"
+	"github.com/dvmrry/infrawright-dev/go/internal/textcompat"
 	"github.com/dvmrry/infrawright-dev/go/internal/tfrender"
 	"github.com/dvmrry/infrawright-dev/go/internal/transform"
 )
@@ -545,7 +540,7 @@ func RunTransformBatch(options RunTransformBatchOptions) (TransformBatchResult, 
 				Resource:     resource,
 				Schema:       schema,
 				RawItems:     rawItems,
-				HTMLUnescape: pyunicode.PythonHTMLUnescapeGeneric,
+				HTMLUnescape: textcompat.HTMLUnescape,
 				UnescapeHTML: shouldUnescape(options.Root, resourceType),
 			})
 			if err != nil {

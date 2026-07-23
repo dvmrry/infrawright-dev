@@ -35,7 +35,7 @@ func stagingImports(t *testing.T, resourceType string, keys ...string) string {
 
 // TestFilterGeneratedImportsFrozenNodeVectors ports "generated import
 // filtering matches frozen Python text contracts" from
-// node-tests/import-staging.test.ts.
+// the original test corpus.
 func TestFilterGeneratedImportsFrozenNodeVectors(t *testing.T) {
 	managed := stagingImports(t, "zia_fake", "managed")
 	kept := stagingImports(t, "zia_fake", "keep")
@@ -127,7 +127,7 @@ func TestFilterGeneratedImportsFrozenNodeVectors(t *testing.T) {
 
 // TestFilterGeneratedImportsRejectsMalformedBlocks ports "generated import
 // filtering rejects malformed and unterminated strings" from
-// node-tests/import-staging.test.ts.
+// the original test corpus.
 func TestFilterGeneratedImportsRejectsMalformedBlocks(t *testing.T) {
 	texts := []string{
 		"import {\n  to = module.zia_fake.zia_fake.this[\"danger\"]\n  id = \"abc}def\"\n",

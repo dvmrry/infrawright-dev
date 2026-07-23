@@ -25,7 +25,7 @@ const (
 	DefaultTimeoutMs = 30_000
 	// DefaultResponseLimitBytes bounds a single response body. It is a
 	// DoS guard against an unbounded or compromised peer, not a Node
-	// parity requirement -- see docs/go-runtime-v2.md §2.
+	// parity requirement -- see the Go runtime contract §2.
 	DefaultResponseLimitBytes = 64 * 1024 * 1024
 	// DefaultMaxRedirects caps automatic redirect following.
 	DefaultMaxRedirects = 10
@@ -113,7 +113,7 @@ func sleepWithContext(ctx context.Context, milliseconds float64) error {
 //     documented behavior change: proxy configuration is no longer
 //     injectable independently of the process environment, in exchange
 //     for deleting ~250 lines of hand-rolled undici-proxy-parity URL
-//     parsing (docs/go-runtime-v2.md §3's "allowed to change" column);
+//     parsing (the Go runtime contract §3's "allowed to change" column);
 //   - a cookie jar. Legacy ZIA session authentication
 //     (collectors/zscaler_adapters.go's acquireZiaLegacy) authenticates
 //     once against https://zsapi.<cloud>.net/api/v1/authenticatedSession

@@ -72,7 +72,7 @@ const (
 // matched undici's synthetic error-code strings, e.g. "UND_ERR_CONNECT_
 // TIMEOUT"), this only recognizes the real Go stdlib error shapes a
 // net/http-backed transport actually produces -- Node/undici error-code
-// text is explicitly not a product requirement (docs/go-runtime-v2.md
+// text is explicitly not a product requirement (the Go runtime contract
 // §2's "allowed to change" column).
 func classifyFailure(err error) failureKind {
 	var unknownAuthority x509.UnknownAuthorityError

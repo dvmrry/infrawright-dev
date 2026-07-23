@@ -1,7 +1,7 @@
 package collectors
 
 // retry_test.go ports the retryDelayMs/failureHints assertions from
-// node-tests/rest-collector.test.ts's "retry schedule and failure hints
+// the original test corpus's "retry schedule and failure hints
 // use structured HTTP status" test.
 
 import (

@@ -11,7 +11,7 @@ import (
 )
 
 // TestLegacyRecipeFirstFailureOrder mirrors the phased validation order in
-// node-src/authoring/provider-probe.ts: root scalars, section shapes, then
+// the original implementation: root scalars, section shapes, then
 // each nested section and its semantic requirements. Each case is deliberately
 // cross-invalid so an accidental reordering changes the observed error.
 func TestLegacyRecipeFirstFailureOrder(t *testing.T) {
@@ -248,10 +248,8 @@ func TestLegacyEmptyAPIPrefixMatchesNodeArtifactBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// These are SHA-256 digests of the five byte strings emitted by the current
-	// frozen Node v1 implementation for this local fixture after replacing its
-	// ephemeral fixture root with <fixture-root>. They are intentionally not a
-	// new authority fixture: the frozen CPython authority remains unchanged.
+	// These are SHA-256 digests of the five compatibility artifacts after
+	// replacing the ephemeral fixture root with <fixture-root>.
 	want := map[string]string{
 		"openapi-map.json":        "0aa278ea53992d9df98e7692191cd000b8e09b7c0b762d3de5c248e9dd75aa2b",
 		"source-diagnostics.json": "a29c5eb777bcfa4a557bd4a6e0cd45add5bd3b09b1fef396b54931b024c47788",
