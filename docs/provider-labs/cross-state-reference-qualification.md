@@ -96,7 +96,7 @@ mode.
 Record, without secrets or tenant data:
 
 - repository commit and CLI SHA-256;
-- CLI and Terraform versions;
+- Node and Terraform versions;
 - deployment-file SHA-256;
 - pack/profile SHA-256;
 - selected pair and root labels;
@@ -311,6 +311,7 @@ Return only sanitized evidence:
 | Ordered-list ZPA target and pack evidence | |
 | Indexed path failed closed for invalid/missing selectors | |
 | ZIA 4.7.26 ISOLATE/cbi claim | must be `none` |
+| Python invoked | must be `no` |
 | Deployment Apply performed | `no`, unless separately authorized and identified |
 
 Any missing state/output, unresolved managed ID, cycle, non-import action, or

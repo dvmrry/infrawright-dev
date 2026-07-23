@@ -10,15 +10,21 @@ for a selected tenant/resource scope.
 This runbook is intentionally conservative. A validation failure is evidence to
 classify, not an automatic engine feature request.
 
-The commands below run through the Go `iw` CLI.
+The commands below run through the Go `iw` CLI. The archived runtime and Python
+should be made unavailable during qualification as permanent regression
+tripwires; all maintained tests, probes, and authoring tools are Go-owned.
 Repository fake-Terraform tests establish readiness to qualify, not live
 qualification. See [Operational Go Runtime](operational-runtime.md) for the
 runtime contract and separately authorized read-only and import-only Apply
 checklists.
 
-Fixture timing is not live performance evidence. Record HTTP-attempt counts,
-exact artifact manifests, and the concurrency setting with any performance
-qualification.
+For opt-in timing, HTTP-attempt accounting, exact artifact manifests, and the
+concurrency 1/2/4/8 work-machine matrix, use the
+[archived post-parity performance benchmark](archive/node-performance-benchmark.md).
+That historical harness predates the current runtime; port it before collecting
+new evidence. Fixture timing
+is not live performance evidence, and the Fetch default remains serial until
+that matrix is returned and accepted.
 
 ## Preconditions
 
@@ -32,6 +38,8 @@ qualification.
 - Build the accepted Go revision with `make dist/iw`, then run `make check`
   before qualification. Record the revision and candidate SHA-256 with the
   sanitized evidence.
+- Make Python unavailable so a retained migration path cannot satisfy an
+  operational step accidentally.
 - Choose the backend/state policy before running. Local scratch state and
   remote backends have different retention and audit requirements.
 - Start from a clean working tree or an isolated worktree.

@@ -1,6 +1,9 @@
 package plan
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,6 +15,76 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/artifacts"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 )
+
+const fingerprintAuthoritySHA256 = "69ebf724f468e72c37ffaac33f78055e37cc944397fa923a31ff08331030a1b6"
+
+type fingerprintScannerResult struct {
+	OK      bool              `json:"ok"`
+	Sources map[string]string `json:"sources"`
+	Message string            `json:"message"`
+}
+
+type fingerprintAuthorityMetadata struct {
+	Implementation string `json:"implementation"`
+	Platform       string `json:"platform"`
+	Python         string `json:"python"`
+	Unicode        string `json:"unicode"`
+}
+
+type invalidFilenameAuthorityResult struct {
+	AfterDigest  string `json:"after_digest"`
+	BeforeDigest string `json:"before_digest"`
+	Kind         string `json:"kind"`
+}
+
+type fingerprintAuthority struct {
+	Main struct {
+		Canonical   string             `json:"canonical"`
+		Digest      string             `json:"digest"`
+		InitDigest  string             `json:"init_digest"`
+		InitPayload InitSourcesPayload `json:"init_payload"`
+		ModulePaths map[string]string  `json:"module_sources"`
+		Payload     PlanSourcesPayload `json:"payload"`
+	} `json:"main"`
+	LeadingFEFF struct {
+		Canonical   string             `json:"canonical"`
+		Digest      string             `json:"digest"`
+		InitDigest  string             `json:"init_digest"`
+		InitPayload InitSourcesPayload `json:"init_payload"`
+		Payload     PlanSourcesPayload `json:"payload"`
+	} `json:"leading_feff"`
+	LinuxInvalidFilename struct {
+		Authority fingerprintAuthorityMetadata     `json:"authority"`
+		Results   []invalidFilenameAuthorityResult `json:"results"`
+	} `json:"linux_invalid_filename"`
+	Scanner struct {
+		Accepted fingerprintScannerResult `json:"accepted"`
+		Failures []struct {
+			Name   string                   `json:"name"`
+			Result fingerprintScannerResult `json:"result"`
+		} `json:"failures"`
+		DuplicateModules fingerprintScannerResult `json:"duplicate_modules"`
+	} `json:"scanner"`
+	TopLevelSymlinkTree []FileFingerprint `json:"top_level_symlink_tree"`
+}
+
+func loadFingerprintAuthority(t *testing.T) fingerprintAuthority {
+	t.Helper()
+	filePath := filepath.Join("..", "..", "..", "node-tests", "fixtures", "python-plan-fingerprint-v1.json")
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error: %v", filePath, err)
+	}
+	digest := sha256.Sum256(data)
+	if got := hex.EncodeToString(digest[:]); got != fingerprintAuthoritySHA256 {
+		t.Fatalf("SHA256(%q) = %q, want %q", filePath, got, fingerprintAuthoritySHA256)
+	}
+	var authority fingerprintAuthority
+	if err := json.Unmarshal(data, &authority); err != nil {
+		t.Fatalf("json.Unmarshal(%q) error: %v", filePath, err)
+	}
+	return authority
+}
 
 func writeFingerprintFile(t *testing.T, filePath string, content []byte) {
 	t.Helper()
@@ -70,7 +143,8 @@ func requireFingerprintFailureCode(t *testing.T, operation string, err error, wa
 	}
 }
 
-func TestFingerprintV2PayloadAndDigestMatchFixedContract(t *testing.T) {
+func TestFingerprintV2PayloadAndDigestMatchFrozenPythonAuthority(t *testing.T) {
+	authority := loadFingerprintAuthority(t)
 	temp := t.TempDir()
 	envDir := filepath.Join(temp, "envs", "tenant", "zpa_custom")
 	firstType := "zpa_segment_group"
@@ -171,73 +245,26 @@ func TestFingerprintV2PayloadAndDigestMatchFixedContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CaptureInitSourcesPayload(%+v, nil) error: %v", input, err)
 	}
-	backendSHA := "8dd324f94a0cba2bdddcabf4b5af10ca1938274116d8524dc1f061db45ba9cea"
-	wantBackend := &BackendFingerprint{Key: &backendKey, Present: true, SHA256: &backendSHA}
-	wantModules := []ModuleFingerprint{
-		{
-			Files: []FileFingerprint{
-				{"linked-main.tf", "b949b9ff0951ebc9090bdfee5e3f6c2c810b7ad666cd8ad240ae6045b9024b41"},
-				{"main.tf", "b949b9ff0951ebc9090bdfee5e3f6c2c810b7ad666cd8ad240ae6045b9024b41"},
-				{"nested/binary.bin", "26a66b061e8f48f39927c312f25293959729eee95978e2892d49d3512a5cc092"},
-			},
-			Local: true, Present: true, ResourceType: firstType, Source: "../../../modules/segment-\x7f-é-😀",
-		},
-		{Files: []FileFingerprint{}, Local: true, Present: false, ResourceType: secondType, Source: "../../../modules/missing-server-group"},
+	if !reflect.DeepEqual(payload, authority.Main.Payload) {
+		t.Errorf("CapturePlanSourcesPayload(%+v, nil) = %#v, want frozen %#v", input, payload, authority.Main.Payload)
 	}
-	wantPayload := PlanSourcesPayload{
-		Backend:     wantBackend,
-		MemberTypes: []string{firstType, secondType},
-		Modules:     wantModules,
-		RootTF: []FileFingerprint{
-			{".terraform.lock.hcl", "718475cd179c5fce5f3cbaf68fb45b15017015ebeec359c040cf704e3f1c86b6"},
-			{"a.auto.tfvars", "cb78bd8a17f7b751fe0d4663366dcbc257204033ef7ddd64b1f2969573b5b2e2"},
-			{"b.auto.tfvars.json", "651b5768de252a9f4d2083046d83f81c31369beb73d14411492b20ea8fd1fcf5"},
-			{"linked.tf", "dfc51e9bb51789b3470e435fa6268343f4983afbc4581bcc71d5115ce1723a33"},
-			{"main.tf", "519a99a232e663b96326012ecfd66d4d7c9b51f7958549ea31878d37accf6b1b"},
-			{"providers.tf", "6f908af107c30c64af46b456482e8c53e2afe3d528700d139a01fe8c4607d003"},
-			{"terraform.tfvars", "5a1a948fb3fd8d68bee00abb4d6d05b6437033cf330d0b1b90f62c79622b41e6"},
-			{"terraform.tfvars.json", "276b788e4bdad7cb58761dd279d04bae9f3768994de1cf4bef198a8e977d0782"},
-			{"é-\x7f.tf.json", "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"},
-		},
-		VarFiles: []FileFingerprint{
-			{"shared.auto.tfvars.json", "651b5768de252a9f4d2083046d83f81c31369beb73d14411492b20ea8fd1fcf5"},
-			{"shared.auto.tfvars.json", "e346432021b04179518d9614f3560ccd71354a4ee101ddcb893d6959a9d6301c"},
-			{"vars-\x7f-é.auto.tfvars.json", "867e933df8d9ec57739dff826e4e3caecaf550fe521a266a1065f1218c77de65"},
-		},
+	if !reflect.DeepEqual(initPayload, authority.Main.InitPayload) {
+		t.Errorf("CaptureInitSourcesPayload(%+v, nil) = %#v, want frozen %#v", input, initPayload, authority.Main.InitPayload)
 	}
-	wantInitPayload := InitSourcesPayload{
-		Backend: wantBackend,
-		Modules: wantModules,
-		RootConfig: []FileFingerprint{
-			{"linked.tf", "dfc51e9bb51789b3470e435fa6268343f4983afbc4581bcc71d5115ce1723a33"},
-			{"main.tf", "519a99a232e663b96326012ecfd66d4d7c9b51f7958549ea31878d37accf6b1b"},
-			{"providers.tf", "6f908af107c30c64af46b456482e8c53e2afe3d528700d139a01fe8c4607d003"},
-			{"é-\x7f.tf.json", "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"},
-		},
+	if got := CanonicalPlanSourcesJSON(payload); got != authority.Main.Canonical {
+		t.Errorf("CanonicalPlanSourcesJSON(payload) = %q, want frozen %q", got, authority.Main.Canonical)
 	}
-	if !reflect.DeepEqual(payload, wantPayload) {
-		t.Errorf("CapturePlanSourcesPayload(%+v, nil) = %#v, want fixed %#v", input, payload, wantPayload)
+	if got := PlanSourcesSHA256(payload); got != authority.Main.Digest {
+		t.Errorf("PlanSourcesSHA256(payload) = %q, want %q", got, authority.Main.Digest)
 	}
-	if !reflect.DeepEqual(initPayload, wantInitPayload) {
-		t.Errorf("CaptureInitSourcesPayload(%+v, nil) = %#v, want fixed %#v", input, initPayload, wantInitPayload)
-	}
-	wantCanonical := `{"backend":{"key":"tenant/zpa-\u007f-\u00e9-\ud83d\ude00.tfstate","present":true,"sha256":"8dd324f94a0cba2bdddcabf4b5af10ca1938274116d8524dc1f061db45ba9cea"},"member_types":["zpa_segment_group","zpa_server_group"],"modules":[{"files":[["linked-main.tf","b949b9ff0951ebc9090bdfee5e3f6c2c810b7ad666cd8ad240ae6045b9024b41"],["main.tf","b949b9ff0951ebc9090bdfee5e3f6c2c810b7ad666cd8ad240ae6045b9024b41"],["nested/binary.bin","26a66b061e8f48f39927c312f25293959729eee95978e2892d49d3512a5cc092"]],"local":true,"present":true,"resource_type":"zpa_segment_group","source":"../../../modules/segment-\u007f-\u00e9-\ud83d\ude00"},{"files":[],"local":true,"present":false,"resource_type":"zpa_server_group","source":"../../../modules/missing-server-group"}],"root_tf":[[".terraform.lock.hcl","718475cd179c5fce5f3cbaf68fb45b15017015ebeec359c040cf704e3f1c86b6"],["a.auto.tfvars","cb78bd8a17f7b751fe0d4663366dcbc257204033ef7ddd64b1f2969573b5b2e2"],["b.auto.tfvars.json","651b5768de252a9f4d2083046d83f81c31369beb73d14411492b20ea8fd1fcf5"],["linked.tf","dfc51e9bb51789b3470e435fa6268343f4983afbc4581bcc71d5115ce1723a33"],["main.tf","519a99a232e663b96326012ecfd66d4d7c9b51f7958549ea31878d37accf6b1b"],["providers.tf","6f908af107c30c64af46b456482e8c53e2afe3d528700d139a01fe8c4607d003"],["terraform.tfvars","5a1a948fb3fd8d68bee00abb4d6d05b6437033cf330d0b1b90f62c79622b41e6"],["terraform.tfvars.json","276b788e4bdad7cb58761dd279d04bae9f3768994de1cf4bef198a8e977d0782"],["\u00e9-\u007f.tf.json","ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"]],"var_files":[["shared.auto.tfvars.json","651b5768de252a9f4d2083046d83f81c31369beb73d14411492b20ea8fd1fcf5"],["shared.auto.tfvars.json","e346432021b04179518d9614f3560ccd71354a4ee101ddcb893d6959a9d6301c"],["vars-\u007f-\u00e9.auto.tfvars.json","867e933df8d9ec57739dff826e4e3caecaf550fe521a266a1065f1218c77de65"]]}`
-	if got := CanonicalPlanSourcesJSON(payload); got != wantCanonical {
-		t.Errorf("CanonicalPlanSourcesJSON(payload) = %q, want fixed %q", got, wantCanonical)
-	}
-	const wantDigest = "c601a941a2e1b868320b5a19da38cd1c97b883d5d31facfd5b1527771e74d676"
-	if got := PlanSourcesSHA256(payload); got != wantDigest {
-		t.Errorf("PlanSourcesSHA256(payload) = %q, want fixed %q", got, wantDigest)
-	}
-	const wantInitDigest = "7ee0107752451c2e207caa4d91a37234cfc88850886a4ad9c97c0444afc8449d"
-	if got := InitSourcesSHA256(initPayload); got != wantInitDigest {
-		t.Errorf("InitSourcesSHA256(initPayload) = %q, want fixed %q", got, wantInitDigest)
+	if got := InitSourcesSHA256(initPayload); got != authority.Main.InitDigest {
+		t.Errorf("InitSourcesSHA256(initPayload) = %q, want %q", got, authority.Main.InitDigest)
 	}
 	fingerprint, err := FingerprintPlanV2(input, nil)
 	if err != nil {
 		t.Fatalf("FingerprintPlanV2(%+v, nil) error: %v", input, err)
 	}
-	wantFingerprint := PlanFingerprintV2{Version: PlanFingerprintVersion, SHA256: wantDigest}
+	wantFingerprint := PlanFingerprintV2{Version: 2, SHA256: authority.Main.Digest}
 	if fingerprint != wantFingerprint {
 		t.Errorf("FingerprintPlanV2(%+v, nil) = %#v, want %#v", input, fingerprint, wantFingerprint)
 	}
@@ -245,12 +272,8 @@ func TestFingerprintV2PayloadAndDigestMatchFixedContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RootModuleSources(%q, nil) error: %v", envDir, err)
 	}
-	wantSources := map[string]string{
-		firstType:  filepath.ToSlash(firstSource),
-		secondType: filepath.ToSlash(secondSource),
-	}
-	if !reflect.DeepEqual(sources, wantSources) {
-		t.Errorf("RootModuleSources(%q, nil) = %#v, want %#v", envDir, sources, wantSources)
+	if !reflect.DeepEqual(sources, authority.Main.ModulePaths) {
+		t.Errorf("RootModuleSources(%q, nil) = %#v, want frozen %#v", envDir, sources, authority.Main.ModulePaths)
 	}
 }
 
@@ -274,6 +297,7 @@ func TestCanonicalPlanSourcesJSONCompactEnsureASCIIContract(t *testing.T) {
 }
 
 func TestTreeFingerprintsFollowsTopLevelSymlinkOnly(t *testing.T) {
+	authority := loadFingerprintAuthority(t)
 	temp := t.TempDir()
 	target := filepath.Join(temp, "target")
 	link := filepath.Join(temp, "link")
@@ -285,9 +309,8 @@ func TestTreeFingerprintsFollowsTopLevelSymlinkOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TreeFingerprints(%q, nil) error: %v", link, err)
 	}
-	want := []FileFingerprint{{"file.txt", "434728a410a78f56fc1b5899c3593436e61ab0c731e9072d95e96db290205e53"}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("TreeFingerprints(%q, nil) = %#v, want %#v", link, got, want)
+	if !reflect.DeepEqual(got, authority.TopLevelSymlinkTree) {
+		t.Errorf("TreeFingerprints(%q, nil) = %#v, want frozen %#v", link, got, authority.TopLevelSymlinkTree)
 	}
 }
 
@@ -313,6 +336,7 @@ func TestTreeFingerprintsIgnoresEverySourceDirectory(t *testing.T) {
 }
 
 func TestLeadingFEFFFilenameBytesArePreserved(t *testing.T) {
+	authority := loadFingerprintAuthority(t)
 	temp := t.TempDir()
 	envDir := filepath.Join(temp, "env")
 	moduleDir := filepath.Join(temp, "module")
@@ -334,11 +358,14 @@ func TestLeadingFEFFFilenameBytesArePreserved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CapturePlanSourcesPayload(%+v, nil) error: %v", input, err)
 	}
-	if got, want := payload.RootTF[1][0], "\ufeffroot.tf"; got != want {
-		t.Errorf("CapturePlanSourcesPayload(%+v, nil).RootTF[1].path = %q, want %q", input, got, want)
+	if !reflect.DeepEqual(payload, authority.LeadingFEFF.Payload) {
+		t.Errorf("CapturePlanSourcesPayload(%+v, nil) = %#v, want frozen %#v", input, payload, authority.LeadingFEFF.Payload)
 	}
-	if got, want := payload.Modules[0].Files[0][0], "\ufeffmodule.tf"; got != want {
-		t.Errorf("CapturePlanSourcesPayload(%+v, nil).Modules[0].Files[0].path = %q, want %q", input, got, want)
+	if got := CanonicalPlanSourcesJSON(payload); got != authority.LeadingFEFF.Canonical {
+		t.Errorf("CanonicalPlanSourcesJSON(payload) = %q, want frozen %q", got, authority.LeadingFEFF.Canonical)
+	}
+	if got := PlanSourcesSHA256(payload); got != authority.LeadingFEFF.Digest {
+		t.Errorf("PlanSourcesSHA256(payload) = %q, want %q", got, authority.LeadingFEFF.Digest)
 	}
 	initInput := InitFingerprintInput{
 		EnvDir:      input.EnvDir,
@@ -348,8 +375,11 @@ func TestLeadingFEFFFilenameBytesArePreserved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CaptureInitSourcesPayload(%+v, nil) error: %v", initInput, err)
 	}
-	if !reflect.DeepEqual(initPayload.Modules, payload.Modules) || !reflect.DeepEqual(initPayload.RootConfig, payload.RootTF) {
-		t.Errorf("CaptureInitSourcesPayload(%+v, nil) modules/root = %#v/%#v, want plan modules/root %#v/%#v", initInput, initPayload.Modules, initPayload.RootConfig, payload.Modules, payload.RootTF)
+	if !reflect.DeepEqual(initPayload, authority.LeadingFEFF.InitPayload) {
+		t.Errorf("CaptureInitSourcesPayload(%+v, nil) = %#v, want frozen %#v", initInput, initPayload, authority.LeadingFEFF.InitPayload)
+	}
+	if got := InitSourcesSHA256(initPayload); got != authority.LeadingFEFF.InitDigest {
+		t.Errorf("InitSourcesSHA256(initPayload) = %q, want %q", got, authority.LeadingFEFF.InitDigest)
 	}
 }
 
@@ -616,7 +646,8 @@ func TestTreeFingerprintDirectoryBudgetSemantics(t *testing.T) {
 	})
 }
 
-func TestGeneratedRootHCLScannerAcceptsCurrentRootGrammar(t *testing.T) {
+func TestGeneratedRootHCLScannerAcceptanceMatchesFrozenAuthority(t *testing.T) {
+	authority := loadFingerprintAuthority(t)
 	temp := t.TempDir()
 	envDir := filepath.Join(temp, "root")
 	writeFingerprintText(t, filepath.Join(envDir, "main.tf"), strings.Join([]string{
@@ -630,7 +661,7 @@ func TestGeneratedRootHCLScannerAcceptsCurrentRootGrammar(t *testing.T) {
 		"",
 	}, "\r\n"))
 	writeFingerprintText(t, filepath.Join(envDir, "ignored.tf.json"), "not HCL")
-	writeFingerprintText(t, filepath.Join(envDir, "unicode-whitespace.tf"), strings.Join([]string{
+	writeFingerprintText(t, filepath.Join(envDir, "python-whitespace.tf"), strings.Join([]string{
 		"\u001fmodule\u001f\"beta\"\u001f{",
 		"\u001fsource\u001f=\u001f\"../modules/beta\"",
 		"\u001fitems\u001f=\u001flocal.beta_items",
@@ -643,46 +674,54 @@ func TestGeneratedRootHCLScannerAcceptsCurrentRootGrammar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RootModuleSources(%q, nil) error: %v", envDir, err)
 	}
-	want := map[string]string{"alpha": "../modules/alpha", "beta": "../modules/beta"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("RootModuleSources(%q, nil) = %#v, want %#v", envDir, got, want)
+	if !reflect.DeepEqual(got, authority.Scanner.Accepted.Sources) {
+		t.Errorf("RootModuleSources(%q, nil) = %#v, want frozen %#v", envDir, got, authority.Scanner.Accepted.Sources)
 	}
 }
 
-func TestGeneratedRootHCLScannerRejectsUnsupportedGrammar(t *testing.T) {
+func TestGeneratedRootHCLScannerFailuresMatchFrozenAuthority(t *testing.T) {
+	authority := loadFingerprintAuthority(t)
 	cases := []struct {
-		name, text, want string
+		name string
+		text string
 	}{
-		{name: "template source", text: fingerprintModuleBlock("alpha", "../modules/$${alpha}", "alpha"), want: "/main.tf:2 module alpha source uses HCL template syntax outside the generated-root contract; run make gen-env to regenerate the root"},
-		{name: "heredoc", text: strings.Join([]string{"value = <<EOF", "text", "EOF", ""}, "\n"), want: "/main.tf:1 contains a heredoc outside the generated-root contract; run make gen-env to regenerate the root"},
+		{name: "template source", text: fingerprintModuleBlock("alpha", "../modules/$${alpha}", "alpha")},
+		{name: "heredoc", text: strings.Join([]string{"value = <<EOF", "text", "EOF", ""}, "\n")},
 		{name: "duplicate source", text: strings.Join([]string{
 			`module "alpha" {`, `  source = "../modules/alpha"`, `  source = "../modules/beta"`,
 			`  items = var.alpha_items`, `}`, "",
-		}, "\n"), want: "/main.tf:3 module alpha has multiple source values"},
+		}, "\n")},
 		{name: "duplicate items", text: strings.Join([]string{
 			`module "alpha" {`, `  source = "../modules/alpha"`, `  items = var.alpha_items`,
 			`  items = local.alpha_items`, `}`, "",
-		}, "\n"), want: "/main.tf:4 module alpha has multiple items values"},
+		}, "\n")},
 		{name: "unexpected module field", text: strings.Join([]string{
 			`module "alpha" {`, `  source = "../modules/alpha"`, `  count = 1`,
 			`  items = var.alpha_items`, `}`, "",
-		}, "\n"), want: "/main.tf:3 module alpha is outside the generated-root contract; run make gen-env to regenerate the root"},
+		}, "\n")},
 		{name: "missing items", text: strings.Join([]string{
 			`module "alpha" {`, `  source = "../modules/alpha"`, `}`, "",
-		}, "\n"), want: "/main.tf module alpha is outside the generated-root contract; run make gen-env to regenerate the root"},
-		{name: "unexpected closing brace", text: "}\n", want: "/main.tf:1 has an unexpected closing brace"},
-		{name: "unbalanced braces", text: "terraform {\n", want: "/main.tf has unbalanced braces"},
-		{name: "unterminated quote", text: "value = \"unterminated\n", want: "/main.tf:1 contains an unterminated quoted string"},
-		{name: "unterminated block comment", text: "/* never closed\n", want: "/main.tf contains an unterminated block comment"},
-		{name: "unicode line separator line number", text: "# first\u2028value = \"unterminated\n", want: "/main.tf:2 contains an unterminated quoted string"},
+		}, "\n")},
+		{name: "unexpected closing brace", text: "}\n"},
+		{name: "unbalanced braces", text: "terraform {\n"},
+		{name: "unterminated quote", text: "value = \"unterminated\n"},
+		{name: "unterminated block comment", text: "/* never closed\n"},
+		{name: "unicode line separator line number", text: "# first\u2028value = \"unterminated\n"},
 	}
-	for _, test := range cases {
+	if len(cases) != len(authority.Scanner.Failures) {
+		t.Fatalf("scanner case count = %d, frozen authority count = %d", len(cases), len(authority.Scanner.Failures))
+	}
+	for index, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
+			frozen := authority.Scanner.Failures[index]
+			if frozen.Name != test.name {
+				t.Fatalf("scanner frozen case %d name = %q, want %q", index, frozen.Name, test.name)
+			}
 			envDir := filepath.Join(t.TempDir(), "root")
 			filePath := filepath.Join(envDir, "main.tf")
 			writeFingerprintText(t, filePath, test.text)
 			_, err := RootModuleSources(envDir, nil)
-			want := envDir + test.want
+			want := strings.ReplaceAll(frozen.Result.Message, "{env_dir}", envDir)
 			if err == nil || err.Error() != want {
 				t.Errorf("RootModuleSources(%q, nil) error = %v, want %q", envDir, err, want)
 			}
@@ -690,12 +729,13 @@ func TestGeneratedRootHCLScannerRejectsUnsupportedGrammar(t *testing.T) {
 	}
 }
 
-func TestDuplicateModulesAcrossRootFilesAreRejected(t *testing.T) {
+func TestDuplicateModulesAcrossRootFilesMatchFrozenAuthority(t *testing.T) {
+	authority := loadFingerprintAuthority(t)
 	envDir := filepath.Join(t.TempDir(), "root")
 	writeFingerprintText(t, filepath.Join(envDir, "a.tf"), fingerprintModuleBlock("alpha", "../modules/alpha", ""))
 	writeFingerprintText(t, filepath.Join(envDir, "b.tf"), fingerprintModuleBlock("alpha", "../modules/alpha", ""))
 	_, err := RootModuleSources(envDir, nil)
-	want := envDir + " contains duplicate module alpha"
+	want := strings.ReplaceAll(authority.Scanner.DuplicateModules.Message, "{env_dir}", envDir)
 	if err == nil || err.Error() != want {
 		t.Errorf("RootModuleSources(%q, nil) error = %v, want %q", envDir, err, want)
 	}
@@ -704,6 +744,36 @@ func TestDuplicateModulesAcrossRootFilesAreRejected(t *testing.T) {
 func TestLinuxInvalidFilenameBytesFailClosed(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("Linux permits non-UTF-8 directory entry bytes")
+	}
+	authority := loadFingerprintAuthority(t).LinuxInvalidFilename
+	wantAuthority := fingerprintAuthorityMetadata{
+		Implementation: "cpython",
+		Platform:       "linux",
+		Python:         "3.13.13",
+		Unicode:        "15.1.0",
+	}
+	if !reflect.DeepEqual(authority.Authority, wantAuthority) {
+		t.Fatalf("linux_invalid_filename.authority = %#v, want %#v", authority.Authority, wantAuthority)
+	}
+	wantResults := []invalidFilenameAuthorityResult{
+		{
+			AfterDigest:  "f55bfc8f268b952751975428560aa040426782e42c72fd85576163451981b4f5",
+			BeforeDigest: "14f7eaba7c0e5e38f4b9e54c06de86279b6dfd0a0419cfb57b02347a6e1675ca",
+			Kind:         "root file",
+		},
+		{
+			AfterDigest:  "6c29bcfd5f334e3e039a8b9d1865a36c4a8e97b728a842dca8fa7a387a65756f",
+			BeforeDigest: "14f7eaba7c0e5e38f4b9e54c06de86279b6dfd0a0419cfb57b02347a6e1675ca",
+			Kind:         "module file",
+		},
+		{
+			AfterDigest:  "655895ac143b2de15c777d38ab61ce910b72cd37e756b802413cdabacc988212",
+			BeforeDigest: "14f7eaba7c0e5e38f4b9e54c06de86279b6dfd0a0419cfb57b02347a6e1675ca",
+			Kind:         "module directory",
+		},
+	}
+	if !reflect.DeepEqual(authority.Results, wantResults) {
+		t.Fatalf("linux_invalid_filename.results = %#v, want %#v", authority.Results, wantResults)
 	}
 	tests := []struct {
 		kind      string

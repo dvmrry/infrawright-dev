@@ -1,24 +1,24 @@
 package tfrender
 
-// import_blocks.go ports the original implementation: a
+// import_blocks.go ports node-src/json/canonical-import-blocks.ts: a
 // closed, canonical `import {}` block grammar parser, deliberately not a
 // general HCL parser (it never evaluates expressions, traversals,
 // interpolation, functions, or variables -- see ParseCanonicalImportBlocks's
 // doc comment, carried over from the Node source's own).
 //
-// No the original test corpus file imports this source (confirmed by grepping
-// the original test corpus for "canonical-import-blocks", "CanonicalImportBlock", and
+// No node-tests/*.test.ts file imports this source (confirmed by grepping
+// node-tests/ for "canonical-import-blocks", "CanonicalImportBlock", and
 // "parseCanonicalImportBlocks": zero matches) -- the module appears to be
 // unwired/not-yet-integrated in the Node tree as of this port. Absent
 // ported vectors, import_blocks_test.go instead pins this file's behavior
 // by probing the compiled TypeScript directly (per this task's
-// instructions): `npx esbuild the original implementation
+// instructions): `npx esbuild node-src/json/canonical-import-blocks.ts
 // --bundle --platform=node --format=esm --outfile=.../canonical-import-blocks.mjs`,
 // then a small Node driver script exercising empty/single/multi-unsorted/
 // escaped/invalid-resource-type/malformed/wrong-embedded-type inputs and
 // dumping JSON results -- see that file's doc comment for the full
 // transcript. The most important probe finding, load-bearing for this
-// port: unlike the original implementation's renderGeneratedImports
+// port: unlike node-src/domain/import-moves.ts's renderGeneratedImports
 // (which always sorts pairs by key before rendering, and so only accepts
 // pre-sorted canonical text), this parser does NOT require sorted block
 // order -- it accepts blocks in whatever order the input text presents
@@ -37,7 +37,7 @@ const (
 )
 
 // CanonicalImportBlock is the Go analogue of the CanonicalImportBlock
-// interface in the original implementation.
+// interface in node-src/json/canonical-import-blocks.ts.
 type CanonicalImportBlock struct {
 	Key string
 	ID  string
@@ -51,7 +51,7 @@ func canonicalImportSyntaxFailure() error {
 
 // canonicalImportSyntaxError is the Go analogue of the
 // `throw new SyntaxError(...)` every failure path in
-// the original implementation raises, always with the same
+// node-src/json/canonical-import-blocks.ts raises, always with the same
 // fixed message (syntaxFailure() in the TS source takes no arguments and
 // is called from every failure site, so no positional/reason detail is
 // ever included -- deliberately, since this parser's whole point is a
@@ -63,7 +63,7 @@ func (e *canonicalImportSyntaxError) Error() string {
 }
 
 // hclStringLiteral ports the local hclStringLiteral function in
-// the original implementation. This is a deliberate,
+// node-src/json/canonical-import-blocks.ts. This is a deliberate,
 // self-contained duplicate of RenderHclQuotedString's escaping logic in
 // import_moves.go -- the TS source itself does not import
 // renderHclQuotedString from import-moves.ts here either, it has its own
@@ -113,7 +113,7 @@ func canonicalImportRenderBlock(resourceType string, block CanonicalImportBlock)
 }
 
 // canonicalImportParser ports the CanonicalImportParser class in
-// the original implementation.
+// node-src/json/canonical-import-blocks.ts.
 type canonicalImportParser struct {
 	text         string
 	resourceType string
@@ -247,7 +247,7 @@ func (p *canonicalImportParser) expect(expected string) error {
 // import-block grammar. This is deliberately not a general HCL parser: it
 // never evaluates expressions, traversals, interpolation, functions, or
 // variables. Ports parseCanonicalImportBlocks from
-// the original implementation.
+// node-src/json/canonical-import-blocks.ts.
 //
 // Unlike RenderGeneratedImports/ParseGeneratedImports in import_moves.go
 // (which always sort blocks by key), this parser accepts blocks in

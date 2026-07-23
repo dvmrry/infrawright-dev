@@ -12,7 +12,7 @@ type BoundAssessmentDeployment struct {
 }
 
 // LoadBoundAssessmentDeployment ports loadBoundAssessmentDeployment from
-// the original implementation. It loads the selected optional deployment
+// node-src/domain/deployment.ts. It loads the selected optional deployment
 // through the assessment control-evidence reader before parsing that bound text,
 // so later assessment rechecks cover the same bytes and filesystem identity.
 func LoadBoundAssessmentDeployment(

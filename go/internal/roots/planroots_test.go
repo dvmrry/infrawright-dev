@@ -1,10 +1,10 @@
 package roots
 
 // planroots_test.go ports plan-roots behavior pinned by probing the
-// compiled TypeScript directly (there is no the original test corpus
+// compiled TypeScript directly (there is no node-tests/plan-roots.test.ts
 // to port from -- see planroots.go's package doc comment). The oracle is
 // the same committed
-// go/internal/roots/testdata/scope_plan_scope.golden.json used by
+// go/internal/roots/testdata/scope_plan_probe.oracle.json used by
 // scopepaths_test.go; each test below builds the identical on-disk
 // envs/<tenant>/<label> tree the probe script built (via t.TempDir()
 // instead of the oracle's own randomly-named mkdtemp) and asserts the
@@ -79,15 +79,15 @@ func rootByLabel(t *testing.T, roots []MaterializedPlanRoot, tenant, label strin
 // no topology root label -- never surfaces anywhere in the result.
 func TestPlanRootsClassifiesArtifactStateAndSkipsUnknownRootDirectories(t *testing.T) {
 	workspace := writePlanRootsFixture(t)
-	result, err := PlanRootsFromResourceSet(PlanRootsOptions{
-		Workspace:   workspace,
-		Deployment:  singletonDeployment(),
-		ResourceSet: scopePlanFixtureResourceSet(),
-		Tenant:      nil,
-		Selectors:   []string{},
+	result, err := PlanRootsFromCatalog(PlanRootsOptions{
+		Workspace:  workspace,
+		Deployment: singletonDeployment(),
+		Catalog:    scopePlanFixtureCatalog(),
+		Tenant:     nil,
+		Selectors:  []string{},
 	})
 	if err != nil {
-		t.Fatalf("PlanRootsFromResourceSet: %v", err)
+		t.Fatalf("PlanRootsFromCatalog: %v", err)
 	}
 	if len(result.Result.Roots) != 3 {
 		t.Fatalf("Roots length = %d, want 3 (oracle: complete zpa_alpha/acme, incomplete zpa_derived_reorder/acme, absent zpa_alpha/other)", len(result.Result.Roots))
@@ -139,15 +139,15 @@ func TestPlanRootsClassifiesArtifactStateAndSkipsUnknownRootDirectories(t *testi
 func TestPlanRootsTenantScopingExcludesOtherTenants(t *testing.T) {
 	workspace := writePlanRootsFixture(t)
 	tenant := "acme"
-	result, err := PlanRootsFromResourceSet(PlanRootsOptions{
-		Workspace:   workspace,
-		Deployment:  singletonDeployment(),
-		ResourceSet: scopePlanFixtureResourceSet(),
-		Tenant:      &tenant,
-		Selectors:   []string{},
+	result, err := PlanRootsFromCatalog(PlanRootsOptions{
+		Workspace:  workspace,
+		Deployment: singletonDeployment(),
+		Catalog:    scopePlanFixtureCatalog(),
+		Tenant:     &tenant,
+		Selectors:  []string{},
 	})
 	if err != nil {
-		t.Fatalf("PlanRootsFromResourceSet: %v", err)
+		t.Fatalf("PlanRootsFromCatalog: %v", err)
 	}
 	if len(result.Result.Roots) != 2 {
 		t.Fatalf("Roots length = %d, want 2", len(result.Result.Roots))
@@ -178,15 +178,15 @@ func TestPlanRootsTenantScopingExcludesOtherTenants(t *testing.T) {
 // comment).
 func TestPlanRootsPartialSelectorMaterializesSingletonRoot(t *testing.T) {
 	workspace := writePlanRootsFixture(t)
-	result, err := PlanRootsFromResourceSet(PlanRootsOptions{
-		Workspace:   workspace,
-		Deployment:  singletonDeployment(),
-		ResourceSet: scopePlanFixtureResourceSet(),
-		Tenant:      nil,
-		Selectors:   []string{"zpa_alpha_one"},
+	result, err := PlanRootsFromCatalog(PlanRootsOptions{
+		Workspace:  workspace,
+		Deployment: singletonDeployment(),
+		Catalog:    scopePlanFixtureCatalog(),
+		Tenant:     nil,
+		Selectors:  []string{"zpa_alpha_one"},
 	})
 	if err != nil {
-		t.Fatalf("PlanRootsFromResourceSet: %v", err)
+		t.Fatalf("PlanRootsFromCatalog: %v", err)
 	}
 	if len(result.Result.Roots) != 2 {
 		t.Fatalf("Roots length = %d, want 2 (zpa_alpha_one under both acme and other)", len(result.Result.Roots))
@@ -206,12 +206,12 @@ func TestPlanRootsPartialSelectorMaterializesSingletonRoot(t *testing.T) {
 // code/category/message text.
 func TestPlanRootsUnknownSelectorFailsClosed(t *testing.T) {
 	workspace := writePlanRootsFixture(t)
-	_, err := PlanRootsFromResourceSet(PlanRootsOptions{
-		Workspace:   workspace,
-		Deployment:  singletonDeployment(),
-		ResourceSet: scopePlanFixtureResourceSet(),
-		Tenant:      nil,
-		Selectors:   []string{"not_a_real_resource"},
+	_, err := PlanRootsFromCatalog(PlanRootsOptions{
+		Workspace:  workspace,
+		Deployment: singletonDeployment(),
+		Catalog:    scopePlanFixtureCatalog(),
+		Tenant:     nil,
+		Selectors:  []string{"not_a_real_resource"},
 	})
 	pf, ok := asProcessFailure(err)
 	if !ok {
@@ -228,12 +228,12 @@ func TestPlanRootsUnknownSelectorFailsClosed(t *testing.T) {
 func TestPlanRootsInvalidRequestedTenantFailsClosed(t *testing.T) {
 	workspace := writePlanRootsFixture(t)
 	tenant := "../escape"
-	_, err := PlanRootsFromResourceSet(PlanRootsOptions{
-		Workspace:   workspace,
-		Deployment:  singletonDeployment(),
-		ResourceSet: scopePlanFixtureResourceSet(),
-		Tenant:      &tenant,
-		Selectors:   []string{},
+	_, err := PlanRootsFromCatalog(PlanRootsOptions{
+		Workspace:  workspace,
+		Deployment: singletonDeployment(),
+		Catalog:    scopePlanFixtureCatalog(),
+		Tenant:     &tenant,
+		Selectors:  []string{},
 	})
 	pf, ok := asProcessFailure(err)
 	if !ok {
@@ -251,15 +251,15 @@ func TestPlanRootsInvalidRequestedTenantFailsClosed(t *testing.T) {
 // guards the readdir that would otherwise fail).
 func TestPlanRootsNonexistentEnvsDirectoryYieldsNoRootsNotAnError(t *testing.T) {
 	workspace := t.TempDir() // deliberately empty: no envs/ at all
-	result, err := PlanRootsFromResourceSet(PlanRootsOptions{
-		Workspace:   workspace,
-		Deployment:  singletonDeployment(),
-		ResourceSet: scopePlanFixtureResourceSet(),
-		Tenant:      nil,
-		Selectors:   []string{},
+	result, err := PlanRootsFromCatalog(PlanRootsOptions{
+		Workspace:  workspace,
+		Deployment: singletonDeployment(),
+		Catalog:    scopePlanFixtureCatalog(),
+		Tenant:     nil,
+		Selectors:  []string{},
 	})
 	if err != nil {
-		t.Fatalf("PlanRootsFromResourceSet: %v", err)
+		t.Fatalf("PlanRootsFromCatalog: %v", err)
 	}
 	if len(result.Result.Roots) != 0 {
 		t.Errorf("Roots = %+v, want empty", result.Result.Roots)
@@ -277,7 +277,7 @@ func TestPlanRootsNonexistentEnvsDirectoryYieldsNoRootsNotAnError(t *testing.T) 
 // filter. So a "bad tenant" directory containing an env root that is
 // NEVER selected must not fail the call at all, while selecting that same
 // root DOES fail it. This mirrors
-// the original test corpus's own "plan-root discovery validates
+// node-tests/differential.test.ts's own "plan-root discovery validates
 // only selected recognized tenant roots" test (mined during this port's
 // vector search, see planroots.go's package doc comment), which exercises
 // the identical shape against the retired Python oracle.
@@ -292,15 +292,15 @@ func TestPlanRootsInvalidTenantDirectoryNameIsToleratedUnlessSelected(t *testing
 	// real topology root) but its label is not in selectedLabels, so
 	// validateTenant never runs for it, and the call succeeds with no
 	// materialized roots.
-	ignored, err := PlanRootsFromResourceSet(PlanRootsOptions{
-		Workspace:   workspace,
-		Deployment:  singletonDeployment(),
-		ResourceSet: scopePlanFixtureResourceSet(),
-		Tenant:      nil,
-		Selectors:   []string{"zpa_derived_reorder"},
+	ignored, err := PlanRootsFromCatalog(PlanRootsOptions{
+		Workspace:  workspace,
+		Deployment: singletonDeployment(),
+		Catalog:    scopePlanFixtureCatalog(),
+		Tenant:     nil,
+		Selectors:  []string{"zpa_derived_reorder"},
 	})
 	if err != nil {
-		t.Fatalf("PlanRootsFromResourceSet (unselected label): %v, want success (the invalid tenant directory's root was never selected)", err)
+		t.Fatalf("PlanRootsFromCatalog (unselected label): %v, want success (the invalid tenant directory's root was never selected)", err)
 	}
 	if len(ignored.Result.Roots) != 0 {
 		t.Errorf("Roots = %+v, want empty", ignored.Result.Roots)
@@ -309,26 +309,26 @@ func TestPlanRootsInvalidTenantDirectoryNameIsToleratedUnlessSelected(t *testing
 	// Selecting zpa_alpha_one DOES reach the "bad tenant" directory's
 	// zpa_alpha root, so validateTenant("bad tenant") now runs and fails
 	// the whole call.
-	_, err = PlanRootsFromResourceSet(PlanRootsOptions{
-		Workspace:   workspace,
-		Deployment:  singletonDeployment(),
-		ResourceSet: scopePlanFixtureResourceSet(),
-		Tenant:      nil,
-		Selectors:   []string{"zpa_alpha_one"},
+	_, err = PlanRootsFromCatalog(PlanRootsOptions{
+		Workspace:  workspace,
+		Deployment: singletonDeployment(),
+		Catalog:    scopePlanFixtureCatalog(),
+		Tenant:     nil,
+		Selectors:  []string{"zpa_alpha_one"},
 	})
 	pf, ok := asProcessFailure(err)
 	if !ok || pf.Code != "INVALID_TENANT" || !strings.Contains(pf.Message, "bad tenant") {
-		t.Fatalf("PlanRootsFromResourceSet (selected label): err = %v, want INVALID_TENANT mentioning 'bad tenant'", err)
+		t.Fatalf("PlanRootsFromCatalog (selected label): err = %v, want INVALID_TENANT mentioning 'bad tenant'", err)
 	}
 }
 
 // TestLoadedPlanRootsHasNoUpfrontSelectorPrecheck is not a ported oracle
-// scenario -- it pins the asymmetry PlanRootsFromResourceSet's own doc
-// comment documents: unlike PlanRootsFromResourceSet (which calls
+// scenario -- it pins the asymmetry PlanRootsFromCatalog's own doc
+// comment documents: unlike PlanRootsFromCatalog (which calls
 // expandResources on the raw catalog index before ever building a
 // topology, "historical explicit validation" ported verbatim from
 // plan-roots.ts's own comment), LoadedPlanRoots has no such precheck --
-// the original implementation's loadedPlanRoots never calls
+// node-src/domain/plan-roots.ts's loadedPlanRoots never calls
 // expandLoadedResources. Both still fail on an unknown selector (via the
 // `selected` rootTopologyFromIndex call's own expandResources), so this
 // only proves the CODE PATH differs, not that the outward behavior does;
@@ -340,7 +340,7 @@ func TestLoadedPlanRootsHasNoUpfrontSelectorPrecheck(t *testing.T) {
 	workspace := t.TempDir()
 	// No roots.zpa entry here (the synthetic pack root declares a
 	// "sample" provider, not "zpa"): this test only needs a loaded pack
-	// root distinct from scopePlanFixtureResourceSet's ResourceSet, so an
+	// root distinct from scopePlanFixtureCatalog's RootCatalog, so an
 	// empty deployment is enough to reach the selector-expansion failure.
 	_, err := LoadedPlanRoots(LoadedPlanRootsOptions{
 		Workspace:  workspace,
@@ -357,7 +357,7 @@ func TestLoadedPlanRootsHasNoUpfrontSelectorPrecheck(t *testing.T) {
 
 // loadPlanRootsFixturePackRoot builds a minimal on-disk pack root loadable
 // via metadata.LoadPackRoot, purely so LoadedPlanRoots (which takes a
-// metadata.LoadedPackRoot, not a metadata.ResourceSet) has something to
+// metadata.LoadedPackRoot, not a metadata.RootCatalog) has something to
 // exercise; its actual resource shape does not matter for
 // TestLoadedPlanRootsHasNoUpfrontSelectorPrecheck; only that
 // "not_a_real_resource" is not among its generated resources.

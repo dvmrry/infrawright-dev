@@ -2,7 +2,7 @@ package transform
 
 // projection.go ports the schema-projection compiler and the two
 // item-shaping passes that run against it from
-// the original implementation: RuntimeProjection/RuntimeProjectionBlock
+// node-src/domain/pull-transform.ts: RuntimeProjection/RuntimeProjectionBlock
 // (types only in the Node source; TypeScript interfaces, not runtime code),
 // compileProjection, filterItem, mergeSingleBlockElements, isNullObject,
 // nullStubValue, childPath, coerceItem, and the exported
@@ -17,7 +17,7 @@ import (
 )
 
 // runtimeProjectionBlock ports the RuntimeProjectionBlock interface from
-// the original implementation.
+// node-src/domain/pull-transform.ts.
 type runtimeProjectionBlock struct {
 	Cardinality string // "many" | "single"
 	Merge       bool
@@ -25,21 +25,23 @@ type runtimeProjectionBlock struct {
 }
 
 // runtimeProjection ports the RuntimeProjection interface from
-// the original implementation.
+// node-src/domain/pull-transform.ts.
 type runtimeProjection struct {
 	Attributes                map[string]metadata.TerraformTypeEncoding
 	Blocks                    map[string]runtimeProjectionBlock
 	KnownMembers              []string
 	SilentlyIgnoredAttributes []string
+	StrictFrozenCompatibility bool
 }
 
 // runtimeTransformResource ports the RuntimeTransformResource interface
-// from the original implementation.
+// from node-src/domain/pull-transform.ts.
 type runtimeTransformResource struct {
-	Type               string
-	Projection         runtimeProjection
-	Override           map[string]any
-	HTMLUnescapePasses int // 0 | 2
+	Type                      string
+	Projection                runtimeProjection
+	Override                  map[string]any
+	HTMLUnescapePasses        int // 0 | 2
+	StrictFrozenCompatibility bool
 }
 
 // requireBlockObject is a small (metadata error -> panic) adapter: every
@@ -58,7 +60,7 @@ func requireBlockObject(value any, label string) metadata.JsonObject {
 }
 
 // compileProjection ports compileProjection from
-// the original implementation. mergeBlocks is only consulted at the
+// node-src/domain/pull-transform.ts. mergeBlocks is only consulted at the
 // top level (mirroring the Node source's options.topLevel &&
 // options.mergeBlocks.has(name) gate); every recursive call passes an empty
 // set for it, exactly like the Node source's own recursive call always
@@ -158,10 +160,11 @@ func compileProjection(
 		Blocks:                    blocks,
 		KnownMembers:              knownMembers,
 		SilentlyIgnoredAttributes: silentlyIgnored,
+		StrictFrozenCompatibility: false,
 	}
 }
 
-// childPath ports childPath from the original implementation.
+// childPath ports childPath from node-src/domain/pull-transform.ts.
 func childPath(path, key string) string {
 	if path == "" {
 		return key
@@ -169,7 +172,7 @@ func childPath(path, key string) string {
 	return path + "." + key
 }
 
-// nullStubValue ports nullStubValue from the original implementation.
+// nullStubValue ports nullStubValue from node-src/domain/pull-transform.ts.
 func nullStubValue(value any) bool {
 	if _, ok := value.(bool); ok {
 		return false
@@ -202,7 +205,7 @@ func nullStubValue(value any) bool {
 	return false
 }
 
-// isNullObject ports isNullObject from the original implementation.
+// isNullObject ports isNullObject from node-src/domain/pull-transform.ts.
 func isNullObject(
 	value any,
 	projection runtimeProjection,
@@ -248,7 +251,7 @@ func isNullObject(
 }
 
 // mergeSingleBlockElements ports mergeSingleBlockElements from
-// the original implementation. drops is a pointer to the same
+// node-src/domain/pull-transform.ts. drops is a pointer to the same
 // accumulating slice executeTransform threads through the whole filterItem
 // traversal (the Go analogue of the Node source's mutable `drops: string[]`
 // parameter); the final drops list is deduplicated and sorted once, by
@@ -303,7 +306,7 @@ func mergeSingleBlockElements(
 	return entries
 }
 
-// filterItem ports filterItem from the original implementation.
+// filterItem ports filterItem from node-src/domain/pull-transform.ts.
 func filterItem(
 	item map[string]any,
 	projection runtimeProjection,
@@ -346,9 +349,12 @@ func filterItem(
 					continue
 				}
 				var elements []map[string]any
-				for _, entry := range arr {
+				for index, entry := range arr {
 					obj, isObject := entry.(map[string]any)
 					if !isObject {
+						if projection.StrictFrozenCompatibility {
+							failf("block %s[%d] must be a JSON object", currentPath, index)
+						}
 						continue
 					}
 					elements = append(elements, obj)
@@ -376,9 +382,12 @@ func filterItem(
 		manyPath := currentPath + "[]"
 		if arr, isArray := value.([]any); isArray {
 			var elements []map[string]any
-			for _, entry := range arr {
+			for index, entry := range arr {
 				obj, isObject := entry.(map[string]any)
 				if !isObject {
+					if projection.StrictFrozenCompatibility {
+						failf("block %s[%d] must be a JSON object", currentPath, index)
+					}
 					continue
 				}
 				if !isNullObject(obj, block.Projection, manyPath, acknowledgedDrops) {
@@ -409,7 +418,7 @@ func filterItem(
 	return output
 }
 
-// coerceItem ports coerceItem from the original implementation.
+// coerceItem ports coerceItem from node-src/domain/pull-transform.ts.
 func coerceItem(item map[string]any, projection runtimeProjection) map[string]any {
 	output := make(map[string]any, len(item))
 	for _, key := range canonjson.SortedStrings(mapKeys(item)) {
@@ -437,7 +446,7 @@ func coerceItem(item map[string]any, projection runtimeProjection) map[string]an
 			continue
 		}
 		if encoding, hasEncoding := projection.Attributes[key]; hasEncoding {
-			output[key] = coerceValue(value, encoding)
+			output[key] = coerceValue(value, encoding, projection.StrictFrozenCompatibility)
 		} else {
 			output[key] = value
 		}
@@ -446,7 +455,7 @@ func coerceItem(item map[string]any, projection runtimeProjection) map[string]an
 }
 
 // ProjectLoadedRawFieldOptions ports projectLoadedRawField's inline options
-// parameter type from the original implementation.
+// parameter type from node-src/domain/pull-transform.ts.
 type ProjectLoadedRawFieldOptions struct {
 	RawValue     any
 	ResourceType string
@@ -455,7 +464,7 @@ type ProjectLoadedRawFieldOptions struct {
 }
 
 // ProjectLoadedRawField ports the exported projectLoadedRawField from
-// the original implementation: "Shape one raw API value through the
+// node-src/domain/pull-transform.ts: "Shape one raw API value through the
 // ordinary loaded-resource schema kernel." A nil result with no error means
 // the target field is absent after filtering (the Go analogue of the Node
 // source's `unknown | undefined` return: this package already conflates
@@ -469,7 +478,7 @@ func ProjectLoadedRawField(options ProjectLoadedRawFieldOptions) (result any, er
 	}
 	projection := compileProjection(block, options.ResourceType+".block", map[string]struct{}{}, true)
 	shaped := map[string]any{
-		options.Target: snakeKeys(options.RawValue, "$raw."+options.Target),
+		options.Target: snakeKeys(options.RawValue, "$raw."+options.Target, false),
 	}
 	drops := []string{}
 	filtered := filterItem(shaped, projection, "", &drops, map[string]struct{}{}, map[string]struct{}{}, map[string]any{})

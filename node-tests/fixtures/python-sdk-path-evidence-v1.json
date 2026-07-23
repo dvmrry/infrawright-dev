@@ -1,0 +1,1200 @@
+{
+  "cases": {
+    "cli_sdk_root": {
+      "diagnostics_bytes": "{\n  \"diagnostics\": [\n    {\n      \"ambiguous\": [],\n      \"files\": [\n        \"domain/resource_digitalocean_domain.go\"\n      ],\n      \"hits\": [\n        {\n          \"alternate_client_symbols\": [\n            \"Domains.Get\"\n          ],\n          \"client_symbol\": \"Domains.Get\",\n          \"list_score\": 990,\n          \"method\": \"GET\",\n          \"operation_id\": \"GET /v2/domains/{domain_name}\",\n          \"operation_id_source\": \"synthetic_path\",\n          \"path\": \"/v2/domains/{domain_name}\",\n          \"path_kind\": \"detail\",\n          \"read_score\": 1045,\n          \"source_role\": \"read\"\n        }\n      ],\n      \"reason\": null,\n      \"resource\": \"digitalocean_domain\",\n      \"status\": \"mapped\"\n    }\n  ],\n  \"summary\": {\n    \"ambiguous\": 0,\n    \"graphql_source\": 0,\n    \"mapped\": 1,\n    \"resources\": 1,\n    \"resources_with_source_files\": 1,\n    \"resources_without_source_files\": 0,\n    \"unmapped\": 0\n  }\n}\n",
+      "exit_code": 0,
+      "registry_bytes": "{\n  \"digitalocean_domain\": {\n    \"product\": \"digitalocean\",\n    \"read\": {\n      \"confidence\": \"high\",\n      \"evidence_kind\": \"read\",\n      \"hops\": [\n        {\n          \"alternate_client_symbols\": [\n            \"Domains.Get\"\n          ],\n          \"client_symbol\": \"Domains.Get\",\n          \"kind\": \"provider_call\",\n          \"matched_aliases\": [\n            \"Domains.Get\"\n          ],\n          \"sdk_method\": \"Get\",\n          \"source_files\": [\n            \"domain/resource_digitalocean_domain.go\"\n          ],\n          \"source_role\": \"read\"\n        },\n        {\n          \"kind\": \"sdk_path\",\n          \"method\": \"GET\",\n          \"path_template\": \"v2/domains/{domain}\",\n          \"sdk_file\": \"domains.go\"\n        },\n        {\n          \"kind\": \"openapi_operation\",\n          \"method\": \"GET\",\n          \"operation_id\": \"GET /v2/domains/{domain_name}\",\n          \"operation_id_source\": \"synthetic_path\",\n          \"path\": \"/v2/domains/{domain_name}\"\n        }\n      ],\n      \"method\": \"GET\",\n      \"operation_id\": \"GET /v2/domains/{domain_name}\",\n      \"operation_id_source\": \"synthetic_path\",\n      \"path\": \"/v2/domains/{domain_name}\",\n      \"path_kind\": \"detail\"\n    },\n    \"reason\": null,\n    \"source\": {\n      \"candidate_count\": 1,\n      \"client_call_count\": 1,\n      \"client_calls\": [\n        \"Domains.Get\"\n      ],\n      \"files\": [\n        \"domain/resource_digitalocean_domain.go\"\n      ]\n    },\n    \"status\": \"mapped\",\n    \"surface\": \"digitalocean\"\n  }\n}\n",
+      "report": {
+        "diagnostics": [
+          {
+            "ambiguous": [],
+            "files": [
+              "domain/resource_digitalocean_domain.go"
+            ],
+            "hits": [
+              {
+                "alternate_client_symbols": [
+                  "Domains.Get"
+                ],
+                "client_symbol": "Domains.Get",
+                "list_score": 990,
+                "method": "GET",
+                "operation_id": "GET /v2/domains/{domain_name}",
+                "operation_id_source": "synthetic_path",
+                "path": "/v2/domains/{domain_name}",
+                "path_kind": "detail",
+                "read_score": 1045,
+                "source_role": "read"
+              }
+            ],
+            "reason": null,
+            "resource": "digitalocean_domain",
+            "status": "mapped"
+          }
+        ],
+        "registry": {
+          "digitalocean_domain": {
+            "product": "digitalocean",
+            "read": {
+              "confidence": "high",
+              "evidence_kind": "read",
+              "hops": [
+                {
+                  "alternate_client_symbols": [
+                    "Domains.Get"
+                  ],
+                  "client_symbol": "Domains.Get",
+                  "kind": "provider_call",
+                  "matched_aliases": [
+                    "Domains.Get"
+                  ],
+                  "sdk_method": "Get",
+                  "source_files": [
+                    "domain/resource_digitalocean_domain.go"
+                  ],
+                  "source_role": "read"
+                },
+                {
+                  "kind": "sdk_path",
+                  "method": "GET",
+                  "path_template": "v2/domains/{domain}",
+                  "sdk_file": "domains.go"
+                },
+                {
+                  "kind": "openapi_operation",
+                  "method": "GET",
+                  "operation_id": "GET /v2/domains/{domain_name}",
+                  "operation_id_source": "synthetic_path",
+                  "path": "/v2/domains/{domain_name}"
+                }
+              ],
+              "method": "GET",
+              "operation_id": "GET /v2/domains/{domain_name}",
+              "operation_id_source": "synthetic_path",
+              "path": "/v2/domains/{domain_name}",
+              "path_kind": "detail"
+            },
+            "reason": null,
+            "source": {
+              "candidate_count": 1,
+              "client_call_count": 1,
+              "client_calls": [
+                "Domains.Get"
+              ],
+              "files": [
+                "domain/resource_digitalocean_domain.go"
+              ]
+            },
+            "status": "mapped",
+            "surface": "digitalocean"
+          }
+        },
+        "summary": {
+          "ambiguous": 0,
+          "graphql_source": 0,
+          "mapped": 1,
+          "resources": 1,
+          "resources_with_source_files": 1,
+          "resources_without_source_files": 0,
+          "unmapped": 0
+        }
+      },
+      "stderr": "",
+      "stdout": ""
+    },
+    "missing_root": {
+      "evidence": {},
+      "unresolved": {}
+    },
+    "source_operation_reports": {
+      "ast_sdk_action": {
+        "diagnostics": [
+          {
+            "ambiguous": [],
+            "files": [
+              "reserved_ip/resource_digitalocean_reserved_ip.go"
+            ],
+            "hits": [
+              {
+                "alternate_client_symbols": [
+                  "ReservedIPs.Get"
+                ],
+                "client_symbol": "ReservedIPs.Get",
+                "list_score": 995,
+                "method": "GET",
+                "operation_id": "GET /v2/reserved_ips/{ip}",
+                "operation_id_source": "synthetic_path",
+                "path": "/v2/reserved_ips/{ip}",
+                "path_kind": "detail",
+                "read_score": 1050,
+                "source_role": "read"
+              }
+            ],
+            "reason": null,
+            "resource": "digitalocean_reserved_ip",
+            "status": "mapped"
+          }
+        ],
+        "registry": {
+          "digitalocean_reserved_ip": {
+            "product": "digitalocean",
+            "read": {
+              "confidence": "high",
+              "evidence_kind": "read",
+              "hops": [
+                {
+                  "alternate_client_symbols": [
+                    "ReservedIPs.Get"
+                  ],
+                  "client_symbol": "ReservedIPs.Get",
+                  "kind": "provider_call",
+                  "matched_aliases": [
+                    "ReservedIPs.Get"
+                  ],
+                  "sdk_method": "Get",
+                  "source_files": [
+                    "reserved_ip/resource_digitalocean_reserved_ip.go"
+                  ],
+                  "source_role": "read"
+                },
+                {
+                  "kind": "sdk_path",
+                  "method": "GET",
+                  "path_template": "v2/reserved_ips/{ip}",
+                  "sdk_file": "reserved_ips.go"
+                },
+                {
+                  "kind": "openapi_operation",
+                  "method": "GET",
+                  "operation_id": "GET /v2/reserved_ips/{ip}",
+                  "operation_id_source": "synthetic_path",
+                  "path": "/v2/reserved_ips/{ip}"
+                }
+              ],
+              "method": "GET",
+              "operation_id": "GET /v2/reserved_ips/{ip}",
+              "operation_id_source": "synthetic_path",
+              "path": "/v2/reserved_ips/{ip}",
+              "path_kind": "detail"
+            },
+            "reason": null,
+            "source": {
+              "candidate_count": 1,
+              "client_call_count": 1,
+              "client_calls": [
+                "ReservedIPs.Get"
+              ],
+              "evidence_backend": "ast_facts",
+              "files": [
+                "reserved_ip/resource_digitalocean_reserved_ip.go"
+              ],
+              "sdk_action_paths": [
+                {
+                  "client_symbol": "ReservedIPs.Assign",
+                  "method": "POST",
+                  "path_template": "v2/reserved_ips/{ip}/actions",
+                  "sdk_file": "reserved_ips.go"
+                }
+              ]
+            },
+            "status": "mapped",
+            "surface": "digitalocean"
+          }
+        },
+        "summary": {
+          "ambiguous": 0,
+          "graphql_source": 0,
+          "mapped": 1,
+          "resources": 1,
+          "resources_with_source_files": 1,
+          "resources_without_source_files": 0,
+          "unmapped": 0
+        }
+      },
+      "domain": {
+        "diagnostics": [
+          {
+            "ambiguous": [],
+            "files": [
+              "domain/resource_digitalocean_domain.go"
+            ],
+            "hits": [
+              {
+                "alternate_client_symbols": [
+                  "Domains.Get"
+                ],
+                "client_symbol": "Domains.Get",
+                "list_score": 990,
+                "method": "GET",
+                "operation_id": "GET /v2/domains/{domain_name}",
+                "operation_id_source": "synthetic_path",
+                "path": "/v2/domains/{domain_name}",
+                "path_kind": "detail",
+                "read_score": 1045,
+                "source_role": "read"
+              },
+              {
+                "client_symbol": "Domains.Get",
+                "list_score": 173,
+                "method": "GET",
+                "operation_id": "GET /v2/domains",
+                "operation_id_source": "synthetic_path",
+                "path": "/v2/domains",
+                "path_kind": "list",
+                "read_score": 163,
+                "source_role": "read"
+              }
+            ],
+            "reason": null,
+            "resource": "digitalocean_domain",
+            "status": "mapped"
+          }
+        ],
+        "registry": {
+          "digitalocean_domain": {
+            "product": "digitalocean",
+            "read": {
+              "confidence": "high",
+              "evidence_kind": "read",
+              "hops": [
+                {
+                  "alternate_client_symbols": [
+                    "Domains.Get"
+                  ],
+                  "client_symbol": "Domains.Get",
+                  "kind": "provider_call",
+                  "matched_aliases": [
+                    "Domains.Get"
+                  ],
+                  "sdk_method": "Get",
+                  "source_files": [
+                    "domain/resource_digitalocean_domain.go"
+                  ],
+                  "source_role": "read"
+                },
+                {
+                  "kind": "sdk_path",
+                  "method": "GET",
+                  "path_template": "v2/domains/{domain}",
+                  "sdk_file": "domains.go"
+                },
+                {
+                  "kind": "openapi_operation",
+                  "method": "GET",
+                  "operation_id": "GET /v2/domains/{domain_name}",
+                  "operation_id_source": "synthetic_path",
+                  "path": "/v2/domains/{domain_name}"
+                }
+              ],
+              "method": "GET",
+              "operation_id": "GET /v2/domains/{domain_name}",
+              "operation_id_source": "synthetic_path",
+              "path": "/v2/domains/{domain_name}",
+              "path_kind": "detail"
+            },
+            "reason": null,
+            "source": {
+              "candidate_count": 2,
+              "client_call_count": 1,
+              "client_calls": [
+                "Domains.Get"
+              ],
+              "files": [
+                "domain/resource_digitalocean_domain.go"
+              ]
+            },
+            "status": "mapped",
+            "surface": "digitalocean"
+          }
+        },
+        "summary": {
+          "ambiguous": 0,
+          "graphql_source": 0,
+          "mapped": 1,
+          "resources": 1,
+          "resources_with_source_files": 1,
+          "resources_without_source_files": 0,
+          "unmapped": 0
+        }
+      },
+      "droplet": {
+        "diagnostics": [
+          {
+            "ambiguous": [],
+            "files": [
+              "droplet/resource_digitalocean_droplet.go"
+            ],
+            "hits": [
+              {
+                "alternate_client_symbols": [
+                  "Droplets.Get"
+                ],
+                "client_symbol": "Droplets.Get",
+                "list_score": 990,
+                "method": "GET",
+                "operation_id": "GET /v2/droplets/{droplet_id}",
+                "operation_id_source": "synthetic_path",
+                "path": "/v2/droplets/{droplet_id}",
+                "path_kind": "detail",
+                "read_score": 1045,
+                "source_role": "read"
+              }
+            ],
+            "reason": null,
+            "resource": "digitalocean_droplet",
+            "status": "mapped"
+          }
+        ],
+        "registry": {
+          "digitalocean_droplet": {
+            "product": "digitalocean",
+            "read": {
+              "confidence": "high",
+              "evidence_kind": "read",
+              "hops": [
+                {
+                  "alternate_client_symbols": [
+                    "Droplets.Get"
+                  ],
+                  "client_symbol": "Droplets.Get",
+                  "kind": "provider_call",
+                  "matched_aliases": [
+                    "Droplets.Get"
+                  ],
+                  "sdk_method": "Get",
+                  "source_files": [
+                    "droplet/resource_digitalocean_droplet.go"
+                  ],
+                  "source_role": "read"
+                },
+                {
+                  "kind": "sdk_path",
+                  "method": "GET",
+                  "path_template": "v2/droplets/{id}",
+                  "sdk_file": "droplets.go"
+                },
+                {
+                  "kind": "openapi_operation",
+                  "method": "GET",
+                  "operation_id": "GET /v2/droplets/{droplet_id}",
+                  "operation_id_source": "synthetic_path",
+                  "path": "/v2/droplets/{droplet_id}"
+                }
+              ],
+              "method": "GET",
+              "operation_id": "GET /v2/droplets/{droplet_id}",
+              "operation_id_source": "synthetic_path",
+              "path": "/v2/droplets/{droplet_id}",
+              "path_kind": "detail"
+            },
+            "reason": null,
+            "source": {
+              "candidate_count": 1,
+              "client_call_count": 1,
+              "client_calls": [
+                "Droplets.Get"
+              ],
+              "files": [
+                "droplet/resource_digitalocean_droplet.go"
+              ]
+            },
+            "status": "mapped",
+            "surface": "digitalocean"
+          }
+        },
+        "summary": {
+          "ambiguous": 0,
+          "graphql_source": 0,
+          "mapped": 1,
+          "resources": 1,
+          "resources_with_source_files": 1,
+          "resources_without_source_files": 0,
+          "unmapped": 0
+        }
+      },
+      "fuzzy_fallback": {
+        "diagnostics": [
+          {
+            "ambiguous": [],
+            "files": [
+              "domain/resource_digitalocean_domain.go"
+            ],
+            "hits": [
+              {
+                "client_symbol": "Domains.Get",
+                "list_score": 163,
+                "method": "GET",
+                "operation_id": "GET /v2/domains/{domain_name}",
+                "operation_id_source": "synthetic_path",
+                "path": "/v2/domains/{domain_name}",
+                "path_kind": "detail",
+                "read_score": 218,
+                "source_role": "read"
+              },
+              {
+                "client_symbol": "Domains.Get",
+                "list_score": 173,
+                "method": "GET",
+                "operation_id": "GET /v2/domains",
+                "operation_id_source": "synthetic_path",
+                "path": "/v2/domains",
+                "path_kind": "list",
+                "read_score": 163,
+                "source_role": "read"
+              }
+            ],
+            "reason": null,
+            "resource": "digitalocean_domain",
+            "status": "mapped"
+          }
+        ],
+        "registry": {
+          "digitalocean_domain": {
+            "product": "digitalocean",
+            "read": {
+              "confidence": "high",
+              "evidence_kind": "read",
+              "hops": [
+                {
+                  "client_symbol": "Domains.Get",
+                  "kind": "provider_call",
+                  "matched_aliases": [
+                    "Domains.Get"
+                  ],
+                  "sdk_method": "Get",
+                  "source_files": [
+                    "domain/resource_digitalocean_domain.go"
+                  ],
+                  "source_role": "read"
+                },
+                {
+                  "kind": "openapi_operation",
+                  "method": "GET",
+                  "operation_id": "GET /v2/domains/{domain_name}",
+                  "operation_id_source": "synthetic_path",
+                  "path": "/v2/domains/{domain_name}"
+                }
+              ],
+              "method": "GET",
+              "operation_id": "GET /v2/domains/{domain_name}",
+              "operation_id_source": "synthetic_path",
+              "path": "/v2/domains/{domain_name}",
+              "path_kind": "detail"
+            },
+            "reason": null,
+            "source": {
+              "candidate_count": 2,
+              "client_call_count": 1,
+              "client_calls": [
+                "Domains.Get"
+              ],
+              "files": [
+                "domain/resource_digitalocean_domain.go"
+              ]
+            },
+            "status": "mapped",
+            "surface": "digitalocean"
+          }
+        },
+        "summary": {
+          "ambiguous": 0,
+          "graphql_source": 0,
+          "mapped": 1,
+          "resources": 1,
+          "resources_with_source_files": 1,
+          "resources_without_source_files": 0,
+          "unmapped": 0
+        }
+      },
+      "helper_action_disambiguation": {
+        "diagnostics": [
+          {
+            "ambiguous": [],
+            "files": [
+              "reserved_ipv6/resource_digitalocean_reserved_ipv6.go"
+            ],
+            "hits": [
+              {
+                "alternate_client_symbols": [
+                  "ReservedIPV6s.Get"
+                ],
+                "client_symbol": "ReservedIPV6s.Get",
+                "list_score": 995,
+                "method": "GET",
+                "operation_id": "GET /v2/reserved_ipv6/{reserved_ipv6}",
+                "operation_id_source": "synthetic_path",
+                "path": "/v2/reserved_ipv6/{reserved_ipv6}",
+                "path_kind": "detail",
+                "read_score": 1050,
+                "source_role": "read"
+              },
+              {
+                "client_symbol": "Actions.Get",
+                "list_score": 55,
+                "method": "GET",
+                "operation_id": "GET /v2/actions/{action_id}",
+                "operation_id_source": "synthetic_path",
+                "path": "/v2/actions/{action_id}",
+                "path_kind": "detail",
+                "read_score": 110,
+                "source_role": "read"
+              }
+            ],
+            "reason": null,
+            "resource": "digitalocean_reserved_ipv6",
+            "status": "mapped"
+          }
+        ],
+        "registry": {
+          "digitalocean_reserved_ipv6": {
+            "product": "digitalocean",
+            "read": {
+              "confidence": "high",
+              "evidence_kind": "read",
+              "hops": [
+                {
+                  "alternate_client_symbols": [
+                    "ReservedIPV6s.Get"
+                  ],
+                  "client_symbol": "ReservedIPV6s.Get",
+                  "kind": "provider_call",
+                  "matched_aliases": [
+                    "ReservedIPV6s.Get"
+                  ],
+                  "sdk_method": "Get",
+                  "source_files": [
+                    "reserved_ipv6/resource_digitalocean_reserved_ipv6.go"
+                  ],
+                  "source_role": "read"
+                },
+                {
+                  "kind": "sdk_path",
+                  "method": "GET",
+                  "path_template": "v2/reserved_ipv6/{ip}",
+                  "sdk_file": "reserved_ipv6.go"
+                },
+                {
+                  "kind": "openapi_operation",
+                  "method": "GET",
+                  "operation_id": "GET /v2/reserved_ipv6/{reserved_ipv6}",
+                  "operation_id_source": "synthetic_path",
+                  "path": "/v2/reserved_ipv6/{reserved_ipv6}"
+                }
+              ],
+              "method": "GET",
+              "operation_id": "GET /v2/reserved_ipv6/{reserved_ipv6}",
+              "operation_id_source": "synthetic_path",
+              "path": "/v2/reserved_ipv6/{reserved_ipv6}",
+              "path_kind": "detail"
+            },
+            "reason": null,
+            "source": {
+              "candidate_count": 2,
+              "client_call_count": 2,
+              "client_calls": [
+                "Actions.Get",
+                "ReservedIPV6s.Get"
+              ],
+              "files": [
+                "reserved_ipv6/resource_digitalocean_reserved_ipv6.go"
+              ]
+            },
+            "status": "mapped",
+            "surface": "digitalocean"
+          }
+        },
+        "summary": {
+          "ambiguous": 0,
+          "graphql_source": 0,
+          "mapped": 1,
+          "resources": 1,
+          "resources_with_source_files": 1,
+          "resources_without_source_files": 0,
+          "unmapped": 0
+        }
+      },
+      "reserved_ip_action": {
+        "diagnostics": [
+          {
+            "ambiguous": [],
+            "files": [
+              "reserved_ip/resource_digitalocean_reserved_ip.go"
+            ],
+            "hits": [
+              {
+                "alternate_client_symbols": [
+                  "ReservedIPs.Get"
+                ],
+                "client_symbol": "ReservedIPs.Get",
+                "list_score": 995,
+                "method": "GET",
+                "operation_id": "GET /v2/reserved_ips/{ip}",
+                "operation_id_source": "synthetic_path",
+                "path": "/v2/reserved_ips/{ip}",
+                "path_kind": "detail",
+                "read_score": 1050,
+                "source_role": "read"
+              }
+            ],
+            "reason": null,
+            "resource": "digitalocean_reserved_ip",
+            "status": "mapped"
+          }
+        ],
+        "registry": {
+          "digitalocean_reserved_ip": {
+            "product": "digitalocean",
+            "read": {
+              "confidence": "high",
+              "evidence_kind": "read",
+              "hops": [
+                {
+                  "alternate_client_symbols": [
+                    "ReservedIPs.Get"
+                  ],
+                  "client_symbol": "ReservedIPs.Get",
+                  "kind": "provider_call",
+                  "matched_aliases": [
+                    "ReservedIPs.Get"
+                  ],
+                  "sdk_method": "Get",
+                  "source_files": [
+                    "reserved_ip/resource_digitalocean_reserved_ip.go"
+                  ],
+                  "source_role": "read"
+                },
+                {
+                  "kind": "sdk_path",
+                  "method": "GET",
+                  "path_template": "v2/reserved_ips/{ip}",
+                  "sdk_file": "reserved_ips.go"
+                },
+                {
+                  "kind": "openapi_operation",
+                  "method": "GET",
+                  "operation_id": "GET /v2/reserved_ips/{ip}",
+                  "operation_id_source": "synthetic_path",
+                  "path": "/v2/reserved_ips/{ip}"
+                }
+              ],
+              "method": "GET",
+              "operation_id": "GET /v2/reserved_ips/{ip}",
+              "operation_id_source": "synthetic_path",
+              "path": "/v2/reserved_ips/{ip}",
+              "path_kind": "detail"
+            },
+            "reason": null,
+            "source": {
+              "candidate_count": 1,
+              "client_call_count": 1,
+              "client_calls": [
+                "ReservedIPs.Get"
+              ],
+              "files": [
+                "reserved_ip/resource_digitalocean_reserved_ip.go"
+              ],
+              "sdk_action_paths": [
+                {
+                  "client_symbol": "ReservedIPs.Assign",
+                  "method": "POST",
+                  "path_template": "v2/reserved_ips/{ip}/actions",
+                  "sdk_file": "reserved_ips.go"
+                }
+              ]
+            },
+            "status": "mapped",
+            "surface": "digitalocean"
+          }
+        },
+        "summary": {
+          "ambiguous": 0,
+          "graphql_source": 0,
+          "mapped": 1,
+          "resources": 1,
+          "resources_with_source_files": 1,
+          "resources_without_source_files": 0,
+          "unmapped": 0
+        }
+      },
+      "unresolved_ambiguous_path": {
+        "diagnostics": [
+          {
+            "ambiguous": [
+              {
+                "client_symbol": "Things.Get",
+                "list_score": 163,
+                "method": "GET",
+                "operation_id": "GET /v2/things/{a}",
+                "operation_id_source": "synthetic_path",
+                "path": "/v2/things/{a}",
+                "path_kind": "detail",
+                "read_score": 218,
+                "source_role": "read"
+              },
+              {
+                "client_symbol": "Things.Get",
+                "list_score": 163,
+                "method": "GET",
+                "operation_id": "GET /v2/things/{b}",
+                "operation_id_source": "synthetic_path",
+                "path": "/v2/things/{b}",
+                "path_kind": "detail",
+                "read_score": 218,
+                "source_role": "read"
+              }
+            ],
+            "files": [
+              "thing/resource_digitalocean_thing.go"
+            ],
+            "hits": [
+              {
+                "client_symbol": "Things.Get",
+                "list_score": 163,
+                "method": "GET",
+                "operation_id": "GET /v2/things/{a}",
+                "operation_id_source": "synthetic_path",
+                "path": "/v2/things/{a}",
+                "path_kind": "detail",
+                "read_score": 218,
+                "source_role": "read"
+              },
+              {
+                "client_symbol": "Things.Get",
+                "list_score": 163,
+                "method": "GET",
+                "operation_id": "GET /v2/things/{b}",
+                "operation_id_source": "synthetic_path",
+                "path": "/v2/things/{b}",
+                "path_kind": "detail",
+                "read_score": 218,
+                "source_role": "read"
+              }
+            ],
+            "reason": "ambiguous_source_operation",
+            "resource": "digitalocean_thing",
+            "status": "ambiguous_source_operation"
+          }
+        ],
+        "registry": {
+          "digitalocean_thing": {
+            "candidates": [
+              {
+                "confidence": "low",
+                "evidence_kind": "read",
+                "hops": [
+                  {
+                    "client_symbol": "Things.Get",
+                    "kind": "provider_call",
+                    "matched_aliases": [
+                      "Things.Get"
+                    ],
+                    "sdk_method": "Get",
+                    "source_files": [
+                      "thing/resource_digitalocean_thing.go"
+                    ],
+                    "source_role": "read"
+                  },
+                  {
+                    "kind": "openapi_operation",
+                    "method": "GET",
+                    "operation_id": "GET /v2/things/{a}",
+                    "operation_id_source": "synthetic_path",
+                    "path": "/v2/things/{a}"
+                  }
+                ],
+                "list_score": 163,
+                "method": "GET",
+                "operation_id": "GET /v2/things/{a}",
+                "operation_id_source": "synthetic_path",
+                "path": "/v2/things/{a}",
+                "path_kind": "detail",
+                "read_score": 218
+              },
+              {
+                "confidence": "low",
+                "evidence_kind": "read",
+                "hops": [
+                  {
+                    "client_symbol": "Things.Get",
+                    "kind": "provider_call",
+                    "matched_aliases": [
+                      "Things.Get"
+                    ],
+                    "sdk_method": "Get",
+                    "source_files": [
+                      "thing/resource_digitalocean_thing.go"
+                    ],
+                    "source_role": "read"
+                  },
+                  {
+                    "kind": "openapi_operation",
+                    "method": "GET",
+                    "operation_id": "GET /v2/things/{b}",
+                    "operation_id_source": "synthetic_path",
+                    "path": "/v2/things/{b}"
+                  }
+                ],
+                "list_score": 163,
+                "method": "GET",
+                "operation_id": "GET /v2/things/{b}",
+                "operation_id_source": "synthetic_path",
+                "path": "/v2/things/{b}",
+                "path_kind": "detail",
+                "read_score": 218
+              }
+            ],
+            "product": "digitalocean",
+            "reason": "ambiguous_source_operation",
+            "source": {
+              "candidate_count": 2,
+              "client_call_count": 1,
+              "client_calls": [
+                "Things.Get"
+              ],
+              "files": [
+                "thing/resource_digitalocean_thing.go"
+              ],
+              "sdk_path_unresolved": [
+                {
+                  "ambiguous_openapi_paths": [
+                    "/v2/things/{a}",
+                    "/v2/things/{b}"
+                  ],
+                  "client_symbol": "Things.Get",
+                  "reason": "openapi_path_ambiguous",
+                  "sdk_file": "things.go"
+                }
+              ]
+            },
+            "status": "ambiguous_source_operation",
+            "surface": "digitalocean"
+          }
+        },
+        "summary": {
+          "ambiguous": 1,
+          "graphql_source": 0,
+          "mapped": 0,
+          "resources": 1,
+          "resources_with_source_files": 1,
+          "resources_without_source_files": 0,
+          "unmapped": 0
+        }
+      },
+      "unresolved_openapi_path": {
+        "diagnostics": [
+          {
+            "ambiguous": [],
+            "files": [
+              "domain/resource_digitalocean_domain.go"
+            ],
+            "hits": [],
+            "reason": "no_source_operation_match",
+            "resource": "digitalocean_domain",
+            "status": "unmapped"
+          }
+        ],
+        "registry": {
+          "digitalocean_domain": {
+            "product": "digitalocean",
+            "reason": "no_source_operation_match",
+            "source": {
+              "candidate_count": 0,
+              "client_call_count": 1,
+              "client_calls": [
+                "Domains.Get"
+              ],
+              "files": [
+                "domain/resource_digitalocean_domain.go"
+              ],
+              "sdk_path_unresolved": [
+                {
+                  "client_symbol": "Domains.Get",
+                  "reason": "openapi_path_not_found",
+                  "sdk_file": "domains.go"
+                }
+              ]
+            },
+            "status": "unmapped",
+            "surface": "digitalocean"
+          }
+        },
+        "summary": {
+          "ambiguous": 0,
+          "graphql_source": 0,
+          "mapped": 0,
+          "resources": 1,
+          "resources_with_source_files": 1,
+          "resources_without_source_files": 0,
+          "unmapped": 1
+        }
+      },
+      "unresolved_symbol": {
+        "diagnostics": [
+          {
+            "ambiguous": [],
+            "files": [
+              "domain/resource_digitalocean_domain.go"
+            ],
+            "hits": [
+              {
+                "client_symbol": "Domains.Get",
+                "list_score": 163,
+                "method": "GET",
+                "operation_id": "GET /v2/domains/{domain_name}",
+                "operation_id_source": "synthetic_path",
+                "path": "/v2/domains/{domain_name}",
+                "path_kind": "detail",
+                "read_score": 218,
+                "source_role": "read"
+              }
+            ],
+            "reason": null,
+            "resource": "digitalocean_domain",
+            "status": "mapped"
+          }
+        ],
+        "registry": {
+          "digitalocean_domain": {
+            "product": "digitalocean",
+            "read": {
+              "confidence": "high",
+              "evidence_kind": "read",
+              "hops": [
+                {
+                  "client_symbol": "Domains.Get",
+                  "kind": "provider_call",
+                  "matched_aliases": [
+                    "Domains.Get"
+                  ],
+                  "sdk_method": "Get",
+                  "source_files": [
+                    "domain/resource_digitalocean_domain.go"
+                  ],
+                  "source_role": "read"
+                },
+                {
+                  "kind": "openapi_operation",
+                  "method": "GET",
+                  "operation_id": "GET /v2/domains/{domain_name}",
+                  "operation_id_source": "synthetic_path",
+                  "path": "/v2/domains/{domain_name}"
+                }
+              ],
+              "method": "GET",
+              "operation_id": "GET /v2/domains/{domain_name}",
+              "operation_id_source": "synthetic_path",
+              "path": "/v2/domains/{domain_name}",
+              "path_kind": "detail"
+            },
+            "reason": null,
+            "source": {
+              "candidate_count": 1,
+              "client_call_count": 1,
+              "client_calls": [
+                "Domains.Get"
+              ],
+              "files": [
+                "domain/resource_digitalocean_domain.go"
+              ],
+              "sdk_path_unresolved": [
+                {
+                  "client_symbol": "Domains.Get",
+                  "reason": "sdk_symbol_not_found",
+                  "sdk_file": null
+                }
+              ]
+            },
+            "status": "mapped",
+            "surface": "digitalocean"
+          }
+        },
+        "summary": {
+          "ambiguous": 0,
+          "graphql_source": 0,
+          "mapped": 1,
+          "resources": 1,
+          "resources_with_source_files": 1,
+          "resources_without_source_files": 0,
+          "unmapped": 0
+        }
+      },
+      "vpc": {
+        "diagnostics": [
+          {
+            "ambiguous": [],
+            "files": [
+              "vpc/resource_digitalocean_vpc.go"
+            ],
+            "hits": [
+              {
+                "alternate_client_symbols": [
+                  "VPCs.Get"
+                ],
+                "client_symbol": "VPCs.Get",
+                "list_score": 990,
+                "method": "GET",
+                "operation_id": "GET /v2/vpcs/{vpc_id}",
+                "operation_id_source": "synthetic_path",
+                "path": "/v2/vpcs/{vpc_id}",
+                "path_kind": "detail",
+                "read_score": 1045,
+                "source_role": "read"
+              }
+            ],
+            "reason": null,
+            "resource": "digitalocean_vpc",
+            "status": "mapped"
+          }
+        ],
+        "registry": {
+          "digitalocean_vpc": {
+            "product": "digitalocean",
+            "read": {
+              "confidence": "high",
+              "evidence_kind": "read",
+              "hops": [
+                {
+                  "alternate_client_symbols": [
+                    "VPCs.Get"
+                  ],
+                  "client_symbol": "VPCs.Get",
+                  "kind": "provider_call",
+                  "matched_aliases": [
+                    "VPCs.Get"
+                  ],
+                  "sdk_method": "Get",
+                  "source_files": [
+                    "vpc/resource_digitalocean_vpc.go"
+                  ],
+                  "source_role": "read"
+                },
+                {
+                  "kind": "sdk_path",
+                  "method": "GET",
+                  "path_template": "v2/vpcs/{vpcID}",
+                  "sdk_file": "vpcs.go"
+                },
+                {
+                  "kind": "openapi_operation",
+                  "method": "GET",
+                  "operation_id": "GET /v2/vpcs/{vpc_id}",
+                  "operation_id_source": "synthetic_path",
+                  "path": "/v2/vpcs/{vpc_id}"
+                }
+              ],
+              "method": "GET",
+              "operation_id": "GET /v2/vpcs/{vpc_id}",
+              "operation_id_source": "synthetic_path",
+              "path": "/v2/vpcs/{vpc_id}",
+              "path_kind": "detail"
+            },
+            "reason": null,
+            "source": {
+              "candidate_count": 1,
+              "client_call_count": 1,
+              "client_calls": [
+                "VPCs.Get"
+              ],
+              "files": [
+                "vpc/resource_digitalocean_vpc.go"
+              ]
+            },
+            "status": "mapped",
+            "surface": "digitalocean"
+          }
+        },
+        "summary": {
+          "ambiguous": 0,
+          "graphql_source": 0,
+          "mapped": 1,
+          "resources": 1,
+          "resources_with_source_files": 1,
+          "resources_without_source_files": 0,
+          "unmapped": 0
+        }
+      }
+    },
+    "supported_path_shapes": {
+      "evidence": {
+        "Grouped.Read": {
+          "client_symbol": "Grouped.Read",
+          "method": "GET",
+          "path_template": "v2/grouped/{id}",
+          "sdk_file": "a/widgets.go",
+          "source_role": "read"
+        },
+        "Raw.Create": {
+          "client_symbol": "Raw.Create",
+          "method": "POST",
+          "path_template": "v2/widgets",
+          "sdk_file": "a/widgets.go",
+          "source_role": null
+        },
+        "Tests.Get": {
+          "client_symbol": "Tests.Get",
+          "method": "GET",
+          "path_template": "v2/tests",
+          "sdk_file": "tests/only.go",
+          "source_role": "read"
+        },
+        "Widgets.Get": {
+          "client_symbol": "Widgets.Get",
+          "method": "GET",
+          "path_template": "v2/widgets/{widgetID}/literal/{param}",
+          "sdk_file": "a/widgets.go",
+          "source_role": "read"
+        },
+        "Widgets.List": {
+          "client_symbol": "Widgets.List",
+          "method": "GET",
+          "path_template": "v2/widgets",
+          "sdk_file": "a/widgets.go",
+          "source_role": "list"
+        }
+      },
+      "unresolved": {
+        "Widgets.MissingMethod": {
+          "reason": "method_not_detected",
+          "sdk_file": "a/widgets.go"
+        },
+        "Widgets.MissingPath": {
+          "reason": "path_template_not_found",
+          "sdk_file": "a/widgets.go"
+        }
+      }
+    }
+  },
+  "provenance": {
+    "baseline_commit": "7d90752ac4b800c5509b380d02dc828749f891a6",
+    "generator_sha256": "4a3df279ba4f4b561373e57aebd13a297161ffb5f3cea0000896a46bc884a12a",
+    "normalization": "none; scanner and source-operation reports contain only SDK-root-relative paths",
+    "python": "3.13.13",
+    "python_implementation": "cpython",
+    "resurrection": "See docs/python-oracle-contracts.md for the exact clean-checkout resurrection command.",
+    "source_blobs_sha256": {
+      "engine/openapi_resource_map.py": "6026a4d25eaa4a2d5d669c32a8d9dbdd7de29f1bf1f8ad9b25c6ed5ded513770",
+      "engine/reconcile_schema_api.py": "23deac644d9688df034cbd7f19d8bfcbcea15c3eb7a5109a89debc576037b7ea",
+      "engine/sdk_path_evidence.py": "b2bd536010df6cfab10bfe1001a0d9990797ea6505387c7a1f02890cb3df0406",
+      "engine/source_operation_map.py": "343e756d19c0ed32e51c33cb7885fb103f4bd98f43b54748dc11a8febe4426c4",
+      "engine/tfschema.py": "12057bb1ec2922659afeaf1d4220283d66d67309ca047199bd7babeb32d05117",
+      "node-src/authoring/cli.ts": "d3c5a27296880da3413fbf5d5213defd8de15c0dd40fb45b1c0808b1ff9fccd1",
+      "node-src/authoring/openapi-resource-map.ts": "d3c338ac8efb34a55186681eb65a9adea31a4798cd67b6571feec7ec4d71a3f5",
+      "node-src/authoring/openapi.ts": "fc50de84ef7fa7762c3961c3ca81c2ad953cd1558bf8661215ab5e359db237d4",
+      "node-src/authoring/provider-source-evidence.ts": "eb399182907201dabf016df4a6a030b207519f6b73e1d36535a0c5f176b5bdb0",
+      "node-src/authoring/reconcile-schema-api.ts": "d0a5f0fbadab3a9d3e40088c7ae9ec6200d927ee415f0d238aaf894dd405977c",
+      "node-src/authoring/sdk-path-evidence.ts": "e90aaaa3547541fe99dfbca6c178be0e78a97423e7be8f45eef9369164ac1306",
+      "node-src/authoring/source-operation-map.ts": "571c3d3cf2413c185be2ac46eca05fe9f33b528aa439182ad972165303e0f6a9",
+      "node-src/json/control.ts": "420582b852b3baa22d6bcc6220fc7ffaf620099f432af1681a67689f33d604c1",
+      "node-src/json/python-compatible.ts": "54505a9d508f103fd40af7897508edf86d0c8bd0028e98d178c1fb9e79749e07",
+      "node-src/metadata/terraform-schema.ts": "bee44a3c9ff079acdb39c3e2c3dc636d86cbfe3b92ff51ecd5a75c62a71a1fec",
+      "node-src/metadata/validation.ts": "7022a90888e263735eba798bc9ee73b666d7d484f85b61dbaa843c705d174842",
+      "node-tests/authoring-cli.test.ts": "0247a7f3710b1f94a57c60f97f9ea3ed929c4a30be379e364d7d62576ba980f3",
+      "node-tests/authoring-sdk-path-evidence.test.ts": "2ac9c2512daa9a5d5d300028e2c3f7ac2c1da45858ae8efc67e2265e084aa0a6",
+      "node-tests/authoring-source-operation-map.test.ts": "80461adad1b994fdba1f4f5907dd85d473bcbe23b18431aa11a0b3923ac389fd",
+      "tests/test_sdk_path_evidence.py": "ef6d455b71be3958767df232b5b70004db92e587e663dc63176221a72995e9ad",
+      "tests/test_source_operation_map.py": "673a0cb4e0b3eb711449e83c8a7b31a4f6e28174f247b49ad0547aa5e3c7ccc4"
+    },
+    "unicode_database": "15.1.0"
+  },
+  "schema_version": 1
+}

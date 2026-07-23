@@ -1,7 +1,7 @@
 package collectors
 
 // zscaler_adapters_test.go ports
-// the original test corpus.
+// node-tests/zscaler-collector-adapters.test.ts.
 
 import (
 	"encoding/json"

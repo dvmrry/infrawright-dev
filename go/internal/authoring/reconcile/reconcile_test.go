@@ -1,10 +1,203 @@
 package reconcile
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
+
+const authoritySHA256 = "fff36234703a253bf903b97c2396a8d2d65a7b50b82407eff752eeb86c521004"
+
+type frozenAuthority struct {
+	Kind                 string                 `json:"kind"`
+	Version              int                    `json:"version"`
+	NodeLiveDifferential frozenLiveDifferential `json:"node_live_differential"`
+	RetainedUnitTest     frozenRetainedUnitTest `json:"retained_unittest"`
+}
+
+type frozenLiveDifferential struct {
+	ReportCases []frozenNodeReportCase `json:"report_cases"`
+}
+
+type frozenRetainedUnitTest struct {
+	HelperCases []frozenHelperCase `json:"helper_cases"`
+	ReportCases []frozenReportCase `json:"report_cases"`
+}
+
+type frozenNodeReportCase struct {
+	Name         string `json:"name"`
+	Input        Object `json:"input"`
+	PythonReport Object `json:"python_report"`
+}
+
+type frozenReportCase struct {
+	Name   string `json:"name"`
+	Input  Object `json:"input"`
+	Report Object `json:"report"`
+}
+
+type frozenHelperCase struct {
+	Name   string `json:"name"`
+	Input  Object `json:"input"`
+	Output any    `json:"output"`
+}
+
+func loadAuthority(t *testing.T) frozenAuthority {
+	t.Helper()
+	path := filepath.Join("..", "..", "..", "..", "node-tests", "fixtures", "python-reconcile-schema-api-v1.json")
+	authorityBytes, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("loadAuthority(%q): %v", path, err)
+	}
+	gotSHA := sha256.Sum256(authorityBytes)
+	if got, want := hex.EncodeToString(gotSHA[:]), authoritySHA256; got != want {
+		t.Fatalf("loadAuthority(%q) SHA-256 = %q, want %q", path, got, want)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(authorityBytes))
+	decoder.UseNumber()
+	var authority frozenAuthority
+	if err := decoder.Decode(&authority); err != nil {
+		t.Fatalf("loadAuthority(%q) decode: %v", path, err)
+	}
+	if got, want := authority.Kind, "infrawright.python-reconcile-schema-api-authority"; got != want {
+		t.Fatalf("loadAuthority(%q).kind = %q, want %q", path, got, want)
+	}
+	if got, want := authority.Version, 1; got != want {
+		t.Fatalf("loadAuthority(%q).version = %d, want %d", path, got, want)
+	}
+	return authority
+}
+
+func reconcileFrozenInput(t *testing.T, input Object) Object {
+	t.Helper()
+	items, itemsOK := input["items"].([]any)
+	if !itemsOK {
+		t.Fatalf("ReconcileItems(%#v) items = %#v, want []any", input, input["items"])
+	}
+	schema, schemaOK := input["schema"].(map[string]any)
+	if !schemaOK {
+		t.Fatalf("ReconcileItems(%#v) schema = %#v, want object", input, input["schema"])
+	}
+	resourceType, resourceTypeOK := input["resource_type"].(string)
+	if !resourceTypeOK {
+		t.Fatalf("ReconcileItems(%#v) resource_type = %#v, want string", input, input["resource_type"])
+	}
+	options := ReconcileOptions{Items: items, ResourceSchema: schema, ResourceType: resourceType}
+	if override, ok := input["override"].(map[string]any); ok {
+		options.Override = override
+	}
+	if apiMetadata, ok := input["api_metadata"].(map[string]any); ok {
+		options.APIMetadata = metadataFromObject(t, apiMetadata)
+	}
+	if apiMetadata, ok := input["metadata"].(map[string]any); ok {
+		options.APIMetadata = metadataFromObject(t, apiMetadata)
+	}
+	report, err := ReconcileItems(options)
+	if err != nil {
+		t.Fatalf("ReconcileItems(%#v) error = %v, want nil", input, err)
+	}
+	return report.AsMap()
+}
+
+func metadataFromObject(t *testing.T, value Object) APIMetadata {
+	t.Helper()
+	metadata := APIMetadata{}
+	for path, field := range value {
+		object, ok := field.(map[string]any)
+		if !ok {
+			t.Fatalf("metadataFromObject(%#v) field %q = %#v, want object", value, path, field)
+		}
+		metadata[path] = object
+	}
+	return metadata
+}
+
+func requireJSONEqual(t *testing.T, function string, input, got, want any) {
+	t.Helper()
+	if !canonjson.JSONEqual(got, want) {
+		t.Errorf("%s(%#v) = %#v, want %#v", function, input, got, want)
+	}
+}
+
+func TestFrozenAuthorityReplaysNodeLiveDifferentialReports(t *testing.T) {
+	authority := loadAuthority(t)
+	if got, want := len(authority.NodeLiveDifferential.ReportCases), 2; got != want {
+		t.Fatalf("node_live_differential.report_cases = %d, want %d", got, want)
+	}
+	for _, frozen := range authority.NodeLiveDifferential.ReportCases {
+		t.Run(frozen.Name, func(t *testing.T) {
+			requireJSONEqual(t, "ReconcileItems", frozen.Input, reconcileFrozenInput(t, frozen.Input), frozen.PythonReport)
+		})
+	}
+}
+
+func TestFrozenAuthorityReplaysRetainedUnitReports(t *testing.T) {
+	authority := loadAuthority(t)
+	if got, want := len(authority.RetainedUnitTest.ReportCases), 7; got != want {
+		t.Fatalf("retained_unittest.report_cases = %d, want %d", got, want)
+	}
+	for _, frozen := range authority.RetainedUnitTest.ReportCases {
+		t.Run(frozen.Name, func(t *testing.T) {
+			requireJSONEqual(t, "ReconcileItems", frozen.Input, reconcileFrozenInput(t, frozen.Input), frozen.Report)
+		})
+	}
+}
+
+func TestFrozenAuthorityReplaysNonOpenAPIHelpers(t *testing.T) {
+	authority := loadAuthority(t)
+	var replayed int
+	for _, frozen := range authority.RetainedUnitTest.HelperCases {
+		switch frozen.Name {
+		case "api_metadata_from_options:test_api_options_metadata_splits_read_only_and_provider_gaps#1":
+			value := frozen.Input["value"]
+			source, _ := frozen.Input["source"].(string)
+			got, err := APIMetadataFromOptions(value, source)
+			if err != nil {
+				t.Fatalf("APIMetadataFromOptions(%#v) error = %v, want nil", frozen.Input, err)
+			}
+			requireJSONEqual(t, "APIMetadataFromOptions", frozen.Input, metadataAsObject(got), frozen.Output)
+			replayed++
+		case "load_resource_schema:test_cli_fails_on_unknown_when_requested#1", "load_resource_schema:test_loads_raw_terraform_provider_schema_shape#1":
+			schema, schemaOK := frozen.Input["schema"].(map[string]any)
+			if !schemaOK {
+				t.Fatalf("ResourceSchemaFromData(%#v) schema = %#v, want object", frozen.Input, frozen.Input["schema"])
+			}
+			jsonValue, jsonOK := schema["json"].(map[string]any)
+			if !jsonOK {
+				t.Fatalf("ResourceSchemaFromData(%#v) schema.json = %#v, want object", frozen.Input, schema["json"])
+			}
+			resourceType, _ := frozen.Input["resource_type"].(string)
+			var providerSource *string
+			if source, present := frozen.Input["provider_source"].(string); present {
+				providerSource = &source
+			}
+			got, err := ResourceSchemaFromData(jsonValue, resourceType, providerSource)
+			if err != nil {
+				t.Fatalf("ResourceSchemaFromData(%#v) error = %v, want nil", frozen.Input, err)
+			}
+			requireJSONEqual(t, "ResourceSchemaFromData", frozen.Input, got, frozen.Output)
+			replayed++
+		}
+	}
+	if got, want := replayed, 3; got != want {
+		t.Errorf("non-OpenAPI helper replay count = %d, want %d", got, want)
+	}
+}
+
+func metadataAsObject(value APIMetadata) Object {
+	result := Object{}
+	for path, field := range value {
+		result[path] = field
+	}
+	return result
+}
 
 func TestReconcileItemsRejectsMalformedItemsWithoutPanic(t *testing.T) {
 	_, err := ReconcileItems(ReconcileOptions{ResourceType: "example", ResourceSchema: Object{"block": Object{}}, Items: []any{"not-object"}})

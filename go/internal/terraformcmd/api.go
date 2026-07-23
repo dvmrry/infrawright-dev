@@ -19,7 +19,7 @@ const (
 )
 
 // UnsupportedTerraformExecutionPlatformMessage is the frozen platform-gate
-// diagnostic from the original implementation.
+// diagnostic from node-src/io/terraform-command.ts.
 const UnsupportedTerraformExecutionPlatformMessage = "Terraform execution through Infrawright is supported on Linux and macOS; Windows is not a supported operational platform."
 
 // TerraformCommandLimits bounds one Terraform subprocess. A nil TimeoutMs is

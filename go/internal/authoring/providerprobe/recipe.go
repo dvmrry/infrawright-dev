@@ -69,8 +69,9 @@ func loadRecipe(path string) (loadedRecipe, error) {
 	}
 
 	r := loadedRecipe{mode: LegacyV1, path: abs, directory: filepath.Dir(abs)}
-	// Root scalars precede every section shape check, and section shapes
-	// precede nested fields so diagnostics remain deterministic.
+	// Keep this phase order aligned with validateProviderProbeRecipe in the
+	// frozen Node v1 authority. In particular, all root scalars precede every
+	// section shape check, and all section shapes precede any nested field.
 	if r.name, err = recipeString(root, "name", "name"); err != nil {
 		return loadedRecipe{}, err
 	}

@@ -43,6 +43,7 @@ func TestTransformFixtureCorpus(t *testing.T) {
 	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,
+		CatalogPath: &profilePath,
 	})
 	if err != nil {
 		t.Fatalf("LoadPackRoot: %v", err)

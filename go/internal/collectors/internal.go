@@ -8,7 +8,7 @@ import "strings"
 // JS's Set/JSON.stringify and this package must spell out explicitly.
 
 // toSet builds a membership set from values, for the same O(1)
-// `new Set(array).has(x)` membership checks the original implementation
+// `new Set(array).has(x)` membership checks node-src/collectors/selection.ts
 // and authority.ts build inline.
 func toSet(values []string) map[string]struct{} {
 	set := make(map[string]struct{}, len(values))

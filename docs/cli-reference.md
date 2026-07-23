@@ -34,6 +34,7 @@ Available Commands:
   provider-probe         Run the provider-readiness probe
   reconcile              Compare API JSON with a Terraform schema
   resources              List generated resources
+  root-catalog           Generate or verify the compatibility root catalog
   roots                  Emit root topology
   scope-paths            Map changed paths to affected roots
   source-evidence-eval   Evaluate source-backed provider evidence
@@ -58,6 +59,7 @@ Usage:
   iw adopt [flags]
 
 Flags:
+      --catalog string      pack or root catalog path
       --deployment string   deployment overlay path
   -h, --help                help for adopt
       --in string           input directory
@@ -82,6 +84,7 @@ Flags:
       --allow-non-main          allow Apply outside the configured main branch
       --allow-plan-changes      allow a saved plan containing non-import changes
       --backend-config string   Terraform backend configuration path
+      --catalog string          pack or root catalog path
       --deployment string       deployment overlay path
   -h, --help                    help for apply
       --main-branch string      branch treated as the protected main branch
@@ -103,6 +106,7 @@ Usage:
 
 Flags:
       --backend-config string   Terraform backend configuration path
+      --catalog string          pack or root catalog path
       --deployment string       deployment overlay path
   -h, --help                    help for assert-adoptable
       --policy string           drift or adoption policy path
@@ -124,6 +128,7 @@ Usage:
 
 Flags:
       --backend-config string   Terraform backend configuration path
+      --catalog string          pack or root catalog path
       --deployment string       deployment overlay path
   -h, --help                    help for assert-clean
       --profile string          pack profile path
@@ -157,6 +162,7 @@ Usage:
   iw check-pack-set [flags]
 
 Flags:
+      --catalog string        pack or root catalog path
   -h, --help                  help for check-pack-set
       --profile string        pack profile path
       --requirements string   pack requirements path
@@ -172,6 +178,7 @@ Usage:
   iw clean-plans [flags]
 
 Flags:
+      --catalog string      pack or root catalog path
       --deployment string   deployment overlay path
   -h, --help                help for clean-plans
       --profile string      pack profile path
@@ -332,6 +339,7 @@ Usage:
   iw fetch [flags]
 
 Flags:
+      --catalog string       pack or root catalog path
       --concurrency string   maximum concurrent fetch operations
   -h, --help                 help for fetch
       --out string           output path
@@ -350,6 +358,7 @@ Usage:
   iw fetch-diag [flags]
 
 Flags:
+      --catalog string   pack or root catalog path
   -h, --help             help for fetch-diag
       --profile string   pack profile path
       --root string      pack root directory
@@ -365,6 +374,7 @@ Usage:
 
 Flags:
       --backend string      Terraform backend name
+      --catalog string      pack or root catalog path
       --deployment string   deployment overlay path
   -h, --help                help for gen-env
       --profile string      pack profile path
@@ -402,6 +412,7 @@ Usage:
   iw modules generate [flags]
 
 Flags:
+      --catalog string      pack or root catalog path
       --deployment string   deployment overlay path
   -h, --help                help for generate
       --out string          output path
@@ -420,6 +431,7 @@ Usage:
   iw modules validate [flags]
 
 Flags:
+      --catalog string      pack or root catalog path
       --deployment string   deployment overlay path
   -h, --help                help for validate
       --out string          output path
@@ -458,6 +470,7 @@ Usage:
 
 Flags:
       --backend-config string   Terraform backend configuration path
+      --catalog string          pack or root catalog path
       --deployment string       deployment overlay path
   -h, --help                    help for plan
       --imports-only            require an import-only Terraform plan
@@ -478,6 +491,7 @@ Usage:
   iw plan-roots [flags]
 
 Flags:
+      --catalog string      pack or root catalog path
       --deployment string   deployment overlay path
   -h, --help                help for plan-roots
       --profile string      pack profile path
@@ -533,11 +547,30 @@ Usage:
   iw resources [flags]
 
 Flags:
+      --catalog string    pack or root catalog path
   -h, --help              help for resources
       --order string      resource output ordering
       --profile string    pack profile path
       --resource string   resource selector (repeatable)
       --root string       pack root directory
+```
+
+## `iw root-catalog`
+
+```text
+Generate or verify the compatibility root catalog
+
+Usage:
+  iw root-catalog [flags]
+
+Flags:
+      --catalog string     pack or root catalog path
+      --check string       compare generated output with this path
+  -h, --help               help for root-catalog
+      --out string         output path
+      --profile string     pack profile path
+      --providers string   comma-separated provider filter
+      --root string        pack root directory
 ```
 
 ## `iw roots`
@@ -549,6 +582,7 @@ Usage:
   iw roots [flags]
 
 Flags:
+      --catalog string      pack or root catalog path
       --deployment string   deployment overlay path
   -h, --help                help for roots
       --profile string      pack profile path
@@ -566,6 +600,7 @@ Usage:
   iw scope-paths [flags]
 
 Flags:
+      --catalog string      pack or root catalog path
       --deployment string   deployment overlay path
   -h, --help                help for scope-paths
       --path string         changed path
@@ -641,6 +676,7 @@ Usage:
 
 Flags:
       --backend-config string   Terraform backend configuration path
+      --catalog string          pack or root catalog path
       --deployment string       deployment overlay path
   -h, --help                    help for stage-imports
       --profile string          pack profile path
@@ -660,6 +696,7 @@ Usage:
   iw transform [flags]
 
 Flags:
+      --catalog string      pack or root catalog path
       --deployment string   deployment overlay path
   -h, --help                help for transform
       --in string           input directory
@@ -690,6 +727,7 @@ Usage:
   iw unstage-imports [flags]
 
 Flags:
+      --catalog string      pack or root catalog path
       --deployment string   deployment overlay path
   -h, --help                help for unstage-imports
       --profile string      pack profile path

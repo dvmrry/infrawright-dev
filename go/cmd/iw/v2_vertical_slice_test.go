@@ -1,6 +1,6 @@
 package main
 
-// This file is the opt-in, hermetic half of the Go runtime contract §5's
+// This file is the opt-in, hermetic half of docs/go-runtime-v2.md §5's
 // vertical-slice checkpoint. It treats the built Go CLI as a black box and
 // deliberately gives it a PATH containing Terraform but no Node runtime.
 
@@ -472,6 +472,7 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 	metadataArguments := []string{
 		"--root", v2FullZIAPackRoot(t, root),
 		"--profile", profile,
+		"--catalog", profile,
 	}
 	pulls := filepath.Join(workspace, "pulls", v2Tenant)
 	fetchArguments := append([]string{
@@ -503,7 +504,7 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 
 	moduleGenerateArguments := append([]string{
 		"modules", "generate", "--out", moduleDirectory,
-		"--deployment", deploymentPath,
+		"--deployment", deploymentPath, "--terraform", terraform,
 		"--resource", v2ResourceType,
 	}, metadataArguments...)
 	v2RunSuccessfully(t, workspace, goBinary, moduleGenerateArguments, environment)
@@ -515,7 +516,7 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 
 	genEnvArguments := append([]string{
 		"gen-env", "--tenant", v2Tenant, "--deployment", deploymentPath,
-		"--resource", v2ResourceType,
+		"--terraform", terraform, "--resource", v2ResourceType,
 	}, metadataArguments...)
 	v2RunSuccessfully(t, workspace, goBinary, genEnvArguments, environment)
 
@@ -534,6 +535,14 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 		filepath.ToSlash(filepath.Join("modules", v2ResourceType, "versions.tf")),
 	}
 	v2RequireTreeManifest(t, "v2 checkpoint generated overlay", treeBytes(t, overlay), generatedManifest)
+	for _, name := range []string{"main.tf", "outputs.tf", "variables.tf", "versions.tf"} {
+		v2RequireFileBytes(
+			t,
+			filepath.Join(moduleDirectory, v2ResourceType, name),
+			filepath.Join(root, "tests", "fixtures", "gen", v2ResourceType, name),
+		)
+	}
+
 	environmentRoot := filepath.Join(overlay, "envs", v2Tenant, v2ResourceType)
 	smokeTestPath := filepath.Join(environmentRoot, "tests", "smoke.tftest.hcl")
 	smokeTest := string(v2ReadFile(t, smokeTestPath))

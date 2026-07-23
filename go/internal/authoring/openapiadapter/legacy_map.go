@@ -8,7 +8,7 @@ import (
 )
 
 // LegacyMap is the detached, deliberately narrow view used by
-// the original implementation. It does not expose the parsed
+// node-src/authoring/openapi-resource-map.ts. It does not expose the parsed
 // document graph, references, files, readers, or arbitrary OpenAPI objects.
 type LegacyMap struct {
 	Version              *string
@@ -19,14 +19,14 @@ type LegacyMap struct {
 }
 
 // LegacyPath is one deterministic legacy OpenAPI path/method inventory row
-// used by the original implementation.
+// used by node-src/authoring/openapi-resource-map.ts.
 type LegacyPath struct {
 	Template string
 	Methods  []string
 }
 
 // LegacyMap returns the narrow detached legacy matcher view used by
-// the original implementation. It is available on documents
+// node-src/authoring/openapi-resource-map.ts. It is available on documents
 // from ParseForMetadata so legacy reports may omit top-level info.
 func (d Document) LegacyMap(ctx context.Context) (LegacyMap, error) {
 	if err := ctx.Err(); err != nil {

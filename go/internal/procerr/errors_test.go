@@ -16,7 +16,7 @@ func TestProcessFailureError(t *testing.T) {
 
 // TestNewProcessFailureDefaults ports the ProcessFailure constructor's
 // `options.retryable ?? false` and `options.details ?? []` defaults from
-// the original implementation: a caller supplying only the three
+// node-src/domain/errors.ts: a caller supplying only the three
 // no-default fields gets Retryable false and a non-nil, empty Details.
 func TestNewProcessFailureDefaults(t *testing.T) {
 	failure := NewProcessFailure(NewProcessFailureOptions{
@@ -72,7 +72,7 @@ func TestNewProcessFailureExplicitOptions(t *testing.T) {
 }
 
 // TestCategoryLiterals pins the four ErrorCategory string literals from
-// the original implementation: Category is a plain string underneath, so any
+// node-src/domain/errors.ts: Category is a plain string underneath, so any
 // drift here would silently change RenderCLIProcessFailure's "  category: "
 // line without a compile error.
 func TestCategoryLiterals(t *testing.T) {

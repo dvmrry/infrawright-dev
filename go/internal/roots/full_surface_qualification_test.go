@@ -3,8 +3,10 @@ package roots
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"sort"
 	"testing"
@@ -13,23 +15,52 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
+const qualificationFrozenV1CatalogSHA256 = "844c6c4b7d88266086732b3a68a9266f9abcfb4b00ea1177e6b4fdff92d79f10"
+
 const qualificationBackendKeysSHA256 = "9895329b146e360acfe06b47bc410333a66b08e3f95d74e1b2ae79751eedc4dd"
 
-// TestFullProfileSingletonTopologyAndBackendKeys qualifies the complete pack
-// surface: every generated resource owns one state key named from its resource
-// type, and the full key inventory remains stable.
-func TestFullProfileSingletonTopologyAndBackendKeys(t *testing.T) {
+type qualificationFrozenV1Catalog struct {
+	Resources []qualificationFrozenV1Resource `json:"resources"`
+}
+
+type qualificationFrozenV1Resource struct {
+	Generated bool   `json:"generated"`
+	Provider  string `json:"provider"`
+	Type      string `json:"type"`
+}
+
+// TestFullProfileSingletonTopologyAndBackendKeysMatchFrozenV1 qualifies the
+// complete Go-authoritative singleton topology against the immutable v1
+// resource surface. v1's retired slug grouping must never change the
+// qualification state-key namespace: every generated resource owns one state
+// key named from its resource type.
+func TestFullProfileSingletonTopologyAndBackendKeysMatchFrozenV1(t *testing.T) {
 	root := qualificationRepoRoot(t)
 	profilePath := filepath.Join(root, "packs", "full.packset.json")
 	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,
+		CatalogPath: &profilePath,
 	})
 	if err != nil {
 		t.Fatalf("LoadPackRoot(full profile) = %v, want nil", err)
 	}
 	if got := len(loaded.Resources); got != 151 {
 		t.Fatalf("LoadPackRoot(full profile) generated resource count = %d, want 151", got)
+	}
+
+	frozenPath := filepath.Join(root, "catalogs", "zscaler-root-catalog.v1.json")
+	frozenBytes, err := os.ReadFile(frozenPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) = %v, want nil", frozenPath, err)
+	}
+	if got := sha256.Sum256(frozenBytes); hex.EncodeToString(got[:]) != qualificationFrozenV1CatalogSHA256 {
+		t.Fatalf("SHA-256(%q) = %x, want immutable v1 digest %s", frozenPath, got, qualificationFrozenV1CatalogSHA256)
+	}
+
+	var frozen qualificationFrozenV1Catalog
+	if err := json.Unmarshal(frozenBytes, &frozen); err != nil {
+		t.Fatalf("json.Unmarshal(%q) = %v, want nil", frozenPath, err)
 	}
 
 	result, err := LoadedRootTopology(LoadedRootTopologyOptions{
@@ -46,12 +77,14 @@ func TestFullProfileSingletonTopologyAndBackendKeys(t *testing.T) {
 		t.Fatalf("LoadedRootTopology(full profile) root count = %d, want 151", got)
 	}
 
+	currentProviderResources := make(map[string][]string, len(loaded.Resources))
 	for resourceType, resource := range loaded.Resources {
 		generated, _ := resource.Registry["generate"].(bool)
 		if !generated {
 			t.Errorf("LoadPackRoot(full profile) resource %q generate = %v, want true", resourceType, resource.Registry["generate"])
 			continue
 		}
+		currentProviderResources[resource.Provider] = append(currentProviderResources[resource.Provider], resourceType)
 	}
 	currentBackendKeys := make([]string, 0, len(result.Topology.Roots))
 	labels := make([]string, 0, len(result.Topology.Roots))
@@ -94,9 +127,42 @@ func TestFullProfileSingletonTopologyAndBackendKeys(t *testing.T) {
 		}
 	}
 
+	frozenProviderResources := make(map[string][]string)
+	frozenBackendKeys := make([]string, 0, len(frozen.Resources))
+	for _, resource := range frozen.Resources {
+		if !resource.Generated {
+			continue
+		}
+		frozenProviderResources[resource.Provider] = append(frozenProviderResources[resource.Provider], resource.Type)
+		frozenBackendKeys = append(frozenBackendKeys, "qualification/"+resource.Type+".tfstate")
+	}
+	qualificationSortProviderResources(currentProviderResources)
+	qualificationSortProviderResources(frozenProviderResources)
+	if !reflect.DeepEqual(currentProviderResources, frozenProviderResources) {
+		t.Errorf("full-profile provider/resource surface = %#v, want frozen v1 surface %#v", currentProviderResources, frozenProviderResources)
+	}
+
 	sort.Strings(currentBackendKeys)
+	sort.Strings(frozenBackendKeys)
+	if got := len(frozenBackendKeys); got != 151 {
+		t.Fatalf("frozen v1 generated resource count = %d, want 151", got)
+	}
+	if got := qualificationKeyDigest(frozenBackendKeys); got != qualificationBackendKeysSHA256 {
+		t.Fatalf("frozen v1 qualification backend-key digest = %s, want %s", got, qualificationBackendKeysSHA256)
+	}
+	if !reflect.DeepEqual(currentBackendKeys, frozenBackendKeys) {
+		firstDifference := qualificationFirstDifference(currentBackendKeys, frozenBackendKeys)
+		t.Errorf(
+			"full-profile qualification backend keys differ from frozen v1 at sorted index %d (got digest %s, want digest %s; got %q, want %q)",
+			firstDifference,
+			qualificationKeyDigest(currentBackendKeys),
+			qualificationKeyDigest(frozenBackendKeys),
+			qualificationValueAt(currentBackendKeys, firstDifference),
+			qualificationValueAt(frozenBackendKeys, firstDifference),
+		)
+	}
 	if got := qualificationKeyDigest(currentBackendKeys); got != qualificationBackendKeysSHA256 {
-		t.Errorf("full-profile qualification backend-key digest = %s, want %s", got, qualificationBackendKeysSHA256)
+		t.Errorf("full-profile qualification backend-key digest = %s, want frozen v1 digest %s", got, qualificationBackendKeysSHA256)
 	}
 }
 
@@ -107,13 +173,21 @@ func qualificationRepoRoot(t *testing.T) string {
 		t.Fatal("runtime.Caller(0) = false, want true")
 	}
 	for directory := filepath.Dir(thisFile); ; directory = filepath.Dir(directory) {
-		if _, packsErr := os.Stat(filepath.Join(directory, "packs", "full.packset.json")); packsErr == nil {
-			return directory
+		if _, catalogErr := os.Stat(filepath.Join(directory, "catalogs")); catalogErr == nil {
+			if _, packsErr := os.Stat(filepath.Join(directory, "packs")); packsErr == nil {
+				return directory
+			}
 		}
 		parent := filepath.Dir(directory)
 		if parent == directory {
-			t.Fatalf("qualificationRepoRoot(%q): reached filesystem root without packs/full.packset.json", thisFile)
+			t.Fatalf("qualificationRepoRoot(%q): reached filesystem root without catalogs/ and packs/", thisFile)
 		}
+	}
+}
+
+func qualificationSortProviderResources(resources map[string][]string) {
+	for provider := range resources {
+		sort.Strings(resources[provider])
 	}
 }
 
@@ -124,4 +198,24 @@ func qualificationKeyDigest(keys []string) string {
 		hasher.Write([]byte{'\n'})
 	}
 	return hex.EncodeToString(hasher.Sum(nil))
+}
+
+func qualificationFirstDifference(got, want []string) int {
+	limit := len(got)
+	if len(want) < limit {
+		limit = len(want)
+	}
+	for index := 0; index < limit; index++ {
+		if got[index] != want[index] {
+			return index
+		}
+	}
+	return limit
+}
+
+func qualificationValueAt(values []string, index int) string {
+	if index >= len(values) {
+		return "<missing>"
+	}
+	return values[index]
 }

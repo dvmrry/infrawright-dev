@@ -1,4 +1,4 @@
-// Package deployment retains the original implementation's deployment.json
+// Package deployment retains node-src/domain/deployment.ts's deployment.json
 // loading, Python-truthy defaults, path resolution, and path accessors while
 // applying the Go-authoritative singleton-state v2 roots contract. The v2
 // parser rejects retired root configuration fields.
@@ -43,7 +43,7 @@ type RootProviderConfig struct {
 	CrossStateReferences    bool
 }
 
-// Deployment ports the Deployment interface from the original implementation.
+// Deployment ports the Deployment interface from node-src/domain/types.ts.
 // Overlay, ModuleDir, and TfvarsFormat are `unknown` in the TypeScript
 // source (validateDeployment stores whatever raw JSON value the input
 // document carried, deferring type/shape validation to the
@@ -79,7 +79,7 @@ type Deployment struct {
 
 // malformed panics with a *procerr.ProcessFailure carrying code
 // "INVALID_DEPLOYMENT", category "domain", and message -- the Go analogue
-// of the original implementation's malformed() helper, typed there as
+// of node-src/domain/deployment.ts's malformed() helper, typed there as
 // returning `never` because it always throws. See recoverProcessFailure
 // for how every exported entry point in this package converts the panic
 // back into a normal error return.
@@ -112,7 +112,7 @@ func recoverProcessFailure(err *error) {
 	}
 }
 
-// pythonTruthy ports pythonTruthy from the original implementation:
+// pythonTruthy ports pythonTruthy from node-src/domain/deployment.ts:
 // Python's bool() coercion (not JavaScript's, which additionally treats
 // NaN as falsy and has no dict/list special case) applied to a decoded
 // JSON value -- false for JSON null/false/0/""/an empty array/an empty
@@ -172,7 +172,7 @@ func validateRootConfig(value any, provider string) RootProviderConfig {
 		}
 	}
 	if retired := canonjson.SortedStrings(retiredKeys); len(retired) > 0 {
-		malformedf("roots.%s.%s has been removed; see docs/state-topology.md", provider, retired[0])
+		malformedf("roots.%s.%s has been removed; see docs/singleton-state-topology-v2.md", provider, retired[0])
 	}
 	if len(unknownKeys) > 0 {
 		malformedf("roots.%s has unknown key(s): %s", provider, strings.Join(canonjson.SortedStrings(unknownKeys), ", "))
@@ -193,7 +193,7 @@ func validateRootConfig(value any, provider string) RootProviderConfig {
 }
 
 // deploymentReferenceBindingMode ports deploymentReferenceBindingMode from
-// the original implementation.
+// node-src/domain/deployment.ts.
 func deploymentReferenceBindingMode(deployment Deployment, provider string) ReferenceBindingMode {
 	config, ok := deployment.Roots[provider]
 	if ok && config.HasCrossStateReferences && !config.CrossStateReferences {
@@ -203,7 +203,7 @@ func deploymentReferenceBindingMode(deployment Deployment, provider string) Refe
 }
 
 // DeploymentReferenceBindingMode ports deploymentReferenceBindingMode from
-// the original implementation. Unlike this package's other exported
+// node-src/domain/deployment.ts. Unlike this package's other exported
 // accessors, it never fails: an absent or malformed roots.<provider> entry
 // (impossible to construct through LoadDeployment, but not impossible for
 // a hand-built Deployment) defaults to cross-state. Only an explicit false
@@ -213,7 +213,7 @@ func DeploymentReferenceBindingMode(deployment Deployment, provider string) Refe
 }
 
 // validateDeployment ports validateDeployment from
-// the original implementation.
+// node-src/domain/deployment.ts.
 func validateDeployment(value any) Deployment {
 	object, ok := value.(map[string]any)
 	if !ok {
@@ -256,7 +256,7 @@ func validateDeployment(value any) Deployment {
 	return deployment
 }
 
-// readOptionalUtf8 ports readOptionalUtf8 from the original implementation (via
+// readOptionalUtf8 ports readOptionalUtf8 from node-src/io/files.ts (via
 // its decodeUtf8 helper), kept package-private per this port's per-package
 // convention for this small helper (see go/internal/metadata/files.go's
 // own copy and its doc comment for the rationale): loadDeployment is the
@@ -287,7 +287,7 @@ func readOptionalUtf8(path, label string) *string {
 }
 
 // deploymentFromText ports deploymentFromText from
-// the original implementation.
+// node-src/domain/deployment.ts.
 func deploymentFromText(text *string) Deployment {
 	if text == nil || strings.TrimSpace(*text) == "" {
 		return Deployment{Overlay: ".", Roots: map[string]RootProviderConfig{}}
@@ -299,14 +299,14 @@ func deploymentFromText(text *string) Deployment {
 	return validateDeployment(value)
 }
 
-// LoadDeployment ports loadDeployment from the original implementation.
+// LoadDeployment ports loadDeployment from node-src/domain/deployment.ts.
 func LoadDeployment(deploymentPath string) (deployment Deployment, err error) {
 	defer recoverProcessFailure(&err)
 	return deploymentFromText(readOptionalUtf8(deploymentPath, "deployment")), nil
 }
 
 // DeploymentPathOptions ports the options bag deploymentPath accepts in
-// the original implementation. Each field's nil-ness mirrors the
+// node-src/domain/deployment.ts. Each field's nil-ness mirrors the
 // TypeScript optional property's undefined-ness (`options?.explicit`,
 // `options?.environment`, `options?.cwd`) exactly, which matters here
 // because Explicit/Environment participate in `||` (falsy) fallbacks while
@@ -327,7 +327,7 @@ type DeploymentPathOptions struct {
 	Cwd *string
 }
 
-// DeploymentPath ports deploymentPath from the original implementation:
+// DeploymentPath ports deploymentPath from node-src/domain/deployment.ts:
 //
 //	const environment = options?.environment ?? process.env;
 //	const selected = options?.explicit || environment.INFRAWRIGHT_DEPLOYMENT;
@@ -376,7 +376,7 @@ func DeploymentPath(options DeploymentPathOptions) (string, error) {
 }
 
 // deploymentOverlay ports deploymentOverlay from
-// the original implementation.
+// node-src/domain/deployment.ts.
 func deploymentOverlay(deployment Deployment) string {
 	overlay, ok := deployment.Overlay.(string)
 	if !ok {
@@ -389,14 +389,14 @@ func deploymentOverlay(deployment Deployment) string {
 }
 
 // DeploymentOverlay ports deploymentOverlay from
-// the original implementation.
+// node-src/domain/deployment.ts.
 func DeploymentOverlay(deployment Deployment) (overlay string, err error) {
 	defer recoverProcessFailure(&err)
 	return deploymentOverlay(deployment), nil
 }
 
 // deploymentTfvarsFormat ports deploymentTfvarsFormat from
-// the original implementation.
+// node-src/domain/deployment.ts.
 func deploymentTfvarsFormat(deployment Deployment) string {
 	var value canonjson.Value = "json"
 	if deployment.HasTfvarsFormat && deployment.TfvarsFormat != nil {
@@ -410,14 +410,14 @@ func deploymentTfvarsFormat(deployment Deployment) string {
 }
 
 // DeploymentTfvarsFormat ports deploymentTfvarsFormat from
-// the original implementation.
+// node-src/domain/deployment.ts.
 func DeploymentTfvarsFormat(deployment Deployment) (format string, err error) {
 	defer recoverProcessFailure(&err)
 	return deploymentTfvarsFormat(deployment), nil
 }
 
 // deploymentModuleDir ports deploymentModuleDir from
-// the original implementation.
+// node-src/domain/deployment.ts.
 func deploymentModuleDir(deployment Deployment) string {
 	if deployment.HasModuleDir {
 		moduleDir, ok := deployment.ModuleDir.(string)
@@ -436,14 +436,14 @@ func deploymentModuleDir(deployment Deployment) string {
 }
 
 // DeploymentModuleDir ports deploymentModuleDir from
-// the original implementation.
+// node-src/domain/deployment.ts.
 func DeploymentModuleDir(deployment Deployment) (moduleDir string, err error) {
 	defer recoverProcessFailure(&err)
 	return deploymentModuleDir(deployment), nil
 }
 
 // deploymentTenantRoot ports deploymentTenantRoot from
-// the original implementation. tenant is accepted (and unused) only to
+// node-src/domain/deployment.ts. tenant is accepted (and unused) only to
 // mirror that source's signature, which reserves the parameter for a
 // future per-tenant overlay override; the Node implementation is
 // `deploymentOverlay(deployment)` verbatim, ignoring its own `_tenant`
@@ -454,7 +454,7 @@ func deploymentTenantRoot(deployment Deployment, tenant string) string {
 }
 
 // DeploymentTenantRoot ports deploymentTenantRoot from
-// the original implementation.
+// node-src/domain/deployment.ts.
 func DeploymentTenantRoot(deployment Deployment, tenant string) (root string, err error) {
 	defer recoverProcessFailure(&err)
 	return deploymentTenantRoot(deployment, tenant), nil
@@ -463,7 +463,7 @@ func DeploymentTenantRoot(deployment Deployment, tenant string) (root string, er
 // deploymentTenantKind identifies which of deploymentTenantPath's three
 // sibling directories (config/imports/envs) a call resolves, ported from
 // the "config" | "imports" | "envs" literal union
-// the original implementation's deploymentTenantPath accepts as `kind`.
+// node-src/domain/deployment.ts's deploymentTenantPath accepts as `kind`.
 type deploymentTenantKind string
 
 const (
@@ -473,7 +473,7 @@ const (
 )
 
 // deploymentTenantPath ports deploymentTenantPath from
-// the original implementation.
+// node-src/domain/deployment.ts.
 func deploymentTenantPath(deployment Deployment, tenant string, kind deploymentTenantKind) string {
 	relative := path.Join(string(kind), tenant)
 	root := deploymentTenantRoot(deployment, tenant)
@@ -484,46 +484,46 @@ func deploymentTenantPath(deployment Deployment, tenant string, kind deploymentT
 }
 
 // deploymentConfigDir ports deploymentConfigDir from
-// the original implementation.
+// node-src/domain/deployment.ts.
 func deploymentConfigDir(deployment Deployment, tenant string) string {
 	return deploymentTenantPath(deployment, tenant, tenantKindConfig)
 }
 
 // DeploymentConfigDir ports deploymentConfigDir from
-// the original implementation.
+// node-src/domain/deployment.ts.
 func DeploymentConfigDir(deployment Deployment, tenant string) (dir string, err error) {
 	defer recoverProcessFailure(&err)
 	return deploymentConfigDir(deployment, tenant), nil
 }
 
 // deploymentImportsDir ports deploymentImportsDir from
-// the original implementation.
+// node-src/domain/deployment.ts.
 func deploymentImportsDir(deployment Deployment, tenant string) string {
 	return deploymentTenantPath(deployment, tenant, tenantKindImports)
 }
 
 // DeploymentImportsDir ports deploymentImportsDir from
-// the original implementation.
+// node-src/domain/deployment.ts.
 func DeploymentImportsDir(deployment Deployment, tenant string) (dir string, err error) {
 	defer recoverProcessFailure(&err)
 	return deploymentImportsDir(deployment, tenant), nil
 }
 
 // deploymentEnvsDir ports deploymentEnvsDir from
-// the original implementation.
+// node-src/domain/deployment.ts.
 func deploymentEnvsDir(deployment Deployment, tenant string) string {
 	return deploymentTenantPath(deployment, tenant, tenantKindEnvs)
 }
 
 // DeploymentEnvsDir ports deploymentEnvsDir from
-// the original implementation.
+// node-src/domain/deployment.ts.
 func DeploymentEnvsDir(deployment Deployment, tenant string) (dir string, err error) {
 	defer recoverProcessFailure(&err)
 	return deploymentEnvsDir(deployment, tenant), nil
 }
 
 // DeploymentPullsDir ports deploymentPullsDir from
-// the original implementation. Unlike this package's other DeploymentXxxDir
+// node-src/domain/deployment.ts. Unlike this package's other DeploymentXxxDir
 // accessors, it takes no Deployment (the Node source doesn't either -- the
 // pulls tree is not overlay-scoped) and never fails.
 func DeploymentPullsDir(tenant string) string {

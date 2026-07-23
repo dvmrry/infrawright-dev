@@ -1,6 +1,6 @@
 package metadata
 
-// packs.go ports the original implementation: pack.json/registry.json
+// packs.go ports node-src/metadata/packs.ts: pack.json/registry.json
 // pack-set validation, provider-prefix ownership, manifest loading, and
 // pack-set/profile checks.
 //
@@ -27,14 +27,14 @@ import (
 )
 
 // PACK_SET_KIND, REQUIREMENTS_KIND, and PACK_SET_VERSION port the
-// like-named constants from the original implementation.
+// like-named constants from node-src/metadata/packs.ts.
 const (
 	PackSetKind      = "infrawright.pack-set"
 	RequirementsKind = "infrawright.pack-requirements"
 	PackSetVersion   = 1
 )
 
-// componentName ports COMPONENT_NAME from the original implementation.
+// componentName ports COMPONENT_NAME from node-src/metadata/packs.ts.
 var componentName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 var packSetKeys = stringSet("kind", "version", "packs", "shared")
@@ -56,14 +56,14 @@ var manifestStringKeys = []string{"pin", "vendor"}
 var manifestListKeys = []string{"requires_shared", "unescape_products"}
 
 // PackSelection ports the PackSelection interface from
-// the original implementation.
+// node-src/metadata/packs.ts.
 type PackSelection struct {
 	Packs  []string
 	Shared []string
 }
 
 // PackSetDocument ports the PackSetDocument interface from
-// the original implementation.
+// node-src/metadata/packs.ts.
 type PackSetDocument struct {
 	Kind    string
 	Version int
@@ -71,7 +71,7 @@ type PackSetDocument struct {
 }
 
 // PackManifest ports the PackManifest interface from
-// the original implementation.
+// node-src/metadata/packs.ts.
 type PackManifest struct {
 	Name             string
 	Directory        string
@@ -83,7 +83,7 @@ type PackManifest struct {
 }
 
 // PackMetadata ports the PackMetadata interface from
-// the original implementation.
+// node-src/metadata/packs.ts.
 type PackMetadata struct {
 	Root             string
 	Manifests        []PackManifest
@@ -93,7 +93,7 @@ type PackMetadata struct {
 }
 
 // ActivePackSetResult ports the ActivePackSetResult interface from
-// the original implementation.
+// node-src/metadata/packs.ts.
 type ActivePackSetResult struct {
 	Profile  PackSetDocument
 	Active   PackSelection
@@ -101,7 +101,7 @@ type ActivePackSetResult struct {
 }
 
 // RequirementsResult ports the RequirementsResult interface from
-// the original implementation.
+// node-src/metadata/packs.ts.
 type RequirementsResult struct {
 	Requirements PackSetDocument
 	Active       PackSelection
@@ -144,7 +144,7 @@ func orEmptyObject(value any) any {
 	return value
 }
 
-// validateNames ports validateNames from the original implementation.
+// validateNames ports validateNames from node-src/metadata/packs.ts.
 func validateNames(value any, label string) []string {
 	arr, ok := value.([]any)
 	if !ok {
@@ -172,7 +172,7 @@ func validateNames(value any, label string) []string {
 
 // isPackSetVersionOne reports whether value is the pack-set version 1,
 // accepting either a plain float64 1 or a losslessly preserved json.Number
-// token "1" -- the original implementation's own version check explicitly
+// token "1" -- node-src/metadata/packs.ts's own version check explicitly
 // special-cases a LosslessNumber here (`data.version instanceof
 // LosslessNumber && data.version.toString() === "1"`), unlike
 // isDriftPolicyVersionOne's bare `!== 1` in driftpolicy.go.
@@ -188,7 +188,7 @@ func isPackSetVersionOne(value any) bool {
 }
 
 // validatePackSetDocument ports validatePackSetDocument from
-// the original implementation.
+// node-src/metadata/packs.ts.
 func validatePackSetDocument(value any, source, expectedKind string) PackSetDocument {
 	data := requireObject(value, source)
 	rejectUnknownKeys(data, packSetKeys, source)
@@ -210,14 +210,14 @@ func validatePackSetDocument(value any, source, expectedKind string) PackSetDocu
 }
 
 // ValidatePackSetDocument ports validatePackSetDocument from
-// the original implementation.
+// node-src/metadata/packs.ts.
 func ValidatePackSetDocument(value any, source, expectedKind string) (doc PackSetDocument, err error) {
 	defer recoverMetadataError(&err)
 	return validatePackSetDocument(value, source, expectedKind), nil
 }
 
 // loadPackSetDocument ports loadPackSetDocument from
-// the original implementation.
+// node-src/metadata/packs.ts.
 func loadPackSetDocument(source, expectedKind string) PackSetDocument {
 	absolute, err := filepath.Abs(source)
 	if err != nil {
@@ -228,14 +228,14 @@ func loadPackSetDocument(source, expectedKind string) PackSetDocument {
 }
 
 // LoadPackSetDocument ports loadPackSetDocument from
-// the original implementation.
+// node-src/metadata/packs.ts.
 func LoadPackSetDocument(source, expectedKind string) (doc PackSetDocument, err error) {
 	defer recoverMetadataError(&err)
 	return loadPackSetDocument(source, expectedKind), nil
 }
 
 // discoverDirectories ports discoverDirectories from
-// the original implementation. A missing root returns a non-nil empty slice;
+// node-src/metadata/packs.ts. A missing root returns a non-nil empty slice;
 // every other readdir failure propagates as the raw Go filesystem error.
 func discoverDirectories(root string) []string {
 	entries, err := os.ReadDir(root)
@@ -255,7 +255,7 @@ func discoverDirectories(root string) []string {
 }
 
 // activePackSelection ports activePackSelection from
-// the original implementation.
+// node-src/metadata/packs.ts.
 func activePackSelection(root string) PackSelection {
 	absolute, err := filepath.Abs(root)
 	if err != nil {
@@ -273,7 +273,7 @@ func activePackSelection(root string) PackSelection {
 }
 
 // ActivePackSelection ports activePackSelection from
-// the original implementation.
+// node-src/metadata/packs.ts.
 func ActivePackSelection(root string) (selection PackSelection, err error) {
 	defer recoverMetadataError(&err)
 	return activePackSelection(root), nil
@@ -534,7 +534,7 @@ func validatePackManifestStructure(value any, source string) JsonObject {
 }
 
 // validatePackManifest ports validatePackManifest from
-// the original implementation. A standalone manifest is its own effective
+// node-src/metadata/packs.ts. A standalone manifest is its own effective
 // reference table, so semantic cycle validation follows structural validation
 // immediately at this boundary.
 func validatePackManifest(value any, source string) JsonObject {
@@ -544,7 +544,7 @@ func validatePackManifest(value any, source string) JsonObject {
 }
 
 // ValidatePackManifest ports validatePackManifest from
-// the original implementation.
+// node-src/metadata/packs.ts.
 func ValidatePackManifest(value any, source string) (data JsonObject, err error) {
 	defer recoverMetadataError(&err)
 	return validatePackManifest(value, source), nil
@@ -576,7 +576,7 @@ func manifestRecord(name, directory, manifestPath string, data JsonObject) PackM
 }
 
 // loadPackMetadata ports loadPackMetadata from
-// the original implementation.
+// node-src/metadata/packs.ts.
 func loadPackMetadata(root string) PackMetadata {
 	absolute, err := filepath.Abs(root)
 	if err != nil {
@@ -651,14 +651,14 @@ func toStringSet(m map[string]string) map[string]struct{} {
 }
 
 // LoadPackMetadata ports loadPackMetadata from
-// the original implementation.
+// node-src/metadata/packs.ts.
 func LoadPackMetadata(root string) (metadata PackMetadata, err error) {
 	defer recoverMetadataError(&err)
 	return loadPackMetadata(root), nil
 }
 
 // validateSharedDependencies ports validateSharedDependencies from
-// the original implementation. packNames nil means "no restriction" (every
+// node-src/metadata/packs.ts. packNames nil means "no restriction" (every
 // manifest), matching the Node source's `packNames?: readonly string[]`
 // left undefined; a non-nil (even empty) slice restricts to exactly those
 // pack names, matching a defined (possibly empty) array there.
@@ -689,7 +689,7 @@ func validateSharedDependencies(metadata PackMetadata, packNames []string) {
 }
 
 // ValidateSharedDependencies ports validateSharedDependencies from
-// the original implementation.
+// node-src/metadata/packs.ts.
 func ValidateSharedDependencies(metadata PackMetadata, packNames []string) (err error) {
 	defer recoverMetadataError(&err)
 	validateSharedDependencies(metadata, packNames)
@@ -719,17 +719,58 @@ func selectionDelta(expected, actual []string) (missing, extra []string) {
 	return canonjson.SortedStrings(missingList), canonjson.SortedStrings(extraList)
 }
 
-// ValidateActivePackSetOptions identifies the exact profile and installed
-// pack root to compare.
+func validateKnownSelection(selection, catalog PackSelection, label string) {
+	var errorList []string
+	checks := []struct {
+		key      string
+		selected []string
+		known    []string
+	}{
+		{"packs", selection.Packs, catalog.Packs},
+		{"shared", selection.Shared, catalog.Shared},
+	}
+	for _, check := range checks {
+		known := make(map[string]struct{}, len(check.known))
+		for _, name := range check.known {
+			known[name] = struct{}{}
+		}
+		var unknown []string
+		for _, name := range check.selected {
+			if _, ok := known[name]; !ok {
+				unknown = append(unknown, name)
+			}
+		}
+		unknown = canonjson.SortedStrings(unknown)
+		if len(unknown) > 0 {
+			errorList = append(errorList, fmt.Sprintf("unknown %s: %s", check.key, strings.Join(unknown, ", ")))
+		}
+	}
+	if len(errorList) > 0 {
+		failf("%s is outside the pack catalog; %s", label, strings.Join(errorList, "; "))
+	}
+}
+
+// ValidateActivePackSetOptions ports the options bag validateActivePackSet
+// accepts in node-src/metadata/packs.ts. CatalogPath nil means the
+// optional `catalogPath` field was omitted.
 type ValidateActivePackSetOptions struct {
 	ProfilePath string
 	Root        string
+	CatalogPath *string
 }
 
 // validateActivePackSet ports validateActivePackSet from
-// the original implementation.
+// node-src/metadata/packs.ts.
 func validateActivePackSet(options ValidateActivePackSetOptions) ActivePackSetResult {
 	profile := loadPackSetDocument(options.ProfilePath, PackSetKind)
+	if options.CatalogPath != nil {
+		catalog := loadPackSetDocument(*options.CatalogPath, PackSetKind)
+		absoluteProfile, err := filepath.Abs(options.ProfilePath)
+		if err != nil {
+			failf("failed to resolve %s: %s", options.ProfilePath, err.Error())
+		}
+		validateKnownSelection(profile.PackSelection, catalog.PackSelection, absoluteProfile)
+	}
 	active := activePackSelection(options.Root)
 	packMissing, packExtra := selectionDelta(profile.Packs, active.Packs)
 	sharedMissing, sharedExtra := selectionDelta(profile.Shared, active.Shared)
@@ -755,23 +796,32 @@ func validateActivePackSet(options ValidateActivePackSetOptions) ActivePackSetRe
 }
 
 // ValidateActivePackSet ports validateActivePackSet from
-// the original implementation.
+// node-src/metadata/packs.ts.
 func ValidateActivePackSet(options ValidateActivePackSetOptions) (result ActivePackSetResult, err error) {
 	defer recoverMetadataError(&err)
 	return validateActivePackSet(options), nil
 }
 
 // CheckPackRequirementsOptions ports the options bag
-// checkPackRequirements accepts in the original implementation.
+// checkPackRequirements accepts in node-src/metadata/packs.ts.
 type CheckPackRequirementsOptions struct {
 	RequirementsPath string
 	Root             string
+	CatalogPath      *string
 }
 
 // checkPackRequirements ports checkPackRequirements from
-// the original implementation.
+// node-src/metadata/packs.ts.
 func checkPackRequirements(options CheckPackRequirementsOptions) RequirementsResult {
 	requirements := loadPackSetDocument(options.RequirementsPath, RequirementsKind)
+	if options.CatalogPath != nil {
+		catalog := loadPackSetDocument(*options.CatalogPath, PackSetKind)
+		absoluteRequirements, err := filepath.Abs(options.RequirementsPath)
+		if err != nil {
+			failf("failed to resolve %s: %s", options.RequirementsPath, err.Error())
+		}
+		validateKnownSelection(requirements.PackSelection, catalog.PackSelection, absoluteRequirements)
+	}
 	active := activePackSelection(options.Root)
 	activePacks := make(map[string]struct{}, len(active.Packs))
 	for _, name := range active.Packs {
@@ -802,14 +852,14 @@ func checkPackRequirements(options CheckPackRequirementsOptions) RequirementsRes
 }
 
 // CheckPackRequirements ports checkPackRequirements from
-// the original implementation.
+// node-src/metadata/packs.ts.
 func CheckPackRequirements(options CheckPackRequirementsOptions) (result RequirementsResult, err error) {
 	defer recoverMetadataError(&err)
 	return checkPackRequirements(options), nil
 }
 
 // ProviderForResource ports providerForResource from
-// the original implementation. It never fails: an unrecognized resource
+// node-src/metadata/packs.ts. It never fails: an unrecognized resource
 // type falls back to its own leading `_`-delimited segment, exactly as
 // the Node source does.
 func ProviderForResource(metadata PackMetadata, resourceType string) string {
@@ -844,7 +894,7 @@ func manifestForProvider(metadata PackMetadata, provider string) PackManifest {
 }
 
 // ManifestForProvider ports manifestForProvider from
-// the original implementation.
+// node-src/metadata/packs.ts.
 func ManifestForProvider(metadata PackMetadata, provider string) (manifest PackManifest, err error) {
 	defer recoverMetadataError(&err)
 	return manifestForProvider(metadata, provider), nil
@@ -855,14 +905,14 @@ func packDirectoryForProvider(metadata PackMetadata, provider string) string {
 }
 
 // PackDirectoryForProvider ports packDirectoryForProvider from
-// the original implementation.
+// node-src/metadata/packs.ts.
 func PackDirectoryForProvider(metadata PackMetadata, provider string) (directory string, err error) {
 	defer recoverMetadataError(&err)
 	return packDirectoryForProvider(metadata, provider), nil
 }
 
 // ValidatePackAuthoringOptions ports the options bag
-// validatePackAuthoring accepts in the original implementation. Pack nil
+// validatePackAuthoring accepts in node-src/metadata/packs.ts. Pack nil
 // means the optional `pack` field was omitted (validate every manifest).
 type ValidatePackAuthoringOptions struct {
 	Root string
@@ -870,7 +920,7 @@ type ValidatePackAuthoringOptions struct {
 }
 
 // ValidatePackAuthoringResult ports validatePackAuthoring's return shape
-// from the original implementation.
+// from node-src/metadata/packs.ts.
 type ValidatePackAuthoringResult struct {
 	Names    []string
 	Metadata PackMetadata
@@ -909,7 +959,7 @@ func validatePackAuthoring(options ValidatePackAuthoringOptions) ValidatePackAut
 }
 
 // ValidatePackAuthoring ports validatePackAuthoring from
-// the original implementation.
+// node-src/metadata/packs.ts.
 func ValidatePackAuthoring(options ValidatePackAuthoringOptions) (result ValidatePackAuthoringResult, err error) {
 	defer recoverMetadataError(&err)
 	return validatePackAuthoring(options), nil

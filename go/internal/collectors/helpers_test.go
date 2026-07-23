@@ -1,7 +1,14 @@
 package collectors
 
-// helpers_test.go holds the repository, pack-tree, transport, and performance
-// fixtures shared by collector tests.
+// helpers_test.go holds fixtures shared across this package's ported
+// tests: the repo-root lookup and pack-tree copy helpers every metadata-
+// backed test needs (matching the equivalent helpers in
+// go/internal/metadata's own test suite), plus the fake HttpTransport and
+// PerformanceRecorder doubles that stand in for node-tests/rest-collector
+// .test.ts's QueueTransport/DelayedPathTransport classes and the real
+// node-src/performance/recorder.ts's PerformanceRecorder (see types.go's
+// PerformanceRecorder doc comment for why this package depends on a local
+// interface rather than a ported internal/performance package).
 
 import (
 	"encoding/json"
@@ -16,8 +23,9 @@ import (
 	"time"
 )
 
-// repoRoot walks up from this test file's path until it finds the committed
-// full pack profile.
+// repoRoot walks up from this test file's own path until it finds a
+// directory containing both catalogs/ and packs/, matching the identical
+// helper in go/internal/metadata's own test suite.
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	_, thisFile, _, ok := runtime.Caller(0)
@@ -26,19 +34,22 @@ func repoRoot(t *testing.T) string {
 	}
 	dir := filepath.Dir(thisFile)
 	for {
-		_, packsErr := os.Stat(filepath.Join(dir, "packs", "full.packset.json"))
-		if packsErr == nil {
+		_, catalogsErr := os.Stat(filepath.Join(dir, "catalogs"))
+		_, packsErr := os.Stat(filepath.Join(dir, "packs"))
+		if catalogsErr == nil && packsErr == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			t.Fatalf("walked up to filesystem root from %s without finding packs/full.packset.json", filepath.Dir(thisFile))
+			t.Fatalf("walked up to filesystem root from %s without finding a directory containing both catalogs/ and packs/", filepath.Dir(thisFile))
 		}
 		dir = parent
 	}
 }
 
-// copyDir recursively copies src to dst, excluding Python cache artifacts.
+// copyDir recursively copies src to dst, skipping any Python artifact
+// (matching node-tests's own removePythonArtifacts/cp-with-filter
+// pattern for building a "Python-free" pack root fixture).
 func copyDir(src, dst string) error {
 	return filepath.WalkDir(src, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -73,7 +84,7 @@ func copyDir(src, dst string) error {
 }
 
 // snapshotDirectory ports the snapshotDirectory helper from
-// the original test corpus.
+// node-tests/rest-collector.test.ts.
 func snapshotDirectory(t *testing.T, directory string) map[string]string {
 	t.Helper()
 	entries, err := os.ReadDir(directory)
@@ -97,7 +108,7 @@ func snapshotDirectory(t *testing.T, directory string) map[string]string {
 }
 
 // jsonResponse builds a 200 (or status) HTTPResponse whose body is value
-// marshaled with the stdlib encoder -- matching compatibility tests's own
+// marshaled with the stdlib encoder -- matching node-tests's own
 // `response(value)` helper's plain JSON.stringify, not this package's
 // canonical/lossless renderer (that renderer is for artifacts this
 // package writes, not for fixture provider responses it reads). Pass an
@@ -115,7 +126,7 @@ func jsonResponse(t *testing.T, value any, status int) HTTPResponse {
 }
 
 // testAdapter ports the `adapter()` test helper from
-// the original test corpus.
+// node-tests/rest-collector.test.ts.
 func testAdapter(product string, acquisitions *[]string) CollectorAdapter {
 	if product == "" {
 		product = "sample"
@@ -137,7 +148,7 @@ func testAdapter(product string, acquisitions *[]string) CollectorAdapter {
 }
 
 // testEntry ports the `entry()` test helper from
-// the original test corpus.
+// node-tests/rest-collector.test.ts.
 func testEntry(pagination PaginationStyle, extra FetchEntry) FetchEntry {
 	base := FetchEntry{
 		Product:              "sample",
@@ -168,7 +179,7 @@ func testEntry(pagination PaginationStyle, extra FetchEntry) FetchEntry {
 }
 
 // queueTransport ports the QueueTransport test double from
-// the original test corpus: a fixed, ordered queue of canned
+// node-tests/rest-collector.test.ts: a fixed, ordered queue of canned
 // responses, one per request, asserting it is never asked for more
 // requests than it has responses queued.
 type queueTransport struct {
@@ -225,7 +236,7 @@ func (q *queueTransport) requestPaths() []string {
 }
 
 // delayedPathTransport ports the DelayedPathTransport test double from
-// the original test corpus: canned responses keyed by request
+// node-tests/rest-collector.test.ts: canned responses keyed by request
 // path, each released after an optional artificial delay, tracking the
 // maximum number of concurrently in-flight requests.
 type delayedPathTransport struct {
@@ -276,13 +287,13 @@ func (d *delayedPathTransport) Request(request HTTPRequest) (HTTPResponse, error
 func (d *delayedPathTransport) Close() error { return nil }
 
 // fakePerformanceRecorder is a minimal, self-contained PerformanceRecorder
-// test double: it does not reproduce the original implementation's
+// test double: it does not reproduce node-src/performance/recorder.ts's
 // report() rendering (grouping, sorting, safeLabel validation, quantiles --
 // see types.go's PerformanceRecorder doc comment for why that package is
 // out of this port's scope), only enough bookkeeping to assert what
 // rest.go actually calls: SetFetchConcurrency's single-value invariant,
 // and the recorded span list itself (for asserting phase/resource_family
-// ordering and counts, as compatibility tests's own performance.report() assertions
+// ordering and counts, as node-tests's own performance.report() assertions
 // do at a higher level).
 type fakePerformanceRecorder struct {
 	mu               sync.Mutex

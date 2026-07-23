@@ -5,23 +5,23 @@
 //
 // It ports two Node sources:
 //
-//   - the original implementation: the kernel. snake_case/slug naming
-//     (via go/internal/textcompat.Lower151), Terraform schema
+//   - node-src/domain/pull-transform.ts: the kernel. snake_case/slug naming
+//     (via go/internal/pyunicode.PythonLower151), Terraform schema
 //     projection compilation and application, the override vocabulary
 //     (renames, key_field, invert_bool, split_csv, sort_lists, skip_if,
 //     acknowledged_drops, ...), the two-pass HTML unescape/escape seam
-//     (go/internal/textcompat.HTMLUnescape is this port's
+//     (go/internal/pyunicode.PythonHTMLUnescapeGeneric is this port's
 //     equivalent of the Node source's pluggable htmlUnescape parameter),
 //     drop-diagnostic classification, and Python-compatible numeric/string
 //     handling (via go/internal/canonjson).
-//   - the original implementation: resource selection and
+//   - node-src/domain/transform-selection.ts: resource selection and
 //     referent-first reference ordering (a Tarjan SCC over the merged
 //     `references` tables from active pack manifests).
 //
 // This package deliberately does NOT include the artifact-writing or batch
-// runner logic (the original implementation,
-// the original implementation) -- those own a different, later
-// slice per the Go runtime contract and are out of this package's scope.
+// runner logic (node-src/domain/transform-artifacts.ts,
+// node-src/domain/transform-runner.ts) -- those own a different, later
+// slice per docs/go-runtime-plan.md and are out of this package's scope.
 //
 // # A note on JSON object representation and iteration order
 //
@@ -63,15 +63,15 @@ import (
 )
 
 // TransformRecord is the Go analogue of the TransformRecord alias
-// (Record<string, unknown>) in the original implementation.
+// (Record<string, unknown>) in node-src/domain/pull-transform.ts.
 type TransformRecord = map[string]any
 
 // TransformError reports a transform kernel validation failure -- the Go
 // analogue of the bare `throw new TypeError(message)` / `throw new
 // Error(message)` calls pull-transform.ts and transform-selection.ts make
 // directly (neither source routes these through the ProcessFailure type in
-// the original implementation; that type is reserved in this package for the
-// small locally-ported slice of the original implementation's own
+// node-src/domain/errors.ts; that type is reserved in this package for the
+// small locally-ported slice of node-src/domain/roots.ts's own
 // ProcessFailure-raising domainError, see selection_roots.go).
 type TransformError struct{ message string }
 
@@ -149,7 +149,7 @@ func sortedObjectKeys[V any](m map[string]V) []string {
 
 // isPlainJSONRecord reports whether value is a JSON object in this
 // package's dynamic value tree (map[string]any). Ports isPlainJsonRecord
-// from the original implementation, whose extra checks (own-property
+// from node-src/domain/pull-transform.ts, whose extra checks (own-property
 // descriptor enumerability, absence of a non-Object.prototype prototype,
 // absence of symbol keys) exist only to defend against JS objects
 // constructed in ways a bare `typeof value === "object"` test would miss
@@ -161,7 +161,7 @@ func isPlainJSONRecord(value any) bool {
 }
 
 // stringArraySlice ports the local `stringArray` helper from
-// the original implementation: value must be a JSON array of strings,
+// node-src/domain/pull-transform.ts: value must be a JSON array of strings,
 // or absent (nil/JSON null), which yields an empty result exactly like the
 // Node source's `if (value === undefined || value === null) return [];`.
 func stringArraySlice(value any, label string) []string {
@@ -184,7 +184,7 @@ func stringArraySlice(value any, label string) []string {
 }
 
 // stringValueMap ports the local `stringMap` helper from
-// the original implementation: value must be a JSON object whose
+// node-src/domain/pull-transform.ts: value must be a JSON object whose
 // values are all strings, or absent, which yields an empty map.
 func stringValueMap(value any, label string) map[string]string {
 	if value == nil {
@@ -207,7 +207,7 @@ func stringValueMap(value any, label string) map[string]string {
 }
 
 // objectMap ports the local `objectMap` helper from
-// the original implementation: value must be a JSON object, or
+// node-src/domain/pull-transform.ts: value must be a JSON object, or
 // absent, which yields an empty object.
 func objectMap(value any, label string) map[string]any {
 	if value == nil {
@@ -220,7 +220,7 @@ func objectMap(value any, label string) map[string]any {
 	return obj
 }
 
-// cloneJson ports cloneJson from the original implementation: a deep
+// cloneJson ports cloneJson from node-src/domain/pull-transform.ts: a deep
 // copy that also enforces the transform's closed value vocabulary (JSON
 // null/bool/string, a canonicalized lossless number, array, or nested
 // record only) -- rejecting a bare Go float64 exactly like the Node source

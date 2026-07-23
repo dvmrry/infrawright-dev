@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -63,7 +64,7 @@ func TestRelocatedBinaryUsesExplicitPackageRoot(t *testing.T) {
 		t.Fatalf("go build relocated iw error = %v, want nil\n%s", err, output)
 	}
 
-	run := exec.Command(binary, "resources", "--resource", "zcc")
+	run := exec.Command(binary, "root-catalog", "--providers", "zcc")
 	run.Dir = t.TempDir()
 	run.Env = []string{
 		"HOME=" + os.Getenv("HOME"),
@@ -73,9 +74,13 @@ func TestRelocatedBinaryUsesExplicitPackageRoot(t *testing.T) {
 	}
 	output, err := run.CombinedOutput()
 	if err != nil {
-		t.Fatalf("relocated iw resources error = %v, want nil\n%s", err, output)
+		t.Fatalf("relocated iw root-catalog error = %v, want nil\n%s", err, output)
 	}
-	if len(output) == 0 {
-		t.Error("relocated iw resources returned no output")
+	var catalog map[string]any
+	if err := json.Unmarshal(output, &catalog); err != nil {
+		t.Fatalf("json.Unmarshal(relocated iw output) error = %v, want nil\n%s", err, output)
+	}
+	if _, ok := catalog["resources"]; !ok {
+		t.Errorf("relocated iw root-catalog keys = %v, want resources", catalog)
 	}
 }

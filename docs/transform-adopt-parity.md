@@ -56,7 +56,7 @@ requires provider and dependency sources to use exact GitHub blob refs,
 requires every local source to exist inside the repository, and requires every
 classification evidence reference to be declared by fixture provenance.
 
-The diagnostic calls the production transform path for the raw side and
+The Node diagnostic calls the production transform path for the raw side and
 the production Adopt path with an injected fixture state loader for the oracle
 side.
 The injected loader replaces only the network/provider import step; identity,
@@ -91,6 +91,7 @@ Every classification requires a reason and evidence references.
 | `zcc_failopen_policy_inversion` | byte-equal | The five inverted booleans and the non-inverted strict-enforcement boolean agree across the two local paths for the source-derived values. The three string-backed API flags use the ZCC provider's pinned SDK model types. |
 | `zia_dlp_engines_predefined_name` | evidence gate | Transform promotes `predefined_engine_name`; provider Read stores `resp.Name`, producing a wrong-or-right semantic choice that a first clean oracle plan cannot settle. |
 | `zia_url_filtering_rules_zero_quota` | byte-equal | Provider Read stores zero quotas, and Adopt now applies the same pack `drop_if_default` omissions as Transform. The same fixture confirms empty URL categories normalize to `["ANY"]` on both paths. |
+| `zpa_application_segment_microtenant` | byte-equal | Provider Read stores `microtenant_id="0"`, and Adopt now applies the same pack default omission as Transform. The fixture separately confirms `policy_style="NONE"` and provider `false` agree. |
 
 These are minimal source-derived fixtures, not retained tenant observations.
 They prove the behavior of the pinned local code against the authored provider

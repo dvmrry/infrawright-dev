@@ -26,7 +26,7 @@ package transform
 // cloneJson specifically, rejected as invalid *input*) elsewhere in this
 // package wherever the Node source's authoring-seam functions
 // (ApplyTransformOverridesForAuthoring, CoerceTransformPrimitiveForAuthoring)
-// must accept it -- the original implementation's own
+// must accept it -- node-src/domain/pull-transform.ts's own
 // snakeJsonKeysForAuthoring doc comment notes authoring inputs "may be
 // constructed with ordinary finite JavaScript numbers instead of coming
 // from the lossless runtime JSON parser" -- this simplification only
@@ -50,7 +50,7 @@ import (
 var safeIntegerToken = regexp.MustCompile(`^-?[0-9]+$`)
 
 // losslessIntegerToken ports losslessIntegerToken from
-// the original implementation. The Go analogue of a plain JS
+// node-src/domain/pull-transform.ts. The Go analogue of a plain JS
 // `number` here is a bare float64 (see cloneJson's doc comment): produced
 // internally by this package's own coercion pipeline (e.g. dividedValue,
 // coercePrimitive's "number" branch), never by decoding raw JSON.
@@ -73,7 +73,7 @@ func isSafeInteger(v float64) bool {
 	return v == math.Trunc(v) && !math.IsInf(v, 0) && math.Abs(v) <= (1<<53-1)
 }
 
-// integerValue ports integerValue from the original implementation.
+// integerValue ports integerValue from node-src/domain/pull-transform.ts.
 func integerValue(value any) (*big.Int, bool) {
 	token, ok := losslessIntegerToken(value)
 	if !ok {
@@ -84,9 +84,9 @@ func integerValue(value any) (*big.Int, bool) {
 }
 
 // coerceBoolean ports coerceBoolean from
-// the original implementation. String comparisons against the four
+// node-src/domain/pull-transform.ts. String comparisons against the four
 // ASCII literals "true"/"1"/"false"/"0" use strings.ToLower rather than
-// go/internal/textcompat.Lower151: the Node source itself uses
+// go/internal/pyunicode.PythonLower151: the Node source itself uses
 // value.toLowerCase() here, not the Python-compatible pythonLower151 this
 // package uses for snake-casing/collation elsewhere, and ordinary
 // ASCII-range case folding (which strings.ToLower and JS's toLowerCase
@@ -113,7 +113,7 @@ func coerceBoolean(value any) any {
 }
 
 // coercePrimitive ports coercePrimitive from
-// the original implementation.
+// node-src/domain/pull-transform.ts.
 func coercePrimitive(value any, encoding string) any {
 	switch encoding {
 	case "string":
@@ -178,7 +178,7 @@ func coercePrimitive(value any, encoding string) any {
 }
 
 // unwrapReference ports unwrapReference from
-// the original implementation.
+// node-src/domain/pull-transform.ts.
 func unwrapReference(value any) any {
 	if obj, ok := value.(map[string]any); ok {
 		if hasOwn(obj, "id") {
@@ -189,7 +189,7 @@ func unwrapReference(value any) any {
 }
 
 // pythonSetSortKey ports pythonSetSortKey from
-// the original implementation.
+// node-src/domain/pull-transform.ts.
 func pythonSetSortKey(value any) string {
 	switch v := value.(type) {
 	case nil:
@@ -249,8 +249,8 @@ func fmtString(value any) string {
 }
 
 // coerceObjectMembers ports coerceObjectMembers from
-// the original implementation.
-func coerceObjectMembers(value any, members map[string]metadata.TerraformTypeEncoding) any {
+// node-src/domain/pull-transform.ts.
+func coerceObjectMembers(value any, members map[string]metadata.TerraformTypeEncoding, strictFrozenCompatibility bool) any {
 	obj, ok := value.(map[string]any)
 	if !ok {
 		return value
@@ -261,18 +261,18 @@ func coerceObjectMembers(value any, members map[string]metadata.TerraformTypeEnc
 		if !ok {
 			continue
 		}
-		out[key] = coerceValue(obj[key], member)
+		out[key] = coerceValue(obj[key], member, strictFrozenCompatibility)
 	}
 	return out
 }
 
-// coerceValue ports coerceValue from the original implementation.
-func coerceValue(value any, encoding metadata.TerraformTypeEncoding) any {
+// coerceValue ports coerceValue from node-src/domain/pull-transform.ts.
+func coerceValue(value any, encoding metadata.TerraformTypeEncoding, strictFrozenCompatibility bool) any {
 	switch enc := encoding.(type) {
 	case metadata.TerraformPrimitiveType:
 		return coercePrimitive(unwrapReference(value), string(enc))
 	case metadata.TerraformObjectType:
-		return coerceObjectMembers(value, enc.Members)
+		return coerceObjectMembers(value, enc.Members, strictFrozenCompatibility)
 	case metadata.TerraformCollectionType:
 		if enc.Kind == "map" {
 			obj, ok := value.(map[string]any)
@@ -281,7 +281,7 @@ func coerceValue(value any, encoding metadata.TerraformTypeEncoding) any {
 			}
 			out := make(map[string]any, len(obj))
 			for _, key := range sortedObjectKeys(obj) {
-				out[key] = coerceValue(obj[key], enc.Inner)
+				out[key] = coerceValue(obj[key], enc.Inner, strictFrozenCompatibility)
 			}
 			return out
 		}
@@ -293,15 +293,15 @@ func coerceValue(value any, encoding metadata.TerraformTypeEncoding) any {
 		case []any:
 			output = make([]any, len(v))
 			for i, item := range v {
-				output[i] = coerceValue(item, enc.Inner)
+				output[i] = coerceValue(item, enc.Inner, strictFrozenCompatibility)
 			}
 		case nil:
 			return nil
 		default:
-			output = []any{coerceValue(value, enc.Inner)}
+			output = []any{coerceValue(value, enc.Inner, strictFrozenCompatibility)}
 		}
 		if enc.Kind == "set" {
-			return coerceSetValues(output)
+			return coerceSetValues(output, enc.Inner, strictFrozenCompatibility)
 		}
 		return output
 	default:
@@ -318,13 +318,23 @@ type setSortEntry struct {
 }
 
 // coerceSetValues ports the "set" branch tail of coerceValue from
-// the original implementation: a stable sort by Python-compatible
+// node-src/domain/pull-transform.ts: a stable sort by Python-compatible
 // string key, ties broken by original index (Go's sort.SliceStable makes
 // the explicit index-tiebreak in the Node source's comparator belt, but not
 // braces, since the Node source's own `left.index - right.index` fallback
 // is exactly what SliceStable already guarantees for any two elements the
 // primary key comparison treats as equal).
-func coerceSetValues(output []any) []any {
+func coerceSetValues(output []any, childEncoding metadata.TerraformTypeEncoding, strictFrozenCompatibility bool) []any {
+	if strictFrozenCompatibility && childEncoding == metadata.TerraformPrimitiveType("string") {
+		for _, item := range output {
+			if item == nil {
+				continue
+			}
+			if _, ok := item.(string); !ok {
+				fail("set(string) coercion produced a non-string provider value")
+			}
+		}
+	}
 	entries := make([]setSortEntry, len(output))
 	for i, item := range output {
 		entries[i] = setSortEntry{index: i, item: item, key: pythonSetSortKey(item)}
@@ -340,7 +350,7 @@ func coerceSetValues(output []any) []any {
 func sortSetSortEntriesStable(entries []setSortEntry) {
 	// sort.SliceStable with a comparator matching
 	// comparePythonStrings(left.key, right.key) || left.index - right.index
-	// from the original implementation's coerceValue. (The explicit
+	// from node-src/domain/pull-transform.ts's coerceValue. (The explicit
 	// index tiebreak in the Node source is redundant with SliceStable's own
 	// stability guarantee, but is kept as the comparator's second key for
 	// direct textual correspondence with the ported source.)
@@ -353,7 +363,7 @@ func sortSetSortEntriesStable(entries []setSortEntry) {
 	})
 }
 
-// divideInteger ports divideInteger from the original implementation:
+// divideInteger ports divideInteger from node-src/domain/pull-transform.ts:
 // truncated (round-toward-zero) quotient/remainder via big.Int's own
 // Quo/Rem (which already truncate toward zero, exactly like JS BigInt's
 // `/`/`%`), adjusted to floor semantics (Python's `//`) when the
@@ -367,7 +377,7 @@ func divideInteger(value, divisor *big.Int) *big.Int {
 	return quotient
 }
 
-// dividedValue ports dividedValue from the original implementation.
+// dividedValue ports dividedValue from node-src/domain/pull-transform.ts.
 func dividedValue(value, divisorValue any, label string) any {
 	divisor, ok := integerValue(divisorValue)
 	if !ok || divisor.Sign() == 0 {

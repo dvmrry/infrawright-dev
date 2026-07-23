@@ -157,11 +157,11 @@ func TestCheckPackSetCommandPreservesExitThreeAndEnvironmentDefaults(t *testing.
 		got = options
 		return metadata.ActivePackSetResult{Active: metadata.PackSelection{Packs: []string{"sample"}}}, nil
 	}
-	status, err := checkPackSetCommandWithDependencies(nil, dependencies)
+	status, err := checkPackSetCommandWithDependencies([]string{"--catalog", "/catalog.json"}, dependencies)
 	if err != nil || status != 0 {
 		t.Fatalf("checkPackSetCommandWithDependencies = (%d, %v)", status, err)
 	}
-	if got.Root != "/environment/packs" || got.ProfilePath != "/environment/profile.json" {
+	if got.Root != "/environment/packs" || got.ProfilePath != "/environment/profile.json" || got.CatalogPath == nil || *got.CatalogPath != "/catalog.json" {
 		t.Fatalf("options = %#v", got)
 	}
 	if output.String() != "validated pack set: packs=[sample] shared=[]\n" {
@@ -171,7 +171,8 @@ func TestCheckPackSetCommandPreservesExitThreeAndEnvironmentDefaults(t *testing.
 	output.Reset()
 	dependencies.environment = func(string) string { return "" }
 	dependencies.validateActivePackSet = func(options metadata.ValidateActivePackSetOptions) (metadata.ActivePackSetResult, error) {
-		if options.Root != filepath.Join("/package", "packs") || options.ProfilePath != filepath.Join("/package", "packs", "full.packset.json") {
+		if options.Root != filepath.Join("/package", "packs") || options.ProfilePath != filepath.Join("/package", "packs", "full.packset.json") ||
+			options.CatalogPath == nil || *options.CatalogPath != filepath.Join("/package", "packs", "full.packset.json") {
 			t.Fatalf("falsey fallback options = %#v", options)
 		}
 		return metadata.ActivePackSetResult{}, nil

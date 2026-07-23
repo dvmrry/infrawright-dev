@@ -1,9 +1,12 @@
-# Infrawright Go implementation
+# Go runtime port — foundational packages
 
-This module contains the `iw` CLI and its internal packages. Build from the
-repository root with `make dist/iw`; run the complete Go suite with
-`cd go && go test ./...`.
+Slice 0 of the Go runtime port (see `docs/go-runtime-plan.md`): the
+`canonjson` byte-compatibility spike. Each package documents the
+Node source file whose frozen semantics it implements. Go is now the product
+authority; the frozen Node v1 bundle remains a differential oracle only for
+surfaces that are independent of singleton-state topology v2.
 
-Canonical JSON and generated-artifact tests cover the committed demo and
-current integration corpora under `tests/fixtures/`. Provider metadata is
-loaded from `packs/` and the selected `packs/*.packset.json` profile.
+Gate for this slice: decode → re-render of every committed canonical JSON
+artifact (`catalogs/zscaler-root-catalog.v1.json`,
+`catalogs/zscaler-root-catalog.v2.json`, `demo/config/demo/*.json`)
+must be byte-identical, and all ported test vectors must pass.

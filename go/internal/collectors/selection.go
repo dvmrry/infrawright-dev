@@ -8,7 +8,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
-// selection.go ports the original implementation: expanding collector
+// selection.go ports node-src/collectors/selection.ts: expanding collector
 // selectors (product names, resource types, or derived-resource types)
 // against the active pack registry -- the original resource authority, not
 // anything the fetch engine derives on its own.
@@ -16,13 +16,13 @@ import (
 // hasFetchEntry reports whether resource declares a fetch entry, i.e. its
 // registry metadata's "fetch" key is a JSON object. Ports the
 // `isObject(resource.registry.fetch)` filter that both fetchResourceTypes
-// and fetchProducts apply in the original implementation.
+// and fetchProducts apply in node-src/collectors/selection.ts.
 func hasFetchEntry(resource metadata.LoadedResourceMetadata) bool {
 	return canonjson.IsJSONRecord(resource.Registry["fetch"])
 }
 
 // fetchResourceTypes ports the unexported fetchResourceTypes from
-// the original implementation.
+// node-src/collectors/selection.ts.
 func fetchResourceTypes(root metadata.LoadedPackRoot) []string {
 	types := make([]string, 0, len(root.Resources))
 	for _, resource := range root.Resources {
@@ -33,7 +33,7 @@ func fetchResourceTypes(root metadata.LoadedPackRoot) []string {
 	return canonjson.SortedStrings(types)
 }
 
-// FetchProducts ports fetchProducts from the original implementation:
+// FetchProducts ports fetchProducts from node-src/collectors/selection.ts:
 // the active product names that own at least one fetch entry.
 func FetchProducts(root metadata.LoadedPackRoot) []string {
 	seen := make(map[string]struct{})
@@ -46,14 +46,14 @@ func FetchProducts(root metadata.LoadedPackRoot) []string {
 }
 
 // SelectFetchResourcesOptions ports the options bag selectFetchResources
-// accepts in the original implementation.
+// accepts in node-src/collectors/selection.ts.
 type SelectFetchResourcesOptions struct {
 	Root      metadata.LoadedPackRoot
 	Selectors []string
 }
 
 // SelectFetchResources ports selectFetchResources from
-// the original implementation: expand collector selectors using the
+// node-src/collectors/selection.ts: expand collector selectors using the
 // original registry as the only resource authority. Product selectors
 // expand to all of that product's fetch entries; derived resources select
 // their fetch-bearing source.

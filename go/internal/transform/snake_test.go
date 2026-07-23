@@ -1,10 +1,10 @@
 package transform
 
 // snake_test.go ports the SnakeName/SlugifyTransformKey vectors from
-// the original test corpus ("snake regex matches Python dot
+// node-tests/python-lower-151.test.ts ("snake regex matches Python dot
 // boundaries and Unicode code points" and "slug output and collisions
 // retain Python expansion behavior") -- the rest of that Node test file
-// exercises go/internal/textcompat.Lower151 directly, already covered
+// exercises go/internal/pyunicode.PythonLower151 directly, already covered
 // by that package's own (green) test suite, so is not re-ported here.
 // Also covers parsePythonInteger/normalizedPythonFloatString, the
 // Python-compatible numeric-string grammar coercePrimitive's "number"

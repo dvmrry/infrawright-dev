@@ -2,7 +2,7 @@
 // JSON dialect used throughout infrawright: `json.dumps(value, indent=2,
 // sort_keys=True)` byte semantics, backed by a dynamic value tree instead of
 // generated structs. Every exported symbol documents the Node source file
-// (under the original source treejson/) whose frozen behavior it ports; that TypeScript
+// (under node-src/json/) whose frozen behavior it ports; that TypeScript
 // remains the differential oracle until this port is qualified.
 package canonjson
 
@@ -21,22 +21,22 @@ var ErrNotFinite = errors.New("canonjson: value is not a finite number")
 
 // ErrInvalidNumberToken is returned by CanonicalNumberToken when the input
 // lexeme is not a valid JSON number token, matching
-// canonicalPythonNumberToken returning null in the original implementation.
+// canonicalPythonNumberToken returning null in node-src/json/python-number.ts.
 var ErrInvalidNumberToken = errors.New("canonjson: invalid JSON number token")
 
 // jsonIntegerToken matches a bare JSON integer lexeme: an optional minus
 // sign, then "0" or a non-zero digit followed by more digits. No fraction,
-// no exponent. Ports the JSON_INTEGER_TOKEN regexp in the original implementation.
+// no exponent. Ports the JSON_INTEGER_TOKEN regexp in node-src/json/python-number.ts.
 var jsonIntegerToken = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)$`)
 
 // jsonNumberToken matches the full JSON number grammar (optional fraction,
 // optional exponent). Ports the JSON_NUMBER_TOKEN regexp in
-// the original implementation.
+// node-src/json/python-number.ts.
 var jsonNumberToken = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$`)
 
 // FiniteFloatToken renders one finite IEEE-754 double the way CPython's
 // repr(float) (equivalently json.dumps of a float) does. It ports
-// pythonFiniteFloatToken from the original implementation verbatim,
+// pythonFiniteFloatToken from node-src/json/python-number.ts verbatim,
 // including its two load-bearing oddities:
 //
 //   - negative zero always renders as the literal "-0.0";
@@ -159,7 +159,7 @@ func zeros(n int) string {
 
 // CanonicalNumberToken canonicalizes one losslessly parsed JSON number
 // lexeme through Python's numeric model, porting canonicalPythonNumberToken
-// from the original implementation: arbitrary-size integer tokens are
+// from node-src/json/python-number.ts: arbitrary-size integer tokens are
 // normalized (via math/big, mirroring the Node code's BigInt normalization)
 // and remain exact, while any other syntactically valid JSON number token is
 // re-rendered through the finite binary64 value and spelling that

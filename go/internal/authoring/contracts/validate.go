@@ -12,7 +12,7 @@ import (
 )
 
 // DecodeSourceProvenance strictly decodes and validates source-provenance-v1
-// under the authoring artifact contract §3.2.1.
+// under docs/go-authoring-port-roadmap.md §3.2.1.
 func DecodeSourceProvenance(data []byte) (SourceProvenance, error) {
 	var provenance SourceProvenance
 	if err := decodeDocument(data, sourceProvenanceContract, sourceProvenanceSchema, &provenance); err != nil {
@@ -29,7 +29,7 @@ func DecodeSourceProvenance(data []byte) (SourceProvenance, error) {
 }
 
 // ValidateSourceProvenance enforces the trust, identity, ordering, and portable
-// path invariants in the authoring artifact contract §3.2.1.
+// path invariants in docs/go-authoring-port-roadmap.md §3.2.1.
 func ValidateSourceProvenance(provenance SourceProvenance) error {
 	const contract = sourceProvenanceContract
 	if provenance.Kind != "infrawright.source_provenance" {
@@ -93,7 +93,7 @@ func ValidateSourceProvenance(provenance SourceProvenance) error {
 }
 
 // DecodeInputProvenance strictly decodes the verified/unverified emitted union
-// from the authoring artifact contract §§3.2.1 and 3.5.
+// from docs/go-authoring-port-roadmap.md §§3.2.1 and 3.5.
 func DecodeInputProvenance(data []byte) (InputProvenance, error) {
 	var provenance InputProvenance
 	if err := decodeDocument(data, inputProvenanceContract, inputProvenanceSchema, &provenance); err != nil {
@@ -110,7 +110,7 @@ func DecodeInputProvenance(data []byte) (InputProvenance, error) {
 }
 
 // ValidateInputProvenance enforces the exclusive trust union required for
-// input-provenance.json by the authoring artifact contract §3.2.1.
+// input-provenance.json by docs/go-authoring-port-roadmap.md §3.2.1.
 func ValidateInputProvenance(provenance InputProvenance) error {
 	if provenance.Kind != "infrawright.input_provenance" || provenance.SchemaVersion != 1 {
 		return semanticErrorf(inputProvenanceContract, "$", "input provenance kind/version is invalid")
@@ -444,7 +444,7 @@ func isSHA256(value string) bool {
 }
 
 // DecodeSourceEvidenceReport strictly decodes and validates the source
-// partition in the authoring artifact contract §3.3.
+// partition in docs/go-authoring-port-roadmap.md §3.3.
 func DecodeSourceEvidenceReport(data []byte) (SourceEvidenceReport, error) {
 	var report SourceEvidenceReport
 	if err := decodeDocument(data, sourceReportContract, sourceReportSchema, &report); err != nil {
@@ -461,7 +461,7 @@ func DecodeSourceEvidenceReport(data []byte) (SourceEvidenceReport, error) {
 }
 
 // ValidateSourceEvidenceReport enforces exact source partitions, evidence
-// shapes, and trust projection from the authoring artifact contract §3.3.
+// shapes, and trust projection from docs/go-authoring-port-roadmap.md §3.3.
 func ValidateSourceEvidenceReport(report SourceEvidenceReport) error {
 	if report.Kind != "infrawright.source_evidence_report" {
 		return semanticErrorf(sourceReportContract, "$.kind", "must equal infrawright.source_evidence_report")
@@ -492,7 +492,7 @@ func ValidateSourceEvidenceReport(report SourceEvidenceReport) error {
 }
 
 // ValidateSourceEvidenceReportAgainstInput binds a source report to the exact
-// input-provenance.json bytes required by the authoring artifact contract §3.5.
+// input-provenance.json bytes required by docs/go-authoring-port-roadmap.md §3.5.
 func ValidateSourceEvidenceReportAgainstInput(report SourceEvidenceReport, input InputProvenance) error {
 	if err := ValidateSourceEvidenceReport(report); err != nil {
 		return err
@@ -1325,7 +1325,7 @@ func validateSourceSummary(summary SourceSummary, counts SourceClassificationCou
 }
 
 // DecodeOpenAPIDiagnosticsReport strictly decodes the isolated OpenAPI
-// comparison artifact from the authoring artifact contract §3.6 and joins it
+// comparison artifact from docs/go-authoring-port-roadmap.md §3.6 and joins it
 // to its already validated source report.
 func DecodeOpenAPIDiagnosticsReport(data []byte, source SourceEvidenceReport) (OpenAPIDiagnosticsReport, error) {
 	var diagnostics OpenAPIDiagnosticsReport
@@ -1343,7 +1343,7 @@ func DecodeOpenAPIDiagnosticsReport(data []byte, source SourceEvidenceReport) (O
 }
 
 // ValidateOpenAPIDiagnosticsReport enforces the isolated six-state partition
-// and exact cross-report key join from the authoring artifact contract §3.6.
+// and exact cross-report key join from docs/go-authoring-port-roadmap.md §3.6.
 func ValidateOpenAPIDiagnosticsReport(diagnostics OpenAPIDiagnosticsReport, source SourceEvidenceReport) error {
 	if err := ValidateSourceEvidenceReport(source); err != nil {
 		return semanticErrorf(openAPIDiagnosticsContract, "$.source_report", "source report is invalid")

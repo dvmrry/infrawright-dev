@@ -1,6 +1,6 @@
 package transform
 
-// selection.go ports the original implementation: resource
+// selection.go ports node-src/domain/transform-selection.ts: resource
 // selection and fail-closed referent-first reference ordering over the merged
 // `references` tables from active pack manifests.
 
@@ -11,7 +11,7 @@ import (
 )
 
 // TransformSelection ports the exported TransformSelection interface from
-// the original implementation.
+// node-src/domain/transform-selection.ts.
 type TransformSelection struct {
 	ResourceTypes []string
 	// Notes is retained for API stability. It is always empty because a
@@ -20,7 +20,7 @@ type TransformSelection struct {
 }
 
 // MergedTransformReferences ports the exported mergedTransformReferences
-// from the original implementation. root.Packs.Manifests is
+// from node-src/domain/transform-selection.ts. root.Packs.Manifests is
 // walked in its own (already deterministic) slice order -- unlike the
 // per-manifest field walks below it, that outer order is load-bearing: a
 // later active manifest's field for the same resourceType+field
@@ -68,7 +68,7 @@ func MergedTransformReferences(root metadata.LoadedPackRoot) map[string]map[stri
 
 // MergedTransformLookupSources ports the exported
 // mergedTransformLookupSources from
-// the original implementation. See MergedTransformReferences's
+// node-src/domain/transform-selection.ts. See MergedTransformReferences's
 // doc comment for the manifest-order/inner-walk-order reasoning, which
 // applies identically here -- except this function replaces a
 // resourceType's entire lookup source wholesale on each active manifest
@@ -99,7 +99,7 @@ func MergedTransformLookupSources(root metadata.LoadedPackRoot) map[string]map[s
 }
 
 // referenceGraph ports referenceGraph from
-// the original implementation: graph[referent] is the set of
+// node-src/domain/transform-selection.ts: graph[referent] is the set of
 // referrers depending on referent (referent must be ordered before them),
 // and indegree[referrer] counts how many unresolved in-selection referents
 // it still has.
@@ -202,7 +202,7 @@ func ReferenceOrder(root metadata.LoadedPackRoot, resourceTypes []string) (resul
 }
 
 // SelectTransformResources ports the exported selectTransformResources from
-// the original implementation: "Expand active generated
+// node-src/domain/transform-selection.ts: "Expand active generated
 // selectors, then order referents before referrers."
 func SelectTransformResources(root metadata.LoadedPackRoot, selectors []string) (result TransformSelection, err error) {
 	defer recoverErr(&err)
@@ -214,7 +214,7 @@ func SelectTransformResources(root metadata.LoadedPackRoot, selectors []string) 
 }
 
 // TransformSourceType ports the exported transformSourceType from
-// the original implementation: "Resolve the pull filename stem
+// node-src/domain/transform-selection.ts: "Resolve the pull filename stem
 // consumed by one generated transform resource."
 func TransformSourceType(root metadata.LoadedPackRoot, resourceType string) (source string, err error) {
 	defer recoverErr(&err)

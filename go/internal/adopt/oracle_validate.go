@@ -121,7 +121,7 @@ func assertImportOnlyBatchPlan(plan decodedPlan, expected map[string]expectedOra
 }
 
 // AssertImportOnlyPlan ports assertImportOnlyPlan from
-// the original implementation.
+// node-src/domain/import-oracle.ts.
 func AssertImportOnlyPlan(planBytes []byte, expectedImports map[string]string, provider, resourceType string) error {
 	typed, raw, err := DecodeOraclePlan(planBytes)
 	if err != nil {
@@ -273,7 +273,7 @@ func extractAcceptedBatchPlanState(plan decodedPlan, expected map[string]expecte
 }
 
 // ExtractAcceptedPlanState ports extractAcceptedPlanState from
-// the original implementation.
+// node-src/domain/import-oracle.ts.
 func ExtractAcceptedPlanState(planBytes []byte, addressToKey, expectedImports map[string]string, provider, resourceType string) (map[string]OracleStateObject, error) {
 	missing := make([]string, 0)
 	unexpected := make([]string, 0)

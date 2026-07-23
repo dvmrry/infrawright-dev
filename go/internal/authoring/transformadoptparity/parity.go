@@ -20,7 +20,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/adopt"
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
-	"github.com/dvmrry/infrawright-dev/go/internal/textcompat"
+	"github.com/dvmrry/infrawright-dev/go/internal/pyunicode"
 	"github.com/dvmrry/infrawright-dev/go/internal/transform"
 	"github.com/dvmrry/infrawright-dev/go/internal/transformrun"
 )
@@ -952,7 +952,7 @@ func compare(input Fixture, context Context, comparator func(any, any) ([]Differ
 	if err != nil {
 		return nil, err
 	}
-	transformed, err := transform.TransformLoadedItems(transform.TransformLoadedItemsOptions{Resource: resource, Schema: schema, RawItems: fixture.RawItems, HTMLUnescape: textcompat.HTMLUnescape, UnescapeHTML: transformrun.ShouldUnescapeForTransform(context.Root, fixture.ResourceType)})
+	transformed, err := transform.TransformLoadedItems(transform.TransformLoadedItemsOptions{Resource: resource, Schema: schema, RawItems: fixture.RawItems, HTMLUnescape: pyunicode.PythonHTMLUnescapeGeneric, UnescapeHTML: transformrun.ShouldUnescapeForTransform(context.Root, fixture.ResourceType)})
 	if err != nil {
 		return nil, err
 	}

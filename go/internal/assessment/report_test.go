@@ -1,10 +1,15 @@
 package assessment
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,6 +18,70 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/plan"
 	"github.com/dvmrry/infrawright-dev/go/internal/procerr"
 )
+
+const planReportAuthoritySHA256 = "df9d09b903bf60d34ad567f213bd1ddbb1e8bf2aaf1fc71c49be9a050a3e343c"
+
+type pythonPlanReportCase struct {
+	Name        string `json:"name"`
+	InputJSON   string `json:"input_json"`
+	OutputBytes string `json:"output_bytes"`
+}
+
+type pythonPlanReportAuthority struct {
+	Authority struct {
+		Implementation string `json:"implementation"`
+		PythonVersion  string `json:"python_version"`
+		UnicodeVersion string `json:"unicode_version"`
+	} `json:"authority"`
+	FloatCase struct {
+		Name        string `json:"name"`
+		OutputBytes string `json:"output_bytes"`
+		Token       string `json:"token"`
+	} `json:"float_case"`
+	Kind          string `json:"kind"`
+	Normalization string `json:"normalization"`
+	PathCase      struct {
+		Input  []PlanPath `json:"input"`
+		Name   string     `json:"name"`
+		Output []string   `json:"output"`
+	} `json:"path_case"`
+	ProducingBaseline string                 `json:"producing_baseline"`
+	ReportCases       []pythonPlanReportCase `json:"report_cases"`
+	SchemaVersion     int                    `json:"schema_version"`
+	SourceBlobs       map[string]string      `json:"source_blobs"`
+}
+
+func loadPlanReportAuthority(t *testing.T) pythonPlanReportAuthority {
+	t.Helper()
+	filePath := filepath.Join("..", "..", "..", "node-tests", "fixtures", "python-plan-report-v1.json")
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error = %v, want nil", filePath, err)
+	}
+	digest := sha256.Sum256(data)
+	if got := hex.EncodeToString(digest[:]); got != planReportAuthoritySHA256 {
+		t.Fatalf("SHA256(%q) = %q, want %q", filePath, got, planReportAuthoritySHA256)
+	}
+	var authority pythonPlanReportAuthority
+	if err := json.Unmarshal(data, &authority); err != nil {
+		t.Fatalf("json.Unmarshal(%q) error = %v, want nil", filePath, err)
+	}
+	return authority
+}
+
+func planReportAuthorityCase(t *testing.T, authority pythonPlanReportAuthority, name string) pythonPlanReportCase {
+	t.Helper()
+	var matches []pythonPlanReportCase
+	for _, candidate := range authority.ReportCases {
+		if candidate.Name == name {
+			matches = append(matches, candidate)
+		}
+	}
+	if len(matches) != 1 {
+		t.Fatalf("planReportAuthorityCase(%q) count = %d, want 1", name, len(matches))
+	}
+	return matches[0]
+}
 
 func reportStringPointer(value string) *string {
 	return &value
@@ -108,6 +177,75 @@ func buildReportForTest(t *testing.T, status PlanStatus) SavedPlanAssessmentRepo
 		t.Fatalf("BuildSavedPlanAssessmentReport(%q) error = %v, want nil", status, err)
 	}
 	return report
+}
+
+func TestPlanReportFrozenPythonAuthority(t *testing.T) {
+	authority := loadPlanReportAuthority(t)
+	if authority.Kind != "infrawright.python-plan-report-authority" || authority.SchemaVersion != 1 ||
+		authority.Normalization != "none" ||
+		authority.ProducingBaseline != "ef8b4622e79bdc2e8b3c54a52bc18c6c379ef13c" {
+		t.Fatalf("plan-report authority header = %+v, want frozen v1 CPython authority", authority)
+	}
+	if got, want := authority.Authority, (struct {
+		Implementation string `json:"implementation"`
+		PythonVersion  string `json:"python_version"`
+		UnicodeVersion string `json:"unicode_version"`
+	}{Implementation: "CPython", PythonVersion: "3.13.13", UnicodeVersion: "15.1.0"}); got != want {
+		t.Fatalf("plan-report authority metadata = %+v, want %+v", got, want)
+	}
+	wantBlobs := map[string]string{
+		"node_plan_report":       "4077ba595ab6e58ad51265102b1166b925c3cdf4",
+		"node_python_compatible": "a95ef511c10bb1c727ca6a5f9616909acdea12c3",
+		"node_validators":        "2e29d8025f857c38af48627ef67c03385af91679",
+		"python_ops":             "f160a796f6078d96ee423d1ca7f1d169598c8160",
+		"python_paths":           "63ffb562172405c27a880345cd85b93af7b1ba94",
+		"python_plan_eval":       "f15e4f44193d517384065a1d320533ea74a47a15",
+		"test":                   "c93c39d46e0e354cf9096acfaf5c68b4c2f80bc2",
+	}
+	if !reflect.DeepEqual(authority.SourceBlobs, wantBlobs) {
+		t.Fatalf("plan-report authority source_blobs = %#v, want %#v", authority.SourceBlobs, wantBlobs)
+	}
+	if authority.PathCase.Name != "concrete-plan-paths" {
+		t.Fatalf("plan-report path case name = %q, want %q", authority.PathCase.Name, "concrete-plan-paths")
+	}
+	gotPaths := make([]string, len(authority.PathCase.Input))
+	for index, input := range authority.PathCase.Input {
+		gotPaths[index] = FormatConcretePlanPath(input)
+	}
+	if !reflect.DeepEqual(gotPaths, authority.PathCase.Output) {
+		t.Errorf("FormatConcretePlanPath(frozen inputs) = %#v, want %#v", gotPaths, authority.PathCase.Output)
+	}
+
+	for _, status := range []PlanStatus{Clean, Tolerated, Blocked} {
+		report := buildReportForTest(t, status)
+		rendered, err := RenderAssessmentReport(report)
+		if err != nil {
+			t.Fatalf("RenderAssessmentReport(%q) error = %v, want nil", status, err)
+		}
+		want := planReportAuthorityCase(t, authority, string(status)).OutputBytes
+		if rendered != want {
+			t.Errorf("RenderAssessmentReport(%q) bytes mismatch:\n got: %q\nwant: %q", status, rendered, want)
+		}
+	}
+
+	floatReport, err := BuildSavedPlanAssessmentReport(BuildSavedPlanAssessmentReportOptions{
+		Mode: AssertAdoptable,
+		Request: AssessmentReportRequest{
+			Tenant: reportStringPointer("tenant"), Policy: reportStringPointer("policy.json"),
+		},
+		Core: reportCore(Blocked), Guidance: reportGuidance(Blocked, json.Number("1.0")),
+	})
+	if err != nil {
+		t.Fatalf("BuildSavedPlanAssessmentReport(frozen float) error = %v, want nil", err)
+	}
+	rendered, err := RenderAssessmentReport(floatReport)
+	if err != nil {
+		t.Fatalf("RenderAssessmentReport(frozen float) error = %v, want nil", err)
+	}
+	if authority.FloatCase.Name != "guidance-float-provenance" || authority.FloatCase.Token != "1.0" ||
+		rendered != authority.FloatCase.OutputBytes {
+		t.Errorf("RenderAssessmentReport(frozen float) = %q, want frozen token %q and bytes %q", rendered, authority.FloatCase.Token, authority.FloatCase.OutputBytes)
+	}
 }
 
 func TestReportGuidanceJoinSortCloneAndExactDedup(t *testing.T) {
@@ -404,6 +542,92 @@ func TestErrorReportExactBytes(t *testing.T) {
 `
 	if rendered != want {
 		t.Errorf("RenderAssessmentReport(error report) bytes mismatch:\n got: %q\nwant: %q", rendered, want)
+	}
+}
+
+func TestErrorReportBytesMatchLiveNodeOracle(t *testing.T) {
+	if os.Getenv("INFRAWRIGHT_FROZEN_NODE_ORACLE") == "" {
+		t.Skip("archived runtime oracle is opt-in")
+	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skipf("Node v24.15.0 report oracle unavailable: exec.LookPath(node) error = %v", err)
+	}
+	version, err := exec.Command(node, "--version").Output()
+	if err != nil {
+		t.Skipf("Node v24.15.0 report oracle unavailable: node --version error = %v", err)
+	}
+	if got := strings.TrimSpace(string(version)); got != "v24.15.0" {
+		t.Skipf("saved-plan report oracle requires Node v24.15.0, got %q", got)
+	}
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatalf("filepath.Abs(repository root) error = %v, want nil", err)
+	}
+	compiledPlanReport := filepath.Join(repositoryRoot, ".node-test", "node-src", "domain", "plan-report.js")
+	compiledReportIO := filepath.Join(repositoryRoot, ".node-test", "node-src", "io", "assessment-report.js")
+	for _, required := range []string{compiledPlanReport, compiledReportIO} {
+		if _, err := os.Stat(required); err != nil {
+			t.Skipf("compiled Node report oracle absent (%s): %v", required, err)
+		}
+	}
+
+	report, err := BuildSavedPlanAssessmentErrorReport(BuildSavedPlanAssessmentErrorReportOptions{
+		Mode:    AssertAdoptable,
+		Request: AssessmentReportRequest{Policy: reportStringPointer("policy.json")},
+		Partial: reportCore(Clean),
+		Error: AssessmentReportError{
+			Kind: AssessmentError, Message: "sanitized assessment failure",
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildSavedPlanAssessmentErrorReport(live Node vector) error = %v, want nil", err)
+	}
+	want, err := RenderAssessmentReport(report)
+	if err != nil {
+		t.Fatalf("RenderAssessmentReport(live Node vector) error = %v, want nil", err)
+	}
+
+	const probe = `
+import { buildSavedPlanAssessmentErrorReport } from "./.node-test/node-src/domain/plan-report.js";
+import { renderAssessmentReport } from "./.node-test/node-src/io/assessment-report.js";
+const report = buildSavedPlanAssessmentErrorReport({
+  mode: "assert-adoptable",
+  request: { tenant: null, selectors: [], policy: "policy.json" },
+  partial: {
+    status: "clean",
+    checked: 1,
+    clean: 1,
+    tolerated: 0,
+    blocked: 0,
+    policy_sha256: "a".repeat(64),
+    roots: [{
+      tenant: "tenant",
+      label: "zpa_custom",
+      members: ["zpa_sample"],
+      status: "clean",
+      plan: {
+        sha256: "b".repeat(64),
+        format_version: "1.2",
+        terraform_version: "1.15.4",
+      },
+      plan_fingerprint: { version: 2, sha256: "c".repeat(64) },
+      findings: [],
+    }],
+    stale_policy: [{ resource_type: "zpa_sample", mode: "plan_tolerate", path: "unused" }],
+  },
+  error: { kind: "assessment_error", message: "sanitized assessment failure" },
+});
+process.stdout.write(renderAssessmentReport(report));
+`
+	command := exec.Command(node, "--input-type=module", "--eval", probe)
+	command.Dir = repositoryRoot
+	got, err := command.Output()
+	if err != nil {
+		t.Fatalf("live Node error-report probe error = %v, want nil", err)
+	}
+	if string(got) != want {
+		t.Errorf("live Node error-report bytes mismatch:\n got: %q\nwant: %q", got, want)
 	}
 }
 

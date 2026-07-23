@@ -1,15 +1,15 @@
-// Package envgen ports the original implementation,
-// the original implementation, and
-// the original implementation: Terraform expression-binding
+// Package envgen ports node-src/domain/expression-bindings.ts,
+// node-src/domain/reference-topology.ts, and
+// node-src/domain/environment-generator.ts: Terraform expression-binding
 // compilation, the cross-state reference DAG, and gen-env's env-root
 // generation (backend blocks, provider headers, module source resolution,
 // variable wiring, binding emission, and generated-root file lifecycle).
 // See docs/terraform-expression-bindings.md for the operator-facing design
 // intent behind expression bindings.
 //
-// Every exported symbol's doc comment names the the original implementation export
+// Every exported symbol's doc comment names the node-src/domain/*.ts export
 // it ports; those TypeScript files remain the differential oracle until
-// this port is independently qualified, per the Go runtime contract.
+// this port is independently qualified, per docs/go-runtime-plan.md.
 //
 // # Error model
 //
@@ -59,7 +59,7 @@ func (e *bindingsError) Error() string { return e.message }
 
 // bindingsFail panics with a *bindingsError carrying message, the Go
 // analogue of every bare `throw new TypeError(...)` in
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 func bindingsFail(format string, args ...any) {
 	panic(&bindingsError{message: fmt.Sprintf(format, args...)})
 }
@@ -79,7 +79,7 @@ func recoverBindingsError(err *error) {
 	}
 }
 
-// Regular expressions ported from the original implementation.
+// Regular expressions ported from node-src/domain/expression-bindings.ts.
 //
 // The TS ALLOWED_EXPRESSIONS grammar relies on negative lookahead
 // (`\$(?!\{)`, `%(?!\{)`) inside its HCL_STRING sub-pattern, which Go's
@@ -92,10 +92,10 @@ func recoverBindingsError(err *error) {
 // regexp below (none of which need lookahead) is a direct, unmodified port.
 //
 // Probed against the compiled TypeScript (npx esbuild
-// the original implementation --bundle --platform=node
+// node-src/domain/expression-bindings.ts --bundle --platform=node
 // --format=esm --external:lossless-json --outfile=.../expression-bindings.mjs,
 // then a Node driver calling validateExpression over the allowlist/malformed
-// vectors from the original test corpus plus adjacent edge
+// vectors from node-tests/expression-bindings.test.ts plus adjacent edge
 // cases -- unterminated/leading-zero indexes, "${"/"%{" inside a quoted list
 // literal, multi-selector chains, whitespace-only vs. non-Python-whitespace
 // separators) to confirm matchesAllowedExpression's byte-for-byte agreement
@@ -112,7 +112,7 @@ var (
 const jsMaxSafeInteger = int64(1)<<53 - 1
 
 // ExpressionBinding is the Go analogue of the ExpressionBinding interface in
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 type ExpressionBinding struct {
 	Address string
 	Key     string
@@ -129,7 +129,7 @@ type ExpressionBinding struct {
 }
 
 // HclExpression is the Go analogue of the HclExpression class in
-// the original implementation: a marker value distinguishing an
+// node-src/domain/expression-bindings.ts: a marker value distinguishing an
 // already-validated Terraform expression from an ordinary JSON scalar
 // inside a canonjson.Value tree, used as a *HclExpression sentinel wherever
 // the TS source checks `value instanceof HclExpression`.
@@ -139,21 +139,21 @@ type HclExpression struct {
 
 // newHclExpression panics (via bindingsFail, through validateExpression) if
 // expression is outside the v1 allowlist; ported from the HclExpression
-// constructor in the original implementation, which likewise
+// constructor in node-src/domain/expression-bindings.ts, which likewise
 // throws from `validateExpression(expression, "HclExpression")`.
 func newHclExpression(expression string) *HclExpression {
 	return &HclExpression{Expression: validateExpression(expression, "HclExpression")}
 }
 
 // NewHclExpression ports the HclExpression constructor from
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 func NewHclExpression(expression string) (result *HclExpression, err error) {
 	defer recoverBindingsError(&err)
 	return newHclExpression(expression), nil
 }
 
 // pythonJSONString ports the local pythonJsonString helper from
-// the original implementation: `JSON.stringify(value)` with
+// node-src/domain/expression-bindings.ts: `JSON.stringify(value)` with
 // every UTF-16 code unit at or above 0x7F additionally escaped as \uXXXX
 // (so, unlike a bare JSON.stringify, this never emits a raw non-ASCII byte).
 //
@@ -198,7 +198,7 @@ func pythonJSONString(value string) string {
 
 // jsStringify approximates plain `JSON.stringify(value)` (no additional
 // non-ASCII escaping) for the several error-message interpolations in
-// the original implementation that use it directly rather than
+// node-src/domain/expression-bindings.ts that use it directly rather than
 // through pythonJsonString: control characters below 0x20 get the standard
 // JSON escapes, quote and backslash are escaped, and every other character
 // (including non-ASCII) is left literal, exactly like JavaScript's
@@ -234,7 +234,7 @@ func jsStringify(value string) string {
 	return sb.String()
 }
 
-// hclKey ports hclKey from the original implementation.
+// hclKey ports hclKey from node-src/domain/expression-bindings.ts.
 func hclKey(value string) string {
 	if pathSegmentPattern.MatchString(value) {
 		return value
@@ -243,7 +243,7 @@ func hclKey(value string) string {
 }
 
 // containsControlCharacter ports the CONTROL_CHARACTERS regexp test
-// (`/[\x00-\x1f\x7f]/u`) from the original implementation.
+// (`/[\x00-\x1f\x7f]/u`) from node-src/domain/expression-bindings.ts.
 func containsControlCharacter(value string) bool {
 	for _, r := range value {
 		if r < 0x20 || r == 0x7f {
@@ -414,7 +414,7 @@ func matchListElement(s string, pos int) int {
 }
 
 // isPythonWhitespaceRune ports the PYTHON_WHITESPACE character class from
-// the original implementation: Python's `re` whitespace set,
+// node-src/domain/expression-bindings.ts: Python's `re` whitespace set,
 // deliberately not JavaScript's native `\s` (which additionally matches
 // U+FEFF, the byte-order mark -- excluded here on purpose).
 func isPythonWhitespaceRune(r rune) bool {
@@ -492,7 +492,7 @@ func matchListLiteral(s string, pos int) int {
 
 // matchesAllowedExpression reports whether expression matches one of the
 // five ALLOWED_EXPRESSIONS alternatives from
-// the original implementation in full (see this file's regexp
+// node-src/domain/expression-bindings.ts in full (see this file's regexp
 // doc comment).
 func matchesAllowedExpression(expression string) bool {
 	if p := matchLiteral(expression, 0, "var."); p >= 0 {
@@ -518,7 +518,7 @@ func matchesAllowedExpression(expression string) bool {
 }
 
 // validateExpression ports validateExpression from
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 func validateExpression(expression any, context string) string {
 	s, ok := expression.(string)
 	if !ok || len(s) == 0 {
@@ -537,13 +537,13 @@ func validateExpression(expression any, context string) string {
 }
 
 // ValidateExpression ports validateExpression from
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 func ValidateExpression(expression any, context string) (result string, err error) {
 	defer recoverBindingsError(&err)
 	return validateExpression(expression, context), nil
 }
 
-// renderPath ports renderPath from the original implementation.
+// renderPath ports renderPath from node-src/domain/expression-bindings.ts.
 func renderPath(parts []any) string {
 	var sb strings.Builder
 	for index, part := range parts {
@@ -588,7 +588,7 @@ func safeIndexFromToken(token string) (int, bool) {
 	return int(value), true
 }
 
-// parsePath ports parsePath from the original implementation.
+// parsePath ports parsePath from node-src/domain/expression-bindings.ts.
 func parsePath(value any, context string) []any {
 	s, ok := value.(string)
 	if !ok || len(s) == 0 {
@@ -641,7 +641,7 @@ func parsePath(value any, context string) []any {
 }
 
 // parseBinding ports parseBinding from
-// the original implementation. address and bindingPath are typed
+// node-src/domain/expression-bindings.ts. address and bindingPath are typed
 // `unknown` in the TS source purely to accept the `String(...)`-coerced
 // object-key values `Object.keys(...)` always actually supplies as plain
 // strings at this function's only call site; Go's map[string]any keys are
@@ -715,7 +715,7 @@ func mapKeys(m map[string]any) []string {
 }
 
 // parseExpressionBindings ports the exported parseExpressionBindings from
-// the original implementation: "Parse one resource type's
+// node-src/domain/expression-bindings.ts: "Parse one resource type's
 // operator or generated expression-binding document."
 func parseExpressionBindings(data any, resourceType string) []ExpressionBinding {
 	if data == nil {
@@ -764,14 +764,14 @@ func parseExpressionBindings(data any, resourceType string) []ExpressionBinding 
 }
 
 // ParseExpressionBindings ports parseExpressionBindings from
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 func ParseExpressionBindings(data any, resourceType string) (bindings []ExpressionBinding, err error) {
 	defer recoverBindingsError(&err)
 	return parseExpressionBindings(data, resourceType), nil
 }
 
 // LoadExpressionBindings ports loadExpressionBindings from
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 func LoadExpressionBindings(file, resourceType string) (bindings []ExpressionBinding, err error) {
 	defer recoverBindingsError(&err)
 	text, readErr := metadata.ReadOptionalUTF8(file, resourceType+" expression bindings")
@@ -789,7 +789,7 @@ func LoadExpressionBindings(file, resourceType string) (bindings []ExpressionBin
 }
 
 // ExpressionVariables ports expressionVariables from
-// the original implementation. The TS source returns keys in
+// node-src/domain/expression-bindings.ts. The TS source returns keys in
 // sorted order (`Object.fromEntries(sortedStrings(...))`); this returns an
 // ordinary Go map since every caller in this port's scope (renderExpressionBindingsHcl)
 // re-sorts its keys before use anyway.
@@ -806,7 +806,7 @@ func ExpressionVariables(bindings []ExpressionBinding) map[string]bool {
 	return variables
 }
 
-// cloneJSON ports cloneJson from the original implementation.
+// cloneJSON ports cloneJson from node-src/domain/expression-bindings.ts.
 // The TS source's LosslessNumber branch (constructing a fresh
 // `new LosslessNumber(value.toString())`) has no Go analogue to reproduce:
 // json.Number is an immutable string-backed value type, so copying it by
@@ -835,7 +835,7 @@ func cloneJSON(value any) any {
 }
 
 // applyExpressionBindings ports the exported applyExpressionBindings from
-// the original implementation: "Validate binding paths against
+// node-src/domain/expression-bindings.ts: "Validate binding paths against
 // items and replace leaves with expression sentinels."
 func applyExpressionBindings(items any, bindings []ExpressionBinding) map[string]any {
 	output, ok := cloneJSON(items).(map[string]any)
@@ -905,7 +905,7 @@ func applyExpressionBindings(items any, bindings []ExpressionBinding) map[string
 }
 
 // ApplyExpressionBindings ports applyExpressionBindings from
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 func ApplyExpressionBindings(items any, bindings []ExpressionBinding) (result map[string]any, err error) {
 	defer recoverBindingsError(&err)
 	return applyExpressionBindings(items, bindings), nil
@@ -913,7 +913,7 @@ func ApplyExpressionBindings(items any, bindings []ExpressionBinding) (result ma
 
 // bindingSchemaCursorKind is the Go analogue of the BindingSchemaCursor
 // discriminated union's `kind` field in
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 type bindingSchemaCursorKind int
 
 const (
@@ -924,7 +924,7 @@ const (
 )
 
 // bindingSchemaCursor is the Go analogue of the BindingSchemaCursor type in
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 type bindingSchemaCursor struct {
 	kind     bindingSchemaCursorKind
 	block    metadata.JsonObject
@@ -933,7 +933,7 @@ type bindingSchemaCursor struct {
 }
 
 // schemaPathError ports schemaPathError from
-// the original implementation, typed there as returning `never`
+// node-src/domain/expression-bindings.ts, typed there as returning `never`
 // because it always throws; this Go version returns bindingSchemaCursor
 // purely so call sites can write `return schemaPathError(...)` to satisfy
 // the compiler's return-value requirement -- schemaPathError itself always
@@ -952,7 +952,7 @@ func requireTerraformObject(value any, label string) metadata.JsonObject {
 }
 
 // encodingCursor ports encodingCursor from
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 func encodingCursor(binding ExpressionBinding, cursor bindingSchemaCursor, part any) bindingSchemaCursor {
 	switch encoding := cursor.encoding.(type) {
 	case metadata.TerraformPrimitiveType:
@@ -991,7 +991,7 @@ func encodingCursor(binding ExpressionBinding, cursor bindingSchemaCursor, part 
 	}
 }
 
-// blockCursor ports blockCursor from the original implementation.
+// blockCursor ports blockCursor from node-src/domain/expression-bindings.ts.
 func blockCursor(binding ExpressionBinding, cursor bindingSchemaCursor, part any) bindingSchemaCursor {
 	name, isName := part.(string)
 	if !isName {
@@ -1054,7 +1054,7 @@ func jsStringifyNestingMode(value any) string {
 
 // ValidateExpressionBindingSchemaPaths ports the exported
 // validateExpressionBindingSchemaPaths from
-// the original implementation: "Validate target paths against
+// node-src/domain/expression-bindings.ts: "Validate target paths against
 // the provider schema, including native-HCL configs."
 func ValidateExpressionBindingSchemaPaths(schema metadata.JsonObject, resourceType string, bindings []ExpressionBinding) (err error) {
 	defer recoverBindingsError(&err)
@@ -1085,7 +1085,7 @@ func ValidateExpressionBindingSchemaPaths(schema metadata.JsonObject, resourceTy
 }
 
 // renderExpressionHclValue ports the exported renderExpressionHclValue from
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 func renderExpressionHclValue(value any, indent int) string {
 	switch v := value.(type) {
 	case *HclExpression:
@@ -1141,7 +1141,7 @@ func renderExpressionHclValue(value any, indent int) string {
 const jsMaxSafeIntegerFloat = float64(jsMaxSafeInteger)
 
 // RenderExpressionHclValue ports renderExpressionHclValue from
-// the original implementation. indent mirrors the TS source's
+// node-src/domain/expression-bindings.ts. indent mirrors the TS source's
 // `indent = 0` default parameter; pass 0 for a top-level call.
 func RenderExpressionHclValue(value any, indent int) (result string, err error) {
 	defer recoverBindingsError(&err)
@@ -1149,7 +1149,7 @@ func RenderExpressionHclValue(value any, indent int) (result string, err error) 
 }
 
 // toTerraformJsonValue ports the exported toTerraformJsonValue from
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 func toTerraformJsonValue(value any) any {
 	switch v := value.(type) {
 	case *HclExpression:
@@ -1172,7 +1172,7 @@ func toTerraformJsonValue(value any) any {
 }
 
 // ToTerraformJsonValue ports toTerraformJsonValue from
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 func ToTerraformJsonValue(value any) any {
 	return toTerraformJsonValue(value)
 }
@@ -1205,7 +1205,7 @@ const (
 )
 
 // bindingTree is the Go analogue of the BindingTree interface in
-// the original implementation. children is keyed by either a
+// node-src/domain/expression-bindings.ts. children is keyed by either a
 // string (attribute name) or an int (list index), mirroring PathParts.
 type bindingTree struct {
 	kind     bindingTreeKind
@@ -1217,7 +1217,7 @@ func emptyBindingTree() *bindingTree {
 }
 
 // bindingTreeChild ports bindingTreeChild from
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 func bindingTreeChild(tree *bindingTree, part any, binding ExpressionBinding) *bindingTree {
 	_, isIndex := part.(int)
 	kind := bindingTreeKindAttributes
@@ -1241,7 +1241,7 @@ func bindingTreeChild(tree *bindingTree, part any, binding ExpressionBinding) *b
 }
 
 // bindingTreeForBindings ports the local `bindingTree` function from
-// the original implementation, renamed to avoid colliding with
+// node-src/domain/expression-bindings.ts, renamed to avoid colliding with
 // this file's bindingTree type.
 func bindingTreeForBindings(bindings []ExpressionBinding) map[string]*bindingTree {
 	output := map[string]*bindingTree{}
@@ -1275,7 +1275,7 @@ func bindingTreeForBindings(bindings []ExpressionBinding) map[string]*bindingTre
 	return output
 }
 
-// renderMerge ports renderMerge from the original implementation.
+// renderMerge ports renderMerge from node-src/domain/expression-bindings.ts.
 func renderMerge(baseExpression string, tree *bindingTree, indent int) string {
 	if tree.kind == bindingTreeKindIndices {
 		return renderListEdits(baseExpression, tree, indent)
@@ -1307,7 +1307,7 @@ func renderMerge(baseExpression string, tree *bindingTree, indent int) string {
 }
 
 // renderListEdits ports renderListEdits from
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 func renderListEdits(baseExpression string, tree *bindingTree, indent int) string {
 	var indexes []int
 	for part := range tree.children {
@@ -1344,7 +1344,7 @@ func sortInts(values []int) {
 
 // RenderExpressionBindingsHclOptions ports the options bag
 // renderExpressionBindingsHcl accepts in
-// the original implementation. An empty field means "use the TS
+// node-src/domain/expression-bindings.ts. An empty field means "use the TS
 // source's default" (ItemsVariable defaults to "items", LocalName defaults
 // to "infrawright_expression_bound_items"), matching the TS source's own
 // `options?.itemsVariable ?? "items"` fallback -- a caller can never
@@ -1356,7 +1356,7 @@ type RenderExpressionBindingsHclOptions struct {
 }
 
 // renderExpressionBindingsHcl ports the exported renderExpressionBindingsHcl
-// from the original implementation: "Render the exact root-layer
+// from node-src/domain/expression-bindings.ts: "Render the exact root-layer
 // HCL merge contract used by Python gen_env."
 func renderExpressionBindingsHcl(bindings []ExpressionBinding, options RenderExpressionBindingsHclOptions) string {
 	if len(bindings) == 0 {
@@ -1412,7 +1412,7 @@ func renderExpressionBindingsHcl(bindings []ExpressionBinding, options RenderExp
 }
 
 // RenderExpressionBindingsHcl ports renderExpressionBindingsHcl from
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 func RenderExpressionBindingsHcl(bindings []ExpressionBinding, options RenderExpressionBindingsHclOptions) (result string, err error) {
 	defer recoverBindingsError(&err)
 	return renderExpressionBindingsHcl(bindings, options), nil
@@ -1430,7 +1430,7 @@ func bindingIdentity(binding ExpressionBinding) string {
 
 // MergeExpressionBindingLayers ports the exported
 // mergeExpressionBindingLayers from
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 func MergeExpressionBindingLayers(layers [][]ExpressionBinding) []ExpressionBinding {
 	selected := map[string]ExpressionBinding{}
 	var order []string
@@ -1467,7 +1467,7 @@ func compareBindingKeyPath(left, right ExpressionBinding) int {
 }
 
 // ExpressionModuleTargets ports the exported expressionModuleTargets from
-// the original implementation: "Return module names referenced
+// node-src/domain/expression-bindings.ts: "Return module names referenced
 // outside quoted strings."
 func ExpressionModuleTargets(expression string) []string {
 	targets := map[string]bool{}
@@ -1515,7 +1515,7 @@ func ExpressionModuleTargets(expression string) []string {
 }
 
 // RemoteStateReference is the Go analogue of the RemoteStateReference
-// interface in the original implementation.
+// interface in node-src/domain/expression-bindings.ts.
 type RemoteStateReference struct {
 	Key          string
 	ResourceType string
@@ -1528,7 +1528,7 @@ var remoteStateSelectorPattern = regexp.MustCompile(
 
 // expressionRemoteStateReferences ports the exported
 // expressionRemoteStateReferences from
-// the original implementation: "Return canonical Infrawright
+// node-src/domain/expression-bindings.ts: "Return canonical Infrawright
 // remote-state selectors outside quoted strings."
 func expressionRemoteStateReferences(expression string) []RemoteStateReference {
 	const prefix = "data.terraform_remote_state."
@@ -1623,7 +1623,7 @@ func compareRemoteStateReference(left, right RemoteStateReference) int {
 }
 
 // ExpressionRemoteStateReferences ports expressionRemoteStateReferences from
-// the original implementation.
+// node-src/domain/expression-bindings.ts.
 func ExpressionRemoteStateReferences(expression string) (references []RemoteStateReference, err error) {
 	defer recoverBindingsError(&err)
 	return expressionRemoteStateReferences(expression), nil

@@ -1,5 +1,11 @@
 package modulesgen
 
+// generator_test.go ports node-tests/module-generator.test.ts's ten test
+// cases verbatim (see each Test function's doc comment for the specific
+// TS test it ports), against both the committed Zscaler packs (via
+// committedRoot, this package's analogue of the TS test's committedRoot
+// helper) and synthetic one-resource pack roots (via syntheticRoot).
+
 import (
 	"encoding/json"
 	"os"
@@ -14,8 +20,8 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
-// TestRendererPreservesCompleteSevenFileContractAndCoreShapes verifies the
-// module file contract against current packs.
+// TestRendererPreservesCompleteSevenFileContractAndCoreShapes ports
+// "renderer preserves the complete seven-file contract and core shapes".
 func TestRendererPreservesCompleteSevenFileContractAndCoreShapes(t *testing.T) {
 	root := committedRoot(t)
 	segment, err := RenderModuleFiles(root, "zpa_segment_group")
@@ -367,9 +373,11 @@ func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t
 			for _, name := range doc.Shared {
 				copyDir(t, filepath.Join(root, "packs", "_shared", name), filepath.Join(directory, "_shared", name))
 			}
+			catalogPath := filepath.Join(root, "packs", "full.packset.json")
 			loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 				PacksRoot:   directory,
 				ProfilePath: &profilePath,
+				CatalogPath: &catalogPath,
 			})
 			if err != nil {
 				t.Fatalf("LoadPackRoot: %v", err)
@@ -395,6 +403,64 @@ func TestEveryCommittedProfileDrivesGenerationFromItsPhysicallyReducedPackRoot(t
 				t.Errorf("ValidateGeneratedModuleTree: %v", err)
 			}
 		})
+	}
+}
+
+// TestAllExistingCommittedHCLGoldensMatchAfterInProcessFormatting preserves
+// the committed byte gate previously exercised through terraform fmt.
+func TestAllExistingCommittedHCLGoldensMatchAfterInProcessFormatting(t *testing.T) {
+	root := committedRoot(t)
+	formatter := NewHCLFormatter()
+	fixtures := filepath.Join(repoRoot(t), "tests", "fixtures", "gen")
+
+	entries, err := os.ReadDir(fixtures)
+	if err != nil {
+		t.Fatalf("ReadDir(%s): %v", fixtures, err)
+	}
+	var resourceTypes []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			resourceTypes = append(resourceTypes, entry.Name())
+		}
+	}
+	sort.Strings(resourceTypes)
+
+	compared := 0
+	for _, resourceType := range resourceTypes {
+		base := filepath.Join(fixtures, resourceType)
+		rendered, err := RenderModuleFiles(root, resourceType)
+		if err != nil {
+			t.Fatalf("RenderModuleFiles(%s): %v", resourceType, err)
+		}
+		fileEntries, err := os.ReadDir(base)
+		if err != nil {
+			t.Fatalf("ReadDir(%s): %v", base, err)
+		}
+		var tfFiles []string
+		for _, fileEntry := range fileEntries {
+			if strings.HasSuffix(fileEntry.Name(), ".tf") {
+				tfFiles = append(tfFiles, fileEntry.Name())
+			}
+		}
+		sort.Strings(tfFiles)
+		for _, file := range tfFiles {
+			source, _ := rendered.Get(ModuleFileName(file))
+			actual, err := formatter.FormatHCL(source)
+			if err != nil {
+				t.Fatalf("FormatHCL(%s/%s): %v", resourceType, file, err)
+			}
+			want, err := os.ReadFile(filepath.Join(base, file))
+			if err != nil {
+				t.Fatalf("ReadFile(%s/%s): %v", resourceType, file, err)
+			}
+			if actual != string(want) {
+				t.Errorf("%s/%s mismatch:\n got: %q\nwant: %q", resourceType, file, actual, string(want))
+			}
+			compared++
+		}
+	}
+	if compared != 68 {
+		t.Errorf("compared = %d, want 68", compared)
 	}
 }
 

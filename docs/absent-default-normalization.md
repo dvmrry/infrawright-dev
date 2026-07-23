@@ -449,7 +449,7 @@ Normalized metadata should strip these fields where appropriate.
   `terraform_schema_optional_default`; or
 - `action` is `preserve_explicit_falsey`.
 
-`observed_value` is type-strict: the validator preserves the exact JSON value
+`observed_value` is type-strict: the validator preserves the exact Python value
 and rejects coercion between distinct falsey shapes (e.g., `0`, `"0"`, `false`,
 `""`, `null`, `[]`, `{}`).
 

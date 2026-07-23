@@ -1,4 +1,4 @@
-// Ports the original implementation: a strict "control dialect" JSON validator
+// Ports node-src/json/control.ts: a strict "control dialect" JSON validator
 // (rejecting duplicate object keys, over-deep nesting, and, for the control
 // dialect specifically, any JSON number that is not finite and, if
 // integer-shaped, not exactly representable) layered on top of ordinary
@@ -18,7 +18,7 @@ import (
 
 // maxJSONDepth is the deepest array/object nesting ParseControlJSON and
 // ParseDataJSONLosslessly accept. Ports MAX_JSON_DEPTH from
-// the original implementation.
+// node-src/json/control.ts.
 const maxJSONDepth = 128
 
 // PythonJSONDecodeError is a position-anchored parse failure whose Error()
@@ -119,7 +119,7 @@ var (
 )
 
 // validateControlNumber ports parseControlNumber from
-// the original implementation: the token (already known to match the JSON
+// node-src/json/control.ts: the token (already known to match the JSON
 // number grammar) must parse to a finite value, and, if it is
 // integer-shaped (no "." or exponent), that value must be an exactly
 // representable (JS-)safe integer.
@@ -656,7 +656,7 @@ func (s *controlScanner) skipWhitespace() error {
 }
 
 // validateJSONContract ports validateJsonContract from
-// the original implementation.
+// node-src/json/control.ts.
 func validateJSONContract(text string, validateNumbers bool) error {
 	return newControlScanner(utf16Units(text), validateNumbers).scan()
 }
@@ -665,7 +665,7 @@ func validateJSONContract(text string, validateNumbers bool) error {
 // full contract: no duplicate object keys, no nesting beyond maxJSONDepth,
 // no JSON number that is non-finite or (if integer-shaped) not an exactly
 // representable safe integer. Ports parseControlJson from
-// the original implementation.
+// node-src/json/control.ts.
 //
 // Validation runs first and entirely separately from decoding (matching
 // the Node source's own two-pass structure): only once text is known to
@@ -683,7 +683,7 @@ func ParseControlJSON(text string) (Value, error) {
 // maxJSONDepth) but without the control dialect's numeric-safety rules, so
 // every numeric token -- including ones far outside float64's safe integer
 // range -- is preserved exactly via Decode's json.Number lexemes. Ports
-// parseDataJsonLosslessly from the original implementation (there, achieved by
+// parseDataJsonLosslessly from node-src/json/control.ts (there, achieved by
 // parsing with a reviver that swaps in a LosslessNumber built from the
 // parser's raw source-text callback for every number).
 func ParseDataJSONLosslessly(text string) (Value, error) {

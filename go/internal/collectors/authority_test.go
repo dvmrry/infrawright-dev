@@ -1,6 +1,6 @@
 package collectors
 
-// authority_test.go ports the original test corpus.
+// authority_test.go ports node-tests/collector-authority.test.ts.
 
 import (
 	"encoding/json"
@@ -24,7 +24,7 @@ func loadRootFromPacksDir(t *testing.T, packsRoot string) metadata.LoadedPackRoo
 }
 
 // copiedRoot ports the copiedRoot test helper from
-// the original test corpus: a temp packs/ tree containing
+// node-tests/collector-authority.test.ts: a temp packs/ tree containing
 // _shared/zscaler plus the named product packs, with no Python source
 // left in it.
 func copiedRoot(t *testing.T, products []string) string {

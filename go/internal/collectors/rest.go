@@ -18,7 +18,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/metadata"
 )
 
-// rest.go ports the original implementation: the registry-driven REST fetch
+// rest.go ports node-src/collectors/rest.ts: the registry-driven REST fetch
 // engine -- pagination styles, fair round-robin product scheduling,
 // per-resource FAILED/SKIPPED accounting, failure-hint construction,
 // identifier masking, and artifact writing via the canonical renderers.
@@ -32,11 +32,11 @@ const (
 )
 
 // MaxFetchConcurrency ports MAX_FETCH_CONCURRENCY from
-// the original implementation.
+// node-src/collectors/rest.ts.
 const MaxFetchConcurrency = 64
 
 // PaginationStyle ports the PaginationStyle union type from
-// the original implementation.
+// node-src/collectors/rest.ts.
 type PaginationStyle string
 
 const (
@@ -47,7 +47,7 @@ const (
 )
 
 // FetchEntry ports the FetchEntry interface from
-// the original implementation. Envelope being "" means the TS
+// node-src/collectors/rest.ts. Envelope being "" means the TS
 // `envelope?: string` field was omitted (registry validation requires a
 // non-empty string whenever the key is present, so "" is otherwise
 // unreachable -- see metadata.ValidateRegistry). Expand being nil means
@@ -63,7 +63,7 @@ type FetchEntry struct {
 }
 
 // FetchResourceOptions ports the FetchResourceOptions interface from
-// the original implementation.
+// node-src/collectors/rest.ts.
 type FetchResourceOptions struct {
 	Adapter       CollectorAdapter
 	Auth          CollectorAuthContext
@@ -78,7 +78,7 @@ type FetchResourceOptions struct {
 
 // queryPair is one query-string key/value entry, kept in an explicit slice
 // (rather than a Go map) so this package can reproduce the exact key
-// ordering the original implementation's `new Map(Object.entries(...))`
+// ordering node-src/collectors/rest.ts's `new Map(Object.entries(...))`
 // merge produces -- a Go map has no stable iteration order at all, and
 // this package's inputs are order-sensitive: the synthetic pagination
 // parameters (page/pageSize, page/pagesize, skip/perPage) must appear in
@@ -120,7 +120,7 @@ func orderedQuery(query map[string]any) []queryPair {
 
 // mergeQuery ports the `new Map([...Object.entries(base),
 // ...Object.entries(additions)])`-equivalent merge withQuery/requestPage
-// perform in the original implementation: base entries keep their original
+// perform in node-src/collectors/rest.ts: base entries keep their original
 // relative position; an addition whose key already exists in base
 // overwrites that entry's value in place (a JS Map.set on an existing key
 // does not move it to the end); an addition with a new key is appended
@@ -143,7 +143,7 @@ func mergeQuery(base []queryPair, additions ...queryPair) []queryPair {
 	return merged
 }
 
-// messageOf ports messageOf from the original implementation. Every error
+// messageOf ports messageOf from node-src/collectors/rest.ts. Every error
 // this package constructs or receives from the HttpTransport seam already
 // satisfies Go's error interface, so this is a thin, always-successful
 // pass-through kept only so call sites read the same as the Node source's
@@ -152,7 +152,7 @@ func messageOf(err error) string {
 	return err.Error()
 }
 
-// queryScalar ports queryScalar from the original implementation: it
+// queryScalar ports queryScalar from node-src/collectors/rest.ts: it
 // renders one fetch query value the way Python's own str()/urlencode would
 // -- None/True/False for the JSON scalars with no literal string form,
 // the lossless canonical number token for a registry-sourced json.Number,
@@ -191,7 +191,7 @@ func queryScalar(value any) (string, error) {
 	}
 }
 
-// percentEncode ports percentEncode from the original implementation: RFC
+// percentEncode ports percentEncode from node-src/collectors/rest.ts: RFC
 // 3986 unreserved-character percent-encoding over value's UTF-8 bytes
 // (Go strings already are UTF-8 bytes, matching the Node source's own
 // `new TextEncoder().encode(value)` step), with an explicit spaceAsPlus
@@ -217,7 +217,7 @@ func percentEncode(value string, spaceAsPlus bool) (string, error) {
 	return sb.String(), nil
 }
 
-// withQuery ports withQuery from the original implementation, folded
+// withQuery ports withQuery from node-src/collectors/rest.ts, folded
 // together with the base/additions merge its two call sites
 // (requestPage's pre-merge, then its own delegation to getJson with an
 // empty additions map) perform in two steps in the Node source; merging
@@ -249,7 +249,7 @@ func withQuery(base *url.URL, pairs []queryPair) (*url.URL, error) {
 	return &cloned, nil
 }
 
-// baseURL ports baseUrl from the original implementation: url with its
+// baseURL ports baseUrl from node-src/collectors/rest.ts: url with its
 // query and fragment cleared, for embedding in operator-facing error text
 // without leaking query-string values.
 func baseURL(u *url.URL) string {
@@ -269,7 +269,7 @@ type getJSONOptions struct {
 	url           *url.URL
 }
 
-// getJSON ports getJson from the original implementation.
+// getJSON ports getJson from node-src/collectors/rest.ts.
 func getJSON(options getJSONOptions) (any, error) {
 	requested, err := withQuery(options.url, options.query)
 	if err != nil {
@@ -303,7 +303,7 @@ func getJSON(options getJSONOptions) (any, error) {
 	return value, nil
 }
 
-// requestPage ports requestPage from the original implementation.
+// requestPage ports requestPage from node-src/collectors/rest.ts.
 func requestPage(
 	auth CollectorAuthContext,
 	baseQuery []queryPair,
@@ -323,7 +323,7 @@ func requestPage(
 	})
 }
 
-// itemList ports itemList from the original implementation.
+// itemList ports itemList from node-src/collectors/rest.ts.
 func itemList(value any, message string) ([]any, error) {
 	items, ok := value.([]any)
 	if !ok {
@@ -332,7 +332,7 @@ func itemList(value any, message string) ([]any, error) {
 	return items, nil
 }
 
-// pythonTruthy ports pythonTruthy from the original implementation.
+// pythonTruthy ports pythonTruthy from node-src/collectors/rest.ts.
 func pythonTruthy(value any) bool {
 	switch v := value.(type) {
 	case nil:
@@ -356,7 +356,7 @@ func pythonTruthy(value any) bool {
 }
 
 // pageFetchContext bundles the parameters every paginate* function shares,
-// ported from the single `pageOptions` object the original implementation's
+// ported from the single `pageOptions` object node-src/collectors/rest.ts's
 // fetchResource builds once per expanded path and passes to whichever
 // paginate* function the entry's pagination style selects.
 type pageFetchContext struct {
@@ -368,7 +368,7 @@ type pageFetchContext struct {
 	url           *url.URL
 }
 
-// paginateZia ports paginateZia from the original implementation.
+// paginateZia ports paginateZia from node-src/collectors/rest.ts.
 func paginateZia(ctx pageFetchContext) ([]any, error) {
 	masked := MaskCollectorIdentifiers(baseURL(ctx.url))
 	baseQuery := orderedQuery(ctx.entry.Query)
@@ -416,10 +416,10 @@ func paginateZia(ctx pageFetchContext) ([]any, error) {
 }
 
 // integerToken ports the regexp `/^[+-]?\d+$/` from pythonInt in
-// the original implementation.
+// node-src/collectors/rest.ts.
 var integerToken = regexp.MustCompile(`^[+-]?\d+$`)
 
-// pythonInt ports pythonInt from the original implementation.
+// pythonInt ports pythonInt from node-src/collectors/rest.ts.
 func pythonInt(value any) (int, error) {
 	invalid := errors.New("invalid totalPages")
 	switch v := value.(type) {
@@ -460,7 +460,7 @@ func pythonInt(value any) (int, error) {
 	}
 }
 
-// paginateZpa ports paginateZpa from the original implementation.
+// paginateZpa ports paginateZpa from node-src/collectors/rest.ts.
 func paginateZpa(ctx pageFetchContext) ([]any, error) {
 	masked := MaskCollectorIdentifiers(baseURL(ctx.url))
 	baseQuery := orderedQuery(ctx.entry.Query)
@@ -503,7 +503,7 @@ func paginateZpa(ctx pageFetchContext) ([]any, error) {
 	}
 }
 
-// paginateSingle ports paginateSingle from the original implementation.
+// paginateSingle ports paginateSingle from node-src/collectors/rest.ts.
 func paginateSingle(ctx pageFetchContext) ([]any, error) {
 	payload, err := getJSON(getJSONOptions{
 		auth:          ctx.auth,
@@ -522,7 +522,7 @@ func paginateSingle(ctx pageFetchContext) ([]any, error) {
 	return []any{payload}, nil
 }
 
-// zccNumeric ports the numeric() helper from the original implementation.
+// zccNumeric ports the numeric() helper from node-src/collectors/rest.ts.
 // It distinguishes obj[key] being absent (returns fallback, matching the
 // TS `value === undefined` branch) from obj[key] being an explicit JSON
 // null (falls through to the default "must be numeric" error, since
@@ -552,7 +552,7 @@ func zccNumeric(obj map[string]any, key string, fallback float64) (float64, erro
 	}
 }
 
-// paginateZccV2 ports paginateZccV2 from the original implementation.
+// paginateZccV2 ports paginateZccV2 from node-src/collectors/rest.ts.
 func paginateZccV2(ctx pageFetchContext) ([]any, error) {
 	masked := MaskCollectorIdentifiers(baseURL(ctx.url))
 	baseQuery := orderedQuery(ctx.entry.Query)
@@ -610,7 +610,7 @@ func paginateZccV2(ctx pageFetchContext) ([]any, error) {
 	return items, nil
 }
 
-// expandedPaths ports expandedPaths from the original implementation.
+// expandedPaths ports expandedPaths from node-src/collectors/rest.ts.
 func expandedPaths(entry FetchEntry) ([]string, error) {
 	if violation := metadata.FetchPathSafetyViolation(entry.Path); violation != nil {
 		return nil, fmt.Errorf("fetch path %s", *violation)
@@ -660,7 +660,7 @@ func mapKeys[V any](m map[string]V) []string {
 	return keys
 }
 
-// FetchResource ports fetchResource from the original implementation:
+// FetchResource ports fetchResource from node-src/collectors/rest.ts:
 // collect one registry resource through a product adapter and generic
 // pager.
 func FetchResource(options FetchResourceOptions) ([]any, error) {
@@ -706,7 +706,7 @@ func FetchResource(options FetchResourceOptions) ([]any, error) {
 }
 
 // fetchEntry ports the unexported fetchEntry from
-// the original implementation, resolving one resource type's registry
+// node-src/collectors/rest.ts, resolving one resource type's registry
 // metadata into a FetchEntry.
 func fetchEntry(root metadata.LoadedPackRoot, resourceType string) (FetchEntry, error) {
 	resource, ok := root.Resources[resourceType]
@@ -774,7 +774,7 @@ func fetchEntry(root metadata.LoadedPackRoot, resourceType string) (FetchEntry, 
 	}, nil
 }
 
-// FailureHints ports failureHints from the original implementation:
+// FailureHints ports failureHints from node-src/collectors/rest.ts:
 // render the same cause-specific remediation hints as the Python
 // collector, verbatim.
 func FailureHints(reasons []string, scoped bool, httpStatuses []int) []string {
@@ -833,7 +833,7 @@ func authIdentity(mode CollectorAuthMode, product string) string {
 }
 
 // fetchConcurrency ports the unexported fetchConcurrency from
-// the original implementation. value being nil means the TS
+// node-src/collectors/rest.ts. value being nil means the TS
 // `concurrency?: number` field was omitted (defaults to 1).
 func fetchConcurrency(value *int) (int, error) {
 	selected := 1
@@ -847,7 +847,7 @@ func fetchConcurrency(value *int) (int, error) {
 }
 
 // fetchOutcomeKind ports the discriminant of the FetchOutcome union type
-// from the original implementation.
+// from node-src/collectors/rest.ts.
 type fetchOutcomeKind int
 
 const (
@@ -858,7 +858,7 @@ const (
 )
 
 // fetchOutcome ports the FetchOutcome union type from
-// the original implementation, collapsed into one Go struct (a union of
+// node-src/collectors/rest.ts, collapsed into one Go struct (a union of
 // three overlapping TS object shapes) since every field below is read
 // unconditionally by at least one of this file's outcome-consuming loops
 // regardless of Kind, exactly mirroring which TS branch populates it.
@@ -879,7 +879,7 @@ type fetchOutcome struct {
 }
 
 // fetchWorkItem ports the FetchWorkItem interface from
-// the original implementation.
+// node-src/collectors/rest.ts.
 type fetchWorkItem struct {
 	adapter      CollectorAdapter
 	auth         CollectorAuthContext
@@ -890,7 +890,7 @@ type fetchWorkItem struct {
 }
 
 // fetchFailureReason ports FetchFailureReason/fetchFailureReason from
-// the original implementation.
+// node-src/collectors/rest.ts.
 type fetchFailureReason struct {
 	httpStatus int
 	hasStatus  bool
@@ -902,7 +902,7 @@ func newFetchFailureReason(err error) fetchFailureReason {
 	return fetchFailureReason{httpStatus: status, hasStatus: ok, message: messageOf(err)}
 }
 
-// runFetchWorkers ports runFetchWorkers from the original implementation:
+// runFetchWorkers ports runFetchWorkers from node-src/collectors/rest.ts:
 // run through one global bound while rotating products fairly. A shared
 // OneAPI authority is never multiplied by independent product pools, and a
 // large product queue cannot consume every worker indefinitely.
@@ -922,7 +922,7 @@ func newFetchFailureReason(err error) fetchFailureReason {
 // (fetchResourcesBatch) is the sole place that turns these outcomes into
 // observable bytes, and it always does so by iterating `wanted` in its
 // fixed registry order -- the "collect-then-emit barrier" this port's
-// concurrency-determinism rule requires (the Go runtime contract).
+// concurrency-determinism rule requires (docs/go-runtime-plan.md).
 func runFetchWorkers(
 	concurrency int,
 	items []fetchWorkItem,
@@ -1009,7 +1009,7 @@ func runFetchWorkers(
 }
 
 // FetchResourcesOptions ports the FetchResourcesOptions interface from
-// the original implementation. Concurrency being nil means the TS
+// node-src/collectors/rest.ts. Concurrency being nil means the TS
 // `concurrency?: number` field was omitted.
 type FetchResourcesOptions struct {
 	Adapters        map[string]CollectorAdapter
@@ -1059,7 +1059,7 @@ func fetchDestination(outputDirectory, resourceType string) (string, error) {
 }
 
 // fetchResourcesBatch ports the unexported fetchResourcesBatch from
-// the original implementation: execute the complete registry-driven fetch
+// node-src/collectors/rest.ts: execute the complete registry-driven fetch
 // batch without invoking Python.
 func fetchResourcesBatch(options FetchResourcesOptions, concurrency int) (FetchRunResult, error) {
 	write := options.OnDiagnostic
@@ -1426,7 +1426,7 @@ func removeFetchFileIfPresent(file string) (bool, error) {
 
 // perfNowOrStarted mirrors the TS expression
 // `options.performance?.now() ?? startedMs` used to compute
-// FetchOutcome.endedMs in the original implementation's execute() closure.
+// FetchOutcome.endedMs in node-src/collectors/rest.ts's execute() closure.
 func perfNowOrStarted(performance PerformanceRecorder, startedMs float64) float64 {
 	if performance == nil {
 		return startedMs
@@ -1436,7 +1436,7 @@ func perfNowOrStarted(performance PerformanceRecorder, startedMs float64) float6
 
 // outcomeDurationMs mirrors the TS ternary
 // `options.performance === undefined ? 0 : endedMs - startedMs` used to
-// compute FetchOutcome.durationMs in the original implementation's
+// compute FetchOutcome.durationMs in node-src/collectors/rest.ts's
 // execute() closure: a plain subtraction of the endedMs this same call
 // already captured (via perfNowOrStarted), never a second clock read --
 // unlike the auth-span duration below, which does call
@@ -1458,7 +1458,7 @@ func sortedMapKeysOf(m map[string]string) []string {
 	return canonjson.SortedStrings(keys)
 }
 
-// FetchResources ports fetchResources from the original implementation:
+// FetchResources ports fetchResources from node-src/collectors/rest.ts:
 // execute the complete registry-driven fetch batch without invoking
 // Python.
 func FetchResources(options FetchResourcesOptions) (FetchRunResult, error) {

@@ -18,21 +18,21 @@ import (
 )
 
 // BoundFileDigest ports BoundFileDigest from
-// the original implementation.
+// node-src/domain/plan-evidence.ts.
 type BoundFileDigest struct {
 	Path string
 	artifacts.StableFileDigest
 }
 
 // SavedPlanFingerprintFile ports SavedPlanFingerprintFile from
-// the original implementation.
+// node-src/domain/plan-evidence.ts.
 type SavedPlanFingerprintFile struct {
 	artifacts.StableFileDigest
 	Fingerprint PlanFingerprintV2
 }
 
 // SavedPlanEvidence ports SavedPlanEvidence from
-// the original implementation. Values are active capabilities: only the
+// node-src/domain/plan-evidence.ts. Values are active capabilities: only the
 // exact pointer returned by PrepareSavedPlanEvidence may be rechecked or
 // cleaned. A copied struct or caller-built value has no valid binding.
 type SavedPlanEvidence struct {
@@ -47,7 +47,7 @@ type SavedPlanEvidence struct {
 }
 
 // PrepareSavedPlanEvidenceOptions ports PrepareSavedPlanEvidenceOptions from
-// the original implementation.
+// node-src/domain/plan-evidence.ts.
 type PrepareSavedPlanEvidenceOptions struct {
 	SavedPlanPath     string
 	FingerprintPath   string
@@ -58,7 +58,7 @@ type PrepareSavedPlanEvidenceOptions struct {
 }
 
 // RecheckSavedPlanEvidenceOptions ports RecheckSavedPlanEvidenceOptions from
-// the original implementation.
+// node-src/domain/plan-evidence.ts.
 type RecheckSavedPlanEvidenceOptions struct {
 	Evidence          *SavedPlanEvidence
 	FingerprintBudget *artifacts.ReadBudget
@@ -334,7 +334,7 @@ func validateSavedPlanFingerprint(value any) (PlanFingerprintV2, error) {
 }
 
 // ReadSavedPlanFingerprint ports readSavedPlanFingerprint from
-// the original implementation. The returned digest binds the raw
+// node-src/domain/plan-evidence.ts. The returned digest binds the raw
 // fingerprint-file bytes, not a re-encoded JSON value.
 func ReadSavedPlanFingerprint(
 	fingerprintPath string,
@@ -468,7 +468,7 @@ func snapshotFileIdentity(
 }
 
 // PrepareSavedPlanEvidence ports prepareSavedPlanEvidence from
-// the original implementation.
+// node-src/domain/plan-evidence.ts.
 func PrepareSavedPlanEvidence(options PrepareSavedPlanEvidenceOptions) (*SavedPlanEvidence, error) {
 	return prepareSavedPlanEvidence(options, evidenceHooks{})
 }
@@ -684,7 +684,7 @@ func prepareSavedPlanEvidence(
 }
 
 // RecheckSavedPlanEvidence ports recheckSavedPlanEvidence from
-// the original implementation.
+// node-src/domain/plan-evidence.ts.
 func RecheckSavedPlanEvidence(options RecheckSavedPlanEvidenceOptions) error {
 	evidence := options.Evidence
 	if evidence == nil || evidence.binding == nil {
@@ -816,7 +816,7 @@ func RecheckSavedPlanEvidence(options RecheckSavedPlanEvidenceOptions) error {
 }
 
 // CleanupSavedPlanEvidence ports cleanupSavedPlanEvidence from
-// the original implementation. Cleanup scrubs the exact bound inode and
+// node-src/domain/plan-evidence.ts. Cleanup scrubs the exact bound inode and
 // deliberately leaves the zero-length snapshot directory entry in place.
 func CleanupSavedPlanEvidence(evidence *SavedPlanEvidence) error {
 	return cleanupSavedPlanEvidence(evidence, evidenceCleanupHooks{})

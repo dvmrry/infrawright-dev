@@ -29,7 +29,7 @@ func indent(value string) string {
 
 // RenderCLIProcessFailure renders failure as the CLI's exact
 // operator-facing block, ported byte-for-byte from
-// renderCliProcessFailure in the original implementation:
+// renderCliProcessFailure in node-src/cli/process-failure.ts:
 //
 //	error: <message, indented>
 //	  code: <code>
