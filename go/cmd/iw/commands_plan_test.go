@@ -222,7 +222,6 @@ func TestPlanCommandComposesExactOptionsAndResolvesTerraformLazily(t *testing.T)
 		"--save",
 		"--root", "/explicit/packs",
 		"--profile", "/explicit/profile.json",
-		"--catalog", "/explicit/catalog.json",
 		"--deployment", "/explicit/deployment.json",
 	}, dependencies)
 	if err != nil {
@@ -232,7 +231,7 @@ func TestPlanCommandComposesExactOptionsAndResolvesTerraformLazily(t *testing.T)
 		t.Errorf("planCommandWithDependencies(...) status = %d, want 0", status)
 	}
 	if got, want := gotPack, (packOptionDefaults{
-		root: "/explicit/packs", profile: "/explicit/profile.json", catalog: "/explicit/catalog.json",
+		root: "/explicit/packs", profile: "/explicit/profile.json",
 	}); got != want {
 		t.Errorf("loaded pack options = %+v, want %+v", got, want)
 	}
@@ -295,7 +294,6 @@ func TestPlanCliOptionsPreservesDefaultsAndEnvironmentFallbacks(t *testing.T) {
 	wantPack := packOptionDefaults{
 		root:    filepath.Join("/package", "packs"),
 		profile: "/environment/profile.json",
-		catalog: filepath.Join("/package", "packs", "full.packset.json"),
 	}
 	if got := options.pack; got != wantPack {
 		t.Errorf("plan CLI default pack options = %+v, want %+v", got, wantPack)
@@ -384,7 +382,6 @@ func TestPlanAndCleanPlansCommandsPreserveSavedPairContract(t *testing.T) {
 	common := []string{
 		"--root", "/packs",
 		"--profile", "/profile.json",
-		"--catalog", "/catalog.json",
 		"--deployment", "/deployment.json",
 		"--tenant", "tenant",
 		"--resource", planCommandSecondResource,
@@ -527,7 +524,6 @@ func TestPlanCommandUsesExactTerraformArgv(t *testing.T) {
 		"--save",
 		"--root", "/packs",
 		"--profile", "/profile.json",
-		"--catalog", "/catalog.json",
 		"--deployment", "/deployment.json",
 	}, dependencies)
 	if err != nil {

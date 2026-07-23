@@ -11,7 +11,7 @@ import (
 )
 
 // ProjectionError ports ProjectionError from
-// node-src/domain/state-project.ts.
+// the original implementation.
 type ProjectionError struct{ Message string }
 
 // Error implements error.
@@ -155,7 +155,7 @@ func schemaStatusBlock(block metadata.JsonObject, path []any, label string, reso
 }
 
 // ProviderSchemaStatus ports providerSchemaStatus from
-// node-src/domain/state-project.ts. D3 reuses this narrow D1 substrate rather
+// the original implementation. D3 reuses this narrow D1 substrate rather
 // than maintaining a second schema walker.
 func ProviderSchemaStatus(schema metadata.JsonObject, resourceType string, path []any, requiredness bool) (string, error) {
 	block, err := metadata.TerraformBlockForSchema(schema, resourceType)
@@ -250,7 +250,7 @@ func emptyFill(value any) bool {
 }
 
 // ProjectionFillValue ports projectionFillValue from
-// node-src/domain/state-project.ts.
+// the original implementation.
 func ProjectionFillValue(entry metadata.PolicyEntry, rawItem map[string]any, resourceType string, schema metadata.JsonObject) (any, bool, error) {
 	data := entry.Data()
 	target, _ := data["path"].(string)

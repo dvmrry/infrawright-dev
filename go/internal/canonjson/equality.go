@@ -11,7 +11,7 @@ import (
 
 // IsJSONRecord reports whether value is a JSON object in this package's
 // value tree, i.e. map[string]any. Ports isJsonRecord from
-// node-src/json/python-equality.ts.
+// the original implementation.
 //
 // The Node version additionally excludes LosslessNumber instances (which
 // are themselves objects at the JS runtime level, but never valid JSON
@@ -34,7 +34,7 @@ const (
 )
 
 // numeric is the Go analogue of the NumericValue interface in
-// node-src/json/python-equality.ts.
+// the original implementation.
 type numeric struct {
 	kind    numericKind
 	integer *big.Int
@@ -43,7 +43,7 @@ type numeric struct {
 
 // numericValue classifies value as a JSON boolean, lossless integer/float
 // token, or plain float64, mirroring numericValue in
-// node-src/json/python-equality.ts. It returns (numeric{}, false) for any
+// the original implementation. It returns (numeric{}, false) for any
 // value with no numeric interpretation at all (null, string, array,
 // object).
 //
@@ -86,7 +86,7 @@ func numericValue(value any) (numeric, bool) {
 }
 
 // numericallyEqual ports numericallyEqual from
-// node-src/json/python-equality.ts: same-kind values compare directly
+// the original implementation: same-kind values compare directly
 // (bigint equality, or float64 `==` so NaN-vs-NaN is false and 0-vs--0 is
 // true, exactly like JS's `===`), while an integer compared against a
 // float requires the float to be finite, integral, and equal in value to
@@ -126,7 +126,7 @@ func bigIntFromFloat(f float64) *big.Int {
 }
 
 // exactDecimal is the Go analogue of the ExactDecimalValue interface in
-// node-src/json/python-equality.ts: an exact decimal value represented as a
+// the original implementation: an exact decimal value represented as a
 // signed integer coefficient with trailing/leading zeros normalized away
 // and a base-10 exponent, so comparison never touches binary floating
 // point.
@@ -138,14 +138,14 @@ type exactDecimal struct {
 
 // exactDecimalToken matches the full JSON number grammar with capture
 // groups for sign, integer part, fraction, and exponent. Ports
-// EXACT_DECIMAL from node-src/json/python-equality.ts.
+// EXACT_DECIMAL from the original implementation.
 var exactDecimalToken = regexp.MustCompile(`^(-?)(0|[1-9][0-9]*)(?:\.([0-9]+))?(?:[eE]([+-]?[0-9]+))?$`)
 
 // exactDecimalValue parses value into an exact decimal (coefficient +
 // exponent + sign), losslessly: unlike numericValue, this never routes
 // through a binary64 float comparison, so it can tell 9007199254740993
 // apart from 9007199254740993.0 exactly. Ports exactDecimalValue from
-// node-src/json/python-equality.ts.
+// the original implementation.
 //
 // The Node source calls `value.toString()` for a plain, non-lossless
 // `number`, relying on it being a valid JSON-number-shaped decimal string.
@@ -317,7 +317,7 @@ func exactNumberEqual(left, right any) (equal, anyNumeric bool) {
 // numerically 0/1 (Python's `True == 1`), and an arbitrary-precision
 // integer token compares equal to a float token only when the float is
 // finite, integral, and exactly that integer. Ports pythonJsonEqual from
-// node-src/json/python-equality.ts.
+// the original implementation.
 func JSONEqual(left, right any) bool {
 	return jsonEqual(left, right, true, pythonNumberEqual)
 }
@@ -326,7 +326,7 @@ func JSONEqual(left, right any) bool {
 // equality as JSONEqual (an integer and its exactly-equivalent float
 // spelling for the same cty number compare equal), except that JSON
 // booleans are cty's distinct boolean type and never compare equal to 0 or
-// 1. Ports terraformJsonEqual from node-src/json/python-equality.ts.
+// 1. Ports terraformJsonEqual from the original implementation.
 func TerraformJSONEqual(left, right any) bool {
 	return jsonEqual(left, right, false, pythonNumberEqual)
 }
@@ -337,7 +337,7 @@ func TerraformJSONEqual(left, right any) bool {
 // numbers as exact decimals (coefficient + base-10 exponent), never
 // rounding through binary64, so e.g. 1, 1.0, and 10e-1 all compare equal
 // without precision loss from parsing huge exponents into float64. Ports
-// terraformJsonExactlyEqual from node-src/json/python-equality.ts.
+// terraformJsonExactlyEqual from the original implementation.
 func TerraformJSONExactlyEqual(left, right any) bool {
 	return jsonEqual(left, right, false, exactNumberEqual)
 }

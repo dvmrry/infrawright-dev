@@ -32,7 +32,7 @@ var (
 	formatVersionOne    = regexp.MustCompile(`^1\.`)
 )
 
-// OracleError ports OracleError from node-src/domain/import-oracle.ts.
+// OracleError ports OracleError from the original implementation.
 type OracleError struct{ Message string }
 
 // Error implements error.
@@ -43,7 +43,7 @@ func oracleErrorf(format string, args ...any) error {
 }
 
 // OracleStateObject ports OracleStateObject from
-// node-src/domain/import-oracle.ts.
+// the original implementation.
 type OracleStateObject struct {
 	Address         string
 	SensitiveValues any
@@ -51,7 +51,7 @@ type OracleStateObject struct {
 }
 
 // OracleBatchResourceRequest ports OracleBatchResourceRequest from
-// node-src/domain/import-oracle.ts. Maps are copied before a transaction uses
+// the original implementation. Maps are copied before a transaction uses
 // them, so caller mutation cannot alter a running oracle transaction.
 type OracleBatchResourceRequest struct {
 	KeyToImportID map[string]string
@@ -61,11 +61,11 @@ type OracleBatchResourceRequest struct {
 }
 
 // OracleBatchState ports OracleBatchState from
-// node-src/domain/import-oracle.ts.
+// the original implementation.
 type OracleBatchState map[string]map[string]OracleStateObject
 
 // OracleCommandRequest ports OracleCommandRequest from
-// node-src/domain/import-oracle.ts. Environment and sensitive tokens are
+// the original implementation. Environment and sensitive tokens are
 // complete explicit snapshots, never ambient process state.
 type OracleCommandRequest struct {
 	Argv            []string
@@ -77,17 +77,17 @@ type OracleCommandRequest struct {
 }
 
 // OracleCommandResult ports OracleCommandResult from
-// node-src/domain/import-oracle.ts.
+// the original implementation.
 type OracleCommandResult struct{ Stdout []byte }
 
 // OracleCommandRunner ports OracleCommandRunner from
-// node-src/domain/import-oracle.ts. Tests use non-forwarding fakes.
+// the original implementation. Tests use non-forwarding fakes.
 type OracleCommandRunner interface {
 	Run(OracleCommandRequest) (OracleCommandResult, error)
 }
 
 // OracleStateSource ports OracleStateSource from
-// node-src/domain/import-oracle.ts.
+// the original implementation.
 type OracleStateSource string
 
 const (
@@ -100,7 +100,7 @@ const (
 )
 
 // OracleTimeoutMS ports oracleTimeoutMs from
-// node-src/domain/import-oracle.ts.
+// the original implementation.
 func OracleTimeoutMS(environment map[string]string) (int, error) {
 	raw := environment["INFRAWRIGHT_ORACLE_TIMEOUT_SECONDS"]
 	if strings.TrimSpace(raw) == "" {
@@ -144,7 +144,7 @@ func parseJavaScriptNumber(raw string) (float64, error) {
 }
 
 // OracleStateSourceFromEnvironment ports oracleStateSource from
-// node-src/domain/import-oracle.ts.
+// the original implementation.
 func OracleStateSourceFromEnvironment(environment map[string]string) (OracleStateSource, error) {
 	raw := strings.TrimSpace(environment["INFRAWRIGHT_ORACLE_STATE_SOURCE"])
 	switch raw {
@@ -158,7 +158,7 @@ func OracleStateSourceFromEnvironment(environment map[string]string) (OracleStat
 }
 
 // OracleBatchResourceFamily ports oracleBatchResourceFamily from
-// node-src/domain/import-oracle.ts.
+// the original implementation.
 func OracleBatchResourceFamily(resourceTypes []string) string {
 	set := make(map[string]struct{}, len(resourceTypes))
 	for _, resourceType := range resourceTypes {
@@ -182,7 +182,7 @@ func sha1Prefix(value string) string {
 
 func instanceName(key string) string { return "iw_" + sha1Prefix(key) }
 
-// OracleAddress ports oracleAddress from node-src/domain/import-oracle.ts.
+// OracleAddress ports oracleAddress from the original implementation.
 func OracleAddress(resourceType, key string) string {
 	return resourceType + "." + instanceName(key)
 }
@@ -205,7 +205,7 @@ func jsonString(value string) string {
 }
 
 // RenderOracleRoot ports renderOracleRoot from
-// node-src/domain/import-oracle.ts.
+// the original implementation.
 func RenderOracleRoot(root *metadata.LoadedPackRoot, provider string) (string, error) {
 	source, ok := root.Packs.ProviderSources[provider]
 	if !ok {
@@ -248,7 +248,7 @@ func RenderOracleRoot(root *metadata.LoadedPackRoot, provider string) (string, e
 }
 
 // RenderOracleImports ports renderOracleImports from
-// node-src/domain/import-oracle.ts.
+// the original implementation.
 func RenderOracleImports(resourceType string, keyToImportID map[string]string) (string, error) {
 	var output strings.Builder
 	keys := canonjson.SortedStrings(mapKeys(keyToImportID))

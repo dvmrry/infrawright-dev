@@ -14,7 +14,7 @@ import (
 )
 
 // ImportProviderStatesOptions is the Go options bag for
-// importProviderStates in node-src/domain/import-oracle.ts. A nil Environment
+// importProviderStates in the original implementation. A nil Environment
 // snapshots the current process environment at the call boundary.
 type ImportProviderStatesOptions struct {
 	Environment   map[string]string
@@ -72,7 +72,7 @@ func normalTerraformFailure(err error) bool {
 }
 
 // ImportProviderStates ports importProviderStates from
-// node-src/domain/import-oracle.ts. Terraform Apply, when selected, targets
+// the original implementation. Terraform Apply, when selected, targets
 // only this transaction's ephemeral local scratch state. Tests inject a fake
 // runner and cannot reach any Terraform executable.
 func ImportProviderStates(options ImportProviderStatesOptions) (state OracleBatchState, err error) {
@@ -173,10 +173,8 @@ func ImportProviderStates(options ImportProviderStatesOptions) (state OracleBatc
 			}
 			return
 		}
-		// D1 retains the Node oracle's arbitrary-tree scratch cleanup. The
-		// descriptor-bound reusable cleanup required by the Block D guardrail is
-		// implemented for exact-plan-apply's closed saved-plan snapshot in D4;
-		// it cannot safely scrub Terraform's arbitrary plugin/cache tree here.
+		// Terraform owns an arbitrary plugin/cache tree here, so cleanup removes
+		// the complete test-owned temporary directory.
 		cleanupErr := os.RemoveAll(temporary)
 		if cleanupErr == nil {
 			return
@@ -337,7 +335,7 @@ func fillEmptyBatchResources(resources []OracleBatchResourceRequest, output Orac
 }
 
 // ImportProviderStateOptions is the single-resource options bag from
-// node-src/domain/import-oracle.ts.
+// the original implementation.
 type ImportProviderStateOptions struct {
 	Environment   map[string]string
 	KeepWorkdir   bool
@@ -352,7 +350,7 @@ type ImportProviderStateOptions struct {
 }
 
 // ImportProviderState ports importProviderState from
-// node-src/domain/import-oracle.ts.
+// the original implementation.
 func ImportProviderState(options ImportProviderStateOptions) (map[string]OracleStateObject, error) {
 	output, err := ImportProviderStates(ImportProviderStatesOptions{
 		Environment: options.Environment, KeepWorkdir: options.KeepWorkdir,

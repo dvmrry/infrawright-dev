@@ -12,7 +12,7 @@ import (
 
 // TestSharedPythonStringSemantics ports the
 // "shared Python string semantics preserve exact sequence and code-point
-// order" test from node-tests/json.test.ts, including its exact
+// order" test from the original test corpus, including its exact
 // -vs-\u{10000} boundary vectors:  is the smallest BMP private
 // use character, and must sort before \u{10000} (the smallest astral
 // character) under code-point order even though a naive UTF-16-code-unit
@@ -45,7 +45,7 @@ func TestSharedPythonStringSemantics(t *testing.T) {
 
 // codePointCompare is an explicit, JS-codePointAt-style walk over Unicode
 // code points, i.e. a direct Go transliteration of comparePythonStrings's
-// algorithm in node-src/json/python-compatible.ts. ComparePythonStrings
+// algorithm in the original implementation. ComparePythonStrings
 // itself takes a completely different (and, for valid UTF-8, equivalent)
 // route -- see its doc comment -- so this function exists purely as an
 // independent cross-check in TestComparePythonStringsMatchesCodePointWalk,
@@ -110,7 +110,7 @@ func TestComparePythonStringsMatchesCodePointWalk(t *testing.T) {
 
 // TestRenderIntegerOnlyCompatibility ports the
 // "integer-only compatibility renderer matches Python bytes" test from
-// node-tests/json.test.ts. The original test shells out to a Python
+// the original test corpus. The original test shells out to a Python
 // oracle at run time; this port instead hardcodes the same oracle's
 // output, captured once via `python3 -c
 // "json.dumps(value, indent=2, sort_keys=True)"` against the identical
@@ -170,7 +170,7 @@ func TestRenderIntegerOnlyCompatibility(t *testing.T) {
 
 // TestRenderFloatSpellingAndLosslessTokens ports the
 // "compatibility renderer preserves Python float spelling and numeric
-// tokens" test from node-tests/json.test.ts.
+// tokens" test from the original test corpus.
 func TestRenderFloatSpellingAndLosslessTokens(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -198,7 +198,7 @@ func TestRenderFloatSpellingAndLosslessTokens(t *testing.T) {
 
 // TestSortedStringsLargeCommonPrefix ports the
 // "Python string ordering handles a large common-prefix set without
-// sort-key retention" test from node-tests/json.test.ts: 25,000 strings
+// sort-key retention" test from the original test corpus: 25,000 strings
 // sharing a long astral-character prefix, differing only in a
 // zero-padded numeric suffix, sorted in reverse numeric order and
 // expected to come back out in forward numeric order.
@@ -222,7 +222,7 @@ func TestSortedStringsLargeCommonPrefix(t *testing.T) {
 }
 
 // TestRenderEmptyContainers ports the empty-array/empty-object shorthand
-// ("[]" / "{}", no internal newline) documented in node-src's encode.
+// ("[]" / "{}", no internal newline) documented in retired implementation's encode.
 func TestRenderEmptyContainers(t *testing.T) {
 	got, err := Render(map[string]any{"a": []any{}, "b": map[string]any{}})
 	if err != nil {
@@ -234,7 +234,7 @@ func TestRenderEmptyContainers(t *testing.T) {
 	}
 }
 
-// TestRenderRejectsNonFiniteFloat mirrors node-src/json/python-compatible.ts's
+// TestRenderRejectsNonFiniteFloat mirrors the original implementation's
 // encodeNumber throwing for a non-finite plain `number`.
 func TestRenderRejectsNonFiniteFloat(t *testing.T) {
 	if _, err := Render(map[string]any{"value": math.NaN()}); err == nil {

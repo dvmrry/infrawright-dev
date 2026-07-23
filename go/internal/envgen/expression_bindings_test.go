@@ -1,7 +1,7 @@
 package envgen
 
 // expression_bindings_test.go ports every test in
-// node-tests/expression-bindings.test.ts verbatim (same scenarios, same
+// the original test corpus verbatim (same scenarios, same
 // literal fixtures, same expected values/messages), against this package's
 // Go port in expression_bindings.go. No fixture files or external oracle
 // are needed: every ported test builds its own in-memory JSON-shaped
@@ -19,7 +19,7 @@ import (
 )
 
 // binding ports the `binding` test helper from
-// node-tests/expression-bindings.test.ts.
+// the original test corpus.
 func binding(expression string, sensitive *bool) map[string]any {
 	entry := map[string]any{"expression": expression}
 	if sensitive != nil {
@@ -35,7 +35,7 @@ func binding(expression string, sensitive *bool) map[string]any {
 }
 
 // bindingAt ports the `bindingAt` test helper from
-// node-tests/expression-bindings.test.ts.
+// the original test corpus.
 func bindingAt(path string, expression string) map[string]any {
 	if expression == "" {
 		expression = "var.value"

@@ -20,7 +20,7 @@ import (
 )
 
 // PlanTerraformRequest ports PlanTerraformRequest from
-// node-src/domain/plan-lifecycle.ts. Nil BackendConfig, BackendKey, and
+// the original implementation. Nil BackendConfig, BackendKey, and
 // Environment represent the source interface's omitted optional properties.
 type PlanTerraformRequest struct {
 	BackendConfig *string
@@ -31,33 +31,33 @@ type PlanTerraformRequest struct {
 	VarFiles      []string
 }
 
-// PlanTerraform ports PlanTerraform from node-src/domain/plan-lifecycle.ts.
+// PlanTerraform ports PlanTerraform from the original implementation.
 type PlanTerraform interface {
 	Initialize(request PlanTerraformRequest) error
 	Plan(request PlanTerraformRequest) error
 }
 
 // CreatePlanTerraformOptions ports createPlanTerraform's options object from
-// node-src/domain/plan-lifecycle.ts.
+// the original implementation.
 type CreatePlanTerraformOptions struct {
 	Environment         map[string]string
 	Limits              *terraformcmd.TerraformCommandLimits
 	TerraformExecutable string
 }
 
-// PlanRunResult ports PlanRunResult from node-src/domain/plan-lifecycle.ts.
+// PlanRunResult ports PlanRunResult from the original implementation.
 type PlanRunResult struct {
 	Planned int
 }
 
 // CleanPlansResult ports CleanPlansResult from
-// node-src/domain/plan-lifecycle.ts.
+// the original implementation.
 type CleanPlansResult struct {
 	Removed int
 }
 
 // PlanEnvironmentRootsOptions ports planEnvironmentRoots's options object
-// from node-src/domain/plan-lifecycle.ts.
+// from the original implementation.
 type PlanEnvironmentRootsOptions struct {
 	BackendConfig *string
 	Deployment    deployment.Deployment
@@ -72,7 +72,7 @@ type PlanEnvironmentRootsOptions struct {
 }
 
 // CleanPlansOptions ports cleanPlans's options object from
-// node-src/domain/plan-lifecycle.ts. Tenant nil represents the source's null.
+// the original implementation. Tenant nil represents the source's null.
 type CleanPlansOptions struct {
 	Deployment   deployment.Deployment
 	OnDiagnostic func(string)
@@ -137,7 +137,7 @@ func cloneTerraformLimits(limits *terraformcmd.TerraformCommandLimits) *terrafor
 }
 
 // CreatePlanTerraform ports createPlanTerraform from
-// node-src/domain/plan-lifecycle.ts, adapting the shell-free Terraform runner
+// the original implementation, adapting the shell-free Terraform runner
 // to ordinary deployment init and plan operations.
 func CreatePlanTerraform(options CreatePlanTerraformOptions) PlanTerraform {
 	return &planTerraformAdapter{
@@ -157,7 +157,7 @@ func (adapter *planTerraformAdapter) commandEnvironment(request map[string]strin
 }
 
 // Initialize runs Terraform init under the exact createPlanTerraform argv and
-// output policy from node-src/domain/plan-lifecycle.ts.
+// output policy from the original implementation.
 func (adapter *planTerraformAdapter) Initialize(request PlanTerraformRequest) error {
 	request = clonePlanTerraformRequest(request)
 	argv := []string{"init", "-input=false"}
@@ -185,7 +185,7 @@ func (adapter *planTerraformAdapter) Initialize(request PlanTerraformRequest) er
 }
 
 // Plan runs Terraform plan under the exact createPlanTerraform argv and output
-// policy from node-src/domain/plan-lifecycle.ts.
+// policy from the original implementation.
 func (adapter *planTerraformAdapter) Plan(request PlanTerraformRequest) error {
 	request = clonePlanTerraformRequest(request)
 	argv := []string{"plan", "-input=false"}
@@ -257,7 +257,7 @@ func normalizedLifecycleLines(text string) []string {
 }
 
 // RequireBackendConfiguration ports requireBackendConfiguration from
-// node-src/domain/plan-lifecycle.ts.
+// the original implementation.
 func RequireBackendConfiguration(backendConfig *string, directory, label string) error {
 	if backendConfig != nil {
 		return nil
@@ -358,7 +358,7 @@ func savedLifecyclePaths(directory string) lifecycleSavedPaths {
 }
 
 // RemoveSavedPlanArtifacts ports removeSavedPlanArtifacts from
-// node-src/domain/plan-lifecycle.ts.
+// the original implementation.
 func RemoveSavedPlanArtifacts(directory string) (bool, error) {
 	saved := savedLifecyclePaths(directory)
 	planRemoved, err := removeLifecycleFileIfPresent(saved.plan)
@@ -536,7 +536,7 @@ func runLifecyclePlan(
 }
 
 // PlanEnvironmentRoots ports planEnvironmentRoots from
-// node-src/domain/plan-lifecycle.ts, including saved-pair cleanup and the init
+// the original implementation, including saved-pair cleanup and the init
 // and plan input freshness checks.
 func PlanEnvironmentRoots(options PlanEnvironmentRootsOptions) (PlanRunResult, error) {
 	if err := roots.ValidateTenant(options.Tenant); err != nil {
@@ -679,7 +679,7 @@ func PlanEnvironmentRoots(options PlanEnvironmentRootsOptions) (PlanRunResult, e
 	return PlanRunResult{Planned: planned}, nil
 }
 
-// CleanPlans ports cleanPlans from node-src/domain/plan-lifecycle.ts and
+// CleanPlans ports cleanPlans from the original implementation and
 // removes only tfplan/tfplan.sources pairs from selected materialized roots.
 func CleanPlans(options CleanPlansOptions) (CleanPlansResult, error) {
 	if options.Tenant != nil {

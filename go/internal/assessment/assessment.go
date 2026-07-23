@@ -22,7 +22,7 @@ import (
 
 const (
 	// MaxSavedPlanAssessmentRoots ports MAX_SAVED_PLAN_ASSESSMENT_ROOTS from
-	// node-src/domain/plan-assessment.ts.
+	// the original implementation.
 	MaxSavedPlanAssessmentRoots = 1_000
 	// MaxRetainedPlanSnapshotBytes ports MAX_RETAINED_PLAN_SNAPSHOT_BYTES.
 	MaxRetainedPlanSnapshotBytes int64 = 2 * 1024 * 1024 * 1024
@@ -53,7 +53,7 @@ type SavedPlanAssessmentResultLimits struct {
 }
 
 // SavedPlanAssessmentTransactionOptions adds the transaction-only ceilings
-// from node-src/domain/plan-assessment.ts to the materialized input contract
+// from the original implementation to the materialized input contract
 // owned by plan-assessment-inputs.ts. Pointer fields preserve the source's
 // omitted-versus-explicit-zero distinction.
 type SavedPlanAssessmentTransactionOptions struct {

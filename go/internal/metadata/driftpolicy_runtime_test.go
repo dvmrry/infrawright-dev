@@ -77,7 +77,7 @@ func TestDriftPolicyNilReceiverAndZeroEntryBoundary(t *testing.T) {
 }
 
 // TestPolicyPathRuntimeVectors ports "policy paths retain exact indexes and
-// wildcard only matches list indexes" from node-tests/drift-policy.test.ts.
+// wildcard only matches list indexes" from the original test corpus.
 func TestPolicyPathRuntimeVectors(t *testing.T) {
 	parsed, err := ParsePolicyPath(`rules[*].tags["Name"]`)
 	if err != nil {
@@ -129,7 +129,7 @@ func TestPolicyPathRuntimeVectors(t *testing.T) {
 }
 
 // TestPolicyPathNormalizeAndFormatProbe pins untested exported helper semantics
-// from node-src/domain/policy-paths.ts. Probe commands (Node v24.15.0):
+// from the original implementation. Probe commands (Node v24.15.0):
 //
 // From the repository root, /tmp/node_modules was absent before this setup.
 // The external flag is mandatory: bundling lossless-json duplicates its class
@@ -137,7 +137,7 @@ func TestPolicyPathRuntimeVectors(t *testing.T) {
 //
 // ln -s "$PWD/node_modules" /tmp/node_modules
 //
-//	npx esbuild node-src/domain/policy-paths.ts --bundle --format=esm --external:lossless-json --outfile=/tmp/probe.mjs
+//	npx esbuild the original implementation --bundle --format=esm --external:lossless-json --outfile=/tmp/probe.mjs
 //	node -e 'import("file:///tmp/probe.mjs").then(({parsePolicyPath,normalizePolicyPath,formatPolicyPath})=>{const p=[parsePolicyPath("quoted[\"*\"]"),parsePolicyPath("literal[\"[]\"]"),parsePolicyPath("huge[9007199254740992]")];console.log(JSON.stringify({normalized:p.map(normalizePolicyPath),formatted:[formatPolicyPath([]),...p.map(formatPolicyPath),formatPolicyPath(["[]"]),formatPolicyPath(["field","[]"])]}));})'
 //
 // unlink /tmp/node_modules
@@ -183,7 +183,7 @@ func TestPolicyPathNormalizeAndFormatProbe(t *testing.T) {
 
 // TestDriftPolicyRejectsUnsafeOrAmbiguousNodeVectors ports "full policy
 // validation rejects unsafe or ambiguous entries" from
-// node-tests/drift-policy.test.ts.
+// the original test corpus.
 func TestDriftPolicyRejectsUnsafeOrAmbiguousNodeVectors(t *testing.T) {
 	document := func(resource JsonObject) JsonObject {
 		return JsonObject{
@@ -287,7 +287,7 @@ func TestDriftPolicyValidationPreservesFrozenPythonVector(t *testing.T) {
 
 // TestDriftPolicyAcceptsCompleteNonPlanModeVector ports "valid non-plan modes
 // remain accepted by the complete validator" from
-// node-tests/drift-policy.test.ts.
+// the original test corpus.
 func TestDriftPolicyAcceptsCompleteNonPlanModeVector(t *testing.T) {
 	policy, err := NewDriftPolicy(JsonObject{
 		"version": float64(1),
@@ -456,7 +456,7 @@ func TestDriftPolicyPlanToleranceTracksStaleEntries(t *testing.T) {
 
 // TestDriftPolicyPlanAssessmentToleranceVector ports the drift-policy unit
 // vector from "policy bytes drive tolerated classification and stale-entry
-// reporting" in node-tests/plan-assessment.test.ts. Filesystem hashing,
+// reporting" in the original test corpus. Filesystem hashing,
 // Terraform execution, and report assembly belong to later parcels.
 func TestDriftPolicyPlanAssessmentToleranceVector(t *testing.T) {
 	policy := newRuntimePolicy(t, JsonObject{
@@ -487,7 +487,7 @@ func TestDriftPolicyPlanAssessmentToleranceVector(t *testing.T) {
 // TestDriftPolicyPlanPolicyRuntimeVectors ports the two DriftPolicy-only
 // assertions from "drift policy is parsed from and later bound to exact stable
 // bytes" and "an absent policy has no mutable file evidence" in
-// node-tests/plan-policy.test.ts. File binding and recheck behavior belong to
+// the original test corpus. File binding and recheck behavior belong to
 // the future policy-file consumer.
 func TestDriftPolicyPlanPolicyRuntimeVectors(t *testing.T) {
 	policy := newRuntimePolicy(t, JsonObject{
@@ -510,7 +510,7 @@ func TestDriftPolicyPlanPolicyRuntimeVectors(t *testing.T) {
 // TestDriftPolicyPlanEvalPathVectors ports the matcher-level inputs from
 // "prototype-like own keys cannot disappear behind tolerated drift" and
 // "partial tolerance reports only unmatched paths in Python order" in
-// node-tests/plan-eval.test.ts.
+// the original test corpus.
 func TestDriftPolicyPlanEvalPathVectors(t *testing.T) {
 	prototype := newRuntimePolicy(t, JsonObject{
 		"sample_resource": JsonObject{
@@ -553,7 +553,7 @@ func TestDriftPolicyPlanEvalPathVectors(t *testing.T) {
 
 // TestDriftPolicyPlanEvalWildcardStaleVector ports the matcher and stale-entry
 // observations from "policy classification and stale tracking match Python"
-// in node-tests/plan-eval.test.ts.
+// in the original test corpus.
 func TestDriftPolicyPlanEvalWildcardStaleVector(t *testing.T) {
 	policy := newRuntimePolicy(t, JsonObject{
 		"sample_resource": JsonObject{
@@ -580,7 +580,7 @@ func TestDriftPolicyPlanEvalWildcardStaleVector(t *testing.T) {
 // TestDriftPolicyStateProjectRuntimeVectors ports the DriftPolicy-only
 // observations from "sensitivity masks are validated completely before
 // projection and may be explicitly omitted" and "projection policy order is
-// sync, fill, then conditional omit" in node-tests/state-project.test.ts.
+// sync, fill, then conditional omit" in the original test corpus.
 func TestDriftPolicyStateProjectRuntimeVectors(t *testing.T) {
 	policy := newRuntimePolicy(t, JsonObject{
 		"sample_resource": JsonObject{
@@ -634,7 +634,7 @@ func markRuntimeEntries(t *testing.T, policy *DriftPolicy, resourceType string, 
 }
 
 // TestDriftPolicyGeneratedConfigAccountingVectors ports all seven explicit
-// staleEntries assertions in node-tests/generated-config-policy.test.ts. The
+// staleEntries assertions in the original test corpus. The
 // consumer-owned HCL/schema/value logic decides which handles to mark; these
 // subtests pin the resulting DriftPolicy identity accounting only.
 func TestDriftPolicyGeneratedConfigAccountingVectors(t *testing.T) {
@@ -749,7 +749,7 @@ func TestDriftPolicyGeneratedConfigAccountingVectors(t *testing.T) {
 }
 
 // TestDriftPolicyImportOracleAccountingVectors ports the two explicit
-// projection_omit staleEntries assertions in node-tests/import-oracle.test.ts.
+// projection_omit staleEntries assertions in the original test corpus.
 // Terraform command sequencing and corrected-plan authorization remain owned
 // by the future import-oracle consumer.
 func TestDriftPolicyImportOracleAccountingVectors(t *testing.T) {
@@ -887,7 +887,7 @@ func TestDriftPolicySelectorEdgeCases(t *testing.T) {
 //
 // ln -s "$PWD/node_modules" /tmp/node_modules
 //
-//	npx esbuild node-src/domain/drift-policy.ts --bundle --format=esm --external:lossless-json --outfile=/tmp/probe.mjs
+//	npx esbuild the original implementation --bundle --format=esm --external:lossless-json --outfile=/tmp/probe.mjs
 //	node -e 'import("file:///tmp/probe.mjs").then(({DriftPolicy})=>{const make=(path)=>({path,reason:"r",approved_by:"a"});const projectionEntry=make("before");const projection=new DriftPolicy({version:1,resource_types:{sample_resource:{projection_omit:[projectionEntry]}}});projectionEntry.path="after";const planEntry=make("before");const plan=new DriftPolicy({version:1,resource_types:{sample_resource:{plan_tolerate:[planEntry]}}});planEntry.path="after";const staleEntry=make("before");const staleDisplay=new DriftPolicy({version:1,resource_types:{sample_resource:{plan_tolerate:[staleEntry]}}});staleEntry.path="after";const appendedResource={projection_omit:[],plan_tolerate:[]};const appended=new DriftPolicy({version:1,resource_types:{sample_resource:appendedResource}});appendedResource.projection_omit.push(make("projection_late"));appendedResource.plan_tolerate.push(make("plan_late"));const removedResource={projection_omit:[make("projection_existing")],plan_tolerate:[make("plan_existing")]};const removed=new DriftPolicy({version:1,resource_types:{sample_resource:removedResource}});removedResource.projection_omit.length=0;removedResource.plan_tolerate.length=0;console.log(JSON.stringify({path_mutation:{projection_old:projection.projectionOmits("sample_resource",["before"]),projection_new:projection.projectionOmits("sample_resource",["after"]),plan_old:plan.toleratesPlanPath("sample_resource",["before"],"update"),plan_new:plan.toleratesPlanPath("sample_resource",["after"],"update"),stale_display:staleDisplay.staleEntries({modes:["plan_tolerate"]})},append_after_construction:{projection:appended.projectionOmits("sample_resource",["projection_late"]),plan:appended.toleratesPlanPath("sample_resource",["plan_late"],"update"),stale:appended.staleEntries()},remove_after_construction:{projection:removed.projectionOmits("sample_resource",["projection_existing"]),plan:removed.toleratesPlanPath("sample_resource",["plan_existing"],"update"),stale:removed.staleEntries()}}));})'
 //
 // unlink /tmp/node_modules
@@ -980,7 +980,7 @@ func TestDriftPolicySnapshotsInputAndDetachesOutputs(t *testing.T) {
 // object. From the repository root, with /tmp/node_modules absent, this probe:
 //
 // ln -s "$PWD/node_modules" /tmp/node_modules
-// npx esbuild node-src/domain/drift-policy.ts --bundle --format=esm --external:lossless-json --outfile=/tmp/probe.mjs
+// npx esbuild the original implementation --bundle --format=esm --external:lossless-json --outfile=/tmp/probe.mjs
 // node -e 'import("file:///tmp/probe.mjs").then(({DriftPolicy})=>{const make=()=>({path:"field",reason:"r",approved_by:"a"});const shared=make();const data={version:1,resource_types:{sample_resource:{projection_omit:[shared]}}};const sameA=new DriftPolicy(data);const sameB=new DriftPolicy(data);sameA.markMatched(sameB.entries("sample_resource","projection_omit")[0]);const separateA=new DriftPolicy({version:1,resource_types:{sample_resource:{projection_omit:[make()]}}});const separateB=new DriftPolicy({version:1,resource_types:{sample_resource:{projection_omit:[make()]}}});separateA.markMatched(separateB.entries("sample_resource","projection_omit")[0]);console.log(JSON.stringify({same_input:sameA.staleEntries(),separate_input:separateA.staleEntries()}));})'
 // unlink /tmp/node_modules
 //

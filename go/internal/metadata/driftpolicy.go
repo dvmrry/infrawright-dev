@@ -1,8 +1,8 @@
 package metadata
 
-// This file ports node-src/domain/drift-policy.ts and the path-syntax and
-// selector helpers it uses from node-src/domain/policy-paths.ts. In addition
-// to the validation path used by node-src/metadata/packs.ts, DriftPolicy is
+// This file ports the original implementation and the path-syntax and
+// selector helpers it uses from the original implementation. In addition
+// to the validation path used by the original implementation, DriftPolicy is
 // the shared runtime used by plan evaluation and state projection. It keeps
 // declaration-order matching, canonical exact-selector alias precedence,
 // wildcard ambiguity, and identity-based stale-entry accounting from the
@@ -15,7 +15,7 @@ package metadata
 // source's object-identity semantics for MarkMatched. Match accounting is
 // mutex-protected so a policy may safely be shared by concurrent readers.
 //
-// parsePolicyPath retains node-src/domain/policy-paths.ts's optional `what`
+// parsePolicyPath retains the original implementation's optional `what`
 // label because the future assessment-guidance consumer supplies it when
 // normalizing report paths; validation and projection callers use the
 // source-defined "policy path" default.
@@ -35,7 +35,7 @@ import (
 )
 
 // policyListMarker and policyWildcard port POLICY_LIST_MARKER and
-// POLICY_WILDCARD from node-src/domain/policy-paths.ts.
+// POLICY_WILDCARD from the original implementation.
 const (
 	policyListMarker = "[]"
 	policyWildcard   = "*"
@@ -43,31 +43,31 @@ const (
 
 // maxPolicyEntries and maxPlanTolerateWildcardsPerResource port
 // MAX_POLICY_ENTRIES and MAX_PLAN_TOLERATE_WILDCARDS_PER_RESOURCE from
-// node-src/domain/drift-policy.ts.
+// the original implementation.
 const (
 	maxPolicyEntries                    = 50_000
 	maxPlanTolerateWildcardsPerResource = 1_000
 )
 
-// PolicyMode identifies one entry list in node-src/domain/drift-policy.ts's
+// PolicyMode identifies one entry list in the original implementation's
 // PolicyMode union.
 type PolicyMode string
 
 const (
 	// PolicyProjectionOmit ports MODES[0] from
-	// node-src/domain/drift-policy.ts.
+	// the original implementation.
 	PolicyProjectionOmit PolicyMode = "projection_omit"
 	// PolicyProjectionSync ports MODES[1] from
-	// node-src/domain/drift-policy.ts.
+	// the original implementation.
 	PolicyProjectionSync PolicyMode = "projection_sync"
 	// PolicyProjectionFill ports MODES[2] from
-	// node-src/domain/drift-policy.ts.
+	// the original implementation.
 	PolicyProjectionFill PolicyMode = "projection_fill"
 	// PolicyProjectionOmitIf ports MODES[3] from
-	// node-src/domain/drift-policy.ts.
+	// the original implementation.
 	PolicyProjectionOmitIf PolicyMode = "projection_omit_if"
 	// PolicyPlanTolerate ports MODES[4] from
-	// node-src/domain/drift-policy.ts.
+	// the original implementation.
 	PolicyPlanTolerate PolicyMode = "plan_tolerate"
 )
 
@@ -81,7 +81,7 @@ var policyModes = []PolicyMode{
 
 // policyTopLevelKeys, policyResourceKeys, and policyCommonKeys port
 // TOP_LEVEL_KEYS, RESOURCE_KEYS, and COMMON_KEYS from
-// node-src/domain/drift-policy.ts.
+// the original implementation.
 var (
 	policyTopLevelKeys = stringSet("version", "resource_types")
 	policyResourceKeys = stringSet(
@@ -93,11 +93,11 @@ var (
 
 // driftResourceTypeName validates a drift-policy resource_types key.
 // Ports the inline /^[A-Za-z_][A-Za-z0-9_]*$/ test in
-// node-src/domain/drift-policy.ts's validatePolicy.
+// the original implementation's validatePolicy.
 var driftResourceTypeName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func driftFail(format string, args ...any) {
-	// node-src/domain/drift-policy.ts and policy-paths.ts throw their own
+	// the original implementation and policy-paths.ts throw their own
 	// error classes. This metadata package uses one exported error spine, so
 	// their exact messages travel through the existing *MetadataError panic
 	// and recoverMetadataError boundary instead of introducing parallel Go
@@ -106,7 +106,7 @@ func driftFail(format string, args ...any) {
 }
 
 // PolicyEntry is the immutable Go handle for PolicyEntry from
-// node-src/domain/drift-policy.ts. Its hidden policy/id pair preserves source
+// the original implementation. Its hidden policy/id pair preserves source
 // object identity without exposing mutable internals.
 type PolicyEntry struct {
 	policy *DriftPolicy
@@ -114,29 +114,29 @@ type PolicyEntry struct {
 }
 
 // StalePolicyEntry ports StalePolicyEntry from
-// node-src/domain/drift-policy.ts.
+// the original implementation.
 type StalePolicyEntry struct {
 	// ResourceType ports StalePolicyEntry.resource_type from
-	// node-src/domain/drift-policy.ts.
+	// the original implementation.
 	ResourceType string `json:"resource_type"`
 	// Mode ports StalePolicyEntry.mode from
-	// node-src/domain/drift-policy.ts.
+	// the original implementation.
 	Mode PolicyMode `json:"mode"`
 	// Path ports StalePolicyEntry.path from
-	// node-src/domain/drift-policy.ts.
+	// the original implementation.
 	Path string `json:"path"`
 }
 
 // StaleEntriesOptions is the Go form of the options object accepted by
-// DriftPolicy.staleEntries in node-src/domain/drift-policy.ts. A nil or empty
+// DriftPolicy.staleEntries in the original implementation. A nil or empty
 // ResourceTypes set selects every resource type; a nil or empty Modes slice
 // selects every mode in source-defined order.
 type StaleEntriesOptions struct {
 	// ResourceTypes ports DriftPolicy.staleEntries options.resourceTypes from
-	// node-src/domain/drift-policy.ts.
+	// the original implementation.
 	ResourceTypes map[string]struct{}
 	// Modes ports DriftPolicy.staleEntries options.modes from
-	// node-src/domain/drift-policy.ts.
+	// the original implementation.
 	Modes []PolicyMode
 }
 
@@ -155,7 +155,7 @@ type compiledPolicyEntry struct {
 	selector []policyPathSegment
 }
 
-// DriftPolicy ports DriftPolicy from node-src/domain/drift-policy.ts as an
+// DriftPolicy ports DriftPolicy from the original implementation as an
 // immutable validated snapshot with identity-based match accounting. All
 // methods are safe for concurrent use.
 type DriftPolicy struct {
@@ -232,7 +232,7 @@ func mustMarshalJSON(value any) string {
 // dialect: a string (a field name, or the literal wildcard marker
 // policyWildcard), an int64 (a small numeric index), or a *big.Int (a
 // numeric index beyond int64 range). Ports the PolicyPathSegment union
-// type from node-src/domain/policy-paths.ts.
+// type from the original implementation.
 type policyPathSegment = any
 
 var (
@@ -240,7 +240,7 @@ var (
 	policyAsciiDigits = regexp.MustCompile(`^[0-9]+$`)
 )
 
-// splitDotted ports splitDotted from node-src/domain/policy-paths.ts.
+// splitDotted ports splitDotted from the original implementation.
 func splitDotted(text, what string) []string {
 	var parts []string
 	var buffer strings.Builder
@@ -271,7 +271,7 @@ func splitDotted(text, what string) []string {
 	return parts
 }
 
-// selectorEnd ports selectorEnd from node-src/domain/policy-paths.ts,
+// selectorEnd ports selectorEnd from the original implementation,
 // operating over runes (rather than UTF-16 code units) since Go strings
 // are UTF-8; the bracket/quote/backslash delimiters it scans for are all
 // single-byte ASCII, so this is behaviorally identical for every valid
@@ -297,7 +297,7 @@ func selectorEnd(raw []rune, start int, fullPath, what string) int {
 }
 
 // unquoteSelector ports unquoteSelector from
-// node-src/domain/policy-paths.ts. Order matters: unescaping `\"` before
+// the original implementation. Order matters: unescaping `\"` before
 // `\\` matches the Node source's own replaceAll ordering.
 func unquoteSelector(text string) string {
 	text = strings.ReplaceAll(text, `\"`, `"`)
@@ -305,7 +305,7 @@ func unquoteSelector(text string) string {
 	return text
 }
 
-// parseIndex ports parseIndex from node-src/domain/policy-paths.ts.
+// parseIndex ports parseIndex from the original implementation.
 func parseIndex(text string) policyPathSegment {
 	value, ok := new(big.Int).SetString(text, 10)
 	if !ok {
@@ -323,7 +323,7 @@ func invalidSegment(raw, fullPath, what string) {
 	driftFail("invalid %s segment %s in %s", what, jsonQuote(raw), jsonQuote(fullPath))
 }
 
-// parseSegment ports parseSegment from node-src/domain/policy-paths.ts.
+// parseSegment ports parseSegment from the original implementation.
 func parseSegment(raw []rune, fullPath, what string) []policyPathSegment {
 	rawText := string(raw)
 	match := policySegmentName.FindString(rawText)
@@ -356,7 +356,7 @@ func parseSegment(raw []rune, fullPath, what string) []policyPathSegment {
 }
 
 // parsePolicyPath ports parsePolicyPath from
-// node-src/domain/policy-paths.ts. The optional label supplies the source
+// the original implementation. The optional label supplies the source
 // function's `what` argument.
 func parsePolicyPath(text string, labels ...string) []policyPathSegment {
 	what := "policy path"
@@ -374,7 +374,7 @@ func parsePolicyPath(text string, labels ...string) []policyPathSegment {
 }
 
 // ParsePolicyPath ports parsePolicyPath from
-// node-src/domain/policy-paths.ts. Omitting what uses "policy path" in errors;
+// the original implementation. Omitting what uses "policy path" in errors;
 // supplying it preserves the source's caller-specific diagnostic label.
 func ParsePolicyPath(text string, what ...string) (path []any, err error) {
 	defer recoverMetadataError(&err)
@@ -382,7 +382,7 @@ func ParsePolicyPath(text string, what ...string) (path []any, err error) {
 }
 
 // isCollectionSelector ports isCollectionSelector from
-// node-src/domain/policy-paths.ts.
+// the original implementation.
 func isCollectionSelector(segment policyPathSegment) bool {
 	switch v := segment.(type) {
 	case string:
@@ -397,7 +397,7 @@ func isCollectionSelector(segment policyPathSegment) bool {
 }
 
 // policyPathHasWildcardOrIndex ports policyPathHasWildcardOrIndex from
-// node-src/domain/policy-paths.ts.
+// the original implementation.
 func policyPathHasWildcardOrIndex(path []policyPathSegment) bool {
 	for _, segment := range path {
 		if isCollectionSelector(segment) {
@@ -428,7 +428,7 @@ func policySegmentEqual(left, right policyPathSegment) bool {
 }
 
 // policyPathsEqual ports policyPathsEqual from
-// node-src/domain/policy-paths.ts.
+// the original implementation.
 func policyPathsEqual(left, right []policyPathSegment) bool {
 	if len(left) != len(right) {
 		return false
@@ -442,7 +442,7 @@ func policyPathsEqual(left, right []policyPathSegment) bool {
 }
 
 // pathMarker builds a dedup key for a parsed path, ports pathMarker from
-// node-src/domain/drift-policy.ts. Both sides of every comparison this
+// the original implementation. Both sides of every comparison this
 // package makes against a pathMarker result are produced by this same
 // function, so it need not reproduce JSON.stringify's literal bytes, only
 // be injective and deterministic.
@@ -518,7 +518,7 @@ func concreteEqualsIndex(segment any, index int64) bool {
 }
 
 // policySelectorMatches ports policySelectorMatches from
-// node-src/domain/policy-paths.ts. The literal string "*" is deliberately
+// the original implementation. The literal string "*" is deliberately
 // indistinguishable from the wildcard marker after parsing, including when it
 // came from a quoted selector such as fields["*"].
 func policySelectorMatches(selector []policyPathSegment, actual []any) bool {
@@ -556,14 +556,14 @@ func policySelectorMatches(selector []policyPathSegment, actual []any) bool {
 }
 
 // PolicySelectorMatches ports policySelectorMatches from
-// node-src/domain/policy-paths.ts. Selector must be a successful
+// the original implementation. Selector must be a successful
 // ParsePolicyPath result; actual accepts Go string and integer path segments.
 func PolicySelectorMatches(selector, actual []any) bool {
 	return policySelectorMatches(selector, actual)
 }
 
 // normalizePolicyPath ports normalizePolicyPath from
-// node-src/domain/policy-paths.ts.
+// the original implementation.
 func normalizePolicyPath(path []policyPathSegment) []string {
 	normalized := make([]string, len(path))
 	for index, segment := range path {
@@ -581,14 +581,14 @@ func normalizePolicyPath(path []policyPathSegment) []string {
 }
 
 // NormalizePolicyPath ports normalizePolicyPath from
-// node-src/domain/policy-paths.ts. Path must be a successful ParsePolicyPath
+// the original implementation. Path must be a successful ParsePolicyPath
 // result.
 func NormalizePolicyPath(path []any) []string {
 	return normalizePolicyPath(path)
 }
 
 // formatPolicyPath ports formatPolicyPath from
-// node-src/domain/policy-paths.ts. It remains unexported because no current or
+// the original implementation. It remains unexported because no current or
 // planned plan/adopt consumer calls the source symbol.
 func formatPolicyPath(path []policyPathSegment) string {
 	if len(path) == 0 {
@@ -699,7 +699,7 @@ func driftRejectUnknownKeys(object JsonObject, allowed map[string]struct{}, wher
 	}
 }
 
-// driftEntriesFor ports entriesFor from node-src/domain/drift-policy.ts.
+// driftEntriesFor ports entriesFor from the original implementation.
 func driftEntriesFor(data JsonObject, resourceType, mode string) []JsonObject {
 	resources, ok := data["resource_types"].(JsonObject)
 	if !ok {
@@ -722,7 +722,7 @@ func driftEntriesFor(data JsonObject, resourceType, mode string) []JsonObject {
 	return out
 }
 
-// driftEntryKeys ports entryKeys from node-src/domain/drift-policy.ts.
+// driftEntryKeys ports entryKeys from the original implementation.
 func driftEntryKeys(mode string) map[string]struct{} {
 	switch mode {
 	case "projection_sync":
@@ -739,7 +739,7 @@ func driftEntryKeys(mode string) map[string]struct{} {
 }
 
 // driftRequiredStrings ports requiredStrings from
-// node-src/domain/drift-policy.ts.
+// the original implementation.
 func driftRequiredStrings(mode string) []string {
 	switch mode {
 	case "projection_sync":
@@ -781,7 +781,7 @@ func driftIsJsonScalar(value any) bool {
 }
 
 // driftNumericScalarMarker ports numericScalarMarker from
-// node-src/domain/drift-policy.ts. The literal marker bytes are internal; the
+// the original implementation. The literal marker bytes are internal; the
 // contract is that values Node maps to the same Terraform numeric scope map to
 // the same deterministic Go marker as well.
 func driftNumericScalarMarker(value any) string {
@@ -809,7 +809,7 @@ func driftNumericScalarMarker(value any) string {
 }
 
 // driftJSONScalarMarker ports jsonScalarMarker from
-// node-src/domain/drift-policy.ts for projection_omit_if duplicate scopes.
+// the original implementation for projection_omit_if duplicate scopes.
 func driftJSONScalarMarker(value any) string {
 	switch v := value.(type) {
 	case nil:
@@ -826,7 +826,7 @@ func driftJSONScalarMarker(value any) string {
 	}
 }
 
-// validateEntry ports validateEntry from node-src/domain/drift-policy.ts.
+// validateEntry ports validateEntry from the original implementation.
 func validateEntry(source, resourceType, mode string, entryValue any) string {
 	context := fmt.Sprintf("%s %s entry for %s", source, mode, resourceType)
 	entry, ok := entryValue.(JsonObject)
@@ -935,14 +935,14 @@ func validateEntry(source, resourceType, mode string, entryValue any) string {
 }
 
 // isDriftPolicyVersionOne ports isSupportedDriftPolicyVersion from
-// node-src/domain/drift-policy.ts. Equivalent exact decimal spellings of one
+// the original implementation. Equivalent exact decimal spellings of one
 // are accepted without rounding a near-one value through binary64.
 func isDriftPolicyVersionOne(value any) bool {
 	return canonjson.TerraformJSONExactlyEqual(value, float64(1))
 }
 
 // validateDriftPolicyData ports the structural half of validatePolicy from
-// node-src/domain/drift-policy.ts (everything up to, and including, its
+// the original implementation (everything up to, and including, its
 // per-resource-type entry and fill/omit-conflict validation).
 func validateDriftPolicyData(data any, source string) JsonObject {
 	obj, ok := data.(JsonObject)
@@ -1024,7 +1024,7 @@ func validateDriftPolicyData(data any, source string) JsonObject {
 
 // validateDriftPolicyWildcardLimits ports the per-resource-type
 // plan_tolerate wildcard-count limit enforced by the DriftPolicy
-// constructor in node-src/domain/drift-policy.ts, after validatePolicy
+// constructor in the original implementation, after validatePolicy
 // succeeds.
 func validateDriftPolicyWildcardLimits(data JsonObject, source string) {
 	resourceTypes, _ := data["resource_types"].(JsonObject)
@@ -1078,7 +1078,7 @@ func clonePolicyValueWithObjects(value any, objects map[uintptr]JsonObject) any 
 }
 
 // newDriftPolicy contains the port of DriftPolicy.constructor from
-// node-src/domain/drift-policy.ts.
+// the original implementation.
 func newDriftPolicy(data any, source string) *DriftPolicy {
 	if data == nil {
 		data = JsonObject{"version": float64(1), "resource_types": JsonObject{}}
@@ -1162,7 +1162,7 @@ func newDriftPolicy(data any, source string) *DriftPolicy {
 }
 
 // NewDriftPolicy ports DriftPolicy.constructor from
-// node-src/domain/drift-policy.ts. It snapshots validated input and compiles
+// the original implementation. It snapshots validated input and compiles
 // exact and wildcard plan-tolerance indexes; nil selects the source-defined
 // empty version-1 policy.
 func NewDriftPolicy(data any, source string) (policy *DriftPolicy, err error) {
@@ -1182,7 +1182,7 @@ func (e PolicyEntry) data() JsonObject {
 }
 
 // Data exposes the source fields of PolicyEntry from
-// node-src/domain/drift-policy.ts as a detached JSON object. This detached Go
+// the original implementation as a detached JSON object. This detached Go
 // view of the record has no separate Node method analogue; a zero or invalid
 // handle returns nil.
 func (e PolicyEntry) Data() JsonObject {
@@ -1201,7 +1201,7 @@ func (p *DriftPolicy) entries(resourceType string, mode PolicyMode) []PolicyEntr
 	return entries
 }
 
-// Entries ports DriftPolicy.entries from node-src/domain/drift-policy.ts. It
+// Entries ports DriftPolicy.entries from the original implementation. It
 // returns immutable identity handles in declaration order and detaches the
 // returned slice from policy storage.
 func (p *DriftPolicy) Entries(resourceType string, mode PolicyMode) []PolicyEntry {
@@ -1224,7 +1224,7 @@ func (p *DriftPolicy) markMatched(entry PolicyEntry) {
 }
 
 // MarkMatched ports DriftPolicy.markMatched from
-// node-src/domain/drift-policy.ts. A handle from another policy marks an entry
+// the original implementation. A handle from another policy marks an entry
 // only when both policies were constructed from the same raw entry object;
 // zero, invalid, and separately allocated equal entries have no effect. This
 // matches the source WeakSet's object-identity behavior.
@@ -1253,7 +1253,7 @@ func (p *DriftPolicy) projectionOmits(resourceType string, path []any) bool {
 }
 
 // ProjectionOmits ports DriftPolicy.projectionOmits from
-// node-src/domain/drift-policy.ts. A match marks only the first
+// the original implementation. A match marks only the first
 // declaration-order selector.
 func (p *DriftPolicy) ProjectionOmits(resourceType string, path []any) bool {
 	return p.projectionOmits(resourceType, path)
@@ -1287,7 +1287,7 @@ func (p *DriftPolicy) toleratesPlanPath(resourceType string, path []any, action 
 }
 
 // ToleratesPlanPath ports DriftPolicy.toleratesPlanPath from
-// node-src/domain/drift-policy.ts. Only update is supported; source order
+// the original implementation. Only update is supported; source order
 // breaks exact/wildcard overlap and canonical-alias ties.
 func (p *DriftPolicy) ToleratesPlanPath(resourceType string, path []any, action string) bool {
 	return p.toleratesPlanPath(resourceType, path, action)
@@ -1341,19 +1341,19 @@ func (p *DriftPolicy) staleEntries(options StaleEntriesOptions) []StalePolicyEnt
 }
 
 // StaleEntries ports DriftPolicy.staleEntries from
-// node-src/domain/drift-policy.ts. Output order is resource type by source
+// the original implementation. Output order is resource type by source
 // code point, requested mode order (MODES by default), then declaration order.
 func (p *DriftPolicy) StaleEntries(options StaleEntriesOptions) []StalePolicyEntry {
 	return p.staleEntries(options)
 }
 
 // validateDriftPolicy reproduces the failure behavior of
-// `new DriftPolicy(data, source)` in node-src/domain/drift-policy.ts: nil
+// `new DriftPolicy(data, source)` in the original implementation: nil
 // data is treated as the constructor's own `data === null` default (the
 // empty policy `{version: 1, resource_types: {}}`), so a manifest with no
 // drift_policy key produces no error. Returns nil when the document is
 // valid, or an error whose message is exactly what
-// node-src/metadata/packs.ts's validatePackManifest would have re-raised
+// the original implementation's validatePackManifest would have re-raised
 // through its own fail(detail) after catching the constructor's thrown
 // error.
 func validateDriftPolicy(data any, source string) (err error) {

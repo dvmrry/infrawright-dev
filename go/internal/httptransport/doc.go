@@ -5,7 +5,7 @@
 // behavior in ~7,100 lines to stay byte-compatible with the Node CLI's
 // HTTP client.
 //
-// docs/go-runtime-v2.md §§2-3 re-scopes that compatibility contract around
+// the Go runtime contract §§2-3 re-scopes that compatibility contract around
 // one test: would a difference change infrastructure, evidence,
 // automation, or an operator decision? For the wire/IO layer, the answer
 // is almost always no. This package therefore preserves only the

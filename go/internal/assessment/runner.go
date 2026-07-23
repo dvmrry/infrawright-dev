@@ -1,6 +1,6 @@
 package assessment
 
-// This file ports node-src/domain/plan-assessment-runner.ts: it coordinates
+// This file ports the original implementation: it coordinates
 // policy preflight, lazy active-pack input resolution, saved-plan assessment,
 // report publication, and operator diagnostics without adding CLI concerns.
 
@@ -21,7 +21,7 @@ import (
 )
 
 // SavedPlanAssertionInputs ports the same-named interface from
-// node-src/domain/plan-assessment-runner.ts. It contains the active pack and
+// the original implementation. It contains the active pack and
 // deployment loaded by an assert-clean or assert-adoptable command.
 // ControlFiles bind source documents whose freshness must survive the
 // assessment transaction.
@@ -32,7 +32,7 @@ type SavedPlanAssertionInputs struct {
 }
 
 // RunSavedPlanAssertionOptions ports RunSavedPlanAssertionOptions from
-// node-src/domain/plan-assessment-runner.ts and supplies the operational inputs
+// the original implementation and supplies the operational inputs
 // to RunSavedPlanAssertion. Exactly one of Inputs and LoadInputs should be set.
 // A non-empty TerraformExecutable is an already-resolved executable; otherwise
 // ResolveTerraformExecutable is called only when at least one root is selected.
@@ -691,7 +691,7 @@ func runSavedPlanAssertion(
 }
 
 // RunSavedPlanAssertion ports runSavedPlanAssertion from
-// node-src/domain/plan-assessment-runner.ts over the already-ported Go
+// the original implementation over the already-ported Go
 // assessment primitives.
 func RunSavedPlanAssertion(options RunSavedPlanAssertionOptions) error {
 	return runSavedPlanAssertion(options, productionSavedPlanAssertionHooks())

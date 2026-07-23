@@ -4,7 +4,7 @@ import "testing"
 
 // TestRenderCLIProcessFailurePreservesEveryOperatorFacingField ports
 // "CLI ProcessFailure rendering preserves every operator-facing field"
-// from node-tests/cli-process-failure.test.ts verbatim: a multiline
+// from the original test corpus verbatim: a multiline
 // message, one detail with its own multiline message, retryable true, and
 // category "domain". This is the ported suite's primary byte-parity
 // vector for indent()'s multiline continuation behavior on both the
@@ -38,11 +38,11 @@ func TestRenderCLIProcessFailurePreservesEveryOperatorFacingField(t *testing.T) 
 
 // TestRenderCLIProcessFailureNoDetailsRetryableFalse pins the suffix-only
 // shape (no "  detail: " lines, "  retryable: no") that
-// node-tests/cli-failure-assertions.ts's assertCliFailureExtendsLegacy
+// the original test corpuscli-failure-assertions.ts's assertCliFailureExtendsLegacy
 // asserts across several real CLI failures -- e.g. plan-cli.test.ts's
 // UNSUPPORTED_TERRAFORM_EXECUTION_PLATFORM case, whose exact message text
 // is reproduced here verbatim from that test's `legacy` argument. This is
-// the shared expectation node-tests/cli-failure-assertions.ts encodes for
+// the shared expectation the original test corpuscli-failure-assertions.ts encodes for
 // every ProcessFailure without details: this port has no direct analogue
 // of that Node helper (there is nothing to "extend" here, since this
 // package's own test above already covers the full rendering, details
@@ -67,7 +67,7 @@ func TestRenderCLIProcessFailureNoDetailsRetryableFalse(t *testing.T) {
 }
 
 // TestRenderCLIProcessFailureInternalCategory pins the "  category:
-// internal" line against a real vector: node-tests/assessment-cli.test.ts's
+// internal" line against a real vector: the original test corpus's
 // ASSESSMENT_FAILED case (asserted there via assertCliFailureExtendsLegacy
 // with category "internal", retryable false). That test does not fix an
 // exact message (it compares against a dynamically-produced Python
@@ -93,8 +93,8 @@ func TestRenderCLIProcessFailureInternalCategory(t *testing.T) {
 
 // TestRenderCLIProcessFailureRemainingCategories rounds out coverage of
 // Category's two literals with no real-fixture vector in either
-// node-tests/cli-process-failure.test.ts or
-// node-tests/cli-failure-assertions.ts's call sites ("request" and "io"):
+// the original test corpus or
+// the original test corpuscli-failure-assertions.ts's call sites ("request" and "io"):
 // synthetic, but exercising the identical rendering path as the pinned
 // real vectors above.
 func TestRenderCLIProcessFailureRemainingCategories(t *testing.T) {

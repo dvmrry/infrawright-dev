@@ -1,26 +1,26 @@
 package tfrender
 
-// transform_artifacts.go ports node-src/domain/transform-artifacts.ts:
+// transform_artifacts.go ports the original implementation:
 // artifact assembly (tfvars in json/hcl format, imports files, lookup
 // sidecars, generated-bindings sidecars) and the transactional filesystem
 // write path (legacy single-artifact publish plus the batch
 // preflight/publish/rollback machinery). Vectors: the pure-library subset of
-// node-tests/transform-runtime-artifacts.test.ts, ported in
+// the original test corpus, ported in
 // transform_artifacts_test.go -- see that file's doc comment for exactly
 // which of that source's tests are ported here versus skipped as
-// runner/CLI-level (they exercise node-src/domain/transform-runner.ts,
-// node-src/domain/import-staging.ts, node-src/domain/plan-lifecycle.ts, or
-// node-src/metadata/loader.ts's pack loading, none of which are part of
+// runner/CLI-level (they exercise the original implementation,
+// the original implementation, the original implementation, or
+// the original implementation's pack loading, none of which are part of
 // this package's scope or dependency set).
 //
 // # expression-bindings.ts is NOT consumed here
 //
 // This task's brief anticipated transform-artifacts.ts might consume
-// node-src/domain/expression-bindings.ts for its "binding context"
-// handling. It does not: grepping node-src/domain/transform-artifacts.ts's
+// the original implementation for its "binding context"
+// handling. It does not: grepping the original implementation's
 // imports (reproduced below) shows no reference to expression-bindings.js,
-// and grepping node-src/ for "expression-bindings" shows its only importer
-// is node-src/domain/environment-generator.ts, an unrelated consumer
+// and grepping the original source tree for "expression-bindings" shows its only importer
+// is the original implementation, an unrelated consumer
 // outside this port's scope. BindingContext/TransformReferenceSpec and the
 // cross-state reference-binding derivation logic
 // (deriveGeneratedBindings and its helpers, below) are wholly local to
@@ -34,7 +34,7 @@ package tfrender
 // PullTransformResult.Items/Originals use map[string]map[string]any (an
 // item key to its field record) rather than this package's usual
 // map[string]any-rooted canonjson.Value tree, matching
-// node-src/domain/pull-transform.ts's own
+// the original implementation's own
 // `Readonly<Record<string, Readonly<Record<string, unknown>>>>` shape one
 // level more specifically typed than a bare `unknown`. Each field record
 // (map[string]any) is itself exactly this package's canonjson.Value model,
@@ -45,7 +45,7 @@ package tfrender
 // # Local dependency: PullTransformResult
 //
 // PullTransformResult below is a LOCAL, minimal port of the interface of
-// the same name in node-src/domain/pull-transform.ts, whose full port
+// the same name in the original implementation, whose full port
 // belongs to the sibling finisher's go/internal/transform package for this
 // wave (per this task's brief: "a sibling finisher owns go/internal/transform").
 // Only the three fields transform-artifacts.ts's write path actually reads
@@ -73,7 +73,7 @@ import (
 )
 
 // PullTransformResult is a LOCAL minimal port of the PullTransformResult
-// interface in node-src/domain/pull-transform.ts. See this file's
+// interface in the original implementation. See this file's
 // package-level doc comment.
 type PullTransformResult struct {
 	Items     map[string]map[string]any
@@ -82,7 +82,7 @@ type PullTransformResult struct {
 }
 
 // TransformReferenceSpec is the Go analogue of the TransformReferenceSpec
-// interface in node-src/domain/transform-artifacts.ts. NameField (the TS
+// interface in the original implementation. NameField (the TS
 // interface's `name_field`) is never read by any function this file ports
 // -- grepping transform-artifacts.ts confirms `.name_field`/`name_field`
 // only ever appears in this interface's own declaration -- but is kept for
@@ -94,7 +94,7 @@ type TransformReferenceSpec struct {
 }
 
 // BindingContext is the Go analogue of the BindingContext interface in
-// node-src/domain/transform-artifacts.ts. Derived and Generated are the Go
+// the original implementation. Derived and Generated are the Go
 // analogues of its two `ReadonlySet<string>` fields, represented as
 // presence-only string sets (map[string]bool) the same way this port
 // represents every other TS Set/Readonly<Set> it encounters.
@@ -107,7 +107,7 @@ type BindingContext struct {
 }
 
 // GeneratedBindingsResult is the Go analogue of the GeneratedBindingsResult
-// interface in node-src/domain/transform-artifacts.ts. Resources is the Go
+// interface in the original implementation. Resources is the Go
 // analogue of `data.resources` (this file inlines the TS interface's extra
 // `{data: {resources: ...}}` nesting level away: RenderGeneratedBindings
 // re-adds the "resources" JSON key itself); every entry is a
@@ -120,7 +120,7 @@ type GeneratedBindingsResult struct {
 }
 
 // TransformArtifactPaths is the Go analogue of the TransformArtifactPaths
-// interface in node-src/domain/transform-artifacts.ts.
+// interface in the original implementation.
 type TransformArtifactPaths struct {
 	Config            string
 	GeneratedBindings string
@@ -132,7 +132,7 @@ type TransformArtifactPaths struct {
 
 // TransformArtifactWriteResult is the Go analogue of the
 // TransformArtifactWriteResult interface in
-// node-src/domain/transform-artifacts.ts.
+// the original implementation.
 type TransformArtifactWriteResult struct {
 	Paths   TransformArtifactPaths
 	Written []string
@@ -140,7 +140,7 @@ type TransformArtifactWriteResult struct {
 }
 
 // TransformLookupData is the Go analogue of the TransformLookupData
-// interface in node-src/domain/transform-artifacts.ts.
+// interface in the original implementation.
 type TransformLookupData struct {
 	ByID    map[string]string
 	KeyByID map[string]string
@@ -148,7 +148,7 @@ type TransformLookupData struct {
 
 // TransformArtifactCompileOptions is the Go analogue of the
 // TransformArtifactCompileOptions interface in
-// node-src/domain/transform-artifacts.ts.
+// the original implementation.
 //
 // LookupNameField's *string nil-ness carries the TS `string | null` union
 // (a required field that can be explicitly null). LookupOverrides carries
@@ -180,7 +180,7 @@ type TransformArtifactCompileOptions struct {
 
 // CompiledTransformArtifacts is the Go analogue of the opaque
 // CompiledTransformArtifacts interface in
-// node-src/domain/transform-artifacts.ts: "fully preflighted transform
+// the original implementation: "fully preflighted transform
 // output; pass this to the publish functions."
 type CompiledTransformArtifacts struct {
 	Binding                GeneratedBindingsResult
@@ -197,7 +197,7 @@ type CompiledTransformArtifacts struct {
 }
 
 // batchMutationKind is the Go analogue of the "remove" | "write" literal
-// union node-src/domain/transform-artifacts.ts's BatchArtifactMutation.kind
+// union the original implementation's BatchArtifactMutation.kind
 // field carries.
 type batchMutationKind string
 
@@ -207,7 +207,7 @@ const (
 )
 
 // batchArtifactMutation is the Go analogue of the BatchArtifactMutation
-// type in node-src/domain/transform-artifacts.ts.
+// type in the original implementation.
 type batchArtifactMutation struct {
 	contents     *string
 	kind         batchMutationKind
@@ -231,7 +231,7 @@ type appliedBatchArtifactMutation struct {
 }
 
 // BatchArtifactMutationRef is the Go analogue of the read-only mutation
-// view node-src/domain/transform-artifacts.ts's BatchArtifactCommitHook
+// view the original implementation's BatchArtifactCommitHook
 // type receives: `Readonly<Pick<BatchArtifactMutation, "kind" |
 // "resourceType" | "target">>`.
 type BatchArtifactMutationRef struct {
@@ -241,7 +241,7 @@ type BatchArtifactMutationRef struct {
 }
 
 // BatchArtifactCommitHook is the Go analogue of the BatchArtifactCommitHook
-// type in node-src/domain/transform-artifacts.ts: `@internal Test-only
+// type in the original implementation: `@internal Test-only
 // fault injection for batch publication rollback coverage`. The TS type's
 // `(mutation, phase) => void | Promise<void>` (which can throw/reject) is
 // this func's `error` return.
@@ -255,7 +255,7 @@ var (
 
 // InstallTransformArtifactBatchCommitHookForTests ports
 // installTransformArtifactBatchCommitHookForTests from
-// node-src/domain/transform-artifacts.ts. Only one hook may be installed at
+// the original implementation. Only one hook may be installed at
 // a time (mirroring the TS source's own single-slot `let
 // batchArtifactCommitHook` guard); the returned cleanup func uninstalls it,
 // but -- like the TS source's `if (batchArtifactCommitHook === hook)`
@@ -302,7 +302,7 @@ func runBatchArtifactCommitHook(mutation batchArtifactMutation, phase string) er
 
 // multiError is this file's Go analogue of the two (non-
 // BatchArtifactRollbackError) `throw new AggregateError(...)` call sites in
-// node-src/domain/transform-artifacts.ts: one fixed message plus every
+// the original implementation: one fixed message plus every
 // wrapped failure, retrievable via Unwrap() []error (the standard Go 1.20+
 // multi-error convention) for any caller that wants to inspect the
 // individual failures the way JS code inspects AggregateError.errors.
@@ -316,7 +316,7 @@ func (e *multiError) Unwrap() []error { return e.errs }
 
 // BatchArtifactRollbackError is the Go analogue of the
 // BatchArtifactRollbackError class in
-// node-src/domain/transform-artifacts.ts: publication failed AND the
+// the original implementation: publication failed AND the
 // rollback that followed also failed, leaving transaction backups on disk
 // for operator recovery.
 type BatchArtifactRollbackError struct {
@@ -347,7 +347,7 @@ func (e *BatchArtifactRollbackError) Unwrap() []error { return e.Errors }
 func jsonQuote(s string) string { return strconv.Quote(s) }
 
 // pythonTransformString ports pythonTransformString from
-// node-src/domain/transform-artifacts.ts: "match the scalar spelling used
+// the original implementation: "match the scalar spelling used
 // by Python str() in transform identities." Every failure here is a plain
 // error (the TS source throws a plain TypeError, not a ProcessFailure).
 func pythonTransformString(value any) (string, error) {
@@ -381,7 +381,7 @@ var errTransformIdentityScalar = errors.New("transform identity must be a scalar
 var importFieldPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // formatImportTemplate ports formatImportTemplate from
-// node-src/domain/transform-artifacts.ts: "match Python str.format's field
+// the original implementation: "match Python str.format's field
 // and doubled-brace behavior for import IDs." Indexed by Go string byte
 // offset rather than UTF-16 code unit; safe here for the same reason
 // import_moves.go's package-level indexing note gives -- every structural
@@ -436,7 +436,7 @@ func formatImportTemplate(template string, original map[string]any) (string, err
 }
 
 // renderTransformImports ports renderTransformImports from
-// node-src/domain/transform-artifacts.ts. template nil matches the TS
+// the original implementation. template nil matches the TS
 // source's `options.template ?? "{id}"` default.
 func renderTransformImports(resourceType string, originals map[string]map[string]any, template *string) (string, error) {
 	tmpl := "{id}"
@@ -460,7 +460,7 @@ func renderTransformImports(resourceType string, originals map[string]map[string
 }
 
 // lookupIdentity ports lookupIdentity from
-// node-src/domain/transform-artifacts.ts.
+// the original implementation.
 func lookupIdentity(value any) (*string, error) {
 	if value == nil {
 		return nil, nil
@@ -476,7 +476,7 @@ func lookupIdentity(value any) (*string, error) {
 }
 
 // RenderTransformLookup ports renderTransformLookup from
-// node-src/domain/transform-artifacts.ts: "render Python's transform
+// the original implementation: "render Python's transform
 // lookup sidecar, including last-key-wins IDs."
 func RenderTransformLookup(items, originals map[string]map[string]any, nameField string) (string, error) {
 	byID := map[string]any{}
@@ -523,7 +523,7 @@ func asObject(value any) (map[string]any, bool) {
 }
 
 // ParseLookupSidecar ports parseLookupSidecar from
-// node-src/domain/transform-artifacts.ts.
+// the original implementation.
 func ParseLookupSidecar(value any) (TransformLookupData, error) {
 	root, ok := asObject(value)
 	if !ok {
@@ -557,7 +557,7 @@ func ParseLookupSidecar(value any) (TransformLookupData, error) {
 var integerTokenPattern = regexp.MustCompile(`^-?(?:0|[1-9][0-9]*)$`)
 
 // integerToken ports integerToken from
-// node-src/domain/transform-artifacts.ts, returning nil where the TS source
+// the original implementation, returning nil where the TS source
 // returns null.
 func integerToken(value any) *string {
 	if n, ok := value.(json.Number); ok {
@@ -580,14 +580,14 @@ func integerToken(value any) *string {
 }
 
 // zeroSentinel ports zeroSentinel from
-// node-src/domain/transform-artifacts.ts.
+// the original implementation.
 func zeroSentinel(value any) bool {
 	token := integerToken(value)
 	return token != nil && *token == "0"
 }
 
 // bindableListElement ports bindableListElement from
-// node-src/domain/transform-artifacts.ts.
+// the original implementation.
 func bindableListElement(value any) bool {
 	if s, ok := value.(string); ok && s != "" {
 		return true
@@ -596,7 +596,7 @@ func bindableListElement(value any) bool {
 }
 
 // bindableReference ports bindableReference from
-// node-src/domain/transform-artifacts.ts.
+// the original implementation.
 func bindableReference(resourceType, referent string, context BindingContext) bool {
 	if resourceType == referent {
 		return false
@@ -617,7 +617,7 @@ func bindableReference(resourceType, referent string, context BindingContext) bo
 }
 
 // fieldCandidate is the Go analogue of fieldCandidates's anonymous element
-// type in node-src/domain/transform-artifacts.ts.
+// type in the original implementation.
 type fieldCandidate struct {
 	key   string
 	path  string
@@ -627,7 +627,7 @@ type fieldCandidate struct {
 var identifierSegmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // fieldCandidates ports fieldCandidates from
-// node-src/domain/transform-artifacts.ts.
+// the original implementation.
 func fieldCandidates(items map[string]map[string]any, field string) []fieldCandidate {
 	segments := strings.Split(field, ".")
 	dotted := len(segments) > 1
@@ -839,7 +839,7 @@ func (b *generatedBindingsBuilder) assign(key, fieldPath, expression, reason str
 }
 
 // DeriveGeneratedBindings ports deriveGeneratedBindings from
-// node-src/domain/transform-artifacts.ts. Lookup reads stay in the caller.
+// the original implementation. Lookup reads stay in the caller.
 func DeriveGeneratedBindings(context BindingContext, items map[string]map[string]any, lookupKeys map[string]map[string]string, resourceType string) (GeneratedBindingsResult, error) {
 	b := &generatedBindingsBuilder{
 		resourceType: resourceType,
@@ -933,13 +933,13 @@ func DeriveGeneratedBindings(context BindingContext, items map[string]map[string
 }
 
 // RenderGeneratedBindings ports renderGeneratedBindings from
-// node-src/domain/transform-artifacts.ts.
+// the original implementation.
 func RenderGeneratedBindings(resources map[string]any) (string, error) {
 	return canonjson.RenderLosslessArtifactJSON(map[string]any{"resources": resources})
 }
 
 // ComputeTransformArtifactPaths ports transformArtifactPaths from
-// node-src/domain/transform-artifacts.ts. Named ComputeTransformArtifactPaths
+// the original implementation. Named ComputeTransformArtifactPaths
 // rather than TransformArtifactPaths (the TS function and its return-type
 // interface share one lowercase/uppercase-only name in TS, which Go's
 // single, case-sensitive-but-not-namespace-separated identifier space for
@@ -978,7 +978,7 @@ func ComputeTransformArtifactPaths(dep deployment.Deployment, resourceType, tena
 }
 
 // removeIfPresent ports removeIfPresent from
-// node-src/domain/transform-artifacts.ts.
+// the original implementation.
 func removeIfPresent(file string) (bool, error) {
 	err := os.Remove(file)
 	if err == nil {
@@ -990,11 +990,11 @@ func removeIfPresent(file string) (bool, error) {
 	return false, err
 }
 
-// readOptionalUtf8 ports readOptionalUtf8 from node-src/io/files.ts, kept
+// readOptionalUtf8 ports readOptionalUtf8 from the original implementation, kept
 // package-private per this port's per-package convention for this small
 // helper -- see go/internal/deployment/deployment.go's own copy, which
 // this one mirrors exactly (including its procerr.ProcessFailure codes:
-// unlike node-src/domain/transform-artifacts.ts's own throws, which are all
+// unlike the original implementation's own throws, which are all
 // plain Error/TypeError, io/files.ts's readOptionalUtf8 does raise
 // ProcessFailure, and this file's task brief requires every
 // ProcessFailure code/message be ported via procerr verbatim).
@@ -1021,7 +1021,7 @@ func readOptionalUtf8(filePath, label string) (*string, error) {
 	return &text, nil
 }
 
-// loadLookup ports loadLookup from node-src/domain/transform-artifacts.ts.
+// loadLookup ports loadLookup from the original implementation.
 func loadLookup(file string) (*TransformLookupData, error) {
 	text, err := readOptionalUtf8(file, fmt.Sprintf("lookup for %s", path.Base(file)))
 	if err != nil {
@@ -1042,7 +1042,7 @@ func loadLookup(file string) (*TransformLookupData, error) {
 }
 
 // resolveLookup ports resolveLookup from
-// node-src/domain/transform-artifacts.ts. See TransformArtifactCompileOptions's
+// the original implementation. See TransformArtifactCompileOptions's
 // LookupOverrides doc comment for why no separate "overrides provided"
 // flag is threaded here.
 func resolveLookup(configDirectory, referent string, overrides map[string]*TransformLookupData) (*TransformLookupData, error) {
@@ -1055,12 +1055,12 @@ func resolveLookup(configDirectory, referent string, overrides map[string]*Trans
 var systemConstantPattern = regexp.MustCompile(`^[A-Z0-9_]+$`)
 
 // systemConstant ports systemConstant from
-// node-src/domain/transform-artifacts.ts.
+// the original implementation.
 func systemConstant(value string) bool {
 	return !strings.HasPrefix(value, "CUSTOM_") && value == strings.ToUpper(value) && systemConstantPattern.MatchString(value)
 }
 
-// displayFor ports displayFor from node-src/domain/transform-artifacts.ts.
+// displayFor ports displayFor from the original implementation.
 func displayFor(value any, mapping map[string]string) (string, error) {
 	ident, err := pythonTransformString(value)
 	if err != nil {
@@ -1076,7 +1076,7 @@ func displayFor(value any, mapping map[string]string) (string, error) {
 }
 
 // deriveHclComments ports deriveHclComments from
-// node-src/domain/transform-artifacts.ts.
+// the original implementation.
 func deriveHclComments(
 	configDirectory string,
 	items map[string]map[string]any,
@@ -1169,7 +1169,7 @@ func recordFromItems(items map[string]map[string]any) map[string]any {
 }
 
 // renderDeploymentTfvars ports renderDeploymentTfvars from
-// node-src/domain/transform-artifacts.ts.
+// the original implementation.
 func renderDeploymentTfvars(
 	dep deployment.Deployment,
 	items map[string]map[string]any,
@@ -1196,7 +1196,7 @@ func renderDeploymentTfvars(
 }
 
 // lookupKeyMaps ports lookupKeyMaps from
-// node-src/domain/transform-artifacts.ts.
+// the original implementation.
 func lookupKeyMaps(
 	configDirectory string,
 	references map[string]TransformReferenceSpec,
@@ -1223,7 +1223,7 @@ func lookupKeyMaps(
 }
 
 // compileLookup ports compileLookup from
-// node-src/domain/transform-artifacts.ts.
+// the original implementation.
 func compileLookup(options TransformArtifactCompileOptions) (*TransformLookupData, *string, error) {
 	if options.LookupNameField == nil {
 		return nil, nil, nil
@@ -1244,7 +1244,7 @@ func compileLookup(options TransformArtifactCompileOptions) (*TransformLookupDat
 }
 
 // CompileTransformArtifacts ports compileTransformArtifacts from
-// node-src/domain/transform-artifacts.ts: "read and validate every input
+// the original implementation: "read and validate every input
 // needed to publish one ordinary transform artifact set. This function
 // never creates, writes, renames, or removes a filesystem entry."
 func CompileTransformArtifacts(options TransformArtifactCompileOptions) (CompiledTransformArtifacts, error) {
@@ -1332,7 +1332,7 @@ func CompileTransformArtifacts(options TransformArtifactCompileOptions) (Compile
 }
 
 // CompileTransformArtifactBatch ports compileTransformArtifactBatch from
-// node-src/domain/transform-artifacts.ts: "compile a complete batch before
+// the original implementation: "compile a complete batch before
 // the caller publishes any member. Fresh lookup data from every member is
 // authoritative for same-batch references."
 func CompileTransformArtifactBatch(items []TransformArtifactCompileOptions) ([]CompiledTransformArtifacts, error) {
@@ -1394,7 +1394,7 @@ func CompileTransformArtifactBatch(items []TransformArtifactCompileOptions) ([]C
 
 // PublishCompiledTransformArtifacts ports
 // publishCompiledTransformArtifacts from
-// node-src/domain/transform-artifacts.ts: "publish one fully compiled
+// the original implementation: "publish one fully compiled
 // artifact set with the legacy file lifecycle." Unlike the batch publish
 // path below, this writes each file directly (os.WriteFile, matching the
 // TS source's plain, non-atomic node:fs/promises writeFile) rather than
@@ -1512,7 +1512,7 @@ func PublishCompiledTransformArtifacts(compiled CompiledTransformArtifacts) (Tra
 }
 
 // assertRegularBatchArtifactTarget ports assertRegularBatchArtifactTarget
-// from node-src/domain/transform-artifacts.ts.
+// from the original implementation.
 func assertRegularBatchArtifactTarget(target string) error {
 	info, err := os.Lstat(target)
 	if err != nil {
@@ -1528,7 +1528,7 @@ func assertRegularBatchArtifactTarget(target string) error {
 }
 
 // batchArtifactMutations ports batchArtifactMutations from
-// node-src/domain/transform-artifacts.ts. Unlike the TS source (which never
+// the original implementation. Unlike the TS source (which never
 // fails: renderGeneratedBindings there cannot throw for a
 // deriveGeneratedBindings-produced value), this returns an error rather
 // than assuming that invariant silently -- RenderGeneratedBindings's
@@ -1583,7 +1583,7 @@ func batchArtifactMutations(compiled CompiledTransformArtifacts) ([]batchArtifac
 }
 
 // removeTransactionDirectories ports removeTransactionDirectories from
-// node-src/domain/transform-artifacts.ts. os.RemoveAll, like Node's
+// the original implementation. os.RemoveAll, like Node's
 // `rm(directory, {force: true, recursive: true})`, does not error when
 // directory is already absent.
 func removeTransactionDirectories(directories []string) []error {
@@ -1597,7 +1597,7 @@ func removeTransactionDirectories(directories []string) []error {
 }
 
 // prepareBatchArtifactMutations ports prepareBatchArtifactMutations from
-// node-src/domain/transform-artifacts.ts.
+// the original implementation.
 func prepareBatchArtifactMutations(mutations []batchArtifactMutation) ([]preparedBatchArtifactMutation, []string, error) {
 	return prepareBatchArtifactMutationsWithFilesystem(
 		mutations,
@@ -1700,7 +1700,7 @@ func stagedFileMode(previous os.FileInfo) os.FileMode {
 }
 
 // applyBatchArtifactMutations ports applyBatchArtifactMutations from
-// node-src/domain/transform-artifacts.ts: the temp/rename commit loop, and
+// the original implementation: the temp/rename commit loop, and
 // its reverse-order rollback on any failure.
 func applyBatchArtifactMutations(mutations []preparedBatchArtifactMutation) ([]appliedBatchArtifactMutation, error) {
 	return applyBatchArtifactMutationsWithLstat(mutations, os.Lstat)
@@ -1802,7 +1802,7 @@ func applyBatchArtifactMutationsWithLstat(
 }
 
 // completedBatchArtifactResult ports completedBatchArtifactResult from
-// node-src/domain/transform-artifacts.ts.
+// the original implementation.
 func completedBatchArtifactResult(compiled CompiledTransformArtifacts, applied []appliedBatchArtifactMutation) TransformArtifactWriteResult {
 	var written, removed []string
 	removedSet := map[string]bool{}
@@ -1871,7 +1871,7 @@ func completedBatchArtifactResult(compiled CompiledTransformArtifacts, applied [
 
 // PublishCompiledTransformArtifactBatch ports
 // publishCompiledTransformArtifactBatch from
-// node-src/domain/transform-artifacts.ts: "publish an already-preflighted
+// the original implementation: "publish an already-preflighted
 // batch as one rollback-capable filesystem transaction in deterministic
 // caller order."
 func PublishCompiledTransformArtifactBatch(compiled []CompiledTransformArtifacts) ([]TransformArtifactWriteResult, error) {
@@ -1933,7 +1933,7 @@ func PublishCompiledTransformArtifactBatch(compiled []CompiledTransformArtifacts
 }
 
 // WriteTransformArtifacts ports writeTransformArtifacts from
-// node-src/domain/transform-artifacts.ts: "materialize one ordinary
+// the original implementation: "materialize one ordinary
 // transform artifact set with the legacy file lifecycle."
 func WriteTransformArtifacts(options TransformArtifactCompileOptions) (TransformArtifactWriteResult, error) {
 	compiled, err := CompileTransformArtifacts(options)
@@ -1944,7 +1944,7 @@ func WriteTransformArtifacts(options TransformArtifactCompileOptions) (Transform
 }
 
 // WriteDerivedTransformArtifact ports writeDerivedTransformArtifact from
-// node-src/domain/transform-artifacts.ts: "derived resources write config
+// the original implementation: "derived resources write config
 // only and intentionally create no imports."
 func WriteDerivedTransformArtifact(
 	dep deployment.Deployment,

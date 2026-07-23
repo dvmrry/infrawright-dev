@@ -4,9 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -60,62 +58,6 @@ func TestRequiredPathItemClosureRejectsBrokenPathItem(t *testing.T) {
 	item := root["paths"].(map[string]any)["/things/{id}"]
 	if _, _, err := resolvePathItem(document, "root.json", item, map[string]bool{}, 0); err == nil {
 		t.Error("resolvePathItem(broken required path item) error = nil, want non-nil")
-	}
-}
-
-func TestMetadataMatchesFrozenOpenAPIHelpers(t *testing.T) {
-	t.Parallel()
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "node-tests", "fixtures", "python-reconcile-schema-api-v1.json"))
-	if err != nil {
-		t.Fatalf("read frozen helper fixture: %v", err)
-	}
-	var fixture struct {
-		Retained struct {
-			Cases []struct {
-				Name  string `json:"name"`
-				Input struct {
-					Spec  any      `json:"spec"`
-					Read  []string `json:"read_operations"`
-					Write []string `json:"write_operations"`
-				} `json:"input"`
-				Output map[string]map[string]any `json:"output"`
-			} `json:"helper_cases"`
-		} `json:"retained_unittest"`
-	}
-	if err := json.Unmarshal(data, &fixture); err != nil {
-		t.Fatalf("decode frozen helper fixture: %v", err)
-	}
-	matched := 0
-	for _, test := range fixture.Retained.Cases {
-		if test.Name != "api_metadata_from_openapi:test_openapi_metadata_splits_response_only_and_writable_gaps#1" && test.Name != "api_metadata_from_openapi:test_openapi_refs_can_index_allof_array_members#1" {
-			continue
-		}
-		encoded, err := json.Marshal(test.Input.Spec)
-		if err != nil {
-			t.Fatalf("encode frozen %s: %v", test.Name, err)
-		}
-		document, err := ParseForMetadata(context.Background(), sourcebind.OpenAPIStatus{Available: true, Files: []sourcebind.CapturedFile{captured("root.json", encoded)}})
-		if err != nil {
-			t.Fatalf("ParseForMetadata(%s) error = %v, want nil", test.Name, err)
-		}
-		read, write := make([]OperationReference, len(test.Input.Read)), make([]OperationReference, len(test.Input.Write))
-		for i := range read {
-			read[i] = OperationReference(test.Input.Read[i])
-		}
-		for i := range write {
-			write[i] = OperationReference(test.Input.Write[i])
-		}
-		got, err := document.Metadata(context.Background(), MetadataOptions{ReadOperations: read, WriteOperations: write})
-		if err != nil {
-			t.Fatalf("Document.Metadata(%s) error = %v, want nil", test.Name, err)
-		}
-		if !reflect.DeepEqual(map[string]map[string]any(got), test.Output) {
-			t.Errorf("Document.Metadata(%s) = %#v, want %#v", test.Name, got, test.Output)
-		}
-		matched++
-	}
-	if matched != 2 {
-		t.Errorf("frozen OpenAPI helper cases matched = %d, want 2", matched)
 	}
 }
 

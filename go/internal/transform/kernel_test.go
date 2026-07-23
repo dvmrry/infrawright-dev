@@ -1,7 +1,7 @@
 package transform
 
 // kernel_test.go ports the kernel-level vectors from
-// node-tests/generic-transform-core.test.ts: the full TransformLoadedItems
+// the original test corpus: the full TransformLoadedItems
 // pipeline (override order, schema projection, coercion, HTML
 // escape/unescape, skip_if/skip_if_lte, null-stub recognition) and
 // DeriveReorderItems.
@@ -20,10 +20,8 @@ import (
 
 func strPtr(s string) *string { return &s }
 
-// repoRoot walks up from this test file's directory until it finds a
-// directory containing both "catalogs" and "packs", matching
-// go/internal/metadata/gate_test.go's own helper of the same name/contract
-// (unexported there, so not reusable across packages).
+// repoRoot walks up from this test file's directory until it finds the
+// committed full pack profile.
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	_, thisFile, _, ok := runtime.Caller(0)
@@ -32,14 +30,13 @@ func repoRoot(t *testing.T) string {
 	}
 	dir := filepath.Dir(thisFile)
 	for {
-		_, catalogsErr := os.Stat(filepath.Join(dir, "catalogs"))
-		_, packsErr := os.Stat(filepath.Join(dir, "packs"))
-		if catalogsErr == nil && packsErr == nil {
+		_, packsErr := os.Stat(filepath.Join(dir, "packs", "full.packset.json"))
+		if packsErr == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			t.Fatalf("walked up to filesystem root from %s without finding a directory containing both catalogs/ and packs/", filepath.Dir(thisFile))
+			t.Fatalf("walked up to filesystem root from %s without finding packs/full.packset.json", filepath.Dir(thisFile))
 		}
 		dir = parent
 	}
@@ -212,7 +209,6 @@ func TestCommittedZIAOverridesDropRawEmptyStringSentinels(t *testing.T) {
 	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,
-		CatalogPath: &profilePath,
 	})
 	if err != nil {
 		t.Fatalf("LoadPackRoot: %v", err)
@@ -286,7 +282,6 @@ func TestCommittedZIAOverridesOmitLiveProvenEmptyEnumsAndRetainRealValues(t *tes
 	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,
-		CatalogPath: &profilePath,
 	})
 	if err != nil {
 		t.Fatalf("LoadPackRoot: %v", err)
@@ -583,7 +578,7 @@ func TestSkipIfLtePreservesWideIntegersAndPythonDecimalStringParsing(t *testing.
 }
 
 // assertItemKeySet checks result.Items' key SET (not order): the Node
-// test this ports (node-tests/generic-transform-core.test.ts's
+// test this ports (the original test corpus's
 // "skip_if_lte preserves wide integers...") asserts Object.keys(result.items)
 // as an ordered array, relying on V8's Map/object insertion-order
 // preservation. PullTransformResult.Items is a plain Go map by design (see

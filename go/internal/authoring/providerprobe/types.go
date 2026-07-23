@@ -9,16 +9,16 @@ import (
 )
 
 // Mode identifies the categorical provider-probe contract selected by a
-// recipe. LegacyV1 preserves node-src/authoring/provider-probe.ts output;
+// recipe. LegacyV1 preserves the original implementation output;
 // QualifiedV2 is the manifest-bound source-first contract.
 type Mode string
 
 const (
 	// LegacyV1 is the frozen compatibility contract from
-	// node-src/authoring/provider-probe.ts.
+	// the original implementation.
 	LegacyV1 Mode = "legacy_v1"
 	// QualifiedV2 is the local-only source-first contract from
-	// docs/go-authoring-port-roadmap.md section 4.
+	// the authoring artifact contract section 4.
 	QualifiedV2 Mode = "qualified_v2"
 )
 
@@ -54,7 +54,7 @@ func (r Result) Artifacts() []Artifact {
 
 // MarkdownCopy returns the sealed Markdown bytes for provider-probe's
 // --markdown copy destination. Legacy v1 intentionally omits the published
-// artifact-path appendix, matching node-src/authoring/cli.ts; qualified v2's
+// artifact-path appendix, matching the original implementation; qualified v2's
 // source-first summary has no such appendix and reuses its sealed summary.md.
 // A zero or manually incomplete Result is rejected rather than returning an
 // ambiguous nil byte stream.
@@ -98,7 +98,7 @@ type RunOptions struct {
 }
 
 // LegacyHost contains the only external preparation capabilities used by the
-// frozen node-src/authoring/provider-probe.ts compatibility path. Qualified v2
+// frozen the original implementation compatibility path. Qualified v2
 // never calls this interface.
 type LegacyHost interface {
 	Download(context.Context, DownloadRequest) error
@@ -131,7 +131,7 @@ type CloneRequest struct {
 
 // TerraformSchemaRequest asks the legacy host to run Terraform's provider
 // schema capture in one probe-owned directory. MainHCL is the exact
-// deterministic configuration derived from node-src/authoring/provider-probe.ts.
+// deterministic configuration derived from the original implementation.
 type TerraformSchemaRequest struct {
 	TerraformExecutable string
 	Directory           string

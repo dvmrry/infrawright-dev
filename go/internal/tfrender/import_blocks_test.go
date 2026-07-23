@@ -1,15 +1,15 @@
 package tfrender
 
 // import_blocks_test.go pins ParseCanonicalImportBlocks's behavior against
-// the compiled TypeScript directly, since no node-tests/*.test.ts file
-// imports node-src/json/canonical-import-blocks.ts (confirmed by grepping
-// node-tests/ for "canonical-import-blocks", "CanonicalImportBlock", and
+// the compiled TypeScript directly, since no the original test corpus file
+// imports the original implementation (confirmed by grepping
+// the original test corpus for "canonical-import-blocks", "CanonicalImportBlock", and
 // "parseCanonicalImportBlocks": zero matches).
 //
 // Probe methodology (reproduced so this file's fixture is independently
 // re-derivable): from the repo root,
 //
-//	npx esbuild node-src/json/canonical-import-blocks.ts --bundle \
+//	npx esbuild the original implementation --bundle \
 //	  --platform=node --format=esm --outfile=/tmp/canonical-import-blocks.mjs
 //
 // then a small Node driver script (run-canonical-import-blocks.mjs, not

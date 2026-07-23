@@ -7,11 +7,10 @@ schema material retains its Apache-2.0 notice in
 legacy-only compatibility validator in `legacy_openapi_validate.go`; they are
 not an input to the qualified/source-first path.
 
-The matching Node validator is `@apidevtools/swagger-parser@12.1.0`, whose
-schema and supplemental-spec sources are identified below.  The pinned
-ref-parser and method-list package versions are recorded because their
-dereference and operation enumeration behavior define the compatibility
-boundary.
+The v1 compatibility behavior was defined by
+`@apidevtools/swagger-parser@12.1.0`. Its schema and supplemental-spec sources
+are identified below. The pinned ref-parser and method-list package versions
+remain part of the documented compatibility boundary.
 
 | Asset | SHA-256 |
 | --- | --- |
@@ -27,16 +26,6 @@ boundary.
 | swagger-methods `lib/index.js` | `d744efa06275ae14dedcffe1a864d4c2bfccc41a95d9834a0bf420b6748ba604` |
 
 The source package versions are swagger-parser 12.1.0,
-json-schema-ref-parser 14.0.1, and swagger-methods 3.0.2.
-
-`../testdata/legacy_openapi_node_oracle.json` is the 90-serializable-case
-offline replay corpus derived from an independent local execution of that
-frozen Node stack. Its SHA-256 is
-`fc9e0f6fbaa804af62738b514260f18e4fcd04d98fdfbe0f24a5af67d6080f0c`.
-The source corpus script SHA-256 is
-`e4bd570706967632bed7daac56875963099bcc266e2dd377d21704c24fca24eb`;
-the 91-case Node result SHA-256 is
-`b8b174628d6b6004d557f0b77a7aa655de0475f8b296eb01b672449ffdcf6a2f`.
-The companion 18-case direct `spec.js` replay corpus is
-`../testdata/legacy_openapi_node_direct_spec_oracle.json`, SHA-256
-`bf6daae6d0de5315740d6e97b655ee70e5ef3395296d38ace7999e005355d459`.
+json-schema-ref-parser 14.0.1, and swagger-methods 3.0.2. Current behavior is
+covered directly in `legacy_openapi_validate_test.go`; there is no replay
+fixture or retired runtime dependency.

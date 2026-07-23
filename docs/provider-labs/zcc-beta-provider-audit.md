@@ -197,20 +197,16 @@ as discovery evidence.
 
 ## Retained exact-five compatibility boundary
 
-The generic Node Transform and Adopt engines already understand
-`drop_if_default` and version-scoped `unsupported_if`. The retained frozen ZCC
-exact-five catalogs do not encode those semantics, but they bind every override
-in that exact-five cohort and the registry bytes into their source digests.
-Therefore adding the pack policies above without also changing the frozen
-contracts would make one
-runtime apply them while another rejects the pack as stale or ignores the
-meaning.
+The Transform and Adopt engines understand `drop_if_default` and
+version-scoped `unsupported_if`. The exact-five compatibility corpus does not
+encode those semantics, but it binds every override in that cohort and the
+registry bytes into its source digests.
 
 Do not solve that by silently weakening the digest. Before landing ZCC pack
 semantics, make one explicit choice:
 
-1. extend the frozen transform/adoption catalog representation and its tests;
-2. retire the frozen exact-five consumer after downstream inventory; or
+1. extend the transform/adoption compatibility representation and its tests;
+2. retire the exact-five consumer after downstream inventory; or
 3. keep the policy downstream-only and do not claim repository-wide support.
 
 This audit makes no such lifecycle choice. The production provider behavior is
@@ -238,12 +234,12 @@ Return full SHA-256 values only for immutable public build/source bindings:
 Also return Go, Terraform, provider, SDK, and engine Git versions, plus
 Oracle batch/state-source modes. Do not truncate hashes.
 
-Do not return an unkeyed digest of the active profile, catalog selection,
-deployment file, tenant-derived artifacts, or identity sets. Generate one fresh
+Do not return an unkeyed digest of the active profile, deployment file,
+tenant-derived artifacts, or identity sets. Generate one fresh
 random 32-byte HMAC-SHA-256 key inside the evidence job, retain it only in the
 private job directory, use it for all within-run commitments below, and delete
 it with the job. Never print or return the key. Return commitments over the
-exact active profile, catalog-selection, and deployment-file bytes. This is
+exact active profile and deployment-file bytes. This is
 equality evidence, not producer authentication.
 
 For every identity-set commitment, sort unique canonical string IDs by UTF-8

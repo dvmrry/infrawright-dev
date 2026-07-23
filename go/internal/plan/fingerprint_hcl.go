@@ -8,7 +8,7 @@ import (
 
 	"github.com/dvmrry/infrawright-dev/go/internal/artifacts"
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
-	"github.com/dvmrry/infrawright-dev/go/internal/pypath"
+	"github.com/dvmrry/infrawright-dev/go/internal/posixpath"
 )
 
 // Python re's Unicode \s/str.strip set. JavaScript \s differs for FEFF,
@@ -196,7 +196,7 @@ func readFingerprintUTF8(filePath string, budget *artifacts.ReadBudget) (string,
 }
 
 // RootModuleSources ports rootModuleSources from
-// node-src/domain/plan-fingerprint.ts. A nil budget selects the source default.
+// the original implementation. A nil budget selects the source default.
 func RootModuleSources(envDir string, budget *artifacts.ReadBudget) (map[string]string, error) {
 	budget = fingerprintBudget(budget)
 	sources := make(map[string]string)
@@ -211,7 +211,7 @@ func RootModuleSources(envDir string, budget *artifacts.ReadBudget) (map[string]
 		if !strings.HasSuffix(name, ".tf") {
 			continue
 		}
-		filePath := pypath.PythonPosixJoin(envDir, name)
+		filePath := posixpath.Join(envDir, name)
 		if !isFile(filePath) {
 			continue
 		}
@@ -312,7 +312,7 @@ func scanModuleSourceLines(lines []string, filePath, envDir string, sources map[
 }
 
 // ModuleFingerprints ports moduleFingerprints from
-// node-src/domain/plan-fingerprint.ts. A nil budget selects the source default.
+// the original implementation. A nil budget selects the source default.
 func ModuleFingerprints(
 	envDir string,
 	memberTypes []string,
