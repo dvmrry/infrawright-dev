@@ -1,0 +1,10 @@
+[
+  {
+    "active": 1,
+    "autoPurgeDays": 30,
+    "autoRemovalDays": 60,
+    "deviceExceedLimit": 5,
+    "forceRemoveType": "8",
+    "id": "cleanup-policy-001"
+  }
+]

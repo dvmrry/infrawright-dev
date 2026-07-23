@@ -21,7 +21,7 @@ import (
 type Object = map[string]any
 
 // Options controls Build and ports buildOpenApiResourceMap's arguments from
-// the original implementation.
+// node-src/authoring/openapi-resource-map.ts.
 type Options struct {
 	SchemaData     Object
 	Document       openapiadapter.Document
@@ -34,15 +34,15 @@ type Options struct {
 }
 
 // Report is a sealed generic diagnostic report from
-// the original implementation.
+// node-src/authoring/openapi-resource-map.ts.
 type Report struct{ data Object }
 
 // Data returns detached structured generic diagnostic data from
-// the original implementation.
+// node-src/authoring/openapi-resource-map.ts.
 func (r Report) Data() Object { return cloneObject(r.data) }
 
 // Render returns exact Python-compatible report bytes from
-// the original implementation.
+// node-src/authoring/openapi-resource-map.ts.
 func (r Report) Render() ([]byte, error) {
 	if r.data == nil {
 		return nil, fmt.Errorf("openapi map report must come from Build")
@@ -89,7 +89,7 @@ var httpMethods = map[string]bool{"get": true, "post": true, "put": true, "patch
 var surfaceHint = regexp.MustCompile(`(?:^|_)(?:url|uri|host|endpoint|token|auth|cloud|region|realm)(?:$|_)`)
 
 // Build creates the sealed generic diagnostic report from
-// the original implementation. It intentionally cannot be
+// node-src/authoring/openapi-resource-map.ts. It intentionally cannot be
 // used as source-first readiness evidence.
 func Build(ctx context.Context, options Options) (Report, error) {
 	if err := ctx.Err(); err != nil {
@@ -862,7 +862,7 @@ func familyFor(resource, prefix string) string {
 	return tokens[0]
 }
 
-// RoundPythonRatio4 ports roundPythonRatio4 from the original implementation.
+// RoundPythonRatio4 ports roundPythonRatio4 from node-src/authoring/openapi-resource-map.ts.
 func RoundPythonRatio4(numerator, denominator int) float64 {
 	if denominator == 0 {
 		return 0

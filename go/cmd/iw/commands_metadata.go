@@ -1,7 +1,7 @@
 package main
 
 // commands_metadata.go ports the three metadata-only CLI commands from
-// the original implementation: checkPack (lines 241-271), checkPackSet (273-320),
+// node-src/cli/main.ts: checkPack (lines 241-271), checkPackSet (273-320),
 // and deployment (374-412). The metadata and deployment packages retain all
 // domain behavior; this file owns only argv/env precedence, output, and exits.
 
@@ -145,7 +145,7 @@ func checkPackSetCommandWithDependencies(arguments []string, dependencies metada
 func newCheckPackSetCobraCommand(dependencies metadataCommandDependencies) *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "check-pack-set", short: "Validate an installed pack set",
-		valueFlags: []string{"--profile", "--requirements", "--root"},
+		valueFlags: []string{"--profile", "--catalog", "--requirements", "--root"},
 		run: func(parsed commandInput) (int, error) {
 			if len(parsed.Positionals) != 0 {
 				return 0, usageError("check-pack-set does not accept positional arguments")
@@ -168,16 +168,21 @@ func checkPackSetInput(parsed commandInput, dependencies metadataCommandDependen
 	if profile == "" {
 		profile = filepath.Join(rootDirectory, "packs", "full.packset.json")
 	}
+	catalog := filepath.Join(rootDirectory, "packs", "full.packset.json")
 	if value, ok := lastCommandOption(parsed, "--root"); ok {
 		root = value
 	}
 	if value, ok := lastCommandOption(parsed, "--profile"); ok {
 		profile = value
 	}
+	if value, ok := lastCommandOption(parsed, "--catalog"); ok {
+		catalog = value
+	}
 	if requirements, ok := lastCommandOption(parsed, "--requirements"); ok {
 		result, checkErr := dependencies.checkPackRequirements(metadata.CheckPackRequirementsOptions{
 			RequirementsPath: requirements,
 			Root:             root,
+			CatalogPath:      &catalog,
 		})
 		if checkErr != nil {
 			return 0, checkErr
@@ -206,6 +211,7 @@ func checkPackSetInput(parsed commandInput, dependencies metadataCommandDependen
 	result, err := dependencies.validateActivePackSet(metadata.ValidateActivePackSetOptions{
 		ProfilePath: profile,
 		Root:        root,
+		CatalogPath: &catalog,
 	})
 	if err != nil {
 		return 0, err

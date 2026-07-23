@@ -14,10 +14,10 @@ import (
 
 const (
 	// ReferenceBackendVariable ports REFERENCE_BACKEND_VARIABLE from
-	// the original implementation.
+	// node-src/domain/reference-backend.ts.
 	ReferenceBackendVariable = "infrawright_remote_state_backend_config"
 	// ReferenceBackendEnvironment ports REFERENCE_BACKEND_ENVIRONMENT from
-	// the original implementation.
+	// node-src/domain/reference-backend.ts.
 	ReferenceBackendEnvironment = "TF_VAR_" + ReferenceBackendVariable
 
 	maxReferenceBackendConfigBytes = int64(64 * 1024)
@@ -84,7 +84,7 @@ func invalidReferenceBackendRead(err error) bool {
 }
 
 // ReferenceBackendEnvironmentFromConfig ports referenceBackendEnvironment
-// from the original implementation. It projects only reviewed,
+// from node-src/domain/reference-backend.ts. It projects only reviewed,
 // non-secret AzureRM address and behavior fields into Terraform's environment.
 func ReferenceBackendEnvironmentFromConfig(backendConfig string) (map[string]string, error) {
 	source, err := artifacts.ReadBoundedUTF8File(

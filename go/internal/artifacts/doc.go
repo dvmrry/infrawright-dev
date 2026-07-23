@@ -1,6 +1,6 @@
 // Package artifacts provides bounded, stable filesystem reads and private
 // saved-plan snapshots. It ports the security-sensitive contract in
-// the original implementation.
+// node-src/io/bounded-files.ts.
 //
 // The Go port deliberately fails closed outside the documented Linux/macOS
 // amd64/arm64 release targets, including Android, iOS, and 32-bit aliases, even

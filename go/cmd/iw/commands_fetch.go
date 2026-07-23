@@ -1,7 +1,7 @@
 package main
 
 // commands_fetch.go ports the fetch/fetch-diag CLI composition layer from
-// the original implementation. The collector engine and product adapters live in
+// node-src/cli/main.ts. The collector engine and product adapters live in
 // internal/collectors; this file owns only argument/env resolution, the closed
 // built-in authority choice, real-transport lifetime, diagnostics, and process
 // exit classification.
@@ -30,7 +30,7 @@ var positiveFetchConcurrency = regexp.MustCompile(`^[1-9][0-9]*$`)
 // command still has (httptransport, unlike the retired resthttp package,
 // does not expose a per-attempt/per-retry HTTP telemetry seam of its own --
 // nothing wired it to real telemetry, so there was nothing to preserve; see
-// the Go runtime contract §7). Block E will provide the real recorder and
+// docs/go-runtime-v2.md §7). Block E will provide the real recorder and
 // atomic report writer. Until then dispatch passes nil; the interface keeps
 // this command from inventing a second telemetry contract.
 type deferredFetchPerformanceRecorder struct{}
@@ -57,7 +57,7 @@ type fetchCommandOptions struct {
 	hasTenant   bool
 }
 
-// fetchCLIOptions ports fetchCliOptions from the original implementation. Fetch uses
+// fetchCLIOptions ports fetchCliOptions from node-src/cli/main.ts. Fetch uses
 // the command's historical `||` environment semantics for pack root/profile;
 // FETCH_CONCURRENCY is a Make variable forwarded as --concurrency, not a CLI
 // environment input.
@@ -102,7 +102,7 @@ func fetchCLIOptions(parsed commandInput, requireTenant bool) (fetchCommandOptio
 }
 
 // requireBuiltInCollectorAuthority ports the same-named CLI helper from
-// the original implementation. Every resolver failure is a usage error and therefore
+// node-src/cli/main.ts. Every resolver failure is a usage error and therefore
 // must happen before credentials, CA files, transport setup, or output writes.
 func requireBuiltInCollectorAuthority(
 	root metadata.LoadedPackRoot,
@@ -206,7 +206,7 @@ func fetchCommand(
 func newFetchCobraCommand(performance collectors.PerformanceRecorder) *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "fetch", short: "Fetch provider resources",
-		valueFlags:       []string{"--tenant", "--resource", "--out", "--concurrency", "--root", "--profile"},
+		valueFlags:       []string{"--tenant", "--resource", "--out", "--concurrency", "--root", "--profile", "--catalog"},
 		rejectDuplicates: []string{"--concurrency"},
 		run: func(parsed commandInput) (int, error) {
 			if len(parsed.Positionals) != 0 {
@@ -228,6 +228,7 @@ func fetchCommandInput(parsed commandInput, performance collectors.PerformanceRe
 	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   options.pack.root,
 		ProfilePath: &options.pack.profile,
+		CatalogPath: &options.pack.catalog,
 	})
 	if err != nil {
 		return 0, err
@@ -337,7 +338,7 @@ func fetchDiagCommand(arguments []string) (int, error) {
 func newFetchDiagCobraCommand() *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "fetch-diag", short: "Diagnose fetch TLS connectivity",
-		valueFlags: []string{"--root", "--profile"},
+		valueFlags: []string{"--root", "--profile", "--catalog"},
 		run: func(parsed commandInput) (int, error) {
 			if len(parsed.Positionals) != 0 {
 				return 0, usageError("fetch-diag does not accept positional arguments")
@@ -355,6 +356,7 @@ func fetchDiagCommandInput(parsed commandInput) (int, error) {
 	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   options.pack.root,
 		ProfilePath: &options.pack.profile,
+		CatalogPath: &options.pack.catalog,
 	})
 	if err != nil {
 		return 0, err

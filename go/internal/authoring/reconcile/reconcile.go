@@ -15,11 +15,11 @@ import (
 type Object = map[string]any
 
 // APIMetadata maps normalized API field paths to their metadata objects.
-// It ports ApiMetadata from the original implementation.
+// It ports ApiMetadata from node-src/authoring/reconcile-schema-api.ts.
 type APIMetadata = map[string]Object
 
 // ReconciliationBucket identifies one of the twelve report classifications
-// from the original implementation.
+// from node-src/authoring/reconcile-schema-api.ts.
 type ReconciliationBucket string
 
 const (
@@ -72,7 +72,7 @@ func Buckets() []ReconciliationBucket {
 
 // ProviderSchemaFromTerraformDump selects the provider schema containing
 // resourceType from a Terraform provider-schema dump. It ports
-// providerSchemaFromTerraformDump from the original implementation.
+// providerSchemaFromTerraformDump from node-src/authoring/reconcile-schema-api.ts.
 // A nil providerSource permits unqualified discovery. A non-nil providerSource,
 // including an explicit empty string, requires an exact source key or an
 // unambiguous trailing "/providerSource" match.
@@ -126,7 +126,7 @@ func ProviderSchemaFromTerraformDump(data Object, resourceType string, providerS
 
 // ResourceSchemaFromData selects resourceType from either a direct
 // resource_schemas object or a full provider-schema dump. It ports
-// resourceSchemaFromData from the original implementation.
+// resourceSchemaFromData from node-src/authoring/reconcile-schema-api.ts.
 func ResourceSchemaFromData(data Object, resourceType string, providerSource *string) (Object, error) {
 	var schemas Object
 	if direct, ok := data["resource_schemas"].(map[string]any); ok {
@@ -153,7 +153,7 @@ func ResourceSchemaFromData(data Object, resourceType string, providerSource *st
 
 // APIItemsFrom converts an API object, list of objects, or NetBox-style
 // {results:[...]} envelope into detached object items. It ports apiItemsFrom
-// from the original implementation.
+// from node-src/authoring/reconcile-schema-api.ts.
 func APIItemsFrom(value any, source string) ([]Object, error) {
 	if source == "" {
 		source = "<api>"
@@ -181,7 +181,7 @@ func APIItemsFrom(value any, source string) ([]Object, error) {
 
 // APIMetadataFromOptions derives normalized field metadata from a DRF OPTIONS
 // response. It ports apiMetadataFromOptions from
-// the original implementation.
+// node-src/authoring/reconcile-schema-api.ts.
 func APIMetadataFromOptions(value any, source string) (metadata APIMetadata, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -237,7 +237,7 @@ func APIMetadataFromOptions(value any, source string) (metadata APIMetadata, err
 
 // MergeAPIMetadata combines OPTIONS-derived and already-normalized metadata
 // in their supplied order. It is the non-OpenAPI portion of mergeApiMetadata
-// from the original implementation.
+// from node-src/authoring/reconcile-schema-api.ts.
 func MergeAPIMetadata(optionDocuments []any, normalized ...APIMetadata) (metadata APIMetadata, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -265,7 +265,7 @@ func MergeAPIMetadata(optionDocuments []any, normalized ...APIMetadata) (metadat
 
 // ReconciliationFieldAlias resolves a source key against Terraform input and
 // computed names. It ports reconciliationFieldAlias from
-// the original implementation.
+// node-src/authoring/reconcile-schema-api.ts.
 func ReconciliationFieldAlias(key string, keep, computed map[string]struct{}) (alias, kind, reason string, found bool) {
 	candidates := make([][2]string, 0, 6)
 	if mapped, ok := map[string]string{"address": "ip_address", "color": "color_hex", "face": "rack_face", "time_zone": "timezone"}[key]; ok {
@@ -294,7 +294,7 @@ func ReconciliationFieldAlias(key string, keep, computed map[string]struct{}) (a
 
 // ReconcileOptions supplies the dependency-free reconciliation kernel's
 // complete in-memory inputs. It ports reconcileItems's options from
-// the original implementation.
+// node-src/authoring/reconcile-schema-api.ts.
 type ReconcileOptions struct {
 	// ResourceType is the Terraform resource type used in report output.
 	ResourceType string
@@ -400,7 +400,7 @@ func (r *ReconciliationReport) AsMap() Object {
 }
 
 // ReconcileItems reconciles in-memory API objects against a Terraform resource
-// schema. It ports reconcileItems from the original implementation
+// schema. It ports reconcileItems from node-src/authoring/reconcile-schema-api.ts
 // and converts malformed inputs or downstream transform panics into errors.
 func ReconcileItems(options ReconcileOptions) (report *ReconciliationReport, err error) {
 	defer func() {

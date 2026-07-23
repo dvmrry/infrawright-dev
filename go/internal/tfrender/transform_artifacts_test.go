@@ -1,7 +1,80 @@
 package tfrender
 
-// These tests exercise artifact compilation and publication with explicit
-// current inputs and expected outputs.
+// transform_artifacts_test.go ports the pure-library subset of
+// node-tests/transform-runtime-artifacts.test.ts: every test in that file
+// that exercises transform-artifacts.ts's own exported surface directly
+// (compileTransformArtifacts, compileTransformArtifactBatch,
+// publishCompiledTransformArtifacts, publishCompiledTransformArtifactBatch,
+// writeTransformArtifacts, deriveGeneratedBindings, renderGeneratedBindings,
+// renderTransformLookup, transformArtifactPaths,
+// installTransformArtifactBatchCommitHookForTests) using only hand-built
+// options (no packs, no deployment.roots-driven policy, no on-disk
+// metadata).
+//
+// # Ported (this file)
+//
+//   - "lookup rendering is sorted, survivor-based, unknown-safe, and
+//     last-key-wins" -> TestRenderTransformLookup
+//   - "transform artifact compilation performs no filesystem mutation" ->
+//     TestCompileTransformArtifactsPerformsNoFilesystemMutation
+//   - "artifact batch preflights every compile before publishing any
+//     member" -> TestArtifactBatchPreflightsBeforePublishingAnyMember
+//   - "compile and publish preserve legacy artifact bytes and lifecycle" ->
+//     TestCompileAndPublishPreserveLegacyArtifactBytesAndLifecycle
+//   - "batch publication rolls every member back when a later member
+//     commit fails" -> TestBatchPublicationRollsBackOnLaterMemberFailure
+//   - "rollback failure preserves transaction backups for operator
+//     recovery" -> TestRollbackFailurePreservesTransactionBackups
+//   - "batch publication rejects a directory target without mutating or
+//     deleting it" -> TestBatchPublicationRejectsDirectoryTarget
+//   - "successful batch publication preserves sequential writer bytes and
+//     lifecycle" -> TestSuccessfulBatchPublicationMatchesSequentialWriterBytes
+//   - "batch compilation uses new lookup results for grouped bindings and
+//     HCL comments" -> TestBatchCompilationUsesNewLookupResultsForBindingsAndComments
+//   - "nested pack references emit deterministic concrete indexed binding
+//     paths" -> TestDeriveGeneratedBindingsNestedIndexedPaths
+//   - "nested pack references retain unresolved diagnostics without
+//     suppressing resolved siblings" -> TestDeriveGeneratedBindingsRetainsUnresolvedDiagnostics
+//   - "top-level generated reference binding output remains
+//     byte-compatible" -> TestDeriveGeneratedBindingsTopLevel
+//   - "artifact paths retain the flat tenant/resource layout" ->
+//     TestComputeTransformArtifactPathsFlatLayout
+//
+// # Skipped as runner/CLI-level (not this package's scope)
+//
+// Every other test in that file drives node-src/domain/transform-runner.ts's
+// runTransformBatch/transformLookupNameField, node-src/domain/import-staging.ts's
+// stageImports, node-src/domain/plan-lifecycle.ts's planEnvironmentRoots, or
+// node-src/metadata/loader.ts's loadPackRoot -- pack/metadata loading, root
+// topology, and CLI-facing orchestration, none of which is part of this
+// package (see doc.go and this task's brief). Specifically:
+// "runTransformBatch materializes all 20 demo fixture goldens exactly",
+// "...seven detailed transform goldens exactly", "all 74 active overrides
+// compile and accept an empty transform", "generic Python HTML unescape..."
+// (belongs to node-src/domain/python-html-unescape.ts, a different
+// module), "unresolved move evidence survives reruns...", "references
+// materialize generated binding JSON on the first batch",
+// "cross-state references bind singleton roots",
+// "committed ZPA nested references emit exact indexed cross-state
+// bindings", "reference lookup inference is opt-in, unique, and
+// subordinate to explicit sources", "cross-state list bindings preserve
+// predefined ZIA values as literals", "HCL deployment writes
+// lookup-derived comments", "derived reorder writes config only",
+// "DROPS_CHECK records failure only after writing tfvars and imports",
+// "switching tfvars formats removes the stale opposite artifact", "batch
+// artifacts consume the same later-pack metadata merge as ordering".
+//
+// # Golden fixtures (byte-exact, runner-independent)
+//
+// transform_artifacts_golden_test.go separately wires every
+// tests/fixtures/demo-expected/*.tfvars.json + *_imports.tf pair and every
+// tests/fixtures/transform/*/expected.auto.tfvars.json +
+// expected_imports.tf pair through CompileTransformArtifacts/
+// PublishCompiledTransformArtifacts without runTransformBatch or any pack
+// metadata, by reconstructing PullTransformResult.Items/Originals directly
+// from those fixture files -- see that file's doc comment for exactly how
+// (and why that reconstruction is a faithful byte-exactness gate, not an
+// approximation).
 import (
 	"errors"
 	"os"
@@ -14,7 +87,12 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/deployment"
 )
 
-// testDeployment returns a minimal deployment for artifact tests.
+// testDeployment ports this test file's `deployment(overlay, options)`
+// helper from node-tests/transform-runtime-artifacts.test.ts, minus its
+// `roots` option (unused by anything in this package's scope -- see
+// doc.go's "deployment.ts itself... " note: BindingContext, not
+// deployment.Roots, is how this package's tests express reference-binding
+// policy).
 func testDeployment(overlay string, hcl bool) deployment.Deployment {
 	d := deployment.Deployment{Overlay: overlay, Roots: map[string]deployment.RootProviderConfig{}}
 	if hcl {
@@ -790,7 +868,7 @@ func TestDeriveGeneratedBindingsTopLevel(t *testing.T) {
 }
 
 // TestWriteDerivedTransformArtifact exercises writeDerivedTransformArtifact
-// directly (the original test corpus's only test that
+// directly (node-tests/transform-runtime-artifacts.test.ts's only test that
 // reaches this path, "derived reorder writes config only", drives it
 // through runTransformBatch and is skipped as runner-level -- see this
 // file's package doc comment). Confirms: "derived resources write config

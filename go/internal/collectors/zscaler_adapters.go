@@ -14,7 +14,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
-// zscaler_adapters.go ports the original implementation: the
+// zscaler_adapters.go ports node-src/collectors/zscaler-adapters.ts: the
 // four built-in Zscaler product adapters (zia/zpa/zcc/ztc), legacy vs
 // OneAPI auth modes, token acquisition against the HttpTransport seam,
 // fetch-debug diagnostics with FETCH_DEBUG masking semantics, and
@@ -23,17 +23,17 @@ import (
 const oneAPIAudience = "https://api.zscaler.com"
 
 // dnsLabel ports the DNS_LABEL regexp from
-// the original implementation.
+// node-src/collectors/zscaler-adapters.ts.
 var dnsLabel = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`)
 
 // truthyEnvValues ports the TRUTHY set from
-// the original implementation, shared by
+// node-src/collectors/zscaler-adapters.ts, shared by
 // CollectorAuthModeFromEnvironment (ZSCALER_USE_LEGACY_CLIENT) and
 // debugVerbose (FETCH_DEBUG).
 var truthyEnvValues = map[string]struct{}{"1": {}, "true": {}, "yes": {}, "on": {}}
 
 // zpaLegacyBaseOrder is the literal key order of ZPA_LEGACY_BASES in
-// the original implementation (minus its "" entry), preserved
+// node-src/collectors/zscaler-adapters.ts (minus its "" entry), preserved
 // exactly for zpaLegacyBase's "known clouds" error text: JS's
 // `Object.keys(ZPA_LEGACY_BASES)` walks a plain object's own string keys
 // in insertion order, which is not alphabetical, so this cannot be
@@ -42,7 +42,7 @@ var truthyEnvValues = map[string]struct{}{"1": {}, "true": {}, "yes": {}, "on": 
 var zpaLegacyBaseOrder = []string{"PRODUCTION", "ZPATWO", "BETA", "GOV", "GOVUS"}
 
 // zpaLegacyBases ports ZPA_LEGACY_BASES from
-// the original implementation.
+// node-src/collectors/zscaler-adapters.ts.
 var zpaLegacyBases = map[string]string{
 	"":           "https://config.private.zscaler.com",
 	"PRODUCTION": "https://config.private.zscaler.com",
@@ -61,7 +61,7 @@ func requireEnvironment(environment Environment, name string) (string, error) {
 }
 
 // normalizedLabel ports normalizedLabel from
-// the original implementation.
+// node-src/collectors/zscaler-adapters.ts.
 func normalizedLabel(value, label string, allowPlaceholder bool) (string, error) {
 	text := strings.ToLower(strings.TrimSpace(value))
 	if allowPlaceholder && text == "<vanity>" {
@@ -76,7 +76,7 @@ func normalizedLabel(value, label string, allowPlaceholder bool) (string, error)
 }
 
 // normalizedCloud ports normalizedCloud from
-// the original implementation.
+// node-src/collectors/zscaler-adapters.ts.
 func normalizedCloud(cloud, label string) (string, error) {
 	text := strings.ToLower(strings.TrimSpace(cloud))
 	if text == "" || text == "production" {
@@ -86,7 +86,7 @@ func normalizedCloud(cloud, label string) (string, error) {
 }
 
 // NormalizeLegacyBaseURL ports normalizeLegacyBaseUrl from
-// the original implementation: validate a legacy
+// node-src/collectors/zscaler-adapters.ts: validate a legacy
 // private/custom host override without imposing an allowlist. name must
 // be "ZIA_LEGACY_BASE_URL" or "ZPA_LEGACY_BASE_URL", matching the TS
 // parameter's literal union type.
@@ -185,7 +185,7 @@ func responseText(response HTTPResponse) (string, error) {
 	return string(response.Body), nil
 }
 
-// tokenField ports tokenField from the original implementation.
+// tokenField ports tokenField from node-src/collectors/zscaler-adapters.ts.
 // A UTF-8 decode failure and a JSON parse failure collapse into the same
 // "not JSON" message, matching the TS source: there,
 // `JSON.parse(responseText(response))` runs the (possibly-throwing)
@@ -232,7 +232,7 @@ func bearerContext(token string) CollectorAuthContext {
 // formURLEncodeComponent percent-encodes value per the WHATWG
 // "application/x-www-form-urlencoded percent-encode set" -- the encoding
 // `new URLSearchParams(...).toString()` performs in
-// the original implementation's acquireOneApi/acquireZpaLegacy.
+// node-src/collectors/zscaler-adapters.ts's acquireOneApi/acquireZpaLegacy.
 // This is deliberately a different unreserved set than percentEncode in
 // rest.go (which ports rest.ts's own hand-written percentEncode for query
 // strings and path expansion): URLSearchParams additionally leaves "*"
@@ -333,11 +333,11 @@ func acquireOneAPI(input CollectorAcquireInput) (CollectorAuthContext, error) {
 }
 
 // sixDigits ports the regexp `/^[0-9]{6}$/` from obfuscateZiaApiKey in
-// the original implementation.
+// node-src/collectors/zscaler-adapters.ts.
 var sixDigits = regexp.MustCompile(`^[0-9]{6}$`)
 
 // ObfuscateZiaAPIKey ports obfuscateZiaApiKey from
-// the original implementation: the legacy ZIA API-key
+// node-src/collectors/zscaler-adapters.ts: the legacy ZIA API-key
 // obfuscation used by the public SDK. apiKey and timestamp are walked by
 // Unicode code point ([]rune), matching the TS source's `[...value]`
 // spread (code-point iteration), not by UTF-16 code unit or byte.
@@ -373,7 +373,7 @@ func ObfuscateZiaAPIKey(apiKey, timestamp string) (string, error) {
 
 func acquireZiaLegacy(input CollectorAcquireInput) (CollectorAuthContext, error) {
 	// Ports `String(input.nowMs ?? Date.now())` from acquireZiaLegacy in
-	// the original implementation.
+	// node-src/collectors/zscaler-adapters.ts.
 	nowMs := time.Now().UnixMilli()
 	if input.NowMs != nil {
 		nowMs = *input.NowMs
@@ -428,7 +428,7 @@ func acquireZiaLegacy(input CollectorAcquireInput) (CollectorAuthContext, error)
 
 // ziaAuthBody ports the inline object literal
 // `{ apiKey, username, password, timestamp }` from acquireZiaLegacy in
-// the original implementation. Field declaration order matches
+// node-src/collectors/zscaler-adapters.ts. Field declaration order matches
 // the TS object literal's property order (json.Marshal on a struct emits
 // fields in declaration order, unlike a Go map).
 type ziaAuthBody struct {
@@ -479,7 +479,7 @@ func acquireZpaLegacy(input CollectorAcquireInput) (CollectorAuthContext, error)
 }
 
 // zscalerProduct ports the literal union type
-// `"zia" | "zpa" | "zcc" | "ztc"` that the original implementation's
+// `"zia" | "zpa" | "zcc" | "ztc"` that node-src/collectors/zscaler-adapters.ts's
 // adapter()/composeProductUrl close over.
 type zscalerProduct string
 
@@ -563,7 +563,7 @@ func newZscalerAdapter(product zscalerProduct) CollectorAdapter {
 }
 
 // CreateZscalerCollectorAdapters ports createZscalerCollectorAdapters from
-// the original implementation: built-in product adapters;
+// node-src/collectors/zscaler-adapters.ts: built-in product adapters;
 // resource selection remains registry-driven.
 //
 // The TS source returns a Map, whose `.keys()` iterates in insertion
@@ -584,7 +584,7 @@ func CreateZscalerCollectorAdapters() map[string]CollectorAdapter {
 }
 
 // ZscalerCollectorProviderSources ports ZSCALER_COLLECTOR_PROVIDER_SOURCES
-// from the original implementation.
+// from node-src/collectors/zscaler-adapters.ts.
 var ZscalerCollectorProviderSources = map[string]string{
 	"zcc": "zscaler/zcc",
 	"zia": "zscaler/zia",
@@ -594,7 +594,7 @@ var ZscalerCollectorProviderSources = map[string]string{
 
 // CreateZscalerCollectorAdaptersByProviderSource ports
 // createZscalerCollectorAdaptersByProviderSource from
-// the original implementation: closed built-in adapters keyed
+// node-src/collectors/zscaler-adapters.ts: closed built-in adapters keyed
 // by the provider sources already declared by packs.
 func CreateZscalerCollectorAdaptersByProviderSource() map[string]CollectorAdapter {
 	byProduct := CreateZscalerCollectorAdapters()
@@ -613,7 +613,7 @@ func CreateZscalerCollectorAdaptersByProviderSource() map[string]CollectorAdapte
 }
 
 // CollectorAuthModeFromEnvironment ports collectorAuthMode from
-// the original implementation.
+// node-src/collectors/zscaler-adapters.ts.
 func CollectorAuthModeFromEnvironment(environment Environment) CollectorAuthMode {
 	flag := strings.ToLower(strings.TrimSpace(environment["ZSCALER_USE_LEGACY_CLIENT"]))
 	if _, truthy := truthyEnvValues[flag]; truthy {
@@ -623,7 +623,7 @@ func CollectorAuthModeFromEnvironment(environment Environment) CollectorAuthMode
 }
 
 // NewCollectorContextInput ports the options bag collectorContext accepts
-// in the original implementation. Mode being "" means the TS
+// in node-src/collectors/zscaler-adapters.ts. Mode being "" means the TS
 // `mode?: CollectorAuthMode` field was omitted (falls back to
 // CollectorAuthModeFromEnvironment).
 type NewCollectorContextInput struct {
@@ -633,7 +633,7 @@ type NewCollectorContextInput struct {
 }
 
 // NewCollectorContext ports collectorContext from
-// the original implementation.
+// node-src/collectors/zscaler-adapters.ts.
 func NewCollectorContext(input NewCollectorContextInput) (CollectorContext, error) {
 	mode := input.Mode
 	if mode == "" {
@@ -698,7 +698,7 @@ func safeLegacyBase(derive func() (string, error), override string) string {
 }
 
 // FetchDebugLinesInput ports the options bag fetchDebugLines accepts in
-// the original implementation.
+// node-src/collectors/zscaler-adapters.ts.
 type FetchDebugLinesInput struct {
 	Environment Environment
 	Context     CollectorContext
@@ -707,7 +707,7 @@ type FetchDebugLinesInput struct {
 }
 
 // FetchDebugLines ports fetchDebugLines from
-// the original implementation.
+// node-src/collectors/zscaler-adapters.ts.
 func FetchDebugLines(input FetchDebugLinesInput) ([]string, error) {
 	verbose := debugVerbose(input.Environment)
 	masked := false
@@ -797,7 +797,7 @@ func FetchDebugLines(input FetchDebugLinesInput) ([]string, error) {
 	return lines, nil
 }
 
-// hostOf ports hostOf from the original implementation: the
+// hostOf ports hostOf from node-src/collectors/zscaler-adapters.ts: the
 // host[:port] portion of value, tolerating a bare host with no scheme.
 func hostOf(value string) string {
 	rest := value
@@ -811,7 +811,7 @@ func hostOf(value string) string {
 }
 
 // DiagnosticHosts ports diagnosticHosts from
-// the original implementation: unique HTTPS hosts contacted by
+// node-src/collectors/zscaler-adapters.ts: unique HTTPS hosts contacted by
 // the selected active Zscaler products.
 func DiagnosticHosts(environment Environment, products map[string]struct{}) ([]string, error) {
 	mode := CollectorAuthModeFromEnvironment(environment)

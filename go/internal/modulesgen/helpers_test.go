@@ -1,7 +1,12 @@
 package modulesgen
 
-// helpers_test.go holds repository, synthetic-pack, and Terraform helpers
-// shared by the module generator tests.
+// helpers_test.go holds fixtures shared by generator_test.go, the Go port
+// of node-tests/module-generator.test.ts: locating the repo root (for the
+// committed packs/ and tests/fixtures/gen/ trees), writing
+// synthetic pack roots (the Go analogue of the TS test's syntheticRoot
+// helper), and resolving a real `terraform` executable for the tests that
+// exercise the Terraform-backed formatter, skipping them if none is on
+// PATH.
 
 import (
 	"encoding/json"
@@ -77,9 +82,11 @@ func committedRoot(t *testing.T) metadata.LoadedPackRoot {
 	t.Helper()
 	root := repoRoot(t)
 	profilePath := filepath.Join(root, "packs", "full.packset.json")
+	catalogPath := filepath.Join(root, "packs", "full.packset.json")
 	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,
+		CatalogPath: &catalogPath,
 	})
 	if err != nil {
 		t.Fatalf("LoadPackRoot: %v", err)
@@ -197,8 +204,14 @@ func syntheticRoot(t *testing.T, options syntheticRootOptions) (string, metadata
 	return directory, loaded
 }
 
-// terraformExecutable resolves TF first and then PATH, skipping tests that
-// require the real formatter when Terraform is unavailable.
+// terraformExecutable resolves a real `terraform` binary the way this
+// port's other Terraform/Python oracle helpers do (TF env var first, then
+// PATH), skipping the calling test if none is found -- ported per this
+// port's task brief: "Terraform 1.15.4 is installed on this machine --
+// where the Node tests use the real formatter, your tests may too
+// (skip-if-absent guard, matching the repo's conventions)", the same
+// pattern go/internal/pypath/paths_test.go's pythonOracle and
+// go/cmd/iw/differential_test.go's node-oracle resolution follow.
 func terraformExecutable(t *testing.T) string {
 	t.Helper()
 	if configured := strings.TrimSpace(os.Getenv("TF")); configured != "" {

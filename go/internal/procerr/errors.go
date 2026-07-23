@@ -1,11 +1,11 @@
-// Package procerr ports the original implementation (the ProcessFailure
-// domain type) and the original implementation (the CLI's rendering of
+// Package procerr ports node-src/domain/errors.ts (the ProcessFailure
+// domain type) and node-src/cli/process-failure.ts (the CLI's rendering of
 // that type), together forming the shared error spine other Go packages in
 // this port either produce (as a sentinel ProcessFailure, e.g.
 // go/internal/canonjson's ErrInvalidArtifactJSON) or, eventually, render at
 // a CLI boundary via RenderCLIProcessFailure.
 //
-// the original implementation's MetadataError-adjacent sibling -- the bare
+// node-src/domain/errors.ts's MetadataError-adjacent sibling -- the bare
 // `class MetadataError extends Error {}` ported as go/internal/metadata's
 // own unstructured MetadataError -- is deliberately not part of this
 // package: that type carries no code/category/retryable/details fields to
@@ -15,12 +15,12 @@
 package procerr
 
 // Category is the Go analogue of the ErrorCategory string-literal union in
-// the original implementation: "request" | "domain" | "io" | "internal".
+// node-src/domain/errors.ts: "request" | "domain" | "io" | "internal".
 // RenderCLIProcessFailure renders it verbatim as the "  category: " line;
 // no Go code in this package otherwise branches on its value.
 type Category string
 
-// The four ErrorCategory literals from the original implementation.
+// The four ErrorCategory literals from node-src/domain/errors.ts.
 const (
 	CategoryRequest  Category = "request"
 	CategoryDomain   Category = "domain"
@@ -29,7 +29,7 @@ const (
 )
 
 // ErrorDetail is the Go analogue of the ErrorDetail interface in
-// the original implementation: one structured, path-addressed fact about a
+// node-src/domain/errors.ts: one structured, path-addressed fact about a
 // ProcessFailure (e.g. which input field was invalid and why). Field order
 // mirrors the TS interface's declaration order; RenderCLIProcessFailure
 // renders Path and Code inline and Message through indent (see cli.go).
@@ -40,7 +40,7 @@ type ErrorDetail struct {
 }
 
 // ProcessFailure is the Go analogue of the ProcessFailure class in
-// the original implementation: the single structured failure shape threaded
+// node-src/domain/errors.ts: the single structured failure shape threaded
 // from domain/io code up to a process boundary (today, the CLI; see
 // RenderCLIProcessFailure). Fields mirror the TS class's public readonly
 // properties exactly. Go has no exception hierarchy for this type to
@@ -61,7 +61,7 @@ func (f *ProcessFailure) Error() string {
 	return f.Message
 }
 
-// NewProcessFailureOptions mirrors the options object the original source treedomain/
+// NewProcessFailureOptions mirrors the options object node-src/domain/
 // errors.ts's ProcessFailure constructor accepts. Code, Category, and
 // Message correspond to that constructor's required (no-default) fields.
 // Retryable and Details correspond to its optional fields
@@ -78,7 +78,7 @@ type NewProcessFailureOptions struct {
 }
 
 // NewProcessFailure builds a *ProcessFailure from opts, ported from the
-// ProcessFailure constructor in the original implementation.
+// ProcessFailure constructor in node-src/domain/errors.ts.
 //
 // Retryable's Go zero value (false) already matches the TS
 // `options.retryable ?? false` default with no extra code. Details is

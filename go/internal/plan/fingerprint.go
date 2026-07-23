@@ -12,16 +12,16 @@ import (
 )
 
 // PlanFingerprintVersion ports PLAN_FINGERPRINT_VERSION from
-// the original implementation.
+// node-src/domain/plan-fingerprint.ts.
 const PlanFingerprintVersion = 2
 
 // FileFingerprint ports FileFingerprint from
-// the original implementation. Its two array positions are path and
+// node-src/domain/plan-fingerprint.ts. Its two array positions are path and
 // SHA-256 respectively, matching the source tuple's serialized shape.
 type FileFingerprint [2]string
 
 // BackendFingerprint ports BackendFingerprint from
-// the original implementation. Nil Key represents JSON null, and nil
+// node-src/domain/plan-fingerprint.ts. Nil Key represents JSON null, and nil
 // SHA256 represents the source object's absent sha256 property.
 type BackendFingerprint struct {
 	Key     *string `json:"key"`
@@ -30,7 +30,7 @@ type BackendFingerprint struct {
 }
 
 // ModuleFingerprint ports ModuleFingerprint from
-// the original implementation.
+// node-src/domain/plan-fingerprint.ts.
 type ModuleFingerprint struct {
 	Files        []FileFingerprint `json:"files"`
 	Local        bool              `json:"local"`
@@ -40,7 +40,7 @@ type ModuleFingerprint struct {
 }
 
 // PlanSourcesPayload ports PlanSourcesPayload from
-// the original implementation.
+// node-src/domain/plan-fingerprint.ts.
 type PlanSourcesPayload struct {
 	Backend     *BackendFingerprint `json:"backend"`
 	MemberTypes []string            `json:"member_types"`
@@ -50,7 +50,7 @@ type PlanSourcesPayload struct {
 }
 
 // InitSourcesPayload ports InitSourcesPayload from
-// the original implementation.
+// node-src/domain/plan-fingerprint.ts.
 type InitSourcesPayload struct {
 	Backend    *BackendFingerprint `json:"backend"`
 	Modules    []ModuleFingerprint `json:"modules"`
@@ -58,7 +58,7 @@ type InitSourcesPayload struct {
 }
 
 // PlanFingerprintInput ports PlanFingerprintInput from
-// the original implementation. Nil optional strings represent both an
+// node-src/domain/plan-fingerprint.ts. Nil optional strings represent both an
 // omitted source property and its null value; those forms are behaviorally
 // identical for fingerprint capture.
 type PlanFingerprintInput struct {
@@ -70,7 +70,7 @@ type PlanFingerprintInput struct {
 }
 
 // InitFingerprintInput ports InitFingerprintInput from
-// the original implementation. BackendConfig and BackendKey use the
+// node-src/domain/plan-fingerprint.ts. BackendConfig and BackendKey use the
 // same nil representation as PlanFingerprintInput.
 type InitFingerprintInput struct {
 	EnvDir        string
@@ -80,7 +80,7 @@ type InitFingerprintInput struct {
 }
 
 // PlanFingerprintV2 ports PlanFingerprintV2 from
-// the original implementation.
+// node-src/domain/plan-fingerprint.ts.
 type PlanFingerprintV2 struct {
 	Version int    `json:"version"`
 	SHA256  string `json:"sha256"`
@@ -88,7 +88,7 @@ type PlanFingerprintV2 struct {
 
 // ModuleFingerprintIgnoredDirs returns a detached slice in the insertion
 // order of MODULE_FINGERPRINT_IGNORED_DIRS from
-// the original implementation.
+// node-src/domain/plan-fingerprint.ts.
 func ModuleFingerprintIgnoredDirs() []string {
 	return []string{
 		".git",
@@ -102,7 +102,7 @@ func ModuleFingerprintIgnoredDirs() []string {
 
 // CanonicalPlanSourcesJSON matches
 // json.dumps(payload, sort_keys=True, separators=(",", ":")) from
-// the original implementation. It deliberately accepts only the
+// node-src/domain/plan-fingerprint.ts. It deliberately accepts only the
 // fingerprint value model instead of growing a second general JSON encoder.
 func CanonicalPlanSourcesJSON(payload PlanSourcesPayload) string {
 	var out strings.Builder
@@ -111,14 +111,14 @@ func CanonicalPlanSourcesJSON(payload PlanSourcesPayload) string {
 }
 
 // PlanSourcesSHA256 ports planSourcesSha256 from
-// the original implementation.
+// node-src/domain/plan-fingerprint.ts.
 func PlanSourcesSHA256(payload PlanSourcesPayload) string {
 	digest := sha256.Sum256([]byte(CanonicalPlanSourcesJSON(payload)))
 	return hex.EncodeToString(digest[:])
 }
 
 // InitSourcesSHA256 ports initSourcesSha256 from
-// the original implementation.
+// node-src/domain/plan-fingerprint.ts.
 func InitSourcesSHA256(payload InitSourcesPayload) string {
 	var encoded strings.Builder
 	encodeInitSources(&encoded, payload)
@@ -127,7 +127,7 @@ func InitSourcesSHA256(payload InitSourcesPayload) string {
 }
 
 // CapturePlanSourcesPayload ports capturePlanSourcesPayload from
-// the original implementation. A nil budget selects the source default;
+// node-src/domain/plan-fingerprint.ts. A nil budget selects the source default;
 // a supplied budget is shared serially by every nested directory and file read.
 func CapturePlanSourcesPayload(
 	input PlanFingerprintInput,
@@ -160,7 +160,7 @@ func CapturePlanSourcesPayload(
 }
 
 // CaptureInitSourcesPayload ports captureInitSourcesPayload from
-// the original implementation. Nil and supplied budgets have the same
+// node-src/domain/plan-fingerprint.ts. Nil and supplied budgets have the same
 // contract as CapturePlanSourcesPayload.
 func CaptureInitSourcesPayload(
 	input InitFingerprintInput,
@@ -187,7 +187,7 @@ func CaptureInitSourcesPayload(
 }
 
 // FingerprintPlanV2 ports planFingerprintV2 from
-// the original implementation. A nil budget selects the source default.
+// node-src/domain/plan-fingerprint.ts. A nil budget selects the source default.
 func FingerprintPlanV2(
 	input PlanFingerprintInput,
 	budget *artifacts.ReadBudget,
@@ -302,7 +302,7 @@ func encodeBool(out *strings.Builder, value bool) {
 }
 
 // encodeFingerprintString ports encodePythonJsonString from
-// the original implementation. U+007F and above are escaped, unlike
+// node-src/domain/plan-fingerprint.ts. U+007F and above are escaped, unlike
 // canonjson.Render's deliberately Node-specific DEL behavior.
 func encodeFingerprintString(out *strings.Builder, value string) {
 	out.WriteByte('"')

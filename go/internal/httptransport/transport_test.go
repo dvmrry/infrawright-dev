@@ -205,7 +205,7 @@ func TestRedirectFailurePriorityAndExactCodes(t *testing.T) {
 		// empty-but-present authority silently falls back to inheriting
 		// the base URL's host -- a WHATWG-URL-edge-case net/url does not
 		// reproduce and no real API response exercises (see
-		// the Go runtime contract §3's WHATWG-URL-edge-case drop).
+		// docs/go-runtime-v2.md §3's WHATWG-URL-edge-case drop).
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

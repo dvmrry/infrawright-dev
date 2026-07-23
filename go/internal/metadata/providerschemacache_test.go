@@ -2,8 +2,9 @@ package metadata
 
 // providerschemacache_test.go tests the LoadedPackRoot.schemaCache addition
 // introduced in loader.go: a lazy, per-provider memo for provider schema
-// loads. This file pins down the cache's correctness contract: concurrency
-// safety, identical
+// loads with no Node counterpart (see loader.go's file-level doc comment).
+// This file has no node-tests analogue; it exists solely to pin down the
+// cache's Go-only correctness contract -- concurrency safety, identical
 // results (including identical failures) with and without the cache, and
 // the O(1)-decode performance the cache exists to deliver.
 
@@ -24,9 +25,11 @@ func cachedRoot(t *testing.T) LoadedPackRoot {
 	t.Helper()
 	root := repoRoot(t)
 	profilePath := filepath.Join(root, "packs", "full.packset.json")
+	catalogPath := filepath.Join(root, "packs", "full.packset.json")
 	loaded, err := LoadPackRoot(LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,
+		CatalogPath: &catalogPath,
 	})
 	if err != nil {
 		t.Fatalf("LoadPackRoot: %v", err)
@@ -233,13 +236,14 @@ func findRepoRootForBench(b *testing.B) string {
 		b.Fatalf("Getwd: %v", err)
 	}
 	for {
-		_, packsErr := os.Stat(filepath.Join(dir, "packs", "full.packset.json"))
-		if packsErr == nil {
+		_, catalogsErr := os.Stat(filepath.Join(dir, "catalogs"))
+		_, packsErr := os.Stat(filepath.Join(dir, "packs"))
+		if catalogsErr == nil && packsErr == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			b.Fatal("walked up to filesystem root without finding packs/full.packset.json")
+			b.Fatal("walked up to filesystem root without finding catalogs/ and packs/")
 		}
 		dir = parent
 	}
@@ -249,6 +253,7 @@ func benchmarkMetadataAndRoot(b *testing.B) (PackMetadata, LoadedPackRoot) {
 	b.Helper()
 	root := findRepoRootForBench(b)
 	profilePath := filepath.Join(root, "packs", "full.packset.json")
+	catalogPath := filepath.Join(root, "packs", "full.packset.json")
 	metadata, err := LoadPackMetadata(filepath.Join(root, "packs"))
 	if err != nil {
 		b.Fatalf("LoadPackMetadata: %v", err)
@@ -256,6 +261,7 @@ func benchmarkMetadataAndRoot(b *testing.B) (PackMetadata, LoadedPackRoot) {
 	loaded, err := LoadPackRoot(LoadPackRootOptions{
 		PacksRoot:   filepath.Join(root, "packs"),
 		ProfilePath: &profilePath,
+		CatalogPath: &catalogPath,
 	})
 	if err != nil {
 		b.Fatalf("LoadPackRoot: %v", err)

@@ -24,7 +24,7 @@ var (
 )
 
 // GeneratedConfigPolicyError ports GeneratedConfigPolicyError from
-// the original implementation.
+// node-src/domain/generated-config-policy.ts.
 type GeneratedConfigPolicyError struct{ Message string }
 
 // Error implements error.
@@ -378,7 +378,7 @@ func renderGeneratedHCLBlock(name string, block metadata.JsonObject, value map[s
 }
 
 // GeneratedConfigPolicyResource ports GeneratedConfigPolicyResource from
-// the original implementation.
+// node-src/domain/generated-config-policy.ts.
 type GeneratedConfigPolicyResource struct {
 	AddressToKey map[string]string
 	Policy       *metadata.DriftPolicy
@@ -634,7 +634,7 @@ func rewriteGeneratedConfig(text string, resources map[string]rewriteResourceOpt
 }
 
 // ApplyGeneratedConfigPoliciesOptions ports the options bag accepted by
-// applyGeneratedConfigPolicies in the original implementation.
+// applyGeneratedConfigPolicies in node-src/domain/generated-config-policy.ts.
 type ApplyGeneratedConfigPoliciesOptions struct {
 	GeneratedConfig string
 	Resources       []GeneratedConfigPolicyResource
@@ -649,7 +649,7 @@ type GeneratedConfigPolicyResult struct {
 }
 
 // ApplyGeneratedConfigPolicies ports applyGeneratedConfigPolicies from
-// the original implementation. Every resource is filled before
+// node-src/domain/generated-config-policy.ts. Every resource is filled before
 // any resource is omitted, preserving the source's load-bearing order.
 func ApplyGeneratedConfigPolicies(options ApplyGeneratedConfigPoliciesOptions) (GeneratedConfigPolicyResult, error) {
 	if options.Root == nil {
@@ -723,7 +723,7 @@ func copyRewriteResources(input map[string]rewriteResourceOptions) map[string]re
 }
 
 // ApplyGeneratedConfigPolicy ports applyGeneratedConfigPolicy from
-// the original implementation.
+// node-src/domain/generated-config-policy.ts.
 func ApplyGeneratedConfigPolicy(generatedConfig string, resource GeneratedConfigPolicyResource, root *metadata.LoadedPackRoot) (GeneratedConfigPolicyResult, error) {
 	return ApplyGeneratedConfigPolicies(ApplyGeneratedConfigPoliciesOptions{GeneratedConfig: generatedConfig, Resources: []GeneratedConfigPolicyResource{resource}, Root: root})
 }

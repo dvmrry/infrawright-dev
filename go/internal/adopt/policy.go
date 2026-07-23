@@ -24,7 +24,7 @@ func driftPolicyVersionOrOne(record map[string]any) any {
 }
 
 // MergeAdoptionPolicyData ports mergePolicyData from
-// the original implementation, including PR 247's pack/user version-one
+// node-src/domain/adopt-runner.ts, including PR 247's pack/user version-one
 // reconciliation. Input trees are copied before they are merged.
 func MergeAdoptionPolicyData(base, override any) any {
 	baseRecord, baseOK := cloneAdoptionValue(base).(map[string]any)
@@ -79,7 +79,7 @@ func MergeAdoptionPolicyData(base, override any) any {
 }
 
 // PackAdoptionPolicyData ports packPolicyData from
-// the original implementation. Active manifest declaration order is
+// node-src/domain/adopt-runner.ts. Active manifest declaration order is
 // load-bearing and is preserved.
 func PackAdoptionPolicyData(root metadata.LoadedPackRoot) any {
 	output := any(emptyAdoptionPolicyData())
@@ -101,7 +101,7 @@ func PackAdoptionPolicyData(root metadata.LoadedPackRoot) any {
 }
 
 // LoadAdoptionPolicy ports loadAdoptionPolicy from
-// the original implementation. A non-nil path is validated independently
+// node-src/domain/adopt-runner.ts. A non-nil path is validated independently
 // before it is merged with active-pack policy.
 func LoadAdoptionPolicy(root metadata.LoadedPackRoot, path *string) (*metadata.DriftPolicy, error) {
 	base := PackAdoptionPolicyData(root)

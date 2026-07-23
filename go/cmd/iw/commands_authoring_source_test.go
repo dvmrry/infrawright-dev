@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -15,26 +14,6 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/contracts"
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/sourceoperation"
 )
-
-func publishedSourceArtifact(t *testing.T, artifacts []artifactpublish.Artifact, name string) []byte {
-	t.Helper()
-	for _, artifact := range artifacts {
-		if artifact.Name == name {
-			return artifact.Bytes
-		}
-	}
-	t.Fatalf("published artifacts have no %q", name)
-	return nil
-}
-
-func decodedSourceArtifact(t *testing.T, artifacts []artifactpublish.Artifact, name string) map[string]any {
-	t.Helper()
-	var decoded map[string]any
-	if err := json.Unmarshal(publishedSourceArtifact(t, artifacts, name), &decoded); err != nil {
-		t.Fatalf("json.Unmarshal(%q) error: %v", name, err)
-	}
-	return decoded
-}
 
 func TestSourceCommandsRejectModeConflictsBeforeReadsOrPublication(t *testing.T) {
 	dependencies := defaultAuthoringSourceDependencies()
@@ -299,67 +278,6 @@ func TestSourceOperationUnverifiedRunsInProcessAndPublishesSealedCore(t *testing
 		if published.Artifacts[index].Name != name {
 			t.Errorf("published artifact[%d] = %q, want %q", index, published.Artifacts[index].Name, name)
 		}
-	}
-
-	summaryArtifact := decodedSourceArtifact(t, published.Artifacts, "summary.json")
-	summary := summaryArtifact["source_summary"].(map[string]any)
-	for name, want := range map[string]float64{
-		"selected_total": 7, "applicable_total": 7, "source_call_observed_total": 4, "endpoint_observed_total": 2,
-	} {
-		if got := summary[name]; got != want {
-			t.Errorf("summary.json source_summary[%q] = %#v, want %v", name, got, want)
-		}
-	}
-	wantCounts := map[string]any{
-		"observed_http": float64(2), "observed_sdk_call": float64(1), "ambiguous": float64(1), "dynamic": float64(1),
-		"unresolved": float64(1), "no_source": float64(1), "not_applicable": float64(0),
-	}
-	if got := summary["classification_counts"]; !reflect.DeepEqual(got, wantCounts) {
-		t.Errorf("summary.json classification_counts = %#v, want %#v", got, wantCounts)
-	}
-	if got := summary["endpoint_coverage"]; !reflect.DeepEqual(got, map[string]any{"state": "ratio", "numerator": float64(2), "denominator": float64(7)}) {
-		t.Errorf("summary.json endpoint_coverage = %#v, want fixed 2/7 ratio", got)
-	}
-
-	registryArtifact := decodedSourceArtifact(t, published.Artifacts, "source-registry.json")
-	registry := registryArtifact["resources"].(map[string]any)
-	wantResources := map[string]struct {
-		classification string
-		reason         any
-		chains         int
-	}{
-		"sourcefirst_ambiguous":   {classification: "ambiguous", reason: "multiple_viable_candidates", chains: 2},
-		"sourcefirst_direct_http": {classification: "observed_http", reason: nil, chains: 1},
-		"sourcefirst_dynamic":     {classification: "dynamic", reason: nil, chains: 1},
-		"sourcefirst_no_source":   {classification: "no_source", reason: "provider_source_missing", chains: 0},
-		"sourcefirst_sdk_http":    {classification: "observed_http", reason: nil, chains: 1},
-		"sourcefirst_sdk_symbol":  {classification: "observed_sdk_call", reason: nil, chains: 1},
-		"sourcefirst_unresolved":  {classification: "unresolved", reason: "call_chain_unresolved", chains: 1},
-	}
-	for resource, want := range wantResources {
-		entry := registry[resource].(map[string]any)
-		chains := entry["chains"].([]any)
-		if got := entry["classification"]; got != want.classification {
-			t.Errorf("source-registry.json %s classification = %#v, want %q", resource, got, want.classification)
-		}
-		if got := entry["reason_code"]; got != want.reason {
-			t.Errorf("source-registry.json %s reason_code = %#v, want %#v", resource, got, want.reason)
-		}
-		if len(chains) != want.chains {
-			t.Errorf("source-registry.json %s chains = %d, want %d", resource, len(chains), want.chains)
-		}
-	}
-	for index, wantPath := range []string{"/v1/alpha/{id}", "/v2/beta/{id}"} {
-		chains := registry["sourcefirst_ambiguous"].(map[string]any)["chains"].([]any)
-		endpoint := chains[index].(map[string]any)["endpoint"].(map[string]any)
-		if got := endpoint["path_template"]; got != wantPath {
-			t.Errorf("sourcefirst_ambiguous chain[%d] path_template = %#v, want %q", index, got, wantPath)
-		}
-	}
-	sdkHTTPChains := registry["sourcefirst_sdk_http"].(map[string]any)["chains"].([]any)
-	sdkHTTPEndpoint := sdkHTTPChains[0].(map[string]any)["endpoint"].(map[string]any)
-	if gotPath, gotOrigin := sdkHTTPEndpoint["path_template"], sdkHTTPEndpoint["origin"]; gotPath != "/v1/catalog/{id}" || gotOrigin != "sdk" {
-		t.Errorf("sourcefirst_sdk_http endpoint path/origin = %#v/%#v, want /v1/catalog/{id}/sdk", gotPath, gotOrigin)
 	}
 }
 

@@ -128,7 +128,7 @@ func requireV2FullSurfaceDeclaredEdges(t *testing.T, repositoryRoot string, want
 	t.Helper()
 	profile := filepath.Join(repositoryRoot, "packs", "full.packset.json")
 	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
-		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profile,
+		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profile, CatalogPath: &profile,
 	})
 	if err != nil {
 		t.Fatalf("load full-profile metadata for reference qualification: %v", err)
@@ -164,7 +164,7 @@ func v2FullSurfaceResourceTypes(t *testing.T, repositoryRoot string) []string {
 	t.Helper()
 	profile := filepath.Join(repositoryRoot, "packs", "full.packset.json")
 	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
-		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profile,
+		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profile, CatalogPath: &profile,
 	})
 	if err != nil {
 		t.Fatalf("load full-profile metadata for resource qualification: %v", err)
@@ -215,6 +215,7 @@ func runV2FullSurfaceGenEnv(
 		"gen-env", "--tenant", "qualification",
 		"--root", filepath.Join(repositoryRoot, "packs"),
 		"--profile", filepath.Join(repositoryRoot, "packs", "full.packset.json"),
+		"--catalog", filepath.Join(repositoryRoot, "packs", "full.packset.json"),
 		"--deployment", deploymentPath,
 	}, []string{
 		"HOME=" + filepath.Join(workspace, "home"),

@@ -1,16 +1,16 @@
 package metadata
 
-// terraformschema.go ports the original implementation: provider
+// terraformschema.go ports node-src/metadata/terraform-schema.ts: provider
 // schema type encodings and attribute/block classification.
 //
 // Unlike the rest of this package, these functions are not called by
-// loader.go, packs.go, or resources.go, so there is no exported-wrapper/
-// unexported-implementation split here (see packs.go's file doc comment for
-// that convention): every
+// loader.go, packs.go, resources.go, or rootcatalog.go (Wave 2's actual
+// gate), so there is no exported-wrapper/unexported-implementation split
+// here (see packs.go's file doc comment for that convention): every
 // function below returns (T, error) directly, threading errors through its
 // modest, shallow recursion the ordinary Go way rather than via this
 // package's fail()/recoverMetadataError panic convention, since nothing
-// here needs to compose with that machinery. the original implementation's
+// here needs to compose with that machinery. node-src/metadata/terraform-schema.ts's
 // own errors are a bare `throw new TypeError(message)` (not the
 // MetadataError this package's other files raise), reflected here by the
 // distinct TerraformSchemaError type.
@@ -21,7 +21,7 @@ import (
 
 // TerraformSchemaError reports a malformed Terraform provider-schema
 // document. Ports the `throw new TypeError(message)` calls in
-// the original implementation's schemaError.
+// node-src/metadata/terraform-schema.ts's schemaError.
 type TerraformSchemaError struct{ message string }
 
 // Error implements the error interface.
@@ -32,7 +32,7 @@ func schemaErrorf(format string, args ...any) error {
 }
 
 // TerraformTypeEncoding is the Go analogue of the recursive
-// TerraformTypeEncoding union in the original implementation: a
+// TerraformTypeEncoding union in node-src/metadata/terraform-schema.ts: a
 // bare primitive (TerraformPrimitiveType), a list/map/set wrapping another
 // encoding (TerraformCollectionType), or a nested object
 // (TerraformObjectType).
@@ -61,7 +61,7 @@ type TerraformObjectType struct {
 func (TerraformObjectType) isTerraformTypeEncoding() {}
 
 // TerraformClassifiedAttributes ports the TerraformClassifiedAttributes
-// interface from the original implementation.
+// interface from node-src/metadata/terraform-schema.ts.
 type TerraformClassifiedAttributes struct {
 	Required     []string
 	Optional     []string
@@ -69,7 +69,7 @@ type TerraformClassifiedAttributes struct {
 }
 
 // TerraformRequireObject ports terraformRequireObject from
-// the original implementation.
+// node-src/metadata/terraform-schema.ts.
 func TerraformRequireObject(value any, label string) (JsonObject, error) {
 	obj, ok := value.(JsonObject)
 	if !ok {
@@ -79,13 +79,13 @@ func TerraformRequireObject(value any, label string) (JsonObject, error) {
 }
 
 // TerraformBlockForSchema ports terraformBlockForSchema from
-// the original implementation.
+// node-src/metadata/terraform-schema.ts.
 func TerraformBlockForSchema(schema JsonObject, label string) (JsonObject, error) {
 	return TerraformRequireObject(schema["block"], label+".block")
 }
 
 // TerraformAttributesForBlock ports terraformAttributesForBlock from
-// the original implementation.
+// node-src/metadata/terraform-schema.ts.
 func TerraformAttributesForBlock(block JsonObject, label string) (JsonObject, error) {
 	value, hasAttributes := block["attributes"]
 	if !hasAttributes || value == nil {
@@ -95,7 +95,7 @@ func TerraformAttributesForBlock(block JsonObject, label string) (JsonObject, er
 }
 
 // TerraformBlockTypesForBlock ports terraformBlockTypesForBlock from
-// the original implementation.
+// node-src/metadata/terraform-schema.ts.
 func TerraformBlockTypesForBlock(block JsonObject, label string) (JsonObject, error) {
 	value, hasBlockTypes := block["block_types"]
 	if !hasBlockTypes || value == nil {
@@ -105,14 +105,14 @@ func TerraformBlockTypesForBlock(block JsonObject, label string) (JsonObject, er
 }
 
 // TerraformBooleanField ports terraformBooleanField from
-// the original implementation.
+// node-src/metadata/terraform-schema.ts.
 func TerraformBooleanField(value JsonObject, name string) bool {
 	b, _ := value[name].(bool)
 	return b
 }
 
 // TerraformClassifyAttributes ports terraformClassifyAttributes from
-// the original implementation.
+// node-src/metadata/terraform-schema.ts.
 func TerraformClassifyAttributes(block JsonObject, label string) (TerraformClassifiedAttributes, error) {
 	var required, optional, computedOnly []string
 	attributes, err := TerraformAttributesForBlock(block, label)
@@ -148,7 +148,7 @@ func containsString(list []string, target string) bool {
 }
 
 // TerraformResourceInputAttributes ports terraformResourceInputAttributes
-// from the original implementation.
+// from node-src/metadata/terraform-schema.ts.
 func TerraformResourceInputAttributes(block JsonObject, label string) (TerraformClassifiedAttributes, error) {
 	classified, err := TerraformClassifyAttributes(block, label)
 	if err != nil {
@@ -185,7 +185,7 @@ func TerraformResourceInputAttributes(block JsonObject, label string) (Terraform
 }
 
 // terraformEncoding ports terraformEncoding from
-// the original implementation.
+// node-src/metadata/terraform-schema.ts.
 func terraformEncoding(value any, label string) (TerraformTypeEncoding, error) {
 	if s, ok := value.(string); ok && (s == "bool" || s == "number" || s == "string") {
 		return TerraformPrimitiveType(s), nil
@@ -222,7 +222,7 @@ func terraformEncoding(value any, label string) (TerraformTypeEncoding, error) {
 }
 
 // terraformNestedTypeEncoding ports terraformNestedTypeEncoding from
-// the original implementation.
+// node-src/metadata/terraform-schema.ts.
 func terraformNestedTypeEncoding(value any, label string) (TerraformTypeEncoding, error) {
 	nestedType, err := TerraformRequireObject(value, label)
 	if err != nil {
@@ -262,7 +262,7 @@ func terraformNestedTypeEncoding(value any, label string) (TerraformTypeEncoding
 }
 
 // TerraformAttributeType ports terraformAttributeType from
-// the original implementation.
+// node-src/metadata/terraform-schema.ts.
 func TerraformAttributeType(attribute JsonObject, label string) (TerraformTypeEncoding, error) {
 	if typeValue, hasType := attribute["type"]; hasType {
 		return terraformEncoding(typeValue, label+".type")
@@ -275,7 +275,7 @@ func TerraformAttributeType(attribute JsonObject, label string) (TerraformTypeEn
 
 // numberEqualsOne reports whether value is the JSON number 1, accepting
 // either a plain float64 or a losslessly preserved json.Number token,
-// matching the original implementation's
+// matching node-src/metadata/terraform-schema.ts's
 // `maxItems.toString() === "1"` (itself already gated on
 // isIntegerJsonNumber(maxItems) at the one call site, terraformBlockIsSingle).
 func numberEqualsOne(value any) bool {
@@ -290,7 +290,7 @@ func numberEqualsOne(value any) bool {
 }
 
 // TerraformBlockIsSingle ports terraformBlockIsSingle from
-// the original implementation.
+// node-src/metadata/terraform-schema.ts.
 func TerraformBlockIsSingle(blockType JsonObject) bool {
 	if mode, _ := blockType["nesting_mode"].(string); mode == "single" {
 		return true
@@ -300,7 +300,7 @@ func TerraformBlockIsSingle(blockType JsonObject) bool {
 }
 
 // TerraformBlockHasInputs ports terraformBlockHasInputs from
-// the original implementation.
+// node-src/metadata/terraform-schema.ts.
 func TerraformBlockHasInputs(block JsonObject, label string) (bool, error) {
 	classified, err := TerraformClassifyAttributes(block, label)
 	if err != nil {
@@ -334,7 +334,7 @@ func TerraformBlockHasInputs(block JsonObject, label string) (bool, error) {
 }
 
 // TerraformInputBlockTypes ports terraformInputBlockTypes from
-// the original implementation. The Node source returns a
+// node-src/metadata/terraform-schema.ts. The Node source returns a
 // ReadonlyMap preserving sorted-name insertion order; this returns a plain
 // Go map (unordered) since nothing in this port's scope consumes iteration
 // order from it.

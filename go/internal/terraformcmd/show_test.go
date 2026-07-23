@@ -66,7 +66,7 @@ func (fixture showFixture) options(executable string) TerraformShowOptions {
 	}
 }
 
-// TestTerraformShowPlanFixedInvocation pins the original implementation at
+// TestTerraformShowPlanFixedInvocation pins node-src/io/terraform-show.ts at
 // 66e9c2d1668b89d772bf6218bbce82172c774a41:297-387.
 func TestTerraformShowPlanFixedInvocation(t *testing.T) {
 	fixture := newShowFixture(t)

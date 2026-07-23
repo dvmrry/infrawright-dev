@@ -52,7 +52,7 @@ type legacyValidatorSet struct {
 }
 
 // validateLegacyOpenAPI ports the validation sequence in
-// the original implementation: SwaggerParser.validate first dereferences
+// node-src/authoring/openapi.ts: SwaggerParser.validate first dereferences
 // local references with external resolution disabled, then validates the
 // selected schema, and finally performs swagger-parser's Swagger 2-only
 // supplemental checks. It intentionally has no qualified-v2 callers.
@@ -723,8 +723,8 @@ func legacyString(value any) string {
 }
 
 // validateLegacySwagger2Spec is a direct structural port of
-// swagger-parser/lib/validators/spec.js (SHA recorded in provenance). Changes
-// require updating the compatibility corpus.
+// swagger-parser/lib/validators/spec.js (SHA recorded in provenance). Do not
+// add rules here without first changing the frozen Node authority.
 func validateLegacySwagger2Spec(api map[string]any) error {
 	if legacyJSTruthy(api["openapi"]) {
 		return nil

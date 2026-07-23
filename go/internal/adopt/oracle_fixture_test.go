@@ -14,7 +14,7 @@ type terraformImportStructureFixture struct {
 
 func loadTerraformImportStructureFixture(t *testing.T) terraformImportStructureFixture {
 	t.Helper()
-	path := filepath.Join("..", "..", "..", "tests", "fixtures", "terraform-import-structure-v1.15.4.json")
+	path := filepath.Join("..", "..", "..", "node-tests", "fixtures", "terraform-import-structure-v1.15.4.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read committed Terraform structural fixture: %v", err)

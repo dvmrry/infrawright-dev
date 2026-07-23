@@ -1,7 +1,7 @@
 package main
 
 // commands_adopt_apply.go ports the Block D command-composition layer from
-// the original implementation. The domain packages own adoption, import staging, and
+// node-src/cli/main.ts. The domain packages own adoption, import staging, and
 // exact saved-plan Apply; this file owns only CLI parsing, environment/path
 // precedence, lazy Terraform construction, diagnostics, and exit status.
 
@@ -169,7 +169,7 @@ func adoptCommandWithDependencies(arguments []string, dependencies blockDCommand
 func newAdoptCobraCommand(dependencies blockDCommandDependencies) *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "adopt", short: "Transform pulled JSON through the import oracle",
-		valueFlags: []string{"--in", "--tenant", "--resource", "--policy", "--terraform", "--deployment", "--root", "--profile"},
+		valueFlags: []string{"--in", "--tenant", "--resource", "--policy", "--terraform", "--deployment", "--root", "--profile", "--catalog"},
 		run: func(parsed commandInput) (int, error) {
 			return legacyPlanLifecycleCommand(func() (int, error) {
 				if len(parsed.Positionals) != 0 {
@@ -187,7 +187,7 @@ func adoptCommandInput(parsed commandInput, dependencies blockDCommandDependenci
 		return 0, err
 	}
 	loadedRoot, err := dependencies.loadPack(metadata.LoadPackRootOptions{
-		PacksRoot: options.pack.root, ProfilePath: &options.pack.profile,
+		PacksRoot: options.pack.root, ProfilePath: &options.pack.profile, CatalogPath: &options.pack.catalog,
 	})
 	if err != nil {
 		return 0, err
@@ -314,7 +314,7 @@ func stageImportsCommandWithDependencies(arguments []string, dependencies blockD
 }
 
 func newImportStagingCobraCommand(command string, dependencies blockDCommandDependencies) *cobra.Command {
-	valueFlags := []string{"--tenant", "--resource", "--deployment", "--root", "--profile"}
+	valueFlags := []string{"--tenant", "--resource", "--deployment", "--root", "--profile", "--catalog"}
 	var boolFlags []string
 	short := "Remove staged import and moved blocks"
 	if command == "stage-imports" {
@@ -396,7 +396,7 @@ func unstageImportsCommandInput(parsed commandInput, dependencies blockDCommandD
 
 func loadBlockDInputs(options packOptionDefaults, deploymentPath string, dependencies blockDCommandDependencies) (metadata.LoadedPackRoot, deployment.Deployment, error) {
 	loadedRoot, err := dependencies.loadPack(metadata.LoadPackRootOptions{
-		PacksRoot: options.root, ProfilePath: &options.profile,
+		PacksRoot: options.root, ProfilePath: &options.profile, CatalogPath: &options.catalog,
 	})
 	if err != nil {
 		return metadata.LoadedPackRoot{}, deployment.Deployment{}, err
@@ -534,7 +534,7 @@ func applyCommandWithDependencies(arguments []string, dependencies blockDCommand
 func newApplyCobraCommand(dependencies blockDCommandDependencies) *cobra.Command {
 	return newTypedCobraCommand(typedCobraCommandSpec{
 		use: "apply", short: "Apply exact saved Terraform plans",
-		valueFlags: []string{"--tenant", "--resource", "--policy", "--backend-config", "--main-branch", "--terraform", "--deployment", "--root", "--profile"},
+		valueFlags: []string{"--tenant", "--resource", "--policy", "--backend-config", "--main-branch", "--terraform", "--deployment", "--root", "--profile", "--catalog"},
 		allowEmpty: []string{"--tenant"},
 		boolFlags:  []string{"--allow-destroy", "--allow-non-main", "--allow-plan-changes"},
 		run: func(parsed commandInput) (int, error) {
@@ -586,7 +586,7 @@ func applyCommandInput(parsed commandInput, dependencies blockDCommandDependenci
 		},
 		LoadInputs: func() (assessment.ExactPlanApplyInputs, error) {
 			loadedRoot, loadErr := dependencies.loadPack(metadata.LoadPackRootOptions{
-				PacksRoot: options.pack.root, ProfilePath: &options.pack.profile,
+				PacksRoot: options.pack.root, ProfilePath: &options.pack.profile, CatalogPath: &options.pack.catalog,
 			})
 			if loadErr != nil {
 				return assessment.ExactPlanApplyInputs{}, loadErr

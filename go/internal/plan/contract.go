@@ -11,7 +11,7 @@ import (
 const infrawrightReferenceOutput = "infrawright_reference_ids"
 
 // MaxAssessmentChangeRecords ports MAX_ASSESSMENT_CHANGE_RECORDS from
-// the original implementation.
+// node-src/domain/plan-contract.ts.
 const MaxAssessmentChangeRecords = 100_000
 
 var (
@@ -20,7 +20,7 @@ var (
 )
 
 // AssessmentPlanError reports a plan-contract validation failure. It ports
-// AssessmentPlanError from the original implementation.
+// AssessmentPlanError from node-src/domain/plan-contract.ts.
 type AssessmentPlanError struct {
 	message string
 }
@@ -29,7 +29,7 @@ type AssessmentPlanError struct {
 func (e *AssessmentPlanError) Error() string { return e.message }
 
 // AssessmentPlanContract ports AssessmentPlanContract from
-// the original implementation. ReferenceOutputTypes is not retained or
+// node-src/domain/plan-contract.ts. ReferenceOutputTypes is not retained or
 // mutated by ValidateAssessmentPlan.
 type AssessmentPlanContract struct {
 	ReferenceOutputTypes []string

@@ -18,7 +18,7 @@ type BoundedOracleRunner struct {
 }
 
 // CreateOracleCommandRunner ports createOracleCommandRunner from
-// the original implementation. It deliberately reuses terraformcmd rather
+// node-src/domain/import-oracle.ts. It deliberately reuses terraformcmd rather
 // than adding a second Terraform process implementation.
 func CreateOracleCommandRunner(terraformExecutable string) *BoundedOracleRunner {
 	return &BoundedOracleRunner{TerraformExecutable: terraformExecutable}

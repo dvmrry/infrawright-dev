@@ -12,8 +12,11 @@ existing `projection_omit` path with explicit evidence, or stay hard adoption
 blockers. These diagnostics must not become a second omission system or drift
 tolerance policy.
 
-Current behavior is enforced through pack projection policy and
-`iw assert-adoptable`; there is no standalone diagnostic command.
+The former Python-only classification command was retired with the
+compatibility implementation. Its statuses remain documented below because
+they explain committed metadata and historical provider-lab evidence. Current
+behavior is enforced through pack projection policy and `iw assert-adoptable`;
+there is no standalone current-tree diagnostic command.
 
 Important statuses:
 

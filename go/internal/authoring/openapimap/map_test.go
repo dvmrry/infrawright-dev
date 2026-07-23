@@ -14,6 +14,69 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/canonjson"
 )
 
+const authoritySHA256 = "9ce98cb64a64c519374d582b2f0572896cdaabe25f26ed048f10b63b13a73efc"
+
+func TestFrozenV1Reports(t *testing.T) {
+	t.Parallel()
+	bytes, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "node-tests", "fixtures", "python-openapi-resource-map-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(bytes)
+	if got := hex.EncodeToString(sum[:]); got != authoritySHA256 {
+		t.Fatalf("authority SHA = %s", got)
+	}
+	fixture, err := canonjson.Decode(bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, group := range []string{"node_live_differential", "retained_unittest"} {
+		for _, raw := range anyObjects(object(fixture)[group].(Object)["report_cases"]) {
+			raw := raw
+			t.Run(group+"/"+str(raw["name"]), func(t *testing.T) {
+				input := object(raw["input"])
+				openAPI := recordedValue(input["openapi"])
+				document, err := documentFor(t, openAPI)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var provider *string
+				if text, ok := input["provider_source"].(string); ok {
+					provider = &text
+				}
+				registry := recordedValue(input["registry_data"])
+				if input["registry_data"] == nil {
+					registry = defaultRegistry(t)
+					if len(registry) == 0 {
+						t.Fatal("default registry is empty")
+					}
+				}
+				registryPtr := &registry
+				apiPrefix := str(input["api_prefix"])
+				report, err := Build(context.Background(), Options{SchemaData: recordedValue(input["schema"]), Document: document, ProviderSource: provider, ResourcePrefix: str(input["resource_prefix"]), APIPrefix: &apiPrefix, RegistryData: registryPtr})
+				if err != nil {
+					t.Fatal(err)
+				}
+				got, err := report.Render()
+				if err != nil {
+					t.Fatal(err)
+				}
+				expected := raw["python_report"]
+				if expected == nil {
+					expected = raw["report"]
+				}
+				want, err := canonjson.Render(expected)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(got) != want {
+					t.Fatalf("frozen report differs at %s", firstDifference(string(want), string(got)))
+				}
+			})
+		}
+	}
+}
+
 func TestHelperAndBoundaryVectors(t *testing.T) {
 	t.Parallel()
 	if got := RoundPythonRatio4(1, 32); got != 0.0312 {

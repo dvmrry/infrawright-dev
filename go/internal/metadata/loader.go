@@ -1,13 +1,14 @@
 package metadata
 
-// loader.go resolves a pack root plus an optional exact profile into a fully
-// validated pack universe: pack metadata, registry, overrides, and the
-// per-resource-type view consumed by the runtime. See packs.go's file doc
+// loader.go ports node-src/metadata/loader.ts: loadPackRoot, which resolves
+// a pack root (plus optional profile/catalog) into a fully validated pack
+// universe -- pack metadata, registry, overrides, and the per-resource-type
+// view root-catalog.go's renderer builds on. See packs.go's file doc
 // comment for this package's exported-wrapper/unexported-implementation
 // convention.
 //
 // providerSchemaCache (below) is a Go-only addition with no Node
-// counterpart: the original implementation delegates every method call to
+// counterpart: node-src/metadata/loader.ts delegates every method call to
 // loadProviderSchema/loadResourceSchema, whose readJson path re-reads and
 // re-parses the provider schema on every lookup. This port's callers
 // (modulesgen.buildModuleContext,
@@ -22,7 +23,7 @@ import (
 )
 
 // LoadedResourceMetadata ports the LoadedResourceMetadata interface from
-// the original implementation. Pack is nil when no manifest declares the
+// node-src/metadata/loader.ts. Pack is nil when no manifest declares the
 // resource's provider (matching the Node source's `pack: string | null`).
 type LoadedResourceMetadata struct {
 	Type     string
@@ -34,7 +35,7 @@ type LoadedResourceMetadata struct {
 }
 
 // LoadedPackRoot ports the LoadedPackRoot interface from
-// the original implementation. Profile is nil when loadPackRoot was called
+// node-src/metadata/loader.ts. Profile is nil when loadPackRoot was called
 // without a profile path (matching the Node source's `profile:
 // PackSetDocument | null`). Where the Node interface carries
 // loadProviderSchema/loadResourceMainOverride/loadResourceSchema as
@@ -246,14 +247,18 @@ func resourceMap(metadata PackMetadata, registry LoadedRegistry, overrides Loade
 	return resources
 }
 
-// LoadPackRootOptions selects the pack root and, when provided, the exact
-// profile that the installed root must match.
+// LoadPackRootOptions ports the options bag loadPackRoot accepts in
+// node-src/metadata/loader.ts. ProfilePath nil means the optional
+// `profilePath` field was omitted (load every manifest under PacksRoot with
+// no profile/catalog cross-check); CatalogPath nil means `catalogPath` was
+// omitted (only meaningful when ProfilePath is set).
 type LoadPackRootOptions struct {
 	PacksRoot   string
 	ProfilePath *string
+	CatalogPath *string
 }
 
-// loadPackRoot ports loadPackRoot from the original implementation.
+// loadPackRoot ports loadPackRoot from node-src/metadata/loader.ts.
 func loadPackRoot(options LoadPackRootOptions) LoadedPackRoot {
 	var metadata PackMetadata
 	var profile *PackSetDocument
@@ -265,6 +270,7 @@ func loadPackRoot(options LoadPackRootOptions) LoadedPackRoot {
 		result := validateActivePackSet(ValidateActivePackSetOptions{
 			ProfilePath: *options.ProfilePath,
 			Root:        options.PacksRoot,
+			CatalogPath: options.CatalogPath,
 		})
 		metadata = result.Metadata
 		profileValue := result.Profile
@@ -287,7 +293,7 @@ func loadPackRoot(options LoadPackRootOptions) LoadedPackRoot {
 	}
 }
 
-// LoadPackRoot ports loadPackRoot from the original implementation.
+// LoadPackRoot ports loadPackRoot from node-src/metadata/loader.ts.
 func LoadPackRoot(options LoadPackRootOptions) (root LoadedPackRoot, err error) {
 	defer recoverMetadataError(&err)
 	return loadPackRoot(options), nil

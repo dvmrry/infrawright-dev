@@ -1,14 +1,14 @@
 package collectors
 
-// rest_diagnostics_test.go ports the original implementation's
+// rest_diagnostics_test.go ports node-src/collectors/rest-diagnostics.ts's
 // hostUrl validation and probeRestHost/probeRestHosts logic to the depth
 // they are testable against an injected HttpTransport (see
 // rest_diagnostics.go's doc comment for why the real-socket, default-
-// transport-construction part of the original test corpus
+// transport-construction part of node-tests/rest-http-transport.test.ts
 // is out of this port's scope). There is no dedicated
-// the original test corpus in the Node source; these vectors
+// node-tests/rest-diagnostics.test.ts in the Node source; these vectors
 // are inferred directly from probeRestHost/probeRestHosts/hostUrl's own
-// behavior in the original implementation.
+// behavior in node-src/collectors/rest-diagnostics.ts.
 
 import (
 	"errors"

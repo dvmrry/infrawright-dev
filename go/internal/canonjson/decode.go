@@ -9,10 +9,10 @@ import (
 
 // Decode parses one JSON document into this package's dynamic Value tree
 // (see the Value doc comment in render.go), per the Slice 0 design in
-// the Go runtime contract: encoding/json's own Decoder with UseNumber
+// docs/go-runtime-plan.md: encoding/json's own Decoder with UseNumber
 // enabled, so every JSON number surfaces as a json.Number holding the exact
 // source lexeme rather than a lossily-parsed float64 -- the Go analogue of
-// the lossless-json parse the Node source (the original source treejson/control.js's
+// the lossless-json parse the Node source (node-src/json/control.js's
 // parseDataJsonLosslessly) performs before handing values to
 // renderPythonCompatibleJson.
 //

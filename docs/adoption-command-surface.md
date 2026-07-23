@@ -473,7 +473,7 @@ These commands keep the shipped demo and generators healthy:
 | `make check-demo` | Verifies committed demo config/import artifacts do not drift. |
 | `make check-modules` | Generates modules in a temporary deployment and checks generator output. |
 | `make test` | Runs the complete Go suite. |
-| `make check` | Runs the Go suite, demo/module checks, pack validation, and formatting checks. |
+| `make check` | Runs the Go suite, demo/module checks, pack validation, formatting checks, and archive tripwire. |
 
 The generated demo module tree remains local/ignored. It is not part of the
 public committed surface. `make demo-contract` is intentionally not a live

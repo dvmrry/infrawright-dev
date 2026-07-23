@@ -6,8 +6,11 @@ the provider marked the selected `webhook` notifier block sensitive, Infrawright
 correctly refused to write it into generated tfvars, and Terraform validation
 still required one notifier block to be present.
 
-Decide cases from provider-state sensitivity masks, provider schema,
-validation failures, and explicit pack policy without emitting secrets.
+The former Python-only sensitive-required diagnostic was retired with the
+compatibility implementation. Its statuses remain documented because they
+explain historical provider-lab evidence. Current cases must be decided from
+provider-state sensitivity masks, provider schema, validation failures, and
+explicit pack policy without emitting secrets.
 
 `--required-path` is caller-supplied validation evidence, usually from a failed
 Terraform/OpenTofu validation or plan attempt. You can pass it more than once,

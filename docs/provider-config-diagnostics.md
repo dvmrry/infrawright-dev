@@ -52,10 +52,11 @@ drift for specific resources. `resource_prefixes` is also supported for broad
 families. If neither is set, the requirement applies to every resource owned by
 that provider.
 
-## Classification model
+## Archived diagnostic
 
-Committed provider-config requirements supply guidance to
-`iw assert-adoptable`.
+The Python-only standalone report command was retired with the compatibility
+implementation. Its classification model remains documented because committed
+provider-config requirements still supply guidance to `iw assert-adoptable`.
 
 The report classifies each update path as either:
 

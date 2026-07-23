@@ -1,0 +1,18 @@
+{
+  "kind": "infrawright.python-oracle-contract",
+  "version": 1,
+  "baseline": "7e1e65487a248c4484c9df75d3b0202e0a6c106a",
+  "authority": {
+    "python": "3.13.13",
+    "unicode": "15.1.0"
+  },
+  "contract": "json.dumps(value, separators=(',', ':'))",
+  "corpus": {
+    "generated_values": 2048,
+    "finite_values": 2047
+  },
+  "output": {
+    "bytes": 48113,
+    "sha256": "b9aa893f014c62d6922b519b7e870a9c45379b1baeb5925bd8c95ab1fcabf620"
+  }
+}

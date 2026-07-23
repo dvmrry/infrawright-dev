@@ -1,6 +1,6 @@
 package collectors
 
-// rest_test.go ports the original test corpus.
+// rest_test.go ports node-tests/rest-collector.test.ts.
 
 import (
 	"encoding/json"
@@ -264,7 +264,7 @@ func TestCommittedCASBPagersHandleFullBoundariesAndWriteDeterministicBytes(t *te
 }
 
 // ziaAdoptionFixture mirrors the shape of
-// tests/fixtures/zia-adoption-classification-v4.7.26.json well enough
+// node-tests/fixtures/zia-adoption-classification-v4.7.26.json well enough
 // to rebuild each resource type's exact-order payload
 // (skip + system_skip + unsupported + keep, matching the Node test's own
 // concatenation order) without re-encoding any evidence item -- each is
@@ -281,7 +281,7 @@ type ziaAdoptionFixture struct {
 
 func TestZiaAdoptionClassifiersReceiveExactFetchShapedSystemFields(t *testing.T) {
 	packRoot := loadFullRoot(t)
-	fixturePath := filepath.Join(repoRoot(t), "tests", "fixtures", "zia-adoption-classification-v4.7.26.json")
+	fixturePath := filepath.Join(repoRoot(t), "node-tests", "fixtures", "zia-adoption-classification-v4.7.26.json")
 	data, err := os.ReadFile(fixturePath)
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
@@ -475,7 +475,7 @@ func TestSharedOneAPIAuthFailureIsolatedIntoEverySelectedProductResult(t *testin
 
 // writePackJSON/writeRegistryJSON build a minimal isolated single-product
 // pack tree, matching the inline pack.json/registry.json fixtures
-// the original test corpus's own "bounded resource workers"/
+// node-tests/rest-collector.test.ts's own "bounded resource workers"/
 // "concurrent write failures"/"bounded scheduling" tests construct with
 // writeFile.
 func writePackJSON(t *testing.T, packsRoot, product string) {
@@ -999,7 +999,7 @@ func TestFetchInvalidationUnlinksSymlinkWithoutTouchingTarget(t *testing.T) {
 
 // TestConcurrentWriteFailuresRetainSelectionOrderedPrimaryError ports
 // "concurrent write failures retain selection-ordered primary error and
-// prior diagnostics" from the original test corpus. The barrier
+// prior diagnostics" from node-tests/rest-collector.test.ts. The barrier
 // transport proves sample_b and sample_c overlap and that sample_c's fatal
 // outcome is recorded before sample_b's response is released, yet the error
 // this package surfaces names sample_b. That is only true because
@@ -1067,7 +1067,7 @@ func TestConcurrentWriteFailuresRetainSelectionOrderedPrimaryError(t *testing.T)
 		}
 		// os.WriteFile reports this exact *fs.PathError for the
 		// selection-first fatal destination (Go-native wording; see
-		// the Go runtime contract §2 -- filesystem error text is not part of
+		// docs/go-runtime-v2.md §2 -- filesystem error text is not part of
 		// the compatibility contract). Comparing the full string also
 		// proves that a faster sample_c failure never wins.
 		wantError := "open " + filepath.Join(output, "sample_b.json") + ": is a directory"

@@ -14,7 +14,7 @@ import (
 
 // HclFormatter formats generated Terraform source (.tf / .tftest.hcl content)
 // before GenerateModule writes it to disk. It ports the HclFormatter type from
-// the original implementation while allowing a subprocess-free production
+// node-src/modules/generator.ts while allowing a subprocess-free production
 // implementation.
 type HclFormatter interface {
 	FormatHCL(source string) (string, error)

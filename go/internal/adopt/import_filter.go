@@ -9,7 +9,7 @@ import (
 )
 
 // FilteredGeneratedImports ports the FilteredGeneratedImports interface from
-// the original implementation.
+// node-src/domain/import-moves.ts.
 type FilteredGeneratedImports struct {
 	Text    string
 	Kept    int
@@ -151,7 +151,7 @@ func generatedImportAddress(block string) (string, bool) {
 
 // FilterGeneratedImports filters top-level generated import blocks down to
 // exact unmanaged addresses. It ports filterGeneratedImports from
-// the original implementation.
+// node-src/domain/import-moves.ts.
 func FilterGeneratedImports(importsText string, stateAddresses []string) (FilteredGeneratedImports, error) {
 	managed := make(map[string]struct{}, len(stateAddresses))
 	for _, address := range stateAddresses {
