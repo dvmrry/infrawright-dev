@@ -3,6 +3,7 @@ package main
 // Shared helpers for command-level tests that execute a disposable iw binary.
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +33,19 @@ type runResult struct {
 	exit   int
 	stdout []byte
 	stderr []byte
+}
+
+func requireRunResult(t *testing.T, actual runResult, exit int, stdout, stderr string) {
+	t.Helper()
+	if actual.exit != exit {
+		t.Errorf("exit=%d, want %d\nstderr: %s", actual.exit, exit, actual.stderr)
+	}
+	if !bytes.Equal(actual.stdout, []byte(stdout)) {
+		t.Errorf("stdout=%q, want %q", actual.stdout, stdout)
+	}
+	if !bytes.Equal(actual.stderr, []byte(stderr)) {
+		t.Errorf("stderr=%q, want %q", actual.stderr, stderr)
+	}
 }
 
 // buildGoV2AuthorityCLI builds a disposable CLI next to the runtime data so

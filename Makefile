@@ -27,7 +27,7 @@ endif
 override INFRAWRIGHT_DEPLOYMENT = $(DEPLOYMENT)
 export INFRAWRIGHT_DEPLOYMENT
 
-.PHONY: check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-distribution v2-authority deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-all check-core test test-go fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
+.PHONY: check-demo check-examples check-modules check-tfvars-fmt check-pack check-pack-set check-distribution check-retired-runtime v2-authority deployment resources resources-reference-order gen-modules validate-modules demo-contract check check-all check-core test test-go fetch fetch-diag gen-env transform adopt reconcile openapi-map source-operation-map source-evidence-eval provider-probe transform-adopt-parity roots scope-paths plan-roots stage-imports unstage-imports plan clean-plans assert-clean assert-adoptable apply
 
 dist/iw: $(GO_BUILD_INPUTS)
 	@mkdir -p dist
@@ -106,7 +106,13 @@ demo-contract: dist/iw ## Credential-free demo artifact/module contract check
 
 check-distribution: check-pack-set check-examples check-modules check-tfvars-fmt check-pack ## Active distribution without selecting its runtime test suite
 
-check: dist/iw check-distribution test-go ## Complete Go distribution and runtime gate
+check-retired-runtime: ## Reject reintroduction of the retired Node/Python runtime surface
+	@set -eu; \
+	for path in node-tests .node-test package.json package-lock.json pnpm-lock.yaml yarn.lock tsconfig.json pyproject.toml requirements.txt setup.py setup.cfg tox.ini; do \
+		test ! -e "$$path" || { echo "retired runtime surface reintroduced: $$path" >&2; exit 1; }; \
+	done
+
+check: check-retired-runtime dist/iw check-distribution test-go ## Complete Go distribution and runtime gate
 
 check-all: ## Run the active-distribution gate against the complete upstream pack catalog
 	@INFRAWRIGHT_PACKS="$(CURDIR)/packs" $(MAKE) PACK_PROFILE="$(CURDIR)/packs/full.packset.json" check

@@ -20,11 +20,14 @@ jobs:
         with:
           terraform_version: "1.15.4"
           terraform_wrapper: false
-      - name: Verify Go formatting and vet
+      - name: Verify retired runtime surface stays absent
+        run: make check-retired-runtime
+      - name: Verify Go formatting, vet, and tests
         run: |
           test -z "$(gofmt -l go/cmd go/internal)"
           cd go
           go vet ./...
+          go test -count=1 ./...
       - name: Whitespace hygiene
         run: git diff --check
 
