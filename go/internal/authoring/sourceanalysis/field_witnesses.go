@@ -25,15 +25,75 @@ import (
 type FieldWitnessDisposition string
 
 const (
-	// FieldWitnessCorroborated means at least two witness classes describe the
-	// field and no direct disagreement was recovered.
+	// FieldWitnessCorroborated means at least two independent evidence families
+	// describe the field and no direct disagreement was recovered. Terraform
+	// schema JSON and its provider source declaration are one declaration
+	// family, not two behavioral votes.
 	FieldWitnessCorroborated FieldWitnessDisposition = "corroborated"
 	// FieldWitnessConflicting means captured witnesses directly disagree.
 	FieldWitnessConflicting FieldWitnessDisposition = "conflicting"
-	// FieldWitnessUntested means only one witness class was recovered. Missing
-	// acceptance coverage is silence, not a conflict.
+	// FieldWitnessUntested means fewer than two independent evidence families
+	// were recovered. Missing acceptance coverage is silence, not a conflict.
 	FieldWitnessUntested FieldWitnessDisposition = "untested"
 )
+
+// FieldDeclarationStatus describes agreement within the provider declaration
+// family. The generated Terraform schema and provider Go schema remain
+// separately rendered witnesses, but they do not count as independent
+// behavioral evidence.
+type FieldDeclarationStatus string
+
+const (
+	FieldDeclarationAbsent      FieldDeclarationStatus = "absent"
+	FieldDeclarationObserved    FieldDeclarationStatus = "observed"
+	FieldDeclarationConsistent  FieldDeclarationStatus = "consistent"
+	FieldDeclarationConflicting FieldDeclarationStatus = "conflicting"
+)
+
+// FieldReadStatus describes what source analysis can establish about provider
+// Read behavior. Shape consistency is a static SDK compatibility observation,
+// not proof that a runtime Read succeeds for every value.
+type FieldReadStatus string
+
+const (
+	FieldReadAbsent           FieldReadStatus = "absent"
+	FieldReadObserved         FieldReadStatus = "observed"
+	FieldReadShapeConsistent  FieldReadStatus = "shape_consistent"
+	FieldReadShapePartial     FieldReadStatus = "shape_partial"
+	FieldReadShapeUnresolved  FieldReadStatus = "shape_unresolved"
+	FieldReadShapeConflicting FieldReadStatus = "shape_conflicting"
+)
+
+// FieldWriteStatus describes whether a selected resource's captured Create or
+// Update call graph consumes the field through ResourceData accessors.
+type FieldWriteStatus string
+
+const (
+	FieldWriteAbsent   FieldWriteStatus = "absent"
+	FieldWriteObserved FieldWriteStatus = "observed"
+)
+
+// FieldAcceptanceStatus distinguishes author-written configuration from an
+// assertion about post-operation state. Neither implies that the captured test
+// was executed by this static analyzer.
+type FieldAcceptanceStatus string
+
+const (
+	FieldAcceptanceSilent                FieldAcceptanceStatus = "silent"
+	FieldAcceptanceConfigured            FieldAcceptanceStatus = "configured"
+	FieldAcceptanceAsserted              FieldAcceptanceStatus = "asserted"
+	FieldAcceptanceConfiguredAndAsserted FieldAcceptanceStatus = "configured_and_asserted"
+)
+
+// FieldWitnessAssessment keeps declaration, Read, write, and acceptance facts
+// separate so the aggregate disposition cannot hide which behavior is absent
+// or only partially analyzed.
+type FieldWitnessAssessment struct {
+	Declaration FieldDeclarationStatus `json:"declaration"`
+	Read        FieldReadStatus        `json:"read"`
+	Write       FieldWriteStatus       `json:"write"`
+	Acceptance  FieldAcceptanceStatus  `json:"acceptance"`
+}
 
 // FieldWitnessReviewPriority ranks diagnostic attention only. It is not an
 // adoption-risk or provider-readiness classification.
@@ -78,9 +138,11 @@ type FieldWitnessReviewItem struct {
 // field path. Collection elements use [] in paths, for example ports[].end.
 type FieldWitness struct {
 	Disposition       FieldWitnessDisposition        `json:"disposition"`
+	Assessment        FieldWitnessAssessment         `json:"assessment"`
 	TerraformSchema   *TerraformSchemaFieldWitness   `json:"terraform_schema,omitempty"`
 	ProviderSchemas   []ProviderSchemaFieldWitness   `json:"provider_schemas"`
 	ReadBacks         []ReadBackFieldWitness         `json:"read_backs"`
+	WriteInputs       []WriteInputFieldWitness       `json:"write_inputs"`
 	AcceptanceConfigs []AcceptanceConfigFieldWitness `json:"acceptance_configs"`
 	AcceptanceChecks  []AcceptanceCheckFieldWitness  `json:"acceptance_checks"`
 	Conflicts         []string                       `json:"conflicts"`
@@ -104,14 +166,25 @@ type ProviderSchemaFieldWitness struct {
 	Computed   bool                     `json:"computed"`
 	Type       string                   `json:"type,omitempty"`
 	Validators []string                 `json:"validators"`
+	ValueShape *FieldValueShape         `json:"value_shape,omitempty"`
+	ShapeIssue string                   `json:"shape_issue,omitempty"`
 	Location   contracts.SourceLocation `json:"location"`
 }
 
 // ReadBackFieldWitness records a literal-key ResourceData.Set call rooted in
 // the selected resource's resolved Read callback.
 type ReadBackFieldWitness struct {
-	Expression string                   `json:"expression"`
-	Location   contracts.SourceLocation `json:"location"`
+	Expression      string                   `json:"expression"`
+	ShapeAssessment *ReadBackShapeAssessment `json:"shape_assessment,omitempty"`
+	Location        contracts.SourceLocation `json:"location"`
+}
+
+// WriteInputFieldWitness records one literal or call-bound ResourceData
+// accessor reachable from a selected resource's Create or Update callback.
+type WriteInputFieldWitness struct {
+	Accessor string                   `json:"accessor"`
+	Callback string                   `json:"callback"`
+	Location contracts.SourceLocation `json:"location"`
 }
 
 // AcceptanceConfigFieldWitness records literal HCL usage in the exact
@@ -182,7 +255,8 @@ func AnalyzeUnverifiedFieldWitnesses(ctx context.Context, inputs sourcebind.Unve
 type fieldWitnessAccumulator struct {
 	terraformSchema   *TerraformSchemaFieldWitness
 	providerSchemas   []ProviderSchemaFieldWitness
-	readBacks         []ReadBackFieldWitness
+	readBacks         []readBackObservation
+	writeInputs       []WriteInputFieldWitness
 	acceptanceConfigs []AcceptanceConfigFieldWitness
 	acceptanceChecks  []AcceptanceCheckFieldWitness
 	conflicts         []string
@@ -237,6 +311,7 @@ func (i *analysisIndex) fieldWitnessResource(resourceType string, schemaData map
 
 	registration := i.registrations[resourceType]
 	var constructor *function
+	var providerResource *resolvedComposite
 	if registration == nil || registration.constructorKey == "" {
 		diagnostics = append(diagnostics, FieldWitnessDiagnostic{Code: "provider_schema_constructor_unresolved", Message: "selected provider registration does not resolve to a captured constructor"})
 	} else {
@@ -247,6 +322,7 @@ func (i *analysisIndex) fieldWitnessResource(resourceType string, schemaData map
 			location := i.loc(constructor.file, constructor.symbol, constructor.decl.Name.Pos())
 			diagnostics = append(diagnostics, FieldWitnessDiagnostic{Code: "provider_schema_literal_unresolved", Message: issue, Location: &location})
 		} else {
+			providerResource = &literal
 			i.collectProviderSchemaFields(constructor, literal, "", field, &diagnostics)
 		}
 	}
@@ -258,6 +334,11 @@ func (i *analysisIndex) fieldWitnessResource(resourceType string, schemaData map
 			for fieldPath, witness := range i.readBackWitnesses(registration.callback, &diagnostics) {
 				field(fieldPath).readBacks = append(field(fieldPath).readBacks, witness...)
 			}
+		}
+	}
+	if providerResource != nil {
+		for fieldPath, witness := range i.writeInputWitnesses(*providerResource, &diagnostics) {
+			field(fieldPath).writeInputs = append(field(fieldPath).writeInputs, witness...)
 		}
 	}
 	if constructor != nil {
@@ -416,8 +497,9 @@ func nestedFieldPrefix(fieldPath, nestingMode string) string {
 }
 
 type resolvedComposite struct {
-	owner   *function
-	literal *ast.CompositeLit
+	owner    *function
+	literal  *ast.CompositeLit
+	bindings map[string]expressionBinding
 }
 
 func (i *analysisIndex) returnedResourceLiteral(constructor *function) (resolvedComposite, string) {
@@ -467,14 +549,19 @@ func (i *analysisIndex) collectProviderSchemaFields(
 		if !entryOK {
 			continue
 		}
-		name, nameOK := stringLiteral(entry.Key)
+		name, nameOK := i.boundString(resource.owner, entry.Key, resource.bindings)
 		if !nameOK || name == "" {
 			location := i.loc(owner.file, owner.symbol, entry.Key.Pos())
-			*diagnostics = append(*diagnostics, FieldWitnessDiagnostic{Code: "provider_field_name_dynamic", Message: "provider schema contains a non-literal field name", Location: &location})
+			*diagnostics = append(*diagnostics, FieldWitnessDiagnostic{
+				Code:      "provider_field_name_dynamic",
+				FieldPath: parentFieldPath(prefix),
+				Message:   "provider schema contains a field name that is not statically bound to a string",
+				Location:  &location,
+			})
 			continue
 		}
 		fieldPath := joinFieldPath(prefix, name)
-		resolved, issue := i.resolveSchemaLiteral(owner, entry.Value, map[string]bool{}, 0)
+		resolved, issue := i.resolveSchemaLiteralBound(owner, entry.Value, resource.bindings, map[string]bool{}, 0)
 		if issue != "" {
 			location := i.loc(owner.file, owner.symbol, entry.Value.Pos())
 			*diagnostics = append(*diagnostics, FieldWitnessDiagnostic{Code: "provider_field_schema_unresolved", FieldPath: fieldPath, Message: fieldPath + ": " + issue, Location: &location})
@@ -487,6 +574,15 @@ func (i *analysisIndex) collectProviderSchemaFields(
 			continue
 		}
 		field(fieldPath).providerSchemas = append(field(fieldPath).providerSchemas, witness)
+		if witness.ShapeIssue != "" {
+			location := witness.Location
+			*diagnostics = append(*diagnostics, FieldWitnessDiagnostic{
+				Code:      "provider_value_shape_unresolved",
+				FieldPath: fieldPath,
+				Message:   fieldPath + ": " + witness.ShapeIssue,
+				Location:  &location,
+			})
+		}
 
 		elemExpression, hasElem := compositeField(resolved.literal, "Elem")
 		if !hasElem {
@@ -501,24 +597,37 @@ func (i *analysisIndex) collectProviderSchemaFields(
 		if typeName == "schema.TypeList" || typeName == "schema.TypeSet" || strings.HasSuffix(typeName, ".TypeList") || strings.HasSuffix(typeName, ".TypeSet") {
 			childPrefix += "[]"
 		}
-		i.collectProviderSchemaFields(resolved.owner, resolvedComposite{owner: resolved.owner, literal: elemLiteral}, childPrefix, field, diagnostics)
+		i.collectProviderSchemaFields(resolved.owner, resolvedComposite{owner: resolved.owner, literal: elemLiteral, bindings: resolved.bindings}, childPrefix, field, diagnostics)
 	}
 }
 
-func (i *analysisIndex) resolveSchemaLiteral(
+func (i *analysisIndex) resolveSchemaLiteralBound(
 	owner *function,
 	expression ast.Expr,
+	bindings map[string]expressionBinding,
 	seen map[string]bool,
 	depth int,
 ) (resolvedComposite, string) {
 	if depth >= 16 {
 		return resolvedComposite{}, "schema helper depth limit exceeded"
 	}
+	boundOwner, boundExpression := i.resolveBoundExpression(owner, expression, bindings)
+	if boundOwner != owner {
+		bindings = nil
+	}
+	owner, expression = boundOwner, boundExpression
 	if literal := resourceLiteral(expression); literal != nil {
 		if literal.Type == nil || isHashicorpSchemaComposite(owner.file, literal, "Schema") {
-			return resolvedComposite{owner: owner, literal: literal}, ""
+			return resolvedComposite{owner: owner, literal: literal, bindings: cloneExpressionBindings(bindings)}, ""
 		}
 		return resolvedComposite{}, "field value is not a *schema.Schema literal"
+	}
+	if identifier, ok := expression.(*ast.Ident); ok {
+		local, found := localFunctionExpression(owner, identifier.Name, expression.Pos())
+		if !found {
+			return resolvedComposite{}, "schema value identifier is not statically bound"
+		}
+		return i.resolveSchemaLiteralBound(owner, local, bindings, seen, depth+1)
 	}
 	call, ok := expression.(*ast.CallExpr)
 	if !ok {
@@ -537,13 +646,17 @@ func (i *analysisIndex) resolveSchemaLiteral(
 		nextSeen[prior] = value
 	}
 	nextSeen[key] = true
+	helperBindings, issue := i.bindCallExpressions(owner, helper, call.Args, bindings)
+	if issue != "" {
+		return resolvedComposite{}, issue
+	}
 	resolved := make([]resolvedComposite, 0, 1)
 	for _, statement := range helper.decl.Body.List {
 		returned, returnedOK := statement.(*ast.ReturnStmt)
 		if !returnedOK || len(returned.Results) != 1 {
 			continue
 		}
-		candidate, issue := i.resolveSchemaLiteral(helper, returned.Results[0], nextSeen, depth+1)
+		candidate, issue := i.resolveSchemaLiteralBound(helper, returned.Results[0], helperBindings, nextSeen, depth+1)
 		if issue == "" {
 			resolved = append(resolved, candidate)
 		}
@@ -584,7 +697,7 @@ func (i *analysisIndex) providerSchemaWitness(resolved resolvedComposite) (Provi
 		if !present {
 			continue
 		}
-		value, known := boolLiteral(expression, nil)
+		value, known := i.boundBool(resolved.owner, expression, resolved.bindings)
 		if !known {
 			return ProviderSchemaFieldWitness{}, name + " is not a static boolean"
 		}
@@ -597,12 +710,15 @@ func (i *analysisIndex) providerSchemaWitness(resolved resolvedComposite) (Provi
 		}
 	}
 	validators = sortedUniqueStrings(validators)
+	shape, shapeIssue := i.providerValueShape(resolved, 0)
 	return ProviderSchemaFieldWitness{
 		Required:   flags["Required"],
 		Optional:   flags["Optional"],
 		Computed:   flags["Computed"],
 		Type:       providerSchemaType(resolved.literal),
 		Validators: validators,
+		ValueShape: shape,
+		ShapeIssue: shapeIssue,
 		Location:   i.loc(resolved.owner.file, resolved.owner.symbol, resolved.literal.Pos()),
 	}, ""
 }
@@ -653,14 +769,14 @@ func hashicorpSchemaPackage(packagePath string) bool {
 func (i *analysisIndex) readBackWitnesses(
 	callback *function,
 	diagnostics *[]FieldWitnessDiagnostic,
-) map[string][]ReadBackFieldWitness {
+) map[string][]readBackObservation {
 	receiver, ok := resourceDataParameter(callback)
 	if !ok {
 		location := i.loc(callback.file, callback.symbol, callback.decl.Name.Pos())
 		*diagnostics = append(*diagnostics, FieldWitnessDiagnostic{Code: "resource_data_parameter_unresolved", Message: "Read callback has no statically named *schema.ResourceData parameter", Location: &location})
 		return nil
 	}
-	witnesses := make(map[string][]ReadBackFieldWitness)
+	witnesses := make(map[string][]readBackObservation)
 	ast.Inspect(callback.decl.Body, func(node ast.Node) bool {
 		if _, nested := node.(*ast.FuncLit); nested {
 			return false
@@ -688,10 +804,21 @@ func (i *analysisIndex) readBackWitnesses(
 			*diagnostics = append(*diagnostics, FieldWitnessDiagnostic{Code: "read_back_key_dynamic", Message: "ResourceData.Set field key is not a non-empty string literal", Location: &location})
 			return true
 		}
-		witnesses[fieldPath] = append(witnesses[fieldPath], ReadBackFieldWitness{
+		location := i.loc(callback.file, callback.symbol, call.Pos())
+		observation := readBackObservation{witness: ReadBackFieldWitness{
 			Expression: goExpression(call.Args[1]),
-			Location:   i.loc(callback.file, callback.symbol, call.Pos()),
-		})
+			Location:   location,
+		}}
+		observation.observedShape, observation.shapeIssue = i.inferReadBackShape(callback, call.Args[1])
+		if observation.shapeIssue != "" {
+			*diagnostics = append(*diagnostics, FieldWitnessDiagnostic{
+				Code:      "read_back_shape_unresolved",
+				FieldPath: fieldPath,
+				Message:   fieldPath + ": " + observation.shapeIssue,
+				Location:  &location,
+			})
+		}
+		witnesses[fieldPath] = append(witnesses[fieldPath], observation)
 		return true
 	})
 	return witnesses
@@ -1056,7 +1183,8 @@ func finalizeFieldWitness(fieldPath string, accumulated *fieldWitnessAccumulator
 	witness := FieldWitness{
 		TerraformSchema:   accumulated.terraformSchema,
 		ProviderSchemas:   append([]ProviderSchemaFieldWitness(nil), accumulated.providerSchemas...),
-		ReadBacks:         append([]ReadBackFieldWitness(nil), accumulated.readBacks...),
+		ReadBacks:         []ReadBackFieldWitness{},
+		WriteInputs:       append([]WriteInputFieldWitness(nil), accumulated.writeInputs...),
 		AcceptanceConfigs: append([]AcceptanceConfigFieldWitness(nil), accumulated.acceptanceConfigs...),
 		AcceptanceChecks:  append([]AcceptanceCheckFieldWitness(nil), accumulated.acceptanceChecks...),
 		Conflicts:         append([]string(nil), accumulated.conflicts...),
@@ -1064,8 +1192,8 @@ func finalizeFieldWitness(fieldPath string, accumulated *fieldWitnessAccumulator
 	if witness.ProviderSchemas == nil {
 		witness.ProviderSchemas = []ProviderSchemaFieldWitness{}
 	}
-	if witness.ReadBacks == nil {
-		witness.ReadBacks = []ReadBackFieldWitness{}
+	if witness.WriteInputs == nil {
+		witness.WriteInputs = []WriteInputFieldWitness{}
 	}
 	if witness.AcceptanceConfigs == nil {
 		witness.AcceptanceConfigs = []AcceptanceConfigFieldWitness{}
@@ -1079,7 +1207,15 @@ func finalizeFieldWitness(fieldPath string, accumulated *fieldWitnessAccumulator
 			compareFieldFlag(fieldPath, "required", witness.TerraformSchema.Required, provider.Required, &witness.Conflicts)
 			compareFieldFlag(fieldPath, "optional", witness.TerraformSchema.Optional, provider.Optional, &witness.Conflicts)
 			compareFieldFlag(fieldPath, "computed", witness.TerraformSchema.Computed, provider.Computed, &witness.Conflicts)
+			compareFieldDeclarationType(fieldPath, *witness.TerraformSchema, provider, &witness.Conflicts)
 		}
+	}
+	for _, observation := range accumulated.readBacks {
+		readBack := observation.witness
+		assessment, conflicts := assessReadBackShape(fieldPath, witness.ProviderSchemas, observation)
+		readBack.ShapeAssessment = assessment
+		witness.ReadBacks = append(witness.ReadBacks, readBack)
+		witness.Conflicts = append(witness.Conflicts, conflicts...)
 	}
 	if expected, declared, comparable := comparableAcceptanceBlockCounts(witness); comparable && expected != declared {
 		witness.Conflicts = append(witness.Conflicts, fmt.Sprintf("%s acceptance check expects block count %d but config declares %d blocks", fieldPath, expected, declared))
@@ -1087,22 +1223,15 @@ func finalizeFieldWitness(fieldPath string, accumulated *fieldWitnessAccumulator
 	witness.Conflicts = sortedUniqueStrings(witness.Conflicts)
 	sortProviderSchemaWitnesses(witness.ProviderSchemas)
 	sortReadBackWitnesses(witness.ReadBacks)
+	sortWriteInputWitnesses(witness.WriteInputs)
 	sortAcceptanceConfigWitnesses(witness.AcceptanceConfigs)
 	sortAcceptanceCheckWitnesses(witness.AcceptanceChecks)
 
-	classes := 0
-	if witness.TerraformSchema != nil {
-		classes++
-	}
-	for _, present := range []bool{len(witness.ProviderSchemas) != 0, len(witness.ReadBacks) != 0, len(witness.AcceptanceConfigs) != 0, len(witness.AcceptanceChecks) != 0} {
-		if present {
-			classes++
-		}
-	}
+	witness.Assessment = assessFieldWitness(witness)
 	switch {
 	case len(witness.Conflicts) != 0:
 		witness.Disposition = FieldWitnessConflicting
-	case classes >= 2:
+	case fieldEvidenceFamilyCount(witness) >= 2:
 		witness.Disposition = FieldWitnessCorroborated
 	default:
 		witness.Disposition = FieldWitnessUntested
@@ -1159,6 +1288,31 @@ func fieldWitnessReviewQueue(fields map[string]FieldWitness, diagnostics []Field
 			}
 		}
 
+		if hasWitness && witness.Assessment.Read == FieldReadShapePartial {
+			item.Priority = higherFieldWitnessReviewPriority(item.Priority, FieldWitnessReviewMedium)
+			item.ReasonCodes = append(item.ReasonCodes, "read_back_shape_partial")
+			item.Details = append(item.Details, "The recovered Read value shape has no definite SDK conflict, but static comparison is incomplete.")
+			if item.SuggestedValidation == "" {
+				item.SuggestedValidation = "Inspect the partial shape comparison and run a targeted provider apply-and-refresh round-trip for the field."
+			}
+		}
+
+		if hasWitness && witness.Disposition != FieldWitnessUntested {
+			reasons, details := fieldWitnessMissingPathReview(fieldPath, witness)
+			if len(reasons) != 0 {
+				behaviorReasons, behaviorDetails, behaviorPriority, validation := fieldWitnessBehaviorReview(witness)
+				reasons = append(reasons, behaviorReasons...)
+				details = append(details, behaviorDetails...)
+				item.Priority = higherFieldWitnessReviewPriority(item.Priority, FieldWitnessReviewMedium)
+				item.Priority = higherFieldWitnessReviewPriority(item.Priority, behaviorPriority)
+				item.ReasonCodes = append(item.ReasonCodes, reasons...)
+				item.Details = append(item.Details, details...)
+				if item.SuggestedValidation == "" {
+					item.SuggestedValidation = validation
+				}
+			}
+		}
+
 		if hasWitness && witness.Disposition == FieldWitnessUntested {
 			reasons, details, priority, validation := fieldWitnessBehaviorReview(witness)
 			item.ReasonCodes = append(item.ReasonCodes, reasons...)
@@ -1167,7 +1321,7 @@ func fieldWitnessReviewQueue(fields map[string]FieldWitness, diagnostics []Field
 			if len(fieldDiagnostics[fieldPath]) == 0 {
 				item.Priority = higherFieldWitnessReviewPriority(item.Priority, FieldWitnessReviewLow)
 				item.ReasonCodes = append(item.ReasonCodes, "evidence_silence")
-				item.Details = append(item.Details, "Fewer than two witness classes were recovered; absent classes remain silence, not negative evidence.")
+				item.Details = append(item.Details, "Fewer than two independent evidence families were recovered; absent classes remain silence, not negative evidence.")
 				item.SuggestedValidation = validation
 			}
 		}
@@ -1199,8 +1353,31 @@ func fieldWitnessReviewQueue(fields map[string]FieldWitness, diagnostics []Field
 	return queue
 }
 
+func fieldWitnessMissingPathReview(fieldPath string, witness FieldWitness) ([]string, []string) {
+	if strings.Contains(fieldPath, ".") || strings.Contains(fieldPath, "[]") {
+		return nil, nil
+	}
+	readExpected := false
+	writeExpected := false
+	for _, provider := range witness.ProviderSchemas {
+		readExpected = readExpected || provider.Required || provider.Optional || provider.Computed
+		writeExpected = writeExpected || provider.Required || provider.Optional
+	}
+	var reasons []string
+	var details []string
+	if readExpected && len(witness.ReadBacks) == 0 {
+		reasons = append(reasons, "read_back_absent")
+		details = append(details, "No literal-key ResourceData.Set call was recovered from the selected Read callback.")
+	}
+	if writeExpected && len(witness.WriteInputs) == 0 {
+		reasons = append(reasons, "write_input_absent")
+		details = append(details, "No ResourceData field access was recovered from the selected Create or Update call graph.")
+	}
+	return reasons, details
+}
+
 func absentFieldWitnessClasses(witness FieldWitness, present bool) []string {
-	absent := make([]string, 0, 5)
+	absent := make([]string, 0, 6)
 	if !present || witness.TerraformSchema == nil {
 		absent = append(absent, "terraform_schema")
 	}
@@ -1209,6 +1386,9 @@ func absentFieldWitnessClasses(witness FieldWitness, present bool) []string {
 	}
 	if !present || len(witness.ReadBacks) == 0 {
 		absent = append(absent, "read_back")
+	}
+	if !present || len(witness.WriteInputs) == 0 {
+		absent = append(absent, "write_input")
 	}
 	if !present || len(witness.AcceptanceConfigs) == 0 {
 		absent = append(absent, "acceptance_config")
@@ -1230,15 +1410,103 @@ func fieldWitnessConflictReasonCodes(witness FieldWitness) []string {
 				break
 			}
 		}
+		for _, provider := range witness.ProviderSchemas {
+			if fieldDeclarationTypeDisagrees(*witness.TerraformSchema, provider) {
+				reasons = append(reasons, "schema_type_mismatch")
+				break
+			}
+		}
 	}
 	if expected, declared, comparable := comparableAcceptanceBlockCounts(witness); comparable && expected != declared {
 		reasons = append(reasons, "acceptance_block_count_mismatch")
+	}
+	for _, readBack := range witness.ReadBacks {
+		if readBack.ShapeAssessment != nil && readBack.ShapeAssessment.Status == ReadBackShapeConflicting {
+			reasons = append(reasons, "read_back_shape_mismatch")
+			break
+		}
 	}
 	return reasons
 }
 
 func fieldFlagDisagrees(terraform *bool, provider bool) bool {
 	return terraform != nil && *terraform != provider
+}
+
+func compareFieldDeclarationType(
+	fieldPath string,
+	terraform TerraformSchemaFieldWitness,
+	provider ProviderSchemaFieldWitness,
+	conflicts *[]string,
+) {
+	terraformKind := terraformDeclarationKind(terraform)
+	providerKind := providerDeclarationKind(provider)
+	if terraformKind == "" || providerKind == "" || terraformKind == providerKind {
+		return
+	}
+	*conflicts = append(*conflicts, fmt.Sprintf("%s declaration kind differs: Terraform schema=%s provider source=%s", fieldPath, terraformKind, providerKind))
+}
+
+func fieldDeclarationTypeDisagrees(terraform TerraformSchemaFieldWitness, provider ProviderSchemaFieldWitness) bool {
+	terraformKind := terraformDeclarationKind(terraform)
+	providerKind := providerDeclarationKind(provider)
+	return terraformKind != "" && providerKind != "" && terraformKind != providerKind
+}
+
+func terraformDeclarationKind(witness TerraformSchemaFieldWitness) string {
+	if kind := normalizedDeclarationKind(witness.NestingMode); kind != "" {
+		return kind
+	}
+	if witness.Type == "" {
+		return ""
+	}
+	var decoded any
+	if err := json.Unmarshal([]byte(witness.Type), &decoded); err != nil {
+		return ""
+	}
+	switch value := decoded.(type) {
+	case string:
+		return normalizedDeclarationKind(value)
+	case []any:
+		if len(value) == 0 {
+			return ""
+		}
+		name, ok := value[0].(string)
+		if !ok {
+			return ""
+		}
+		return normalizedDeclarationKind(name)
+	default:
+		return ""
+	}
+}
+
+func providerDeclarationKind(witness ProviderSchemaFieldWitness) string {
+	switch schemaShapeKind(witness.Type) {
+	case FieldValueShapeBool:
+		return "bool"
+	case FieldValueShapeInt, FieldValueShapeFloat:
+		return "number"
+	case FieldValueShapeString:
+		return "string"
+	case FieldValueShapeList:
+		return "list"
+	case FieldValueShapeSet:
+		return "set"
+	case FieldValueShapeMap:
+		return "map"
+	default:
+		return ""
+	}
+}
+
+func normalizedDeclarationKind(value string) string {
+	switch value {
+	case "bool", "number", "string", "list", "set", "map":
+		return value
+	default:
+		return ""
+	}
 }
 
 func fieldWitnessBehaviorReview(witness FieldWitness) ([]string, []string, FieldWitnessReviewPriority, string) {
@@ -1248,9 +1516,11 @@ func fieldWitnessBehaviorReview(witness FieldWitness) ([]string, []string, Field
 	computed := witness.TerraformSchema != nil &&
 		witness.TerraformSchema.Computed != nil && *witness.TerraformSchema.Computed
 	validators := make([]string, 0)
+	configurable := false
 	for _, provider := range witness.ProviderSchemas {
 		optionalComputed = optionalComputed || provider.Optional && provider.Computed
 		computed = computed || provider.Computed
+		configurable = configurable || provider.Required || provider.Optional
 		validators = append(validators, provider.Validators...)
 	}
 	validators = sortedUniqueStrings(validators)
@@ -1273,6 +1543,16 @@ func fieldWitnessBehaviorReview(witness FieldWitness) ([]string, []string, Field
 		details = append(details, "Captured provider validators: "+strings.Join(validators, ", ")+".")
 		priority = higherFieldWitnessReviewPriority(priority, FieldWitnessReviewMedium)
 	}
+	if configurable && len(witness.ReadBacks) == 0 {
+		reasons = append(reasons, "read_back_absent")
+		details = append(details, "No literal-key ResourceData.Set call was recovered from the selected Read callback.")
+		priority = higherFieldWitnessReviewPriority(priority, FieldWitnessReviewMedium)
+	}
+	if configurable && len(witness.WriteInputs) == 0 {
+		reasons = append(reasons, "write_input_absent")
+		details = append(details, "No ResourceData field access was recovered from the selected Create or Update call graph.")
+		priority = higherFieldWitnessReviewPriority(priority, FieldWitnessReviewMedium)
+	}
 	if optionalComputed && len(validators) != 0 {
 		priority = FieldWitnessReviewHigh
 		return reasons, details, priority, "Omit the field, apply, and refresh; then exercise accepted and rejected validator boundary values to verify ownership, round-trip, and write rejection."
@@ -1282,6 +1562,9 @@ func fieldWitnessBehaviorReview(witness FieldWitness) ([]string, []string, Field
 	}
 	if len(validators) != 0 {
 		return reasons, details, priority, "Exercise an accepted boundary value and a rejected value from the captured validator, then refresh to verify write behavior."
+	}
+	if configurable && (len(witness.ReadBacks) == 0 || len(witness.WriteInputs) == 0) {
+		return reasons, details, priority, "Inspect the missing Read or write path; if the field is intended to round-trip, add or run a targeted provider apply-and-refresh test."
 	}
 	return reasons, details, priority, "Review the absent witness classes; if adoption behavior depends on this field, run a targeted provider apply-and-refresh round-trip."
 }
@@ -1316,7 +1599,7 @@ func fieldWitnessReviewReasonRank(reasons []string) int {
 			if rank > 1 {
 				rank = 1
 			}
-		case "optional_computed_round_trip", "computed_round_trip", "validator_write_behavior":
+		case "optional_computed_round_trip", "computed_round_trip", "validator_write_behavior", "read_back_absent", "write_input_absent", "read_back_shape_partial":
 			if rank > 2 {
 				rank = 2
 			}
@@ -1367,6 +1650,17 @@ func sortProviderSchemaWitnesses(values []ProviderSchemaFieldWitness) {
 func sortReadBackWitnesses(values []ReadBackFieldWitness) {
 	sort.Slice(values, func(left, right int) bool {
 		return locationKey(values[left].Location) < locationKey(values[right].Location)
+	})
+}
+
+func sortWriteInputWitnesses(values []WriteInputFieldWitness) {
+	sort.Slice(values, func(left, right int) bool {
+		leftLocation := locationKey(values[left].Location)
+		rightLocation := locationKey(values[right].Location)
+		if leftLocation != rightLocation {
+			return leftLocation < rightLocation
+		}
+		return values[left].Callback+"\x00"+values[left].Accessor < values[right].Callback+"\x00"+values[right].Accessor
 	})
 }
 

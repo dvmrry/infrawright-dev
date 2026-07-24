@@ -32,6 +32,10 @@ func TestAnalyzeUnverifiedFieldWitnessesCorroboratesProviderBehavior(t *testing.
 	if tag.Disposition != FieldWitnessCorroborated {
 		t.Errorf("tag disposition = %q, want corroborated", tag.Disposition)
 	}
+	if tag.Assessment.Declaration != FieldDeclarationConsistent || tag.Assessment.Read != FieldReadObserved ||
+		tag.Assessment.Acceptance != FieldAcceptanceSilent {
+		t.Errorf("tag assessment = %#v, want consistent declaration, observed Read, and silent acceptance", tag.Assessment)
+	}
 	if len(tag.ProviderSchemas) != 1 || !tag.ProviderSchemas[0].Optional || !tag.ProviderSchemas[0].Computed {
 		t.Fatalf("tag provider schemas = %#v, want optional+computed declaration", tag.ProviderSchemas)
 	}
@@ -49,6 +53,10 @@ func TestAnalyzeUnverifiedFieldWitnessesCorroboratesProviderBehavior(t *testing.
 	if len(ports.ReadBacks) != 1 || ports.ReadBacks[0].Expression != "flattenNetworkPorts(resp.SrcTCPPorts)" {
 		t.Errorf("src_tcp_ports read-backs = %#v, want flattening d.Set", ports.ReadBacks)
 	}
+	if ports.Assessment.Read != FieldReadShapeConsistent || ports.Assessment.Write != FieldWriteObserved ||
+		ports.Assessment.Acceptance != FieldAcceptanceConfiguredAndAsserted {
+		t.Errorf("src_tcp_ports assessment = %#v, want shape-consistent Read, observed write, and configured+asserted acceptance", ports.Assessment)
+	}
 	if len(ports.AcceptanceConfigs) != 1 || ports.AcceptanceConfigs[0].Occurrences != 3 ||
 		ports.AcceptanceConfigs[0].ParentInstances != 1 ||
 		ports.AcceptanceConfigs[0].Syntax != acceptanceConfigSyntaxBlock {
@@ -63,6 +71,9 @@ func TestAnalyzeUnverifiedFieldWitnessesCorroboratesProviderBehavior(t *testing.
 	end := requireFieldWitness(t, resource, "src_tcp_ports[].end")
 	if end.Disposition != FieldWitnessCorroborated {
 		t.Errorf("src_tcp_ports[].end disposition = %q, want corroborated", end.Disposition)
+	}
+	if end.Assessment.Acceptance != FieldAcceptanceConfigured {
+		t.Errorf("src_tcp_ports[].end acceptance assessment = %q, want configured", end.Assessment.Acceptance)
 	}
 	if len(end.AcceptanceConfigs) != 1 || end.AcceptanceConfigs[0].Occurrences != 1 ||
 		end.AcceptanceConfigs[0].ParentInstances != 3 ||
@@ -99,8 +110,12 @@ func TestAnalyzeUnverifiedFieldWitnessesCorroboratesProviderBehavior(t *testing.
 	if !hasFieldWitnessDiagnostic(resource.Diagnostics, "read_back_key_dynamic") {
 		t.Errorf("resource diagnostics = %#v, want dynamic d.Set key surfaced", resource.Diagnostics)
 	}
-	if len(resource.ReviewQueue) != 0 {
-		t.Errorf("resource review queue = %#v, want no field-specific review items", resource.ReviewQueue)
+	tagReview := requireFieldWitnessReviewItem(t, resource, "tag")
+	if tagReview.Priority != FieldWitnessReviewHigh ||
+		!containsString(tagReview.ReasonCodes, "write_input_absent") ||
+		!containsString(tagReview.ReasonCodes, "optional_computed_round_trip") ||
+		!containsString(tagReview.ReasonCodes, "validator_write_behavior") {
+		t.Errorf("tag review = %#v, want high-priority Optional+Computed write-path guidance", tagReview)
 	}
 }
 
@@ -121,9 +136,6 @@ func TestAnalyzeUnverifiedFieldWitnessesSurfacesSchemaConflict(t *testing.T) {
 	if len(tag.AcceptanceConfigs) != 0 || len(tag.AcceptanceChecks) != 0 {
 		t.Errorf("tag acceptance witnesses = (%#v, %#v), want absent tests to remain silence", tag.AcceptanceConfigs, tag.AcceptanceChecks)
 	}
-	if len(resource.ReviewQueue) != 1 {
-		t.Fatalf("resource review queue = %#v, want one conflicting field", resource.ReviewQueue)
-	}
 	review := requireFieldWitnessReviewItem(t, resource, "tag")
 	if review.Priority != FieldWitnessReviewHigh {
 		t.Errorf("tag review priority = %q, want high", review.Priority)
@@ -133,6 +145,26 @@ func TestAnalyzeUnverifiedFieldWitnessesSurfacesSchemaConflict(t *testing.T) {
 	}
 	if len(review.Details) == 0 || review.SuggestedValidation == "" {
 		t.Errorf("tag review guidance = (%#v, %q), want conflict details and next validation", review.Details, review.SuggestedValidation)
+	}
+}
+
+func TestAnalyzeUnverifiedFieldWitnessesSurfacesDeclarationTypeConflict(t *testing.T) {
+	conflicting := strings.Replace(fieldWitnessSchema, `"tag": {"type": "string"`, `"tag": {"type": "number"`, 1)
+	report, err := AnalyzeUnverifiedFieldWitnesses(context.Background(), fieldWitnessInputs(t, conflicting, false))
+	if err != nil {
+		t.Fatalf("AnalyzeUnverifiedFieldWitnesses() error = %v, want nil", err)
+	}
+	resource := report.Resources[fieldWitnessResource]
+	tag := requireFieldWitness(t, resource, "tag")
+	if tag.Disposition != FieldWitnessConflicting || tag.Assessment.Declaration != FieldDeclarationConflicting {
+		t.Fatalf("tag = disposition %q assessment %#v, want declaration conflict", tag.Disposition, tag.Assessment)
+	}
+	if !containsSubstring(tag.Conflicts, "declaration kind differs") {
+		t.Errorf("tag conflicts = %#v, want explicit declaration kind mismatch", tag.Conflicts)
+	}
+	review := requireFieldWitnessReviewItem(t, resource, "tag")
+	if !containsString(review.ReasonCodes, "schema_type_mismatch") {
+		t.Errorf("tag review = %#v, want schema_type_mismatch", review)
 	}
 }
 
@@ -318,6 +350,7 @@ import (
 
 func resourceFWNetworkServices() *schema.Resource {
 	return &schema.Resource{
+		CreateContext: resourceNetworkServicesCreate,
 		ReadContext: resourceNetworkServicesRead,
 		Schema: map[string]*schema.Schema{
 			"tag": getCloudFirewallNetworkServicesTag(),
@@ -347,9 +380,19 @@ func resourceNetworkPortsSchema() *schema.Schema {
 	}
 }
 
+func flattenNetworkPorts(_ []int) []any {
+	return []any{map[string]any{"start": 5000, "end": 5005}}
+}
+
 type fakeResourceData struct{}
 
 func (fakeResourceData) Set(string, any) error { return nil }
+
+func resourceNetworkServicesCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
+	_ = d.Get("ip_addresses")
+	_ = d.Get("src_tcp_ports")
+	return resourceNetworkServicesRead(ctx, d, meta)
+}
 
 func resourceNetworkServicesRead(_ context.Context, d *schema.ResourceData, _ any) diag.Diagnostics {
 	var resp struct {

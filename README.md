@@ -219,6 +219,13 @@ for that source-backed evidence; read `registry_fetch_coverage` only for real
 pack enumeration paths. Source evidence entries carry hop chains; the
 in-process Go analyzer under `go/internal/authoring/sourceanalysis` derives the
 AST-backed evidence from captured inputs without a separate helper executable.
+Its opt-in field-witness APIs keep provider declarations, Read assignments,
+Create/Update field access, and acceptance-test configuration/assertions as
+separate evidence families. For classic Terraform Plugin SDK resources, a
+bounded, path-insensitive shape pass can identify statically recoverable nested
+`ResourceData.Set` incompatibilities; unresolved or compatible static shapes
+never become runtime proof. These field witnesses do not alter readiness,
+adoption, or pack policy.
 `special` covers non-CRUD
 resources such as parent-scoped allocation actions and parent-field
 relationship assignments.

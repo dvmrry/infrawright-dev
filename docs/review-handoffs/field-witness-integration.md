@@ -1,77 +1,203 @@
-# Builder Review Handoff: Field Witness Integration
+# Builder Review Handoff: Generic Field-Witness Semantics and SDK Shape Analysis
 
 ## Intent
 
-- What problem does this change solve? Consolidate the field-lineage AST spike into the existing in-process Go source analyzer and remove the retired standalone collector, Python spike, and generated corpus from the branch.
-- What user-visible or maintainer-visible behavior should change? `sourceanalysis` gains qualified and explicitly unverified APIs that derive corroborating Terraform-schema, provider `schema.Schema`, `ResourceData.Set`, acceptance-HCL, and `TestCheckResourceAttr` witnesses for selected fields. Unsupported or ambiguous source shapes are diagnostic instead of being treated as success. Each resource also includes a deterministic review queue that ranks direct conflicts, field-associated parser gaps, and otherwise-untested fields; names absent witness classes; preserves the exact mismatch/gap; and suggests the next validation.
-- What behavior must stay unchanged? `source-evidence-report-v1`, source-operation bundles, CLI/Make/CI surfaces, readiness classifications/counts, pack behavior, and existing authoring output remain unchanged. The new report is diagnostic and cannot change qualification or readiness.
+- What problem does this change solve? The field-lineage spike treated generated
+  Terraform schema JSON and the provider's Go `schema.Schema` declaration as two
+  independent votes. That could label a declaration-only field corroborated
+  even when the provider never reads, writes, or tests it. It also recorded a
+  literal-key `ResourceData.Set` without checking a statically recoverable
+  nested value shape against the declared Plugin SDK schema.
+- What user-visible or maintainer-visible behavior should change? The opt-in
+  field-witness report now renders four separate assessment axes: declaration,
+  Read, Create/Update write input, and acceptance-test evidence. Terraform JSON
+  and Go schema form one declaration family; acceptance configuration and
+  assertions form one acceptance family. A bounded, provider-neutral Plugin SDK
+  shape pass can identify returned nested maps that can emit undeclared object
+  keys, and a bounded Create/Update call-graph pass records literal or
+  call-bound `Get`, `GetOk`, and `GetOkExists` access. Review items name missing
+  Read/write paths and static shape conflicts directly.
+- What behavior must stay unchanged? The analyzer remains opt-in and
+  diagnostic. No CLI, Make, CI, pack, transform, adoption, readiness,
+  source-operation, source-evidence-report-v1, or generated-output authority is
+  changed. No Zscaler resource or field name appears in the production engine.
 
 ## Base / Head
 
-- Base: `origin/main` at `5db8ff747f5cdbe768e60905d581d0738ea24127`.
-- Head: `feature/field-lineage-spike`, published as the consolidated implementation plus focused review-hardening commits; resolve the exact head with `git rev-parse HEAD`.
-- Diff command: `git diff origin/main...HEAD`.
+- Base: `feature/field-lineage-spike` at
+  `6ef303dce2a2f5763ed1852670fe80120205978f`.
+- Head: the exact `feature/field-lineage-spike` review tip supplied with the
+  adversarial-review run prompt; resolve locally with `git rev-parse HEAD`.
+- Diff command: `git diff 6ef303dce2a2f5763ed1852670fe80120205978f...HEAD`.
 
 ## Files Changed
 
-- Files: `README.md`; `go/internal/authoring/sourceanalysis/analyze.go`; new `go/internal/authoring/sourceanalysis/field_witnesses.go`; new `go/internal/authoring/sourceanalysis/field_witnesses_test.go`; this handoff; deletion of all five tracked files under `tools/source-evidence-ast/`.
-- Files intentionally left untouched: frozen contracts and validators; `sourceoperation`; commands; Make targets; CI; packs; generated reports. The pre-existing untracked `reports/` directory is user-owned and untouched.
-
-The historical branch-only Python scripts, generated field-lineage corpus, provider-lab notes, and three old review handoffs are absent from the consolidated `origin/main...HEAD` diff.
+- Files: `README.md`;
+  `go/internal/authoring/sourceanalysis/field_witnesses.go` and its test;
+  new colocated `field_value_shapes.go`, `field_value_shapes_test.go`, and
+  `field_write_witnesses.go`; this handoff.
+- Files intentionally left untouched: `tools/`; commands; Make targets; CI;
+  field-witness callers; frozen contracts; source-operation/readiness code;
+  packs and generated artifacts. The separate ZIA 4.8.0 worktree/branch and its
+  pre-existing untracked `reports/` directory were not modified.
 
 ## Source Inputs Consulted
 
-- Provider schemas: Focused Terraform provider-schema JSON in `field_witnesses_test.go` plus the checked-in `packs/zia/schemas/provider/zia.json` for the real-source probe; no new live provider-schema dump was generated.
-- OpenAPI/API contracts: None; field witnesses do not infer API behavior.
-- Provider source files: `zscaler/terraform-provider-zia` tag `v4.7.26`, commit `6e6509f001ca71adcedfd4884250d09227395bf0`: `main.go`, `zia/provider.go`, `zia/common.go`, `zia/common/resourcetype/resource_type.go`, and the resource/test pairs for firewall IP source groups, firewall network services, location management, and URL categories.
-- Pack metadata: None.
-- Existing docs or design records: `README.md`, `docs/provider-readiness.md`, `docs/adversarial-review.md`, and the review templates/prompts under `docs/`.
-- Other source evidence: Existing `sourcebind`, `sourceanalysis`, and source-evidence contract implementations and tests. The retired `tools/source-evidence-ast` collector was read only to identify the small reusable AST concepts before deletion.
+- Provider schemas: the neutral, in-memory Terraform schema fixture in
+  `field_value_shapes_test.go`; and
+  `packs/zia/schemas/provider/zia.json` from the separate ZIA 4.8.0 branch for a
+  removed real-source probe.
+- OpenAPI/API contracts: None. This analyzer does not infer API behavior.
+- Provider source files: neutral test sources generated in `t.TempDir`; and
+  `zscaler/terraform-provider-zia` tag `v4.8.0`, commit
+  `1c9167d3105b60597ded1388cf97024de2d6c470`: `main.go`, `zia/provider.go`,
+  `zia/common.go`, `zia/data_source_zia_endpoint_dlp_rules.go`,
+  `zia/resource_zia_endpoint_dlp_rules.go`, and the resource/test pairs for
+  firewall DNS, filtering, IPS, and SSL inspection rules.
+- Pack metadata: ZIA 4.8.0 overrides and its existing review handoff were read
+  to choose fields for the real-source comparison; no pack input is consumed
+  by the implementation.
+- Existing docs or design records: `README.md`, `docs/adversarial-review.md`,
+  and the review handoff/run/finding templates.
+- Other source evidence: Terraform Plugin SDK v2.40.1
+  `helper/schema/resource_data.go` and `helper/schema/field_writer_map.go`.
+  `ResourceData.Set` delegates to `MapFieldWriter.WriteField`; `setObject`
+  writes every emitted map key through the nested schema address; primitive
+  writers use `mapstructure` coercion. The implementation deliberately does
+  not classify `MaxItems` or a primitive Go-type difference as a definite Set
+  failure.
 
 ## Generated Artifacts
 
 - Reports: None.
 - Schemas: None.
-- Fixtures: Runtime-only focused test files in `t.TempDir`; no checked-in fixture directory.
+- Fixtures: Neutral provider, schema, and acceptance inputs are written only
+  inside test `t.TempDir` directories.
 - Snapshots: None.
-- Demo or lab outputs: None. A temporary local probe ran the analyzer against the ZIA source files listed above and was removed after verification.
-- Artifact drift intentionally expected: None. Existing report/count/golden output must not change.
+- Demo or lab outputs: None tracked. `make check` regenerated only ignored/temp
+  outputs. A temporary detached v4.8.0 provider worktree and temporary probe
+  test were removed after verification.
+- Artifact drift intentionally expected: None outside the opt-in in-memory
+  field-witness JSON shape.
 
 ## Expected Delta
 
-- Expected behavior change: Callers may opt into `AnalyzeFieldWitnesses` or `AnalyzeUnverifiedFieldWitnesses`. Fields are `corroborated` only when at least two recovered witness classes are present and no direct conflict is found; direct flag or unambiguous repeated-block count disagreement is `conflicting`; a single class is `untested`. Acceptance config witnesses distinguish attributes from blocks so an attribute declaration count is never compared with a collection element count, and Terraform resource meta-arguments are not treated as provider fields. Missing acceptance tests remain silence. The derived review queue ranks conflicts above known field parser limitations and plain evidence silence, classifies known conflict shapes, and turns Optional+Computed/validator signals into validation guidance without changing the underlying disposition.
-- Expected report/count/coverage changes: None in existing reports, readiness counts, or coverage. The new in-memory report is not wired into those authorities.
-- Expected generated-output changes: None in existing outputs. The opt-in field-witness report identifies acceptance config syntax as `attribute`, `block`, or `mixed`; field-specific diagnostics carry `field_path`; and each resource carries `review_queue` items with field path, diagnostic-only priority, reason codes, exact details, absent witness classes, and a suggested validation.
-- Expected no-op areas: Existing source evidence, OpenAPI mapping, provider probes, reconciliation, adoption, generation, packs, commands, and CI.
+- Expected behavior change: Declaration JSON plus Go schema count as one
+  evidence family. Literal-key Read assignments, Create/Update field access,
+  and acceptance sources are independent families. Config and assertion
+  evidence remain separately rendered but contribute one acceptance family.
+  A direct Read assignment whose value shape is unresolved remains a Read
+  witness and carries an explicit diagnostic; a recovered incompatible nested
+  shape makes the field conflicting. Missing acceptance coverage remains
+  silence. Optional/Computed or validated fields with a missing write path are
+  ranked for human review rather than silently accepted.
+- Expected report/count/coverage changes: Existing reports, readiness counts,
+  and coverage do not change. Callers of the opt-in field-witness API receive
+  an `assessment`, `write_inputs`, provider `value_shape`/`shape_issue`, and
+  per-Read `shape_assessment`.
+- Expected generated-output changes: None. No current generator consumes this
+  report.
+- Expected no-op areas: Provider import/read execution, transform and adoption
+  projection, registry overrides, holds, packs, OpenAPI mapping, and all ZIA
+  4.8.0 branch artifacts.
 
 ## Invariants Claimed
 
-- Evidence must not be silently dropped: Unsupported constructors/schema helpers, dynamic schema names, unresolved Read callbacks, dynamic `ResourceData.Set` keys, malformed HCL, dynamic check paths, and ambiguous formatted resource blocks produce diagnostics. Missing acceptance files produce no negative claim.
-- Generic matcher evidence must not outrank source-backed evidence: No matcher or precedence path is changed; all new witnesses are explicitly source-derived and diagnostic.
-- Source precedence/provenance must remain explicit: Analysis consumes only defensive `sourcebind` snapshots and carries source trust, manifest identity when qualified, input-provenance identity, and portable source locations. It performs no path reads, network access, or tool invocation.
-- Ambiguity must stay classified instead of being coerced to success: Direct Terraform/provider flag disagreements and one unambiguous repeated-block config/check count disagreement become `conflicting`; attribute cardinality and unpaired/mixed acceptance counts are not inferred from declaration occurrences. Ambiguous source shapes remain diagnostics.
-- Provider-readiness counts must stay explainable: Existing counts are unchanged because this spike does not feed readiness policy.
-- Adoption safety invariants: No adoption path or output is changed.
-- Review priority must not become policy: `high`, `medium`, and `low` rank human diagnostic attention only. They neither assert runtime risk nor alter adoption/readiness, and absent witness classes remain silence unless a captured field-specific diagnostic identifies a parser limitation.
+- Evidence must not be silently dropped: Dynamic or uncaptured schema shapes,
+  Read shapes, callbacks, write helpers, and field keys produce diagnostics at
+  the closest recoverable field path. Unsupported analysis never becomes a
+  positive runtime claim.
+- Generic matcher evidence must not outrank source-backed evidence: No matcher
+  or precedence code changes. The new observations come only from captured
+  Terraform schema, provider source, and acceptance source.
+- Source precedence/provenance must remain explicit: The analyzer still uses
+  defensive `sourcebind` snapshots and portable source locations. Cross-file
+  and cross-package helper argument bindings retain the expression's source
+  scope. It performs no network access, source execution, or path reads after
+  binding.
+- Ambiguity must stay classified instead of being coerced to success: Static
+  shape analysis is bounded and path-insensitive. It says a return shape *can*
+  emit an incompatible key, not that every runtime path does. Unresolved
+  shapes remain unresolved; Plugin SDK scalar coercion and set/list input
+  representation do not become false conflicts.
+- Provider-readiness counts must stay explainable: No readiness input or count
+  is changed.
+- Adoption safety invariants: No adoption or provider-state Oracle path is
+  changed. This report can guide a later policy decision but cannot make one.
+- Review priority must not become policy: High/medium/low remain diagnostic
+  ordering only.
 
 ## Tests Run
 
-- Commands: `go test ./internal/authoring/sourceanalysis`; `go test -race ./internal/authoring/sourceanalysis`; temporary real-source probes `go test ./internal/authoring/sourceanalysis -run '^TestProbeRealZIAAcceptanceCounts$' -count=1 -v` and `go test ./internal/authoring/sourceanalysis -run '^TestProbeRealZIAReviewQueue$' -count=1 -v` (probe files removed); `go test ./...`; `go vet ./...`; `make check`; `git diff --check`.
-- Relevant output summary: All commands passed. The focused fixture mirrors the real ZIA authority shape (`main.go` `plugin.Serve` -> `zia.ZIAProvider`, with `p := &schema.Provider{...}; return p`) and covers schema/helper flags and validators, qualified `ResourceData.Set` receiver filtering, dynamic-key diagnostics, formatted HCL, three collection blocks with one `end`, exact count assertion association, attribute declaration versus collection-cardinality separation, Terraform meta-argument rejection, unrelated-resource assertion rejection, direct conflict classification and review guidance, parser-limit versus evidence-silence review reasons, cancellation, and deterministic JSON rendering. A removed temporary probe against the real source and checked-in ZIA schema recovered provider-schema, read-back, and acceptance witnesses for all four probed resources: IP source groups (5 fields), network service (19), location management (65 provider fields after excluding `depends_on`), and URL categories (33). Real `ip_addresses = [three values]` plus `ip_addresses.# == 3` is corroborated without comparing one attribute declaration to three elements. The review queue is empty for IP source groups and network service, points only to the three unresolved nested location `id` fields and two unresolved nested URL-category `id` fields, and no longer presents `depends_on` as a provider field.
-- Tests not run and why: No live Terraform acceptance apply, provider binary execution, live provider-schema generation, or live ZIA API call; those would require external tooling, credentials, or mutation and the new code statically observes bound source only.
+- Commands: `go test ./internal/authoring/sourceanalysis`;
+  `go test -race ./internal/authoring/sourceanalysis`; `go test ./...`;
+  `go vet ./...`; `gofmt -d .`; `make check`; `git diff --check`.
+- Relevant output summary: All commands passed. The neutral fixture proves that
+  helper-bound schema keys work across provider subpackages without scope
+  confusion; declaration JSON plus Go schema alone remains `untested`; a
+  compatible nested flattener plus captured write access is corroborated; a
+  flattener that can return undeclared `id`/`name` keys is a high-priority shape
+  conflict; missing provider element shape is diagnostic; Create calling Read
+  does not misclassify Read-side `Get` as write evidence; and a captured helper
+  passed `nil` instead of the callback's ResourceData cannot manufacture a
+  write witness. Unsupported helper control flow remains unresolved instead of
+  becoming a conflict; comparable Terraform/SDK declaration kinds disagree
+  explicitly; and partial scalar-coercion shapes enter the review queue. Unit
+  coverage also fixes the intended Plugin SDK set/list, scalar-coercion,
+  open-map, and evidence-family semantics.
+- Real-source comparison: A removed temporary probe loaded the actual ZIA
+  v4.8.0 sources and the refreshed schema. DNS, filtering, and SSL endpoint
+  applications/groups were each `conflicting` with consistent declarations,
+  shape-conflicting Reads, observed writes, and silent acceptance evidence (14
+  recovered extra keys for applications and 5 for groups). Both IPS endpoint
+  fields were declaration-only/`untested`, with absent Read and write axes. The
+  three new DNS and three new filtering scalar fields were corroborated by
+  declaration, direct Read, and write access, with acceptance remaining silent.
+- Tests not run and why: No provider binary, live tenant fetch/import/read,
+  acceptance apply, or no-op plan was run. Static shape compatibility is not a
+  substitute for those runtime checks.
 
 ## Known Deferrals
 
-- Deferred work: Adding a versioned artifact contract, comparing the review queue with registered pack/adoption dispositions, and feeding reviewed field witnesses into source-operation/readiness policy.
-- Reason it is safe to defer: No existing authority consumes the new report, so no readiness or generated-output semantics can change before that policy is designed and reviewed.
-- Follow-up owner or trigger: A follow-up change that explicitly decides field-witness precedence, artifact versioning, and downstream disposition policy. This branch deliberately does not read or mutate packs to produce its guidance.
-
-Additional parser limits deliberately deferred: plugin-framework schema declarations; indirect/local-variable `*schema.Resource` constructor returns (the real ZIA provider-factory shape `p := &schema.Provider{...}; return p` is supported); dynamically constructed nested schema values such as the ZIA location and URL-category `id` fields; helper-propagated `ResourceData.Set`; non-literal check paths; acceptance tests outside the exact constructor-companion file; and complex `fmt.Sprintf` verbs beyond the length-preserving common cases. Unsupported shapes identified at selected parsing seams are diagnostic; unsearched helper/test locations and absence of a matching test file remain silence.
+- Deferred work: Plugin Framework schemas; helper-propagated `ResourceData.Set`;
+  method/closure call graphs; general alias analysis; path-feasibility and
+  value-sensitive branch evaluation; complex dynamic schema and field keys;
+  acceptance tests outside the existing companion-file boundary; and runtime
+  provider execution.
+- Reason it is safe to defer: Each implemented seam is bounded. Known dynamic
+  cases are diagnostic or silence, and no existing authority consumes the
+  output. The checker reports only statically recovered Plugin SDK structure;
+  it does not claim general Go type checking or runtime success.
+- Follow-up owner or trigger: A separate reviewed change that versions a
+  field-witness artifact or makes downstream pack/adoption policy consume an
+  assessment axis. Provider-specific runtime probes belong with the provider
+  refresh/integration work, not in this generic package.
 
 ## Review Focus
 
-- Highest-risk files or paths: `go/internal/authoring/sourceanalysis/field_witnesses.go`, especially provider schema helper resolution, HCL association, state-path normalization, disposition calculation, diagnostic-to-field association, and review-queue ranking.
-- Specific assumptions to attack: Omitted Go schema booleans equal `false`; Terraform block schemas do not expose Optional/Computed flags; a sole formatted resource block in the exact companion test file is attributable but remains marked by its raw source location; Terraform schema plus provider declaration count as distinct corroborating witness classes without implying runtime round-trip; Optional+Computed and validator signals justify review ordering but do not prove behavioral risk.
-- Source evidence the reviewer should verify: ZIA `tag` is Optional+Computed with a validator and is set from `resp.Tag`; `src_tcp_ports` is an Optional set with Optional `start`/`end`; the Read callback sets the port collection; acceptance HCL contains three source-port blocks and only one `end = 5005`; checks assert only `src_tcp_ports.# == 3`, not the nested `end` value. IP source-group HCL declares `ip_addresses` once with three elements and checks `ip_addresses.# == 3`; this is corroboration, not a one-versus-three conflict.
-- Generated artifacts the reviewer should compare: Confirm no tracked generated report, schema, fixture, snapshot, or corpus remains in the effective diff and no existing golden output changes.
-- Edge cases that could silently overclaim, remap, drop, or weaken evidence: Attribute declaration occurrences versus collection cardinality; Terraform resource meta-arguments versus provider schema fields; dynamic resource addresses accepted from companion tests; multiple HCL config literals; repeated or inconsistent count checks; numeric state-path normalization; provider helper ambiguity/recursion; schema fields represented as block types versus nested attributes; direct-only Read callback scanning; diagnostic field-path association; review ordering stability; field-specific parser limits versus resource-wide diagnostics; and the distinction between configured presence, count assertion, and proven post-read value.
+- Highest-risk files or paths: `field_value_shapes.go` (may-shape recovery and
+  SDK comparison), `field_write_witnesses.go` (ResourceData flow and Read
+  exclusion), and aggregate disposition/review-queue logic in
+  `field_witnesses.go`.
+- Specific assumptions to attack: Terraform JSON plus Go declaration are one
+  family; config plus assertions are one acceptance family; a literal-key
+  unresolved `d.Set` is still Read evidence but remains visibly unresolved;
+  declaration kinds are compared only when both Terraform and SDK categories
+  are statically comparable;
+  only a recovered extra nested object key is treated as the ZIA-relevant SDK
+  conflict; `MaxItems` and scalar representation are not overclassified;
+  Optional+Computed fields can legitimately surface missing-write guidance.
+- Source evidence the reviewer should verify: Plugin SDK v2.40.1
+  `ResourceData.Set`, `MapFieldWriter.WriteField`, `setObject`, and primitive
+  coercion; the neutral fixture's provider-subpackage binding and bad flattener;
+  ZIA v4.8.0 endpoint schemas, Read flatteners, write expanders, absent IPS
+  wiring, and six direct scalar Read/write paths.
+- Generated artifacts the reviewer should compare: Confirm no tracked report,
+  schema, snapshot, module, pack, or fixture corpus changes.
+- Edge cases that could silently overclaim, remap, drop, or weaken evidence:
+  cross-scope helper bindings; multiple return paths; dynamic map keys; map
+  assignment versus literals; list/set representation; uncaptured helpers;
+  Create/Update calling Read; helper calls that receive a different
+  ResourceData value; multiple provider schema witnesses; unresolved expected
+  shape; nested fields whose parent flattener supplies the actual Read/write
+  path; and deterministic ordering/JSON rendering.
