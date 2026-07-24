@@ -363,7 +363,7 @@ references from matching field names and does not expand the current pack
 reference inventory by itself.
 
 This capability does not make ZIA URL-filtering `ISOLATE` rules adoptable with
-the pinned `zscaler/zia` provider 4.7.26. Version-scoped `unsupported_if`
+the pinned `zscaler/zia` provider 4.8.0. Version-scoped `unsupported_if`
 classification occurs before identity derivation and the import Oracle, while
 root expression bindings are applied later during environment generation. The
 provider's import Read still does not reconstruct `cbi_profile`; do not remove

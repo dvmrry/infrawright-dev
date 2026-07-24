@@ -8,7 +8,7 @@
       "name_field": "configured_name"
     }
   },
-  "pin": "4.7.26",
+  "pin": "4.8.0",
   "provider_prefixes": {
     "zia_": "zia"
   },

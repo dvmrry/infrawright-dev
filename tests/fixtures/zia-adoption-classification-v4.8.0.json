@@ -1,13 +1,13 @@
 {
   "provider": {
     "source": "zscaler/zia",
-    "version": "4.7.26",
-    "sdk": "github.com/zscaler/zscaler-sdk-go/v3@v3.8.40"
+    "version": "4.8.0",
+    "sdk": "github.com/zscaler/zscaler-sdk-go/v3@v3.8.41"
   },
   "resources": {
     "zia_admin_roles": {
       "evidence": [
-        "https://github.com/zscaler/zscaler-sdk-go/blob/v3.8.40/zscaler/zia/services/adminuserrolemgmt/roles/adminroles.go#L64-L65"
+        "https://github.com/zscaler/zscaler-sdk-go/blob/v3.8.41/zscaler/zia/services/adminuserrolemgmt/roles/adminroles.go#L64-L65"
       ],
       "skip": [
         {"id": 1, "name": "System Role", "isNonEditable": true}
@@ -18,7 +18,7 @@
     },
     "zia_firewall_filtering_ip_source_groups": {
       "evidence": [
-        "https://github.com/zscaler/zscaler-sdk-go/blob/v3.8.40/zscaler/zia/services/firewallpolicies/ipsourcegroups/ipsourcegroups.go#L30-L31"
+        "https://github.com/zscaler/zscaler-sdk-go/blob/v3.8.41/zscaler/zia/services/firewallpolicies/ipsourcegroups/ipsourcegroups.go#L30-L31"
       ],
       "skip": [
         {"id": 3, "name": "System Source Group", "isNonEditable": true}
@@ -29,7 +29,7 @@
     },
     "zia_firewall_filtering_destination_groups": {
       "evidence": [
-        "https://github.com/zscaler/zscaler-sdk-go/blob/v3.8.40/zscaler/zia/services/firewallpolicies/ipdestinationgroups/ipdestinationgroups.go#L40-L41"
+        "https://github.com/zscaler/zscaler-sdk-go/blob/v3.8.41/zscaler/zia/services/firewallpolicies/ipdestinationgroups/ipdestinationgroups.go#L40-L41"
       ],
       "skip": [
         {"id": 5, "name": "System Destination Group", "isNonEditable": true}
@@ -40,7 +40,7 @@
     },
     "zia_firewall_filtering_rule": {
       "evidence": [
-        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_firewall_filtering_rules.go#L275-L281"
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_firewall_filtering_rules.go#L291-L297"
       ],
       "skip": [
         {"id": 7, "name": "Predefined Rule", "predefined": true, "defaultRule": false}
@@ -52,7 +52,7 @@
     },
     "zia_firewall_ips_rule": {
       "evidence": [
-        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_firewall_ips_rules.go#L279-L285"
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_firewall_ips_rules.go#L280-L286"
       ],
       "skip": [
         {"id": 10, "name": "Predefined IPS Rule", "predefined": true, "defaultRule": false}
@@ -64,7 +64,7 @@
     },
     "zia_firewall_dns_rule": {
       "evidence": [
-        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_firewall_dns_rules.go#L371-L377"
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_firewall_dns_rules.go#L387-L393"
       ],
       "skip": [
         {"id": 13, "name": "Predefined DNS Rule", "order": 1, "predefined": true, "defaultRule": false},
@@ -77,7 +77,7 @@
     },
     "zia_nat_control_rules": {
       "evidence": [
-        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_nat_control_rules.go#L258-L264"
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_nat_control_rules.go#L258-L264"
       ],
       "skip": [
         {"id": 17, "name": "Predefined NAT Rule", "predefined": true, "defaultRule": false}
@@ -89,7 +89,7 @@
     },
     "zia_sandbox_rules": {
       "evidence": [
-        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_sandbox_rules.go#L316-L320"
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_sandbox_rules.go#L316-L320"
       ],
       "skip": [
         {"id": 20, "name": "Default BA Rule", "order": 126, "defaultRule": true}
@@ -105,8 +105,8 @@
     },
     "zia_forwarding_control_rule": {
       "evidence": [
-        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_forwarding_control_rule.go#L167-L173",
-        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_forwarding_control_rule.go#L239-L246"
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_forwarding_control_rule.go#L167-L173",
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_forwarding_control_rule.go#L239-L246"
       ],
       "skip": [
         {"id": 25, "name": "Client Connector Traffic Direct"},
@@ -126,7 +126,7 @@
     },
     "zia_forwarding_control_zpa_gateway": {
       "evidence": [
-        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_forwarding_control_zpa_gateway.go#L132-L136"
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_forwarding_control_zpa_gateway.go#L132-L136"
       ],
       "skip": [
         {"id": 32, "name": "Auto ZPA Gateway"}
@@ -138,8 +138,8 @@
     },
     "zia_url_filtering_rules": {
       "evidence": [
-        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L52-L63",
-        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L536-L544"
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_url_filtering_rules.go#L52-L63",
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_url_filtering_rules.go#L536-L544"
       ],
       "system_skip": [
         {"id": 35, "name": "Predefined Isolate", "action": "ISOLATE", "predefined": true}

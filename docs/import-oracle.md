@@ -310,7 +310,7 @@ projected provider state already contains the target, even as an empty list or
 object, the fill entry remains stale. It also refuses sensitive targets.
 
 The current ZIA pack intentionally does not use `projection_fill` for URL
-filtering ISOLATE rules. With the pinned `zscaler/zia` provider 4.7.26,
+filtering ISOLATE rules. With the pinned `zscaler/zia` provider 4.8.0,
 `cbi_profile` is required on write but a fresh import Read cannot reliably
 reconstruct the block when the API omits it. The pack therefore classifies
 `action = "ISOLATE"` as version-scoped unsupported before identity derivation

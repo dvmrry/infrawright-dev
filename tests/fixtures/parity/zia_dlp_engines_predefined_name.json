@@ -9,7 +9,7 @@
       "disposition": "evidence_gate",
       "evidence": [
         "packs/zia/overrides/zia_dlp_engines.json",
-        "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_dlp_engines.go#L107-L135"
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_dlp_engines.go#L107-L135"
       ],
       "path": "/items/predefined_engine/name",
       "reason": "Raw transform promotes predefined_engine_name, while provider Read writes resp.Name; decide the intended predefined-engine name before changing either path.",
@@ -28,10 +28,10 @@
       "packs/zia/schemas/provider/zia.json"
     ],
     "note": "Minimal source-derived fixture; it is not retained tenant output.",
-    "provider_version": "4.7.26",
+    "provider_version": "4.8.0",
     "sanitized": true,
     "sources": [
-      "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_dlp_engines.go#L107-L135"
+      "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_dlp_engines.go#L107-L135"
     ],
     "status": "source_derived"
   },

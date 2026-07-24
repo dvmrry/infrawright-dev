@@ -264,7 +264,7 @@ func TestCommittedCASBPagersHandleFullBoundariesAndWriteDeterministicBytes(t *te
 }
 
 // ziaAdoptionFixture mirrors the shape of
-// tests/fixtures/zia-adoption-classification-v4.7.26.json well enough
+// tests/fixtures/zia-adoption-classification-v4.8.0.json well enough
 // to rebuild each resource type's exact-order payload
 // (skip + system_skip + unsupported + keep, matching the Node test's own
 // concatenation order) without re-encoding any evidence item -- each is
@@ -281,7 +281,7 @@ type ziaAdoptionFixture struct {
 
 func TestZiaAdoptionClassifiersReceiveExactFetchShapedSystemFields(t *testing.T) {
 	packRoot := loadFullRoot(t)
-	fixturePath := filepath.Join(repoRoot(t), "tests", "fixtures", "zia-adoption-classification-v4.7.26.json")
+	fixturePath := filepath.Join(repoRoot(t), "tests", "fixtures", "zia-adoption-classification-v4.8.0.json")
 	data, err := os.ReadFile(fixturePath)
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)

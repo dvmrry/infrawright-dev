@@ -104,7 +104,7 @@ func TestProviderSchemasResolveThroughPackOwnership(t *testing.T) {
 		}
 		counts[provider] = len(schema.ResourceSchemas)
 	}
-	want := map[string]int{"zcc": 7, "zia": 74, "zpa": 55, "ztc": 16}
+	want := map[string]int{"zcc": 7, "zia": 83, "zpa": 55, "ztc": 16}
 	if !reflect.DeepEqual(counts, want) {
 		t.Fatalf("resourceSchemas counts = %v, want %v", counts, want)
 	}

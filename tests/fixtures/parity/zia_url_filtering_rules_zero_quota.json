@@ -9,14 +9,14 @@
       "packs/zia/schemas/provider/zia.json"
     ],
     "note": "Minimal source-derived equality fixture for provider Read zero values after pack drop_if_default is applied consistently by Transform and Adopt.",
-    "provider_version": "4.7.26",
+    "provider_version": "4.8.0",
     "sanitized": true,
     "sources": [
-      "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L233-L237",
-      "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L239-L243",
-      "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L489-L514",
-      "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L510-L510",
-      "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L512-L514"
+      "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_url_filtering_rules.go#L233-L237",
+      "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_url_filtering_rules.go#L239-L243",
+      "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_url_filtering_rules.go#L489-L514",
+      "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_url_filtering_rules.go#L510-L510",
+      "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_url_filtering_rules.go#L512-L514"
     ],
     "status": "source_derived"
   },

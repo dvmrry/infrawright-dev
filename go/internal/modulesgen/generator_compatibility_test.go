@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-const moduleHCLCompatibilitySHA256 = "5955a13458882132c1b3df5d3e485ffcb904029eac1043ebfe2bab7b6243ca42"
+const moduleHCLCompatibilitySHA256 = "28988580eb08bc16fb759ed3d7fab42bba6bcc5db11bd3b750c6e34c91f20f75"
 
 type moduleHCLCompatibilityFixture struct {
 	SchemaVersion int                          `json:"schema_version"`

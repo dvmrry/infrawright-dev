@@ -492,16 +492,16 @@
       "unsupported_if": [
         {
           "evidence": [
-            "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_sandbox_rules.go#L316-L322"
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_sandbox_rules.go#L316-L322"
           ],
           "match": {
             "order": 127
           },
           "provider": {
             "source": "zscaler/zia",
-            "version": "4.7.26"
+            "version": "4.8.0"
           },
-          "reason": "provider 4.7.26 removes every sandbox rule with order 127 from Terraform state, so ownership cannot be represented durably even when the rule name is not the known provider-owned Default BA Rule"
+          "reason": "provider 4.8.0 removes every sandbox rule with order 127 from Terraform state, so ownership cannot be represented durably even when the rule name is not the known provider-owned Default BA Rule"
         }
       ]
     },
@@ -604,17 +604,17 @@
       "unsupported_if": [
         {
           "evidence": [
-            "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L52-L63",
-            "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L536-L544"
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_url_filtering_rules.go#L52-L63",
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_url_filtering_rules.go#L536-L544"
           ],
           "match": {
             "action": "ISOLATE"
           },
           "provider": {
             "source": "zscaler/zia",
-            "version": "4.7.26"
+            "version": "4.8.0"
           },
-          "reason": "provider 4.7.26 requires cbi_profile for ISOLATE configuration but a fresh import Read cannot reconstruct the block when the API omits it"
+          "reason": "provider 4.8.0 requires cbi_profile for ISOLATE configuration but a fresh import Read cannot reconstruct the block when the API omits it"
         }
       ]
     },

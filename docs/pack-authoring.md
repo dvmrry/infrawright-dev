@@ -250,7 +250,7 @@ pack policy for tenant secrets, synthetic defaults, placeholders, or
 environment-specific choices.
 
 This is a generic authoring example, not current ZIA policy. The pinned ZIA
-4.7.26 pack classifies URL-filtering ISOLATE rules as version-scoped
+4.8.0 pack classifies URL-filtering ISOLATE rules as version-scoped
 unsupported before Oracle and intentionally has no `cbi_profile`
 `projection_fill`.
 

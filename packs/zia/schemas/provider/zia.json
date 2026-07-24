@@ -5449,6 +5449,177 @@
       },
       "version": 0
     },
+    "zia_dlp_endpoint_resource_channels": {
+      "block": {
+        "attributes": {
+          "app_id": {
+            "computed": true,
+            "description": "The application identifier of the DLP endpoint resource.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "application": {
+            "computed": true,
+            "description": "The application details of the DLP endpoint resource.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "bundle_id": "string",
+                  "digitally_signed": "bool",
+                  "file_name": "string",
+                  "original_file_name": "string",
+                  "os_type": "string"
+                }
+              ]
+            ]
+          },
+          "channel": {
+            "description": "The DLP endpoint resource channel to query.",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "description": {
+            "computed": true,
+            "description": "The description of the DLP endpoint resource.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier of the DLP endpoint resource.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "is_predefined": {
+            "computed": true,
+            "description": "Indicates whether the DLP endpoint resource is predefined.",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "name": {
+            "description": "The name of the DLP endpoint resource.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "network_drive_type": {
+            "computed": true,
+            "description": "The network drive type of the DLP endpoint resource.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "network_drives": {
+            "computed": true,
+            "description": "The list of network drives associated with the DLP endpoint resource.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "network_path": "string"
+                }
+              ]
+            ]
+          },
+          "printer": {
+            "computed": true,
+            "description": "The printer details of the DLP endpoint resource.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "domain": "string",
+                  "ip_address": "string",
+                  "unc": "string"
+                }
+              ]
+            ]
+          },
+          "removable_storage": {
+            "computed": true,
+            "description": "The removable storage details of the DLP endpoint resource.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "product_id": "string",
+                  "serial_number": "string",
+                  "vendor_id": "string"
+                }
+              ]
+            ]
+          },
+          "server_name": {
+            "computed": true,
+            "description": "The server name of the DLP endpoint resource.",
+            "description_kind": "plain",
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "zia_dlp_endpoint_resource_group_tag": {
+      "block": {
+        "attributes": {
+          "channel": {
+            "description": "The DLP endpoint resource channel whose tags are returned.",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier of a specific tag to return. Optional; when set, the tag is looked up directly by ID (returns a name-ID pair without a description).",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "name": {
+            "description": "The name of a specific tag to return. Optional; when set, the result is filtered to this tag.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "tags": {
+            "computed": true,
+            "description": "The list of tags, in name-ID pairs, defined for the specified channel.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "description": "string",
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "tags_by_name": {
+            "computed": true,
+            "description": "A convenience map of tag name to tag ID, allowing a single tag ID to be looked up directly by name (e.g. tags_by_name[\"PrinterTag01\"]).",
+            "description_kind": "plain",
+            "type": [
+              "map",
+              "number"
+            ]
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
     "zia_dlp_engines": {
       "block": {
         "attributes": {
@@ -5487,6 +5658,114 @@
             "description_kind": "plain",
             "optional": true,
             "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "zia_dlp_global_options": {
+      "block": {
+        "attributes": {
+          "applications": {
+            "computed": true,
+            "description": "List of cloud applications exempted from DLP evaluation",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "enable_casb_ocr": {
+            "computed": true,
+            "description": "Indicates whether SaaS Security for Zscaler DLP engines to scan images for text content in data at rest is enabled",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "enable_edm_popular_format": {
+            "computed": true,
+            "description": "Indicates whether EDM for popular formats is enabled. When enabled, the EDM scans SSN, SIN, and CCN dictionaries for a popular format, and the EDM match only succeeds if the entered format matches the popular data format type.",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "enable_email_dlp_ocr": {
+            "computed": true,
+            "description": "Indicates whether Outbound Email DLP for Zscaler DLP engines to scan images for text content in outbound emails is sent to external domains",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "enable_evaluate_all_dlp_rules": {
+            "computed": true,
+            "description": "Indicates whether DLP engines evaluate all rules or stop when a matching rule is found. When enabled, if multiple rules match, the rule engine selects the rule with the most restrictive action.",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "enable_inline_dlp_ocr": {
+            "computed": true,
+            "description": "Indicates whether optical character recognition (OCR) for Zscaler DLP engines to scan images for text content in data in transit is enabled",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "enable_npk_edm_templates": {
+            "computed": true,
+            "description": "\"Indicates whether EDM with No Primary Keys is enabled.\n\t\t\t\tIf enabled, you select the fields from the template that must match, fields that are optional, and how many optional fields are required to match.\n\t\t\t\tBefore enabling EDM with No Primary Keys, all existing EDM schema (templates, dictionaries, engines, and policies) must be deleted or unassigned.\n\t\t\t\tNew schema with no primary keys functionality can be created after the feature is enabled.\"",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "enable_npk_edm_templates_for_org": {
+            "computed": true,
+            "description": "\"Read Only. Indicates whether EDM with No Primary Keys is enabled for the organization.\n\t\t\t\tTo enable this field, you must first enable the enableNpkEdmTemplates field.\"",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "exempt_url_encoded_data": {
+            "computed": true,
+            "description": "Indicates whether or not URL encoded data from DLP evaluation is exempted",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "http_get_custom_url_categories": {
+            "computed": true,
+            "description": "List of URL Categories to associate with Inspect HTTP GET Requests",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "url_categories": {
+            "computed": true,
+            "description": "List of custom URL categories exempted from DLP evaluation",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "urls": {
+            "computed": true,
+            "description": "List of URLs exempted from DLP evaluation",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
           }
         },
         "description_kind": "plain"
@@ -6382,6 +6661,39 @@
       },
       "version": 0
     },
+    "zia_dns_application_groups": {
+      "block": {
+        "attributes": {
+          "description": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "dns_applications": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "name": {
+            "computed": true,
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
     "zia_domain_profiles": {
       "block": {
         "attributes": {
@@ -6670,6 +6982,972 @@
             "computed": true,
             "description": "The message that appears in the Web DLP Violation notification",
             "description_kind": "plain",
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "zia_endpoint_dlp_application": {
+      "block": {
+        "attributes": {
+          "application_name": {
+            "computed": true,
+            "description": "The name of the endpoint application. Used to look up a single application by name.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "application_type": {
+            "computed": true,
+            "description": "The application type of the endpoint application (e.g. WELLKNOWN, CUSTOM, DISCOVERED). Also applied server-side as a filter when set.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "bundle_id": {
+            "computed": true,
+            "description": "The bundle identifier of the endpoint application.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "deleted": {
+            "computed": true,
+            "description": "Indicates whether the endpoint application is deleted.",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "description": {
+            "computed": true,
+            "description": "The description of the endpoint application.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "digitally_signed": {
+            "computed": true,
+            "description": "Indicates whether the endpoint application is digitally signed.",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "file_name": {
+            "computed": true,
+            "description": "The file name of the endpoint application.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description": "The unique identifier (resourceId) of the endpoint application. Used to look up a single application by ID.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "last_modified_time": {
+            "computed": true,
+            "description": "Timestamp when the endpoint application was last modified.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "mod_uid": {
+            "computed": true,
+            "description": "The modification unique identifier of the endpoint application.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "original_file_name": {
+            "computed": true,
+            "description": "The original file name of the endpoint application.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "os_type": {
+            "computed": true,
+            "description": "The operating system type of the endpoint application (e.g. WINDOWS_OS, MAC_OS). Also applied server-side as a filter when set.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "search": {
+            "description": "Search string applied server-side against application names to narrow the result set before matching. Useful because the application list can be extensive.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "version": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "bundle_id": "string",
+                  "code_signing_certificate_status": "number",
+                  "threat_level": "string",
+                  "threat_level_updated": "bool",
+                  "threat_type": "number",
+                  "version": "string",
+                  "z_ver_id_md32": "number"
+                }
+              ]
+            ]
+          },
+          "versions": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "bundle_id": "string",
+                  "code_signing_certificate_status": "number",
+                  "threat_level": "string",
+                  "threat_level_updated": "bool",
+                  "threat_type": "number",
+                  "version": "string",
+                  "z_ver_id_md32": "number"
+                }
+              ]
+            ]
+          },
+          "zapp_id": {
+            "computed": true,
+            "description": "The Zscaler Client Connector application identifier.",
+            "description_kind": "plain",
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "zia_endpoint_dlp_custom_apps": {
+      "block": {
+        "attributes": {
+          "application_type": {
+            "computed": true,
+            "description": "The application type of the endpoint application.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "bundle_id": {
+            "computed": true,
+            "description": "The bundle identifier of the custom endpoint application.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "deleted": {
+            "computed": true,
+            "description": "Indicates whether the custom endpoint application is deleted.",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "description": {
+            "computed": true,
+            "description": "The description of the custom endpoint application.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "digitally_signed": {
+            "computed": true,
+            "description": "Indicates whether the custom endpoint application is digitally signed.",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "file_name": {
+            "computed": true,
+            "description": "The file name of the custom endpoint application.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier of the custom endpoint application.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "last_modified_time": {
+            "computed": true,
+            "description": "Timestamp when the custom endpoint application was last modified.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "mod_uid": {
+            "computed": true,
+            "description": "The modification unique identifier of the custom endpoint application.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "name": {
+            "description": "The name of the custom endpoint application.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "original_file_name": {
+            "computed": true,
+            "description": "The original file name of the custom endpoint application.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "os_type": {
+            "computed": true,
+            "description": "The operating system type of the custom endpoint application.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "search": {
+            "description": "Search string used to match against custom application names when looking up by name.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "version": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "bundle_id": "string",
+                  "code_signing_certificate_status": "number",
+                  "threat_level": "string",
+                  "threat_level_updated": "bool",
+                  "threat_type": "number",
+                  "version": "string",
+                  "z_ver_id_md32": "number"
+                }
+              ]
+            ]
+          },
+          "versions": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "bundle_id": "string",
+                  "code_signing_certificate_status": "number",
+                  "threat_level": "string",
+                  "threat_level_updated": "bool",
+                  "threat_type": "number",
+                  "version": "string",
+                  "z_ver_id_md32": "number"
+                }
+              ]
+            ]
+          },
+          "zapp_id": {
+            "computed": true,
+            "description": "The Zscaler Client Connector application identifier.",
+            "description_kind": "plain",
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "zia_endpoint_dlp_rules": {
+      "block": {
+        "attributes": {
+          "action": {
+            "computed": true,
+            "description": "The action taken when traffic matches the DLP policy rule criteria.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "auditor": {
+            "computed": true,
+            "description": "The auditor to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "data_transfer_method": {
+            "computed": true,
+            "description": "The data transfer method to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "departments": {
+            "computed": true,
+            "description": "The Name-ID pairs of departments to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "description": {
+            "computed": true,
+            "description": "The description of the DLP policy rule.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "device_groups": {
+            "computed": true,
+            "description": "The Name-ID pairs of device groups to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "device_trust_levels": {
+            "computed": true,
+            "description": "The list of device trust levels for which the policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "devices": {
+            "computed": true,
+            "description": "The Name-ID pairs of devices to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "dlp_engines": {
+            "computed": true,
+            "description": "The list of DLP engines to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "end_point_application_groups": {
+            "computed": true,
+            "description": "The list of endpoint application groups to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "description": "string",
+                  "end_point_applications": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "application_name": "string",
+                        "application_type": "string",
+                        "bundle_id": "string",
+                        "deleted": "bool",
+                        "description": "string",
+                        "digitally_signed": "bool",
+                        "filename": "string",
+                        "last_modified_time": "number",
+                        "mod_uid": "number",
+                        "original_file_name": "string",
+                        "os_type": "string",
+                        "resource_id": "number",
+                        "version": [
+                          "list",
+                          [
+                            "object",
+                            {
+                              "bundle_id": "string",
+                              "code_signing_certificate_status": "number",
+                              "threat_level": "string",
+                              "threat_level_updated": "bool",
+                              "threat_type": "number",
+                              "version": "string",
+                              "z_ver_id_md32": "number"
+                            }
+                          ]
+                        ],
+                        "versions": [
+                          "list",
+                          [
+                            "object",
+                            {
+                              "bundle_id": "string",
+                              "code_signing_certificate_status": "number",
+                              "threat_level": "string",
+                              "threat_level_updated": "bool",
+                              "threat_type": "number",
+                              "version": "string",
+                              "z_ver_id_md32": "number"
+                            }
+                          ]
+                        ],
+                        "zapp_id": "string"
+                      }
+                    ]
+                  ],
+                  "group_id": "number",
+                  "last_modified_time": "number",
+                  "mod_uid": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "end_point_applications": {
+            "computed": true,
+            "description": "The list of endpoint applications to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "application_name": "string",
+                  "application_type": "string",
+                  "bundle_id": "string",
+                  "deleted": "bool",
+                  "description": "string",
+                  "digitally_signed": "bool",
+                  "filename": "string",
+                  "last_modified_time": "number",
+                  "mod_uid": "number",
+                  "original_file_name": "string",
+                  "os_type": "string",
+                  "resource_id": "number",
+                  "version": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "bundle_id": "string",
+                        "code_signing_certificate_status": "number",
+                        "threat_level": "string",
+                        "threat_level_updated": "bool",
+                        "threat_type": "number",
+                        "version": "string",
+                        "z_ver_id_md32": "number"
+                      }
+                    ]
+                  ],
+                  "versions": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "bundle_id": "string",
+                        "code_signing_certificate_status": "number",
+                        "threat_level": "string",
+                        "threat_level_updated": "bool",
+                        "threat_type": "number",
+                        "version": "string",
+                        "z_ver_id_md32": "number"
+                      }
+                    ]
+                  ],
+                  "zapp_id": "string"
+                }
+              ]
+            ]
+          },
+          "eun_enabled": {
+            "computed": true,
+            "description": "Indicates whether the End User Notification (EUN) is enabled for the DLP policy rule.",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "eun_template_id": {
+            "computed": true,
+            "description": "The unique identifier of the End User Notification (EUN) template.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "external_auditor_email": {
+            "computed": true,
+            "description": "The email address of an external auditor to whom DLP email notifications are sent.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "file_types": {
+            "computed": true,
+            "description": "The list of file types to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "groups": {
+            "computed": true,
+            "description": "The Name-ID pairs of groups to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "id": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "labels": {
+            "computed": true,
+            "description": "The Name-ID pairs of rule labels associated to the DLP policy rule.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "last_modified_by": {
+            "computed": true,
+            "description": "The admin that modified the DLP policy rule last.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "last_modified_time": {
+            "computed": true,
+            "description": "Timestamp when the DLP policy rule was last modified.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "min_size": {
+            "computed": true,
+            "description": "The minimum file size (in KB) used for evaluation of the DLP policy rule.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "name": {
+            "description": "The DLP policy rule name.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "network_type": {
+            "computed": true,
+            "description": "The network type to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "notification_template": {
+            "computed": true,
+            "description": "The template used for DLP notification emails.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "order": {
+            "computed": true,
+            "description": "The rule order of execution for the DLP policy rule with respect to other rules.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "parent_rule": {
+            "computed": true,
+            "description": "The unique identifier of the parent rule under which an exception rule is added.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "rank": {
+            "computed": true,
+            "description": "Admin rank of the admin who creates this rule.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "receiver": {
+            "computed": true,
+            "description": "The receiver information for the DLP policy rule",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "id": "number",
+                  "name": "string",
+                  "tenant": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "extensions": [
+                          "map",
+                          "string"
+                        ],
+                        "external_id": "string",
+                        "id": "number",
+                        "name": "string"
+                      }
+                    ]
+                  ],
+                  "type": "string"
+                }
+              ]
+            ]
+          },
+          "resource_groups": {
+            "computed": true,
+            "description": "The Name-ID pairs of resource groups to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "resources": {
+            "computed": true,
+            "description": "The Name-ID pairs of resources to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "severity": {
+            "computed": true,
+            "description": "Indicates the severity selected for the DLP rule violation.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "state": {
+            "computed": true,
+            "description": "Enables or disables the DLP policy rule.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "sub_rules": {
+            "computed": true,
+            "description": "The list of exception rules added to a parent rule.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "uc_template_id": {
+            "computed": true,
+            "description": "The unique identifier of the user confirmation template.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "user_risk_score_levels": {
+            "computed": true,
+            "description": "The user risk score levels to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "users": {
+            "computed": true,
+            "description": "The Name-ID pairs of users to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "without_content_inspection": {
+            "computed": true,
+            "description": "Indicates a DLP policy rule without content inspection, when the value is set to true.",
+            "description_kind": "plain",
+            "type": "bool"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "zia_eun_template_product": {
+      "block": {
+        "attributes": {
+          "caution_interval": {
+            "computed": true,
+            "description": "The interval used for caution notifications.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "channel": {
+            "computed": true,
+            "description": "The channel associated with the notification template.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "default": {
+            "computed": true,
+            "description": "Indicates whether this is the default notification template for the policy type.",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "id": {
+            "computed": true,
+            "description": "The unique identifier of the notification template to look up.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "language_templates": {
+            "computed": true,
+            "description": "The list of per-language notification messages associated with the template.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "allow_message": "string",
+                  "block_message": "string",
+                  "caution_message": "string",
+                  "default": "bool",
+                  "encrypt_message": "string",
+                  "language": "string",
+                  "readonly_message": "string",
+                  "redirect_response_message": "string"
+                }
+              ]
+            ]
+          },
+          "name": {
+            "computed": true,
+            "description": "The name of the notification template to look up.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "notification_details": {
+            "computed": true,
+            "description": "The list of notification details associated with the template.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "product": {
+            "description": "The policy type associated with the notification template. Supported values are `INLINE`, `ENDPOINT_DLP`, `CLOUDAPP`, `URL`, `FILE_TYPE`, `FIREWALL`, `DNS`, and `IPS`.",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "recommended_cloud_app": {
+            "computed": true,
+            "description": "The recommended cloud application associated with the notification template.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "app_cat_modified": "bool",
+                  "app_not_ready": "bool",
+                  "channel": "string",
+                  "deprecated": "bool",
+                  "misc": "string",
+                  "name": "string",
+                  "product": "string",
+                  "type": "string",
+                  "under_migration": "bool",
+                  "val": "number"
+                }
+              ]
+            ]
+          },
+          "template_type": {
+            "description": "The type of notification template. Supported values are `ZCC` (Zscaler Client Connector-based) and `BROWSER` (browser-based).",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "type": {
+            "computed": true,
+            "description": "The notification template type as returned by the service.",
+            "description_kind": "plain",
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "zia_eun_user_confirmation_template_product": {
+      "block": {
+        "attributes": {
+          "channel": {
+            "computed": true,
+            "description": "The channel associated with the user confirmation notification template.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "default": {
+            "computed": true,
+            "description": "Indicates whether this is the default user confirmation notification template for the policy type.",
+            "description_kind": "plain",
+            "type": "bool"
+          },
+          "id": {
+            "computed": true,
+            "description": "The unique identifier of the user confirmation notification template to look up.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "language_templates": {
+            "computed": true,
+            "description": "The list of per-language user confirmation messages associated with the template.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "default": "bool",
+                  "language": "string",
+                  "message": "string"
+                }
+              ]
+            ]
+          },
+          "name": {
+            "computed": true,
+            "description": "The name of the user confirmation notification template to look up.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "product": {
+            "description": "The policy type associated with the user confirmation notification template. User confirmation notifications are supported for Inline Web DLP and Endpoint DLP policies. Supported values are `INLINE`, `ENDPOINT_DLP`, `CLOUDAPP`, `URL`, `FILE_TYPE`, `FIREWALL`, `DNS`, and `IPS`.",
+            "description_kind": "plain",
+            "required": true,
             "type": "string"
           }
         },
@@ -7362,6 +8640,143 @@
               "list",
               "string"
             ]
+          },
+          "end_point_application_groups": {
+            "computed": true,
+            "description": "The list of endpoint application groups to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "description": "string",
+                  "end_point_applications": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "application_name": "string",
+                        "application_type": "string",
+                        "bundle_id": "string",
+                        "deleted": "bool",
+                        "description": "string",
+                        "digitally_signed": "bool",
+                        "filename": "string",
+                        "last_modified_time": "number",
+                        "mod_uid": "number",
+                        "original_file_name": "string",
+                        "os_type": "string",
+                        "resource_id": "number",
+                        "version": [
+                          "list",
+                          [
+                            "object",
+                            {
+                              "bundle_id": "string",
+                              "code_signing_certificate_status": "number",
+                              "threat_level": "string",
+                              "threat_level_updated": "bool",
+                              "threat_type": "number",
+                              "version": "string",
+                              "z_ver_id_md32": "number"
+                            }
+                          ]
+                        ],
+                        "versions": [
+                          "list",
+                          [
+                            "object",
+                            {
+                              "bundle_id": "string",
+                              "code_signing_certificate_status": "number",
+                              "threat_level": "string",
+                              "threat_level_updated": "bool",
+                              "threat_type": "number",
+                              "version": "string",
+                              "z_ver_id_md32": "number"
+                            }
+                          ]
+                        ],
+                        "zapp_id": "string"
+                      }
+                    ]
+                  ],
+                  "group_id": "number",
+                  "last_modified_time": "number",
+                  "mod_uid": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "end_point_applications": {
+            "computed": true,
+            "description": "The list of endpoint applications to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "application_name": "string",
+                  "application_type": "string",
+                  "bundle_id": "string",
+                  "deleted": "bool",
+                  "description": "string",
+                  "digitally_signed": "bool",
+                  "filename": "string",
+                  "last_modified_time": "number",
+                  "mod_uid": "number",
+                  "original_file_name": "string",
+                  "os_type": "string",
+                  "resource_id": "number",
+                  "version": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "bundle_id": "string",
+                        "code_signing_certificate_status": "number",
+                        "threat_level": "string",
+                        "threat_level_updated": "bool",
+                        "threat_type": "number",
+                        "version": "string",
+                        "z_ver_id_md32": "number"
+                      }
+                    ]
+                  ],
+                  "versions": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "bundle_id": "string",
+                        "code_signing_certificate_status": "number",
+                        "threat_level": "string",
+                        "threat_level_updated": "bool",
+                        "threat_type": "number",
+                        "version": "string",
+                        "z_ver_id_md32": "number"
+                      }
+                    ]
+                  ],
+                  "zapp_id": "string"
+                }
+              ]
+            ]
+          },
+          "eun_template_id": {
+            "computed": true,
+            "description": "The unique identifier of the End User Notification (EUN) template.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "exclude_context_shield_end_point": {
+            "computed": true,
+            "description": "If set to true, the context shield is excluded from the rule",
+            "description_kind": "plain",
+            "type": "bool"
           },
           "groups": {
             "computed": true,
@@ -8169,6 +9584,143 @@
             "description_kind": "plain",
             "type": "bool"
           },
+          "end_point_application_groups": {
+            "computed": true,
+            "description": "The list of endpoint application groups to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "description": "string",
+                  "end_point_applications": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "application_name": "string",
+                        "application_type": "string",
+                        "bundle_id": "string",
+                        "deleted": "bool",
+                        "description": "string",
+                        "digitally_signed": "bool",
+                        "filename": "string",
+                        "last_modified_time": "number",
+                        "mod_uid": "number",
+                        "original_file_name": "string",
+                        "os_type": "string",
+                        "resource_id": "number",
+                        "version": [
+                          "list",
+                          [
+                            "object",
+                            {
+                              "bundle_id": "string",
+                              "code_signing_certificate_status": "number",
+                              "threat_level": "string",
+                              "threat_level_updated": "bool",
+                              "threat_type": "number",
+                              "version": "string",
+                              "z_ver_id_md32": "number"
+                            }
+                          ]
+                        ],
+                        "versions": [
+                          "list",
+                          [
+                            "object",
+                            {
+                              "bundle_id": "string",
+                              "code_signing_certificate_status": "number",
+                              "threat_level": "string",
+                              "threat_level_updated": "bool",
+                              "threat_type": "number",
+                              "version": "string",
+                              "z_ver_id_md32": "number"
+                            }
+                          ]
+                        ],
+                        "zapp_id": "string"
+                      }
+                    ]
+                  ],
+                  "group_id": "number",
+                  "last_modified_time": "number",
+                  "mod_uid": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "end_point_applications": {
+            "computed": true,
+            "description": "The list of endpoint applications to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "application_name": "string",
+                  "application_type": "string",
+                  "bundle_id": "string",
+                  "deleted": "bool",
+                  "description": "string",
+                  "digitally_signed": "bool",
+                  "filename": "string",
+                  "last_modified_time": "number",
+                  "mod_uid": "number",
+                  "original_file_name": "string",
+                  "os_type": "string",
+                  "resource_id": "number",
+                  "version": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "bundle_id": "string",
+                        "code_signing_certificate_status": "number",
+                        "threat_level": "string",
+                        "threat_level_updated": "bool",
+                        "threat_type": "number",
+                        "version": "string",
+                        "z_ver_id_md32": "number"
+                      }
+                    ]
+                  ],
+                  "versions": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "bundle_id": "string",
+                        "code_signing_certificate_status": "number",
+                        "threat_level": "string",
+                        "threat_level_updated": "bool",
+                        "threat_type": "number",
+                        "version": "string",
+                        "z_ver_id_md32": "number"
+                      }
+                    ]
+                  ],
+                  "zapp_id": "string"
+                }
+              ]
+            ]
+          },
+          "eun_template_id": {
+            "description": "The EUN template ID associated with the rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "exclude_context_shield_end_point": {
+            "computed": true,
+            "description": "If set to true, the context shield is excluded from the rule",
+            "description_kind": "plain",
+            "type": "bool"
+          },
           "filter_dest_addresses": {
             "description": "Server-side filter: matches the API's destAddresses query parameter. Prefixed with filter_ to avoid colliding with the per-rule dest_addresses output attribute.",
             "description_kind": "plain",
@@ -8234,6 +9786,12 @@
             "description_kind": "plain",
             "optional": true,
             "type": "string"
+          },
+          "is_eun_enabled": {
+            "description": "If set to true, Web EUN is enabled for the rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
           },
           "labels": {
             "computed": true,
@@ -8571,6 +10129,123 @@
                     ]
                   ],
                   "enable_full_logging": "bool",
+                  "end_point_application_groups": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "description": "string",
+                        "end_point_applications": [
+                          "list",
+                          [
+                            "object",
+                            {
+                              "application_name": "string",
+                              "application_type": "string",
+                              "bundle_id": "string",
+                              "deleted": "bool",
+                              "description": "string",
+                              "digitally_signed": "bool",
+                              "filename": "string",
+                              "last_modified_time": "number",
+                              "mod_uid": "number",
+                              "original_file_name": "string",
+                              "os_type": "string",
+                              "resource_id": "number",
+                              "version": [
+                                "list",
+                                [
+                                  "object",
+                                  {
+                                    "bundle_id": "string",
+                                    "code_signing_certificate_status": "number",
+                                    "threat_level": "string",
+                                    "threat_level_updated": "bool",
+                                    "threat_type": "number",
+                                    "version": "string",
+                                    "z_ver_id_md32": "number"
+                                  }
+                                ]
+                              ],
+                              "versions": [
+                                "list",
+                                [
+                                  "object",
+                                  {
+                                    "bundle_id": "string",
+                                    "code_signing_certificate_status": "number",
+                                    "threat_level": "string",
+                                    "threat_level_updated": "bool",
+                                    "threat_type": "number",
+                                    "version": "string",
+                                    "z_ver_id_md32": "number"
+                                  }
+                                ]
+                              ],
+                              "zapp_id": "string"
+                            }
+                          ]
+                        ],
+                        "group_id": "number",
+                        "last_modified_time": "number",
+                        "mod_uid": "number",
+                        "name": "string"
+                      }
+                    ]
+                  ],
+                  "end_point_applications": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "application_name": "string",
+                        "application_type": "string",
+                        "bundle_id": "string",
+                        "deleted": "bool",
+                        "description": "string",
+                        "digitally_signed": "bool",
+                        "filename": "string",
+                        "last_modified_time": "number",
+                        "mod_uid": "number",
+                        "original_file_name": "string",
+                        "os_type": "string",
+                        "resource_id": "number",
+                        "version": [
+                          "list",
+                          [
+                            "object",
+                            {
+                              "bundle_id": "string",
+                              "code_signing_certificate_status": "number",
+                              "threat_level": "string",
+                              "threat_level_updated": "bool",
+                              "threat_type": "number",
+                              "version": "string",
+                              "z_ver_id_md32": "number"
+                            }
+                          ]
+                        ],
+                        "versions": [
+                          "list",
+                          [
+                            "object",
+                            {
+                              "bundle_id": "string",
+                              "code_signing_certificate_status": "number",
+                              "threat_level": "string",
+                              "threat_level_updated": "bool",
+                              "threat_type": "number",
+                              "version": "string",
+                              "z_ver_id_md32": "number"
+                            }
+                          ]
+                        ],
+                        "zapp_id": "string"
+                      }
+                    ]
+                  ],
+                  "eun_template_id": "number",
+                  "exclude_context_shield_end_point": "bool",
                   "groups": [
                     "list",
                     [
@@ -8586,6 +10261,7 @@
                     ]
                   ],
                   "id": "number",
+                  "is_eun_enabled": "bool",
                   "labels": [
                     "list",
                     [
@@ -11756,6 +13432,444 @@
       },
       "version": 0
     },
+    "zia_outbound_email_dlp": {
+      "block": {
+        "attributes": {
+          "action": {
+            "computed": true,
+            "description": "The action taken when traffic matches the DLP policy rule criteria.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "auditor": {
+            "computed": true,
+            "description": "The auditor to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "content_locations": {
+            "computed": true,
+            "description": "The list of content locations to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "custom_header": {
+            "computed": true,
+            "description": "The custom header value inserted when the rule action includes custom header insertion.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "departments": {
+            "computed": true,
+            "description": "The Name-ID pairs of departments to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "description": {
+            "computed": true,
+            "description": "The description of the DLP policy rule.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "dlp_engines": {
+            "computed": true,
+            "description": "The list of DLP engines to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "email_recipient_profiles": {
+            "computed": true,
+            "description": "The Name-ID pairs of email recipient profiles to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "email_tenants": {
+            "computed": true,
+            "description": "The Name-ID pairs of email tenants to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "excluded_departments": {
+            "computed": true,
+            "description": "The Name-ID pairs of departments that are excluded from the DLP policy rule.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "excluded_groups": {
+            "computed": true,
+            "description": "The Name-ID pairs of groups that are excluded from the DLP policy rule.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "excluded_users": {
+            "computed": true,
+            "description": "The Name-ID pairs of users that are excluded from the DLP policy rule.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "external_auditor_email": {
+            "computed": true,
+            "description": "The email address of an external auditor to whom DLP email notifications are sent.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "file_types": {
+            "computed": true,
+            "description": "The list of file types to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "groups": {
+            "computed": true,
+            "description": "The Name-ID pairs of groups to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "id": {
+            "description": "The unique identifier of the DLP policy rule.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "included_domain_profiles": {
+            "computed": true,
+            "description": "The Name-ID pairs of domain profiles included in the DLP policy rule.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "labels": {
+            "computed": true,
+            "description": "The Name-ID pairs of rule labels associated to the DLP policy rule.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "last_modified_by": {
+            "computed": true,
+            "description": "The admin that modified the DLP policy rule last.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "last_modified_time": {
+            "computed": true,
+            "description": "Timestamp when the DLP policy rule was last modified.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "min_size": {
+            "computed": true,
+            "description": "The minimum file size (in KB) used for evaluation of the DLP policy rule.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "name": {
+            "description": "The DLP policy rule name.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "notification_template": {
+            "computed": true,
+            "description": "The template used for DLP notification emails.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "order": {
+            "computed": true,
+            "description": "The rule order of execution for the DLP policy rule with respect to other rules.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "parent_rule": {
+            "computed": true,
+            "description": "The unique identifier of the parent rule under which an exception rule is added.",
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "receiver": {
+            "computed": true,
+            "description": "The receiver information for the DLP policy rule",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "id": "number",
+                  "name": "string",
+                  "tenant": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "extensions": [
+                          "map",
+                          "string"
+                        ],
+                        "external_id": "string",
+                        "id": "number",
+                        "name": "string"
+                      }
+                    ]
+                  ],
+                  "type": "string"
+                }
+              ]
+            ]
+          },
+          "severity": {
+            "computed": true,
+            "description": "Indicates the severity selected for the DLP rule violation.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "state": {
+            "computed": true,
+            "description": "Enables or disables the DLP policy rule.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "sub_rules": {
+            "computed": true,
+            "description": "The list of exception rules added to a parent rule.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "time_windows": {
+            "computed": true,
+            "description": "The Name-ID pairs of time windows to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "user_risk_score_levels": {
+            "computed": true,
+            "description": "The user risk score levels to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "users": {
+            "computed": true,
+            "description": "The Name-ID pairs of users to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "extensions": [
+                    "map",
+                    "string"
+                  ],
+                  "id": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "without_content_inspection": {
+            "computed": true,
+            "description": "Indicates a DLP policy rule without content inspection, when the value is set to true.",
+            "description_kind": "plain",
+            "type": "bool"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
     "zia_risk_profiles": {
       "block": {
         "attributes": {
@@ -12864,6 +14978,131 @@
                   ],
                   "id": "number",
                   "name": "string"
+                }
+              ]
+            ]
+          },
+          "end_point_application_groups": {
+            "computed": true,
+            "description": "The list of endpoint application groups to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "description": "string",
+                  "end_point_applications": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "application_name": "string",
+                        "application_type": "string",
+                        "bundle_id": "string",
+                        "deleted": "bool",
+                        "description": "string",
+                        "digitally_signed": "bool",
+                        "filename": "string",
+                        "last_modified_time": "number",
+                        "mod_uid": "number",
+                        "original_file_name": "string",
+                        "os_type": "string",
+                        "resource_id": "number",
+                        "version": [
+                          "list",
+                          [
+                            "object",
+                            {
+                              "bundle_id": "string",
+                              "code_signing_certificate_status": "number",
+                              "threat_level": "string",
+                              "threat_level_updated": "bool",
+                              "threat_type": "number",
+                              "version": "string",
+                              "z_ver_id_md32": "number"
+                            }
+                          ]
+                        ],
+                        "versions": [
+                          "list",
+                          [
+                            "object",
+                            {
+                              "bundle_id": "string",
+                              "code_signing_certificate_status": "number",
+                              "threat_level": "string",
+                              "threat_level_updated": "bool",
+                              "threat_type": "number",
+                              "version": "string",
+                              "z_ver_id_md32": "number"
+                            }
+                          ]
+                        ],
+                        "zapp_id": "string"
+                      }
+                    ]
+                  ],
+                  "group_id": "number",
+                  "last_modified_time": "number",
+                  "mod_uid": "number",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "end_point_applications": {
+            "computed": true,
+            "description": "The list of endpoint applications to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "application_name": "string",
+                  "application_type": "string",
+                  "bundle_id": "string",
+                  "deleted": "bool",
+                  "description": "string",
+                  "digitally_signed": "bool",
+                  "filename": "string",
+                  "last_modified_time": "number",
+                  "mod_uid": "number",
+                  "original_file_name": "string",
+                  "os_type": "string",
+                  "resource_id": "number",
+                  "version": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "bundle_id": "string",
+                        "code_signing_certificate_status": "number",
+                        "threat_level": "string",
+                        "threat_level_updated": "bool",
+                        "threat_type": "number",
+                        "version": "string",
+                        "z_ver_id_md32": "number"
+                      }
+                    ]
+                  ],
+                  "versions": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "bundle_id": "string",
+                        "code_signing_certificate_status": "number",
+                        "threat_level": "string",
+                        "threat_level_updated": "bool",
+                        "threat_type": "number",
+                        "version": "string",
+                        "z_ver_id_md32": "number"
+                      }
+                    ]
+                  ],
+                  "zapp_id": "string"
                 }
               ]
             ]
@@ -20484,6 +22723,114 @@
       },
       "version": 0
     },
+    "zia_dlp_global_options": {
+      "block": {
+        "attributes": {
+          "applications": {
+            "description": "The list of cloud applications to which the DLP policy rule must be applied\n\t\t\t\tUse the data source zia_cloud_applications to get the list of available cloud applications:\n\t\t\t\thttps://registry.terraform.io/providers/zscaler/zia/latest/docs/data-sources/zia_cloud_applications\n\t\t\t\t",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "enable_casb_ocr": {
+            "description": "Indicates whether SaaS Security for Zscaler DLP engines to scan images for text content in data at rest is enabled",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
+          "enable_edm_popular_format": {
+            "description": "Indicates whether EDM for popular formats is enabled. When enabled, the EDM scans SSN, SIN, and CCN dictionaries for a popular format, and the EDM match only succeeds if the entered format matches the popular data format type.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
+          "enable_email_dlp_ocr": {
+            "description": "Indicates whether Outbound Email DLP for Zscaler DLP engines to scan images for text content in outbound emails is sent to external domains",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
+          "enable_evaluate_all_dlp_rules": {
+            "description": "Indicates whether DLP engines evaluate all rules or stop when a matching rule is found. When enabled, if multiple rules match, the rule engine selects the rule with the most restrictive action.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
+          "enable_inline_dlp_ocr": {
+            "description": "Indicates whether optical character recognition (OCR) for Zscaler DLP engines to scan images for text content in data in transit is enabled",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
+          "enable_npk_edm_templates": {
+            "description": "\"Indicates whether EDM with No Primary Keys is enabled.\n\t\t\t\tIf enabled, you select the fields from the template that must match, fields that are optional, and how many optional fields are required to match.\n\t\t\t\tBefore enabling EDM with No Primary Keys, all existing EDM schema (templates, dictionaries, engines, and policies) must be deleted or unassigned.\n\t\t\t\tNew schema with no primary keys functionality can be created after the feature is enabled.\"",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
+          "enable_npk_edm_templates_for_org": {
+            "description": "\"Read Only. Indicates whether EDM with No Primary Keys is enabled for the organization.\n\t\t\t\tTo enable this field, you must first enable the enableNpkEdmTemplates field.\"",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
+          "exempt_url_encoded_data": {
+            "description": "Indicates whether or not URL encoded data from DLP evaluation is exempted",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
+          "http_get_custom_url_categories": {
+            "description": "List of URL Categories to associate with Inspect HTTP GET Requests",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "urls": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "list",
+              "string"
+            ]
+          }
+        },
+        "block_types": {
+          "url_categories": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The list of URL categories to which the DLP global options must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
     "zia_dlp_notification_templates": {
       "block": {
         "attributes": {
@@ -20544,7 +22891,6 @@
       "block": {
         "attributes": {
           "action": {
-            "computed": true,
             "description": "The action taken when traffic matches the DLP policy rule criteria.",
             "description_kind": "plain",
             "optional": true,
@@ -21141,6 +23487,42 @@
       },
       "version": 0
     },
+    "zia_dns_application_groups": {
+      "block": {
+        "attributes": {
+          "description": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "dns_applications": {
+            "description_kind": "plain",
+            "required": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "group_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
     "zia_email_profile": {
       "block": {
         "attributes": {
@@ -21368,6 +23750,1121 @@
             "description_kind": "plain",
             "optional": true,
             "type": "string"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "zia_endpoint_dlp_application_group": {
+      "block": {
+        "attributes": {
+          "channel": {
+            "description": "The channel the endpoint application group belongs to. Only `APPLICATION_FILE_ACCESS` is supported.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "description": {
+            "description": "The description of the endpoint application group.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "group_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the endpoint application group.",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "resources": {
+            "description": "The set of endpoint application IDs (the endpoint applications' zappId) that belong to this group.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "zia_endpoint_dlp_custom_apps": {
+      "block": {
+        "attributes": {
+          "app_id": {
+            "computed": true,
+            "description": "The application identifier of the custom endpoint application. Assigned by the service.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "application_type": {
+            "computed": true,
+            "description": "The application type of the endpoint application.",
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "channel": {
+            "description": "The channel of the custom endpoint application. Custom applications only support `APPLICATION_FILE_ACCESS`.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "custom_app_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "description": {
+            "description": "The description of the custom endpoint application.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the custom endpoint application.",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "zapp_id": {
+            "computed": true,
+            "description": "The Zscaler Client Connector application identifier.",
+            "description_kind": "plain",
+            "type": "string"
+          }
+        },
+        "block_types": {
+          "application": {
+            "block": {
+              "attributes": {
+                "bundle_id": {
+                  "description": "The bundle identifier of the custom endpoint application.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "digitally_signed": {
+                  "description": "Indicates whether the custom endpoint application is digitally signed.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "bool"
+                },
+                "file_name": {
+                  "description": "The file name of the custom endpoint application.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "original_file_name": {
+                  "description": "The original file name of the custom endpoint application.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "os_type": {
+                  "description": "The operating system type of the custom endpoint application. Supported values: `WINDOWS_OS`, `MAC_OS`.",
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description": "The application details of the custom endpoint application.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "min_items": 1,
+            "nesting_mode": "list"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "zia_endpoint_dlp_resource": {
+      "block": {
+        "attributes": {
+          "app_id": {
+            "description": "The application identifier of the DLP endpoint resource.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "channel": {
+            "description": "The channel of the DLP endpoint resource.",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "description": {
+            "description": "The description of the DLP endpoint resource.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the DLP endpoint resource.",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "network_drive_type": {
+            "description": "The network drive type of the DLP endpoint resource.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "resource_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "server_name": {
+            "description": "The server name of the DLP endpoint resource.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "block_types": {
+          "network_drives": {
+            "block": {
+              "attributes": {
+                "network_path": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description": "The list of network drives associated with the DLP endpoint resource.",
+              "description_kind": "plain"
+            },
+            "nesting_mode": "list"
+          },
+          "printer": {
+            "block": {
+              "attributes": {
+                "domain": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "ip_address": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "unc": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description": "The printer details of the DLP endpoint resource.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "list"
+          },
+          "removable_storage": {
+            "block": {
+              "attributes": {
+                "product_id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "serial_number": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "vendor_id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description": "The removable storage details of the DLP endpoint resource.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "list"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "zia_endpoint_dlp_resource_group": {
+      "block": {
+        "attributes": {
+          "channel": {
+            "description": "The channel the DLP endpoint resource group belongs to. A resource group cannot be moved between channels after creation.",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "description": {
+            "description": "The description of the DLP endpoint resource group.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "group_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the DLP endpoint resource group (tag).",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "resources": {
+            "description": "The set of DLP endpoint resource IDs associated with this group.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "number"
+            ]
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "zia_endpoint_dlp_rules": {
+      "block": {
+        "attributes": {
+          "action": {
+            "description": "The action taken when traffic matches the DLP policy rule criteria.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "data_transfer_method": {
+            "description": "The data transfer method to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "description": {
+            "description": "The description of the DLP policy rule.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "device_trust_levels": {
+            "description": "List of device trust levels for which the rule must be applied. This field is applicable for devices that are managed using Zscaler Client Connector. The trust levels are assigned to the devices based on your posture configurations in the Zscaler Client Connector Portal. If no value is set, this field is ignored during the policy evaluation.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "eun_enabled": {
+            "description": "Indicates whether the End User Notification (EUN) is enabled for the DLP policy rule.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
+          "eun_template_id": {
+            "description": "The EUN template ID associated with the rule.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "external_auditor_email": {
+            "description": "The email address of an external auditor to whom DLP email notifications are sent",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "file_types": {
+            "description": "The list of file types to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "min_size": {
+            "description": "The minimum file size (in KB) used for evaluation of the DLP policy rule.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "name": {
+            "description": "The DLP policy rule name.",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "network_type": {
+            "description": "The network type to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "order": {
+            "description": "The rule order of execution for the DLP policy rule with respect to other rules.",
+            "description_kind": "plain",
+            "required": true,
+            "type": "number"
+          },
+          "rank": {
+            "description": "Admin rank of the admin who creates this rule.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "rule_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "severity": {
+            "description": "Indicates the severity selected for the DLP rule violation.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "state": {
+            "description": "Enables or disables the DLP policy rule.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "sub_rules": {
+            "computed": true,
+            "description": "The IDs of the exception (sub) rules associated with this parent rule. Sub-rules are managed through the 'zia_endpoint_dlp_sub_rules' resource.",
+            "description_kind": "plain",
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "uc_template_id": {
+            "description": "The unique identifier of the user confirmation template.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "user_risk_score_levels": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "without_content_inspection": {
+            "description": "Indicates a DLP policy rule without content inspection, when the value is set to true.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          }
+        },
+        "block_types": {
+          "auditor": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "number"
+                }
+              },
+              "description": "The auditor to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "nesting_mode": "set"
+          },
+          "departments": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of departments to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "device_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "This field is applicable for devices that are managed using Zscaler Client Connector.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "devices": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "Name-ID pairs of devices for which rule must be applied.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "dlp_engines": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The list of DLP engines to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "end_point_application_groups": {
+            "block": {
+              "attributes": {
+                "group_id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "string"
+                  ]
+                }
+              },
+              "description": "The endpoint application groups to which the DLP policy rule must be applied. Can only be set when 'data_transfer_method' is set to 'APPLICATION_FILE_ACCESS'.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "end_point_applications": {
+            "block": {
+              "attributes": {
+                "zapp_id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "string"
+                  ]
+                }
+              },
+              "description": "The endpoint applications to which the DLP policy rule must be applied. Can only be set when 'data_transfer_method' is set to 'APPLICATION_FILE_ACCESS'.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of groups to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "labels": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of rule labels associated to the DLP policy rule",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "notification_template": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "number"
+                }
+              },
+              "description": "The template used for DLP notification emails",
+              "description_kind": "plain"
+            },
+            "nesting_mode": "set"
+          },
+          "receiver": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description": "The unique identifier of the Zscaler Incident Receiver.",
+                  "description_kind": "plain",
+                  "required": true,
+                  "type": "string"
+                }
+              },
+              "description": "The Zscaler Incident Receiver associated with the DLP policy rule. Only the 'id' must be set; the receiver 'type' is always 'ZIR'.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "resource_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of resource groups to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "resources": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of resources to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "timeouts": {
+            "block": {
+              "attributes": {
+                "create": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "update": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description_kind": "plain"
+            },
+            "nesting_mode": "single"
+          },
+          "users": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of users to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
+    "zia_endpoint_dlp_sub_rules": {
+      "block": {
+        "attributes": {
+          "action": {
+            "description": "The action taken when traffic matches the DLP policy rule criteria.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "data_transfer_method": {
+            "description": "The data transfer method to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "description": {
+            "description": "The description of the DLP policy rule.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "device_trust_levels": {
+            "description": "List of device trust levels for which the rule must be applied. This field is applicable for devices that are managed using Zscaler Client Connector. The trust levels are assigned to the devices based on your posture configurations in the Zscaler Client Connector Portal. If no value is set, this field is ignored during the policy evaluation.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "eun_enabled": {
+            "description": "Indicates whether the End User Notification (EUN) is enabled for the DLP policy rule.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
+          "eun_template_id": {
+            "description": "The EUN template ID associated with the rule.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "external_auditor_email": {
+            "description": "The email address of an external auditor to whom DLP email notifications are sent",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "file_types": {
+            "description": "The list of file types to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "min_size": {
+            "description": "The minimum file size (in KB) used for evaluation of the DLP policy rule.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "name": {
+            "description": "The DLP policy rule name.",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "network_type": {
+            "description": "The network type to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "order": {
+            "description": "The rule order of execution for the sub-rule with respect to other sub-rules of the same parent.",
+            "description_kind": "plain",
+            "required": true,
+            "type": "number"
+          },
+          "parent_rule": {
+            "description": "The unique identifier of the parent rule under which this exception (sub) rule is created. Changing this value recreates the sub-rule under the new parent.",
+            "description_kind": "plain",
+            "required": true,
+            "type": "number"
+          },
+          "rank": {
+            "description": "Admin rank of the admin who creates this rule.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "severity": {
+            "description": "Indicates the severity selected for the DLP rule violation.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "state": {
+            "description": "Enables or disables the DLP policy rule.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "sub_rule_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "uc_template_id": {
+            "description": "The unique identifier of the user confirmation template.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "user_risk_score_levels": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "without_content_inspection": {
+            "description": "Indicates a DLP policy rule without content inspection, when the value is set to true.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          }
+        },
+        "block_types": {
+          "auditor": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "number"
+                }
+              },
+              "description": "The auditor to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "nesting_mode": "set"
+          },
+          "departments": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of departments to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "device_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "This field is applicable for devices that are managed using Zscaler Client Connector.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "devices": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "Name-ID pairs of devices for which rule must be applied.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "dlp_engines": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The list of DLP engines to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "end_point_application_groups": {
+            "block": {
+              "attributes": {
+                "group_id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "string"
+                  ]
+                }
+              },
+              "description": "The endpoint application groups to which the DLP policy rule must be applied. Can only be set when 'data_transfer_method' is set to 'APPLICATION_FILE_ACCESS'.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "end_point_applications": {
+            "block": {
+              "attributes": {
+                "zapp_id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "string"
+                  ]
+                }
+              },
+              "description": "The endpoint applications to which the DLP policy rule must be applied. Can only be set when 'data_transfer_method' is set to 'APPLICATION_FILE_ACCESS'.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of groups to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "labels": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of rule labels associated to the DLP policy rule",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "notification_template": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "number"
+                }
+              },
+              "description": "The template used for DLP notification emails",
+              "description_kind": "plain"
+            },
+            "nesting_mode": "set"
+          },
+          "receiver": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description": "The unique identifier of the Zscaler Incident Receiver.",
+                  "description_kind": "plain",
+                  "required": true,
+                  "type": "string"
+                }
+              },
+              "description": "The Zscaler Incident Receiver associated with the DLP policy rule. Only the 'id' must be set; the receiver 'type' is always 'ZIR'.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "resource_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of resource groups to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "resources": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of resources to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "timeouts": {
+            "block": {
+              "attributes": {
+                "create": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "update": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description_kind": "plain"
+            },
+            "nesting_mode": "single"
+          },
+          "users": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of users to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
           }
         },
         "description_kind": "plain"
@@ -21924,10 +25421,28 @@
               "string"
             ]
           },
+          "eun_template_id": {
+            "description": "The EUN template ID associated with the rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "exclude_context_shield_end_point": {
+            "description": "If set to true, the context shield end point is excluded from the rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
           "id": {
             "computed": true,
             "description_kind": "plain",
             "type": "string"
+          },
+          "is_eun_enabled": {
+            "description": "If set to true, Web EUN is enabled for the rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
           },
           "is_web_eun_enabled": {
             "description": "If set to true, Web EUN is enabled for the rule",
@@ -22162,6 +25677,42 @@
                 }
               },
               "description": "The EDNS ECS object which resolves DNS request",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "end_point_application_groups": {
+            "block": {
+              "attributes": {
+                "group_id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "string"
+                  ]
+                }
+              },
+              "description": "The endpoint application groups to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "end_point_applications": {
+            "block": {
+              "attributes": {
+                "zapp_id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "string"
+                  ]
+                }
+              },
+              "description": "The endpoint applications to which the DLP policy rule must be applied",
               "description_kind": "plain"
             },
             "max_items": 1,
@@ -22727,6 +26278,18 @@
             "optional": true,
             "type": "bool"
           },
+          "eun_template_id": {
+            "description": "The EUN template ID associated with the rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "exclude_context_shield_end_point": {
+            "description": "If set to true, the context shield end point is excluded from the rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          },
           "exclude_src_countries": {
             "description_kind": "plain",
             "optional": true,
@@ -22736,6 +26299,12 @@
             "computed": true,
             "description_kind": "plain",
             "type": "string"
+          },
+          "is_eun_enabled": {
+            "description": "If set to true, Web EUN is enabled for the rule",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
           },
           "name": {
             "description": "Name of the Firewall Filtering policy rule",
@@ -22904,6 +26473,42 @@
                 }
               },
               "description": "Name-ID pairs of devices for which rule must be applied.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "end_point_application_groups": {
+            "block": {
+              "attributes": {
+                "group_id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "string"
+                  ]
+                }
+              },
+              "description": "The endpoint application groups to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "end_point_applications": {
+            "block": {
+              "attributes": {
+                "zapp_id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "string"
+                  ]
+                }
+              },
+              "description": "The endpoint applications to which the DLP policy rule must be applied",
               "description_kind": "plain"
             },
             "max_items": 1,
@@ -23218,7 +26823,6 @@
             "type": "bool"
           },
           "eun_template_id": {
-            "computed": true,
             "description": "The EUN template ID associated with the rule",
             "description_kind": "plain",
             "optional": true,
@@ -23385,6 +26989,42 @@
                 }
               },
               "description": "Name-ID pairs of devices for which rule must be applied.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "end_point_application_groups": {
+            "block": {
+              "attributes": {
+                "group_id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "string"
+                  ]
+                }
+              },
+              "description": "The endpoint application groups to which the DLP policy rule must be applied. Can only be set when 'data_transfer_method' is set to 'APPLICATION_FILE_ACCESS'.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "end_point_applications": {
+            "block": {
+              "attributes": {
+                "zapp_id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "string"
+                  ]
+                }
+              },
+              "description": "The endpoint applications to which the DLP policy rule must be applied. Can only be set when 'data_transfer_method' is set to 'APPLICATION_FILE_ACCESS'.",
               "description_kind": "plain"
             },
             "max_items": 1,
@@ -25657,6 +29297,407 @@
       },
       "version": 0
     },
+    "zia_outbound_email_dlp": {
+      "block": {
+        "attributes": {
+          "action": {
+            "description": "The action taken when traffic matches the DLP policy rule criteria.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "content_locations": {
+            "description": "The list of content locations to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "custom_header": {
+            "description": "The custom header value inserted when the rule action includes custom header insertion.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "description": {
+            "description": "The description of the DLP policy rule.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "external_auditor_email": {
+            "description": "The email address of an external auditor to whom DLP email notifications are sent.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "file_types": {
+            "description": "The list of file types to which the DLP policy rule must be applied.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "string"
+          },
+          "min_size": {
+            "description": "The minimum file size (in KB) used for evaluation of the DLP policy rule.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "name": {
+            "description": "The DLP policy rule name.",
+            "description_kind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "order": {
+            "description": "The rule order of execution for the DLP policy rule with respect to other rules.",
+            "description_kind": "plain",
+            "required": true,
+            "type": "number"
+          },
+          "parent_rule": {
+            "computed": true,
+            "description": "The unique identifier of the parent rule under which an exception rule is added.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "number"
+          },
+          "rule_id": {
+            "computed": true,
+            "description_kind": "plain",
+            "type": "number"
+          },
+          "severity": {
+            "description": "Indicates the severity selected for the DLP rule violation.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "state": {
+            "description": "Enables or disables the DLP policy rule.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "string"
+          },
+          "sub_rules": {
+            "computed": true,
+            "description": "The list of exception rules added to a parent rule.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "user_risk_score_levels": {
+            "description_kind": "plain",
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "without_content_inspection": {
+            "description": "Indicates a DLP policy rule without content inspection, when the value is set to true.",
+            "description_kind": "plain",
+            "optional": true,
+            "type": "bool"
+          }
+        },
+        "block_types": {
+          "auditor": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "number"
+                }
+              },
+              "description": "The auditor to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "nesting_mode": "set"
+          },
+          "departments": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of departments to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "dlp_engines": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The list of DLP engines to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "email_recipient_profiles": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of email recipient profiles to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "email_tenants": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of email tenants to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "excluded_departments": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of departments that are excluded from the DLP policy rule",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "excluded_groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of groups that are excluded from the DLP policy rule",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "excluded_users": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of users that are excluded from the DLP policy rule",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "groups": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of groups to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "included_domain_profiles": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of domain profiles included in the DLP policy rule",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "labels": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of rule labels associated to the DLP policy rule",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "notification_template": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "number"
+                }
+              },
+              "description": "The template used for DLP notification emails",
+              "description_kind": "plain"
+            },
+            "nesting_mode": "set"
+          },
+          "receiver": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description": "The unique identifier of the Zscaler Incident Receiver.",
+                  "description_kind": "plain",
+                  "required": true,
+                  "type": "string"
+                }
+              },
+              "description": "The Zscaler Incident Receiver associated with the DLP policy rule. Only the 'id' must be set; the receiver 'type' is always 'ZIR'.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "time_windows": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of time windows to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "timeouts": {
+            "block": {
+              "attributes": {
+                "create": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "update": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "description_kind": "plain"
+            },
+            "nesting_mode": "single"
+          },
+          "users": {
+            "block": {
+              "attributes": {
+                "id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "number"
+                  ]
+                }
+              },
+              "description": "The Name-ID pairs of users to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          }
+        },
+        "description_kind": "plain"
+      },
+      "version": 0
+    },
     "zia_risk_profiles": {
       "block": {
         "attributes": {
@@ -26647,6 +30688,42 @@
                 }
               },
               "description": "Name-ID pairs of devices for which rule must be applied.",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "end_point_application_groups": {
+            "block": {
+              "attributes": {
+                "group_id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "string"
+                  ]
+                }
+              },
+              "description": "The endpoint application groups to which the DLP policy rule must be applied",
+              "description_kind": "plain"
+            },
+            "max_items": 1,
+            "nesting_mode": "set"
+          },
+          "end_point_applications": {
+            "block": {
+              "attributes": {
+                "zapp_id": {
+                  "description_kind": "plain",
+                  "optional": true,
+                  "type": [
+                    "set",
+                    "string"
+                  ]
+                }
+              },
+              "description": "The endpoint applications to which the DLP policy rule must be applied",
               "description_kind": "plain"
             },
             "max_items": 1,

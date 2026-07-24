@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Provider packs
+
+- Refresh the ZIA pack from provider `4.7.26` to `4.8.0` and regenerate its
+  provider schema (`74 -> 83` resources, `105 -> 115` data sources).
+- Admit the newly supported DNS/filtering rule fields `eun_template_id`,
+  `exclude_context_shield_end_point`, and `is_eun_enabled`.
+- Keep endpoint-application blocks explicitly excluded for DNS, filtering,
+  IPS, and SSL rules: ZIA `4.8.0` declares the blocks, but its resource
+  readback is either shape-incompatible or unwired. The nine new resource
+  types remain schema-visible but are not yet registry-enabled.
+
 ### Breaking changes
 
 #### Retired catalog compatibility surface removed
