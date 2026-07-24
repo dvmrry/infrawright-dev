@@ -455,6 +455,10 @@ func (i *analysisIndex) analyzeShapeBlock(
 					}
 					if container.Kind == FieldValueShapeObject || container.Kind == FieldValueShapeMap {
 						if fieldName, known := i.boundString(function, target.Index, nil); known {
+							if !attempted {
+								shape = &FieldValueShape{Kind: FieldValueShapeUnresolved}
+							}
+							recordShapeInferenceIssue(issues, attempted, issue, "assigned object field")
 							if container.Fields == nil {
 								container.Fields = make(map[string]*FieldValueShape)
 							}

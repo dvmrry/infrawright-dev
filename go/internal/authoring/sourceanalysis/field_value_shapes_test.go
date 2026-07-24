@@ -69,7 +69,7 @@ func TestAnalyzeUnverifiedFieldWitnessesSeparatesEvidenceFamilies(t *testing.T) 
 		t.Errorf("AnalyzeUnverifiedFieldWitnesses(unsupported_targets) diagnostics = %#v, want unsupported statement surfaced", resource.Diagnostics)
 	}
 
-	for _, fieldPath := range []string{"mixed_targets", "appended_targets"} {
+	for _, fieldPath := range []string{"mixed_targets", "appended_targets", "assigned_unknown_targets"} {
 		witness := requireFieldWitness(t, resource, fieldPath)
 		if witness.Assessment.Read != FieldReadShapeUnresolved {
 			t.Errorf("AnalyzeUnverifiedFieldWitnesses(%s).Assessment.Read = %q, want unresolved mixed known/unknown shape", fieldPath, witness.Assessment.Read)
@@ -251,6 +251,7 @@ func resourceNestedRule() *schema.Resource {
 		ReadContext: resourceNestedRuleRead,
 		Schema: map[string]*schema.Schema{
 			"appended_targets": schemautil.NestedStringSetSchema(nestedIDKey),
+			"assigned_unknown_targets": schemautil.NestedStringSetSchema(nestedIDKey),
 			"broken_targets": schemautil.NestedStringSetSchema(nestedIDKey),
 			"coerced_count": {Type: schema.TypeInt, Optional: true},
 			"external_targets": {Type: schema.TypeString, Optional: true},
@@ -303,6 +304,7 @@ func resourceNestedRuleRead(_ context.Context, d *schema.ResourceData, _ any) di
 	_ = d.Set("mixed_targets", flattenMixedTargets(response.Safe))
 	_ = d.Set("nullable_targets", flattenNullableTargets(response.Safe))
 	_ = d.Set("appended_targets", flattenAppendedTargets(response.Safe))
+	_ = d.Set("assigned_unknown_targets", flattenAssignedUnknownTargets(response.Safe))
 	_ = d.Set("safe_targets", flattenSafeTargets(response.Safe))
 	_ = d.Set("unsupported_targets", flattenUnsupportedTargets(response.Safe))
 	_ = d.Get("unwired_targets")
@@ -341,6 +343,12 @@ func flattenNullableTargets(values []string) []any {
 		return nil
 	}
 	return []any{map[string]any{"ids": []string{"one"}}}
+}
+
+func flattenAssignedUnknownTargets(values []string) []any {
+	item := map[string]any{"ids": []string{"one"}}
+	item["ids"] = unseen.Flatten(values)
+	return []any{item}
 }
 
 func flattenUnsupportedTargets(_ []string) []any {
@@ -417,6 +425,10 @@ const shapeWitnessSchema = `{
 			},
             "block_types": {
               "appended_targets": {
+                "nesting_mode": "set",
+                "block": {"attributes": {"ids": {"type": ["set", "string"], "optional": true}}}
+              },
+              "assigned_unknown_targets": {
                 "nesting_mode": "set",
                 "block": {"attributes": {"ids": {"type": ["set", "string"], "optional": true}}}
               },

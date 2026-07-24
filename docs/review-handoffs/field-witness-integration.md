@@ -157,8 +157,15 @@
   `nullable_targets` cover the three cases. The review's variadic-write nit was
   also accepted: variadic binding now stays unsupported but emits a
   field-associated `write_helper_unresolved` diagnostic and cannot manufacture
-  a scalar key binding. Focused/race, repository-wide, vet/format, `make check`,
-  and real ZIA probe verification are rerun after the fix before re-review.
+  a scalar key binding. The same reviewer then found a narrower bypass: a
+  known-key object assignment recorded neither the failed inference nor an
+  unresolved value before its early `continue`, so an earlier known value for
+  that key could survive an uncaptured replacement call. The assignment path
+  now records the issue before continuing and replaces an unattempted value
+  with the same contagious unresolved shape; `assigned_unknown_targets`
+  reproduces the overwrite case. Focused/race, repository-wide, vet/format,
+  `make check`, and real ZIA probe verification are rerun after the fixes before
+  final re-review.
 - Real-source comparison: A removed temporary probe loaded the actual ZIA
   v4.8.0 sources and the refreshed schema. DNS, filtering, and SSL endpoint
   applications/groups were each `conflicting` with consistent declarations,
