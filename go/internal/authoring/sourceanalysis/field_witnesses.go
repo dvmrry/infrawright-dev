@@ -93,10 +93,13 @@ type ReadBackFieldWitness struct {
 }
 
 // AcceptanceConfigFieldWitness records literal HCL usage in the exact
-// constructor-companion acceptance test file.
+// constructor-companion acceptance test file. Syntax distinguishes attribute
+// declarations from repeated blocks so Occurrences is not mistaken for an
+// attribute collection's element count.
 type AcceptanceConfigFieldWitness struct {
 	Occurrences     int                      `json:"occurrences"`
 	ParentInstances int                      `json:"parent_instances"`
+	Syntax          string                   `json:"syntax"`
 	Values          []string                 `json:"values"`
 	Location        contracts.SourceLocation `json:"location"`
 }
@@ -814,8 +817,15 @@ func enclosingFunction(file *ast.File, position token.Pos) string {
 type hclConfigFact struct {
 	occurrences     int
 	parentInstances int
+	syntax          string
 	values          []string
 }
+
+const (
+	acceptanceConfigSyntaxAttribute = "attribute"
+	acceptanceConfigSyntaxBlock     = "block"
+	acceptanceConfigSyntaxMixed     = "mixed"
+)
 
 func (i *analysisIndex) collectAcceptanceConfigs(
 	resourceType string,
@@ -864,6 +874,7 @@ func (i *analysisIndex) collectAcceptanceConfigs(
 			field(fieldPath).acceptanceConfigs = append(field(fieldPath).acceptanceConfigs, AcceptanceConfigFieldWitness{
 				Occurrences:     fact.occurrences,
 				ParentInstances: fact.parentInstances,
+				Syntax:          fact.syntax,
 				Values:          sortedUniqueStrings(fact.values),
 				Location:        location,
 			})
@@ -917,6 +928,7 @@ func collectHCLInstances(bodies []*hclsyntax.Body, prefix string, source []byte,
 			fieldPath := joinFieldPath(prefix, name)
 			fact := ensureHCLFact(facts, fieldPath)
 			fact.occurrences++
+			fact.syntax = mergeAcceptanceConfigSyntax(fact.syntax, acceptanceConfigSyntaxAttribute)
 			if value := hclExpressionSource(attribute.Expr, source); value != "" {
 				fact.values = append(fact.values, value)
 			}
@@ -942,6 +954,7 @@ func collectHCLInstances(bodies []*hclsyntax.Body, prefix string, source []byte,
 		fact := ensureHCLFact(facts, fieldPath)
 		fact.occurrences += len(blocks)
 		fact.parentInstances = len(bodies)
+		fact.syntax = mergeAcceptanceConfigSyntax(fact.syntax, acceptanceConfigSyntaxBlock)
 		childBodies := make([]*hclsyntax.Body, 0, len(blocks))
 		for _, block := range blocks {
 			childBodies = append(childBodies, block.Body)
@@ -955,6 +968,17 @@ func ensureHCLFact(facts map[string]*hclConfigFact, fieldPath string) *hclConfig
 		facts[fieldPath] = &hclConfigFact{}
 	}
 	return facts[fieldPath]
+}
+
+func mergeAcceptanceConfigSyntax(current, next string) string {
+	switch {
+	case current == "":
+		return next
+	case current == next:
+		return current
+	default:
+		return acceptanceConfigSyntaxMixed
+	}
 }
 
 func sortedHCLBlockKeys(blocks map[string][]*hclsyntax.Block) []string {
@@ -1018,19 +1042,8 @@ func finalizeFieldWitness(fieldPath string, accumulated *fieldWitnessAccumulator
 			compareFieldFlag(fieldPath, "computed", witness.TerraformSchema.Computed, provider.Computed, &witness.Conflicts)
 		}
 	}
-	for _, check := range witness.AcceptanceChecks {
-		if !strings.HasSuffix(check.Path, ".#") {
-			continue
-		}
-		expected, err := strconv.Atoi(check.Expected)
-		if err != nil {
-			continue
-		}
-		for _, config := range witness.AcceptanceConfigs {
-			if expected != config.Occurrences {
-				witness.Conflicts = append(witness.Conflicts, fmt.Sprintf("%s acceptance check expects count %d but config declares %d", fieldPath, expected, config.Occurrences))
-			}
-		}
+	if expected, declared, comparable := comparableAcceptanceBlockCounts(witness); comparable && expected != declared {
+		witness.Conflicts = append(witness.Conflicts, fmt.Sprintf("%s acceptance check expects block count %d but config declares %d blocks", fieldPath, expected, declared))
 	}
 	witness.Conflicts = sortedUniqueStrings(witness.Conflicts)
 	sortProviderSchemaWitnesses(witness.ProviderSchemas)
@@ -1056,6 +1069,29 @@ func finalizeFieldWitness(fieldPath string, accumulated *fieldWitnessAccumulator
 		witness.Disposition = FieldWitnessUntested
 	}
 	return witness
+}
+
+// comparableAcceptanceBlockCounts requires one block-form config and one
+// consistent static expected count. Anything less tightly associated remains
+// corroborating evidence without becoming a conflict claim.
+func comparableAcceptanceBlockCounts(witness FieldWitness) (int, int, bool) {
+	if len(witness.AcceptanceConfigs) != 1 || witness.AcceptanceConfigs[0].Syntax != acceptanceConfigSyntaxBlock {
+		return 0, 0, false
+	}
+	var expected int
+	found := false
+	for _, check := range witness.AcceptanceChecks {
+		if !strings.HasSuffix(check.Path, ".#") {
+			continue
+		}
+		value, err := strconv.Atoi(check.Expected)
+		if err != nil || (found && value != expected) {
+			return 0, 0, false
+		}
+		expected = value
+		found = true
+	}
+	return expected, witness.AcceptanceConfigs[0].Occurrences, found
 }
 
 func compareFieldFlag(fieldPath, name string, terraform *bool, provider bool, conflicts *[]string) {

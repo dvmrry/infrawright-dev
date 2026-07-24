@@ -50,7 +50,8 @@ func TestAnalyzeUnverifiedFieldWitnessesCorroboratesProviderBehavior(t *testing.
 		t.Errorf("src_tcp_ports read-backs = %#v, want flattening d.Set", ports.ReadBacks)
 	}
 	if len(ports.AcceptanceConfigs) != 1 || ports.AcceptanceConfigs[0].Occurrences != 3 ||
-		ports.AcceptanceConfigs[0].ParentInstances != 1 {
+		ports.AcceptanceConfigs[0].ParentInstances != 1 ||
+		ports.AcceptanceConfigs[0].Syntax != acceptanceConfigSyntaxBlock {
 		t.Errorf("src_tcp_ports config witnesses = %#v, want three blocks", ports.AcceptanceConfigs)
 	}
 	if len(ports.AcceptanceChecks) != 1 || ports.AcceptanceChecks[0].Path != "src_tcp_ports.#" ||
@@ -70,6 +71,24 @@ func TestAnalyzeUnverifiedFieldWitnessesCorroboratesProviderBehavior(t *testing.
 	}
 	if len(end.AcceptanceChecks) != 0 {
 		t.Errorf("src_tcp_ports[].end checks = %#v, want no invented round-trip assertion", end.AcceptanceChecks)
+	}
+
+	ipAddresses := requireFieldWitness(t, resource, "ip_addresses")
+	if ipAddresses.Disposition != FieldWitnessCorroborated {
+		t.Errorf("AnalyzeUnverifiedFieldWitnesses(ip_addresses).Disposition = %q, want corroborated", ipAddresses.Disposition)
+	}
+	if len(ipAddresses.AcceptanceConfigs) != 1 || ipAddresses.AcceptanceConfigs[0].Occurrences != 1 {
+		t.Errorf("AnalyzeUnverifiedFieldWitnesses(ip_addresses).AcceptanceConfigs = %#v, want one attribute declaration", ipAddresses.AcceptanceConfigs)
+	}
+	if len(ipAddresses.AcceptanceConfigs) == 1 && ipAddresses.AcceptanceConfigs[0].Syntax != acceptanceConfigSyntaxAttribute {
+		t.Errorf("AnalyzeUnverifiedFieldWitnesses(ip_addresses).AcceptanceConfigs[0].Syntax = %q, want attribute", ipAddresses.AcceptanceConfigs[0].Syntax)
+	}
+	if len(ipAddresses.AcceptanceChecks) != 1 || ipAddresses.AcceptanceChecks[0].Path != "ip_addresses.#" ||
+		ipAddresses.AcceptanceChecks[0].Expected != "3" {
+		t.Errorf("AnalyzeUnverifiedFieldWitnesses(ip_addresses).AcceptanceChecks = %#v, want collection count assertion", ipAddresses.AcceptanceChecks)
+	}
+	if len(ipAddresses.Conflicts) != 0 {
+		t.Errorf("AnalyzeUnverifiedFieldWitnesses(ip_addresses).Conflicts = %#v, want attribute occurrences kept distinct from collection cardinality", ipAddresses.Conflicts)
 	}
 	if _, exists := resource.Fields["spoofed"]; exists {
 		t.Error("fields contain Set call on non-ResourceData receiver")
@@ -94,6 +113,26 @@ func TestAnalyzeUnverifiedFieldWitnessesSurfacesSchemaConflict(t *testing.T) {
 	}
 	if len(tag.AcceptanceConfigs) != 0 || len(tag.AcceptanceChecks) != 0 {
 		t.Errorf("tag acceptance witnesses = (%#v, %#v), want absent tests to remain silence", tag.AcceptanceConfigs, tag.AcceptanceChecks)
+	}
+}
+
+func TestFinalizeFieldWitnessSurfacesComparableBlockCountConflict(t *testing.T) {
+	accumulated := &fieldWitnessAccumulator{
+		acceptanceConfigs: []AcceptanceConfigFieldWitness{{
+			Occurrences: 2,
+			Syntax:      acceptanceConfigSyntaxBlock,
+		}},
+		acceptanceChecks: []AcceptanceCheckFieldWitness{{
+			Path:     "ports.#",
+			Expected: "3",
+		}},
+	}
+	witness := finalizeFieldWitness("ports", accumulated)
+	if witness.Disposition != FieldWitnessConflicting {
+		t.Errorf("finalizeFieldWitness(ports).Disposition = %q, want conflicting", witness.Disposition)
+	}
+	if len(witness.Conflicts) != 1 || witness.Conflicts[0] != "ports acceptance check expects block count 3 but config declares 2 blocks" {
+		t.Errorf("finalizeFieldWitness(ports).Conflicts = %#v, want comparable block-count conflict", witness.Conflicts)
 	}
 }
 
@@ -178,6 +217,7 @@ func resourceFWNetworkServices() *schema.Resource {
 		ReadContext: resourceNetworkServicesRead,
 		Schema: map[string]*schema.Schema{
 			"tag": getCloudFirewallNetworkServicesTag(),
+			"ip_addresses": {Type: schema.TypeSet, Optional: true, Elem: &schema.Schema{Type: schema.TypeString}},
 			"src_tcp_ports": resourceNetworkPortsSchema(),
 		},
 	}
@@ -209,7 +249,8 @@ func (fakeResourceData) Set(string, any) error { return nil }
 
 func resourceNetworkServicesRead(_ context.Context, d *schema.ResourceData, _ any) diag.Diagnostics {
 	var resp struct {
-		Tag string
+		Tag          string
+		IPAddresses  []string
 		SrcTCPPorts []int
 	}
 	var decoy fakeResourceData
@@ -217,6 +258,7 @@ func resourceNetworkServicesRead(_ context.Context, d *schema.ResourceData, _ an
 	dynamicKey := "dynamic"
 	_ = d.Set(dynamicKey, resp.Tag)
 	_ = d.Set("tag", resp.Tag)
+	_ = d.Set("ip_addresses", resp.IPAddresses)
 	if err := d.Set("src_tcp_ports", flattenNetworkPorts(resp.SrcTCPPorts)); err != nil {
 		return diag.FromErr(err)
 	}
@@ -229,6 +271,7 @@ func resourceNetworkServicesRead(_ context.Context, d *schema.ResourceData, _ an
 			"import (\n\t\"fmt\"\n\t\"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource\"\n)\n\n"+
 			"func acceptanceConfig() string {\n\treturn fmt.Sprintf(`\n"+
 			"resource \"%s\" \"test\" {\n"+
+			"  ip_addresses = [\"192.0.2.1\", \"192.0.2.2\", \"192.0.2.3\"]\n"+
 			"  src_tcp_ports {\n    start = 5000\n  }\n"+
 			"  src_tcp_ports {\n    start = 5001\n  }\n"+
 			"  src_tcp_ports {\n    start = 5002\n    end = 5005\n  }\n"+
@@ -236,6 +279,7 @@ func resourceNetworkServicesRead(_ context.Context, d *schema.ResourceData, _ an
 			"data \"%s\" \"test\" { id = \"${%s.test.id}\" }\n"+
 			"`, \"zia_firewall_filtering_network_service\", \"zia_firewall_filtering_network_service\", \"zia_firewall_filtering_network_service\")\n}\n\n"+
 			"func acceptanceChecks() {\n"+
+			"\t_ = resource.TestCheckResourceAttr(\"zia_firewall_filtering_network_service.test\", \"ip_addresses.#\", \"3\")\n"+
 			"\t_ = resource.TestCheckResourceAttr(\"zia_firewall_filtering_network_service.test\", \"src_tcp_ports.#\", \"3\")\n"+
 			"\t_ = resource.TestCheckResourceAttr(\"other_resource.test\", \"src_tcp_ports.#\", \"99\")\n}\n")
 	}
@@ -298,6 +342,7 @@ const fieldWitnessSchema = `{
         "zia_firewall_filtering_network_service": {
           "block": {
             "attributes": {
+              "ip_addresses": {"type": ["set", "string"], "optional": true},
               "tag": {"type": "string", "optional": true, "computed": true}
             },
             "block_types": {
