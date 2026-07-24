@@ -165,7 +165,8 @@
   with the same contagious unresolved shape; `assigned_unknown_targets`
   reproduces the overwrite case. Focused/race, repository-wide, vet/format,
   `make check`, and real ZIA probe verification are rerun after the fixes before
-  final re-review.
+  final re-review. The same reviewer rechecked exact code head `8e8df52` and
+  returned `Approve` with no blocking findings or non-blocking risks.
 - Real-source comparison: A removed temporary probe loaded the actual ZIA
   v4.8.0 sources and the refreshed schema. DNS, filtering, and SSL endpoint
   applications/groups were each `conflicting` with consistent declarations,
