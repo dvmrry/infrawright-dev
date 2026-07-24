@@ -9,7 +9,7 @@
 ## Base / Head
 
 - Base: `origin/main` at `5db8ff747f5cdbe768e60905d581d0738ea24127`.
-- Head: `feature/field-lineage-spike`, published as one consolidated commit atop the base; resolve the exact head with `git rev-parse HEAD`.
+- Head: `feature/field-lineage-spike`, published as the consolidated implementation plus a focused review-hardening commit; resolve the exact head with `git rev-parse HEAD`.
 - Diff command: `git diff origin/main...HEAD`.
 
 ## Files Changed
@@ -21,9 +21,9 @@ The historical branch-only Python scripts, generated field-lineage corpus, provi
 
 ## Source Inputs Consulted
 
-- Provider schemas: Focused Terraform provider-schema JSON in `field_witnesses_test.go`; no live ZIA provider-schema dump was used.
+- Provider schemas: Focused Terraform provider-schema JSON in `field_witnesses_test.go` plus the checked-in `packs/zia/schemas/provider/zia.json` for the real-source probe; no new live provider-schema dump was generated.
 - OpenAPI/API contracts: None; field witnesses do not infer API behavior.
-- Provider source files: `zscaler/terraform-provider-zia` tag `v4.7.26`, commit `6e6509f001ca71adcedfd4884250d09227395bf0`: `main.go`, `zia/provider.go`, `zia/common.go`, `zia/resource_zia_fw_filtering_network_services.go`, `zia/resource_zia_fw_filtering_network_services_test.go`, and `zia/common/resourcetype/resource_type.go`.
+- Provider source files: `zscaler/terraform-provider-zia` tag `v4.7.26`, commit `6e6509f001ca71adcedfd4884250d09227395bf0`: `main.go`, `zia/provider.go`, `zia/common.go`, `zia/common/resourcetype/resource_type.go`, and the resource/test pairs for firewall IP source groups, firewall network services, location management, and URL categories.
 - Pack metadata: None.
 - Existing docs or design records: `README.md`, `docs/provider-readiness.md`, `docs/adversarial-review.md`, and the review templates/prompts under `docs/`.
 - Other source evidence: Existing `sourcebind`, `sourceanalysis`, and source-evidence contract implementations and tests. The retired `tools/source-evidence-ast` collector was read only to identify the small reusable AST concepts before deletion.
@@ -55,9 +55,9 @@ The historical branch-only Python scripts, generated field-lineage corpus, provi
 
 ## Tests Run
 
-- Commands: `go test ./internal/authoring/sourceanalysis`; `go test -race ./internal/authoring/sourceanalysis`; `go test ./...`; `go vet ./...`; `make check`; `git diff --check`.
-- Relevant output summary: All commands passed. Focused tests cover schema/helper flags and validators, qualified `ResourceData.Set` receiver filtering, dynamic-key diagnostics, formatted HCL, three collection blocks with one `end`, exact count assertion association, unrelated-resource assertion rejection, direct conflict reporting, cancellation, and deterministic JSON rendering.
-- Tests not run and why: No live Terraform acceptance apply, provider binary execution, or live ZIA API call; those would require credentials/external mutation and the new code statically observes bound source only. No actual ZIA Terraform schema dump was available, so the external source probe used the focused schema JSON.
+- Commands: `go test ./internal/authoring/sourceanalysis`; `go test -race ./internal/authoring/sourceanalysis`; temporary real-source probe `go test ./internal/authoring/sourceanalysis -run '^TestProbeRealZIAFieldWitnesses$' -count=1 -v` (probe file removed); `go test ./...`; `go vet ./...`; `make check`; `git diff --check`.
+- Relevant output summary: All commands passed. The focused fixture mirrors the real ZIA authority shape (`main.go` `plugin.Serve` -> `zia.ZIAProvider`, with `p := &schema.Provider{...}; return p`) and covers schema/helper flags and validators, qualified `ResourceData.Set` receiver filtering, dynamic-key diagnostics, formatted HCL, three collection blocks with one `end`, exact count assertion association, unrelated-resource assertion rejection, direct conflict reporting, cancellation, and deterministic JSON rendering. A removed temporary probe against the real source and checked-in ZIA schema recovered provider-schema, read-back, and acceptance witnesses for all four probed resources: IP source groups (5 fields), network service (19), location management (66), and URL categories (33); unsupported nested helper values remained explicit diagnostics.
+- Tests not run and why: No live Terraform acceptance apply, provider binary execution, live provider-schema generation, or live ZIA API call; those would require external tooling, credentials, or mutation and the new code statically observes bound source only.
 
 ## Known Deferrals
 
@@ -65,7 +65,7 @@ The historical branch-only Python scripts, generated field-lineage corpus, provi
 - Reason it is safe to defer: No existing authority consumes the new report, so no readiness or generated-output semantics can change before that policy is designed and reviewed.
 - Follow-up owner or trigger: A follow-up change that explicitly decides field-witness precedence, artifact versioning, and downstream disposition policy.
 
-Additional parser limits deliberately deferred: plugin-framework schema declarations; indirect/local-variable resource literals; helper-propagated `ResourceData.Set`; non-literal check paths; acceptance tests outside the exact constructor-companion file; and complex `fmt.Sprintf` verbs beyond the length-preserving common cases. Unsupported shapes identified at selected parsing seams are diagnostic; unsearched helper/test locations and absence of a matching test file remain silence.
+Additional parser limits deliberately deferred: plugin-framework schema declarations; indirect/local-variable `*schema.Resource` constructor returns (the real ZIA provider-factory shape `p := &schema.Provider{...}; return p` is supported); helper-propagated `ResourceData.Set`; non-literal check paths; acceptance tests outside the exact constructor-companion file; and complex `fmt.Sprintf` verbs beyond the length-preserving common cases. Unsupported shapes identified at selected parsing seams are diagnostic; unsearched helper/test locations and absence of a matching test file remain silence.
 
 ## Review Focus
 

@@ -140,18 +140,30 @@ func requireFieldWitness(t *testing.T, resource FieldWitnessResource, path strin
 func fieldWitnessInputs(t *testing.T, schemaJSON string, includeAcceptance bool) sourcebind.UnverifiedInputs {
 	t.Helper()
 	root := t.TempDir()
-	files := []string{"provider.go", "resource_zia_fw_filtering_network_services.go"}
-	writeFieldWitnessFile(t, root, "provider.go", `package zia
+	files := []string{"main.go", "zia/provider.go", "zia/resource_zia_fw_filtering_network_services.go"}
+	writeFieldWitnessFile(t, root, "main.go", `package main
+
+import (
+	"github.com/hashicorp/terraform-plugin-sdk/v2/plugin"
+	"example.invalid/terraform-provider-zia/zia"
+)
+
+func main() {
+	plugin.Serve(&plugin.ServeOpts{ProviderFunc: zia.ZIAProvider})
+}
+`)
+	writeFieldWitnessFile(t, root, "zia/provider.go", `package zia
 
 import "github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 
-func Provider() *schema.Provider {
-	return &schema.Provider{ResourcesMap: map[string]*schema.Resource{
+func ZIAProvider() *schema.Provider {
+	p := &schema.Provider{ResourcesMap: map[string]*schema.Resource{
 		"zia_firewall_filtering_network_service": resourceFWNetworkServices(),
 	}}
+	return p
 }
 `)
-	writeFieldWitnessFile(t, root, "resource_zia_fw_filtering_network_services.go", `package zia
+	writeFieldWitnessFile(t, root, "zia/resource_zia_fw_filtering_network_services.go", `package zia
 
 import (
 	"context"
@@ -212,8 +224,8 @@ func resourceNetworkServicesRead(_ context.Context, d *schema.ResourceData, _ an
 }
 `)
 	if includeAcceptance {
-		files = append(files, "resource_zia_fw_filtering_network_services_test.go")
-		writeFieldWitnessFile(t, root, "resource_zia_fw_filtering_network_services_test.go", "package zia\n\n"+
+		files = append(files, "zia/resource_zia_fw_filtering_network_services_test.go")
+		writeFieldWitnessFile(t, root, "zia/resource_zia_fw_filtering_network_services_test.go", "package zia\n\n"+
 			"import (\n\t\"fmt\"\n\t\"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource\"\n)\n\n"+
 			"func acceptanceConfig() string {\n\treturn fmt.Sprintf(`\n"+
 			"resource \"%s\" \"test\" {\n"+
