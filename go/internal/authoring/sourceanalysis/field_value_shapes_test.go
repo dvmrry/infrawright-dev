@@ -69,6 +69,21 @@ func TestAnalyzeUnverifiedFieldWitnessesSeparatesEvidenceFamilies(t *testing.T) 
 		t.Errorf("AnalyzeUnverifiedFieldWitnesses(unsupported_targets) diagnostics = %#v, want unsupported statement surfaced", resource.Diagnostics)
 	}
 
+	for _, fieldPath := range []string{"mixed_targets", "appended_targets"} {
+		witness := requireFieldWitness(t, resource, fieldPath)
+		if witness.Assessment.Read != FieldReadShapeUnresolved {
+			t.Errorf("AnalyzeUnverifiedFieldWitnesses(%s).Assessment.Read = %q, want unresolved mixed known/unknown shape", fieldPath, witness.Assessment.Read)
+		}
+		if !hasFieldWitnessDiagnosticForPath(resource.Diagnostics, "read_back_shape_unresolved", fieldPath) {
+			t.Errorf("AnalyzeUnverifiedFieldWitnesses(%s) diagnostics = %#v, want unresolved shape diagnostic", fieldPath, resource.Diagnostics)
+		}
+	}
+
+	nullable := requireFieldWitness(t, resource, "nullable_targets")
+	if nullable.Assessment.Read != FieldReadShapeConsistent {
+		t.Errorf("AnalyzeUnverifiedFieldWitnesses(nullable_targets).Assessment.Read = %q, want proven nil path kept distinct from arbitrary unknown", nullable.Assessment.Read)
+	}
+
 	unwired := requireFieldWitness(t, resource, "unwired_targets")
 	if unwired.Disposition != FieldWitnessUntested {
 		t.Errorf("AnalyzeUnverifiedFieldWitnesses(unwired_targets).Disposition = %q, want untested", unwired.Disposition)
@@ -82,6 +97,9 @@ func TestAnalyzeUnverifiedFieldWitnessesSeparatesEvidenceFamilies(t *testing.T) 
 		!containsString(review.ReasonCodes, "read_back_absent") ||
 		!containsString(review.ReasonCodes, "write_input_absent") {
 		t.Errorf("AnalyzeUnverifiedFieldWitnesses(unwired_targets) review = %#v, want missing Read/write guidance", review)
+	}
+	if !hasFieldWitnessDiagnosticForPath(resource.Diagnostics, "write_helper_unresolved", "unwired_targets") {
+		t.Errorf("AnalyzeUnverifiedFieldWitnesses(unwired_targets) diagnostics = %#v, want unsupported variadic write helper surfaced", resource.Diagnostics)
 	}
 }
 
@@ -232,10 +250,13 @@ func resourceNestedRule() *schema.Resource {
 		UpdateContext: resourceNestedRuleUpdate,
 		ReadContext: resourceNestedRuleRead,
 		Schema: map[string]*schema.Schema{
+			"appended_targets": schemautil.NestedStringSetSchema(nestedIDKey),
 			"broken_targets": schemautil.NestedStringSetSchema(nestedIDKey),
 			"coerced_count": {Type: schema.TypeInt, Optional: true},
 			"external_targets": {Type: schema.TypeString, Optional: true},
 			"incomplete_targets": {Type: schema.TypeSet, Optional: true},
+			"mixed_targets": schemautil.NestedStringSetSchema(nestedIDKey),
+			"nullable_targets": schemautil.NestedStringSetSchema(nestedIDKey),
 			"safe_targets": schemautil.NestedStringSetSchema(nestedIDKey),
 			"unsupported_targets": schemautil.NestedStringSetSchema(nestedIDKey),
 			"unwired_targets": schemautil.NestedStringSetSchema(nestedIDKey),
@@ -248,6 +269,7 @@ func resourceNestedRuleCreate(ctx context.Context, d *schema.ResourceData, meta 
 	_ = expandTargets(d, "safe_targets")
 	_ = expandTargets(nil, "unwired_targets")
 	expandTwoResourceData(d, nil, "safe_targets", "unwired_targets")
+	variadicExpand(d, "unwired_targets")
 	return resourceNestedRuleRead(ctx, d, meta)
 }
 
@@ -265,6 +287,10 @@ func expandTwoResourceData(active, inactive *schema.ResourceData, activeKey, ina
 	_ = inactive.Get(inactiveKey)
 }
 
+func variadicExpand(d *schema.ResourceData, keys ...string) {
+	_ = d.Get(keys[0])
+}
+
 func resourceNestedRuleRead(_ context.Context, d *schema.ResourceData, _ any) diag.Diagnostics {
 	var response struct {
 		Broken []string
@@ -274,6 +300,9 @@ func resourceNestedRuleRead(_ context.Context, d *schema.ResourceData, _ any) di
 	_ = d.Set("coerced_count", string(1))
 	_ = d.Set("external_targets", unseen.Flatten(response.Safe))
 	_ = d.Set("incomplete_targets", flattenSafeTargets(response.Safe))
+	_ = d.Set("mixed_targets", flattenMixedTargets(response.Safe))
+	_ = d.Set("nullable_targets", flattenNullableTargets(response.Safe))
+	_ = d.Set("appended_targets", flattenAppendedTargets(response.Safe))
 	_ = d.Set("safe_targets", flattenSafeTargets(response.Safe))
 	_ = d.Set("unsupported_targets", flattenUnsupportedTargets(response.Safe))
 	_ = d.Get("unwired_targets")
@@ -292,6 +321,25 @@ func flattenBrokenTargets(values []string) []any {
 }
 
 func flattenSafeTargets(_ []string) []any {
+	return []any{map[string]any{"ids": []string{"one"}}}
+}
+
+func flattenMixedTargets(values []string) []any {
+	if len(values) != 0 {
+		return []any{map[string]any{"ids": []string{"one"}}}
+	}
+	return uncapturedMixedTargets(values)
+}
+
+func flattenAppendedTargets(values []string) []any {
+	out := []any{map[string]any{"ids": []string{"one"}}}
+	return append(out, uncapturedAppendedTargets(values)...)
+}
+
+func flattenNullableTargets(values []string) []any {
+	if len(values) == 0 {
+		return nil
+	}
 	return []any{map[string]any{"ids": []string{"one"}}}
 }
 
@@ -368,11 +416,23 @@ const shapeWitnessSchema = `{
 			  "external_targets": {"type": "string", "optional": true}
 			},
             "block_types": {
+              "appended_targets": {
+                "nesting_mode": "set",
+                "block": {"attributes": {"ids": {"type": ["set", "string"], "optional": true}}}
+              },
               "broken_targets": {
                 "nesting_mode": "set",
                 "block": {"attributes": {"ids": {"type": ["set", "string"], "optional": true}}}
               },
               "incomplete_targets": {
+                "nesting_mode": "set",
+                "block": {"attributes": {"ids": {"type": ["set", "string"], "optional": true}}}
+              },
+              "mixed_targets": {
+                "nesting_mode": "set",
+                "block": {"attributes": {"ids": {"type": ["set", "string"], "optional": true}}}
+              },
+              "nullable_targets": {
                 "nesting_mode": "set",
                 "block": {"attributes": {"ids": {"type": ["set", "string"], "optional": true}}}
               },

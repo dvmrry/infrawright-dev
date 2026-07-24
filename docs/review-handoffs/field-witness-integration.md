@@ -88,9 +88,11 @@
   evidence remain separately rendered but contribute one acceptance family.
   A direct Read assignment whose value shape is unresolved remains a Read
   witness and carries an explicit diagnostic; a recovered incompatible nested
-  shape makes the field conflicting. Missing acceptance coverage remains
-  silence. Optional/Computed or validated fields with a missing write path are
-  ranked for human review rather than silently accepted.
+  shape makes the field conflicting. Arbitrary unknown return/assignment/append
+  values survive shape merging, while a proven `nil` path is represented
+  separately as SDK-safe absence. Missing acceptance coverage remains silence.
+  Optional/Computed or validated fields with a missing write path are ranked
+  for human review rather than silently accepted.
 - Expected report/count/coverage changes: Existing reports, readiness counts,
   and coverage do not change. Callers of the opt-in field-witness API receive
   an `assessment`, `write_inputs`, provider `value_shape`/`shape_issue`, and
@@ -119,7 +121,8 @@
   shape analysis is bounded and path-insensitive. It says a return shape *can*
   emit an incompatible key, not that every runtime path does. Unresolved
   shapes remain unresolved; Plugin SDK scalar coercion and set/list input
-  representation do not become false conflicts.
+  representation do not become false conflicts. A known sibling branch cannot
+  erase an unresolved value shape.
 - Provider-readiness counts must stay explainable: No readiness input or count
   is changed.
 - Adoption safety invariants: No adoption or provider-state Oracle path is
@@ -145,6 +148,17 @@
   explicitly; and partial scalar-coercion shapes enter the review queue. Unit
   coverage also fixes the intended Plugin SDK set/list, scalar-coercion,
   open-map, and evidence-family semantics.
+- Adversarial review loop: Fresh reviewer verdict on `42ccfc06` was `Request
+  changes`. Finding -> root cause -> fix -> regression: unknown return and
+  append shapes were discarded because inference status was ignored and
+  `unknown` acted as a merge identity; observed unresolved values now have a
+  distinct contagious shape, inference issues reach the field diagnostic, and
+  true `nil` has a separate safe shape; `mixed_targets`, `appended_targets`, and
+  `nullable_targets` cover the three cases. The review's variadic-write nit was
+  also accepted: variadic binding now stays unsupported but emits a
+  field-associated `write_helper_unresolved` diagnostic and cannot manufacture
+  a scalar key binding. Focused/race, repository-wide, vet/format, `make check`,
+  and real ZIA probe verification are rerun after the fix before re-review.
 - Real-source comparison: A removed temporary probe loaded the actual ZIA
   v4.8.0 sources and the refreshed schema. DNS, filtering, and SSL endpoint
   applications/groups were each `conflicting` with consistent declarations,
@@ -160,10 +174,10 @@
 ## Known Deferrals
 
 - Deferred work: Plugin Framework schemas; helper-propagated `ResourceData.Set`;
-  method/closure call graphs; general alias analysis; path-feasibility and
-  value-sensitive branch evaluation; complex dynamic schema and field keys;
-  acceptance tests outside the existing companion-file boundary; and runtime
-  provider execution.
+  method/closure call graphs; full variadic write-helper binding; general alias
+  analysis; path-feasibility and value-sensitive branch evaluation; complex
+  dynamic schema and field keys; acceptance tests outside the existing
+  companion-file boundary; and runtime provider execution.
 - Reason it is safe to defer: Each implemented seam is bounded. Known dynamic
   cases are diagnostic or silence, and no existing authority consumes the
   output. The checker reports only statically recovered Plugin SDK structure;
@@ -199,5 +213,6 @@
   assignment versus literals; list/set representation; uncaptured helpers;
   Create/Update calling Read; helper calls that receive a different
   ResourceData value; multiple provider schema witnesses; unresolved expected
-  shape; nested fields whose parent flattener supplies the actual Read/write
+  shape; mixed known/unknown returns and appends; `nil` versus arbitrary
+  unknown; nested fields whose parent flattener supplies the actual Read/write
   path; and deterministic ordering/JSON rendering.

@@ -25,6 +25,11 @@ const (
 	FieldValueShapeSet     FieldValueShapeKind = "set"
 	FieldValueShapeMap     FieldValueShapeKind = "map"
 	FieldValueShapeObject  FieldValueShapeKind = "object"
+	FieldValueShapeNull    FieldValueShapeKind = "null"
+	// FieldValueShapeUnresolved is an observed value whose runtime structure
+	// could not be recovered. Unlike Unknown schema/type placeholders, it must
+	// survive merges so a known sibling path cannot erase uncertainty.
+	FieldValueShapeUnresolved FieldValueShapeKind = "unresolved"
 )
 
 // FieldValueShape records only statically recovered container and literal-map
@@ -386,7 +391,7 @@ func (i *analysisIndex) inferFunctionReturnShape(
 	for _, returned := range returns {
 		merged = mergeFieldValueShapes(merged, returned)
 	}
-	if merged == nil || merged.Kind == FieldValueShapeUnknown {
+	if merged == nil || merged.Kind == FieldValueShapeUnknown || merged.Kind == FieldValueShapeUnresolved {
 		return nil, "read-back helper return shape is not statically recoverable"
 	}
 	return merged, strings.Join(sortedUniqueStrings(issues), "; ")
@@ -420,7 +425,10 @@ func (i *analysisIndex) analyzeShapeBlock(
 				for index, name := range values.Names {
 					shape := shapeFromGoType(values.Type)
 					if index < len(values.Values) {
-						shape, _, _ = i.inferShapeExpression(function, values.Values[index], environment, seen, depth)
+						var attempted bool
+						var issue string
+						shape, attempted, issue = i.inferShapeExpression(function, values.Values[index], environment, seen, depth)
+						recordShapeInferenceIssue(issues, attempted, issue, "declared value")
 					}
 					environment[name.Name] = cloneFieldValueShape(shape)
 				}
@@ -430,9 +438,10 @@ func (i *analysisIndex) analyzeShapeBlock(
 				if index >= len(value.Rhs) {
 					continue
 				}
-				shape, _, _ := i.inferShapeExpression(function, value.Rhs[index], environment, seen, depth)
+				shape, attempted, issue := i.inferShapeExpression(function, value.Rhs[index], environment, seen, depth)
 				switch target := left.(type) {
 				case *ast.Ident:
+					recordShapeInferenceIssue(issues, attempted, issue, "assigned value")
 					environment[target.Name] = cloneFieldValueShape(shape)
 				case *ast.IndexExpr:
 					identifier, ok := target.X.(*ast.Ident)
@@ -454,12 +463,14 @@ func (i *analysisIndex) analyzeShapeBlock(
 						}
 						container.Closed = false
 					}
+					recordShapeInferenceIssue(issues, attempted, issue, "assigned collection element")
 					container.Element = mergeFieldValueShapes(container.Element, shape)
 				}
 			}
 		case *ast.ReturnStmt:
 			if len(value.Results) == 1 {
-				shape, _, _ := i.inferShapeExpression(function, value.Results[0], environment, seen, depth)
+				shape, attempted, issue := i.inferShapeExpression(function, value.Results[0], environment, seen, depth)
+				recordShapeInferenceIssue(issues, attempted, issue, "returned value")
 				returns = append(returns, shape)
 			}
 		case *ast.IfStmt:
@@ -478,7 +489,8 @@ func (i *analysisIndex) analyzeShapeBlock(
 				environment[identifier.Name] = &FieldValueShape{Kind: FieldValueShapeInt}
 			}
 			if identifier, ok := value.Value.(*ast.Ident); ok {
-				collection, _, _ := i.inferShapeExpression(function, value.X, environment, seen, depth)
+				collection, attempted, issue := i.inferShapeExpression(function, value.X, environment, seen, depth)
+				recordShapeInferenceIssue(issues, attempted, issue, "range value")
 				if collection != nil {
 					environment[identifier.Name] = cloneFieldValueShape(collection.Element)
 				}
@@ -498,6 +510,15 @@ func (i *analysisIndex) analyzeShapeBlock(
 		}
 	}
 	return returns
+}
+
+func recordShapeInferenceIssue(issues *[]string, attempted bool, issue, context string) {
+	if issue != "" {
+		*issues = append(*issues, issue)
+	}
+	if !attempted {
+		*issues = append(*issues, context+" shape is not statically recognized")
+	}
 }
 
 func (i *analysisIndex) analyzeShapeStatement(
@@ -539,12 +560,18 @@ func (i *analysisIndex) inferShapeExpression(
 		}
 	case *ast.Ident:
 		if shape := environment[value.Name]; shape != nil {
+			if shape.Kind == FieldValueShapeUnknown {
+				return &FieldValueShape{Kind: FieldValueShapeUnresolved}, false, ""
+			}
 			return cloneFieldValueShape(shape), true, ""
+		}
+		if value.Name == "nil" {
+			return &FieldValueShape{Kind: FieldValueShapeNull}, true, ""
 		}
 		if value.Name == "true" || value.Name == "false" {
 			return &FieldValueShape{Kind: FieldValueShapeBool}, true, ""
 		}
-		return &FieldValueShape{Kind: FieldValueShapeUnknown}, false, ""
+		return &FieldValueShape{Kind: FieldValueShapeUnresolved}, false, ""
 	case *ast.CompositeLit:
 		return i.inferCompositeShape(function, value, environment, seen, depth+1), true, ""
 	case *ast.CallExpr:
@@ -559,18 +586,32 @@ func (i *analysisIndex) inferShapeExpression(
 				if len(value.Args) < 2 {
 					return nil, true, "append call has fewer than two arguments"
 				}
-				collection, _, _ := i.inferShapeExpression(function, value.Args[0], environment, seen, depth+1)
-				if collection == nil {
+				collection, collectionAttempted, collectionIssue := i.inferShapeExpression(function, value.Args[0], environment, seen, depth+1)
+				var issues []string
+				if collectionIssue != "" {
+					issues = append(issues, collectionIssue)
+				}
+				if !collectionAttempted {
+					issues = append(issues, "append destination shape is not statically recognized")
+				}
+				if collection == nil || collection.Kind == FieldValueShapeNull {
 					collection = &FieldValueShape{Kind: FieldValueShapeList}
 				}
 				for _, argument := range value.Args[1:] {
-					element, _, _ := i.inferShapeExpression(function, argument, environment, seen, depth+1)
+					element, attempted, issue := i.inferShapeExpression(function, argument, environment, seen, depth+1)
+					if issue != "" {
+						issues = append(issues, issue)
+					}
+					if !attempted {
+						issues = append(issues, "appended value shape is not statically recognized")
+						element = &FieldValueShape{Kind: FieldValueShapeUnresolved}
+					}
 					if value.Ellipsis.IsValid() && element != nil && isCollectionShape(element.Kind) {
 						element = element.Element
 					}
 					collection.Element = mergeFieldValueShapes(collection.Element, element)
 				}
-				return collection, true, ""
+				return collection, true, strings.Join(sortedUniqueStrings(issues), "; ")
 			case "bool":
 				return &FieldValueShape{Kind: FieldValueShapeBool}, true, ""
 			case "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64":
@@ -591,7 +632,7 @@ func (i *analysisIndex) inferShapeExpression(
 		shape, issue := i.inferFunctionReturnShape(helper, seen, depth+1)
 		return shape, true, issue
 	default:
-		return &FieldValueShape{Kind: FieldValueShapeUnknown}, false, ""
+		return &FieldValueShape{Kind: FieldValueShapeUnresolved}, false, ""
 	}
 }
 
@@ -631,7 +672,7 @@ func (i *analysisIndex) inferCompositeShape(
 		}
 		return shape
 	default:
-		return &FieldValueShape{Kind: FieldValueShapeUnknown}
+		return &FieldValueShape{Kind: FieldValueShapeUnresolved}
 	}
 }
 
@@ -665,10 +706,25 @@ func shapeFromGoType(expression ast.Expr) *FieldValueShape {
 }
 
 func mergeFieldValueShapes(left, right *FieldValueShape) *FieldValueShape {
-	if left == nil || left.Kind == FieldValueShapeUnknown {
+	if left == nil {
 		return cloneFieldValueShape(right)
 	}
-	if right == nil || right.Kind == FieldValueShapeUnknown {
+	if right == nil {
+		return cloneFieldValueShape(left)
+	}
+	if left.Kind == FieldValueShapeUnresolved || right.Kind == FieldValueShapeUnresolved {
+		return &FieldValueShape{Kind: FieldValueShapeUnresolved}
+	}
+	if left.Kind == FieldValueShapeUnknown {
+		return cloneFieldValueShape(right)
+	}
+	if right.Kind == FieldValueShapeUnknown {
+		return cloneFieldValueShape(left)
+	}
+	if left.Kind == FieldValueShapeNull {
+		return cloneFieldValueShape(right)
+	}
+	if right.Kind == FieldValueShapeNull {
 		return cloneFieldValueShape(left)
 	}
 	if left.Kind != right.Kind {
@@ -815,8 +871,12 @@ func assessReadBackShape(
 }
 
 func compareFieldValueShapes(fieldPath string, expected, observed *FieldValueShape) ([]string, bool) {
-	if expected == nil || observed == nil || expected.Kind == FieldValueShapeUnknown || observed.Kind == FieldValueShapeUnknown {
+	if expected == nil || observed == nil || expected.Kind == FieldValueShapeUnknown || observed.Kind == FieldValueShapeUnknown ||
+		expected.Kind == FieldValueShapeUnresolved || observed.Kind == FieldValueShapeUnresolved {
 		return nil, true
+	}
+	if observed.Kind == FieldValueShapeNull {
+		return nil, false
 	}
 	if isCollectionShape(expected.Kind) && isCollectionShape(observed.Kind) {
 		elementConflicts, partial := compareFieldValueShapes(fieldPath+"[]", expected.Element, observed.Element)

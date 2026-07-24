@@ -155,6 +155,7 @@ func (i *analysisIndex) scanWriteInputs(
 		}
 		helperBindings, ok := i.bindWriteCallExpressions(current, helper, call.Args, bindings)
 		if !ok {
+			i.recordUnresolvedWriteHelper(current, call, bindings, diagnostics)
 			return true
 		}
 		i.scanWriteInputs(root, helper, helperBindings, helperReceivers, excluded, nextSeen, depth+1, witnesses, diagnostics)
@@ -231,7 +232,7 @@ func (i *analysisIndex) recordUnresolvedWriteHelper(
 	if len(fieldPaths) == 0 {
 		*diagnostics = append(*diagnostics, FieldWitnessDiagnostic{
 			Code:     "write_helper_unresolved",
-			Message:  "Create or Update calls an uncaptured helper with ResourceData",
+			Message:  "Create or Update calls a helper whose ResourceData field access is not statically resolved",
 			Location: &location,
 		})
 		return
@@ -240,7 +241,7 @@ func (i *analysisIndex) recordUnresolvedWriteHelper(
 		*diagnostics = append(*diagnostics, FieldWitnessDiagnostic{
 			Code:      "write_helper_unresolved",
 			FieldPath: fieldPath,
-			Message:   fieldPath + ": Create or Update calls an uncaptured helper with ResourceData",
+			Message:   fieldPath + ": Create or Update calls a helper whose ResourceData field access is not statically resolved",
 			Location:  &location,
 		})
 	}
@@ -318,6 +319,9 @@ func (i *analysisIndex) bindWriteCallExpressions(
 	bindings := make(map[string]expressionBinding)
 	argument := 0
 	for _, parameter := range callee.decl.Type.Params.List {
+		if _, variadic := parameter.Type.(*ast.Ellipsis); variadic {
+			return nil, false
+		}
 		if len(parameter.Names) == 0 {
 			argument++
 			continue
