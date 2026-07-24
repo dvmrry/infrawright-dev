@@ -35,6 +35,16 @@ const (
 	FieldWitnessUntested FieldWitnessDisposition = "untested"
 )
 
+// FieldWitnessReviewPriority ranks diagnostic attention only. It is not an
+// adoption-risk or provider-readiness classification.
+type FieldWitnessReviewPriority string
+
+const (
+	FieldWitnessReviewHigh   FieldWitnessReviewPriority = "high"
+	FieldWitnessReviewMedium FieldWitnessReviewPriority = "medium"
+	FieldWitnessReviewLow    FieldWitnessReviewPriority = "low"
+)
+
 // FieldWitnessReport contains source-derived, corroborating field evidence.
 // It is intentionally separate from the frozen source-evidence-report-v1
 // contract until downstream policy for these witnesses is reviewed.
@@ -50,6 +60,18 @@ type FieldWitnessReport struct {
 type FieldWitnessResource struct {
 	Fields      map[string]FieldWitness  `json:"fields"`
 	Diagnostics []FieldWitnessDiagnostic `json:"diagnostics"`
+	ReviewQueue []FieldWitnessReviewItem `json:"review_queue"`
+}
+
+// FieldWitnessReviewItem turns captured disagreements and evidence gaps into
+// a deterministic worklist without changing their authority or disposition.
+type FieldWitnessReviewItem struct {
+	FieldPath            string                     `json:"field_path"`
+	Priority             FieldWitnessReviewPriority `json:"priority"`
+	ReasonCodes          []string                   `json:"reason_codes"`
+	Details              []string                   `json:"details"`
+	AbsentWitnessClasses []string                   `json:"absent_witness_classes"`
+	SuggestedValidation  string                     `json:"suggested_validation"`
 }
 
 // FieldWitness combines independent observations for one normalized Terraform
@@ -117,9 +139,10 @@ type AcceptanceCheckFieldWitness struct {
 // FieldWitnessDiagnostic surfaces unsupported or ambiguous source shapes
 // without turning absence into negative behavioral evidence.
 type FieldWitnessDiagnostic struct {
-	Code     string                    `json:"code"`
-	Message  string                    `json:"message"`
-	Location *contracts.SourceLocation `json:"location,omitempty"`
+	Code      string                    `json:"code"`
+	FieldPath string                    `json:"field_path,omitempty"`
+	Message   string                    `json:"message"`
+	Location  *contracts.SourceLocation `json:"location,omitempty"`
 }
 
 // AnalyzeFieldWitnesses derives corroborating field witnesses from one
@@ -246,7 +269,11 @@ func (i *analysisIndex) fieldWitnessResource(resourceType string, schemaData map
 		final[fieldPath] = finalizeFieldWitness(fieldPath, accumulated)
 	}
 	sortFieldWitnessDiagnostics(diagnostics)
-	return FieldWitnessResource{Fields: final, Diagnostics: diagnostics}
+	return FieldWitnessResource{
+		Fields:      final,
+		Diagnostics: diagnostics,
+		ReviewQueue: fieldWitnessReviewQueue(final, diagnostics),
+	}
 }
 
 func terraformResourceSchema(data map[string]any, resourceType string) (map[string]any, string, error) {
@@ -450,13 +477,13 @@ func (i *analysisIndex) collectProviderSchemaFields(
 		resolved, issue := i.resolveSchemaLiteral(owner, entry.Value, map[string]bool{}, 0)
 		if issue != "" {
 			location := i.loc(owner.file, owner.symbol, entry.Value.Pos())
-			*diagnostics = append(*diagnostics, FieldWitnessDiagnostic{Code: "provider_field_schema_unresolved", Message: fieldPath + ": " + issue, Location: &location})
+			*diagnostics = append(*diagnostics, FieldWitnessDiagnostic{Code: "provider_field_schema_unresolved", FieldPath: fieldPath, Message: fieldPath + ": " + issue, Location: &location})
 			continue
 		}
 		witness, issue := i.providerSchemaWitness(resolved)
 		if issue != "" {
 			location := i.loc(resolved.owner.file, resolved.owner.symbol, resolved.literal.Pos())
-			*diagnostics = append(*diagnostics, FieldWitnessDiagnostic{Code: "provider_field_schema_dynamic", Message: fieldPath + ": " + issue, Location: &location})
+			*diagnostics = append(*diagnostics, FieldWitnessDiagnostic{Code: "provider_field_schema_dynamic", FieldPath: fieldPath, Message: fieldPath + ": " + issue, Location: &location})
 			continue
 		}
 		field(fieldPath).providerSchemas = append(field(fieldPath).providerSchemas, witness)
@@ -925,6 +952,9 @@ func selectedResourceBlocks(body *hclsyntax.Body, resourceType string) ([]*hclsy
 func collectHCLInstances(bodies []*hclsyntax.Body, prefix string, source []byte, facts map[string]*hclConfigFact) {
 	for _, body := range bodies {
 		for name, attribute := range body.Attributes {
+			if prefix == "" && isTerraformResourceMetaArgument(name) {
+				continue
+			}
 			fieldPath := joinFieldPath(prefix, name)
 			fact := ensureHCLFact(facts, fieldPath)
 			fact.occurrences++
@@ -960,6 +990,15 @@ func collectHCLInstances(bodies []*hclsyntax.Body, prefix string, source []byte,
 			childBodies = append(childBodies, block.Body)
 		}
 		collectHCLInstances(childBodies, fieldPath+"[]", source, facts)
+	}
+}
+
+func isTerraformResourceMetaArgument(name string) bool {
+	switch name {
+	case "count", "depends_on", "for_each", "provider":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1071,6 +1110,225 @@ func finalizeFieldWitness(fieldPath string, accumulated *fieldWitnessAccumulator
 	return witness
 }
 
+func fieldWitnessReviewQueue(fields map[string]FieldWitness, diagnostics []FieldWitnessDiagnostic) []FieldWitnessReviewItem {
+	fieldDiagnostics := make(map[string][]FieldWitnessDiagnostic)
+	paths := make(map[string]struct{}, len(fields))
+	for fieldPath := range fields {
+		paths[fieldPath] = struct{}{}
+	}
+	for _, diagnostic := range diagnostics {
+		if diagnostic.FieldPath == "" {
+			continue
+		}
+		fieldDiagnostics[diagnostic.FieldPath] = append(fieldDiagnostics[diagnostic.FieldPath], diagnostic)
+		paths[diagnostic.FieldPath] = struct{}{}
+	}
+
+	orderedPaths := make([]string, 0, len(paths))
+	for fieldPath := range paths {
+		orderedPaths = append(orderedPaths, fieldPath)
+	}
+	sort.Strings(orderedPaths)
+
+	queue := make([]FieldWitnessReviewItem, 0)
+	for _, fieldPath := range orderedPaths {
+		witness, hasWitness := fields[fieldPath]
+		item := FieldWitnessReviewItem{
+			FieldPath:            fieldPath,
+			ReasonCodes:          []string{},
+			Details:              []string{},
+			AbsentWitnessClasses: absentFieldWitnessClasses(witness, hasWitness),
+		}
+
+		if hasWitness && (witness.Disposition == FieldWitnessConflicting || len(witness.Conflicts) != 0) {
+			item.Priority = FieldWitnessReviewHigh
+			item.ReasonCodes = append(item.ReasonCodes, fieldWitnessConflictReasonCodes(witness)...)
+			item.Details = append(item.Details, witness.Conflicts...)
+			item.SuggestedValidation = "Resolve the listed witness disagreement; run a targeted provider apply-and-refresh round-trip when source evidence cannot decide it."
+		}
+
+		if associated := fieldDiagnostics[fieldPath]; len(associated) != 0 {
+			item.Priority = higherFieldWitnessReviewPriority(item.Priority, FieldWitnessReviewMedium)
+			item.ReasonCodes = append(item.ReasonCodes, "source_analysis_incomplete")
+			for _, diagnostic := range associated {
+				item.ReasonCodes = append(item.ReasonCodes, diagnostic.Code)
+				item.Details = append(item.Details, diagnostic.Message)
+			}
+			if item.SuggestedValidation == "" {
+				item.SuggestedValidation = "Inspect the cited source shape and recover the missing witness; if it remains dynamic, run a targeted provider round-trip for this field."
+			}
+		}
+
+		if hasWitness && witness.Disposition == FieldWitnessUntested {
+			reasons, details, priority, validation := fieldWitnessBehaviorReview(witness)
+			item.ReasonCodes = append(item.ReasonCodes, reasons...)
+			item.Details = append(item.Details, details...)
+			item.Priority = higherFieldWitnessReviewPriority(item.Priority, priority)
+			if len(fieldDiagnostics[fieldPath]) == 0 {
+				item.Priority = higherFieldWitnessReviewPriority(item.Priority, FieldWitnessReviewLow)
+				item.ReasonCodes = append(item.ReasonCodes, "evidence_silence")
+				item.Details = append(item.Details, "Fewer than two witness classes were recovered; absent classes remain silence, not negative evidence.")
+				item.SuggestedValidation = validation
+			}
+		}
+
+		if item.Priority == "" {
+			continue
+		}
+		item.ReasonCodes = sortedUniqueStrings(item.ReasonCodes)
+		item.Details = sortedUniqueStrings(item.Details)
+		if item.SuggestedValidation == "" {
+			item.SuggestedValidation = "Review the absent witness classes; if adoption behavior depends on this field, run a targeted provider apply-and-refresh round-trip."
+		}
+		queue = append(queue, item)
+	}
+
+	sort.Slice(queue, func(left, right int) bool {
+		leftPriority := fieldWitnessReviewPriorityRank(queue[left].Priority)
+		rightPriority := fieldWitnessReviewPriorityRank(queue[right].Priority)
+		if leftPriority != rightPriority {
+			return leftPriority < rightPriority
+		}
+		leftReason := fieldWitnessReviewReasonRank(queue[left].ReasonCodes)
+		rightReason := fieldWitnessReviewReasonRank(queue[right].ReasonCodes)
+		if leftReason != rightReason {
+			return leftReason < rightReason
+		}
+		return queue[left].FieldPath < queue[right].FieldPath
+	})
+	return queue
+}
+
+func absentFieldWitnessClasses(witness FieldWitness, present bool) []string {
+	absent := make([]string, 0, 5)
+	if !present || witness.TerraformSchema == nil {
+		absent = append(absent, "terraform_schema")
+	}
+	if !present || len(witness.ProviderSchemas) == 0 {
+		absent = append(absent, "provider_schema")
+	}
+	if !present || len(witness.ReadBacks) == 0 {
+		absent = append(absent, "read_back")
+	}
+	if !present || len(witness.AcceptanceConfigs) == 0 {
+		absent = append(absent, "acceptance_config")
+	}
+	if !present || len(witness.AcceptanceChecks) == 0 {
+		absent = append(absent, "acceptance_check")
+	}
+	return absent
+}
+
+func fieldWitnessConflictReasonCodes(witness FieldWitness) []string {
+	reasons := []string{"witness_conflict"}
+	if witness.TerraformSchema != nil {
+		for _, provider := range witness.ProviderSchemas {
+			if fieldFlagDisagrees(witness.TerraformSchema.Required, provider.Required) ||
+				fieldFlagDisagrees(witness.TerraformSchema.Optional, provider.Optional) ||
+				fieldFlagDisagrees(witness.TerraformSchema.Computed, provider.Computed) {
+				reasons = append(reasons, "schema_flag_mismatch")
+				break
+			}
+		}
+	}
+	if expected, declared, comparable := comparableAcceptanceBlockCounts(witness); comparable && expected != declared {
+		reasons = append(reasons, "acceptance_block_count_mismatch")
+	}
+	return reasons
+}
+
+func fieldFlagDisagrees(terraform *bool, provider bool) bool {
+	return terraform != nil && *terraform != provider
+}
+
+func fieldWitnessBehaviorReview(witness FieldWitness) ([]string, []string, FieldWitnessReviewPriority, string) {
+	optionalComputed := witness.TerraformSchema != nil &&
+		witness.TerraformSchema.Optional != nil && *witness.TerraformSchema.Optional &&
+		witness.TerraformSchema.Computed != nil && *witness.TerraformSchema.Computed
+	computed := witness.TerraformSchema != nil &&
+		witness.TerraformSchema.Computed != nil && *witness.TerraformSchema.Computed
+	validators := make([]string, 0)
+	for _, provider := range witness.ProviderSchemas {
+		optionalComputed = optionalComputed || provider.Optional && provider.Computed
+		computed = computed || provider.Computed
+		validators = append(validators, provider.Validators...)
+	}
+	validators = sortedUniqueStrings(validators)
+
+	reasons := make([]string, 0, 2)
+	details := make([]string, 0, 2)
+	priority := FieldWitnessReviewPriority("")
+	switch {
+	case optionalComputed:
+		reasons = append(reasons, "optional_computed_round_trip")
+		details = append(details, "Captured schema marks the field Optional+Computed.")
+		priority = FieldWitnessReviewMedium
+	case computed:
+		reasons = append(reasons, "computed_round_trip")
+		details = append(details, "Captured schema marks the field Computed.")
+		priority = FieldWitnessReviewMedium
+	}
+	if len(validators) != 0 {
+		reasons = append(reasons, "validator_write_behavior")
+		details = append(details, "Captured provider validators: "+strings.Join(validators, ", ")+".")
+		priority = higherFieldWitnessReviewPriority(priority, FieldWitnessReviewMedium)
+	}
+	if optionalComputed && len(validators) != 0 {
+		priority = FieldWitnessReviewHigh
+		return reasons, details, priority, "Omit the field, apply, and refresh; then exercise accepted and rejected validator boundary values to verify ownership, round-trip, and write rejection."
+	}
+	if optionalComputed || computed {
+		return reasons, details, priority, "Omit the field, apply, and refresh to verify provider ownership and read-back behavior."
+	}
+	if len(validators) != 0 {
+		return reasons, details, priority, "Exercise an accepted boundary value and a rejected value from the captured validator, then refresh to verify write behavior."
+	}
+	return reasons, details, priority, "Review the absent witness classes; if adoption behavior depends on this field, run a targeted provider apply-and-refresh round-trip."
+}
+
+func higherFieldWitnessReviewPriority(current, candidate FieldWitnessReviewPriority) FieldWitnessReviewPriority {
+	if current == "" || fieldWitnessReviewPriorityRank(candidate) < fieldWitnessReviewPriorityRank(current) {
+		return candidate
+	}
+	return current
+}
+
+func fieldWitnessReviewPriorityRank(priority FieldWitnessReviewPriority) int {
+	switch priority {
+	case FieldWitnessReviewHigh:
+		return 0
+	case FieldWitnessReviewMedium:
+		return 1
+	case FieldWitnessReviewLow:
+		return 2
+	default:
+		return 3
+	}
+}
+
+func fieldWitnessReviewReasonRank(reasons []string) int {
+	rank := 4
+	for _, reason := range reasons {
+		switch reason {
+		case "witness_conflict":
+			return 0
+		case "source_analysis_incomplete":
+			if rank > 1 {
+				rank = 1
+			}
+		case "optional_computed_round_trip", "computed_round_trip", "validator_write_behavior":
+			if rank > 2 {
+				rank = 2
+			}
+		case "evidence_silence":
+			if rank > 3 {
+				rank = 3
+			}
+		}
+	}
+	return rank
+}
+
 // comparableAcceptanceBlockCounts requires one block-form config and one
 // consistent static expected count. Anything less tightly associated remains
 // corroborating evidence without becoming a conflict claim.
@@ -1139,7 +1397,7 @@ func sortFieldWitnessDiagnostics(values []FieldWitnessDiagnostic) {
 		if values[right].Location != nil {
 			rightLocation = locationKey(*values[right].Location)
 		}
-		return values[left].Code+"\x00"+leftLocation+"\x00"+values[left].Message < values[right].Code+"\x00"+rightLocation+"\x00"+values[right].Message
+		return values[left].Code+"\x00"+values[left].FieldPath+"\x00"+leftLocation+"\x00"+values[left].Message < values[right].Code+"\x00"+values[right].FieldPath+"\x00"+rightLocation+"\x00"+values[right].Message
 	})
 }
 

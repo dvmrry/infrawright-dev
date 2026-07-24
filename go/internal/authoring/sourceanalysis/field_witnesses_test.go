@@ -93,8 +93,14 @@ func TestAnalyzeUnverifiedFieldWitnessesCorroboratesProviderBehavior(t *testing.
 	if _, exists := resource.Fields["spoofed"]; exists {
 		t.Error("fields contain Set call on non-ResourceData receiver")
 	}
+	if _, exists := resource.Fields["depends_on"]; exists {
+		t.Error("fields contain Terraform resource meta-argument")
+	}
 	if !hasFieldWitnessDiagnostic(resource.Diagnostics, "read_back_key_dynamic") {
 		t.Errorf("resource diagnostics = %#v, want dynamic d.Set key surfaced", resource.Diagnostics)
+	}
+	if len(resource.ReviewQueue) != 0 {
+		t.Errorf("resource review queue = %#v, want no field-specific review items", resource.ReviewQueue)
 	}
 }
 
@@ -104,7 +110,8 @@ func TestAnalyzeUnverifiedFieldWitnessesSurfacesSchemaConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AnalyzeUnverifiedFieldWitnesses() error = %v, want nil", err)
 	}
-	tag := requireFieldWitness(t, report.Resources[fieldWitnessResource], "tag")
+	resource := report.Resources[fieldWitnessResource]
+	tag := requireFieldWitness(t, resource, "tag")
 	if tag.Disposition != FieldWitnessConflicting {
 		t.Fatalf("tag disposition = %q, want conflicting", tag.Disposition)
 	}
@@ -113,6 +120,88 @@ func TestAnalyzeUnverifiedFieldWitnessesSurfacesSchemaConflict(t *testing.T) {
 	}
 	if len(tag.AcceptanceConfigs) != 0 || len(tag.AcceptanceChecks) != 0 {
 		t.Errorf("tag acceptance witnesses = (%#v, %#v), want absent tests to remain silence", tag.AcceptanceConfigs, tag.AcceptanceChecks)
+	}
+	if len(resource.ReviewQueue) != 1 {
+		t.Fatalf("resource review queue = %#v, want one conflicting field", resource.ReviewQueue)
+	}
+	review := requireFieldWitnessReviewItem(t, resource, "tag")
+	if review.Priority != FieldWitnessReviewHigh {
+		t.Errorf("tag review priority = %q, want high", review.Priority)
+	}
+	if !containsString(review.ReasonCodes, "schema_flag_mismatch") || !containsString(review.ReasonCodes, "witness_conflict") {
+		t.Errorf("tag review reasons = %#v, want classified schema conflict", review.ReasonCodes)
+	}
+	if len(review.Details) == 0 || review.SuggestedValidation == "" {
+		t.Errorf("tag review guidance = (%#v, %q), want conflict details and next validation", review.Details, review.SuggestedValidation)
+	}
+}
+
+func TestFieldWitnessReviewQueueRanksAndExplainsReview(t *testing.T) {
+	optional := true
+	falseValue := false
+	fields := map[string]FieldWitness{
+		"corroborated": {
+			Disposition:     FieldWitnessCorroborated,
+			TerraformSchema: &TerraformSchemaFieldWitness{Optional: &optional},
+			ReadBacks:       []ReadBackFieldWitness{{Expression: "resp.Corroborated"}},
+		},
+		"dynamic_id": {
+			Disposition:     FieldWitnessUntested,
+			TerraformSchema: &TerraformSchemaFieldWitness{Optional: &optional},
+		},
+		"plain": {
+			Disposition:     FieldWitnessUntested,
+			TerraformSchema: &TerraformSchemaFieldWitness{Optional: &optional},
+		},
+		"schema_conflict": {
+			Disposition:     FieldWitnessConflicting,
+			TerraformSchema: &TerraformSchemaFieldWitness{Computed: &falseValue},
+			ProviderSchemas: []ProviderSchemaFieldWitness{{Computed: true}},
+			Conflicts:       []string{"schema_conflict computed is false in Terraform schema and true in provider schema"},
+		},
+		"validated_tag": {
+			Disposition: FieldWitnessUntested,
+			ProviderSchemas: []ProviderSchemaFieldWitness{{
+				Optional:   true,
+				Computed:   true,
+				Validators: []string{"validation.StringLenBetween(0, 255)"},
+			}},
+		},
+	}
+	diagnostics := []FieldWitnessDiagnostic{{
+		Code:      "provider_field_schema_unresolved",
+		FieldPath: "dynamic_id",
+		Message:   "dynamic_id: field value is not statically recoverable",
+	}}
+
+	queue := fieldWitnessReviewQueue(fields, diagnostics)
+	wantPaths := []string{"schema_conflict", "validated_tag", "dynamic_id", "plain"}
+	if len(queue) != len(wantPaths) {
+		t.Fatalf("fieldWitnessReviewQueue() = %#v, want %d items", queue, len(wantPaths))
+	}
+	for index, wantPath := range wantPaths {
+		if queue[index].FieldPath != wantPath {
+			t.Errorf("fieldWitnessReviewQueue()[%d].FieldPath = %q, want %q", index, queue[index].FieldPath, wantPath)
+		}
+	}
+	if queue[0].Priority != FieldWitnessReviewHigh || !containsString(queue[0].ReasonCodes, "schema_flag_mismatch") {
+		t.Errorf("schema conflict review = %#v, want high classified conflict", queue[0])
+	}
+	if queue[1].Priority != FieldWitnessReviewHigh ||
+		!containsString(queue[1].ReasonCodes, "optional_computed_round_trip") ||
+		!containsString(queue[1].ReasonCodes, "validator_write_behavior") {
+		t.Errorf("validated tag review = %#v, want high Optional+Computed validator guidance", queue[1])
+	}
+	if queue[2].Priority != FieldWitnessReviewMedium ||
+		!containsString(queue[2].ReasonCodes, "source_analysis_incomplete") ||
+		containsString(queue[2].ReasonCodes, "evidence_silence") {
+		t.Errorf("dynamic field review = %#v, want parser limitation distinct from silence", queue[2])
+	}
+	if queue[3].Priority != FieldWitnessReviewLow || !containsString(queue[3].ReasonCodes, "evidence_silence") {
+		t.Errorf("plain field review = %#v, want low evidence-silence guidance", queue[3])
+	}
+	if !containsString(queue[3].AbsentWitnessClasses, "provider_schema") || queue[3].SuggestedValidation == "" {
+		t.Errorf("plain field review = %#v, want explicit gaps and next validation", queue[3])
 	}
 }
 
@@ -133,6 +222,10 @@ func TestFinalizeFieldWitnessSurfacesComparableBlockCountConflict(t *testing.T) 
 	}
 	if len(witness.Conflicts) != 1 || witness.Conflicts[0] != "ports acceptance check expects block count 3 but config declares 2 blocks" {
 		t.Errorf("finalizeFieldWitness(ports).Conflicts = %#v, want comparable block-count conflict", witness.Conflicts)
+	}
+	queue := fieldWitnessReviewQueue(map[string]FieldWitness{"ports": witness}, nil)
+	if len(queue) != 1 || !containsString(queue[0].ReasonCodes, "acceptance_block_count_mismatch") {
+		t.Errorf("fieldWitnessReviewQueue(ports) = %#v, want classified acceptance block-count conflict", queue)
 	}
 }
 
@@ -174,6 +267,17 @@ func requireFieldWitness(t *testing.T, resource FieldWitnessResource, path strin
 		t.Fatalf("resource fields lack %q: %#v", path, resource.Fields)
 	}
 	return field
+}
+
+func requireFieldWitnessReviewItem(t *testing.T, resource FieldWitnessResource, path string) FieldWitnessReviewItem {
+	t.Helper()
+	for _, item := range resource.ReviewQueue {
+		if item.FieldPath == path {
+			return item
+		}
+	}
+	t.Fatalf("resource review queue lacks %q: %#v", path, resource.ReviewQueue)
+	return FieldWitnessReviewItem{}
 }
 
 func fieldWitnessInputs(t *testing.T, schemaJSON string, includeAcceptance bool) sourcebind.UnverifiedInputs {
@@ -271,6 +375,7 @@ func resourceNetworkServicesRead(_ context.Context, d *schema.ResourceData, _ an
 			"import (\n\t\"fmt\"\n\t\"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource\"\n)\n\n"+
 			"func acceptanceConfig() string {\n\treturn fmt.Sprintf(`\n"+
 			"resource \"%s\" \"test\" {\n"+
+			"  depends_on = []\n"+
 			"  ip_addresses = [\"192.0.2.1\", \"192.0.2.2\", \"192.0.2.3\"]\n"+
 			"  src_tcp_ports {\n    start = 5000\n  }\n"+
 			"  src_tcp_ports {\n    start = 5001\n  }\n"+
