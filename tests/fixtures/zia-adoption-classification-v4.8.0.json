@@ -45,9 +45,13 @@
       "skip": [
         {"id": 7, "name": "Predefined Rule", "predefined": true, "defaultRule": false}
       ],
+      "unsupported": [
+        {"id": 38, "name": "Filtering endpoint application", "predefined": false, "endPointApplications": [{"zappId": "zapp-1"}]},
+        {"id": 39, "name": "Filtering endpoint group", "predefined": false, "endPointApplicationGroups": [{"groupId": 42}]}
+      ],
       "keep": [
         {"id": 8, "name": "Default Rule", "predefined": false, "defaultRule": true},
-        {"id": 9, "name": "Managed Rule", "predefined": false, "defaultRule": false}
+        {"id": 9, "name": "Managed Rule", "predefined": false, "defaultRule": false, "endPointApplications": [], "endPointApplicationGroups": [], "eunTemplateId": 18, "excludeContextShieldEndPoint": true, "isEunEnabled": true}
       ]
     },
     "zia_firewall_ips_rule": {
@@ -57,9 +61,13 @@
       "skip": [
         {"id": 10, "name": "Predefined IPS Rule", "predefined": true, "defaultRule": false}
       ],
+      "unsupported": [
+        {"id": 40, "name": "IPS endpoint application", "predefined": false, "endPointApplications": [{"zappId": "zapp-1"}]},
+        {"id": 41, "name": "IPS endpoint group", "predefined": false, "endPointApplicationGroups": [{"groupId": 42}]}
+      ],
       "keep": [
         {"id": 11, "name": "Default IPS Rule", "predefined": false, "defaultRule": true},
-        {"id": 12, "name": "Managed IPS Rule", "predefined": false, "defaultRule": false}
+        {"id": 12, "name": "Managed IPS Rule", "predefined": false, "defaultRule": false, "endPointApplications": [], "endPointApplicationGroups": []}
       ]
     },
     "zia_firewall_dns_rule": {
@@ -70,9 +78,13 @@
         {"id": 13, "name": "Predefined DNS Rule", "order": 1, "predefined": true, "defaultRule": false},
         {"id": 15, "name": "Nonpositive DNS Rule", "order": 0, "predefined": false, "defaultRule": false}
       ],
+      "unsupported": [
+        {"id": 42, "name": "DNS endpoint application", "order": 1, "predefined": false, "endPointApplications": [{"zappId": "zapp-1"}]},
+        {"id": 43, "name": "DNS endpoint group", "order": 1, "predefined": false, "endPointApplicationGroups": [{"groupId": 42}]}
+      ],
       "keep": [
         {"id": 14, "name": "Default DNS Rule", "order": 1, "predefined": false, "defaultRule": true},
-        {"id": 16, "name": "Managed DNS Rule", "order": 1, "predefined": false, "defaultRule": false}
+        {"id": 16, "name": "Managed DNS Rule", "order": 1, "predefined": false, "defaultRule": false, "endPointApplications": [], "endPointApplicationGroups": [], "eunTemplateId": 17, "excludeContextShieldEndPoint": true, "isEunEnabled": true}
       ]
     },
     "zia_nat_control_rules": {
@@ -101,6 +113,19 @@
         {"id": 22, "name": "default ba rule", "order": 126, "defaultRule": true},
         {"id": 23, "name": "Default BA Rule ", "order": 126, "defaultRule": true},
         {"id": 24, "name": "Managed order 126", "order": 126, "defaultRule": false}
+      ]
+    },
+    "zia_ssl_inspection_rules": {
+      "evidence": [
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_ssl_inspection_rules.go#L364-L365",
+        "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_ssl_inspection_rules.go#L568-L573"
+      ],
+      "unsupported": [
+        {"id": 44, "name": "SSL endpoint application", "endPointApplications": [{"zappId": "zapp-1"}]},
+        {"id": 45, "name": "SSL endpoint group", "endPointApplicationGroups": [{"groupId": 42}]}
+      ],
+      "keep": [
+        {"id": 46, "name": "Managed SSL rule", "endPointApplications": [], "endPointApplicationGroups": []}
       ]
     },
     "zia_forwarding_control_rule": {

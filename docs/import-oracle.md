@@ -318,6 +318,15 @@ or any Oracle call. The earlier ZIA `cbi_profile` fill was removed; support for
 a later provider version requires new source/readback evidence and an updated
 provider scope rather than reusing that fill.
 
+The pinned ZIA 4.8.0 pack applies the same pre-Oracle rule to non-empty endpoint
+application or application-group assignments on DNS, filtering, IPS, and SSL
+rules. DNS, filtering, and SSL can fail inside the provider's newly added Read
+setters before projection; IPS declares the blocks without implementing Read
+or expand. Version-scoped `match_any_nonempty` rules therefore reject only
+endpoint-bearing raw items, while pack `projection_omit` entries prevent either
+block from entering adopted or generated import configuration if representable
+provider state reaches projection. Empty endpoint collections remain eligible.
+
 The oracle also applies `projection_omit`, `projection_omit_if`, and
 `projection_fill` to Terraform/OpenTofu generated import config before provider
 validation. If any generated-config-applicable entries are active and the

@@ -188,12 +188,30 @@ import_id
 key_field
 skip_if
 skip_if_lte
+unsupported_if
 ```
 
 `constant_key`, `key_field`, and `import_id`, when present, must be strings.
 `identity_fields` and `identity_renames` are string maps. `skip_if` and
 `skip_if_lte`, when present, must be lists of non-empty matcher objects;
 `skip_if_lte` thresholds must be JSON numbers.
+
+`unsupported_if` is a list of source-backed, provider-version-scoped rules
+that fail adoption before identity derivation or any provider Oracle call. A
+rule must select exactly one generic predicate:
+
+- `match` is an object of exact JSON-scalar comparisons; every named field
+  must match.
+- `match_any_nonempty` is a list of raw field names; the rule matches when any
+  named field is populated. Missing, null, empty-string, empty-list, and
+  empty-object values do not match. Other scalar values, including `false` and
+  zero, are populated values.
+
+Both predicate forms compare against snake-cased raw input before identity
+renames. Every rule also requires `provider.source`, `provider.version`, a
+non-empty `reason`, and one or more immutable `evidence` links. Provider scope
+must equal the active pack pin, so a provider refresh must explicitly
+revalidate each rule.
 
 `constant_key` is for identity-less singleton resources: resources where the
 provider has one object per tenant and the read payload has no natural `id`,

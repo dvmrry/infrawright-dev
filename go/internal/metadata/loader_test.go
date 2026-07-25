@@ -268,6 +268,12 @@ func TestUnsupportedAdoptionMetadataClosedVersionScopedForbiddenOnDerived(t *tes
 		"provider": JsonObject{"source": "example/sample", "version": "1.2.3"},
 		"reason":   "provider cannot round-trip this object",
 	}
+	nonemptyRule := JsonObject{
+		"evidence":           []any{"https://example.invalid/provider-source"},
+		"match_any_nonempty": []any{"endPointApplications", "endPointApplicationGroups"},
+		"provider":           JsonObject{"source": "example/sample", "version": "1.2.3"},
+		"reason":             "provider cannot round-trip populated collections",
+	}
 
 	if _, err := ValidateRegistry(JsonObject{
 		"sample_resource": JsonObject{
@@ -276,6 +282,14 @@ func TestUnsupportedAdoptionMetadataClosedVersionScopedForbiddenOnDerived(t *tes
 		},
 	}, "registry.json"); err != nil {
 		t.Fatalf("expected valid unsupported_if rule to pass, got %v", err)
+	}
+	if _, err := ValidateRegistry(JsonObject{
+		"sample_resource": JsonObject{
+			"adopt":   JsonObject{"unsupported_if": []any{nonemptyRule}},
+			"product": "sample",
+		},
+	}, "registry.json"); err != nil {
+		t.Fatalf("expected valid match_any_nonempty rule to pass, got %v", err)
 	}
 
 	cases := []any{
@@ -288,9 +302,17 @@ func TestUnsupportedAdoptionMetadataClosedVersionScopedForbiddenOnDerived(t *tes
 		[]any{cloneRule(rule, JsonObject{"provider": JsonObject{"source": "example/sample"}})},
 		[]any{cloneRule(rule, JsonObject{"reason": ""})},
 		[]any{cloneRule(rule, JsonObject{"unexpected": true})},
+		[]any{cloneRule(rule, JsonObject{"match_any_nonempty": []any{"items"}})},
+		[]any{JsonObject{
+			"evidence": []any{"fixture"}, "provider": JsonObject{"source": "example/sample", "version": "1.2.3"}, "reason": "missing predicate",
+		}},
+		[]any{cloneRule(nonemptyRule, JsonObject{"match_any_nonempty": []any{}})},
+		[]any{cloneRule(nonemptyRule, JsonObject{"match_any_nonempty": []any{"items", json.Number("1")}})},
+		[]any{cloneRule(nonemptyRule, JsonObject{"match_any_nonempty": []any{"endPointApplications", "end_point_applications"}})},
 		[]any{rule, rule},
+		[]any{nonemptyRule, cloneRule(nonemptyRule, JsonObject{"match_any_nonempty": []any{"endPointApplicationGroups", "endPointApplications"}})},
 	}
-	keywords := regexp.MustCompile(`unsupported_if|evidence|match|provider|reason|unknown`)
+	keywords := regexp.MustCompile(`unsupported_if|evidence|match|predicate|provider|reason|unknown`)
 	for i, unsupportedIf := range cases {
 		_, err := ValidateRegistry(JsonObject{
 			"sample_resource": JsonObject{
@@ -304,6 +326,17 @@ func TestUnsupportedAdoptionMetadataClosedVersionScopedForbiddenOnDerived(t *tes
 		if !keywords.MatchString(err.Error()) {
 			t.Fatalf("case %d: error %q does not match expected keywords", i, err.Error())
 		}
+	}
+	if _, err := ValidateRegistry(JsonObject{
+		"sample_resource": JsonObject{
+			"adopt": JsonObject{
+				"identity_renames": JsonObject{"endPointApplications": "applications"},
+				"unsupported_if":   []any{nonemptyRule},
+			},
+			"product": "sample",
+		},
+	}, "registry.json"); err == nil || !strings.Contains(err.Error(), "reference renamed field") {
+		t.Fatalf("expected match_any_nonempty rename-conflict error, got %v", err)
 	}
 
 	if _, err := ValidateRegistry(JsonObject{
