@@ -46,7 +46,7 @@ jobs:
         working-directory: go
         env:
           INFRAWRIGHT_V2_CHECKPOINT: "1"
-        run: go test -count=1 -v -run '^TestV2VerticalSliceCheckpoint$' ./cmd/iw
+        run: go test -count=1 -timeout=18m -v -run '^TestV2(BuildGoBinary.*|VerticalSliceCheckpoint)$' ./cmd/iw
 
   pack-profiles:
     runs-on: ubuntu-latest
