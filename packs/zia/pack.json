@@ -1,14 +1,71 @@
 {
   "drift_policy": {
     "version": 1,
-    "resource_types": {}
+    "resource_types": {
+      "zia_firewall_dns_rule": {
+        "projection_omit": [
+          {
+            "approved_by": "zscaler-adoption",
+            "path": "end_point_application_groups",
+            "reason": "ZIA provider 4.8.0 Read uses endpoint DLP data-source shapes that do not fit this resource block; omit any state that survives Read until upstream round-trip evidence exists."
+          },
+          {
+            "approved_by": "zscaler-adoption",
+            "path": "end_point_applications",
+            "reason": "ZIA provider 4.8.0 Read uses endpoint DLP data-source shapes that do not fit this resource block; omit any state that survives Read until upstream round-trip evidence exists."
+          }
+        ]
+      },
+      "zia_firewall_filtering_rule": {
+        "projection_omit": [
+          {
+            "approved_by": "zscaler-adoption",
+            "path": "end_point_application_groups",
+            "reason": "ZIA provider 4.8.0 Read uses endpoint DLP data-source shapes that do not fit this resource block; omit any state that survives Read until upstream round-trip evidence exists."
+          },
+          {
+            "approved_by": "zscaler-adoption",
+            "path": "end_point_applications",
+            "reason": "ZIA provider 4.8.0 Read uses endpoint DLP data-source shapes that do not fit this resource block; omit any state that survives Read until upstream round-trip evidence exists."
+          }
+        ]
+      },
+      "zia_firewall_ips_rule": {
+        "projection_omit": [
+          {
+            "approved_by": "zscaler-adoption",
+            "path": "end_point_application_groups",
+            "reason": "ZIA provider 4.8.0 declares this block but does not implement it in IPS Read or expand; omit any state until upstream round-trip evidence exists."
+          },
+          {
+            "approved_by": "zscaler-adoption",
+            "path": "end_point_applications",
+            "reason": "ZIA provider 4.8.0 declares this block but does not implement it in IPS Read or expand; omit any state until upstream round-trip evidence exists."
+          }
+        ]
+      },
+      "zia_ssl_inspection_rules": {
+        "projection_omit": [
+          {
+            "approved_by": "zscaler-adoption",
+            "path": "end_point_application_groups",
+            "reason": "ZIA provider 4.8.0 Read uses endpoint DLP data-source shapes that do not fit this resource block; omit any state that survives Read until upstream round-trip evidence exists."
+          },
+          {
+            "approved_by": "zscaler-adoption",
+            "path": "end_point_applications",
+            "reason": "ZIA provider 4.8.0 Read uses endpoint DLP data-source shapes that do not fit this resource block; omit any state that survives Read until upstream round-trip evidence exists."
+          }
+        ]
+      }
+    }
   },
   "lookup_sources": {
     "zia_url_categories": {
       "name_field": "configured_name"
     }
   },
-  "pin": "4.7.26",
+  "pin": "4.8.0",
   "provider_prefixes": {
     "zia_": "zia"
   },

@@ -28,7 +28,7 @@ when the candidate pack declares it and retained API/provider-schema evidence
 proves the referent, referrer field, cardinality, and stable list position.
 
 Do not use ZIA URL-filtering `cbi_profile[0].id` as the nested qualification
-case while pinned to `zscaler/zia` 4.7.26. `action = "ISOLATE"` is classified
+case while pinned to `zscaler/zia` 4.8.0. `action = "ISOLATE"` is classified
 as version-scoped unsupported before identity derivation or the import Oracle,
 and the provider import Read does not reconstruct `cbi_profile`. Root bindings
 run after Adopt and cannot repair that provider limitation.
@@ -42,7 +42,7 @@ conditional qualification cohort, not general Zscaler production support.
 |---|---|
 | `zpa_segment_group -> zpa_application_segment.segment_group_id` | Candidate only. Eligible after the exact release head completes referent-first import-only Apply, referrer assessment, and fresh-workspace no-op plans for both roots. |
 | The three declared ZPA indexed-list pairs | Qualification-only until the ordered-list procedure below passes on the exact release head, including fresh-workspace no-op and invalid-index cases. |
-| `zia_url_categories -> zia_url_filtering_rules` | Excluded from the initial cohort when any fetched rule is version-scoped unsupported, including `action = "ISOLATE"` on provider 4.7.26. The resource-level all-or-nothing preflight remains authoritative. |
+| `zia_url_categories -> zia_url_filtering_rules` | Excluded from the initial cohort when any fetched rule is version-scoped unsupported, including `action = "ISOLATE"` on provider 4.8.0. The resource-level all-or-nothing preflight remains authoritative. |
 
 Anything not explicitly admitted by this table remains excluded. In
 particular, this cohort does not authorize:
@@ -224,7 +224,7 @@ For ZIA, additionally record counts (not values) for:
 
 Do not use `zia_url_filtering_rules` as the first cross-state referrer when a
 fresh Fetch contains any version-scoped unsupported `ISOLATE` rule. Provider
-4.7.26 cannot reconstruct those rules' `cbi_profile`, so the current
+4.8.0 cannot reconstruct those rules' `cbi_profile`, so the current
 all-or-nothing preflight correctly publishes no artifact for that resource.
 Use the ZPA ordered-list cohort below to qualify indexed paths without changing
 that adoption policy.
@@ -290,7 +290,7 @@ From a fresh workspace:
 Also retain negative fixture coverage for wildcard, negative, quoted,
 leading-zero, out-of-range, and list-without-index targets. Run the same schema
 validation with both JSON and native-HCL tfvars. Record explicitly that this
-ZPA qualification supplies no evidence for ZIA 4.7.26 `ISOLATE`/
+ZPA qualification supplies no evidence for ZIA 4.8.0 `ISOLATE`/
 `cbi_profile` support.
 
 ## Report Back
@@ -311,7 +311,7 @@ Return only sanitized evidence:
 | Fresh-workspace referrer plan | |
 | Ordered-list ZPA target and pack evidence | |
 | Indexed path failed closed for invalid/missing selectors | |
-| ZIA 4.7.26 ISOLATE/cbi claim | must be `none` |
+| ZIA 4.8.0 ISOLATE/cbi claim | must be `none` |
 | Deployment Apply performed | `no`, unless separately authorized and identified |
 
 Any missing state/output, unresolved managed ID, cycle, non-import action, or

@@ -2,6 +2,7 @@ package adopt
 
 import (
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -257,6 +258,62 @@ func TestAdoptionStrictScalarMatchersSeparateBoolNumberNullAndAbsence(t *testing
 	}
 }
 
+func TestAdoptionMatchAnyNonemptyIsGenericPresenceAwareAndSnakeCased(t *testing.T) {
+	rule := metadata.JsonObject{
+		"evidence":           []any{"fixture"},
+		"match_any_nonempty": []any{"endPointApplications", "endPointApplicationGroups"},
+		"provider":           metadata.JsonObject{"source": "example/test", "version": "1.0.0"},
+		"reason":             "test",
+	}
+	resource := adoptionTestResource(metadata.JsonObject{"unsupported_if": []any{rule}}, nil)
+	tests := []struct {
+		name string
+		item map[string]any
+		want bool
+	}{
+		{name: "absent", item: map[string]any{"id": "absent"}, want: false},
+		{name: "null", item: map[string]any{"id": "null", "endPointApplications": nil}, want: false},
+		{name: "empty_string", item: map[string]any{"id": "empty-string", "endPointApplications": ""}, want: false},
+		{name: "empty_list", item: map[string]any{"id": "empty-list", "endPointApplications": []any{}}, want: false},
+		{name: "empty_object", item: map[string]any{"id": "empty-object", "endPointApplications": map[string]any{}}, want: false},
+		{name: "nonempty_string", item: map[string]any{"id": "string", "endPointApplications": "assigned"}, want: true},
+		{name: "nonempty_list", item: map[string]any{"id": "list", "endPointApplications": []any{map[string]any{"zappId": "one"}}}, want: true},
+		{name: "nonempty_object", item: map[string]any{"id": "object", "endPointApplications": map[string]any{"zappId": "one"}}, want: true},
+		{name: "false_scalar", item: map[string]any{"id": "false", "endPointApplications": false}, want: true},
+		{name: "zero_scalar", item: map[string]any{"id": "zero", "endPointApplications": json.Number("0")}, want: true},
+		{name: "second_field", item: map[string]any{"id": "group", "endPointApplicationGroups": []any{map[string]any{"groupId": json.Number("42")}}}, want: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			classified, err := ClassifyAdoptionRawItems([]any{test.item}, resource)
+			if err != nil {
+				t.Fatalf("ClassifyAdoptionRawItems(%s): %v", test.name, err)
+			}
+			got := len(classified.Unsupported) == 1
+			if got != test.want {
+				t.Errorf("ClassifyAdoptionRawItems(%s) unsupported = %t, want %t", test.name, got, test.want)
+			}
+		})
+	}
+}
+
+func TestAdoptionUnsupportedRuleRejectsAmbiguousPredicateWithoutLoaderValidation(t *testing.T) {
+	rule := metadata.JsonObject{
+		"evidence":           []any{"fixture"},
+		"match":              metadata.JsonObject{"action": "ISOLATE"},
+		"match_any_nonempty": []any{"items"},
+		"provider":           metadata.JsonObject{"source": "example/test", "version": "1.0.0"},
+		"reason":             "test",
+	}
+	_, err := ClassifyAdoptionRawItems(
+		[]any{map[string]any{"id": "one", "action": "ISOLATE", "items": []any{"value"}}},
+		adoptionTestResource(metadata.JsonObject{"unsupported_if": []any{rule}}, nil),
+	)
+	if err == nil || !strings.Contains(err.Error(), "not valid unsupported adoption metadata") {
+		t.Fatalf("ClassifyAdoptionRawItems(ambiguous predicate) error = %v, want invalid metadata", err)
+	}
+}
+
 func TestAdoptionUnsupportedDiagnosticUsesIDWhenNameIsNull(t *testing.T) {
 	if got, want := adoptionItemLabel(map[string]any{"name": nil, "id": "stable-id"}), `"stable-id"`; got != want {
 		t.Fatalf("adoptionItemLabel = %s, want %s", got, want)
@@ -282,10 +339,10 @@ func TestCommittedRegistryAdoptionMetadataAndClassificationFixture(t *testing.T)
 			t.Errorf("AdoptionMetadataFor(%s): %v", resource.Type, err)
 		}
 	}
-	if explicit != 33 {
-		t.Fatalf("explicit adoption metadata entries = %d, want 33", explicit)
+	if explicit != 37 {
+		t.Fatalf("explicit adoption metadata entries = %d, want 37", explicit)
 	}
-	fixtureText, err := metadata.ReadOptionalUTF8(filepath.Join(repositoryRoot, "tests", "fixtures", "zia-adoption-classification-v4.7.26.json"), "adoption classification fixture")
+	fixtureText, err := metadata.ReadOptionalUTF8(filepath.Join(repositoryRoot, "tests", "fixtures", "zia-adoption-classification-v4.8.0.json"), "adoption classification fixture")
 	if err != nil || fixtureText == nil {
 		t.Fatalf("read classification fixture: %v", err)
 	}
@@ -316,5 +373,121 @@ func TestCommittedRegistryAdoptionMetadataAndClassificationFixture(t *testing.T)
 		if got, want := len(classified.Eligible), counts["keep"]; got != want {
 			t.Errorf("%s eligible = %d, want %d", resourceType, got, want)
 		}
+	}
+}
+
+func TestCommittedZIA480EndpointAssignmentsFailBeforeOracleWhileScalarsReachIt(t *testing.T) {
+	repositoryRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	profile := filepath.Join(repositoryRoot, "packs", "full.packset.json")
+	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
+		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profile,
+	})
+	if err != nil {
+		t.Fatalf("LoadPackRoot(ZIA 4.8.0): %v", err)
+	}
+	policy, err := LoadAdoptionPolicy(root, nil)
+	if err != nil {
+		t.Fatalf("LoadAdoptionPolicy(ZIA 4.8.0): %v", err)
+	}
+
+	resources := []string{
+		"zia_firewall_dns_rule",
+		"zia_firewall_filtering_rule",
+		"zia_firewall_ips_rule",
+		"zia_ssl_inspection_rules",
+	}
+	endpointFields := []struct {
+		name  string
+		value any
+	}{
+		{name: "endPointApplications", value: []any{map[string]any{"zappId": "zapp-1"}}},
+		{name: "endPointApplicationGroups", value: []any{map[string]any{"groupId": json.Number("42")}}},
+	}
+	for _, resourceType := range resources {
+		for _, field := range endpointFields {
+			t.Run(resourceType+"_"+field.name, func(t *testing.T) {
+				called := false
+				raw := map[string]any{
+					"id": json.Number("1"), "name": "Endpoint-bearing rule", "order": json.Number("1"), "predefined": false,
+					field.name: field.value,
+				}
+				_, err := AdoptResourceItems(policy, []any{raw}, root.Resources[resourceType], root, func(AdoptionStateRequest) (map[string]OracleStateObject, error) {
+					called = true
+					return nil, nil
+				}, nil)
+				if err == nil || !strings.Contains(err.Error(), "unsupported item") {
+					t.Fatalf("AdoptResourceItems(%s, %s) error = %v, want unsupported preflight", resourceType, field.name, err)
+				}
+				if called {
+					t.Errorf("AdoptResourceItems(%s, %s) invoked Oracle loader, want preflight rejection", resourceType, field.name)
+				}
+			})
+		}
+	}
+
+	oracleStopped := errors.New("test Oracle stop")
+	for _, resourceType := range []string{"zia_firewall_dns_rule", "zia_firewall_filtering_rule"} {
+		t.Run(resourceType+"_scalar_witnesses", func(t *testing.T) {
+			raw := map[string]any{
+				"id": json.Number("2"), "name": "Scalar rule", "order": json.Number("1"), "predefined": false,
+				"endPointApplications": []any{}, "endPointApplicationGroups": []any{},
+				"eunTemplateId": json.Number("17"), "excludeContextShieldEndPoint": true, "isEunEnabled": true,
+			}
+			called := false
+			_, err := AdoptResourceItems(policy, []any{raw}, root.Resources[resourceType], root, func(request AdoptionStateRequest) (map[string]OracleStateObject, error) {
+				called = true
+				if len(request.RawItems) != 1 {
+					t.Fatalf("AdoptResourceItems(%s) Oracle raw item count = %d, want 1", resourceType, len(request.RawItems))
+				}
+				for _, item := range request.RawItems {
+					for _, field := range []string{"eunTemplateId", "excludeContextShieldEndPoint", "isEunEnabled"} {
+						if _, present := item[field]; !present {
+							t.Errorf("AdoptResourceItems(%s) Oracle raw item missing scalar %s", resourceType, field)
+						}
+					}
+				}
+				return nil, oracleStopped
+			}, nil)
+			if !called || !errors.Is(err, oracleStopped) {
+				t.Fatalf("AdoptResourceItems(%s) loader/error = %t/%v, want called/%v", resourceType, called, err, oracleStopped)
+			}
+		})
+	}
+
+	for _, resourceType := range resources {
+		t.Run(resourceType+"_provider_state_projection", func(t *testing.T) {
+			state := map[string]any{
+				"name":                         "Projected rule",
+				"order":                        json.Number("1"),
+				"end_point_applications":       []any{map[string]any{"zapp_id": "zapp-1"}},
+				"end_point_application_groups": []any{map[string]any{"group_id": json.Number("42")}},
+			}
+			if resourceType == "zia_firewall_dns_rule" || resourceType == "zia_firewall_filtering_rule" {
+				state["eun_template_id"] = json.Number("17")
+				state["exclude_context_shield_end_point"] = true
+				state["is_eun_enabled"] = true
+			}
+			projected, err := ProjectProviderState(ProjectProviderStateOptions{
+				Policy: policy, ResourceType: resourceType, Root: &root, StateValues: state,
+			})
+			if err != nil {
+				t.Fatalf("ProjectProviderState(%s): %v", resourceType, err)
+			}
+			for _, field := range []string{"end_point_applications", "end_point_application_groups"} {
+				if value, present := projected[field]; present {
+					t.Errorf("ProjectProviderState(%s)[%s] = %#v, want absent", resourceType, field, value)
+				}
+			}
+			if resourceType == "zia_firewall_dns_rule" || resourceType == "zia_firewall_filtering_rule" {
+				for _, field := range []string{"eun_template_id", "exclude_context_shield_end_point", "is_eun_enabled"} {
+					if _, present := projected[field]; !present {
+						t.Errorf("ProjectProviderState(%s) missing admitted scalar %s", resourceType, field)
+					}
+				}
+			}
+		})
+	}
+	if stale := policy.StaleEntries(metadata.StaleEntriesOptions{}); len(stale) != 0 {
+		t.Fatalf("ZIA endpoint projection policy stale entries = %#v, want none", stale)
 	}
 }

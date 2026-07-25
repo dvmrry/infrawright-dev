@@ -49,11 +49,12 @@ type AdoptionIdentityResult struct {
 // AdoptionUnsupportedRule ports AdoptionUnsupportedRule from
 // the original implementation.
 type AdoptionUnsupportedRule struct {
-	Evidence        []string
-	Match           map[string]any
-	ProviderSource  string
-	ProviderVersion string
-	Reason          string
+	Evidence         []string
+	Match            map[string]any
+	MatchAnyNonempty []string
+	ProviderSource   string
+	ProviderVersion  string
+	Reason           string
 }
 
 // AdoptionUnsupportedItem records the first unsupported rule matching an
@@ -126,6 +127,31 @@ func adoptionMatcherList(value any, label string) ([]map[string]any, error) {
 	return output, nil
 }
 
+func adoptionFieldList(value any, label string) ([]string, error) {
+	items, ok := value.([]any)
+	if !ok || len(items) == 0 {
+		return nil, fmt.Errorf("%s must be a non-empty list of field names", label)
+	}
+	output := make([]string, 0, len(items))
+	originalKeys := make(map[string]string, len(items))
+	for index, item := range items {
+		field, ok := item.(string)
+		if !ok || field == "" {
+			return nil, fmt.Errorf("%s[%d] must be a non-empty string", label, index)
+		}
+		normalized := transform.SnakeName(field)
+		if previous, duplicate := originalKeys[normalized]; duplicate {
+			return nil, fmt.Errorf(
+				"%s has normalized alias collision: %s and %s both map to %s",
+				label, adoptionJSONString(previous), adoptionJSONString(field), adoptionJSONString(normalized),
+			)
+		}
+		originalKeys[normalized] = field
+		output = append(output, normalized)
+	}
+	return canonjson.SortedStrings(output), nil
+}
+
 func adoptMapKeys[T any](input map[string]T) []string {
 	keys := make([]string, 0, len(input))
 	for key := range input {
@@ -178,10 +204,19 @@ func AdoptionUnsupportedRules(resource metadata.LoadedResourceMetadata) ([]*Adop
 		if err != nil {
 			return nil, err
 		}
-		match, matchOK := rule["match"].(map[string]any)
+		matchRaw, hasMatch := rule["match"]
+		match, matchOK := matchRaw.(map[string]any)
+		nonemptyRaw, hasAnyNonempty := rule["match_any_nonempty"]
 		reason, reasonOK := rule["reason"].(string)
-		if !matchOK || !reasonOK {
+		if hasMatch == hasAnyNonempty || (hasMatch && (!matchOK || len(match) == 0)) || !reasonOK {
 			return nil, fmt.Errorf("%s is not valid unsupported adoption metadata", label)
+		}
+		var matchAnyNonempty []string
+		if hasAnyNonempty {
+			matchAnyNonempty, err = adoptionFieldList(nonemptyRaw, label+".match_any_nonempty")
+			if err != nil {
+				return nil, err
+			}
 		}
 		source, sourceOK := provider["source"].(string)
 		version, versionOK := provider["version"].(string)
@@ -201,14 +236,42 @@ func AdoptionUnsupportedRules(resource metadata.LoadedResourceMetadata) ([]*Adop
 			evidence[evidenceIndex] = text
 		}
 		output = append(output, &AdoptionUnsupportedRule{
-			Evidence:        evidence,
-			Match:           cloneAdoptionRecord(match),
-			ProviderSource:  source,
-			ProviderVersion: version,
-			Reason:          reason,
+			Evidence:         evidence,
+			Match:            cloneAdoptionRecord(match),
+			MatchAnyNonempty: matchAnyNonempty,
+			ProviderSource:   source,
+			ProviderVersion:  version,
+			Reason:           reason,
 		})
 	}
 	return output, nil
+}
+
+func adoptionValueIsNonempty(value any) bool {
+	switch typed := value.(type) {
+	case nil:
+		return false
+	case string:
+		return typed != ""
+	case []any:
+		return len(typed) > 0
+	case map[string]any:
+		return len(typed) > 0
+	default:
+		return true
+	}
+}
+
+func adoptionUnsupportedRuleMatches(item map[string]any, rule *AdoptionUnsupportedRule) bool {
+	if len(rule.MatchAnyNonempty) == 0 {
+		return transform.StrictJsonScalarMatcherMatches(item, rule.Match)
+	}
+	for _, field := range rule.MatchAnyNonempty {
+		if value, present := item[field]; present && adoptionValueIsNonempty(value) {
+			return true
+		}
+	}
+	return false
 }
 
 // AdoptionMetadataFor resolves registry adoption metadata before legacy
@@ -467,7 +530,7 @@ func ClassifyAdoptionRawItems(rawItems []any, resource metadata.LoadedResourceMe
 		}
 		var unsupported *AdoptionUnsupportedRule
 		for _, rule := range rules {
-			if transform.StrictJsonScalarMatcherMatches(item, rule.Match) {
+			if adoptionUnsupportedRuleMatches(item, rule) {
 				unsupported = rule
 				break
 			}

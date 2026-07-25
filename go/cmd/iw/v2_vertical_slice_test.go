@@ -25,13 +25,34 @@ import (
 )
 
 const (
-	v2CheckpointEnv  = "INFRAWRIGHT_V2_CHECKPOINT"
-	v2ResourceType   = "zia_rule_labels"
-	v2Tenant         = "demo"
-	v2CommandTimeout = 5 * time.Minute
-	v2MaxStderrBytes = 1 * 1024 * 1024
-	v2MaxStdoutBytes = 4 * 1024 * 1024
+	v2CheckpointEnv             = "INFRAWRIGHT_V2_CHECKPOINT"
+	v2GoChecksumDB              = "sum.golang.org"
+	v2GoModuleProvisioningPhase = "provision candidate Go module cache with go mod download"
+	v2GoModuleProxy             = "https://proxy.golang.org"
+	v2GoOfflineBuildPhase       = "build candidate Go binary from provisioned module cache with GOPROXY=off"
+	v2ResourceType              = "zia_rule_labels"
+	v2Tenant                    = "demo"
+	v2CommandTimeout            = 5 * time.Minute
+	v2MaxStderrBytes            = 1 * 1024 * 1024
+	v2MaxStdoutBytes            = 4 * 1024 * 1024
 )
+
+// v2CommandRunner lets focused tests observe the two candidate-build phases.
+type v2CommandRunner func(directory, executable string, arguments, environment []string) (runResult, error)
+
+// v2GoBuildPhaseError identifies whether cache provisioning or offline build failed.
+type v2GoBuildPhaseError struct {
+	phase string
+	cause error
+}
+
+func (e *v2GoBuildPhaseError) Error() string {
+	return e.phase + ": " + e.cause.Error()
+}
+
+func (e *v2GoBuildPhaseError) Unwrap() error {
+	return e.cause
+}
 
 type v2TerraformChange struct {
 	Address string `json:"address"`
@@ -99,45 +120,237 @@ func v2RequireTreeManifest(t *testing.T, label string, tree map[string][]byte, e
 
 func v2BuildGoBinary(t *testing.T, repositoryRoot string) string {
 	t.Helper()
+	goBinary, err := v2BuildGoBinaryWithRunner(t, repositoryRoot, func(
+		directory, executable string,
+		arguments, environment []string,
+	) (runResult, error) {
+		return v2RunBoundedCommand(t, directory, executable, arguments, environment)
+	})
+	if err != nil {
+		t.Fatalf("v2BuildGoBinary(%q) error = %v, want nil", repositoryRoot, err)
+	}
+	return goBinary
+}
+
+func v2BuildGoBinaryWithRunner(t *testing.T, repositoryRoot string, run v2CommandRunner) (string, error) {
+	t.Helper()
 	goExecutable, err := exec.LookPath("go")
 	if err != nil {
-		t.Fatalf("exec.LookPath(%q) error = %v, want a Go executable", "go", err)
+		return "", fmt.Errorf("locate Go executable: %w", err)
 	}
 	goExecutable, err = filepath.Abs(goExecutable)
 	if err != nil {
-		t.Fatalf("filepath.Abs(%q) error = %v, want nil", goExecutable, err)
+		return "", fmt.Errorf("resolve Go executable %q: %w", goExecutable, err)
 	}
 	home := t.TempDir()
 	runtimeRoot := t.TempDir()
 	binDirectory := filepath.Join(runtimeRoot, "bin")
 	if err := os.Mkdir(binDirectory, 0o700); err != nil {
-		t.Fatalf("create checkpoint binary directory: %v", err)
+		return "", fmt.Errorf("create checkpoint binary directory: %w", err)
 	}
 	goBinary := filepath.Join(binDirectory, "iw-go-v2-checkpoint")
-	environment := []string{
+	moduleCache := filepath.Join(home, "go-mod")
+	commonEnvironment := []string{
 		"CGO_ENABLED=0",
 		"GOCACHE=" + filepath.Join(home, "go-build"),
 		"GOENV=off",
-		"GOFLAGS=",
-		"GOMODCACHE=" + filepath.Join(home, "go-mod"),
-		"GOPROXY=off",
-		"GOSUMDB=off",
+		"GOMODCACHE=" + moduleCache,
 		"GOTOOLCHAIN=local",
 		"GOWORK=off",
 		"HOME=" + home,
 		"PATH=" + filepath.Dir(goExecutable),
 		"TMPDIR=" + t.TempDir(),
 	}
-	v2RunSuccessfully(
-		t,
-		filepath.Join(repositoryRoot, "go", "cmd", "iw"),
+	moduleRoot := filepath.Join(repositoryRoot, "go")
+	provisioningEnvironment := append(append([]string(nil), commonEnvironment...),
+		"GOFLAGS=-modcacherw",
+		"GOPROXY="+v2GoModuleProxy,
+		"GOSUMDB="+v2GoChecksumDB,
+	)
+	if _, err := run(
+		moduleRoot,
+		goExecutable,
+		[]string{"mod", "download"},
+		provisioningEnvironment,
+	); err != nil {
+		return "", &v2GoBuildPhaseError{phase: v2GoModuleProvisioningPhase, cause: err}
+	}
+	offlineBuildEnvironment := append(append([]string(nil), commonEnvironment...),
+		"GOFLAGS=",
+		"GOPROXY=off",
+		"GOSUMDB=off",
+	)
+	if _, err := run(
+		filepath.Join(moduleRoot, "cmd", "iw"),
 		goExecutable,
 		[]string{"build", "-trimpath", "-o", goBinary, "."},
-		environment,
-	)
-	hash := sha256.Sum256(v2ReadFile(t, goBinary))
+		offlineBuildEnvironment,
+	); err != nil {
+		return "", &v2GoBuildPhaseError{phase: v2GoOfflineBuildPhase, cause: err}
+	}
+	content, err := os.ReadFile(goBinary)
+	if err != nil {
+		return "", fmt.Errorf("read candidate Go binary %q: %w", goBinary, err)
+	}
+	hash := sha256.Sum256(content)
 	t.Logf("Go candidate: sha256=%x", hash)
-	return goBinary
+	return goBinary, nil
+}
+
+func TestV2BuildGoBinaryDownloadsModulesBeforeOfflineBuild(t *testing.T) {
+	repositoryRoot := repoRoot(t)
+	ambientModuleCache := filepath.Join(t.TempDir(), "ambient-module-cache")
+	t.Setenv("GOMODCACHE", ambientModuleCache)
+	t.Setenv("GOPROXY", "https://ambient.invalid")
+	t.Setenv("GOSUMDB", "ambient.invalid")
+
+	type invocation struct {
+		directory   string
+		executable  string
+		arguments   []string
+		environment []string
+	}
+	var invocations []invocation
+	var provisionedMarker string
+	run := func(directory, executable string, arguments, environment []string) (runResult, error) {
+		call := invocation{
+			directory:   directory,
+			executable:  executable,
+			arguments:   append([]string(nil), arguments...),
+			environment: append([]string(nil), environment...),
+		}
+		callIndex := len(invocations)
+		invocations = append(invocations, call)
+		environmentMap := v2EnvironmentMap(t, environment)
+		switch callIndex {
+		case 0:
+			provisionedMarker = filepath.Join(environmentMap["GOMODCACHE"], "provisioned")
+			if err := os.MkdirAll(filepath.Dir(provisionedMarker), 0o700); err != nil {
+				return runResult{}, fmt.Errorf("create fake provisioned module cache: %w", err)
+			}
+			if err := os.WriteFile(provisionedMarker, []byte("downloaded\n"), 0o600); err != nil {
+				return runResult{}, fmt.Errorf("mark fake provisioned module cache: %w", err)
+			}
+		case 1:
+			if _, err := os.Stat(provisionedMarker); err != nil {
+				return runResult{}, fmt.Errorf("offline build observe provisioned module cache: %w", err)
+			}
+			if len(arguments) < 4 {
+				return runResult{}, fmt.Errorf("offline build arguments = %q, want an output path", arguments)
+			}
+			if err := os.WriteFile(arguments[3], []byte("fake candidate\n"), 0o700); err != nil {
+				return runResult{}, fmt.Errorf("write fake candidate Go binary: %w", err)
+			}
+		default:
+			return runResult{}, fmt.Errorf("command invocation count = %d, want exactly two", callIndex+1)
+		}
+		return runResult{}, nil
+	}
+
+	goBinary, err := v2BuildGoBinaryWithRunner(t, repositoryRoot, run)
+	if err != nil {
+		t.Fatalf("v2BuildGoBinaryWithRunner(%q) error = %v, want nil", repositoryRoot, err)
+	}
+	if got, want := len(invocations), 2; got != want {
+		t.Fatalf("v2BuildGoBinaryWithRunner(%q) invocation count = %d, want %d", repositoryRoot, got, want)
+	}
+	download, offlineBuild := invocations[0], invocations[1]
+	if got, want := download.directory, filepath.Join(repositoryRoot, "go"); got != want {
+		t.Errorf("go mod download directory = %q, want repository module root %q", got, want)
+	}
+	if got, want := strings.Join(download.arguments, " "), "mod download"; got != want {
+		t.Errorf("provisioning arguments = %q, want %q", got, want)
+	}
+	if got, want := offlineBuild.directory, filepath.Join(repositoryRoot, "go", "cmd", "iw"); got != want {
+		t.Errorf("offline go build directory = %q, want command package %q", got, want)
+	}
+	if got, want := strings.Join(offlineBuild.arguments, " "), "build -trimpath -o "+goBinary+" ."; got != want {
+		t.Errorf("offline build arguments = %q, want %q", got, want)
+	}
+	if got, want := offlineBuild.executable, download.executable; got != want {
+		t.Errorf("offline build Go executable = %q, want provisioning executable %q", got, want)
+	}
+
+	downloadEnvironment := v2EnvironmentMap(t, download.environment)
+	offlineBuildEnvironment := v2EnvironmentMap(t, offlineBuild.environment)
+	if got, want := downloadEnvironment["GOPROXY"], v2GoModuleProxy; got != want {
+		t.Errorf("go mod download GOPROXY = %q, want %q", got, want)
+	}
+	if got, want := downloadEnvironment["GOSUMDB"], v2GoChecksumDB; got != want {
+		t.Errorf("go mod download GOSUMDB = %q, want %q", got, want)
+	}
+	if got, want := downloadEnvironment["GOFLAGS"], "-modcacherw"; got != want {
+		t.Errorf("go mod download GOFLAGS = %q, want cleanable module cache flag %q", got, want)
+	}
+	if got, want := offlineBuildEnvironment["GOPROXY"], "off"; got != want {
+		t.Errorf("offline go build GOPROXY = %q, want %q", got, want)
+	}
+	if got, want := offlineBuildEnvironment["GOSUMDB"], "off"; got != want {
+		t.Errorf("offline go build GOSUMDB = %q, want %q", got, want)
+	}
+	if got, want := offlineBuildEnvironment["GOFLAGS"], ""; got != want {
+		t.Errorf("offline go build GOFLAGS = %q, want %q", got, want)
+	}
+	if got, want := offlineBuildEnvironment["GOMODCACHE"], downloadEnvironment["GOMODCACHE"]; got != want {
+		t.Errorf("offline go build GOMODCACHE = %q, want provisioned cache %q", got, want)
+	}
+	if got := downloadEnvironment["GOMODCACHE"]; got == ambientModuleCache {
+		t.Errorf("go mod download GOMODCACHE = ambient cache %q, want a fresh test cache", got)
+	}
+	if got, want := string(v2ReadFile(t, goBinary)), "fake candidate\n"; got != want {
+		t.Errorf("fake candidate bytes = %q, want %q", got, want)
+	}
+}
+
+func TestV2BuildGoBinaryDistinguishesProvisioningAndOfflineBuildFailures(t *testing.T) {
+	repositoryRoot := repoRoot(t)
+	tests := []struct {
+		name      string
+		failAt    int
+		wantPhase string
+	}{
+		{
+			name:      "provisioning",
+			failAt:    0,
+			wantPhase: v2GoModuleProvisioningPhase,
+		},
+		{
+			name:      "offline build",
+			failAt:    1,
+			wantPhase: v2GoOfflineBuildPhase,
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			wantCause := errors.New("fake command failure")
+			calls := 0
+			_, err := v2BuildGoBinaryWithRunner(
+				t,
+				repositoryRoot,
+				func(_, _ string, _, _ []string) (runResult, error) {
+					callIndex := calls
+					calls++
+					if callIndex == testCase.failAt {
+						return runResult{}, wantCause
+					}
+					return runResult{}, nil
+				},
+			)
+			if !errors.Is(err, wantCause) {
+				t.Fatalf("v2BuildGoBinaryWithRunner(%q) error = %v, want wrapped cause %v", repositoryRoot, err, wantCause)
+			}
+			var phaseError *v2GoBuildPhaseError
+			if !errors.As(err, &phaseError) {
+				t.Fatalf("v2BuildGoBinaryWithRunner(%q) error type = %T, want *v2GoBuildPhaseError", repositoryRoot, err)
+			}
+			if got, want := phaseError.phase, testCase.wantPhase; got != want {
+				t.Errorf("v2BuildGoBinaryWithRunner(%q) failure phase = %q, want %q", repositoryRoot, got, want)
+			}
+			if got, want := calls, testCase.failAt+1; got != want {
+				t.Errorf("v2BuildGoBinaryWithRunner(%q) command calls = %d, want %d", repositoryRoot, got, want)
+			}
+		})
+	}
 }
 
 func v2IsolatedPath(t *testing.T, terraform string) string {
@@ -236,7 +449,7 @@ func v2EnvironmentMap(t *testing.T, environment []string) map[string]string {
 	return result
 }
 
-func v2RunSuccessfully(t *testing.T, directory, executable string, arguments, environment []string) runResult {
+func v2RunBoundedCommand(t *testing.T, directory, executable string, arguments, environment []string) (runResult, error) {
 	t.Helper()
 	timeoutMilliseconds := v2CommandTimeout.Milliseconds()
 	result, err := terraformcmd.RunTerraformCommand(terraformcmd.TerraformCommandOptions{
@@ -252,9 +465,18 @@ func v2RunSuccessfully(t *testing.T, directory, executable string, arguments, en
 		Output: terraformcmd.TerraformCommandOutputCapture,
 	})
 	if err != nil {
+		return runResult{}, err
+	}
+	return runResult{exit: 0, stdout: result.Stdout}, nil
+}
+
+func v2RunSuccessfully(t *testing.T, directory, executable string, arguments, environment []string) runResult {
+	t.Helper()
+	result, err := v2RunBoundedCommand(t, directory, executable, arguments, environment)
+	if err != nil {
 		t.Fatalf("bounded command %s %s failed: %v", executable, strings.Join(arguments, " "), err)
 	}
-	return runResult{exit: 0, stdout: result.Stdout}
+	return result
 }
 
 func v2TerraformTestEvidence(output []byte) (string, error) {

@@ -276,6 +276,107 @@ func firstItem(t *testing.T, result PullTransformResult) TransformRecord {
 	return nil
 }
 
+func TestCommittedZIA480EndpointFieldsRemainHeldWhileScalarsActivate(t *testing.T) {
+	root := repoRoot(t)
+	profilePath := filepath.Join(root, "packs", "full.packset.json")
+	loaded, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
+		PacksRoot:   filepath.Join(root, "packs"),
+		ProfilePath: &profilePath,
+	})
+	if err != nil {
+		t.Fatalf("LoadPackRoot() error = %v, want nil", err)
+	}
+
+	endpointFields := metadata.JsonObject{
+		"endPointApplicationGroups": []any{metadata.JsonObject{"groupId": json.Number("42")}},
+		"endPointApplications":      []any{metadata.JsonObject{"zappId": "zapp-1"}},
+	}
+	tests := []struct {
+		name         string
+		resourceType string
+		raw          metadata.JsonObject
+		wantRetained metadata.JsonObject
+	}{
+		{
+			name:         "dns",
+			resourceType: "zia_firewall_dns_rule",
+			raw: metadata.JsonObject{
+				"id": json.Number("1"), "name": "DNS rule", "order": json.Number("1"),
+				"eunTemplateId": json.Number("17"), "excludeContextShieldEndPoint": true, "isEunEnabled": true,
+			},
+			wantRetained: metadata.JsonObject{
+				"eun_template_id": json.Number("17"), "exclude_context_shield_end_point": true, "is_eun_enabled": true,
+			},
+		},
+		{
+			name:         "filtering",
+			resourceType: "zia_firewall_filtering_rule",
+			raw: metadata.JsonObject{
+				"id": json.Number("2"), "name": "Filtering rule", "order": json.Number("1"),
+				"eunTemplateId": json.Number("18"), "excludeContextShieldEndPoint": true, "isEunEnabled": true,
+			},
+			wantRetained: metadata.JsonObject{
+				"eun_template_id": json.Number("18"), "exclude_context_shield_end_point": true, "is_eun_enabled": true,
+			},
+		},
+		{
+			name:         "ips",
+			resourceType: "zia_firewall_ips_rule",
+			raw:          metadata.JsonObject{"id": json.Number("3"), "name": "IPS rule", "order": json.Number("1")},
+			wantRetained: metadata.JsonObject{},
+		},
+		{
+			name:         "ssl",
+			resourceType: "zia_ssl_inspection_rules",
+			raw:          metadata.JsonObject{"id": json.Number("4"), "name": "SSL rule", "order": json.Number("1")},
+			wantRetained: metadata.JsonObject{},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resource, ok := loaded.Resources[test.resourceType]
+			if !ok {
+				t.Fatalf("loaded.Resources[%q] present = false, want true", test.resourceType)
+			}
+			schema, err := loaded.LoadResourceSchema(test.resourceType)
+			if err != nil {
+				t.Fatalf("LoadResourceSchema(%q) error = %v, want nil", test.resourceType, err)
+			}
+			raw := metadata.JsonObject{}
+			for key, value := range test.raw {
+				raw[key] = value
+			}
+			for key, value := range endpointFields {
+				raw[key] = value
+			}
+
+			result, err := TransformLoadedItems(TransformLoadedItemsOptions{
+				Resource: resource,
+				Schema:   schema,
+				RawItems: []any{raw},
+			})
+			if err != nil {
+				t.Fatalf("TransformLoadedItems(%q) error = %v, want nil", test.resourceType, err)
+			}
+			if len(result.Drops) != 0 {
+				t.Errorf("TransformLoadedItems(%q).Drops = %v, want none", test.resourceType, result.Drops)
+			}
+			item := firstItem(t, result)
+			for _, field := range []string{"end_point_application_groups", "end_point_applications"} {
+				if got, present := item[field]; present {
+					t.Errorf("TransformLoadedItems(%q).Items[%q] = %#v, want field absent", test.resourceType, field, got)
+				}
+			}
+			for field, want := range test.wantRetained {
+				if got := item[field]; !reflect.DeepEqual(normalizeJSON(t, got), normalizeJSON(t, want)) {
+					t.Errorf("TransformLoadedItems(%q).Items[%q] = %#v, want %#v", test.resourceType, field, got, want)
+				}
+			}
+		})
+	}
+}
+
 func TestCommittedZIAOverridesOmitLiveProvenEmptyEnumsAndRetainRealValues(t *testing.T) {
 	root := repoRoot(t)
 	profilePath := filepath.Join(root, "packs", "full.packset.json")

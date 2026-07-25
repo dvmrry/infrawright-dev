@@ -296,6 +296,26 @@
     "product": "zia"
   },
   "zia_firewall_dns_rule": {
+    "adopt": {
+      "unsupported_if": [
+        {
+          "evidence": [
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_firewall_dns_rules.go#L226-L227",
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_firewall_dns_rules.go#L547-L552",
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/data_source_zia_endpoint_dlp_rules.go#L488-L530"
+          ],
+          "match_any_nonempty": [
+            "endPointApplicationGroups",
+            "endPointApplications"
+          ],
+          "provider": {
+            "source": "zscaler/zia",
+            "version": "4.8.0"
+          },
+          "reason": "provider 4.8.0 passes full endpoint DLP objects into custom-ID resource blocks during Read, which can fail before adoption projection"
+        }
+      ]
+    },
     "fetch": {
       "pagination": "zia",
       "path": "firewallDnsRules"
@@ -344,6 +364,26 @@
     "product": "zia"
   },
   "zia_firewall_filtering_rule": {
+    "adopt": {
+      "unsupported_if": [
+        {
+          "evidence": [
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_firewall_filtering_rules.go#L194-L195",
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_firewall_filtering_rules.go#L465-L470",
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/data_source_zia_endpoint_dlp_rules.go#L488-L530"
+          ],
+          "match_any_nonempty": [
+            "endPointApplicationGroups",
+            "endPointApplications"
+          ],
+          "provider": {
+            "source": "zscaler/zia",
+            "version": "4.8.0"
+          },
+          "reason": "provider 4.8.0 passes full endpoint DLP objects into custom-ID resource blocks during Read, which can fail before adoption projection"
+        }
+      ]
+    },
     "fetch": {
       "pagination": "zia",
       "path": "firewallFilteringRules"
@@ -352,6 +392,24 @@
     "product": "zia"
   },
   "zia_firewall_ips_rule": {
+    "adopt": {
+      "unsupported_if": [
+        {
+          "evidence": [
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_firewall_ips_rules.go#L188-L189"
+          ],
+          "match_any_nonempty": [
+            "endPointApplicationGroups",
+            "endPointApplications"
+          ],
+          "provider": {
+            "source": "zscaler/zia",
+            "version": "4.8.0"
+          },
+          "reason": "provider 4.8.0 declares endpoint assignment blocks but its IPS resource Read and expand paths do not implement them, so adoption cannot preserve populated assignments"
+        }
+      ]
+    },
     "fetch": {
       "pagination": "zia",
       "path": "firewallIpsRules"
@@ -492,16 +550,16 @@
       "unsupported_if": [
         {
           "evidence": [
-            "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_sandbox_rules.go#L316-L322"
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_sandbox_rules.go#L316-L322"
           ],
           "match": {
             "order": 127
           },
           "provider": {
             "source": "zscaler/zia",
-            "version": "4.7.26"
+            "version": "4.8.0"
           },
-          "reason": "provider 4.7.26 removes every sandbox rule with order 127 from Terraform state, so ownership cannot be represented durably even when the rule name is not the known provider-owned Default BA Rule"
+          "reason": "provider 4.8.0 removes every sandbox rule with order 127 from Terraform state, so ownership cannot be represented durably even when the rule name is not the known provider-owned Default BA Rule"
         }
       ]
     },
@@ -521,6 +579,26 @@
     "product": "zia"
   },
   "zia_ssl_inspection_rules": {
+    "adopt": {
+      "unsupported_if": [
+        {
+          "evidence": [
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_ssl_inspection_rules.go#L364-L365",
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_ssl_inspection_rules.go#L568-L573",
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/data_source_zia_endpoint_dlp_rules.go#L488-L530"
+          ],
+          "match_any_nonempty": [
+            "endPointApplicationGroups",
+            "endPointApplications"
+          ],
+          "provider": {
+            "source": "zscaler/zia",
+            "version": "4.8.0"
+          },
+          "reason": "provider 4.8.0 passes full endpoint DLP objects into custom-ID resource blocks during Read, which can fail before adoption projection"
+        }
+      ]
+    },
     "fetch": {
       "pagination": "single",
       "path": "sslInspectionRules"
@@ -604,17 +682,17 @@
       "unsupported_if": [
         {
           "evidence": [
-            "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L52-L63",
-            "https://github.com/zscaler/terraform-provider-zia/blob/v4.7.26/zia/resource_zia_url_filtering_rules.go#L536-L544"
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_url_filtering_rules.go#L52-L63",
+            "https://github.com/zscaler/terraform-provider-zia/blob/v4.8.0/zia/resource_zia_url_filtering_rules.go#L536-L544"
           ],
           "match": {
             "action": "ISOLATE"
           },
           "provider": {
             "source": "zscaler/zia",
-            "version": "4.7.26"
+            "version": "4.8.0"
           },
-          "reason": "provider 4.7.26 requires cbi_profile for ISOLATE configuration but a fresh import Read cannot reconstruct the block when the API omits it"
+          "reason": "provider 4.8.0 requires cbi_profile for ISOLATE configuration but a fresh import Read cannot reconstruct the block when the API omits it"
         }
       ]
     },

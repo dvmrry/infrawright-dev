@@ -38,7 +38,8 @@ var adoptKeys = stringSet(
 	"key_field", "skip_if", "skip_if_lte", "unsupported_if",
 )
 
-var unsupportedIfKeys = stringSet("evidence", "match", "provider", "reason")
+var unsupportedIfKeys = stringSet("evidence", "match", "match_any_nonempty", "provider", "reason")
+var unsupportedIfRequiredKeys = stringSet("evidence", "provider", "reason")
 var unsupportedProviderKeys = stringSet("source", "version")
 
 var overrideKeys = stringSet(
@@ -424,24 +425,51 @@ func validateAdopt(value any, source string) {
 			ruleSource := fmt.Sprintf("%s.unsupported_if[%d]", source, index)
 			rule := requireObject(rawRule, ruleSource)
 			rejectUnknownKeys(rule, unsupportedIfKeys, ruleSource)
-			requireKeys(rule, unsupportedIfKeys, ruleSource)
-			match := requireObject(rule["match"], ruleSource+".match")
-			if len(match) == 0 {
-				failf("%s.match must not be empty", ruleSource)
+			requireKeys(rule, unsupportedIfRequiredKeys, ruleSource)
+			matchRaw, hasMatch := rule["match"]
+			nonemptyRaw, hasAnyNonempty := rule["match_any_nonempty"]
+			if hasMatch == hasAnyNonempty {
+				failf("%s must set exactly one of match or match_any_nonempty", ruleSource)
 			}
-			for _, field := range sortedKeys(match) {
-				expected := match[field]
-				if len(field) == 0 {
-					failf("%s.match field names must be non-empty strings", ruleSource)
+			condition := ""
+			if hasMatch {
+				match := requireObject(matchRaw, ruleSource+".match")
+				if len(match) == 0 {
+					failf("%s.match must not be empty", ruleSource)
 				}
-				if !isJsonScalar(expected) {
-					failf("%s.match.%s must be a scalar", ruleSource, field)
+				for _, field := range sortedKeys(match) {
+					expected := match[field]
+					if len(field) == 0 {
+						failf("%s.match field names must be non-empty strings", ruleSource)
+					}
+					if !isJsonScalar(expected) {
+						failf("%s.match.%s must be a scalar", ruleSource, field)
+					}
+					skipFields = append(skipFields, skipField{Field: field, Snake: snakeCase(field)})
 				}
-				skipFields = append(skipFields, skipField{Field: field, Snake: snakeCase(field)})
+				condition = "match:" + conditionKey(match)
+			} else {
+				fields, ok := nonemptyRaw.([]any)
+				if !ok || len(fields) == 0 {
+					failf("%s.match_any_nonempty must be a non-empty list of field names", ruleSource)
+				}
+				normalizedFields := make([]string, 0, len(fields))
+				seenFields := make(map[string]string, len(fields))
+				for fieldIndex, rawField := range fields {
+					field := requireNonEmptyString(rawField, fmt.Sprintf("%s.match_any_nonempty[%d]", ruleSource, fieldIndex))
+					normalized := snakeCase(field)
+					if previous, duplicate := seenFields[normalized]; duplicate {
+						failf("%s.match_any_nonempty fields %s and %s both normalize to %s", ruleSource, jsonQuote(previous), jsonQuote(field), jsonQuote(normalized))
+					}
+					seenFields[normalized] = field
+					normalizedFields = append(normalizedFields, normalized)
+					skipFields = append(skipFields, skipField{Field: field, Snake: normalized})
+				}
+				normalizedFields = canonjson.SortedStrings(normalizedFields)
+				condition = "match_any_nonempty:" + mustMarshalJSON(normalizedFields)
 			}
-			condition := conditionKey(match)
 			if _, duplicate := conditions[condition]; duplicate {
-				failf("%s.unsupported_if contains duplicate match %s", source, condition)
+				failf("%s.unsupported_if contains duplicate predicate %s", source, condition)
 			}
 			conditions[condition] = struct{}{}
 			provider := requireObject(rule["provider"], ruleSource+".provider")

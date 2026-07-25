@@ -19,12 +19,39 @@ func generatedPolicyRoot(t *testing.T, override metadata.JsonObject) *metadata.L
 		t.Fatalf("os.MkdirAll(schema): %v", err)
 	}
 	schema := map[string]any{"resource_schemas": map[string]any{
-		testResourceType: map[string]any{"block": map[string]any{"attributes": map[string]any{
-			"name":           map[string]any{"type": "string", "optional": true},
-			"description":    map[string]any{"type": "string", "optional": true},
-			"filled":         map[string]any{"type": "string", "optional": true},
-			"required_value": map[string]any{"type": "string", "required": true},
-		}}},
+		testResourceType: map[string]any{"block": map[string]any{
+			"attributes": map[string]any{
+				"name":           map[string]any{"type": "string", "optional": true},
+				"description":    map[string]any{"type": "string", "optional": true},
+				"filled":         map[string]any{"type": "string", "optional": true},
+				"required_value": map[string]any{"type": "string", "required": true},
+			},
+			"block_types": map[string]any{
+				"optional_block": map[string]any{
+					"nesting_mode": "list",
+					"block": map[string]any{
+						"attributes": map[string]any{
+							"document": map[string]any{"type": "string", "optional": true},
+							"name":     map[string]any{"type": "string", "required": true},
+						},
+						"block_types": map[string]any{
+							"child": map[string]any{
+								"nesting_mode": "list",
+								"block": map[string]any{"attributes": map[string]any{
+									"name": map[string]any{"type": "string", "required": true},
+								}},
+							},
+						},
+					},
+				},
+				"required_block": map[string]any{
+					"min_items": json.Number("1"), "nesting_mode": "list",
+					"block": map[string]any{"attributes": map[string]any{
+						"name": map[string]any{"type": "string", "required": true},
+					}},
+				},
+			},
+		}},
 	}}
 	data, err := json.Marshal(schema)
 	if err != nil {
@@ -78,6 +105,98 @@ func TestGeneratedConfigProjectionOmitIsExactAndMarksEntry(t *testing.T) {
 	}
 	if stale := policy.StaleEntries(metadata.StaleEntriesOptions{}); len(stale) != 0 {
 		t.Fatalf("matched policy remained stale: %#v", stale)
+	}
+}
+
+func TestGeneratedConfigProjectionOmitWholeOptionalBlock(t *testing.T) {
+	policy := testPolicy(t, "projection_omit", policyEntry("optional_block", nil))
+	input := "resource \"test_item\" \"example\" {\n" +
+		"  optional_block {\n" +
+		"    name = \"drop\"\n" +
+		"    document = <<-EOT\n" +
+		"      literal } and { text\n" +
+		"    EOT\n" +
+		"    child {\n" +
+		"      name = \"nested\"\n" +
+		"    }\n" +
+		"  }\n" +
+		"  required_value = \"keep\"\n" +
+		"}\n"
+	result, err := ApplyGeneratedConfigPolicy(input, GeneratedConfigPolicyResource{
+		AddressToKey: map[string]string{"test_item.example": "key"}, Policy: policy, ResourceType: testResourceType,
+	}, generatedPolicyRoot(t, nil))
+	if err != nil {
+		t.Fatalf("ApplyGeneratedConfigPolicy(optional block): %v", err)
+	}
+	want := "resource \"test_item\" \"example\" {\n  required_value = \"keep\"\n}\n"
+	if result.Edits != 1 || result.Text != want {
+		t.Errorf("ApplyGeneratedConfigPolicy(optional block) = %#v, want edits=1 text=%q", result, want)
+	}
+	if stale := policy.StaleEntries(metadata.StaleEntriesOptions{}); len(stale) != 0 {
+		t.Errorf("ApplyGeneratedConfigPolicy(optional block) stale entries = %#v, want none", stale)
+	}
+}
+
+func TestGeneratedConfigProjectionOmitRejectsRequiredBlock(t *testing.T) {
+	policy := testPolicy(t, "projection_omit", policyEntry("required_block", nil))
+	input := "resource \"test_item\" \"example\" {\n" +
+		"  required_block {\n" +
+		"    name = \"keep\"\n" +
+		"  }\n" +
+		"  required_value = \"keep\"\n" +
+		"}\n"
+	_, err := ApplyGeneratedConfigPolicy(input, GeneratedConfigPolicyResource{
+		AddressToKey: map[string]string{"test_item.example": "key"}, Policy: policy, ResourceType: testResourceType,
+	}, generatedPolicyRoot(t, nil))
+	if err == nil || !strings.Contains(err.Error(), "non-optional block required_block") {
+		t.Fatalf("ApplyGeneratedConfigPolicy(required block) error = %v, want required-block refusal", err)
+	}
+}
+
+func TestCommittedZIA480GeneratedConfigOmitsEndpointBlocks(t *testing.T) {
+	repositoryRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	profile := filepath.Join(repositoryRoot, "packs", "full.packset.json")
+	root, err := metadata.LoadPackRoot(metadata.LoadPackRootOptions{
+		PacksRoot: filepath.Join(repositoryRoot, "packs"), ProfilePath: &profile,
+	})
+	if err != nil {
+		t.Fatalf("LoadPackRoot(ZIA 4.8.0): %v", err)
+	}
+	for _, resourceType := range []string{
+		"zia_firewall_dns_rule",
+		"zia_firewall_filtering_rule",
+		"zia_firewall_ips_rule",
+		"zia_ssl_inspection_rules",
+	} {
+		t.Run(resourceType, func(t *testing.T) {
+			policy, err := LoadAdoptionPolicy(root, nil)
+			if err != nil {
+				t.Fatalf("LoadAdoptionPolicy(%s): %v", resourceType, err)
+			}
+			input := "resource \"" + resourceType + "\" \"example\" {\n" +
+				"  name = \"Projected rule\"\n" +
+				"  end_point_applications {\n" +
+				"    zapp_id = \"zapp-1\"\n" +
+				"  }\n" +
+				"  end_point_application_groups {\n" +
+				"    group_id = 42\n" +
+				"  }\n" +
+				"}\n"
+			result, err := ApplyGeneratedConfigPolicy(input, GeneratedConfigPolicyResource{
+				AddressToKey: map[string]string{resourceType + ".example": "key"},
+				Policy:       policy, ResourceType: resourceType,
+			}, &root)
+			if err != nil {
+				t.Fatalf("ApplyGeneratedConfigPolicy(%s): %v", resourceType, err)
+			}
+			if result.Edits != 2 || strings.Contains(result.Text, "end_point_application") {
+				t.Errorf("ApplyGeneratedConfigPolicy(%s) = %#v, want both endpoint blocks omitted", resourceType, result)
+			}
+			stale := policy.StaleEntries(metadata.StaleEntriesOptions{ResourceTypes: map[string]struct{}{resourceType: {}}})
+			if len(stale) != 0 {
+				t.Errorf("ApplyGeneratedConfigPolicy(%s) stale entries = %#v, want none", resourceType, stale)
+			}
+		})
 	}
 }
 

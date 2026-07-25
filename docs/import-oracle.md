@@ -310,13 +310,22 @@ projected provider state already contains the target, even as an empty list or
 object, the fill entry remains stale. It also refuses sensitive targets.
 
 The current ZIA pack intentionally does not use `projection_fill` for URL
-filtering ISOLATE rules. With the pinned `zscaler/zia` provider 4.7.26,
+filtering ISOLATE rules. With the pinned `zscaler/zia` provider 4.8.0,
 `cbi_profile` is required on write but a fresh import Read cannot reliably
 reconstruct the block when the API omits it. The pack therefore classifies
 `action = "ISOLATE"` as version-scoped unsupported before identity derivation
 or any Oracle call. The earlier ZIA `cbi_profile` fill was removed; support for
 a later provider version requires new source/readback evidence and an updated
 provider scope rather than reusing that fill.
+
+The pinned ZIA 4.8.0 pack applies the same pre-Oracle rule to non-empty endpoint
+application or application-group assignments on DNS, filtering, IPS, and SSL
+rules. DNS, filtering, and SSL can fail inside the provider's newly added Read
+setters before projection; IPS declares the blocks without implementing Read
+or expand. Version-scoped `match_any_nonempty` rules therefore reject only
+endpoint-bearing raw items, while pack `projection_omit` entries prevent either
+block from entering adopted or generated import configuration if representable
+provider state reaches projection. Empty endpoint collections remain eligible.
 
 The oracle also applies `projection_omit`, `projection_omit_if`, and
 `projection_fill` to Terraform/OpenTofu generated import config before provider
