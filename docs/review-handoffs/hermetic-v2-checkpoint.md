@@ -12,7 +12,8 @@
   `sum.golang.org`; the subsequent candidate build uses the same cache with
   `GOPROXY=off` and `GOSUMDB=off`.
 - Add an independent GitHub Actions job that runs the opt-in Go v2 checkpoint
-  with the repository's existing pinned Go and Terraform versions.
+  and its focused hermetic-build contract tests with the repository's existing
+  pinned Go and Terraform versions.
 - Keep the Node-free runtime `PATH` construction and assertion in
   `v2IsolatedPath` unchanged. Keep Terraform provider-plugin caching and the
   wider Slice 1 and Slice 3 work out of this checkpoint.
@@ -22,13 +23,44 @@
 - Base: `ce7cd7722db8c4795310fd4a56a9e6823c712a4d`, verified as both the starting
   `HEAD` and `feature/zia-provider-4.8.0` before editing.
 - Head: implementation commit
-  `2f951e511fcbe6946667cd38788efe91ba33837d` on
+  `cde4b9796aeb54e9e23c8e782fad510589d8d9d5` on
   `feature/hermetic-v2-checkpoint`.
 - Handoff carrier: the docs-only successor commit containing this file. It is
   intentionally outside the implementation head so this handoff can name the
   exact immutable code commit under review.
 - Diff command:
-  `git diff ce7cd7722db8c4795310fd4a56a9e6823c712a4d...2f951e511fcbe6946667cd38788efe91ba33837d`.
+  `git diff ce7cd7722db8c4795310fd4a56a9e6823c712a4d...cde4b9796aeb54e9e23c8e782fad510589d8d9d5`.
+
+## Adversarial Review Finding Resolution
+
+- Accepted blocking finding: the initial CI command selected only
+  `TestV2VerticalSliceCheckpoint`, excluding both
+  `TestV2BuildGoBinary...` hermetic-contract regressions. No other workflow ran
+  Go tests, so a warm `setup-go` cache could let the happy path pass after an
+  ambient cache/proxy regression.
+- Root cause: CI selection was scoped to the opt-in end-to-end test rather than
+  the complete, bounded v2 hermetic checkpoint cohort.
+- Fix: implementation-fix commit
+  `cde4b9796aeb54e9e23c8e782fad510589d8d9d5` changes the workflow regex to
+  `^TestV2(BuildGoBinary.*|VerticalSliceCheckpoint)$`. This selects the two
+  current build-contract tests plus the real checkpoint without broadening to
+  all `cmd/iw` tests or Slice 1.
+- Regression verification: the exact workflow command,
+  `INFRAWRIGHT_V2_CHECKPOINT=1 go test -count=1 -timeout=18m -v -run '^TestV2(BuildGoBinary.*|VerticalSliceCheckpoint)$' ./cmd/iw`,
+  emitted `=== RUN` and `--- PASS` for exactly these three top-level tests:
+  `TestV2BuildGoBinaryDownloadsModulesBeforeOfflineBuild`,
+  `TestV2BuildGoBinaryDistinguishesProvisioningAndOfflineBuildFailures`, and
+  `TestV2VerticalSliceCheckpoint`. It emitted no skip and the package passed.
+- Accepted nit: the initial 20-minute Actions job retained Go's default
+  10-minute test timeout, so Go could preempt the intended outer job bound.
+- Root cause: the job timeout was explicit but the inner `go test` timeout was
+  not.
+- Fix: the same implementation-fix commit adds `-timeout=18m`, preserving the
+  20-minute Actions timeout as the outer bound.
+- Regression verification: the exact command above includes `-timeout=18m`
+  and completed all three tests successfully in approximately 13.5 seconds.
+- Focused reviewer recheck diff:
+  `git diff 46148260f40b26970ed0cddb84a3981cdf2d2228...cde4b9796aeb54e9e23c8e782fad510589d8d9d5`.
 
 ## Files Changed
 
@@ -36,7 +68,8 @@
   - `go/cmd/iw/v2_vertical_slice_test.go`: explicit module-cache provisioning,
     offline candidate build, phase-specific errors, and focused regressions.
   - `.github/workflows/check.yml`: independent `v2-checkpoint` integration-test
-    job with Go 1.26.5 and Terraform 1.15.4.
+    job with Go 1.26.5, Terraform 1.15.4, bounded hermetic-contract selection,
+    and an 18-minute inner test timeout below the 20-minute job timeout.
   - `docs/review-handoffs/hermetic-v2-checkpoint.md`: this builder handoff,
     carried in the following docs-only commit.
 - Files intentionally left untouched: provider/OpenAPI evidence, packs,
@@ -122,12 +155,14 @@ verified module contents while leaving the test-owned cache removable by
     inspected. No ambient-cache diagnostic is included.
   - `v2IsolatedPath` still supplies Terraform and asserts that Node is absent;
     the built candidate still runs only in that environment.
+  - CI selects the bounded v2 hermetic checkpoint cohort: the two current
+    `TestV2BuildGoBinary...` contract tests and `TestV2VerticalSliceCheckpoint`.
+    Go's 18-minute timeout remains inside the 20-minute Actions job timeout.
 
 ## Tests Run
 
 - Commands:
-  - `go test -count=1 -v -run '^TestV2BuildGoBinary' ./cmd/iw`
-  - `INFRAWRIGHT_V2_CHECKPOINT=1 go test -count=1 -v -run '^TestV2VerticalSliceCheckpoint$' ./cmd/iw`
+  - `INFRAWRIGHT_V2_CHECKPOINT=1 go test -count=1 -timeout=18m -v -run '^TestV2(BuildGoBinary.*|VerticalSliceCheckpoint)$' ./cmd/iw`
   - `go test -count=1 ./cmd/iw`
   - `gofmt -d .`
   - `go vet ./...`
@@ -138,6 +173,8 @@ verified module contents while leaving the test-owned cache removable by
     fresh cache across phases, explicit public provisioning settings, offline
     build settings, cleanable cache permissions, and phase-specific wrapped
     failures.
+  - The exact CI command runs and passes all three intended top-level tests and
+    their two phase-error subtests. No test is skipped.
   - The real checkpoint passes on local `darwin/arm64` with candidate SHA-256
     `f9baf80dc01248d7c6c5933c6fd9917c4f1db0d23e9e91e52f2718a576eba685`.
     Terraform 1.15.4 initializes ZIA 4.8.0, validates the configuration, and
@@ -186,7 +223,8 @@ verified module contents while leaving the test-owned cache removable by
   - Distinct failure phases cannot collapse back into the generic bounded
     command diagnostic.
   - The CI job actually runs the opt-in checkpoint with an unwrapped Terraform
-    binary.
+    binary, both focused build-contract tests, and the intended inner/outer
+    timeout ordering.
 - Source evidence the reviewer should verify: `go/go.mod`, `go/go.sum`, the
   complete-environment contract in `go/internal/terraformcmd`, and existing
   pinned action inputs in `.github/workflows/check.yml`.
