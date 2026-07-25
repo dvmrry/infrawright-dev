@@ -244,6 +244,27 @@ func matchGeneratedOmit(path []any, parsed parsedGeneratedScalar, entries []gene
 	return nil, nil
 }
 
+func matchGeneratedBlockOmit(path []any, entries []generatedOmitEntry, resourceType string, schema metadata.JsonObject) (*generatedOmitEntry, error) {
+	for index := range entries {
+		candidate := &entries[index]
+		if candidate.Mode != omitProjection || !metadata.PolicySelectorMatches(candidate.Selector, path) {
+			continue
+		}
+		status, err := ProviderSchemaStatus(schema, resourceType, candidate.Selector, true)
+		if err != nil {
+			return nil, err
+		}
+		if status != "optional" {
+			return nil, generatedConfigErrorf(
+				"%s generated import config policy matched non-optional block %s (schema status %s)",
+				resourceType, policyPathLabel(candidate), status,
+			)
+		}
+		return candidate, nil
+	}
+	return nil, nil
+}
+
 func policyPathLabel(candidate *generatedOmitEntry) string {
 	if candidate.Entry != nil {
 		if path, ok := candidate.Entry.Data()["path"].(string); ok {
@@ -397,6 +418,7 @@ type generatedStackEntry struct {
 	Address      string
 	Counts       map[string]int
 	Kind         string
+	Omitted      bool
 	Path         []any
 	Present      map[string]struct{}
 	ResourceType string
@@ -526,6 +548,38 @@ func rewriteGeneratedConfig(text string, resources map[string]rewriteResourceOpt
 	edits := 0
 	for _, line := range lines {
 		stripped := strings.TrimSpace(line)
+		if len(stack) > 0 && stack[len(stack)-1].Omitted {
+			if heredoc != "" {
+				if stripped == heredoc {
+					heredoc = ""
+				}
+				continue
+			}
+			if valueDepth != 0 {
+				valueDepth += generatedValueDepthDelta(stripped)
+				if valueDepth <= 0 {
+					valueDepth = 0
+				}
+				continue
+			}
+			if stripped == "}" {
+				stack = stack[:len(stack)-1]
+				continue
+			}
+			if generatedBlockStart.MatchString(stripped) {
+				stack = append(stack, &generatedStackEntry{Counts: map[string]int{}, Kind: "block", Omitted: true})
+				continue
+			}
+			if match := generatedAttribute.FindStringSubmatch(stripped); match != nil {
+				value := match[2]
+				if heredocMatch := generatedHeredoc.FindStringSubmatch(strings.TrimSpace(value)); heredocMatch != nil {
+					heredoc = heredocMatch[1]
+				} else {
+					valueDepth = max(0, generatedValueDepthDelta(value))
+				}
+			}
+			continue
+		}
 		if heredoc != "" {
 			output = append(output, line)
 			if stripped == heredoc {
@@ -585,7 +639,24 @@ func rewriteGeneratedConfig(text string, resources map[string]rewriteResourceOpt
 			}
 			index := parent.Counts[name]
 			parent.Counts[name] = index + 1
+			resourceOptions, exists := resources[stack[0].ResourceType]
+			if !exists {
+				return GeneratedConfigPolicyResult{}, generatedConfigErrorf("generated import config contained unknown sibling resource type %s", stack[0].ResourceType)
+			}
+			blockPath := append(append([]any(nil), parent.Path...), name)
+			candidate, err := matchGeneratedBlockOmit(blockPath, resourceOptions.Omits, stack[0].ResourceType, resourceOptions.Schema)
+			if err != nil {
+				return GeneratedConfigPolicyResult{}, err
+			}
 			path := append(append([]any(nil), parent.Path...), name, int64(index))
+			if candidate != nil {
+				if candidate.Entry != nil && resourceOptions.Policy != nil {
+					resourceOptions.Policy.MarkMatched(*candidate.Entry)
+				}
+				edits++
+				stack = append(stack, &generatedStackEntry{Counts: map[string]int{}, Kind: "block", Omitted: true, Path: path})
+				continue
+			}
 			stack = append(stack, &generatedStackEntry{Counts: map[string]int{}, Kind: "block", Path: path})
 			output = append(output, line)
 			continue

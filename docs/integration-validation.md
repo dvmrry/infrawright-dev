@@ -132,7 +132,7 @@ case for optional-zero sentinels such as `size_quota = 0`. A passing validation
 must show that configured projection omissions are effective before the
 provider validates generated config, not only after post-import `show -json`
 projection. ISOLATE rules are not part of this validation: for pinned provider
-4.7.26, `cbi_profile` is required on write but a fresh import Read cannot
+4.8.0, `cbi_profile` is required on write but a fresh import Read cannot
 reliably reconstruct it when omitted by the API, so version-scoped
 `unsupported_if` metadata rejects `action = "ISOLATE"` before Oracle. The
 former ZIA `cbi_profile` `projection_fill` was intentionally removed. Generic

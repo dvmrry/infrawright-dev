@@ -1,4 +1,8 @@
 {
+  "drops": [
+    "end_point_application_groups",
+    "end_point_applications"
+  ],
   "skip_if": [
     {
       "predefined": true

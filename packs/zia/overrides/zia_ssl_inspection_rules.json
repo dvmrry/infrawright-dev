@@ -9,8 +9,6 @@
     "dest_ip_groups.name",
     "device_groups.name",
     "devices.name",
-    "end_point_application_groups",
-    "end_point_applications",
     "groups.name",
     "id",
     "labels.name",
@@ -30,6 +28,10 @@
   "drop_if_default": {
     "action.do_not_decrypt_sub_actions.min_tls_version": ""
   },
+  "drops": [
+    "end_point_application_groups",
+    "end_point_applications"
+  ],
   "import_id": "{id}",
   "skip_if": [
     {
