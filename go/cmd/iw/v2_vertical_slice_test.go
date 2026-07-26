@@ -30,6 +30,7 @@ const (
 	v2GoModuleProvisioningPhase = "provision candidate Go module cache with go mod download"
 	v2GoModuleProxy             = "https://proxy.golang.org"
 	v2GoOfflineBuildPhase       = "build candidate Go binary from provisioned module cache with GOPROXY=off"
+	v2GeneratedModuleCount      = 151
 	v2ResourceType              = "zia_rule_labels"
 	v2Tenant                    = "demo"
 	v2CommandTimeout            = 5 * time.Minute
@@ -84,6 +85,13 @@ type v2TerraformEvent struct {
 	} `json:"test_run"`
 	TestSummary *v2TerraformSummary `json:"test_summary"`
 	Type        string              `json:"type"`
+}
+
+type v2TerraformTestReport struct {
+	completed        map[string]string
+	plans            map[string][]v2TerraformChange
+	summary          *v2TerraformSummary
+	terraformVersion string
 }
 
 func v2ReadFile(t *testing.T, path string) []byte {
@@ -385,6 +393,46 @@ func v2FullZIAPackRoot(t *testing.T, repositoryRoot string) string {
 	return root
 }
 
+func v2PluginCacheDirectory(t *testing.T, home string) string {
+	t.Helper()
+	pluginCache := os.Getenv("TF_PLUGIN_CACHE_DIR")
+	if pluginCache == "" {
+		pluginCache = filepath.Join(home, "plugin-cache")
+	}
+	pluginCache, err := filepath.Abs(pluginCache)
+	if err != nil {
+		t.Fatalf("filepath.Abs(%q) error = %v, want nil", pluginCache, err)
+	}
+	if err := os.MkdirAll(pluginCache, 0o700); err != nil {
+		t.Fatalf("os.MkdirAll(%q) error = %v, want nil", pluginCache, err)
+	}
+	return pluginCache
+}
+
+func TestV2PluginCacheDirectoryUsesExplicitCacheWithHermeticFallback(t *testing.T) {
+	t.Run("hermetic fallback", func(t *testing.T) {
+		t.Setenv("TF_PLUGIN_CACHE_DIR", "")
+		home := t.TempDir()
+		got := v2PluginCacheDirectory(t, home)
+		want := filepath.Join(home, "plugin-cache")
+		if got != want {
+			t.Fatalf("v2PluginCacheDirectory() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("explicit reusable cache", func(t *testing.T) {
+		cache := filepath.Join(t.TempDir(), "shared-plugin-cache")
+		t.Setenv("TF_PLUGIN_CACHE_DIR", cache)
+		got := v2PluginCacheDirectory(t, t.TempDir())
+		if got != cache {
+			t.Fatalf("v2PluginCacheDirectory() = %q, want explicit cache %q", got, cache)
+		}
+		if info, err := os.Stat(got); err != nil || !info.IsDir() {
+			t.Fatalf("os.Stat(%q) = (%v, %v), want an existing directory", got, info, err)
+		}
+	})
+}
+
 func v2Environment(t *testing.T, repositoryRoot, isolatedPath, deploymentPath string, server *recordedFetchFixture) []string {
 	t.Helper()
 	home := t.TempDir()
@@ -403,10 +451,7 @@ func v2Environment(t *testing.T, repositoryRoot, isolatedPath, deploymentPath st
 			t.Errorf("os.RemoveAll(%q) error = %v, want nil", temporary, err)
 		}
 	})
-	pluginCache := filepath.Join(home, "plugin-cache")
-	if err := os.Mkdir(pluginCache, 0o700); err != nil {
-		t.Fatalf("os.Mkdir(%q) error = %v, want nil", pluginCache, err)
-	}
+	pluginCache := v2PluginCacheDirectory(t, home)
 	return append(recordedFetchEnvironment(server),
 		"CHECKPOINT_DISABLE=1",
 		"HOME="+home,
@@ -479,12 +524,12 @@ func v2RunSuccessfully(t *testing.T, directory, executable string, arguments, en
 	return result
 }
 
-func v2TerraformTestEvidence(output []byte) (string, error) {
+func v2ParseTerraformTestReport(output []byte) (v2TerraformTestReport, error) {
 	decoder := json.NewDecoder(bytes.NewReader(output))
-	completed := map[string]string{}
-	plans := map[string][]v2TerraformChange{}
-	terraformVersion := ""
-	var summary *v2TerraformSummary
+	report := v2TerraformTestReport{
+		completed: map[string]string{},
+		plans:     map[string][]v2TerraformChange{},
+	}
 	for {
 		var event v2TerraformEvent
 		err := decoder.Decode(&event)
@@ -492,43 +537,105 @@ func v2TerraformTestEvidence(output []byte) (string, error) {
 			break
 		}
 		if err != nil {
-			return "", fmt.Errorf("decode terraform test JSON event: %w", err)
+			return v2TerraformTestReport{}, fmt.Errorf("decode terraform test JSON event: %w", err)
 		}
 		switch event.Type {
 		case "version":
-			terraformVersion = event.Terraform
+			report.terraformVersion = event.Terraform
 		case "test_run":
 			if event.TestRun != nil && event.TestRun.Progress == "complete" {
-				completed[event.TestRun.Run] = event.TestRun.Status
+				if _, duplicate := report.completed[event.TestRun.Run]; duplicate {
+					return v2TerraformTestReport{}, fmt.Errorf("terraform emitted multiple completed events for run %q", event.TestRun.Run)
+				}
+				report.completed[event.TestRun.Run] = event.TestRun.Status
 			}
 		case "test_plan":
 			if event.TestPlan == nil || event.TestRunName == "" {
-				return "", errors.New("terraform test_plan event lacks a named run")
+				return v2TerraformTestReport{}, errors.New("terraform test_plan event lacks a named run")
 			}
-			if _, duplicate := plans[event.TestRunName]; duplicate {
-				return "", fmt.Errorf("terraform emitted multiple plans for run %q", event.TestRunName)
+			if _, duplicate := report.plans[event.TestRunName]; duplicate {
+				return v2TerraformTestReport{}, fmt.Errorf("terraform emitted multiple plans for run %q", event.TestRunName)
 			}
-			plans[event.TestRunName] = event.TestPlan.ResourceChanges
+			report.plans[event.TestRunName] = event.TestPlan.ResourceChanges
 		case "test_summary":
 			if event.TestSummary != nil {
-				summary = event.TestSummary
+				if report.summary != nil {
+					return v2TerraformTestReport{}, errors.New("terraform emitted multiple test summaries")
+				}
+				report.summary = event.TestSummary
 			}
 		}
 	}
+	return report, nil
+}
 
-	if terraformVersion == "" {
-		return "", errors.New("terraform test JSON omitted its version event")
+func v2RequirePassedTerraformRuns(report v2TerraformTestReport, expected []string) error {
+	if len(expected) == 0 {
+		return errors.New("terraform expected run set is empty")
 	}
-	if len(completed) != 2 || completed["empty_plan"] != "pass" || completed["config_plan"] != "pass" {
-		return "", fmt.Errorf("terraform completed runs = %v, want exactly empty_plan=pass and config_plan=pass", completed)
+	if report.terraformVersion == "" {
+		return errors.New("terraform test JSON omitted its version event")
 	}
-	if len(plans) != 2 {
-		return "", fmt.Errorf("terraform plan events = %v, want exactly empty_plan and config_plan", plans)
+	expected = append([]string(nil), expected...)
+	sort.Strings(expected)
+	completedNames := make([]string, 0, len(report.completed))
+	for name, status := range report.completed {
+		if status != "pass" {
+			return fmt.Errorf("terraform completed run %q status = %q, want pass", name, status)
+		}
+		completedNames = append(completedNames, name)
 	}
-	if changes := plans["empty_plan"]; len(changes) != 0 {
+	sort.Strings(completedNames)
+	if got, want := strings.Join(completedNames, ","), strings.Join(expected, ","); got != want {
+		return fmt.Errorf("terraform completed runs = %q, want exactly %q", got, want)
+	}
+	wantPassed := len(expected)
+	if report.summary == nil || report.summary.Status != "pass" || report.summary.Passed != wantPassed ||
+		report.summary.Failed != 0 || report.summary.Errored != 0 || report.summary.Skipped != 0 {
+		return fmt.Errorf(
+			"terraform test summary = %+v, want pass with %d passed and no failed/errored/skipped",
+			report.summary,
+			wantPassed,
+		)
+	}
+	return nil
+}
+
+func v2TerraformRunEvidence(output []byte, expected []string) (string, error) {
+	report, err := v2ParseTerraformTestReport(output)
+	if err != nil {
+		return "", err
+	}
+	if err := v2RequirePassedTerraformRuns(report, expected); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Terraform %s; runs %s passed", report.terraformVersion, strings.Join(expected, ", ")), nil
+}
+
+func v2TerraformTestEvidence(output []byte) (string, error) {
+	return v2TerraformRuleLabelEvidence(output, []string{"empty_plan", "config_plan"})
+}
+
+func v2TerraformRuleLabelEvidence(output []byte, expectedRuns []string) (string, error) {
+	report, err := v2ParseTerraformTestReport(output)
+	if err != nil {
+		return "", err
+	}
+	if err := v2RequirePassedTerraformRuns(report, expectedRuns); err != nil {
+		return "", err
+	}
+	if len(report.plans) != len(expectedRuns) {
+		return "", fmt.Errorf("terraform plan events = %v, want exactly %s", report.plans, strings.Join(expectedRuns, " and "))
+	}
+	for _, run := range expectedRuns {
+		if _, present := report.plans[run]; !present {
+			return "", fmt.Errorf("terraform plan events = %v, want plan for run %q", report.plans, run)
+		}
+	}
+	if changes, hasEmptyPlan := report.plans["empty_plan"]; hasEmptyPlan && len(changes) != 0 {
 		return "", fmt.Errorf("empty_plan resource changes = %+v, want none", changes)
 	}
-	configChanges := plans["config_plan"]
+	configChanges := report.plans["config_plan"]
 	if len(configChanges) != 1 {
 		return "", fmt.Errorf("config_plan resource changes = %+v, want exactly one", configChanges)
 	}
@@ -551,17 +658,15 @@ func v2TerraformTestEvidence(output []byte) (string, error) {
 			return "", fmt.Errorf("config_plan after[%q] = %#v, want %q", attribute, change.Change.After[attribute], want)
 		}
 	}
-	if summary == nil || summary.Status != "pass" || summary.Passed != 2 ||
-		summary.Failed != 0 || summary.Errored != 0 || summary.Skipped != 0 {
-		return "", fmt.Errorf("terraform test summary = %+v, want pass with 2 passed and no failed/errored/skipped", summary)
+	lines := []string{fmt.Sprintf("Terraform %s", report.terraformVersion)}
+	if _, hasEmptyPlan := report.plans["empty_plan"]; hasEmptyPlan {
+		lines = append(lines, "empty_plan: pass; 0 resource changes")
 	}
-	return fmt.Sprintf(
-		"Terraform %s\nempty_plan: pass; 0 resource changes\nconfig_plan: pass; create %s; name=%q; description=%q\nsummary: 2 passed, 0 failed, 0 errored, 0 skipped",
-		terraformVersion,
-		change.Address,
-		change.Change.After["name"],
-		change.Change.After["description"],
-	), nil
+	lines = append(lines,
+		fmt.Sprintf("config_plan: pass; create %s; name=%q; description=%q", change.Address, change.Change.After["name"], change.Change.After["description"]),
+		fmt.Sprintf("summary: %d passed, 0 failed, 0 errored, 0 skipped", len(expectedRuns)),
+	)
+	return strings.Join(lines, "\n"), nil
 }
 
 func v2TerraformTestStream(t *testing.T, emptyChanges, configChanges []map[string]any) []byte {
@@ -574,6 +679,11 @@ func v2TerraformTestStream(t *testing.T, emptyChanges, configChanges []map[strin
 		{"type": "test_plan", "@testrun": "config_plan", "test_plan": map[string]any{"resource_changes": configChanges}},
 		{"type": "test_summary", "test_summary": map[string]any{"status": "pass", "passed": 2, "failed": 0, "errored": 0, "skipped": 0}},
 	}
+	return v2TerraformEventStream(t, events)
+}
+
+func v2TerraformEventStream(t *testing.T, events []map[string]any) []byte {
+	t.Helper()
 	var output bytes.Buffer
 	encoder := json.NewEncoder(&output)
 	for _, event := range events {
@@ -582,6 +692,74 @@ func v2TerraformTestStream(t *testing.T, emptyChanges, configChanges []map[strin
 		}
 	}
 	return output.Bytes()
+}
+
+func TestV2TerraformRunEvidenceRejectsMissingFailedAndSkippedRuns(t *testing.T) {
+	tests := []struct {
+		name      string
+		events    []map[string]any
+		expected  []string
+		wantError string
+	}{
+		{
+			name: "exact run passes",
+			events: []map[string]any{
+				{"type": "version", "terraform": "test-version"},
+				{"type": "test_run", "test_run": map[string]any{"run": "defaults_plan", "progress": "complete", "status": "pass"}},
+				{"type": "test_summary", "test_summary": map[string]any{"status": "pass", "passed": 1, "failed": 0, "errored": 0, "skipped": 0}},
+			},
+			expected: []string{"defaults_plan"},
+		},
+		{
+			name: "missing run",
+			events: []map[string]any{
+				{"type": "version", "terraform": "test-version"},
+				{"type": "test_summary", "test_summary": map[string]any{"status": "pass", "passed": 0, "failed": 0, "errored": 0, "skipped": 0}},
+			},
+			expected:  []string{"defaults_plan"},
+			wantError: "want exactly",
+		},
+		{
+			name: "failed run",
+			events: []map[string]any{
+				{"type": "version", "terraform": "test-version"},
+				{"type": "test_run", "test_run": map[string]any{"run": "defaults_plan", "progress": "complete", "status": "fail"}},
+				{"type": "test_summary", "test_summary": map[string]any{"status": "fail", "passed": 0, "failed": 1, "errored": 0, "skipped": 0}},
+			},
+			expected:  []string{"defaults_plan"},
+			wantError: `status = "fail"`,
+		},
+		{
+			name: "skipped run",
+			events: []map[string]any{
+				{"type": "version", "terraform": "test-version"},
+				{"type": "test_run", "test_run": map[string]any{"run": "defaults_plan", "progress": "complete", "status": "skip"}},
+				{"type": "test_summary", "test_summary": map[string]any{"status": "pass", "passed": 0, "failed": 0, "errored": 0, "skipped": 1}},
+			},
+			expected:  []string{"defaults_plan"},
+			wantError: `status = "skip"`,
+		},
+		{
+			name:      "empty expected set",
+			events:    []map[string]any{{"type": "version", "terraform": "test-version"}},
+			expected:  nil,
+			wantError: "expected run set is empty",
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := v2TerraformRunEvidence(v2TerraformEventStream(t, testCase.events), testCase.expected)
+			if testCase.wantError == "" {
+				if err != nil {
+					t.Fatalf("v2TerraformRunEvidence() error = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+				t.Fatalf("v2TerraformRunEvidence() error = %v, want error containing %q", err, testCase.wantError)
+			}
+		})
+	}
 }
 
 func TestV2TerraformTestEvidenceRejectsMisScopedPlans(t *testing.T) {
@@ -653,6 +831,290 @@ func v2VerifyProviderLock(t *testing.T, repositoryRoot, environmentRoot string) 
 	}
 	hash := sha256.Sum256(lock)
 	return fmt.Sprintf("provider registry.terraform.io/zscaler/zia %s; lock_sha256=%x", pack.Pin, hash)
+}
+
+func v2WriteCheckpointDeployment(t *testing.T, directory, overlay, moduleDirectory, tfvarsFormat string) string {
+	t.Helper()
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatalf("os.MkdirAll(%q) error = %v, want nil", directory, err)
+	}
+	payload := map[string]any{
+		"module_dir": moduleDirectory,
+		"overlay":    overlay,
+	}
+	if tfvarsFormat != "" {
+		payload["tfvars_format"] = tfvarsFormat
+	}
+	content, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		t.Fatalf("json.Marshal(%#v) error = %v, want nil", payload, err)
+	}
+	path := filepath.Join(directory, "deployment.json")
+	if err := os.WriteFile(path, append(content, '\n'), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(%q) error = %v, want nil", path, err)
+	}
+	return path
+}
+
+func v2ResourceTypesFromConfig(t *testing.T, directory, suffix string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatalf("os.ReadDir(%q) error = %v, want nil", directory, err)
+	}
+	var resourceTypes []string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), suffix) {
+			continue
+		}
+		resourceType := strings.TrimSuffix(entry.Name(), suffix)
+		if resourceType == "" {
+			t.Fatalf("config file %q has an empty resource type before suffix %q", entry.Name(), suffix)
+		}
+		resourceTypes = append(resourceTypes, resourceType)
+	}
+	sort.Strings(resourceTypes)
+	return resourceTypes
+}
+
+func v2DirectoryNames(t *testing.T, directory string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatalf("os.ReadDir(%q) error = %v, want nil", directory, err)
+	}
+	var names []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			names = append(names, entry.Name())
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func v2RequireStrings(t *testing.T, label string, got, want []string) {
+	t.Helper()
+	got = append([]string(nil), got...)
+	want = append([]string(nil), want...)
+	sort.Strings(got)
+	sort.Strings(want)
+	if gotText, wantText := strings.Join(got, "\n"), strings.Join(want, "\n"); gotText != wantText {
+		t.Fatalf("%s differs\n got:\n%s\nwant:\n%s", label, gotText, wantText)
+	}
+}
+
+func v2WithResourceSelectors(arguments, resourceTypes []string) []string {
+	result := append([]string(nil), arguments...)
+	for _, resourceType := range resourceTypes {
+		result = append(result, "--resource", resourceType)
+	}
+	return result
+}
+
+func v2InitializeTerraformRoot(t *testing.T, label, terraform, directory string, environment []string) {
+	t.Helper()
+	if _, err := v2RunBoundedCommand(
+		t,
+		directory,
+		terraform,
+		[]string{"init", "-backend=false", "-input=false", "-no-color"},
+		environment,
+	); err != nil {
+		t.Fatalf("%s terraform init in %q failed: %v", label, directory, err)
+	}
+}
+
+func v2RunTerraformTestRuns(
+	t *testing.T,
+	label, terraform, directory string,
+	testArguments, environment, expectedRuns []string,
+) {
+	t.Helper()
+	v2InitializeTerraformRoot(t, label, terraform, directory, environment)
+	result, err := v2RunBoundedCommand(t, directory, terraform, testArguments, environment)
+	if err != nil {
+		t.Fatalf("%s terraform test in %q failed: %v", label, directory, err)
+	}
+	if _, err := v2TerraformRunEvidence(result.stdout, expectedRuns); err != nil {
+		t.Fatalf("%s terraform test evidence invalid: %v", label, err)
+	}
+}
+
+func v2VerifyGeneratedModuleSemantics(
+	t *testing.T,
+	workspace, goBinary, terraform, deploymentPath, moduleDirectory string,
+	metadataArguments, environment []string,
+) {
+	t.Helper()
+	generateArguments := append([]string{
+		"modules", "generate", "--out", moduleDirectory, "--deployment", deploymentPath,
+	}, metadataArguments...)
+	v2RunSuccessfully(t, workspace, goBinary, generateArguments, environment)
+	validateArguments := append([]string{
+		"modules", "validate", "--out", moduleDirectory, "--deployment", deploymentPath,
+	}, metadataArguments...)
+	v2RunSuccessfully(t, workspace, goBinary, validateArguments, environment)
+
+	resourceTypes := v2DirectoryNames(t, moduleDirectory)
+	if got := len(resourceTypes); got != v2GeneratedModuleCount {
+		t.Fatalf("generated module directories = %d, want %d: %v", got, v2GeneratedModuleCount, resourceTypes)
+	}
+	passed := 0
+	for index, resourceType := range resourceTypes {
+		resourceType := resourceType
+		if t.Run("generated_module_"+resourceType, func(t *testing.T) {
+			moduleRoot := filepath.Join(moduleDirectory, resourceType)
+			for _, required := range []string{
+				filepath.Join("tests", "defaults.tftest.hcl"),
+				filepath.Join("tests", "sample.auto.tfvars.json"),
+			} {
+				if _, err := os.Stat(filepath.Join(moduleRoot, required)); err != nil {
+					t.Fatalf("os.Stat(%q) error = %v, want generated module test artifact", required, err)
+				}
+			}
+			v2RunTerraformTestRuns(
+				t,
+				"generated module "+resourceType,
+				terraform,
+				moduleRoot,
+				[]string{"test", "-no-color", "-json"},
+				environment,
+				[]string{"defaults_plan"},
+			)
+		}) {
+			passed++
+		}
+		if (index+1)%25 == 0 {
+			t.Logf("generated module Terraform semantics: %d/%d complete", index+1, len(resourceTypes))
+		}
+	}
+	if passed != len(resourceTypes) {
+		t.Fatalf("generated module Terraform semantics: %d/%d passed", passed, len(resourceTypes))
+	}
+	t.Logf("generated module Terraform semantics: %d/%d passed", passed, v2GeneratedModuleCount)
+}
+
+func v2VerifyDemoEnvironmentSemantics(
+	t *testing.T,
+	repositoryRoot, workspace, goBinary, terraform, deploymentPath, overlay string,
+	metadataArguments, environment []string,
+) {
+	t.Helper()
+	demoInput := filepath.Join(repositoryRoot, "packs", "_shared", "zscaler", "demo")
+	transformArguments := append([]string{
+		"transform", "--in", demoInput, "--tenant", v2Tenant, "--deployment", deploymentPath,
+	}, metadataArguments...)
+	v2RunSuccessfully(t, workspace, goBinary, transformArguments, environment)
+
+	wantResourceTypes := v2ResourceTypesFromConfig(
+		t,
+		filepath.Join(repositoryRoot, "demo", "config", v2Tenant),
+		".auto.tfvars.json",
+	)
+	if len(wantResourceTypes) == 0 {
+		t.Fatal("committed demo config corpus has no JSON resource fixtures")
+	}
+	configDirectory := filepath.Join(overlay, "config", v2Tenant)
+	gotResourceTypes := v2ResourceTypesFromConfig(t, configDirectory, ".auto.tfvars.json")
+	v2RequireStrings(t, "candidate transformed demo resource types", gotResourceTypes, wantResourceTypes)
+
+	genEnvArguments := append([]string{
+		"gen-env", "--tenant", v2Tenant, "--deployment", deploymentPath,
+	}, metadataArguments...)
+	genEnvArguments = v2WithResourceSelectors(genEnvArguments, wantResourceTypes)
+	v2RunSuccessfully(t, workspace, goBinary, genEnvArguments, environment)
+
+	environmentDirectory := filepath.Join(overlay, "envs", v2Tenant)
+	rootTypes := v2DirectoryNames(t, environmentDirectory)
+	v2RequireStrings(t, "generated demo environment roots", rootTypes, wantResourceTypes)
+	passed := 0
+	for _, resourceType := range rootTypes {
+		resourceType := resourceType
+		if t.Run("demo_environment_"+resourceType, func(t *testing.T) {
+			environmentRoot := filepath.Join(environmentDirectory, resourceType)
+			expectedRuns := []string{"empty_plan", "config_plan"}
+			if _, err := os.Stat(filepath.Join(environmentRoot, "expression_bindings.tf")); err == nil {
+				expectedRuns = []string{"config_plan"}
+			} else if !os.IsNotExist(err) {
+				t.Fatalf("os.Stat(expression_bindings.tf) error = %v, want nil or not-exist", err)
+			}
+			v2RunTerraformTestRuns(
+				t,
+				"demo environment "+resourceType,
+				terraform,
+				environmentRoot,
+				[]string{"test", "-no-color", "-json"},
+				environment,
+				expectedRuns,
+			)
+		}) {
+			passed++
+		}
+	}
+	if passed != len(rootTypes) {
+		t.Fatalf("demo environment Terraform semantics: %d/%d passed", passed, len(rootTypes))
+	}
+	t.Logf("demo environment Terraform semantics: %d/%d passed", passed, len(wantResourceTypes))
+}
+
+func v2VerifyHCLTfvarsSemantics(
+	t *testing.T,
+	repositoryRoot, goBinary, terraform, moduleDirectory string,
+	metadataArguments, environment []string,
+) {
+	t.Helper()
+	workspace := t.TempDir()
+	overlay := filepath.Join(workspace, "overlay")
+	deploymentPath := v2WriteCheckpointDeployment(t, workspace, overlay, moduleDirectory, "hcl")
+	demoInput := filepath.Join(repositoryRoot, "packs", "_shared", "zscaler", "demo")
+	transformArguments := append([]string{
+		"transform", "--in", demoInput, "--tenant", v2Tenant, "--deployment", deploymentPath,
+		"--resource", v2ResourceType,
+	}, metadataArguments...)
+	v2RunSuccessfully(t, workspace, goBinary, transformArguments, environment)
+	genEnvArguments := append([]string{
+		"gen-env", "--tenant", v2Tenant, "--deployment", deploymentPath, "--resource", v2ResourceType,
+	}, metadataArguments...)
+	v2RunSuccessfully(t, workspace, goBinary, genEnvArguments, environment)
+
+	configPath := filepath.Join(overlay, "config", v2Tenant, v2ResourceType+".auto.tfvars")
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatalf("os.Stat(%q) error = %v, want generated HCL tfvars", configPath, err)
+	}
+	if _, err := os.Stat(configPath + ".json"); !os.IsNotExist(err) {
+		t.Fatalf("os.Stat(%q) error = %v, want not-exist for HCL deployment", configPath+".json", err)
+	}
+	environmentRoot := filepath.Join(overlay, "envs", v2Tenant, v2ResourceType)
+	testDirectory := filepath.Join(environmentRoot, "hcl-tests")
+	if err := os.MkdirAll(testDirectory, 0o700); err != nil {
+		t.Fatalf("os.MkdirAll(%q) error = %v, want nil", testDirectory, err)
+	}
+	testPath := filepath.Join(testDirectory, "config.tftest.hcl")
+	testSource := "# Check the generated native-HCL tfvars through the real provider schema.\n" +
+		"mock_provider \"zia\" {}\n\n" +
+		"run \"config_plan\" {\n  command = plan\n}\n"
+	if err := os.WriteFile(testPath, []byte(testSource), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(%q) error = %v, want nil", testPath, err)
+	}
+
+	v2InitializeTerraformRoot(t, "HCL tfvars environment", terraform, environmentRoot, environment)
+	result, err := v2RunBoundedCommand(t, environmentRoot, terraform, []string{
+		"test",
+		"-test-directory=hcl-tests",
+		"-var-file=" + configPath,
+		"-no-color",
+		"-verbose",
+		"-json",
+	}, environment)
+	if err != nil {
+		t.Fatalf("HCL tfvars terraform test in %q failed: %v", environmentRoot, err)
+	}
+	evidence, err := v2TerraformRuleLabelEvidence(result.stdout, []string{"config_plan"})
+	if err != nil {
+		t.Fatalf("HCL tfvars terraform test evidence invalid: %v", err)
+	}
+	t.Log("HCL tfvars semantic evidence:\n" + evidence)
 }
 
 func TestV2VerticalSliceCheckpoint(t *testing.T) {
@@ -782,6 +1244,51 @@ func TestV2VerticalSliceCheckpoint(t *testing.T) {
 		t.Fatalf("verify terraform test evidence: %v", err)
 	}
 	t.Log(testEvidence)
+
+	semanticWorkspace := t.TempDir()
+	semanticOverlay := filepath.Join(semanticWorkspace, "overlay")
+	semanticModuleDirectory := filepath.Join(semanticOverlay, "modules")
+	semanticDeploymentPath := v2WriteCheckpointDeployment(
+		t,
+		semanticWorkspace,
+		semanticOverlay,
+		semanticModuleDirectory,
+		"json",
+	)
+	fullMetadataArguments := []string{
+		"--root", filepath.Join(root, "packs"),
+		"--profile", filepath.Join(root, "packs", "full.packset.json"),
+	}
+	v2VerifyGeneratedModuleSemantics(
+		t,
+		semanticWorkspace,
+		goBinary,
+		terraform,
+		semanticDeploymentPath,
+		semanticModuleDirectory,
+		fullMetadataArguments,
+		terraformEnvironment,
+	)
+	v2VerifyDemoEnvironmentSemantics(
+		t,
+		root,
+		semanticWorkspace,
+		goBinary,
+		terraform,
+		semanticDeploymentPath,
+		semanticOverlay,
+		fullMetadataArguments,
+		terraformEnvironment,
+	)
+	v2VerifyHCLTfvarsSemantics(
+		t,
+		root,
+		goBinary,
+		terraform,
+		semanticModuleDirectory,
+		fullMetadataArguments,
+		terraformEnvironment,
+	)
 
 	postFetchRequests := takeRecordedFetchTranscript(t, server, "v2 checkpoint post-fetch")
 	requireRecordedFetchTranscript(t, "v2 checkpoint post-fetch", postFetchRequests, nil)
