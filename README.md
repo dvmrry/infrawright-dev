@@ -8,11 +8,16 @@ variables, native `import {}` blocks, and **identity-keyed `moved {}` reconcilia
 so console renames and key changes resolve as *moves*, never destroy/recreate. A clean
 `terraform plan` against your real state is the contract.
 
-The core adoption/codegen contract is provider-agnostic: provider-specific
-enumeration, identity, schema, and diagnostic metadata live in **packs** under
-`packs/<name>/`. Zscaler is the reference pack; Cloudflare, Google, AWS, and
-NetBox provide additional provider-lab and metadata evidence. Engine-edge
-vendor behavior belongs in pack metadata rather than the generic runtime.
+The adoption/codegen core is provider-neutral: provider-specific enumeration,
+identity, schema, and diagnostic metadata live in **packs** under
+`packs/<name>/`. Live collection has a separate boundary. Packs select
+provider sources and resource list/detail metadata, while the Go runtime
+supplies compiled collector adapters for authentication, URL composition,
+pagination, retries, and deterministic pull-file output. The shipped CLI
+currently includes Zscaler collector adapters; Cloudflare, Google, AWS, and
+NetBox provide provider-lab and metadata evidence but do not by themselves add
+live fetch support. Adding a pack therefore does not make a provider
+collectable without a matching compiled adapter.
 
 ## Primary Adoption Workflow
 
