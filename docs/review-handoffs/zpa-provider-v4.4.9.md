@@ -31,10 +31,12 @@
 - Second correction: `2596ae04a28c4405aebb9c4578f79056fc396bb5`.
 - Clone-boundary correction:
   `d69d63a17b596567bf4e72789058eb24f2a502fc`.
+- Focused-review test correction:
+  `1ffff278b89726ef03099e7fa0cf3e44d5d7543f`.
 - Handoff: the branch tip has a documentation-only commit updating this file
-  after the clone-boundary correction.
+  after the focused-review test correction.
 - Diff command:
-  `git diff 51a6577aa5036a6e3c094df3d1b79cb4d2f8735c...d69d63a17b596567bf4e72789058eb24f2a502fc`.
+  `git diff 51a6577aa5036a6e3c094df3d1b79cb4d2f8735c...1ffff278b89726ef03099e7fa0cf3e44d5d7543f`.
 
 ## Files Changed
 
@@ -181,10 +183,12 @@
 - Clone-boundary correction output: the focused tests pass in under one second
   and `make check` passes in 30.55 seconds. Replacing recursive nested-map
   cloning with a shared-map return makes the focused regression fail on both
-  the direct nested object and the object inside a slice; restoring the deep
-  clone passes. No full Terraform corpus was repeated because generated output
-  and provider behavior are unchanged and the focused mutation plus
-  `make check` cover the corrected surface.
+  the direct nested object and the object inside a slice. Replacing recursive
+  slice cloning with a shared-slice return fails on the existing map element,
+  a scalar element, and a nested-slice element; restoring the deep clone
+  passes. No full Terraform corpus was repeated because generated output and
+  provider behavior are unchanged and the focused mutations plus `make check`
+  cover the corrected surface.
 - Commands: with Terraform `v1.15.4`,
   `TF_PLUGIN_CACHE_DIR=/tmp/infrawright-terraform-plugin-cache
   INFRAWRIGHT_V2_CHECKPOINT=1 go test -count=1 -timeout=18m -v -run
@@ -240,9 +244,14 @@
   with scalar/map/slice recursion isolated in a private child helper; the
   impossible runtime assertion was removed.
 - Regression proof: a dedicated test mutates the cloned top-level value, nested
-  map, nested map inside a slice, and slice length, and proves the original
-  schema tree is unchanged. The test failed against a faithful shallow nested-
-  map mutation before the production clone was restored.
+  map, map inside a slice, existing scalar slice element, and nested-slice
+  element, and proves the original schema tree is unchanged. The test fails
+  against faithful shallow-map and shallow-slice mutations before the
+  production clone is restored.
+- Focused-review nit and correction: the first test appended and reassigned a
+  slice, which could not prove backing-array isolation because append never
+  changes the original slice header. The test now mutates existing elements
+  in scalar and nested slices and fails against a shared-slice implementation.
 
 ## Known Deferrals
 
