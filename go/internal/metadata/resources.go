@@ -45,9 +45,9 @@ var unsupportedProviderKeys = stringSet("source", "version")
 var overrideKeys = stringSet(
 	"acknowledged_drops", "defaults", "divide", "drop_if_default", "drops",
 	"html_escape_fields", "identity_fields", "import_id", "invert_bool",
-	"key_field", "merge_blocks", "no_html_unescape", "ranges", "references",
-	"renames", "sample", "skip_if", "skip_if_lte", "sort_lists", "split_csv",
-	"strip_prefix", "value_map",
+	"key_field", "merge_blocks", "module_single_blocks", "no_html_unescape",
+	"ranges", "references", "renames", "sample", "skip_if", "skip_if_lte",
+	"sort_lists", "split_csv", "strip_prefix", "value_map",
 )
 
 // IsCanonicalResourceType reports whether value is a canonical Terraform
@@ -685,9 +685,44 @@ func validateOverride(value any, source string) JsonObject {
 	if sorted := canonjson.SortedStrings(unknown); len(sorted) > 0 {
 		failf("unknown override key %s in %s", sorted[0], source)
 	}
+	validateModuleSingleBlocks(data, source)
 	skipFields := validateSkipMatchers(data, source)
 	validateSkipRenameConflicts(data, source, skipFields)
 	return data
+}
+
+// validateModuleSingleBlocks validates the generator-only escape hatch used
+// when a provider's executable behavior still treats a schema-declared list or
+// set block as a singleton. Paths are dotted nested-block names; existence and
+// compatible nesting are checked against the exact schema by modulesgen.
+func validateModuleSingleBlocks(data JsonObject, source string) {
+	raw, exists := data["module_single_blocks"]
+	if !exists {
+		return
+	}
+	paths, ok := raw.([]any)
+	if !ok {
+		failf("%s.module_single_blocks must be an array", source)
+	}
+	if len(paths) == 0 {
+		failf("%s.module_single_blocks must not be empty", source)
+	}
+	seen := make(map[string]struct{}, len(paths))
+	for index, value := range paths {
+		path, ok := value.(string)
+		if !ok || path == "" {
+			failf("%s.module_single_blocks[%d] must be a non-empty dotted block path", source, index)
+		}
+		for _, segment := range strings.Split(path, ".") {
+			if !canonicalResourceType.MatchString(segment) {
+				failf("%s.module_single_blocks[%d] must be a canonical dotted block path", source, index)
+			}
+		}
+		if _, duplicate := seen[path]; duplicate {
+			failf("%s.module_single_blocks contains duplicate path %s", source, jsonQuote(path))
+		}
+		seen[path] = struct{}{}
+	}
 }
 
 // ValidateOverride ports validateOverride from

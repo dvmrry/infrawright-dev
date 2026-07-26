@@ -15,6 +15,19 @@
   config. ZIA `4.8.0` readback is either shape-incompatible or unwired; empty
   endpoint collections remain eligible. The nine new resource types remain
   schema-visible but are not yet registry-enabled.
+- Refresh the ZPA pack and its source-bound evidence from provider `4.4.6` to
+  `4.4.9`. The inventory remains 55 provider resource schemas and 71
+  data-source schemas; the change is field-semantic rather than catalog
+  expansion.
+- Admit `device_posture_failure_notification_enabled` for access policy rules,
+  and regenerate module shapes for the provider's browser/PRA list-to-set and
+  portal/capability changes. The same device-posture field is not claimed for
+  four schemas that inherit it without provider Read/expand wiring.
+- Keep portal capabilities singleton at the generated-module boundary because
+  provider `4.4.9` still expands only element zero despite removing the schema's
+  one-item limit. The generated input is now a strict one-element tuple when
+  present; two-element lists and keyed-object collection bypasses fail before
+  the provider can silently discard them.
 
 ### Breaking changes
 

@@ -2,6 +2,7 @@ package modulesgen
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -126,6 +127,287 @@ func TestSamplesSensitiveOutputsDeprecatedProjectionAndNestedTypesMatchAuthority
 	}
 	if got := len(requiredDecoded.Items.Example.Rules); got != 1 {
 		t.Errorf("rules length = %d, want 1", got)
+	}
+}
+
+func TestZPAProvider449ModuleShapesMatchReviewedSchemaTransitions(t *testing.T) {
+	root := committedRoot(t)
+	for _, test := range []struct {
+		resourceType string
+		pattern      string
+	}{
+		{"zpa_application_segment_browser_access", `clientless_apps = optional\(set\(object\(\{`},
+		{"zpa_browser_access", `clientless_apps = optional\(set\(object\(\{`},
+		{"zpa_application_segment_pra", `apps_config = optional\(set\(object\(\{`},
+	} {
+		files, err := RenderModuleFiles(root, test.resourceType)
+		if err != nil {
+			t.Fatalf("RenderModuleFiles(%s): %v", test.resourceType, err)
+		}
+		variables, _ := files.Get(FileVariables)
+		mustMatch(t, variables, test.pattern)
+	}
+
+	for _, resourceType := range []string{"zpa_policy_access_rule", "zpa_policy_access_rule_v2"} {
+		files, err := RenderModuleFiles(root, resourceType)
+		if err != nil {
+			t.Fatalf("RenderModuleFiles(%s): %v", resourceType, err)
+		}
+		variables, _ := files.Get(FileVariables)
+		main, _ := files.Get(FileMain)
+		mustMatch(t, variables, `device_posture_failure_notification_enabled = optional\(bool\)`)
+		mustMatch(t, main, `device_posture_failure_notification_enabled = each\.value\.device_posture_failure_notification_enabled`)
+	}
+
+	capabilities, err := RenderModuleFiles(root, "zpa_policy_capabilities_rule")
+	if err != nil {
+		t.Fatalf("RenderModuleFiles(zpa_policy_capabilities_rule): %v", err)
+	}
+	capabilityVariables, _ := capabilities.Get(FileVariables)
+	mustMatch(t, capabilityVariables, `control_session\s+= optional\(bool\)`)
+	mustMatch(t, capabilityVariables, `join_session\s+= optional\(bool\)`)
+
+	portal, err := RenderModuleFiles(root, "zpa_policy_portal_access_rule")
+	if err != nil {
+		t.Fatalf("RenderModuleFiles(zpa_policy_portal_access_rule): %v", err)
+	}
+	portalVariables, _ := portal.Get(FileVariables)
+	for _, field := range []string{"access_uninspected_file_sandbox", "upload_inspected_sandbox", "upload_inspected_scan"} {
+		mustMatch(t, portalVariables, field+`\s+= optional\(bool\)`)
+	}
+	mustMatch(t, portalVariables, `privileged_portal_capabilities = optional\(tuple\(\[object\(\{`)
+	mustNotMatch(t, portalVariables, `privileged_portal_capabilities = optional\(list\(`)
+	mustNotMatch(t, portalVariables, `privileged_portal_capabilities = optional\(object\(`)
+	portalMain, _ := portal.Get(FileMain)
+	mustMatch(t, portalMain, `for_each = each\.value\.privileged_portal_capabilities == null \? \[\] : each\.value\.privileged_portal_capabilities`)
+}
+
+func TestCloneModuleSchemaValueDetachesNestedMapsAndSlices(t *testing.T) {
+	original := metadata.JsonObject{
+		"top": "original",
+		"block": metadata.JsonObject{
+			"leaf": "original",
+		},
+		"blocks": []any{
+			metadata.JsonObject{"leaf": "original"},
+		},
+		"values":        []any{"original"},
+		"nested_slices": []any{[]any{"original"}},
+	}
+	var cloned metadata.JsonObject = cloneModuleSchemaValue(original)
+	cloned["top"] = "changed"
+	clonedBlock, ok := cloned["block"].(map[string]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[block] = %T, want map[string]any", cloned["block"])
+	}
+	clonedBlock["leaf"] = "changed"
+	clonedBlocks, ok := cloned["blocks"].([]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[blocks] = %T, want []any", cloned["blocks"])
+	}
+	clonedSliceBlock, ok := clonedBlocks[0].(map[string]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[blocks][0] = %T, want map[string]any", clonedBlocks[0])
+	}
+	clonedSliceBlock["leaf"] = "changed"
+	clonedBlocks[0] = metadata.JsonObject{"leaf": "replacement"}
+	clonedValues, ok := cloned["values"].([]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[values] = %T, want []any", cloned["values"])
+	}
+	clonedValues[0] = "changed"
+	clonedNestedSlices, ok := cloned["nested_slices"].([]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[nested_slices] = %T, want []any", cloned["nested_slices"])
+	}
+	clonedNestedSlice, ok := clonedNestedSlices[0].([]any)
+	if !ok {
+		t.Fatalf("cloneModuleSchemaValue(original)[nested_slices][0] = %T, want []any", clonedNestedSlices[0])
+	}
+	clonedNestedSlice[0] = "changed"
+
+	if got := original["top"]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated top-level original value = %v, want original", got)
+	}
+	originalBlock, ok := original["block"].(map[string]any)
+	if !ok {
+		t.Fatalf("original[block] = %T, want map[string]any", original["block"])
+	}
+	if got := originalBlock["leaf"]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated nested original value = %v, want original", got)
+	}
+	originalBlocks, ok := original["blocks"].([]any)
+	if !ok {
+		t.Fatalf("original[blocks] = %T, want []any", original["blocks"])
+	}
+	if got := len(originalBlocks); got != 1 {
+		t.Fatalf("cloneModuleSchemaValue(original) mutated original slice length = %d, want 1", got)
+	}
+	originalSliceBlock, ok := originalBlocks[0].(map[string]any)
+	if !ok {
+		t.Fatalf("original[blocks][0] = %T, want map[string]any", originalBlocks[0])
+	}
+	if got := originalSliceBlock["leaf"]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated sliced original value = %v, want original", got)
+	}
+	originalValues, ok := original["values"].([]any)
+	if !ok {
+		t.Fatalf("original[values] = %T, want []any", original["values"])
+	}
+	if got := originalValues[0]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated original slice element = %v, want original", got)
+	}
+	originalNestedSlices, ok := original["nested_slices"].([]any)
+	if !ok {
+		t.Fatalf("original[nested_slices] = %T, want []any", original["nested_slices"])
+	}
+	originalNestedSlice, ok := originalNestedSlices[0].([]any)
+	if !ok {
+		t.Fatalf("original[nested_slices][0] = %T, want []any", originalNestedSlices[0])
+	}
+	if got := originalNestedSlice[0]; got != "original" {
+		t.Errorf("cloneModuleSchemaValue(original) mutated nested original slice element = %v, want original", got)
+	}
+}
+
+func TestModuleSingleBlocksConstrainGeneratedShapeWithoutMutatingProviderSchema(t *testing.T) {
+	schema := metadata.JsonObject{
+		"block": metadata.JsonObject{
+			"attributes": metadata.JsonObject{
+				"name": metadata.JsonObject{"type": "string", "required": true},
+			},
+			"block_types": metadata.JsonObject{
+				"capabilities": metadata.JsonObject{
+					"nesting_mode": "list",
+					"block": metadata.JsonObject{
+						"attributes": metadata.JsonObject{
+							"enabled": metadata.JsonObject{"type": "bool", "optional": true},
+						},
+					},
+				},
+			},
+		},
+	}
+	_, root := syntheticRoot(t, syntheticRootOptions{
+		Schema:       schema,
+		OverrideText: `{"module_single_blocks":["capabilities"]}`,
+	})
+	rendered, err := RenderModuleFiles(root, "sample_resource")
+	if err != nil {
+		t.Fatalf("RenderModuleFiles(module_single_blocks): %v", err)
+	}
+	variables, _ := rendered.Get(FileVariables)
+	mustMatch(t, variables, `capabilities = optional\(tuple\(\[object\(\{`)
+	mustNotMatch(t, variables, `capabilities = optional\(list\(`)
+	mustNotMatch(t, variables, `capabilities = optional\(object\(`)
+	main, _ := rendered.Get(FileMain)
+	mustMatch(t, main, `for_each = each\.value\.capabilities == null \? \[\] : each\.value\.capabilities`)
+
+	authority, err := root.LoadResourceSchema("sample_resource")
+	if err != nil {
+		t.Fatalf("LoadResourceSchema(sample_resource): %v", err)
+	}
+	block, err := metadata.TerraformBlockForSchema(authority, "sample_resource")
+	if err != nil {
+		t.Fatalf("TerraformBlockForSchema(sample_resource): %v", err)
+	}
+	blockTypes, err := metadata.TerraformBlockTypesForBlock(block, "sample_resource.block")
+	if err != nil {
+		t.Fatalf("TerraformBlockTypesForBlock(sample_resource): %v", err)
+	}
+	capabilities, err := metadata.TerraformRequireObject(blockTypes["capabilities"], "capabilities")
+	if err != nil {
+		t.Fatalf("TerraformRequireObject(capabilities): %v", err)
+	}
+	if _, mutated := capabilities["max_items"]; mutated {
+		t.Fatal("module_single_blocks mutated the cached provider schema authority")
+	}
+	if _, mutated := capabilities[moduleSingleBlockMarker]; mutated {
+		t.Fatal("module_single_blocks leaked its generator marker into the cached provider schema authority")
+	}
+}
+
+func TestModuleSingleBlocksApplyStrictTupleToDottedNestedPath(t *testing.T) {
+	_, root := syntheticRoot(t, syntheticRootOptions{
+		Schema: metadata.JsonObject{
+			"block": metadata.JsonObject{
+				"attributes": metadata.JsonObject{
+					"name": metadata.JsonObject{"type": "string", "required": true},
+				},
+				"block_types": metadata.JsonObject{
+					"outer": metadata.JsonObject{
+						"nesting_mode": "list",
+						"block": metadata.JsonObject{
+							"attributes": metadata.JsonObject{},
+							"block_types": metadata.JsonObject{
+								"capabilities": metadata.JsonObject{
+									"nesting_mode": "set",
+									"block": metadata.JsonObject{
+										"attributes": metadata.JsonObject{
+											"enabled": metadata.JsonObject{"type": "bool", "optional": true},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		OverrideText: `{"module_single_blocks":["outer.capabilities"]}`,
+	})
+	rendered, err := RenderModuleFiles(root, "sample_resource")
+	if err != nil {
+		t.Fatalf("RenderModuleFiles(nested module_single_blocks): %v", err)
+	}
+	variables, _ := rendered.Get(FileVariables)
+	mustMatch(t, variables, `outer = optional\(list\(object\(\{`)
+	mustMatch(t, variables, `capabilities = optional\(tuple\(\[object\(\{`)
+	main, _ := rendered.Get(FileMain)
+	mustMatch(t, main, `for_each = outer\.value\.capabilities == null \? \[\] : outer\.value\.capabilities`)
+}
+
+func TestModuleSingleBlocksFailOnMissingConflictingOrStaleSchemaPaths(t *testing.T) {
+	baseBlock := func() metadata.JsonObject {
+		return metadata.JsonObject{
+			"attributes": metadata.JsonObject{
+				"name": metadata.JsonObject{"type": "string", "required": true},
+			},
+			"block_types": metadata.JsonObject{
+				"capabilities": metadata.JsonObject{
+					"nesting_mode": "list",
+					"block":        metadata.JsonObject{"attributes": metadata.JsonObject{}},
+				},
+			},
+		}
+	}
+	tests := []struct {
+		name      string
+		path      string
+		mutate    func(metadata.JsonObject)
+		wantError string
+	}{
+		{"missing", "absent", func(metadata.JsonObject) {}, "does not exist"},
+		{"stale", "capabilities", func(block metadata.JsonObject) {
+			block["block_types"].(metadata.JsonObject)["capabilities"].(metadata.JsonObject)["max_items"] = float64(1)
+		}, "already singleton"},
+		{"minimum conflict", "capabilities", func(block metadata.JsonObject) {
+			block["block_types"].(metadata.JsonObject)["capabilities"].(metadata.JsonObject)["min_items"] = float64(2)
+		}, "min_items greater than one"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			block := baseBlock()
+			testCase.mutate(block)
+			_, root := syntheticRoot(t, syntheticRootOptions{
+				Schema:       metadata.JsonObject{"block": block},
+				OverrideText: fmt.Sprintf(`{"module_single_blocks":[%q]}`, testCase.path),
+			})
+			_, err := RenderModuleFiles(root, "sample_resource")
+			if err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+				t.Fatalf("RenderModuleFiles(module_single_blocks) error = %v, want error containing %q", err, testCase.wantError)
+			}
+		})
 	}
 }
 
