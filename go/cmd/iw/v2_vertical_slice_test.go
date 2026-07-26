@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -877,6 +878,120 @@ func v2ResourceTypesFromConfig(t *testing.T, directory, suffix string) []string 
 	return resourceTypes
 }
 
+func v2ConfigItemKeys(content []byte) ([]string, error) {
+	var config struct {
+		Items map[string]json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(content, &config); err != nil {
+		return nil, fmt.Errorf("decode tfvars document: %w", err)
+	}
+	if config.Items == nil {
+		return nil, errors.New(`tfvars "items" must be a JSON object`)
+	}
+	keys := make([]string, 0, len(config.Items))
+	for key := range config.Items {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys, nil
+}
+
+func v2ReadConfigItemKeys(t *testing.T, path string) []string {
+	t.Helper()
+	keys, err := v2ConfigItemKeys(v2ReadFile(t, path))
+	if err != nil {
+		t.Fatalf("v2ConfigItemKeys(%q) error = %v, want nil", path, err)
+	}
+	return keys
+}
+
+func v2VerifyDemoConfigItemParity(t *testing.T, gotDirectory, wantDirectory string, resourceTypes []string) {
+	t.Helper()
+	matched := 0
+	for _, resourceType := range resourceTypes {
+		resourceType := resourceType
+		if t.Run("demo_config_items_"+resourceType, func(t *testing.T) {
+			filename := resourceType + ".auto.tfvars.json"
+			got := v2ReadConfigItemKeys(t, filepath.Join(gotDirectory, filename))
+			want := v2ReadConfigItemKeys(t, filepath.Join(wantDirectory, filename))
+			if !slices.Equal(got, want) {
+				t.Errorf(
+					"candidate transformed demo item keys for %q = %v (count %d), want committed keys %v (count %d)",
+					resourceType,
+					got,
+					len(got),
+					want,
+					len(want),
+				)
+			}
+		}) {
+			matched++
+		}
+	}
+	if matched != len(resourceTypes) {
+		t.Errorf("candidate transformed demo item-key parity: %d/%d matched, want all resources", matched, len(resourceTypes))
+		return
+	}
+	t.Logf("candidate transformed demo item-key parity: %d/%d matched", matched, len(resourceTypes))
+}
+
+func TestV2ConfigItemKeysAcceptsEmptyObjectsAndRejectsMissingItems(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   string
+		want      []string
+		wantError string
+	}{
+		{
+			name:    "sorted keys",
+			content: `{"items":{"second":{},"first":{}}}`,
+			want:    []string{"first", "second"},
+		},
+		{
+			name:    "empty items object",
+			content: `{"items":{}}`,
+			want:    []string{},
+		},
+		{
+			name:      "missing items",
+			content:   `{}`,
+			wantError: `tfvars "items" must be a JSON object`,
+		},
+		{
+			name:      "null items",
+			content:   `{"items":null}`,
+			wantError: `tfvars "items" must be a JSON object`,
+		},
+		{
+			name:      "non-object items",
+			content:   `{"items":[]}`,
+			wantError: "cannot unmarshal array",
+		},
+		{
+			name:      "invalid JSON",
+			content:   `{"items":`,
+			wantError: "decode tfvars document",
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := v2ConfigItemKeys([]byte(testCase.content))
+			if testCase.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+					t.Fatalf("v2ConfigItemKeys(%q) error = %v, want error containing %q", testCase.content, err, testCase.wantError)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("v2ConfigItemKeys(%q) error = %v, want nil", testCase.content, err)
+			}
+			if !slices.Equal(got, testCase.want) {
+				t.Errorf("v2ConfigItemKeys(%q) = %v, want %v", testCase.content, got, testCase.want)
+			}
+		})
+	}
+}
+
 func v2DirectoryNames(t *testing.T, directory string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(directory)
@@ -1018,6 +1133,12 @@ func v2VerifyDemoEnvironmentSemantics(
 	configDirectory := filepath.Join(overlay, "config", v2Tenant)
 	gotResourceTypes := v2ResourceTypesFromConfig(t, configDirectory, ".auto.tfvars.json")
 	v2RequireStrings(t, "candidate transformed demo resource types", gotResourceTypes, wantResourceTypes)
+	v2VerifyDemoConfigItemParity(
+		t,
+		configDirectory,
+		filepath.Join(repositoryRoot, "demo", "config", v2Tenant),
+		wantResourceTypes,
+	)
 
 	genEnvArguments := append([]string{
 		"gen-env", "--tenant", v2Tenant, "--deployment", deploymentPath,
