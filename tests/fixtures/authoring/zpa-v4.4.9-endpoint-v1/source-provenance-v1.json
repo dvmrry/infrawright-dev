@@ -9,7 +9,7 @@
       },
       {
         "path": "zpa/common.go",
-        "sha256": "6031f248c1aa3174509dccaf44f716653d4650fc0489c1aa026ce62bb5a99e91"
+        "sha256": "56a627c34475dfc410c5978b94826288d63c7a4f2aa32e576dc4f28c51c1a32c"
       },
       {
         "path": "zpa/config.go",
@@ -317,15 +317,15 @@
       },
       {
         "path": "zpa/resource_zpa_application_segment.go",
-        "sha256": "d56712483e311f013073f03eb8f093b1f84c4819abf4b33214927c5e49859179"
+        "sha256": "ac416ad674c4300f6349d3b15968e5a4f366d442a86465d8f4996590d885dfea"
       },
       {
         "path": "zpa/resource_zpa_application_segment_browser_access.go",
-        "sha256": "0f8898231942d47c5860c32c888a9ffeb81421bd97657a92f3fbbaec2775bf53"
+        "sha256": "1b3fd420b419b0c98f88ff7c58cb82f287c94a697b9c33e5027968a8c63e532b"
       },
       {
         "path": "zpa/resource_zpa_application_segment_inspection.go",
-        "sha256": "723837a3710b929514ac4c755b36ef0b828318e807640ae6692b2e0b27e5c145"
+        "sha256": "90acea486c2fbbc63e1a3d417212438594a0f0ade55662a7334847124d3539c9"
       },
       {
         "path": "zpa/resource_zpa_application_segment_multimatch_bulk.go",
@@ -333,7 +333,7 @@
       },
       {
         "path": "zpa/resource_zpa_application_segment_pra.go",
-        "sha256": "d1c7c381dac4f829bda8f58732ce4370d32a999f95774ece30aa9739544e133c"
+        "sha256": "2817664fd757f0f25ad29686435930e1b5a19a633bfc879cb78b11b553fe97f4"
       },
       {
         "path": "zpa/resource_zpa_application_segment_weightedlb_config.go",
@@ -357,7 +357,7 @@
       },
       {
         "path": "zpa/resource_zpa_cloud_browser_isolation_certificate.go",
-        "sha256": "0f4e37d956dbca3b25eed9a1b7cca13c58e58172bb4ed420408be953e75304aa"
+        "sha256": "8053ddec9f8ecad9fbf9426316495af9583bcb4c9ebac3e1be2574e648392dc7"
       },
       {
         "path": "zpa/resource_zpa_cloud_browser_isolation_external_profile.go",
@@ -381,7 +381,7 @@
       },
       {
         "path": "zpa/resource_zpa_lss_config_controller.go",
-        "sha256": "f6b2dd89c03aae4c26f5122813c9e1cdf78f023dd331f4862b984b0833a4e340"
+        "sha256": "35e0eeee63968fb0d0bfb4e8196f52106bcd94a161ccd899937142267cf9c3ca"
       },
       {
         "path": "zpa/resource_zpa_microtenant_controller.go",
@@ -421,7 +421,7 @@
       },
       {
         "path": "zpa/resource_zpa_policy_access_rule.go",
-        "sha256": "5b859c2e858bcc3dd55e68eb13321efd851248391c45b11a9c2367517075490e"
+        "sha256": "474a125047d7e7d18843c0f9bc0fbf6cbedd235f21f9490820f62f52afb2e749"
       },
       {
         "path": "zpa/resource_zpa_policy_access_rule_reorder.go",
@@ -429,7 +429,7 @@
       },
       {
         "path": "zpa/resource_zpa_policy_access_rule_v2.go",
-        "sha256": "d3e624bb7b9bb24c5a2db8adfc7f62e7b8da13cdbb4eda05fe6e7f6cbd2954ce"
+        "sha256": "d358718e036a9e81b619b6d1c99908d9375fbf9975e4a4594050b8dc846037b6"
       },
       {
         "path": "zpa/resource_zpa_policy_access_timeout_rule.go",
@@ -441,7 +441,7 @@
       },
       {
         "path": "zpa/resource_zpa_policy_capabilities_access_rule.go",
-        "sha256": "0c139b8bb446be81f682b1f198551b0aa3e7dea915828d335d3f5da554305ee6"
+        "sha256": "11df743524771d2e20b5ceaf24687184ecfe77a5cac8dc353158d21094753c4a"
       },
       {
         "path": "zpa/resource_zpa_policy_credential_access_rule.go",
@@ -449,7 +449,7 @@
       },
       {
         "path": "zpa/resource_zpa_policy_portal_access_rule.go",
-        "sha256": "eb31fe04dca0e110fd7efd7a0d93ad6c8097072d3f74884b94494ace6fbdd0aa"
+        "sha256": "71faa72b6aac4f16243d087c173831cd26a6799ab62e2b848c974ca2a2b4c818"
       },
       {
         "path": "zpa/resource_zpa_pra_approval.go",
@@ -477,7 +477,7 @@
       },
       {
         "path": "zpa/resource_zpa_private_cloud_group.go",
-        "sha256": "8b9dcccbdb218bd349ea4e589c6ad13178a684b78ad8525d50649032e99c1107"
+        "sha256": "f3a19a6ebbe12088f76050e22a2d1ddfc10140a2f04a0bef41e09d23485b46d9"
       },
       {
         "path": "zpa/resource_zpa_provisioning_key.go",
@@ -489,7 +489,7 @@
       },
       {
         "path": "zpa/resource_zpa_server_group.go",
-        "sha256": "c6e146dc7bb8d36fa90ef155610c508122c9a3d1a28c04eaa79425e029bfb180"
+        "sha256": "f6b47a61614dc039dd8ccc0ac886c9e834c0e2c67cf3c72755af5fd8ff6c0675"
       },
       {
         "path": "zpa/resource_zpa_service_edge_assistant_schedule.go",
@@ -497,7 +497,7 @@
       },
       {
         "path": "zpa/resource_zpa_service_edge_group.go",
-        "sha256": "424b463792858b4acbce5983fc2cca3d7b678791bc6d7a585996d3c8f858c424"
+        "sha256": "c69cbd40426a9397c8b6808f5c5e10bd961813b4b1e89aba3e6503df888f88ee"
       },
       {
         "path": "zpa/resource_zpa_tag_group.go",
@@ -525,7 +525,7 @@
       },
       {
         "path": "zpa/utils.go",
-        "sha256": "52aad9adf5a4e49117da745592efaf96b76efd49802a9a468e183ff42d89e637"
+        "sha256": "c92a2615e5c2031ec1f7aa1508cdb875c6afa45dcd134e7292622b1338df9669"
       },
       {
         "path": "zpa/validator.go",
@@ -538,17 +538,17 @@
     ],
     "module_path": "github.com/zscaler/terraform-provider-zpa/v4",
     "repository": "https://github.com/zscaler/terraform-provider-zpa",
-    "revision": "dcf12469a9a8f648be0691c74e9816fc94ec7ddc",
-    "tree_sha256": "78fda0a980f34f051b7f30c3dd413921099d10144834542d7810dba87de6ed7c"
+    "revision": "1d4f43cc4c59a24d8380f0c655a07b6da7199465",
+    "tree_sha256": "0703b38fb8f8735fe79ae16de3e54b0eb5f08e7b7349ba1a92d3fe84695c201c"
   },
   "provider_module": {
     "go_mod": {
       "path": "go.mod",
-      "sha256": "53da6119afb7d0e0bb587e632c7f4550b678fb4d9c4ba0ae90f53a102173b5fd"
+      "sha256": "62230b2208a3a089bc8060eca393de769a5102b5c6dd6e69eef9db2728325e1e"
     },
     "go_sum": {
       "path": "go.sum",
-      "sha256": "1a66c68fb670ca5846d3b0bd18edc1b0f47973e82de264fa4f75295b5d9a4c21"
+      "sha256": "8fd3a1c3f79e90ca5f971302b8d0ce215ca7f2c9cf6f5dd29ccdddd9b117d786"
     },
     "local_replaces": []
   },
@@ -558,7 +558,7 @@
       "files": [
         {
           "path": "go.mod",
-          "sha256": "4c53931cbcb32602ceb91a6495c710449bdfa8feac3688f2a07bf69581c62fbb"
+          "sha256": "d5f09087ea2b116f533c850184eccb06582d474935753fbcad556305381daeba"
         },
         {
           "path": "zscaler/service.go",
@@ -570,7 +570,7 @@
         },
         {
           "path": "zscaler/zpa/services/applicationsegment/zpa_application_segment.go",
-          "sha256": "76d4de29f9ee784d7193216f75c258e78f1855bc33884fddddfa54ebaf03f88a"
+          "sha256": "db4a9b2886d343c4f8164bd7c1019502ab514c180c54a9afd2ca3baa0ea0f85f"
         },
         {
           "path": "zscaler/zpa/services/appservercontroller/zpa_app_server_controller.go",
@@ -602,7 +602,7 @@
         },
         {
           "path": "zscaler/zpa/services/policysetcontroller/policysetcontroller.go",
-          "sha256": "41a8eaf6246a461bd140d330327e93558829ff88abd408e929f1764ba4c78ce6"
+          "sha256": "edafa9ff7344dad39f997233babf91131d3cdb2367edeb2f5fa78bc12750eceb"
         },
         {
           "path": "zscaler/zpa/services/privilegedremoteaccess/praapproval/praapproval.go",
@@ -638,10 +638,10 @@
         }
       ],
       "module_path": "github.com/zscaler/zscaler-sdk-go/v3",
-      "module_version": "v3.8.40",
+      "module_version": "v3.8.42",
       "repository": "https://github.com/zscaler/zscaler-sdk-go",
       "revision": null,
-      "tree_sha256": "bb09df1ca7ab79c3949f228040cc8c01757cb6cd8c0f315e2f3b494ea22e0392"
+      "tree_sha256": "68ae8ed86f785f03d762228d9c7ab70b4882098843a6b31ec8bc2d1aafad0384"
     }
   ],
   "selection": {
@@ -667,6 +667,6 @@
   },
   "terraform_schema": {
     "path": "packs/zpa/schemas/provider/zpa.json",
-    "sha256": "d25ad0fa6eb3671727c64481ba092426c1a74c86c8316bd18b0fcc2bdd9202e6"
+    "sha256": "b1edfac52dea6abf014328f4cd0eebc64619fdc96b31f7d6e0a975f2bc712508"
   }
 }

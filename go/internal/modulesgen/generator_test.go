@@ -129,6 +129,53 @@ func TestSamplesSensitiveOutputsDeprecatedProjectionAndNestedTypesMatchAuthority
 	}
 }
 
+func TestZPAProvider449ModuleShapesMatchReviewedSchemaTransitions(t *testing.T) {
+	root := committedRoot(t)
+	for _, test := range []struct {
+		resourceType string
+		pattern      string
+	}{
+		{"zpa_application_segment_browser_access", `clientless_apps = optional\(set\(object\(\{`},
+		{"zpa_browser_access", `clientless_apps = optional\(set\(object\(\{`},
+		{"zpa_application_segment_pra", `apps_config = optional\(set\(object\(\{`},
+	} {
+		files, err := RenderModuleFiles(root, test.resourceType)
+		if err != nil {
+			t.Fatalf("RenderModuleFiles(%s): %v", test.resourceType, err)
+		}
+		variables, _ := files.Get(FileVariables)
+		mustMatch(t, variables, test.pattern)
+	}
+
+	for _, resourceType := range []string{"zpa_policy_access_rule", "zpa_policy_access_rule_v2"} {
+		files, err := RenderModuleFiles(root, resourceType)
+		if err != nil {
+			t.Fatalf("RenderModuleFiles(%s): %v", resourceType, err)
+		}
+		variables, _ := files.Get(FileVariables)
+		main, _ := files.Get(FileMain)
+		mustMatch(t, variables, `device_posture_failure_notification_enabled = optional\(bool\)`)
+		mustMatch(t, main, `device_posture_failure_notification_enabled = each\.value\.device_posture_failure_notification_enabled`)
+	}
+
+	capabilities, err := RenderModuleFiles(root, "zpa_policy_capabilities_rule")
+	if err != nil {
+		t.Fatalf("RenderModuleFiles(zpa_policy_capabilities_rule): %v", err)
+	}
+	capabilityVariables, _ := capabilities.Get(FileVariables)
+	mustMatch(t, capabilityVariables, `control_session\s+= optional\(bool\)`)
+	mustMatch(t, capabilityVariables, `join_session\s+= optional\(bool\)`)
+
+	portal, err := RenderModuleFiles(root, "zpa_policy_portal_access_rule")
+	if err != nil {
+		t.Fatalf("RenderModuleFiles(zpa_policy_portal_access_rule): %v", err)
+	}
+	portalVariables, _ := portal.Get(FileVariables)
+	for _, field := range []string{"access_uninspected_file_sandbox", "upload_inspected_sandbox", "upload_inspected_scan"} {
+		mustMatch(t, portalVariables, field+`\s+= optional\(bool\)`)
+	}
+}
+
 // TestResourceOwnedMainOverrideAndJSONSampleComeOnlyThroughTheLoader ports
 // "resource-owned main override and JSON sample come only through the
 // loader".

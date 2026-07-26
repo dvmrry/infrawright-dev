@@ -5,11 +5,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"testing"
 
 	"github.com/dvmrry/infrawright-dev/go/internal/authoring/contracts"
@@ -18,14 +22,14 @@ import (
 )
 
 const (
-	endpointManifestSHA256 = "577eaf74544f0d24a52205a13922ca4cc3803701cfda7557da6367e68ead55bc"
-	endpointInputSHA256    = "cf6c9945d33f99756bbdfdce78e3f8f122b9cf6c81445a58517b7cac216d465e"
-	endpointReportSHA256   = "4897d20a680c433473b34459c885c20c2067de12c860640b3730111bbd279039"
-	endpointProviderCommit = "dcf12469a9a8f648be0691c74e9816fc94ec7ddc"
-	endpointProviderTree   = "78fda0a980f34f051b7f30c3dd413921099d10144834542d7810dba87de6ed7c"
+	endpointManifestSHA256 = "84fa0b2b2002888fc96f69910e97b6a62f78f74057cc13792435e82dcd77425f"
+	endpointInputSHA256    = "8681e0f63499179310599cf3c501fdd487536db63d1a3f71a0c7365104361864"
+	endpointReportSHA256   = "ec3fada6f362a38491b08e86dfa10920a81507e1bd95cdf8d62b425ce2c53e2e"
+	endpointProviderCommit = "1d4f43cc4c59a24d8380f0c655a07b6da7199465"
+	endpointProviderTree   = "0703b38fb8f8735fe79ae16de3e54b0eb5f08e7b7349ba1a92d3fe84695c201c"
 	endpointSDKModule      = "github.com/zscaler/zscaler-sdk-go/v3"
-	endpointSDKVersion     = "v3.8.40"
-	endpointSDKTree        = "bb09df1ca7ab79c3949f228040cc8c01757cb6cd8c0f315e2f3b494ea22e0392"
+	endpointSDKVersion     = "v3.8.42"
+	endpointSDKTree        = "68ae8ed86f785f03d762228d9c7ab70b4882098843a6b31ec8bc2d1aafad0384"
 )
 
 var endpointResourceTypes = []string{
@@ -329,6 +333,11 @@ func TestEndpointFixtureOptionalExternalBindings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sourcebind.RequireQualification(endpoint fixture roots) error = %v, want nil", err)
 	}
+	snapshot, err := inputs.Snapshot()
+	if err != nil {
+		t.Fatalf("sourcebind.QualifiedInputs.Snapshot(endpoint fixture roots) error = %v, want nil", err)
+	}
+	assertDevicePostureSourceWiring(t, snapshot.Provider.Files)
 	got, err := sourceanalysis.Analyze(context.Background(), inputs)
 	if err != nil {
 		t.Fatalf("sourceanalysis.Analyze(endpoint fixture roots) error = %v, want nil", err)
@@ -344,6 +353,53 @@ func TestEndpointFixtureOptionalExternalBindings(t *testing.T) {
 			t.Fatalf("QualifiedEvidence.Snapshot(endpoint fixture roots) error = %v", snapshotErr)
 		}
 		t.Errorf("sourceanalysis.Analyze(endpoint fixture roots) differs from hand-authored authority: got SHA-256 %s and summary %+v; want SHA-256 %s and summary %+v", digest(gotBytes), gotReport.Summary, endpointReportSHA256, want.Summary)
+	}
+}
+
+func assertDevicePostureSourceWiring(t *testing.T, files []sourcebind.CapturedFile) {
+	t.Helper()
+	wired := map[string][]string{"Get": {}, "Set": {}}
+	for _, file := range files {
+		parsed, err := parser.ParseFile(token.NewFileSet(), file.Path, file.Bytes, 0)
+		if err != nil {
+			t.Fatalf("parse bound provider source %s: %v", file.Path, err)
+		}
+		seen := map[string]bool{}
+		ast.Inspect(parsed, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok || len(call.Args) == 0 {
+				return true
+			}
+			selector, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || (selector.Sel.Name != "Get" && selector.Sel.Name != "Set") {
+				return true
+			}
+			receiver, ok := selector.X.(*ast.Ident)
+			if !ok || receiver.Name != "d" {
+				return true
+			}
+			literal, ok := call.Args[0].(*ast.BasicLit)
+			if !ok || literal.Kind != token.STRING {
+				return true
+			}
+			field, err := strconv.Unquote(literal.Value)
+			if err != nil || field != "device_posture_failure_notification_enabled" || seen[selector.Sel.Name] {
+				return true
+			}
+			seen[selector.Sel.Name] = true
+			wired[selector.Sel.Name] = append(wired[selector.Sel.Name], file.Path)
+			return true
+		})
+	}
+	want := []string{
+		"zpa/resource_zpa_policy_access_rule.go",
+		"zpa/resource_zpa_policy_access_rule_v2.go",
+	}
+	for _, operation := range []string{"Get", "Set"} {
+		sort.Strings(wired[operation])
+		if !reflect.DeepEqual(wired[operation], want) {
+			t.Errorf("provider d.%s wiring for device posture notification = %v, want %v", operation, wired[operation], want)
+		}
 	}
 }
 
@@ -363,12 +419,12 @@ func readEndpointManifest(t *testing.T) ([]byte, contracts.SourceProvenance) {
 
 func endpointManifestPath(t *testing.T) string {
 	t.Helper()
-	return filepath.Join(repositoryRoot(t), "tests", "fixtures", "authoring", "zpa-v4.4.6-endpoint-v1", "source-provenance-v1.json")
+	return filepath.Join(repositoryRoot(t), "tests", "fixtures", "authoring", "zpa-v4.4.9-endpoint-v1", "source-provenance-v1.json")
 }
 
 func readEndpointReport(t *testing.T) ([]byte, contracts.SourceEvidenceReport) {
 	t.Helper()
-	filename := filepath.Join(repositoryRoot(t), "tests", "fixtures", "authoring", "zpa-v4.4.6-endpoint-v1", "expected", "source-evidence-report-v1.json")
+	filename := filepath.Join(repositoryRoot(t), "tests", "fixtures", "authoring", "zpa-v4.4.9-endpoint-v1", "expected", "source-evidence-report-v1.json")
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		t.Fatalf("os.ReadFile(endpoint report %q) error = %v", filename, err)
@@ -443,7 +499,7 @@ func assertPolicyEndpointAuthority(t *testing.T, row contracts.SourceEvidenceRow
 			t.Errorf("policy endpoint authority chain[%d] = %+v, want %s endpoint_not_recovered", index, chain, wantSymbols[index])
 		}
 	}
-	if len(row.Chains[0].Steps) != 3 || row.Chains[0].Steps[0].Kind != contracts.CallProviderHelper || row.Chains[0].Steps[0].Symbol != "fetchPolicySetIDByType" || row.Chains[0].Steps[0].Location.Line != 139 || row.Chains[0].Steps[1].Kind != contracts.CallSDKPackageFunction || row.Chains[0].Steps[1].Symbol != "policysetcontroller.GetByPolicyType" || row.Chains[0].Steps[1].Location.Path != "zpa/common.go" || row.Chains[0].Steps[1].Location.Line != 1269 || row.Chains[0].Steps[1].Location.Column != 49 {
+	if len(row.Chains[0].Steps) != 3 || row.Chains[0].Steps[0].Kind != contracts.CallProviderHelper || row.Chains[0].Steps[0].Symbol != "fetchPolicySetIDByType" || row.Chains[0].Steps[0].Location.Line != 139 || row.Chains[0].Steps[1].Kind != contracts.CallSDKPackageFunction || row.Chains[0].Steps[1].Symbol != "policysetcontroller.GetByPolicyType" || row.Chains[0].Steps[1].Location.Path != "zpa/common.go" || row.Chains[0].Steps[1].Location.Line != 1274 || row.Chains[0].Steps[1].Location.Column != 49 {
 		t.Errorf("policy endpoint authority prerequisite chain = %+v, want Read→fetchPolicySetIDByType→policysetcontroller.GetByPolicyType exact anchors", row.Chains[0].Steps)
 	} else {
 		assertSDKRequestStepAuthority(t, "zpa_policy_access_rule prerequisite", row.Chains[0].Steps[2], "GetByPolicyType", "zscaler/zpa/services/policysetcontroller/policysetcontroller.go", 153)

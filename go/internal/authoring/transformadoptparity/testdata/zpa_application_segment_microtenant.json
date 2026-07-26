@@ -9,12 +9,12 @@
       "packs/zpa/schemas/provider/zpa.json"
     ],
     "note": "Minimal source-derived equality fixture for microtenant default omission and policy_style normalization; it is not retained tenant output.",
-    "provider_version": "4.4.6",
+    "provider_version": "4.4.9",
     "sanitized": true,
     "sources": [
-      "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_application_segment.go#L231-L244",
-      "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_application_segment.go#L326-L377",
-      "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.6/zpa/resource_zpa_application_segment.go#L358-L374"
+      "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_application_segment.go#L231-L244",
+      "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_application_segment.go#L326-L377",
+      "https://github.com/zscaler/terraform-provider-zpa/blob/v4.4.9/zpa/resource_zpa_application_segment.go#L358-L374"
     ],
     "status": "source_derived"
   },

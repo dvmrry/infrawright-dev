@@ -86,6 +86,7 @@ func runV2TransformAuthority(t *testing.T, repositoryRoot, binary, name string) 
 		"transform", "--in", demoInput, "--tenant", "demo",
 		"--profile", "packs/full.packset.json",
 	}, []string{
+		"DROPS_CHECK=1",
 		"INFRAWRIGHT_DEPLOYMENT=" + deploymentPath,
 		"TMPDIR=" + temporary,
 	})

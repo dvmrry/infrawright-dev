@@ -19,7 +19,7 @@ import (
 	"github.com/dvmrry/infrawright-dev/go/internal/transformrun"
 )
 
-const parityCompatibilitySHA256 = "124737055c8758b617d1653744c5b8911f24b468c114b0e9ed7dca750ab15cf0"
+const parityCompatibilitySHA256 = "baeeca9097824387c1779f2dba3e05be5e3e2c2480c94c1cf29cf6270332d106"
 
 type parityCompatibilityFixture struct {
 	SchemaVersion int                         `json:"schema_version"`
