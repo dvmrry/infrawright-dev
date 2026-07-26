@@ -18,9 +18,10 @@
 - Original implementation: `38f0ae1de838c6e8de5fa2b4722df9ee30d617a9`.
 - Review correction: `8ef47bf91a19c26fb2cff0491ad926c5377163df`.
 - Updated-base merge: `6913c25d8040585c0df47588cc4e6bca92099171`.
+- External-review cleanup: `85f24ef1e5aba7fe7d9c64d92a8d5b45a3b9df02`.
 - Handoff: the branch tip has a documentation-only commit updating this file
-  after the updated-base merge.
-- Diff command: `git diff f0701aabc6b58b9d09c5fa13a558c079bc20e444..6913c25d8040585c0df47588cc4e6bca92099171`.
+  after the external-review cleanup.
+- Diff command: `git diff f0701aabc6b58b9d09c5fa13a558c079bc20e444..85f24ef1e5aba7fe7d9c64d92a8d5b45a3b9df02`.
 
 ## Files Changed
 
@@ -165,19 +166,28 @@
   narrow -> made validation unconditional and recursively retained all
   non-documentation schema semantics -> proved with malformed-ledger mutations
   and synthetic `sensitive`, `deprecated`, and nested-type transitions.
+- Redundant reconstruction lookup -> external review found a current-value
+  lookup whose result was never consumed because unconditional disposition
+  validation already checks it -> removed the dead lookup and reran the three
+  focused disposition/projection tests.
 
 ## Known Deferrals
 
-- Deferred work: cross-family transition tests, Terraform sweep parallelism,
-  plugin-cache concurrency, a standalone schema-delta CLI, additional CI jobs,
-  and a hand-maintained run ledger.
-- Reason it is safe to defer: none is required to make the two observed failure
-  modes cheap and deterministic. The transition walker is schema-shaped rather
-  than Zscaler-shaped, while the committed dispositions intentionally live
-  beside the ZPA refresh test that owns them.
-- Follow-up owner or trigger: reconsider only when a later provider refresh
-  supplies measured evidence that the focused contract plus exact transition
-  set did not isolate the defect cheaply.
+- Deferred work: extract the schema-shaped projection, transition diff, and
+  disposition validation into a shared test helper and add per-pack entry
+  points. The current implementation and committed dispositions intentionally
+  live in `zpacorpus`, so only ZPA refreshes receive this enforcement today.
+- Reason it is safe to defer: this stack refreshes only ZPA and makes no claim
+  that ZIA, ZCC, or ZTC bumps are covered by its disposition gate.
+- Follow-up owner or trigger: complete the extraction before the next non-ZPA
+  provider refresh; a ZPA 4.4.10 refresh can first measure the current focused
+  path as designed.
+- Deferred work: Terraform sweep parallelism, plugin-cache concurrency, a
+  standalone schema-delta CLI, additional CI jobs, and a hand-maintained run
+  ledger.
+- Follow-up owner or trigger: reconsider these only when a later provider
+  refresh supplies measured evidence that the focused contract plus exact
+  transition set did not isolate the defect cheaply.
 
 ## Review Focus
 
