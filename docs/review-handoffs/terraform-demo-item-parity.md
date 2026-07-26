@@ -22,6 +22,21 @@
 - Diff command:
   `git diff 51a6577aa5036a6e3c094df3d1b79cb4d2f8735c...e0bf65896ddebf59864a8d4f50411930ed45a0d6`.
 
+## Adversarial Review Result
+
+- A fresh max-effort Codex reviewer inspected the exact implementation range
+  read-only and returned **Approve** with no blocking or non-blocking findings.
+- The reviewer independently ran the full checkpoint from an isolated provider
+  cache in 404.66 seconds and observed 151/151 module suites, 20/20 item-key
+  matches, 20/20 demo roots, and the exact one-resource native-HCL plan with no
+  failed, errored, or skipped runs.
+- An ephemeral build overlay invoked the actual parity helper with a dropped key
+  and an extra key. Both mutations failed the named child subtest, reported
+  `0/1 matched`, and propagated failure to the parent test.
+- The reviewer confirmed that missing, null, non-object, and malformed `items`
+  fail closed; an empty object remains valid without a resource-specific branch;
+  and no production or generated-artifact files changed.
+
 ## Files Changed
 
 - Files:
