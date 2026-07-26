@@ -25,35 +25,48 @@
 
 - Base: `aa062eb584a40c8ba93ab3f0dca17e9881d20f4d` (`origin/main` when the
   branch was created).
-- Head: implementation commit
-  `27e29cabfafd02f3c8e91cdfdfb2ed2dbd107c58` on
-  `feature/terraform-semantics-gate`.
+- Head: reviewed implementation plus CI-correction commit
+  `86bfb5e16443e0cb06b4be4123134bf878918373` on
+  `feature/terraform-semantics-gate`. The semantic implementation itself is
+  commit `27e29cabfafd02f3c8e91cdfdfb2ed2dbd107c58`; the successor changes only
+  the scope in which the workflow establishes its plugin-cache environment.
 - Handoff carrier: the docs-only successor commit containing this file. It is
   intentionally outside the implementation head so the handoff can name the
   exact immutable code commit under review.
 - Diff command:
-  `git diff aa062eb584a40c8ba93ab3f0dca17e9881d20f4d...27e29cabfafd02f3c8e91cdfdfb2ed2dbd107c58`.
+  `git diff aa062eb584a40c8ba93ab3f0dca17e9881d20f4d...86bfb5e16443e0cb06b4be4123134bf878918373`.
 
 ## Adversarial Review Result
 
-- A fresh max-effort Codex reviewer inspected the exact implementation diff
-  read-only with no builder context and returned **Approve** with no blocking
-  findings.
-- The reviewer independently ran the exact checkpoint from a cold explicit
-  plugin cache. It passed in 395.58 seconds, matched the handoff's candidate
-  binary hash, passed 151/151 module suites and 20/20 demo roots, and reproduced
-  the exact one-plan HCL evidence.
-- The reviewer verified that the cache contained exactly the four active
+- An initial fresh max-effort Codex reviewer inspected semantic implementation
+  commit `27e29ca` read-only and returned **Approve** with no blocking findings.
+- The first hosted run then exposed a workflow-context defect: job-level `env`
+  cannot use `runner.temp`, so GitHub rejected the workflow before creating any
+  jobs. Commit `86bfb5e` moves directory creation and `TF_PLUGIN_CACHE_DIR`
+  export into a runner step through `RUNNER_TEMP` and `GITHUB_ENV`; the cache
+  action continues to use the permitted step-scoped `runner.temp` context.
+- A second fresh max-effort reviewer inspected the exact corrected range through
+  `86bfb5e` and returned **Approve with follow-ups**, with no blocking findings.
+  It independently reproduced the original Actionlint context error, confirmed
+  that the corrected workflow passes Actionlint, and ran the exact checkpoint
+  from a cold explicit cache in 397.90 seconds. The run matched the candidate
+  binary hash, passed 151/151 module suites and 20/20 demo roots, reproduced the
+  exact one-plan HCL evidence, and reported zero failed, errored, or skipped
+  runs. `make check` also passed.
+- Both reviewers verified that the cache contained exactly the four active
   providers and pins: ZCC `0.1.0-beta.1`, ZIA `4.8.0`, ZPA `4.4.6`, and ZTC
   `0.2.0`.
-- Non-blocking risk: the updated GitHub-hosted workflow had not run before
-  branch publication. Normal required PR checks must pass before merge.
+- Non-blocking follow-up: strengthen demo evidence from exact root/run-set
+  accounting to per-resource item-key/count equivalence while preserving the
+  intentionally empty SSL-inspection fixture.
+- Remaining publication proof: normal required PR checks must pass on the
+  corrected head before merge.
 
 ## Files Changed
 
 - `.github/workflows/check.yml`
   - gives only the existing non-matrix v2 checkpoint a persisted
-    `TF_PLUGIN_CACHE_DIR`;
+    `TF_PLUGIN_CACHE_DIR`, configured at runner-step scope;
   - pins `actions/cache` v6.1.0 by full commit SHA;
   - updates every existing checkout/setup-terraform use to the official
     Node-24 releases, as previously requested for the next workflow edit.
